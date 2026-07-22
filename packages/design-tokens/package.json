@@ -1,0 +1,19 @@
+{
+  "name": "@join-the-six/design-tokens",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": [
+    "*.css",
+    "src/*.css"
+  ],
+  "exports": {
+    "./tokens.css": "./src/tokens.css"
+  },
+  "scripts": {
+    "build": "node --check scripts/verify-tokens.mjs",
+    "lint": "node scripts/verify-tokens.mjs",
+    "test": "node scripts/verify-tokens.mjs",
+    "typecheck": "node --check scripts/verify-tokens.mjs"
+  }
+}

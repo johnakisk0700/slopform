@@ -1,0 +1,37 @@
+{
+  "name": "join-the-six",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Join The Six product monorepo",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=24.11 <25",
+    "pnpm": ">=10.33 <11"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "db:check": "dotenv -e .env -- pnpm --filter @join-the-six/database db:check",
+    "db:generate": "dotenv -e .env -- pnpm --filter @join-the-six/database db:generate",
+    "db:migrate": "dotenv -e .env -- pnpm --filter @join-the-six/database db:migrate",
+    "db:studio": "dotenv -e .env -- pnpm --filter @join-the-six/database db:studio",
+    "dev": "dotenv -e .env -- turbo run dev --parallel",
+    "dev:api": "dotenv -e .env -- pnpm --filter @join-the-six/backend dev:http",
+    "dev:containers": "docker compose up --build",
+    "dev:web": "dotenv -e .env -- pnpm --filter @join-the-six/web dev",
+    "dev:worker": "dotenv -e .env -- pnpm --filter @join-the-six/backend dev:worker",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "infra:down": "docker compose down",
+    "infra:logs": "docker compose logs --follow postgres redis",
+    "infra:up": "docker compose up -d --wait postgres redis",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck"
+  },
+  "devDependencies": {
+    "dotenv-cli": "11.0.0",
+    "prettier": "3.9.6",
+    "turbo": "2.10.5"
+  }
+}

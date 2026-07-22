@@ -1,0 +1,8 @@
+.nuxt
+.output
+.turbo
+coverage
+dist
+node_modules
+pnpm-lock.yaml
+WP_AUDIT_2026-07-22.md
