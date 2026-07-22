@@ -4,7 +4,11 @@ import type { Queue } from "bullmq";
 
 import { REFERENCE_QUEUE } from "../../infrastructure/queue/queue.constants.js";
 import {
+  createReferenceInspectJobId,
+  enqueueReferenceJobSchema,
   REFERENCE_JOB_NAMES,
+  REFERENCE_JOB_SCHEMA_VERSION,
+  referenceJobDataSchema,
   type EnqueueReferenceJobInput,
   type ReferenceJobData,
   type ReferenceJobName,
@@ -23,12 +27,22 @@ export class ReferenceJobsService {
     input: EnqueueReferenceJobInput,
     correlationId: string,
   ): Promise<{ jobId: string }> {
-    await this.references.get(input.recordId);
+    const validatedInput = enqueueReferenceJobSchema.parse(input);
+    await this.references.get(validatedInput.recordId);
 
-    const jobId = `reference-${input.idempotencyKey}`;
+    const data = referenceJobDataSchema.parse({
+      schemaVersion: REFERENCE_JOB_SCHEMA_VERSION,
+      recordId: validatedInput.recordId,
+      correlationId,
+    });
+    const jobId = createReferenceInspectJobId(
+      validatedInput.recordId,
+      validatedInput.idempotencyKey,
+    );
+
     const job = await this.queue.add(
-      REFERENCE_JOB_NAMES.inspectRecord,
-      { recordId: input.recordId, correlationId },
+      REFERENCE_JOB_NAMES.inspectRecordV1,
+      data,
       { jobId },
     );
 

@@ -111,7 +111,7 @@ const JtsPreset = definePreset(Aura, {
           focusBorderColor: "{primary.color}",
           color: "{surface.900}",
           disabledColor: "{surface.500}",
-          placeholderColor: "{surface.500}",
+          placeholderColor: "{surface.600}",
           iconColor: "{surface.500}",
           shadow: "0 1px 2px rgb(69 24 39 / 6%)",
         },
@@ -167,7 +167,7 @@ const JtsPreset = definePreset(Aura, {
           focusBorderColor: "{primary.color}",
           color: "{surface.0}",
           disabledColor: "{surface.400}",
-          placeholderColor: "{surface.400}",
+          placeholderColor: "{surface.300}",
           iconColor: "{surface.400}",
           shadow: "0 1px 2px rgb(0 0 0 / 28%)",
         },
@@ -229,11 +229,7 @@ const JtsPreset = definePreset(Aura, {
       },
     },
     datatable: {
-      headerCell: {
-        background: "{surface.100}",
-        color: "{surface.700}",
-        padding: "0.75rem 1rem",
-      },
+      headerCell: { padding: "0.75rem 1rem" },
       columnTitle: {
         fontWeight: "700",
       },
@@ -242,11 +238,19 @@ const JtsPreset = definePreset(Aura, {
       },
       colorScheme: {
         light: {
+          headerCell: {
+            background: "{surface.100}",
+            color: "{surface.700}",
+          },
           row: {
             stripedBackground: "{surface.50}",
           },
         },
         dark: {
+          headerCell: {
+            background: "{surface.800}",
+            color: "{surface.200}",
+          },
           row: {
             stripedBackground: "{surface.950}",
           },

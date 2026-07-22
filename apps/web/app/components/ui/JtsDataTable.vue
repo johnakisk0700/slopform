@@ -1,7 +1,6 @@
 <script setup lang="ts" generic="T extends object">
-import type { DataTablePageEvent } from "primevue/datatable";
-
-type TableSize = "small" | "large";
+import DataTable from "primevue/datatable";
+import Toolbar from "primevue/toolbar";
 
 const props = withDefaults(
   defineProps<{
@@ -10,40 +9,27 @@ const props = withDefaults(
     description?: string | null;
     dataKey: keyof T & string;
     loading?: boolean;
-    loadingLabel?: string;
     error?: string | null;
     emptyTitle?: string;
     emptyDescription?: string;
     paginator?: boolean;
     pageSize?: number;
     rowsPerPageOptions?: number[];
-    stripedRows?: boolean;
-    size?: TableSize | null;
-    tableMinWidth?: string;
   }>(),
   {
     description: null,
     loading: false,
-    loadingLabel: "Loading rows",
     error: null,
     emptyTitle: "Nothing to show yet",
     emptyDescription: "Rows will appear here when they are available.",
     paginator: false,
     pageSize: 10,
     rowsPerPageOptions: () => [10, 25, 50],
-    stripedRows: true,
-    size: null,
-    tableMinWidth: "44rem",
   },
 );
 
-const emit = defineEmits<{
-  page: [event: DataTablePageEvent];
-}>();
-
 defineSlots<{
   default: () => unknown;
-  "toolbar-start"?: () => unknown;
   "toolbar-end"?: () => unknown;
   "empty-actions"?: () => unknown;
   "error-actions"?: () => unknown;
@@ -83,7 +69,6 @@ const dataTablePassThrough = computed(() => ({
           >
             {{ description }}
           </p>
-          <slot name="toolbar-start" />
         </div>
       </template>
       <template v-if="$slots['toolbar-end']" #end>
@@ -126,18 +111,16 @@ const dataTablePassThrough = computed(() => ({
         :always-show-paginator="false"
         paginator-template="RowsPerPageDropdown FirstPageLink PrevPageLink CurrentPageReport NextPageLink LastPageLink"
         current-page-report-template="{first}–{last} of {totalRecords}"
-        :striped-rows="stripedRows"
-        :size="size ?? undefined"
-        :table-style="{ minWidth: tableMinWidth }"
+        striped-rows
+        :table-style="{ minWidth: '44rem' }"
         :table-props="tableProperties"
         :pt="dataTablePassThrough"
-        @page="emit('page', $event)"
       >
         <slot />
         <template #loading>
           <div class="jts-data-table__loading" role="status">
             <span class="jts-data-table__spinner" aria-hidden="true" />
-            <span>{{ loadingLabel }}</span>
+            <span>Loading rows</span>
           </div>
         </template>
         <template #empty>

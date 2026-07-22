@@ -112,6 +112,8 @@
   box-shadow: var(--jts-shadow-sm);
 }
 
+/* Public shell */
+
 .site-shell {
   display: flex;
   min-height: 100vh;
@@ -227,6 +229,8 @@
   color: var(--jts-color-text-muted);
 }
 
+/* Public routes and shared page primitives */
+
 .public-page {
   position: relative;
   overflow: hidden;
@@ -274,11 +278,6 @@
   max-width: 52rem;
 }
 
-.jts-page-header--center .jts-page-header__copy {
-  margin-inline: auto;
-  text-align: center;
-}
-
 .jts-page-header__title {
   margin-bottom: var(--jts-space-5);
 }
@@ -287,9 +286,6 @@
 .jts-page-header--policy .jts-page-header__title {
   font-family: var(--jts-font-display);
   font-size: var(--jts-text-2xl);
-  font-variation-settings:
-    "opsz" 64,
-    "wght" 520;
   font-weight: 520;
   letter-spacing: -0.045em;
 }
@@ -426,6 +422,8 @@
   box-shadow: var(--jts-shadow-sm);
 }
 
+/* Public journey content */
+
 .home-story {
   display: grid;
   grid-template-columns: minmax(0, 0.78fr) minmax(0, 1.22fr);
@@ -494,12 +492,10 @@
   gap: var(--jts-space-5);
 }
 
+/* Shared content surfaces */
+
 .jts-surface {
   overflow: hidden;
-}
-
-.jts-surface--padding-compact {
-  padding: var(--jts-space-5);
 }
 
 .jts-surface--padding-normal {
@@ -508,14 +504,6 @@
 
 .jts-surface--padding-roomy {
   padding: clamp(var(--jts-space-6), 5vw, var(--jts-space-12));
-}
-
-.jts-surface--padding-none {
-  padding: 0;
-}
-
-.jts-surface--cream {
-  background: var(--jts-cream-50);
 }
 
 .jts-surface--blush {
@@ -712,6 +700,8 @@
   top: var(--jts-space-6);
 }
 
+/* Forms */
+
 .form-card {
   width: 100%;
   padding: clamp(var(--jts-space-6), 5vw, var(--jts-space-10));
@@ -876,6 +866,8 @@
   margin-bottom: 0;
   color: var(--jts-color-text-muted);
 }
+
+/* Policy and error routes */
 
 .policy-content {
   max-width: 52rem;

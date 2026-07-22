@@ -17,7 +17,7 @@ const recordId = "7c57f3b8-2b13-48f5-8730-18ac71f490cd";
 
 function createJob(
   data: unknown,
-  name: string = REFERENCE_JOB_NAMES.inspectRecord,
+  name: string = REFERENCE_JOB_NAMES.inspectRecordV1,
 ): Job<ReferenceJobData, void, ReferenceJobName> {
   return {
     id: "job-1",
@@ -47,7 +47,11 @@ describe("ReferenceProcessor", () => {
 
     await expect(
       processor.process(
-        createJob({ recordId, correlationId: "correlation-1" }),
+        createJob({
+          schemaVersion: 1,
+          recordId,
+          correlationId: "correlation-1",
+        }),
       ),
     ).rejects.toBeInstanceOf(UnrecoverableError);
   });
@@ -61,7 +65,11 @@ describe("ReferenceProcessor", () => {
 
     await expect(
       processor.process(
-        createJob({ recordId, correlationId: "correlation-1" }),
+        createJob({
+          schemaVersion: 1,
+          recordId,
+          correlationId: "correlation-1",
+        }),
       ),
     ).rejects.toBe(transientFailure);
   });
@@ -73,10 +81,30 @@ describe("ReferenceProcessor", () => {
     await expect(
       processor.process(
         createJob(
-          { recordId, correlationId: "correlation-1" },
+          {
+            schemaVersion: 1,
+            recordId,
+            correlationId: "correlation-1",
+          },
           "reference.unknown",
         ),
       ),
     ).rejects.toBeInstanceOf(UnrecoverableError);
+  });
+
+  it("rejects an unsupported payload version without reading domain state", async () => {
+    const references = { get: vi.fn() } as unknown as ReferenceService;
+    const processor = new ReferenceProcessor(references);
+
+    await expect(
+      processor.process(
+        createJob({
+          schemaVersion: 2,
+          recordId,
+          correlationId: "correlation-1",
+        }),
+      ),
+    ).rejects.toBeInstanceOf(UnrecoverableError);
+    expect(references.get).not.toHaveBeenCalled();
   });
 });

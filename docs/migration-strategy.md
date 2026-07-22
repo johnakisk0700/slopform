@@ -4,6 +4,11 @@
 
 WordPress is a live prototype, migration source and possible temporary Viva checkout host. It is not the canonical schema for the new application. We migrate meaning, provenance and reconciliation state—not `wp_posts`, `wp_postmeta` and serialized blobs one-for-one.
 
+The current foundation deploys no WordPress adapter and carries no WordPress
+runtime URL or credentials. Add those configuration inputs only with the
+adapter that validates and consumes them; dormant secrets are not an
+integration strategy.
+
 The factual source inventory is [`../WP_AUDIT_2026-07-22.md`](../WP_AUDIT_2026-07-22.md).
 
 ## Sequence

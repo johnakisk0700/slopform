@@ -8,6 +8,13 @@
       "when": 1784721547550,
       "tag": "20260722115907_empty_adam_warlock",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1784733939352,
+      "tag": "20260722152539_enforce_foundation_constraints",
+      "breakpoints": true
     }
   ]
 }

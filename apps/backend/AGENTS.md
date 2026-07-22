@@ -1,23 +1,30 @@
 # Backend agent contract
 
-The repository `AGENTS.md` applies here. Read `docs/backend.md`, the relevant
-page under `docs/backend/mechanisms/`, and the owning module document before
-changing backend behavior.
+The repository `AGENTS.md` applies here. Before changing behavior, read
+`docs/backend.md`, the relevant page under `docs/backend/mechanisms/`, and any
+owning module page.
 
-## Documentation routing
+Controllers own transport, services own use-case ordering and transactions,
+repositories own explicit persistence, and infrastructure adapters own provider
+lifecycle. Keep HTTP providers out of the worker graph and worker providers out
+of the HTTP graph.
 
-- Cross-cutting runtime behavior such as queues, authentication, audit,
-  observability or provider delivery belongs in `docs/backend/mechanisms/`.
-- Product-domain boundaries and non-trivial lifecycles belong in
-  `docs/backend/modules/`.
-- Schema ownership and migration consequences stay explicit in the relevant
-  module/mechanism page and, when architectural, an ADR.
+## Change map
+
+| Task                  | Primary files and required follow-through                                                                                                                                                                                      |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Add a module          | Add a domain module under `src/modules/`; wire HTTP providers in `http-app.module.ts`, workers in `worker-app.module.ts`, and document a durable product boundary under `docs/backend/modules/`.                               |
+| Add a route           | Change the domain controller, schemas and HTTP module; test the response/error contract and generated OpenAPI when the public contract changes.                                                                                |
+| Add a DTO or payload  | Define one Zod contract in `<domain>.schemas.ts`; derive HTTP DTOs with `createZodDto` and pass schema-inferred plain types beyond the controller.                                                                             |
+| Add persistence       | Put explicit Drizzle queries in a domain repository and schema changes in `packages/database/src/schema/`; do not expose Drizzle to controllers.                                                                               |
+| Add a transaction     | Let the application service call `DatabaseService.transaction()` and pass the same transaction to every repository and audit write. Repositories do not open hidden transactions.                                              |
+| Add a queue job       | Define a versioned name and strict identifier-only envelope, validate at producer and consumer, choose retry/retention deliberately, and update `docs/backend/mechanisms/queues.md`.                                           |
+| Add a worker          | Register processors only in a domain worker module imported by `worker-app.module.ts`; add a composition test proving HTTP/producer providers did not leak in.                                                                 |
+| Add configuration     | Extend `infrastructure/config/environment.ts` and its tests, then update applicable example/deployment configuration and `docs/backend/mechanisms/runtime-operations.md`. Do not scatter `process.env` reads through services. |
+| Change logs or traces | Change `infrastructure/logging/`, `instrumentation.ts` or `infrastructure/observability/`; preserve redaction, single-tracer ownership and shutdown flushing, then update the runtime mechanism page.                          |
+| Add a migration       | Change the Drizzle schema, generate named SQL and metadata under `packages/database/drizzle/`, review locks/data effects, run `db:check`, and update the database mechanism page.                                              |
+| Add a test            | Co-locate a focused `*.spec.ts`; use real PostgreSQL/Redis for adapter semantics and bounded, exact cleanup rather than mocking fluent internals.                                                                              |
 
 Update diagrams, invariants, failure behavior, configuration, job/API contracts
-and operational checks with the code. A new environment variable without docs,
-or a new retry path absent from the mechanism flow, is an incomplete change.
-
-Controllers own transport, services own use-case ordering/invariants,
-repositories own explicit persistence and infrastructure adapters own providers.
-Do not create a documentation page for every class; document stable boundaries
-that another agent must understand to extend the system safely.
+and operational checks with the code. Document stable boundaries, not every
+class; a page-per-provider is filing bureaucracy wearing a lanyard.

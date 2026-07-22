@@ -20,6 +20,8 @@ export function createBullBoardAuthMiddleware(
   expected: BullBoardCredentials,
 ): (request: Request, response: Response, next: NextFunction) => void {
   return (request, response, next): void => {
+    setDashboardSecurityHeaders(response);
+
     const authorization = request.header("authorization");
     const authorizationParts = authorization?.split(" ") ?? [];
     const [scheme, encodedCredentials] = authorizationParts;
@@ -53,6 +55,13 @@ export function createBullBoardAuthMiddleware(
 
     next();
   };
+}
+
+function setDashboardSecurityHeaders(response: Response): void {
+  response.setHeader("cache-control", "no-store");
+  response.setHeader("referrer-policy", "no-referrer");
+  response.setHeader("x-content-type-options", "nosniff");
+  response.setHeader("x-frame-options", "DENY");
 }
 
 function denyAccess(response: Response): void {

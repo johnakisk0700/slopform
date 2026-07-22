@@ -1,48 +1,49 @@
 # Frontend agent contract
 
-The repository `AGENTS.md` applies here. Read `docs/frontend.md` and
-`docs/frontend/components/README.md` before changing UI architecture.
+The repository `AGENTS.md` applies here. Before changing UI architecture, read
+[`docs/frontend.md`](../../docs/frontend.md) and the
+[component inventory](../../docs/frontend/components/README.md).
 
-## Reuse hierarchy
+## Put code where its owner lives
 
-Use this decision order for every screen:
+- `app/pages/`: route metadata, route data and composition.
+- `app/features/<domain>/`: framework-light schemas, types and pure helpers.
+- `app/components/<domain>/`: domain UI and interaction boundaries.
+- `app/components/ui/`: shared, domain-free `Jts*` product contracts.
+- `app/composables/`: genuinely shared reactive state or app-facing facades.
+- `app/plugins/`: integration bootstrap, not domain behavior.
+- `app/theme/`: PrimeVue tokens; `app/assets/css/`: application layout and
+  composition; `packages/design-tokens/`: framework-neutral visual values.
 
-1. Search `app/components/` and the component inventory. Prefer an existing
-   `Jts*` UI component or domain component when its contract fits.
-2. Use a PrimeVue component directly when it already solves the requirement.
-3. Create a `Jts*` component under `app/components/ui/` when a real shared
-   pattern adds behavior across screens. Build it from PrimeVue primitives where
-   possible.
-4. Use custom semantic HTML/CSS when the requirement is content/layout or when
-   PrimeVue has no suitable accessible primitive.
+Do not create a shared abstraction before a second concrete use unless it owns
+an explicit foundation contract already listed in the component inventory.
+Keep one-off page logic explicit. Delete scaffolding for APIs that do not exist.
 
-Pages orchestrate data and domain actions. They must not reimplement shared
-loading, empty, error, pagination, toolbar or field behavior. Domain components
-live under `app/components/<domain>/`; framework-neutral visual tokens stay in
-`packages/design-tokens`.
+## Select components deliberately
 
-Reusable components must have:
+1. Reuse a matching project component.
+2. Otherwise use a PrimeVue primitive directly.
+3. Compose a `Jts*` component only for repeated product behavior such as
+   accessibility, loading/empty/error states or pagination.
+4. Use semantic HTML/CSS for content and layout.
 
-- typed props, emits and intentionally named slots;
-- explicit loading, empty, error and disabled behavior where applicable;
-- keyboard/focus semantics and reduced-motion behavior;
-- no hidden API calls or domain rules unless they are explicitly domain
-  components;
-- a short contract entry under `docs/frontend/components/` and an inventory
-  update.
+Pages own columns and business actions. Shared components do not hide API calls
+or domain rules. Do not wrap PrimeVue merely to rename its props.
 
-A reusable table should compose PrimeVue DataTable rather than replace it. It
-may standardize loading, empty/error presentation, responsive overflow,
-pagination and toolbar slots; column definitions and business actions remain
-with the consuming feature.
+PrimeVue controls visible in server-rendered HTML belong in the explicit
+allow-list in `nuxt.config.ts`; client-only or post-interaction controls use
+local imports. Moving an SSR control to a local import can flash unstyled UI.
 
-## Visual direction
+## Preserve the route contract
 
-The product should feel warm, confident and human. The admin palette is
-burgundy/rose/red with restrained cream or blush surfaces. Preserve contrast,
-information density and status semantics; "cute" is not permission to make an
-operations table look like a cupcake exploded on it.
+Every page owns an accurate title, description and indexing policy. Keep one
+`h1`, labelled controls, connected error text, keyboard-visible focus, status
+text in addition to colour and reduced-motion behavior. Private or unfinished
+routes need both robots metadata and the matching `X-Robots-Tag` route rule.
 
-Decorative art and fonts must be intentional, licensed for the intended use and
-documented. Prefer performant self-hosted assets or a resilient system fallback.
-Never make public form comprehension depend on decoration.
+When a change alters structure, rendering, a reusable contract, configuration
+or measured delivery constraints, update `docs/frontend.md` and/or the focused
+component document in the same change.
+
+Run `pnpm --filter @join-the-six/web lint`, `typecheck`, `test` and the relevant
+`generate`/`build` check before handoff.

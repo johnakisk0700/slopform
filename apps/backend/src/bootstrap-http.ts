@@ -1,42 +1,70 @@
 import { ConfigService } from "@nestjs/config";
 import { NestFactory } from "@nestjs/core";
+import type { NestExpressApplication } from "@nestjs/platform-express";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
-import type { INestApplication } from "@nestjs/common";
+import helmet from "helmet";
 import { Logger, LoggerErrorInterceptor } from "nestjs-pino";
 import { cleanupOpenApiDoc } from "nestjs-zod";
 
 import { HttpAppModule } from "./http-app.module.js";
 import type { Environment } from "./infrastructure/config/environment.js";
+import {
+  configureHttpServer,
+  createHelmetOptions,
+  HTTP_API_PREFIX,
+  HTTP_BODY_LIMIT_BYTES,
+} from "./infrastructure/config/http-policy.js";
 
-export async function createHttpApplication(): Promise<INestApplication> {
-  const app = await NestFactory.create(HttpAppModule, { bufferLogs: true });
+export async function createHttpApplication(
+  onCreated?: (application: NestExpressApplication) => void,
+): Promise<NestExpressApplication> {
+  const app = await NestFactory.create<NestExpressApplication>(HttpAppModule, {
+    abortOnError: false,
+    bodyParser: false,
+    bufferLogs: true,
+  });
+  onCreated?.(app);
+
   const config = app.get(ConfigService<Environment, true>);
+  const nodeEnvironment = config.get("NODE_ENV", { infer: true });
 
   app.useLogger(app.get(Logger));
   app.useGlobalInterceptors(new LoggerErrorInterceptor());
   app.enableShutdownHooks();
+  app.use(helmet(createHelmetOptions(nodeEnvironment)));
+  app.useBodyParser("json", { limit: HTTP_BODY_LIMIT_BYTES });
+  app.useBodyParser("urlencoded", {
+    extended: false,
+    limit: HTTP_BODY_LIMIT_BYTES,
+    parameterLimit: 100,
+  });
   app.getHttpAdapter().getInstance().disable("x-powered-by");
-  app.setGlobalPrefix("api/v1");
+  // Authorization must not depend on forwarded metadata.
+  app.set("trust proxy", false);
+  app.setGlobalPrefix(HTTP_API_PREFIX);
   app.enableCors({
     credentials: true,
+    maxAge: 600,
     origin: config.get("WEB_ORIGIN", { infer: true }),
   });
 
-  const openApiConfig = new DocumentBuilder()
-    .setTitle("Join The Six API")
-    .setDescription("Operations API for Join The Six")
-    .setVersion("1.0.0")
-    .build();
-  const openApiDocument = cleanupOpenApiDoc(
-    SwaggerModule.createDocument(app, openApiConfig, {
-      operationIdFactory: (_controller, method) => method,
-    }),
-  );
+  if (nodeEnvironment !== "production") {
+    const openApiConfig = new DocumentBuilder()
+      .setTitle("Join The Six API")
+      .setDescription("Operations API for Join The Six")
+      .setVersion("1.0.0")
+      .build();
+    const openApiDocument = cleanupOpenApiDoc(
+      SwaggerModule.createDocument(app, openApiConfig),
+    );
 
-  SwaggerModule.setup("api/docs", app, openApiDocument, {
-    jsonDocumentUrl: "api/openapi.json",
-    yamlDocumentUrl: "api/openapi.yaml",
-  });
+    SwaggerModule.setup("api/docs", app, openApiDocument, {
+      jsonDocumentUrl: "api/openapi.json",
+      yamlDocumentUrl: "api/openapi.yaml",
+    });
+  }
+
+  configureHttpServer(app.getHttpServer());
 
   return app;
 }

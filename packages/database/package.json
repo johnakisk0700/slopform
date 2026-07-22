@@ -16,14 +16,14 @@
     "drizzle"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.build.json",
     "db:check": "drizzle-kit check",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
     "lint": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run --passWithNoTests",
+    "test": "vitest run src && drizzle-kit check",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

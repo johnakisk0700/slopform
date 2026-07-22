@@ -1,7 +1,16 @@
 <script setup lang="ts">
+const title = "Join a dinner";
+const description = "Find a Join The Six dinner and request a seat.";
+
 useSeoMeta({
-  title: "Join a dinner",
-  description: "Find a Join The Six dinner and request a seat.",
+  title,
+  description,
+  ogTitle: `${title} · Join The Six`,
+  ogDescription: description,
+  ogType: "website",
+  twitterCard: "summary",
+  twitterTitle: `${title} · Join The Six`,
+  twitterDescription: description,
 });
 </script>
 
@@ -27,7 +36,6 @@ useSeoMeta({
 
       <JtsSurface
         class="event-preview"
-        tone="default"
         padding="roomy"
         eyebrow="Preview listing"
         title="Foundation dinner"

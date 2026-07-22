@@ -1,8 +1,10 @@
-import { Module } from "@nestjs/common";
+import { Module, type OnApplicationShutdown } from "@nestjs/common";
 
-import { TelemetryLifecycleService } from "./telemetry-lifecycle.service.js";
+import { shutdownTelemetry } from "../../instrumentation.js";
 
-@Module({
-  providers: [TelemetryLifecycleService],
-})
-export class ObservabilityModule {}
+@Module({})
+export class ObservabilityModule implements OnApplicationShutdown {
+  onApplicationShutdown(): Promise<void> {
+    return shutdownTelemetry();
+  }
+}

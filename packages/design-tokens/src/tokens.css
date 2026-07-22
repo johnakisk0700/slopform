@@ -2,36 +2,19 @@
   color-scheme: light;
 
   /* Primitive palette. Components consume semantic tokens below. */
-  --jts-burgundy-50: #fff7f8;
   --jts-burgundy-100: #fdebed;
   --jts-burgundy-200: #f8d2d8;
   --jts-burgundy-300: #efa7b2;
-  --jts-burgundy-400: #df7283;
   --jts-burgundy-500: #c84a60;
-  --jts-burgundy-600: #aa3049;
   --jts-burgundy-700: #87233b;
   --jts-burgundy-800: #6e2034;
   --jts-burgundy-900: #5d1f30;
   --jts-burgundy-950: #350b19;
 
-  --jts-cream-50: #fffaf5;
-  --jts-cream-100: #fff4e8;
-  --jts-cream-200: #f7e4d3;
-  --jts-cream-300: #ecc8aa;
-  --jts-cream-400: #dfa77c;
-  --jts-cream-500: #c98555;
-
-  --jts-rose-50: #fff9f8;
   --jts-rose-100: #fbeeea;
-  --jts-rose-200: #f4dcd7;
-  --jts-rose-300: #e6bdb5;
-  --jts-rose-400: #cf8f86;
 
   --jts-ink-950: #24161b;
-  --jts-ink-800: #463239;
   --jts-ink-600: #6f5961;
-  --jts-ink-400: #9a848c;
-  --jts-white: #ffffff;
   --jts-danger-600: #b42318;
   --jts-success-600: #176b45;
   --jts-warning-600: #8a5207;
@@ -86,16 +69,11 @@
   --jts-radius-sm: 0.625rem;
   --jts-radius-md: 0.9rem;
   --jts-radius-lg: 1.35rem;
-  --jts-radius-xl: 2rem;
   --jts-radius-pill: 999px;
   --jts-shadow-sm: 0 1px 2px rgb(69 24 39 / 7%);
   --jts-shadow-md: 0 18px 50px rgb(69 24 39 / 10%);
   --jts-shadow-lg: 0 28px 80px rgb(69 24 39 / 14%);
   --jts-content-width: 76rem;
-  --jts-form-width: 44rem;
-  --jts-motion-fast: 140ms;
-  --jts-motion-normal: 220ms;
-  --jts-ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --jts-focus-ring: 0 0 0 3px rgb(200 74 96 / 28%);
 }
 

@@ -1,91 +1,153 @@
 # Queues and workers
 
 Status: implemented foundation. Last verified: **2026-07-22** against
-`@nestjs/bullmq 11.0.4`, `bullmq 5.80.10` and Bull Board `8.1.2`.
+`@nestjs/bullmq 11.0.4`, BullMQ `5.80.10` and Bull Board `8.1.2`.
 
-## Purpose and boundary
+## Boundary and ownership
 
-BullMQ handles retryable asynchronous delivery. Redis coordinates jobs but is
-not a business source of truth. Nest runs queue producers in the HTTP process
-and processors in a separately deployable worker process.
+BullMQ handles retryable asynchronous delivery. Redis is coordination, not a
+business source of truth. HTTP owns producers; a separately deployed Nest
+worker owns processors.
 
-The current `reference` queue is a disposable executable example, not a product
-domain. A transactional outbox is required before claiming atomic
-database-to-queue delivery for critical workflows; it is not implemented yet.
+```mermaid
+flowchart LR
+  API["HTTP process"] -->|"fail-fast Queue"| Redis[(Redis)]
+  Health["Readiness"] -->|"getJobCounts"| Redis
+  Board["Read-only Bull Board"] --> Redis
+  Redis -->|"persistent Worker"| Worker["Worker process"]
+  Worker --> DB[(PostgreSQL)]
+  Worker -.-> Provider["External provider"]
+```
 
-## Dialogue
+`QueueModule` owns producer Queues used by HTTP, readiness and Bull Board. Its
+Redis commands use `maxRetriesPerRequest: 1` so requests fail rather than hang
+during an established-connection outage. `QueueWorkerModule` owns the worker
+boundary. Nest's BullMQ integration still creates one registration Queue for
+processor discovery; application producers cannot inject it. Each worker
+replica therefore has three Redis connections: registration Queue plus Worker
+command and blocking connections. Worker connections use
+`maxRetriesPerRequest: null` and keep reconnecting.
+
+Nest closes Queues and Workers. Do not substitute `Queue.disconnect()`; it can
+wait on a client still initializing during an outage. Worker close stops new
+fetches and waits for active jobs without its own deadline. Deployment grace
+must exceed normal job duration; an ungraceful stop relies on stalled recovery
+and can execute the job again.
+
+## Versioned contract
+
+The disposable reference contract is explicit:
+
+- queue `reference`;
+- job `reference.inspect-record.v1`;
+- payload `{ schemaVersion: 1, recordId: UUID, correlationId: string }`;
+- job ID `reference-inspect-v1-<recordId>-<idempotencyKey>`, with a UUID
+  idempotency key and no colon.
+
+Producer and processor both validate the envelope. Redis may contain jobs from
+another deployer/version, so unknown names, unsupported versions, malformed
+data and missing authoritative records throw `UnrecoverableError`. Transient
+dependency errors are rethrown for BullMQ retry.
 
 ```mermaid
 sequenceDiagram
-  participant API as Nest API
+  participant API as HTTP producer
   participant DB as PostgreSQL
   participant Queue as BullMQ / Redis
-  participant Worker as Nest worker
-  participant Provider as External provider
+  participant Worker as Worker
+  participant Provider as Side-effect boundary
 
-  API->>DB: Validate authoritative state
-  API->>Queue: Add versioned job with deterministic ID
-  Queue-->>Worker: Deliver job (possibly more than once)
-  Worker->>Worker: Validate payload contract
-  Worker->>DB: Reload current authoritative state
-  Worker->>Provider: Perform idempotent side effect
-  alt invalid contract or permanent failure
-    Worker-->>Queue: Throw UnrecoverableError; fail without retry
+  API->>DB: Read authoritative record
+  API->>Queue: Add versioned envelope and stable ID
+  Queue-->>Worker: Deliver at least once
+  Worker->>Worker: Validate name, version and payload
+  Worker->>DB: Reload authoritative state
+  Worker->>Provider: Apply idempotent effect if needed
+  alt permanent failure
+    Worker-->>Queue: UnrecoverableError
   else transient failure
-    Worker-->>Queue: Throw; retry with backoff
+    Worker-->>Queue: Throw and retry
   else success
     Worker-->>Queue: Complete with bounded retention
   end
 ```
 
-## Invariants
+## Retry, concurrency and retention
 
-- Job names and payloads are versionable contracts and are validated again by
-  the processor.
-- Producers use deterministic `jobId` values without `:` characters.
-- Delivery may be duplicated, delayed or out of order. Stable BullMQ IDs only
-  suppress duplicates while the original job remains in Redis.
-- External writes require a durable provider idempotency key or database
-  uniqueness boundary.
-- Payloads contain identifiers and correlation metadata, never credentials or
-  large authoritative snapshots.
-- Transient failures are thrown so attempts/backoff remain observable.
-- Invalid payloads, unsupported job names and other permanent failures throw
-  BullMQ `UnrecoverableError` and move directly to the failed set.
-- Completed and failed jobs have bounded retention.
+| Policy              | Reference value                                               |
+| ------------------- | ------------------------------------------------------------- |
+| Attempts            | 5 total                                                       |
+| Backoff             | Exponential from 1 second, jitter `0.5`                       |
+| Stack traces        | 10 retained entries                                           |
+| Worker concurrency  | 5 per process                                                 |
+| Stalls              | BullMQ 30-second lock/renewal; one recovery, next stall fails |
+| Completed retention | 1,000 jobs or 1 day                                           |
+| Failed retention    | 5,000 jobs or 7 days                                          |
+| Metrics             | Completed/failed buckets for 2 weeks, 1-minute granularity    |
 
-## Extension path
+Choose these values per provider rate limits, work cost and failure modes; five
+is an example, not sacred numerology. CPU-heavy work needs measured sandboxing
+or worker threads. A stall/lock-renewal failure means possible duplicate work,
+event-loop starvation or process death and is logged as an operational error.
 
-1. Define the queue/job names and a strict payload schema near the owning domain.
-2. Import queue infrastructure explicitly in the HTTP/worker adapter that uses
-   it. Register producers only in the HTTP adapter and processors only in the
-   worker module.
-3. Fetch current state in the processor and make every effect idempotent.
-4. Add focused schema/service tests plus a real Redis integration test for job
-   IDs, retries and processing.
-5. Add an outbox row in the same PostgreSQL transaction before using a queue for
-   a business-critical commit-and-enqueue guarantee.
-6. Update this page and the owning domain document when the contract changes.
+A deterministic job ID suppresses duplicates only while the job remains in
+Redis. Retention removal permits the same ID again. External writes therefore
+need a durable idempotency key or database uniqueness constraint.
 
-## Operations
+## Readiness, observability and dashboard
 
-- Readiness performs a real BullMQ Redis operation at
-  `GET /api/v1/health/ready`.
-- Bull Board is disabled by default; its Nest module and route are not
-  registered in that state. When enabled it requires validated credentials and
-  must remain behind private networking or SSO.
-- Correlation IDs travel in job data and structured logs.
-- Scale API and worker containers independently; workers do not expose HTTP.
+HTTP readiness runs real `getJobCounts` with the shared one-second deadline;
+concurrent probes share the pending command. It proves current Redis command
+execution, not worker presence, queue latency or provider health. Production
+must monitor worker processes and alert on failed, delayed, stalled and oldest
+waiting jobs.
 
-## Source and references
+Processor logs cover attempt/terminal failure, stalls, lock-renewal failure and
+worker error using queue/job IDs, attempts and validated correlation ID—never
+raw job data. BullMQ metrics are retained data, not an alerting strategy.
 
-- Queue infrastructure: `apps/backend/src/infrastructure/queue/`
-- Reference producer/processor: `apps/backend/src/modules/reference/`
-- Process composition: `apps/backend/src/http-app.module.ts` and
-  `apps/backend/src/worker-app.module.ts`
-- [Backend handbook](../../backend.md)
-- [Nest BullMQ queues](https://docs.nestjs.com/techniques/queues)
-- [BullMQ idempotent jobs](https://docs.bullmq.io/patterns/idempotent-jobs)
-- [BullMQ job IDs](https://docs.bullmq.io/guide/jobs/job-ids)
-- [BullMQ retries](https://docs.bullmq.io/guide/retrying-failing-jobs)
-- [BullMQ unrecoverable failures](https://docs.bullmq.io/patterns/stop-retrying-jobs)
+Bull Board is absent by default. When enabled it requires validated Basic
+credentials, disables retry controls, hides Redis details, prevents framing and
+sends no-store/referrer/content-sniffing headers. It is read-only inspection,
+not alerting or authorization. Production still requires TLS plus private
+networking/SSO, and job payloads must exclude secrets and unnecessary personal
+data.
+
+During an incident, fix the dependency/data before retrying; retry only when the
+side effect is independently idempotent. Treat stalls as possible duplication.
+The bounded failed set is the current quarantine; add a replay/dead-letter flow
+only with explicit ownership, authorization, audit and retention.
+
+## Commit-to-enqueue guarantee
+
+The reference producer intentionally has a database-to-queue crash gap. A
+critical workflow requires a transactional outbox:
+
+1. Write mutation and outbox row in one PostgreSQL transaction.
+2. Relay the committed row using its ID as the stable job key.
+3. Mark delivery only after BullMQ acknowledges the add; retry otherwise.
+4. Alert on backlog and retain processor-side idempotency.
+
+The outbox closes the commit/enqueue gap, not downstream exactly-once effects.
+Its schema, relay lease/retry and cleanup belong to the first workflow that
+needs them.
+
+## Extension and tests
+
+For a real queue, define one strict versioned identifier-only envelope near the
+domain; import producer and worker modules only into their process graphs;
+choose delivery policy from real constraints; then test schemas, job building,
+processor failure classification and module composition. Add a real Redis test
+with a unique prefix, bounded waits and exact cleanup. Add the outbox and durable
+side-effect idempotency before claiming critical delivery.
+
+Focused tests cover URL/options mapping, process composition, dashboard
+security, deterministic IDs, payload/version rejection, permanent failures and
+transient propagation.
+
+## Sources and official references
+
+- [Queue modules](../../../apps/backend/src/infrastructure/queue/queue.module.ts), [Redis options](../../../apps/backend/src/infrastructure/queue/redis-connection.ts), [readiness](../../../apps/backend/src/infrastructure/queue/queue-health.service.ts), [job contract](../../../apps/backend/src/modules/reference/reference.schemas.ts) and [processor](../../../apps/backend/src/modules/reference/reference.processor.ts)
+- [Nest BullMQ](https://docs.nestjs.com/techniques/queues), [BullMQ connections](https://docs.bullmq.io/guide/connections), [fail-fast producers](https://docs.bullmq.io/patterns/failing-fast-when-redis-is-down) and [worker shutdown](https://docs.bullmq.io/guide/workers/graceful-shutdown)
+- [Job IDs](https://docs.bullmq.io/guide/jobs/job-ids), [retries](https://docs.bullmq.io/guide/retrying-failing-jobs), [permanent failures](https://docs.bullmq.io/patterns/stop-retrying-jobs), [retention](https://docs.bullmq.io/guide/queues/auto-removal-of-jobs) and [metrics](https://docs.bullmq.io/guide/metrics)
+- [Bull Board](https://github.com/felixmosh/bull-board)

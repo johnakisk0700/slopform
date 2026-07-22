@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import PanelMenu from "primevue/panelmenu";
+
 defineEmits<{
   navigate: [];
 }>();

@@ -1,6 +1,8 @@
 <script setup lang="ts">
 useSeoMeta({
   title: "Dinner feedback",
+  description:
+    "Share private feedback about a Join The Six dinner through an invitation-only link.",
   robots: "noindex, nofollow",
 });
 </script>

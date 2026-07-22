@@ -13,11 +13,16 @@ flowchart LR
   Redis --> Worker["Nest BullMQ worker"]
   Worker --> DB
   Worker --> Providers["Email / messaging providers"]
-  API --> WP["WordPress adapter\ntemporary checkout + migration"]
+  API -. "future narrow adapter" .-> WP["WordPress\ntemporary checkout + migration source"]
   WP --> Viva["Viva checkout"]
   API --> Obs["Logs / traces / errors"]
   Worker --> Obs
 ```
+
+The foundation intentionally carries no WordPress URL, token or webhook secret.
+Those runtime inputs belong to the future adapter and are added only when its
+validated contract, ownership and rotation path exist. The diagram records the
+migration boundary, not a currently deployed integration.
 
 ## Repository boundaries
 

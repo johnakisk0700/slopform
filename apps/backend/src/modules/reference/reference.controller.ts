@@ -51,7 +51,7 @@ export class ReferenceController {
   }
 
   @Get(":id")
-  @ZodResponse({ type: ReferenceRecordDto })
+  @ZodResponse({ status: 200, type: ReferenceRecordDto })
   get(@Param() parameters: ReferenceIdDto): Promise<ReferenceRecordDto> {
     return mapReferenceErrors(this.references.get(parameters.id));
   }

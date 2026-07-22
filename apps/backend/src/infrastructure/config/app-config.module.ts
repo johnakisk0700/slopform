@@ -7,6 +7,7 @@ import { validateEnvironment } from "./environment.js";
   imports: [
     ConfigModule.forRoot({
       cache: true,
+      ignoreEnvFile: process.env.NODE_ENV === "production",
       isGlobal: true,
       validate: validateEnvironment,
     }),

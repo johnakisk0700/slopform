@@ -1,48 +1,26 @@
 # Frontend component inventory
 
-This is the first stop before adding UI. Search the source and this inventory,
-then follow the reuse hierarchy in `apps/web/AGENTS.md`.
+Search this inventory before adding UI. Reuse a matching project contract; use
+PrimeVue directly when none fits. Add a shared `Jts*` component only when it
+owns repeated product behavior rather than renaming library props.
 
-## Selection order
+## Shared UI
 
-```mermaid
-flowchart TD
-  Need["Screen needs UI behavior"] --> Search["Search existing JTS and domain components"]
-  Search -->|Contract fits| Reuse["Reuse or extend existing component"]
-  Search -->|No fit| Prime["Use PrimeVue primitive directly"]
-  Prime -->|Pattern repeats with product behavior| Compose["Compose documented Jts component"]
-  Prime -->|One-off and complete| Done["Keep PrimeVue in the feature"]
-  Compose --> Docs["Document contract and update inventory"]
-```
+| Component           | Contract                                   | Owns                                                                                        |
+| ------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| `JtsPageHeader.vue` | [`jts-page-header.md`](jts-page-header.md) | One route title, supporting copy, actions and optional aside                                |
+| `JtsSurface.vue`    | [`jts-surface.md`](jts-surface.md)         | Labelled content surface, established tones/density, actions and footer                     |
+| `JtsStat.vue`       | [`jts-stat.md`](jts-stat.md)               | Definition-list-safe operational metric                                                     |
+| `JtsDataTable.vue`  | [`jts-data-table.md`](jts-data-table.md)   | Accessible table title, loading/empty/error states, overflow, toolbar and client pagination |
 
-## Current inventory
+## Domain components
 
-### Shared UI primitives
+| Component              | Owner        | Contract                                                        |
+| ---------------------- | ------------ | --------------------------------------------------------------- |
+| `AdminNavigation.vue`  | Admin shell  | Responsive navigation shared by sidebar and drawer              |
+| `RegistrationForm.vue` | Registration | Preview fields and validation; [contract](registration-form.md) |
 
-| Component           | Contract                                   | Shared behavior                                                                                             |
-| ------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
-| `JtsPageHeader.vue` | [`jts-page-header.md`](jts-page-header.md) | Consistent page title, description and responsive action hierarchy across public, policy and admin routes   |
-| `JtsSurface.vue`    | [`jts-surface.md`](jts-surface.md)         | Labelled content surface with heading, tone, density, action and footer seams                               |
-| `JtsStat.vue`       | [`jts-stat.md`](jts-stat.md)               | Definition-list-safe operational metric with text-first status semantics                                    |
-| `JtsDataTable.vue`  | [`jts-data-table.md`](jts-data-table.md)   | PrimeVue DataTable composition for accessible loading, empty/error, toolbar, overflow and pagination states |
-
-### Domain components
-
-| Component              | Scope               | Notes                                                                                                                                                                                   |
-| ---------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AdminNavigation.vue`  | Admin shell         | Responsive operations navigation; owned by the admin layout                                                                                                                             |
-| `RegistrationForm.vue` | Public registration | [`registration-form.md`](registration-form.md) — fields, validation, first-error focus and terminal success presentation; uses the shared API client but does not define backend policy |
-
-## Data-table policy
-
-Use `JtsDataTable` when a product table needs the standard loading, empty/error,
-responsive overflow, toolbar and pagination behavior. Use PrimeVue DataTable
-directly only when that contract would be a poor fit. The shared component does
-not own domain columns, row actions or API calls.
-
-## Adding an entry
-
-Document purpose, typed props/emits/slots, visual states, accessibility,
-extension boundaries, source path and a minimal usage example. Use
-[`../../documentation-standard.md`](../../documentation-standard.md) as the
-shape; do not turn this index into the component's full manual.
+`JtsDataTable` owns table states and framing; the page owns columns, cell
+formatting, filters, row actions and API calls. Add a prop or slot only after a
+real consumer needs it. Update this inventory and the focused contract whenever
+a reusable component changes.

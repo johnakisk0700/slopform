@@ -1,10 +1,14 @@
 import { Controller, Get, ServiceUnavailableException } from "@nestjs/common";
-import { ApiTags } from "@nestjs/swagger";
+import { ApiServiceUnavailableResponse, ApiTags } from "@nestjs/swagger";
 import { ZodResponse } from "nestjs-zod";
 
 import { DatabaseService } from "../../infrastructure/database/database.service.js";
 import { QueueHealthService } from "../../infrastructure/queue/queue-health.service.js";
-import { LiveResponseDto, ReadyResponseDto } from "./health.schemas.js";
+import {
+  LiveResponseDto,
+  NotReadyResponseDto,
+  ReadyResponseDto,
+} from "./health.schemas.js";
 
 @ApiTags("health")
 @Controller("health")
@@ -15,13 +19,14 @@ export class HealthController {
   ) {}
 
   @Get("live")
-  @ZodResponse({ type: LiveResponseDto })
+  @ZodResponse({ status: 200, type: LiveResponseDto })
   live(): LiveResponseDto {
     return { status: "ok", checkedAt: new Date().toISOString() };
   }
 
   @Get("ready")
-  @ZodResponse({ type: ReadyResponseDto })
+  @ZodResponse({ status: 200, type: ReadyResponseDto })
+  @ApiServiceUnavailableResponse({ type: NotReadyResponseDto.Output })
   async ready(): Promise<ReadyResponseDto> {
     const checks = await Promise.allSettled([
       this.database.ping(),

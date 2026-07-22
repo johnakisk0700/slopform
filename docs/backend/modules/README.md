@@ -1,20 +1,20 @@
 # Backend module inventory
 
-Product-domain modules with their own lifecycle, invariants or permissions get a
-focused page in this directory. Use
-[`../../documentation-standard.md`](../../documentation-standard.md) and link
-the owning source module.
+Document product modules here when they own durable invariants, permissions or
+lifecycle. Use the [documentation standard](../../documentation-standard.md)
+and link the source module. Cross-cutting infrastructure belongs in
+[mechanisms](../mechanisms/README.md).
 
-No product-domain module has been implemented yet. The current
-`apps/backend/src/modules/reference/` module is a disposable executable pattern
-and must not quietly evolve into production CRUD. The first real vertical slice
-should add its module page here and then remove the reference module through a
-reviewed forward migration.
+No product module exists yet. `apps/backend/src/modules/reference/` is a
+disposable executable pattern, not production CRUD. The first real vertical
+slice should add its page, then remove the reference route, queue, processor and
+table through a reviewed forward migration.
 
-`REFERENCE_MODULE_ENABLED=true` conditionally adds only the reference HTTP
-adapter. The worker consumer stays active so deployments can drain already
-accepted jobs before the scaffold is removed; queue shutdown is not a feature
-flag masquerading as backlog deletion.
+`REFERENCE_MODULE_ENABLED=true` adds only the reference HTTP adapter. Its worker
+remains active to drain jobs accepted by an earlier release; disabling producers
+must not strand a backlog.
 
-Cross-cutting infrastructure belongs in
-[`../mechanisms/README.md`](../mechanisms/README.md), not in this inventory.
+The reference Core/HTTP/Worker split exists because one use-case service is
+shared by two executable graphs. It is not a starter kit. A domain used in one
+process normally has one Nest module; split adapters only to keep HTTP providers
+out of workers or worker providers out of HTTP.

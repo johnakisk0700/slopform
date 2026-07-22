@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { MotionConfig } from "motion-v";
+import Avatar from "primevue/avatar";
+import Drawer from "primevue/drawer";
+import Toast from "primevue/toast";
 
 const mobileNavigationOpen = ref(false);
 </script>
@@ -52,7 +55,7 @@ const mobileNavigationOpen = ref(false);
           </div>
         </header>
 
-        <main id="main-content" class="admin-content">
+        <main id="main-content" class="admin-content" tabindex="-1">
           <slot />
         </main>
       </div>

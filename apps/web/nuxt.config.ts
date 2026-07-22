@@ -9,6 +9,9 @@ const strictCompilerOptions = {
 export default defineNuxtConfig({
   compatibilityDate: "2026-07-22",
   devtools: { enabled: true },
+  experimental: {
+    payloadExtraction: "client",
+  },
   modules: ["@nuxt/eslint", "@primevue/nuxt-module"],
   components: [
     {
@@ -25,7 +28,6 @@ export default defineNuxtConfig({
   ],
   typescript: {
     strict: true,
-    typeCheck: true,
     tsConfig: {
       compilerOptions: { ...strictCompilerOptions },
     },
@@ -51,12 +53,43 @@ export default defineNuxtConfig({
   },
   routeRules: {
     "/": { prerender: true },
-    "/admin": { ssr: false },
-    "/admin/**": { ssr: false },
+    "/admin": {
+      ssr: false,
+      headers: { "x-robots-tag": "noindex, nofollow" },
+    },
+    "/admin/**": {
+      ssr: false,
+      headers: { "x-robots-tag": "noindex, nofollow" },
+    },
     "/join/**": { ssr: true },
-    "/feedback/**": { ssr: true },
-    "/register/**": { ssr: true },
-    "/legal/**": { prerender: true, noScripts: true },
+    "/feedback/**": {
+      ssr: true,
+      headers: { "x-robots-tag": "noindex, nofollow" },
+    },
+    "/register/**": {
+      ssr: true,
+      headers: { "x-robots-tag": "noindex, nofollow" },
+    },
+    "/legal/**": {
+      prerender: true,
+      noScripts: true,
+      headers: { "x-robots-tag": "noindex, nofollow" },
+    },
+  },
+  hooks: {
+    "build:manifest": (manifest) => {
+      for (const chunk of Object.values(manifest)) {
+        if (!chunk.isEntry) continue;
+
+        // Route-aware NuxtLink prefetching handles these after hydration.
+        chunk.dynamicImports = [];
+        if (chunk.assets) {
+          chunk.assets = chunk.assets.filter(
+            (asset) => !/^primeicons\.[^.]+\.svg$/.test(asset),
+          );
+        }
+      }
+    },
   },
   primevue: {
     autoImport: false,
@@ -65,24 +98,7 @@ export default defineNuxtConfig({
       from: "~/theme/jts-theme",
     },
     components: {
-      include: [
-        "Avatar",
-        "Button",
-        "Checkbox",
-        "Column",
-        "DataTable",
-        "DatePicker",
-        "Dialog",
-        "Drawer",
-        "InputText",
-        "Message",
-        "PanelMenu",
-        "Select",
-        "Tag",
-        "Textarea",
-        "Toast",
-        "Toolbar",
-      ],
+      include: ["Button", "Checkbox", "InputText", "Select", "Textarea"],
     },
     directives: {
       include: [],
@@ -96,7 +112,9 @@ export default defineNuxtConfig({
   },
   app: {
     head: {
-      titleTemplate: "%s · Join The Six",
+      title: "Join The Six",
+      htmlAttrs: { lang: "en" },
+      link: [{ rel: "icon", type: "image/svg+xml", href: "/favicon.svg" }],
       meta: [
         {
           name: "description",

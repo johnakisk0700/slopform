@@ -2,8 +2,10 @@ import { createZodDto } from "nestjs-zod";
 import { z } from "zod";
 
 export const REFERENCE_JOB_NAMES = {
-  inspectRecord: "reference.inspect-record",
+  inspectRecordV1: "reference.inspect-record.v1",
 } as const;
+
+export const REFERENCE_JOB_SCHEMA_VERSION = 1;
 
 export const createReferenceRecordSchema = z
   .object({
@@ -28,6 +30,7 @@ export const enqueueReferenceJobSchema = z
 
 export const referenceJobDataSchema = z
   .object({
+    schemaVersion: z.literal(REFERENCE_JOB_SCHEMA_VERSION),
     recordId: z.uuid(),
     correlationId: z.string().min(1).max(128),
   })
@@ -59,3 +62,10 @@ export type EnqueueReferenceJobInput = z.infer<
 export type ReferenceJobData = z.infer<typeof referenceJobDataSchema>;
 export type ReferenceJobName =
   (typeof REFERENCE_JOB_NAMES)[keyof typeof REFERENCE_JOB_NAMES];
+
+export function createReferenceInspectJobId(
+  recordId: string,
+  idempotencyKey: string,
+): string {
+  return `reference-inspect-v1-${recordId}-${idempotencyKey}`;
+}

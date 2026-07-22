@@ -16,7 +16,7 @@ This directory is the maintained project memory. Markdown is deliberate: GitHub 
 Area-specific memory:
 
 - [`frontend/components/README.md`](frontend/components/README.md) — reusable component inventory and selection hierarchy
-- [`backend/mechanisms/README.md`](backend/mechanisms/README.md) — queue and future cross-cutting mechanism contracts
+- [`backend/mechanisms/README.md`](backend/mechanisms/README.md) — queue, database and runtime operations contracts
 - [`backend/modules/README.md`](backend/modules/README.md) — product-domain module inventory and lifecycle docs
 - [`documentation-standard.md`](documentation-standard.md) — required shape for new component/mechanism documentation
 
@@ -35,6 +35,28 @@ future archaeologist.
 Run `pnpm docs:check` to verify required instruction files, relative links,
 Mermaid fences and orphaned documentation. It is also part of `pnpm check` and
 therefore CI.
+
+## Repository automation
+
+The root [`package.json`](../package.json) is the developer command surface; the
+quick start remains in the root [`README.md`](../README.md). Turborepo owns
+workspace dependency ordering and cache contracts in [`turbo.json`](../turbo.json):
+
+- `pnpm dev` loads the root `.env`, starts the native Nuxt, Nest and worker
+  processes, and passes only their declared runtime variables through Turbo.
+- `pnpm check` runs formatting, documentation, typecheck, lint, test and build
+  in that order. Typecheck prepares Nuxt's generated configuration before lint;
+  the four Turbo phases remain separate because they share `.nuxt` state.
+- `pnpm install --frozen-lockfile` is the clean-machine and CI contract. pnpm
+  rejects workspace cycles and unreviewed dependency build scripts.
+- GitHub Actions repeats that clean check and builds production images without
+  pushing or deploying them. Production rollout remains a deliberate VPS
+  operation documented in [`deployment.md`](deployment.md).
+
+The current contracts were checked on 2026-07-22 against
+[pnpm 10 workspace settings](https://pnpm.io/10.x/settings),
+[Turborepo task configuration](https://turborepo.dev/docs/crafting-your-repository/configuring-tasks),
+and [GitHub Actions secure-use guidance](https://docs.github.com/en/actions/reference/security/secure-use).
 
 ## Current delivery target
 

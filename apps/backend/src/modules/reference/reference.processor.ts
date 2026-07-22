@@ -1,9 +1,12 @@
 import { OnWorkerEvent, Processor, WorkerHost } from "@nestjs/bullmq";
 import { Logger } from "@nestjs/common";
-import { UnrecoverableError, type Job } from "bullmq";
+import { MetricsTime, UnrecoverableError, type Job } from "bullmq";
 import { ZodError } from "zod";
 
-import { REFERENCE_QUEUE } from "../../infrastructure/queue/queue.constants.js";
+import {
+  QUEUE_WORKER_CONFIG,
+  REFERENCE_QUEUE,
+} from "../../infrastructure/queue/queue.constants.js";
 import {
   REFERENCE_JOB_NAMES,
   referenceJobDataSchema,
@@ -15,7 +18,15 @@ import {
   ReferenceService,
 } from "./reference.service.js";
 
-@Processor(REFERENCE_QUEUE, { concurrency: 5 })
+@Processor(
+  { name: REFERENCE_QUEUE, configKey: QUEUE_WORKER_CONFIG },
+  {
+    concurrency: 5,
+    maxStalledCount: 1,
+    metrics: { maxDataPoints: MetricsTime.ONE_WEEK * 2 },
+    name: "reference-worker",
+  },
+)
 export class ReferenceProcessor extends WorkerHost {
   private readonly logger = new Logger(ReferenceProcessor.name);
 
@@ -27,7 +38,7 @@ export class ReferenceProcessor extends WorkerHost {
     job: Job<ReferenceJobData, void, ReferenceJobName>,
   ): Promise<void> {
     switch (job.name) {
-      case REFERENCE_JOB_NAMES.inspectRecord: {
+      case REFERENCE_JOB_NAMES.inspectRecordV1: {
         try {
           const data = referenceJobDataSchema.parse(job.data);
           const record = await this.references.get(data.recordId);
@@ -60,12 +71,67 @@ export class ReferenceProcessor extends WorkerHost {
   }
 
   @OnWorkerEvent("failed")
-  onFailed(job: Job | undefined, error: Error): void {
+  onFailed(job: Job | undefined, error: Error, previous: string): void {
+    const attempts = job?.opts.attempts ?? 1;
+    const attemptsMade = job?.attemptsMade ?? 0;
+    const parsedData = referenceJobDataSchema.safeParse(job?.data);
+
     this.logger.error({
-      event: "job.failed",
+      event: "queue.job.failed",
+      queue: REFERENCE_QUEUE,
       jobId: job?.id,
       jobName: job?.name,
-      error,
+      previous,
+      attempts,
+      attemptsMade,
+      willRetry:
+        !!job &&
+        !(error instanceof UnrecoverableError) &&
+        attemptsMade < attempts,
+      ...(parsedData.success
+        ? { correlationId: parsedData.data.correlationId }
+        : {}),
+      error: serializeError(error),
     });
   }
+
+  @OnWorkerEvent("stalled")
+  onStalled(jobId: string, previous: string): void {
+    this.logger.warn({
+      event: "queue.job.stalled",
+      queue: REFERENCE_QUEUE,
+      jobId,
+      previous,
+    });
+  }
+
+  @OnWorkerEvent("lockRenewalFailed")
+  onLockRenewalFailed(jobIds: string[]): void {
+    this.logger.error({
+      event: "queue.worker.lock_renewal_failed",
+      queue: REFERENCE_QUEUE,
+      jobIds,
+    });
+  }
+
+  @OnWorkerEvent("error")
+  onError(error: Error): void {
+    this.logger.error({
+      event: "queue.worker.error",
+      queue: REFERENCE_QUEUE,
+      error: serializeError(error),
+    });
+  }
+}
+
+function serializeError(error: Error): {
+  readonly message: string;
+  readonly name: string;
+  readonly stack?: string;
+} {
+  return {
+    name: error.name,
+    message: error.message,
+    ...(error.stack ? { stack: error.stack } : {}),
+  };
 }

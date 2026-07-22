@@ -19,6 +19,9 @@ All new product capabilities live in the Nuxt/Nest/PostgreSQL stack. Integration
 - We also avoid making WordPress post meta the permanent skeleton under a new admin skin.
 - Coexistence requires one writer per fact and a documented cutover plan.
 - WordPress credentials remain server-side and must be rotated out of source/config history.
+- The foundation does not provision dormant WordPress credentials. A future
+  adapter must introduce the minimum validated configuration and secret mounts
+  alongside its contract and rotation procedure.
 
 ## Exit criteria
 

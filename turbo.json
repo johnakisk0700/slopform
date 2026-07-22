@@ -13,12 +13,34 @@
       "cache": false,
       "persistent": true
     },
+    "@join-the-six/backend#dev": {
+      "cache": false,
+      "passThroughEnv": [
+        "API_HOST",
+        "API_PORT",
+        "BULL_BOARD_ENABLED",
+        "BULL_BOARD_PASSWORD",
+        "BULL_BOARD_USERNAME",
+        "DATABASE_POOL_MAX",
+        "DATABASE_URL",
+        "LOG_LEVEL",
+        "NODE_ENV",
+        "OTEL_EXPORTER_OTLP_ENDPOINT",
+        "OTEL_SERVICE_NAME",
+        "REDIS_URL",
+        "REFERENCE_MODULE_ENABLED",
+        "SENTRY_DSN",
+        "SENTRY_TRACES_SAMPLE_RATE",
+        "WEB_ORIGIN"
+      ],
+      "persistent": true
+    },
     "lint": {
-      "dependsOn": ["^build", "^lint"]
+      "dependsOn": ["^build"]
     },
     "test": {
       "dependsOn": ["^build"],
-      "outputs": ["coverage/**"]
+      "outputs": []
     },
     "typecheck": {
       "dependsOn": ["^build"]

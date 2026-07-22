@@ -1,8 +1,17 @@
 <script setup lang="ts">
+const title = "Dinner conversations with intent";
+const description =
+  "Join a small dinner table built around thoughtful conversation and six seats.";
+
 useSeoMeta({
-  title: "Dinner conversations with intent",
-  description:
-    "Join a small dinner table built around thoughtful conversation and six seats.",
+  title,
+  description,
+  ogTitle: `${title} · Join The Six`,
+  ogDescription: description,
+  ogType: "website",
+  twitterCard: "summary",
+  twitterTitle: `${title} · Join The Six`,
+  twitterDescription: description,
 });
 </script>
 

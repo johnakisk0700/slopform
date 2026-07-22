@@ -2,7 +2,12 @@ packages:
   - apps/*
   - packages/*
 
-onlyBuiltDependencies:
-  - "@parcel/watcher"
-  - esbuild
-  - sharp
+allowBuilds:
+  "@scarf/scarf@1.4.0": false
+  "esbuild@0.18.20 || 0.25.12 || 0.28.1": true
+  "msgpackr-extract@3.0.4": false
+  "protobufjs@7.6.5": false
+  "unrs-resolver@1.12.2": false
+
+disallowWorkspaceCycles: true
+strictDepBuilds: true

@@ -3,6 +3,7 @@
 .idea
 .nuxt
 .output
+.pnpm-store
 .turbo
 .vscode
 coverage

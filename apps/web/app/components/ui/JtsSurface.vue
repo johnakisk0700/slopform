@@ -1,26 +1,20 @@
 <script setup lang="ts">
-type SurfaceTag = "section" | "article" | "aside" | "div";
-type SurfaceTone = "default" | "cream" | "blush" | "burgundy";
-type SurfacePadding = "none" | "compact" | "normal" | "roomy";
-type SurfaceHeadingTag = "h2" | "h3";
+type SurfaceTone = "blush" | "burgundy";
+type SurfacePadding = "normal" | "roomy";
 
 withDefaults(
   defineProps<{
-    as?: SurfaceTag;
-    tone?: SurfaceTone;
+    tone?: SurfaceTone | null;
     padding?: SurfacePadding;
     eyebrow?: string | null;
     title: string;
     description?: string | null;
-    headingTag?: SurfaceHeadingTag;
   }>(),
   {
-    as: "section",
-    tone: "default",
+    tone: null,
     padding: "normal",
     eyebrow: null,
     description: null,
-    headingTag: "h2",
   },
 );
 
@@ -34,18 +28,18 @@ const headingId = useId();
 </script>
 
 <template>
-  <component
-    :is="as"
+  <section
     class="jts-surface"
-    :class="[`jts-surface--${tone}`, `jts-surface--padding-${padding}`]"
+    :class="[
+      tone ? `jts-surface--${tone}` : undefined,
+      `jts-surface--padding-${padding}`,
+    ]"
     :aria-labelledby="headingId"
   >
     <header class="jts-surface__header">
       <div class="jts-surface__heading">
         <p v-if="eyebrow" class="eyebrow">{{ eyebrow }}</p>
-        <component :is="headingTag" :id="headingId" class="jts-surface__title">
-          {{ title }}
-        </component>
+        <h2 :id="headingId" class="jts-surface__title">{{ title }}</h2>
         <p v-if="description" class="jts-surface__description">
           {{ description }}
         </p>
@@ -60,5 +54,5 @@ const headingId = useId();
     <footer v-if="$slots.footer" class="jts-surface__footer">
       <slot name="footer" />
     </footer>
-  </component>
+  </section>
 </template>

@@ -1,5 +1,10 @@
 <script setup lang="ts">
-useSeoMeta({ title: "Terms of participation" });
+useSeoMeta({
+  title: "Terms of participation",
+  description:
+    "Review the non-production scaffold for Join The Six participation terms.",
+  robots: "noindex, nofollow",
+});
 </script>
 
 <template>

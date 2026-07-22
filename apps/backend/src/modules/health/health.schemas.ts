@@ -15,5 +15,14 @@ const readyResponseSchema = z.object({
   }),
 });
 
+const notReadyResponseSchema = z.object({
+  status: z.literal("not_ready"),
+  checks: z.object({
+    database: z.enum(["up", "down"]),
+    redis: z.enum(["up", "down"]),
+  }),
+});
+
 export class LiveResponseDto extends createZodDto(liveResponseSchema) {}
 export class ReadyResponseDto extends createZodDto(readyResponseSchema) {}
+export class NotReadyResponseDto extends createZodDto(notReadyResponseSchema) {}

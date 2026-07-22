@@ -64,6 +64,21 @@ Do not wrap PrimeVue merely to rename props. Reusable project components should
 own useful product behavior such as consistent loading/empty/error states,
 pagination, accessibility or layout—not speculative abstraction.
 
+## Repository workflow
+
+- Root `package.json` scripts are the public command surface; keep dependency
+  ordering, cache inputs and real generated outputs in `turbo.json`.
+- Keep the phases inside `pnpm check` ordered unless a clean and repeated warm
+  run proves that Nuxt typecheck, lint, test and build no longer contend for
+  `.nuxt`. Typecheck currently prepares generated Nuxt state before lint; a
+  single faster-looking graph is not an improvement if it races.
+- Declare environment variables needed by persistent Turbo tasks explicitly.
+  Do not pass the entire host environment through to every workspace.
+- Internal dependencies use `workspace:*`. Update `pnpm-lock.yaml` with manifest
+  changes, and review exact `allowBuilds` entries for new dependency scripts.
+- CI may verify a clean install, repository checks and production packaging. It
+  does not own deployment or production credentials.
+
 ## Definition of done
 
 A change is not complete until relevant code, focused tests, documentation and

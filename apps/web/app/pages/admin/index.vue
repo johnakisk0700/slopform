@@ -1,5 +1,9 @@
 <script setup lang="ts">
 import { motion } from "motion-v";
+import Column from "primevue/column";
+import DatePicker from "primevue/datepicker";
+import Dialog from "primevue/dialog";
+import Tag from "primevue/tag";
 import { useToast } from "primevue/usetoast";
 import {
   eventPreviewSchema,
@@ -8,7 +12,12 @@ import {
 } from "~/features/event/schema";
 
 definePageMeta({ layout: "admin" });
-useSeoMeta({ title: "Operations overview", robots: "noindex, nofollow" });
+useSeoMeta({
+  title: "Operations overview",
+  description:
+    "Preview the Join The Six operations workspace and local event fixtures.",
+  robots: "noindex, nofollow",
+});
 
 interface EventPreview {
   id: string;
@@ -146,7 +155,6 @@ function statusSeverity(status: EventPreview["status"]) {
         label="Preview events"
         :value="previewRows.length"
         detail="Local fixture rows"
-        tone="primary"
       >
         <template #icon><span class="pi pi-calendar" /></template>
       </JtsStat>
@@ -233,10 +241,11 @@ function statusSeverity(status: EventPreview["status"]) {
           </span>
         </div>
         <div class="field">
-          <label for="event-name">Event name</label>
+          <label for="event-name">Event name <span>Required</span></label>
           <InputText
             id="event-name"
             v-model="draft.name"
+            required
             autofocus
             autocomplete="off"
             :invalid="Boolean(formErrors.name)"
@@ -247,10 +256,11 @@ function statusSeverity(status: EventPreview["status"]) {
           </p>
         </div>
         <div class="field">
-          <label for="event-date">Dinner date</label>
+          <label for="event-date">Dinner date <span>Required</span></label>
           <DatePicker
             v-model="draft.date"
             input-id="event-date"
+            required
             show-icon
             :invalid="Boolean(formErrors.date)"
             :pt="{

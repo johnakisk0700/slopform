@@ -1,9 +1,8 @@
 <script setup lang="ts">
-const route = useRoute();
-const eventSlug = computed(() => String(route.params.eventSlug));
-
 useSeoMeta({
   title: "Request a seat",
+  description:
+    "Request a seat at a Join The Six dinner and share the details needed to plan your place.",
   robots: "noindex, nofollow",
 });
 </script>
@@ -18,13 +17,11 @@ useSeoMeta({
       />
 
       <div class="registration-layout">
-        <RegistrationForm :event-slug="eventSlug" />
+        <RegistrationForm />
 
         <aside class="registration-aside" aria-label="Registration context">
           <JtsSurface
-            as="div"
             tone="blush"
-            padding="normal"
             eyebrow="Preview event"
             title="Foundation dinner"
             description="Date, location and price are intentionally omitted until live event data is available."
@@ -32,7 +29,7 @@ useSeoMeta({
             <ul class="trust-list">
               <li>
                 <span class="pi pi-lock" aria-hidden="true" />
-                <span>Your details are submitted to the application API.</span>
+                <span>This preview does not store or submit your details.</span>
               </li>
               <li>
                 <span class="pi pi-eye-slash" aria-hidden="true" />

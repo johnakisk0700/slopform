@@ -1,5 +1,10 @@
 <script setup lang="ts">
-useSeoMeta({ title: "Privacy notice" });
+useSeoMeta({
+  title: "Privacy notice",
+  description:
+    "Review the non-production scaffold for the Join The Six privacy notice.",
+  robots: "noindex, nofollow",
+});
 </script>
 
 <template>

@@ -5,7 +5,10 @@ ARG NODE_IMAGE=node:24.11.0-bookworm-slim@sha256:76d0ed0ed93bed4f4376211e9d8fdda
 FROM ${NODE_IMAGE} AS base
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
-RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
+ENV COREPACK_HOME=/corepack
+RUN corepack enable && \
+  corepack prepare pnpm@10.33.0 --activate && \
+  chmod -R a+rX /corepack
 WORKDIR /workspace
 
 FROM base AS dependencies
@@ -19,7 +22,14 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store,sharing=locked \
   pnpm install --frozen-lockfile
 
 FROM dependencies AS development
+ARG DEV_GID=1000
+ARG DEV_UID=1000
 ENV NODE_ENV=development
+ENV HOME=/home/node
+RUN groupmod --non-unique --gid "${DEV_GID}" node && \
+  usermod --non-unique --uid "${DEV_UID}" --gid "${DEV_GID}" node && \
+  chown node:node /home/node
+USER node
 CMD ["pnpm", "dev"]
 
 FROM dependencies AS build

@@ -36,13 +36,19 @@ describe("createBullBoardAuthMiddleware", () => {
     const encoded = Buffer.from("operator:secret:with-colon").toString(
       "base64",
     );
-    const { response, sendStatus } = createResponse();
+    const { response, sendStatus, setHeader } = createResponse();
     const next = vi.fn() as NextFunction;
 
     middleware(createRequest(`basic ${encoded}`), response, next);
 
     expect(next).toHaveBeenCalledOnce();
     expect(sendStatus).not.toHaveBeenCalled();
+    expect(setHeader).toHaveBeenCalledWith("cache-control", "no-store");
+    expect(setHeader).toHaveBeenCalledWith("x-frame-options", "DENY");
+    expect(setHeader).not.toHaveBeenCalledWith(
+      "content-security-policy",
+      expect.anything(),
+    );
   });
 
   it("challenges missing or incorrect credentials", () => {
@@ -57,6 +63,22 @@ describe("createBullBoardAuthMiddleware", () => {
       "www-authenticate",
       'Basic realm="Join The Six queues"',
     );
+    expect(sendStatus).toHaveBeenCalledWith(401);
+  });
+
+  it.each([
+    undefined,
+    "Bearer token",
+    "Basic",
+    "Basic !!!not-base64!!!",
+    `Basic ${Buffer.from("operator").toString("base64")}`,
+  ])("rejects malformed authorization: %s", (authorization) => {
+    const { response, sendStatus } = createResponse();
+    const next = vi.fn() as NextFunction;
+
+    middleware(createRequest(authorization), response, next);
+
+    expect(next).not.toHaveBeenCalled();
     expect(sendStatus).toHaveBeenCalledWith(401);
   });
 });

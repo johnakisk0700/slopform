@@ -6,17 +6,32 @@ const props = defineProps<{
 }>();
 
 const isNotFound = computed(() => props.error.statusCode === 404);
+const title = computed(() =>
+  isNotFound.value ? "Page not found" : "Page unavailable",
+);
+const description = computed(() =>
+  isNotFound.value
+    ? "The requested Join The Six page could not be found."
+    : "The requested Join The Six page is temporarily unavailable.",
+);
+
+useSeoMeta({
+  title: () => `${title.value} · Join The Six`,
+  description: () => description.value,
+  robots: "noindex, nofollow",
+});
 </script>
 
 <template>
   <div class="error-shell">
+    <a class="skip-link" href="#main-content">Skip to main content</a>
     <header class="error-shell__header">
       <a class="brand" href="/" aria-label="Join The Six home">
         <span class="brand__mark" aria-hidden="true" />
         <span>Join The Six</span>
       </a>
     </header>
-    <main id="main-content" class="error-page">
+    <main id="main-content" class="error-page" tabindex="-1">
       <div class="error-page__code" aria-hidden="true">
         {{ error.statusCode }}
       </div>

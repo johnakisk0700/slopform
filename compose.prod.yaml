@@ -14,13 +14,14 @@ x-backend-environment: &backend-environment
   NODE_ENV: production
   POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env.production}
   POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env.production}
-  DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-20}
+  DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-10}
   LOG_LEVEL: ${LOG_LEVEL:-info}
   OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-join-the-six-api}
   OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
   SENTRY_DSN: ${SENTRY_DSN:-}
   SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
   REFERENCE_MODULE_ENABLED: ${REFERENCE_MODULE_ENABLED:-false}
+  WEB_ORIGIN: ${WEB_ORIGIN:?Set WEB_ORIGIN in .env.production}
 
 services:
   postgres:
@@ -69,11 +70,16 @@ services:
 
   migrate:
     <<: *service-defaults
+    image: join-the-six-migrate:${RELEASE_TAG:?Set RELEASE_TAG to the deployed Git SHA}
     build:
       context: .
       target: migrate
     init: true
     environment:
+      MIGRATION_CONNECT_TIMEOUT_MS: ${MIGRATION_CONNECT_TIMEOUT_MS:-10000}
+      MIGRATION_EXECUTION_TIMEOUT_MS: ${MIGRATION_EXECUTION_TIMEOUT_MS:-600000}
+      MIGRATION_LOCK_TIMEOUT_MS: ${MIGRATION_LOCK_TIMEOUT_MS:-15000}
+      MIGRATION_STATEMENT_TIMEOUT_MS: ${MIGRATION_STATEMENT_TIMEOUT_MS:-300000}
       POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env.production}
       POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env.production}
     secrets:
@@ -92,6 +98,7 @@ services:
 
   api:
     <<: *service-defaults
+    image: join-the-six-api:${RELEASE_TAG:?Set RELEASE_TAG to the deployed Git SHA}
     build:
       context: .
       target: api
@@ -100,14 +107,10 @@ services:
       <<: *backend-environment
       API_HOST: 0.0.0.0
       API_PORT: 4000
-      WEB_ORIGIN: ${WEB_ORIGIN:?Set WEB_ORIGIN in .env.production}
       BULL_BOARD_ENABLED: ${BULL_BOARD_ENABLED:-false}
       BULL_BOARD_USERNAME: ${BULL_BOARD_USERNAME:-}
-      BULL_BOARD_PASSWORD: ${BULL_BOARD_PASSWORD:-}
-      WORDPRESS_BASE_URL: ${WORDPRESS_BASE_URL:-}
-      WORDPRESS_SERVICE_TOKEN: ${WORDPRESS_SERVICE_TOKEN:-}
-      WORDPRESS_WEBHOOK_SECRET: ${WORDPRESS_WEBHOOK_SECRET:-}
     secrets:
+      - bull_board_password
       - postgres_password
       - redis_password
     read_only: true
@@ -139,6 +142,7 @@ services:
 
   worker:
     <<: *service-defaults
+    image: join-the-six-worker:${RELEASE_TAG:?Set RELEASE_TAG to the deployed Git SHA}
     build:
       context: .
       target: worker
@@ -166,6 +170,7 @@ services:
 
   web:
     <<: *service-defaults
+    image: join-the-six-web:${RELEASE_TAG:?Set RELEASE_TAG to the deployed Git SHA}
     build:
       context: .
       target: web
@@ -201,6 +206,14 @@ services:
   caddy:
     <<: *service-defaults
     image: caddy:2.11.4-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
+    init: true
+    read_only: true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    tmpfs:
+      - /tmp
     environment:
       ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL in .env.production}
       DOMAIN: ${DOMAIN:?Set DOMAIN in .env.production}
@@ -247,6 +260,8 @@ networks:
   egress:
 
 secrets:
+  bull_board_password:
+    file: ${BULL_BOARD_PASSWORD_FILE:?Set BULL_BOARD_PASSWORD_FILE in .env.production}
   postgres_password:
     file: ${POSTGRES_PASSWORD_FILE:?Set POSTGRES_PASSWORD_FILE in .env.production}
   redis_password:
