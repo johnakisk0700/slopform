@@ -1,224 +1,185 @@
 # Frontend foundation
 
-Status: accepted foundation, verified 2026-07-22.
+Status: accepted admin-only foundation, verified 2026-07-22.
 
-The frontend is one Nuxt application in `apps/web`. Route rules select
-prerendering, SSR or client rendering; there is no parallel frontend runtime.
+The frontend in `apps/web` is the private Join The Six administration panel.
+It is a Nuxt, Vue and PrimeVue client application for staff operations. The
+public website, registration, intake and participant-facing journeys are owned
+by the existing Next.js application at `legacy.example.com`; see
+[ADR 0004](decisions/0004-admin-only-boundary.md).
 
 ## Start here
 
 | Task                               | Location                                | First reference                                      |
 | ---------------------------------- | --------------------------------------- | ---------------------------------------------------- |
-| Add a route                        | `apps/web/app/pages/`                   | Existing sibling page and rendering table below      |
-| Add a domain schema or pure helper | `apps/web/app/features/<domain>/`       | `features/registration/schema.ts`                    |
-| Add domain UI                      | `apps/web/app/components/<domain>/`     | `components/registration/RegistrationForm.vue`       |
+| Add an admin route                 | `apps/web/app/pages/admin/`             | Existing sibling page and route contract below       |
+| Add a domain schema or pure helper | `apps/web/app/features/<domain>/`       | `features/event/schema.ts`                           |
+| Add domain UI                      | `apps/web/app/components/<domain>/`     | `components/admin/AdminNavigation.vue`               |
 | Reuse or add shared UI             | `apps/web/app/components/ui/`           | [Component inventory](frontend/components/README.md) |
-| Use a PrimeVue primitive           | Page or owning component                | PrimeVue registration policy below                   |
+| Use a PrimeVue primitive           | Owning page, layout or component        | Local import policy below                            |
 | Call the API                       | `app/composables/useApi.ts`             | `app/plugins/api.ts`                                 |
 | Change application layout CSS      | `app/assets/css/main.css`               | Existing named section                               |
 | Change a shared visual value       | `packages/design-tokens/src/tokens.css` | Token ownership below                                |
 | Change PrimeVue appearance         | `app/theme/jts-preset.ts`               | PrimeVue theme tokens                                |
-| Change route rendering or headers  | `apps/web/nuxt.config.ts`               | `routeRules`                                         |
+| Change route handling or headers   | `apps/web/nuxt.config.ts`               | `routeRules`                                         |
 
-Nuxt component discovery uses `pathPrefix: false`: the filename is the template
-name and the directory expresses ownership. Keep component filenames globally
-unique. Shared components use the `Jts*` prefix.
+Nuxt component discovery uses `pathPrefix: false`: filenames are template
+names and directories express ownership. Keep filenames globally unique.
+Shared project components use the `Jts*` prefix.
 
-## Route rendering and metadata
+## Product and route boundary
 
-| Routes                         | Rendering                    | Indexing                                                       |
-| ------------------------------ | ---------------------------- | -------------------------------------------------------------- |
-| `/`                            | Prerendered                  | Indexable                                                      |
-| `/join/**`                     | SSR                          | Indexable when page metadata allows it                         |
-| `/register/**`, `/feedback/**` | SSR                          | `noindex, nofollow` in HTML and response header                |
-| `/legal/**`                    | Prerendered, scripts removed | `noindex, nofollow` in HTML and response header                |
-| `/admin/**`                    | Client-rendered application  | `noindex, nofollow` response header; page metadata after mount |
+| Route                 | Behavior                          | Indexing                                             |
+| --------------------- | --------------------------------- | ---------------------------------------------------- |
+| `/`                   | Redirects to `/admin`             | Inherits private application policy                  |
+| `/admin`, `/admin/**` | Client-rendered staff application | `noindex, nofollow` in metadata and response headers |
 
-Pages own their title, description and indexing policy. Indexable public routes
-also own Open Graph and Twitter text. Canonical URLs and social images remain
-absent until the application has a validated public-site origin and approved
-asset. `WEB_ORIGIN` is a CORS allow-list, not a canonical URL.
+Do not add `/join`, `/register`, `/feedback`, marketing or public legal routes
+to this application. They belong in the existing Next.js public product. A
+future integration between that product and the operations backend starts with
+an explicit API, consent and abuse-control contract, not by quietly recreating
+its screens here.
 
-Use `admin-page-stack` on each admin route root for the standard vertical rhythm
-between its page header, notices and content surfaces. Shell sizing remains the
-admin layout's responsibility.
+Each admin page owns an accurate title and description, one `h1`, and robots
+metadata. The global head also defaults to `noindex, nofollow`. Pages use the
+`admin` layout and the `admin-page-stack` root class. The layout provides the
+focusable `#main-content` landmark, skip-link target, navigation, the operator
+menu docked in the sidebar footer (a top bar carries it on small screens where
+the sidebar is hidden), mobile drawer, toast region and reduced-motion policy.
 
-The root app renders `NuxtRouteAnnouncer`. Both layouts and the standalone error
-page provide a focusable `#main-content` target for the skip link. The admin SPA
-loading template supplies a main landmark, busy status and no-script message
-before hydration.
+There is no frontend authentication contract yet. Add named admin middleware
+and session UI only with matching backend session endpoints and cookie policy.
+A client route guard improves navigation; it does not authorize API requests.
 
 ## Application boundaries
 
 ```text
 app/
 ├── components/ui/          shared, domain-free Jts* contracts
-├── components/<domain>/    domain UI and interaction boundaries
+├── components/<domain>/    admin domain UI and interaction boundaries
 ├── features/<domain>/      schemas, types and pure helpers
 ├── composables/            shared state and app-facing facades
-├── layouts/                persistent public/admin shells
-├── pages/                  route metadata, data and composition
+├── layouts/admin.vue       persistent private application shell
+├── pages/admin/            route metadata, data and composition
 ├── plugins/                integration bootstrap
 └── theme/                  PrimeVue preset and module import wrapper
 ```
 
-`features/` has no Nuxt runtime behavior. Its files must be testable without a
-Nuxt application. Pages orchestrate routes; they do not absorb reusable form or
-table behavior. Conversely, shared UI must not hide domain API calls or business
-rules.
+`features/` has no Nuxt runtime behavior and remains independently testable.
+Pages orchestrate routes; they do not absorb reusable table or form behavior.
+Shared UI does not hide domain API calls or business rules.
 
 Choose UI in this order:
 
 1. Reuse a matching project component.
 2. Use a PrimeVue primitive directly.
-3. Compose a documented `Jts*` component when repeated product behavior is the
-   real abstraction.
-4. Use semantic HTML/CSS for content and layout.
+3. Compose a documented `Jts*` component when repeated operational behavior is
+   the real abstraction.
+4. Use semantic HTML and CSS for content and layout.
 
-The current shared contracts are `JtsPageHeader`, `JtsSurface`, `JtsStat` and
-`JtsDataTable`. Their contracts are linked from the
-[component inventory](frontend/components/README.md). Keep columns, cell
-formatting, filters and row actions in the consuming feature. A wrapper that
-only renames PrimeVue props is paperwork wearing a component costume.
+The shared contracts are `JtsPageHeader`, `JtsStat` and `JtsDataTable`. Their
+contracts are linked from the
+[component inventory](frontend/components/README.md). Columns, filters, cell
+formatting and row actions remain with the consuming feature. Wrapping PrimeVue
+only to rename props is filing paperwork in a nicer font.
 
-Keep one-use route metadata, policy pages and domain-specific error mapping
-explicit. Do not create page factories, metadata DSLs, barrels or generic
-composables before a second concrete use demonstrates the common behavior.
+## PrimeVue and theme
 
-## PrimeVue registration and theme
+PrimeVue 4.5.5 is registered with `autoImport: false`. Every primitive is
+imported locally by the admin page, layout or component that uses it. The Nuxt
+application no longer carries a global SSR component allow-list because it has
+no public SSR routes.
 
-PrimeVue 4.5.5 is registered with `autoImport: false`. Components visible in
-SSR markup are in the explicit `nuxt.config.ts` allow-list: `Button`,
-`Checkbox`, `InputText`, `Select` and `Textarea`.
-
-Admin-only `Avatar`, `Column`, `DataTable`, `DatePicker`, `Dialog`, `Drawer`,
-`PanelMenu`, `Tag`, `Toast` and `Toolbar` use local imports. The client-only
-`primevue-toast.client.ts` plugin installs `ToastService`; `useToast` remains an
-explicit import. Add an SSR-visible primitive to the allow-list so its theme
-styles exist before hydration. Keep a client-only or interaction-only primitive
-local so it does not tax every rendered response.
-
-The Nuxt module emits globally registered component styles into every SSR
-response. With the current five-component allow-list, the generated inline
-PrimeVue registry measured 78,737 raw bytes on public and legal routes; no
-admin-only component style ID was present. The remaining registry is known
-module-level debt. Do not set `loadStyles: false` without an equivalent SSR
-stylesheet, and do not strip the response string.
+The current admin shell and overview use PrimeVue `Avatar`, `Button`, `Card`,
+`Column`, `DataTable`, `DatePicker`, `Dialog`, `Drawer`, `InputText`,
+`PanelMenu`, `Popover`, `ProgressBar`, `SelectButton`, `Tag`, `Toast` and
+`Toolbar`. The client-only
+PrimeVue module registration installs `ToastService` when it discovers the
+locally imported `Toast`; `useToast` remains an explicit import. Do not install
+the service again in an application plugin.
 
 Extend PrimeVue through `app/theme/jts-preset.ts`. `jts-theme.ts` is only the
-Nuxt module import wrapper. Use semantic/component theme tokens or documented
-pass-through attributes; avoid selectors coupled to generated DOM. The preset
-and framework-neutral tokens both use system dark mode.
+Nuxt module import wrapper. Prefer semantic/component theme tokens or documented
+pass-through attributes over selectors coupled to generated DOM.
 
-PrimeVue 5, PrimeUI themes 3 and PrimeIcons 8 use the PrimeUI licence and need a
-licence decision. The current stack stays on MIT versions: PrimeVue and its
-Nuxt module 4.5.5, `@primeuix/themes` 2.0.3 and PrimeIcons 7.0.0. Upgrade those
-packages together, not as independent dependency-bot confetti.
+PrimeVue 5, PrimeUI themes 3 and PrimeIcons 8 require a PrimeUI licence
+decision. The current MIT stack stays on PrimeVue and its Nuxt module 4.5.5,
+`@primeuix/themes` 2.0.3 and PrimeIcons 7.0.0. Upgrade them together.
 
 ## API, state and forms
 
 `app/plugins/api.ts` provides `$api`, an `ofetch` instance with:
 
-- `NUXT_API_BASE_INTERNAL` during SSR and `NUXT_PUBLIC_API_BASE` in browsers;
+- `NUXT_API_BASE_INTERNAL` on the server and `NUXT_PUBLIC_API_BASE` in browsers;
 - credentialed requests, a 15-second timeout and no automatic retries;
-- only `cookie` and `x-request-id` forwarded from inbound SSR requests.
+- only `cookie` and `x-request-id` forwarded from inbound server requests.
 
-`environment.server.ts` parses build/dev variables through Zod before Nuxt is
-configured. `environment.public.ts` contains only browser-safe runtime config.
-The Nitro startup plugin validates the resolved config again so production
-`NUXT_*` overrides cannot bypass the build-time check. Empty local values use
-documented defaults; an invalid runtime override fails startup. Never read
-application environment values directly from `process.env` inside Vue code.
-This follows the T3 Env pattern directly with the existing Zod dependency; two
-variables do not justify another configuration library.
+`environment.server.ts` parses build and development variables through Zod.
+`environment.public.ts` contains only browser-safe runtime configuration. A
+Nitro startup plugin validates the resolved config again so production
+overrides cannot bypass the build-time check. Do not read application variables
+directly from `process.env` inside Vue code.
 
 ```mermaid
 flowchart LR
   local["Local .env or build environment"] --> build["Server Zod schema"]
   build --> config["Nuxt runtimeConfig defaults"]
-  runtime["Production NUXT_* overrides"] --> resolved["Resolved Nitro config"]
+  runtime["Production NUXT overrides"] --> resolved["Resolved Nitro config"]
   config --> resolved
   resolved --> startup["Nitro startup validation"]
-  startup --> server["Server and public API clients"]
+  startup --> client["Admin API client"]
 ```
 
-`useApi()` is the application-facing seam for imperative calls. Use
-`useFetch`/`useAsyncData` for SSR page reads so results enter the Nuxt payload.
-Prefer a generated OpenAPI client or shared contract package once backend
-contracts settle. Do not duplicate response interfaces casually.
+`useApi()` is the application-facing seam for imperative admin calls. Treat
+unshared responses as `unknown` and parse them with the owning feature Zod
+schema. Prefer a generated OpenAPI client or shared contract package once the
+backend contract stabilizes.
 
-Call unshared endpoints as `api<unknown>(...)`, then parse the result with the
-owning feature Zod schema. Import every PrimeVue primitive used by an admin-only
-page locally, including primitives that are globally registered for public SSR.
-
-There is no frontend authentication contract yet. Add session state and named
-admin middleware only after matching backend endpoints and cookie policy exist.
-Client route guards improve navigation; they do not authorise requests.
-
-Zod schemas under `app/features/<domain>/` own client parsing and typed
-payloads. The backend validates independently. Forms connect field errors with
-`aria-describedby`, focus the first invalid field once submission exists,
-preserve values on retryable failures and never render raw server messages. The
-registration component is deliberately non-submitting until its backend and
-policy contract exist. PrimeVue Forms remains absent: the current forms already
-have one schema owner, and a second form-state system would duplicate it.
+Forms connect errors with `aria-describedby`, focus the first invalid field,
+preserve values on retryable failure and never display raw server messages.
+Preview-only interactions must say that they do not persist; do not simulate a
+successful backend write.
 
 ## CSS, tokens, fonts and motion
 
-| Owner                                   | Responsibility                                                        |
-| --------------------------------------- | --------------------------------------------------------------------- |
-| `packages/design-tokens/src/tokens.css` | Used, framework-neutral semantic values and their required primitives |
-| `app/theme/jts-preset.ts`               | PrimeVue primitive, semantic and component tokens                     |
-| `app/assets/css/main.css`               | Shells, route composition and project-component layout                |
-| Vue component styles/markup             | Domain-specific structure; no duplicated global token system          |
+| Owner                                   | Responsibility                                                                            |
+| --------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `packages/design-tokens/src/tokens.css` | Framework-neutral semantic values used by more than one consumer                          |
+| `app/theme/jts-preset.ts`               | PrimeVue primitive, semantic and component tokens                                         |
+| `app/assets/css/main.css`               | Admin shell, route composition, shared project-component layout and standalone error page |
+| Vue component markup/styles             | Domain-specific structure without a duplicate token system                                |
 
-Components consume semantic variables such as `--jts-color-text`. Add a shared
-token when at least two consumers need the same visual decision; remove dead
-scale entries rather than treating the token file as a paint warehouse. Keep
-PrimeVue out of the design-token package.
+Manrope Variable 5.3.0 is self-hosted through Fontsource (OFL-1.1) as the single
+type family for display, UI and body; it carries **Latin and Greek** so operator
+Greek and English render identically, with system sans as the fallback. The
+design tokens, the single-class light/dark mechanism and how PrimeVue consumes
+the tokens are documented in [`frontend/theming.md`](frontend/theming.md) and
+[ADR 0005](decisions/0005-theming-and-dark-mode.md).
+`MotionConfig` uses `reduced-motion="user"`; CSS also collapses animation for
+`prefers-reduced-motion`. Motion communicates continuity or state change and
+never carries status by itself.
 
-DM Sans Variable and Newsreader Variable 5.3.0 are self-hosted through
-Fontsource under OFL-1.1. Only normal `wght` variable files are imported. System
-and Georgia fallbacks remain available. Fonts are not preloaded without
-route-level LCP evidence; hard-coding Vite asset hashes would be brittle.
-
-Motion for Vue 2.3.0 is imported only by the admin layout/page. `MotionConfig`
-uses `reduced-motion="user"`; public routes do not load the library. CSS also
-collapses durations for `prefers-reduced-motion`. Use motion for continuity or
-state change, not as decoration or the only status signal.
-
-Every new UI preserves one logical `h1`, landmarks, explicit control labels,
-keyboard-visible focus, status text in addition to colour, connected validation
-errors and reduced-motion behavior. Preview data and unfinished policy copy must
-remain visibly identified as such.
+Every new screen preserves one logical `h1`, landmarks, explicit labels,
+keyboard-visible focus, status text in addition to color, and reduced-motion
+behavior. Local preview data remains visibly identified until a real API owns
+the state.
 
 ## Delivery constraints
 
-Verified with Nuxt 4.5.0, Nitro 2.13.4, Vue 3.5.40 and Vite 8.1.5 on
-2026-07-22:
+Verified with Nuxt 4.5.0, Nitro 2.13.4, Vue 3.5.40, PrimeVue 4.5.5 and Vite
+8.1.5 on 2026-07-22:
 
-- prerender payload extraction uses `"client"`: initial payloads stay embedded,
-  while extracted payloads remain available for client navigation;
+- admin routes use `ssr: false`; the standalone Nitro server still owns runtime
+  config and response headers;
 - the `build:manifest` hook removes entry dynamic-import prefetch hints and the
-  unused PrimeIcons SVG fallback; active-route modulepreloads and NuxtLink
-  route-aware prefetching remain;
-- client source maps stay disabled and server maps enabled;
-- Nitro produces the standalone Node server; Caddy owns compression;
-- automatic chunk splitting remains; arbitrary manual vendor chunks would move
-  bytes without removing them.
+  unused PrimeIcons SVG fallback;
+- client source maps stay disabled and server maps stay enabled;
+- Nitro produces the standalone Node server and Caddy owns compression;
+- automatic chunk splitting remains; arbitrary vendor chunks would move bytes
+  without removing them.
 
-The client-only admin manifest closure measured 1,278,936 minified bytes
-(326,471 gzip) across 20 CSS/JavaScript files. Its page entry was 551,970 bytes
-(131,084 gzip). Before production use, measure browser startup. If it misses the
-agreed budget, first isolate the interaction-only event dialog/date picker.
-
-The production entry stylesheet measured 44,123 raw bytes (9,441 gzip),
-including fonts, design tokens, PrimeIcons and application CSS. Keep one ordered
-stylesheet until route-level transfer data justifies another request boundary.
-
-Node must satisfy the repository engine `>=24.11 <25`. Nuxt also supports Node
-22.19 and 26+, but this repository standardises on Node 24 LTS. `package.json`
-and the lockfile are the source of truth for exact dependency versions.
+Node must satisfy `>=24.11 <25`. `package.json` and `pnpm-lock.yaml` are the
+source of truth for exact dependency versions.
 
 ## Verification and extension
 
@@ -228,15 +189,13 @@ From the repository root:
 pnpm --filter @join-the-six/web lint
 pnpm --filter @join-the-six/web typecheck
 pnpm --filter @join-the-six/web test
-pnpm --filter @join-the-six/web generate
 pnpm --filter @join-the-six/web build
 ```
 
-`build` is the production hybrid Nitro check. `generate` additionally verifies
-static route output. For each vertical slice, confirm the backend/permission
-contract, select route rendering, add the schema boundary, implement all useful
-states, preserve accessibility, add accurate metadata and write the narrowest
-test that protects the behavior.
+For each admin vertical slice, confirm the backend permission contract, add the
+schema boundary, implement loading/empty/error states, preserve accessibility,
+add accurate private metadata and write the narrowest test that protects the
+behavior.
 
 ## Official references
 
@@ -244,11 +203,8 @@ Library behavior was verified 2026-07-22 against:
 
 - [Nuxt directory structure](https://nuxt.com/docs/4.x/directory-structure/)
 - [Nuxt rendering modes](https://nuxt.com/docs/4.x/guide/concepts/rendering)
-- [Nuxt data fetching](https://nuxt.com/docs/4.x/getting-started/data-fetching)
 - [Nuxt runtime config](https://nuxt.com/docs/4.x/guide/going-further/runtime-config)
 - [Nuxt SEO metadata](https://nuxt.com/docs/4.x/getting-started/seo-meta)
-- [Nuxt TypeScript](https://nuxt.com/docs/4.x/guide/concepts/typescript)
-- [T3 Env Nuxt pattern](https://env.t3.gg/docs/nuxt)
 - [PrimeVue DataTable](https://v4.primevue.org/datatable/)
 - [PrimeVue accessibility](https://v4.primevue.org/guides/accessibility/)
 - [Vue TypeScript Composition API](https://vuejs.org/guide/typescript/composition-api)

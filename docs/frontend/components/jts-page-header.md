@@ -1,21 +1,18 @@
 # JtsPageHeader
 
-`JtsPageHeader` renders the single route `h1`, optional eyebrow/description,
-actions and an optional contextual aside. It owns responsive hierarchy, not
+`JtsPageHeader` renders the single admin-route `h1`, optional
+eyebrow/description and route-owned actions. It owns responsive hierarchy, not
 metadata, breadcrumbs, fetching or animation.
 
 Source: [`JtsPageHeader.vue`](../../../apps/web/app/components/ui/JtsPageHeader.vue)
 
-| Input/slot               | Contract                                                             |
-| ------------------------ | -------------------------------------------------------------------- |
-| `title`                  | Required visible `h1`                                                |
-| `eyebrow`, `description` | Optional supporting strings                                          |
-| `variant`                | `public` (default), `admin` or `policy` visual hierarchy             |
-| `actions`                | Route-owned controls/links                                           |
-| `aside`                  | Context or decoration; meaningful content supplies its own semantics |
+| Input/slot               | Contract                    |
+| ------------------------ | --------------------------- |
+| `title`                  | Required visible `h1`       |
+| `eyebrow`, `description` | Optional supporting strings |
+| `actions`                | Route-owned controls/links  |
 
 Each route has exactly one page header. Actions remain usable when wrapped;
-decorative aside content is `aria-hidden`. Add a variant only after multiple
-routes require a materially different hierarchy.
+add another slot only after multiple admin routes require the same hierarchy.
 
-Reference consumers: home, join, registration, feedback, legal and admin.
+Reference consumer: admin operations overview.

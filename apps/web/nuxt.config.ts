@@ -24,8 +24,7 @@ export default defineNuxtConfig({
     },
   ],
   css: [
-    "@fontsource-variable/dm-sans/wght.css",
-    "@fontsource-variable/newsreader/wght.css",
+    "@fontsource-variable/manrope/wght.css",
     "@join-the-six/design-tokens/tokens.css",
     "primeicons/primeicons.css",
     "~/assets/css/main.css",
@@ -56,27 +55,13 @@ export default defineNuxtConfig({
     },
   },
   routeRules: {
-    "/": { prerender: true },
+    "/": { redirect: "/admin" },
     "/admin": {
       ssr: false,
       headers: { "x-robots-tag": "noindex, nofollow" },
     },
     "/admin/**": {
       ssr: false,
-      headers: { "x-robots-tag": "noindex, nofollow" },
-    },
-    "/join/**": { ssr: true },
-    "/feedback/**": {
-      ssr: true,
-      headers: { "x-robots-tag": "noindex, nofollow" },
-    },
-    "/register/**": {
-      ssr: true,
-      headers: { "x-robots-tag": "noindex, nofollow" },
-    },
-    "/legal/**": {
-      prerender: true,
-      noScripts: true,
       headers: { "x-robots-tag": "noindex, nofollow" },
     },
   },
@@ -101,9 +86,6 @@ export default defineNuxtConfig({
       as: "JtsTheme",
       from: "~/theme/jts-theme",
     },
-    components: {
-      include: ["Button", "Checkbox", "InputText", "Select", "Textarea"],
-    },
     directives: {
       include: [],
     },
@@ -111,7 +93,8 @@ export default defineNuxtConfig({
       include: [],
     },
     options: {
-      ripple: true,
+      // Flat/editorial UI — no material ripple on interactions.
+      ripple: false,
     },
   },
   app: {
@@ -119,12 +102,22 @@ export default defineNuxtConfig({
       title: "Join The Six",
       htmlAttrs: { lang: "en" },
       link: [{ rel: "icon", type: "image/svg+xml", href: "/favicon.svg" }],
+      script: [
+        {
+          // Apply the saved (or system) theme before first paint so there is
+          // no light/dark flash. Mirrors the logic in `useTheme()`; the single
+          // signal is the `jts-dark` class on <html>.
+          innerHTML:
+            "(function(){try{var s=localStorage.getItem('jts-theme');var d=s==='dark'||((!s||s==='system')&&matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.classList.toggle('jts-dark',d);}catch(e){}})();",
+          tagPosition: "head",
+        },
+      ],
       meta: [
         {
           name: "description",
-          content:
-            "Join The Six dinner registration and operations experience.",
+          content: "Private Join The Six administration and operations panel.",
         },
+        { name: "robots", content: "noindex, nofollow" },
       ],
     },
   },

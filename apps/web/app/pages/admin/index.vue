@@ -1,8 +1,12 @@
 <script setup lang="ts">
 import { motion } from "motion-v";
+import Button from "primevue/button";
+import Card from "primevue/card";
 import Column from "primevue/column";
 import DatePicker from "primevue/datepicker";
 import Dialog from "primevue/dialog";
+import InputText from "primevue/inputtext";
+import ProgressBar from "primevue/progressbar";
 import Tag from "primevue/tag";
 import { useToast } from "primevue/usetoast";
 import {
@@ -13,34 +17,52 @@ import {
 
 definePageMeta({ layout: "admin" });
 useSeoMeta({
-  title: "Operations overview",
-  description:
-    "Preview the Join The Six operations workspace and local event fixtures.",
+  title: "Operations control",
+  description: "Private Join The Six event operations workspace.",
   robots: "noindex, nofollow",
 });
 
 interface EventPreview {
   id: string;
   name: string;
+  city: string;
   date: string;
-  registrations: number;
-  status: "Draft" | "Open" | "Closed";
+  bookings: number;
+  capacity: number;
+  blockers: number;
+  status: "Draft" | "Open" | "Ready";
 }
 
 const previewRows = ref<EventPreview[]>([
   {
     id: "preview-1",
     name: "Foundation dinner",
+    city: "Athens",
     date: "2026-08-06",
-    registrations: 18,
+    bookings: 18,
+    capacity: 24,
+    blockers: 2,
     status: "Open",
   },
   {
     id: "preview-2",
     name: "September dinner",
+    city: "Athens",
     date: "2026-09-10",
-    registrations: 0,
+    bookings: 0,
+    capacity: 30,
+    blockers: 1,
     status: "Draft",
+  },
+  {
+    id: "preview-3",
+    name: "Community table",
+    city: "Athens",
+    date: "2026-07-30",
+    bookings: 22,
+    capacity: 24,
+    blockers: 0,
+    status: "Ready",
   },
 ]);
 
@@ -52,12 +74,16 @@ const draft = reactive<EventPreviewDraft>({
 });
 const formErrors = ref<{ name?: string; date?: string }>({});
 
-const totalPreviewRegistrations = computed(() =>
-  previewRows.value.reduce((total, event) => total + event.registrations, 0),
+const totalPreviewBookings = computed(() =>
+  previewRows.value.reduce((total, event) => total + event.bookings, 0),
 );
-const openPreviewEvents = computed(
-  () => previewRows.value.filter((event) => event.status === "Open").length,
+const activePreviewEvents = computed(
+  () => previewRows.value.filter((event) => event.status !== "Draft").length,
 );
+const openBlockers = computed(() =>
+  previewRows.value.reduce((total, event) => total + event.blockers, 0),
+);
+const nextDinner = computed(() => previewRows.value[0]);
 
 const dateFormatter = new Intl.DateTimeFormat("en-GB", {
   day: "2-digit",
@@ -68,6 +94,10 @@ const dateFormatter = new Intl.DateTimeFormat("en-GB", {
 
 function formatDate(value: string): string {
   return dateFormatter.format(new Date(`${value}T00:00:00Z`));
+}
+
+function occupancy(event: EventPreview): number {
+  return Math.round((event.bookings / event.capacity) * 100);
 }
 
 function openDialog(): void {
@@ -97,26 +127,25 @@ async function createPreviewEvent(): Promise<void> {
     {
       id: crypto.randomUUID(),
       name: result.data.name,
+      city: "Athens",
       date: result.data.date.toISOString().slice(0, 10),
-      registrations: 0,
+      bookings: 0,
+      capacity: 24,
+      blockers: 1,
       status: "Draft",
     },
   ];
   dialogOpen.value = false;
   toast.add({
     severity: "success",
-    summary: "Preview row created",
-    detail: "This is local UI state until the events API is connected.",
+    summary: "Preview event created",
+    detail: "Local UI state only; the events API is not connected yet.",
     life: 5_000,
   });
 }
 
 function statusSeverity(status: EventPreview["status"]) {
-  return status === "Open"
-    ? "success"
-    : status === "Closed"
-      ? "secondary"
-      : "warn";
+  return status === "Ready" ? "success" : status === "Open" ? "info" : "warn";
 }
 </script>
 
@@ -128,76 +157,146 @@ function statusSeverity(status: EventPreview["status"]) {
     :transition="{ duration: 0.2 }"
   >
     <JtsPageHeader
-      variant="admin"
-      eyebrow="Preview workspace"
-      title="Operations overview"
-      description="A clear view of local event fixtures while the live operations contracts are connected."
+      eyebrow="Admin workspace"
+      title="Operations control"
+      description="Events, bookings and blockers in one focused workspace for the team running Join The Six."
     >
       <template #actions>
-        <Button
-          icon="pi pi-plus"
-          label="New preview event"
-          @click="openDialog"
-        />
+        <Button icon="pi pi-plus" label="New event" @click="openDialog" />
       </template>
     </JtsPageHeader>
 
     <div class="admin-preview-note" role="note">
       <span class="pi pi-info-circle" aria-hidden="true" />
       <span>
-        Every number on this page comes from in-memory preview rows. Nothing
-        here is a live operational metric.
+        Local product preview. The layout and interactions are real; the values
+        reset on reload until the operations API is connected.
       </span>
     </div>
 
-    <dl class="admin-stats" aria-label="Preview event summary">
+    <dl class="admin-stats" aria-label="Operations summary">
       <JtsStat
-        label="Preview events"
-        :value="previewRows.length"
-        detail="Local fixture rows"
+        label="Active events"
+        :value="activePreviewEvents"
+        detail="Open or ready"
       >
         <template #icon><span class="pi pi-calendar" /></template>
       </JtsStat>
       <JtsStat
-        label="Preview registrations"
-        :value="totalPreviewRegistrations"
-        detail="Sum of fixture values"
+        label="Bookings"
+        :value="totalPreviewBookings"
+        detail="Across preview events"
       >
-        <template #icon><span class="pi pi-users" /></template>
+        <template #icon><span class="pi pi-ticket" /></template>
       </JtsStat>
       <JtsStat
-        label="Open previews"
-        :value="openPreviewEvents"
-        detail="Status labels, not availability"
+        label="Open blockers"
+        :value="openBlockers"
+        detail="Need operator action"
+        tone="warning"
+      >
+        <template #icon><span class="pi pi-exclamation-triangle" /></template>
+      </JtsStat>
+      <JtsStat
+        label="Ready events"
+        :value="previewRows.filter((event) => event.status === 'Ready').length"
+        detail="Cleared to run"
         tone="success"
       >
         <template #icon><span class="pi pi-check-circle" /></template>
       </JtsStat>
-      <JtsStat
-        label="Data source"
-        value="Preview fixtures"
-        detail="Local edits reset on reload"
-        tone="warning"
-      >
-        <template #icon><span class="pi pi-database" /></template>
-      </JtsStat>
     </dl>
+
+    <section class="admin-focus-grid" aria-label="Operational focus">
+      <Card class="admin-focus-card admin-focus-card--primary">
+        <template #title>Next dinner</template>
+        <template #subtitle>Immediate event context</template>
+        <template #content>
+          <div v-if="nextDinner" class="next-event">
+            <div class="next-event__heading">
+              <div>
+                <strong>{{ nextDinner.name }}</strong>
+                <span
+                  >{{ nextDinner.city }} ·
+                  {{ formatDate(nextDinner.date) }}</span
+                >
+              </div>
+              <Tag
+                :value="nextDinner.status"
+                :severity="statusSeverity(nextDinner.status)"
+              />
+            </div>
+            <div class="next-event__capacity">
+              <div>
+                <span>Table capacity</span>
+                <strong
+                  >{{ nextDinner.bookings }} / {{ nextDinner.capacity }}</strong
+                >
+              </div>
+              <ProgressBar :value="occupancy(nextDinner)" :show-value="false" />
+            </div>
+          </div>
+        </template>
+      </Card>
+
+      <Card class="admin-focus-card">
+        <template #title>Needs attention</template>
+        <template #subtitle>Operator queue</template>
+        <template #content>
+          <ul class="attention-list">
+            <li>
+              <span
+                class="attention-list__icon pi pi-map-marker"
+                aria-hidden="true"
+              />
+              <span
+                ><strong>Confirm venue</strong
+                ><small>Foundation dinner</small></span
+              >
+              <Tag value="Today" severity="danger" />
+            </li>
+            <li>
+              <span
+                class="attention-list__icon pi pi-credit-card"
+                aria-hidden="true"
+              />
+              <span
+                ><strong>Review two payments</strong
+                ><small>Missing references</small></span
+              >
+              <Tag value="2" severity="warn" />
+            </li>
+            <li>
+              <span
+                class="attention-list__icon pi pi-sitemap"
+                aria-hidden="true"
+              />
+              <span
+                ><strong>Lock table plan</strong
+                ><small>Community table</small></span
+              >
+              <Tag value="Ready" severity="success" />
+            </li>
+          </ul>
+        </template>
+      </Card>
+    </section>
 
     <JtsDataTable
       :rows="previewRows"
       data-key="id"
-      title="Event planning"
-      description="In-memory preview rows for validating table, status and pagination behavior."
-      empty-title="No preview events"
-      empty-description="Create a local preview row to exercise the empty-to-ready transition."
+      title="Event operations"
+      description="Current event stage, capacity and unresolved blockers."
+      empty-title="No events yet"
+      empty-description="Create the first event to start the operational workflow."
       paginator
       :page-size="5"
       :rows-per-page-options="[5, 10, 25]"
     >
       <template #toolbar-end>
         <Button
-          icon="pi pi-refresh"
-          label="Refresh"
+          icon="pi pi-filter"
+          label="Filters"
           severity="secondary"
           outlined
           disabled
@@ -205,7 +304,10 @@ function statusSeverity(status: EventPreview["status"]) {
       </template>
       <Column field="name" header="Event" sortable>
         <template #body="{ data }: { data: EventPreview }">
-          <strong class="admin-event-name">{{ data.name }}</strong>
+          <div class="admin-event-name">
+            <strong>{{ data.name }}</strong>
+            <small>{{ data.city }}</small>
+          </div>
         </template>
       </Column>
       <Column field="date" header="Date" sortable>
@@ -213,7 +315,19 @@ function statusSeverity(status: EventPreview["status"]) {
           <time :datetime="data.date">{{ formatDate(data.date) }}</time>
         </template>
       </Column>
-      <Column field="registrations" header="Registrations" sortable />
+      <Column field="bookings" header="Bookings" sortable>
+        <template #body="{ data }: { data: EventPreview }">
+          {{ data.bookings }} / {{ data.capacity }}
+        </template>
+      </Column>
+      <Column field="blockers" header="Blockers" sortable>
+        <template #body="{ data }: { data: EventPreview }">
+          <Tag
+            :value="data.blockers ? String(data.blockers) : 'Clear'"
+            :severity="data.blockers ? 'warn' : 'success'"
+          />
+        </template>
+      </Column>
       <Column field="status" header="Status" sortable>
         <template #body="{ data }: { data: EventPreview }">
           <Tag :value="data.status" :severity="statusSeverity(data.status)" />
@@ -235,10 +349,7 @@ function statusSeverity(status: EventPreview["status"]) {
       >
         <div class="dialog-note" role="note">
           <span class="pi pi-info-circle" aria-hidden="true" />
-          <span>
-            This adds local UI state only. It does not persist or call an events
-            API.
-          </span>
+          <span>This adds local UI state only and does not call an API.</span>
         </div>
         <div class="field">
           <label for="event-name">Event name <span>Required</span></label>
@@ -285,11 +396,7 @@ function statusSeverity(status: EventPreview["status"]) {
           text
           @click="dialogOpen = false"
         />
-        <Button
-          type="submit"
-          form="event-preview-form"
-          label="Create preview row"
-        />
+        <Button type="submit" form="event-preview-form" label="Create event" />
       </template>
     </Dialog>
   </motion.section>

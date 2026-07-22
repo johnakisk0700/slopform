@@ -125,7 +125,7 @@ const dataTablePassThrough = computed(() => ({
         </template>
         <template #empty>
           <div v-if="!loading" class="jts-data-table__empty">
-            <span class="pi pi-inbox" aria-hidden="true" />
+            <span class="brand__mark" aria-hidden="true" />
             <strong>{{ emptyTitle }}</strong>
             <span>{{ emptyDescription }}</span>
             <div

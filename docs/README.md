@@ -11,12 +11,15 @@ This directory is the maintained project memory. Markdown is deliberate: GitHub 
 5. [`decisions/0001-platform.md`](decisions/0001-platform.md) — accepted platform decision
 6. [`decisions/0002-wordpress-boundary.md`](decisions/0002-wordpress-boundary.md) — transitional WordPress/payment boundary
 7. [`decisions/0003-rendering.md`](decisions/0003-rendering.md) — Nuxt rendering policy
-8. [`deployment.md`](deployment.md) — development containers and production VPS topology
-9. [`agent-readiness.md`](agent-readiness.md) — repeatable extension benchmark and current evidence gaps
+8. [`decisions/0004-admin-only-boundary.md`](decisions/0004-admin-only-boundary.md) — admin/public product ownership boundary
+9. [`decisions/0005-theming-and-dark-mode.md`](decisions/0005-theming-and-dark-mode.md) — design tokens and light/dark theming
+10. [`deployment.md`](deployment.md) — development containers and production VPS topology
+11. [`agent-readiness.md`](agent-readiness.md) — repeatable extension benchmark and current evidence gaps
 
 Area-specific memory:
 
 - [`frontend/components/README.md`](frontend/components/README.md) — reusable component inventory and selection hierarchy
+- [`frontend/theming.md`](frontend/theming.md) — design tokens, dark mode and the PrimeVue integration
 - [`backend/mechanisms/README.md`](backend/mechanisms/README.md) — queue, database and runtime operations contracts
 - [`backend/modules/README.md`](backend/modules/README.md) — product-domain module inventory and lifecycle docs
 - [`documentation-standard.md`](documentation-standard.md) — required shape for new component/mechanism documentation

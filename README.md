@@ -1,10 +1,14 @@
 # Join The Six
 
-Production foundation for the Join The Six operator application and public intake flows.
+Production foundation for the private Join The Six administration and operator application.
+
+Public marketing, registration and participant-facing journeys live in the
+existing Next.js application at `legacy.example.com`; they are deliberately outside
+this repository.
 
 ## Stack
 
-- `apps/web`: Nuxt, Vue, PrimeVue and Motion for Vue
+- `apps/web`: private Nuxt, Vue and PrimeVue administration panel
 - `apps/backend`: NestJS modular monolith with separate API and worker processes
 - `packages/database`: PostgreSQL schema and versioned Drizzle migrations
 - Redis and BullMQ for observable background jobs

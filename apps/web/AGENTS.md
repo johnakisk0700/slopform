@@ -32,15 +32,15 @@ Keep one-off page logic explicit. Delete scaffolding for APIs that do not exist.
 Pages own columns and business actions. Shared components do not hide API calls
 or domain rules. Do not wrap PrimeVue merely to rename its props.
 
-PrimeVue controls visible in server-rendered HTML belong in the explicit
-allow-list in `nuxt.config.ts`; client-only or post-interaction controls use
-local imports. Moving an SSR control to a local import can flash unstyled UI.
-On an admin-only page, import every PrimeVue primitive used by that page locally,
-even if the same primitive is globally allow-listed for public SSR.
+This is an admin-only client application. Import every PrimeVue primitive
+locally in the page, layout or component that uses it. Do not restore a global
+component allow-list to accommodate a public route; public UI belongs to the
+existing Next.js application at `legacy.example.com`.
 
 ## Preserve the route contract
 
-Every page owns an accurate title, description and indexing policy. Keep one
+Only `/admin` and `/admin/**` are application routes; `/` redirects to `/admin`.
+Every page owns an accurate title, description and private indexing policy. Keep one
 `h1`, labelled controls, connected error text, keyboard-visible focus, status
 text in addition to colour and reduced-motion behavior. Private or unfinished
 routes need both robots metadata and the matching `X-Robots-Tag` route rule.
@@ -59,5 +59,5 @@ Add every environment variable to the owning Zod schema and matching
 Validation must pass during Nuxt build/dev and again when the built Nitro server
 starts, because production `NUXT_*` values can override the build defaults.
 
-Run `pnpm --filter @join-the-six/web lint`, `typecheck`, `test` and the relevant
-`generate`/`build` check before handoff.
+Run `pnpm --filter @join-the-six/web lint`, `typecheck`, `test` and `build`
+before handoff.

@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-07-22
+- Scope note: frontend ownership narrowed by [ADR 0004](0004-admin-only-boundary.md).
 
 ## Decision
 
@@ -12,7 +13,7 @@ Deploy the Nest HTTP API and worker as separate processes from the same modular-
 ## Why
 
 - One language and repository make contracts, tooling and agent-assisted changes easier to review.
-- Nuxt and PrimeVue directly fit an admin-heavy Vue application plus a few public forms.
+- Nuxt and PrimeVue directly fit the private, admin-heavy Vue application.
 - Nest provides enough imposed structure for consistent controllers/modules/use cases without inventing an internal framework.
 - Drizzle keeps schema and queries close to readable TypeScript and SQL.
 - BullMQ gives retries, concurrency and operational visibility without demanding a distributed architecture.
@@ -20,6 +21,6 @@ Deploy the Nest HTTP API and worker as separate processes from the same modular-
 ## Rejected
 
 - Astro: excellent content renderer, poor centre of gravity for an authenticated admin application.
-- Next.js: technically viable, but would replace the selected Vue UI stack and duplicate backend concerns with React server primitives.
+- Next.js as the admin runtime: technically viable, but would replace the selected Vue UI stack. The existing Next.js application remains the correct owner for `legacy.example.com` public journeys under ADR 0004.
 - Bun as the production runtime: possible later, but Node 24 has the least compatibility friction across Nest, Nuxt and observability tooling.
 - Microservices: no demonstrated scaling or team boundary justifies their operational tax.

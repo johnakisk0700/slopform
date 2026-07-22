@@ -24,10 +24,8 @@ defineSlots<{
     <div v-if="$slots.icon" class="jts-stat__icon" aria-hidden="true">
       <slot name="icon" />
     </div>
-    <div class="jts-stat__copy">
-      <dt class="jts-stat__label">{{ label }}</dt>
-      <dd class="jts-stat__value">{{ value }}</dd>
-      <dd v-if="detail" class="jts-stat__detail">{{ detail }}</dd>
-    </div>
+    <dt class="jts-stat__label">{{ label }}</dt>
+    <dd class="jts-stat__value">{{ value }}</dd>
+    <dd v-if="detail" class="jts-stat__detail">{{ detail }}</dd>
   </div>
 </template>

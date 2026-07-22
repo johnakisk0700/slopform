@@ -1,58 +1,243 @@
+/* =============================================================================
+   Join The Six — Design Tokens
+   -----------------------------------------------------------------------------
+   The single, framework-neutral source of truth for every colour, type, space,
+   radius, shadow and motion value in the admin panel.
+
+   How to use it
+   -------------
+   • Build screens against SEMANTIC tokens (`--jts-color-surface`,
+     `--jts-color-text-muted`, …), never raw primitives. Semantics carry the
+     light/dark meaning; primitives are just the paint box.
+   • PrimeVue consumes these same variables through `app/theme/jts-preset.ts`,
+     so PrimeVue components and hand-written CSS always match — in both themes.
+
+   Theming model (KISS)
+   --------------------
+   One signal decides everything: the class `jts-dark` on <html>.
+   • Light  →  :root                 (default)
+   • Dark   →  :root.jts-dark        (overrides only the semantic layer)
+   The `useTheme()` composable toggles that class (light / dark / system); the
+   `theme.client` plugin applies it before paint so there is no flash.
+
+   Layers below: 1) primitives  2) semantic (light)  3) type/space/radius/…
+   4) semantic (dark).
+   ============================================================================= */
+
 :root {
   color-scheme: light;
 
-  /* Primitive palette. Components consume semantic tokens below. */
-  --jts-burgundy-100: #fdebed;
-  --jts-burgundy-200: #f8d2d8;
-  --jts-burgundy-300: #efa7b2;
-  --jts-burgundy-500: #c84a60;
-  --jts-burgundy-700: #87233b;
-  --jts-burgundy-800: #6e2034;
-  --jts-burgundy-900: #5d1f30;
-  --jts-burgundy-950: #350b19;
+  /* ---------------------------------------------------------------------------
+     1. PRIMITIVE PALETTE — raw paint, identical in light and dark.
+     Never reference these directly in components; use the semantic layer.
+     --------------------------------------------------------------------------- */
 
-  --jts-rose-100: #fbeeea;
+  /* Wine — the brand red, "various reds" from blush to deep burgundy. */
+  --jts-wine-50: #fff4f6;
+  --jts-wine-100: #fde7ea;
+  --jts-wine-200: #f9ccd4;
+  --jts-wine-300: #f0a2b1;
+  --jts-wine-400: #de6f84;
+  --jts-wine-500: #c8455f;
+  --jts-wine-600: #a92f49;
+  --jts-wine-700: #86223b;
+  --jts-wine-800: #6d1f33;
+  --jts-wine-900: #591d2e;
+  --jts-wine-950: #33101a;
 
-  --jts-ink-950: #24161b;
-  --jts-ink-600: #6f5961;
-  --jts-danger-600: #b42318;
-  --jts-success-600: #176b45;
-  --jts-warning-600: #8a5207;
+  /* Clay — warm taupe neutral with a faint rosewood undertone. */
+  --jts-clay-0: #ffffff;
+  --jts-clay-50: #fffdfb;
+  --jts-clay-100: #fff7f1;
+  --jts-clay-150: #faece6;
+  --jts-clay-200: #f4e1da;
+  --jts-clay-300: #e9d5cd;
+  --jts-clay-400: #d5bbb2;
+  --jts-clay-500: #ab9098;
+  --jts-clay-600: #6f5961;
+  --jts-clay-700: #4a363d;
+  --jts-clay-800: #33222a;
+  --jts-clay-850: #26181f;
+  --jts-clay-900: #1e131a;
+  --jts-clay-950: #150c10;
 
-  /* Semantic color tokens shared by Nuxt pages and non-Vue consumers. */
-  --jts-color-canvas: #fff8f3;
-  --jts-color-surface: #fffdfb;
-  --jts-color-surface-muted: var(--jts-rose-100);
-  --jts-color-surface-strong: var(--jts-burgundy-900);
-  --jts-color-border: #eedbd5;
-  --jts-color-border-strong: #dfbdb6;
-  --jts-color-text: var(--jts-ink-950);
-  --jts-color-text-muted: var(--jts-ink-600);
-  --jts-color-text-on-strong: #fff8f6;
-  --jts-color-primary: var(--jts-burgundy-700);
-  --jts-color-primary-hover: var(--jts-burgundy-800);
-  --jts-color-primary-soft: var(--jts-burgundy-100);
-  --jts-color-accent: #bd6945;
-  --jts-color-focus: var(--jts-burgundy-500);
-  --jts-color-danger: var(--jts-danger-600);
-  --jts-color-success: var(--jts-success-600);
-  --jts-color-warning: var(--jts-warning-600);
+  /* Earthy status hues — tuned to sit beside the warm palette, not scream. */
+  --jts-forest-50: #edf4ef;
+  --jts-forest-100: #d6e7db;
+  --jts-forest-300: #74bd93;
+  --jts-forest-500: #2f8158;
+  --jts-forest-600: #1f6b45;
+  --jts-forest-700: #175639;
+  --jts-forest-900: #0e3524;
 
+  --jts-amber-50: #f9f0df;
+  --jts-amber-100: #f4e2bf;
+  --jts-amber-300: #dfa74d;
+  --jts-amber-500: #b9781f;
+  --jts-amber-600: #8a5207;
+  --jts-amber-700: #6d4206;
+
+  --jts-terracotta-50: #fbe9e5;
+  --jts-terracotta-100: #f6d1c9;
+  --jts-terracotta-300: #e78979;
+  --jts-terracotta-500: #c33f30;
+  --jts-terracotta-600: #b42318;
+  --jts-terracotta-700: #8f1c13;
+
+  --jts-slate-50: #ecf0f4;
+  --jts-slate-100: #d9e0e8;
+  --jts-slate-300: #8fa3b7;
+  --jts-slate-500: #4a6076;
+  --jts-slate-600: #3b4f63;
+  --jts-slate-700: #2f4050;
+
+  /* Copper — warm accent for occasional non-primary emphasis. */
+  --jts-copper-50: #f8ece3;
+  --jts-copper-100: #f0d8c7;
+  --jts-copper-300: #dda283;
+  --jts-copper-400: #cd7d59;
+  --jts-copper-500: #bd6945;
+  --jts-copper-600: #a1552f;
+
+  /* ---------------------------------------------------------------------------
+     2. SEMANTIC LAYER — LIGHT. This is what components consume.
+     --------------------------------------------------------------------------- */
+
+  /* Surfaces — warm-paper canvas so cards visibly lift without shadows. */
+  --jts-color-canvas: var(--jts-clay-150);
+  --jts-color-surface: var(--jts-clay-50);
+  --jts-color-surface-raised: var(--jts-clay-0);
+  --jts-color-surface-sunken: var(--jts-clay-200);
+  --jts-color-surface-overlay: var(--jts-clay-0);
+  --jts-color-surface-strong: var(--jts-wine-900); /* inverse / sidebar */
+
+  /* Borders */
+  --jts-color-border-subtle: color-mix(
+    in srgb,
+    var(--jts-clay-400) 40%,
+    transparent
+  );
+  --jts-color-border: var(--jts-clay-300);
+  --jts-color-border-strong: var(--jts-clay-400);
+
+  /* Text */
+  --jts-color-text: #24161b;
+  --jts-color-text-muted: var(--jts-clay-600);
+  --jts-color-text-subtle: #7f6a71; /* darkened to clear AA on light surfaces */
+  --jts-color-text-on-strong: #fbeef0;
+  --jts-color-text-on-strong-muted: color-mix(
+    in srgb,
+    #fbeef0 64%,
+    transparent
+  );
+
+  /* Brand / interactive */
+  --jts-color-primary: var(--jts-wine-700);
+  --jts-color-primary-hover: var(--jts-wine-800);
+  --jts-color-primary-active: var(--jts-wine-900);
+  --jts-color-primary-contrast: #ffffff;
+  --jts-color-primary-soft: var(--jts-wine-100);
+  --jts-color-primary-soft-hover: var(--jts-wine-200);
+  --jts-color-primary-border: color-mix(
+    in srgb,
+    var(--jts-wine-700) 24%,
+    var(--jts-clay-300)
+  );
+  --jts-color-accent: var(--jts-copper-500);
+  --jts-color-accent-soft: var(--jts-copper-50);
+  --jts-color-link: var(--jts-wine-700);
+  --jts-color-link-hover: var(--jts-wine-800);
+
+  /* Focus */
+  --jts-color-focus: var(--jts-wine-500);
+  --jts-focus-ring: 0 0 0 3px
+    color-mix(in srgb, var(--jts-wine-500) 30%, transparent);
+
+  /* Status — fg (text/icon), soft (fill), border */
+  --jts-color-success: var(--jts-forest-600);
+  --jts-color-success-soft: var(--jts-forest-50);
+  --jts-color-success-border: color-mix(
+    in srgb,
+    var(--jts-forest-600) 26%,
+    transparent
+  );
+  --jts-color-warning: var(--jts-amber-600);
+  --jts-color-warning-soft: var(--jts-amber-50);
+  --jts-color-warning-border: color-mix(
+    in srgb,
+    var(--jts-amber-600) 30%,
+    transparent
+  );
+  --jts-color-danger: var(--jts-terracotta-600);
+  --jts-color-danger-soft: var(--jts-terracotta-50);
+  --jts-color-danger-border: color-mix(
+    in srgb,
+    var(--jts-terracotta-600) 28%,
+    transparent
+  );
+  --jts-color-info: var(--jts-slate-600);
+  --jts-color-info-soft: var(--jts-slate-50);
+  --jts-color-info-border: color-mix(
+    in srgb,
+    var(--jts-slate-600) 26%,
+    transparent
+  );
+
+  /* Selection / highlight */
+  --jts-color-highlight: var(--jts-wine-100);
+  --jts-color-highlight-text: var(--jts-wine-800);
+
+  /* Sidebar (inverse surface) — composed from the tokens above. The sidebar
+     is wine in both themes, so these need no dark overrides. */
+  --jts-color-sidebar-bg: var(--jts-color-surface-strong);
+  --jts-color-sidebar-text: var(--jts-color-text-on-strong);
+  --jts-color-sidebar-text-muted: var(--jts-color-text-on-strong-muted);
+  --jts-color-sidebar-hover-bg: color-mix(in srgb, #ffffff 8%, transparent);
+  --jts-color-sidebar-active-bg: color-mix(in srgb, #ffffff 12%, transparent);
+  --jts-color-sidebar-active-text: #fbeef0;
+  --jts-color-sidebar-active-index: var(--jts-wine-300);
+  --jts-color-sidebar-border: color-mix(in srgb, #ffffff 12%, transparent);
+
+  /* ---------------------------------------------------------------------------
+     3. TYPOGRAPHY, SPACE, RADIUS, SHADOW, Z, MOTION — mode-independent.
+     --------------------------------------------------------------------------- */
+
+  /* Families. Manrope carries Latin + Greek in one variable family. */
   --jts-font-sans:
-    "DM Sans Variable", "DM Sans", ui-sans-serif, system-ui, -apple-system,
-    BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --jts-font-display:
-    "Newsreader Variable", Newsreader, Georgia, "Times New Roman", serif;
+    "Manrope Variable", "Manrope", ui-sans-serif, system-ui, -apple-system,
+    BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --jts-font-display: var(--jts-font-sans);
+  --jts-font-mono:
+    ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --jts-numeric-tabular: tabular-nums;
+
+  /* Weights */
+  --jts-weight-regular: 400;
+  --jts-weight-medium: 500;
+  --jts-weight-semibold: 600;
+  --jts-weight-bold: 700;
+  --jts-weight-extrabold: 800;
+
+  /* Type scale (fluid where it helps) */
   --jts-text-xs: 0.75rem;
   --jts-text-sm: 0.875rem;
   --jts-text-md: 1rem;
   --jts-text-lg: clamp(1.0625rem, 1rem + 0.2vw, 1.2rem);
-  --jts-text-xl: clamp(1.5rem, 1.25rem + 0.9vw, 2.15rem);
-  --jts-text-2xl: clamp(2.35rem, 1.6rem + 2.8vw, 4.75rem);
-  --jts-text-3xl: clamp(3rem, 2rem + 4.5vw, 6.5rem);
-  --jts-leading-tight: 1.02;
-  --jts-leading-body: 1.6;
+  --jts-text-xl: clamp(1.35rem, 1.15rem + 0.7vw, 1.75rem);
+  --jts-text-2xl: clamp(1.75rem, 1.4rem + 1.4vw, 2.6rem);
+  --jts-text-3xl: clamp(2.4rem, 1.8rem + 2.6vw, 4rem);
 
+  /* Line height + tracking */
+  --jts-leading-tight: 1.1;
+  --jts-leading-snug: 1.35;
+  --jts-leading-body: 1.6;
+  --jts-tracking-tight: -0.02em;
+  --jts-tracking-tighter: -0.035em;
+  --jts-tracking-normal: 0;
+  --jts-tracking-wide: 0.02em;
+  --jts-tracking-caps: 0.12em;
+
+  /* Space */
   --jts-space-1: 0.25rem;
   --jts-space-2: 0.5rem;
   --jts-space-3: 0.75rem;
@@ -66,37 +251,166 @@
   --jts-space-20: 5rem;
   --jts-space-24: 6rem;
 
-  --jts-radius-sm: 0.625rem;
-  --jts-radius-md: 0.9rem;
-  --jts-radius-lg: 1.35rem;
+  /* Radius — modest, editorial */
+  --jts-radius-xs: 0.25rem;
+  --jts-radius-sm: 0.4rem;
+  --jts-radius-md: 0.6rem;
+  --jts-radius-lg: 0.85rem;
+  --jts-radius-xl: 1.1rem;
   --jts-radius-pill: 999px;
-  --jts-shadow-sm: 0 1px 2px rgb(69 24 39 / 7%);
-  --jts-shadow-md: 0 18px 50px rgb(69 24 39 / 10%);
-  --jts-shadow-lg: 0 28px 80px rgb(69 24 39 / 14%);
-  --jts-content-width: 76rem;
-  --jts-focus-ring: 0 0 0 3px rgb(200 74 96 / 28%);
+  --jts-radius-circle: 50%;
+
+  /* Shadow — warm, used sparingly */
+  --jts-shadow-xs: 0 1px 2px rgb(52 11 24 / 6%);
+  --jts-shadow-sm: 0 1px 2px rgb(52 11 24 / 6%), 0 1px 3px rgb(52 11 24 / 4%);
+  --jts-shadow-md:
+    0 6px 16px -6px rgb(52 11 24 / 12%), 0 2px 6px -3px rgb(52 11 24 / 8%);
+  --jts-shadow-lg: 0 20px 44px -14px rgb(52 11 24 / 18%);
+
+  /* Z-index scale */
+  --jts-z-base: 0;
+  --jts-z-raised: 10;
+  --jts-z-sticky: 20;
+  --jts-z-drawer: 40;
+  --jts-z-overlay: 50;
+  --jts-z-toast: 60;
+  --jts-z-max: 9999;
+
+  /* Motion */
+  --jts-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --jts-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --jts-duration-fast: 120ms;
+  --jts-duration-base: 200ms;
+  --jts-duration-slow: 320ms;
+
+  /* Layout */
+  --jts-content-width: 96rem;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    color-scheme: dark;
-    --jts-color-canvas: #160d11;
-    --jts-color-surface: #211419;
-    --jts-color-surface-muted: #2e1b22;
-    --jts-color-surface-strong: #471426;
-    --jts-color-border: #4d303a;
-    --jts-color-border-strong: #69414e;
-    --jts-color-text: #fff4f0;
-    --jts-color-text-muted: #d6bdc5;
-    --jts-color-text-on-strong: #fff8f6;
-    --jts-color-primary: var(--jts-burgundy-300);
-    --jts-color-primary-hover: var(--jts-burgundy-200);
-    --jts-color-primary-soft: #3c202a;
-    --jts-color-accent: #eca67f;
-    --jts-color-focus: var(--jts-burgundy-300);
-    --jts-shadow-sm: 0 1px 2px rgb(0 0 0 / 24%);
-    --jts-shadow-md: 0 18px 50px rgb(0 0 0 / 28%);
-    --jts-shadow-lg: 0 28px 80px rgb(0 0 0 / 34%);
-    --jts-focus-ring: 0 0 0 3px rgb(239 167 178 / 34%);
-  }
+/* =============================================================================
+   4. SEMANTIC LAYER — DARK. Only the meanings flip; primitives are unchanged.
+   Driven by the single `jts-dark` class on <html> (see the theming model note).
+   ============================================================================= */
+
+:root.jts-dark {
+  color-scheme: dark;
+
+  /* Surfaces — warm wine-black, not flat pure black */
+  --jts-color-canvas: var(--jts-clay-950);
+  --jts-color-surface: var(--jts-clay-900);
+  --jts-color-surface-raised: #281922;
+  --jts-color-surface-sunken: #170e13;
+  --jts-color-surface-overlay: #281922;
+  --jts-color-surface-strong: #24101a;
+
+  /* Borders */
+  --jts-color-border-subtle: color-mix(in srgb, #ffffff 6%, transparent);
+  --jts-color-border: #3f2a33;
+  --jts-color-border-strong: #573a46;
+
+  /* Text */
+  --jts-color-text: #fbeef0;
+  --jts-color-text-muted: #d2b9c1;
+  --jts-color-text-subtle: #a78c96;
+  --jts-color-text-on-strong: #fbeef0;
+  --jts-color-text-on-strong-muted: color-mix(
+    in srgb,
+    #fbeef0 60%,
+    transparent
+  );
+
+  /* Brand — lifts to a lighter wine so it reads on dark surfaces */
+  --jts-color-primary: var(--jts-wine-300);
+  --jts-color-primary-hover: var(--jts-wine-200);
+  --jts-color-primary-active: var(--jts-wine-100);
+  --jts-color-primary-contrast: #33101a;
+  --jts-color-primary-soft: color-mix(
+    in srgb,
+    var(--jts-wine-500) 20%,
+    var(--jts-clay-900)
+  );
+  --jts-color-primary-soft-hover: color-mix(
+    in srgb,
+    var(--jts-wine-500) 30%,
+    var(--jts-clay-900)
+  );
+  --jts-color-primary-border: color-mix(
+    in srgb,
+    var(--jts-wine-300) 26%,
+    transparent
+  );
+  --jts-color-accent: var(--jts-copper-300);
+  --jts-color-accent-soft: color-mix(
+    in srgb,
+    var(--jts-copper-500) 22%,
+    var(--jts-clay-900)
+  );
+  --jts-color-link: var(--jts-wine-300);
+  --jts-color-link-hover: var(--jts-wine-200);
+
+  /* Focus */
+  --jts-color-focus: var(--jts-wine-300);
+  --jts-focus-ring: 0 0 0 3px
+    color-mix(in srgb, var(--jts-wine-300) 34%, transparent);
+
+  /* Status */
+  --jts-color-success: var(--jts-forest-300);
+  --jts-color-success-soft: color-mix(
+    in srgb,
+    var(--jts-forest-600) 24%,
+    var(--jts-clay-900)
+  );
+  --jts-color-success-border: color-mix(
+    in srgb,
+    var(--jts-forest-300) 30%,
+    transparent
+  );
+  --jts-color-warning: var(--jts-amber-300);
+  --jts-color-warning-soft: color-mix(
+    in srgb,
+    var(--jts-amber-600) 26%,
+    var(--jts-clay-900)
+  );
+  --jts-color-warning-border: color-mix(
+    in srgb,
+    var(--jts-amber-300) 30%,
+    transparent
+  );
+  --jts-color-danger: var(--jts-terracotta-300);
+  --jts-color-danger-soft: color-mix(
+    in srgb,
+    var(--jts-terracotta-600) 26%,
+    var(--jts-clay-900)
+  );
+  --jts-color-danger-border: color-mix(
+    in srgb,
+    var(--jts-terracotta-300) 30%,
+    transparent
+  );
+  --jts-color-info: var(--jts-slate-300);
+  --jts-color-info-soft: color-mix(
+    in srgb,
+    var(--jts-slate-600) 26%,
+    var(--jts-clay-900)
+  );
+  --jts-color-info-border: color-mix(
+    in srgb,
+    var(--jts-slate-300) 30%,
+    transparent
+  );
+
+  /* Selection / highlight */
+  --jts-color-highlight: color-mix(
+    in srgb,
+    var(--jts-wine-400) 26%,
+    transparent
+  );
+  --jts-color-highlight-text: #fbeff0;
+
+  /* Shadow — deeper on dark */
+  --jts-shadow-xs: 0 1px 2px rgb(0 0 0 / 40%);
+  --jts-shadow-sm: 0 1px 2px rgb(0 0 0 / 40%), 0 1px 3px rgb(0 0 0 / 30%);
+  --jts-shadow-md:
+    0 8px 20px -6px rgb(0 0 0 / 55%), 0 2px 8px -3px rgb(0 0 0 / 40%);
+  --jts-shadow-lg: 0 24px 50px -16px rgb(0 0 0 / 66%);
 }

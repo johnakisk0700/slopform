@@ -1,6 +1,6 @@
 # ADR 0003: Nuxt rendering by route family
 
-- Status: Accepted
+- Status: Superseded by [ADR 0004](0004-admin-only-boundary.md)
 - Date: 2026-07-22
 
 ## Decision
@@ -12,6 +12,13 @@ Use one Nuxt application with route-level rendering policy:
 - policy/help pages: prerender where content and deployment allow it.
 
 Business writes always cross the Nest API. Nuxt server routes may support web delivery concerns but do not become a second business backend.
+
+## Supersession
+
+The multi-family rendering policy described above was implemented before the
+product ownership boundary was corrected. The Nuxt application now contains
+only the client-rendered admin route family; public rendering belongs to the
+existing Next.js application at `legacy.example.com`.
 
 ## Consequences
 

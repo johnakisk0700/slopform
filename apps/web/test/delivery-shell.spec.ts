@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
@@ -17,15 +17,29 @@ describe("document delivery shell", () => {
     expect(app).toContain('class="skip-link" href="#main-content"');
   });
 
-  it.each(["app/layouts/default.vue", "app/layouts/admin.vue"])(
-    "keeps the %s main landmark focusable",
-    (layoutPath) => {
-      const layout = readWebFile(layoutPath);
+  it("keeps the admin layout main landmark focusable", () => {
+    const layout = readWebFile("app/layouts/admin.vue");
 
-      expect(layout).toContain('id="main-content"');
-      expect(layout).toContain('tabindex="-1"');
-    },
-  );
+    expect(layout).toContain('id="main-content"');
+    expect(layout).toContain('tabindex="-1"');
+  });
+
+  it("exposes only the private admin route family", () => {
+    const config = readWebFile("nuxt.config.ts");
+
+    expect(config).toContain('"/": { redirect: "/admin" }');
+    expect(config).toContain('"/admin/**"');
+    expect(config).not.toContain('"/register/**"');
+    expect(config).not.toContain('"/join/**"');
+    expect(config).not.toContain('"/feedback/**"');
+    expect(
+      existsSync(
+        fileURLToPath(
+          new URL("../app/pages/register/[eventSlug].vue", import.meta.url),
+        ),
+      ),
+    ).toBe(false);
+  });
 
   it("exposes a meaningful landmark and status before the admin SPA mounts", () => {
     const loadingTemplate = readWebFile("app/spa-loading-template.html");
