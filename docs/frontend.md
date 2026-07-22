@@ -123,6 +123,25 @@ packages together, not as independent dependency-bot confetti.
 - credentialed requests, a 15-second timeout and no automatic retries;
 - only `cookie` and `x-request-id` forwarded from inbound SSR requests.
 
+`environment.server.ts` parses build/dev variables through Zod before Nuxt is
+configured. `environment.public.ts` contains only browser-safe runtime config.
+The Nitro startup plugin validates the resolved config again so production
+`NUXT_*` overrides cannot bypass the build-time check. Empty local values use
+documented defaults; an invalid runtime override fails startup. Never read
+application environment values directly from `process.env` inside Vue code.
+This follows the T3 Env pattern directly with the existing Zod dependency; two
+variables do not justify another configuration library.
+
+```mermaid
+flowchart LR
+  local["Local .env or build environment"] --> build["Server Zod schema"]
+  build --> config["Nuxt runtimeConfig defaults"]
+  runtime["Production NUXT_* overrides"] --> resolved["Resolved Nitro config"]
+  config --> resolved
+  resolved --> startup["Nitro startup validation"]
+  startup --> server["Server and public API clients"]
+```
+
 `useApi()` is the application-facing seam for imperative calls. Use
 `useFetch`/`useAsyncData` for SSR page reads so results enter the Nuxt payload.
 Prefer a generated OpenAPI client or shared contract package once backend
@@ -226,8 +245,10 @@ Library behavior was verified 2026-07-22 against:
 - [Nuxt directory structure](https://nuxt.com/docs/4.x/directory-structure/)
 - [Nuxt rendering modes](https://nuxt.com/docs/4.x/guide/concepts/rendering)
 - [Nuxt data fetching](https://nuxt.com/docs/4.x/getting-started/data-fetching)
+- [Nuxt runtime config](https://nuxt.com/docs/4.x/guide/going-further/runtime-config)
 - [Nuxt SEO metadata](https://nuxt.com/docs/4.x/getting-started/seo-meta)
 - [Nuxt TypeScript](https://nuxt.com/docs/4.x/guide/concepts/typescript)
+- [T3 Env Nuxt pattern](https://env.t3.gg/docs/nuxt)
 - [PrimeVue DataTable](https://v4.primevue.org/datatable/)
 - [PrimeVue accessibility](https://v4.primevue.org/guides/accessibility/)
 - [Vue TypeScript Composition API](https://vuejs.org/guide/typescript/composition-api)

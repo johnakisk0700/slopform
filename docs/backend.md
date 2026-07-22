@@ -126,6 +126,12 @@ contract supplies defaults for host/port, origins, pool size, Redis, logging and
 telemetry sampling, and guards optional telemetry, Bull Board and reference
 module settings. Production browser origins require HTTPS.
 
+`AppConfigModule` parses the complete environment through the single Zod
+contract while Nest creates the HTTP or worker application, before either
+process listens or consumes jobs. Instrumentation parses its deliberately
+smaller observability subset before an SDK starts. Add variables to these
+contracts rather than scattering `process.env` reads through providers.
+
 Start HTTP and worker together with `dev`, or separately with `dev:http` and
 `dev:worker`. Production uses `start:http` and `start:worker` as separate
 processes. Backend and database `build` commands remove their own `dist/` first

@@ -14,6 +14,8 @@ The repository `AGENTS.md` applies here. Before changing UI architecture, read
 - `app/plugins/`: integration bootstrap, not domain behavior.
 - `app/theme/`: PrimeVue tokens; `app/assets/css/`: application layout and
   composition; `packages/design-tokens/`: framework-neutral visual values.
+- `environment.server.ts` / `environment.public.ts`: Zod contracts for private
+  server and browser-visible runtime configuration.
 
 Do not create a shared abstraction before a second concrete use unless it owns
 an explicit foundation contract already listed in the component inventory.
@@ -51,6 +53,11 @@ editor help, not runtime validation.
 When a change alters structure, rendering, a reusable contract, configuration
 or measured delivery constraints, update `docs/frontend.md` and/or the focused
 component document in the same change.
+
+Add every environment variable to the owning Zod schema and matching
+`.env.example`. Keep server-only variables out of `environment.public.ts`.
+Validation must pass during Nuxt build/dev and again when the built Nitro server
+starts, because production `NUXT_*` values can override the build defaults.
 
 Run `pnpm --filter @join-the-six/web lint`, `typecheck`, `test` and the relevant
 `generate`/`build` check before handoff.

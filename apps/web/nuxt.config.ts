@@ -1,5 +1,9 @@
 import { defineNuxtConfig } from "nuxt/config";
 
+import { validateWebEnvironment } from "./environment.server.js";
+
+const environment = validateWebEnvironment(process.env);
+
 const strictCompilerOptions = {
   exactOptionalPropertyTypes: true,
   noImplicitOverride: true,
@@ -46,9 +50,9 @@ export default defineNuxtConfig({
     },
   },
   runtimeConfig: {
-    apiBaseInternal: "http://localhost:4000/api/v1",
+    apiBaseInternal: environment.NUXT_API_BASE_INTERNAL,
     public: {
-      apiBase: "/api/v1",
+      apiBase: environment.NUXT_PUBLIC_API_BASE,
     },
   },
   routeRules: {
