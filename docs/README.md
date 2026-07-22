@@ -12,6 +12,7 @@ This directory is the maintained project memory. Markdown is deliberate: GitHub 
 6. [`decisions/0002-wordpress-boundary.md`](decisions/0002-wordpress-boundary.md) — transitional WordPress/payment boundary
 7. [`decisions/0003-rendering.md`](decisions/0003-rendering.md) — Nuxt rendering policy
 8. [`deployment.md`](deployment.md) — development containers and production VPS topology
+9. [`agent-readiness.md`](agent-readiness.md) — repeatable extension benchmark and current evidence gaps
 
 Area-specific memory:
 
