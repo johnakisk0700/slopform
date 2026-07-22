@@ -1,7 +1,4 @@
 <script setup lang="ts">
-import JtsPageHeader from "~/components/ui/JtsPageHeader.vue";
-import JtsSurface from "~/components/ui/JtsSurface.vue";
-
 useSeoMeta({
   title: "Dinner feedback",
   robots: "noindex, nofollow",

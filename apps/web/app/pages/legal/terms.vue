@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import JtsPageHeader from "~/components/ui/JtsPageHeader.vue";
-
 useSeoMeta({ title: "Terms of participation" });
 </script>
 

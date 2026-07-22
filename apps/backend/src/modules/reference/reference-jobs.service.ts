@@ -2,14 +2,12 @@ import { InjectQueue } from "@nestjs/bullmq";
 import { Injectable } from "@nestjs/common";
 import type { Queue } from "bullmq";
 
+import { REFERENCE_QUEUE } from "../../infrastructure/queue/queue.constants.js";
 import {
   REFERENCE_JOB_NAMES,
-  REFERENCE_QUEUE,
+  type EnqueueReferenceJobInput,
+  type ReferenceJobData,
   type ReferenceJobName,
-} from "../../infrastructure/queue/queue.constants.js";
-import type {
-  EnqueueReferenceJobDto,
-  ReferenceJobData,
 } from "./reference.schemas.js";
 import { ReferenceService } from "./reference.service.js";
 
@@ -22,7 +20,7 @@ export class ReferenceJobsService {
   ) {}
 
   async enqueue(
-    input: EnqueueReferenceJobDto,
+    input: EnqueueReferenceJobInput,
     correlationId: string,
   ): Promise<{ jobId: string }> {
     await this.references.get(input.recordId);

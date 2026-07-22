@@ -15,6 +15,7 @@ coverage/
 .env.*
 !.env.example
 !.env.*.example
+secrets/
 
 # Logs and runtime files
 *.log

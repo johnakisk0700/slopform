@@ -2,10 +2,10 @@ import {
   Body,
   Controller,
   Get,
+  NotFoundException,
   Param,
   Post,
   Req,
-  UseGuards,
 } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
 import type { Request } from "express";
@@ -19,8 +19,10 @@ import {
   ReferenceRecordDto,
 } from "./reference.schemas.js";
 import { ReferenceJobsService } from "./reference-jobs.service.js";
-import { ReferenceGuard } from "./reference.guard.js";
-import { ReferenceService } from "./reference.service.js";
+import {
+  ReferenceRecordNotFoundError,
+  ReferenceService,
+} from "./reference.service.js";
 
 type RequestWithId = Request & { id: string };
 
@@ -30,7 +32,6 @@ type RequestWithId = Request & { id: string };
  */
 @ApiTags("reference")
 @Controller("_reference")
-@UseGuards(ReferenceGuard)
 export class ReferenceController {
   constructor(
     private readonly references: ReferenceService,
@@ -52,7 +53,7 @@ export class ReferenceController {
   @Get(":id")
   @ZodResponse({ type: ReferenceRecordDto })
   get(@Param() parameters: ReferenceIdDto): Promise<ReferenceRecordDto> {
-    return this.references.get(parameters.id);
+    return mapReferenceErrors(this.references.get(parameters.id));
   }
 
   @Post("jobs")
@@ -61,6 +62,18 @@ export class ReferenceController {
     @Body() input: EnqueueReferenceJobDto,
     @Req() request: RequestWithId,
   ): Promise<EnqueueReferenceJobResponseDto> {
-    return this.jobs.enqueue(input, request.id);
+    return mapReferenceErrors(this.jobs.enqueue(input, request.id));
+  }
+}
+
+async function mapReferenceErrors<T>(operation: Promise<T>): Promise<T> {
+  try {
+    return await operation;
+  } catch (error) {
+    if (error instanceof ReferenceRecordNotFoundError) {
+      throw new NotFoundException(error.message, { cause: error });
+    }
+
+    throw error;
   }
 }

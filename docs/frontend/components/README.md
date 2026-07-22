@@ -28,10 +28,10 @@ flowchart TD
 
 ### Domain components
 
-| Component              | Scope               | Notes                                                                                                                                               |
-| ---------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AdminNavigation.vue`  | Admin shell         | Responsive operations navigation; owned by the admin layout                                                                                         |
-| `RegistrationForm.vue` | Public registration | Registration fields, validation, first-error focus and terminal success presentation; uses the shared API client but does not define backend policy |
+| Component              | Scope               | Notes                                                                                                                                                                                   |
+| ---------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AdminNavigation.vue`  | Admin shell         | Responsive operations navigation; owned by the admin layout                                                                                                                             |
+| `RegistrationForm.vue` | Public registration | [`registration-form.md`](registration-form.md) — fields, validation, first-error focus and terminal success presentation; uses the shared API client but does not define backend policy |
 
 ## Data-table policy
 

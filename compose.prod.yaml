@@ -1,8 +1,6 @@
 name: join-the-six
 
-x-app-environment: &app-environment
-  env_file:
-    - ${APP_ENV_FILE:-.env.production}
+x-service-defaults: &service-defaults
   restart: unless-stopped
   security_opt:
     - no-new-privileges:true
@@ -12,77 +10,112 @@ x-app-environment: &app-environment
       max-size: 10m
       max-file: "5"
 
+x-backend-environment: &backend-environment
+  NODE_ENV: production
+  POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env.production}
+  POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env.production}
+  DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-20}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-join-the-six-api}
+  OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+  SENTRY_DSN: ${SENTRY_DSN:-}
+  SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
+  REFERENCE_MODULE_ENABLED: ${REFERENCE_MODULE_ENABLED:-false}
+
 services:
   postgres:
-    image: postgres:18-alpine
-    env_file:
-      - ${APP_ENV_FILE:-.env.production}
-    restart: unless-stopped
+    <<: *service-defaults
+    image: postgres:18.4-alpine3.24@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env.production}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env.production}
+    secrets:
+      - postgres_password
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 20
+      start_period: 10s
     volumes:
       - postgres_data:/var/lib/postgresql
-    security_opt:
-      - no-new-privileges:true
-    logging:
-      driver: json-file
-      options:
-        max-size: 10m
-        max-file: "5"
+    networks:
+      - data
 
   redis:
-    image: redis:8-alpine
-    env_file:
-      - ${APP_ENV_FILE:-.env.production}
+    <<: *service-defaults
+    image: redis:8.8.0-alpine3.23@sha256:9d317178eceac8454a2284a9e6df2466b93c745529947f0cd42a0fa9609d7005
     command:
       - sh
       - -ec
-      - exec redis-server --appendonly yes --requirepass "$${REDIS_PASSWORD}"
-    restart: unless-stopped
+      - exec redis-server --appendonly yes --requirepass "$$(cat /run/secrets/redis_password)"
+    secrets:
+      - redis_password
     healthcheck:
       test:
         [
           "CMD-SHELL",
-          'redis-cli --no-auth-warning -a "$${REDIS_PASSWORD}" ping | grep PONG',
+          'redis-cli --no-auth-warning -a "$$(cat /run/secrets/redis_password)" ping | grep PONG',
         ]
       interval: 5s
       timeout: 5s
       retries: 20
+      start_period: 5s
     volumes:
       - redis_data:/data
-    security_opt:
-      - no-new-privileges:true
-    logging:
-      driver: json-file
-      options:
-        max-size: 10m
-        max-file: "5"
+    networks:
+      - data
 
   migrate:
+    <<: *service-defaults
     build:
       context: .
       target: migrate
-    env_file:
-      - ${APP_ENV_FILE:-.env.production}
-    command: pnpm --filter @join-the-six/database db:migrate
+    init: true
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env.production}
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env.production}
+    secrets:
+      - postgres_password
     depends_on:
       postgres:
         condition: service_healthy
     restart: "no"
-    security_opt:
-      - no-new-privileges:true
+    read_only: true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp
+    networks:
+      - data
 
   api:
-    <<: *app-environment
+    <<: *service-defaults
     build:
       context: .
       target: api
+    init: true
+    environment:
+      <<: *backend-environment
+      API_HOST: 0.0.0.0
+      API_PORT: 4000
+      WEB_ORIGIN: ${WEB_ORIGIN:?Set WEB_ORIGIN in .env.production}
+      BULL_BOARD_ENABLED: ${BULL_BOARD_ENABLED:-false}
+      BULL_BOARD_USERNAME: ${BULL_BOARD_USERNAME:-}
+      BULL_BOARD_PASSWORD: ${BULL_BOARD_PASSWORD:-}
+      WORDPRESS_BASE_URL: ${WORDPRESS_BASE_URL:-}
+      WORDPRESS_SERVICE_TOKEN: ${WORDPRESS_SERVICE_TOKEN:-}
+      WORDPRESS_WEBHOOK_SECRET: ${WORDPRESS_WEBHOOK_SECRET:-}
+    secrets:
+      - postgres_password
+      - redis_password
     read_only: true
+    cap_drop:
+      - ALL
     tmpfs:
       - /tmp
+    stop_grace_period: 30s
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -94,35 +127,52 @@ services:
           "CMD",
           "node",
           "-e",
-          "fetch('http://127.0.0.1:4000/api/v1/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+          "fetch('http://127.0.0.1:4000/api/v1/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
         ]
       interval: 10s
       timeout: 5s
       retries: 12
       start_period: 10s
+    networks:
+      - data
+      - edge
 
   worker:
-    <<: *app-environment
+    <<: *service-defaults
     build:
       context: .
       target: worker
+    init: true
     read_only: true
+    cap_drop:
+      - ALL
     tmpfs:
       - /tmp
+    stop_grace_period: 30s
     environment:
+      <<: *backend-environment
       OTEL_SERVICE_NAME: join-the-six-worker
+    secrets:
+      - postgres_password
+      - redis_password
     depends_on:
       migrate:
         condition: service_completed_successfully
       redis:
         condition: service_healthy
+    networks:
+      - data
+      - egress
 
   web:
-    <<: *app-environment
+    <<: *service-defaults
     build:
       context: .
       target: web
+    init: true
     read_only: true
+    cap_drop:
+      - ALL
     tmpfs:
       - /tmp
     environment:
@@ -145,12 +195,15 @@ services:
       timeout: 5s
       retries: 12
       start_period: 10s
+    networks:
+      - edge
 
   caddy:
-    image: caddy:2-alpine
-    env_file:
-      - ${APP_ENV_FILE:-.env.production}
-    restart: unless-stopped
+    <<: *service-defaults
+    image: caddy:2.11.4-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
+    environment:
+      ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL in .env.production}
+      DOMAIN: ${DOMAIN:?Set DOMAIN in .env.production}
     ports:
       - "80:80"
       - "443:443"
@@ -164,16 +217,37 @@ services:
         condition: service_healthy
       web:
         condition: service_healthy
-    security_opt:
-      - no-new-privileges:true
-    logging:
-      driver: json-file
-      options:
-        max-size: 10m
-        max-file: "5"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "-q",
+          "-O",
+          "/dev/null",
+          "http://127.0.0.1:2019/config/",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    networks:
+      - edge
 
 volumes:
   postgres_data:
   redis_data:
   caddy_data:
   caddy_config:
+
+networks:
+  data:
+    internal: true
+  edge:
+  egress:
+
+secrets:
+  postgres_password:
+    file: ${POSTGRES_PASSWORD_FILE:?Set POSTGRES_PASSWORD_FILE in .env.production}
+  redis_password:
+    file: ${REDIS_PASSWORD_FILE:?Set REDIS_PASSWORD_FILE in .env.production}

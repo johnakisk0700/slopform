@@ -14,7 +14,13 @@ node_modules
 **/dist
 .env
 .env.*
-!.env.example
-!.env.*.example
+secrets
+docs
+**/*.md
+**/test
+**/*.spec.ts
+compose*.yaml
+docker-bake.hcl
+Caddyfile
 *.log
 .DS_Store

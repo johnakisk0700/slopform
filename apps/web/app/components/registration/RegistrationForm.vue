@@ -148,8 +148,8 @@ async function submit(): Promise<void> {
       <div class="field">
         <label for="registration-diet">Dietary preference</label>
         <Select
-          input-id="registration-diet"
           v-model="form.dietaryPreference"
+          input-id="registration-diet"
           :options="dietaryOptions"
           option-label="label"
           option-value="value"

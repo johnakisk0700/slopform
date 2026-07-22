@@ -19,10 +19,7 @@ export async function createHttpApplication(): Promise<INestApplication> {
   app.setGlobalPrefix("api/v1");
   app.enableCors({
     credentials: true,
-    origin: config
-      .get("WEB_ORIGIN", { infer: true })
-      .split(",")
-      .map((origin) => origin.trim()),
+    origin: config.get("WEB_ORIGIN", { infer: true }),
   });
 
   const openApiConfig = new DocumentBuilder()

@@ -1,7 +1,4 @@
 <script setup lang="ts">
-import JtsPageHeader from "~/components/ui/JtsPageHeader.vue";
-import JtsSurface from "~/components/ui/JtsSurface.vue";
-
 useSeoMeta({
   title: "Join a dinner",
   description: "Find a Join The Six dinner and request a seat.",

@@ -29,7 +29,9 @@ sequenceDiagram
   Worker->>Worker: Validate payload contract
   Worker->>DB: Reload current authoritative state
   Worker->>Provider: Perform idempotent side effect
-  alt transient failure
+  alt invalid contract or permanent failure
+    Worker-->>Queue: Throw UnrecoverableError; fail without retry
+  else transient failure
     Worker-->>Queue: Throw; retry with backoff
   else success
     Worker-->>Queue: Complete with bounded retention
@@ -48,12 +50,15 @@ sequenceDiagram
 - Payloads contain identifiers and correlation metadata, never credentials or
   large authoritative snapshots.
 - Transient failures are thrown so attempts/backoff remain observable.
+- Invalid payloads, unsupported job names and other permanent failures throw
+  BullMQ `UnrecoverableError` and move directly to the failed set.
 - Completed and failed jobs have bounded retention.
 
 ## Extension path
 
 1. Define the queue/job names and a strict payload schema near the owning domain.
-2. Register producers only in the HTTP/domain adapter and processors only in the
+2. Import queue infrastructure explicitly in the HTTP/worker adapter that uses
+   it. Register producers only in the HTTP adapter and processors only in the
    worker module.
 3. Fetch current state in the processor and make every effect idempotent.
 4. Add focused schema/service tests plus a real Redis integration test for job
@@ -66,7 +71,8 @@ sequenceDiagram
 
 - Readiness performs a real BullMQ Redis operation at
   `GET /api/v1/health/ready`.
-- Bull Board is disabled by default. When enabled it requires credentials and
+- Bull Board is disabled by default; its Nest module and route are not
+  registered in that state. When enabled it requires validated credentials and
   must remain behind private networking or SSO.
 - Correlation IDs travel in job data and structured logs.
 - Scale API and worker containers independently; workers do not expose HTTP.
@@ -82,3 +88,4 @@ sequenceDiagram
 - [BullMQ idempotent jobs](https://docs.bullmq.io/patterns/idempotent-jobs)
 - [BullMQ job IDs](https://docs.bullmq.io/guide/jobs/job-ids)
 - [BullMQ retries](https://docs.bullmq.io/guide/retrying-failing-jobs)
+- [BullMQ unrecoverable failures](https://docs.bullmq.io/patterns/stop-retrying-jobs)

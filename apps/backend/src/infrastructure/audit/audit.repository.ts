@@ -2,15 +2,15 @@ import { Injectable } from "@nestjs/common";
 import {
   auditEvents,
   type AuditEventInsert,
-  type DatabaseExecutor,
+  type AppTransaction,
 } from "@join-the-six/database";
 
 @Injectable()
 export class AuditRepository {
   async append(
-    executor: DatabaseExecutor,
+    transaction: AppTransaction,
     event: AuditEventInsert,
   ): Promise<void> {
-    await executor.insert(auditEvents).values(event);
+    await transaction.insert(auditEvents).values(event);
   }
 }

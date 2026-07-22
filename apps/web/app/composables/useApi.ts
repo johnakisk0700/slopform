@@ -1,3 +1,3 @@
-export function useApi(): typeof $fetch {
+export function useApi() {
   return useNuxtApp().$api;
 }

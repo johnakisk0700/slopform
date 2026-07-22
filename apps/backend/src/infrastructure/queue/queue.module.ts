@@ -1,5 +1,5 @@
 import { BullModule } from "@nestjs/bullmq";
-import { Global, Module } from "@nestjs/common";
+import { Module } from "@nestjs/common";
 import { ConfigModule, ConfigService } from "@nestjs/config";
 
 import type { Environment } from "../config/environment.js";
@@ -7,7 +7,6 @@ import { REFERENCE_QUEUE } from "./queue.constants.js";
 import { QueueHealthService } from "./queue-health.service.js";
 import { redisConnectionFromUrl } from "./redis-connection.js";
 
-@Global()
 @Module({
   imports: [
     BullModule.forRootAsync({

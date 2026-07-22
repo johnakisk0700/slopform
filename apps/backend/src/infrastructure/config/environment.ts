@@ -7,6 +7,39 @@ const optionalString = z.preprocess(
   emptyStringToUndefined,
   z.string().trim().min(1).optional(),
 );
+const webOrigins = z
+  .string()
+  .default("http://localhost:3000")
+  .transform((value, context) => {
+    const origins = value.split(",").map((origin) => origin.trim());
+    const normalizedOrigins: string[] = [];
+
+    for (const [index, origin] of origins.entries()) {
+      try {
+        const url = new URL(origin);
+
+        if (
+          !["http:", "https:"].includes(url.protocol) ||
+          url.username ||
+          url.password ||
+          url.pathname !== "/" ||
+          url.search ||
+          url.hash
+        ) {
+          throw new Error("not an HTTP origin");
+        }
+
+        normalizedOrigins.push(url.origin);
+      } catch {
+        context.addIssue({
+          code: "custom",
+          message: `WEB_ORIGIN entry ${index + 1} must be an HTTP(S) origin`,
+        });
+      }
+    }
+
+    return [...new Set(normalizedOrigins)];
+  });
 const postgresUrl = z
   .url()
   .refine(
@@ -33,10 +66,16 @@ export const environmentSchema = z
       .enum(["development", "test", "production"])
       .default("development"),
     API_HOST: z.string().min(1).default("0.0.0.0"),
-    API_PORT: z.coerce.number().int().min(1).max(65_535).default(4000),
-    WEB_ORIGIN: z.string().min(1).default("http://localhost:3000"),
+    API_PORT: z.preprocess(
+      emptyStringToUndefined,
+      z.coerce.number().int().min(1).max(65_535).default(4000),
+    ),
+    WEB_ORIGIN: webOrigins,
     DATABASE_URL: postgresUrl,
-    DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(100).default(10),
+    DATABASE_POOL_MAX: z.preprocess(
+      emptyStringToUndefined,
+      z.coerce.number().int().min(1).max(100).default(10),
+    ),
     REDIS_URL: redisUrl.default("redis://localhost:6379"),
     LOG_LEVEL: z
       .enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"])
@@ -44,7 +83,10 @@ export const environmentSchema = z
     OTEL_SERVICE_NAME: z.string().min(1).default("join-the-six-api"),
     OTEL_EXPORTER_OTLP_ENDPOINT: optionalUrl,
     SENTRY_DSN: optionalUrl,
-    SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(0.1),
+    SENTRY_TRACES_SAMPLE_RATE: z.preprocess(
+      emptyStringToUndefined,
+      z.coerce.number().min(0).max(1).default(0.1),
+    ),
     BULL_BOARD_ENABLED: booleanFromEnvironment,
     BULL_BOARD_USERNAME: optionalString,
     BULL_BOARD_PASSWORD: optionalString,
@@ -79,4 +121,14 @@ export function validateEnvironment(
   input: Record<string, unknown>,
 ): Environment {
   return environmentSchema.parse(input);
+}
+
+export function isBullBoardEnabled(environment: NodeJS.ProcessEnv): boolean {
+  return environment.BULL_BOARD_ENABLED?.toLowerCase() === "true";
+}
+
+export function isReferenceModuleEnabled(
+  environment: NodeJS.ProcessEnv,
+): boolean {
+  return environment.REFERENCE_MODULE_ENABLED?.toLowerCase() === "true";
 }

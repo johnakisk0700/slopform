@@ -27,8 +27,12 @@ pnpm dev
 To run the application processes in containers too:
 
 ```bash
+pnpm dev:containers:build
 pnpm dev:containers
 ```
+
+Rebuild the development image after dependency manifest or lockfile changes;
+ordinary source edits use the bind mount and hot reload.
 
 Run the full repository check with:
 
@@ -43,9 +47,15 @@ plus PostgreSQL, Redis and Caddy for TLS/reverse proxying:
 
 ```bash
 cp .env.production.example .env.production
+install -d -m 700 secrets
+umask 077
+openssl rand -hex 32 > secrets/postgres_password
+openssl rand -hex 32 > secrets/redis_password
 # Replace every placeholder before continuing.
 docker compose --env-file .env.production -f compose.prod.yaml config --quiet
-docker compose --env-file .env.production -f compose.prod.yaml up -d --build
+docker compose --env-file .env.production -f compose.prod.yaml build --pull
+docker compose --env-file .env.production -f compose.prod.yaml up -d \
+  --no-build --remove-orphans --wait
 ```
 
 Deployment, rollback and VPS CI guidance lives in

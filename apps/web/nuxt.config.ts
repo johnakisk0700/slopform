@@ -1,8 +1,21 @@
 import { defineNuxtConfig } from "nuxt/config";
+
+const strictCompilerOptions = {
+  exactOptionalPropertyTypes: true,
+  noImplicitOverride: true,
+  noUncheckedIndexedAccess: true,
+};
+
 export default defineNuxtConfig({
   compatibilityDate: "2026-07-22",
   devtools: { enabled: true },
-  modules: ["@nuxt/eslint", "@primevue/nuxt-module", "motion-v/nuxt"],
+  modules: ["@nuxt/eslint", "@primevue/nuxt-module"],
+  components: [
+    {
+      path: "~/components",
+      pathPrefix: false,
+    },
+  ],
   css: [
     "@fontsource-variable/dm-sans/wght.css",
     "@fontsource-variable/newsreader/wght.css",
@@ -13,6 +26,22 @@ export default defineNuxtConfig({
   typescript: {
     strict: true,
     typeCheck: true,
+    tsConfig: {
+      compilerOptions: { ...strictCompilerOptions },
+    },
+    sharedTsConfig: {
+      compilerOptions: { ...strictCompilerOptions },
+    },
+    nodeTsConfig: {
+      compilerOptions: { ...strictCompilerOptions },
+    },
+  },
+  nitro: {
+    typescript: {
+      tsConfig: {
+        compilerOptions: { ...strictCompilerOptions },
+      },
+    },
   },
   runtimeConfig: {
     apiBaseInternal: "http://localhost:4000/api/v1",
@@ -56,7 +85,7 @@ export default defineNuxtConfig({
       ],
     },
     directives: {
-      include: ["Ripple"],
+      include: [],
     },
     composables: {
       include: [],

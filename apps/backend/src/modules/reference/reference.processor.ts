@@ -1,17 +1,19 @@
 import { OnWorkerEvent, Processor, WorkerHost } from "@nestjs/bullmq";
 import { Logger } from "@nestjs/common";
-import type { Job } from "bullmq";
+import { UnrecoverableError, type Job } from "bullmq";
+import { ZodError } from "zod";
 
+import { REFERENCE_QUEUE } from "../../infrastructure/queue/queue.constants.js";
 import {
   REFERENCE_JOB_NAMES,
-  REFERENCE_QUEUE,
-  type ReferenceJobName,
-} from "../../infrastructure/queue/queue.constants.js";
-import {
   referenceJobDataSchema,
   type ReferenceJobData,
+  type ReferenceJobName,
 } from "./reference.schemas.js";
-import { ReferenceService } from "./reference.service.js";
+import {
+  ReferenceRecordNotFoundError,
+  ReferenceService,
+} from "./reference.service.js";
 
 @Processor(REFERENCE_QUEUE, { concurrency: 5 })
 export class ReferenceProcessor extends WorkerHost {
@@ -26,20 +28,32 @@ export class ReferenceProcessor extends WorkerHost {
   ): Promise<void> {
     switch (job.name) {
       case REFERENCE_JOB_NAMES.inspectRecord: {
-        const data = referenceJobDataSchema.parse(job.data);
-        const record = await this.references.get(data.recordId);
-        this.logger.log({
-          event: "reference_record.inspected",
-          jobId: job.id,
-          correlationId: data.correlationId,
-          referenceRecordId: record.id,
-        });
-        return;
+        try {
+          const data = referenceJobDataSchema.parse(job.data);
+          const record = await this.references.get(data.recordId);
+
+          this.logger.log({
+            event: "reference_record.inspected",
+            jobId: job.id,
+            correlationId: data.correlationId,
+            referenceRecordId: record.id,
+          });
+          return;
+        } catch (error) {
+          if (error instanceof ZodError) {
+            throw new UnrecoverableError("Invalid reference job payload");
+          }
+
+          if (error instanceof ReferenceRecordNotFoundError) {
+            throw new UnrecoverableError(error.message);
+          }
+
+          throw error;
+        }
       }
       default: {
-        const unsupportedName: never = job.name;
-        throw new Error(
-          `Unsupported reference job: ${String(unsupportedName)}`,
+        throw new UnrecoverableError(
+          `Unsupported reference job: ${String(job.name)}`,
         );
       }
     }

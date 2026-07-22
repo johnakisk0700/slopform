@@ -1,7 +1,4 @@
 <script setup lang="ts">
-import JtsPageHeader from "~/components/ui/JtsPageHeader.vue";
-import JtsSurface from "~/components/ui/JtsSurface.vue";
-
 const route = useRoute();
 const eventSlug = computed(() => String(route.params.eventSlug));
 
@@ -21,7 +18,7 @@ useSeoMeta({
       />
 
       <div class="registration-layout">
-        <PublicRegistrationForm :event-slug="eventSlug" />
+        <RegistrationForm :event-slug="eventSlug" />
 
         <aside class="registration-aside" aria-label="Registration context">
           <JtsSurface

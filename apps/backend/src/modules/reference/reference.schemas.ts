@@ -1,6 +1,10 @@
 import { createZodDto } from "nestjs-zod";
 import { z } from "zod";
 
+export const REFERENCE_JOB_NAMES = {
+  inspectRecord: "reference.inspect-record",
+} as const;
+
 export const createReferenceRecordSchema = z
   .object({
     label: z.string().trim().min(1).max(120),
@@ -45,4 +49,13 @@ export class EnqueueReferenceJobResponseDto extends createZodDto(
   enqueueReferenceJobResponseSchema,
 ) {}
 
+export type CreateReferenceRecordInput = z.infer<
+  typeof createReferenceRecordSchema
+>;
+export type ReferenceRecordView = z.infer<typeof referenceRecordSchema>;
+export type EnqueueReferenceJobInput = z.infer<
+  typeof enqueueReferenceJobSchema
+>;
 export type ReferenceJobData = z.infer<typeof referenceJobDataSchema>;
+export type ReferenceJobName =
+  (typeof REFERENCE_JOB_NAMES)[keyof typeof REFERENCE_JOB_NAMES];

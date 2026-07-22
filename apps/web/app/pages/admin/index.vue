@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { motion } from "motion-v";
 import { useToast } from "primevue/usetoast";
-import * as z from "zod";
-import JtsDataTable from "~/components/ui/JtsDataTable.vue";
-import JtsPageHeader from "~/components/ui/JtsPageHeader.vue";
-import JtsStat from "~/components/ui/JtsStat.vue";
+import {
+  eventPreviewSchema,
+  getEventPreviewErrors,
+  type EventPreviewDraft,
+} from "~/features/event/schema";
 
 definePageMeta({ layout: "admin" });
 useSeoMeta({ title: "Operations overview", robots: "noindex, nofollow" });
@@ -34,14 +35,9 @@ const previewRows = ref<EventPreview[]>([
   },
 ]);
 
-const eventSchema = z.object({
-  name: z.string().trim().min(3, "Use at least three characters."),
-  date: z.date({ error: "Choose a date." }),
-});
-
 const toast = useToast();
 const dialogOpen = ref(false);
-const draft = reactive<{ name: string; date: Date | null }>({
+const draft = reactive<EventPreviewDraft>({
   name: "",
   date: null,
 });
@@ -79,19 +75,10 @@ async function focusFirstEventError(): Promise<void> {
 }
 
 async function createPreviewEvent(): Promise<void> {
-  const result = eventSchema.safeParse(draft);
+  const result = eventPreviewSchema.safeParse(draft);
 
   if (!result.success) {
-    formErrors.value = result.error.issues.reduce<{
-      name?: string;
-      date?: string;
-    }>((errors, issue) => {
-      const field = issue.path[0];
-      if (field === "name" || field === "date") {
-        errors[field] ??= issue.message;
-      }
-      return errors;
-    }, {});
+    formErrors.value = getEventPreviewErrors(draft);
     await focusFirstEventError();
     return;
   }
