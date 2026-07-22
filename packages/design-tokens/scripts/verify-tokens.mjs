@@ -6,10 +6,13 @@ const css = await readFile(file, "utf8");
 const requiredTokens = [
   "--jts-color-canvas",
   "--jts-color-surface",
+  "--jts-color-surface-strong",
   "--jts-color-text",
+  "--jts-color-text-on-strong",
   "--jts-color-primary",
   "--jts-color-focus",
   "--jts-font-sans",
+  "--jts-font-display",
   "--jts-space-4",
   "--jts-radius-md",
 ];

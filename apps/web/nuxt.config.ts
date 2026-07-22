@@ -4,6 +4,8 @@ export default defineNuxtConfig({
   devtools: { enabled: true },
   modules: ["@nuxt/eslint", "@primevue/nuxt-module", "motion-v/nuxt"],
   css: [
+    "@fontsource-variable/dm-sans/wght.css",
+    "@fontsource-variable/newsreader/wght.css",
     "@join-the-six/design-tokens/tokens.css",
     "primeicons/primeicons.css",
     "~/assets/css/main.css",

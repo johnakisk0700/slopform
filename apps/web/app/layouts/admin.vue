@@ -8,10 +8,20 @@ const mobileNavigationOpen = ref(false);
   <MotionConfig reduced-motion="user">
     <div class="admin-shell">
       <aside class="admin-sidebar" aria-label="Operations navigation">
-        <NuxtLink class="brand admin-sidebar__brand" to="/admin">
-          Join The Six
+        <NuxtLink
+          class="brand admin-sidebar__brand"
+          to="/admin"
+          aria-label="Join The Six operations home"
+        >
+          <span class="brand__mark" aria-hidden="true" />
+          <span>Join The Six</span>
         </NuxtLink>
+        <p class="admin-sidebar__kicker">Operations workspace</p>
         <AdminNavigation />
+        <div class="admin-sidebar__footer">
+          <span class="status-dot" aria-hidden="true" />
+          Preview environment
+        </div>
       </aside>
 
       <div class="admin-main">
@@ -23,18 +33,23 @@ const mobileNavigationOpen = ref(false);
               text
               rounded
               aria-label="Open navigation"
+              aria-controls="admin-mobile-navigation"
+              :aria-expanded="mobileNavigationOpen"
               @click="mobileNavigationOpen = true"
             />
             <div>
-              <div class="eyebrow">Operations</div>
-              <strong>Foundation workspace</strong>
+              <div class="admin-topbar__eyebrow">Join The Six</div>
+              <strong>Operations</strong>
             </div>
           </div>
-          <Avatar
-            label="J"
-            shape="circle"
-            aria-label="Signed in as demo operator"
-          />
+          <div class="admin-topbar__operator">
+            <span>Demo operator</span>
+            <Avatar
+              label="J"
+              shape="circle"
+              aria-label="Signed in as demo operator"
+            />
+          </div>
         </header>
 
         <main id="main-content" class="admin-content">
@@ -43,10 +58,12 @@ const mobileNavigationOpen = ref(false);
       </div>
 
       <Drawer
+        id="admin-mobile-navigation"
         v-model:visible="mobileNavigationOpen"
-        header="Operations navigation"
+        header="Join The Six operations"
         position="left"
       >
+        <p class="admin-drawer__note">Preview environment</p>
         <AdminNavigation @navigate="mobileNavigationOpen = false" />
       </Drawer>
       <Toast position="bottom-right" />

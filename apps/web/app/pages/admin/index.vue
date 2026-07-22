@@ -2,6 +2,9 @@
 import { motion } from "motion-v";
 import { useToast } from "primevue/usetoast";
 import * as z from "zod";
+import JtsDataTable from "~/components/ui/JtsDataTable.vue";
+import JtsPageHeader from "~/components/ui/JtsPageHeader.vue";
+import JtsStat from "~/components/ui/JtsStat.vue";
 
 definePageMeta({ layout: "admin" });
 useSeoMeta({ title: "Operations overview", robots: "noindex, nofollow" });
@@ -44,6 +47,24 @@ const draft = reactive<{ name: string; date: Date | null }>({
 });
 const formErrors = ref<{ name?: string; date?: string }>({});
 
+const totalPreviewRegistrations = computed(() =>
+  previewRows.value.reduce((total, event) => total + event.registrations, 0),
+);
+const openPreviewEvents = computed(
+  () => previewRows.value.filter((event) => event.status === "Open").length,
+);
+
+const dateFormatter = new Intl.DateTimeFormat("en-GB", {
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+  timeZone: "UTC",
+});
+
+function formatDate(value: string): string {
+  return dateFormatter.format(new Date(`${value}T00:00:00Z`));
+}
+
 function openDialog(): void {
   draft.name = "";
   draft.date = null;
@@ -51,7 +72,13 @@ function openDialog(): void {
   dialogOpen.value = true;
 }
 
-function createPreviewEvent(): void {
+async function focusFirstEventError(): Promise<void> {
+  await nextTick();
+  const id = formErrors.value.name ? "event-name" : "event-date";
+  document.getElementById(id)?.focus();
+}
+
+async function createPreviewEvent(): Promise<void> {
   const result = eventSchema.safeParse(draft);
 
   if (!result.success) {
@@ -65,6 +92,7 @@ function createPreviewEvent(): void {
       }
       return errors;
     }, {});
+    await focusFirstEventError();
     return;
   }
 
@@ -98,62 +126,105 @@ function statusSeverity(status: EventPreview["status"]) {
 
 <template>
   <motion.section
-    :initial="{ opacity: 0, y: 10 }"
+    class="admin-overview"
+    :initial="{ opacity: 0, y: 8 }"
     :animate="{ opacity: 1, y: 0 }"
-    :transition="{ duration: 0.22 }"
+    :transition="{ duration: 0.2 }"
   >
-    <header class="admin-page-header">
-      <div>
-        <p class="eyebrow">Admin foundation</p>
-        <h1>Operations overview</h1>
-        <p>
-          PrimeVue interaction patterns using clearly labelled preview data.
-        </p>
-      </div>
-      <Button icon="pi pi-plus" label="New preview event" @click="openDialog" />
-    </header>
-
-    <section
-      class="surface-card admin-card"
-      aria-labelledby="events-table-title"
+    <JtsPageHeader
+      variant="admin"
+      eyebrow="Preview workspace"
+      title="Operations overview"
+      description="A clear view of local event fixtures while the live operations contracts are connected."
     >
-      <Toolbar>
-        <template #start>
-          <div>
-            <h2 id="events-table-title">Event table pattern</h2>
-            <span class="field-help"
-              >In-memory preview data; no backend claim.</span
-            >
-          </div>
-        </template>
-        <template #end>
-          <Button
-            icon="pi pi-refresh"
-            label="Refresh"
-            severity="secondary"
-            disabled
-          />
-        </template>
-      </Toolbar>
+      <template #actions>
+        <Button
+          icon="pi pi-plus"
+          label="New preview event"
+          @click="openDialog"
+        />
+      </template>
+    </JtsPageHeader>
 
-      <DataTable
-        :value="previewRows"
-        data-key="id"
-        striped-rows
-        responsive-layout="scroll"
-        aria-label="Preview events"
+    <div class="admin-preview-note" role="note">
+      <span class="pi pi-info-circle" aria-hidden="true" />
+      <span>
+        Every number on this page comes from in-memory preview rows. Nothing
+        here is a live operational metric.
+      </span>
+    </div>
+
+    <dl class="admin-stats" aria-label="Preview event summary">
+      <JtsStat
+        label="Preview events"
+        :value="previewRows.length"
+        detail="Local fixture rows"
+        tone="primary"
       >
-        <Column field="name" header="Event" />
-        <Column field="date" header="Date" />
-        <Column field="registrations" header="Registrations" />
-        <Column field="status" header="Status">
-          <template #body="{ data }: { data: EventPreview }">
-            <Tag :value="data.status" :severity="statusSeverity(data.status)" />
-          </template>
-        </Column>
-        <template #empty>No preview events yet.</template>
-      </DataTable>
-    </section>
+        <template #icon><span class="pi pi-calendar" /></template>
+      </JtsStat>
+      <JtsStat
+        label="Preview registrations"
+        :value="totalPreviewRegistrations"
+        detail="Sum of fixture values"
+      >
+        <template #icon><span class="pi pi-users" /></template>
+      </JtsStat>
+      <JtsStat
+        label="Open previews"
+        :value="openPreviewEvents"
+        detail="Status labels, not availability"
+        tone="success"
+      >
+        <template #icon><span class="pi pi-check-circle" /></template>
+      </JtsStat>
+      <JtsStat
+        label="Data source"
+        value="Preview fixtures"
+        detail="Local edits reset on reload"
+        tone="warning"
+      >
+        <template #icon><span class="pi pi-database" /></template>
+      </JtsStat>
+    </dl>
+
+    <JtsDataTable
+      :rows="previewRows"
+      data-key="id"
+      title="Event planning"
+      description="In-memory preview rows for validating table, status and pagination behavior."
+      empty-title="No preview events"
+      empty-description="Create a local preview row to exercise the empty-to-ready transition."
+      paginator
+      :page-size="5"
+      :rows-per-page-options="[5, 10, 25]"
+    >
+      <template #toolbar-end>
+        <Button
+          icon="pi pi-refresh"
+          label="Refresh"
+          severity="secondary"
+          outlined
+          disabled
+        />
+      </template>
+      <Column field="name" header="Event" sortable>
+        <template #body="{ data }: { data: EventPreview }">
+          <strong class="admin-event-name">{{ data.name }}</strong>
+        </template>
+      </Column>
+      <Column field="date" header="Date" sortable>
+        <template #body="{ data }: { data: EventPreview }">
+          <time :datetime="data.date">{{ formatDate(data.date) }}</time>
+        </template>
+      </Column>
+      <Column field="registrations" header="Registrations" sortable />
+      <Column field="status" header="Status" sortable>
+        <template #body="{ data }: { data: EventPreview }">
+          <Tag :value="data.status" :severity="statusSeverity(data.status)" />
+        </template>
+      </Column>
+    </JtsDataTable>
 
     <Dialog
       v-model:visible="dialogOpen"
@@ -164,18 +235,23 @@ function statusSeverity(status: EventPreview["status"]) {
       <form
         id="event-preview-form"
         class="form-grid"
+        novalidate
         @submit.prevent="createPreviewEvent"
       >
-        <Message severity="info" :closable="false">
-          This demonstrates form, dialog and toast behavior. It does not
-          persist.
-        </Message>
+        <div class="dialog-note" role="note">
+          <span class="pi pi-info-circle" aria-hidden="true" />
+          <span>
+            This adds local UI state only. It does not persist or call an events
+            API.
+          </span>
+        </div>
         <div class="field">
           <label for="event-name">Event name</label>
           <InputText
             id="event-name"
             v-model="draft.name"
             autofocus
+            autocomplete="off"
             :invalid="Boolean(formErrors.name)"
             :aria-describedby="formErrors.name ? 'event-name-error' : undefined"
           />
@@ -190,7 +266,15 @@ function statusSeverity(status: EventPreview["status"]) {
             input-id="event-date"
             show-icon
             :invalid="Boolean(formErrors.date)"
-            :aria-describedby="formErrors.date ? 'event-date-error' : undefined"
+            :pt="{
+              pcInputText: {
+                root: {
+                  'aria-describedby': formErrors.date
+                    ? 'event-date-error'
+                    : undefined,
+                },
+              },
+            }"
           />
           <p v-if="formErrors.date" id="event-date-error" class="field-error">
             {{ formErrors.date }}

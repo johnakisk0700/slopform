@@ -2,61 +2,73 @@
   color-scheme: light;
 
   /* Primitive palette. Components consume semantic tokens below. */
-  --jts-plum-50: #faf7fb;
-  --jts-plum-100: #f1e9f3;
-  --jts-plum-200: #dfcfe4;
-  --jts-plum-300: #c5a6ce;
-  --jts-plum-400: #a478b1;
-  --jts-plum-500: #85568f;
-  --jts-plum-600: #6f4377;
-  --jts-plum-700: #59365f;
-  --jts-plum-800: #482d4d;
-  --jts-plum-900: #3b283f;
-  --jts-plum-950: #231325;
+  --jts-burgundy-50: #fff7f8;
+  --jts-burgundy-100: #fdebed;
+  --jts-burgundy-200: #f8d2d8;
+  --jts-burgundy-300: #efa7b2;
+  --jts-burgundy-400: #df7283;
+  --jts-burgundy-500: #c84a60;
+  --jts-burgundy-600: #aa3049;
+  --jts-burgundy-700: #87233b;
+  --jts-burgundy-800: #6e2034;
+  --jts-burgundy-900: #5d1f30;
+  --jts-burgundy-950: #350b19;
 
-  --jts-sand-50: #fcfaf6;
-  --jts-sand-100: #f7f1e7;
-  --jts-sand-200: #eee2cf;
-  --jts-sand-300: #e1caaa;
-  --jts-sand-400: #cfa97d;
-  --jts-sand-500: #be8e5e;
+  --jts-cream-50: #fffaf5;
+  --jts-cream-100: #fff4e8;
+  --jts-cream-200: #f7e4d3;
+  --jts-cream-300: #ecc8aa;
+  --jts-cream-400: #dfa77c;
+  --jts-cream-500: #c98555;
 
-  --jts-ink-950: #1f1a1d;
-  --jts-ink-800: #3e353a;
-  --jts-ink-600: #655a60;
-  --jts-ink-400: #978b91;
+  --jts-rose-50: #fff9f8;
+  --jts-rose-100: #fbeeea;
+  --jts-rose-200: #f4dcd7;
+  --jts-rose-300: #e6bdb5;
+  --jts-rose-400: #cf8f86;
+
+  --jts-ink-950: #24161b;
+  --jts-ink-800: #463239;
+  --jts-ink-600: #6f5961;
+  --jts-ink-400: #9a848c;
   --jts-white: #ffffff;
   --jts-danger-600: #b42318;
-  --jts-success-600: #16794b;
-  --jts-warning-600: #a45f06;
+  --jts-success-600: #176b45;
+  --jts-warning-600: #8a5207;
 
   /* Semantic color tokens shared by Nuxt pages and non-Vue consumers. */
-  --jts-color-canvas: var(--jts-sand-50);
-  --jts-color-surface: var(--jts-white);
-  --jts-color-surface-muted: var(--jts-sand-100);
-  --jts-color-border: var(--jts-sand-200);
+  --jts-color-canvas: #fff8f3;
+  --jts-color-surface: #fffdfb;
+  --jts-color-surface-muted: var(--jts-rose-100);
+  --jts-color-surface-strong: var(--jts-burgundy-900);
+  --jts-color-border: #eedbd5;
+  --jts-color-border-strong: #dfbdb6;
   --jts-color-text: var(--jts-ink-950);
   --jts-color-text-muted: var(--jts-ink-600);
-  --jts-color-primary: var(--jts-plum-700);
-  --jts-color-primary-hover: var(--jts-plum-800);
-  --jts-color-primary-soft: var(--jts-plum-100);
-  --jts-color-focus: var(--jts-plum-500);
+  --jts-color-text-on-strong: #fff8f6;
+  --jts-color-primary: var(--jts-burgundy-700);
+  --jts-color-primary-hover: var(--jts-burgundy-800);
+  --jts-color-primary-soft: var(--jts-burgundy-100);
+  --jts-color-accent: #bd6945;
+  --jts-color-focus: var(--jts-burgundy-500);
   --jts-color-danger: var(--jts-danger-600);
   --jts-color-success: var(--jts-success-600);
   --jts-color-warning: var(--jts-warning-600);
 
   --jts-font-sans:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-    "Segoe UI", sans-serif;
-  --jts-font-display: Georgia, "Times New Roman", serif;
+    "DM Sans Variable", "DM Sans", ui-sans-serif, system-ui, -apple-system,
+    BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --jts-font-display:
+    "Newsreader Variable", Newsreader, Georgia, "Times New Roman", serif;
   --jts-text-xs: 0.75rem;
   --jts-text-sm: 0.875rem;
   --jts-text-md: 1rem;
-  --jts-text-lg: 1.125rem;
-  --jts-text-xl: clamp(1.4rem, 1.2rem + 0.75vw, 2rem);
-  --jts-text-2xl: clamp(2rem, 1.35rem + 2.4vw, 4rem);
-  --jts-leading-tight: 1.15;
-  --jts-leading-body: 1.55;
+  --jts-text-lg: clamp(1.0625rem, 1rem + 0.2vw, 1.2rem);
+  --jts-text-xl: clamp(1.5rem, 1.25rem + 0.9vw, 2.15rem);
+  --jts-text-2xl: clamp(2.35rem, 1.6rem + 2.8vw, 4.75rem);
+  --jts-text-3xl: clamp(3rem, 2rem + 4.5vw, 6.5rem);
+  --jts-leading-tight: 1.02;
+  --jts-leading-body: 1.6;
 
   --jts-space-1: 0.25rem;
   --jts-space-2: 0.5rem;
@@ -68,36 +80,45 @@
   --jts-space-10: 2.5rem;
   --jts-space-12: 3rem;
   --jts-space-16: 4rem;
+  --jts-space-20: 5rem;
+  --jts-space-24: 6rem;
 
-  --jts-radius-sm: 0.5rem;
-  --jts-radius-md: 0.875rem;
-  --jts-radius-lg: 1.25rem;
+  --jts-radius-sm: 0.625rem;
+  --jts-radius-md: 0.9rem;
+  --jts-radius-lg: 1.35rem;
+  --jts-radius-xl: 2rem;
   --jts-radius-pill: 999px;
-  --jts-shadow-sm: 0 1px 2px rgb(35 19 37 / 8%);
-  --jts-shadow-md: 0 16px 40px rgb(35 19 37 / 10%);
-  --jts-content-width: 72rem;
-  --jts-form-width: 42rem;
+  --jts-shadow-sm: 0 1px 2px rgb(69 24 39 / 7%);
+  --jts-shadow-md: 0 18px 50px rgb(69 24 39 / 10%);
+  --jts-shadow-lg: 0 28px 80px rgb(69 24 39 / 14%);
+  --jts-content-width: 76rem;
+  --jts-form-width: 44rem;
   --jts-motion-fast: 140ms;
   --jts-motion-normal: 220ms;
   --jts-ease-standard: cubic-bezier(0.2, 0, 0, 1);
-  --jts-focus-ring: 0 0 0 3px rgb(133 86 143 / 30%);
+  --jts-focus-ring: 0 0 0 3px rgb(200 74 96 / 28%);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
-    --jts-color-canvas: #181416;
-    --jts-color-surface: #241f22;
-    --jts-color-surface-muted: #30292d;
-    --jts-color-border: #493f44;
-    --jts-color-text: #f8f2f5;
-    --jts-color-text-muted: #c9bcc3;
-    --jts-color-primary: var(--jts-plum-300);
-    --jts-color-primary-hover: var(--jts-plum-200);
-    --jts-color-primary-soft: #382c3b;
-    --jts-color-focus: var(--jts-plum-300);
+    --jts-color-canvas: #160d11;
+    --jts-color-surface: #211419;
+    --jts-color-surface-muted: #2e1b22;
+    --jts-color-surface-strong: #471426;
+    --jts-color-border: #4d303a;
+    --jts-color-border-strong: #69414e;
+    --jts-color-text: #fff4f0;
+    --jts-color-text-muted: #d6bdc5;
+    --jts-color-text-on-strong: #fff8f6;
+    --jts-color-primary: var(--jts-burgundy-300);
+    --jts-color-primary-hover: var(--jts-burgundy-200);
+    --jts-color-primary-soft: #3c202a;
+    --jts-color-accent: #eca67f;
+    --jts-color-focus: var(--jts-burgundy-300);
     --jts-shadow-sm: 0 1px 2px rgb(0 0 0 / 24%);
-    --jts-shadow-md: 0 16px 40px rgb(0 0 0 / 30%);
-    --jts-focus-ring: 0 0 0 3px rgb(197 166 206 / 38%);
+    --jts-shadow-md: 0 18px 50px rgb(0 0 0 / 28%);
+    --jts-shadow-lg: 0 28px 80px rgb(0 0 0 / 34%);
+    --jts-focus-ring: 0 0 0 3px rgb(239 167 178 / 34%);
   }
 }

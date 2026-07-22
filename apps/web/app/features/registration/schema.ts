@@ -15,7 +15,7 @@ export const registrationSchema = z.object({
   dietaryPreference: z.enum(["none", "vegetarian", "vegan"]),
   note: z.string().trim().max(500, "Keep the note under 500 characters."),
   privacyAccepted: z.literal(true, {
-    error: "You need to accept the privacy notice.",
+    error: "Confirm that you have read the current privacy notice.",
   }),
 });
 

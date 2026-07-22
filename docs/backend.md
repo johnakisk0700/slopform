@@ -100,6 +100,10 @@ Audit context must be deliberately small. Do not dump request bodies, credential
 
 ## Queues, retries and idempotency
 
+The focused, agent-readable mechanism contract and flow diagram live in
+[`backend/mechanisms/queues.md`](backend/mechanisms/queues.md). Update that page
+with any queue topology, payload, retry, idempotency or operational change.
+
 Use BullMQ, not legacy Bull. Each job name and payload has a versionable contract. Validate job data again in the processor: Redis may contain jobs written by an older deployment or another producer.
 
 Rules:

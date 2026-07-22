@@ -6,19 +6,21 @@ The frontend is one Nuxt application in `apps/web`. It deliberately uses differe
 
 ## Selected versions
 
-| Package                     | Version | Reason                                                                                                                                                      |
-| --------------------------- | ------: | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Nuxt                        |   4.5.0 | Current stable Nuxt release and the owner of routing, SSR, prerendering and the Vite build.                                                                 |
-| Vue                         |  3.5.40 | Current stable Vue release; satisfies Nuxt 4.5's Vue 3.5 dependency.                                                                                        |
-| PrimeVue                    |   4.5.5 | Latest MIT-licensed PrimeVue 4 release.                                                                                                                     |
-| `@primevue/nuxt-module`     |   4.5.5 | Official module aligned exactly with PrimeVue 4.5.5.                                                                                                        |
-| `@primeuix/themes`          |   2.0.3 | MIT theme package used by PrimeVue 4.5.5.                                                                                                                   |
-| PrimeIcons                  |   7.0.0 | Latest MIT icon-font release compatible with the selected PrimeVue line.                                                                                    |
-| Motion for Vue (`motion-v`) |   2.3.0 | Current stable Motion Vue package and Nuxt module.                                                                                                          |
-| Zod                         |   4.4.3 | Current stable runtime validation library.                                                                                                                  |
-| TypeScript                  |   6.0.3 | Newest stable version supported by the current `typescript-eslint` peer range (`<6.1`). TypeScript 7 is not yet a compatible choice for the lint toolchain. |
-| Vitest                      |  4.1.10 | Current stable test runner, compatible with Nuxt's Vite generation.                                                                                         |
-| Nuxt ESLint module          |  1.16.0 | Official project-aware flat ESLint configuration for Nuxt.                                                                                                  |
+| Package                        | Version | Reason                                                                                                                                                      |
+| ------------------------------ | ------: | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Nuxt                           |   4.5.0 | Current stable Nuxt release and the owner of routing, SSR, prerendering and the Vite build.                                                                 |
+| Vue                            |  3.5.40 | Current stable Vue release; satisfies Nuxt 4.5's Vue 3.5 dependency.                                                                                        |
+| PrimeVue                       |   4.5.5 | Latest MIT-licensed PrimeVue 4 release.                                                                                                                     |
+| `@primevue/nuxt-module`        |   4.5.5 | Official module aligned exactly with PrimeVue 4.5.5.                                                                                                        |
+| `@primeuix/themes`             |   2.0.3 | MIT theme package used by PrimeVue 4.5.5.                                                                                                                   |
+| PrimeIcons                     |   7.0.0 | Latest MIT icon-font release compatible with the selected PrimeVue line.                                                                                    |
+| Motion for Vue (`motion-v`)    |   2.3.0 | Current stable Motion Vue package and Nuxt module.                                                                                                          |
+| Zod                            |   4.4.3 | Current stable runtime validation library.                                                                                                                  |
+| TypeScript                     |   6.0.3 | Newest stable version supported by the current `typescript-eslint` peer range (`<6.1`). TypeScript 7 is not yet a compatible choice for the lint toolchain. |
+| Vitest                         |  4.1.10 | Current stable test runner, compatible with Nuxt's Vite generation.                                                                                         |
+| Nuxt ESLint module             |  1.16.0 | Official project-aware flat ESLint configuration for Nuxt.                                                                                                  |
+| Fontsource DM Sans Variable    |   5.3.0 | Self-hosted variable sans for public body copy and dense admin UI; OFL-1.1.                                                                                 |
+| Fontsource Newsreader Variable |   5.3.0 | Self-hosted variable display serif for the public editorial voice; OFL-1.1.                                                                                 |
 
 PrimeVue 5.0.0 is the registry's current overall release, but it moved from MIT to the PrimeUI licence and requires a licence key. Do not upgrade by accident. First confirm Community Licence eligibility or buy a Commercial Licence, then review the v5 migration guide and upgrade `primevue`, `@primevue/nuxt-module` and `@primeuix/themes` together. This is a commercial decision, not a dependency-bot checkbox.
 
@@ -48,6 +50,9 @@ Read these sources before extending the relevant area:
 - Zod 4: <https://zod.dev/packages/zod>
 - Nuxt ESLint module: <https://eslint.nuxt.com/packages/module>
 - Vitest: <https://vitest.dev/guide/>
+- Fontsource variable fonts: <https://fontsource.org/docs/getting-started/variable>
+- DM Sans installation: <https://fontsource.org/fonts/dm-sans/install>
+- Newsreader installation: <https://fontsource.org/fonts/newsreader/install>
 
 Exact versions were checked against the official npm registry metadata on 2026-07-22. Package pages:
 
@@ -57,6 +62,8 @@ Exact versions were checked against the official npm registry metadata on 2026-0
 - <https://www.npmjs.com/package/@primevue/nuxt-module>
 - <https://www.npmjs.com/package/motion-v>
 - <https://www.npmjs.com/package/zod>
+- <https://www.npmjs.com/package/@fontsource-variable/dm-sans>
+- <https://www.npmjs.com/package/@fontsource-variable/newsreader>
 
 ## Rendering boundary
 
@@ -74,12 +81,45 @@ The boundary is route-based and explicit in `nuxt.config.ts`:
 - `app/layouts/default.vue` owns the public header, footer and content landmarks.
 - `app/layouts/admin.vue` owns the operations shell and responsive navigation. Admin pages select it with `definePageMeta({ layout: 'admin' })`.
 - Domain components belong under `app/components/<domain>/`; a page should orchestrate a route, not become a 1,500-line landfill.
+- Before using PrimeVue directly, search the project component inventory in [`frontend/components/README.md`](frontend/components/README.md). Reuse an existing `Jts*` or domain component when its contract fits. Use PrimeVue directly when no project component fits; compose a documented `Jts*` wrapper only when it adds repeated product behavior such as standard loading, empty/error, pagination or accessibility states.
+- Shared `Jts*` UI components live under `app/components/ui/`. They expose typed props/emits/slots and do not hide domain API calls. A wrapper that only renames PrimeVue props is abstraction-flavoured paperwork and should not exist.
+- The current shared contracts are `JtsPageHeader`, `JtsSurface`, `JtsStat` and `JtsDataTable`; their focused contracts and selection guidance live in [`frontend/components/README.md`](frontend/components/README.md).
 - PrimeVue components are registered by the official Nuxt module from an explicit allow-list in `nuxt.config.ts`. Add a component to that list when it is first used; do not register the entire library or create a manual registration plugin.
 - Extend the PrimeVue preset in `app/theme/jts-preset.ts`; `app/theme/jts-theme.ts` is the small Nuxt import wrapper. Keeping the theme behind the module's `importTheme` option avoids serialising the complete Aura preset into every public page's runtime configuration. Prefer PrimeVue semantic/component tokens over `:deep()` overrides or selectors that depend on generated component markup.
 - Shared visual values live in `packages/design-tokens/src/tokens.css`. That package is framework-neutral CSS and must not import PrimeVue or Vue. Components consume semantic tokens such as `--jts-color-text`, not primitive palette values.
 - Maintain the 16px browser root. The selected PrimeVue 4 theme is compatible with that baseline and a future v5 upgrade expects it.
 
-The admin overview intentionally demonstrates a narrow set of foundation patterns: responsive navigation, Toolbar, DataTable, a Zod-validated Dialog form and Toast feedback. Its rows are labelled preview data and are not a speculative product dashboard.
+The admin overview demonstrates the shared page-header, stat and DataTable contracts alongside a Zod-validated Dialog form and Toast feedback. Every metric and row is labelled as local preview data; the page is not a speculative live dashboard.
+
+## Visual system, typography and decoration
+
+The product uses a warm burgundy/rose/cream system in both framework-neutral
+tokens and the PrimeVue preset. Brand color does not replace status semantics:
+green, amber and red remain reserved for success, warning and failure states.
+Both light and system-dark schemes maintain separate surface and foreground
+tokens. PrimeVue surfaces, fields, dialogs, toolbars, tables and tags are themed
+through `definePreset`; arbitrary selectors into generated component markup are
+not the theme API.
+
+DM Sans Variable and Newsreader Variable are installed from Fontsource at exact
+version 5.3.0. The packages self-host WOFF2 assets in the application build, so
+no runtime font request leaves the site. Both fonts originate from the Google
+Fonts catalogue and are distributed under the SIL Open Font License 1.1 by the
+Fontsource packages. Only the normal `wght` variable files are imported;
+resilient system/Georgia fallbacks remain in the design tokens. Package version,
+license and Fontsource guidance were verified on 2026-07-22.
+
+Public pages use Newsreader for display hierarchy and DM Sans for controls/body
+copy. Admin uses DM Sans throughout for density and scan speed. Decorative table
+and six-seat motifs are CSS-only, `aria-hidden` and optional to comprehension;
+there are no remote images, hotlinks or image licensing dependencies.
+
+The visual tokens live in
+[`packages/design-tokens/src/tokens.css`](../packages/design-tokens/src/tokens.css),
+while PrimeVue token mapping stays in
+[`apps/web/app/theme/jts-preset.ts`](../apps/web/app/theme/jts-preset.ts). Keep
+these layers semantically aligned instead of fixing a mismatch with isolated
+hex values in pages.
 
 ## Motion and accessibility
 

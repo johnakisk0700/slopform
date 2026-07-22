@@ -6,7 +6,7 @@ defineEmits<{
 const route = useRoute();
 
 const items = [
-  { label: "Overview", icon: "pi pi-home", route: "/admin" },
+  { label: "Overview", icon: "pi pi-th-large", route: "/admin" },
   { label: "Participants", icon: "pi pi-users", disabled: true },
   { label: "Events", icon: "pi pi-calendar", disabled: true },
   { label: "Payments", icon: "pi pi-credit-card", disabled: true },
@@ -29,7 +29,7 @@ const items = [
       <span v-else class="admin-nav-link" aria-disabled="true">
         <span :class="item.icon" aria-hidden="true" />
         <span>{{ item.label }}</span>
-        <small>Later</small>
+        <small>Soon</small>
       </span>
     </template>
   </PanelMenu>

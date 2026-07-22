@@ -10,7 +10,7 @@
   },
   "scripts": {
     "build": "turbo run build",
-    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "check": "pnpm format:check && pnpm docs:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build",
     "db:check": "dotenv -e .env -- pnpm --filter @join-the-six/database db:check",
     "db:generate": "dotenv -e .env -- pnpm --filter @join-the-six/database db:generate",
     "db:migrate": "dotenv -e .env -- pnpm --filter @join-the-six/database db:migrate",
@@ -20,6 +20,7 @@
     "dev:containers": "docker compose up --build",
     "dev:web": "dotenv -e .env -- pnpm --filter @join-the-six/web dev",
     "dev:worker": "dotenv -e .env -- pnpm --filter @join-the-six/backend dev:worker",
+    "docs:check": "node scripts/verify-docs.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "infra:down": "docker compose down",

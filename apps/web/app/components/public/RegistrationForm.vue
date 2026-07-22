@@ -28,11 +28,28 @@ function validate(): boolean {
   return Object.keys(errors.value).length === 0;
 }
 
+async function focusFirstInvalidField(): Promise<void> {
+  const fieldOrder: Array<[RegistrationField, string]> = [
+    ["fullName", "registration-name"],
+    ["email", "registration-email"],
+    ["dietaryPreference", "registration-diet"],
+    ["note", "registration-note"],
+    ["privacyAccepted", "registration-privacy"],
+  ];
+  const firstError = fieldOrder.find(([field]) => errors.value[field]);
+
+  if (firstError) {
+    await nextTick();
+    document.getElementById(firstError[1])?.focus();
+  }
+}
+
 async function submit(): Promise<void> {
   submitError.value = "";
   submitted.value = false;
 
   if (!validate()) {
+    await focusFirstInvalidField();
     return;
   }
 
@@ -63,116 +80,149 @@ async function submit(): Promise<void> {
     novalidate
     @submit.prevent="submit"
   >
-    <Message v-if="submitted" severity="success" :closable="false">
-      Registration received. Check your email for the next steps.
-    </Message>
-    <Message v-if="submitError" severity="error" :closable="false">
-      {{ submitError }}
-    </Message>
-
-    <div class="field">
-      <label for="registration-name">Full name</label>
-      <InputText
-        id="registration-name"
-        v-model="form.fullName"
-        autocomplete="name"
-        :invalid="Boolean(errors.fullName)"
-        :aria-describedby="
-          errors.fullName ? 'registration-name-error' : undefined
-        "
-        @blur="validate"
-      />
-      <p
-        v-if="errors.fullName"
-        id="registration-name-error"
-        class="field-error"
-      >
-        {{ errors.fullName }}
-      </p>
-    </div>
-
-    <div class="field">
-      <label for="registration-email">Email</label>
-      <InputText
-        id="registration-email"
-        v-model="form.email"
-        type="email"
-        autocomplete="email"
-        inputmode="email"
-        :invalid="Boolean(errors.email)"
-        :aria-describedby="
-          errors.email ? 'registration-email-error' : undefined
-        "
-        @blur="validate"
-      />
-      <p v-if="errors.email" id="registration-email-error" class="field-error">
-        {{ errors.email }}
-      </p>
-    </div>
-
-    <div class="field">
-      <label for="registration-diet">Dietary preference</label>
-      <Select
-        input-id="registration-diet"
-        v-model="form.dietaryPreference"
-        :options="dietaryOptions"
-        option-label="label"
-        option-value="value"
-      />
-    </div>
-
-    <div class="field">
-      <label for="registration-note">Anything we should know?</label>
-      <Textarea
-        id="registration-note"
-        v-model="form.note"
-        rows="4"
-        maxlength="500"
-        auto-resize
-        :invalid="Boolean(errors.note)"
-        :aria-describedby="
-          errors.note ? 'registration-note-error' : 'registration-note-help'
-        "
-        @blur="validate"
-      />
-      <p id="registration-note-help" class="field-help">
-        Accessibility needs or useful context. Do not include sensitive medical
-        details.
-      </p>
-      <p v-if="errors.note" id="registration-note-error" class="field-error">
-        {{ errors.note }}
-      </p>
-    </div>
-
-    <div class="checkbox-field">
-      <Checkbox
-        v-model="form.privacyAccepted"
-        input-id="registration-privacy"
-        binary
-        :invalid="Boolean(errors.privacyAccepted)"
-        :aria-describedby="
-          errors.privacyAccepted ? 'registration-privacy-error' : undefined
-        "
-        @change="validate"
-      />
+    <div v-if="submitted" class="form-success" role="status">
+      <span class="pi pi-check-circle" aria-hidden="true" />
       <div>
-        <label for="registration-privacy">
-          I have read and accept the
-          <NuxtLink to="/legal/privacy">privacy notice</NuxtLink>.
-        </label>
-        <p
-          v-if="errors.privacyAccepted"
-          id="registration-privacy-error"
-          class="field-error"
-        >
-          {{ errors.privacyAccepted }}
+        <h2>Request received.</h2>
+        <p>
+          Check your email for next steps. This request is not a confirmed seat.
         </p>
       </div>
     </div>
 
-    <div class="form-actions">
-      <Button type="submit" label="Request a seat" :loading="submitting" />
-      <span class="field-help">Your seat is confirmed only after payment.</span>
-    </div>
+    <template v-else>
+      <div class="form-heading">
+        <p class="eyebrow">Your details</p>
+        <h2>Request a place at this table</h2>
+        <p>Fields marked required must be completed before we can send this.</p>
+      </div>
+
+      <Message v-if="submitError" severity="error" :closable="false">
+        {{ submitError }}
+      </Message>
+
+      <div class="field">
+        <label for="registration-name">Full name <span>Required</span></label>
+        <InputText
+          id="registration-name"
+          v-model="form.fullName"
+          autocomplete="name"
+          :invalid="Boolean(errors.fullName)"
+          :aria-describedby="
+            errors.fullName ? 'registration-name-error' : undefined
+          "
+          @blur="validate"
+        />
+        <p
+          v-if="errors.fullName"
+          id="registration-name-error"
+          class="field-error"
+        >
+          {{ errors.fullName }}
+        </p>
+      </div>
+
+      <div class="field">
+        <label for="registration-email">Email <span>Required</span></label>
+        <InputText
+          id="registration-email"
+          v-model="form.email"
+          type="email"
+          autocomplete="email"
+          inputmode="email"
+          :invalid="Boolean(errors.email)"
+          :aria-describedby="
+            errors.email ? 'registration-email-error' : undefined
+          "
+          @blur="validate"
+        />
+        <p
+          v-if="errors.email"
+          id="registration-email-error"
+          class="field-error"
+        >
+          {{ errors.email }}
+        </p>
+      </div>
+
+      <div class="field">
+        <label for="registration-diet">Dietary preference</label>
+        <Select
+          input-id="registration-diet"
+          v-model="form.dietaryPreference"
+          :options="dietaryOptions"
+          option-label="label"
+          option-value="value"
+        />
+      </div>
+
+      <div class="field">
+        <label for="registration-note">Anything we should know?</label>
+        <Textarea
+          id="registration-note"
+          v-model="form.note"
+          rows="4"
+          maxlength="500"
+          auto-resize
+          :invalid="Boolean(errors.note)"
+          :aria-describedby="
+            errors.note
+              ? 'registration-note-help registration-note-error'
+              : 'registration-note-help'
+          "
+          @blur="validate"
+        />
+        <p id="registration-note-help" class="field-help">
+          Accessibility needs or useful context. Do not include sensitive
+          medical details.
+        </p>
+        <p v-if="errors.note" id="registration-note-error" class="field-error">
+          {{ errors.note }}
+        </p>
+      </div>
+
+      <div class="checkbox-field">
+        <Checkbox
+          v-model="form.privacyAccepted"
+          input-id="registration-privacy"
+          binary
+          :invalid="Boolean(errors.privacyAccepted)"
+          :pt="{
+            input: {
+              'aria-describedby': errors.privacyAccepted
+                ? 'registration-privacy-error'
+                : undefined,
+            },
+          }"
+          @change="validate"
+        />
+        <div>
+          <label for="registration-privacy">
+            I have read the current
+            <NuxtLink to="/legal/privacy">privacy notice scaffold</NuxtLink>.
+          </label>
+          <p
+            v-if="errors.privacyAccepted"
+            id="registration-privacy-error"
+            class="field-error"
+          >
+            {{ errors.privacyAccepted }}
+          </p>
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <Button
+          type="submit"
+          label="Send seat request"
+          icon="pi pi-arrow-right"
+          icon-pos="right"
+          :loading="submitting"
+        />
+        <span class="field-help">
+          Submitting this preview does not confirm a seat.
+        </span>
+      </div>
+    </template>
   </form>
 </template>
