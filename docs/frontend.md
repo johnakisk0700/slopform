@@ -39,6 +39,10 @@ also own Open Graph and Twitter text. Canonical URLs and social images remain
 absent until the application has a validated public-site origin and approved
 asset. `WEB_ORIGIN` is a CORS allow-list, not a canonical URL.
 
+Use `admin-page-stack` on each admin route root for the standard vertical rhythm
+between its page header, notices and content surfaces. Shell sizing remains the
+admin layout's responsibility.
+
 The root app renders `NuxtRouteAnnouncer`. Both layouts and the standalone error
 page provide a focusable `#main-content` target for the skip link. The admin SPA
 loading template supplies a main landmark, busy status and no-script message
@@ -123,6 +127,10 @@ packages together, not as independent dependency-bot confetti.
 `useFetch`/`useAsyncData` for SSR page reads so results enter the Nuxt payload.
 Prefer a generated OpenAPI client or shared contract package once backend
 contracts settle. Do not duplicate response interfaces casually.
+
+Call unshared endpoints as `api<unknown>(...)`, then parse the result with the
+owning feature Zod schema. Import every PrimeVue primitive used by an admin-only
+page locally, including primitives that are globally registered for public SSR.
 
 There is no frontend authentication contract yet. Add session state and named
 admin middleware only after matching backend endpoints and cookie policy exist.

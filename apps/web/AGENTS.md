@@ -33,6 +33,8 @@ or domain rules. Do not wrap PrimeVue merely to rename its props.
 PrimeVue controls visible in server-rendered HTML belong in the explicit
 allow-list in `nuxt.config.ts`; client-only or post-interaction controls use
 local imports. Moving an SSR control to a local import can flash unstyled UI.
+On an admin-only page, import every PrimeVue primitive used by that page locally,
+even if the same primitive is globally allow-listed for public SSR.
 
 ## Preserve the route contract
 
@@ -40,6 +42,11 @@ Every page owns an accurate title, description and indexing policy. Keep one
 `h1`, labelled controls, connected error text, keyboard-visible focus, status
 text in addition to colour and reduced-motion behavior. Private or unfinished
 routes need both robots metadata and the matching `X-Robots-Tag` route rule.
+Admin route roots use the documented `admin-page-stack` layout class.
+
+Treat API responses as `unknown` and parse them through the owning
+`app/features/<domain>/` Zod schema before rendering. A TypeScript generic is
+editor help, not runtime validation.
 
 When a change alters structure, rendering, a reusable contract, configuration
 or measured delivery constraints, update `docs/frontend.md` and/or the focused

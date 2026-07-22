@@ -23,7 +23,7 @@ of the HTTP graph.
 | Add configuration     | Extend `infrastructure/config/environment.ts` and its tests, then update applicable example/deployment configuration and `docs/backend/mechanisms/runtime-operations.md`. Do not scatter `process.env` reads through services. |
 | Change logs or traces | Change `infrastructure/logging/`, `instrumentation.ts` or `infrastructure/observability/`; preserve redaction, single-tracer ownership and shutdown flushing, then update the runtime mechanism page.                          |
 | Add a migration       | Change the Drizzle schema, generate named SQL and metadata under `packages/database/drizzle/`, review locks/data effects, run `db:check`, and update the database mechanism page.                                              |
-| Add a test            | Co-locate a focused `*.spec.ts`; use real PostgreSQL/Redis for adapter semantics and bounded, exact cleanup rather than mocking fluent internals.                                                                              |
+| Add a test            | Co-locate a focused `*.spec.ts`; HTTP routes use the real application recipe in `docs/backend.md`; adapter semantics use real PostgreSQL/Redis with bounded, exact cleanup rather than mocked fluent internals.                |
 
 Update diagrams, invariants, failure behavior, configuration, job/API contracts
 and operational checks with the code. Document stable boundaries, not every

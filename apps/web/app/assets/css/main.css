@@ -1210,7 +1210,7 @@ a.admin-nav-link:hover .pi,
   text-transform: uppercase;
 }
 
-.admin-overview {
+.admin-page-stack {
   display: grid;
   gap: var(--jts-space-6);
 }

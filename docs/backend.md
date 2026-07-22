@@ -154,6 +154,16 @@ plus OpenAPI; worker composition tests boot and close
 `createWorkerApplication()`. Mocking Drizzle chains or BullMQ internals mostly
 tests creative writing.
 
+For an HTTP contract test, set the smallest valid environment before importing
+the application module, call `createHttpApplication()`, replace only the owning
+repository method through `app.get(RepositoryClass)` when isolation is needed,
+then `app.init()`. Exercise the real `/api/v1/...` path through the HTTP server
+and fetch `/api/openapi.json`; close the application in `afterEach`. Do not
+reconstruct a miniature Nest application, repeat the global prefix, or install
+validation/interceptors by hand: that test can stay green while production
+composition is broken. Use a disposable database instead of a repository stub
+when ordering, constraints or transaction semantics are the behavior under test.
+
 ## Deliberate exclusions
 
 No microservices, CQRS, event sourcing, generic repositories/base services,
