@@ -57,18 +57,20 @@ export function AdminShell() {
           <span className="brand-mark" aria-hidden="true" />
           <span>Join The Six</span>
         </Link>
-        <p className="mt-2 mb-5 border-b border-sidebar-border px-3 pb-6 text-xs font-bold uppercase tracking-caps text-sidebar-fg-muted">
-          Admin workspace
-        </p>
-
-        <AdminNavigation variant="sidebar" />
-
-        <div className="mt-4 flex flex-col items-stretch gap-3 border-t border-sidebar-border pt-4">
-          <AdminUserMenu className="w-full text-sidebar-fg" />
-          <p className="flex items-center gap-2 px-3 text-xs font-semibold text-sidebar-fg-muted">
+        <div className="mt-2 mb-5 grid gap-1.5 border-b border-sidebar-border px-3 pb-6">
+          <p className="text-xs font-bold uppercase tracking-caps text-sidebar-fg-muted">
+            Admin workspace
+          </p>
+          <p className="flex items-center gap-2 text-xs font-semibold text-sidebar-fg-muted">
             <span className="status-dot" aria-hidden="true" />
             <span>Local environment</span>
           </p>
+        </div>
+
+        <AdminNavigation variant="sidebar" />
+
+        <div className="mt-4 border-t border-sidebar-border pt-4">
+          <AdminUserMenu className="w-full text-sidebar-fg" />
         </div>
       </aside>
 
@@ -94,9 +96,15 @@ export function AdminShell() {
                       <Drawer.CloseTrigger />
                     </Drawer.Header>
                     <Drawer.Body className="flex flex-col gap-4">
-                      <p className="border-b border-border pb-4 text-xs font-bold uppercase tracking-caps text-ink-muted">
-                        Local environment
-                      </p>
+                      <div className="grid gap-1.5 border-b border-border pb-4">
+                        <p className="text-xs font-bold uppercase tracking-caps text-ink-muted">
+                          Admin workspace
+                        </p>
+                        <p className="flex items-center gap-2 text-xs font-semibold text-ink-muted">
+                          <span className="status-dot" aria-hidden="true" />
+                          <span>Local environment</span>
+                        </p>
+                      </div>
                       <AdminNavigation
                         variant="drawer"
                         onNavigate={() => setNavOpen(false)}

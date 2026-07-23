@@ -57,7 +57,10 @@ export function AdminUserMenu({ className }: AdminUserMenuProps) {
         // speech-input users can target it by the name they see (WCAG 2.5.3),
         // and it stays meaningful when the label is hidden on small screens.
         aria-label="Spyridoula — account and appearance"
-        className={`inline-flex items-center justify-start gap-3 rounded-md px-2 py-1.5 text-left${
+        // `h-auto` releases Button's fixed 2.5rem height so the hover surface
+        // covers the whole row; the padding and the 2rem avatar then size it to
+        // the 2.75rem rhythm of the navigation items.
+        className={`inline-flex h-auto min-h-[2.75rem] items-center justify-start gap-3 rounded-md px-3 py-1.5 text-left${
           className ? ` ${className}` : ""
         }`}
       >
@@ -65,7 +68,7 @@ export function AdminUserMenu({ className }: AdminUserMenuProps) {
         <Avatar
           color="accent"
           variant="soft"
-          size="md"
+          size="sm"
           aria-hidden="true"
           className="rounded-md"
         >
