@@ -181,21 +181,14 @@ services:
     tmpfs:
       - /tmp
     environment:
-      NITRO_HOST: 0.0.0.0
-      NITRO_PORT: 3000
-      NUXT_API_BASE_INTERNAL: http://api:4000/api/v1
-      NUXT_PUBLIC_API_BASE: /api/v1
+      # Caddy keeps its state on the in-memory /tmp so the root stays read-only.
+      XDG_CONFIG_HOME: /tmp
+      XDG_DATA_HOME: /tmp
     depends_on:
       api:
         condition: service_healthy
     healthcheck:
-      test:
-        [
-          "CMD",
-          "node",
-          "-e",
-          "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
-        ]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/"]
       interval: 10s
       timeout: 5s
       retries: 12

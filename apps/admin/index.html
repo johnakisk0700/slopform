@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- prettier-ignore -->
+    <script>
+      (function () {
+        try {
+          var s = localStorage.getItem('jts-theme');
+          var d = s === 'dark' || ((!s || s === 'system') && matchMedia('(prefers-color-scheme: dark)').matches);
+          document.documentElement.classList.toggle('dark',d);
+        } catch (e) {}
+      })();
+    </script>
+    <title>Join The Six</title>
+    <meta
+      name="description"
+      content="Private Join The Six administration and operations panel."
+    />
+    <meta name="robots" content="noindex, nofollow" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  </head>
+  <body>
+    <div id="root">
+      <main
+        id="main-content"
+        tabindex="-1"
+        style="
+          display: grid;
+          min-height: 100vh;
+          place-items: center;
+          font-family: system-ui;
+          color: #6f5961;
+          background: #faece6;
+        "
+      >
+        <p role="status" aria-live="polite" aria-busy="true">
+          Preparing the operations table…
+        </p>
+        <noscript
+          >JavaScript is required to use the operations workspace.</noscript
+        >
+      </main>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

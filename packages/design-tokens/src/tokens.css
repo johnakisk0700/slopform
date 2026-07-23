@@ -9,16 +9,20 @@
    • Build screens against SEMANTIC tokens (`--jts-color-surface`,
      `--jts-color-text-muted`, …), never raw primitives. Semantics carry the
      light/dark meaning; primitives are just the paint box.
-   • PrimeVue consumes these same variables through `app/theme/jts-preset.ts`,
-     so PrimeVue components and hand-written CSS always match — in both themes.
+   • HeroUI consumes these variables through the mapping in the admin app's
+     `globals.css` (HeroUI v3 theme tokens + Tailwind `@theme inline`), so
+     HeroUI components, Tailwind utilities and hand-written CSS always match —
+     in both themes.
 
    Theming model (KISS)
    --------------------
-   One signal decides everything: the class `jts-dark` on <html>.
-   • Light  →  :root                 (default)
-   • Dark   →  :root.jts-dark        (overrides only the semantic layer)
-   The `useTheme()` composable toggles that class (light / dark / system); the
-   `theme.client` plugin applies it before paint so there is no flash.
+   One signal decides everything: the class `dark` on <html> (the
+   Tailwind/HeroUI convention).
+   • Light  →  :root            (default)
+   • Dark   →  :root.dark       (overrides only the semantic layer)
+   The admin app's `useTheme()` hook owns that class (light / dark / system);
+   the pre-paint script in `index.html` applies it before first paint so there
+   is no flash.
 
    Layers below: 1) primitives  2) semantic (light)  3) type/space/radius/…
    4) semantic (dark).
@@ -289,10 +293,10 @@
 
 /* =============================================================================
    4. SEMANTIC LAYER — DARK. Only the meanings flip; primitives are unchanged.
-   Driven by the single `jts-dark` class on <html> (see the theming model note).
+   Driven by the single `dark` class on <html> (see the theming model note).
    ============================================================================= */
 
-:root.jts-dark {
+:root.dark {
   color-scheme: dark;
 
   /* Surfaces — warm wine-black, not flat pure black */

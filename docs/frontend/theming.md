@@ -1,23 +1,26 @@
 # Theming, design tokens and dark mode
 
-Status: accepted, verified 2026-07-22 (Nuxt 4.5.0, PrimeVue 4.5.5,
-`@primeuix/themes` 2.0.3, `@fontsource-variable/manrope` 5.3.0).
+Status: accepted, verified 2026-07-23 (React 19.2.8, HeroUI `@heroui/react`
+3.2.2, Tailwind CSS 4.3.3, Vite 8.1.5, `@fontsource-variable/manrope` 5.3.0).
 
 This is the base every admin screen is built on. Its promise: **to style a new
-screen you use a semantic token or a plain PrimeVue component, and light + dark
-are correct with no colour plumbing.** See
-[ADR 0005](../decisions/0005-theming-and-dark-mode.md) for the decision record.
+screen you use a semantic token or a plain HeroUI component, and light + dark are
+correct with no colour plumbing.** See
+[ADR 0005](../decisions/0005-theming-and-dark-mode.md) for the decision record
+and [ADR 0006](../decisions/0006-react-admin-runtime.md) for the move from PrimeVue
+to HeroUI as the consumer of this system.
 
 ## Purpose and boundary
 
 - `packages/design-tokens/src/tokens.css` owns every shared visual value and is
   framework-neutral. It is the single source of truth.
-- `apps/web/app/theme/jts-preset.ts` maps PrimeVue's semantic slots onto those
-  tokens. It owns no colours of its own.
-- `apps/web/app/assets/css/main.css` styles the admin shell and shared
-  components using only semantic tokens.
-- `apps/web/app/composables/useTheme.ts` + `plugins/theme.client.ts` own the
-  light/dark/system preference and the `jts-dark` class.
+- `apps/admin/src/styles/globals.css` is the **bridge**: it makes HeroUI and
+  Tailwind consume those tokens. It owns no colours of its own.
+- `apps/admin/src/lib/useTheme.ts` owns the light/dark/system preference and the
+  `dark` class on `<html>`; the pre-paint script in `apps/admin/index.html`
+  applies that class before first paint.
+- Components style themselves with the semantic utilities the bridge exposes
+  (`bg-canvas`, `text-ink-muted`, `bg-accent`, …) — never literal colours.
 
 If you are adding colour, spacing or type to a screen and reach for a literal
 value, stop — add or reuse a token instead.
@@ -44,7 +47,7 @@ Tokens are layered. Consume the semantic layer; never hardcode primitives.
 | `--jts-color-text` / `-muted` / `-subtle`                                | Body / secondary / tertiary text             |
 | `--jts-color-text-on-strong`                                             | Text on the wine sidebar                     |
 | `--jts-color-primary` (`-hover`/`-active`/`-soft`/`-contrast`)           | Brand actions & emphasis                     |
-| `--jts-color-accent`, `--jts-color-link`                                 | Warm secondary accent, links                 |
+| `--jts-color-accent`, `--jts-color-link`                                 | Warm secondary accent (copper), links        |
 | `--jts-color-focus`, `--jts-focus-ring`                                  | Focus outline and ring                       |
 | `--jts-color-success`/`-warning`/`-danger`/`-info` (+ `-soft`/`-border`) | Status: fg, fill, border                     |
 | `--jts-color-sidebar-*`                                                  | Sidebar nav states (composed from the above) |
@@ -58,70 +61,99 @@ Non-colour scales: `--jts-space-{1..24}`, `--jts-radius-{xs..xl,pill,circle}`,
 
 ## Dark mode: one class, one source
 
-Everything dark is decided by the `jts-dark` class on `<html>`. Nothing else.
+Everything dark is decided by the `dark` class on `<html>`. Nothing else — it is
+the class the design tokens, HeroUI and Tailwind all read.
 
 ```mermaid
 flowchart LR
   pref["User choice / OS<br/>(light · dark · system)"] --> store["localStorage: jts-theme"]
-  store --> script["Inline head script<br/>(pre-paint)"]
-  store --> compose["useTheme() + theme.client plugin"]
-  script --> cls["html.jts-dark"]
-  compose --> cls
-  cls --> tokens[":root.jts-dark tokens flip"]
-  cls --> prime["PrimeVue darkModeSelector = .jts-dark"]
+  store --> script["Inline head script<br/>index.html (pre-paint)"]
+  store --> hook["useTheme() store"]
+  script --> cls["html.dark"]
+  hook --> cls
+  cls --> tokens[":root.dark tokens flip"]
+  cls --> heroui["HeroUI + Tailwind<br/>read the same class"]
   tokens --> ui["Whole UI is dark"]
-  prime --> ui
+  heroui --> ui
 ```
 
-- **No flash.** An inline script in `nuxt.config.ts` (`app.head.script`) reads
-  the stored preference and sets `jts-dark` before the first paint. It mirrors
-  `useTheme()` exactly.
-- **State.** `useTheme()` exposes `mode` (`light`/`dark`/`system`), `resolved`,
-  `isDark` and `setMode()`. `setMode` persists to `localStorage` and toggles the
-  class. `plugins/theme.client.ts` hydrates state and follows OS changes while
-  in `system`.
-- **Control.** `AdminUserMenu.vue` (top-right) renders a Light/Dark/Auto
-  `SelectButton` bound to `useTheme()`.
+- **No flash.** The inline script in `apps/admin/index.html` reads the stored
+  preference (and the OS query when unset/`system`) and toggles `dark` before the
+  first paint. It mirrors `useTheme()` exactly; re-applying on mount is
+  idempotent.
+- **State.** `useTheme()` (a `useSyncExternalStore` module store, not context, so
+  every consumer stays in sync) exposes `mode` (`light`/`dark`/`system`),
+  `resolved`, `isDark` and `setMode()`. `setMode` persists to `localStorage`
+  under `jts-theme` and toggles the class; the store follows OS changes while in
+  `system`.
+- **Control.** `AdminUserMenu` renders an "Appearance" HeroUI `ToggleButtonGroup`
+  (Light / Dark / Auto) bound to `useTheme()`. The menu appears in both the
+  sidebar footer and the small-screen top bar, so both stay in step.
 
-## PrimeVue integration
+## HeroUI + Tailwind bridge
 
-`jts-preset.ts` sets each PrimeVue semantic slot to a `var(--jts-*)` reference,
-so a PrimeVue component and a hand-written element render the same colour and
-flip together. `jts-theme.ts` sets `darkModeSelector: ".jts-dark"` and enables
-`cssLayer` (`{ name: "primevue", order: "theme, base, primevue" }`).
+HeroUI v3 is CSS-first: there is no theme provider and no JS theme object.
+Components read plain CSS variables, and `apps/admin/src/styles/globals.css`
+points those variables at the tokens. Three mechanisms do it:
 
-- **To restyle globally:** edit a token in `tokens.css`. PrimeVue and CSS both
-  update, in both themes.
-- **To adjust one PrimeVue component's shape/spacing:** add a component entry in
-  `jts-preset.ts` (see `button`, `dialog`, `datatable`), preferring token values.
-- **To override PrimeVue layout from CSS:** write a normal (unlayered) rule in
-  `main.css`. Because PrimeVue lives in the `primevue` layer, your rule wins
-  without escalating specificity.
+1. **Unlayered `:root` override of HeroUI's base tokens.** HeroUI defines its
+   base tokens (`--background`, `--surface`, `--accent`, `--danger`, `--field-*`,
+   `--radius`, …) in `@layer base`. `globals.css` redefines them **unlayered** in
+   `:root`, each as a `var(--jts-*)` reference (e.g.
+   `--accent: var(--jts-color-primary)`). Unlayered rules beat layered ones, so
+   our values win without specificity fights; and because the `--jts-*` tokens
+   themselves flip under `:root.dark`, HeroUI flips with them. No second theme
+   definition exists anywhere.
+2. **`@theme inline` — the Tailwind utility vocabulary.** HeroUI already maps its
+   tokens to utilities (`bg-surface`, `bg-accent`, …); `globals.css` adds the jts
+   vocabulary (`canvas`, `ink`/`ink-muted`, `primary`, `copper`, `info`,
+   `sidebar-*`) and overrides the type/radius/shadow/tracking scales, each mapped
+   to a `var(--jts-*)`. Because it is `@theme inline`, the utilities emit the
+   `var()` reference itself (rather than baking a colour at build time), so
+   `bg-canvas` and friends resolve at runtime and flip with the tokens too.
+3. **`@custom-variant dark (&:is(.dark *))`.** This makes Tailwind's `dark:`
+   variant key off the same `dark` class, for the rare genuinely structural
+   override. Colours never need it — the tokens already flip.
 
-Do not reintroduce a second source of colour (e.g. hardcoding hex in the preset
-or a component). That is the "shenanigan" this base exists to prevent.
+### Extending it
+
+- **To restyle globally:** edit a token in `tokens.css`. HeroUI components,
+  Tailwind utilities and hand-written CSS all update, in both themes.
+- **To adjust one HeroUI component:** pass `className` (or per-slot `classNames`)
+  using token utilities, or override its `--field-*`/component token locally.
+  Never wrap a HeroUI component just to rename its props.
+- **To add utility vocabulary:** add a `--color-*` / `--radius-* …` line under
+  `@theme inline` mapping to a token (or override a HeroUI base token in `:root`).
+  No component edits — this is the "add a status tone" litmus test.
+
+Do not reintroduce a second source of colour: no hex/rgb/oklch in components, no
+default Tailwind palette classes (`bg-red-500`, `text-slate-600`, …), no inline
+style colours. That is the "shenanigan" this base exists to prevent — if a needed
+semantic doesn't exist, add a token, don't hardcode.
 
 ## Typography
 
 Manrope (variable, `@fontsource-variable/manrope/wght.css`) is the only family:
 display, UI and body. It ships **Latin and Greek**, so Greek and English look
-identical for the operator. Numbers that are scanned or compared use
-`font-variant-numeric: var(--jts-numeric-tabular)` (already applied to stat
-values and table bodies via the `.tabular` helper). System sans is the fallback.
+identical for the operator. Numbers that are scanned or compared use tabular
+figures (the `tabular-nums` utility, applied to stat values and table bodies).
+System sans is the fallback.
 
 ## Motion
 
-`MotionConfig` uses `reduced-motion="user"` and CSS collapses animation under
-`prefers-reduced-motion`. Motion signals continuity or state change and never
-carries status by itself. Durations/easings come from `--jts-duration-*` /
-`--jts-ease-*`.
+`AdminShell` wraps each route in a 200ms opacity/8px-rise entrance
+(`motion/react`), keyed by pathname, and drops to no motion when
+`useReducedMotion()` reports a preference. A base rule in `globals.css` also
+collapses all animation under `prefers-reduced-motion`. Motion signals
+continuity or state change and never carries status by itself.
 
 ## Invariants
 
-- Components consume semantic tokens, never primitives or literals.
-- `jts-dark` on `<html>` is the only dark-mode signal.
+- Components consume semantic tokens (via the bridge utilities), never
+  primitives or literals.
+- `dark` on `<html>` is the only dark-mode signal.
 - No glows, blurred circles, gradient washes or pulsing dots. Flat accents
-  only, plus the six-dot `.brand__mark` logo and one static `.status-dot`.
+  only, plus the six-dot `.brand-mark` logo and one static `.status-dot`.
 - The signature emphasis motif is **the 3px marker** (`--jts-color-primary` or
   a status tone): horizontal under the page title, vertical on the left edge of
   accented cards. It means "this matters / something happened" — never "you are
@@ -134,15 +166,24 @@ carries status by itself. Durations/easings come from `--jts-duration-*` /
 ## Tests
 
 - `packages/design-tokens/scripts/verify-tokens.mjs` — required token names.
-- `apps/web/test/theme-tokens.spec.ts` — AA contrast for critical pairs, light
-  and dark, resolved from `tokens.css`.
-- `apps/web/test/jts-preset.spec.ts` — the preset consumes tokens and keeps
-  DataTable colours scheme-scoped.
-- `apps/web/test/theme-switch.spec.ts` — resolve logic and the single-class
-  wiring (pre-paint script, `darkModeSelector`, the user-menu control).
+- `apps/admin/test/theme-tokens.spec.ts` — AA contrast for critical text/
+  background pairs, light and dark, resolved from `tokens.css`.
+- `apps/admin/test/theme-switch.spec.ts` — the `resolveTheme` logic and the
+  single-class wiring: the pre-paint script, `@custom-variant dark`, the
+  `--accent: var(--jts-color-primary)` bridge, `:root.dark`, and the
+  `useTheme`/`setThemeMode`/`THEME_STORAGE_KEY` exports.
+- `apps/admin/test/delivery-shell.spec.ts` — the `index.html` shell: pre-paint
+  theme script, unindexed robots meta, and the focusable `#main-content`
+  landmark fallback.
 
 ## References
 
-- [ADR 0005](../decisions/0005-theming-and-dark-mode.md)
-- PrimeVue 4 styled theming — <https://primevue.dev/theming/styled/> (2026-07-22)
+- [ADR 0005](../decisions/0005-theming-and-dark-mode.md),
+  [ADR 0006](../decisions/0006-react-admin-runtime.md)
+- HeroUI v3 theming — <https://heroui.com/en/docs/react/getting-started/theming>
+  (2026-07-23)
+- Tailwind CSS v4 theme (`@theme`) — <https://tailwindcss.com/docs/theme>
+  (2026-07-23)
+- Tailwind CSS v4 dark mode (`@custom-variant`) —
+  <https://tailwindcss.com/docs/dark-mode> (2026-07-23)
 - Fontsource Manrope — <https://fontsource.org/fonts/manrope>

@@ -5,19 +5,19 @@
 The root `Dockerfile` produces five targets:
 
 - `development`: pnpm toolchain and workspace dependencies; source is mounted at runtime;
-- `web`: standalone Nuxt/Nitro server;
+- `web`: Caddy serving the static React admin build;
 - `api`: Nest HTTP process;
 - `worker`: Nest BullMQ process;
 - `migrate`: minimal, one-shot Drizzle migration runner.
 
 PostgreSQL and Redis use pinned official images. Caddy is the production edge:
-it routes `/api/*` unchanged to Nest and all other requests to Nuxt, and manages
-TLS when `DOMAIN` resolves to the VPS.
+it routes `/api/*` unchanged to Nest and all other requests to the admin SPA,
+and manages TLS when `DOMAIN` resolves to the VPS.
 
 ```mermaid
 flowchart LR
   Browser --> Caddy
-  Caddy --> Web["Nuxt web"]
+  Caddy --> Web["Static admin SPA"]
   Caddy --> API["Nest API"]
   API --> DB[(PostgreSQL)]
   API --> Redis[(Redis)]
@@ -29,7 +29,7 @@ flowchart LR
 ```
 
 Production separates `edge`, internal `data`, and worker `egress` networks.
-Caddy and Nuxt cannot reach PostgreSQL or Redis. Application filesystems are
+Caddy and the web tier cannot reach PostgreSQL or Redis. Application filesystems are
 read-only, application and migration images run as the unprivileged `node`
 user with Linux capabilities dropped, Docker's init forwards signals and reaps
 child processes, and writable scratch space is an in-memory `/tmp`. Caddy also
@@ -71,7 +71,7 @@ this startup sequence:
 3. after migration and Redis are ready, start one backend development
    container containing the compiler, API and worker watchers, then wait for
    the API readiness check;
-4. start Nuxt with hot reload and wait for its health check.
+4. start the Vite dev server with hot reload and wait for its health check.
 
 The source bind mount gives immediate reloads while the named `node_modules`
 volumes prevent macOS/Linux native packages from being mixed. The API, worker,
@@ -79,7 +79,7 @@ migration and web processes run as the image's unprivileged `node` user. On
 native Linux, set `DEV_UID` and `DEV_GID` in `.env` to `id -u` and `id -g` when
 they differ from `1000`; this keeps generated bind-mount files owned by your
 host account. The root-only dependency sync owns package installation and then
-hands Nuxt's generated volume and Vite's package cache back to that user.
+hands Vite's package cache back to that user.
 
 After changing a dependency manifest, update `pnpm-lock.yaml`, run
 `pnpm dev:containers:build`, then restart `pnpm dev:containers`; the one-shot
@@ -118,8 +118,8 @@ file for disabled Bull Board authentication. Populate that file before enabling
 Bull Board; do not move the value back into an environment variable. PostgreSQL
 uses its native password-file contract, Redis reads its password file at
 startup, and a small application entrypoint exposes credentials only to the
-migration, API or worker child process that needs them. Caddy and Nuxt receive
-none of them. WordPress runtime credentials are deliberately absent until a
+migration, API or worker child process that needs them. Caddy and the web tier
+receive none of them. WordPress runtime credentials are deliberately absent until a
 real adapter owns and validates them.
 
 This limits credential distribution and keeps credentials out of container

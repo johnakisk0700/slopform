@@ -52,15 +52,15 @@ and official references. Use `docs/documentation-standard.md` as the template.
 
 When building UI, use this order:
 
-1. Search the existing project components and their inventory docs; reuse or
-   extend a suitable component.
-2. If none fits, use an existing PrimeVue primitive directly.
-3. If the same product pattern recurs, compose a narrowly reusable project
-   component from PrimeVue primitives and document its contract.
-4. Build a raw custom widget only when neither the project library nor PrimeVue
-   provides the required semantics.
+1. Search the existing project `Jts*` components and their inventory docs; reuse
+   or extend a suitable component.
+2. If none fits, use a HeroUI primitive directly.
+3. If the same product pattern recurs, compose a narrowly reusable, documented
+   `Jts*` component from HeroUI primitives and record its contract.
+4. Use semantic HTML/CSS when neither the project library nor HeroUI provides the
+   required semantics.
 
-Do not wrap PrimeVue merely to rename props. Reusable project components should
+Do not wrap HeroUI merely to rename its props. Reusable project components should
 own useful product behavior such as consistent loading/empty/error states,
 pagination, accessibility or layout—not speculative abstraction.
 
@@ -68,10 +68,14 @@ pagination, accessibility or layout—not speculative abstraction.
 
 - Root `package.json` scripts are the public command surface; keep dependency
   ordering, cache inputs and real generated outputs in `turbo.json`.
-- Keep the phases inside `pnpm check` ordered unless a clean and repeated warm
-  run proves that Nuxt typecheck, lint, test and build no longer contend for
-  `.nuxt`. Typecheck currently prepares generated Nuxt state before lint; a
-  single faster-looking graph is not an improvement if it races.
+- The phases inside `pnpm check` run sequentially, fastest and most localized
+  first: `format:check`, `docs:check`, `typecheck`, `lint`, `test`, then the full
+  `build` last. This ordering exists to fail fast, not to serialize contended
+  state. Turbo owns dependency ordering and caching: every `typecheck`, `lint`,
+  `test` and `build` task waits on its workspace dependencies' `build` (`^build`),
+  so `@join-the-six/design-tokens` is built before the apps consume it. The admin
+  app is a plain Vite/`tsc -b` build with no shared generated state; reorder the
+  phases only if the fail-fast intent survives.
 - Declare environment variables needed by persistent Turbo tasks explicitly.
   Do not pass the entire host environment through to every workspace.
 - Internal dependencies use `workspace:*`. Update `pnpm-lock.yaml` with manifest

@@ -3,7 +3,7 @@
 ## Core idea
 
 The application is a modular monolith with two executable surfaces: a private
-Nuxt administration panel and a NestJS backend. The backend runs as separate
+React administration panel and a NestJS backend. The backend runs as separate
 HTTP and BullMQ worker processes but shares modules and domain contracts.
 PostgreSQL is the source of truth for the operational domain.
 
@@ -14,7 +14,7 @@ future explicit API contract; shared branding is not shared runtime ownership.
 
 ```mermaid
 flowchart LR
-  Staff["Staff browser"] --> Web["Nuxt\nprivate admin panel"]
+  Staff["Staff browser"] --> Web["React SPA\nprivate admin panel"]
   Web --> API["Nest HTTP API"]
   API --> DB[(PostgreSQL)]
   API --> Redis[(Redis)]
@@ -38,14 +38,14 @@ migration boundary, not a currently deployed integration.
 
 | Location                 | Responsibility                                                                      | Must not own                                                                   |
 | ------------------------ | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `apps/web`               | Staff-only admin routes, shell, interaction, presentation and typed API consumption | Public website, registration UI, business invariants or direct database access |
+| `apps/admin`             | Staff-only admin routes, shell, interaction, presentation and typed API consumption | Public website, registration UI, business invariants or direct database access |
 | `apps/backend`           | HTTP contracts, use cases, authorization, jobs and integrations                     | UI state or provider-specific domain models                                    |
 | `packages/database`      | PostgreSQL schema, migrations and database client primitives                        | Request/response DTOs or UI types                                              |
 | `packages/design-tokens` | Shared visual tokens                                                                | Business data or backend dependencies                                          |
 
 ## Deployment units
 
-- `web`: client-rendered Nuxt administration panel. It is private, non-indexable and deployed independently from `legacy.example.com`.
+- `web`: the static React admin SPA, served by Caddy. It is private, non-indexable and deployed independently from `legacy.example.com`.
 - `api`: Nest HTTP process. It validates input, enforces authorization and commits business state.
 - `worker`: Nest application context consuming BullMQ queues. It must be independently deployable and horizontally scalable.
 - `postgres`: durable product data and business audit events.

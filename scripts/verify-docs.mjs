@@ -16,7 +16,7 @@ const documentationFiles = markdownFilesBelow(docsRoot);
 const instructionFiles = [
   path.join(repositoryRoot, "AGENTS.md"),
   path.join(repositoryRoot, "apps/backend/AGENTS.md"),
-  path.join(repositoryRoot, "apps/web/AGENTS.md"),
+  path.join(repositoryRoot, "apps/admin/AGENTS.md"),
 ];
 const scannedFiles = [
   path.join(repositoryRoot, "README.md"),

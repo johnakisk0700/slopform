@@ -1,38 +1,43 @@
 # Frontend foundation
 
-Status: accepted admin-only foundation, verified 2026-07-22.
+Status: accepted admin-only foundation, verified 2026-07-23.
 
-The frontend in `apps/web` is the private Join The Six administration panel.
-It is a Nuxt, Vue and PrimeVue client application for staff operations. The
-public website, registration, intake and participant-facing journeys are owned
-by the existing Next.js application at `legacy.example.com`; see
+The frontend in `apps/admin` is the private Join The Six administration panel.
+It is a React 19 single-page application built with HeroUI v3, Tailwind CSS v4,
+TanStack Table, React Router 7 and Vite. It replaces the retired Nuxt/PrimeVue
+client, removed in the same change that introduced this one. The public website,
+registration, intake and participant-facing journeys are owned by the existing
+Next.js application at `legacy.example.com`; see
 [ADR 0004](decisions/0004-admin-only-boundary.md).
 
 ## Start here
 
-| Task                               | Location                                | First reference                                      |
-| ---------------------------------- | --------------------------------------- | ---------------------------------------------------- |
-| Add an admin route                 | `apps/web/app/pages/admin/`             | Existing sibling page and route contract below       |
-| Add a domain schema or pure helper | `apps/web/app/features/<domain>/`       | `features/event/schema.ts`                           |
-| Add domain UI                      | `apps/web/app/components/<domain>/`     | `components/admin/AdminNavigation.vue`               |
-| Reuse or add shared UI             | `apps/web/app/components/ui/`           | [Component inventory](frontend/components/README.md) |
-| Use a PrimeVue primitive           | Owning page, layout or component        | Local import policy below                            |
-| Call the API                       | `app/composables/useApi.ts`             | `app/plugins/api.ts`                                 |
-| Change application layout CSS      | `app/assets/css/main.css`               | Existing named section                               |
-| Change a shared visual value       | `packages/design-tokens/src/tokens.css` | Token ownership below                                |
-| Change PrimeVue appearance         | `app/theme/jts-preset.ts`               | PrimeVue theme tokens                                |
-| Change route handling or headers   | `apps/web/nuxt.config.ts`               | `routeRules`                                         |
+| Task                                  | Location                                | First reference                                      |
+| ------------------------------------- | --------------------------------------- | ---------------------------------------------------- |
+| Add an admin route                    | `apps/admin/src/routes/`                | `routes/OverviewPage.tsx` and the table in `App.tsx` |
+| Add a domain schema or pure helper    | `apps/admin/src/features/<domain>/`     | `features/event/schema.ts`                           |
+| Add domain UI                         | `apps/admin/src/components/admin/`      | `components/admin/AdminNavigation.tsx`               |
+| Reuse or add shared UI                | `apps/admin/src/components/ui/`         | [Component inventory](frontend/components/README.md) |
+| Use a HeroUI primitive                | Owning route or component               | Import from `@heroui/react`                          |
+| Call the API                          | `apps/admin/src/lib/api.ts`             | `apps/admin/src/lib/env.ts`                          |
+| Read appearance / toggle dark mode    | `apps/admin/src/lib/useTheme.ts`        | Pre-paint script in `index.html`                     |
+| Change the token bridge / HeroUI look | `apps/admin/src/styles/globals.css`     | Named section in that file                           |
+| Change a shared visual value          | `packages/design-tokens/src/tokens.css` | Token ownership below                                |
+| Change routing, redirect or 404       | `apps/admin/src/App.tsx`                | `Routes` table                                       |
+| Change the dev proxy or build         | `apps/admin/vite.config.ts`             | `/api` proxy and env contract below                  |
 
-Nuxt component discovery uses `pathPrefix: false`: filenames are template
-names and directories express ownership. Keep filenames globally unique.
-Shared project components use the `Jts*` prefix.
+Components are imported explicitly — there is no filename-based discovery.
+Shared project components use the `Jts*` prefix. One component per file, named
+export matching the filename; colocate types and export them only when a
+consumer needs them.
 
 ## Product and route boundary
 
-| Route                 | Behavior                          | Indexing                                             |
-| --------------------- | --------------------------------- | ---------------------------------------------------- |
-| `/`                   | Redirects to `/admin`             | Inherits private application policy                  |
-| `/admin`, `/admin/**` | Client-rendered staff application | `noindex, nofollow` in metadata and response headers |
+| Route    | Behavior                                                      | Indexing                |
+| -------- | ------------------------------------------------------------- | ----------------------- |
+| `/`      | Client-side redirect to `/admin` (`<Navigate replace>`)       | Inherits private policy |
+| `/admin` | Client-rendered shell nesting the routed views via `<Outlet>` | `noindex, nofollow`     |
+| `*`      | Standalone 404 (`routes/ErrorPage.tsx`)                       | Inherits private policy |
 
 Do not add `/join`, `/register`, `/feedback`, marketing or public legal routes
 to this application. They belong in the existing Next.js public product. A
@@ -40,39 +45,44 @@ future integration between that product and the operations backend starts with
 an explicit API, consent and abuse-control contract, not by quietly recreating
 its screens here.
 
-Each admin page owns an accurate title and description, one `h1`, and robots
-metadata. The global head also defaults to `noindex, nofollow`. Pages use the
-`admin` layout and the `admin-page-stack` root class. The layout provides the
-focusable `#main-content` landmark, skip-link target, navigation, the operator
-menu docked in the sidebar footer (a top bar carries it on small screens where
-the sidebar is hidden), mobile drawer, toast region and reduced-motion policy.
+`noindex, nofollow` is declared once as a static `<meta name="robots">` in
+`index.html` and covers the whole SPA. Each routed view sets its own accurate
+title and description through `usePageMeta` (`src/lib/usePageMeta.ts`), which
+never touches robots, and owns a single `h1`. The shell provides the focusable
+`#main-content` landmark and skip-link target, the navigation landmark, the
+operator menu docked in the sidebar footer (a top bar carries it on small
+screens where the sidebar is hidden), the mobile drawer, the toast region
+(`<Toast.Provider />` in `App.tsx`) and the reduced-motion policy.
 
-There is no frontend authentication contract yet. Add named admin middleware
-and session UI only with matching backend session endpoints and cookie policy.
-A client route guard improves navigation; it does not authorize API requests.
+There is no frontend authentication contract yet. The operator menu's "Sign
+out" is disabled with a note that sign-in arrives with the backend session
+contract. Add route guards and session UI only with matching backend session
+endpoints and cookie policy. A client route guard improves navigation; it does
+not authorize API requests.
 
 ## Application boundaries
 
 ```text
-app/
+src/
 ├── components/ui/          shared, domain-free Jts* contracts
-├── components/<domain>/    admin domain UI and interaction boundaries
-├── features/<domain>/      schemas, types and pure helpers
-├── composables/            shared state and app-facing facades
-├── layouts/admin.vue       persistent private application shell
-├── pages/admin/            route metadata, data and composition
-├── plugins/                integration bootstrap
-└── theme/                  PrimeVue preset and module import wrapper
+├── components/admin/       admin shell and domain UI
+├── features/<domain>/      schemas, types and pure helpers (no React imports)
+├── lib/                    hooks and facades (api, env, useTheme, usePageMeta)
+├── routes/                 route metadata, data and composition
+├── styles/globals.css      the design-token bridge + base layer + motifs
+├── theme/                  reserved (empty); the HeroUI mapping lives in globals.css
+├── App.tsx                 router: skip link, Toast.Provider, route table
+└── main.tsx                React root mount (StrictMode + createRoot)
 ```
 
-`features/` has no Nuxt runtime behavior and remains independently testable.
-Pages orchestrate routes; they do not absorb reusable table or form behavior.
-Shared UI does not hide domain API calls or business rules.
+`features/` has no React runtime behavior and remains independently testable.
+Routes orchestrate; they do not absorb reusable table or form behavior. Shared
+UI does not hide domain API calls or business rules.
 
 Choose UI in this order:
 
 1. Reuse a matching project component.
-2. Use a PrimeVue primitive directly.
+2. Use a HeroUI primitive directly (import from `@heroui/react`).
 3. Compose a documented `Jts*` component when repeated operational behavior is
    the real abstraction.
 4. Use semantic HTML and CSS for content and layout.
@@ -80,82 +90,118 @@ Choose UI in this order:
 The shared contracts are `JtsPageHeader`, `JtsStat` and `JtsDataTable`. Their
 contracts are linked from the
 [component inventory](frontend/components/README.md). Columns, filters, cell
-formatting and row actions remain with the consuming feature. Wrapping PrimeVue
-only to rename props is filing paperwork in a nicer font.
+formatting and row actions remain with the consuming route — adding a table
+column is a consumer-side `ColumnDef` change and touches no `Jts*` file.
+Wrapping HeroUI only to rename props is filing paperwork in a nicer font.
 
-## PrimeVue and theme
+## HeroUI and theme
 
-PrimeVue 4.5.5 is registered with `autoImport: false`. Every primitive is
-imported locally by the admin page, layout or component that uses it. The Nuxt
-application no longer carries a global SSR component allow-list because it has
-no public SSR routes.
+HeroUI v3.2.2 is imported per component from `@heroui/react`; its stylesheet
+(`@heroui/styles`) is imported once in `src/styles/globals.css`. HeroUI v3 is
+CSS-first (React Aria behavior + Tailwind v4 styling) and has no application
+provider to mount — the only global HeroUI mount is `<Toast.Provider />` in
+`App.tsx`, paired with the imperative `toast()` API. Icons come from
+`lucide-react`; conditional class strings use `clsx`; `tailwind-variants` is a
+HeroUI dependency, not a project abstraction.
 
-The current admin shell and overview use PrimeVue `Avatar`, `Button`, `Card`,
-`Column`, `DataTable`, `DatePicker`, `Dialog`, `Drawer`, `InputText`,
-`PanelMenu`, `Popover`, `ProgressBar`, `SelectButton`, `Tag`, `Toast` and
-`Toolbar`. The client-only
-PrimeVue module registration installs `ToastService` when it discovers the
-locally imported `Toast`; `useToast` remains an explicit import. Do not install
-the service again in an application plugin.
+The admin shell and overview currently use HeroUI `Avatar`, `Button`, `Chip`,
+`Drawer`, `Input`, `ListBox`, `Modal`, `Pagination`, `Popover`, `ProgressBar`,
+`Select`, `Separator`, `Table`, `Toast`, `ToggleButton` and `ToggleButtonGroup`
+through their compound sub-components (`Table.Content`, `Drawer.Dialog`,
+`Modal.Body`, `Popover.Content`, `Select.Popover`, `ProgressBar.Track` …).
 
-Extend PrimeVue through `app/theme/jts-preset.ts`. `jts-theme.ts` is only the
-Nuxt module import wrapper. Prefer semantic/component theme tokens or documented
-pass-through attributes over selectors coupled to generated DOM.
+Extend HeroUI appearance through the token bridge in `src/styles/globals.css`;
+there is no theme preset. HeroUI's base tokens (`--surface`, `--accent`, …) are
+overridden unlayered in `:root` with `var(--jts-*)` references, and because the
+`--jts-*` tokens flip under `:root.dark`, HeroUI flips with them — no second
+theme definition exists. Prefer semantic tokens and the Tailwind utilities the
+bridge exposes over selectors coupled to generated DOM.
 
-PrimeVue 5, PrimeUI themes 3 and PrimeIcons 8 require a PrimeUI licence
-decision. The current MIT stack stays on PrimeVue and its Nuxt module 4.5.5,
-`@primeuix/themes` 2.0.3 and PrimeIcons 7.0.0. Upgrade them together.
+`JtsDataTable` skins a headless TanStack Table 8.21.3 core (sorting, client
+pagination and the row model) with the HeroUI `Table`. The single type escape
+hatch is a `ColumnMeta.align` module augmentation for column alignment; the page
+owns every `ColumnDef`. Routing is React Router 7.18.1 in declarative
+(`BrowserRouter`) mode — no data router, no loaders. `NavLink` drives
+`aria-current` and active styling; `<Outlet>` renders the routed view inside the
+shell's animated main region.
+
+`@heroui/react` and `@heroui/styles` share a release train — upgrade them
+together (both 3.2.2). `package.json` and `pnpm-lock.yaml` are the source of
+truth for exact dependency versions.
 
 ## API, state and forms
 
-`app/plugins/api.ts` provides `$api`, an `ofetch` instance with:
+`src/lib/api.ts` exports `api`, a single `ofetch` instance with:
 
-- `NUXT_API_BASE_INTERNAL` on the server and `NUXT_PUBLIC_API_BASE` in browsers;
-- credentialed requests, a 15-second timeout and no automatic retries;
-- only `cookie` and `x-request-id` forwarded from inbound server requests.
+- `baseURL` set to the validated `env.apiBase`;
+- `credentials: "include"` so the browser attaches the session cookie (the
+  backend trusts this origin for CORS);
+- `retry: 0` so mutations never double-fire, and a 15-second timeout.
 
-`environment.server.ts` parses build and development variables through Zod.
-`environment.public.ts` contains only browser-safe runtime configuration. A
-Nitro startup plugin validates the resolved config again so production
-overrides cannot bypass the build-time check. Do not read application variables
-directly from `process.env` inside Vue code.
+It is the client port of the previous `$fetch` seam; because this is a client-only
+SPA, all SSR request-header forwarding is dropped.
+
+`src/lib/env.ts` validates the browser environment with Zod at module load.
+Vite exposes only `import.meta.env.VITE_*` to the bundle, and the one value
+consumed is `VITE_API_BASE`: optional, defaulting to `/api`, and required to be
+either a root-relative path or an HTTP(S) URL carrying no credentials, query or
+fragment. A misconfigured deploy fails fast with a readable message instead of
+shipping a silently-broken client. Do not read `import.meta.env` directly in
+component code — go through `env`.
 
 ```mermaid
 flowchart LR
-  local["Local .env or build environment"] --> build["Server Zod schema"]
-  build --> config["Nuxt runtimeConfig defaults"]
-  runtime["Production NUXT overrides"] --> resolved["Resolved Nitro config"]
-  config --> resolved
-  resolved --> startup["Nitro startup validation"]
-  startup --> client["Admin API client"]
+  build["Build env / .env (VITE_API_BASE)"] --> expose["import.meta.env.VITE_API_BASE"]
+  expose --> zod["Zod validateEnv() at module load"]
+  zod --> base["env.apiBase (defaults to /api)"]
+  base --> client["ofetch api client"]
+  client --> proxy["Vite dev proxy or Caddy → backend"]
 ```
 
-`useApi()` is the application-facing seam for imperative admin calls. Treat
-unshared responses as `unknown` and parse them with the owning feature Zod
-schema. Prefer a generated OpenAPI client or shared contract package once the
-backend contract stabilizes.
+Treat unshared responses as `unknown` and parse them with the owning feature
+Zod schema. Prefer a generated OpenAPI client or shared contract package once
+the backend contract stabilizes.
 
 Forms connect errors with `aria-describedby`, focus the first invalid field,
 preserve values on retryable failure and never display raw server messages.
 Preview-only interactions must say that they do not persist; do not simulate a
-successful backend write.
+successful backend write. The Overview event dialog is the reference: it parses
+its draft with the feature schema, focuses the first invalid input, and both a
+copper note and the success toast state that it writes local UI state only.
 
 ## CSS, tokens, fonts and motion
 
-| Owner                                   | Responsibility                                                                            |
-| --------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `packages/design-tokens/src/tokens.css` | Framework-neutral semantic values used by more than one consumer                          |
-| `app/theme/jts-preset.ts`               | PrimeVue primitive, semantic and component tokens                                         |
-| `app/assets/css/main.css`               | Admin shell, route composition, shared project-component layout and standalone error page |
-| Vue component markup/styles             | Domain-specific structure without a duplicate token system                                |
+| Owner                                   | Responsibility                                                                                                          |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `packages/design-tokens/src/tokens.css` | Framework-neutral semantic `--jts-*` values; single source of truth; light plus the `:root.dark` flip                   |
+| `apps/admin/src/styles/globals.css`     | The bridge: HeroUI base-token overrides, the Tailwind `@theme inline` vocabulary, the base layer, and the motif classes |
+| Component and route markup (Tailwind)   | Domain structure using only semantic utilities — no raw hex, no default Tailwind palette classes                        |
 
-Manrope Variable 5.3.0 is self-hosted through Fontsource (OFL-1.1) as the single
-type family for display, UI and body; it carries **Latin and Greek** so operator
-Greek and English render identically, with system sans as the fallback. The
-design tokens, the single-class light/dark mechanism and how PrimeVue consumes
-the tokens are documented in [`frontend/theming.md`](frontend/theming.md) and
+`globals.css` is layered as documented in its header: HeroUI base tokens are
+mapped to `--jts-*`, Tailwind's `@theme inline` block adds the `jts` utility
+vocabulary (`ink`, `canvas`, `primary`, `copper`, `info`, `sidebar-*` …), and a
+small base layer carries app-wide rules (focus ring, selection, headings,
+reduced motion) plus the three sanctioned classes `.skip-link`, `.brand-mark`
+and `.status-dot`.
+
+Manrope Variable 5.3.0 is self-hosted through Fontsource (OFL-1.1), imported in
+`globals.css`, as the single type family for display, UI and body; it carries
+**Latin and Greek** so operator Greek and English render identically, with
+system sans as the fallback. The build emits the Manrope subsets as separate
+`woff2` assets.
+
+Dark mode is the `dark` class on `<html>`, shared by the tokens, HeroUI and
+Tailwind. The pre-paint script in `index.html` applies it before first paint
+(no flash); `src/lib/useTheme.ts` owns it afterwards through a module-level
+`useSyncExternalStore` so every consumer — the operator menu renders in both the
+sidebar and the top bar — stays in sync. The design tokens, the single-class
+mechanism and the HeroUI integration are documented in
+[`frontend/theming.md`](frontend/theming.md) and
 [ADR 0005](decisions/0005-theming-and-dark-mode.md).
-`MotionConfig` uses `reduced-motion="user"`; CSS also collapses animation for
+
+Motion is the 200ms opacity/8px-rise page entrance (`motion/react`, keyed by
+pathname, respecting `useReducedMotion`) plus component-internal HeroUI
+transitions; `globals.css` also collapses animation under
 `prefers-reduced-motion`. Motion communicates continuity or state change and
 never carries status by itself.
 
@@ -166,31 +212,47 @@ the state.
 
 ## Delivery constraints
 
-Verified with Nuxt 4.5.0, Nitro 2.13.4, Vue 3.5.40, PrimeVue 4.5.5 and Vite
-8.1.5 on 2026-07-22:
+Verified with React 19.2.8, HeroUI 3.2.2, Tailwind CSS 4.3.3, TanStack Table
+8.21.3, React Router 7.18.1, Vite 8.1.5 and Zod 4.4.3 on 2026-07-23:
 
-- admin routes use `ssr: false`; the standalone Nitro server still owns runtime
-  config and response headers;
-- the `build:manifest` hook removes entry dynamic-import prefetch hints and the
-  unused PrimeIcons SVG fallback;
-- client source maps stay disabled and server maps stay enabled;
-- Nitro produces the standalone Node server and Caddy owns compression;
-- automatic chunk splitting remains; arbitrary vendor chunks would move bytes
-  without removing them.
+- the client is a static SPA with no SSR or SSG; `build` runs
+  `tsc -b --noEmit && vite build`, so a type error gates the bundle;
+- `index.html` ships the pre-paint theme script and a static, focusable
+  `#main-content` fallback with a `role="status"` message and a `<noscript>`
+  notice, so the landmark and status exist before the SPA mounts;
+- the production bundle is one entry chunk (~878 kB, ~268 kB gzip) plus the CSS
+  and the Manrope `woff2` subsets; that single chunk trips Vite's default 500 kB
+  `chunkSizeWarningLimit`. The warning is advisory only — the build passes — and
+  no manual vendor splitting is configured: with one live route, arbitrary
+  chunks would move bytes without removing them. Vite 8 bundles with Rolldown;
+  revisit `chunkSizeWarningLimit` or `build.rolldownOptions` splitting only once
+  the route surface grows;
+- client source maps stay off (Vite's default; not overridden);
+- the dev server runs on port 3000 and proxies `/api` to `http://localhost:4000`
+  (the backend `API_PORT`) with `changeOrigin`. Port 3000 is the CORS-trusted
+  `WEB_ORIGIN`, so same-origin cookies work end to end. In production, Caddy
+  reverse-proxies `/api` to the backend for the same same-origin contract.
 
-Node must satisfy `>=24.11 <25`. `package.json` and `pnpm-lock.yaml` are the
-source of truth for exact dependency versions.
+Node must satisfy `>=24.11 <25` and pnpm `>=10.33 <11` (`package.json`
+`engines`). `package.json` and `pnpm-lock.yaml` are the source of truth for
+exact dependency versions.
 
 ## Verification and extension
 
 From the repository root:
 
 ```bash
-pnpm --filter @join-the-six/web lint
-pnpm --filter @join-the-six/web typecheck
-pnpm --filter @join-the-six/web test
-pnpm --filter @join-the-six/web build
+pnpm --filter @join-the-six/admin lint
+pnpm --filter @join-the-six/admin typecheck
+pnpm --filter @join-the-six/admin test
+pnpm --filter @join-the-six/admin build
 ```
+
+Root `pnpm check` runs the same four Turbo phases across the workspace. Tests
+run in vitest's node environment and assert reality without a DOM: the
+`index.html`/`App.tsx` delivery invariants (pre-paint theme, robots, focusable
+landmark, root redirect), the pure `resolveTheme` logic, and the real
+`tokens.css` resolved to WCAG AA contrast in both themes.
 
 For each admin vertical slice, confirm the backend permission contract, add the
 schema boundary, implement loading/empty/error states, preserve accessibility,
@@ -199,13 +261,13 @@ behavior.
 
 ## Official references
 
-Library behavior was verified 2026-07-22 against:
+Library behavior was verified 2026-07-23 against:
 
-- [Nuxt directory structure](https://nuxt.com/docs/4.x/directory-structure/)
-- [Nuxt rendering modes](https://nuxt.com/docs/4.x/guide/concepts/rendering)
-- [Nuxt runtime config](https://nuxt.com/docs/4.x/guide/going-further/runtime-config)
-- [Nuxt SEO metadata](https://nuxt.com/docs/4.x/getting-started/seo-meta)
-- [PrimeVue DataTable](https://v4.primevue.org/datatable/)
-- [PrimeVue accessibility](https://v4.primevue.org/guides/accessibility/)
-- [Vue TypeScript Composition API](https://vuejs.org/guide/typescript/composition-api)
+- [HeroUI v3 introduction](https://v3.heroui.com/docs/introduction)
+- [Tailwind CSS v4 theme variables](https://tailwindcss.com/docs/theme)
+- [TanStack Table v8 React adapter](https://tanstack.com/table/v8/docs/framework/react/react-table)
+- [React Router v7 documentation](https://reactrouter.com/)
+- [Vite build options](https://vite.dev/guide/build.html)
+- [Vite server proxy](https://vite.dev/config/server-options.html#server-proxy)
+- [Vite env variables and modes](https://vite.dev/guide/env-and-mode.html)
 - [Zod documentation](https://zod.dev/)

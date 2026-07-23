@@ -14,7 +14,7 @@ WORKDIR /workspace
 FROM base AS dependencies
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
 COPY apps/backend/package.json apps/backend/package.json
-COPY apps/web/package.json apps/web/package.json
+COPY apps/admin/package.json apps/admin/package.json
 COPY packages/database/package.json packages/database/package.json
 COPY packages/design-tokens/package.json packages/design-tokens/package.json
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store,sharing=locked \
@@ -34,10 +34,9 @@ CMD ["pnpm", "dev"]
 
 FROM dependencies AS build
 ENV NODE_ENV=production
-ENV NUXT_TELEMETRY_DISABLED=1
 ENV TURBO_TELEMETRY_DISABLED=1
 COPY . .
-RUN --network=none pnpm --filter @join-the-six/web exec nuxt prepare && pnpm build
+RUN --network=none pnpm build
 
 FROM build AS backend-package
 RUN --network=none --mount=type=cache,id=pnpm-store,target=/pnpm/store,sharing=locked \
@@ -59,12 +58,13 @@ FROM runtime AS secret-runtime
 COPY --chmod=0555 docker/run-with-secrets.sh /usr/local/bin/run-with-secrets
 ENTRYPOINT ["run-with-secrets"]
 
-FROM runtime AS web
-ENV NITRO_HOST=0.0.0.0
-ENV NITRO_PORT=3000
-COPY --from=build --chown=node:node /workspace/apps/web/.output ./
+# The admin client is a static SPA, so the web tier is a file server rather
+# than a Node runtime. Caddy serves the Vite build and falls back to index.html
+# for client-side routes (see docker/web.Caddyfile).
+FROM caddy:2.11.4-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648 AS web
+COPY --from=build /workspace/apps/admin/dist /srv
+COPY docker/web.Caddyfile /etc/caddy/Caddyfile
 EXPOSE 3000
-CMD ["node", "server/index.mjs"]
 
 FROM secret-runtime AS backend-runtime
 COPY --from=backend-package --chown=node:node /opt/backend ./

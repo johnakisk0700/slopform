@@ -1,0 +1,277 @@
+/* =============================================================================
+   Join The Six admin — global stylesheet and the design-token bridge.
+   -----------------------------------------------------------------------------
+   Single source of truth: `@join-the-six/design-tokens/tokens.css` (--jts-*).
+   This file makes everything else consume it:
+
+   1. HeroUI v3 is CSS-first: its components read base tokens (--surface,
+      --accent, …) defined in @layer base. We override those tokens UNLAYERED
+      in :root with var(--jts-*) references — unlayered beats layered, and
+      because the jts tokens themselves flip under `:root.dark`, HeroUI flips
+      with them. No second theme definition exists anywhere.
+   2. Tailwind v4 utilities come from @theme. HeroUI already maps its tokens
+      (`--color-surface: var(--surface)` → bg-surface …); we add the jts
+      vocabulary (ink, canvas, primary, copper, info, sidebar-*) and override
+      the type/radius/shadow/tracking scales with jts values.
+   3. A small base layer carries the app-wide rules (focus, selection,
+      headings, reduced motion) and the two sanctioned motif classes
+      (.brand-mark, .status-dot) plus .skip-link.
+
+   Dark mode: the `dark` class on <html> (set pre-paint in index.html, owned
+   by src/lib/useTheme.ts). Components must not hand-roll colors — see
+   docs/frontend/theming.md and the design contract.
+   ============================================================================= */
+
+@import "tailwindcss";
+@import "@heroui/styles";
+@import "@fontsource-variable/manrope/wght.css";
+@import "@join-the-six/design-tokens/tokens.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* -----------------------------------------------------------------------------
+   1. HeroUI v3 base-token overrides → everything derives from --jts-*.
+   ----------------------------------------------------------------------------- */
+
+:root {
+  /* Base */
+  --background: var(--jts-color-canvas);
+  --foreground: var(--jts-color-text);
+  --surface: var(--jts-color-surface);
+  --surface-foreground: var(--jts-color-text);
+  --surface-secondary: var(--jts-color-surface-sunken);
+  --surface-secondary-foreground: var(--jts-color-text);
+  --surface-tertiary: color-mix(
+    in srgb,
+    var(--jts-color-text) 5%,
+    var(--jts-color-surface-sunken)
+  );
+  --surface-tertiary-foreground: var(--jts-color-text);
+  --overlay: var(--jts-color-surface-overlay);
+  --overlay-foreground: var(--jts-color-text);
+  --muted: var(--jts-color-text-muted);
+  --default: var(--jts-color-surface-sunken);
+  --default-foreground: var(--jts-color-text);
+
+  /* Brand — HeroUI "accent" is our wine primary. */
+  --accent: var(--jts-color-primary);
+  --accent-foreground: var(--jts-color-primary-contrast);
+  --accent-hover: var(--jts-color-primary-hover);
+  --accent-soft: var(--jts-color-primary-soft);
+  --accent-soft-foreground: var(--jts-color-primary);
+  --accent-soft-hover: var(--jts-color-primary-soft-hover);
+
+  /* Status — earthy hues; solid fills pair with canvas so both themes hold. */
+  --success: var(--jts-color-success);
+  --success-foreground: var(--jts-color-canvas);
+  --success-soft: var(--jts-color-success-soft);
+  --success-soft-foreground: var(--jts-color-success);
+  --success-soft-hover: color-mix(
+    in srgb,
+    var(--jts-color-success) 12%,
+    var(--jts-color-success-soft)
+  );
+  --warning: var(--jts-color-warning);
+  --warning-foreground: var(--jts-color-canvas);
+  --warning-soft: var(--jts-color-warning-soft);
+  --warning-soft-foreground: var(--jts-color-warning);
+  --warning-soft-hover: color-mix(
+    in srgb,
+    var(--jts-color-warning) 12%,
+    var(--jts-color-warning-soft)
+  );
+  --danger: var(--jts-color-danger);
+  --danger-foreground: var(--jts-color-canvas);
+  --danger-soft: var(--jts-color-danger-soft);
+  --danger-soft-foreground: var(--jts-color-danger);
+  --danger-soft-hover: color-mix(
+    in srgb,
+    var(--jts-color-danger) 12%,
+    var(--jts-color-danger-soft)
+  );
+
+  /* Structure */
+  --segment: var(--jts-color-surface-raised);
+  --segment-foreground: var(--jts-color-text);
+  --border: var(--jts-color-border);
+  --separator: var(--jts-color-border);
+  --focus: var(--jts-color-focus);
+  --link: var(--jts-color-link);
+  --backdrop: rgb(21 12 16 / 55%);
+
+  /* Form fields — bordered, on the raised surface (unlike HeroUI's default). */
+  --field-background: var(--jts-color-surface-raised);
+  --field-foreground: var(--jts-color-text);
+  --field-placeholder: var(--jts-color-text-muted);
+  --field-border: var(--jts-color-border-strong);
+  --field-border-width: 1px;
+  --field-radius: var(--jts-radius-md);
+  --field-shadow: var(--jts-shadow-xs);
+
+  /* Shape & elevation — flat surfaces, shadows only on floating overlays. */
+  --radius: var(--jts-radius-md);
+  --surface-shadow: none;
+  --overlay-shadow: var(--jts-shadow-md);
+}
+
+/* -----------------------------------------------------------------------------
+   2. Tailwind vocabulary — the jts utility names components build with.
+   ----------------------------------------------------------------------------- */
+
+@theme inline {
+  /* Type */
+  --font-sans: var(--jts-font-sans);
+  --font-display: var(--jts-font-display);
+  --tracking-tight: var(--jts-tracking-tight);
+  --tracking-tighter: var(--jts-tracking-tighter);
+  --tracking-wide: var(--jts-tracking-wide);
+  --tracking-caps: var(--jts-tracking-caps);
+
+  /* Surfaces & ink */
+  --color-canvas: var(--jts-color-canvas);
+  --color-surface-raised: var(--jts-color-surface-raised);
+  --color-surface-sunken: var(--jts-color-surface-sunken);
+  --color-surface-strong: var(--jts-color-surface-strong);
+  --color-ink: var(--jts-color-text);
+  --color-ink-muted: var(--jts-color-text-muted);
+  --color-ink-subtle: var(--jts-color-text-subtle);
+  --color-on-strong: var(--jts-color-text-on-strong);
+  --color-on-strong-muted: var(--jts-color-text-on-strong-muted);
+  --color-border-subtle: var(--jts-color-border-subtle);
+  --color-border-strong: var(--jts-color-border-strong);
+
+  /* Brand vocabulary (same values HeroUI's accent consumes) */
+  --color-primary: var(--jts-color-primary);
+  --color-primary-hover: var(--jts-color-primary-hover);
+  --color-primary-active: var(--jts-color-primary-active);
+  --color-primary-soft: var(--jts-color-primary-soft);
+  --color-primary-contrast: var(--jts-color-primary-contrast);
+  --color-primary-border: var(--jts-color-primary-border);
+  --color-copper: var(--jts-color-accent);
+  --color-copper-soft: var(--jts-color-accent-soft);
+  --color-highlight: var(--jts-color-highlight);
+  --color-highlight-text: var(--jts-color-highlight-text);
+
+  /* Info (slate) — a jts status HeroUI doesn't model. */
+  --color-info: var(--jts-color-info);
+  --color-info-soft: var(--jts-color-info-soft);
+
+  /* Sidebar family */
+  --color-sidebar: var(--jts-color-sidebar-bg);
+  --color-sidebar-fg: var(--jts-color-sidebar-text);
+  --color-sidebar-fg-muted: var(--jts-color-sidebar-text-muted);
+  --color-sidebar-hover: var(--jts-color-sidebar-hover-bg);
+  --color-sidebar-active: var(--jts-color-sidebar-active-bg);
+  --color-sidebar-active-fg: var(--jts-color-sidebar-active-text);
+  --color-sidebar-active-index: var(--jts-color-sidebar-active-index);
+  --color-sidebar-border: var(--jts-color-sidebar-border);
+
+  /* Shape, elevation, layout */
+  --radius-xs: var(--jts-radius-xs);
+  --radius-sm: var(--jts-radius-sm);
+  --radius-md: var(--jts-radius-md);
+  --radius-lg: var(--jts-radius-lg);
+  --radius-xl: var(--jts-radius-xl);
+  --shadow-xs: var(--jts-shadow-xs);
+  --shadow-sm: var(--jts-shadow-sm);
+  --shadow-md: var(--jts-shadow-md);
+  --shadow-lg: var(--jts-shadow-lg);
+  --container-content: var(--jts-content-width);
+}
+
+/* -----------------------------------------------------------------------------
+   3. Base rules and the sanctioned motif classes.
+   ----------------------------------------------------------------------------- */
+
+@layer base {
+  html {
+    min-width: 20rem;
+    background: var(--jts-color-canvas);
+    color: var(--jts-color-text);
+    font-family: var(--jts-font-sans);
+    line-height: var(--jts-leading-body);
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1,
+  h2,
+  h3 {
+    line-height: var(--jts-leading-tight);
+    letter-spacing: var(--jts-tracking-tight);
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  ::selection {
+    background: var(--jts-color-highlight);
+    color: var(--jts-color-highlight-text);
+  }
+
+  /* Native elements get the jts focus ring; HeroUI components manage their
+     own via data-focus-visible, so exclude them to avoid double rings. */
+  :focus-visible:not([data-focus-visible]) {
+    outline: 2px solid var(--jts-color-focus);
+    outline-offset: 3px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      scroll-behavior: auto !important;
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+    }
+  }
+}
+
+@layer components {
+  .skip-link {
+    position: fixed;
+    z-index: 9999;
+    top: var(--jts-space-3);
+    left: var(--jts-space-3);
+    padding: var(--jts-space-2) var(--jts-space-4);
+    border-radius: var(--jts-radius-sm);
+    background: var(--jts-color-text);
+    color: var(--jts-color-canvas);
+    font-weight: var(--jts-weight-semibold);
+    transform: translateY(-180%);
+  }
+
+  .skip-link:focus {
+    transform: translateY(0);
+  }
+
+  /* The six-dot brand mark — six at a table. The ONLY decorative motif. */
+  .brand-mark {
+    display: inline-block;
+    width: 1.7rem;
+    height: 1.7rem;
+    flex: 0 0 auto;
+    border: 1.5px solid currentcolor;
+    border-radius: 50%;
+    background:
+      radial-gradient(circle at 50% 12%, currentcolor 0 1.5px, transparent 2px),
+      radial-gradient(circle at 83% 31%, currentcolor 0 1.5px, transparent 2px),
+      radial-gradient(circle at 83% 69%, currentcolor 0 1.5px, transparent 2px),
+      radial-gradient(circle at 50% 88%, currentcolor 0 1.5px, transparent 2px),
+      radial-gradient(circle at 17% 69%, currentcolor 0 1.5px, transparent 2px),
+      radial-gradient(circle at 17% 31%, currentcolor 0 1.5px, transparent 2px);
+  }
+
+  /* The one static environment indicator. Never pulses, never glows. */
+  .status-dot {
+    display: inline-block;
+    width: 0.45rem;
+    height: 0.45rem;
+    border-radius: 50%;
+    background: var(--jts-color-success);
+  }
+}

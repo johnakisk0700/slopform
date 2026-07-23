@@ -8,7 +8,7 @@ this repository.
 
 ## Stack
 
-- `apps/web`: private Nuxt, Vue and PrimeVue administration panel
+- `apps/admin`: private React, HeroUI and Tailwind administration panel
 - `apps/backend`: NestJS modular monolith with separate API and worker processes
 - `packages/database`: PostgreSQL schema and versioned Drizzle migrations
 - Redis and BullMQ for observable background jobs
@@ -18,8 +18,8 @@ WordPress remains a temporary, isolated integration and migration boundary. It i
 
 ## Start locally
 
-The normal development loop runs PostgreSQL and Redis in containers, while Nuxt,
-Nest and the worker run natively with hot reload:
+The normal development loop runs PostgreSQL and Redis in containers, while the
+admin client, Nest and the worker run natively with hot reload:
 
 ```bash
 cp .env.example .env

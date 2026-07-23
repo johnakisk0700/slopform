@@ -6,20 +6,21 @@ This directory is the maintained project memory. Markdown is deliberate: GitHub 
 
 1. [`architecture.md`](architecture.md) — system boundaries and runtime topology
 2. [`migration-strategy.md`](migration-strategy.md) — how WordPress data crosses into the new model
-3. [`frontend.md`](frontend.md) — Nuxt conventions and extension guide
+3. [`frontend.md`](frontend.md) — React admin conventions and extension guide
 4. [`backend.md`](backend.md) — Nest, database, job and observability conventions
 5. [`decisions/0001-platform.md`](decisions/0001-platform.md) — accepted platform decision
 6. [`decisions/0002-wordpress-boundary.md`](decisions/0002-wordpress-boundary.md) — transitional WordPress/payment boundary
 7. [`decisions/0003-rendering.md`](decisions/0003-rendering.md) — Nuxt rendering policy
 8. [`decisions/0004-admin-only-boundary.md`](decisions/0004-admin-only-boundary.md) — admin/public product ownership boundary
 9. [`decisions/0005-theming-and-dark-mode.md`](decisions/0005-theming-and-dark-mode.md) — design tokens and light/dark theming
-10. [`deployment.md`](deployment.md) — development containers and production VPS topology
-11. [`agent-readiness.md`](agent-readiness.md) — repeatable extension benchmark and current evidence gaps
+10. [`decisions/0006-react-admin-runtime.md`](decisions/0006-react-admin-runtime.md) — React admin runtime (supersedes the Nuxt frontend)
+11. [`deployment.md`](deployment.md) — development containers and production VPS topology
+12. [`agent-readiness.md`](agent-readiness.md) — repeatable extension benchmark and current evidence gaps
 
 Area-specific memory:
 
 - [`frontend/components/README.md`](frontend/components/README.md) — reusable component inventory and selection hierarchy
-- [`frontend/theming.md`](frontend/theming.md) — design tokens, dark mode and the PrimeVue integration
+- [`frontend/theming.md`](frontend/theming.md) — design tokens, dark mode and the HeroUI integration
 - [`backend/mechanisms/README.md`](backend/mechanisms/README.md) — queue, database and runtime operations contracts
 - [`backend/modules/README.md`](backend/modules/README.md) — product-domain module inventory and lifecycle docs
 - [`documentation-standard.md`](documentation-standard.md) — required shape for new component/mechanism documentation
@@ -46,11 +47,11 @@ The root [`package.json`](../package.json) is the developer command surface; the
 quick start remains in the root [`README.md`](../README.md). Turborepo owns
 workspace dependency ordering and cache contracts in [`turbo.json`](../turbo.json):
 
-- `pnpm dev` loads the root `.env`, starts the native Nuxt, Nest and worker
+- `pnpm dev` loads the root `.env`, starts the native admin, Nest and worker
   processes, and passes only their declared runtime variables through Turbo.
 - `pnpm check` runs formatting, documentation, typecheck, lint, test and build
-  in that order. Typecheck prepares Nuxt's generated configuration before lint;
-  the four Turbo phases remain separate because they share `.nuxt` state.
+  in that order. The Turbo phases remain separate so a failure names the phase
+  that broke rather than a merged graph.
 - `pnpm install --frozen-lockfile` is the clean-machine and CI contract. pnpm
   rejects workspace cycles and unreviewed dependency build scripts.
 - GitHub Actions repeats that clean check and builds production images without

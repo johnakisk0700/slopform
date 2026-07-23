@@ -46,9 +46,16 @@ signal, and PrimeVue is a consumer of that system rather than a parallel one.
 
 ## Consequences
 
+> Consumer update (per [ADR 0006](0006-react-admin-runtime.md)): the token system
+> and single `dark`-class model below are unchanged, but the consumer is no
+> longer PrimeVue. The admin panel now consumes these tokens through HeroUI v3 +
+> Tailwind v4 in `apps/admin/src/styles/globals.css`, and the tests moved to
+> `apps/admin/test/`. The original PrimeVue rationale is preserved as history.
+
 - New colours are added as tokens (primitive + semantic), not as literals in
-  components. `packages/design-tokens` verifies the core token names and
-  `apps/web/test/theme-tokens.spec.ts` verifies AA contrast in both themes.
+  components. `packages/design-tokens` verifies the core token names and the
+  theme-tokens spec (`apps/admin/test/theme-tokens.spec.ts`) verifies AA
+  contrast in both themes.
 - The display face is the same sans at a heavier weight; there is no serif
   dependency.
 - The dark palette is a warm wine-black. Both themes are first-class and must be
@@ -59,6 +66,8 @@ signal, and PrimeVue is a consumer of that system rather than a parallel one.
 ## References
 
 - [`docs/frontend/theming.md`](../frontend/theming.md) — token reference, the
-  dark-mode mechanism and the extension guide.
-- PrimeVue 4 styled theming, verified 2026-07-22:
-  <https://primevue.dev/theming/styled/>.
+  dark-mode mechanism and the current HeroUI + Tailwind extension guide.
+- [ADR 0006](0006-react-admin-runtime.md) — the React/HeroUI port that changed the
+  consumer of this token system.
+- PrimeVue 4 styled theming (the consumer at the time this ADR was accepted),
+  verified 2026-07-22: <https://primevue.dev/theming/styled/>.

@@ -4,7 +4,7 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": ["dist/**", ".nuxt/**", ".output/**", "!.nuxt/cache/**"]
+      "outputs": ["dist/**"]
     },
     "@join-the-six/design-tokens#build": {
       "outputs": []

@@ -13,7 +13,7 @@ Fresh agents received only an isolated detached worktree and the same task:
 - add a validated, newest-first read endpoint to the gated reference module;
 - add an admin list page through `useApi()` and `JtsDataTable`;
 - cover loading, error, empty and populated states;
-- preserve Nest/Drizzle, Zod, PrimeVue, metadata and documentation contracts;
+- preserve Nest/Drizzle, Zod, HeroUI, metadata and documentation contracts;
 - add no dependency, migration, mutation or speculative abstraction.
 
 Candidates did not commit. An independent fresh Sol judge reviewed anonymous
@@ -35,7 +35,7 @@ a structural rewrite:
 
 1. HTTP tests needed an explicit real-application recipe.
 2. Admin pages needed a named, documented `admin-page-stack` root contract.
-3. Admin API parsing and local PrimeVue imports needed checklist-level wording.
+3. Admin API parsing and HeroUI import conventions needed checklist-level wording.
 
 Those changes produced a passing fresh Terra run without showing it the first
 diff or its score. Luna was not available in the configured model set, so no

@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-07-22
-- Scope note: frontend ownership narrowed by [ADR 0004](0004-admin-only-boundary.md).
+- Scope note: frontend ownership narrowed by [ADR 0004](0004-admin-only-boundary.md); the Nuxt/Vue/PrimeVue frontend is superseded by the React admin runtime in [ADR 0006](0006-react-admin-runtime.md) (backend stack unchanged).
 
 ## Decision
 
