@@ -1,8 +1,19 @@
-import { type FormEvent, type ReactNode, useState } from "react";
-import { Button, Chip, Input, Modal, ProgressBar, toast } from "@heroui/react";
+import { type FormEvent, type ReactNode, useRef, useState } from "react";
+import {
+  Button,
+  Calendar,
+  Chip,
+  DateField,
+  DatePicker,
+  Input,
+  Modal,
+  ProgressBar,
+  toast,
+} from "@heroui/react";
+import type { DateValue } from "@internationalized/date";
 import type { ColumnDef } from "@tanstack/react-table";
 import {
-  Calendar,
+  Calendar as CalendarIcon,
   CircleCheck,
   CreditCard,
   Filter,
@@ -286,7 +297,8 @@ export function OverviewPage() {
   ]);
   const [isDialogOpen, setDialogOpen] = useState(false);
   const [draftName, setDraftName] = useState("");
-  const [draftDate, setDraftDate] = useState("");
+  const [draftDate, setDraftDate] = useState<DateValue | null>(null);
+  const dateFieldRef = useRef<HTMLDivElement>(null);
   const [formErrors, setFormErrors] = useState<
     Partial<Record<"name" | "date", string>>
   >({});
@@ -310,7 +322,7 @@ export function OverviewPage() {
   function handleDialogOpenChange(open: boolean): void {
     if (open) {
       setDraftName("");
-      setDraftDate("");
+      setDraftDate(null);
       setFormErrors({});
     }
     setDialogOpen(open);
@@ -320,17 +332,25 @@ export function OverviewPage() {
     event.preventDefault();
 
     const draft: EventPreviewDraft = {
+      // The picker yields a calendar day; read it as UTC so the stored date is
+      // the day the operator chose, in any timezone.
       name: draftName,
-      date: draftDate ? new Date(`${draftDate}T00:00:00Z`) : null,
+      date: draftDate ? new Date(`${draftDate.toString()}T00:00:00Z`) : null,
     };
     const result = eventPreviewSchema.safeParse(draft);
 
     if (!result.success) {
       const errors = getEventPreviewErrors(draft);
       setFormErrors(errors);
-      const firstInvalidId = errors.name ? "event-name" : "event-date";
       requestAnimationFrame(() => {
-        document.getElementById(firstInvalidId)?.focus();
+        if (errors.name) {
+          document.getElementById("event-name")?.focus();
+          return;
+        }
+        // The date field is a segmented input; focus its first segment.
+        dateFieldRef.current
+          ?.querySelector<HTMLElement>('[role="spinbutton"]')
+          ?.focus();
       });
       return;
     }
@@ -416,27 +436,60 @@ export function OverviewPage() {
                           </p>
                         ) : null}
                       </div>
-                      <div className="grid gap-1.5">
-                        <label
-                          htmlFor="event-date"
-                          className="flex items-center gap-2 text-sm font-semibold text-ink"
-                        >
-                          Dinner date
-                          <span className="text-[0.7rem] font-extrabold uppercase tracking-caps text-ink-muted">
-                            Required
-                          </span>
-                        </label>
-                        <Input
-                          id="event-date"
-                          type="date"
-                          className="w-full"
+                      <div className="grid gap-1.5" ref={dateFieldRef}>
+                        <DatePicker
+                          aria-label="Dinner date"
                           value={draftDate}
-                          onChange={(event) => setDraftDate(event.target.value)}
-                          aria-invalid={formErrors.date ? true : undefined}
-                          aria-describedby={
-                            formErrors.date ? "event-date-error" : undefined
-                          }
-                        />
+                          onChange={setDraftDate}
+                          isInvalid={Boolean(formErrors.date)}
+                          {...(formErrors.date
+                            ? { "aria-describedby": "event-date-error" }
+                            : {})}
+                          className="grid gap-1.5"
+                        >
+                          <span className="flex items-center gap-2 text-sm font-semibold text-ink">
+                            Dinner date
+                            <span className="text-[0.7rem] font-extrabold uppercase tracking-caps text-ink-muted">
+                              Required
+                            </span>
+                          </span>
+                          <DateField.Group>
+                            <DateField.Input>
+                              {(segment) => (
+                                <DateField.Segment segment={segment} />
+                              )}
+                            </DateField.Input>
+                            <DateField.Suffix>
+                              <DatePicker.Trigger>
+                                <DatePicker.TriggerIndicator />
+                              </DatePicker.Trigger>
+                            </DateField.Suffix>
+                          </DateField.Group>
+                          <DatePicker.Popover>
+                            <Calendar aria-label="Choose the dinner date">
+                              <Calendar.Header>
+                                <Calendar.YearPickerTrigger>
+                                  <Calendar.YearPickerTriggerHeading />
+                                  <Calendar.YearPickerTriggerIndicator />
+                                </Calendar.YearPickerTrigger>
+                                <Calendar.NavButton slot="previous" />
+                                <Calendar.NavButton slot="next" />
+                              </Calendar.Header>
+                              <Calendar.Grid>
+                                <Calendar.GridHeader>
+                                  {(day) => (
+                                    <Calendar.HeaderCell>
+                                      {day}
+                                    </Calendar.HeaderCell>
+                                  )}
+                                </Calendar.GridHeader>
+                                <Calendar.GridBody>
+                                  {(date) => <Calendar.Cell date={date} />}
+                                </Calendar.GridBody>
+                              </Calendar.Grid>
+                            </Calendar>
+                          </DatePicker.Popover>
+                        </DatePicker>
                         {formErrors.date ? (
                           <p
                             id="event-date-error"
@@ -479,7 +532,7 @@ export function OverviewPage() {
           label="Active events"
           value={activePreviewEvents}
           detail="Open or ready"
-          icon={Calendar}
+          icon={CalendarIcon}
         />
         <JtsStat
           label="Bookings"
