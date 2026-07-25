@@ -1,6 +1,7 @@
 import { MODULE_METADATA } from "@nestjs/common/constants.js";
 import { describe, expect, it } from "vitest";
 
+import { isFeedbackSimulatorHttpEnabled } from "../../infrastructure/config/environment.js";
 import {
   QueueModule,
   QueueWorkerModule,
@@ -84,5 +85,36 @@ describe("post-event feedback process composition", () => {
     expect(workerProviders).toContain(MessageOutboxDeliveryService);
     expect(workerProviders).toContain(FeedbackOutboxSchedulerService);
     expect(workerProviders).not.toContain(PostEventFeedbackIngressService);
+  });
+
+  it("keeps the feedback simulator HTTP module out of production composition", () => {
+    expect(
+      isFeedbackSimulatorHttpEnabled({
+        NODE_ENV: "production",
+        FEEDBACK_SIMULATOR_ENABLED: "true",
+        TRANSPORT_MODE: "simulated",
+      }),
+    ).toBe(false);
+    expect(
+      isFeedbackSimulatorHttpEnabled({
+        NODE_ENV: "development",
+        FEEDBACK_SIMULATOR_ENABLED: "false",
+        TRANSPORT_MODE: "simulated",
+      }),
+    ).toBe(false);
+    expect(
+      isFeedbackSimulatorHttpEnabled({
+        NODE_ENV: "development",
+        FEEDBACK_SIMULATOR_ENABLED: "true",
+        TRANSPORT_MODE: "wasender",
+      }),
+    ).toBe(false);
+    expect(
+      isFeedbackSimulatorHttpEnabled({
+        NODE_ENV: "development",
+        FEEDBACK_SIMULATOR_ENABLED: "true",
+        TRANSPORT_MODE: "simulated",
+      }),
+    ).toBe(true);
   });
 });

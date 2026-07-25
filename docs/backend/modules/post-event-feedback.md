@@ -4,7 +4,7 @@ Status: architecture accepted in
 [ADR 0008](../../decisions/0008-post-event-feedback-conversations.md);
 **WP0 product contract**, **WP1 stub events**, **WP2 PostgreSQL persistence**,
 **WP3 Mongo conversation schema v2**, **WP4 ingress + materialization** and
-**WP6 outbox relay + transport** are landed. Extraction, campaign launch and the
+**WP6 outbox relay + transport** and **WP8 dev simulated transport** are landed. Extraction, campaign launch and the
 admin inbox remain later work packages. Plan amendments in
 [`POST_EVENT_FEEDBACK_PLAN_2026-07-25.md`](../../../POST_EVENT_FEEDBACK_PLAN_2026-07-25.md)
 §9 supersede frozen candidate snapshots with live D16 selection.
@@ -393,12 +393,14 @@ unknown provider outcome parks the row (`delivery_status=pending`, keep any
 
 ### Transport boundary
 
-| `TRANSPORT_MODE` | Adapter                                                                                      |
-| ---------------- | -------------------------------------------------------------------------------------------- |
-| `simulated`      | In-memory sink, clearly marked as temporary until WP8's durable sink + inject/read endpoints |
-| `wasender`       | `WasenderClient.sendText` behind a shared-session pacer (minimum interval + jitter)          |
+| `TRANSPORT_MODE` | Adapter                                                                                                 |
+| ---------------- | ------------------------------------------------------------------------------------------------------- |
+| `simulated`      | Durable PostgreSQL `feedback_sim_outbound` sink; dev inject/read HTTP when `FEEDBACK_SIMULATOR_ENABLED` |
+| `wasender`       | `WasenderClient.sendText` behind a shared-session pacer (minimum interval + jitter)                     |
 
-No development HTTP inject/read endpoints are part of this package.
+No development HTTP inject/read endpoints are part of WP6; WP8 adds them behind
+`FEEDBACK_SIMULATOR_ENABLED` (off by default, excluded from the published
+OpenAPI composition).
 
 ### `messages.update`
 
@@ -411,6 +413,40 @@ no-op until an accepted send or upsert correlation has stored the id.
 Lease / stable job-id idempotency, campaign stagger, session pacing bounds,
 unknown-outcome no-retry, cancel-on-STOP statuses, and delivery-status upgrade
 without downgrade.
+
+## WP8 dev simulated transport (implemented)
+
+Local-first validation (D2) uses `TRANSPORT_MODE=simulated` with a durable
+PostgreSQL outbound sink and authenticated dev HTTP endpoints. Production
+rejects `TRANSPORT_MODE=simulated` and never mounts the simulator module.
+
+### Durable simulated outbound
+
+[`SimulatedFeedbackTransport`](../../../apps/backend/src/modules/post-event-feedback/simulated-feedback-transport.service.ts)
+implements the same `FeedbackTransport` port as Wasender. Each accepted send
+inserts one row into `feedback_sim_outbound` (no foreign keys — dev-only
+traffic, simplest replay/query shape). The outbox `provider_log_id` is the sink
+row primary key; `provider_message_id` is `sim-<uuid>`.
+
+### Dev inject and sim thread
+
+When `FEEDBACK_SIMULATOR_ENABLED=true`, `NODE_ENV` is not `production`, and
+`TRANSPORT_MODE=simulated`, the HTTP process mounts
+[`PostEventFeedbackSimulatorHttpModule`](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-simulator-http.module.ts):
+
+| Operation                             | `operationId`                    | Contract                                                                                                                                                                                                                     |
+| ------------------------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /dev/feedback/simulator/inject` | `injectFeedbackSimulatorMessage` | `phoneE164`, `text`, optional `fromMe` → `ObservedProviderMessage` → [`PostEventFeedbackIngressService.recordObservedMessage`](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-ingress.service.ts) |
+| `GET /dev/feedback/simulator/thread`  | `getFeedbackSimulatorThread`     | Merges ingress rows and `feedback_sim_outbound` for one phone (WP9 composer)                                                                                                                                                 |
+
+The published `openapi.json` keeps `FEEDBACK_SIMULATOR_ENABLED=false`, so these
+routes stay out of the generated admin client until deliberately promoted.
+
+### WP8 tests
+
+Integration coverage runs intro delivery → inject reply → materialize →
+`feedback.extract.v1` enqueue (extraction execution remains WP5). Composition
+tests assert production cannot enable the HTTP simulator.
 
 ## WP3 conversation persistence (implemented)
 

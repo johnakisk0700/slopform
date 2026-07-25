@@ -45,8 +45,10 @@ There are no automatic provider retries. `WASENDER_SESSION_API_KEY`
 conditionally adds the transport module to the worker graph; the HTTP graph
 never receives that credential. `TRANSPORT_MODE=wasender` also requires that
 key and selects the paced Wasender `FeedbackTransport` adapter.
-`TRANSPORT_MODE=simulated` (default) uses a minimal in-memory sink; WP8 replaces
-that sink with a durable development store plus inject/read endpoints.
+`TRANSPORT_MODE=simulated` (default) uses a durable PostgreSQL outbound sink
+(`feedback_sim_outbound`) plus optional dev inject/read HTTP when
+`FEEDBACK_SIMULATOR_ENABLED` is true (off by default; excluded from the
+published OpenAPI composition).
 
 When `WASENDER_WEBHOOK_ENABLED=true`, Wasender can call
 `POST /api/v1/webhooks/wasender`. The route is public with respect to Clerk but
@@ -161,12 +163,13 @@ come first.
 
 ## Configuration and operations
 
-| Variable                   | Process | Contract                                                                        |
-| -------------------------- | ------- | ------------------------------------------------------------------------------- |
-| `TRANSPORT_MODE`           | worker  | `simulated` (default) or `wasender`; wasender requires the session API key      |
-| `WASENDER_SESSION_API_KEY` | worker  | Optional session-scoped bearer key; presence enables the Wasender client module |
-| `WASENDER_WEBHOOK_ENABLED` | API     | Defaults false; mounts the public route only when explicitly true               |
-| `WASENDER_WEBHOOK_SECRET`  | API     | Required with the route; 32–512 chars, exact shared secret                      |
+| Variable                     | Process | Contract                                                                                                           |
+| ---------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------ |
+| `TRANSPORT_MODE`             | worker  | `simulated` (default, disallowed in production) or `wasender`; wasender requires the session API key               |
+| `FEEDBACK_SIMULATOR_ENABLED` | API     | Defaults false; mounts dev inject/thread routes only with `TRANSPORT_MODE=simulated` and non-production `NODE_ENV` |
+| `WASENDER_SESSION_API_KEY`   | worker  | Optional session-scoped bearer key; presence enables the Wasender client module                                    |
+| `WASENDER_WEBHOOK_ENABLED`   | API     | Defaults false; mounts the public route only when explicitly true                                                  |
+| `WASENDER_WEBHOOK_SECRET`    | API     | Required with the route; 32–512 chars, exact shared secret                                                         |
 
 Production mounts separate secret files into the worker and API. The webhook
 URL configured in Wasender must be the public HTTPS URL. Validate the signature

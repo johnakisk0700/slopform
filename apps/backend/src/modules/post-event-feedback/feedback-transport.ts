@@ -3,8 +3,8 @@
  *
  * Switched by `TRANSPORT_MODE`:
  * - `wasender` → paced Wasender session client
- * - `simulated` → in-memory sink (WP8 replaces this with a durable sink +
- *   inject/read endpoints; do not add those here)
+ * - `simulated` → durable PostgreSQL sink (`feedback_sim_outbound`) plus dev
+ *   inject/read HTTP endpoints when `FEEDBACK_SIMULATOR_ENABLED` is true
  */
 export const FEEDBACK_TRANSPORT = Symbol("join-the-six.feedback-transport");
 

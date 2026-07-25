@@ -3,6 +3,7 @@ import {
   feedbackAnswers,
   feedbackCampaigns,
   feedbackNotes,
+  feedbackSimOutbound,
   messageOutbox,
   providerMessageIngress,
   type AppTransaction,
@@ -15,6 +16,7 @@ import {
   type FeedbackNoteRow,
   type FeedbackNoteStatus,
   type FeedbackNoteType,
+  type FeedbackSimOutboundRow,
   type MessageOutboxDeliveryStatus,
   type MessageOutboxKind,
   type MessageOutboxRow,
@@ -676,6 +678,75 @@ export class PostEventFeedbackRepository {
       .select()
       .from(messageOutbox)
       .where(eq(messageOutbox.providerLogId, providerLogId))
+      .limit(1);
+
+    return record;
+  }
+
+  /** Dev-only simulated transport sink (WP8). */
+  async insertSimOutbound(
+    input: {
+      readonly id?: string;
+      readonly outboxId: string;
+      readonly phoneE164: string;
+      readonly body: string;
+      readonly providerMessageId: string;
+      readonly sentAt: Date;
+    },
+    executor: DatabaseExecutor = this.database.db,
+  ): Promise<FeedbackSimOutboundRow> {
+    const [record] = await executor
+      .insert(feedbackSimOutbound)
+      .values({
+        id: input.id,
+        outboxId: input.outboxId,
+        phoneE164: input.phoneE164,
+        body: input.body,
+        providerMessageId: input.providerMessageId,
+        sentAt: input.sentAt,
+      })
+      .returning();
+
+    if (!record) {
+      throw new Error("Simulated outbound insert returned no row");
+    }
+
+    return record;
+  }
+
+  async listSimOutboundByPhoneE164(
+    phoneE164: string,
+    executor: DatabaseExecutor = this.database.db,
+  ): Promise<readonly FeedbackSimOutboundRow[]> {
+    return executor
+      .select()
+      .from(feedbackSimOutbound)
+      .where(eq(feedbackSimOutbound.phoneE164, phoneE164))
+      .orderBy(asc(feedbackSimOutbound.sentAt), asc(feedbackSimOutbound.id));
+  }
+
+  async listIngressByPhoneE164(
+    phoneE164: string,
+    executor: DatabaseExecutor = this.database.db,
+  ): Promise<readonly ProviderMessageIngressRow[]> {
+    return executor
+      .select()
+      .from(providerMessageIngress)
+      .where(eq(providerMessageIngress.phoneE164, phoneE164))
+      .orderBy(
+        asc(providerMessageIngress.observedAt),
+        asc(providerMessageIngress.id),
+      );
+  }
+
+  async findSimOutboundById(
+    id: string,
+    executor: DatabaseExecutor = this.database.db,
+  ): Promise<FeedbackSimOutboundRow | undefined> {
+    const [record] = await executor
+      .select()
+      .from(feedbackSimOutbound)
+      .where(eq(feedbackSimOutbound.id, id))
       .limit(1);
 
     return record;

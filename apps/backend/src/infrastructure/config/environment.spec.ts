@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   isBullBoardEnabled,
+  isFeedbackSimulatorHttpEnabled,
   isReferenceModuleEnabled,
   isWasenderTransportEnabled,
   isWasenderWebhookEnabled,
@@ -13,6 +14,14 @@ const requiredEnvironment = {
   DATABASE_URL: "postgresql://user:password@localhost:5432/join_the_six",
   MONGODB_URI: "mongodb://localhost:27017/join_the_six",
 };
+
+const productionEnvironment = {
+  ...requiredEnvironment,
+  NODE_ENV: "production",
+  WEB_ORIGIN: "https://admin.example.com",
+  TRANSPORT_MODE: "wasender",
+  WASENDER_SESSION_API_KEY: "session-key",
+} as const;
 
 describe("validateEnvironment", () => {
   it("coerces safe defaults and numbers", () => {
@@ -31,6 +40,7 @@ describe("validateEnvironment", () => {
     expect(environment.WASENDER_WEBHOOK_ENABLED).toBe(false);
     expect(environment.WASENDER_WEBHOOK_SECRET).toBeUndefined();
     expect(environment.TRANSPORT_MODE).toBe("simulated");
+    expect(environment.FEEDBACK_SIMULATOR_ENABLED).toBe(false);
     expect(environment.MONGODB_URI).toBe(
       "mongodb://localhost:27017/join_the_six",
     );
@@ -109,12 +119,36 @@ describe("validateEnvironment", () => {
 
     expect(() =>
       validateEnvironment({
-        ...requiredEnvironment,
+        ...productionEnvironment,
         AUTH_DEV_BYPASS: "true",
-        NODE_ENV: "production",
-        WEB_ORIGIN: "https://admin.example.com",
       }),
     ).toThrow(/AUTH_DEV_BYPASS/);
+  });
+
+  it("rejects simulated transport and the HTTP simulator in production", () => {
+    expect(() =>
+      validateEnvironment({
+        ...productionEnvironment,
+        TRANSPORT_MODE: "simulated",
+      }),
+    ).toThrow(/TRANSPORT_MODE=simulated is not allowed in production/);
+    expect(() =>
+      validateEnvironment({
+        ...productionEnvironment,
+        FEEDBACK_SIMULATOR_ENABLED: "true",
+      }),
+    ).toThrow(/FEEDBACK_SIMULATOR_ENABLED cannot be enabled in production/);
+  });
+
+  it("requires simulated transport when the HTTP simulator is enabled", () => {
+    expect(() =>
+      validateEnvironment({
+        ...requiredEnvironment,
+        FEEDBACK_SIMULATOR_ENABLED: "true",
+        TRANSPORT_MODE: "wasender",
+        WASENDER_SESSION_API_KEY: "session-key",
+      }),
+    ).toThrow(/FEEDBACK_SIMULATOR_ENABLED requires TRANSPORT_MODE=simulated/);
   });
 
   it("rejects paths and empty entries in WEB_ORIGIN", () => {
@@ -292,11 +326,7 @@ describe("validateEnvironment", () => {
   });
 
   it("requires authenticated verified-TLS MongoDB outside the production data network", () => {
-    const production = {
-      ...requiredEnvironment,
-      NODE_ENV: "production",
-      WEB_ORIGIN: "https://admin.example.com",
-    };
+    const production = productionEnvironment;
 
     expect(() =>
       validateEnvironment({
@@ -353,8 +383,7 @@ describe("validateEnvironment", () => {
   it("requires HTTPS browser origins in production", () => {
     expect(() =>
       validateEnvironment({
-        ...requiredEnvironment,
-        NODE_ENV: "production",
+        ...productionEnvironment,
         WEB_ORIGIN: "http://app.example.com",
       }),
     ).toThrow(/HTTPS in production/);
@@ -370,6 +399,13 @@ describe("validateEnvironment", () => {
       isWasenderWebhookEnabled({ WASENDER_WEBHOOK_ENABLED: " TRUE " }),
     ).toBe(true);
     expect(isWasenderWebhookEnabled({})).toBe(false);
+    expect(
+      isFeedbackSimulatorHttpEnabled({
+        NODE_ENV: "development",
+        FEEDBACK_SIMULATOR_ENABLED: "true",
+        TRANSPORT_MODE: "simulated",
+      }),
+    ).toBe(true);
     expect(
       isWasenderTransportEnabled({ WASENDER_SESSION_API_KEY: "key" }),
     ).toBe(true);

@@ -182,4 +182,20 @@ describe("post-event feedback database constraints", () => {
     expect(migration).not.toContain("event_attendees");
     expect(migration).not.toContain("message_deliveries");
   });
+
+  it("persists the dev-only simulated outbound sink without business FKs", () => {
+    const migration = readFileSync(
+      new URL(
+        "../../drizzle/20260725191018_feedback_sim_outbound.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+
+    expect(migration).toContain('CREATE TABLE "feedback_sim_outbound"');
+    expect(migration).toContain(
+      'CREATE INDEX "feedback_sim_outbound_phone_sent_idx"',
+    );
+    expect(migration).not.toContain("REFERENCES");
+  });
 });

@@ -42,12 +42,18 @@ import { WasenderFeedbackTransport } from "./wasender-feedback-transport.service
     MessageOutboxRelayService,
     MessageOutboxDeliveryService,
     FeedbackOutboxSchedulerService,
+    SimulatedFeedbackTransport,
     {
       provide: FEEDBACK_TRANSPORT,
-      inject: [ConfigService, { token: WasenderClient, optional: true }],
+      inject: [
+        ConfigService,
+        { token: WasenderClient, optional: true },
+        SimulatedFeedbackTransport,
+      ],
       useFactory: (
         config: ConfigService<Environment, true>,
-        wasender?: WasenderClient,
+        wasender: WasenderClient | undefined,
+        simulated: SimulatedFeedbackTransport,
       ) => {
         const mode = config.get("TRANSPORT_MODE", { infer: true });
         if (mode === "wasender") {
@@ -58,7 +64,7 @@ import { WasenderFeedbackTransport } from "./wasender-feedback-transport.service
           }
           return new WasenderFeedbackTransport(wasender);
         }
-        return new SimulatedFeedbackTransport();
+        return simulated;
       },
     },
     PostEventFeedbackProcessor,

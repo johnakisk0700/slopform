@@ -72,8 +72,9 @@ flowchart LR
   a developer's `.env` cannot change the published contract, and every object key
   is sorted before serialization so a new route produces a local diff.
 - The published composition is the default one: the Wasender webhook, the
-  reference module and Bull Board are off. Promoting one of them to a product
-  surface means publishing it deliberately in that environment.
+  reference module, Bull Board and the feedback dev simulator are off. Promoting
+  one of them to a product surface means publishing it deliberately in that
+  environment.
 - The document the running process serves and the committed artifact are built by
   the same `createOpenApiDocument()`; a backend test asserts they are identical
   byte for byte.

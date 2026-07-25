@@ -9,6 +9,7 @@ import { AuthModule } from "./infrastructure/auth/auth.module.js";
 import { WasenderHttpModule } from "./integrations/wasender/wasender-http.module.js";
 import {
   isBullBoardEnabled,
+  isFeedbackSimulatorHttpEnabled,
   isReferenceModuleEnabled,
   isWasenderWebhookEnabled,
 } from "./infrastructure/config/environment.js";
@@ -21,6 +22,7 @@ import { EventsHttpModule } from "./modules/events/events-http.module.js";
 import { HealthModule } from "./modules/health/health.module.js";
 import { ParticipantsHttpModule } from "./modules/participants/participants-http.module.js";
 import { PostEventFeedbackCoreModule } from "./modules/post-event-feedback/post-event-feedback-core.module.js";
+import { PostEventFeedbackSimulatorHttpModule } from "./modules/post-event-feedback/post-event-feedback-simulator-http.module.js";
 import { ReferenceHttpModule } from "./modules/reference/reference-http.module.js";
 
 const StrictZodValidationPipe = createZodValidationPipe({
@@ -48,6 +50,10 @@ const StrictZodValidationPipe = createZodValidationPipe({
     ConditionalModule.registerWhen(
       ReferenceHttpModule,
       isReferenceModuleEnabled,
+    ),
+    ConditionalModule.registerWhen(
+      PostEventFeedbackSimulatorHttpModule,
+      isFeedbackSimulatorHttpEnabled,
     ),
   ],
   providers: [

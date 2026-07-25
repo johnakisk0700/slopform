@@ -8,38 +8,36 @@ import type {
   FeedbackTransportSendInput,
   FeedbackTransportSendResult,
 } from "./feedback-transport.js";
+import { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
 
 /**
- * Minimal in-memory outbound sink for `TRANSPORT_MODE=simulated`.
+ * Durable PostgreSQL outbound sink for `TRANSPORT_MODE=simulated` (WP8).
  *
- * WP8 replaces this with a durable development sink plus authenticated
- * inject/read endpoints. Do not add HTTP endpoints or durable storage here.
+ * Dev/staging only: rows live in `feedback_sim_outbound` and are queryable per
+ * phone for the admin simulator thread. Production must not mount simulated
+ * transport or the HTTP injector.
  */
-export type SimulatedOutboundMessage = {
-  readonly id: string;
-  readonly outboxId: string;
-  readonly to: string;
-  readonly text: string;
-  readonly sentAt: Date;
-};
-
 @Injectable()
 export class SimulatedFeedbackTransport implements FeedbackTransport {
   private readonly logger = new Logger(SimulatedFeedbackTransport.name);
-  private readonly messages: SimulatedOutboundMessage[] = [];
+
+  constructor(private readonly repository: PostEventFeedbackRepository) {}
 
   async sendText(
     input: FeedbackTransportSendInput,
   ): Promise<FeedbackTransportSendResult> {
     const id = randomUUID();
-    const message: SimulatedOutboundMessage = {
+    const sentAt = new Date();
+    const providerMessageId = `sim-${id}`;
+
+    await this.repository.insertSimOutbound({
       id,
       outboxId: input.outboxId,
-      to: input.to,
-      text: input.text,
-      sentAt: new Date(),
-    };
-    this.messages.push(message);
+      phoneE164: input.to,
+      body: input.text,
+      providerMessageId,
+      sentAt,
+    });
 
     this.logger.log({
       event: "feedback.transport.simulated.sent",
@@ -50,7 +48,7 @@ export class SimulatedFeedbackTransport implements FeedbackTransport {
     return {
       outcome: "accepted",
       providerLogId: id,
-      providerMessageId: `sim-${id}`,
+      providerMessageId,
       providerStatus: "simulated",
     };
   }
@@ -58,25 +56,16 @@ export class SimulatedFeedbackTransport implements FeedbackTransport {
   async getMessageInfo(
     providerLogId: string,
   ): Promise<FeedbackTransportMessageInfo | undefined> {
-    const message = this.messages.find((entry) => entry.id === providerLogId);
+    const message = await this.repository.findSimOutboundById(providerLogId);
     if (!message) {
       return undefined;
     }
 
     return {
       providerLogId: message.id,
-      providerMessageId: `sim-${message.id}`,
+      providerMessageId: message.providerMessageId,
       status: "sent",
       occurredAt: message.sentAt,
     };
-  }
-
-  /** Test and WP8-preview inspection only; not an HTTP surface. */
-  listSent(): readonly SimulatedOutboundMessage[] {
-    return [...this.messages];
-  }
-
-  clear(): void {
-    this.messages.length = 0;
   }
 }

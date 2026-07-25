@@ -288,6 +288,11 @@ export const environmentSchema = observabilityEnvironmentSchema
       emptyStringToUndefined,
       z.enum(["simulated", "wasender"]).default("simulated"),
     ),
+    /**
+     * Dev/staging HTTP injector and sim-thread read API (WP8). Requires
+     * `TRANSPORT_MODE=simulated` and a non-production `NODE_ENV`.
+     */
+    FEEDBACK_SIMULATOR_ENABLED: booleanFromEnvironment,
     BULL_BOARD_ENABLED: booleanFromEnvironment,
     BULL_BOARD_USERNAME: optionalCredential,
     BULL_BOARD_PASSWORD: optionalCredential,
@@ -335,6 +340,35 @@ export const environmentSchema = observabilityEnvironmentSchema
         message:
           "WASENDER_SESSION_API_KEY is required when TRANSPORT_MODE=wasender",
         path: ["TRANSPORT_MODE"],
+      });
+    }
+
+    if (environment.NODE_ENV === "production") {
+      if (environment.TRANSPORT_MODE === "simulated") {
+        context.addIssue({
+          code: "custom",
+          message:
+            "TRANSPORT_MODE=simulated is not allowed in production; use wasender",
+          path: ["TRANSPORT_MODE"],
+        });
+      }
+      if (environment.FEEDBACK_SIMULATOR_ENABLED) {
+        context.addIssue({
+          code: "custom",
+          message: "FEEDBACK_SIMULATOR_ENABLED cannot be enabled in production",
+          path: ["FEEDBACK_SIMULATOR_ENABLED"],
+        });
+      }
+    }
+
+    if (
+      environment.FEEDBACK_SIMULATOR_ENABLED &&
+      environment.TRANSPORT_MODE !== "simulated"
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "FEEDBACK_SIMULATOR_ENABLED requires TRANSPORT_MODE=simulated",
+        path: ["FEEDBACK_SIMULATOR_ENABLED"],
       });
     }
 
@@ -456,6 +490,20 @@ export function isWasenderWebhookEnabled(
   environment: NodeJS.ProcessEnv,
 ): boolean {
   return environment.WASENDER_WEBHOOK_ENABLED?.trim().toLowerCase() === "true";
+}
+
+export function isFeedbackSimulatorHttpEnabled(
+  environment: NodeJS.ProcessEnv,
+): boolean {
+  if (environment.NODE_ENV?.trim() === "production") {
+    return false;
+  }
+
+  return (
+    environment.FEEDBACK_SIMULATOR_ENABLED?.trim().toLowerCase() === "true" &&
+    (environment.TRANSPORT_MODE?.trim().toLowerCase() ?? "simulated") ===
+      "simulated"
+  );
 }
 
 export function isWasenderTransportEnabled(

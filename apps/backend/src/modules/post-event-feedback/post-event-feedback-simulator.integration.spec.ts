@@ -1,0 +1,494 @@
+import { randomUUID } from "node:crypto";
+
+import { Logger } from "@nestjs/common";
+import type { AppTransaction } from "@join-the-six/database";
+import type { Queue } from "bullmq";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+import type { DatabaseService } from "../../infrastructure/database/database.service.js";
+import type { FeedbackConversationRepository } from "../conversations/feedback-conversation.repository.js";
+import { FeedbackSimulatorService } from "./feedback-simulator.service.js";
+import { MessageOutboxDeliveryService } from "./message-outbox-delivery.service.js";
+import { PostEventFeedbackIngressService } from "./post-event-feedback-ingress.service.js";
+import { PostEventFeedbackMaterializer } from "./post-event-feedback-materializer.service.js";
+import { PostEventFeedbackMetrics } from "./post-event-feedback-metrics.service.js";
+import type { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
+import type {
+  FeedbackJobData,
+  FeedbackJobName,
+} from "./post-event-feedback.schemas.js";
+import { SimulatedFeedbackTransport } from "./simulated-feedback-transport.service.js";
+
+const campaignId = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
+const respondentParticipantId = "9f3c1a52-6e2b-4b4a-9a17-2cb2a6d13a55";
+const conversationId = "6f0f2f8a-2b73-5a02-9d0a-3f0b8f5b1c21";
+const phone = "+306900000000";
+const chatJid = "306900000000@s.whatsapp.net";
+const observedAt = new Date("2026-07-25T10:05:00.000Z");
+
+describe("post-event feedback simulator (simulated mode)", () => {
+  beforeAll(() => {
+    Logger.overrideLogger(false);
+  });
+
+  let harness: SimulatorHarness;
+
+  beforeEach(() => {
+    harness = createSimulatorHarness();
+  });
+
+  it("runs intro delivery → inject reply → materialize → extract enqueue", async () => {
+    const introOutboxId = harness.repository.seedOutbox({
+      kind: "intro",
+      body: "Γεια σου! Πώς ήταν η εκδήλωση;",
+      status: "sending",
+      dedupeKey: "intro:1",
+    });
+
+    await expect(
+      harness.delivery.deliver(introOutboxId, "corr-intro"),
+    ).resolves.toEqual({ outcome: "sent" });
+    expect(harness.repository.simOutbound).toHaveLength(1);
+    expect(harness.repository.simOutbound[0]?.phoneE164).toBe(phone);
+
+    const inject = await harness.simulator.injectObservedMessage(
+      { phoneE164: phone, text: "Ήταν τέλεια!", fromMe: false },
+      "corr-inject",
+    );
+
+    const materialize = await harness.materializer.materialize({
+      ingressId: inject.ingressId,
+      correlationId: "corr-materialize",
+    });
+
+    expect(materialize).toMatchObject({
+      outcome: "inbound_materialized",
+      conversationId,
+      extractJobId: `feedback-extract-v1-${conversationId}-1`,
+    });
+    expect(harness.queue.added).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "feedback.extract.v1",
+          jobId: `feedback-extract-v1-${conversationId}-1`,
+        }),
+      ]),
+    );
+    expect(
+      harness.queue.added.filter((job) => job.name === "feedback.extract.v1"),
+    ).toHaveLength(1);
+    expect(harness.conversations.transcript(conversationId)).toEqual([
+      {
+        seq: 1,
+        actor: "participant",
+        text: "Ήταν τέλεια!",
+        ingressId: inject.ingressId,
+      },
+    ]);
+  });
+});
+
+interface FakeIngressRow {
+  id: string;
+  providerMessageId: string;
+  chatJid: string;
+  direction: "inbound" | "outbound";
+  phoneE164: string | null;
+  text: string | null;
+  observedAt: Date;
+  processingStatus: string;
+  matchedConversationId: string | null;
+}
+
+interface FakeOutboxRow {
+  id: string;
+  conversationId: string;
+  campaignId: string;
+  kind: string;
+  body: string;
+  status: string;
+  dedupeKey: string;
+  providerLogId: string | null;
+  providerMessageId: string | null;
+  deliveryStatus: string | null;
+  sentAt: Date | null;
+}
+
+interface FakeSimOutboundRow {
+  id: string;
+  outboxId: string;
+  phoneE164: string;
+  body: string;
+  providerMessageId: string;
+  sentAt: Date;
+}
+
+interface FakeMessage {
+  id: string;
+  seq: number;
+  actor: string;
+  text: string;
+  ingressId: string | null;
+}
+
+interface FakeConversation {
+  _id: string;
+  campaignId: string;
+  respondentParticipantId: string;
+  phoneAtLaunch: string;
+  lifecycle: { state: string; reason: string | null; closedAt: Date | null };
+  control: { mode: string; source: string; changedAt: Date };
+  messages: FakeMessage[];
+  needsAttention: boolean;
+}
+
+const TRANSACTION = { fake: "transaction" } as unknown as AppTransaction;
+
+class FakeDatabase {
+  private tail: Promise<unknown> = Promise.resolve();
+
+  async transaction<T>(work: (tx: AppTransaction) => Promise<T>): Promise<T> {
+    const run = this.tail.then(() => work(TRANSACTION));
+    this.tail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+}
+
+class SimulatorFakeRepository {
+  readonly ingress = new Map<string, FakeIngressRow>();
+  readonly outbox: FakeOutboxRow[] = [];
+  readonly simOutbound: FakeSimOutboundRow[] = [];
+
+  seedOutbox(overrides: Partial<FakeOutboxRow> & { body: string }): string {
+    const row: FakeOutboxRow = {
+      id: randomUUID(),
+      conversationId,
+      campaignId,
+      kind: "reply",
+      status: "pending",
+      dedupeKey: `seeded-${this.outbox.length}`,
+      providerLogId: null,
+      providerMessageId: null,
+      deliveryStatus: null,
+      sentAt: null,
+      ...overrides,
+    };
+    this.outbox.push(row);
+    return row.id;
+  }
+
+  async findOutboxById(id: string): Promise<FakeOutboxRow | undefined> {
+    return structuredClone(this.outbox.find((row) => row.id === id));
+  }
+
+  async insertIngressIfAbsent(
+    _transaction: AppTransaction,
+    input: {
+      providerMessageId: string;
+      chatJid: string;
+      direction: "inbound" | "outbound";
+      phoneE164?: string | null;
+      text?: string | null;
+      observedAt: Date;
+    },
+  ): Promise<{ row: FakeIngressRow; inserted: boolean }> {
+    const existing = [...this.ingress.values()].find(
+      (row) =>
+        row.chatJid === input.chatJid &&
+        row.providerMessageId === input.providerMessageId,
+    );
+    if (existing) {
+      return { row: structuredClone(existing), inserted: false };
+    }
+    const row: FakeIngressRow = {
+      id: randomUUID(),
+      providerMessageId: input.providerMessageId,
+      chatJid: input.chatJid,
+      direction: input.direction,
+      phoneE164: input.phoneE164 ?? null,
+      text: input.text ?? null,
+      observedAt: input.observedAt,
+      processingStatus: "pending",
+      matchedConversationId: null,
+    };
+    this.ingress.set(row.id, row);
+    return { row: structuredClone(row), inserted: true };
+  }
+
+  async insertSimOutbound(input: {
+    id?: string;
+    outboxId: string;
+    phoneE164: string;
+    body: string;
+    providerMessageId: string;
+    sentAt: Date;
+  }): Promise<FakeSimOutboundRow> {
+    const row: FakeSimOutboundRow = {
+      id: input.id ?? randomUUID(),
+      outboxId: input.outboxId,
+      phoneE164: input.phoneE164,
+      body: input.body,
+      providerMessageId: input.providerMessageId,
+      sentAt: input.sentAt,
+    };
+    this.simOutbound.push(row);
+    return row;
+  }
+
+  async findSimOutboundById(
+    id: string,
+  ): Promise<FakeSimOutboundRow | undefined> {
+    return structuredClone(this.simOutbound.find((row) => row.id === id));
+  }
+
+  async listIngressByPhoneE164(phoneE164: string): Promise<FakeIngressRow[]> {
+    return [...this.ingress.values()]
+      .filter((row) => row.phoneE164 === phoneE164)
+      .sort((a, b) => a.observedAt.getTime() - b.observedAt.getTime());
+  }
+
+  async listSimOutboundByPhoneE164(
+    phoneE164: string,
+  ): Promise<FakeSimOutboundRow[]> {
+    return this.simOutbound
+      .filter((row) => row.phoneE164 === phoneE164)
+      .sort((a, b) => a.sentAt.getTime() - b.sentAt.getTime());
+  }
+
+  async findIngressById(id: string): Promise<FakeIngressRow | undefined> {
+    const row = this.ingress.get(id);
+    return row ? structuredClone(row) : undefined;
+  }
+
+  async findIngressByIdForUpdate(
+    _transaction: AppTransaction,
+    id: string,
+  ): Promise<FakeIngressRow | undefined> {
+    return this.findIngressById(id);
+  }
+
+  async updateIngressProcessing(
+    _transaction: AppTransaction,
+    id: string,
+    input: {
+      processingStatus: string;
+      matchedConversationId?: string | null;
+      text?: string | null;
+    },
+  ): Promise<FakeIngressRow | undefined> {
+    const row = this.ingress.get(id);
+    if (!row) {
+      return undefined;
+    }
+    row.processingStatus = input.processingStatus;
+    if (input.matchedConversationId !== undefined) {
+      row.matchedConversationId = input.matchedConversationId;
+    }
+    if (input.text !== undefined) {
+      row.text = input.text;
+    }
+    return structuredClone(row);
+  }
+
+  async updateOutboxDelivery(
+    _transaction: AppTransaction,
+    id: string,
+    input: {
+      status?: string;
+      deliveryStatus?: string | null;
+      providerLogId?: string | null;
+      providerMessageId?: string | null;
+      sentAt?: Date | null;
+    },
+  ): Promise<FakeOutboxRow | undefined> {
+    const row = this.outbox.find((candidate) => candidate.id === id);
+    if (!row) {
+      return undefined;
+    }
+    if (input.status !== undefined) {
+      row.status = input.status;
+    }
+    if (input.deliveryStatus !== undefined) {
+      row.deliveryStatus = input.deliveryStatus;
+    }
+    if (input.providerLogId !== undefined) {
+      row.providerLogId = input.providerLogId;
+    }
+    if (input.providerMessageId !== undefined) {
+      row.providerMessageId = input.providerMessageId;
+    }
+    if (input.sentAt !== undefined) {
+      row.sentAt = input.sentAt;
+    }
+    return structuredClone(row);
+  }
+}
+
+class FakeConversations {
+  readonly documents = new Map<string, FakeConversation>();
+
+  seed(conversation: FakeConversation): void {
+    this.documents.set(conversation._id, conversation);
+  }
+
+  transcript(
+    id: string,
+  ): { seq: number; actor: string; text: string; ingressId: string | null }[] {
+    const conversation = this.documents.get(id);
+    if (!conversation) {
+      throw new Error(`Conversation ${id} was not seeded`);
+    }
+    return conversation.messages.map((message) => ({
+      seq: message.seq,
+      actor: message.actor,
+      text: message.text,
+      ingressId: message.ingressId,
+    }));
+  }
+
+  async findById(id: string): Promise<FakeConversation | undefined> {
+    const conversation = this.documents.get(id);
+    return conversation ? structuredClone(conversation) : undefined;
+  }
+
+  async findOpenByPhone(
+    phoneAtLaunch: string,
+  ): Promise<FakeConversation | undefined> {
+    return [...this.documents.values()].find(
+      (conversation) =>
+        conversation.phoneAtLaunch === phoneAtLaunch &&
+        conversation.lifecycle.state === "open",
+    );
+  }
+
+  async appendMessage(input: {
+    conversationId: string;
+    actor: string;
+    text: string;
+    at: Date;
+    ingressId?: string | null;
+  }): Promise<{
+    appended: boolean;
+    message: FakeMessage;
+    conversation: FakeConversation;
+  }> {
+    const conversation = this.documents.get(input.conversationId);
+    if (!conversation) {
+      throw new Error(`Conversation ${input.conversationId} was not seeded`);
+    }
+    const message: FakeMessage = {
+      id: randomUUID(),
+      seq: conversation.messages.length + 1,
+      actor: input.actor,
+      text: input.text,
+      ingressId: input.ingressId ?? null,
+    };
+    conversation.messages.push(message);
+    return { appended: true, message, conversation };
+  }
+}
+
+class FakeParticipants {
+  async findByIdForUpdate(
+    _transaction: AppTransaction,
+    id: string,
+  ): Promise<
+    { id: string; postEventFeedbackWhatsappOptIn: boolean } | undefined
+  > {
+    if (id !== respondentParticipantId) {
+      return undefined;
+    }
+    return { id, postEventFeedbackWhatsappOptIn: true };
+  }
+
+  async updateFeedbackOptIn(): Promise<undefined> {
+    return undefined;
+  }
+}
+
+class FakeAudit {
+  async append(): Promise<void> {}
+}
+
+class FakeQueue {
+  readonly added: { name: string; data: unknown; jobId: string }[] = [];
+
+  async add(
+    name: string,
+    data: unknown,
+    options: { jobId: string },
+  ): Promise<{ id: string }> {
+    if (!this.added.some((job) => job.jobId === options.jobId)) {
+      this.added.push({ name, data, jobId: options.jobId });
+    }
+    return { id: options.jobId };
+  }
+}
+
+interface SimulatorHarness {
+  repository: SimulatorFakeRepository;
+  conversations: FakeConversations;
+  delivery: MessageOutboxDeliveryService;
+  simulator: FeedbackSimulatorService;
+  materializer: PostEventFeedbackMaterializer;
+  queue: FakeQueue;
+}
+
+function createSimulatorHarness(): SimulatorHarness {
+  const repository = new SimulatorFakeRepository();
+  const conversations = new FakeConversations();
+  const queue = new FakeQueue();
+  const database = new FakeDatabase();
+  const transport = new SimulatedFeedbackTransport(
+    repository as unknown as PostEventFeedbackRepository,
+  );
+
+  conversations.seed({
+    _id: conversationId,
+    campaignId,
+    respondentParticipantId,
+    phoneAtLaunch: phone,
+    lifecycle: { state: "open", reason: null, closedAt: null },
+    control: {
+      mode: "bot",
+      source: "launch",
+      changedAt: observedAt,
+    },
+    messages: [],
+    needsAttention: false,
+  });
+
+  const ingress = new PostEventFeedbackIngressService(
+    queue as unknown as Queue<FeedbackJobData, void, FeedbackJobName>,
+    database as unknown as DatabaseService,
+    repository as unknown as PostEventFeedbackRepository,
+  );
+
+  return {
+    repository,
+    conversations,
+    queue,
+    delivery: new MessageOutboxDeliveryService(
+      database as unknown as DatabaseService,
+      repository as unknown as PostEventFeedbackRepository,
+      conversations as unknown as FeedbackConversationRepository,
+      transport,
+    ),
+    simulator: new FeedbackSimulatorService(
+      ingress,
+      repository as unknown as PostEventFeedbackRepository,
+    ),
+    materializer: new PostEventFeedbackMaterializer(
+      queue as unknown as Queue<FeedbackJobData, void, FeedbackJobName>,
+      database as unknown as DatabaseService,
+      repository as unknown as PostEventFeedbackRepository,
+      conversations as unknown as FeedbackConversationRepository,
+      new FakeParticipants() as never,
+      new FakeAudit() as never,
+      new PostEventFeedbackMetrics(),
+    ),
+  };
+}
