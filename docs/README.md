@@ -25,6 +25,7 @@ Area-specific memory:
 - [`frontend/components/README.md`](frontend/components/README.md) — reusable component inventory and selection hierarchy
 - [`frontend/theming.md`](frontend/theming.md) — design tokens, dark mode and the HeroUI integration
 - [`frontend/assistant.md`](frontend/assistant.md) — queue-backed AI conversation route and polling contract
+- [`frontend/feedback-conversations.md`](frontend/feedback-conversations.md) — post-event feedback inbox, capability-gated actions and results
 - [`backend/mechanisms/README.md`](backend/mechanisms/README.md) — queue, database and runtime operations contracts
 - [`backend/mechanisms/api-contract.md`](backend/mechanisms/api-contract.md) — OpenAPI emission, admin client generation and drift detection
 - [`backend/mechanisms/mongodb.md`](backend/mechanisms/mongodb.md) — conversation-store lifecycle, security, limits and backup

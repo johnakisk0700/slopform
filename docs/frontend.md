@@ -13,22 +13,23 @@ by the existing Next.js application at `legacy.example.com`; see
 
 ## Start here
 
-| Task                                  | Location                                  | First reference                                        |
-| ------------------------------------- | ----------------------------------------- | ------------------------------------------------------ |
-| Add an admin route                    | `apps/admin/src/routes/`                  | `routes/OverviewPage.tsx` and the table in `App.tsx`   |
-| Extend the AI assistant               | `apps/admin/src/routes/AssistantPage.tsx` | [Assistant screen contract](frontend/assistant.md)     |
-| Add a domain schema or pure helper    | `apps/admin/src/features/<domain>/`       | `features/event/schema.ts`                             |
-| Add domain UI                         | `apps/admin/src/components/admin/`        | `components/admin/AdminNavigation.tsx`                 |
-| Reuse or add shared UI                | `apps/admin/src/components/ui/`           | [Component inventory](frontend/components/README.md)   |
-| Use a HeroUI primitive                | Owning route or component                 | Import from `@heroui/react`                            |
-| Call a backend endpoint               | `apps/admin/src/api/generated/`           | [Generated client](backend/mechanisms/api-contract.md) |
-| Change transport policy               | `apps/admin/src/lib/api.ts`               | `apps/admin/src/lib/env.ts`                            |
-| Regenerate the API client             | `pnpm api:generate` (root)                | [API contract](backend/mechanisms/api-contract.md)     |
-| Read appearance / toggle dark mode    | `apps/admin/src/lib/useTheme.ts`          | Pre-paint script in `index.html`                       |
-| Change the token bridge / HeroUI look | `apps/admin/src/styles/globals.css`       | Named section in that file                             |
-| Change a shared visual value          | `packages/design-tokens/src/tokens.css`   | Token ownership below                                  |
-| Change routing, redirect or 404       | `apps/admin/src/App.tsx`                  | `Routes` table                                         |
-| Change the dev proxy or build         | `apps/admin/vite.config.ts`               | `/api` proxy and env contract below                    |
+| Task                                  | Location                                      | First reference                                              |
+| ------------------------------------- | --------------------------------------------- | ------------------------------------------------------------ |
+| Add an admin route                    | `apps/admin/src/routes/`                      | `routes/OverviewPage.tsx` and the table in `App.tsx`         |
+| Extend the AI assistant               | `apps/admin/src/routes/AssistantPage.tsx`     | [Assistant screen contract](frontend/assistant.md)           |
+| Change the feedback inbox             | `apps/admin/src/routes/FeedbackInboxPage.tsx` | [Feedback conversations](frontend/feedback-conversations.md) |
+| Add a domain schema or pure helper    | `apps/admin/src/features/<domain>/`           | `features/event/schema.ts`                                   |
+| Add domain UI                         | `apps/admin/src/components/admin/`            | `components/admin/AdminNavigation.tsx`                       |
+| Reuse or add shared UI                | `apps/admin/src/components/ui/`               | [Component inventory](frontend/components/README.md)         |
+| Use a HeroUI primitive                | Owning route or component                     | Import from `@heroui/react`                                  |
+| Call a backend endpoint               | `apps/admin/src/api/generated/`               | [Generated client](backend/mechanisms/api-contract.md)       |
+| Change transport policy               | `apps/admin/src/lib/api.ts`                   | `apps/admin/src/lib/env.ts`                                  |
+| Regenerate the API client             | `pnpm api:generate` (root)                    | [API contract](backend/mechanisms/api-contract.md)           |
+| Read appearance / toggle dark mode    | `apps/admin/src/lib/useTheme.ts`              | Pre-paint script in `index.html`                             |
+| Change the token bridge / HeroUI look | `apps/admin/src/styles/globals.css`           | Named section in that file                                   |
+| Change a shared visual value          | `packages/design-tokens/src/tokens.css`       | Token ownership below                                        |
+| Change routing, redirect or 404       | `apps/admin/src/App.tsx`                      | `Routes` table                                               |
+| Change the dev proxy or build         | `apps/admin/vite.config.ts`                   | `/api` proxy and env contract below                          |
 
 Components are imported explicitly — there is no filename-based discovery.
 Shared project components use the `Jts*` prefix. One component per file, named
@@ -37,17 +38,20 @@ consumer needs them.
 
 ## Product and route boundary
 
-| Route                        | Behavior                                                       | Indexing                |
-| ---------------------------- | -------------------------------------------------------------- | ----------------------- |
-| `/sign-in/*`                 | Clerk sign-in with explicit loading and service-failure states | `noindex, nofollow`     |
-| `/`                          | Protected redirect to `/admin` (`<Navigate replace>`)          | Inherits private policy |
-| `/admin`                     | Clerk session plus backend admin check, then operations shell  | `noindex, nofollow`     |
-| `/admin/assistant`           | Protected new AI conversation in the admin shell               | `noindex, nofollow`     |
-| `/admin/assistant/:threadId` | Exact durable assistant thread resume                          | `noindex, nofollow`     |
-| `/admin/events`              | Stub event list and create                                     | `noindex, nofollow`     |
-| `/admin/events/:eventId`     | Event edit, status transitions and attendance                  | `noindex, nofollow`     |
-| `/admin/participants`        | Participant list and feedback WhatsApp opt-in                  | `noindex, nofollow`     |
-| `*`                          | Standalone 404 (`routes/ErrorPage.tsx`)                        | Inherits private policy |
+| Route                                 | Behavior                                                       | Indexing                |
+| ------------------------------------- | -------------------------------------------------------------- | ----------------------- |
+| `/sign-in/*`                          | Clerk sign-in with explicit loading and service-failure states | `noindex, nofollow`     |
+| `/`                                   | Protected redirect to `/admin` (`<Navigate replace>`)          | Inherits private policy |
+| `/admin`                              | Clerk session plus backend admin check, then operations shell  | `noindex, nofollow`     |
+| `/admin/assistant`                    | Protected new AI conversation in the admin shell               | `noindex, nofollow`     |
+| `/admin/assistant/:threadId`          | Exact durable assistant thread resume                          | `noindex, nofollow`     |
+| `/admin/events`                       | Stub event list and create                                     | `noindex, nofollow`     |
+| `/admin/events/:eventId`              | Event edit, status transitions and attendance                  | `noindex, nofollow`     |
+| `/admin/participants`                 | Participant list and feedback WhatsApp opt-in                  | `noindex, nofollow`     |
+| `/admin/feedback`                     | Feedback campaign picker (open a campaign, or launch one)      | `noindex, nofollow`     |
+| `/admin/feedback/:campaignId`         | Three-pane post-event feedback conversation inbox              | `noindex, nofollow`     |
+| `/admin/feedback/:campaignId/results` | Campaign answers and notes                                     | `noindex, nofollow`     |
+| `*`                                   | Standalone 404 (`routes/ErrorPage.tsx`)                        | Inherits private policy |
 
 Do not add `/join`, `/register`, `/feedback`, marketing or public legal routes
 to this application. They belong in the existing Next.js public product. A
@@ -220,13 +224,24 @@ The pipeline, its invariants and its failure modes are documented in
 [API contract and generated client](backend/mechanisms/api-contract.md) and
 [ADR 0009](decisions/0009-generated-api-client.md).
 
-`RequireAdmin` is the reference consumer for generated hooks. The assistant
-([`frontend/assistant.md`](frontend/assistant.md)) still calls the transport
-facade with hand-written schemas because its polling flow owns extra client-side
-semantics beyond the response shape — not a pattern to copy for ordinary CRUD.
-Events and participants screens use `useListEvents`, `useGetEvent`,
-`useListParticipants` and their mutation siblings; new screens follow the same
-generated-hook pattern.
+`RequireAdmin` is the reference consumer for generated hooks. Events,
+participants and the post-event feedback inbox use `useListEvents`,
+`useGetEvent`, `useListParticipants`,
+`useListFeedbackCampaignConversations` and their mutation siblings; new screens
+follow the same generated-hook pattern.
+
+Exactly **two** places call the transport directly, both documented and both
+enforced by `apps/admin/test/feedback-inbox.spec.ts`:
+
+- the assistant ([`frontend/assistant.md`](frontend/assistant.md)), whose
+  polling flow owns extra client-side semantics beyond the response shape;
+- the dev feedback simulator (`src/lib/feedbackSimulator.ts`), whose controller
+  is mounted only outside production under `TRANSPORT_MODE=simulated` and is
+  therefore absent from the published OpenAPI document
+  ([`frontend/feedback-conversations.md`](frontend/feedback-conversations.md)).
+
+Neither is a pattern to copy for ordinary CRUD. A third entry in that list means
+a product endpoint bypassed the generated client.
 
 The AI assistant is the first real queue-backed API consumer. It creates and
 resumes server-owned threads, persists each user/assistant turn, and polls the

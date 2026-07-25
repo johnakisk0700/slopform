@@ -34,7 +34,7 @@ const NAV_ITEMS: readonly NavItem[] = [
   { label: "Tables & matching", Icon: Network },
   { label: "Payments", Icon: CreditCard },
   { label: "Communications", Icon: Send },
-  { label: "Feedback & safety", Icon: Shield },
+  { label: "Feedback & safety", Icon: Shield, to: "/admin/feedback" },
 ];
 
 interface NavVariantStyles {

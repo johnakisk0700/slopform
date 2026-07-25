@@ -32,6 +32,26 @@ their own contract file until one grows a reusable surface.
 `AdminNavigation` and `AdminUserMenu` mount twice (sidebar + drawer), so every
 internal id comes from React's `useId`.
 
+### Feedback conversations (`src/components/admin/feedback/`)
+
+The panes and dialogs of the post-event feedback inbox. They are domain UI for
+one screen, not shared contracts: their props carry conversation read models and
+callbacks, and their full contract lives in
+[`../feedback-conversations.md`](../feedback-conversations.md).
+
+| Component                     | Owns                                                                                    |
+| ----------------------------- | --------------------------------------------------------------------------------------- |
+| `ConversationList.tsx`        | Filter, grouping and selection of a campaign's conversations; `aria-current` on the row |
+| `ConversationTranscript.tsx`  | Actor-labelled transcript, delivery state, the staff composer and the dev-only composer |
+| `ConversationDetails.tsx`     | Goal progress, answers, notes with review status, and the capability-gated action row   |
+| `ConfirmAction.tsx`           | A trigger plus its confirmation dialog, stating the consequence of one action           |
+| `StartConversationAction.tsx` | The D17 attendee picker that opens a missing conversation                               |
+| `FeedbackBadges.tsx`          | Renders status descriptors as HeroUI chips, always with their own text                  |
+
+No `Jts*` component was added: the status badge maps a domain tone onto HeroUI
+`Chip` props through a pure function in `features/feedback/labels.ts`, which is
+the mapping — not a wrapper that renames HeroUI's props.
+
 ## References
 
 Verified 2026-07-23: [@heroui/react](https://www.heroui.com/) 3.2.2,

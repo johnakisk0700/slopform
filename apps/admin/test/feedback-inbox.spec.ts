@@ -1,0 +1,470 @@
+import { readFileSync, readdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
+import { beforeAll, describe, expect, it } from "vitest";
+
+/**
+ * WP9 — the feedback conversations inbox.
+ *
+ * The screen's rules live in `src/features/feedback/*`, which is React-free and
+ * therefore unit-testable here. As in `theme-switch.spec.ts`, the real modules
+ * are loaded through a computed URL so they stay out of this node project's
+ * type program while vitest still exercises the shipped implementation.
+ */
+
+type GoalStatus = "pending" | "asked" | "answered" | "skipped";
+
+interface TestConversation {
+  id: string;
+  respondentDisplayName: string | null;
+  phoneAtLaunch: string;
+  createdAt: string;
+  lastMessageAt: string | null;
+  needsAttention: boolean;
+  lifecycle: { state: "open" | "closed"; reason: string | null };
+  control: { mode: "bot" | "human" };
+  goals: { status: GoalStatus }[];
+}
+
+interface LabelsModule {
+  participantLabel: (displayName: string | null) => string;
+  isUnresolvedParticipant: (displayName: string | null) => boolean;
+  UNKNOWN_PARTICIPANT_LABEL: string;
+  chipColor: (tone: string) => string;
+  deliveryBadge: (delivery: unknown) => { label: string; tone: string } | null;
+  lifecycleBadge: (lifecycle: {
+    state: "open" | "closed";
+    reason: string | null;
+  }) => { label: string; tone: string };
+}
+
+interface ConversationViewModule {
+  goalProgress: (goals: { status: GoalStatus }[]) => {
+    answered: number;
+    skipped: number;
+    outstanding: number;
+    total: number;
+    percent: number;
+  };
+  matchesConversationQuery: (
+    conversation: {
+      respondentDisplayName: string | null;
+      phoneAtLaunch: string;
+    },
+    query: string,
+  ) => boolean;
+  sortConversationsForInbox: (rows: TestConversation[]) => TestConversation[];
+  groupConversations: (
+    rows: TestConversation[],
+  ) => { key: string; conversations: TestConversation[] }[];
+  resolveSelectedConversationId: (
+    visible: { id: string }[],
+    requested: string | null,
+  ) => string | null;
+  conversationBadges: (conversation: TestConversation) => { label: string }[];
+}
+
+interface PollingModule {
+  conversationPollInterval: (
+    conversation: { lifecycle: { state: "open" | "closed" } } | undefined,
+  ) => number | false;
+  CONVERSATION_POLL_INTERVAL_MS: number;
+  CONVERSATION_LIST_POLL_INTERVAL_MS: number;
+}
+
+interface RecentCampaignsModule {
+  mergeRecentCampaign: <T extends { campaignId: string }>(
+    existing: T[],
+    entry: T,
+  ) => T[];
+}
+
+let labels: LabelsModule;
+let view: ConversationViewModule;
+let polling: PollingModule;
+let recent: RecentCampaignsModule;
+
+async function loadFeatureModule<T>(relativePath: string): Promise<T> {
+  const moduleUrl = new URL(`../${relativePath}`, import.meta.url).href;
+  return (await import(moduleUrl)) as T;
+}
+
+beforeAll(async () => {
+  labels = await loadFeatureModule<LabelsModule>(
+    "src/features/feedback/labels.ts",
+  );
+  view = await loadFeatureModule<ConversationViewModule>(
+    "src/features/feedback/conversationView.ts",
+  );
+  polling = await loadFeatureModule<PollingModule>(
+    "src/features/feedback/polling.ts",
+  );
+  recent = await loadFeatureModule<RecentCampaignsModule>(
+    "src/features/feedback/recentCampaigns.ts",
+  );
+});
+
+function conversation(
+  overrides: Partial<TestConversation> & { id: string },
+): TestConversation {
+  return {
+    respondentDisplayName: "Κώστας",
+    phoneAtLaunch: "+306900000000",
+    createdAt: "2026-07-20T10:00:00.000Z",
+    lastMessageAt: "2026-07-20T10:00:00.000Z",
+    needsAttention: false,
+    lifecycle: { state: "open", reason: null },
+    control: { mode: "bot" },
+    goals: [],
+    ...overrides,
+  };
+}
+
+describe("D18 unknown-participant degradation", () => {
+  it("renders the agreed Greek fallback for any unresolved id", () => {
+    expect(labels.participantLabel(null)).toBe("άγνωστος συμμετέχων");
+    expect(labels.participantLabel("")).toBe("άγνωστος συμμετέχων");
+    expect(labels.participantLabel("   ")).toBe("άγνωστος συμμετέχων");
+    expect(labels.UNKNOWN_PARTICIPANT_LABEL).toBe("άγνωστος συμμετέχων");
+  });
+
+  it("keeps a resolved name untouched and reports resolution separately", () => {
+    expect(labels.participantLabel("Ρούλα")).toBe("Ρούλα");
+    expect(labels.isUnresolvedParticipant("Ρούλα")).toBe(false);
+    expect(labels.isUnresolvedParticipant(null)).toBe(true);
+    expect(labels.isUnresolvedParticipant("  ")).toBe(true);
+  });
+});
+
+describe("outbound delivery state", () => {
+  it("has no badge for an inbound message with no outbox row", () => {
+    expect(labels.deliveryBadge(null)).toBeNull();
+  });
+
+  it("lets the provider's delivery status outrank the outbox status", () => {
+    const badge = labels.deliveryBadge({
+      outboxId: "a",
+      outboxStatus: "sent",
+      deliveryStatus: "read",
+      sentAt: null,
+      deliveredAt: null,
+      readAt: null,
+      playedAt: null,
+    });
+
+    expect(badge?.label).toBe("Read");
+    expect(badge?.tone).toBe("success");
+  });
+
+  it("surfaces a failure from either side as a danger badge", () => {
+    expect(
+      labels.deliveryBadge({
+        outboxId: "a",
+        outboxStatus: "sent",
+        deliveryStatus: "error",
+      })?.tone,
+    ).toBe("danger");
+
+    expect(
+      labels.deliveryBadge({
+        outboxId: "a",
+        outboxStatus: "failed",
+        deliveryStatus: null,
+      })?.tone,
+    ).toBe("danger");
+  });
+
+  it("reports a queued outbox row as queued, not as sent", () => {
+    expect(
+      labels.deliveryBadge({
+        outboxId: "a",
+        outboxStatus: "pending",
+        deliveryStatus: null,
+      })?.label,
+    ).toBe("Queued");
+  });
+});
+
+describe("lifecycle badges", () => {
+  it("names the closing reason rather than just 'closed'", () => {
+    expect(
+      labels.lifecycleBadge({ state: "closed", reason: "stopped" }),
+    ).toEqual(expect.objectContaining({ label: "Stopped", tone: "danger" }));
+    expect(
+      labels.lifecycleBadge({ state: "closed", reason: "completed" }),
+    ).toEqual(expect.objectContaining({ label: "Completed", tone: "success" }));
+  });
+
+  it("maps every tone onto a colour the HeroUI chip actually has", () => {
+    for (const tone of [
+      "neutral",
+      "info",
+      "success",
+      "warning",
+      "danger",
+      "accent",
+    ]) {
+      expect(["default", "success", "warning", "danger", "accent"]).toContain(
+        labels.chipColor(tone),
+      );
+    }
+  });
+});
+
+describe("goal progress", () => {
+  it("counts skipped goals as settled, matching the questionnaire contract", () => {
+    const progress = view.goalProgress([
+      { status: "answered" },
+      { status: "skipped" },
+      { status: "asked" },
+      { status: "pending" },
+    ]);
+
+    expect(progress).toEqual({
+      answered: 1,
+      skipped: 1,
+      outstanding: 2,
+      total: 4,
+      percent: 50,
+    });
+  });
+
+  it("does not divide by zero before the goals exist", () => {
+    expect(view.goalProgress([]).percent).toBe(0);
+  });
+});
+
+describe("inbox filtering", () => {
+  it("folds accents and case so Greek names match either way", () => {
+    const row = { respondentDisplayName: "Κώστας", phoneAtLaunch: "+3069" };
+
+    expect(view.matchesConversationQuery(row, "κωστας")).toBe(true);
+    expect(view.matchesConversationQuery(row, "ΚΩΣΤΑΣ")).toBe(true);
+    expect(view.matchesConversationQuery(row, "Κώστας")).toBe(true);
+    expect(view.matchesConversationQuery(row, "Ρούλα")).toBe(false);
+  });
+
+  it("matches on the phone number and passes an empty query", () => {
+    const row = {
+      respondentDisplayName: null,
+      phoneAtLaunch: "+306912345678",
+    };
+
+    expect(view.matchesConversationQuery(row, "69123")).toBe(true);
+    expect(view.matchesConversationQuery(row, "  ")).toBe(true);
+  });
+});
+
+describe("inbox ordering and grouping", () => {
+  it("puts conversations needing attention above newer quiet ones", () => {
+    const sorted = view.sortConversationsForInbox([
+      conversation({ id: "quiet", lastMessageAt: "2026-07-20T12:00:00.000Z" }),
+      conversation({
+        id: "attention",
+        needsAttention: true,
+        lastMessageAt: "2026-07-20T09:00:00.000Z",
+      }),
+    ]);
+
+    expect(sorted.map((row) => row.id)).toStrictEqual(["attention", "quiet"]);
+  });
+
+  it("orders the rest by most recent activity", () => {
+    const sorted = view.sortConversationsForInbox([
+      conversation({ id: "older", lastMessageAt: "2026-07-20T09:00:00.000Z" }),
+      conversation({ id: "newer", lastMessageAt: "2026-07-20T12:00:00.000Z" }),
+    ]);
+
+    expect(sorted.map((row) => row.id)).toStrictEqual(["newer", "older"]);
+  });
+
+  it("drops empty buckets instead of rendering a heading over nothing", () => {
+    const groups = view.groupConversations([
+      conversation({ id: "open" }),
+      conversation({
+        id: "closed",
+        lifecycle: { state: "closed", reason: "completed" },
+      }),
+    ]);
+
+    expect(groups.map((group) => group.key)).toStrictEqual(["open", "closed"]);
+  });
+
+  it("labels human control and attention in text, not by colour alone", () => {
+    const badges = view.conversationBadges(
+      conversation({
+        id: "a",
+        needsAttention: true,
+        control: { mode: "human" },
+      }),
+    );
+
+    expect(badges.map((badge) => badge.label)).toStrictEqual([
+      "Open",
+      "Human control",
+      "Needs attention",
+    ]);
+  });
+});
+
+describe("selection under polling", () => {
+  it("keeps the operator's conversation while it survives the filter", () => {
+    const visible = [{ id: "a" }, { id: "b" }];
+
+    expect(view.resolveSelectedConversationId(visible, "b")).toBe("b");
+  });
+
+  it("falls back to the first row when the selection is gone", () => {
+    expect(view.resolveSelectedConversationId([{ id: "a" }], "missing")).toBe(
+      "a",
+    );
+    expect(view.resolveSelectedConversationId([], "missing")).toBeNull();
+  });
+});
+
+describe("polling policy (U3)", () => {
+  it("polls an open conversation faster than the list", () => {
+    expect(polling.CONVERSATION_POLL_INTERVAL_MS).toBeLessThan(
+      polling.CONVERSATION_LIST_POLL_INTERVAL_MS,
+    );
+    expect(polling.CONVERSATION_POLL_INTERVAL_MS).toBeGreaterThanOrEqual(3_000);
+    expect(polling.CONVERSATION_POLL_INTERVAL_MS).toBeLessThanOrEqual(5_000);
+  });
+
+  it("stops polling a conversation that can no longer change", () => {
+    expect(
+      polling.conversationPollInterval({ lifecycle: { state: "closed" } }),
+    ).toBe(false);
+    expect(
+      polling.conversationPollInterval({ lifecycle: { state: "open" } }),
+    ).toBe(polling.CONVERSATION_POLL_INTERVAL_MS);
+    expect(polling.conversationPollInterval(undefined)).toBe(
+      polling.CONVERSATION_POLL_INTERVAL_MS,
+    );
+  });
+});
+
+describe("recent campaign shortcuts", () => {
+  it("moves a revisited campaign to the front without duplicating it", () => {
+    const merged = recent.mergeRecentCampaign(
+      [{ campaignId: "a" }, { campaignId: "b" }],
+      { campaignId: "b" },
+    );
+
+    expect(merged.map((row) => row.campaignId)).toStrictEqual(["b", "a"]);
+  });
+
+  it("caps the list so the shortcut never becomes an archive", () => {
+    const existing = Array.from({ length: 12 }, (_, index) => ({
+      campaignId: `id-${index}`,
+    }));
+    const merged = recent.mergeRecentCampaign(existing, {
+      campaignId: "fresh",
+    });
+
+    expect(merged).toHaveLength(12);
+    expect(merged[0]?.campaignId).toBe("fresh");
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+const sourceRoot = fileURLToPath(new URL("../src", import.meta.url));
+
+function collectSourceFiles(directory: string): string[] {
+  const files: string[] = [];
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const path = `${directory}/${entry.name}`;
+    if (entry.isDirectory()) {
+      if (entry.name === "generated") {
+        continue;
+      }
+      files.push(...collectSourceFiles(path));
+    } else if (entry.name.endsWith(".ts") || entry.name.endsWith(".tsx")) {
+      files.push(path);
+    }
+  }
+  return files;
+}
+
+describe("API contract boundary", () => {
+  it("adds no hand-written endpoint beyond the two documented exceptions", () => {
+    // The assistant predates the generated client and owns extra client-side
+    // polling semantics (docs/frontend/assistant.md); the dev simulator is
+    // absent from the published OpenAPI document by design. Nothing else may
+    // call the transport directly — a third entry here means a product
+    // endpoint bypassed the generated hooks.
+    const callers = collectSourceFiles(sourceRoot)
+      .filter((path) => {
+        if (
+          path.endsWith("/lib/api.ts") ||
+          path.endsWith("/lib/api-mutator.ts")
+        ) {
+          return false;
+        }
+        return /\bapi\(\s*[`"']/u.test(readFileSync(path, "utf8"));
+      })
+      .map((path) => path.slice(sourceRoot.length))
+      .sort();
+
+    expect(callers).toStrictEqual([
+      "/lib/feedbackSimulator.ts",
+      "/routes/AssistantPage.tsx",
+    ]);
+  });
+
+  it("limits that exception to the two dev-only simulator routes", () => {
+    const facade = readFileSync(
+      `${sourceRoot}/lib/feedbackSimulator.ts`,
+      "utf8",
+    );
+
+    expect(facade).toContain('"/v1/dev/feedback/simulator"');
+    expect(facade).toContain("/thread");
+    expect(facade).toContain("/inject");
+    // Anything on the product path must come from the generated client.
+    expect(facade).not.toContain("/v1/feedback/campaigns");
+  });
+
+  it("drives the inbox screen from the generated hooks", () => {
+    const page = readFileSync(
+      fileURLToPath(
+        new URL("../src/routes/FeedbackInboxPage.tsx", import.meta.url),
+      ),
+      "utf8",
+    );
+
+    for (const hook of [
+      "useListFeedbackCampaignConversations",
+      "useGetFeedbackConversation",
+      "useListFeedbackConversationResults",
+      "useTakeOverFeedbackConversation",
+      "useResumeFeedbackConversationBot",
+      "useCloseFeedbackConversation",
+      "useSendFeedbackConversationStaffMessage",
+      "useUpdateFeedbackNoteReviewStatus",
+      "useStartFeedbackConversation",
+    ]) {
+      expect(page).toContain(hook);
+    }
+
+    expect(page).toContain('from "../api/generated/feedback-conversations"');
+    expect(page).not.toContain("ofetch");
+  });
+
+  it("gates conversation actions on the server's capability flags", () => {
+    const details = readFileSync(
+      fileURLToPath(
+        new URL(
+          "../src/components/admin/feedback/ConversationDetails.tsx",
+          import.meta.url,
+        ),
+      ),
+      "utf8",
+    );
+
+    expect(details).toContain("capabilities.canTakeOver");
+    expect(details).toContain("capabilities.canResumeBot");
+    expect(details).toContain("capabilities.canClose");
+  });
+});

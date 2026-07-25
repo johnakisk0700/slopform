@@ -40,6 +40,21 @@ const ParticipantsPage = lazy(async () => {
   return { default: module.ParticipantsPage };
 });
 
+const FeedbackCampaignsPage = lazy(async () => {
+  const module = await import("./routes/FeedbackCampaignsPage");
+  return { default: module.FeedbackCampaignsPage };
+});
+
+const FeedbackInboxPage = lazy(async () => {
+  const module = await import("./routes/FeedbackInboxPage");
+  return { default: module.FeedbackInboxPage };
+});
+
+const FeedbackResultsPage = lazy(async () => {
+  const module = await import("./routes/FeedbackResultsPage");
+  return { default: module.FeedbackResultsPage };
+});
+
 function LazyAdminRoute({ children }: { children: ReactNode }) {
   return (
     <Suspense
@@ -121,6 +136,30 @@ function AppRoutes() {
             element={
               <LazyAdminRoute>
                 <ParticipantsPage />
+              </LazyAdminRoute>
+            }
+          />
+          <Route
+            path="feedback"
+            element={
+              <LazyAdminRoute>
+                <FeedbackCampaignsPage />
+              </LazyAdminRoute>
+            }
+          />
+          <Route
+            path="feedback/:campaignId"
+            element={
+              <LazyAdminRoute>
+                <FeedbackInboxPage />
+              </LazyAdminRoute>
+            }
+          />
+          <Route
+            path="feedback/:campaignId/results"
+            element={
+              <LazyAdminRoute>
+                <FeedbackResultsPage />
               </LazyAdminRoute>
             }
           />
