@@ -248,8 +248,12 @@ creates them on a fresh volume.
 Reply sending belongs to the outbox/relay path. Campaign launch, reminders,
 expiry sweeps and ingress recovery live in the
 [post-event feedback module](post-event-feedback.md#wp7-campaign-service-and-schedulers-implemented).
-Extraction drives goal advancement, the cursor and
-`close(completed)` through the methods above but lives in the
+Staff inbox HTTP (list/detail/results reads, takeover/resume/close/staff-send
+and note review-status, with per-conversation capability flags) lives in
+[WP7b](post-event-feedback.md#wp7b-staff-conversation-inbox-http-implemented);
+it projects `listForCampaign` / `findById` and calls the transition methods
+above but does not redefine them. Extraction drives goal advancement, the
+cursor and `close(completed)` through the methods above but lives in the
 [post-event feedback module](post-event-feedback.md#wp5-extraction-and-reply-loop-implemented).
 Webhook ingestion and the `feedback` queue also live in the
 [post-event feedback module](post-event-feedback.md#wp4-ingress-and-materialization-implemented):

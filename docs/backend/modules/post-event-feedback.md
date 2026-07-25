@@ -5,8 +5,9 @@ Status: architecture accepted in
 **WP0 product contract**, **WP1 stub events**, **WP2 PostgreSQL persistence**,
 **WP3 Mongo conversation schema v2**, **WP4 ingress + materialization**,
 **WP5 extraction + reply loop**, **WP6 outbox relay + transport**, **WP7
-campaign service + schedulers** and **WP8 dev simulated transport** are landed.
-The admin conversations UI remains WP9. Plan amendments in
+campaign service + schedulers**, **WP7b staff conversation inbox HTTP** and
+**WP8 dev simulated transport** are landed. The admin conversations UI remains
+WP9. Plan amendments in
 [`POST_EVENT_FEEDBACK_PLAN_2026-07-25.md`](../../../POST_EVENT_FEEDBACK_PLAN_2026-07-25.md)
 §9 supersede frozen candidate snapshots with live D16 selection.
 
@@ -622,8 +623,9 @@ What it settles for this module:
 
 Webhook ingestion, the `feedback` queue and the outbox relay landed in WP4/WP6
 on top of it, and extraction advances the cursor and the goals in WP5.
-Campaign launch, reminders, expiry and ingress recovery landed in WP7. The
-admin UI remains WP9.
+Campaign launch, reminders, expiry and ingress recovery landed in WP7. Staff
+inbox read/action HTTP (list/detail/results, takeover/resume/close/staff-send,
+capability flags) landed in WP7b. The admin UI remains WP9.
 
 ## WP7 campaign service and schedulers (implemented)
 
@@ -674,6 +676,65 @@ audit, reminder/expiry edge cases (opted-out, human control, already closed),
 ingress recovery (stuck row re-enqueued, fresh pending untouched), lease skip
 for paused campaigns, and process composition (HTTP module in the API graph,
 sweeps in the worker only).
+
+## WP7b staff conversation inbox HTTP (implemented)
+
+The admin conversations UI (WP9) needs a staff-only read/action surface on top
+of the WP3 projections and WP7 campaign service. No extraction or relay
+behavior changes here.
+
+[`PostEventFeedbackConversationService`](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-conversation.service.ts)
+owns the inbox read model and capability-gated actions:
+
+| Concern       | Contract                                                                                                                         |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| List          | Compact `listForCampaign` projections + campaign summary (event title, open / attention counts) for U1 grouping; no transcripts  |
+| Detail        | Full actor-labelled transcript; outbound messages carry delivery state via `outboxId` → `message_outbox` correlation             |
+| Results       | Answers + notes for one conversation, or campaign-wide with `questionKey` / `participantId` / `reviewStatus` filters (U4)        |
+| Display names | Resolved server-side from `participants`; `null` only for truly dangling ids so the UI can render «άγνωστος συμμετέχων» (D18)    |
+| Capabilities  | Per-conversation flags (`canTakeOver`, `canResumeBot`, `canClose`, `canSendStaffMessage`) — closed (including STOP) exposes none |
+
+```mermaid
+flowchart LR
+  List["List / detail / results"] --> Mongo["Mongo listForCampaign / findById"]
+  List --> PG["Answers, notes, outbox, participants"]
+  Action["Take over / resume / close / staff send"] --> Mongo
+  Action --> Outbox["message_outbox kind=staff"]
+  Action --> Audit["audit_events"]
+  Outbox --> Relay["WP6 relay"]
+```
+
+### Actions
+
+| Action             | Gate                                                    | Effect                                                                           |
+| ------------------ | ------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Take over          | open ∧ control=bot                                      | `takeOver(staff_action)` + audit                                                 |
+| Resume bot         | open ∧ control=human                                    | `resumeBot` + audit                                                              |
+| Close              | open (STOP-closed rejected; other closed is idempotent) | `close(cancelled)`, cancel queued outbox, audit (D17)                            |
+| Staff send         | open ∧ control=human                                    | Insert `kind=staff` outbox (WP6 sends), append transcript with `outboxId`, audit |
+| Note review status | note exists                                             | `new` ↔ `dismissed` + audit                                                      |
+
+### Staff HTTP contract (inbox)
+
+| Method  | Path                                                                       | `operationId`                          |
+| ------- | -------------------------------------------------------------------------- | -------------------------------------- |
+| `GET`   | `/feedback/campaigns/:campaignId/conversations`                            | `listFeedbackCampaignConversations`    |
+| `GET`   | `/feedback/campaigns/:campaignId/conversations/:conversationId`            | `getFeedbackConversation`              |
+| `GET`   | `/feedback/campaigns/:campaignId/conversations/:conversationId/results`    | `listFeedbackConversationResults`      |
+| `GET`   | `/feedback/campaigns/:campaignId/results`                                  | `listFeedbackCampaignResults`          |
+| `POST`  | `/feedback/campaigns/:campaignId/conversations/:conversationId/take-over`  | `takeOverFeedbackConversation`         |
+| `POST`  | `/feedback/campaigns/:campaignId/conversations/:conversationId/resume-bot` | `resumeFeedbackConversationBot`        |
+| `POST`  | `/feedback/campaigns/:campaignId/conversations/:conversationId/close`      | `closeFeedbackConversation`            |
+| `POST`  | `/feedback/campaigns/:campaignId/conversations/:conversationId/messages`   | `sendFeedbackConversationStaffMessage` |
+| `PATCH` | `/feedback/notes/:noteId/review-status`                                    | `updateFeedbackNoteReviewStatus`       |
+
+### WP7b tests
+
+Focused coverage: capability flags per lifecycle/control state (including
+STOP-closed), staff-send rejected under bot control and accepted under human
+control (outbox `kind=staff` + transcript append), close idempotency after
+`cancelled`, STOP-closed close rejection, take-over / resume audit, and
+campaign results display-name resolution including dangling-id `null` (D18).
 
 ## Decisions and references
 

@@ -301,6 +301,83 @@ export class PostEventFeedbackRepository {
       .orderBy(asc(feedbackNotes.createdAt), asc(feedbackNotes.id));
   }
 
+  async findNoteById(
+    id: string,
+    executor: DatabaseExecutor = this.database.db,
+  ): Promise<FeedbackNoteRow | undefined> {
+    const [record] = await executor
+      .select()
+      .from(feedbackNotes)
+      .where(eq(feedbackNotes.id, id))
+      .limit(1);
+
+    return record;
+  }
+
+  /**
+   * Campaign-wide answers for the admin Results tab. Optional filters cover
+   * question key and a participant appearing as respondent or subject.
+   */
+  async listAnswersByCampaign(
+    campaignId: string,
+    filters: {
+      readonly questionKey?: string;
+      readonly participantId?: string;
+    } = {},
+    executor: DatabaseExecutor = this.database.db,
+  ): Promise<FeedbackAnswerRow[]> {
+    const conditions = [eq(feedbackAnswers.campaignId, campaignId)];
+    if (filters.questionKey) {
+      conditions.push(eq(feedbackAnswers.questionKey, filters.questionKey));
+    }
+    if (filters.participantId) {
+      conditions.push(
+        or(
+          eq(feedbackAnswers.respondentParticipantId, filters.participantId),
+          eq(feedbackAnswers.subjectParticipantId, filters.participantId),
+        )!,
+      );
+    }
+
+    return executor
+      .select()
+      .from(feedbackAnswers)
+      .where(and(...conditions))
+      .orderBy(asc(feedbackAnswers.createdAt), asc(feedbackAnswers.id));
+  }
+
+  /**
+   * Campaign-wide notes for the admin Results tab. Optional filters cover
+   * review status and a participant appearing as respondent or subject.
+   */
+  async listNotesByCampaign(
+    campaignId: string,
+    filters: {
+      readonly participantId?: string;
+      readonly reviewStatus?: FeedbackNoteStatus;
+    } = {},
+    executor: DatabaseExecutor = this.database.db,
+  ): Promise<FeedbackNoteRow[]> {
+    const conditions = [eq(feedbackNotes.campaignId, campaignId)];
+    if (filters.reviewStatus) {
+      conditions.push(eq(feedbackNotes.status, filters.reviewStatus));
+    }
+    if (filters.participantId) {
+      conditions.push(
+        or(
+          eq(feedbackNotes.respondentParticipantId, filters.participantId),
+          eq(feedbackNotes.subjectParticipantId, filters.participantId),
+        )!,
+      );
+    }
+
+    return executor
+      .select()
+      .from(feedbackNotes)
+      .where(and(...conditions))
+      .orderBy(asc(feedbackNotes.createdAt), asc(feedbackNotes.id));
+  }
+
   async updateNoteStatus(
     transaction: AppTransaction,
     id: string,

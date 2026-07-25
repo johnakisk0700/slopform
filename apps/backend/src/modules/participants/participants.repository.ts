@@ -4,7 +4,7 @@ import {
   type AppTransaction,
   type ParticipantRow,
 } from "@join-the-six/database";
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, inArray } from "drizzle-orm";
 
 import { DatabaseService } from "../../infrastructure/database/database.service.js";
 
@@ -31,6 +31,16 @@ export class ParticipantsRepository {
       .limit(1);
 
     return row;
+  }
+
+  async findByIds(ids: readonly string[]): Promise<ParticipantRow[]> {
+    if (ids.length === 0) {
+      return [];
+    }
+    return this.database.db
+      .select()
+      .from(participants)
+      .where(inArray(participants.id, [...ids]));
   }
 
   async findByIdForUpdate(
