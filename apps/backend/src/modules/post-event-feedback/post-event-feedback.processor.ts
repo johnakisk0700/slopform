@@ -13,6 +13,12 @@ import {
   MessageOutboxNotFoundError,
 } from "./message-outbox-delivery.service.js";
 import { MessageOutboxRelayService } from "./message-outbox-relay.service.js";
+import { FeedbackExtractionGenerationError } from "./post-event-feedback-extraction.service.js";
+import {
+  PostEventFeedbackCampaignNotFoundError,
+  PostEventFeedbackConversationNotFoundError,
+  PostEventFeedbackExtractor,
+} from "./post-event-feedback-extractor.service.js";
 import {
   PostEventFeedbackIngressNotFoundError,
   PostEventFeedbackMaterializer,
@@ -50,6 +56,7 @@ export class PostEventFeedbackProcessor extends WorkerHost {
     private readonly materializer: PostEventFeedbackMaterializer,
     private readonly relay: MessageOutboxRelayService,
     private readonly delivery: MessageOutboxDeliveryService,
+    private readonly extractor: PostEventFeedbackExtractor,
   ) {
     super();
   }
@@ -106,16 +113,19 @@ export class PostEventFeedbackProcessor extends WorkerHost {
       }
 
       if (job.name === FEEDBACK_JOB_NAMES.extractV1) {
-        // WP5 owns extraction. The contract is already fixed so materialization
-        // can enqueue it today; until that processor lands the job is only
-        // recorded. Replace this branch with the real consumer — do not change
-        // the job name or payload.
         const data = feedbackExtractJobDataSchema.parse(job.data);
+        const result = await this.extractor.extract(data);
         this.logger.log({
-          event: "feedback.extract.not_implemented",
+          event: "feedback.extract.completed",
           jobId: job.id,
           correlationId: data.correlationId,
           conversationId: data.conversationId,
+          outcome: result.outcome,
+          cursorSeq: result.cursorSeq,
+          answersWritten: result.answersWritten,
+          notesWritten: result.notesWritten,
+          ...(result.outboxId ? { outboxId: result.outboxId } : {}),
+          ...(result.model ? { model: result.model } : {}),
         });
         return;
       }
@@ -127,7 +137,19 @@ export class PostEventFeedbackProcessor extends WorkerHost {
       if (error instanceof ZodError) {
         throw new UnrecoverableError("Invalid feedback job payload");
       }
-      if (error instanceof PostEventFeedbackIngressNotFoundError) {
+      if (
+        error instanceof PostEventFeedbackIngressNotFoundError ||
+        error instanceof PostEventFeedbackConversationNotFoundError ||
+        error instanceof PostEventFeedbackCampaignNotFoundError
+      ) {
+        throw new UnrecoverableError(error.message);
+      }
+      // A missing provider key or a rejected request repeats identically on a
+      // retry; a timeout, a rate limit or a provider 5xx does not.
+      if (
+        error instanceof FeedbackExtractionGenerationError &&
+        !error.retryable
+      ) {
         throw new UnrecoverableError(error.message);
       }
       if (error instanceof MessageOutboxNotFoundError) {

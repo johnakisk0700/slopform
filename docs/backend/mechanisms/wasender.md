@@ -92,7 +92,7 @@ flowchart LR
   Hook --> Normalized["Normalized transport events"]
   Normalized --> Store["Ingress row + materialize job"]
   Store --> Conversation["Feedback conversation transcript"]
-  Conversation -. "WP5" .-> AI["AI extraction + reply"]
+  Conversation --> AI["AI extraction + reply"]
   AI --> Outbox["message_outbox"]
   Outbox --> Worker
   Hook -->|"messages.update"| Delivery["Outbox delivery columns"]
@@ -101,8 +101,9 @@ flowchart LR
 The HTTP path authenticates, validates and durably records plus enqueues an
 observed event before acknowledging it. Status updates patch outbox delivery
 columns directly. The worker resolves the conversation, applies STOP, appends
-the transcript, correlates delivery and relays the outbox through the transport
-port. Extraction remains a separate work package.
+the transcript, extracts structured results, correlates delivery and relays the
+outbox through the transport port. Extraction and sending stay separated by
+`message_outbox`: AI output inserts a row and never calls Wasender directly.
 
 ## Invariants
 

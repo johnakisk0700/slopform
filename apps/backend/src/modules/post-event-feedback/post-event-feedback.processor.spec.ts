@@ -4,6 +4,11 @@ import { UnrecoverableError } from "bullmq";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { ConversationPersistenceError } from "../conversations/conversation-persistence.errors.js";
+import { FeedbackExtractionGenerationError } from "./post-event-feedback-extraction.service.js";
+import {
+  PostEventFeedbackConversationNotFoundError,
+  type PostEventFeedbackExtractor,
+} from "./post-event-feedback-extractor.service.js";
 import {
   PostEventFeedbackIngressNotFoundError,
   type PostEventFeedbackMaterializer,
@@ -108,19 +113,68 @@ describe("PostEventFeedbackProcessor", () => {
     );
   });
 
-  it("records the extraction contract until WP5 replaces the stub", async () => {
+  it("routes an extraction job to the extractor, not the materializer", async () => {
     const materializer = { materialize: vi.fn() };
-    const processor = createProcessor(materializer);
+    const extractor = {
+      extract: vi.fn().mockResolvedValue({
+        outcome: "extracted",
+        conversationId,
+        cursorSeq: 1,
+        answersWritten: 1,
+        notesWritten: 0,
+      }),
+    };
+    const processor = createProcessor(materializer, extractor);
 
-    await processor.process(
-      createJob(
-        { schemaVersion: 1, conversationId, correlationId: "correlation-1" },
-        FEEDBACK_JOB_NAMES.extractV1,
-        `feedback-extract-v1-${conversationId}-1`,
-      ),
-    );
+    await processor.process(createExtractJob());
 
+    expect(extractor.extract).toHaveBeenCalledWith({
+      schemaVersion: 1,
+      conversationId,
+      correlationId: "correlation-1",
+    });
     expect(materializer.materialize).not.toHaveBeenCalled();
+  });
+
+  it("does not retry an extraction whose conversation is gone", async () => {
+    const extractor = {
+      extract: vi
+        .fn()
+        .mockRejectedValue(
+          new PostEventFeedbackConversationNotFoundError(conversationId),
+        ),
+    };
+    const processor = createProcessor({ materialize: vi.fn() }, extractor);
+
+    await expect(processor.process(createExtractJob())).rejects.toBeInstanceOf(
+      UnrecoverableError,
+    );
+  });
+
+  it("does not retry a permanent provider failure", async () => {
+    const extractor = {
+      extract: vi
+        .fn()
+        .mockRejectedValue(
+          new FeedbackExtractionGenerationError("provider_unavailable", false),
+        ),
+    };
+    const processor = createProcessor({ materialize: vi.fn() }, extractor);
+
+    await expect(processor.process(createExtractJob())).rejects.toBeInstanceOf(
+      UnrecoverableError,
+    );
+  });
+
+  it("retries a transient provider failure", async () => {
+    const transient = new FeedbackExtractionGenerationError(
+      "extraction_failed",
+      true,
+    );
+    const extractor = { extract: vi.fn().mockRejectedValue(transient) };
+    const processor = createProcessor({ materialize: vi.fn() }, extractor);
+
+    await expect(processor.process(createExtractJob())).rejects.toBe(transient);
   });
 
   it("does not retry unsupported job names", async () => {
@@ -133,13 +187,23 @@ describe("PostEventFeedbackProcessor", () => {
   });
 });
 
-function createProcessor(materializer: {
-  materialize: ReturnType<typeof vi.fn>;
-}): PostEventFeedbackProcessor {
+function createProcessor(
+  materializer: { materialize: ReturnType<typeof vi.fn> },
+  extractor: { extract: ReturnType<typeof vi.fn> } = { extract: vi.fn() },
+): PostEventFeedbackProcessor {
   return new PostEventFeedbackProcessor(
     materializer as unknown as PostEventFeedbackMaterializer,
     { relay: vi.fn() } as unknown as MessageOutboxRelayService,
     { deliver: vi.fn() } as unknown as MessageOutboxDeliveryService,
+    extractor as unknown as PostEventFeedbackExtractor,
+  );
+}
+
+function createExtractJob(): Job<FeedbackJobData, void, FeedbackJobName> {
+  return createJob(
+    { schemaVersion: 1, conversationId, correlationId: "correlation-1" },
+    FEEDBACK_JOB_NAMES.extractV1,
+    `feedback-extract-v1-${conversationId}-1`,
   );
 }
 

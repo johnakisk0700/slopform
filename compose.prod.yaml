@@ -15,6 +15,7 @@ x-backend-environment: &backend-environment
   POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env.production}
   POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env.production}
   DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-10}
+  FEEDBACK_EXTRACTION_MODEL: ${FEEDBACK_EXTRACTION_MODEL:-}
   MONGODB_APP_USER: ${MONGODB_APP_USER:?Set MONGODB_APP_USER in .env.production}
   MONGODB_DB: ${MONGODB_DB:?Set MONGODB_DB in .env.production}
   LOG_LEVEL: ${LOG_LEVEL:-info}

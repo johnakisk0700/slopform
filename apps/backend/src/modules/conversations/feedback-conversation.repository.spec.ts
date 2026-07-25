@@ -447,6 +447,134 @@ describe("FeedbackConversationRepository", () => {
     ).rejects.toBeInstanceOf(FeedbackConversationTransitionError);
   });
 
+  it("advances goal statuses monotonically and never reopens an answer", async () => {
+    const conversation = feedbackConversation({
+      goals: [
+        {
+          key: "event_score",
+          ordinal: 1,
+          prompt: "score;",
+          status: "answered",
+        },
+        { key: "liked", ordinal: 2, prompt: "liked;", status: "pending" },
+        { key: "meet_again", ordinal: 3, prompt: "meet;", status: "pending" },
+        { key: "avoid", ordinal: 4, prompt: "avoid;", status: "pending" },
+      ],
+    });
+    const collection = collectionMock({
+      findOne: vi.fn().mockResolvedValue(conversation),
+      findOneAndUpdate: vi.fn().mockResolvedValue({
+        ...conversation,
+        goals: [
+          conversation.goals[0],
+          { ...conversation.goals[1], status: "asked" },
+          conversation.goals[2],
+          conversation.goals[3],
+        ],
+      }),
+    });
+    const repository = createRepository(collection);
+
+    const result = await repository.updateGoalStatuses({
+      conversationId,
+      statuses: [
+        // D16: an answered goal is not reopened, however confident a later run is.
+        { key: "event_score", status: "asked" },
+        { key: "liked", status: "asked" },
+      ],
+      at: repliedAt,
+    });
+
+    expect(result.changed).toBe(true);
+    expect(collection.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ _id: conversationId }),
+      expect.objectContaining({
+        $set: { "goals.$[goal0].status": "asked" },
+      }),
+      {
+        returnDocument: "after",
+        arrayFilters: [
+          { "goal0.key": "liked", "goal0.status": { $in: ["pending"] } },
+        ],
+      },
+    );
+  });
+
+  it("upgrades a skipped goal to answered but not the reverse", async () => {
+    const conversation = feedbackConversation({
+      goals: [
+        { key: "event_score", ordinal: 1, prompt: "score;", status: "skipped" },
+        { key: "liked", ordinal: 2, prompt: "liked;", status: "answered" },
+        { key: "meet_again", ordinal: 3, prompt: "meet;", status: "pending" },
+        { key: "avoid", ordinal: 4, prompt: "avoid;", status: "pending" },
+      ],
+    });
+    const collection = collectionMock({
+      findOne: vi.fn().mockResolvedValue(conversation),
+      findOneAndUpdate: vi.fn().mockResolvedValue(conversation),
+    });
+    const repository = createRepository(collection);
+
+    await repository.updateGoalStatuses({
+      conversationId,
+      statuses: [
+        { key: "event_score", status: "answered" },
+        { key: "liked", status: "skipped" },
+      ],
+      at: repliedAt,
+    });
+
+    expect(collection.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        $set: { "goals.$[goal0].status": "answered" },
+      }),
+      expect.objectContaining({
+        arrayFilters: [
+          {
+            "goal0.key": "event_score",
+            "goal0.status": { $in: ["pending", "asked", "skipped"] },
+          },
+        ],
+      }),
+    );
+  });
+
+  it("writes nothing when every proposed goal status is already reached", async () => {
+    const collection = collectionMock({
+      findOne: vi.fn().mockResolvedValue(
+        feedbackConversation({
+          goals: [
+            {
+              key: "event_score",
+              ordinal: 1,
+              prompt: "score;",
+              status: "answered",
+            },
+            { key: "liked", ordinal: 2, prompt: "liked;", status: "pending" },
+            {
+              key: "meet_again",
+              ordinal: 3,
+              prompt: "meet;",
+              status: "pending",
+            },
+            { key: "avoid", ordinal: 4, prompt: "avoid;", status: "pending" },
+          ],
+        }),
+      ),
+    });
+    const repository = createRepository(collection);
+
+    const result = await repository.updateGoalStatuses({
+      conversationId,
+      statuses: [{ key: "event_score", status: "answered" }],
+      at: repliedAt,
+    });
+
+    expect(result.changed).toBe(false);
+    expect(collection.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
   it("projects a compact campaign list without transcripts", async () => {
     const cursor = {
       toArray: vi.fn().mockResolvedValue([

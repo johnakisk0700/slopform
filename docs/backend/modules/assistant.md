@@ -30,7 +30,10 @@ The public/persisted model id maps to exactly one provider id:
 | `qwen/qwen3.7-max`        | OpenRouter | `qwen/qwen3.7-max`        |
 
 The mapping lives in `assistant-models.ts` and has an exact contract test. The
-default is `google/gemini-3.6-flash`. Missing provider configuration returns
+default is `google/gemini-3.6-flash`. Post-event feedback extraction reuses this
+same registry through `FEEDBACK_EXTRACTION_MODEL`, so there is exactly one
+public-id → provider-id table in the backend; it does not reuse the assistant's
+default constant, because the two features choose a model for different reasons. Missing provider configuration returns
 `503`; the backend never substitutes a different model. Provider clients are
 created once per worker service, as in the source `notes_ai` adapter, while the
 JoinTheSix registry keeps the provider boundary explicit.

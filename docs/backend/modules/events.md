@@ -67,8 +67,9 @@ applies `selectFeedbackCandidates` from
 - exclude the respondent;
 - return `participantId` + `displayName` (`preferred_name`, else email).
 
-Extraction and validation in later work packages must call this helper rather
-than re-filtering attendance.
+Extraction prompt building and subject validation both call this helper at run
+time; nothing re-filters attendance on its own. Each run records the candidate
+ids it received in `extraction_meta` (D12), so live selection stays auditable.
 
 ## Flow
 

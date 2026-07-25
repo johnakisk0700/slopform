@@ -66,6 +66,9 @@ hooks before the application loads those libraries.
   admin user-ID allowlist. `WEB_ORIGIN` also becomes Clerk's
   `authorizedParties`. Production mounts the secret only into the API process.
 - `OPENROUTER_API_KEY` and `OPENAI_API_KEY` are optional bounded credentials.
+- `FEEDBACK_EXTRACTION_MODEL` optionally overrides the post-event feedback
+  extraction model. It must name a registered adapter; an unknown id fails at
+  worker start rather than silently using the default.
   The key for the exact selected model is required to create assistant turns;
   the Gemini default therefore requires OpenRouter. The HTTP process validates
   provider availability but never substitutes a model. Calls occur exclusively

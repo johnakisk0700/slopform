@@ -4,8 +4,9 @@ Status: architecture accepted in
 [ADR 0008](../../decisions/0008-post-event-feedback-conversations.md);
 **WP0 product contract**, **WP1 stub events**, **WP2 PostgreSQL persistence**,
 **WP3 Mongo conversation schema v2**, **WP4 ingress + materialization** and
-**WP6 outbox relay + transport** and **WP8 dev simulated transport** are landed. Extraction, campaign launch and the
-admin inbox remain later work packages. Plan amendments in
+**WP5 extraction + reply loop**, **WP6 outbox relay + transport** and **WP8 dev
+simulated transport** are landed. Campaign launch and the admin inbox remain
+later work packages. Plan amendments in
 [`POST_EVENT_FEEDBACK_PLAN_2026-07-25.md`](../../../POST_EVENT_FEEDBACK_PLAN_2026-07-25.md)
 §9 supersede frozen candidate snapshots with live D16 selection.
 
@@ -195,16 +196,158 @@ Feedback received is not participant-visible by default. Avoidance, negative
 notes and source identities require explicit authorization and product/privacy
 review.
 
+## WP5 extraction and reply loop (implemented)
+
+[`PostEventFeedbackExtractor`](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-extractor.service.ts)
+is the consumer of `feedback.extract.v1`. It is serialized per conversation by
+the deterministic job id and made replay-safe by the MongoDB extraction cursor.
+
+### One run
+
+```mermaid
+sequenceDiagram
+  participant Queue as feedback queue
+  participant Run as Extractor
+  participant Mongo as MongoDB
+  participant Events as EventsService
+  participant Model as Provider
+  participant PG as PostgreSQL
+
+  Queue-->>Run: feedback.extract.v1(conversationId)
+  Run->>Mongo: reload conversation
+  Note over Run: closed / human / cursor ≥ latestSeq → skip
+  Run->>Events: listFeedbackCandidatesForRespondent (live, D16)
+  Run->>PG: campaign + already accepted answers/notes
+  Run->>Model: Greek prompt, Zod-validated structured output
+  Run->>Run: domain validation (provenance, subjects, replay)
+  Run->>PG: answers, notes, audit, one outbox row
+  Run->>Mongo: goals, attention, cursor, close(completed)
+```
+
+The three cheap exits are reloaded state, not queue assumptions: the job may
+have waited behind a STOP, a staff takeover or a newer run. A transcript that
+gained no `actor: participant` message advances the cursor and returns without
+calling the model at all.
+
+### What the model is given and what it may return
+
+The prompt is Greek-first (the conversation is Greek) with English field names
+(they are the persisted contract). It carries the full actor-labelled
+transcript, the campaign's question copy snapshot, the **live** candidate list
+from the shared D16 helper, the already-accepted results and the output rules.
+The model has no tools and no store access.
+
+The proposal is `answers[]`, `notes[]`, `skippedGoals[]`, `nextGoal`, `reply`,
+`handoff`, `safetySignal`, `confidence`. `skippedGoals` is a deliberate addition
+to the plan's §7 sketch: D3 locks every question as skippable with no answer
+row, and without a producer for it a participant whose remaining answer is
+«κανένας» could never reach `completed`, so the closing copy would never send.
+
+### Validation before any persistence or send
+
+| Rule                                                | Effect on a violating proposal                                  |
+| --------------------------------------------------- | --------------------------------------------------------------- |
+| Source message exists in **this** conversation      | Rejected (`unknown_source_message`)                             |
+| Source message is `actor: participant`              | Rejected (`non_participant_source`) — staff/bot text is context |
+| Question key / note type is in the versioned set    | Rejected at the Zod boundary and again in the rules             |
+| `event_score` is subjectless, integer 1–5           | Rejected (`subject_on_subjectless_question`, `invalid_score`)   |
+| Subject is a **current** candidate and ≠ respondent | Answer dropped; note degrades subjectless + flagged (D18)       |
+| Nothing already recorded is written twice           | Skipped (`already_recorded` / `duplicate_in_run`)               |
+| Lifecycle ∧ control ∧ opt-in permit a reply         | Reply suppressed, results still persisted                       |
+| Safety signal or handoff                            | All ordinary notes suppressed (D13)                             |
+
+D18's degradation is asymmetric on purpose. A **note** carries the
+participant's own words, so an unresolvable mention keeps the note, drops the
+subject, records `flaggedForReview` and `unresolvedSubjectName` in
+`extraction_meta`, and leaves the name in the text. A directed **answer**
+carries no text of its own; without a resolved subject it asserts nothing, so it
+is dropped rather than turned into a fabricated note.
+
+Two candidates sharing a first name («Κώστας») cannot be separated by
+application code — both ids are valid, so a correct pick and a lucky guess are
+indistinguishable. That case is handled in the prompt, which requires a
+clarifying question instead of a guess, and the eval asserts the prompt supplies
+both display names and the no-guessing rule.
+
+Every persisted row records the model, its confidence and the exact candidate
+ids of that run in `extraction_meta` (D12). Under live selection that set is the
+only way to explain later why a subject was — or was not — resolvable.
+
+### Effects of a run
+
+- answers via `insertAnswerIfAbsent` (the `NULLS NOT DISTINCT` unique key);
+- notes via `insertNote`, guarded by a `(type, subject, normalised text)`
+  signature re-read inside the same locked transaction, because `feedback_notes`
+  has no natural unique key;
+- goal statuses advanced monotonically along `pending < asked < skipped <
+answered`, derived from stored **and** newly written answers so a replay repairs
+  them;
+- exactly one outbox row per run, chosen by the application rather than the
+  model: the neutral handoff copy on safety/handoff, else the closing copy when
+  every goal is terminal, else the model's reply;
+- `close(completed)` when every goal is terminal;
+- `needsAttention` + an audit event on safety or handoff.
+
+Extraction stops at the outbox row. The
+[WP6 relay](#wp6-outbox-relay-and-transport-implemented) leases it and sends it
+through `FeedbackTransport`, so a model proposal reaches a participant only
+after a durable PostgreSQL row survived domain validation. The two halves share
+no in-process call.
+
+Control is **not** seized on a handoff. `control.source` is `staff_action` or
+`external_outbound`; an AI signal is neither, and D17 keeps control changes a
+human button. The bot stops asking, flags attention and lets an operator take
+over explicitly.
+
+### Store order and replay
+
+PostgreSQL first, the MongoDB cursor last. The cursor is the idempotency fence,
+so advancing it before the results are durable would silently drop them. A crash
+after the PostgreSQL commit replays the whole run: the unique answer constraint,
+the note content signature and the outbox `dedupe_key`
+(`feedback-reply-<conversationId>-<cursorSeq>`, `feedback-closing-…`,
+`feedback-handoff-…`) all absorb it. That costs one repeated model call — a
+repeated bill, never a duplicated answer or a second WhatsApp message. Nothing
+claims exactly-once.
+
+### Model, configuration and cost
+
+The provider boundary is the assistant's registry (`assistant-models.ts`), so
+extraction cannot invent a provider mapping or substitute a model when a key is
+missing. `FEEDBACK_EXTRACTION_MODEL` selects the model and defaults to
+`google/gemini-3.6-flash` (D12); an unregistered id fails at worker start rather
+than quietly using the default. Provider clients live in the worker module only.
+
+Input pressure is logged in **tokens** — both the pre-call estimate and the
+provider's reported usage — because a short thread of long Greek paragraphs is
+the expensive case that a message counter would rank as cheap.
+
+### WP5 tests
+
+The offline eval
+([`post-event-feedback-extraction-eval.spec.ts`](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-extraction-eval.spec.ts))
+runs the real prompt builder and the real rules over every WP0 fixture with a
+recorded proposal in place of a live model call, and asserts each fixture's
+expected outcome. The two-Κώστας and unknown-name fixtures additionally carry
+adversarial proposals — a guessed subject and an invented candidate id — that
+the rules must contain. Focused specs cover the rule set in isolation, the
+orchestration (cheap exits, live candidate selection, completion, safety,
+opt-in), replay (same job twice, and a crash between the PostgreSQL commit and
+the cursor advance), the monotonic goal ladder, model selection and provider
+failure classification. No test calls a provider.
+
 ## Failure and recovery
 
 No worker remains alive while waiting for a reply. Bounded jobs reload durable
 state and are safe to retry.
 
 Durable acknowledgement, cross-store replay, ambiguous-send reconciliation and
-the outbox relay now exist (WP4/WP6). Webhook activation still waits on the
-staging acceptance and consent gates, not on missing recovery machinery.
-Nothing claims exactly-once: replay repairs forward, and a stalled job can
-repeat an idempotent step.
+the outbox relay now exist (WP4/WP6), and extraction is replay-safe behind the
+cursor and the unique keys (WP5). Webhook activation still waits on the staging
+acceptance and consent gates, not on missing recovery machinery. Nothing claims
+exactly-once: replay repairs forward, and a stalled job can repeat an idempotent
+step — for extraction that means repeating a model call, which costs money but
+writes nothing twice.
 
 The initial operating assumption is that `messages.upsert` observes manual
 outbound messages from the primary WhatsApp application and other linked
@@ -224,9 +367,12 @@ unknown external outbound, takeover/resume, STOP during takeover, corrections,
 ambiguous participant names, unrelated chat, safety language, duplicate and
 out-of-order webhooks and long-context extraction. WP4 covers the transport-side
 ones — unknown external outbound, STOP during takeover, unrelated chat,
-duplicate and out-of-order delivery; the extraction-side fixtures wait for WP5.
-Provider acceptance also requires primary-phone and WhatsApp Web sends plus a
-failed-webhook retry test.
+duplicate and out-of-order delivery. WP5's offline eval covers the
+extraction-side ones — bursts, staff follow-up, ambiguous names, unknown names,
+unrelated chat and safety language — against recorded proposals rather than a
+live model; a live-model run against the same fixtures remains part of the
+staging acceptance pack. Provider acceptance also requires primary-phone and
+WhatsApp Web sends plus a failed-webhook retry test.
 
 ## WP0 product contract (implemented)
 
@@ -342,15 +488,18 @@ stays `pending` and is recovered by a provider redelivery; a sweep for
 
 ### Boundaries this package deliberately keeps
 
-Extraction, reminders, expiry and campaign launch are not implemented here.
+Reminders, expiry and campaign launch are not implemented here.
 `feedback.extract.v1` has a fixed name, payload and job id so materialization
-can enqueue it today; the processor branch only records the job until WP5
-replaces it. Delivery-status webhooks (`messages.update`) update outbox delivery
-columns through WP6.
+can enqueue it; WP5 replaced the recording stub with the real consumer without
+changing any of them, and that consumer has its own section below. Sending is
+likewise not this package's job: extraction only ever **inserts**
+`message_outbox` rows and the WP6 relay leases and sends them. Delivery-status
+webhooks (`messages.update`) update outbox delivery columns through WP6.
 
-Materialization outcomes are counted in a process-local counter surfaced as
-structured log events. The deployment exports traces only, so this is a counter
-for operators reading logs and for tests, not a metrics backend.
+Materialization and extraction outcomes are counted in a process-local counter
+surfaced as structured log events, alongside per-run extraction token usage. The
+deployment exports traces only, so these are counters for operators reading logs
+and for tests, not a metrics backend.
 
 ### WP4 tests
 
@@ -470,8 +619,8 @@ What it settles for this module:
   phone resolution unambiguous instead of a guess.
 
 Webhook ingestion, the `feedback` queue and the outbox relay landed in WP4/WP6
-on top of it. Extraction, reminders, campaign launch and the admin UI remain
-unimplemented.
+on top of it, and extraction advances the cursor and the goals in WP5.
+Reminders, campaign launch and the admin UI remain unimplemented.
 
 ## Decisions and references
 

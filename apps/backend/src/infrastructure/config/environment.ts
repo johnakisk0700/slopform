@@ -275,6 +275,14 @@ export const environmentSchema = observabilityEnvironmentSchema
     AUTH_DEV_BYPASS: booleanFromEnvironment,
     OPENAI_API_KEY: optionalCredential,
     OPENROUTER_API_KEY: optionalCredential,
+    // D12: the extraction model is configurable. Infrastructure does not import
+    // product modules, so the registry membership check belongs to the feedback
+    // module itself, which rejects an unknown id at worker start rather than
+    // reaching some other provider.
+    FEEDBACK_EXTRACTION_MODEL: z.preprocess(
+      emptyStringToUndefined,
+      z.string().trim().min(1).max(200).optional(),
+    ),
     WASENDER_SESSION_API_KEY: optionalCredential,
     WASENDER_WEBHOOK_ENABLED: booleanFromEnvironment,
     WASENDER_WEBHOOK_SECRET: optionalWebhookSecret,

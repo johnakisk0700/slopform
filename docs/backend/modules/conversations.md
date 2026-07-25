@@ -183,6 +183,17 @@ what actually happened (a STOP acknowledgement or a closing message is observed
 after the closure). Whether a message may be _sent_ is a campaign/outbox
 decision, not a transcript decision.
 
+### Goal progress
+
+Goal statuses only move up the ladder `pending < asked < skipped < answered`,
+enforced by a MongoDB array filter rather than by a hopeful read-modify-write.
+That rank is what implements D16's "an answered goal is never auto-reopened": a
+later extraction run cannot demote a recorded answer back to a question the bot
+would ask again, however confident the model is. `answered` outranks `skipped`
+so a participant who changes their mind is still recorded — that direction adds
+a fact instead of discarding one. A concurrent run that already advanced the
+same goal further simply leaves it alone.
+
 ### Extraction cursor, attention and capacity
 
 `extraction.cursorSeq` advances monotonically and can never pass the
@@ -209,6 +220,7 @@ durable PostgreSQL ingress row still holds the message for an operator.
 | `takeOver` / `resumeBot` | Explicit control transitions with a recorded source                            |
 | `close`                  | Terminal reason; STOP overrides softer reasons; nothing reopens                |
 | `advanceCursor`          | Monotonic extraction cursor bounded by the transcript                          |
+| `updateGoalStatuses`     | Monotonic goal ladder `pending < asked < skipped < answered`                   |
 | `setNeedsAttention`      | Sets or clears the operator attention flag                                     |
 
 Every method validates the resulting document with Zod, and every transition
@@ -230,9 +242,11 @@ creates them on a fresh volume.
 
 ### Not owned here
 
-Extraction, reply sending, reminders, expiry sweeps, goal advancement and
-campaign launch orchestration belong to later work packages. Webhook ingestion
-and the `feedback` queue now live in the
+Reply sending, reminders, expiry sweeps and campaign launch orchestration belong
+to later work packages. Extraction drives goal advancement, the cursor and
+`close(completed)` through the methods above but lives in the
+[post-event feedback module](post-event-feedback.md#wp5-extraction-and-reply-loop-implemented).
+Webhook ingestion and the `feedback` queue also live in the
 [post-event feedback module](post-event-feedback.md#wp4-ingress-and-materialization-implemented):
 its materializer is the only caller that resolves a phone, appends inbound
 messages, closes a conversation on STOP or takes control on an unknown outbound.
@@ -260,8 +274,9 @@ Schema-v2 tests cover the deterministic identifier (including the RFC 4122 DNS
 vector), question-set-derived goals, lifecycle/control/provenance validation,
 transcript cap and worst-case BSON size, idempotent launch and append, phone
 conflict, capacity flagging, control and closure transition rules, monotonic
-cursor advance, the index contract and the compact list projection. No test
-requires a live MongoDB.
+cursor advance, the monotonic goal ladder including the refused reopen, the
+index contract and the compact list projection. No test requires a live
+MongoDB.
 
 - Schema v1:
   [schemas](../../../apps/backend/src/modules/conversations/conversation-thread.schemas.ts),

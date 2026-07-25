@@ -502,6 +502,75 @@ export class FeedbackConversationRepository {
     return { changed: false, conversation: current };
   }
 
+  /**
+   * Advances goal statuses monotonically along
+   * `pending < asked < skipped < answered`.
+   *
+   * The rank is the guard that implements D16's "an answered goal is never
+   * auto-reopened": a later run that wants to ask a question again cannot
+   * downgrade a recorded answer, however confident the model is. A goal that
+   * was skipped may still be answered if the participant changes their mind,
+   * because that direction adds a fact rather than discarding one.
+   */
+  async updateGoalStatuses(input: {
+    readonly conversationId: string;
+    readonly statuses: readonly {
+      readonly key: FeedbackConversationGoal["key"];
+      readonly status: FeedbackConversationGoal["status"];
+    }[];
+    readonly at: Date;
+  }): Promise<FeedbackConversationTransitionResult> {
+    const at = z.date().parse(input.at);
+    const current = await this.requireConversation(input.conversationId);
+    const statuses = [
+      ...new Map(input.statuses.map((entry) => [entry.key, entry])).values(),
+    ].filter((entry) => {
+      const goal = current.goals.find(
+        (candidate) => candidate.key === entry.key,
+      );
+      return (
+        goal !== undefined &&
+        goalStatusRank(entry.status) > goalStatusRank(goal.status)
+      );
+    });
+    if (statuses.length === 0) {
+      return { changed: false, conversation: current };
+    }
+
+    const set: Record<string, unknown> = {};
+    const arrayFilters = statuses.map((entry, index) => {
+      const identifier = `goal${index}`;
+      set[`goals.$[${identifier}].status`] = entry.status;
+      return {
+        [`${identifier}.key`]: entry.key,
+        [`${identifier}.status`]: { $in: lowerGoalStatuses(entry.status) },
+      };
+    });
+
+    const collection = await this.collection();
+    const updated = await collection.findOneAndUpdate(
+      feedbackConversationFilter(input.conversationId),
+      {
+        $set: set,
+        $max: { updatedAt: at },
+      } as UpdateFilter<FeedbackConversationDocument>,
+      { returnDocument: "after", arrayFilters },
+    );
+    if (!updated) {
+      throw new FeedbackConversationNotFoundError(input.conversationId);
+    }
+
+    const conversation = feedbackConversationDocumentSchema.parse(updated);
+    // A concurrent run may have advanced the same goal further in between; the
+    // array filter then leaves it alone, which is the intended outcome.
+    const changed = statuses.some(
+      (entry) =>
+        conversation.goals.find((goal) => goal.key === entry.key)?.status !==
+        current.goals.find((goal) => goal.key === entry.key)?.status,
+    );
+    return { changed, conversation };
+  }
+
   /** Flags or clears the operator attention badge. */
   async setNeedsAttention(input: {
     readonly conversationId: string;
@@ -600,6 +669,31 @@ function feedbackConversationFilter(
     schemaVersion: FEEDBACK_CONVERSATION_SCHEMA_VERSION,
     purpose: FEEDBACK_CONVERSATION_PURPOSE,
   } as Filter<FeedbackConversationDocument>;
+}
+
+/**
+ * Goal progress is a monotonic ladder. `answered` outranks `skipped` so a
+ * participant who changes their mind can still be recorded, while nothing
+ * demotes a recorded answer back to a question the bot would ask again.
+ */
+const GOAL_STATUS_RANK: Record<FeedbackConversationGoal["status"], number> = {
+  pending: 0,
+  asked: 1,
+  skipped: 2,
+  answered: 3,
+};
+
+function goalStatusRank(status: FeedbackConversationGoal["status"]): number {
+  return GOAL_STATUS_RANK[status];
+}
+
+function lowerGoalStatuses(
+  status: FeedbackConversationGoal["status"],
+): FeedbackConversationGoal["status"][] {
+  const rank = goalStatusRank(status);
+  return (
+    Object.keys(GOAL_STATUS_RANK) as FeedbackConversationGoal["status"][]
+  ).filter((candidate) => goalStatusRank(candidate) < rank);
 }
 
 function messageIdentityKeys(message: {

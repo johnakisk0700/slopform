@@ -6,10 +6,13 @@ import {
   QueueModule,
   QueueWorkerModule,
 } from "../../infrastructure/queue/queue.module.js";
+import { EventsCoreModule } from "../events/events-core.module.js";
 import { FeedbackOutboxSchedulerService } from "./feedback-outbox-scheduler.service.js";
 import { MessageOutboxDeliveryService } from "./message-outbox-delivery.service.js";
 import { MessageOutboxDeliveryStatusService } from "./message-outbox-delivery-status.service.js";
 import { MessageOutboxRelayService } from "./message-outbox-relay.service.js";
+import { PostEventFeedbackExtractionModel } from "./post-event-feedback-extraction.service.js";
+import { PostEventFeedbackExtractor } from "./post-event-feedback-extractor.service.js";
 import { PostEventFeedbackIngressModule } from "./post-event-feedback-ingress.module.js";
 import { PostEventFeedbackIngressService } from "./post-event-feedback-ingress.service.js";
 import { PostEventFeedbackMaterializer } from "./post-event-feedback-materializer.service.js";
@@ -116,5 +119,31 @@ describe("post-event feedback process composition", () => {
         TRANSPORT_MODE: "simulated",
       }),
     ).toBe(true);
+  });
+
+  it("keeps the extraction model provider in the worker process only", () => {
+    const workerProviders = Reflect.getMetadata(
+      MODULE_METADATA.PROVIDERS,
+      PostEventFeedbackWorkerModule,
+    ) as readonly unknown[];
+    const ingressProviders = Reflect.getMetadata(
+      MODULE_METADATA.PROVIDERS,
+      PostEventFeedbackIngressModule,
+    ) as readonly unknown[];
+
+    expect(workerProviders).toContain(PostEventFeedbackExtractor);
+    expect(workerProviders).toContain(PostEventFeedbackExtractionModel);
+    // The HTTP process must never hold a model provider client for this
+    // feature; the webhook edge only inserts a row and enqueues.
+    expect(ingressProviders).not.toContain(PostEventFeedbackExtractionModel);
+  });
+
+  it("reaches candidates only through the shared D16 events helper", () => {
+    const workerImports = Reflect.getMetadata(
+      MODULE_METADATA.IMPORTS,
+      PostEventFeedbackWorkerModule,
+    ) as readonly unknown[];
+
+    expect(workerImports).toContain(EventsCoreModule);
   });
 });

@@ -33,6 +33,7 @@
         "CLERK_SECRET_KEY",
         "DATABASE_POOL_MAX",
         "DATABASE_URL",
+        "FEEDBACK_EXTRACTION_MODEL",
         "LOG_LEVEL",
         "MONGODB_URI",
         "NODE_ENV",

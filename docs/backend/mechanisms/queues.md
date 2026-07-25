@@ -93,12 +93,31 @@ itself.
 
 `latestSeq` is the transcript position the extraction run must cover, so a burst
 of inbound messages collapses onto one model run per position instead of one per
-message. The extraction processor itself is a later work package; until it lands
-the consumer only records the job, and the job name and payload must not change
-when it is implemented. The feedback worker deliberately runs at concurrency
-`1`, which keeps one participant's burst in arrival order inside the transcript
-without a per-conversation lock and keeps outbound session pacing
-single-threaded; raising it requires explicit per-conversation serialization.
+message. The feedback worker deliberately runs at concurrency `1`, which keeps
+one participant's burst in arrival order inside the transcript without a
+per-conversation lock and keeps outbound session pacing single-threaded; raising
+it requires explicit per-conversation serialization.
+
+The extraction consumer reloads the conversation and stops before any model call
+when it is closed, under human control, already covered by the extraction cursor
+or carrying no new participant message. Results are written to PostgreSQL first
+and the MongoDB cursor advances last, so a crash in between replays the run: the
+answer unique constraint, the note content signature and the outbox `dedupe_key`
+absorb the repeat. That costs a repeated provider call, never a duplicated
+answer or a second outbound message. A missing provider key or a rejected
+request is `UnrecoverableError`; timeouts, rate limits and provider 5xx stay
+retryable. Extraction only ever inserts an outbox row — the relay and delivery
+jobs above are what send it.
+
+The extraction consumer reloads the conversation and stops before any model call
+when it is closed, under human control, already covered by the extraction cursor
+or carrying no new participant message. Results are written to PostgreSQL first
+and the MongoDB cursor advances last, so a crash in between replays the run: the
+answer unique constraint, the note content signature and the outbox `dedupe_key`
+absorb the repeat. That costs a repeated provider call, never a duplicated
+answer or a second outbound message. A missing provider key or a rejected
+request is `UnrecoverableError`; timeouts, rate limits and provider 5xx stay
+retryable.
 
 For Assistant work, MongoDB owns the owner-scoped thread, ordered history and
 user-visible turn state. PostgreSQL retains the request id, model, attempt and
