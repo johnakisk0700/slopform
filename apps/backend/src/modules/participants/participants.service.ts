@@ -3,8 +3,11 @@ import type { ParticipantRow } from "@join-the-six/database";
 
 import { AuditRepository } from "../../infrastructure/audit/audit.repository.js";
 import { DatabaseService } from "../../infrastructure/database/database.service.js";
+import type { ParticipantEventHistoryRow } from "./participants.repository.js";
 import { ParticipantsRepository } from "./participants.repository.js";
 import type {
+  ParticipantEventHistoryItemView,
+  ParticipantEventHistoryView,
   ParticipantListView,
   ParticipantView,
   UpdateParticipantFeedbackOptInInput,
@@ -36,6 +39,16 @@ export class ParticipantsService {
       throw new ParticipantProfileNotFoundError(id);
     }
     return toView(row);
+  }
+
+  async listEvents(id: string): Promise<ParticipantEventHistoryView> {
+    const participant = await this.repository.findById(id);
+    if (!participant) {
+      throw new ParticipantProfileNotFoundError(id);
+    }
+
+    const rows = await this.repository.listEventsForParticipant(id);
+    return { items: rows.map(toEventHistoryItemView) };
   }
 
   async updateFeedbackOptIn(
@@ -93,5 +106,18 @@ function toView(row: ParticipantRow): ParticipantView {
     postEventFeedbackWhatsappOptIn: row.postEventFeedbackWhatsappOptIn,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+function toEventHistoryItemView(
+  row: ParticipantEventHistoryRow,
+): ParticipantEventHistoryItemView {
+  return {
+    eventId: row.eventId,
+    title: row.title,
+    startsAt: row.startsAt.toISOString(),
+    status: row.status,
+    present: row.present,
+    tableNo: row.tableNo,
   };
 }

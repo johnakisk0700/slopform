@@ -17,6 +17,7 @@ import { CurrentUserId } from "../../infrastructure/auth/current-user-id.decorat
 import {
   ParticipantCorrelationIdDto,
   ParticipantDto,
+  ParticipantEventHistoryDto,
   ParticipantIdDto,
   ParticipantListDto,
   ParticipantPrincipalDto,
@@ -57,6 +58,17 @@ export class ParticipantsController {
     @CurrentUserId() _userId: ParticipantPrincipalDto,
   ): Promise<ParticipantDto> {
     return mapParticipantErrors(this.participants.get(parameters.id));
+  }
+
+  @Get(":id/events")
+  @ApiOperation({ operationId: "listParticipantEvents" })
+  @Header("Cache-Control", "no-store")
+  @ZodResponse({ status: 200, type: ParticipantEventHistoryDto })
+  listEvents(
+    @Param() parameters: ParticipantIdDto,
+    @CurrentUserId() _userId: ParticipantPrincipalDto,
+  ): Promise<ParticipantEventHistoryDto> {
+    return mapParticipantErrors(this.participants.listEvents(parameters.id));
   }
 
   @Patch(":id/feedback-whatsapp-opt-in")

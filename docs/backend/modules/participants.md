@@ -65,10 +65,19 @@ Staff-only routes under the Clerk admin guard:
 | ------- | --------------------------------------------------- | -------------------------------------------- |
 | `GET`   | `/api/v1/participants`                              | List profiles (capped)                       |
 | `GET`   | `/api/v1/participants/:id`                          | Single profile                               |
+| `GET`   | `/api/v1/participants/:id/events`                   | Event history for a profile (newest first)   |
 | `PATCH` | `/api/v1/participants/:id/feedback-whatsapp-opt-in` | Toggle opt-in + audit when the value changes |
 
-The admin Participants screen surfaces the opt-in checkbox. Import remains a CLI
-operation, not an HTTP signup.
+`listParticipantEvents` is a read model over `event_attendees` joined to
+`events`. Each item returns `eventId`, `title`, `startsAt`, event `status`,
+`present` and `tableNo`. Unknown participants return `404`; a known profile
+with no attendance returns an empty `items` array. There is no schema change —
+attendance remains owned by the events module.
+
+The admin Participants list links into `/admin/participants/:id`, which loads
+the profile through `getParticipant`, the history through
+`listParticipantEvents`, and reuses `updateParticipantFeedbackOptIn` for the
+WhatsApp opt-in toggle. Import remains a CLI operation, not an HTTP signup.
 
 ## Import flow
 
@@ -163,10 +172,11 @@ trade-off in an ADR.
 
 The participant suites cover every age/neighborhood mapping, normalization,
 incomplete legacy preservation, invalid scale and interest rejection, WXR
-parsing, source-hash idempotency, updates, identical duplicate linking and
-conflicting duplicate rejection. On 2026-07-25 the complete backend run passed
-without failures; both database and backend builds and `drizzle-kit check` also
-passed.
+parsing, source-hash idempotency, updates, identical duplicate linking,
+conflicting duplicate rejection, feedback opt-in audit and event-history
+projection (newest-first present/table fields). On 2026-07-25 the complete
+backend run passed without failures; both database and backend builds and
+`drizzle-kit check` also passed.
 
 The restricted WXR contained 45 `jts_profile` posts: 36 active and 9 trashed.
 The local import accepted 32 active profiles (22 complete and 10 incomplete),

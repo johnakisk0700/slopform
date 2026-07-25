@@ -1,3 +1,4 @@
+import { EVENT_STATUSES } from "@join-the-six/database";
 import { createZodDto } from "nestjs-zod";
 import { z } from "zod";
 
@@ -33,12 +34,32 @@ export const participantListSchema = z
   })
   .strict();
 
+export const participantEventHistoryItemSchema = z
+  .object({
+    eventId: z.uuid(),
+    title: z.string(),
+    startsAt: z.iso.datetime(),
+    status: z.enum(EVENT_STATUSES),
+    present: z.boolean(),
+    tableNo: z.number().int().nullable(),
+  })
+  .strict();
+
+export const participantEventHistorySchema = z
+  .object({
+    items: z.array(participantEventHistoryItemSchema).max(500),
+  })
+  .strict();
+
 export class ParticipantIdDto extends createZodDto(participantIdSchema) {}
 export class UpdateParticipantFeedbackOptInDto extends createZodDto(
   updateParticipantFeedbackOptInSchema,
 ) {}
 export class ParticipantDto extends createZodDto(participantSchema) {}
 export class ParticipantListDto extends createZodDto(participantListSchema) {}
+export class ParticipantEventHistoryDto extends createZodDto(
+  participantEventHistorySchema,
+) {}
 const ParticipantPrincipalDtoBase = createZodDto(
   participantPrincipalSchema,
 ) as unknown as new () => object;
@@ -53,3 +74,9 @@ export type UpdateParticipantFeedbackOptInInput = z.infer<
 >;
 export type ParticipantView = z.infer<typeof participantSchema>;
 export type ParticipantListView = z.infer<typeof participantListSchema>;
+export type ParticipantEventHistoryItemView = z.infer<
+  typeof participantEventHistoryItemSchema
+>;
+export type ParticipantEventHistoryView = z.infer<
+  typeof participantEventHistorySchema
+>;

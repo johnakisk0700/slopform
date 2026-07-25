@@ -65,7 +65,11 @@ export class PostEventFeedbackCampaignController {
     @RequestCorrelationId() correlationId: FeedbackCampaignCorrelationIdDto,
   ): Promise<FeedbackCampaignDto> {
     return mapCampaignErrors(
-      this.campaigns.launch(input.eventId, String(userId), String(correlationId)),
+      this.campaigns.launch(
+        input.eventId,
+        String(userId),
+        String(correlationId),
+      ),
     );
   }
 
@@ -90,7 +94,11 @@ export class PostEventFeedbackCampaignController {
     @RequestCorrelationId() correlationId: FeedbackCampaignCorrelationIdDto,
   ): Promise<FeedbackCampaignDto> {
     return mapCampaignErrors(
-      this.campaigns.pause(parameters.campaignId, String(userId), String(correlationId)),
+      this.campaigns.pause(
+        parameters.campaignId,
+        String(userId),
+        String(correlationId),
+      ),
     );
   }
 
@@ -104,7 +112,11 @@ export class PostEventFeedbackCampaignController {
     @RequestCorrelationId() correlationId: FeedbackCampaignCorrelationIdDto,
   ): Promise<FeedbackCampaignDto> {
     return mapCampaignErrors(
-      this.campaigns.resume(parameters.campaignId, String(userId), String(correlationId)),
+      this.campaigns.resume(
+        parameters.campaignId,
+        String(userId),
+        String(correlationId),
+      ),
     );
   }
 
@@ -118,7 +130,11 @@ export class PostEventFeedbackCampaignController {
     @RequestCorrelationId() correlationId: FeedbackCampaignCorrelationIdDto,
   ): Promise<FeedbackCampaignDto> {
     return mapCampaignErrors(
-      this.campaigns.close(parameters.campaignId, String(userId), String(correlationId)),
+      this.campaigns.close(
+        parameters.campaignId,
+        String(userId),
+        String(correlationId),
+      ),
     );
   }
 

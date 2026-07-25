@@ -3,7 +3,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { AuditRepository } from "../../infrastructure/audit/audit.repository.js";
 import type { DatabaseService } from "../../infrastructure/database/database.service.js";
-import type { ParticipantsRepository } from "./participants.repository.js";
+import type {
+  ParticipantEventHistoryRow,
+  ParticipantsRepository,
+} from "./participants.repository.js";
 import {
   ParticipantProfileNotFoundError,
   ParticipantsService,
@@ -123,5 +126,88 @@ describe("ParticipantsService feedback opt-in", () => {
         "request-3",
       ),
     ).rejects.toBeInstanceOf(ParticipantProfileNotFoundError);
+  });
+});
+
+describe("ParticipantsService event history", () => {
+  it("projects attendance rows newest-first with present and table", async () => {
+    const historyRows: ParticipantEventHistoryRow[] = [
+      {
+        eventId: "a1111111-1111-4111-8111-111111111111",
+        title: "August dinner",
+        startsAt: new Date("2026-08-15T18:00:00.000Z"),
+        status: "finished",
+        present: true,
+        tableNo: 4,
+      },
+      {
+        eventId: "b2222222-2222-4222-8222-222222222222",
+        title: "July mixer",
+        startsAt: new Date("2026-07-10T18:00:00.000Z"),
+        status: "finished",
+        present: false,
+        tableNo: null,
+      },
+    ];
+    const repository = {
+      findById: vi.fn().mockResolvedValue(participant),
+      listEventsForParticipant: vi.fn().mockResolvedValue(historyRows),
+    } as unknown as ParticipantsRepository;
+    const service = new ParticipantsService({} as DatabaseService, repository, {
+      append: vi.fn(),
+    } as unknown as AuditRepository);
+
+    await expect(service.listEvents(participant.id)).resolves.toEqual({
+      items: [
+        {
+          eventId: "a1111111-1111-4111-8111-111111111111",
+          title: "August dinner",
+          startsAt: "2026-08-15T18:00:00.000Z",
+          status: "finished",
+          present: true,
+          tableNo: 4,
+        },
+        {
+          eventId: "b2222222-2222-4222-8222-222222222222",
+          title: "July mixer",
+          startsAt: "2026-07-10T18:00:00.000Z",
+          status: "finished",
+          present: false,
+          tableNo: null,
+        },
+      ],
+    });
+    expect(repository.listEventsForParticipant).toHaveBeenCalledWith(
+      participant.id,
+    );
+  });
+
+  it("returns an empty history when the participant has no attendance", async () => {
+    const repository = {
+      findById: vi.fn().mockResolvedValue(participant),
+      listEventsForParticipant: vi.fn().mockResolvedValue([]),
+    } as unknown as ParticipantsRepository;
+    const service = new ParticipantsService({} as DatabaseService, repository, {
+      append: vi.fn(),
+    } as unknown as AuditRepository);
+
+    await expect(service.listEvents(participant.id)).resolves.toEqual({
+      items: [],
+    });
+  });
+
+  it("reports missing participants for event history", async () => {
+    const repository = {
+      findById: vi.fn().mockResolvedValue(undefined),
+      listEventsForParticipant: vi.fn(),
+    } as unknown as ParticipantsRepository;
+    const service = new ParticipantsService({} as DatabaseService, repository, {
+      append: vi.fn(),
+    } as unknown as AuditRepository);
+
+    await expect(service.listEvents(participant.id)).rejects.toBeInstanceOf(
+      ParticipantProfileNotFoundError,
+    );
+    expect(repository.listEventsForParticipant).not.toHaveBeenCalled();
   });
 });

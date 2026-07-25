@@ -40,6 +40,11 @@ const ParticipantsPage = lazy(async () => {
   return { default: module.ParticipantsPage };
 });
 
+const ParticipantProfilePage = lazy(async () => {
+  const module = await import("./routes/ParticipantProfilePage");
+  return { default: module.ParticipantProfilePage };
+});
+
 const FeedbackCampaignsPage = lazy(async () => {
   const module = await import("./routes/FeedbackCampaignsPage");
   return { default: module.FeedbackCampaignsPage };
@@ -136,6 +141,14 @@ function AppRoutes() {
             element={
               <LazyAdminRoute>
                 <ParticipantsPage />
+              </LazyAdminRoute>
+            }
+          />
+          <Route
+            path="participants/:id"
+            element={
+              <LazyAdminRoute>
+                <ParticipantProfilePage />
               </LazyAdminRoute>
             }
           />

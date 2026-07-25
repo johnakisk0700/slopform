@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
 import { useMemo, useState } from "react";
+import { Link } from "react-router";
 
 import {
   getListParticipantsQueryKey,
@@ -79,8 +80,14 @@ export function ParticipantsPage() {
       {
         accessorKey: "preferredName",
         header: "Name",
-        cell: ({ row }) =>
-          row.original.preferredName ?? row.original.emailNormalized,
+        cell: ({ row }) => (
+          <Link
+            to={`/admin/participants/${row.original.id}`}
+            className="font-bold text-primary underline-offset-2 hover:underline"
+          >
+            {row.original.preferredName ?? row.original.emailNormalized}
+          </Link>
+        ),
       },
       {
         accessorKey: "emailNormalized",

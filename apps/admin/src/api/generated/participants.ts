@@ -23,6 +23,8 @@ import type {
 
 import type { ParticipantDtoOutput } from "./model/participantDtoOutput";
 
+import type { ParticipantEventHistoryDtoOutput } from "./model/participantEventHistoryDtoOutput";
+
 import type { ParticipantListDtoOutput } from "./model/participantListDtoOutput";
 
 import type { UpdateParticipantFeedbackOptInDto } from "./model/updateParticipantFeedbackOptInDto";
@@ -327,6 +329,172 @@ export function useGetParticipant<
   queryKey: DataTag<QueryKey, TData, TError>;
 } {
   const queryOptions = getGetParticipantQueryOptions(id, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
+    TData,
+    TError
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const getListParticipantEventsUrl = (id: string) => {
+  return `/v1/participants/${id}/events`;
+};
+
+export const listParticipantEvents = async (
+  id: string,
+  options?: Parameters<typeof apiRequest>[1],
+): Promise<ParticipantEventHistoryDtoOutput> => {
+  return apiRequest<ParticipantEventHistoryDtoOutput>(
+    getListParticipantEventsUrl(id),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getListParticipantEventsQueryKey = (id: string) => {
+  return [`/v1/participants/${id}/events`] as const;
+};
+
+export const getListParticipantEventsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listParticipantEvents>>,
+  TError = unknown,
+>(
+  id: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof listParticipantEvents>>,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof apiRequest>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListParticipantEventsQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listParticipantEvents>>
+  > = ({ signal }) => listParticipantEvents(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: id !== null && id !== undefined,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof listParticipantEvents>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type ListParticipantEventsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listParticipantEvents>>
+>;
+export type ListParticipantEventsQueryError = unknown;
+
+export function useListParticipantEvents<
+  TData = Awaited<ReturnType<typeof listParticipantEvents>>,
+  TError = unknown,
+>(
+  id: string,
+  options: {
+    query: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof listParticipantEvents>>,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listParticipantEvents>>,
+          TError,
+          Awaited<ReturnType<typeof listParticipantEvents>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof apiRequest>;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useListParticipantEvents<
+  TData = Awaited<ReturnType<typeof listParticipantEvents>>,
+  TError = unknown,
+>(
+  id: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof listParticipantEvents>>,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listParticipantEvents>>,
+          TError,
+          Awaited<ReturnType<typeof listParticipantEvents>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof apiRequest>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useListParticipantEvents<
+  TData = Awaited<ReturnType<typeof listParticipantEvents>>,
+  TError = unknown,
+>(
+  id: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof listParticipantEvents>>,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof apiRequest>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+
+export function useListParticipantEvents<
+  TData = Awaited<ReturnType<typeof listParticipantEvents>>,
+  TError = unknown,
+>(
+  id: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof listParticipantEvents>>,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof apiRequest>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+} {
+  const queryOptions = getListParticipantEventsQueryOptions(id, options);
 
   const query = useQuery(queryOptions, queryClient) as UseQueryResult<
     TData,
