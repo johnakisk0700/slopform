@@ -28,8 +28,8 @@ interface NavItem {
 const NAV_ITEMS: readonly NavItem[] = [
   { label: "Overview", Icon: LayoutGrid, to: "/admin" },
   { label: "AI assistant", Icon: Bot, to: "/admin/assistant" },
-  { label: "Events", Icon: Calendar },
-  { label: "Participants", Icon: Users },
+  { label: "Events", Icon: Calendar, to: "/admin/events" },
+  { label: "Participants", Icon: Users, to: "/admin/participants" },
   { label: "Bookings", Icon: Ticket },
   { label: "Tables & matching", Icon: Network },
   { label: "Payments", Icon: CreditCard },

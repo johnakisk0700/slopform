@@ -3,7 +3,11 @@
 Status: architecture accepted in
 [ADR 0008](../../decisions/0008-post-event-feedback-conversations.md);
 **WP0 product contract landed** (question set v1, STOP matcher, Greek extraction
-fixtures). Persistence, runtime pipeline and admin UI are not yet implemented.
+fixtures) and **WP1 stub events landed** (events, attendance and the shared
+candidate helper). Campaign persistence, Mongo conversations, runtime pipeline
+and admin inbox remain later work packages. Plan amendments in
+[`POST_EVENT_FEEDBACK_PLAN_2026-07-25.md`](../../../POST_EVENT_FEEDBACK_PLAN_2026-07-25.md)
+§9 supersede frozen candidate snapshots with live D16 selection.
 
 ## Purpose and boundary
 
@@ -22,14 +26,14 @@ routed to a separately authorized record.
 One completed event may create one campaign. Each eligible respondent has at
 most one active conversation in that campaign.
 
-| Record                  | Authority  | Contract                                                       |
-| ----------------------- | ---------- | -------------------------------------------------------------- |
-| `FeedbackCampaign`      | PostgreSQL | Event, question version, attendee/table snapshot, lifecycle    |
-| `FeedbackConversation`  | MongoDB    | Ordered transcript, actor, goals, lifecycle, bot/human control |
-| Campaign recipient      | PostgreSQL | Campaign/respondent/thread link and operational projection     |
-| `FeedbackAnswer`        | PostgreSQL | Directed normalized question result with message provenance    |
-| `FeedbackNote`          | PostgreSQL | Directed bounded side note with message provenance             |
-| Provider ingress/outbox | PostgreSQL | Deduplication, audit and delivery/recovery boundary            |
+| Record                     | Authority  | Contract                                                       |
+| -------------------------- | ---------- | -------------------------------------------------------------- |
+| Stub `events` / attendance | PostgreSQL | Upstream WP1 facts; candidates selected live (D16)             |
+| `FeedbackCampaign`         | PostgreSQL | Event, question-set copy at launch, lifecycle                  |
+| `FeedbackConversation`     | MongoDB    | Ordered transcript, actor, goals, lifecycle, bot/human control |
+| `FeedbackAnswer`           | PostgreSQL | Directed normalized question result with message provenance    |
+| `FeedbackNote`             | PostgreSQL | Directed bounded side note with message provenance             |
+| Provider ingress/outbox    | PostgreSQL | Deduplication, audit and delivery/recovery boundary            |
 
 A person-specific answer or note is a directed edge:
 
@@ -42,25 +46,28 @@ conversation and points from Roula to Kostas. It does not assert that Kostas
 likes skiing. Reversing the IDs changes the meaning.
 
 General event scores may have no subject. A subject must otherwise belong to
-the conversation's frozen candidate snapshot, and the respondent cannot be the
-subject.
+the **current** live candidate set from
+`EventsService.listFeedbackCandidatesForRespondent` (present attendees minus
+the respondent — D16), and the respondent cannot be the subject. Unknown names
+degrade to subjectless notes (D18). Each extraction run records the candidate
+IDs it used in `extraction_meta`.
 
 Questions are versioned definitions outside the conversation. Campaign launch
-snapshots the selected keys/prompts and allowed participant IDs before creating
-Mongo goals.
+copies the question set jsonb onto the campaign row; it does **not** freeze
+attendee candidate IDs.
 
 ## Flow
 
 ```mermaid
 flowchart LR
-  Event["Completed event"] --> Launch["Staff launches campaign"]
-  Launch --> Snapshot["Locked attendance + table snapshot"]
-  Snapshot --> Threads["One conversation per eligible respondent"]
+  Event["Finished stub event"] --> Launch["Staff launches campaign"]
+  Launch --> Threads["One conversation per eligible respondent"]
   Participant["Participant"] <--> Wasender["Wasender"]
   Wasender --> Ingress["Durable ingress + dedupe"]
   Ingress --> Transcript["Mongo transcript"]
   Transcript --> Extract["AI structured proposal"]
-  Extract --> Validate["Domain validation"]
+  Extract --> Candidates["Live D16 candidates"]
+  Candidates --> Validate["Domain validation"]
   Validate --> Results["PostgreSQL answers + notes"]
   Validate --> Outbox["PostgreSQL reply outbox"]
   Outbox --> Wasender
@@ -98,7 +105,7 @@ control mode.
 The model input contains:
 
 - actor-labelled ordered transcript;
-- snapshotted questions and candidates;
+- question copy and **live** candidates from the shared helper;
 - current goals and accepted results;
 - allowed output schema and safety/handoff rules.
 
@@ -119,8 +126,8 @@ context strategy is later selected.
 
 ## Invariants
 
-- Campaign eligibility comes from a locked attendance/table snapshot, not a
-  mutable live query during the chat.
+- Campaign membership is decided at launch (present ∧ opt-in ∧ phone); subject
+  candidates are selected live at extraction time (D16), never guessed.
 - Every structured result preserves respondent, optional subject, event
   campaign, conversation and source-message provenance.
 - The same row powers both “feedback given” and restricted “feedback received”
@@ -199,4 +206,4 @@ integrity. No runtime pipeline, queue or PostgreSQL schema is part of WP0.
 - [Conversation aggregate](conversations.md)
 - [Wasender transport](../mechanisms/wasender.md)
 - [Queues and outbox](../mechanisms/queues.md)
-- [Implementation plan WP0](../../../POST_EVENT_FEEDBACK_PLAN_2026-07-25.md)
+- [Implementation plan](../../../POST_EVENT_FEEDBACK_PLAN_2026-07-25.md)

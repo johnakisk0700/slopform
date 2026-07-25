@@ -68,8 +68,13 @@ Participant profiles use normalized unique emails, E.164 phones, constrained
 age/neighborhood/conversation values and a normalized interest join table.
 `participant_source_records` makes operational imports idempotent through a
 unique source key and canonical payload hash without retaining another raw PII
-copy. The detailed contract is in the
-[participant module](../modules/participants.md).
+copy. `post_event_feedback_whatsapp_opt_in` defaults to `false`. The detailed
+contract is in the [participant module](../modules/participants.md).
+
+Stub events and attendance live in `events` / `event_attendees` with status
+checks, a unique `(event_id, participant_id)` pair and
+`ON DELETE RESTRICT` toward participants. See the
+[events module](../modules/events.md).
 
 Email delivery uses separate intent, outbox and attempt tables. Intent creation,
 outbox publication intent and admin audit share one transaction. Leases and

@@ -30,8 +30,9 @@ Area-specific memory:
 - [`backend/mechanisms/wasender.md`](backend/mechanisms/wasender.md) — opt-in WhatsApp transport and webhook boundary
 - [`backend/modules/README.md`](backend/modules/README.md) — product-domain module inventory and lifecycle docs
 - [`backend/modules/conversations.md`](backend/modules/conversations.md) — owner-scoped MongoDB conversation aggregate
+- [`backend/modules/events.md`](backend/modules/events.md) — stub events, attendance and feedback-candidate helper
 - [`backend/modules/post-event-feedback.md`](backend/modules/post-event-feedback.md) — accepted campaign, directed feedback and human-takeover contract
-- [`backend/modules/participants.md`](backend/modules/participants.md) — participant profile schema and WordPress import runbook
+- [`backend/modules/participants.md`](backend/modules/participants.md) — participant profile schema, feedback opt-in and WordPress import runbook
 - [`post-event-feedback-handover.md`](post-event-feedback-handover.md) — portable 2026-07-25 snapshot of the feedback design, assumptions and implementation plan
 - [`documentation-standard.md`](documentation-standard.md) — required shape for new component/mechanism documentation
 

@@ -29,6 +29,13 @@ payload. Email remains required for identity/deduplication; the other answers
 are nullable so incomplete legacy profiles can be migrated without inventing
 facts. The future signup boundary must still require the complete contract.
 
+`post_event_feedback_whatsapp_opt_in` (boolean, default `false`) is an
+eligibility gate for WhatsApp post-event feedback (D4). It is not a consent
+ledger: every staff toggle writes an audit event
+(`participant.feedback_whatsapp_opt_in_changed`), and STOP handling in later
+work packages will flip it off with its own audit. Legal wording and Meta/BSP
+classification remain a named gate before real humans.
+
 | Legacy question | Canonical field          | Rule                                                    |
 | --------------- | ------------------------ | ------------------------------------------------------- |
 | `name`          | `preferred_name`         | Trim/collapse whitespace; 1–120 characters when present |
@@ -49,6 +56,19 @@ the seven questions in the supplied signup screenshots. The WXR also contains
 newer `availability`, `diet`, `goal`, `languages`, `topics`, `values` and `vibe`
 metadata on 15 profiles; those answers remain in the restricted source export
 until their target contract is approved.
+
+## Staff HTTP surface
+
+Staff-only routes under the Clerk admin guard:
+
+| Method  | Path                                                | Effect                                       |
+| ------- | --------------------------------------------------- | -------------------------------------------- |
+| `GET`   | `/api/v1/participants`                              | List profiles (capped)                       |
+| `GET`   | `/api/v1/participants/:id`                          | Single profile                               |
+| `PATCH` | `/api/v1/participants/:id/feedback-whatsapp-opt-in` | Toggle opt-in + audit when the value changes |
+
+The admin Participants screen surfaces the opt-in checkbox. Import remains a CLI
+operation, not an HTTP signup.
 
 ## Import flow
 

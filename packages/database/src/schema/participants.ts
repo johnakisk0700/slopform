@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  boolean,
   check,
   index,
   pgTable,
@@ -55,6 +56,11 @@ export const participants = pgTable(
     ageBand: text("age_band"),
     preferredNeighborhood: text("preferred_neighborhood"),
     conversationStyle: smallint("conversation_style"),
+    postEventFeedbackWhatsappOptIn: boolean(
+      "post_event_feedback_whatsapp_opt_in",
+    )
+      .notNull()
+      .default(false),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
       .defaultNow()
       .notNull(),

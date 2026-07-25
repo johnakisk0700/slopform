@@ -36,6 +36,7 @@ function participant(overrides: Partial<ParticipantRow> = {}): ParticipantRow {
     ageBand: input.profile.ageBand,
     preferredNeighborhood: input.profile.preferredNeighborhood,
     conversationStyle: input.profile.conversationStyle,
+    postEventFeedbackWhatsappOptIn: false,
     createdAt: new Date("2026-07-22T12:00:00Z"),
     updatedAt: new Date("2026-07-22T12:00:00Z"),
     ...overrides,

@@ -79,6 +79,7 @@ exception/Sentry plumbing is absent from the worker graph.
 | Logging and telemetry                 | `apps/backend/src/infrastructure/logging/`, `infrastructure/observability/`, `instrumentation.ts` |
 | Business audit                        | `apps/backend/src/infrastructure/audit/`, `packages/database/src/schema/audit-events.ts`          |
 | Participant profile/import            | `apps/backend/src/modules/participants/`, `packages/database/src/schema/participants.ts`          |
+| Stub events and attendance            | `apps/backend/src/modules/events/`, `packages/database/src/schema/events.ts`                      |
 | Email delivery                        | `apps/backend/src/modules/email/`, `packages/database/src/schema/email-deliveries.ts`             |
 | Domain examples                       | `apps/backend/src/modules/reference/`                                                             |
 

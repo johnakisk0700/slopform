@@ -17,7 +17,9 @@ import { ObservabilityModule } from "./infrastructure/observability/observabilit
 import { QueueDashboardModule } from "./infrastructure/queue/queue-dashboard.module.js";
 import { AssistantHttpModule } from "./modules/assistant/assistant-http.module.js";
 import { EmailHttpModule } from "./modules/email/email-http.module.js";
+import { EventsHttpModule } from "./modules/events/events-http.module.js";
 import { HealthModule } from "./modules/health/health.module.js";
+import { ParticipantsHttpModule } from "./modules/participants/participants-http.module.js";
 import { ReferenceHttpModule } from "./modules/reference/reference-http.module.js";
 
 const StrictZodValidationPipe = createZodValidationPipe({
@@ -34,6 +36,8 @@ const StrictZodValidationPipe = createZodValidationPipe({
     HealthModule,
     AssistantHttpModule,
     EmailHttpModule,
+    EventsHttpModule,
+    ParticipantsHttpModule,
     ConditionalModule.registerWhen(
       WasenderHttpModule,
       isWasenderWebhookEnabled,

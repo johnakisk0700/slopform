@@ -41,6 +41,9 @@ consumer needs them.
 | `/admin`                     | Clerk session plus backend admin check, then operations shell  | `noindex, nofollow`     |
 | `/admin/assistant`           | Protected new AI conversation in the admin shell               | `noindex, nofollow`     |
 | `/admin/assistant/:threadId` | Exact durable assistant thread resume                          | `noindex, nofollow`     |
+| `/admin/events`              | Stub event list and create                                     | `noindex, nofollow`     |
+| `/admin/events/:eventId`     | Event edit, status transitions and attendance                  | `noindex, nofollow`     |
+| `/admin/participants`        | Participant list and feedback WhatsApp opt-in                  | `noindex, nofollow`     |
 | `*`                          | Standalone 404 (`routes/ErrorPage.tsx`)                        | Inherits private policy |
 
 Do not add `/join`, `/register`, `/feedback`, marketing or public legal routes

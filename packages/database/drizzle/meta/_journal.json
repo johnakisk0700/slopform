@@ -57,6 +57,13 @@
       "when": 1784938192523,
       "tag": "20260725000952_email_delivery_outbox",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1785002438853,
+      "tag": "20260725180038_stub_events_and_feedback_opt_in",
+      "breakpoints": true
     }
   ]
 }

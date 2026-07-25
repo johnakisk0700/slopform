@@ -25,6 +25,21 @@ const OverviewPage = lazy(async () => {
   return { default: module.OverviewPage };
 });
 
+const EventsPage = lazy(async () => {
+  const module = await import("./routes/EventsPage");
+  return { default: module.EventsPage };
+});
+
+const EventDetailPage = lazy(async () => {
+  const module = await import("./routes/EventDetailPage");
+  return { default: module.EventDetailPage };
+});
+
+const ParticipantsPage = lazy(async () => {
+  const module = await import("./routes/ParticipantsPage");
+  return { default: module.ParticipantsPage };
+});
+
 function LazyAdminRoute({ children }: { children: ReactNode }) {
   return (
     <Suspense
@@ -82,6 +97,30 @@ function AppRoutes() {
             element={
               <LazyAdminRoute>
                 <AssistantPage />
+              </LazyAdminRoute>
+            }
+          />
+          <Route
+            path="events"
+            element={
+              <LazyAdminRoute>
+                <EventsPage />
+              </LazyAdminRoute>
+            }
+          />
+          <Route
+            path="events/:eventId"
+            element={
+              <LazyAdminRoute>
+                <EventDetailPage />
+              </LazyAdminRoute>
+            }
+          />
+          <Route
+            path="participants"
+            element={
+              <LazyAdminRoute>
+                <ParticipantsPage />
               </LazyAdminRoute>
             }
           />

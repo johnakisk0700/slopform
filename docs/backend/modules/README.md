@@ -11,12 +11,14 @@ Product modules:
   conversation aggregates for admin and future participant channels.
 - [`post-event-feedback.md`](post-event-feedback.md) — WP0 product contract
   landed; campaign persistence, pipeline and UI still pending.
+- [`events.md`](events.md) — stub events, attendance corrections and the shared
+  D16 feedback-candidate helper.
 - [`assistant.md`](assistant.md) — authenticated, owner-scoped asynchronous AI
   conversation threads and durable generation turns.
 - [`email-delivery.md`](email-delivery.md) — provider-agnostic email intent,
   transactional outbox, redacted attempts and safe admin visibility.
-- [`participants.md`](participants.md) — canonical participant profile schema
-  and controlled, idempotent WordPress profile import.
+- [`participants.md`](participants.md) — canonical participant profile schema,
+  feedback WhatsApp opt-in and controlled WordPress profile import.
 
 `apps/backend/src/modules/reference/` remains a disposable executable pattern,
 not production CRUD. Remove the reference route, queue, processor and table
