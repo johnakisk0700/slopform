@@ -3,7 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 import type { MessageOutboxRow } from "@join-the-six/database";
 
 import type { DatabaseService } from "../../infrastructure/database/database.service.js";
-import type { FeedbackConversationRepository } from "../conversations/feedback-conversation.repository.js";
+import {
+  FeedbackConversationCapacityError,
+  type FeedbackConversationRepository,
+} from "../conversations/feedback-conversation.repository.js";
+import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
 import type { FeedbackTransport } from "./feedback-transport.js";
 import { MessageOutboxDeliveryService } from "./message-outbox-delivery.service.js";
 import type { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
@@ -65,6 +69,50 @@ describe("MessageOutboxDeliveryService", () => {
         providerLogId: "42",
         providerMessageId: "wamid.1",
       }),
+    );
+  });
+
+  it("repairs a missing transcript entry before sending", async () => {
+    const { service, repository, transport, conversations } = createService();
+    repository.findOutboxById.mockResolvedValue(sendingRow());
+    transport.sendText.mockResolvedValue({
+      outcome: "accepted",
+      providerLogId: "42",
+      providerMessageId: "wamid.1",
+      providerStatus: "sent",
+    });
+
+    await service.deliver(outboxId, "correlation-1");
+
+    // The forward repair for a producer that crashed between its PostgreSQL
+    // commit and the append — normally an idempotent no-op.
+    expect(conversations.appendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actor: "bot",
+        outboxId,
+        text: "Ευχαριστούμε!",
+      }),
+    );
+    expect(
+      conversations.appendMessage.mock.invocationCallOrder[0],
+    ).toBeLessThan(transport.sendText.mock.invocationCallOrder[0] as number);
+  });
+
+  it("cancels instead of sending a message the transcript cannot record", async () => {
+    const { service, repository, transport, conversations } = createService();
+    repository.findOutboxById.mockResolvedValue(sendingRow());
+    conversations.appendMessage.mockRejectedValue(
+      new FeedbackConversationCapacityError(),
+    );
+
+    await expect(service.deliver(outboxId, "correlation-1")).resolves.toEqual({
+      outcome: "cancelled",
+    });
+    expect(transport.sendText).not.toHaveBeenCalled();
+    expect(repository.updateOutboxStatus).toHaveBeenCalledWith(
+      expect.anything(),
+      outboxId,
+      "cancelled",
     );
   });
 
@@ -190,6 +238,11 @@ function createService(): {
     sendText: ReturnType<typeof vi.fn>;
     getMessageInfo: ReturnType<typeof vi.fn>;
   };
+  conversations: {
+    findById: ReturnType<typeof vi.fn>;
+    appendMessage: ReturnType<typeof vi.fn>;
+    setNeedsAttention: ReturnType<typeof vi.fn>;
+  };
 } {
   const repository = {
     findOutboxById: vi.fn(),
@@ -207,11 +260,16 @@ function createService(): {
       work({}),
     ),
   };
+  const conversation = {
+    _id: conversationId,
+    phoneAtLaunch: "+306900000001",
+  };
   const conversations = {
-    findById: vi.fn().mockResolvedValue({
-      _id: conversationId,
-      phoneAtLaunch: "+306900000001",
-    }),
+    findById: vi.fn().mockResolvedValue(conversation),
+    appendMessage: vi
+      .fn()
+      .mockResolvedValue({ appended: true, message: {}, conversation }),
+    setNeedsAttention: vi.fn().mockResolvedValue({ changed: true }),
   };
 
   return {
@@ -219,9 +277,15 @@ function createService(): {
       database as unknown as DatabaseService,
       repository as unknown as PostEventFeedbackRepository,
       conversations as unknown as FeedbackConversationRepository,
+      new FeedbackOutboundTranscriptService(
+        database as unknown as DatabaseService,
+        repository as unknown as PostEventFeedbackRepository,
+        conversations as unknown as FeedbackConversationRepository,
+      ),
       transport as unknown as FeedbackTransport,
     ),
     repository,
     transport,
+    conversations,
   };
 }

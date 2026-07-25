@@ -3,6 +3,7 @@ import type {
   AppTransaction,
   FeedbackCampaignRow,
   FeedbackExtractionMeta,
+  MessageOutboxRow,
 } from "@join-the-six/database";
 
 import { AuditRepository } from "../../infrastructure/audit/audit.repository.js";
@@ -14,6 +15,7 @@ import type {
 } from "../conversations/feedback-conversation.schemas.js";
 import { EventsService } from "../events/events.service.js";
 import { ParticipantsRepository } from "../participants/participants.repository.js";
+import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
 import {
   PostEventFeedbackMetrics,
   type FeedbackExtractOutcome,
@@ -100,6 +102,7 @@ export class PostEventFeedbackExtractor {
     private readonly generation: PostEventFeedbackExtractionModel,
     private readonly audit: AuditRepository,
     private readonly metrics: PostEventFeedbackMetrics,
+    private readonly outboundTranscript: FeedbackOutboundTranscriptService,
   ) {}
 
   async extract(input: ExtractFeedbackInput): Promise<ExtractFeedbackResult> {
@@ -195,11 +198,15 @@ export class PostEventFeedbackExtractor {
       validated,
     );
     const completing = isCompleting(conversation.goals, goalStatuses);
+    // Anchored on the participant's own latest message rather than on the
+    // transcript length, because this run appends its reply to that same
+    // transcript: a length-based key would differ on a replay that already sees
+    // the reply, and a different `dedupe_key` is a second WhatsApp message.
     const outbound = this.resolveOutbound(
       conversation,
       validated,
       completing,
-      cursorSeq,
+      lastParticipantSeq(conversation) ?? cursorSeq,
       copy,
     );
 
@@ -212,6 +219,19 @@ export class PostEventFeedbackExtractor {
       model: generated.model,
       correlationId: input.correlationId,
     });
+
+    // Between the PostgreSQL commit and the cursor advance, so a crash replays
+    // the whole run and repairs the transcript through the same `outboxId`. The
+    // stored row's body is used rather than `outbound.body`: a replay may
+    // produce different reply text while `insertOutboxIfAbsent` returns the
+    // row that was actually enqueued and will actually be sent.
+    if (written.outbox) {
+      await this.outboundTranscript.record(
+        written.outbox,
+        new Date(),
+        input.correlationId,
+      );
+    }
 
     await this.applyConversationState({
       conversation,
@@ -233,7 +253,7 @@ export class PostEventFeedbackExtractor {
         cursorSeq,
         answersWritten: written.answersWritten,
         notesWritten: written.notesWritten,
-        ...(written.outboxId ? { outboxId: written.outboxId } : {}),
+        ...(written.outbox ? { outboxId: written.outbox.id } : {}),
         model: generated.model,
       },
       input.correlationId,
@@ -313,12 +333,15 @@ export class PostEventFeedbackExtractor {
    * At most one outbound per run, chosen deterministically rather than by the
    * model. Completion and safety are application decisions with their own copy;
    * only the ordinary case forwards the model's text.
+   *
+   * `testimonySeq` is the last participant message's `seq` — the replay-stable
+   * anchor for the dedupe key.
    */
   private resolveOutbound(
     conversation: FeedbackConversationDocument,
     validated: ValidatedFeedbackExtraction,
     completing: boolean,
-    cursorSeq: number,
+    testimonySeq: number,
     copy: PostEventFeedbackQuestionSetCopy,
   ): OutboundReply | undefined {
     if (!validated.reply && !completing && !isHandoff(validated)) {
@@ -331,7 +354,10 @@ export class PostEventFeedbackExtractor {
     if (isHandoff(validated)) {
       return {
         body: POST_EVENT_FEEDBACK_HANDOFF_REPLY,
-        dedupeKey: createFeedbackHandoffDedupeKey(conversation._id, cursorSeq),
+        dedupeKey: createFeedbackHandoffDedupeKey(
+          conversation._id,
+          testimonySeq,
+        ),
       };
     }
     if (completing) {
@@ -343,7 +369,10 @@ export class PostEventFeedbackExtractor {
     return validated.reply
       ? {
           body: validated.reply,
-          dedupeKey: createFeedbackReplyDedupeKey(conversation._id, cursorSeq),
+          dedupeKey: createFeedbackReplyDedupeKey(
+            conversation._id,
+            testimonySeq,
+          ),
         }
       : undefined;
   }
@@ -363,7 +392,7 @@ export class PostEventFeedbackExtractor {
   }): Promise<{
     answersWritten: number;
     notesWritten: number;
-    outboxId?: string;
+    outbox?: MessageOutboxRow;
   }> {
     const candidateIds = input.context.candidates.map(
       (candidate) => candidate.participantId,
@@ -471,7 +500,7 @@ export class PostEventFeedbackExtractor {
         });
       }
 
-      let outboxId: string | undefined;
+      let outbox: MessageOutboxRow | undefined;
       if (input.outbound) {
         const enqueued = await this.repository.insertOutboxIfAbsent(
           transaction,
@@ -483,13 +512,13 @@ export class PostEventFeedbackExtractor {
             dedupeKey: input.outbound.dedupeKey,
           },
         );
-        outboxId = enqueued.row.id;
+        outbox = enqueued.row;
       }
 
       return {
         answersWritten,
         notesWritten,
-        ...(outboxId ? { outboxId } : {}),
+        ...(outbox ? { outbox } : {}),
       };
     });
   }
@@ -637,6 +666,22 @@ function isCompleting(
 
 function isHandoff(validated: ValidatedFeedbackExtraction): boolean {
   return validated.safetySignal || validated.handoff;
+}
+
+/**
+ * The transcript position the run is answering. Stable across replays because
+ * only the participant can move it — the bot reply this run appends cannot.
+ */
+function lastParticipantSeq(
+  conversation: FeedbackConversationDocument,
+): number | undefined {
+  for (let index = conversation.messages.length - 1; index >= 0; index -= 1) {
+    const message = conversation.messages[index];
+    if (message?.actor === "participant") {
+      return message.seq;
+    }
+  }
+  return undefined;
 }
 
 function noteSignature(

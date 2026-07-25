@@ -249,15 +249,20 @@ export const FEEDBACK_CLOSING_DEDUPE_PREFIX = "feedback-closing";
 export const FEEDBACK_HANDOFF_DEDUPE_PREFIX = "feedback-handoff";
 
 /**
- * One outbound per conversation per extraction cursor position. A replayed run
- * derives the same cursor from the same transcript, so the unique `dedupe_key`
+ * One outbound per conversation per answered testimony position. A replayed run
+ * derives the same anchor from the same transcript, so the unique `dedupe_key`
  * absorbs it instead of sending a second message.
+ *
+ * The anchor is the **last participant message's** `seq`, not the transcript
+ * length: the run appends its own reply to the transcript, so a length-based
+ * key would change between the original run and a replay that already sees
+ * that reply — and a changed key is a second WhatsApp message.
  */
 export function createFeedbackReplyDedupeKey(
   conversationId: string,
-  cursorSeq: number,
+  testimonySeq: number,
 ): string {
-  return `${FEEDBACK_REPLY_DEDUPE_PREFIX}-${conversationId}-${cursorSeq}`;
+  return `${FEEDBACK_REPLY_DEDUPE_PREFIX}-${conversationId}-${testimonySeq}`;
 }
 
 /** A conversation completes once; its closing copy is sent once. */
@@ -265,9 +270,10 @@ export function createFeedbackClosingDedupeKey(conversationId: string): string {
   return `${FEEDBACK_CLOSING_DEDUPE_PREFIX}-${conversationId}`;
 }
 
+/** Same testimony anchor as the reply key, for the same replay reason. */
 export function createFeedbackHandoffDedupeKey(
   conversationId: string,
-  cursorSeq: number,
+  testimonySeq: number,
 ): string {
-  return `${FEEDBACK_HANDOFF_DEDUPE_PREFIX}-${conversationId}-${cursorSeq}`;
+  return `${FEEDBACK_HANDOFF_DEDUPE_PREFIX}-${conversationId}-${testimonySeq}`;
 }

@@ -7,6 +7,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { DatabaseService } from "../../infrastructure/database/database.service.js";
 import type { FeedbackConversationRepository } from "../conversations/feedback-conversation.repository.js";
+import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
 import { FeedbackSimulatorService } from "./feedback-simulator.service.js";
 import { MessageOutboxDeliveryService } from "./message-outbox-delivery.service.js";
 import { PostEventFeedbackIngressService } from "./post-event-feedback-ingress.service.js";
@@ -61,28 +62,40 @@ describe("post-event feedback simulator (simulated mode)", () => {
       correlationId: "corr-materialize",
     });
 
+    // The intro now occupies seq 1, so the participant's reply lands at seq 2.
     expect(materialize).toMatchObject({
       outcome: "inbound_materialized",
       conversationId,
-      extractJobId: `feedback-extract-v1-${conversationId}-1`,
+      extractJobId: `feedback-extract-v1-${conversationId}-2`,
     });
     expect(harness.queue.added).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           name: "feedback.extract.v1",
-          jobId: `feedback-extract-v1-${conversationId}-1`,
+          jobId: `feedback-extract-v1-${conversationId}-2`,
         }),
       ]),
     );
     expect(
       harness.queue.added.filter((job) => job.name === "feedback.extract.v1"),
     ).toHaveLength(1);
+    // The regression this covers: the transcript used to hold only the
+    // participant side, so the admin pane and the extraction prompt never saw
+    // a bot turn.
     expect(harness.conversations.transcript(conversationId)).toEqual([
       {
         seq: 1,
+        actor: "bot",
+        text: "Γεια σου! Πώς ήταν η εκδήλωση;",
+        ingressId: null,
+        outboxId: introOutboxId,
+      },
+      {
+        seq: 2,
         actor: "participant",
         text: "Ήταν τέλεια!",
         ingressId: inject.ingressId,
+        outboxId: null,
       },
     ]);
   });
@@ -129,6 +142,7 @@ interface FakeMessage {
   actor: string;
   text: string;
   ingressId: string | null;
+  outboxId?: string | null;
 }
 
 interface FakeConversation {
@@ -349,9 +363,13 @@ class FakeConversations {
     this.documents.set(conversation._id, conversation);
   }
 
-  transcript(
-    id: string,
-  ): { seq: number; actor: string; text: string; ingressId: string | null }[] {
+  transcript(id: string): {
+    seq: number;
+    actor: string;
+    text: string;
+    ingressId: string | null;
+    outboxId: string | null;
+  }[] {
     const conversation = this.documents.get(id);
     if (!conversation) {
       throw new Error(`Conversation ${id} was not seeded`);
@@ -361,6 +379,7 @@ class FakeConversations {
       actor: message.actor,
       text: message.text,
       ingressId: message.ingressId,
+      outboxId: message.outboxId ?? null,
     }));
   }
 
@@ -379,12 +398,14 @@ class FakeConversations {
     );
   }
 
+  /** Idempotent by `ingressId` / `outboxId`, like the real repository. */
   async appendMessage(input: {
     conversationId: string;
     actor: string;
     text: string;
     at: Date;
     ingressId?: string | null;
+    outboxId?: string | null;
   }): Promise<{
     appended: boolean;
     message: FakeMessage;
@@ -394,12 +415,22 @@ class FakeConversations {
     if (!conversation) {
       throw new Error(`Conversation ${input.conversationId} was not seeded`);
     }
+    const keys = [input.ingressId, input.outboxId].filter(Boolean);
+    const existing = conversation.messages.find((message) =>
+      [message.ingressId, message.outboxId]
+        .filter(Boolean)
+        .some((key) => keys.includes(key as string)),
+    );
+    if (existing) {
+      return { appended: false, message: existing, conversation };
+    }
     const message: FakeMessage = {
       id: randomUUID(),
       seq: conversation.messages.length + 1,
       actor: input.actor,
       text: input.text,
       ingressId: input.ingressId ?? null,
+      outboxId: input.outboxId ?? null,
     };
     conversation.messages.push(message);
     return { appended: true, message, conversation };
@@ -482,6 +513,12 @@ function createSimulatorHarness(): SimulatorHarness {
     repository as unknown as PostEventFeedbackRepository,
   );
 
+  const outboundTranscript = new FeedbackOutboundTranscriptService(
+    database as unknown as DatabaseService,
+    repository as unknown as PostEventFeedbackRepository,
+    conversations as unknown as FeedbackConversationRepository,
+  );
+
   return {
     repository,
     conversations,
@@ -490,6 +527,7 @@ function createSimulatorHarness(): SimulatorHarness {
       database as unknown as DatabaseService,
       repository as unknown as PostEventFeedbackRepository,
       conversations as unknown as FeedbackConversationRepository,
+      outboundTranscript,
       transport,
     ),
     simulator: new FeedbackSimulatorService(
@@ -504,6 +542,7 @@ function createSimulatorHarness(): SimulatorHarness {
       new FakeParticipants() as never,
       new FakeAudit() as never,
       new PostEventFeedbackMetrics(),
+      outboundTranscript,
     ),
   };
 }

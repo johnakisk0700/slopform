@@ -108,9 +108,85 @@ flowchart LR
   Candidates --> Validate["Domain validation"]
   Validate --> Results["PostgreSQL answers + notes"]
   Validate --> Outbox["PostgreSQL reply outbox"]
+  Outbox --> Transcript
   Outbox --> Wasender
   Staff["Staff"] -->|"take over / resume"| Transcript
 ```
+
+Both directions reach the transcript. Inbound arrives through ingress;
+outbound arrives through the outbox, which is why the transcript is
+actor-labelled rather than one-sided — see
+[outbound transcript entries](#outbound-transcript-entries).
+
+## Outbound transcript entries
+
+Every outbound message reaches a participant through one `message_outbox` row,
+and every such row is also recorded in the MongoDB transcript by
+[`FeedbackOutboundTranscriptService`](../../../apps/backend/src/modules/post-event-feedback/feedback-outbound-transcript.service.ts).
+That is what makes the transcript actor-labelled on both sides: without it the
+admin detail pane shows a one-sided conversation and the extraction prompt's
+"full actor-labelled transcript" contains no bot turns.
+
+The row's `kind` is the only thing that decides the actor:
+
+| Outbox `kind` | Actor   | Producer                                        |
+| ------------- | ------- | ----------------------------------------------- |
+| `intro`       | `bot`   | Campaign launch / `startConversation`           |
+| `reminder`    | `bot`   | Reminder sweep                                  |
+| `reply`       | `bot`   | Extraction reply, closing copy and handoff copy |
+| `system`      | `bot`   | STOP acknowledgement (materializer)             |
+| `staff`       | `staff` | Staff inbox send                                |
+
+`system` maps to `bot` on purpose. Schema v2 reserves `actor: system` for
+entries with **no** transport provenance, and an outbox-backed message always
+carries `outboxId`; the acknowledgement is the bot speaking on the channel, so
+labelling it `system` would be rejected by the aggregate and would misdescribe
+what the participant saw.
+
+### Store order, replay and repair
+
+PostgreSQL first, MongoDB second — the same order as the rest of the module.
+The outbox row is what actually causes a send, so it must never wait on a
+MongoDB write. The append is idempotent by `outboxId`, so a replay never
+duplicates an entry.
+
+A crash between the PostgreSQL commit and the append leaves a row with no
+transcript entry. It repairs forward two ways:
+
+- **The producer runs again.** Launch replay and `startConversation` re-resolve
+  the intro row through `insertOutboxIfAbsent` and append whether or not this
+  call inserted it; the reminder sweep re-selects a conversation whose
+  `remindedAt` is still null (the append runs before `markReminded` for exactly
+  that reason); an extraction retry replays the whole run behind its dedupe
+  keys.
+- **The delivery job reconciles.** The STOP acknowledgement is the one producer
+  that cannot replay — its ingress row is marked terminal in the same
+  transaction that inserts the row — so `MessageOutboxDeliveryService` calls the
+  same idempotent append before `sendText`. That also establishes the general
+  invariant: nothing is transmitted to a participant that the transcript did not
+  record.
+
+The transcript entry always uses the **stored row's** body, never the text the
+caller proposed. A replayed extraction may generate different reply wording
+while `insertOutboxIfAbsent` returns the row already enqueued; appending the
+fresh wording would be rejected as a conflicting replay of the same `outboxId`.
+
+For the same reason the reply/handoff `dedupe_key` is anchored on the **last
+participant message's** `seq` rather than on the transcript length: the run
+appends its own reply to that transcript, so a length-based key would differ
+between the original run and a replay that already sees the reply — and a
+different key is a second WhatsApp message.
+
+### When the transcript is full
+
+Nothing is silently dropped. A transcript at the 150-message cap (or the BSON
+backstop) raises `needsAttention` inside the repository and the outbox row is
+**cancelled**: a message that cannot be recorded must not be sent, because a
+one-sided transcript is the exact failure this path prevents. A body longer
+than the 4096-character transcript/WhatsApp limit — `message_outbox` allows
+10 000 — is cancelled and flagged the same way rather than failing the job
+forever as a poison pill. A staff send surfaces the refusal to the operator;
+background producers log it and move on.
 
 ## Conversation control
 
@@ -222,6 +298,7 @@ sequenceDiagram
   Run->>Model: Greek prompt, Zod-validated structured output
   Run->>Run: domain validation (provenance, subjects, replay)
   Run->>PG: answers, notes, audit, one outbox row
+  Run->>Mongo: transcribe the outbound reply (actor bot, by outboxId)
   Run->>Mongo: goals, attention, cursor, close(completed)
 ```
 
@@ -286,6 +363,9 @@ answered`, derived from stored **and** newly written answers so a replay repairs
 - exactly one outbox row per run, chosen by the application rather than the
   model: the neutral handoff copy on safety/handoff, else the closing copy when
   every goal is terminal, else the model's reply;
+- that row transcribed as an `actor: bot` message carrying its `outboxId`
+  ([outbound transcript entries](#outbound-transcript-entries)), so the next run
+  reads what the bot already asked;
 - `close(completed)` when every goal is terminal;
 - `needsAttention` + an audit event on safety or handoff.
 
@@ -302,14 +382,22 @@ over explicitly.
 
 ### Store order and replay
 
-PostgreSQL first, the MongoDB cursor last. The cursor is the idempotency fence,
-so advancing it before the results are durable would silently drop them. A crash
-after the PostgreSQL commit replays the whole run: the unique answer constraint,
-the note content signature and the outbox `dedupe_key`
-(`feedback-reply-<conversationId>-<cursorSeq>`, `feedback-closing-…`,
-`feedback-handoff-…`) all absorb it. That costs one repeated model call — a
-repeated bill, never a duplicated answer or a second WhatsApp message. Nothing
-claims exactly-once.
+PostgreSQL first, the outbound transcript entry, the MongoDB cursor last. The
+cursor is the idempotency fence, so advancing it before the results are durable
+would silently drop them. A crash after the PostgreSQL commit replays the whole
+run: the unique answer constraint, the note content signature and the outbox
+`dedupe_key` (`feedback-reply-<conversationId>-<lastParticipantSeq>`,
+`feedback-closing-…`, `feedback-handoff-…`) all absorb it. That costs one
+repeated model call — a repeated bill, never a duplicated answer or a second
+WhatsApp message. Nothing claims exactly-once.
+
+The reply key is anchored on the last **participant** message rather than on the
+transcript length because the run appends its own reply to that transcript; a
+length-based key would change under replay and produce a second row. For the
+same reason a clean replay of a finished run now exits at
+`skipped_no_new_testimony` rather than `skipped_cursor`: the transcript did grow
+past the cursor, but only with the bot's own turn, so no model call is made and
+nothing is written.
 
 ### Model, configuration and cost
 
@@ -333,9 +421,11 @@ expected outcome. The two-Κώστας and unknown-name fixtures additionally ca
 adversarial proposals — a guessed subject and an invented candidate id — that
 the rules must contain. Focused specs cover the rule set in isolation, the
 orchestration (cheap exits, live candidate selection, completion, safety,
-opt-in), replay (same job twice, and a crash between the PostgreSQL commit and
-the cursor advance), the monotonic goal ladder, model selection and provider
-failure classification. No test calls a provider.
+opt-in), the reply and closing copy appearing as `actor: bot` turns correlated
+by `outboxId`, replay (same job twice, and a crash between the PostgreSQL commit
+and the cursor advance, neither producing a second row or a second transcript
+entry), the monotonic goal ladder, model selection and provider failure
+classification. No test calls a provider.
 
 ## Failure and recovery
 
@@ -426,15 +516,15 @@ anything.
 [`PostEventFeedbackMaterializer`](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-materializer.service.ts)
 reloads the ingress row and decides one outcome per delivery:
 
-| Situation                          | Outcome                    | Effects                                                                                                |
-| ---------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------ |
-| Row already terminal               | `already_processed`        | Nothing; this is the replay path                                                                       |
-| Phone matches no open conversation | `ignored_unmatched`        | Body dropped, metadata kept, counter incremented, never AI-processed (D10)                             |
-| Inbound STOP                       | `inbound_stopped`          | Close `stopped`, cancel queued outbox, withdraw opt-in, audit, exactly one `stop_ack` outbox row (D14) |
-| Inbound reply                      | `inbound_materialized`     | Idempotent transcript append, then one `feedback.extract.v1` for the newest transcript position        |
-| Inbound without usable text        | `inbound_not_materialized` | `needsAttention`, ingress `failed`; the durable row keeps the provider metadata for an operator        |
-| Outbound matching an outbox row    | `outbound_correlated`      | Delivery columns only — the outbox owns that message's transcript entry, so nothing is appended twice  |
-| Outbound matching an open thread   | `outbound_external`        | Take over to human control, append the observed staff message, audit external channel activity (D17)   |
+| Situation                          | Outcome                    | Effects                                                                                                                            |
+| ---------------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Row already terminal               | `already_processed`        | Nothing; this is the replay path                                                                                                   |
+| Phone matches no open conversation | `ignored_unmatched`        | Body dropped, metadata kept, counter incremented, never AI-processed (D10)                                                         |
+| Inbound STOP                       | `inbound_stopped`          | Close `stopped`, cancel queued outbox, withdraw opt-in, audit, exactly one `stop_ack` outbox row transcribed as `actor: bot` (D14) |
+| Inbound reply                      | `inbound_materialized`     | Idempotent transcript append, then one `feedback.extract.v1` for the newest transcript position                                    |
+| Inbound without usable text        | `inbound_not_materialized` | `needsAttention`, ingress `failed`; the durable row keeps the provider metadata for an operator                                    |
+| Outbound matching an outbox row    | `outbound_correlated`      | Delivery columns only — the outbox owns that message's transcript entry, so nothing is appended twice                              |
+| Outbound matching an open thread   | `outbound_external`        | Take over to human control, append the observed staff message, audit external channel activity (D17)                               |
 
 Conversation resolution is the Mongo `findOpenByPhone` lookup backed by the
 partial unique index (D9). Nothing infers which event or person an unmatched
@@ -509,9 +599,10 @@ and for tests, not a metrics backend.
 Replay and crash behavior is the point of this package, so the focused tests
 cover duplicate webhook delivery, double materialization, two concurrent
 executions of the same job, out-of-order arrival, STOP during human control, a
-replayed STOP that must not acknowledge twice, unmatched traffic keeping
-metadata only, outbound correlation without transcript duplication, a delivery
-status that must not be downgraded, and the external-outbound takeover. Process
+replayed STOP that must not acknowledge twice, the acknowledgement appearing
+once as an `actor: bot` turn, unmatched traffic keeping metadata only, outbound
+correlation without transcript duplication, a delivery status that must not be
+downgraded, and the external-outbound takeover. Process
 composition tests keep the consumer out of the HTTP graph and the producer edge
 gated with the webhook route.
 
@@ -538,10 +629,13 @@ the existing repository helper; a deliver job that finds `cancelled` or `held`
 exits without sending.
 
 [`MessageOutboxDeliveryService`](../../../apps/backend/src/modules/post-event-feedback/message-outbox-delivery.service.ts)
-reloads the conversation phone and sends through `FeedbackTransport`. An
-unknown provider outcome parks the row (`delivery_status=pending`, keep any
-`provider_log_id`) and never calls send again: recovery reconciles via
-`getMessageInfo` or waits for the WP4 upsert body-correlation path.
+reloads the conversation phone, ensures the row's transcript entry exists (the
+idempotent forward repair described in
+[outbound transcript entries](#outbound-transcript-entries)) and then sends
+through `FeedbackTransport`. An unknown provider outcome parks the row
+(`delivery_status=pending`, keep any `provider_log_id`) and never calls send
+again: recovery reconciles via `getMessageInfo` or waits for the WP4 upsert
+body-correlation path.
 
 ### Transport boundary
 
@@ -563,8 +657,9 @@ no-op until an accepted send or upsert correlation has stored the id.
 ### WP6 tests
 
 Lease / stable job-id idempotency, campaign stagger, session pacing bounds,
-unknown-outcome no-retry, cancel-on-STOP statuses, and delivery-status upgrade
-without downgrade.
+unknown-outcome no-retry, cancel-on-STOP statuses, delivery-status upgrade
+without downgrade, the transcript repair running before `sendText`, and the
+full-transcript case cancelling instead of sending.
 
 ## WP8 dev simulated transport (implemented)
 
@@ -597,8 +692,11 @@ routes stay out of the generated admin client until deliberately promoted.
 ### WP8 tests
 
 Integration coverage runs intro delivery → inject reply → materialize →
-`feedback.extract.v1` enqueue (extraction execution remains WP5). Composition
-tests assert production cannot enable the HTTP simulator.
+`feedback.extract.v1` enqueue (extraction execution remains WP5) and asserts the
+resulting transcript holds both sides: the intro as `actor: bot` at `seq 1` with
+its `outboxId`, the reply as `actor: participant` at `seq 2` with its
+`ingressId`. Composition tests assert production cannot enable the HTTP
+simulator.
 
 ## WP3 conversation persistence (implemented)
 
@@ -636,12 +734,12 @@ Staff HTTP under `/feedback/campaigns` plus bounded BullMQ sweep jobs.
 [`PostEventFeedbackCampaignService`](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-campaign.service.ts)
 owns the application boundary:
 
-| Action              | Gate / effect                                                                                                                                                                                                                                                                                                                                           |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `launch`            | Event `finished` ∧ ≥1 eligible (present ∧ opt-in ∧ `phone_e164`); creates the campaign with the WP0 question launch snapshot; one Mongo conversation per eligible attendee via `createFromLaunch` (deterministic `_id`); one `intro` outbox row per new open conversation (`dedupe_key = feedback-intro-<conversationId>`). Replay creates nothing new. |
-| `pause` / `resume`  | Status `paused` ↔ `launched`. Pause stops the relay from leasing that campaign's rows and suppresses extraction replies (`replyAllowed` requires `status=launched`).                                                                                                                                                                                    |
-| `close`             | Kill switch: status `closed`, cancel queued outbox for the campaign. Open conversations are left for STOP / expiry / staff close (D17).                                                                                                                                                                                                                 |
-| `startConversation` | D17 create-if-missing for one eligible participant; never recreates a STOP-closed conversation; enqueues intro only when a new open conversation was created.                                                                                                                                                                                           |
+| Action              | Gate / effect                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `launch`            | Event `finished` ∧ ≥1 eligible (present ∧ opt-in ∧ `phone_e164`); creates the campaign with the WP0 question launch snapshot; one Mongo conversation per eligible attendee via `createFromLaunch` (deterministic `_id`); one `intro` outbox row per new open conversation (`dedupe_key = feedback-intro-<conversationId>`), transcribed as `actor: bot`. Replay creates nothing new and repairs a missing intro entry. |
+| `pause` / `resume`  | Status `paused` ↔ `launched`. Pause stops the relay from leasing that campaign's rows and suppresses extraction replies (`replyAllowed` requires `status=launched`).                                                                                                                                                                                                                                                   |
+| `close`             | Kill switch: status `closed`, cancel queued outbox for the campaign. Open conversations are left for STOP / expiry / staff close (D17).                                                                                                                                                                                                                                                                                |
+| `startConversation` | D17 create-if-missing for one eligible participant; never recreates a STOP-closed conversation; enqueues intro only when a new open conversation was created.                                                                                                                                                                                                                                                          |
 
 Every mutation writes an audit event. Intros are not sent by HTTP — WP6's
 relay leases them with stagger.
@@ -651,11 +749,11 @@ relay leases them with stagger.
 [`PostEventFeedbackSweepService`](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-sweep.service.ts)
 runs as bounded BullMQ jobs every five minutes:
 
-| Job                           | Contract                                                                                                                                                                  |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `feedback.sweep-reminders.v1` | One reminder at `FEEDBACK_REMINDER_AFTER_HOURS` (default 24) when there is no participant reply; skips closed / human / opted-out / already reminded / inactive campaign. |
-| `feedback.sweep-expiry.v1`    | At `FEEDBACK_EXPIRE_AFTER_HOURS` (default 72) → `close(expired)` + cancel queued outbox; same skip set.                                                                   |
-| `feedback.sweep-ingress.v1`   | Re-enqueues `feedback.materialize.v1` for `pending` ingress rows older than `FEEDBACK_INGRESS_PENDING_RECOVERY_MINUTES` (default 5) under the existing stable job id.     |
+| Job                           | Contract                                                                                                                                                                                                                                                                           |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `feedback.sweep-reminders.v1` | One reminder at `FEEDBACK_REMINDER_AFTER_HOURS` (default 24) when there is no participant reply; transcribed as `actor: bot` before `markReminded`, so a crash between the two repairs on the next sweep; skips closed / human / opted-out / already reminded / inactive campaign. |
+| `feedback.sweep-expiry.v1`    | At `FEEDBACK_EXPIRE_AFTER_HOURS` (default 72) → `close(expired)` + cancel queued outbox; same skip set.                                                                                                                                                                            |
+| `feedback.sweep-ingress.v1`   | Re-enqueues `feedback.materialize.v1` for `pending` ingress rows older than `FEEDBACK_INGRESS_PENDING_RECOVERY_MINUTES` (default 5) under the existing stable job id.                                                                                                              |
 
 ### Staff HTTP contract
 
@@ -679,9 +777,11 @@ event screens can deep-link the inbox without calling launch.
 ### WP7 tests
 
 Focused coverage: eligibility gate, launch idempotency (replay creates nothing
-new), start-conversation never recreates STOP-closed threads, pause/resume
-audit, `listFeedbackCampaigns` projection + progress counts (newest first),
-reminder/expiry edge cases (opted-out, human control, already closed),
+new), the intro appearing once in the transcript as `actor: bot` and being
+repaired on replay, start-conversation never recreates STOP-closed threads,
+pause/resume audit, `listFeedbackCampaigns` projection + progress counts
+(newest first), reminder/expiry edge cases (opted-out, human control,
+already closed) plus the reminder's transcript entry and its replay repair,
 ingress recovery (stuck row re-enqueued, fresh pending untouched), lease skip
 for paused campaigns, and process composition (HTTP module in the API graph,
 sweeps in the worker only).
@@ -741,9 +841,11 @@ flowchart LR
 
 Focused coverage: capability flags per lifecycle/control state (including
 STOP-closed), staff-send rejected under bot control and accepted under human
-control (outbox `kind=staff` + transcript append), close idempotency after
-`cancelled`, STOP-closed close rejection, take-over / resume audit, and
-campaign results display-name resolution including dangling-id `null` (D18).
+control (outbox `kind=staff` + `actor: staff` transcript append), the
+full-transcript case cancelling the staff row and refusing the send, close
+idempotency after `cancelled`, STOP-closed close rejection, take-over / resume
+audit, and campaign results display-name resolution including dangling-id `null`
+(D18).
 
 ## Decisions and references
 

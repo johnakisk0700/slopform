@@ -7,6 +7,7 @@ import type {
 
 import { DatabaseService } from "../../infrastructure/database/database.service.js";
 import { FeedbackConversationRepository } from "../conversations/feedback-conversation.repository.js";
+import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
 import {
   FEEDBACK_TRANSPORT,
   type FeedbackTransport,
@@ -47,6 +48,7 @@ export class MessageOutboxDeliveryService {
     private readonly database: DatabaseService,
     private readonly repository: PostEventFeedbackRepository,
     private readonly conversations: FeedbackConversationRepository,
+    private readonly outboundTranscript: FeedbackOutboundTranscriptService,
     @Inject(FEEDBACK_TRANSPORT)
     private readonly transport: FeedbackTransport,
   ) {}
@@ -104,6 +106,26 @@ export class MessageOutboxDeliveryService {
         outboxId: row.id,
       });
       return { outcome: "failed" };
+    }
+
+    // The forward repair for a producer that crashed between its PostgreSQL
+    // commit and the MongoDB append (the STOP acknowledgement cannot replay:
+    // its ingress row is already terminal). Normally a no-op, because the
+    // append is idempotent by `outboxId`. It runs before `sendText` so nothing
+    // reaches a participant that the transcript could not record.
+    const recorded = await this.outboundTranscript.record(
+      row,
+      new Date(),
+      correlationId,
+    );
+    if (recorded.outcome === "cancelled") {
+      this.logger.warn({
+        event: "feedback.outbox.untranscribable",
+        correlationId,
+        outboxId: row.id,
+        reason: recorded.reason,
+      });
+      return { outcome: "cancelled" };
     }
 
     const result = await this.transport.sendText({

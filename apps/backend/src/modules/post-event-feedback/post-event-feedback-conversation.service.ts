@@ -21,6 +21,7 @@ import {
 import type { FeedbackConversationDocument } from "../conversations/feedback-conversation.schemas.js";
 import { EventsRepository } from "../events/events.repository.js";
 import { ParticipantsRepository } from "../participants/participants.repository.js";
+import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
 import { FeedbackCampaignNotFoundError } from "./post-event-feedback-campaign.service.js";
 import type {
   FeedbackCampaignConversationsView,
@@ -63,6 +64,7 @@ export class PostEventFeedbackConversationService {
     private readonly events: EventsRepository,
     private readonly participants: ParticipantsRepository,
     private readonly audit: AuditRepository,
+    private readonly outboundTranscript: FeedbackOutboundTranscriptService,
   ) {}
 
   async listForCampaign(
@@ -346,27 +348,16 @@ export class PostEventFeedbackConversationService {
       return inserted.row;
     });
 
-    try {
-      const appended = await this.conversations.appendMessage({
-        conversationId: conversation._id,
-        actor: "staff",
-        text,
-        at,
-        outboxId: outbox.id,
-      });
-      return this.toDetailView(appended.conversation);
-    } catch (error) {
-      if (error instanceof FeedbackConversationCapacityError) {
-        await this.database.transaction(async (transaction) => {
-          await this.repository.updateOutboxStatus(
-            transaction,
-            outbox.id,
-            "cancelled",
-          );
-        });
-      }
-      throw error;
+    // The shared outbound path: actor `staff` (the row's kind), idempotent by
+    // `outboxId`, and it cancels the row when the transcript cannot hold the
+    // message. Staff sends are synchronous, so the refusal is surfaced to the
+    // operator instead of being left for a background retry.
+    const recorded = await this.outboundTranscript.record(outbox, at);
+    if (recorded.outcome === "cancelled") {
+      throw new FeedbackConversationCapacityError();
     }
+
+    return this.toDetailView(recorded.conversation);
   }
 
   async updateNoteReviewStatus(

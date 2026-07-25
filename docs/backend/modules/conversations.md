@@ -183,6 +183,15 @@ what actually happened (a STOP acknowledgement or a closing message is observed
 after the closure). Whether a message may be _sent_ is a campaign/outbox
 decision, not a transcript decision.
 
+Outbound entries are written when the `message_outbox` row is created, not when
+it is delivered, and the row's `kind` decides the actor: `intro`, `reminder`,
+`reply` and `system` are the bot speaking, `staff` is a staff send. A STOP
+acknowledgement is therefore `actor: bot`, not `actor: system` — this schema
+reserves the `system` actor for entries with **no** transport provenance, and
+an outbox-backed message always carries `outboxId`. The
+[post-event feedback module](post-event-feedback.md#outbound-transcript-entries)
+owns that mapping and its crash-repair rules.
+
 ### Goal progress
 
 Goal statuses only move up the ladder `pending < asked < skipped < answered`,
@@ -206,7 +215,9 @@ The transcript is capped at 150 messages with a 4 MiB BSON backstop (message
 text is bounded at 4096 characters, WhatsApp's text-body limit). Reaching
 either bound sets `needsAttention` and raises
 `FeedbackConversationCapacityError`; nothing is silently dropped, and the
-durable PostgreSQL ingress row still holds the message for an operator.
+durable PostgreSQL ingress row still holds the message for an operator. For an
+**outbound** message the caller additionally cancels the outbox row, so a
+message the transcript cannot record is never sent either.
 
 ### Repository contract
 
@@ -245,7 +256,10 @@ creates them on a fresh volume.
 
 ### Not owned here
 
-Reply sending belongs to the outbox/relay path. Campaign launch, reminders,
+Reply sending belongs to the outbox/relay path; that path also owns every
+outbound transcript entry through
+[`FeedbackOutboundTranscriptService`](post-event-feedback.md#outbound-transcript-entries).
+Campaign launch, reminders,
 expiry sweeps and ingress recovery live in the
 [post-event feedback module](post-event-feedback.md#wp7-campaign-service-and-schedulers-implemented).
 Staff inbox HTTP (list/detail/results reads, takeover/resume/close/staff-send
@@ -263,12 +277,16 @@ The transport adapter calls that application service; it never writes provider
 payloads into MongoDB.
 
 Two consumer expectations follow from this repository's contract rather than
-from the consumer's own code. A correlated outbound is not appended here — the
-outbox owns that message's transcript entry through `outboxId` provenance, so
-appending the same message again by `ingressId` would create a duplicate. And
-because appends allocate `seq` on arrival, the transcript records durable
-arrival order, not provider timestamps; the feedback worker runs at concurrency
-`1` so one participant's burst keeps its order.
+from the consumer's own code. A correlated outbound is not appended by the
+materializer — the outbox owns that message's transcript entry through
+`outboxId` provenance, so appending the same message again by `ingressId` would
+create a duplicate. And because appends allocate `seq` on arrival, the
+transcript records durable arrival order, not provider timestamps; the feedback
+worker runs at concurrency `1` so one participant's burst keeps its order.
+
+One consequence of outbound entries occupying sequence numbers: a participant's
+reply no longer lands at `seq 1`. The bot intro is `seq 1`, so the first reply
+is `seq 2` and the deterministic extract job id follows it.
 
 ## Tests and sources
 

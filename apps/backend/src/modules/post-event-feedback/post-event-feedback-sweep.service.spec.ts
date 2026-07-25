@@ -7,6 +7,7 @@ import type { AuditRepository } from "../../infrastructure/audit/audit.repositor
 import type { DatabaseService } from "../../infrastructure/database/database.service.js";
 import type { FeedbackConversationRepository } from "../conversations/feedback-conversation.repository.js";
 import type { ParticipantsRepository } from "../participants/participants.repository.js";
+import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
 import { buildPostEventFeedbackQuestionLaunchSnapshot } from "./post-event-feedback-question-set.js";
 import type { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
 import { PostEventFeedbackSweepService } from "./post-event-feedback-sweep.service.js";
@@ -19,6 +20,7 @@ const conversationId = "6f0f2f8a-2b73-5a02-9d0a-3f0b8f5b1c21";
 const campaignId = "89eccaa5-9ce6-4dcf-a630-5e35e4ec6f0d";
 const participantId = "aaaaaaa1-aaaa-4aaa-8aaa-aaaaaaaaaaa1";
 const ingressId = "b1c9e0a4-2c65-4a29-9a2e-2d0a3f2e1b77";
+const reminderOutboxId = "c2d8f1b5-3d76-4b3a-8b3f-3e1b4f3d2c88";
 
 describe("PostEventFeedbackSweepService", () => {
   it("queues one reminder when there is no participant reply", async () => {
@@ -28,7 +30,12 @@ describe("PostEventFeedbackSweepService", () => {
     conversations.findById.mockResolvedValue(open);
     repository.findCampaignById.mockResolvedValue(launchedCampaign());
     repository.insertOutboxIfAbsent.mockResolvedValue({
-      row: { id: "reminder-1" },
+      row: {
+        id: reminderOutboxId,
+        conversationId,
+        kind: "reminder",
+        body: "Μια μικρή υπενθύμιση",
+      },
       inserted: true,
     });
 
@@ -47,6 +54,40 @@ describe("PostEventFeedbackSweepService", () => {
       expect.anything(),
       expect.objectContaining({ action: "feedback_conversation.reminded" }),
     );
+    expect(conversations.appendMessage).toHaveBeenCalledWith({
+      conversationId,
+      actor: "bot",
+      text: "Μια μικρή υπενθύμιση",
+      at: expect.any(Date),
+      outboxId: reminderOutboxId,
+    });
+  });
+
+  it("repairs a missing reminder transcript entry on the next sweep", async () => {
+    const { service, conversations, repository } = createService();
+    const open = openConversation();
+    conversations.listOpenDueForReminder.mockResolvedValue([open]);
+    conversations.findById.mockResolvedValue(open);
+    repository.findCampaignById.mockResolvedValue(launchedCampaign());
+    // The row exists from a sweep that crashed before `markReminded`, so this
+    // sweep re-selects the conversation and finds the same row.
+    repository.insertOutboxIfAbsent.mockResolvedValue({
+      row: {
+        id: reminderOutboxId,
+        conversationId,
+        kind: "reminder",
+        body: "Μια μικρή υπενθύμιση",
+      },
+      inserted: false,
+    });
+
+    const result = await service.sweepReminders("corr-repair", new Date());
+
+    expect(result.reminded).toBe(0);
+    expect(conversations.appendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ actor: "bot", outboxId: reminderOutboxId }),
+    );
+    expect(conversations.markReminded).toHaveBeenCalled();
   });
 
   it("skips reminder for opted-out, human-controlled and already closed threads", async () => {
@@ -212,6 +253,8 @@ function createService(): {
     findById: ReturnType<typeof vi.fn>;
     markReminded: ReturnType<typeof vi.fn>;
     close: ReturnType<typeof vi.fn>;
+    appendMessage: ReturnType<typeof vi.fn>;
+    setNeedsAttention: ReturnType<typeof vi.fn>;
   };
   repository: {
     findCampaignById: ReturnType<typeof vi.fn>;
@@ -233,6 +276,10 @@ function createService(): {
     findById: vi.fn(),
     markReminded: vi.fn().mockResolvedValue({ changed: true }),
     close: vi.fn(),
+    appendMessage: vi
+      .fn()
+      .mockResolvedValue({ appended: true, message: {}, conversation: {} }),
+    setNeedsAttention: vi.fn().mockResolvedValue({ changed: true }),
   };
   const repository = {
     findCampaignById: vi.fn(),
@@ -273,6 +320,11 @@ function createService(): {
       conversations as unknown as FeedbackConversationRepository,
       participants as unknown as ParticipantsRepository,
       { append: auditAppend } as unknown as AuditRepository,
+      new FeedbackOutboundTranscriptService(
+        database as unknown as DatabaseService,
+        repository as unknown as PostEventFeedbackRepository,
+        conversations as unknown as FeedbackConversationRepository,
+      ),
     ),
     conversations,
     repository,

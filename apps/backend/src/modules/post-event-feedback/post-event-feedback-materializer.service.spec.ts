@@ -9,6 +9,7 @@ import type { AuditRepository } from "../../infrastructure/audit/audit.repositor
 import type { DatabaseService } from "../../infrastructure/database/database.service.js";
 import type { FeedbackConversationRepository } from "../conversations/feedback-conversation.repository.js";
 import type { ParticipantsRepository } from "../participants/participants.repository.js";
+import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
 import { PostEventFeedbackMaterializer } from "./post-event-feedback-materializer.service.js";
 import { PostEventFeedbackMetrics } from "./post-event-feedback-metrics.service.js";
 import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "./post-event-feedback-question-set.js";
@@ -74,7 +75,13 @@ describe("PostEventFeedbackMaterializer", () => {
       extractJobId: `feedback-extract-v1-${conversationId}-1`,
     });
     expect(harness.conversations.transcript(conversationId)).toEqual([
-      { seq: 1, actor: "participant", text: "Ήταν τέλεια!", ingressId },
+      {
+        seq: 1,
+        actor: "participant",
+        text: "Ήταν τέλεια!",
+        ingressId,
+        outboxId: null,
+      },
     ]);
     expect(harness.repository.ingress.get(ingressId)).toMatchObject({
       processingStatus: "materialized",
@@ -233,7 +240,34 @@ describe("PostEventFeedbackMaterializer", () => {
 
     expect(harness.repository.outbox).toHaveLength(1);
     expect(harness.audit.events).toHaveLength(2);
-    expect(harness.conversations.transcript(conversationId)).toHaveLength(1);
+    // The participant's STOP and exactly one acknowledgement — the replay
+    // re-appends neither, because both are idempotent by their provenance.
+    const transcript = harness.conversations.transcript(conversationId);
+    expect(transcript).toHaveLength(2);
+    expect(transcript[1]).toMatchObject({
+      actor: "bot",
+      outboxId: harness.repository.outbox[0]?.id,
+    });
+  });
+
+  it("records the STOP acknowledgement in the transcript as a bot turn", async () => {
+    const ingressId = harness.repository.seedIngress({ text: "STOP" });
+
+    await harness.materializer.materialize({ ingressId, correlationId });
+
+    const acknowledgement = harness.repository.outbox.find(
+      (row) => row.kind === "system",
+    );
+    expect(acknowledgement).toBeDefined();
+    // `actor: system` is reserved for entries without transport provenance, so
+    // an outbox-backed acknowledgement is the bot speaking.
+    expect(
+      harness.conversations.transcript(conversationId).at(-1),
+    ).toMatchObject({
+      actor: "bot",
+      text: acknowledgement?.body,
+      outboxId: acknowledgement?.id,
+    });
   });
 
   it("correlates an observed outbound to its outbox row without touching the transcript", async () => {
@@ -362,6 +396,7 @@ describe("PostEventFeedbackMaterializer", () => {
         actor: "staff",
         text: "Γεια σου, σου τηλεφωνώ αύριο",
         ingressId,
+        outboxId: null,
       },
     ]);
     expect(harness.audit.events).toEqual([
@@ -606,6 +641,18 @@ class FakeFeedbackRepository {
     return { row: structuredCloneRow(row)!, inserted: true };
   }
 
+  async updateOutboxStatus(
+    _transaction: AppTransaction,
+    id: string,
+    status: string,
+  ): Promise<FakeOutboxRow | undefined> {
+    const row = this.outbox.find((candidate) => candidate.id === id);
+    if (row) {
+      row.status = status;
+    }
+    return structuredCloneRow(row);
+  }
+
   async findOutboxByProviderMessageId(
     providerMessageId: string,
   ): Promise<FakeOutboxRow | undefined> {
@@ -677,14 +724,19 @@ class FakeConversations {
     return conversation;
   }
 
-  transcript(
-    id: string,
-  ): { seq: number; actor: string; text: string; ingressId: string | null }[] {
+  transcript(id: string): {
+    seq: number;
+    actor: string;
+    text: string;
+    ingressId: string | null;
+    outboxId: string | null;
+  }[] {
     return this.get(id).messages.map((message) => ({
       seq: message.seq,
       actor: message.actor,
       text: message.text,
       ingressId: message.ingressId,
+      outboxId: message.outboxId,
     }));
   }
 
@@ -882,14 +934,20 @@ function createHarness(): Harness {
     postEventFeedbackWhatsappOptIn: true,
   });
 
+  const database = new FakeDatabase();
   const materializer = new PostEventFeedbackMaterializer(
     queue as unknown as Queue<FeedbackJobData, void, FeedbackJobName>,
-    new FakeDatabase() as unknown as DatabaseService,
+    database as unknown as DatabaseService,
     repository as unknown as PostEventFeedbackRepository,
     conversations as unknown as FeedbackConversationRepository,
     participants as unknown as ParticipantsRepository,
     audit as unknown as AuditRepository,
     metrics,
+    new FeedbackOutboundTranscriptService(
+      database as unknown as DatabaseService,
+      repository as unknown as PostEventFeedbackRepository,
+      conversations as unknown as FeedbackConversationRepository,
+    ),
   );
 
   return {

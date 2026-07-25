@@ -11,10 +11,14 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { AuditRepository } from "../../infrastructure/audit/audit.repository.js";
 import type { DatabaseService } from "../../infrastructure/database/database.service.js";
-import type { FeedbackConversationRepository } from "../conversations/feedback-conversation.repository.js";
+import {
+  FeedbackConversationCapacityError,
+  type FeedbackConversationRepository,
+} from "../conversations/feedback-conversation.repository.js";
 import type { FeedbackConversationDocument } from "../conversations/feedback-conversation.schemas.js";
 import type { EventsRepository } from "../events/events.repository.js";
 import type { ParticipantsRepository } from "../participants/participants.repository.js";
+import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
 import { buildPostEventFeedbackQuestionLaunchSnapshot } from "./post-event-feedback-question-set.js";
 import type { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
 import {
@@ -219,13 +223,15 @@ describe("PostEventFeedbackConversationService", () => {
         createdByStaff: "admin-1",
       }),
     );
-    expect(conversations.appendMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        actor: "staff",
-        outboxId,
-        text: "Γεια σου",
-      }),
-    );
+    // The staff send goes through the same outbound-transcript path as the bot
+    // producers; only the row's `kind` makes this turn `staff`.
+    expect(conversations.appendMessage).toHaveBeenCalledWith({
+      conversationId,
+      actor: "staff",
+      outboxId,
+      text: "Γεια σου",
+      at: expect.any(Date),
+    });
     expect(auditAppend).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
@@ -237,6 +243,42 @@ describe("PostEventFeedbackConversationService", () => {
       outboxStatus: "pending",
     });
     expect(result.capabilities.canSendStaffMessage).toBe(true);
+  });
+
+  it("cancels the staff row and refuses the send when the transcript is full", async () => {
+    const { service, conversations, repository } = createService();
+    conversations.findById.mockResolvedValue(
+      openConversation({
+        control: {
+          mode: "human",
+          source: "staff_action",
+          changedAt: new Date("2026-07-25T00:30:00.000Z"),
+        },
+      }),
+    );
+    repository.insertOutboxIfAbsent.mockResolvedValue({
+      row: outboxRow(),
+      inserted: true,
+    });
+    conversations.appendMessage.mockRejectedValue(
+      new FeedbackConversationCapacityError(),
+    );
+
+    await expect(
+      service.sendStaffMessage(
+        campaignId,
+        conversationId,
+        "Γεια σου",
+        "admin-1",
+        "req-1",
+      ),
+    ).rejects.toBeInstanceOf(FeedbackConversationCapacityError);
+    // A message the transcript cannot record must not be sent either.
+    expect(repository.updateOutboxStatus).toHaveBeenCalledWith(
+      expect.anything(),
+      outboxId,
+      "cancelled",
+    );
   });
 
   it("closes an open conversation with reason cancelled and is idempotent after", async () => {
@@ -561,6 +603,7 @@ function createService(): {
     resumeBot: ReturnType<typeof vi.fn>;
     close: ReturnType<typeof vi.fn>;
     appendMessage: ReturnType<typeof vi.fn>;
+    setNeedsAttention: ReturnType<typeof vi.fn>;
   };
   participants: {
     findByIds: ReturnType<typeof vi.fn>;
@@ -588,6 +631,7 @@ function createService(): {
     resumeBot: vi.fn(),
     close: vi.fn(),
     appendMessage: vi.fn(),
+    setNeedsAttention: vi.fn().mockResolvedValue({ changed: true }),
   };
   const events = {
     findById: vi.fn().mockResolvedValue(eventRow),
@@ -609,6 +653,11 @@ function createService(): {
     events as unknown as EventsRepository,
     participants as unknown as ParticipantsRepository,
     { append: auditAppend } as unknown as AuditRepository,
+    new FeedbackOutboundTranscriptService(
+      database as unknown as DatabaseService,
+      repository as unknown as PostEventFeedbackRepository,
+      conversations as unknown as FeedbackConversationRepository,
+    ),
   );
 
   return { service, repository, conversations, participants, auditAppend };

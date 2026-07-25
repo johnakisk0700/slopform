@@ -9,6 +9,7 @@ import {
   type FeedbackConversationDocument,
 } from "../conversations/feedback-conversation.schemas.js";
 import { EventsRepository } from "../events/events.repository.js";
+import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
 import type {
   FeedbackCampaignListItemView,
   FeedbackCampaignListView,
@@ -74,6 +75,7 @@ export class PostEventFeedbackCampaignService {
     private readonly conversations: FeedbackConversationRepository,
     private readonly events: EventsRepository,
     private readonly audit: AuditRepository,
+    private readonly outboundTranscript: FeedbackOutboundTranscriptService,
   ) {}
 
   async get(campaignId: string): Promise<FeedbackCampaignView> {
@@ -402,14 +404,17 @@ export class PostEventFeedbackCampaignService {
 
     let introEnqueued = false;
     if (creation.conversation.lifecycle.state === "open") {
-      introEnqueued = await this.database.transaction(async (transaction) => {
-        const intro = await this.repository.insertOutboxIfAbsent(transaction, {
-          conversationId: creation.conversation._id,
-          campaignId: input.campaign.id,
-          kind: "intro",
-          body: renderPostEventFeedbackCopy(input.copy.intro, displayName),
-          dedupeKey: createFeedbackIntroDedupeKey(creation.conversation._id),
-        });
+      const intro = await this.database.transaction(async (transaction) => {
+        const enqueued = await this.repository.insertOutboxIfAbsent(
+          transaction,
+          {
+            conversationId: creation.conversation._id,
+            campaignId: input.campaign.id,
+            kind: "intro",
+            body: renderPostEventFeedbackCopy(input.copy.intro, displayName),
+            dedupeKey: createFeedbackIntroDedupeKey(creation.conversation._id),
+          },
+        );
 
         if (creation.created && input.auditOnCreate) {
           await this.audit.append(transaction, {
@@ -422,14 +427,21 @@ export class PostEventFeedbackCampaignService {
             context: {
               campaignId: input.campaign.id,
               participantId: input.attendee.participantId,
-              introOutboxId: intro.row.id,
-              introInserted: intro.inserted,
+              introOutboxId: enqueued.row.id,
+              introInserted: enqueued.inserted,
             },
           });
         }
 
-        return intro.inserted;
+        return enqueued;
       });
+
+      // Runs whether or not this call inserted the row: a launch that crashed
+      // between the committed intro and the MongoDB append repairs itself here
+      // on replay, and an already-recorded intro is an idempotent no-op.
+      await this.outboundTranscript.record(intro.row, input.launchedAt);
+
+      introEnqueued = intro.inserted;
     }
 
     return {

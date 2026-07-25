@@ -10,6 +10,7 @@ import { ConversationThreadModule } from "../conversations/conversation-thread.m
 import { EventsCoreModule } from "../events/events-core.module.js";
 import { ParticipantsCoreModule } from "../participants/participants-core.module.js";
 import { FeedbackOutboxSchedulerService } from "./feedback-outbox-scheduler.service.js";
+import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
 import { FeedbackSweepSchedulerService } from "./feedback-sweep-scheduler.service.js";
 import { FEEDBACK_TRANSPORT } from "./feedback-transport.js";
 import { MessageOutboxDeliveryService } from "./message-outbox-delivery.service.js";
@@ -53,6 +54,7 @@ import { WasenderFeedbackTransport } from "./wasender-feedback-transport.service
     QueueWorkerModule,
   ],
   providers: [
+    FeedbackOutboundTranscriptService,
     PostEventFeedbackExtractionModel,
     PostEventFeedbackExtractor,
     PostEventFeedbackMaterializer,

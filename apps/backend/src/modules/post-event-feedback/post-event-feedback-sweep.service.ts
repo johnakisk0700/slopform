@@ -10,6 +10,7 @@ import { FEEDBACK_QUEUE } from "../../infrastructure/queue/queue.constants.js";
 import { FeedbackConversationRepository } from "../conversations/feedback-conversation.repository.js";
 import type { FeedbackConversationDocument } from "../conversations/feedback-conversation.schemas.js";
 import { ParticipantsRepository } from "../participants/participants.repository.js";
+import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
 import {
   buildPostEventFeedbackQuestionLaunchSnapshot,
   createFeedbackReminderDedupeKey,
@@ -64,6 +65,7 @@ export class PostEventFeedbackSweepService {
     private readonly conversations: FeedbackConversationRepository,
     private readonly participants: ParticipantsRepository,
     private readonly audit: AuditRepository,
+    private readonly outboundTranscript: FeedbackOutboundTranscriptService,
   ) {}
 
   async sweepReminders(
@@ -234,45 +236,42 @@ export class PostEventFeedbackSweepService {
     const displayName =
       participant.preferredName?.trim() || participant.emailNormalized;
 
-    const inserted = await this.database.transaction(async (transaction) => {
-      const reminder = await this.repository.insertOutboxIfAbsent(transaction, {
+    const reminder = await this.database.transaction(async (transaction) => {
+      const enqueued = await this.repository.insertOutboxIfAbsent(transaction, {
         conversationId: conversation._id,
         campaignId: conversation.campaignId,
         kind: "reminder",
         body: renderPostEventFeedbackCopy(copy.reminder, displayName),
         dedupeKey: createFeedbackReminderDedupeKey(conversation._id),
       });
-      if (!reminder.inserted) {
-        return false;
+      if (enqueued.inserted) {
+        await this.audit.append(transaction, {
+          actorType: "system",
+          actorId: "feedback_sweep",
+          action: "feedback_conversation.reminded",
+          entityType: "feedback_conversation",
+          entityId: conversation._id,
+          requestId: correlationId,
+          context: {
+            campaignId: conversation.campaignId,
+            outboxId: enqueued.row.id,
+          },
+        });
       }
-      await this.audit.append(transaction, {
-        actorType: "system",
-        actorId: "feedback_sweep",
-        action: "feedback_conversation.reminded",
-        entityType: "feedback_conversation",
-        entityId: conversation._id,
-        requestId: correlationId,
-        context: {
-          campaignId: conversation.campaignId,
-          outboxId: reminder.row.id,
-        },
-      });
-      return true;
+      return enqueued;
     });
 
-    if (!inserted) {
-      await this.conversations.markReminded({
-        conversationId: conversation._id,
-        at: now,
-      });
-      return false;
-    }
+    // Before `markReminded`, and whether or not this sweep inserted the row: a
+    // crash between the committed reminder and the append leaves `remindedAt`
+    // null, so the next sweep re-selects the conversation and repairs the
+    // transcript through the same idempotent `outboxId`.
+    await this.outboundTranscript.record(reminder.row, now, correlationId);
 
     await this.conversations.markReminded({
       conversationId: conversation._id,
       at: now,
     });
-    return true;
+    return reminder.inserted;
   }
 
   private async expireOne(

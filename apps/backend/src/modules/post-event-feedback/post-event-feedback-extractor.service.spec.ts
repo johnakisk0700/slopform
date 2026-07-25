@@ -9,6 +9,7 @@ import type { DatabaseService } from "../../infrastructure/database/database.ser
 import type { FeedbackConversationRepository } from "../conversations/feedback-conversation.repository.js";
 import type { EventsService } from "../events/events.service.js";
 import type { ParticipantsRepository } from "../participants/participants.repository.js";
+import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
 import { PostEventFeedbackExtractor } from "./post-event-feedback-extractor.service.js";
 import type { PostEventFeedbackExtractionModel } from "./post-event-feedback-extraction.service.js";
 import { PostEventFeedbackMetrics } from "./post-event-feedback-metrics.service.js";
@@ -213,9 +214,43 @@ describe("PostEventFeedbackExtractor", () => {
           campaignId,
           kind: "reply",
           body: "Ευχαριστούμε πολύ!",
+          // Anchored on the participant's message (seq 2), not on the
+          // transcript length, which this run's own reply changes.
           dedupeKey: `feedback-reply-${conversationId}-2`,
         }),
       ]);
+      // The same reply is a bot turn in the transcript, so the admin pane and
+      // the next extraction prompt both see what the bot said.
+      expect(
+        harness.conversations.get(conversationId).messages.at(-1),
+      ).toMatchObject({
+        actor: "bot",
+        text: "Ευχαριστούμε πολύ!",
+        outboxId: harness.repository.outbox[0]?.["id"],
+      });
+    });
+
+    it("transcribes the closing copy when the conversation completes", async () => {
+      harness.conversations.setAllGoals(conversationId, "answered");
+      harness.generation.propose.mockResolvedValue(generation({ reply: null }));
+
+      const result = await harness.extractor.extract({
+        conversationId,
+        correlationId,
+      });
+
+      expect(result.outcome).toBe("completed");
+      const closing = harness.repository.outbox[0];
+      expect(closing).toMatchObject({
+        dedupeKey: `feedback-closing-${conversationId}`,
+      });
+      expect(
+        harness.conversations.get(conversationId).messages.at(-1),
+      ).toMatchObject({
+        actor: "bot",
+        text: closing?.["body"],
+        outboxId: closing?.["id"],
+      });
     });
 
     it("marks the answered goal and the asked next goal", async () => {
@@ -415,13 +450,24 @@ describe("PostEventFeedbackExtractor", () => {
       });
 
       expect(first.outcome).toBe("extracted");
-      // The cursor now covers the transcript, so the replay stops before the
-      // model is called a second time.
-      expect(replay.outcome).toBe("skipped_cursor");
+      // The run appended its own reply, so the transcript did move past the
+      // cursor — but only with a bot turn. The replay therefore stops at the
+      // no-testimony exit, still before the model is called a second time.
+      expect(replay.outcome).toBe("skipped_no_new_testimony");
       expect(harness.generation.propose).toHaveBeenCalledTimes(1);
       expect(harness.repository.answers).toHaveLength(1);
       expect(harness.repository.notes).toHaveLength(1);
       expect(harness.repository.outbox).toHaveLength(1);
+      // The reply is in the transcript exactly once, correlated to its row.
+      const transcript = harness.conversations.get(conversationId).messages;
+      expect(
+        transcript.filter((message) => message.actor === "bot"),
+      ).toHaveLength(2);
+      expect(transcript.at(-1)).toMatchObject({
+        actor: "bot",
+        text: "Ευχαριστούμε!",
+        outboxId: harness.repository.outbox[0]?.["id"],
+      });
     });
 
     it("absorbs a crash between the PostgreSQL commit and the cursor advance", async () => {
@@ -466,9 +512,19 @@ describe("PostEventFeedbackExtractor", () => {
       expect(harness.repository.answers).toHaveLength(1);
       expect(harness.repository.notes).toHaveLength(1);
       expect(harness.repository.outbox).toHaveLength(1);
+      // Three, not two: the first run's reply is now part of the transcript,
+      // and the replay reads and settles it along with the rest.
       expect(
         harness.conversations.get(conversationId).extraction.cursorSeq,
-      ).toBe(2);
+      ).toBe(3);
+      // The replay re-derived the same testimony-anchored dedupe key and the
+      // same `outboxId`, so the reply is neither enqueued nor transcribed
+      // twice.
+      expect(
+        harness.conversations
+          .get(conversationId)
+          .messages.filter((message) => message.actor === "bot"),
+      ).toHaveLength(2);
     });
 
     it("repairs goal statuses from stored answers after such a replay", async () => {
@@ -525,6 +581,7 @@ interface FakeMessage {
   actor: "bot" | "participant" | "staff" | "system";
   text: string;
   at: Date;
+  outboxId?: string | null;
 }
 
 interface FakeGoal {
@@ -723,6 +780,37 @@ class FakeConversations {
     return conversation ? structuredClone(conversation) : undefined;
   }
 
+  /** Idempotent by `outboxId`, like the real repository. */
+  async appendMessage(input: {
+    conversationId: string;
+    actor: FakeMessage["actor"];
+    text: string;
+    at: Date;
+    outboxId?: string | null;
+  }): Promise<{
+    appended: boolean;
+    message: FakeMessage;
+    conversation: FakeConversation;
+  }> {
+    const conversation = this.get(input.conversationId);
+    const existing = conversation.messages.find(
+      (message) => input.outboxId && message.outboxId === input.outboxId,
+    );
+    if (existing) {
+      return { appended: false, message: existing, conversation };
+    }
+    const message: FakeMessage = {
+      id: randomUUID(),
+      seq: conversation.messages.length + 1,
+      actor: input.actor,
+      text: input.text.trim(),
+      at: input.at,
+      outboxId: input.outboxId ?? null,
+    };
+    conversation.messages.push(message);
+    return { appended: true, message, conversation };
+  }
+
   /** Monotonic along pending < asked < skipped < answered. */
   async updateGoalStatuses(input: {
     conversationId: string;
@@ -907,8 +995,9 @@ function createHarness(): Harness {
     needsAttention: false,
   });
 
+  const database = new FakeDatabase();
   const extractor = new PostEventFeedbackExtractor(
-    new FakeDatabase() as unknown as DatabaseService,
+    database as unknown as DatabaseService,
     repository as unknown as PostEventFeedbackRepository,
     conversations as unknown as FeedbackConversationRepository,
     events as unknown as EventsService,
@@ -916,6 +1005,11 @@ function createHarness(): Harness {
     generationService as unknown as PostEventFeedbackExtractionModel,
     audit as unknown as AuditRepository,
     metrics,
+    new FeedbackOutboundTranscriptService(
+      database as unknown as DatabaseService,
+      repository as unknown as PostEventFeedbackRepository,
+      conversations as unknown as FeedbackConversationRepository,
+    ),
   );
 
   return {

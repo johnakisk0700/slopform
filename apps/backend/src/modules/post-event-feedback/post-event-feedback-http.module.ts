@@ -5,6 +5,7 @@ import { DatabaseModule } from "../../infrastructure/database/database.module.js
 import { ConversationThreadModule } from "../conversations/conversation-thread.module.js";
 import { EventsCoreModule } from "../events/events-core.module.js";
 import { ParticipantsCoreModule } from "../participants/participants-core.module.js";
+import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
 import { PostEventFeedbackCampaignController } from "./post-event-feedback-campaign.controller.js";
 import { PostEventFeedbackCampaignService } from "./post-event-feedback-campaign.service.js";
 import {
@@ -29,6 +30,7 @@ import { PostEventFeedbackCoreModule } from "./post-event-feedback-core.module.j
     PostEventFeedbackNoteController,
   ],
   providers: [
+    FeedbackOutboundTranscriptService,
     PostEventFeedbackCampaignService,
     PostEventFeedbackConversationService,
   ],

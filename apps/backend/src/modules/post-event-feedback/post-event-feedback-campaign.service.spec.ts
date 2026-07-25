@@ -9,6 +9,7 @@ import type { AuditRepository } from "../../infrastructure/audit/audit.repositor
 import type { DatabaseService } from "../../infrastructure/database/database.service.js";
 import type { FeedbackConversationRepository } from "../conversations/feedback-conversation.repository.js";
 import type { EventsRepository } from "../events/events.repository.js";
+import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
 import {
   FeedbackCampaignLaunchNotAllowedError,
   isEligibleFeedbackRespondent,
@@ -21,6 +22,7 @@ const eventId = "7c57f3b8-2b13-48f5-8730-18ac71f490cd";
 const campaignId = "89eccaa5-9ce6-4dcf-a630-5e35e4ec6f0d";
 const participantId = "aaaaaaa1-aaaa-4aaa-8aaa-aaaaaaaaaaa1";
 const conversationId = "6f0f2f8a-2b73-5a02-9d0a-3f0b8f5b1c21";
+const introOutboxId = "d3e9a2c6-4e87-4c4b-9c40-4f2c5a4e3d99";
 
 const finishedEvent: EventRow = {
   id: eventId,
@@ -107,7 +109,7 @@ describe("PostEventFeedbackCampaignService", () => {
     repository.findCampaignByEventId.mockResolvedValue(undefined);
     repository.createCampaign.mockResolvedValue(campaignRow);
     repository.insertOutboxIfAbsent.mockResolvedValue({
-      row: { id: "outbox-1" },
+      row: introOutboxRow(),
       inserted: true,
     });
     conversations.createFromLaunch.mockResolvedValue({
@@ -139,6 +141,36 @@ describe("PostEventFeedbackCampaignService", () => {
       expect.anything(),
       expect.objectContaining({ action: "feedback_campaign.launched" }),
     );
+    // The intro is a bot turn in the transcript, correlated to its outbox row.
+    expect(conversations.appendMessage).toHaveBeenCalledWith({
+      conversationId,
+      actor: "bot",
+      text: introOutboxRow().body,
+      at: expect.any(Date),
+      outboxId: introOutboxId,
+    });
+  });
+
+  it("repairs a missing intro transcript entry when launch is replayed", async () => {
+    const { service, repository, conversations } = createService();
+    repository.findCampaignByEventId.mockResolvedValue(campaignRow);
+    conversations.createFromLaunch.mockResolvedValue({
+      created: false,
+      conversation: openConversation(),
+    });
+    // The row already exists: the first launch crashed between the PostgreSQL
+    // commit and the MongoDB append.
+    repository.insertOutboxIfAbsent.mockResolvedValue({
+      row: introOutboxRow(),
+      inserted: false,
+    });
+    conversations.listForCampaign.mockResolvedValue([{ id: conversationId }]);
+
+    await service.launch(eventId, "admin-1", "req-replay");
+
+    expect(conversations.appendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ actor: "bot", outboxId: introOutboxId }),
+    );
   });
 
   it("replays launch without creating a second campaign, conversation or intro", async () => {
@@ -149,7 +181,7 @@ describe("PostEventFeedbackCampaignService", () => {
       conversation: openConversation(),
     });
     repository.insertOutboxIfAbsent.mockResolvedValue({
-      row: { id: "outbox-1" },
+      row: introOutboxRow(),
       inserted: false,
     });
     conversations.listForCampaign.mockResolvedValue([{ id: conversationId }]);
@@ -310,6 +342,17 @@ function openConversation() {
   };
 }
 
+function introOutboxRow() {
+  return {
+    id: introOutboxId,
+    conversationId,
+    campaignId,
+    kind: "intro",
+    body: "Γεια σου Roula! Πώς σου φάνηκε η βραδιά;",
+    status: "pending",
+  };
+}
+
 function createService(): {
   service: PostEventFeedbackCampaignService;
   repository: {
@@ -325,6 +368,8 @@ function createService(): {
   conversations: {
     createFromLaunch: ReturnType<typeof vi.fn>;
     listForCampaign: ReturnType<typeof vi.fn>;
+    appendMessage: ReturnType<typeof vi.fn>;
+    setNeedsAttention: ReturnType<typeof vi.fn>;
   };
   events: {
     findById: ReturnType<typeof vi.fn>;
@@ -345,6 +390,10 @@ function createService(): {
   const conversations = {
     createFromLaunch: vi.fn(),
     listForCampaign: vi.fn().mockResolvedValue([]),
+    appendMessage: vi
+      .fn()
+      .mockResolvedValue({ appended: true, message: {}, conversation: {} }),
+    setNeedsAttention: vi.fn().mockResolvedValue({ changed: true }),
   };
   const events = {
     findById: vi.fn().mockResolvedValue(finishedEvent),
@@ -363,6 +412,11 @@ function createService(): {
       conversations as unknown as FeedbackConversationRepository,
       events as unknown as EventsRepository,
       { append: auditAppend } as unknown as AuditRepository,
+      new FeedbackOutboundTranscriptService(
+        database as unknown as DatabaseService,
+        repository as unknown as PostEventFeedbackRepository,
+        conversations as unknown as FeedbackConversationRepository,
+      ),
     ),
     repository,
     conversations,

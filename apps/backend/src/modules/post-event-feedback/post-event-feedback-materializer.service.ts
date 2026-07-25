@@ -16,6 +16,7 @@ import {
 } from "../conversations/feedback-conversation.repository.js";
 import type { FeedbackConversationDocument } from "../conversations/feedback-conversation.schemas.js";
 import { ParticipantsRepository } from "../participants/participants.repository.js";
+import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
 import { coalesceDeliveryStatus } from "./message-outbox-delivery-status.js";
 import {
   PostEventFeedbackMetrics,
@@ -80,6 +81,7 @@ export class PostEventFeedbackMaterializer {
     private readonly participants: ParticipantsRepository,
     private readonly audit: AuditRepository,
     private readonly metrics: PostEventFeedbackMetrics,
+    private readonly outboundTranscript: FeedbackOutboundTranscriptService,
   ) {}
 
   async materialize(
@@ -277,15 +279,28 @@ export class PostEventFeedbackMaterializer {
           matchedConversationId: conversation._id,
         });
 
-        return stopAck.row.id;
+        return stopAck.row;
       },
     );
+
+    if (applied) {
+      // Appends are allowed on a closed conversation: the transcript records
+      // what actually happened, and the acknowledgement is observed after the
+      // closure. A crash here cannot be repaired by a replay — the fence above
+      // already marked the ingress row terminal — so the WP6 delivery job
+      // re-runs this same idempotent append before it sends.
+      await this.outboundTranscript.record(
+        applied,
+        ingress.observedAt,
+        correlationId,
+      );
+    }
 
     return this.complete(
       {
         outcome: "inbound_stopped",
         conversationId: conversation._id,
-        ...(applied ? { stopAckOutboxId: applied } : {}),
+        ...(applied ? { stopAckOutboxId: applied.id } : {}),
       },
       correlationId,
     );
