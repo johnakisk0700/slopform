@@ -30,8 +30,8 @@ import {
   FeedbackNoteViewDto,
   SendFeedbackStaffMessageDto,
   UpdateFeedbackNoteReviewStatusDto,
-  type FeedbackConversationCorrelationId,
-  type FeedbackConversationPrincipal,
+  FeedbackConversationCorrelationIdDto,
+  FeedbackConversationPrincipalDto,
 } from "./post-event-feedback-conversation.schemas.js";
 import {
   FeedbackConversationActionNotAllowedError,
@@ -58,7 +58,7 @@ export class PostEventFeedbackConversationController {
   @ZodResponse({ status: 200, type: FeedbackCampaignConversationsDto })
   list(
     @Param() parameters: FeedbackCampaignIdParamDto,
-    @CurrentUserId() _userId: FeedbackConversationPrincipal,
+    @CurrentUserId() _userId: FeedbackConversationPrincipalDto,
   ): Promise<FeedbackCampaignConversationsDto> {
     return mapConversationErrors(
       this.conversations.listForCampaign(parameters.campaignId),
@@ -71,7 +71,7 @@ export class PostEventFeedbackConversationController {
   @ZodResponse({ status: 200, type: FeedbackConversationDetailDto })
   get(
     @Param() parameters: FeedbackConversationIdParamDto,
-    @CurrentUserId() _userId: FeedbackConversationPrincipal,
+    @CurrentUserId() _userId: FeedbackConversationPrincipalDto,
   ): Promise<FeedbackConversationDetailDto> {
     return mapConversationErrors(
       this.conversations.get(parameters.campaignId, parameters.conversationId),
@@ -84,7 +84,7 @@ export class PostEventFeedbackConversationController {
   @ZodResponse({ status: 200, type: FeedbackConversationResultsDto })
   listConversationResults(
     @Param() parameters: FeedbackConversationIdParamDto,
-    @CurrentUserId() _userId: FeedbackConversationPrincipal,
+    @CurrentUserId() _userId: FeedbackConversationPrincipalDto,
   ): Promise<FeedbackConversationResultsDto> {
     return mapConversationErrors(
       this.conversations.listConversationResults(
@@ -101,7 +101,7 @@ export class PostEventFeedbackConversationController {
   listCampaignResults(
     @Param() parameters: FeedbackCampaignIdParamDto,
     @Query() query: FeedbackCampaignResultsQueryDto,
-    @CurrentUserId() _userId: FeedbackConversationPrincipal,
+    @CurrentUserId() _userId: FeedbackConversationPrincipalDto,
   ): Promise<FeedbackConversationResultsDto> {
     return mapConversationErrors(
       this.conversations.listCampaignResults(parameters.campaignId, query),
@@ -114,15 +114,15 @@ export class PostEventFeedbackConversationController {
   @ZodResponse({ status: 200, type: FeedbackConversationDetailDto })
   takeOver(
     @Param() parameters: FeedbackConversationIdParamDto,
-    @CurrentUserId() userId: FeedbackConversationPrincipal,
-    @RequestCorrelationId() correlationId: FeedbackConversationCorrelationId,
+    @CurrentUserId() userId: FeedbackConversationPrincipalDto,
+    @RequestCorrelationId() correlationId: FeedbackConversationCorrelationIdDto,
   ): Promise<FeedbackConversationDetailDto> {
     return mapConversationErrors(
       this.conversations.takeOver(
         parameters.campaignId,
         parameters.conversationId,
-        userId,
-        correlationId,
+        String(userId),
+        String(correlationId),
       ),
     );
   }
@@ -133,15 +133,15 @@ export class PostEventFeedbackConversationController {
   @ZodResponse({ status: 200, type: FeedbackConversationDetailDto })
   resumeBot(
     @Param() parameters: FeedbackConversationIdParamDto,
-    @CurrentUserId() userId: FeedbackConversationPrincipal,
-    @RequestCorrelationId() correlationId: FeedbackConversationCorrelationId,
+    @CurrentUserId() userId: FeedbackConversationPrincipalDto,
+    @RequestCorrelationId() correlationId: FeedbackConversationCorrelationIdDto,
   ): Promise<FeedbackConversationDetailDto> {
     return mapConversationErrors(
       this.conversations.resumeBot(
         parameters.campaignId,
         parameters.conversationId,
-        userId,
-        correlationId,
+        String(userId),
+        String(correlationId),
       ),
     );
   }
@@ -152,15 +152,15 @@ export class PostEventFeedbackConversationController {
   @ZodResponse({ status: 200, type: FeedbackConversationDetailDto })
   close(
     @Param() parameters: FeedbackConversationIdParamDto,
-    @CurrentUserId() userId: FeedbackConversationPrincipal,
-    @RequestCorrelationId() correlationId: FeedbackConversationCorrelationId,
+    @CurrentUserId() userId: FeedbackConversationPrincipalDto,
+    @RequestCorrelationId() correlationId: FeedbackConversationCorrelationIdDto,
   ): Promise<FeedbackConversationDetailDto> {
     return mapConversationErrors(
       this.conversations.close(
         parameters.campaignId,
         parameters.conversationId,
-        userId,
-        correlationId,
+        String(userId),
+        String(correlationId),
       ),
     );
   }
@@ -172,16 +172,16 @@ export class PostEventFeedbackConversationController {
   sendStaffMessage(
     @Param() parameters: FeedbackConversationIdParamDto,
     @Body() input: SendFeedbackStaffMessageDto,
-    @CurrentUserId() userId: FeedbackConversationPrincipal,
-    @RequestCorrelationId() correlationId: FeedbackConversationCorrelationId,
+    @CurrentUserId() userId: FeedbackConversationPrincipalDto,
+    @RequestCorrelationId() correlationId: FeedbackConversationCorrelationIdDto,
   ): Promise<FeedbackConversationDetailDto> {
     return mapConversationErrors(
       this.conversations.sendStaffMessage(
         parameters.campaignId,
         parameters.conversationId,
         input.text,
-        userId,
-        correlationId,
+        String(userId),
+        String(correlationId),
       ),
     );
   }
@@ -201,15 +201,15 @@ export class PostEventFeedbackNoteController {
   updateReviewStatus(
     @Param() parameters: FeedbackNoteIdParamDto,
     @Body() input: UpdateFeedbackNoteReviewStatusDto,
-    @CurrentUserId() userId: FeedbackConversationPrincipal,
-    @RequestCorrelationId() correlationId: FeedbackConversationCorrelationId,
+    @CurrentUserId() userId: FeedbackConversationPrincipalDto,
+    @RequestCorrelationId() correlationId: FeedbackConversationCorrelationIdDto,
   ): Promise<FeedbackNoteViewDto> {
     return mapConversationErrors(
       this.conversations.updateNoteReviewStatus(
         parameters.noteId,
         input.status,
-        userId,
-        correlationId,
+        String(userId),
+        String(correlationId),
       ),
     );
   }

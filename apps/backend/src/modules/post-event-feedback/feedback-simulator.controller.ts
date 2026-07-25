@@ -22,6 +22,7 @@ import {
   InjectFeedbackSimulatorMessageDto,
   InjectFeedbackSimulatorMessageResponseDto,
 } from "./feedback-simulator.schemas.js";
+import { FeedbackConversationCorrelationIdDto } from "./post-event-feedback-conversation.schemas.js";
 
 type RequestWithId = Request & { id: string };
 const RequestCorrelationId = createParamDecorator(
@@ -40,7 +41,7 @@ export class FeedbackSimulatorController {
   @ZodResponse({ status: 200, type: InjectFeedbackSimulatorMessageResponseDto })
   async inject(
     @Body() body: InjectFeedbackSimulatorMessageDto,
-    @RequestCorrelationId() requestId: string,
+    @RequestCorrelationId() requestId: FeedbackConversationCorrelationIdDto,
   ): Promise<InjectFeedbackSimulatorMessageResponseDto> {
     try {
       return await this.simulator.injectObservedMessage(
@@ -49,7 +50,7 @@ export class FeedbackSimulatorController {
           text: body.text,
           fromMe: body.fromMe ?? false,
         },
-        requestId,
+        String(requestId),
       );
     } catch (error) {
       if (error instanceof PostEventFeedbackEnqueueError) {

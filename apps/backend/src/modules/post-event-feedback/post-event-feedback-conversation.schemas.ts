@@ -298,3 +298,12 @@ export type FeedbackConversationPrincipal = z.infer<
 export type FeedbackConversationCorrelationId = z.infer<
   typeof feedbackConversationCorrelationIdSchema
 >;
+
+const FeedbackConversationPrincipalDtoBase = createZodDto(
+  feedbackConversationPrincipalSchema,
+) as unknown as new () => object;
+const FeedbackConversationCorrelationIdDtoBase = createZodDto(
+  feedbackConversationCorrelationIdSchema,
+) as unknown as new () => object;
+export class FeedbackConversationPrincipalDto extends FeedbackConversationPrincipalDtoBase {}
+export class FeedbackConversationCorrelationIdDto extends FeedbackConversationCorrelationIdDtoBase {}

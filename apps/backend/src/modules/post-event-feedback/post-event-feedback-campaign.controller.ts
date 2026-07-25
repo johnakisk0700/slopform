@@ -22,8 +22,8 @@ import {
   LaunchFeedbackCampaignDto,
   StartFeedbackConversationDto,
   StartFeedbackConversationResultDto,
-  type FeedbackCampaignCorrelationId,
-  type FeedbackCampaignPrincipal,
+  FeedbackCampaignCorrelationIdDto,
+  FeedbackCampaignPrincipalDto,
 } from "./post-event-feedback-campaign.schemas.js";
 import {
   FeedbackCampaignEventNotFoundError,
@@ -50,7 +50,7 @@ export class PostEventFeedbackCampaignController {
   @Header("Cache-Control", "no-store")
   @ZodResponse({ status: 200, type: FeedbackCampaignListDto })
   list(
-    @CurrentUserId() _userId: FeedbackCampaignPrincipal,
+    @CurrentUserId() _userId: FeedbackCampaignPrincipalDto,
   ): Promise<FeedbackCampaignListDto> {
     return this.campaigns.list();
   }
@@ -61,11 +61,11 @@ export class PostEventFeedbackCampaignController {
   @ZodResponse({ status: 201, type: FeedbackCampaignDto })
   launch(
     @Body() input: LaunchFeedbackCampaignDto,
-    @CurrentUserId() userId: FeedbackCampaignPrincipal,
-    @RequestCorrelationId() correlationId: FeedbackCampaignCorrelationId,
+    @CurrentUserId() userId: FeedbackCampaignPrincipalDto,
+    @RequestCorrelationId() correlationId: FeedbackCampaignCorrelationIdDto,
   ): Promise<FeedbackCampaignDto> {
     return mapCampaignErrors(
-      this.campaigns.launch(input.eventId, userId, correlationId),
+      this.campaigns.launch(input.eventId, String(userId), String(correlationId)),
     );
   }
 
@@ -75,7 +75,7 @@ export class PostEventFeedbackCampaignController {
   @ZodResponse({ status: 200, type: FeedbackCampaignDto })
   get(
     @Param() parameters: FeedbackCampaignIdDto,
-    @CurrentUserId() _userId: FeedbackCampaignPrincipal,
+    @CurrentUserId() _userId: FeedbackCampaignPrincipalDto,
   ): Promise<FeedbackCampaignDto> {
     return mapCampaignErrors(this.campaigns.get(parameters.campaignId));
   }
@@ -86,11 +86,11 @@ export class PostEventFeedbackCampaignController {
   @ZodResponse({ status: 200, type: FeedbackCampaignDto })
   pause(
     @Param() parameters: FeedbackCampaignIdDto,
-    @CurrentUserId() userId: FeedbackCampaignPrincipal,
-    @RequestCorrelationId() correlationId: FeedbackCampaignCorrelationId,
+    @CurrentUserId() userId: FeedbackCampaignPrincipalDto,
+    @RequestCorrelationId() correlationId: FeedbackCampaignCorrelationIdDto,
   ): Promise<FeedbackCampaignDto> {
     return mapCampaignErrors(
-      this.campaigns.pause(parameters.campaignId, userId, correlationId),
+      this.campaigns.pause(parameters.campaignId, String(userId), String(correlationId)),
     );
   }
 
@@ -100,11 +100,11 @@ export class PostEventFeedbackCampaignController {
   @ZodResponse({ status: 200, type: FeedbackCampaignDto })
   resume(
     @Param() parameters: FeedbackCampaignIdDto,
-    @CurrentUserId() userId: FeedbackCampaignPrincipal,
-    @RequestCorrelationId() correlationId: FeedbackCampaignCorrelationId,
+    @CurrentUserId() userId: FeedbackCampaignPrincipalDto,
+    @RequestCorrelationId() correlationId: FeedbackCampaignCorrelationIdDto,
   ): Promise<FeedbackCampaignDto> {
     return mapCampaignErrors(
-      this.campaigns.resume(parameters.campaignId, userId, correlationId),
+      this.campaigns.resume(parameters.campaignId, String(userId), String(correlationId)),
     );
   }
 
@@ -114,11 +114,11 @@ export class PostEventFeedbackCampaignController {
   @ZodResponse({ status: 200, type: FeedbackCampaignDto })
   close(
     @Param() parameters: FeedbackCampaignIdDto,
-    @CurrentUserId() userId: FeedbackCampaignPrincipal,
-    @RequestCorrelationId() correlationId: FeedbackCampaignCorrelationId,
+    @CurrentUserId() userId: FeedbackCampaignPrincipalDto,
+    @RequestCorrelationId() correlationId: FeedbackCampaignCorrelationIdDto,
   ): Promise<FeedbackCampaignDto> {
     return mapCampaignErrors(
-      this.campaigns.close(parameters.campaignId, userId, correlationId),
+      this.campaigns.close(parameters.campaignId, String(userId), String(correlationId)),
     );
   }
 
@@ -129,15 +129,15 @@ export class PostEventFeedbackCampaignController {
   startConversation(
     @Param() parameters: FeedbackCampaignIdDto,
     @Body() input: StartFeedbackConversationDto,
-    @CurrentUserId() userId: FeedbackCampaignPrincipal,
-    @RequestCorrelationId() correlationId: FeedbackCampaignCorrelationId,
+    @CurrentUserId() userId: FeedbackCampaignPrincipalDto,
+    @RequestCorrelationId() correlationId: FeedbackCampaignCorrelationIdDto,
   ): Promise<StartFeedbackConversationResultDto> {
     return mapCampaignErrors(
       this.campaigns.startConversation(
         parameters.campaignId,
         input.participantId,
-        userId,
-        correlationId,
+        String(userId),
+        String(correlationId),
       ),
     );
   }

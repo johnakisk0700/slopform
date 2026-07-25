@@ -113,3 +113,12 @@ export type FeedbackCampaignPrincipal = z.infer<
 export type FeedbackCampaignCorrelationId = z.infer<
   typeof feedbackCampaignCorrelationIdSchema
 >;
+
+const FeedbackCampaignPrincipalDtoBase = createZodDto(
+  feedbackCampaignPrincipalSchema,
+) as unknown as new () => object;
+const FeedbackCampaignCorrelationIdDtoBase = createZodDto(
+  feedbackCampaignCorrelationIdSchema,
+) as unknown as new () => object;
+export class FeedbackCampaignPrincipalDto extends FeedbackCampaignPrincipalDtoBase {}
+export class FeedbackCampaignCorrelationIdDto extends FeedbackCampaignCorrelationIdDtoBase {}
