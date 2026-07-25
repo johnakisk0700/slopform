@@ -9,6 +9,7 @@ import type { AuditRepository } from "../../infrastructure/audit/audit.repositor
 import type { DatabaseService } from "../../infrastructure/database/database.service.js";
 import type { FeedbackConversationRepository } from "../conversations/feedback-conversation.repository.js";
 import type { ParticipantsRepository } from "../participants/participants.repository.js";
+import type { FeedbackOperatorAlertInput } from "./feedback-operator-alert.js";
 import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
 import { PostEventFeedbackMaterializer } from "./post-event-feedback-materializer.service.js";
 import { PostEventFeedbackMetrics } from "./post-event-feedback-metrics.service.js";
@@ -267,6 +268,123 @@ describe("PostEventFeedbackMaterializer", () => {
       actor: "bot",
       text: acknowledgement?.body,
       outboxId: acknowledgement?.id,
+    });
+  });
+
+  describe("safety tripwire (D13 amended)", () => {
+    const disclosure = "Ο Γιώργος μας έδειχνε dickpics όλο το βράδυ";
+
+    it("flags attention and audits without suppressing extraction", async () => {
+      const ingressId = harness.repository.seedIngress({ text: disclosure });
+
+      const result = await harness.materializer.materialize({
+        ingressId,
+        correlationId,
+      });
+
+      // The whole point of the amendment: the turn is *not* diverted. It
+      // materializes, it queues extraction, and the message stays in the
+      // transcript verbatim — the flag is additive.
+      expect(result).toMatchObject({
+        outcome: "inbound_materialized",
+        conversationId,
+        extractJobId: `feedback-extract-v1-${conversationId}-1`,
+      });
+      expect(harness.queue.added).toHaveLength(1);
+      expect(harness.conversations.transcript(conversationId)).toMatchObject([
+        { seq: 1, actor: "participant", text: disclosure },
+      ]);
+      expect(harness.conversations.get(conversationId).needsAttention).toBe(
+        true,
+      );
+
+      expect(harness.audit.events).toHaveLength(1);
+      expect(harness.audit.events[0]).toMatchObject({
+        action: "feedback_conversation.safety_keywords_matched",
+        entityType: "feedback_conversation",
+        entityId: conversationId,
+        context: { ingressId, campaignId, categories: ["sexual_content"] },
+      });
+    });
+
+    it("keeps the participant's words out of the audit payload", async () => {
+      const ingressId = harness.repository.seedIngress({ text: disclosure });
+
+      await harness.materializer.materialize({ ingressId, correlationId });
+
+      const serialized = JSON.stringify(harness.audit.events[0]);
+      expect(serialized).not.toContain("dickpics");
+      expect(serialized).not.toContain("Γιώργος");
+    });
+
+    it("does not enqueue a handoff or any outbound of its own", async () => {
+      const ingressId = harness.repository.seedIngress({ text: disclosure });
+
+      await harness.materializer.materialize({ ingressId, correlationId });
+
+      expect(harness.repository.outbox).toHaveLength(0);
+    });
+
+    it("stays quiet on ordinary feedback", async () => {
+      const ingressId = harness.repository.seedIngress({
+        text: "Ήταν τέλεια, ωραία παρέα!",
+      });
+
+      await harness.materializer.materialize({ ingressId, correlationId });
+
+      expect(harness.conversations.get(conversationId).needsAttention).toBe(
+        false,
+      );
+      expect(harness.audit.events).toHaveLength(0);
+      expect(harness.alert.raised).toHaveLength(0);
+    });
+
+    it("lets STOP win when a message matches both", async () => {
+      // STOP is checked first and returns, so an opt-out is never delayed by
+      // the tripwire and never turns into an attention flag instead.
+      const ingressId = harness.repository.seedIngress({ text: "ΣΤΟΠ" });
+
+      const result = await harness.materializer.materialize({
+        ingressId,
+        correlationId,
+      });
+
+      expect(result.outcome).toBe("inbound_stopped");
+      expect(harness.audit.events.map((event) => event.action)).not.toContain(
+        "feedback_conversation.safety_keywords_matched",
+      );
+      expect(harness.queue.added).toHaveLength(0);
+    });
+
+    it("raises the operator alert once per false → true transition", async () => {
+      const first = harness.repository.seedIngress({ text: disclosure });
+      await harness.materializer.materialize({
+        ingressId: first,
+        correlationId,
+      });
+
+      // A replay of the same delivery, then a second matching message on an
+      // already-flagged conversation. Neither is a new transition.
+      await harness.materializer.materialize({
+        ingressId: first,
+        correlationId,
+      });
+      const second = harness.repository.seedIngress({
+        text: "Επίσης με παρενόχλησε",
+        providerMessageId: "wamid.second",
+      });
+      await harness.materializer.materialize({
+        ingressId: second,
+        correlationId,
+      });
+
+      expect(harness.alert.raised).toHaveLength(1);
+      expect(harness.alert.raised[0]).toMatchObject({
+        conversationId,
+        campaignId,
+        reason: "safety_keywords",
+        detail: ["sexual_content"],
+      });
     });
   });
 
@@ -881,6 +999,18 @@ class FakeAudit {
   }
 }
 
+/**
+ * Records every operator alert so a test can assert the seam fires exactly once
+ * per `false → true` transition rather than once per delivery.
+ */
+class FakeOperatorAlert {
+  readonly raised: FeedbackOperatorAlertInput[] = [];
+
+  async raise(input: FeedbackOperatorAlertInput): Promise<void> {
+    this.raised.push(input);
+  }
+}
+
 /** Mirrors BullMQ's job-id suppression while the job is still in Redis. */
 class FakeQueue {
   readonly added: { name: string; data: unknown; jobId: string }[] = [];
@@ -905,6 +1035,7 @@ interface Harness {
   audit: FakeAudit;
   queue: FakeQueue;
   metrics: PostEventFeedbackMetrics;
+  alert: FakeOperatorAlert;
 }
 
 function createHarness(): Harness {
@@ -914,6 +1045,7 @@ function createHarness(): Harness {
   const audit = new FakeAudit();
   const queue = new FakeQueue();
   const metrics = new PostEventFeedbackMetrics();
+  const alert = new FakeOperatorAlert();
 
   conversations.seed({
     _id: conversationId,
@@ -948,6 +1080,7 @@ function createHarness(): Harness {
       repository as unknown as PostEventFeedbackRepository,
       conversations as unknown as FeedbackConversationRepository,
     ),
+    alert,
   );
 
   return {
@@ -958,6 +1091,7 @@ function createHarness(): Harness {
     audit,
     queue,
     metrics,
+    alert,
   };
 }
 

@@ -411,7 +411,7 @@ describe("post-event feedback extraction eval (WP0 fixtures)", () => {
     expect(result.reply).not.toBeNull();
   });
 
-  it("safety_language: a disclosure flags attention and writes no ordinary note", () => {
+  it("safety_language: a disclosure flags attention and is still recorded as an ordinary note", () => {
     const { fixture, result } = runEval(
       "safety_language",
       proposal({
@@ -435,11 +435,14 @@ describe("post-event feedback extraction eval (WP0 fixtures)", () => {
     expect(fixture.expected.safetySignal).toBe(true);
     expect(result.safetySignal).toBe(true);
     expect(result.handoff).toBe(true);
-    // D13: the content goes to a human, not into the feedback tables.
-    expect(result.notes).toEqual([]);
-    expect(result.rejections).toEqual([
-      { scope: "note", reason: "safety_note_suppressed", noteType: "general" },
-    ]);
+    // D13 (amended): the disclosure reaches a human *and* the feedback tables.
+    // The signal raises attention; it no longer edits what was recorded, so the
+    // participant's own words are readable where an operator already looks.
+    expect(result.notes).toHaveLength(1);
+    expect(result.notes[0]?.text).toBe(
+      "Ο συμμετέχων εξέφρασε ότι δεν αντέχει.",
+    );
+    expect(result.rejections).toEqual([]);
   });
 
   it("stop_mid_flow: STOP is deterministic and never reaches the model", () => {

@@ -89,10 +89,17 @@ general`). All questions skippable (goal `skipped`, no answer row). Greek
   Greek-first prompts/fixtures. `extraction_meta` records model, confidence
   **and the exact candidate IDs supplied in that run** (required for
   debugging under D16's live selection).
-- **D13 — Safety minimal.** Safety signal (model or deterministic keywords) →
-  `needsAttention` + audit event + neutral handoff; no ordinary note is
-  written. The restricted `safety_reports` table is deferred to the
-  pre-real-humans gate.
+- **D13 — Safety travels the ordinary pipeline** (amended 2026-07-26, after a
+  live acceptance run where a harassment disclosure made the model refuse
+  structured generation and the failed job recorded nothing at all). Safety
+  signals — from the model or the deterministic keyword tripwire — raise
+  `needsAttention` and write one audit event, and that is the whole operator
+  signal. Ordinary notes are **not** suppressed, and a safety signal does not
+  force a handoff; only an explicit model `handoff` swaps in the neutral copy.
+  A permanently failed extraction falls back to one ordinary note plus one
+  acknowledgement so a dead run never leaves a turn unmarked. The restricted
+  `safety_reports` table stays deferred to the pre-real-humans gate. See
+  [the module doc](docs/backend/modules/post-event-feedback.md#d13-safety-content-travels-the-ordinary-pipeline).
 - **D14 — STOP.** Case-, whitespace- and accent-insensitive: `STOP`,
   `STOP ALL`, `UNSUBSCRIBE`, `ΔΙΑΚΟΠΗ`, `ΣΤΟΠ`. Checked deterministically at
   materialization, before any AI call, effective in both control modes:

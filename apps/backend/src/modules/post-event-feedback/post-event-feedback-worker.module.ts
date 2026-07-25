@@ -9,6 +9,10 @@ import { WasenderClient } from "../../integrations/wasender/wasender.client.js";
 import { ConversationThreadModule } from "../conversations/conversation-thread.module.js";
 import { EventsCoreModule } from "../events/events-core.module.js";
 import { ParticipantsCoreModule } from "../participants/participants-core.module.js";
+import {
+  FEEDBACK_OPERATOR_ALERT,
+  LoggingFeedbackOperatorAlert,
+} from "./feedback-operator-alert.js";
 import { FeedbackOutboxSchedulerService } from "./feedback-outbox-scheduler.service.js";
 import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
 import { FeedbackSweepSchedulerService } from "./feedback-sweep-scheduler.service.js";
@@ -16,6 +20,7 @@ import { FEEDBACK_TRANSPORT } from "./feedback-transport.js";
 import { MessageOutboxDeliveryService } from "./message-outbox-delivery.service.js";
 import { MessageOutboxRelayService } from "./message-outbox-relay.service.js";
 import { PostEventFeedbackCoreModule } from "./post-event-feedback-core.module.js";
+import { PostEventFeedbackExtractionFallback } from "./post-event-feedback-extraction-fallback.service.js";
 import { PostEventFeedbackExtractionModel } from "./post-event-feedback-extraction.service.js";
 import { PostEventFeedbackExtractor } from "./post-event-feedback-extractor.service.js";
 import { PostEventFeedbackMaterializer } from "./post-event-feedback-materializer.service.js";
@@ -55,6 +60,14 @@ import { WasenderFeedbackTransport } from "./wasender-feedback-transport.service
   ],
   providers: [
     FeedbackOutboundTranscriptService,
+    // The operator alert seam. Only the log implementation exists today; the
+    // token is what lets a future channel be swapped in without touching the
+    // two call sites that raise it.
+    {
+      provide: FEEDBACK_OPERATOR_ALERT,
+      useClass: LoggingFeedbackOperatorAlert,
+    },
+    PostEventFeedbackExtractionFallback,
     PostEventFeedbackExtractionModel,
     PostEventFeedbackExtractor,
     PostEventFeedbackMaterializer,

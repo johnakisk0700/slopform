@@ -19,11 +19,36 @@ export type FeedbackTone =
 export type FeedbackChipColor =
   "default" | "success" | "warning" | "danger" | "accent";
 
+/**
+ * How hard a badge should pull the eye.
+ *
+ * `strong` exists for one reason: a conversation needing attention sat in a row
+ * of soft chips at exactly the same visual weight as "Open", so the one badge
+ * an operator must not miss was the easiest to skim past. It renders as a solid
+ * fill instead of a tint. Emphasis is never the only signal — every badge still
+ * carries its own label.
+ */
+export type FeedbackEmphasis = "normal" | "strong";
+
 export interface FeedbackBadge {
   /** Stable key for React lists. */
   key: string;
   label: string;
   tone: FeedbackTone;
+  /** Defaults to `normal` when omitted. */
+  emphasis?: FeedbackEmphasis;
+}
+
+/**
+ * HeroUI's `primary` chip variant is the solid fill: it pairs `--warning` with
+ * `--warning-foreground`, which the token bridge maps to
+ * `--jts-color-warning` on `--jts-color-canvas` — 5.53:1 in light and 8.95:1 in
+ * dark, both clear of AA. `soft` keeps the tinted pairing used everywhere else.
+ */
+export function chipVariant(
+  emphasis: FeedbackEmphasis | undefined,
+): "primary" | "soft" {
+  return emphasis === "strong" ? "primary" : "soft";
 }
 
 export function chipColor(tone: FeedbackTone): FeedbackChipColor {

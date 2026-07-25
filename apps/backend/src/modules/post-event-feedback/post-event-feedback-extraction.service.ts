@@ -18,6 +18,7 @@ import {
   type AssistantModel,
 } from "../assistant/assistant.schemas.js";
 import type { FeedbackExtractionPrompt } from "./post-event-feedback-prompt.js";
+import { resolveFeedbackExtractionProviderSettings } from "./post-event-feedback-provider-safety.js";
 import {
   feedbackExtractionProposalSchema,
   type FeedbackExtractionProposal,
@@ -32,13 +33,37 @@ export const FEEDBACK_EXTRACTION_FAILURE_CODES = [
 export type FeedbackExtractionFailureCode =
   (typeof FEEDBACK_EXTRACTION_FAILURE_CODES)[number];
 
+/**
+ * The bounded cause vocabulary a permanently failed run reports.
+ *
+ * The failure code above says what the SDK threw; this says what an operator
+ * should conclude. They are separate because the interesting case collapses
+ * them: a provider that refuses to emit structured output for a safety
+ * disclosure surfaces as an ordinary "no object generated", which is
+ * indistinguishable from a schema mishap unless the finish reason is read.
+ */
+export const FEEDBACK_EXTRACTION_FAILURE_CAUSES = [
+  /** The provider declined to answer — a content filter or a hard rejection. */
+  "provider_refusal",
+  /** The provider was unreachable, misconfigured or erroring. */
+  "provider_error",
+  /** A response arrived but never satisfied the agreed schema. */
+  "validation_failed",
+  "unknown",
+] as const;
+
+export type FeedbackExtractionFailureCause =
+  (typeof FEEDBACK_EXTRACTION_FAILURE_CAUSES)[number];
+
 /** Matches the assistant's two-minute total bound on a single provider call. */
 export const FEEDBACK_EXTRACTION_TIMEOUT_MILLISECONDS = 120_000;
 
 export class FeedbackExtractionGenerationError extends Error {
+  /** Named `failureCause` so it never shadows the built-in `Error.cause`. */
   constructor(
     readonly code: FeedbackExtractionFailureCode,
     readonly retryable: boolean,
+    readonly failureCause: FeedbackExtractionFailureCause = "unknown",
   ) {
     super(`Feedback extraction failed: ${code}`);
     this.name = FeedbackExtractionGenerationError.name;
@@ -165,15 +190,24 @@ export class PostEventFeedbackExtractionModel {
         throw new FeedbackExtractionGenerationError(
           "provider_unavailable",
           false,
+          "provider_error",
         );
       }
-      return this.openRouterProvider(adapter.providerModelId);
+      // Scoped here on purpose: this provider instance serves
+      // `feedback.extract.v1` and nothing else, so permissive thresholds cannot
+      // leak into the assistant, which builds its own clients from the same
+      // registry.
+      const settings = resolveFeedbackExtractionProviderSettings(adapter);
+      return settings
+        ? this.openRouterProvider(adapter.providerModelId, settings)
+        : this.openRouterProvider(adapter.providerModelId);
     }
 
     if (!this.openAiProvider) {
       throw new FeedbackExtractionGenerationError(
         "provider_unavailable",
         false,
+        "provider_error",
       );
     }
     return this.openAiProvider(adapter.providerModelId);
@@ -184,6 +218,13 @@ export class PostEventFeedbackExtractionModel {
  * Configuration and schema faults are permanent — retrying repeats the same
  * rejection and the same bill. Timeouts, rate limits and provider 5xx are
  * transient and left to BullMQ.
+ *
+ * The cause class is derived alongside the code because the two answer
+ * different questions. A content filter that stops generation reports the same
+ * `extraction_failed` code as a malformed object, but only the finish reason
+ * distinguishes "the provider refused to discuss this" from "the model fumbled
+ * the schema" — and only the first one means an operator should read the
+ * conversation.
  */
 export function toGenerationError(
   error: unknown,
@@ -195,23 +236,42 @@ export function toGenerationError(
     return new FeedbackExtractionGenerationError(
       error.isRetryable ? "extraction_failed" : "provider_rejected",
       error.isRetryable,
+      error.isRetryable ? "provider_error" : "provider_refusal",
     );
   }
   if (RetryError.isInstance(error)) {
-    const cause = error.lastError;
-    const retryable = !APICallError.isInstance(cause) || cause.isRetryable;
+    const lastError = error.lastError;
+    const retryable =
+      !APICallError.isInstance(lastError) || lastError.isRetryable;
     return new FeedbackExtractionGenerationError(
       retryable ? "extraction_failed" : "provider_rejected",
       retryable,
+      retryable ? "provider_error" : "provider_refusal",
     );
   }
-  if (
-    NoObjectGeneratedError.isInstance(error) ||
-    TypeValidationError.isInstance(error)
-  ) {
+  if (NoObjectGeneratedError.isInstance(error)) {
     // The model produced something that is not the agreed shape. One retry can
-    // legitimately fix that, so it stays retryable and BullMQ bounds it.
-    return new FeedbackExtractionGenerationError("extraction_failed", true);
+    // legitimately fix that, so it stays retryable and BullMQ bounds it. A
+    // `content-filter` finish reason is the exception that matters: the
+    // provider declined, and repeating the same prompt will decline again.
+    return new FeedbackExtractionGenerationError(
+      "extraction_failed",
+      true,
+      error.finishReason === "content-filter"
+        ? "provider_refusal"
+        : "validation_failed",
+    );
   }
-  return new FeedbackExtractionGenerationError("extraction_failed", true);
+  if (TypeValidationError.isInstance(error)) {
+    return new FeedbackExtractionGenerationError(
+      "extraction_failed",
+      true,
+      "validation_failed",
+    );
+  }
+  return new FeedbackExtractionGenerationError(
+    "extraction_failed",
+    true,
+    "unknown",
+  );
 }

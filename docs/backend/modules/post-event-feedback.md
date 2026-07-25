@@ -9,7 +9,9 @@ campaign service + schedulers**, **WP7b staff conversation inbox HTTP** and
 **WP8 dev simulated transport** are landed. The admin conversations UI remains
 WP9. Plan amendments in
 [`POST_EVENT_FEEDBACK_PLAN_2026-07-25.md`](../../../POST_EVENT_FEEDBACK_PLAN_2026-07-25.md)
-§9 supersede frozen candidate snapshots with live D16 selection.
+§9 supersede frozen candidate snapshots with live D16 selection, and
+[D13](#d13-safety-content-travels-the-ordinary-pipeline) is amended: safety
+content now travels the ordinary pipeline as visible notes.
 
 ## Purpose and boundary
 
@@ -20,8 +22,10 @@ views that navigate the same feedback by event or participant.
 
 It does not own WhatsApp transport, participant identity, attendance, consent,
 general customer support or confidential safety case handling. Wasender remains
-an adapter, attendance and consent remain upstream gates, and safety content is
-routed to a separately authorized record.
+an adapter, and attendance and consent remain upstream gates. Safety-flavoured
+content travels the **ordinary** pipeline and is visible as ordinary notes
+([D13](#d13-safety-content-travels-the-ordinary-pipeline)); the restricted
+`safety_reports` table stays a pre-real-humans gate-pack item.
 
 ## Persisted PostgreSQL contract (WP2)
 
@@ -248,7 +252,10 @@ context strategy is later selected.
   campaign, conversation and source-message provenance.
 - The same row powers both “feedback given” and restricted “feedback received”
   views; it is not copied onto participant profiles.
-- Normal feedback and confidential safety reports remain separate.
+- Safety-flavoured content is recorded as ordinary, visible notes; the operator
+  signal is `needsAttention`, never a suppressed result (D13).
+- A permanently failed extraction still records attention, one note and one
+  acknowledgement; a dead run never leaves a turn silently unmarked.
 - Wasender IDs are untrusted and deduplicated before processing.
 - Unknown outbound channel activity silences the bot until explicit resume.
 - AI output cannot send, change consent or bypass domain validation.
@@ -332,7 +339,8 @@ row, and without a producer for it a participant whose remaining answer is
 | Subject is a **current** candidate and ≠ respondent | Answer dropped; note degrades subjectless + flagged (D18)       |
 | Nothing already recorded is written twice           | Skipped (`already_recorded` / `duplicate_in_run`)               |
 | Lifecycle ∧ control ∧ opt-in permit a reply         | Reply suppressed, results still persisted                       |
-| Safety signal or handoff                            | All ordinary notes suppressed (D13)                             |
+| Safety signal                                       | Nothing suppressed; `needsAttention` + audit (D13)              |
+| Explicit `handoff`                                  | Neutral handoff copy replaces the reply; notes still recorded   |
 
 D18's degradation is asymmetric on purpose. A **note** carries the
 participant's own words, so an unresolvable mention keeps the note, drops the
@@ -361,13 +369,14 @@ only way to explain later why a subject was — or was not — resolvable.
 answered`, derived from stored **and** newly written answers so a replay repairs
   them;
 - exactly one outbox row per run, chosen by the application rather than the
-  model: the neutral handoff copy on safety/handoff, else the closing copy when
-  every goal is terminal, else the model's reply;
+  model: the neutral handoff copy on an **explicit** handoff, else the closing
+  copy when every goal is terminal, else the model's reply;
 - that row transcribed as an `actor: bot` message carrying its `outboxId`
   ([outbound transcript entries](#outbound-transcript-entries)), so the next run
   reads what the bot already asked;
 - `close(completed)` when every goal is terminal;
-- `needsAttention` + an audit event on safety or handoff.
+- `needsAttention` + an audit event on safety or handoff, plus one
+  [operator alert](#operator-alert-seam) if that flag actually changed.
 
 Extraction stops at the outbox row. The
 [WP6 relay](#wp6-outbox-relay-and-transport-implemented) leases it and sends it
@@ -407,9 +416,119 @@ missing. `FEEDBACK_EXTRACTION_MODEL` selects the model and defaults to
 `google/gemini-3.6-flash` (D12); an unregistered id fails at worker start rather
 than quietly using the default. Provider clients live in the worker module only.
 
+Extraction additionally sends **permissive safety thresholds** on its own call
+path ([`post-event-feedback-provider-safety.ts`](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-provider-safety.ts)).
+The registry routes `google/*` through OpenRouter, so the settings ride the
+chat model's `extraBody` passthrough as `safety_settings` with `BLOCK_NONE`
+across the four Gemini harm categories. Scope is the point: they are applied to
+the model instance `PostEventFeedbackExtractionModel` builds and to nothing
+else, so the assistant — which constructs its own clients from the same
+registry — is unaffected. Relaxing the provider filter does not relax the
+domain; every D16/D18 rule still runs on the proposal. A provider may still stop
+on non-configurable policy, which is what the
+[deterministic fallback](#deterministic-fallback-for-a-dead-run) absorbs.
+Staging acceptance must confirm the passthrough actually reaches the upstream
+provider.
+
 Input pressure is logged in **tokens** — both the pre-call estimate and the
 provider's reported usage — because a short thread of long Greek paragraphs is
 the expensive case that a message counter would rank as cheap.
+
+## D13 — safety content travels the ordinary pipeline
+
+Amended after a live acceptance run. A participant described sexual harassment,
+the extraction model refused structured generation, `feedback.extract.v1` failed
+terminally, and **nothing** was recorded: `needsAttention` stayed false, no
+audit event, no note, and the conversation stalled at the asked goal. The worst
+message in the campaign produced the least evidence.
+
+The original D13 made that outcome likely rather than accidental. Suppressing
+ordinary notes on a safety signal meant the material an operator most needed to
+read was the one thing the system refused to write down.
+
+What holds now:
+
+| Concern              | Rule                                                                                                                                              |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Notes                | Safety-flavoured statements become **ordinary** `feedback_notes` rows, same table, status and admin view as any other note. Nothing is suppressed |
+| Handoff              | A safety signal does **not** force one. Only an explicit model `handoff` swaps in the neutral copy; the questionnaire otherwise continues         |
+| Operator signal      | `needsAttention` on the conversation, plus exactly one audit event. That flag is the signal — there is no separate incident record                |
+| Deterministic floor  | A keyword tripwire raises the same flag before any model call, so a later provider refusal cannot leave the turn unmarked                         |
+| Restricted reporting | The `safety_reports` table remains deferred to the pre-real-humans gate pack; nothing in this module writes one                                   |
+
+### The deterministic tripwire
+
+[`post-event-feedback-safety-matcher.ts`](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-safety-matcher.ts)
+is a pure WP0-style matcher over a small curated Greek + English lexicon
+(sexual content, harassment, violence, self-harm). It is tuned for
+**precision over recall** — obvious explicit terms only — because the only cost
+of a match is an operator's attention.
+
+Matching folds accents and case like the STOP matcher, reduces punctuation runs
+to single spaces, and anchors each term at a **word start** while leaving the
+right edge open. That asymmetry is the whole design: Greek inflects on the
+suffix, so one stem covers a paradigm («βιασμ» → βιασμός, βιασμού, βιασμοί),
+while the closed left edge keeps `rape` out of «grape» and «βιασμ» out of
+«εκβιασμός».
+
+The materializer runs it on participant inbound **after** the STOP check, so an
+opt-out is never delayed and STOP wins when a message matches both. A match
+raises `needsAttention` and writes one audit event carrying the matched
+**categories** and never the text. It does not suppress extraction, enqueue a
+handoff or alter the transcript: the turn continues into normal extraction and
+the disclosure becomes an ordinary note.
+
+### Deterministic fallback for a dead run
+
+[`PostEventFeedbackExtractionFallback`](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-extraction-fallback.service.ts)
+runs when `feedback.extract.v1` fails permanently — a non-retryable provider
+rejection, or the last attempt spent. It leaves three things behind:
+
+1. `needsAttention` plus one audit event carrying a bounded cause class
+   (`provider_refusal | provider_error | validation_failed | unknown`). The same
+   class is thrown as the `UnrecoverableError` message, so it is visible in
+   BullMQ's `failedReason` and not only in the audit table.
+2. **One ordinary note** (`note_type: general`, `status: new`) with bounded
+   generic text — «Πιθανή προσβλητική/ευαίσθητη αναφορά — δείτε τη συζήτηση.».
+   Nothing was extracted, so nothing may be characterised.
+3. **One bot acknowledgement** so the participant is not left on read: a short
+   acknowledgement plus the current goal's prompt from the campaign copy
+   snapshot. No new copy is authored.
+
+Provenance is honest by omission. `source_message_ids` is the failing
+participant message; `extraction_meta` records
+`origin: "deterministic_fallback"`, the cause and the run's candidate ids, and
+carries **no** `model` or `confidence` — an absent field is truthful, a zero
+would read as a real low-confidence extraction.
+
+The note is directed at a subject only when exactly **one** current D16
+candidate's display name (or its first token, folded) appears in the message.
+Two candidates called «Κώστας» cannot be separated by application code, so the
+note degrades to subjectless and `flaggedForReview` under D18 rather than
+asserting something about a real person.
+
+Idempotency uses one fence for the whole effect: the outbox `dedupe_key`
+`feedback-fallback-<conversationId>-<lastParticipantSeq>` is inserted first
+inside the run's transaction, and a replay that finds it already present writes
+no note, no audit event and raises no alert.
+
+### Operator alert seam
+
+`needsAttention` is the durable signal; the
+[`FeedbackOperatorAlert`](../../../apps/backend/src/modules/post-event-feedback/feedback-operator-alert.ts)
+port is the notification half, so nobody has to be watching the inbox for a
+disclosure or a dead run to be noticed.
+
+It is raised only on a genuine `false → true` crossing. Idempotency is
+structural rather than bookkept: `setNeedsAttention` already reports whether it
+changed anything, so a replayed job re-asserts the flag, sees `changed: false`
+and stays quiet.
+
+`FEEDBACK_OPERATOR_ALERT_MODE` selects the channel — `log` (default) emits a
+structured `feedback.operator_alert` warning; `off` disables notification while
+the durable flag is still recorded. A WhatsApp adapter to a configured operator
+number is the **named extension point** and is deliberately out of scope: it
+needs its own number configuration, rate limit and privacy review.
 
 ### WP5 tests
 
@@ -425,7 +544,17 @@ opt-in), the reply and closing copy appearing as `actor: bot` turns correlated
 by `outboxId`, replay (same job twice, and a crash between the PostgreSQL commit
 and the cursor advance, neither producing a second row or a second transcript
 entry), the monotonic goal ladder, model selection and provider failure
-classification. No test calls a provider.
+classification — including that a `content-filter` finish reason is read as
+`provider_refusal` rather than a schema mishap, and that the permissive safety
+settings are attached to Google models only. No test calls a provider.
+
+D13's own coverage sits alongside it: matcher precision (accents, mixed case,
+`grape`/«εκβιασμός» near-misses), the tripwire flagging without suppressing
+extraction, STOP winning when both match, the audit payload containing no
+participant text, the fallback writing exactly one note + one acknowledgement +
+one audit event and nothing on replay, unique-name subject resolution versus
+two-name ambiguity, the alert firing once per `false → true` transition, and the
+processor surfacing each bounded cause class in `failedReason`.
 
 ## Failure and recovery
 
@@ -439,6 +568,12 @@ acceptance and consent gates, not on missing recovery machinery. Nothing claims
 exactly-once: replay repairs forward, and a stalled job can repeat an idempotent
 step — for extraction that means repeating a model call, which costs money but
 writes nothing twice.
+
+A run that cannot succeed at all is no longer a silent loss. Terminal
+`feedback.extract.v1` failures hand off to the
+[deterministic fallback](#deterministic-fallback-for-a-dead-run), which records
+attention, one ordinary note and one acknowledgement, and puts the bounded cause
+class into the queue's `failedReason`.
 
 The initial operating assumption is that `messages.upsert` observes manual
 outbound messages from the primary WhatsApp application and other linked
@@ -471,14 +606,21 @@ Versioned questionnaire constants, the deterministic STOP matcher and Greek
 extraction fixtures live under
 [`apps/backend/src/modules/post-event-feedback/`](../../../apps/backend/src/modules/post-event-feedback/).
 
-| Artifact            | Source                                | Contract                                                                                                                                        |
-| ------------------- | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| Question set v1     | `post-event-feedback-question-set.ts` | Keys `event_score`, `liked`, `meet_again`, `avoid`; note types `activity_interest`, `general`; draft Greek copy editable without schema changes |
-| STOP matcher (D14)  | `post-event-feedback-stop-matcher.ts` | Pure function; `STOP`, `STOP ALL`, `UNSUBSCRIBE`, `ΔΙΑΚΟΠΗ`, `ΣΤΟΠ`; case-, whitespace- and accent-insensitive                                  |
-| Extraction fixtures | `post-event-feedback-fixtures.ts`     | Typed Greek transcripts with expected-outcome annotations for later WP5 evals                                                                   |
+| Artifact             | Source                                  | Contract                                                                                                                                        |
+| -------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Question set v1      | `post-event-feedback-question-set.ts`   | Keys `event_score`, `liked`, `meet_again`, `avoid`; note types `activity_interest`, `general`; draft Greek copy editable without schema changes |
+| STOP matcher (D14)   | `post-event-feedback-stop-matcher.ts`   | Pure function; `STOP`, `STOP ALL`, `UNSUBSCRIBE`, `ΔΙΑΚΟΠΗ`, `ΣΤΟΠ`; case-, whitespace- and accent-insensitive                                  |
+| Safety matcher (D13) | `post-event-feedback-safety-matcher.ts` | Pure function over a curated Greek + English lexicon; word-start anchored, right-open, accent- and case-folded                                  |
+| Extraction fixtures  | `post-event-feedback-fixtures.ts`       | Typed Greek transcripts with expected-outcome annotations for later WP5 evals                                                                   |
 
-Focused unit tests cover matcher edge cases (accents, mixed case) and fixture
-integrity. No runtime pipeline, queue or Mongo work is part of WP0/WP2.
+Both matchers share `foldPostEventFeedbackText` /
+`foldedTextContainsAtWordStart` from the STOP module. The STOP matcher itself
+still compares whole strings — stripping punctuation there would widen the
+command rather than normalise it.
+
+Focused unit tests cover matcher edge cases (accents, mixed case, precision
+against near-miss words) and fixture integrity. No runtime pipeline, queue or
+Mongo work is part of WP0/WP2.
 
 ## Tests and operations
 
@@ -516,15 +658,16 @@ anything.
 [`PostEventFeedbackMaterializer`](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-materializer.service.ts)
 reloads the ingress row and decides one outcome per delivery:
 
-| Situation                          | Outcome                    | Effects                                                                                                                            |
-| ---------------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| Row already terminal               | `already_processed`        | Nothing; this is the replay path                                                                                                   |
-| Phone matches no open conversation | `ignored_unmatched`        | Body dropped, metadata kept, counter incremented, never AI-processed (D10)                                                         |
-| Inbound STOP                       | `inbound_stopped`          | Close `stopped`, cancel queued outbox, withdraw opt-in, audit, exactly one `stop_ack` outbox row transcribed as `actor: bot` (D14) |
-| Inbound reply                      | `inbound_materialized`     | Idempotent transcript append, then one `feedback.extract.v1` for the newest transcript position                                    |
-| Inbound without usable text        | `inbound_not_materialized` | `needsAttention`, ingress `failed`; the durable row keeps the provider metadata for an operator                                    |
-| Outbound matching an outbox row    | `outbound_correlated`      | Delivery columns only — the outbox owns that message's transcript entry, so nothing is appended twice                              |
-| Outbound matching an open thread   | `outbound_external`        | Take over to human control, append the observed staff message, audit external channel activity (D17)                               |
+| Situation                           | Outcome                    | Effects                                                                                                                            |
+| ----------------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Row already terminal                | `already_processed`        | Nothing; this is the replay path                                                                                                   |
+| Phone matches no open conversation  | `ignored_unmatched`        | Body dropped, metadata kept, counter incremented, never AI-processed (D10)                                                         |
+| Inbound STOP                        | `inbound_stopped`          | Close `stopped`, cancel queued outbox, withdraw opt-in, audit, exactly one `stop_ack` outbox row transcribed as `actor: bot` (D14) |
+| Inbound reply                       | `inbound_materialized`     | Idempotent transcript append, then one `feedback.extract.v1` for the newest transcript position                                    |
+| Inbound matching the safety lexicon | `inbound_materialized`     | Additive only: `needsAttention` + one audit event naming the categories, then the ordinary reply path above (D13)                  |
+| Inbound without usable text         | `inbound_not_materialized` | `needsAttention`, ingress `failed`; the durable row keeps the provider metadata for an operator                                    |
+| Outbound matching an outbox row     | `outbound_correlated`      | Delivery columns only — the outbox owns that message's transcript entry, so nothing is appended twice                              |
+| Outbound matching an open thread    | `outbound_external`        | Take over to human control, append the observed staff message, audit external channel activity (D17)                               |
 
 Conversation resolution is the Mongo `findOpenByPhone` lookup backed by the
 partial unique index (D9). Nothing infers which event or person an unmatched
@@ -537,6 +680,13 @@ STOP is matched by the WP0 deterministic matcher **before** any model call and
 works in either control mode: a takeover does not make opt-out negotiable. The
 acknowledgement body comes from the campaign's launch copy snapshot, falling
 back to the versioned constant.
+
+The [safety tripwire](#the-deterministic-tripwire) runs immediately after the
+STOP branch returns, which is what makes STOP win when a message matches both.
+Its audit event is written inside the same ingress fence as the terminal status
+update, so two concurrent executions collapse to one event exactly as the STOP
+path does; its `needsAttention` write and its alert are idempotent on their own
+transition.
 
 An observed outbound is correlated first by provider message id and then by the
 oldest unlinked outbox row of that conversation with the same body. That

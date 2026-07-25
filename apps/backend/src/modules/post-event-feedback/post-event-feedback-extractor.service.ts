@@ -1,4 +1,4 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import type {
   AppTransaction,
   FeedbackCampaignRow,
@@ -7,6 +7,10 @@ import type {
 } from "@join-the-six/database";
 
 import { AuditRepository } from "../../infrastructure/audit/audit.repository.js";
+import {
+  FEEDBACK_OPERATOR_ALERT,
+  type FeedbackOperatorAlert,
+} from "./feedback-operator-alert.js";
 import { DatabaseService } from "../../infrastructure/database/database.service.js";
 import { FeedbackConversationRepository } from "../conversations/feedback-conversation.repository.js";
 import type {
@@ -103,6 +107,8 @@ export class PostEventFeedbackExtractor {
     private readonly audit: AuditRepository,
     private readonly metrics: PostEventFeedbackMetrics,
     private readonly outboundTranscript: FeedbackOutboundTranscriptService,
+    @Inject(FEEDBACK_OPERATOR_ALERT)
+    private readonly alert: FeedbackOperatorAlert,
   ) {}
 
   async extract(input: ExtractFeedbackInput): Promise<ExtractFeedbackResult> {
@@ -240,13 +246,17 @@ export class PostEventFeedbackExtractor {
       completing,
       cursorSeq,
       model: generated.model,
+      correlationId: input.correlationId,
     });
 
     return this.complete(
       {
+        // A safety signal is no longer an outcome of its own: the run extracted
+        // normally and the flag is what an operator acts on. Only an explicit
+        // handoff changes what the conversation did.
         outcome: completing
           ? "completed"
-          : validated.safetySignal || validated.handoff
+          : validated.handoff
             ? "handoff"
             : "extracted",
         conversationId: conversation._id,
@@ -344,14 +354,19 @@ export class PostEventFeedbackExtractor {
     testimonySeq: number,
     copy: PostEventFeedbackQuestionSetCopy,
   ): OutboundReply | undefined {
-    if (!validated.reply && !completing && !isHandoff(validated)) {
+    if (!validated.reply && !completing && !validated.handoff) {
       return undefined;
     }
     if (validated.replySuppressedReason === "not_permitted") {
       return undefined;
     }
 
-    if (isHandoff(validated)) {
+    // Only an *explicit* handoff swaps the copy. A safety signal no longer does
+    // (D13, amended): forcing the neutral "someone will contact you" line ended
+    // the questionnaire on the model's say-so, and the participant who had just
+    // disclosed something got the most abrupt possible reply. Attention is
+    // raised instead, and the conversation continues normally.
+    if (validated.handoff) {
       return {
         body: POST_EVENT_FEEDBACK_HANDOFF_REPLY,
         dedupeKey: createFeedbackHandoffDedupeKey(
@@ -475,9 +490,10 @@ export class PostEventFeedbackExtractor {
         notesWritten += 1;
       }
 
-      // D13: a safety signal is an audited human handoff, never an ordinary
-      // note. The record says what was detected, not what was said.
-      if (isHandoff(input.validated)) {
+      // D13 (amended): the audit records that a human should look, not what was
+      // said — the notes above already hold the participant's own words, in the
+      // ordinary place an operator reads them.
+      if (needsOperatorAttention(input.validated)) {
         await this.audit.append(transaction, {
           actorType: "system",
           actorId: "feedback_extraction",
@@ -493,9 +509,6 @@ export class PostEventFeedbackExtractor {
             confidence: input.validated.confidence,
             safetySignal: input.validated.safetySignal,
             handoff: input.validated.handoff,
-            suppressedNotes: input.validated.rejections.filter(
-              (rejection) => rejection.reason === "safety_note_suppressed",
-            ).length,
           },
         });
       }
@@ -534,6 +547,7 @@ export class PostEventFeedbackExtractor {
     readonly completing: boolean;
     readonly cursorSeq: number;
     readonly model: string;
+    readonly correlationId: string;
   }): Promise<void> {
     const at = new Date();
 
@@ -545,12 +559,26 @@ export class PostEventFeedbackExtractor {
       });
     }
 
-    if (isHandoff(input.validated)) {
-      await this.conversations.setNeedsAttention({
+    if (needsOperatorAttention(input.validated)) {
+      const attention = await this.conversations.setNeedsAttention({
         conversationId: input.conversation._id,
         needsAttention: true,
         at,
       });
+      // Only the false → true crossing notifies. A replayed run re-asserts the
+      // same flag, gets `changed: false` and stays quiet.
+      if (attention.changed) {
+        await this.alert.raise({
+          conversationId: input.conversation._id,
+          campaignId: input.conversation.campaignId,
+          reason: "extraction_safety_signal",
+          correlationId: input.correlationId,
+          detail: [
+            ...(input.validated.safetySignal ? ["safety_signal"] : []),
+            ...(input.validated.handoff ? ["handoff"] : []),
+          ],
+        });
+      }
     }
 
     await this.conversations.advanceCursor({
@@ -664,7 +692,14 @@ function isCompleting(
   });
 }
 
-function isHandoff(validated: ValidatedFeedbackExtraction): boolean {
+/**
+ * Both signals still deserve a human, and both still raise `needsAttention` —
+ * that is what D13's amendment kept. What changed is that neither one edits the
+ * results any more.
+ */
+function needsOperatorAttention(
+  validated: ValidatedFeedbackExtraction,
+): boolean {
   return validated.safetySignal || validated.handoff;
 }
 

@@ -86,6 +86,10 @@ flowchart LR
 - **Status is text plus tone.** Every badge carries its own label; colour is
   reinforcement. The transcript distinguishes actors by label, alignment and
   fill together.
+- **Attention is emphasised, not merely coloured.** `needsAttention` renders as
+  a **solid** warning pill on inbox rows and in the conversation header, while
+  every other badge stays tinted. It is still a labelled badge — the emphasis is
+  hierarchy, not a second channel of meaning.
 - **D18 everywhere.** Any unresolved participant id renders
   `«άγνωστος συμμετέχων»` in italics — respondents, answer subjects and note
   subjects alike. Raw UUIDs never reach the screen.
@@ -154,15 +158,28 @@ never be used merely to navigate. Event detail carries a nullable
   `bg-surface` at 10 px). **`--jts-color-accent` is not safe for small text on
   surface in the light theme** — worth a token-level decision rather than more
   per-call-site patches.
+- The solid attention pill uses HeroUI's `primary` chip variant, which the token
+  bridge resolves to `--jts-color-canvas` on `--jts-color-warning`: **5.53:1 in
+  light and 8.95:1 in dark**, both clear of AA. `theme-tokens.spec.ts` asserts
+  that pairing from `tokens.css` directly, so the emphasis cannot drift below AA
+  unnoticed. No `attention` semantic token was added — `warning` already carries
+  this meaning, and the admin contract prefers the nearest AA-safe existing
+  token over a new one for a single component. The pill's fill is opaque in both
+  themes, so it stays legible on a selected row's `bg-primary-soft`.
 
 ## Tests
 
 `apps/admin/test/feedback-inbox.spec.ts` covers the D18 fallback, delivery-badge
 precedence, lifecycle badges, goal progress, accent-insensitive Greek filtering,
 attention-first ordering, group pruning, selection stability under polling, the
-polling policy, the campaign picker consuming `useListFeedbackCampaigns`, and the
-API-boundary invariants (generated hooks on the screen, capability-gated actions,
-exactly two hand-written transport callers).
+polling policy, the campaign picker consuming `useListFeedbackCampaigns`, the
+attention pill's emphasis (only that badge is `strong`, the variant mapping, and
+that both the list row and the conversation header render the badge row), and
+the API-boundary invariants (generated hooks on the screen, capability-gated
+actions, exactly two hand-written transport callers).
+
+`apps/admin/test/theme-tokens.spec.ts` adds the solid attention pill to its AA
+contrast pairs, measured from `tokens.css` in both themes.
 
 ## Decisions and references
 

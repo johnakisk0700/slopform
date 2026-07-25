@@ -9,6 +9,7 @@ import type { DatabaseService } from "../../infrastructure/database/database.ser
 import type { FeedbackConversationRepository } from "../conversations/feedback-conversation.repository.js";
 import type { EventsService } from "../events/events.service.js";
 import type { ParticipantsRepository } from "../participants/participants.repository.js";
+import type { FeedbackOperatorAlertInput } from "./feedback-operator-alert.js";
 import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
 import { PostEventFeedbackExtractor } from "./post-event-feedback-extractor.service.js";
 import type { PostEventFeedbackExtractionModel } from "./post-event-feedback-extraction.service.js";
@@ -356,8 +357,8 @@ describe("PostEventFeedbackExtractor", () => {
     });
   });
 
-  describe("safety and handoff (D13)", () => {
-    it("flags attention, audits and sends the neutral handoff instead of the model reply", async () => {
+  describe("safety and handoff (D13 amended)", () => {
+    it("flags attention and audits, but records the note and keeps the model reply", async () => {
       harness.generation.propose.mockResolvedValue(
         generation({
           notes: [
@@ -380,19 +381,61 @@ describe("PostEventFeedbackExtractor", () => {
         correlationId,
       });
 
-      expect(result.outcome).toBe("handoff");
+      // The turn is ordinary: a safety signal is no longer an outcome, a note
+      // filter or a copy override — it is an operator flag and nothing else.
+      expect(result.outcome).toBe("extracted");
       expect(harness.conversations.get(conversationId).needsAttention).toBe(
         true,
       );
-      expect(harness.repository.notes).toHaveLength(0);
+      expect(harness.repository.notes).toHaveLength(1);
+      expect(harness.repository.notes[0]).toMatchObject({
+        noteType: "general",
+        text: "Ο συμμετέχων δεν αντέχει.",
+      });
       expect(harness.repository.outbox[0]).toMatchObject({
-        body: POST_EVENT_FEEDBACK_HANDOFF_REPLY,
-        dedupeKey: `feedback-handoff-${conversationId}-2`,
+        body: "Λυπάμαι που το ακούω, θες να μιλήσουμε;",
+        dedupeKey: `feedback-reply-${conversationId}-2`,
       });
       expect(harness.audit.events[0]).toMatchObject({
         action: "feedback_conversation.safety_signalled",
         entityType: "feedback_conversation",
         entityId: conversationId,
+      });
+    });
+
+    it("raises the operator alert once per false → true attention transition", async () => {
+      harness.generation.propose.mockResolvedValue(
+        generation({ safetySignal: true, reply: "Είμαστε εδώ." }),
+      );
+
+      await harness.extractor.extract({ conversationId, correlationId });
+      // A replay re-asserts the same flag; the seam must stay quiet.
+      harness.conversations.get(conversationId).extraction.cursorSeq = 0;
+      await harness.extractor.extract({ conversationId, correlationId });
+
+      expect(harness.alert.raised).toHaveLength(1);
+      expect(harness.alert.raised[0]).toMatchObject({
+        conversationId,
+        campaignId,
+        reason: "extraction_safety_signal",
+        detail: ["safety_signal"],
+      });
+    });
+
+    it("still swaps in the neutral handoff copy on an explicit handoff", async () => {
+      harness.generation.propose.mockResolvedValue(
+        generation({ handoff: true, reply: "Ας συνεχίσουμε." }),
+      );
+
+      const result = await harness.extractor.extract({
+        conversationId,
+        correlationId,
+      });
+
+      expect(result.outcome).toBe("handoff");
+      expect(harness.repository.outbox[0]).toMatchObject({
+        body: POST_EVENT_FEEDBACK_HANDOFF_REPLY,
+        dedupeKey: `feedback-handoff-${conversationId}-2`,
       });
     });
 
@@ -907,6 +950,7 @@ interface Harness {
   generation: { propose: ReturnType<typeof vi.fn> };
   audit: FakeAudit;
   metrics: PostEventFeedbackMetrics;
+  alert: { raised: FeedbackOperatorAlertInput[] };
 }
 
 function generation(
@@ -945,6 +989,12 @@ function createHarness(): Harness {
   };
   const generationService = {
     propose: vi.fn().mockResolvedValue(generation({})),
+  };
+  const alert = {
+    raised: [] as FeedbackOperatorAlertInput[],
+    async raise(input: FeedbackOperatorAlertInput): Promise<void> {
+      this.raised.push(input);
+    },
   };
 
   repository.campaigns.set(campaignId, {
@@ -1010,6 +1060,7 @@ function createHarness(): Harness {
       repository as unknown as PostEventFeedbackRepository,
       conversations as unknown as FeedbackConversationRepository,
     ),
+    alert,
   );
 
   return {
@@ -1021,5 +1072,6 @@ function createHarness(): Harness {
     generation: generationService,
     audit,
     metrics,
+    alert,
   };
 }

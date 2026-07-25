@@ -109,6 +109,15 @@ const pairs: [string, string, string][] = [
     "--jts-color-primary",
     "button label on primary",
   ],
+  // The solid "Needs attention" pill. HeroUI's primary chip variant pairs
+  // `--warning` with `--warning-foreground`, which the bridge maps to these two
+  // tokens, so the emphasis the feedback inbox leans on is measured rather than
+  // assumed.
+  [
+    "--jts-color-canvas",
+    "--jts-color-warning",
+    "attention pill label on solid warning",
+  ],
 ];
 
 describe("design tokens contrast", () => {

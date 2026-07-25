@@ -1,5 +1,5 @@
 import { InjectQueue } from "@nestjs/bullmq";
-import { Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import type {
   AppTransaction,
   MessageOutboxRow,
@@ -16,6 +16,10 @@ import {
 } from "../conversations/feedback-conversation.repository.js";
 import type { FeedbackConversationDocument } from "../conversations/feedback-conversation.schemas.js";
 import { ParticipantsRepository } from "../participants/participants.repository.js";
+import {
+  FEEDBACK_OPERATOR_ALERT,
+  type FeedbackOperatorAlert,
+} from "./feedback-operator-alert.js";
 import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
 import { coalesceDeliveryStatus } from "./message-outbox-delivery-status.js";
 import {
@@ -23,6 +27,7 @@ import {
   type FeedbackMaterializeOutcome,
 } from "./post-event-feedback-metrics.service.js";
 import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "./post-event-feedback-question-set.js";
+import { matchPostEventFeedbackSafetyTerms } from "./post-event-feedback-safety-matcher.js";
 import { matchesPostEventFeedbackStopCommand } from "./post-event-feedback-stop-matcher.js";
 import { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
 import {
@@ -82,6 +87,8 @@ export class PostEventFeedbackMaterializer {
     private readonly audit: AuditRepository,
     private readonly metrics: PostEventFeedbackMetrics,
     private readonly outboundTranscript: FeedbackOutboundTranscriptService,
+    @Inject(FEEDBACK_OPERATOR_ALERT)
+    private readonly alert: FeedbackOperatorAlert,
   ) {}
 
   async materialize(
@@ -186,6 +193,21 @@ export class PostEventFeedbackMaterializer {
       return this.applyStop(ingress, conversation, correlationId);
     }
 
+    // The deterministic safety tripwire (D13, amended). It runs *after* STOP so
+    // an opt-out is never delayed by it, and it changes nothing about the turn:
+    // no suppression, no forced handoff, no separate incident record. The
+    // message goes on to normal extraction and becomes an ordinary note; this
+    // only guarantees an operator is told, even if the model later refuses.
+    const safety = matchPostEventFeedbackSafetyTerms(text);
+    if (safety.matched) {
+      await this.raiseSafetyAttention(
+        conversation,
+        safety.categories,
+        ingress.observedAt,
+        correlationId,
+      );
+    }
+
     // Enqueued before the ingress row becomes terminal: a crash in between
     // replays the whole job, whereas the reverse order would lose the run.
     const extractJobId = await this.enqueueExtraction(
@@ -194,12 +216,30 @@ export class PostEventFeedbackMaterializer {
       correlationId,
     );
 
-    await this.withPendingIngress(ingress.id, (transaction) =>
-      this.repository.updateIngressProcessing(transaction, ingress.id, {
+    await this.withPendingIngress(ingress.id, async (transaction) => {
+      if (safety.matched) {
+        // Inside the ingress fence, so two concurrent executions of the same
+        // job collapse to one audit event exactly like the STOP path.
+        await this.audit.append(transaction, {
+          actorType: "system",
+          actorId: "feedback_safety_tripwire",
+          action: "feedback_conversation.safety_keywords_matched",
+          entityType: "feedback_conversation",
+          entityId: conversation._id,
+          requestId: correlationId,
+          context: {
+            ingressId: ingress.id,
+            campaignId: conversation.campaignId,
+            // Bounded classification only — never the matched text.
+            categories: [...safety.categories],
+          },
+        });
+      }
+      await this.repository.updateIngressProcessing(transaction, ingress.id, {
         processingStatus: "materialized",
         matchedConversationId: conversation._id,
-      }),
-    );
+      });
+    });
 
     return this.complete(
       {
@@ -304,6 +344,33 @@ export class PostEventFeedbackMaterializer {
       },
       correlationId,
     );
+  }
+
+  /**
+   * Raises the durable operator signal and notifies once. `setNeedsAttention`
+   * reports whether it actually changed anything, which is what keeps a
+   * replayed delivery from alerting a second time.
+   */
+  private async raiseSafetyAttention(
+    conversation: FeedbackConversationDocument,
+    categories: readonly string[],
+    at: Date,
+    correlationId: string,
+  ): Promise<void> {
+    const attention = await this.conversations.setNeedsAttention({
+      conversationId: conversation._id,
+      needsAttention: true,
+      at,
+    });
+    if (attention.changed) {
+      await this.alert.raise({
+        conversationId: conversation._id,
+        campaignId: conversation.campaignId,
+        reason: "safety_keywords",
+        correlationId,
+        detail: categories,
+      });
+    }
   }
 
   private async withdrawFeedbackOptIn(

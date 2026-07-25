@@ -33,8 +33,14 @@ import type {
  * 4. a subject must be in the **current** candidate set and must not be the
  *    respondent — an unresolvable mention degrades (D18), never guesses;
  * 5. nothing already recorded is written twice;
- * 6. lifecycle, control and opt-in decide whether a reply may be produced;
- * 7. a safety signal or handoff suppresses ordinary notes entirely (D13).
+ * 6. lifecycle, control and opt-in decide whether a reply may be produced.
+ *
+ * Note what is *not* a rule any more. D13 as amended routes safety-flavoured
+ * content through this same path: a disclosure becomes an ordinary, visible
+ * note like any other statement. Suppressing those notes made the worst
+ * material the least visible — the operator saw a flag and an empty results
+ * pane, and the participant's own words survived nowhere. `safetySignal` now
+ * raises attention (the extractor's job) without editing what is recorded.
  */
 export function validateFeedbackExtractionProposal(
   proposal: FeedbackExtractionProposal,
@@ -47,10 +53,6 @@ export function validateFeedbackExtractionProposal(
   const candidateIds = new Set(
     context.candidates.map((candidate) => candidate.participantId),
   );
-  // A safety disclosure is routed to a human, so it must not also be filed as
-  // an ordinary product note (D13). Structured answers survive: an `avoid`
-  // preference stated alongside a disclosure is still real product data.
-  const notesSuppressed = proposal.safetySignal || proposal.handoff;
 
   const answers = validateAnswers(
     proposal.answers,
@@ -59,15 +61,13 @@ export function validateFeedbackExtractionProposal(
     candidateIds,
     rejections,
   );
-  const notes = notesSuppressed
-    ? suppressNotes(proposal.notes, rejections)
-    : validateNotes(
-        proposal.notes,
-        context,
-        messagesById,
-        candidateIds,
-        rejections,
-      );
+  const notes = validateNotes(
+    proposal.notes,
+    context,
+    messagesById,
+    candidateIds,
+    rejections,
+  );
 
   const answeredKeys = new Set<PostEventFeedbackAnswerQuestionKey>([
     ...context.acceptedAnswers.map((answer) => answer.questionKey),
@@ -290,20 +290,6 @@ function validateNotes(
   }
 
   return accepted;
-}
-
-function suppressNotes(
-  proposals: readonly FeedbackExtractionNoteProposal[],
-  rejections: FeedbackExtractionRejection[],
-): ValidatedFeedbackNote[] {
-  for (const proposal of proposals) {
-    rejections.push({
-      scope: "note",
-      reason: "safety_note_suppressed",
-      noteType: proposal.noteType,
-    });
-  }
-  return [];
 }
 
 /**

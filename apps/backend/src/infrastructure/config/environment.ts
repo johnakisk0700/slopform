@@ -319,6 +319,20 @@ export const environmentSchema = observabilityEnvironmentSchema
       emptyStringToUndefined,
       z.coerce.number().int().min(1).max(1440).default(5),
     ),
+    /**
+     * Delivery channel for the operator alert raised when a conversation first
+     * needs attention (safety tripwire or a permanently failed extraction).
+     * `log` emits a structured `feedback.operator_alert` line; `off` disables
+     * notification while `needsAttention` still records the state durably.
+     *
+     * The named extension point is a future WhatsApp adapter — it stays out of
+     * scope until it has an operator-number configuration, a rate limit and a
+     * privacy review.
+     */
+    FEEDBACK_OPERATOR_ALERT_MODE: z.preprocess(
+      emptyStringToUndefined,
+      z.enum(["log", "off"]).default("log"),
+    ),
     BULL_BOARD_ENABLED: booleanFromEnvironment,
     BULL_BOARD_USERNAME: optionalCredential,
     BULL_BOARD_PASSWORD: optionalCredential,

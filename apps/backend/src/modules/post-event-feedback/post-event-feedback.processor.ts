@@ -13,7 +13,11 @@ import {
   MessageOutboxNotFoundError,
 } from "./message-outbox-delivery.service.js";
 import { MessageOutboxRelayService } from "./message-outbox-relay.service.js";
-import { FeedbackExtractionGenerationError } from "./post-event-feedback-extraction.service.js";
+import { PostEventFeedbackExtractionFallback } from "./post-event-feedback-extraction-fallback.service.js";
+import {
+  FeedbackExtractionGenerationError,
+  type FeedbackExtractionFailureCause,
+} from "./post-event-feedback-extraction.service.js";
 import {
   PostEventFeedbackCampaignNotFoundError,
   PostEventFeedbackConversationNotFoundError,
@@ -60,6 +64,7 @@ export class PostEventFeedbackProcessor extends WorkerHost {
     private readonly delivery: MessageOutboxDeliveryService,
     private readonly extractor: PostEventFeedbackExtractor,
     private readonly sweeps: PostEventFeedbackSweepService,
+    private readonly fallback: PostEventFeedbackExtractionFallback,
   ) {
     super();
   }
@@ -135,7 +140,13 @@ export class PostEventFeedbackProcessor extends WorkerHost {
 
       if (job.name === FEEDBACK_JOB_NAMES.extractV1) {
         const data = feedbackExtractJobDataSchema.parse(job.data);
-        const result = await this.extractor.extract(data);
+        let result;
+        try {
+          result = await this.extractor.extract(data);
+        } catch (error) {
+          const terminal = await this.applyExtractionFallback(job, data, error);
+          throw terminal ?? error;
+        }
         this.logger.log({
           event: "feedback.extract.completed",
           jobId: job.id,
@@ -183,6 +194,71 @@ export class PostEventFeedbackProcessor extends WorkerHost {
       }
       throw error;
     }
+  }
+
+  /**
+   * The last thing a dying extraction run does.
+   *
+   * A run is terminal when the provider rejected it permanently or when BullMQ
+   * has no attempt left. Either way the model will not speak for this
+   * conversation, so the deterministic fallback records what it can — attention,
+   * one ordinary note, one acknowledgement — before the job is buried.
+   *
+   * Returns the error to throw. It is an `UnrecoverableError` whose message
+   * carries the bounded cause class, so the class an operator needs is visible
+   * in the queue's `failedReason` and not only in the audit table.
+   */
+  private async applyExtractionFallback(
+    job: Job<FeedbackJobData, void, FeedbackJobName>,
+    data: { readonly conversationId: string; readonly correlationId: string },
+    error: unknown,
+  ): Promise<UnrecoverableError | undefined> {
+    // Nothing exists to attach a note to, and both are already permanent
+    // faults handled by the outer classifier.
+    if (
+      error instanceof PostEventFeedbackConversationNotFoundError ||
+      error instanceof PostEventFeedbackCampaignNotFoundError
+    ) {
+      return undefined;
+    }
+
+    const permanent =
+      error instanceof FeedbackExtractionGenerationError && !error.retryable;
+    // Mirrors the assistant worker's exhaustion test, deliberately: one
+    // convention for "this was the last attempt" across both queues.
+    const exhausted = (job.attemptsMade ?? 0) + 1 >= (job.opts?.attempts ?? 1);
+    if (!permanent && !exhausted) {
+      return undefined;
+    }
+
+    const cause = resolveExtractionFailureCause(error);
+    try {
+      await this.fallback.apply({
+        conversationId: data.conversationId,
+        correlationId: data.correlationId,
+        cause,
+      });
+    } catch (fallbackError) {
+      // The run is already lost; a failing fallback must not replace the
+      // original diagnosis with its own.
+      this.logger.error({
+        event: "feedback.extract.fallback_failed",
+        jobId: job.id,
+        correlationId: data.correlationId,
+        conversationId: data.conversationId,
+        cause,
+        error: {
+          name:
+            fallbackError instanceof Error
+              ? fallbackError.name
+              : "UnknownError",
+        },
+      });
+    }
+
+    return new UnrecoverableError(
+      `Feedback extraction failed permanently: ${cause}`,
+    );
   }
 
   @OnWorkerEvent("failed")
@@ -233,4 +309,18 @@ export class PostEventFeedbackProcessor extends WorkerHost {
       error: { name: error.name },
     });
   }
+}
+
+/**
+ * Anything that is not a classified generation failure is `unknown` on purpose.
+ * The cause class is an operator-facing summary, not an error taxonomy: it must
+ * stay small enough to act on, so a persistence fault and a bug both land in
+ * the bucket that means "read the logs".
+ */
+export function resolveExtractionFailureCause(
+  error: unknown,
+): FeedbackExtractionFailureCause {
+  return error instanceof FeedbackExtractionGenerationError
+    ? error.failureCause
+    : "unknown";
 }

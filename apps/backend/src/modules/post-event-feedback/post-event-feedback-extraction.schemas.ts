@@ -180,7 +180,6 @@ export const FEEDBACK_EXTRACTION_REJECTION_REASONS = [
   "subject_is_respondent",
   "duplicate_in_run",
   "already_recorded",
-  "safety_note_suppressed",
   "unknown_goal",
 ] as const;
 
@@ -244,9 +243,33 @@ export interface ValidatedFeedbackExtraction {
 export const POST_EVENT_FEEDBACK_HANDOFF_REPLY =
   "Σε ευχαριστούμε που μας το είπες. Κάποιος από την ομάδα μας θα επικοινωνήσει μαζί σου προσωπικά.";
 
+/**
+ * The acknowledgement half of the deterministic fallback reply.
+ *
+ * It is the first sentence of the handoff copy above, reused verbatim rather
+ * than newly authored: the fallback runs when the model could not speak, which
+ * is the worst moment to invent tone. The run appends the campaign's own
+ * current goal question after it, so the participant gets an acknowledgement
+ * plus the question the bot was already asking — and the conversation does not
+ * stall in silence.
+ */
+export const POST_EVENT_FEEDBACK_FALLBACK_ACK =
+  "Σε ευχαριστούμε που μας το είπες.";
+
+/**
+ * The generic note a permanently failed run files (D13, amended).
+ *
+ * Bounded, non-clinical and deliberately content-free: nothing was extracted,
+ * so the note may not characterise what was said. It points an operator at the
+ * conversation, which is the only honest thing it can do.
+ */
+export const POST_EVENT_FEEDBACK_FALLBACK_NOTE_TEXT =
+  "Πιθανή προσβλητική/ευαίσθητη αναφορά — δείτε τη συζήτηση.";
+
 export const FEEDBACK_REPLY_DEDUPE_PREFIX = "feedback-reply";
 export const FEEDBACK_CLOSING_DEDUPE_PREFIX = "feedback-closing";
 export const FEEDBACK_HANDOFF_DEDUPE_PREFIX = "feedback-handoff";
+export const FEEDBACK_FALLBACK_DEDUPE_PREFIX = "feedback-fallback";
 
 /**
  * One outbound per conversation per answered testimony position. A replayed run
@@ -276,4 +299,17 @@ export function createFeedbackHandoffDedupeKey(
   testimonySeq: number,
 ): string {
   return `${FEEDBACK_HANDOFF_DEDUPE_PREFIX}-${conversationId}-${testimonySeq}`;
+}
+
+/**
+ * The fallback's key, on the same testimony anchor — and it is the fence for
+ * the whole fallback effect, not just the send. The note, the audit event and
+ * the operator alert are all written in the transaction that inserts this row,
+ * so if the unique key absorbs a replay, none of them happen twice either.
+ */
+export function createFeedbackFallbackDedupeKey(
+  conversationId: string,
+  testimonySeq: number,
+): string {
+  return `${FEEDBACK_FALLBACK_DEDUPE_PREFIX}-${conversationId}-${testimonySeq}`;
 }

@@ -31,6 +31,7 @@ interface LabelsModule {
   isUnresolvedParticipant: (displayName: string | null) => boolean;
   UNKNOWN_PARTICIPANT_LABEL: string;
   chipColor: (tone: string) => string;
+  chipVariant: (emphasis: string | undefined) => string;
   deliveryBadge: (delivery: unknown) => { label: string; tone: string } | null;
   lifecycleBadge: (lifecycle: {
     state: "open" | "closed";
@@ -61,7 +62,9 @@ interface ConversationViewModule {
     visible: { id: string }[],
     requested: string | null,
   ) => string | null;
-  conversationBadges: (conversation: TestConversation) => { label: string }[];
+  conversationBadges: (
+    conversation: TestConversation,
+  ) => { key: string; label: string; tone: string; emphasis?: string }[];
 }
 
 interface PollingModule {
@@ -295,6 +298,90 @@ describe("inbox ordering and grouping", () => {
     ]);
   });
 });
+
+describe("needs-attention emphasis", () => {
+  it("marks only the attention badge as strong", () => {
+    const badges = view.conversationBadges(
+      conversation({
+        id: "a",
+        needsAttention: true,
+        control: { mode: "human" },
+      }),
+    );
+
+    expect(
+      badges.map((badge) => [badge.key, badge.emphasis ?? "normal"]),
+    ).toStrictEqual([
+      ["lifecycle", "normal"],
+      ["control", "normal"],
+      ["attention", "strong"],
+    ]);
+  });
+
+  it("keeps the attention badge on the warning tone", () => {
+    const [attention] = view
+      .conversationBadges(conversation({ id: "a", needsAttention: true }))
+      .filter((badge) => badge.key === "attention");
+
+    expect(attention).toMatchObject({
+      label: "Needs attention",
+      tone: "warning",
+      emphasis: "strong",
+    });
+  });
+
+  it("emits no attention badge when nothing needs a human", () => {
+    const badges = view.conversationBadges(
+      conversation({ id: "a", needsAttention: false }),
+    );
+
+    expect(badges.some((badge) => badge.key === "attention")).toBe(false);
+  });
+
+  it("maps emphasis onto the solid HeroUI chip variant", () => {
+    // `primary` is HeroUI's solid fill; `soft` is the tinted default every
+    // other badge keeps.
+    expect(labels.chipVariant("strong")).toBe("primary");
+    expect(labels.chipVariant("normal")).toBe("soft");
+    expect(labels.chipVariant(undefined)).toBe("soft");
+  });
+
+  it("renders the emphasis through the shared badge component", () => {
+    const badges = readSource(
+      "src/components/admin/feedback/FeedbackBadges.tsx",
+    );
+
+    // Guards against the variant being hardcoded back to "soft", which would
+    // silently drop the emphasis while every other assertion still passed.
+    expect(badges).toContain("variant={chipVariant(badge.emphasis)}");
+    expect(badges).not.toContain('variant="soft"');
+  });
+
+  it("shows the badge row on inbox rows and in the conversation header", () => {
+    expect(
+      readSource("src/components/admin/feedback/ConversationList.tsx"),
+    ).toContain("<FeedbackBadges");
+    expect(
+      readSource("src/components/admin/feedback/ConversationTranscript.tsx"),
+    ).toContain("<FeedbackBadges");
+  });
+
+  it("carries no theme branching: the tokens flip, the component does not", () => {
+    for (const file of [
+      "src/components/admin/feedback/FeedbackBadges.tsx",
+      "src/features/feedback/labels.ts",
+    ]) {
+      expect(readSource(file)).not.toContain("dark:");
+    }
+  });
+});
+
+function readSource(relativePath: string): string {
+  return readFileSync(
+    fileURLToPath(new URL(`../${relativePath}`, import.meta.url)),
+    "utf8",
+  );
+}
 
 describe("selection under polling", () => {
   it("keeps the operator's conversation while it survives the filter", () => {

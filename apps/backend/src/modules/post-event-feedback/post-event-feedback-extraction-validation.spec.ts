@@ -403,7 +403,7 @@ describe("validateFeedbackExtractionProposal", () => {
       expect(result.replySuppressedReason).toBe("empty");
     });
 
-    it("still records answers alongside a safety signal", () => {
+    it("records answers and notes alongside a safety signal (D13 amended)", () => {
       const result = validateFeedbackExtractionProposal(
         proposal({
           answers: [answer({ questionKey: "avoid" })],
@@ -413,20 +413,23 @@ describe("validateFeedbackExtractionProposal", () => {
         context(),
       );
 
-      // An avoidance preference is real product data; only the ordinary note is
-      // withheld so the disclosure reaches a human instead of a feedback table.
+      // Both survive. Suppressing the note used to make the disclosure the one
+      // thing an operator could not read; the flag is the signal, not a filter.
       expect(result.answers).toHaveLength(1);
-      expect(result.notes).toEqual([]);
+      expect(result.notes).toHaveLength(1);
+      expect(result.safetySignal).toBe(true);
+      expect(result.rejections).toEqual([]);
     });
 
-    it("suppresses notes on an explicit handoff too", () => {
+    it("records notes on an explicit handoff too", () => {
       const result = validateFeedbackExtractionProposal(
         proposal({ notes: [note()], handoff: true }),
         context(),
       );
 
-      expect(result.notes).toEqual([]);
-      expect(result.rejections[0]?.reason).toBe("safety_note_suppressed");
+      expect(result.notes).toHaveLength(1);
+      expect(result.handoff).toBe(true);
+      expect(result.rejections).toEqual([]);
     });
   });
 

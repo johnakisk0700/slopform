@@ -86,10 +86,14 @@ export function conversationBadges(
   }
 
   if (conversation.needsAttention) {
+    // The one badge that means "stop and read this": a safety disclosure or an
+    // extraction that died without recording anything. It is emphasised rather
+    // than merely coloured so it separates from the lifecycle chip beside it.
     badges.push({
       key: "attention",
       label: "Needs attention",
       tone: "warning",
+      emphasis: "strong",
     });
   }
 

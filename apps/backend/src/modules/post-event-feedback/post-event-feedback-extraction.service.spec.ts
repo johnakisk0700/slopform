@@ -1,4 +1,8 @@
-import { APICallError } from "ai";
+import {
+  APICallError,
+  NoObjectGeneratedError,
+  type LanguageModelUsage,
+} from "ai";
 import { describe, expect, it } from "vitest";
 
 import { ASSISTANT_MODEL_ADAPTERS } from "../assistant/assistant-models.js";
@@ -80,5 +84,89 @@ describe("feedback extraction failure mapping", () => {
     );
 
     expect(toGenerationError(original)).toBe(original);
+  });
+
+  // The classifier reads only `finishReason`, so usage is noise here.
+  const emptyUsage: LanguageModelUsage = {
+    inputTokens: undefined,
+    outputTokens: undefined,
+    totalTokens: undefined,
+    inputTokenDetails: {
+      noCacheTokens: undefined,
+      cacheReadTokens: undefined,
+      cacheWriteTokens: undefined,
+    },
+    outputTokenDetails: {
+      textTokens: undefined,
+      reasoningTokens: undefined,
+    },
+  };
+
+  describe("cause classification", () => {
+    it("reads a content filter as a refusal, not a schema mishap", () => {
+      // The acceptance-run failure: the provider stopped on its own policy and
+      // reported the same `extraction_failed` code a malformed object would.
+      // Only the finish reason separates "it refused" from "it fumbled".
+      const error = toGenerationError(
+        new NoObjectGeneratedError({
+          message: "No object generated",
+          response: { id: "1", timestamp: new Date(), modelId: "gemini" },
+          usage: emptyUsage,
+          finishReason: "content-filter",
+        }),
+      );
+
+      expect(error).toMatchObject({
+        code: "extraction_failed",
+        retryable: true,
+        failureCause: "provider_refusal",
+      });
+    });
+
+    it("reads a malformed object as a validation failure", () => {
+      const error = toGenerationError(
+        new NoObjectGeneratedError({
+          message: "No object generated",
+          response: { id: "1", timestamp: new Date(), modelId: "gemini" },
+          usage: emptyUsage,
+          finishReason: "stop",
+        }),
+      );
+
+      expect(error.failureCause).toBe("validation_failed");
+    });
+
+    it.each([
+      [false, "provider_refusal"],
+      [true, "provider_error"],
+    ] as const)(
+      "maps an API call error (retryable=%s) to %s",
+      (isRetryable, cause) => {
+        const error = toGenerationError(
+          new APICallError({
+            message: "provider said no",
+            url: "https://openrouter.ai",
+            requestBodyValues: {},
+            statusCode: isRetryable ? 503 : 400,
+            isRetryable,
+          }),
+        );
+
+        expect(error.failureCause).toBe(cause);
+      },
+    );
+
+    it("falls back to unknown for anything unrecognised", () => {
+      expect(toGenerationError(new Error("socket hang up")).failureCause).toBe(
+        "unknown",
+      );
+    });
+
+    it("defaults the cause when one is not supplied", () => {
+      expect(
+        new FeedbackExtractionGenerationError("provider_unavailable", false)
+          .failureCause,
+      ).toBe("unknown");
+    });
   });
 });

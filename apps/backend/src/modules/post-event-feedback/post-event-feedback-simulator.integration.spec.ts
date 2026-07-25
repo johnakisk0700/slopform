@@ -543,6 +543,7 @@ function createSimulatorHarness(): SimulatorHarness {
       new FakeAudit() as never,
       new PostEventFeedbackMetrics(),
       outboundTranscript,
+      { raise: async () => undefined },
     ),
   };
 }
