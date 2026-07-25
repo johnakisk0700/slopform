@@ -5,6 +5,10 @@ import {
   QueueModule,
   QueueWorkerModule,
 } from "../../infrastructure/queue/queue.module.js";
+import { FeedbackOutboxSchedulerService } from "./feedback-outbox-scheduler.service.js";
+import { MessageOutboxDeliveryService } from "./message-outbox-delivery.service.js";
+import { MessageOutboxDeliveryStatusService } from "./message-outbox-delivery-status.service.js";
+import { MessageOutboxRelayService } from "./message-outbox-relay.service.js";
 import { PostEventFeedbackIngressModule } from "./post-event-feedback-ingress.module.js";
 import { PostEventFeedbackIngressService } from "./post-event-feedback-ingress.service.js";
 import { PostEventFeedbackMaterializer } from "./post-event-feedback-materializer.service.js";
@@ -72,9 +76,13 @@ describe("post-event feedback process composition", () => {
       PostEventFeedbackWorkerModule,
     ) as readonly unknown[];
 
-    expect(ingressProviders).toEqual([PostEventFeedbackIngressService]);
+    expect(ingressProviders).toContain(PostEventFeedbackIngressService);
+    expect(ingressProviders).toContain(MessageOutboxDeliveryStatusService);
     expect(workerProviders).toContain(PostEventFeedbackProcessor);
     expect(workerProviders).toContain(PostEventFeedbackMaterializer);
+    expect(workerProviders).toContain(MessageOutboxRelayService);
+    expect(workerProviders).toContain(MessageOutboxDeliveryService);
+    expect(workerProviders).toContain(FeedbackOutboxSchedulerService);
     expect(workerProviders).not.toContain(PostEventFeedbackIngressService);
   });
 });

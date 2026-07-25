@@ -126,7 +126,7 @@ export const wasenderWebhookAcknowledgementSchema = z
     recordedCount: z.number().int().nonnegative(),
     /** Group, newsletter and unrecognized chats, never stored. */
     skippedCount: z.number().int().nonnegative(),
-    /** Delivery-status events; the outbox relay consumes them (WP6). */
+    /** Delivery-status events applied to outbox delivery columns (WP6). */
     deferredCount: z.number().int().nonnegative(),
   })
   .strict();

@@ -23,9 +23,13 @@ import {
   type ProviderMessageIngressRow,
   type ProviderMessageProcessingStatus,
 } from "@join-the-six/database";
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lte, or, sql } from "drizzle-orm";
 
 import { DatabaseService } from "../../infrastructure/database/database.service.js";
+
+/** Stale `sending` rows older than this are reclaimed for re-enqueue / reconcile. */
+export const FEEDBACK_OUTBOX_RECOVERY_MS = 5 * 60_000;
+export const FEEDBACK_OUTBOX_BATCH_SIZE = 50;
 
 type DatabaseExecutor = AppTransaction | DatabaseService["db"];
 
@@ -578,10 +582,10 @@ export class PostEventFeedbackRepository {
     return cancelled.length;
   }
 
-  /** Claims the next due outbox row for relay (WP6). Status remains filterable. */
+  /** Lists due outbox rows without locking. Prefer `claimOutboxBatch` for relay. */
   async listDueOutbox(
     statuses: readonly MessageOutboxStatus[] = ["pending"],
-    limit = 50,
+    limit = FEEDBACK_OUTBOX_BATCH_SIZE,
     executor: DatabaseExecutor = this.database.db,
   ): Promise<MessageOutboxRow[]> {
     return executor
@@ -590,6 +594,91 @@ export class PostEventFeedbackRepository {
       .where(inArray(messageOutbox.status, [...statuses]))
       .orderBy(asc(messageOutbox.createdAt), asc(messageOutbox.id))
       .limit(limit);
+  }
+
+  /**
+   * Leases due outbox rows with `FOR UPDATE SKIP LOCKED`. `held` rows are never
+   * selected. Stale `sending` rows past the recovery horizon are reclaimed so a
+   * lost BullMQ job can be republished; the deliver consumer reconciles before
+   * ever calling send again.
+   */
+  async claimOutboxBatch(
+    now: Date,
+    limit = FEEDBACK_OUTBOX_BATCH_SIZE,
+    recoveryMs = FEEDBACK_OUTBOX_RECOVERY_MS,
+  ): Promise<MessageOutboxRow[]> {
+    return this.database.transaction(async (transaction) => {
+      const recoveryBefore = new Date(now.getTime() - recoveryMs);
+      const candidates = await transaction
+        .select()
+        .from(messageOutbox)
+        .where(
+          or(
+            eq(messageOutbox.status, "pending"),
+            and(
+              eq(messageOutbox.status, "sending"),
+              lte(messageOutbox.updatedAt, recoveryBefore),
+            ),
+          ),
+        )
+        .orderBy(asc(messageOutbox.createdAt), asc(messageOutbox.id))
+        .limit(limit)
+        .for("update", { skipLocked: true });
+
+      if (candidates.length === 0) {
+        return [];
+      }
+
+      return transaction
+        .update(messageOutbox)
+        .set({ status: "sending", updatedAt: now })
+        .where(
+          inArray(
+            messageOutbox.id,
+            candidates.map((candidate) => candidate.id),
+          ),
+        )
+        .returning();
+    });
+  }
+
+  /**
+   * Returns a leased row to `pending` after a failed enqueue, but only when no
+   * provider attempt has been recorded. An unknown-outcome attempt stays in
+   * `sending` so recovery reconciles instead of releasing it for a blind retry.
+   */
+  async releaseOutboxLease(
+    id: string,
+    now = new Date(),
+  ): Promise<MessageOutboxRow | undefined> {
+    const [record] = await this.database.db
+      .update(messageOutbox)
+      .set({ status: "pending", updatedAt: now })
+      .where(
+        and(
+          eq(messageOutbox.id, id),
+          eq(messageOutbox.status, "sending"),
+          isNull(messageOutbox.deliveryStatus),
+          isNull(messageOutbox.providerLogId),
+          isNull(messageOutbox.providerMessageId),
+        ),
+      )
+      .returning();
+
+    return record;
+  }
+
+  async findOutboxByProviderLogId(
+    providerLogId: string,
+    executor: DatabaseExecutor = this.database.db,
+  ): Promise<MessageOutboxRow | undefined> {
+    const [record] = await executor
+      .select()
+      .from(messageOutbox)
+      .where(eq(messageOutbox.providerLogId, providerLogId))
+      .limit(1);
+
+    return record;
   }
 
   /** Advisory lock helper for later campaign/outbox coordination. */

@@ -1,7 +1,7 @@
 # Wasender transport and webhook boundary
 
-Status: transport adapter, opt-in HTTP edge and durable ingress consumer
-implemented; outbound sending still deferred. Last verified: **2026-07-25**
+Status: transport adapter, opt-in HTTP edge, durable ingress consumer and
+paced outbound feedback transport implemented. Last verified: **2026-07-25**
 against the official Wasender API documentation. The implementation uses Node 24
 `fetch`, not the pre-1.0 Wasender Node SDK.
 
@@ -13,21 +13,22 @@ replacement. This boundary owns authenticated provider calls, bounded response
 validation, webhook authentication and normalization of provider payloads.
 
 It does not own conversations, participant matching, AI feedback state, retries,
-consent, a staff inbox or an admin UI. The webhook controller now hands each
-normalized observation to the post-event feedback ingress service instead of
-discarding it, but the adapter itself still writes nothing: the durable row, the
-queue job and every domain decision belong to that module. The Wasender
-dashboard is not treated as a shared-inbox product. Its message-log API
-contains messages sent through the Wasender API only, and content/recipient
-logging depends on a session setting; it is not a backfill source for WhatsApp
-Business/Web or WordPress history.
+consent, a staff inbox or an admin UI. The webhook controller hands each
+normalized observation to the post-event feedback ingress service and each
+delivery-status event to the outbox delivery-status service, but the adapter
+itself still writes nothing: durable rows, queue jobs and every domain decision
+belong to that module. The Wasender dashboard is not treated as a shared-inbox
+product. Its message-log API contains messages sent through the Wasender API
+only, and content/recipient logging depends on a session setting; it is not a
+backfill source for WhatsApp Business/Web or WordPress history.
 
 The selected follow-up flow is conversational feedback inside WhatsApp. The
 accepted campaign, directed-result and human-control boundary is documented in
 the [post-event feedback module](../modules/post-event-feedback.md) and
-[ADR 0008](../../decisions/0008-post-event-feedback-conversations.md). The next
-product slice must implement that durable application boundary, not add logic
-to this provider adapter.
+[ADR 0008](../../decisions/0008-post-event-feedback-conversations.md). Outbound
+sending goes through the injectable `FeedbackTransport` port switched by
+`TRANSPORT_MODE` (`wasender` or `simulated`); AI output never calls Wasender
+directly.
 
 ## Contract
 
@@ -42,7 +43,10 @@ composition. It exposes:
 
 There are no automatic provider retries. `WASENDER_SESSION_API_KEY`
 conditionally adds the transport module to the worker graph; the HTTP graph
-never receives that credential.
+never receives that credential. `TRANSPORT_MODE=wasender` also requires that
+key and selects the paced Wasender `FeedbackTransport` adapter.
+`TRANSPORT_MODE=simulated` (default) uses a minimal in-memory sink; WP8 replaces
+that sink with a durable development store plus inject/read endpoints.
 
 When `WASENDER_WEBHOOK_ENABLED=true`, Wasender can call
 `POST /api/v1/webhooks/wasender`. The route is public with respect to Clerk but
@@ -62,18 +66,18 @@ while validating every field consumed by our code.
 After verification the controller dispatches each normalized event and answers
 with the counts it acted on:
 
-| Event                                   | Handling                                                                          |
-| --------------------------------------- | --------------------------------------------------------------------------------- |
-| `message.observed`, personal chat       | One durable ingress write and one materialize enqueue; counted as `recordedCount` |
-| `message.observed`, group or newsletter | Never stored; counted as `skippedCount`                                           |
-| `message.status-changed`                | Normalized, logged and counted as `deferredCount`; the outbox relay consumes it   |
+| Event                                   | Handling                                                                                    |
+| --------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `message.observed`, personal chat       | One durable ingress write and one materialize enqueue; counted as `recordedCount`           |
+| `message.observed`, group or newsletter | Never stored; counted as `skippedCount`                                                     |
+| `message.status-changed`                | Updates delivery columns on the correlated `message_outbox` row; counted as `deferredCount` |
 
 Feedback conversations are one-to-one chats, so group, newsletter and
 unrecognized chat kinds are dropped at the edge rather than written and later
 discarded. Text is trimmed and bounded to WhatsApp's 4096-character body limit
 before it reaches the durable row. A message the endpoint could not queue is
 answered with 503 so the provider may redeliver; the committed row stays
-`pending`.
+`pending`. Delivery status never moves backwards.
 
 ## Flow
 
@@ -81,25 +85,30 @@ answered with 503 so the provider may redeliver; the committed row stays
 flowchart LR
   WP["WordPress"] --> Wasender["Existing Wasender session"]
   Participant["Participant WhatsApp"] <--> Wasender
-  Worker["Feedback worker"] -. "sendText (WP6)" .-> Wasender
+  Worker["Feedback worker"] -->|"sendText + pacing"| Wasender
   Wasender --> Hook["Signed webhook endpoint"]
   Hook --> Normalized["Normalized transport events"]
   Normalized --> Store["Ingress row + materialize job"]
   Store --> Conversation["Feedback conversation transcript"]
   Conversation -. "WP5" .-> AI["AI extraction + reply"]
-  AI -. "outbox" .-> Worker
+  AI --> Outbox["message_outbox"]
+  Outbox --> Worker
+  Hook -->|"messages.update"| Delivery["Outbox delivery columns"]
 ```
 
 The HTTP path authenticates, validates and durably records plus enqueues an
-event before acknowledging it. The worker then resolves the conversation,
-applies STOP, appends the transcript and correlates delivery. Extraction and
-sending are separate work packages, and AI output never calls Wasender directly.
+observed event before acknowledging it. Status updates patch outbox delivery
+columns directly. The worker resolves the conversation, applies STOP, appends
+the transcript, correlates delivery and relays the outbox through the transport
+port. Extraction remains a separate work package.
 
 ## Invariants
 
 - The WordPress and backend clients share one session, API-key rotation and
   provider rate/concurrency limits. Neither side may assume it is the sole
-  sender.
+  sender. Outbound feedback sends wait on a shared-session pacer (minimum
+  interval + jitter) and campaign intro/reminder jobs are staggered in the
+  relay batch.
 - Provider IDs and event status transitions are untrusted inputs. The ingress
   table deduplicates by `(chat_jid, provider_message_id)` and the consumer
   tolerates duplicate and out-of-order delivery.
@@ -132,29 +141,32 @@ optional retry delay and delivery outcome:
 - reads carry `not-applicable` delivery outcome.
 
 Callers must not blindly retry an `unknown` send. The outbox reconciles instead:
-an observed outbound that carries no known provider message id is matched to the
-oldest unlinked row of that conversation with the same body, which marks it sent
-rather than sending it twice. A 429 can use `Retry-After`; Wasender's
-documentation is inconsistent about whether `X-RateLimit-Reset` is a delta or
-Unix timestamp, so the adapter accepts either form defensively.
+the deliver consumer parks the row with `delivery_status=pending`, keeps any
+`provider_log_id`, and on reclaim calls `getMessageInfo` before considering
+another send. An observed outbound that carries no known provider message id is
+also matched to the oldest unlinked row of that conversation with the same body,
+which marks it sent rather than sending it twice. A 429 can use `Retry-After`;
+Wasender's documentation is inconsistent about whether `X-RateLimit-Reset` is a
+delta or Unix timestamp, so the adapter accepts either form defensively.
 
 Webhook payload documentation also disagrees on whether `data.messages` is an
 object or array. The parser accepts both, but rejects unsupported event names or
 invalid consumed fields.
 
-`WASENDER_WEBHOOK_ENABLED` stays `false` by default. The durable consumer now
-exists, so enabling it is a deliberate operational decision rather than a
-missing implementation: the staging acceptance pack (linked-client outbound
-observation, provider retry behavior, session disconnect, ambiguous sends) and
-the consent/legal gate still come first.
+`WASENDER_WEBHOOK_ENABLED` stays `false` by default. The durable consumer and
+outbox relay now exist, so enabling it is a deliberate operational decision:
+the staging acceptance pack (linked-client outbound observation, provider retry
+behavior, session disconnect, ambiguous sends) and the consent/legal gate still
+come first.
 
 ## Configuration and operations
 
-| Variable                   | Process | Contract                                                          |
-| -------------------------- | ------- | ----------------------------------------------------------------- |
-| `WASENDER_SESSION_API_KEY` | worker  | Optional session-scoped bearer key; presence enables transport    |
-| `WASENDER_WEBHOOK_ENABLED` | API     | Defaults false; mounts the public route only when explicitly true |
-| `WASENDER_WEBHOOK_SECRET`  | API     | Required with the route; 32–512 chars, exact shared secret        |
+| Variable                   | Process | Contract                                                                        |
+| -------------------------- | ------- | ------------------------------------------------------------------------------- |
+| `TRANSPORT_MODE`           | worker  | `simulated` (default) or `wasender`; wasender requires the session API key      |
+| `WASENDER_SESSION_API_KEY` | worker  | Optional session-scoped bearer key; presence enables the Wasender client module |
+| `WASENDER_WEBHOOK_ENABLED` | API     | Defaults false; mounts the public route only when explicitly true               |
+| `WASENDER_WEBHOOK_SECRET`  | API     | Required with the route; 32–512 chars, exact shared secret                      |
 
 Production mounts separate secret files into the worker and API. The webhook
 URL configured in Wasender must be the public HTTPS URL. Validate the signature
@@ -166,8 +178,8 @@ actual HMAC header would correctly fail with 401 and requires a reviewed contrac
 change.
 
 The provider recommends controlled concurrency and publishes per-session rate
-limits. Future jobs must serialize or tightly bound sends for this shared
-session rather than launch one promise per participant.
+limits. Feedback sends serialize through the shared-session pacer rather than
+launching one promise per participant.
 
 ## Tests
 
@@ -176,9 +188,10 @@ normalization, no-retry ambiguous failures, redacted errors, E.164 validation,
 both webhook message shapes, all status codes, shared-secret verification,
 HTTP 200/400/401 behavior, OpenAPI and the disabled-by-default 404 contract.
 Controller tests add the dispatch contract: one ingress call per observed
-personal message, no durable write for group traffic, counted status events, a
-signature rejected before the durable boundary, and 503 when the message could
-not be queued.
+personal message, no durable write for group traffic, status events applied to
+outbox delivery columns, a signature rejected before the durable boundary, and
+503 when the message could not be queued. Transport tests cover pacing bounds
+and unknown-outcome no-retry.
 
 ## Sources and official references
 
@@ -186,7 +199,10 @@ not be queued.
   [webhook adapter](../../../apps/backend/src/integrations/wasender/wasender.webhook.ts),
   [HTTP controller](../../../apps/backend/src/integrations/wasender/wasender.controller.ts)
   and [transport module](../../../apps/backend/src/integrations/wasender/wasender-transport.module.ts)
-- [Ingress service](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-ingress.service.ts)
+- [Feedback transport port](../../../apps/backend/src/modules/post-event-feedback/feedback-transport.ts),
+  [Wasender adapter](../../../apps/backend/src/modules/post-event-feedback/wasender-feedback-transport.service.ts),
+  [simulated sink](../../../apps/backend/src/modules/post-event-feedback/simulated-feedback-transport.service.ts),
+  [ingress service](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-ingress.service.ts)
   and the [post-event feedback module](../modules/post-event-feedback.md) that
   owns everything past the normalized event
 - Wasender [session bearer authentication](https://wasenderapi.com/api-docs/authentication/how-to-authenticate-api-requests-using-bearer-tokens),

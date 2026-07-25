@@ -52,6 +52,12 @@ describe("Wasender webhook HTTP contract", () => {
 
     const { createHttpApplication } = await import("../../bootstrap-http.js");
     app = await createHttpApplication();
+    const { MessageOutboxDeliveryStatusService } =
+      await import("../../modules/post-event-feedback/message-outbox-delivery-status.service.js");
+    vi.spyOn(
+      app.get(MessageOutboxDeliveryStatusService),
+      "applyStatusChange",
+    ).mockResolvedValue({ outcome: "unmatched" });
     await app.listen(0, "127.0.0.1");
     const address = app.getHttpServer().address() as AddressInfo;
     baseUrl = `http://127.0.0.1:${address.port}`;
@@ -76,9 +82,8 @@ describe("Wasender webhook HTTP contract", () => {
     const response = await postWebhook(validPayload, webhookSecret);
 
     expect(response.status).toBe(200);
-    // Delivery status is normalized and counted here; the outbox relay (WP6)
-    // consumes it. Nothing durable is written for a status event, so this case
-    // needs no database.
+    // Delivery status updates outbox delivery columns when correlated (WP6).
+    // Unmatched status events remain a counted no-op without durable writes.
     await expect(response.json()).resolves.toEqual({
       received: true,
       eventCount: 1,

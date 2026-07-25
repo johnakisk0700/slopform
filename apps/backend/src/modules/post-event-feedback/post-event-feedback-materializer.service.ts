@@ -2,7 +2,6 @@ import { InjectQueue } from "@nestjs/bullmq";
 import { Injectable, Logger } from "@nestjs/common";
 import type {
   AppTransaction,
-  MessageOutboxDeliveryStatus,
   MessageOutboxRow,
   ProviderMessageIngressRow,
 } from "@join-the-six/database";
@@ -17,6 +16,7 @@ import {
 } from "../conversations/feedback-conversation.repository.js";
 import type { FeedbackConversationDocument } from "../conversations/feedback-conversation.schemas.js";
 import { ParticipantsRepository } from "../participants/participants.repository.js";
+import { coalesceDeliveryStatus } from "./message-outbox-delivery-status.js";
 import {
   PostEventFeedbackMetrics,
   type FeedbackMaterializeOutcome,
@@ -54,15 +54,6 @@ export interface MaterializeFeedbackIngressResult {
 }
 
 export const FEEDBACK_STOP_ACK_DEDUPE_PREFIX = "feedback-stop-ack";
-
-const DELIVERY_STATUS_RANK: Record<MessageOutboxDeliveryStatus, number> = {
-  error: 0,
-  pending: 1,
-  sent: 2,
-  delivered: 3,
-  read: 4,
-  played: 5,
-};
 
 /**
  * The durable consumer behind the webhook (D7). It reloads every authoritative
@@ -352,7 +343,10 @@ export class PostEventFeedbackMaterializer {
     if (correlated) {
       await this.withPendingIngress(ingress.id, async (transaction) => {
         await this.repository.updateOutboxDelivery(transaction, correlated.id, {
-          deliveryStatus: nextDeliveryStatus(correlated.deliveryStatus),
+          deliveryStatus: coalesceDeliveryStatus(
+            correlated.deliveryStatus,
+            "sent",
+          ),
           providerMessageId: ingress.providerMessageId,
           sentAt: correlated.sentAt ?? ingress.observedAt,
           ...(correlated.status === "pending" ||
@@ -556,15 +550,6 @@ export class PostEventFeedbackMaterializer {
     this.metrics.recordMaterializeOutcome(result.outcome, correlationId);
     return result;
   }
-}
-
-function nextDeliveryStatus(
-  current: string | null,
-): MessageOutboxDeliveryStatus {
-  const known = current as MessageOutboxDeliveryStatus | null;
-  return known && DELIVERY_STATUS_RANK[known] > DELIVERY_STATUS_RANK.sent
-    ? known
-    : "sent";
 }
 
 /**

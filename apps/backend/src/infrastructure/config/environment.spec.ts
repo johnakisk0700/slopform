@@ -30,6 +30,7 @@ describe("validateEnvironment", () => {
     expect(environment.WASENDER_SESSION_API_KEY).toBeUndefined();
     expect(environment.WASENDER_WEBHOOK_ENABLED).toBe(false);
     expect(environment.WASENDER_WEBHOOK_SECRET).toBeUndefined();
+    expect(environment.TRANSPORT_MODE).toBe("simulated");
     expect(environment.MONGODB_URI).toBe(
       "mongodb://localhost:27017/join_the_six",
     );
@@ -375,5 +376,25 @@ describe("validateEnvironment", () => {
     expect(isWasenderTransportEnabled({ WASENDER_SESSION_API_KEY: "  " })).toBe(
       false,
     );
+    expect(isWasenderTransportEnabled({ TRANSPORT_MODE: "wasender" })).toBe(
+      true,
+    );
+  });
+
+  it("requires a Wasender session key when TRANSPORT_MODE=wasender", () => {
+    expect(() =>
+      validateEnvironment({
+        ...requiredEnvironment,
+        TRANSPORT_MODE: "wasender",
+      }),
+    ).toThrow(/WASENDER_SESSION_API_KEY is required/);
+
+    expect(
+      validateEnvironment({
+        ...requiredEnvironment,
+        TRANSPORT_MODE: "wasender",
+        WASENDER_SESSION_API_KEY: "session-key",
+      }).TRANSPORT_MODE,
+    ).toBe("wasender");
   });
 });

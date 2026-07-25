@@ -16,6 +16,7 @@ import type { Request } from "express";
 import { ZodResponse } from "nestjs-zod";
 
 import { Public } from "../../infrastructure/auth/public.decorator.js";
+import { MessageOutboxDeliveryStatusService } from "../../modules/post-event-feedback/message-outbox-delivery-status.service.js";
 import {
   PostEventFeedbackEnqueueError,
   PostEventFeedbackIngressService,
@@ -47,13 +48,14 @@ export class WasenderWebhookController {
     private readonly verifier: WasenderWebhookSignatureVerifier,
     private readonly parser: WasenderWebhookParser,
     private readonly ingress: PostEventFeedbackIngressService,
+    private readonly deliveryStatus: MessageOutboxDeliveryStatusService,
   ) {}
 
   /**
    * The provider-facing edge (D8): authenticate, normalize, then perform one
    * durable ingress write and one materialize enqueue per observed personal
-   * message. Matching, transcripts, STOP and delivery correlation all belong to
-   * the worker, so this request never touches conversation state.
+   * message. Status updates patch delivery columns on the correlated outbox
+   * row. Matching, transcripts and STOP belong to the worker.
    */
   @Post()
   @HttpCode(HttpStatus.OK)
@@ -76,14 +78,17 @@ export class WasenderWebhookController {
 
     for (const event of events) {
       if (event.type !== "message.observed") {
-        // Delivery status belongs to the outbox relay (WP6). It is counted and
-        // logged rather than silently dropped, but it is not consumed yet.
-        deferredCount += 1;
-        this.logger.log({
-          event: "wasender.webhook.status_deferred",
+        await this.deliveryStatus.applyStatusChange(
+          {
+            providerMessageId: event.providerMessageId,
+            status: event.status,
+            occurredAt: new Date(event.occurredAt),
+          },
           correlationId,
-          providerStatus: event.status,
-        });
+        );
+        // Counted for acknowledgement parity; unmatched status events are a
+        // no-op when no outbox row has that provider message id yet.
+        deferredCount += 1;
         continue;
       }
 

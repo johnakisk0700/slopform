@@ -77,10 +77,12 @@ hooks before the application loads those libraries.
   secret mounted only into API and worker. MongoDB is part of readiness because
   conversation content cannot fall back to PostgreSQL.
 - `WASENDER_SESSION_API_KEY` is an optional worker-only session bearer key.
+  `TRANSPORT_MODE` selects the feedback outbound adapter (`simulated` default,
+  or `wasender` which requires the session key).
   `WASENDER_WEBHOOK_ENABLED=true` separately requires a 32-character minimum
   `WASENDER_WEBHOOK_SECRET` and mounts the public provider callback only in the
   HTTP graph. See [Wasender integration](wasender.md); leave the webhook off
-  until normalized events have a durable consumer.
+  until staging acceptance and the consent gate pass.
 - Add new variables to the Zod contract, tests, applicable example/deployment
   configuration and this page when behavior changes. Services do not read
   scattered `process.env` values.

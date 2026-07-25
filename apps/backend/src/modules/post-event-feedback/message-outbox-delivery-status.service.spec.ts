@@ -1,0 +1,108 @@
+import { describe, expect, it, vi } from "vitest";
+
+import type { DatabaseService } from "../../infrastructure/database/database.service.js";
+import { MessageOutboxDeliveryStatusService } from "./message-outbox-delivery-status.service.js";
+import type { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
+
+const outboxId = "66de52a8-1a26-4cbb-b8d1-fcf8bdc2dd51";
+
+describe("MessageOutboxDeliveryStatusService", () => {
+  it("upgrades delivery columns on a correlated outbox row", async () => {
+    const repository = {
+      findOutboxByProviderMessageId: vi.fn().mockResolvedValue({
+        id: outboxId,
+        status: "sent",
+        deliveryStatus: "sent",
+        sentAt: new Date("2026-07-25T00:00:00.000Z"),
+        deliveredAt: null,
+        readAt: null,
+        playedAt: null,
+      }),
+      updateOutboxDelivery: vi.fn().mockResolvedValue(undefined),
+    };
+    const database = {
+      transaction: vi.fn(async (work: (tx: unknown) => Promise<unknown>) =>
+        work({}),
+      ),
+    };
+    const service = new MessageOutboxDeliveryStatusService(
+      database as unknown as DatabaseService,
+      repository as unknown as PostEventFeedbackRepository,
+    );
+
+    await expect(
+      service.applyStatusChange(
+        {
+          providerMessageId: "wamid.1",
+          status: "delivered",
+          occurredAt: new Date("2026-07-25T00:01:00.000Z"),
+        },
+        "correlation-1",
+      ),
+    ).resolves.toEqual({ outcome: "updated", outboxId });
+
+    expect(repository.updateOutboxDelivery).toHaveBeenCalledWith(
+      expect.anything(),
+      outboxId,
+      expect.objectContaining({
+        deliveryStatus: "delivered",
+        status: "sent",
+        deliveredAt: new Date("2026-07-25T00:01:00.000Z"),
+      }),
+    );
+  });
+
+  it("never downgrades a later delivery status", async () => {
+    const repository = {
+      findOutboxByProviderMessageId: vi.fn().mockResolvedValue({
+        id: outboxId,
+        status: "sent",
+        deliveryStatus: "read",
+        sentAt: new Date("2026-07-25T00:00:00.000Z"),
+        deliveredAt: new Date("2026-07-25T00:01:00.000Z"),
+        readAt: new Date("2026-07-25T00:02:00.000Z"),
+        playedAt: null,
+      }),
+      updateOutboxDelivery: vi.fn(),
+    };
+    const service = new MessageOutboxDeliveryStatusService(
+      { transaction: vi.fn() } as unknown as DatabaseService,
+      repository as unknown as PostEventFeedbackRepository,
+    );
+
+    await expect(
+      service.applyStatusChange(
+        {
+          providerMessageId: "wamid.1",
+          status: "delivered",
+          occurredAt: new Date("2026-07-25T00:03:00.000Z"),
+        },
+        "correlation-1",
+      ),
+    ).resolves.toEqual({ outcome: "unchanged", outboxId });
+    expect(repository.updateOutboxDelivery).not.toHaveBeenCalled();
+  });
+
+  it("reports unmatched provider message ids without writing", async () => {
+    const repository = {
+      findOutboxByProviderMessageId: vi.fn().mockResolvedValue(undefined),
+      updateOutboxDelivery: vi.fn(),
+    };
+    const service = new MessageOutboxDeliveryStatusService(
+      { transaction: vi.fn() } as unknown as DatabaseService,
+      repository as unknown as PostEventFeedbackRepository,
+    );
+
+    await expect(
+      service.applyStatusChange(
+        {
+          providerMessageId: "wamid.missing",
+          status: "sent",
+          occurredAt: new Date(),
+        },
+        "correlation-1",
+      ),
+    ).resolves.toEqual({ outcome: "unmatched" });
+    expect(repository.updateOutboxDelivery).not.toHaveBeenCalled();
+  });
+});

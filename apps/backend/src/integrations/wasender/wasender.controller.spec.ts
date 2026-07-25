@@ -9,6 +9,7 @@ import {
   PostEventFeedbackEnqueueError,
   type PostEventFeedbackIngressService,
 } from "../../modules/post-event-feedback/post-event-feedback-ingress.service.js";
+import type { MessageOutboxDeliveryStatusService } from "../../modules/post-event-feedback/message-outbox-delivery-status.service.js";
 import { WasenderWebhookController } from "./wasender.controller.js";
 import type {
   WasenderCorrelationIdDto,
@@ -113,7 +114,7 @@ describe("WasenderWebhookController", () => {
   });
 
   it("counts delivery-status events instead of discarding them", async () => {
-    const { controller, ingress } = createController();
+    const { controller, ingress, deliveryStatus } = createController();
 
     await expect(
       controller.receive(
@@ -134,6 +135,14 @@ describe("WasenderWebhookController", () => {
       ),
     ).resolves.toMatchObject({ recordedCount: 0, deferredCount: 1 });
     expect(ingress.recordObservedMessage).not.toHaveBeenCalled();
+    expect(deliveryStatus.applyStatusChange).toHaveBeenCalledWith(
+      {
+        providerMessageId: "provider-message-3",
+        status: "delivered",
+        occurredAt: new Date(1_747_775_431_467),
+      },
+      "correlation-1",
+    );
   });
 
   it("asks the provider to redeliver when the message could not be queued", async () => {
@@ -161,11 +170,15 @@ describe("WasenderWebhookController", () => {
 function createController(failure?: Error): {
   controller: WasenderWebhookController;
   ingress: { recordObservedMessage: ReturnType<typeof vi.fn> };
+  deliveryStatus: { applyStatusChange: ReturnType<typeof vi.fn> };
 } {
   const ingress = {
     recordObservedMessage: failure
       ? vi.fn().mockRejectedValue(failure)
       : vi.fn().mockResolvedValue({ ingressId: "ingress-1", inserted: true }),
+  };
+  const deliveryStatus = {
+    applyStatusChange: vi.fn().mockResolvedValue({ outcome: "unmatched" }),
   };
 
   return {
@@ -173,7 +186,9 @@ function createController(failure?: Error): {
       new WasenderWebhookSignatureVerifier(secret),
       new WasenderWebhookParser(),
       ingress as unknown as PostEventFeedbackIngressService,
+      deliveryStatus as unknown as MessageOutboxDeliveryStatusService,
     ),
     ingress,
+    deliveryStatus,
   };
 }

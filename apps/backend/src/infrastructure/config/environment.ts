@@ -278,6 +278,16 @@ export const environmentSchema = observabilityEnvironmentSchema
     WASENDER_SESSION_API_KEY: optionalCredential,
     WASENDER_WEBHOOK_ENABLED: booleanFromEnvironment,
     WASENDER_WEBHOOK_SECRET: optionalWebhookSecret,
+    /**
+     * Outbound feedback transport. `simulated` is the local-first default
+     * (D2); `wasender` requires `WASENDER_SESSION_API_KEY`. WP8 replaces the
+     * in-memory simulated sink with a durable one — do not point production
+     * traffic at simulated.
+     */
+    TRANSPORT_MODE: z.preprocess(
+      emptyStringToUndefined,
+      z.enum(["simulated", "wasender"]).default("simulated"),
+    ),
     BULL_BOARD_ENABLED: booleanFromEnvironment,
     BULL_BOARD_USERNAME: optionalCredential,
     BULL_BOARD_PASSWORD: optionalCredential,
@@ -313,6 +323,18 @@ export const environmentSchema = observabilityEnvironmentSchema
         message:
           "WASENDER_WEBHOOK_SECRET is required when the Wasender webhook is enabled",
         path: ["WASENDER_WEBHOOK_ENABLED"],
+      });
+    }
+
+    if (
+      environment.TRANSPORT_MODE === "wasender" &&
+      !environment.WASENDER_SESSION_API_KEY
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "WASENDER_SESSION_API_KEY is required when TRANSPORT_MODE=wasender",
+        path: ["TRANSPORT_MODE"],
       });
     }
 
@@ -439,5 +461,8 @@ export function isWasenderWebhookEnabled(
 export function isWasenderTransportEnabled(
   environment: NodeJS.ProcessEnv,
 ): boolean {
-  return Boolean(environment.WASENDER_SESSION_API_KEY?.trim());
+  return (
+    Boolean(environment.WASENDER_SESSION_API_KEY?.trim()) ||
+    environment.TRANSPORT_MODE?.trim().toLowerCase() === "wasender"
+  );
 }

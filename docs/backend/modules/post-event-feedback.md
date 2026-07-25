@@ -3,9 +3,9 @@
 Status: architecture accepted in
 [ADR 0008](../../decisions/0008-post-event-feedback-conversations.md);
 **WP0 product contract**, **WP1 stub events**, **WP2 PostgreSQL persistence**,
-**WP3 Mongo conversation schema v2** and **WP4 ingress + materialization** are
-landed. Extraction, sending, campaign launch and the admin inbox remain later
-work packages. Plan amendments in
+**WP3 Mongo conversation schema v2**, **WP4 ingress + materialization** and
+**WP6 outbox relay + transport** are landed. Extraction, campaign launch and the
+admin inbox remain later work packages. Plan amendments in
 [`POST_EVENT_FEEDBACK_PLAN_2026-07-25.md`](../../../POST_EVENT_FEEDBACK_PLAN_2026-07-25.md)
 §9 supersede frozen candidate snapshots with live D16 selection.
 
@@ -200,9 +200,9 @@ review.
 No worker remains alive while waiting for a reply. Bounded jobs reload durable
 state and are safe to retry.
 
-Durable acknowledgement, cross-store replay and ambiguous-send reconciliation
-now exist (WP4). Webhook activation still waits on outbox delivery (WP6) and on
-the staging acceptance and consent gates, not on missing recovery machinery.
+Durable acknowledgement, cross-store replay, ambiguous-send reconciliation and
+the outbox relay now exist (WP4/WP6). Webhook activation still waits on the
+staging acceptance and consent gates, not on missing recovery machinery.
 Nothing claims exactly-once: replay repairs forward, and a stalled job can
 repeat an idempotent step.
 
@@ -342,11 +342,11 @@ stays `pending` and is recovered by a provider redelivery; a sweep for
 
 ### Boundaries this package deliberately keeps
 
-Extraction, outbox relay and sending, reminders, expiry and campaign launch are
-not implemented here. `feedback.extract.v1` has a fixed name, payload and job id
-so materialization can enqueue it today; the processor branch only records the
-job until WP5 replaces it. Delivery-status webhooks (`messages.update`) are
-normalized and counted at the edge but consumed by WP6.
+Extraction, reminders, expiry and campaign launch are not implemented here.
+`feedback.extract.v1` has a fixed name, payload and job id so materialization
+can enqueue it today; the processor branch only records the job until WP5
+replaces it. Delivery-status webhooks (`messages.update`) update outbox delivery
+columns through WP6.
 
 Materialization outcomes are counted in a process-local counter surfaced as
 structured log events. The deployment exports traces only, so this is a counter
@@ -362,6 +362,55 @@ metadata only, outbound correlation without transcript duplication, a delivery
 status that must not be downgraded, and the external-outbound takeover. Process
 composition tests keep the consumer out of the HTTP graph and the producer edge
 gated with the webhook route.
+
+## WP6 outbox relay and transport (implemented)
+
+The email-style lease relay for `message_outbox`, plus the injectable outbound
+transport boundary.
+
+### Relay and deliver
+
+[`MessageOutboxRelayService`](../../../apps/backend/src/modules/post-event-feedback/message-outbox-relay.service.ts)
+leases due rows with `FOR UPDATE SKIP LOCKED`:
+
+- `pending` rows are claimed into `sending`;
+- `held` rows are never leased (D5 supervised mode stays a config away);
+- stale `sending` rows past a five-minute recovery horizon are reclaimed so a
+  lost BullMQ job can be republished under the same
+  `feedback-deliver-v1-<outboxId>` key.
+
+A five-second scheduler publishes `feedback.relay-outbox.v1`. Campaign
+`intro`/`reminder` jobs in the same batch receive a staggered BullMQ delay.
+STOP/expiry cancellations flip `pending` and `held` rows to `cancelled` through
+the existing repository helper; a deliver job that finds `cancelled` or `held`
+exits without sending.
+
+[`MessageOutboxDeliveryService`](../../../apps/backend/src/modules/post-event-feedback/message-outbox-delivery.service.ts)
+reloads the conversation phone and sends through `FeedbackTransport`. An
+unknown provider outcome parks the row (`delivery_status=pending`, keep any
+`provider_log_id`) and never calls send again: recovery reconciles via
+`getMessageInfo` or waits for the WP4 upsert body-correlation path.
+
+### Transport boundary
+
+| `TRANSPORT_MODE` | Adapter                                                                                      |
+| ---------------- | -------------------------------------------------------------------------------------------- |
+| `simulated`      | In-memory sink, clearly marked as temporary until WP8's durable sink + inject/read endpoints |
+| `wasender`       | `WasenderClient.sendText` behind a shared-session pacer (minimum interval + jitter)          |
+
+No development HTTP inject/read endpoints are part of this package.
+
+### `messages.update`
+
+The webhook edge applies status events to the correlated outbox row's delivery
+columns (never downgrading). Unmatched provider message ids are a counted
+no-op until an accepted send or upsert correlation has stored the id.
+
+### WP6 tests
+
+Lease / stable job-id idempotency, campaign stagger, session pacing bounds,
+unknown-outcome no-retry, cancel-on-STOP statuses, and delivery-status upgrade
+without downgrade.
 
 ## WP3 conversation persistence (implemented)
 
@@ -384,8 +433,9 @@ What it settles for this module:
 - `phoneAtLaunch` plus a partial unique index, which is what makes inbound
   phone resolution unambiguous instead of a guess.
 
-Webhook ingestion and the `feedback` queue landed in WP4 on top of it.
-Extraction, sending, reminders and the admin UI remain unimplemented.
+Webhook ingestion, the `feedback` queue and the outbox relay landed in WP4/WP6
+on top of it. Extraction, reminders, campaign launch and the admin UI remain
+unimplemented.
 
 ## Decisions and references
 

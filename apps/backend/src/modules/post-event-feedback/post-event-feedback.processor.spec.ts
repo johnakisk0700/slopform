@@ -8,6 +8,8 @@ import {
   PostEventFeedbackIngressNotFoundError,
   type PostEventFeedbackMaterializer,
 } from "./post-event-feedback-materializer.service.js";
+import type { MessageOutboxDeliveryService } from "./message-outbox-delivery.service.js";
+import type { MessageOutboxRelayService } from "./message-outbox-relay.service.js";
 import { PostEventFeedbackProcessor } from "./post-event-feedback.processor.js";
 import {
   createFeedbackMaterializeJobId,
@@ -136,6 +138,8 @@ function createProcessor(materializer: {
 }): PostEventFeedbackProcessor {
   return new PostEventFeedbackProcessor(
     materializer as unknown as PostEventFeedbackMaterializer,
+    { relay: vi.fn() } as unknown as MessageOutboxRelayService,
+    { deliver: vi.fn() } as unknown as MessageOutboxDeliveryService,
   );
 }
 

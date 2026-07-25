@@ -10,6 +10,8 @@ import { FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH } from "../conversations/
 export const FEEDBACK_JOB_NAMES = {
   materializeV1: "feedback.materialize.v1",
   extractV1: "feedback.extract.v1",
+  relayOutboxV1: "feedback.relay-outbox.v1",
+  deliverV1: "feedback.deliver.v1",
 } as const;
 
 export const FEEDBACK_JOB_SCHEMA_VERSION = 1;
@@ -37,14 +39,36 @@ export const feedbackExtractJobDataSchema = z
   })
   .strict();
 
+export const feedbackRelayJobDataSchema = z
+  .object({
+    schemaVersion: z.literal(FEEDBACK_JOB_SCHEMA_VERSION),
+    correlationId: feedbackCorrelationIdSchema,
+  })
+  .strict();
+
+export const feedbackDeliverJobDataSchema = z
+  .object({
+    schemaVersion: z.literal(FEEDBACK_JOB_SCHEMA_VERSION),
+    outboxId: z.uuid(),
+    correlationId: feedbackCorrelationIdSchema,
+  })
+  .strict();
+
 export type FeedbackMaterializeJobData = z.infer<
   typeof feedbackMaterializeJobDataSchema
 >;
 export type FeedbackExtractJobData = z.infer<
   typeof feedbackExtractJobDataSchema
 >;
+export type FeedbackRelayJobData = z.infer<typeof feedbackRelayJobDataSchema>;
+export type FeedbackDeliverJobData = z.infer<
+  typeof feedbackDeliverJobDataSchema
+>;
 export type FeedbackJobData =
-  FeedbackMaterializeJobData | FeedbackExtractJobData;
+  | FeedbackMaterializeJobData
+  | FeedbackExtractJobData
+  | FeedbackRelayJobData
+  | FeedbackDeliverJobData;
 export type FeedbackJobName =
   (typeof FEEDBACK_JOB_NAMES)[keyof typeof FEEDBACK_JOB_NAMES];
 
@@ -62,6 +86,11 @@ export function createFeedbackExtractJobId(
   latestSeq: number,
 ): string {
   return `feedback-extract-v1-${conversationId}-${latestSeq}`;
+}
+
+/** Stable deliver job key: the outbox row id is the durable idempotency token. */
+export function createFeedbackDeliverJobId(outboxId: string): string {
+  return `feedback-deliver-v1-${outboxId}`;
 }
 
 /**

@@ -78,22 +78,27 @@ The post-event feedback contracts are:
 - materialize job ID `feedback-materialize-v1-<ingressId>`;
 - extraction job `feedback.extract.v1`;
 - extraction payload `{ schemaVersion: 1, conversationId: UUID, correlationId: string }`;
-- extraction job ID `feedback-extract-v1-<conversationId>-<latestSeq>`.
+- extraction job ID `feedback-extract-v1-<conversationId>-<latestSeq>`;
+- relay job `feedback.relay-outbox.v1`;
+- delivery job `feedback.deliver.v1`;
+- delivery payload `{ schemaVersion: 1, outboxId: UUID, correlationId: string }`;
+- delivery job ID `feedback-deliver-v1-<outboxId>`.
 
 The webhook edge is the producer of `feedback.materialize.v1`; the worker is the
-producer of `feedback.extract.v1`, using its own worker-side registration Queue
-exactly as the email relay does. Neither payload carries message text, phone
-numbers or provider identifiers: the processor reloads the ingress row, the
-conversation and the campaign itself.
+producer of `feedback.extract.v1` and `feedback.deliver.v1`, using its own
+worker-side registration Queue exactly as the email relay does. Neither payload
+carries message text, phone numbers or provider identifiers: the processor
+reloads the ingress row, the conversation, the outbox row and the campaign
+itself.
 
-`latestSeq` is the transcript position the run must cover, so a burst of inbound
-messages collapses onto one model run per position instead of one per message.
-The extraction processor itself is a later work package; until it lands the
-consumer only records the job, and the job name and payload must not change when
-it is implemented. The feedback worker deliberately runs at concurrency `1`,
-which keeps one participant's burst in arrival order inside the transcript
-without a per-conversation lock; raising it requires explicit per-conversation
-serialization.
+`latestSeq` is the transcript position the extraction run must cover, so a burst
+of inbound messages collapses onto one model run per position instead of one per
+message. The extraction processor itself is a later work package; until it lands
+the consumer only records the job, and the job name and payload must not change
+when it is implemented. The feedback worker deliberately runs at concurrency
+`1`, which keeps one participant's burst in arrival order inside the transcript
+without a per-conversation lock and keeps outbound session pacing
+single-threaded; raising it requires explicit per-conversation serialization.
 
 For Assistant work, MongoDB owns the owner-scoped thread, ordered history and
 user-visible turn state. PostgreSQL retains the request id, model, attempt and
@@ -210,6 +215,16 @@ marks the outbox event consumed in the same transaction as its fenced delivery
 claim. This closes the commit/enqueue and acknowledged-job-loss gaps, not
 downstream exactly-once effects.
 
+The feedback `message_outbox` relay follows the same lease pattern on the
+`feedback` queue: `pending` rows (never `held`) are claimed into `sending`,
+enqueued under `feedback-deliver-v1-<outboxId>`, and stale `sending` rows past a
+five-minute recovery horizon are reclaimed so a lost BullMQ job can be
+republished. The deliver consumer reconciles via stored provider IDs before it
+ever calls send again, so an unknown-outcome send is never blindly retried.
+Campaign intro and reminder jobs leased in the same batch receive a staggered
+BullMQ delay; Wasender session pacing (minimum interval + jitter) still applies
+at send time because WordPress shares the session.
+
 The feedback webhook edge inverts the same idea for inbound traffic. The
 committed `provider_message_ingress` row is the durable acknowledgement, and the
 enqueue follows it: a failed enqueue is answered with 503 rather than a 200 that
@@ -234,12 +249,14 @@ security, deterministic IDs, payload/version rejection, permanent failures,
 transient propagation, idempotent HTTP request replay and terminal assistant
 turn attempt fencing. The feedback queue adds replay coverage: duplicate webhook
 delivery, double and concurrent materialization, out-of-order arrival and a
-replayed STOP that must not acknowledge twice.
+replayed STOP that must not acknowledge twice. The outbox relay adds lease /
+idempotent job-id coverage, campaign stagger delays, unknown-outcome no-retry,
+session pacing bounds and cancel-on-STOP behaviour.
 
 ## Sources and official references
 
 - [Queue modules](../../../apps/backend/src/infrastructure/queue/queue.module.ts), [Redis options](../../../apps/backend/src/infrastructure/queue/redis-connection.ts), [readiness](../../../apps/backend/src/infrastructure/queue/queue-health.service.ts), [assistant job contract](../../../apps/backend/src/modules/assistant/assistant.schemas.ts), [assistant processor](../../../apps/backend/src/modules/assistant/assistant.processor.ts), [reference job contract](../../../apps/backend/src/modules/reference/reference.schemas.ts) and [reference processor](../../../apps/backend/src/modules/reference/reference.processor.ts)
-- [Feedback job contract](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback.schemas.ts), [feedback processor](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback.processor.ts), [ingress edge](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-ingress.service.ts) and [materializer](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-materializer.service.ts)
+- [Feedback job contract](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback.schemas.ts), [feedback processor](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback.processor.ts), [ingress edge](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-ingress.service.ts), [materializer](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-materializer.service.ts), [message outbox relay](../../../apps/backend/src/modules/post-event-feedback/message-outbox-relay.service.ts) and [delivery consumer](../../../apps/backend/src/modules/post-event-feedback/message-outbox-delivery.service.ts)
 - [Nest BullMQ](https://docs.nestjs.com/techniques/queues), [BullMQ connections](https://docs.bullmq.io/guide/connections), [fail-fast producers](https://docs.bullmq.io/patterns/failing-fast-when-redis-is-down) and [worker shutdown](https://docs.bullmq.io/guide/workers/graceful-shutdown)
 - [Job IDs](https://docs.bullmq.io/guide/jobs/job-ids), [retries](https://docs.bullmq.io/guide/retrying-failing-jobs), [permanent failures](https://docs.bullmq.io/patterns/stop-retrying-jobs), [retention](https://docs.bullmq.io/guide/queues/auto-removal-of-jobs) and [metrics](https://docs.bullmq.io/guide/metrics)
 - [Bull Board](https://github.com/felixmosh/bull-board)

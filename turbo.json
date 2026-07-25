@@ -47,6 +47,7 @@
         "WASENDER_SESSION_API_KEY",
         "WASENDER_WEBHOOK_ENABLED",
         "WASENDER_WEBHOOK_SECRET",
+        "TRANSPORT_MODE",
         "WEB_ORIGIN"
       ],
       "persistent": true
