@@ -216,12 +216,15 @@ durable PostgreSQL ingress row still holds the message for an operator.
 | `findById`               | Full document for a detail read                                                |
 | `findOpenByPhone`        | Inbound resolution (D9), backed by the partial unique index                    |
 | `listForCampaign`        | Compact campaign-grouped summaries; no transcripts in list reads               |
+| `listOpenDueForReminder` | Approximate D11 reminder candidates; sweep reloads authoritative state         |
+| `listOpenDueForExpiry`   | Approximate D11 expiry candidates; sweep reloads authoritative state           |
 | `appendMessage`          | Contiguous `seq`, idempotent by provenance, cap/byte guard                     |
 | `takeOver` / `resumeBot` | Explicit control transitions with a recorded source                            |
 | `close`                  | Terminal reason; STOP overrides softer reasons; nothing reopens                |
 | `advanceCursor`          | Monotonic extraction cursor bounded by the transcript                          |
 | `updateGoalStatuses`     | Monotonic goal ladder `pending < asked < skipped < answered`                   |
 | `setNeedsAttention`      | Sets or clears the operator attention flag                                     |
+| `markReminded`           | Idempotent D11 reminder stamp (`remindedAt`)                                   |
 
 Every method validates the resulting document with Zod, and every transition
 reports whether it actually changed state so callers can write exactly one
@@ -242,8 +245,10 @@ creates them on a fresh volume.
 
 ### Not owned here
 
-Reply sending, reminders, expiry sweeps and campaign launch orchestration belong
-to later work packages. Extraction drives goal advancement, the cursor and
+Reply sending belongs to the outbox/relay path. Campaign launch, reminders,
+expiry sweeps and ingress recovery live in the
+[post-event feedback module](post-event-feedback.md#wp7-campaign-service-and-schedulers-implemented).
+Extraction drives goal advancement, the cursor and
 `close(completed)` through the methods above but lives in the
 [post-event feedback module](post-event-feedback.md#wp5-extraction-and-reply-loop-implemented).
 Webhook ingestion and the `feedback` queue also live in the

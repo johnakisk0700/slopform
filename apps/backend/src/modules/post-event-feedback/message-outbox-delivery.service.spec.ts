@@ -98,6 +98,21 @@ describe("MessageOutboxDeliveryService", () => {
     expect(transport.sendText).toHaveBeenCalledTimes(1);
   });
 
+  it("releases the lease when the campaign kill switch is active", async () => {
+    const { service, repository, transport } = createService();
+    repository.findOutboxById.mockResolvedValue(sendingRow());
+    repository.findCampaignById.mockResolvedValue({ status: "paused" });
+
+    await expect(service.deliver(outboxId, "correlation-1")).resolves.toEqual({
+      outcome: "held",
+    });
+    expect(transport.sendText).not.toHaveBeenCalled();
+    expect(repository.releaseOutboxLease).toHaveBeenCalledWith(
+      outboxId,
+      expect.any(Date),
+    );
+  });
+
   it("reconciles via provider log id instead of sending again", async () => {
     const { service, repository, transport } = createService();
     repository.findOutboxById.mockResolvedValue(
@@ -166,8 +181,10 @@ function createService(): {
   service: MessageOutboxDeliveryService;
   repository: {
     findOutboxById: ReturnType<typeof vi.fn>;
+    findCampaignById: ReturnType<typeof vi.fn>;
     updateOutboxDelivery: ReturnType<typeof vi.fn>;
     updateOutboxStatus: ReturnType<typeof vi.fn>;
+    releaseOutboxLease: ReturnType<typeof vi.fn>;
   };
   transport: {
     sendText: ReturnType<typeof vi.fn>;
@@ -176,8 +193,10 @@ function createService(): {
 } {
   const repository = {
     findOutboxById: vi.fn(),
+    findCampaignById: vi.fn().mockResolvedValue({ status: "launched" }),
     updateOutboxDelivery: vi.fn().mockResolvedValue(undefined),
     updateOutboxStatus: vi.fn().mockResolvedValue(undefined),
+    releaseOutboxLease: vi.fn().mockResolvedValue(undefined),
   };
   const transport = {
     sendText: vi.fn(),

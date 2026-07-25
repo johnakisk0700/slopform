@@ -304,6 +304,7 @@ describe("PostEventFeedbackExtractor", () => {
       harness.repository.campaigns.set(campaignId, {
         id: campaignId,
         eventId,
+        status: "launched",
         questions: { copy: { closing: "Τα λέμε στο επόμενο τραπέζι!" } },
       });
       harness.conversations.setAllGoals(conversationId, "answered");
@@ -579,7 +580,12 @@ class FakeDatabase {
 class FakeFeedbackRepository {
   readonly campaigns = new Map<
     string,
-    { id: string; eventId: string; questions: Record<string, unknown> }
+    {
+      id: string;
+      eventId: string;
+      status: "launched" | "paused" | "closed";
+      questions: Record<string, unknown>;
+    }
   >();
   readonly answers: FakeResultRow[] = [];
   readonly notes: FakeResultRow[] = [];
@@ -856,6 +862,7 @@ function createHarness(): Harness {
   repository.campaigns.set(campaignId, {
     id: campaignId,
     eventId,
+    status: "launched",
     questions: {},
   });
   participants.rows.set(respondentId, {

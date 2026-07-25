@@ -73,6 +73,18 @@ export class MessageOutboxDeliveryService {
       return { outcome: "skipped_not_sending" };
     }
 
+    const campaign = await this.repository.findCampaignById(row.campaignId);
+    if (campaign?.status !== "launched") {
+      await this.repository.releaseOutboxLease(row.id, new Date());
+      this.logger.log({
+        event: "feedback.outbox.skipped_campaign_inactive",
+        correlationId,
+        outboxId: row.id,
+        campaignStatus: campaign?.status ?? "missing",
+      });
+      return { outcome: "held" };
+    }
+
     // A prior unknown send, or a reclaim after a lost job that already recorded
     // provider IDs, must reconcile — never call sendText again.
     if (

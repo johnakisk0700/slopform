@@ -4,7 +4,9 @@ import {
   feedbackCampaigns,
   feedbackNotes,
   feedbackSimOutbound,
+  eventAttendees,
   messageOutbox,
+  participants,
   providerMessageIngress,
   type AppTransaction,
   type FeedbackAnswerQuestionKey,
@@ -25,13 +27,31 @@ import {
   type ProviderMessageIngressRow,
   type ProviderMessageProcessingStatus,
 } from "@join-the-six/database";
-import { and, asc, eq, inArray, isNull, lte, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  lte,
+  or,
+  sql,
+} from "drizzle-orm";
 
 import { DatabaseService } from "../../infrastructure/database/database.service.js";
 
 /** Stale `sending` rows older than this are reclaimed for re-enqueue / reconcile. */
 export const FEEDBACK_OUTBOX_RECOVERY_MS = 5 * 60_000;
 export const FEEDBACK_OUTBOX_BATCH_SIZE = 50;
+export const FEEDBACK_SWEEP_BATCH_SIZE = 50;
+
+export type FeedbackEligibleAttendee = {
+  readonly participantId: string;
+  readonly preferredName: string | null;
+  readonly emailNormalized: string;
+  readonly phoneE164: string;
+};
 
 type DatabaseExecutor = AppTransaction | DatabaseService["db"];
 
@@ -107,6 +127,55 @@ export class PostEventFeedbackRepository {
       .returning();
 
     return record;
+  }
+
+  /**
+   * Present attendees who opted in and have an E.164 phone — the launch and
+   * start-conversation eligibility gate (finished-event check lives in the
+   * service).
+   */
+  async listEligibleAttendeesForEvent(
+    eventId: string,
+    executor: DatabaseExecutor = this.database.db,
+  ): Promise<FeedbackEligibleAttendee[]> {
+    const rows = await executor
+      .select({
+        participantId: eventAttendees.participantId,
+        preferredName: participants.preferredName,
+        emailNormalized: participants.emailNormalized,
+        phoneE164: participants.phoneE164,
+      })
+      .from(eventAttendees)
+      .innerJoin(
+        participants,
+        eq(participants.id, eventAttendees.participantId),
+      )
+      .where(
+        and(
+          eq(eventAttendees.eventId, eventId),
+          eq(eventAttendees.present, true),
+          eq(participants.postEventFeedbackWhatsappOptIn, true),
+          isNotNull(participants.phoneE164),
+        ),
+      )
+      .orderBy(
+        asc(participants.preferredName),
+        asc(participants.emailNormalized),
+      );
+
+    return rows.flatMap((row) => {
+      if (!row.phoneE164) {
+        return [];
+      }
+      return [
+        {
+          participantId: row.participantId,
+          preferredName: row.preferredName,
+          emailNormalized: row.emailNormalized,
+          phoneE164: row.phoneE164,
+        },
+      ];
+    });
   }
 
   /**
@@ -584,6 +653,49 @@ export class PostEventFeedbackRepository {
     return cancelled.length;
   }
 
+  async cancelQueuedOutboxForCampaign(
+    transaction: AppTransaction,
+    campaignId: string,
+  ): Promise<number> {
+    const cancelled = await transaction
+      .update(messageOutbox)
+      .set({ status: "cancelled", updatedAt: new Date() })
+      .where(
+        and(
+          eq(messageOutbox.campaignId, campaignId),
+          inArray(messageOutbox.status, ["pending", "held"]),
+        ),
+      )
+      .returning({ id: messageOutbox.id });
+
+    return cancelled.length;
+  }
+
+  /**
+   * Rows left `pending` after a lost materialize enqueue. The recovery sweep
+   * re-enqueues under the same stable job id.
+   */
+  async listPendingIngressOlderThan(
+    olderThan: Date,
+    limit = FEEDBACK_SWEEP_BATCH_SIZE,
+    executor: DatabaseExecutor = this.database.db,
+  ): Promise<ProviderMessageIngressRow[]> {
+    return executor
+      .select()
+      .from(providerMessageIngress)
+      .where(
+        and(
+          eq(providerMessageIngress.processingStatus, "pending"),
+          lte(providerMessageIngress.createdAt, olderThan),
+        ),
+      )
+      .orderBy(
+        asc(providerMessageIngress.createdAt),
+        asc(providerMessageIngress.id),
+      )
+      .limit(limit);
+  }
+
   /** Lists due outbox rows without locking. Prefer `claimOutboxBatch` for relay. */
   async listDueOutbox(
     statuses: readonly MessageOutboxStatus[] = ["pending"],
@@ -600,9 +712,10 @@ export class PostEventFeedbackRepository {
 
   /**
    * Leases due outbox rows with `FOR UPDATE SKIP LOCKED`. `held` rows are never
-   * selected. Stale `sending` rows past the recovery horizon are reclaimed so a
-   * lost BullMQ job can be republished; the deliver consumer reconciles before
-   * ever calling send again.
+   * selected. Rows whose campaign is not `launched` (paused/closed kill switch)
+   * stay pending so resume can lease them later. Stale `sending` rows past the
+   * recovery horizon are reclaimed so a lost BullMQ job can be republished; the
+   * deliver consumer reconciles before ever calling send again.
    */
   async claimOutboxBatch(
     now: Date,
@@ -631,13 +744,28 @@ export class PostEventFeedbackRepository {
         return [];
       }
 
+      const claimable: MessageOutboxRow[] = [];
+      for (const candidate of candidates) {
+        const campaign = await this.findCampaignById(
+          candidate.campaignId,
+          transaction,
+        );
+        if (campaign?.status === "launched") {
+          claimable.push(candidate);
+        }
+      }
+
+      if (claimable.length === 0) {
+        return [];
+      }
+
       return transaction
         .update(messageOutbox)
         .set({ status: "sending", updatedAt: now })
         .where(
           inArray(
             messageOutbox.id,
-            candidates.map((candidate) => candidate.id),
+            claimable.map((candidate) => candidate.id),
           ),
         )
         .returning();

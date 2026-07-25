@@ -184,6 +184,21 @@ class SimulatorFakeRepository {
     return structuredClone(this.outbox.find((row) => row.id === id));
   }
 
+  async findCampaignById(id: string) {
+    return id === campaignId
+      ? { id: campaignId, status: "launched" }
+      : undefined;
+  }
+
+  async releaseOutboxLease(id: string): Promise<FakeOutboxRow | undefined> {
+    const row = this.outbox.find((candidate) => candidate.id === id);
+    if (!row || row.status !== "sending") {
+      return undefined;
+    }
+    row.status = "pending";
+    return structuredClone(row);
+  }
+
   async insertIngressIfAbsent(
     _transaction: AppTransaction,
     input: {

@@ -301,6 +301,24 @@ export const environmentSchema = observabilityEnvironmentSchema
      * `TRANSPORT_MODE=simulated` and a non-production `NODE_ENV`.
      */
     FEEDBACK_SIMULATOR_ENABLED: booleanFromEnvironment,
+    /** D11: hours after launch before one reminder if the participant never replied. */
+    FEEDBACK_REMINDER_AFTER_HOURS: z.preprocess(
+      emptyStringToUndefined,
+      z.coerce.number().int().min(1).max(168).default(24),
+    ),
+    /** D11: hours after launch before open conversations expire. */
+    FEEDBACK_EXPIRE_AFTER_HOURS: z.preprocess(
+      emptyStringToUndefined,
+      z.coerce.number().int().min(1).max(336).default(72),
+    ),
+    /**
+     * Minutes a `provider_message_ingress` row may stay `pending` before the
+     * recovery sweep re-enqueues `feedback.materialize.v1`.
+     */
+    FEEDBACK_INGRESS_PENDING_RECOVERY_MINUTES: z.preprocess(
+      emptyStringToUndefined,
+      z.coerce.number().int().min(1).max(1440).default(5),
+    ),
     BULL_BOARD_ENABLED: booleanFromEnvironment,
     BULL_BOARD_USERNAME: optionalCredential,
     BULL_BOARD_PASSWORD: optionalCredential,

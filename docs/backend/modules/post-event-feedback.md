@@ -3,10 +3,10 @@
 Status: architecture accepted in
 [ADR 0008](../../decisions/0008-post-event-feedback-conversations.md);
 **WP0 product contract**, **WP1 stub events**, **WP2 PostgreSQL persistence**,
-**WP3 Mongo conversation schema v2**, **WP4 ingress + materialization** and
-**WP5 extraction + reply loop**, **WP6 outbox relay + transport** and **WP8 dev
-simulated transport** are landed. Campaign launch and the admin inbox remain
-later work packages. Plan amendments in
+**WP3 Mongo conversation schema v2**, **WP4 ingress + materialization**,
+**WP5 extraction + reply loop**, **WP6 outbox relay + transport**, **WP7
+campaign service + schedulers** and **WP8 dev simulated transport** are landed.
+The admin conversations UI remains WP9. Plan amendments in
 [`POST_EVENT_FEEDBACK_PLAN_2026-07-25.md`](../../../POST_EVENT_FEEDBACK_PLAN_2026-07-25.md)
 §9 supersede frozen candidate snapshots with live D16 selection.
 
@@ -483,18 +483,20 @@ acknowledgement. Extraction is enqueued before the fence for the same reason:
 the reverse order would lose the run instead of repeating it.
 
 The known gap is a row committed by the edge whose enqueue never succeeded. It
-stays `pending` and is recovered by a provider redelivery; a sweep for
-`pending` rows is not implemented.
+stays `pending` and is recovered by a provider redelivery **or** by the WP7
+ingress recovery sweep, which re-enqueues `feedback.materialize.v1` under the
+same stable job id for rows older than
+`FEEDBACK_INGRESS_PENDING_RECOVERY_MINUTES` (default 5).
 
 ### Boundaries this package deliberately keeps
 
-Reminders, expiry and campaign launch are not implemented here.
-`feedback.extract.v1` has a fixed name, payload and job id so materialization
-can enqueue it; WP5 replaced the recording stub with the real consumer without
-changing any of them, and that consumer has its own section below. Sending is
-likewise not this package's job: extraction only ever **inserts**
-`message_outbox` rows and the WP6 relay leases and sends them. Delivery-status
-webhooks (`messages.update`) update outbox delivery columns through WP6.
+Reminders, expiry and campaign launch live in WP7. `feedback.extract.v1` has a
+fixed name, payload and job id so materialization can enqueue it; WP5 replaced
+the recording stub with the real consumer without changing any of them, and
+that consumer has its own section below. Sending is likewise not this package's
+job: extraction only ever **inserts** `message_outbox` rows and the WP6 relay
+leases and sends them. Delivery-status webhooks (`messages.update`) update
+outbox delivery columns through WP6.
 
 Materialization and extraction outcomes are counted in a process-local counter
 surfaced as structured log events, alongside per-run extraction token usage. The
@@ -620,7 +622,58 @@ What it settles for this module:
 
 Webhook ingestion, the `feedback` queue and the outbox relay landed in WP4/WP6
 on top of it, and extraction advances the cursor and the goals in WP5.
-Reminders, campaign launch and the admin UI remain unimplemented.
+Campaign launch, reminders, expiry and ingress recovery landed in WP7. The
+admin UI remains WP9.
+
+## WP7 campaign service and schedulers (implemented)
+
+Staff HTTP under `/feedback/campaigns` plus bounded BullMQ sweep jobs.
+
+### Launch and kill switch
+
+[`PostEventFeedbackCampaignService`](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-campaign.service.ts)
+owns the application boundary:
+
+| Action              | Gate / effect                                                                                                                                                                                                                                                                                                                                           |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `launch`            | Event `finished` ∧ ≥1 eligible (present ∧ opt-in ∧ `phone_e164`); creates the campaign with the WP0 question launch snapshot; one Mongo conversation per eligible attendee via `createFromLaunch` (deterministic `_id`); one `intro` outbox row per new open conversation (`dedupe_key = feedback-intro-<conversationId>`). Replay creates nothing new. |
+| `pause` / `resume`  | Status `paused` ↔ `launched`. Pause stops the relay from leasing that campaign's rows and suppresses extraction replies (`replyAllowed` requires `status=launched`).                                                                                                                                                                                    |
+| `close`             | Kill switch: status `closed`, cancel queued outbox for the campaign. Open conversations are left for STOP / expiry / staff close (D17).                                                                                                                                                                                                                 |
+| `startConversation` | D17 create-if-missing for one eligible participant; never recreates a STOP-closed conversation; enqueues intro only when a new open conversation was created.                                                                                                                                                                                           |
+
+Every mutation writes an audit event. Intros are not sent by HTTP — WP6's
+relay leases them with stagger.
+
+### Reminder, expiry and ingress recovery
+
+[`PostEventFeedbackSweepService`](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-sweep.service.ts)
+runs as bounded BullMQ jobs every five minutes:
+
+| Job                           | Contract                                                                                                                                                                  |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `feedback.sweep-reminders.v1` | One reminder at `FEEDBACK_REMINDER_AFTER_HOURS` (default 24) when there is no participant reply; skips closed / human / opted-out / already reminded / inactive campaign. |
+| `feedback.sweep-expiry.v1`    | At `FEEDBACK_EXPIRE_AFTER_HOURS` (default 72) → `close(expired)` + cancel queued outbox; same skip set.                                                                   |
+| `feedback.sweep-ingress.v1`   | Re-enqueues `feedback.materialize.v1` for `pending` ingress rows older than `FEEDBACK_INGRESS_PENDING_RECOVERY_MINUTES` (default 5) under the existing stable job id.     |
+
+### Staff HTTP contract
+
+| Method | Path                                                  | `operationId`               |
+| ------ | ----------------------------------------------------- | --------------------------- |
+| `POST` | `/feedback/campaigns/launch`                          | `launchFeedbackCampaign`    |
+| `GET`  | `/feedback/campaigns/:campaignId`                     | `getFeedbackCampaign`       |
+| `POST` | `/feedback/campaigns/:campaignId/pause`               | `pauseFeedbackCampaign`     |
+| `POST` | `/feedback/campaigns/:campaignId/resume`              | `resumeFeedbackCampaign`    |
+| `POST` | `/feedback/campaigns/:campaignId/close`               | `closeFeedbackCampaign`     |
+| `POST` | `/feedback/campaigns/:campaignId/conversations/start` | `startFeedbackConversation` |
+
+### WP7 tests
+
+Focused coverage: eligibility gate, launch idempotency (replay creates nothing
+new), start-conversation never recreates STOP-closed threads, pause/resume
+audit, reminder/expiry edge cases (opted-out, human control, already closed),
+ingress recovery (stuck row re-enqueued, fresh pending untouched), lease skip
+for paused campaigns, and process composition (HTTP module in the API graph,
+sweeps in the worker only).
 
 ## Decisions and references
 

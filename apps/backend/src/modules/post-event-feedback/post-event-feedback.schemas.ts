@@ -12,6 +12,9 @@ export const FEEDBACK_JOB_NAMES = {
   extractV1: "feedback.extract.v1",
   relayOutboxV1: "feedback.relay-outbox.v1",
   deliverV1: "feedback.deliver.v1",
+  sweepRemindersV1: "feedback.sweep-reminders.v1",
+  sweepExpiryV1: "feedback.sweep-expiry.v1",
+  sweepIngressV1: "feedback.sweep-ingress.v1",
 } as const;
 
 export const FEEDBACK_JOB_SCHEMA_VERSION = 1;
@@ -54,6 +57,14 @@ export const feedbackDeliverJobDataSchema = z
   })
   .strict();
 
+/** Identifier-only sweep envelope: the worker reloads every authoritative fact. */
+export const feedbackSweepJobDataSchema = z
+  .object({
+    schemaVersion: z.literal(FEEDBACK_JOB_SCHEMA_VERSION),
+    correlationId: feedbackCorrelationIdSchema,
+  })
+  .strict();
+
 export type FeedbackMaterializeJobData = z.infer<
   typeof feedbackMaterializeJobDataSchema
 >;
@@ -64,11 +75,13 @@ export type FeedbackRelayJobData = z.infer<typeof feedbackRelayJobDataSchema>;
 export type FeedbackDeliverJobData = z.infer<
   typeof feedbackDeliverJobDataSchema
 >;
+export type FeedbackSweepJobData = z.infer<typeof feedbackSweepJobDataSchema>;
 export type FeedbackJobData =
   | FeedbackMaterializeJobData
   | FeedbackExtractJobData
   | FeedbackRelayJobData
-  | FeedbackDeliverJobData;
+  | FeedbackDeliverJobData
+  | FeedbackSweepJobData;
 export type FeedbackJobName =
   (typeof FEEDBACK_JOB_NAMES)[keyof typeof FEEDBACK_JOB_NAMES];
 

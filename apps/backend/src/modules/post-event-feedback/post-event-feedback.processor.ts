@@ -31,9 +31,11 @@ import {
   feedbackExtractJobDataSchema,
   feedbackMaterializeJobDataSchema,
   feedbackRelayJobDataSchema,
+  feedbackSweepJobDataSchema,
   type FeedbackJobData,
   type FeedbackJobName,
 } from "./post-event-feedback.schemas.js";
+import { PostEventFeedbackSweepService } from "./post-event-feedback-sweep.service.js";
 
 @Processor(
   { name: FEEDBACK_QUEUE, configKey: QUEUE_WORKER_CONFIG },
@@ -57,6 +59,7 @@ export class PostEventFeedbackProcessor extends WorkerHost {
     private readonly relay: MessageOutboxRelayService,
     private readonly delivery: MessageOutboxDeliveryService,
     private readonly extractor: PostEventFeedbackExtractor,
+    private readonly sweeps: PostEventFeedbackSweepService,
   ) {
     super();
   }
@@ -68,6 +71,24 @@ export class PostEventFeedbackProcessor extends WorkerHost {
       if (job.name === FEEDBACK_JOB_NAMES.relayOutboxV1) {
         feedbackRelayJobDataSchema.parse(job.data);
         await this.relay.relay();
+        return;
+      }
+
+      if (job.name === FEEDBACK_JOB_NAMES.sweepRemindersV1) {
+        const data = feedbackSweepJobDataSchema.parse(job.data);
+        await this.sweeps.sweepReminders(data.correlationId);
+        return;
+      }
+
+      if (job.name === FEEDBACK_JOB_NAMES.sweepExpiryV1) {
+        const data = feedbackSweepJobDataSchema.parse(job.data);
+        await this.sweeps.sweepExpiry(data.correlationId);
+        return;
+      }
+
+      if (job.name === FEEDBACK_JOB_NAMES.sweepIngressV1) {
+        const data = feedbackSweepJobDataSchema.parse(job.data);
+        await this.sweeps.sweepIngress(data.correlationId);
         return;
       }
 

@@ -298,11 +298,14 @@ export class PostEventFeedbackExtractor {
         text: note.text,
         subjectParticipantId: note.subjectParticipantId,
       })),
-      // AI output can never send, change consent or bypass this gate.
+      // AI output can never send, change consent or bypass this gate. A paused
+      // or closed campaign is the kill switch: results may still persist, but
+      // no reply is enqueued.
       replyAllowed:
         conversation.lifecycle.state === "open" &&
         conversation.control.mode === "bot" &&
-        participant?.postEventFeedbackWhatsappOptIn === true,
+        participant?.postEventFeedbackWhatsappOptIn === true &&
+        campaign.status === "launched",
     };
   }
 

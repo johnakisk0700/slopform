@@ -8,14 +8,17 @@ import {
 } from "../../infrastructure/queue/queue.module.js";
 import { EventsCoreModule } from "../events/events-core.module.js";
 import { FeedbackOutboxSchedulerService } from "./feedback-outbox-scheduler.service.js";
+import { FeedbackSweepSchedulerService } from "./feedback-sweep-scheduler.service.js";
 import { MessageOutboxDeliveryService } from "./message-outbox-delivery.service.js";
 import { MessageOutboxDeliveryStatusService } from "./message-outbox-delivery-status.service.js";
 import { MessageOutboxRelayService } from "./message-outbox-relay.service.js";
 import { PostEventFeedbackExtractionModel } from "./post-event-feedback-extraction.service.js";
 import { PostEventFeedbackExtractor } from "./post-event-feedback-extractor.service.js";
+import { PostEventFeedbackHttpModule } from "./post-event-feedback-http.module.js";
 import { PostEventFeedbackIngressModule } from "./post-event-feedback-ingress.module.js";
 import { PostEventFeedbackIngressService } from "./post-event-feedback-ingress.service.js";
 import { PostEventFeedbackMaterializer } from "./post-event-feedback-materializer.service.js";
+import { PostEventFeedbackSweepService } from "./post-event-feedback-sweep.service.js";
 import { PostEventFeedbackWorkerModule } from "./post-event-feedback-worker.module.js";
 import { PostEventFeedbackProcessor } from "./post-event-feedback.processor.js";
 
@@ -39,6 +42,7 @@ describe("post-event feedback process composition", () => {
 
     expect(workerImports).toContain(PostEventFeedbackWorkerModule);
     expect(httpImports).not.toContain(PostEventFeedbackWorkerModule);
+    expect(httpImports).toContain(PostEventFeedbackHttpModule);
   });
 
   it("mounts the webhook ingress edge only with the Wasender HTTP module", async () => {
@@ -87,6 +91,8 @@ describe("post-event feedback process composition", () => {
     expect(workerProviders).toContain(MessageOutboxRelayService);
     expect(workerProviders).toContain(MessageOutboxDeliveryService);
     expect(workerProviders).toContain(FeedbackOutboxSchedulerService);
+    expect(workerProviders).toContain(FeedbackSweepSchedulerService);
+    expect(workerProviders).toContain(PostEventFeedbackSweepService);
     expect(workerProviders).not.toContain(PostEventFeedbackIngressService);
   });
 

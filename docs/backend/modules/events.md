@@ -103,9 +103,10 @@ flowchart LR
 
 ## Extension points
 
-Campaign launch (WP7) should gate on `status=finished`, present attendees,
-opt-in and phone. Do not store candidate snapshots on conversations; keep using
-the live helper.
+Campaign launch (WP7) gates on `status=finished`, present attendees, opt-in and
+phone. Do not store candidate snapshots on conversations; keep using the live
+helper. See
+[post-event feedback WP7](post-event-feedback.md#wp7-campaign-service-and-schedulers-implemented).
 
 ## Operations and tests
 

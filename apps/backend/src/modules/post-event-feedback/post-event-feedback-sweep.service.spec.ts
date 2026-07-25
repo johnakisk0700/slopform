@@ -1,0 +1,283 @@
+import { describe, expect, it, vi } from "vitest";
+
+import type { ConfigService } from "@nestjs/config";
+
+import type { Environment } from "../../infrastructure/config/environment.js";
+import type { AuditRepository } from "../../infrastructure/audit/audit.repository.js";
+import type { DatabaseService } from "../../infrastructure/database/database.service.js";
+import type { FeedbackConversationRepository } from "../conversations/feedback-conversation.repository.js";
+import type { ParticipantsRepository } from "../participants/participants.repository.js";
+import { buildPostEventFeedbackQuestionLaunchSnapshot } from "./post-event-feedback-question-set.js";
+import type { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
+import { PostEventFeedbackSweepService } from "./post-event-feedback-sweep.service.js";
+import {
+  createFeedbackMaterializeJobId,
+  FEEDBACK_JOB_NAMES,
+} from "./post-event-feedback.schemas.js";
+
+const conversationId = "6f0f2f8a-2b73-5a02-9d0a-3f0b8f5b1c21";
+const campaignId = "89eccaa5-9ce6-4dcf-a630-5e35e4ec6f0d";
+const participantId = "aaaaaaa1-aaaa-4aaa-8aaa-aaaaaaaaaaa1";
+const ingressId = "b1c9e0a4-2c65-4a29-9a2e-2d0a3f2e1b77";
+
+describe("PostEventFeedbackSweepService", () => {
+  it("queues one reminder when there is no participant reply", async () => {
+    const { service, conversations, repository, auditAppend } = createService();
+    const open = openConversation();
+    conversations.listOpenDueForReminder.mockResolvedValue([open]);
+    conversations.findById.mockResolvedValue(open);
+    repository.findCampaignById.mockResolvedValue(launchedCampaign());
+    repository.insertOutboxIfAbsent.mockResolvedValue({
+      row: { id: "reminder-1" },
+      inserted: true,
+    });
+
+    const result = await service.sweepReminders("corr-1", new Date());
+
+    expect(result).toEqual({ examined: 1, reminded: 1, skipped: 0 });
+    expect(repository.insertOutboxIfAbsent).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        kind: "reminder",
+        dedupeKey: `feedback-reminder-${conversationId}`,
+      }),
+    );
+    expect(conversations.markReminded).toHaveBeenCalled();
+    expect(auditAppend).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ action: "feedback_conversation.reminded" }),
+    );
+  });
+
+  it("skips reminder for opted-out, human-controlled and already closed threads", async () => {
+    const { service, conversations, repository, participants } =
+      createService();
+    const optedOut = openConversation();
+    const human = {
+      ...openConversation(),
+      _id: "11111111-1111-4111-8111-111111111111",
+      control: { mode: "human", source: "staff_action", changedAt: new Date() },
+    };
+    const closed = {
+      ...openConversation(),
+      _id: "22222222-2222-4222-8222-222222222222",
+      lifecycle: {
+        state: "closed",
+        reason: "completed",
+        closedAt: new Date(),
+      },
+    };
+    conversations.listOpenDueForReminder.mockResolvedValue([
+      optedOut,
+      human,
+      closed,
+    ]);
+    conversations.findById
+      .mockResolvedValueOnce(optedOut)
+      .mockResolvedValueOnce(human)
+      .mockResolvedValueOnce(closed);
+    repository.findCampaignById.mockResolvedValue(launchedCampaign());
+    participants.findById.mockResolvedValue({
+      id: participantId,
+      preferredName: "Roula",
+      emailNormalized: "roula@example.com",
+      postEventFeedbackWhatsappOptIn: false,
+    });
+
+    const result = await service.sweepReminders("corr-1", new Date());
+
+    expect(result).toEqual({ examined: 3, reminded: 0, skipped: 3 });
+    expect(repository.insertOutboxIfAbsent).not.toHaveBeenCalled();
+  });
+
+  it("expires an open bot conversation and cancels queued sends", async () => {
+    const { service, conversations, repository, auditAppend } = createService();
+    const open = openConversation();
+    conversations.listOpenDueForExpiry.mockResolvedValue([open]);
+    conversations.findById.mockResolvedValue(open);
+    conversations.close.mockResolvedValue({
+      changed: true,
+      conversation: open,
+    });
+    repository.findCampaignById.mockResolvedValue(launchedCampaign());
+    repository.cancelQueuedOutboxForConversation.mockResolvedValue(2);
+
+    const result = await service.sweepExpiry("corr-1", new Date());
+
+    expect(result).toEqual({ examined: 1, expired: 1, skipped: 0 });
+    expect(conversations.close).toHaveBeenCalledWith({
+      conversationId,
+      reason: "expired",
+      at: expect.any(Date),
+    });
+    expect(repository.cancelQueuedOutboxForConversation).toHaveBeenCalled();
+    expect(auditAppend).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ action: "feedback_conversation.expired" }),
+    );
+  });
+
+  it("skips expiry for human control and already closed conversations", async () => {
+    const { service, conversations, repository } = createService();
+    const human = {
+      ...openConversation(),
+      control: { mode: "human", source: "staff_action", changedAt: new Date() },
+    };
+    conversations.listOpenDueForExpiry.mockResolvedValue([human]);
+    conversations.findById.mockResolvedValue(human);
+
+    const result = await service.sweepExpiry("corr-1", new Date());
+
+    expect(result).toEqual({ examined: 1, expired: 0, skipped: 1 });
+    expect(conversations.close).not.toHaveBeenCalled();
+    expect(repository.cancelQueuedOutboxForConversation).not.toHaveBeenCalled();
+  });
+
+  it("re-enqueues stuck pending ingress rows under the stable job id", async () => {
+    const { service, repository, queue } = createService();
+    const stuckAt = new Date("2026-07-25T00:00:00.000Z");
+    repository.listPendingIngressOlderThan.mockResolvedValue([
+      {
+        id: ingressId,
+        processingStatus: "pending",
+        createdAt: stuckAt,
+      },
+    ]);
+
+    const result = await service.sweepIngress(
+      "corr-1",
+      new Date("2026-07-25T00:10:00.000Z"),
+    );
+
+    expect(result).toEqual({ examined: 1, requeued: 1, failed: 0 });
+    expect(repository.listPendingIngressOlderThan).toHaveBeenCalledWith(
+      new Date("2026-07-25T00:05:00.000Z"),
+      50,
+    );
+    expect(queue.add).toHaveBeenCalledWith(
+      FEEDBACK_JOB_NAMES.materializeV1,
+      expect.objectContaining({ ingressId }),
+      expect.objectContaining({
+        jobId: createFeedbackMaterializeJobId(ingressId),
+      }),
+    );
+  });
+
+  it("leaves fresh pending ingress rows untouched", async () => {
+    const { service, repository, queue } = createService();
+    repository.listPendingIngressOlderThan.mockResolvedValue([]);
+
+    const now = new Date("2026-07-25T00:10:00.000Z");
+    const result = await service.sweepIngress("corr-1", now);
+
+    expect(result).toEqual({ examined: 0, requeued: 0, failed: 0 });
+    expect(repository.listPendingIngressOlderThan).toHaveBeenCalledWith(
+      new Date("2026-07-25T00:05:00.000Z"),
+      50,
+    );
+    expect(queue.add).not.toHaveBeenCalled();
+  });
+});
+
+function openConversation() {
+  return {
+    _id: conversationId,
+    campaignId,
+    respondentParticipantId: participantId,
+    lifecycle: { state: "open", reason: null, closedAt: null },
+    control: {
+      mode: "bot",
+      source: "launch",
+      changedAt: new Date("2026-07-24T00:00:00.000Z"),
+    },
+    messages: [],
+    remindedAt: null,
+    createdAt: new Date("2026-07-24T00:00:00.000Z"),
+  };
+}
+
+function launchedCampaign() {
+  return {
+    id: campaignId,
+    status: "launched",
+    questions: buildPostEventFeedbackQuestionLaunchSnapshot(),
+  };
+}
+
+function createService(): {
+  service: PostEventFeedbackSweepService;
+  conversations: {
+    listOpenDueForReminder: ReturnType<typeof vi.fn>;
+    listOpenDueForExpiry: ReturnType<typeof vi.fn>;
+    findById: ReturnType<typeof vi.fn>;
+    markReminded: ReturnType<typeof vi.fn>;
+    close: ReturnType<typeof vi.fn>;
+  };
+  repository: {
+    findCampaignById: ReturnType<typeof vi.fn>;
+    insertOutboxIfAbsent: ReturnType<typeof vi.fn>;
+    cancelQueuedOutboxForConversation: ReturnType<typeof vi.fn>;
+    listPendingIngressOlderThan: ReturnType<typeof vi.fn>;
+  };
+  participants: {
+    findById: ReturnType<typeof vi.fn>;
+  };
+  queue: {
+    add: ReturnType<typeof vi.fn>;
+  };
+  auditAppend: ReturnType<typeof vi.fn>;
+} {
+  const conversations = {
+    listOpenDueForReminder: vi.fn().mockResolvedValue([]),
+    listOpenDueForExpiry: vi.fn().mockResolvedValue([]),
+    findById: vi.fn(),
+    markReminded: vi.fn().mockResolvedValue({ changed: true }),
+    close: vi.fn(),
+  };
+  const repository = {
+    findCampaignById: vi.fn(),
+    insertOutboxIfAbsent: vi.fn(),
+    cancelQueuedOutboxForConversation: vi.fn().mockResolvedValue(0),
+    listPendingIngressOlderThan: vi.fn().mockResolvedValue([]),
+  };
+  const participants = {
+    findById: vi.fn().mockResolvedValue({
+      id: participantId,
+      preferredName: "Roula",
+      emailNormalized: "roula@example.com",
+      postEventFeedbackWhatsappOptIn: true,
+    }),
+  };
+  const queue = { add: vi.fn().mockResolvedValue({ id: "job-1" }) };
+  const auditAppend = vi.fn().mockResolvedValue(undefined);
+  const config = {
+    get: vi.fn((key: keyof Environment) => {
+      if (key === "FEEDBACK_REMINDER_AFTER_HOURS") return 24;
+      if (key === "FEEDBACK_EXPIRE_AFTER_HOURS") return 72;
+      if (key === "FEEDBACK_INGRESS_PENDING_RECOVERY_MINUTES") return 5;
+      return undefined;
+    }),
+  };
+  const database = {
+    transaction: vi.fn(async (work: (tx: unknown) => Promise<unknown>) =>
+      work({}),
+    ),
+  };
+
+  return {
+    service: new PostEventFeedbackSweepService(
+      queue as never,
+      config as unknown as ConfigService<Environment, true>,
+      database as unknown as DatabaseService,
+      repository as unknown as PostEventFeedbackRepository,
+      conversations as unknown as FeedbackConversationRepository,
+      participants as unknown as ParticipantsRepository,
+      { append: auditAppend } as unknown as AuditRepository,
+    ),
+    conversations,
+    repository,
+    participants,
+    queue,
+    auditAppend,
+  };
+}

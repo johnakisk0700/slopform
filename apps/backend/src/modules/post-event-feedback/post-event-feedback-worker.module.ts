@@ -10,6 +10,7 @@ import { ConversationThreadModule } from "../conversations/conversation-thread.m
 import { EventsCoreModule } from "../events/events-core.module.js";
 import { ParticipantsCoreModule } from "../participants/participants-core.module.js";
 import { FeedbackOutboxSchedulerService } from "./feedback-outbox-scheduler.service.js";
+import { FeedbackSweepSchedulerService } from "./feedback-sweep-scheduler.service.js";
 import { FEEDBACK_TRANSPORT } from "./feedback-transport.js";
 import { MessageOutboxDeliveryService } from "./message-outbox-delivery.service.js";
 import { MessageOutboxRelayService } from "./message-outbox-relay.service.js";
@@ -19,6 +20,7 @@ import { PostEventFeedbackExtractor } from "./post-event-feedback-extractor.serv
 import { PostEventFeedbackMaterializer } from "./post-event-feedback-materializer.service.js";
 import { PostEventFeedbackMetrics } from "./post-event-feedback-metrics.service.js";
 import { PostEventFeedbackProcessor } from "./post-event-feedback.processor.js";
+import { PostEventFeedbackSweepService } from "./post-event-feedback-sweep.service.js";
 import { SimulatedFeedbackTransport } from "./simulated-feedback-transport.service.js";
 import { WasenderFeedbackTransport } from "./wasender-feedback-transport.service.js";
 
@@ -58,6 +60,8 @@ import { WasenderFeedbackTransport } from "./wasender-feedback-transport.service
     MessageOutboxRelayService,
     MessageOutboxDeliveryService,
     FeedbackOutboxSchedulerService,
+    FeedbackSweepSchedulerService,
+    PostEventFeedbackSweepService,
     SimulatedFeedbackTransport,
     {
       provide: FEEDBACK_TRANSPORT,

@@ -592,6 +592,97 @@ export class FeedbackConversationRepository {
     return { changed: false, conversation: current };
   }
 
+  /**
+   * Records that the one D11 reminder was queued. Idempotent: a conversation
+   * that already has `remindedAt` is left alone.
+   */
+  async markReminded(input: {
+    readonly conversationId: string;
+    readonly at: Date;
+  }): Promise<FeedbackConversationTransitionResult> {
+    const at = z.date().parse(input.at);
+    const updated = await this.transition(
+      input.conversationId,
+      {
+        "lifecycle.state": "open",
+        remindedAt: null,
+      } as Filter<FeedbackConversationDocument>,
+      { remindedAt: at },
+      at,
+    );
+    if (updated) {
+      return { changed: true, conversation: updated };
+    }
+
+    const current = await this.requireConversation(input.conversationId);
+    return { changed: false, conversation: current };
+  }
+
+  /**
+   * Approximate reminder candidates. The sweep reloads each conversation and
+   * re-checks campaign status, control, opt-in and participant replies.
+   */
+  async listOpenDueForReminder(input: {
+    readonly olderThan: Date;
+    readonly limit?: number;
+  }): Promise<FeedbackConversationDocument[]> {
+    const olderThan = z.date().parse(input.olderThan);
+    const limit = z
+      .number()
+      .int()
+      .positive()
+      .max(500)
+      .parse(input.limit ?? 50);
+    const collection = await this.collection();
+    const documents = await collection
+      .find({
+        schemaVersion: FEEDBACK_CONVERSATION_SCHEMA_VERSION,
+        purpose: FEEDBACK_CONVERSATION_PURPOSE,
+        "lifecycle.state": "open",
+        "control.mode": "bot",
+        remindedAt: null,
+        createdAt: { $lte: olderThan },
+      } as Filter<FeedbackConversationDocument>)
+      .sort({ createdAt: 1, _id: 1 })
+      .limit(limit)
+      .toArray();
+    return documents.map((document) =>
+      feedbackConversationDocumentSchema.parse(document),
+    );
+  }
+
+  /**
+   * Approximate expiry candidates. The sweep reloads state and skips human /
+   * opted-out conversations before closing.
+   */
+  async listOpenDueForExpiry(input: {
+    readonly olderThan: Date;
+    readonly limit?: number;
+  }): Promise<FeedbackConversationDocument[]> {
+    const olderThan = z.date().parse(input.olderThan);
+    const limit = z
+      .number()
+      .int()
+      .positive()
+      .max(500)
+      .parse(input.limit ?? 50);
+    const collection = await this.collection();
+    const documents = await collection
+      .find({
+        schemaVersion: FEEDBACK_CONVERSATION_SCHEMA_VERSION,
+        purpose: FEEDBACK_CONVERSATION_PURPOSE,
+        "lifecycle.state": "open",
+        "control.mode": "bot",
+        createdAt: { $lte: olderThan },
+      } as Filter<FeedbackConversationDocument>)
+      .sort({ createdAt: 1, _id: 1 })
+      .limit(limit)
+      .toArray();
+    return documents.map((document) =>
+      feedbackConversationDocumentSchema.parse(document),
+    );
+  }
+
   private async transition(
     id: string,
     guard: Filter<FeedbackConversationDocument>,

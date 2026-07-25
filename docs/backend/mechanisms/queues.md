@@ -82,14 +82,20 @@ The post-event feedback contracts are:
 - relay job `feedback.relay-outbox.v1`;
 - delivery job `feedback.deliver.v1`;
 - delivery payload `{ schemaVersion: 1, outboxId: UUID, correlationId: string }`;
-- delivery job ID `feedback-deliver-v1-<outboxId>`.
+- delivery job ID `feedback-deliver-v1-<outboxId>`;
+- reminder sweep job `feedback.sweep-reminders.v1`;
+- expiry sweep job `feedback.sweep-expiry.v1`;
+- ingress recovery sweep job `feedback.sweep-ingress.v1`;
+- sweep payload `{ schemaVersion: 1, correlationId: string }`.
 
 The webhook edge is the producer of `feedback.materialize.v1`; the worker is the
 producer of `feedback.extract.v1` and `feedback.deliver.v1`, using its own
 worker-side registration Queue exactly as the email relay does. Neither payload
 carries message text, phone numbers or provider identifiers: the processor
 reloads the ingress row, the conversation, the outbox row and the campaign
-itself.
+itself. Reminder, expiry and ingress-recovery sweeps are also worker-owned
+schedulers: each job is identifier-only, bounded, and reloads durable state
+before acting.
 
 `latestSeq` is the transcript position the extraction run must cover, so a burst
 of inbound messages collapses onto one model run per position instead of one per
@@ -251,8 +257,13 @@ hides a stalled message, and the row stays `pending` for a provider redelivery.
 Inside the worker the order is always MongoDB first, then the PostgreSQL fence
 that marks the row terminal — every step before the fence is idempotent, so a
 crash replays into a no-op instead of a lost or duplicated effect. Rows left
-`pending` by a lost enqueue are the known gap; a recovery sweep for them is not
-implemented yet.
+`pending` by a lost enqueue are recovered by the WP7 ingress sweep
+(`feedback.sweep-ingress.v1`): it selects `pending` rows older than
+`FEEDBACK_INGRESS_PENDING_RECOVERY_MINUTES` (default five) in a bounded batch
+and re-adds `feedback.materialize.v1` under the existing
+`feedback-materialize-v1-<ingressId>` job id. Fresh pending rows stay untouched
+so the webhook's own enqueue is not raced. Provider redelivery remains a second
+recovery path; both collapse on the same idempotent consumer.
 
 ## Extension and tests
 
@@ -270,12 +281,14 @@ turn attempt fencing. The feedback queue adds replay coverage: duplicate webhook
 delivery, double and concurrent materialization, out-of-order arrival and a
 replayed STOP that must not acknowledge twice. The outbox relay adds lease /
 idempotent job-id coverage, campaign stagger delays, unknown-outcome no-retry,
-session pacing bounds and cancel-on-STOP behaviour.
+session pacing bounds and cancel-on-STOP behaviour. WP7 adds launch
+idempotency, kill-switch lease skipping, reminder/expiry skip sets and ingress
+recovery re-enqueue under the stable materialize job id.
 
 ## Sources and official references
 
 - [Queue modules](../../../apps/backend/src/infrastructure/queue/queue.module.ts), [Redis options](../../../apps/backend/src/infrastructure/queue/redis-connection.ts), [readiness](../../../apps/backend/src/infrastructure/queue/queue-health.service.ts), [assistant job contract](../../../apps/backend/src/modules/assistant/assistant.schemas.ts), [assistant processor](../../../apps/backend/src/modules/assistant/assistant.processor.ts), [reference job contract](../../../apps/backend/src/modules/reference/reference.schemas.ts) and [reference processor](../../../apps/backend/src/modules/reference/reference.processor.ts)
-- [Feedback job contract](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback.schemas.ts), [feedback processor](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback.processor.ts), [ingress edge](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-ingress.service.ts), [materializer](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-materializer.service.ts), [message outbox relay](../../../apps/backend/src/modules/post-event-feedback/message-outbox-relay.service.ts) and [delivery consumer](../../../apps/backend/src/modules/post-event-feedback/message-outbox-delivery.service.ts)
+- [Feedback job contract](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback.schemas.ts), [feedback processor](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback.processor.ts), [ingress edge](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-ingress.service.ts), [materializer](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-materializer.service.ts), [message outbox relay](../../../apps/backend/src/modules/post-event-feedback/message-outbox-relay.service.ts), [delivery consumer](../../../apps/backend/src/modules/post-event-feedback/message-outbox-delivery.service.ts), [campaign service](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-campaign.service.ts) and [sweep service](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-sweep.service.ts)
 - [Nest BullMQ](https://docs.nestjs.com/techniques/queues), [BullMQ connections](https://docs.bullmq.io/guide/connections), [fail-fast producers](https://docs.bullmq.io/patterns/failing-fast-when-redis-is-down) and [worker shutdown](https://docs.bullmq.io/guide/workers/graceful-shutdown)
 - [Job IDs](https://docs.bullmq.io/guide/jobs/job-ids), [retries](https://docs.bullmq.io/guide/retrying-failing-jobs), [permanent failures](https://docs.bullmq.io/patterns/stop-retrying-jobs), [retention](https://docs.bullmq.io/guide/queues/auto-removal-of-jobs) and [metrics](https://docs.bullmq.io/guide/metrics)
 - [Bull Board](https://github.com/felixmosh/bull-board)

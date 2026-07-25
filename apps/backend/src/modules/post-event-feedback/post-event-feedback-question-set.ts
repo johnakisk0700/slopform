@@ -127,6 +127,25 @@ export function buildPostEventFeedbackQuestionLaunchSnapshot(): PostEventFeedbac
   };
 }
 
+/** Substitutes `{name}` in intro/reminder copy with a display name. */
+export function renderPostEventFeedbackCopy(
+  template: string,
+  name: string,
+): string {
+  const trimmed = name.trim();
+  return template.replaceAll("{name}", trimmed.length > 0 ? trimmed : "φίλε");
+}
+
+export function createFeedbackIntroDedupeKey(conversationId: string): string {
+  return `feedback-intro-${conversationId}`;
+}
+
+export function createFeedbackReminderDedupeKey(
+  conversationId: string,
+): string {
+  return `feedback-reminder-${conversationId}`;
+}
+
 export function isPostEventFeedbackAnswerQuestionKey(
   value: string,
 ): value is PostEventFeedbackAnswerQuestionKey {

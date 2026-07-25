@@ -196,6 +196,11 @@ function createProcessor(
     { relay: vi.fn() } as unknown as MessageOutboxRelayService,
     { deliver: vi.fn() } as unknown as MessageOutboxDeliveryService,
     extractor as unknown as PostEventFeedbackExtractor,
+    {
+      sweepReminders: vi.fn(),
+      sweepExpiry: vi.fn(),
+      sweepIngress: vi.fn(),
+    } as never,
   );
 }
 

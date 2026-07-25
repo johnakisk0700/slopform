@@ -41,6 +41,9 @@ describe("validateEnvironment", () => {
     expect(environment.WASENDER_WEBHOOK_SECRET).toBeUndefined();
     expect(environment.TRANSPORT_MODE).toBe("simulated");
     expect(environment.FEEDBACK_SIMULATOR_ENABLED).toBe(false);
+    expect(environment.FEEDBACK_REMINDER_AFTER_HOURS).toBe(24);
+    expect(environment.FEEDBACK_EXPIRE_AFTER_HOURS).toBe(72);
+    expect(environment.FEEDBACK_INGRESS_PENDING_RECOVERY_MINUTES).toBe(5);
     expect(environment.MONGODB_URI).toBe(
       "mongodb://localhost:27017/join_the_six",
     );
