@@ -81,6 +81,7 @@ exception/Sentry plumbing is absent from the worker graph.
 | Participant profile/import            | `apps/backend/src/modules/participants/`, `packages/database/src/schema/participants.ts`          |
 | Stub events and attendance            | `apps/backend/src/modules/events/`, `packages/database/src/schema/events.ts`                      |
 | Email delivery                        | `apps/backend/src/modules/email/`, `packages/database/src/schema/email-deliveries.ts`             |
+| Published API contract                | `apps/backend/src/infrastructure/openapi/`, `src/cli/emit-openapi.ts`, `apps/backend/openapi/`    |
 | Domain examples                       | `apps/backend/src/modules/reference/`                                                             |
 
 The `reference` module is a disposable executable pattern. Its HTTP adapter is
@@ -105,6 +106,10 @@ a forward migration. Do not turn it into a generic CRUD shrine.
    Worker modules only when one use case genuinely serves both process graphs.
 6. Import HTTP adapters only from `HttpAppModule` and processors only from
    `WorkerAppModule`; test the composition boundary.
+7. Name every operation with `@ApiOperation({ operationId })` in lower camel
+   case, then run `pnpm api:generate` from the repository root and commit the
+   regenerated `apps/backend/openapi/openapi.json` and admin client with the
+   change. `pnpm api:check` fails the repository check on drift.
 
 Introduce an interface only for a real external/multi-adapter port. TypeScript
 does not need an interface/class wedding ceremony for every provider.
@@ -121,6 +126,8 @@ does not need an interface/class wedding ceremony for every provider.
   edge, configuration, logging, tracing and startup/shutdown failure behavior.
 - [Admin authentication](backend/mechanisms/authentication.md) owns Clerk
   session verification, the private-by-default guard and staff authorization.
+- [API contract and generated client](backend/mechanisms/api-contract.md) owns
+  the emitted OpenAPI document, operation naming and the generated admin client.
 - [Wasender integration](backend/mechanisms/wasender.md) owns the optional
   WhatsApp provider client, signed webhook and normalized transport events.
 - [Module inventory](backend/modules/README.md) records durable product module

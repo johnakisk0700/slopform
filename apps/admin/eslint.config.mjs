@@ -6,7 +6,16 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist/**", "node_modules/**", "coverage/**"] },
+  {
+    // `src/api/generated/**` is orval output: `tsc` still typechecks it, but no
+    // lint rule may rewrite a file that the next generation run overwrites.
+    ignores: [
+      "dist/**",
+      "node_modules/**",
+      "coverage/**",
+      "src/api/generated/**",
+    ],
+  },
   {
     files: ["**/*.{js,mjs,cjs}"],
     extends: [js.configs.recommended],

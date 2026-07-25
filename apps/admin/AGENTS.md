@@ -13,6 +13,7 @@ decision). Component contracts live under `docs/frontend/components/`.
 | Library               | Version        | Docs                                       |
 | --------------------- | -------------- | ------------------------------------------ |
 | react / react-dom     | 19.2.8         | https://react.dev                          |
+| @tanstack/react-query | 5.101.4        | https://tanstack.com/query                 |
 | @clerk/react          | 6.12.6         | https://clerk.com/docs                     |
 | @heroui/react         | 3.2.2          | https://www.heroui.com                     |
 | tailwindcss           | 4.3.3          | https://tailwindcss.com                    |
@@ -23,19 +24,21 @@ decision). Component contracts live under `docs/frontend/components/`.
 | react-markdown        | 10.1.0         | https://github.com/remarkjs/react-markdown |
 | mermaid               | 11.15.0        | https://mermaid.js.org                     |
 | zod                   | 4.4.3          | https://zod.dev                            |
+| orval (dev)           | 8.23.0         | https://orval.dev                          |
 | vite / vitest         | 8.1.5 / 4.1.10 | https://vite.dev                           |
 
-Verified 2026-07-23 against `apps/admin/package.json`.
+Verified 2026-07-25 against `apps/admin/package.json`.
 
 ## Put code where its owner lives
 
 | Path                     | Owns                                                                                                                                                 |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/api/generated/`     | orval output: TanStack Query hooks, models and Zod schemas. **Never edited by hand**; run `pnpm api:generate` from the repository root.              |
 | `src/routes/`            | Pages: `usePageMeta`, data wiring, composition. They orchestrate; they do not absorb reusable table/form behavior.                                   |
-| `src/features/<domain>/` | Zod schemas and pure logic. **Zero React imports.**                                                                                                  |
+| `src/features/<domain>/` | Client-only Zod schemas (drafts, persisted values) and pure logic. **Zero React imports.** Never a copy of a backend response shape.                 |
 | `src/components/admin/`  | Admin shell and domain UI (`AdminShell`, `AdminNavigation`, `AdminUserMenu`, assistant chat composition).                                            |
 | `src/components/ui/`     | Shared, domain-free `Jts*` contracts. They own repeated operational behavior (states, a11y, layout) — never domain data, fetching or business rules. |
-| `src/lib/`               | Hooks and facades (`useTheme`, `usePageMeta`, `api`, `env`).                                                                                         |
+| `src/lib/`               | Hooks and facades (`useTheme`, `usePageMeta`, `api`, `api-mutator`, `queryClient`, `env`).                                                           |
 | `src/styles/globals.css` | The token bridge (HeroUI base tokens + Tailwind `@theme`). The only place colors are wired.                                                          |
 | `index.html`             | Pre-paint theme script and the global `robots` meta.                                                                                                 |
 
@@ -107,9 +110,15 @@ reads better — slots and children over config objects.
   `eslint-disable` / `@ts-expect-error` needs a one-line WHY and should be rare
   enough to count on one hand. No `any`, no non-null `!` without justification,
   no `as` where a type guard is honest.
-- Treat API responses as `unknown` and parse them through the owning
-  `src/features/<domain>/` Zod schema before rendering. A TypeScript generic is
-  editor help, not runtime validation.
+- Call backend endpoints through the generated hooks in `src/api/generated/`
+  (`useGetAuthSession`, …), named after the backend `operationId`. Never
+  hand-write a fetch call, a URL string or a response Zod schema for an endpoint
+  that exists in `apps/backend/openapi/openapi.json`; if an endpoint is missing,
+  the backend change comes first, then `pnpm api:generate`. `RequireAdmin` is the
+  reference consumer; the assistant polling flow is the one legacy exception and
+  is not a pattern to copy. When a value must be validated at runtime in the
+  browser — a form draft, something persisted, a payload echoed back — use the
+  generated schema from `src/api/generated/zod/`.
 - Routes: only `/admin` and `/admin/**` exist; `/` redirects to `/admin`; unknown
   paths render `ErrorPage`. Each view sets its title and description via
   `usePageMeta`; `robots` (`noindex, nofollow`) is declared once in `index.html`
@@ -125,4 +134,6 @@ vocabulary or measured delivery constraints, update `docs/frontend/theming.md`
 and/or the focused `docs/frontend/components/` contract in the same change.
 
 Run `pnpm --filter @join-the-six/admin typecheck`, `lint`, `test` and `build`
-before handoff; run `pnpm check` when the change touches shared conventions.
+before handoff; run `pnpm check` when the change touches shared conventions. If
+the change touched a backend endpoint, run `pnpm api:generate` first and commit
+the regenerated contract and client with it — `pnpm check` fails on drift.

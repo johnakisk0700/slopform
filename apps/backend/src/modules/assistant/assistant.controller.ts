@@ -10,7 +10,7 @@ import {
   Post,
   ServiceUnavailableException,
 } from "@nestjs/common";
-import { ApiTags } from "@nestjs/swagger";
+import { ApiOperation, ApiTags } from "@nestjs/swagger";
 import type { Request } from "express";
 import { ZodResponse } from "nestjs-zod";
 
@@ -53,6 +53,7 @@ export class AssistantController {
   ) {}
 
   @Post()
+  @ApiOperation({ operationId: "createAssistantThread" })
   @ZodResponse({ status: 201, type: AssistantThreadDto })
   createThread(
     @Body() input: CreateAssistantThreadDto,
@@ -69,6 +70,7 @@ export class AssistantController {
   }
 
   @Get()
+  @ApiOperation({ operationId: "listAssistantThreads" })
   @ZodResponse({ status: 200, type: AssistantThreadListDto })
   list(
     @CurrentUserId() userId: AssistantPrincipalDto,
@@ -77,6 +79,7 @@ export class AssistantController {
   }
 
   @Get(":id")
+  @ApiOperation({ operationId: "getAssistantThread" })
   @ZodResponse({ status: 200, type: AssistantThreadDto })
   getThread(
     @Param() parameters: AssistantThreadIdDto,
@@ -88,6 +91,7 @@ export class AssistantController {
   }
 
   @Post(":id/turns")
+  @ApiOperation({ operationId: "createAssistantTurn" })
   @ZodResponse({ status: 201, type: AssistantTurnDto })
   appendTurn(
     @Param() parameters: AssistantThreadIdDto,
@@ -106,6 +110,7 @@ export class AssistantController {
   }
 
   @Get(":threadId/turns/:turnId")
+  @ApiOperation({ operationId: "getAssistantTurn" })
   @ZodResponse({ status: 200, type: AssistantTurnDto })
   getTurn(
     @Param() parameters: AssistantTurnParametersDto,
@@ -121,6 +126,7 @@ export class AssistantController {
   }
 
   @Post(":threadId/turns/:turnId/retry")
+  @ApiOperation({ operationId: "retryAssistantTurn" })
   @ZodResponse({ status: 201, type: AssistantTurnDto })
   retryTurn(
     @Param() parameters: AssistantTurnParametersDto,

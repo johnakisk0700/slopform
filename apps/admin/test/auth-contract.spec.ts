@@ -24,7 +24,8 @@ describe("admin authentication delivery contract", () => {
     const guard = readAdminFile("src/components/admin/RequireAdmin.tsx");
 
     expect(app).toContain("<Route element={<RequireAdmin />}>");
-    expect(guard).toContain('api<unknown>("/v1/auth/session"');
+    expect(guard).toContain('from "../../api/generated/auth"');
+    expect(guard).toContain("useGetAuthSession");
     expect(guard).toContain("status === 401 || status === 403");
   });
 

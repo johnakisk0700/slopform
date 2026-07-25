@@ -2,10 +2,9 @@ import { clerkMiddleware } from "@clerk/express";
 import { ConfigService } from "@nestjs/config";
 import { NestFactory } from "@nestjs/core";
 import type { NestExpressApplication } from "@nestjs/platform-express";
-import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
+import { SwaggerModule } from "@nestjs/swagger";
 import helmet from "helmet";
 import { Logger, LoggerErrorInterceptor } from "nestjs-pino";
-import { cleanupOpenApiDoc } from "nestjs-zod";
 
 import { HttpAppModule } from "./http-app.module.js";
 import { AuthConfigService } from "./infrastructure/auth/auth-config.service.js";
@@ -16,6 +15,12 @@ import {
   HTTP_API_PREFIX,
   HTTP_BODY_LIMIT_BYTES,
 } from "./infrastructure/config/http-policy.js";
+import {
+  createOpenApiDocument,
+  OPENAPI_DOCS_ROUTE,
+  OPENAPI_JSON_ROUTE,
+  OPENAPI_YAML_ROUTE,
+} from "./infrastructure/openapi/openapi-document.js";
 
 export async function createHttpApplication(
   onCreated?: (application: NestExpressApplication) => void,
@@ -69,18 +74,9 @@ export async function createHttpApplication(
   });
 
   if (nodeEnvironment !== "production") {
-    const openApiConfig = new DocumentBuilder()
-      .setTitle("Join The Six API")
-      .setDescription("Operations API for Join The Six")
-      .setVersion("1.0.0")
-      .build();
-    const openApiDocument = cleanupOpenApiDoc(
-      SwaggerModule.createDocument(app, openApiConfig),
-    );
-
-    SwaggerModule.setup("api/docs", app, openApiDocument, {
-      jsonDocumentUrl: "api/openapi.json",
-      yamlDocumentUrl: "api/openapi.yaml",
+    SwaggerModule.setup(OPENAPI_DOCS_ROUTE, app, createOpenApiDocument(app), {
+      jsonDocumentUrl: OPENAPI_JSON_ROUTE,
+      yamlDocumentUrl: OPENAPI_YAML_ROUTE,
     });
   }
 

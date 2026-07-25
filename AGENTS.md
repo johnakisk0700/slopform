@@ -48,6 +48,27 @@ purpose, boundary, public contract, simple Mermaid flow, invariants, failure and
 loading states, extension points, configuration/observability, tests, decisions
 and official references. Use `docs/documentation-standard.md` as the template.
 
+## The API contract is generated, not retyped
+
+The backend's OpenAPI document is the only description of the HTTP boundary.
+`apps/backend/openapi/openapi.json` is committed, and `apps/admin/src/api/generated/`
+is generated from it with orval.
+
+- Admin features call backend endpoints through the generated TanStack Query
+  hooks (`useGetAuthSession`, …). Do not hand-write a fetch call, a URL string,
+  or a response Zod schema for an endpoint that exists in the document.
+- Every operation declares `@ApiOperation({ operationId })` in lower camel case;
+  that name becomes the generated function, hook, query key and Zod schema.
+- Changing an endpoint means running `pnpm api:generate` and committing the
+  regenerated artifact and client in the same change. `pnpm api:check` runs
+  inside `pnpm check` and fails on drift.
+- Generated files are never edited by hand, and no generated call may bypass the
+  `apiRequest` mutator that wraps the single `ofetch` client.
+
+The pipeline is documented in
+[`docs/backend/mechanisms/api-contract.md`](docs/backend/mechanisms/api-contract.md)
+and [ADR 0009](docs/decisions/0009-generated-api-client.md).
+
 ## Frontend component selection
 
 When building UI, use this order:
@@ -69,8 +90,10 @@ pagination, accessibility or layout—not speculative abstraction.
 - Root `package.json` scripts are the public command surface; keep dependency
   ordering, cache inputs and real generated outputs in `turbo.json`.
 - The phases inside `pnpm check` run sequentially, fastest and most localized
-  first: `format:check`, `docs:check`, `typecheck`, `lint`, `test`, then the full
-  `build` last. This ordering exists to fail fast, not to serialize contended
+  first: `format:check`, `docs:check`, `api:check`, `typecheck`, `lint`, `test`,
+  then the full `build` last. `api:check` regenerates the API contract and the
+  admin client and fails on any difference, so every later phase reads a current
+  client. This ordering exists to fail fast, not to serialize contended
   state. Turbo owns dependency ordering and caching: every `typecheck`, `lint`,
   `test` and `build` task waits on its workspace dependencies' `build` (`^build`),
   so `@join-the-six/design-tokens` is built before the apps consume it. The admin

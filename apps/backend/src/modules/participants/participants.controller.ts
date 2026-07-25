@@ -9,7 +9,7 @@ import {
   Param,
   Patch,
 } from "@nestjs/common";
-import { ApiTags } from "@nestjs/swagger";
+import { ApiOperation, ApiTags } from "@nestjs/swagger";
 import type { Request } from "express";
 import { ZodResponse } from "nestjs-zod";
 
@@ -39,6 +39,7 @@ export class ParticipantsController {
   constructor(private readonly participants: ParticipantsService) {}
 
   @Get()
+  @ApiOperation({ operationId: "listParticipants" })
   @Header("Cache-Control", "no-store")
   @ZodResponse({ status: 200, type: ParticipantListDto })
   list(
@@ -48,6 +49,7 @@ export class ParticipantsController {
   }
 
   @Get(":id")
+  @ApiOperation({ operationId: "getParticipant" })
   @Header("Cache-Control", "no-store")
   @ZodResponse({ status: 200, type: ParticipantDto })
   get(
@@ -58,6 +60,7 @@ export class ParticipantsController {
   }
 
   @Patch(":id/feedback-whatsapp-opt-in")
+  @ApiOperation({ operationId: "updateParticipantFeedbackOptIn" })
   @Header("Cache-Control", "no-store")
   @ZodResponse({ status: 200, type: ParticipantDto })
   updateFeedbackOptIn(

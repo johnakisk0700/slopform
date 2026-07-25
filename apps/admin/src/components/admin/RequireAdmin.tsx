@@ -1,18 +1,12 @@
-import { useEffect, useState } from "react";
 import { useAuth, useClerk } from "@clerk/react";
 import { Navigate, Outlet, useLocation } from "react-router";
 
-import { authSessionSchema } from "../../features/auth/schema";
-import { api } from "../../lib/api";
+import {
+  getGetAuthSessionQueryKey,
+  useGetAuthSession,
+} from "../../api/generated/auth";
 import { env } from "../../lib/env";
 import { AuthStatusScreen } from "./AuthStatusScreen";
-
-type AuthorizationStatus = "checking" | "authorized" | "denied" | "failed";
-
-interface AuthorizationState {
-  readonly status: AuthorizationStatus;
-  readonly userId: string | null;
-}
 
 function responseStatus(error: unknown): number | undefined {
   if (typeof error !== "object" || error === null || !("response" in error)) {
@@ -35,40 +29,14 @@ function ClerkRequireAdmin() {
   const { isLoaded, isSignedIn, userId } = useAuth();
   const { signOut } = useClerk();
   const location = useLocation();
-  const [attempt, setAttempt] = useState(0);
-  const [authorization, setAuthorization] = useState<AuthorizationState>({
-    status: "checking",
-    userId: null,
+  const session = useGetAuthSession({
+    query: {
+      enabled: isLoaded && isSignedIn,
+      // The answer belongs to one Clerk subject; a different one re-checks.
+      queryKey: [...getGetAuthSessionQueryKey(), userId],
+      staleTime: Infinity,
+    },
   });
-
-  useEffect(() => {
-    if (!isLoaded || !isSignedIn) {
-      return;
-    }
-
-    const abortController = new AbortController();
-
-    void api<unknown>("/v1/auth/session", {
-      signal: abortController.signal,
-    })
-      .then((response) => {
-        authSessionSchema.parse(response);
-        setAuthorization({ status: "authorized", userId });
-      })
-      .catch((error: unknown) => {
-        if (abortController.signal.aborted) {
-          return;
-        }
-
-        const status = responseStatus(error);
-        setAuthorization({
-          status: status === 401 || status === 403 ? "denied" : "failed",
-          userId,
-        });
-      });
-
-    return () => abortController.abort();
-  }, [attempt, isLoaded, isSignedIn, userId]);
 
   if (!isLoaded) {
     return <AuthStatusScreen kind="checking" />;
@@ -84,32 +52,24 @@ function ClerkRequireAdmin() {
     );
   }
 
-  const authorizationStatus =
-    authorization.userId === userId ? authorization.status : "checking";
-
-  if (authorizationStatus === "authorized") {
+  if (session.isSuccess) {
     return <Outlet />;
   }
 
-  if (authorizationStatus === "denied") {
-    return (
+  if (session.isError) {
+    const status = responseStatus(session.error);
+
+    return status === 401 || status === 403 ? (
       <AuthStatusScreen
         kind="denied"
         actionLabel="Sign out"
         onAction={() => void signOut({ redirectUrl: "/sign-in" })}
       />
-    );
-  }
-
-  if (authorizationStatus === "failed") {
-    return (
+    ) : (
       <AuthStatusScreen
         kind="failed"
         actionLabel="Retry"
-        onAction={() => {
-          setAuthorization({ status: "checking", userId });
-          setAttempt((value) => value + 1);
-        }}
+        onAction={() => void session.refetch()}
       />
     );
   }

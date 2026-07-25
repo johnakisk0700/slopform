@@ -45,6 +45,15 @@ Sources:
 
 ## HTTP contract
 
+This screen predates the generated API client and is its one documented
+exception: it still calls the shared `ofetch` facade directly and validates
+responses with `features/assistant/schema.ts`, because the polling flow owns
+optimistic turns, idempotent replay and attempt fencing beyond the response
+shape. It migrates to the generated `useCreateAssistantThread` /
+`useGetAssistantTurn` hooks in its own change. Every other screen consumes the
+generated hooks — see
+[API contract and generated client](../backend/mechanisms/api-contract.md).
+
 The shared API facade already has `/api` as its default base. Route code uses
 the following paths without repeating that prefix:
 

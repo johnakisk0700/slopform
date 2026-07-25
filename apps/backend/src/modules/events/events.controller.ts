@@ -14,7 +14,7 @@ import {
   Put,
   Query,
 } from "@nestjs/common";
-import { ApiTags } from "@nestjs/swagger";
+import { ApiOperation, ApiTags } from "@nestjs/swagger";
 import type { Request } from "express";
 import { ZodResponse } from "nestjs-zod";
 
@@ -58,6 +58,7 @@ export class EventsController {
   constructor(private readonly events: EventsService) {}
 
   @Post()
+  @ApiOperation({ operationId: "createEvent" })
   @Header("Cache-Control", "no-store")
   @ZodResponse({ status: 201, type: EventDto })
   create(
@@ -71,6 +72,7 @@ export class EventsController {
   }
 
   @Get()
+  @ApiOperation({ operationId: "listEvents" })
   @Header("Cache-Control", "no-store")
   @ZodResponse({ status: 200, type: EventListDto })
   list(@CurrentUserId() _userId: EventPrincipalDto): Promise<EventListDto> {
@@ -78,6 +80,7 @@ export class EventsController {
   }
 
   @Get(":id")
+  @ApiOperation({ operationId: "getEvent" })
   @Header("Cache-Control", "no-store")
   @ZodResponse({ status: 200, type: EventDetailDto })
   get(
@@ -88,6 +91,7 @@ export class EventsController {
   }
 
   @Patch(":id")
+  @ApiOperation({ operationId: "updateEvent" })
   @Header("Cache-Control", "no-store")
   @ZodResponse({ status: 200, type: EventDto })
   update(
@@ -107,6 +111,7 @@ export class EventsController {
   }
 
   @Post(":id/status")
+  @ApiOperation({ operationId: "transitionEventStatus" })
   @Header("Cache-Control", "no-store")
   @ZodResponse({ status: 200, type: EventDto })
   transitionStatus(
@@ -126,6 +131,7 @@ export class EventsController {
   }
 
   @Get(":id/feedback-candidates")
+  @ApiOperation({ operationId: "listEventFeedbackCandidates" })
   @Header("Cache-Control", "no-store")
   @ZodResponse({ status: 200, type: FeedbackCandidatesDto })
   listFeedbackCandidates(
@@ -142,6 +148,7 @@ export class EventsController {
   }
 
   @Post(":id/attendees")
+  @ApiOperation({ operationId: "addEventAttendee" })
   @Header("Cache-Control", "no-store")
   @ZodResponse({ status: 201, type: EventAttendeeDto })
   addAttendee(
@@ -161,6 +168,7 @@ export class EventsController {
   }
 
   @Put(":id/attendees/:attendeeId")
+  @ApiOperation({ operationId: "updateEventAttendee" })
   @Header("Cache-Control", "no-store")
   @ZodResponse({ status: 200, type: EventAttendeeDto })
   updateAttendee(

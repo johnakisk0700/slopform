@@ -1,31 +1,34 @@
 # Frontend foundation
 
-Status: accepted admin-only foundation, verified 2026-07-23.
+Status: accepted admin-only foundation, verified 2026-07-25.
 
 The frontend in `apps/admin` is the private Join The Six administration panel.
 It is a React 19 single-page application built with Clerk 6, HeroUI v3, Tailwind
-CSS v4, TanStack Table, React Router 7 and Vite. It replaces the retired
-Nuxt/PrimeVue client, removed in the same change that introduced this one. The
+CSS v4, TanStack Query, TanStack Table, React Router 7 and Vite. It replaces the
+retired Nuxt/PrimeVue client, removed in the same change that introduced this
+one. The
 public website, registration, intake and participant-facing journeys are owned
 by the existing Next.js application at `legacy.example.com`; see
 [ADR 0004](decisions/0004-admin-only-boundary.md).
 
 ## Start here
 
-| Task                                  | Location                                  | First reference                                      |
-| ------------------------------------- | ----------------------------------------- | ---------------------------------------------------- |
-| Add an admin route                    | `apps/admin/src/routes/`                  | `routes/OverviewPage.tsx` and the table in `App.tsx` |
-| Extend the AI assistant               | `apps/admin/src/routes/AssistantPage.tsx` | [Assistant screen contract](frontend/assistant.md)   |
-| Add a domain schema or pure helper    | `apps/admin/src/features/<domain>/`       | `features/event/schema.ts`                           |
-| Add domain UI                         | `apps/admin/src/components/admin/`        | `components/admin/AdminNavigation.tsx`               |
-| Reuse or add shared UI                | `apps/admin/src/components/ui/`           | [Component inventory](frontend/components/README.md) |
-| Use a HeroUI primitive                | Owning route or component                 | Import from `@heroui/react`                          |
-| Call the API                          | `apps/admin/src/lib/api.ts`               | `apps/admin/src/lib/env.ts`                          |
-| Read appearance / toggle dark mode    | `apps/admin/src/lib/useTheme.ts`          | Pre-paint script in `index.html`                     |
-| Change the token bridge / HeroUI look | `apps/admin/src/styles/globals.css`       | Named section in that file                           |
-| Change a shared visual value          | `packages/design-tokens/src/tokens.css`   | Token ownership below                                |
-| Change routing, redirect or 404       | `apps/admin/src/App.tsx`                  | `Routes` table                                       |
-| Change the dev proxy or build         | `apps/admin/vite.config.ts`               | `/api` proxy and env contract below                  |
+| Task                                  | Location                                  | First reference                                        |
+| ------------------------------------- | ----------------------------------------- | ------------------------------------------------------ |
+| Add an admin route                    | `apps/admin/src/routes/`                  | `routes/OverviewPage.tsx` and the table in `App.tsx`   |
+| Extend the AI assistant               | `apps/admin/src/routes/AssistantPage.tsx` | [Assistant screen contract](frontend/assistant.md)     |
+| Add a domain schema or pure helper    | `apps/admin/src/features/<domain>/`       | `features/event/schema.ts`                             |
+| Add domain UI                         | `apps/admin/src/components/admin/`        | `components/admin/AdminNavigation.tsx`                 |
+| Reuse or add shared UI                | `apps/admin/src/components/ui/`           | [Component inventory](frontend/components/README.md)   |
+| Use a HeroUI primitive                | Owning route or component                 | Import from `@heroui/react`                            |
+| Call a backend endpoint               | `apps/admin/src/api/generated/`           | [Generated client](backend/mechanisms/api-contract.md) |
+| Change transport policy               | `apps/admin/src/lib/api.ts`               | `apps/admin/src/lib/env.ts`                            |
+| Regenerate the API client             | `pnpm api:generate` (root)                | [API contract](backend/mechanisms/api-contract.md)     |
+| Read appearance / toggle dark mode    | `apps/admin/src/lib/useTheme.ts`          | Pre-paint script in `index.html`                       |
+| Change the token bridge / HeroUI look | `apps/admin/src/styles/globals.css`       | Named section in that file                             |
+| Change a shared visual value          | `packages/design-tokens/src/tokens.css`   | Token ownership below                                  |
+| Change routing, redirect or 404       | `apps/admin/src/App.tsx`                  | `Routes` table                                         |
+| Change the dev proxy or build         | `apps/admin/vite.config.ts`               | `/api` proxy and env contract below                    |
 
 Components are imported explicitly — there is no filename-based discovery.
 Shared project components use the `Jts*` prefix. One component per file, named
@@ -62,9 +65,10 @@ screens where the sidebar is hidden), the mobile drawer, the toast region
 (`<Toast.Provider />` in `App.tsx`) and the reduced-motion policy.
 
 `ClerkProvider` owns browser session state. `RequireAdmin` first checks Clerk,
-then calls `/api/v1/auth/session`; only a backend-approved subject reaches the
-shell. It renders distinct loading, denial and retryable failure states. The
-operator menu displays the Clerk identity and performs real sign-out. This
+then calls the generated `useGetAuthSession` hook; only a backend-approved
+subject reaches the shell. It renders distinct loading, denial and retryable
+failure states. The operator menu displays the Clerk identity and performs real
+sign-out. This
 client guard improves navigation only: the Nest guard and resource-owner
 predicates authorize every API request. See
 [Admin authentication](backend/mechanisms/authentication.md).
@@ -73,16 +77,17 @@ predicates authorize every API request. See
 
 ```text
 src/
+├── api/generated/          orval output: hooks, models, Zod schemas (never edited)
 ├── components/ui/          shared, domain-free Jts* contracts
 ├── components/admin/       admin shell and domain UI
 │   └── RequireAdmin.tsx    Clerk session + backend authorization gate
-├── features/<domain>/      schemas, types and pure helpers (no React imports)
-├── lib/                    hooks and facades (api, env, useTheme, usePageMeta)
+├── features/<domain>/      client-only schemas and pure helpers (no React imports)
+├── lib/                    hooks and facades (api, api-mutator, env, queryClient, useTheme, usePageMeta)
 ├── routes/                 route metadata, data and composition
 ├── styles/globals.css      the design-token bridge + base layer + motifs
 ├── theme/                  reserved (empty); the HeroUI mapping lives in globals.css
 ├── App.tsx                 router: skip link, Toast.Provider, route table
-└── main.tsx                React root mount (StrictMode + ClerkProvider)
+└── main.tsx                React root mount (StrictMode + QueryClientProvider + ClerkProvider)
 ```
 
 `features/` has no React runtime behavior and remains independently testable.
@@ -167,12 +172,58 @@ flowchart LR
   zod --> base["env.apiBase (defaults to /api)"]
   zod --> clerk["ClerkProvider or configuration screen"]
   base --> client["ofetch api client"]
+  hooks["Generated hooks → apiRequest mutator"] --> client
   client --> proxy["Vite dev proxy or Caddy → backend"]
 ```
 
-Treat unshared responses as `unknown` and parse them with the owning feature
-Zod schema. Prefer a generated OpenAPI client or shared contract package once
-the backend contract stabilizes.
+### Call endpoints through the generated client
+
+Every endpoint in the backend's OpenAPI document reaches this app as a generated,
+named, typed hook. Do not hand-write a fetch call, a URL string or a Zod schema
+for a response the document already describes.
+
+```tsx
+import { useGetAuthSession } from "../../api/generated/auth";
+
+const session = useGetAuthSession({ query: { enabled: isSignedIn } });
+```
+
+- `src/api/generated/` is orval output: TanStack Query hooks per tag,
+  request/response types under `model/`, and matching Zod schemas under `zod/`.
+  It is committed, typechecked, excluded from ESLint and **never edited by
+  hand**.
+- Hook names come from the backend `operationId`: `getAuthSession` produces
+  `useGetAuthSession`, `getGetAuthSessionQueryKey` and the
+  `GetAuthSessionResponse` schema. A missing endpoint is a backend change, not a
+  local fetch call.
+- Every generated call goes through `src/lib/api-mutator.ts`, which delegates to
+  the `api` client above; authentication, retries and timeouts are still owned by
+  `api.ts` alone.
+- `main.tsx` mounts one `QueryClientProvider` (`src/lib/queryClient.ts`). Query
+  and mutation retries are off, matching the client's `retry: 0`; a screen owns
+  its loading, empty and error states rather than a silent retry loop.
+- Generated Zod schemas are for values that leave the typed path — a form draft,
+  a persisted value, a payload echoed back. Import them from
+  `src/api/generated/zod/`; do not copy a backend schema into `features/`.
+- `features/<domain>/` keeps client-only schemas and pure helpers: draft
+  validation, derived view models, formatting. It no longer mirrors response
+  shapes.
+
+Regenerate whenever a backend endpoint changes, in the same change:
+
+```bash
+pnpm api:generate   # emits openapi.json, then regenerates the client
+pnpm api:check      # regenerates and fails on drift (runs inside pnpm check)
+```
+
+The pipeline, its invariants and its failure modes are documented in
+[API contract and generated client](backend/mechanisms/api-contract.md) and
+[ADR 0009](decisions/0009-generated-api-client.md).
+
+`RequireAdmin` is the reference consumer. The assistant screen is the one
+exception still parsing responses by hand
+([`frontend/assistant.md`](frontend/assistant.md)): its polling flow owns extra
+client-side semantics and migrates in its own change. Do not copy it.
 
 The AI assistant is the first real queue-backed API consumer. It creates and
 resumes server-owned threads, persists each user/assistant turn, and polls the
@@ -234,8 +285,8 @@ the state.
 ## Delivery constraints
 
 Verified with React 19.2.8, Clerk React 6.12.6, HeroUI 3.2.2, Tailwind CSS
-4.3.3, TanStack Table 8.21.3, React Router 7.18.1, Vite 8.1.5 and Zod 4.4.3 on
-2026-07-23:
+4.3.3, TanStack Query 5.101.4, TanStack Table 8.21.3, React Router 7.18.1, Vite
+8.1.5, orval 8.23.0 and Zod 4.4.3 on 2026-07-25:
 
 - the client is a static SPA with no SSR or SSG; `build` runs
   `tsc -b --noEmit && vite build`, so a type error gates the bundle;
@@ -243,11 +294,12 @@ Verified with React 19.2.8, Clerk React 6.12.6, HeroUI 3.2.2, Tailwind CSS
   `#main-content` fallback with a `role="status"` message and a `<noscript>`
   notice, so the landmark and status exist before the SPA mounts;
 - `OverviewPage` and `AssistantPage` are React-lazy route boundaries. The
-  production build emits a ~169.69 kB entry (~54.34 kB gzip), a ~313.90 kB
-  Overview chunk (~93.22 kB gzip) and a ~362.46 kB Assistant chunk (~111.43 kB
-  gzip). Rolldown also separates Clerk (`auth`, ~92.48 kB), HeroUI (`ui`,
-  ~65.51 kB) and the Assistant Markdown stack (`markdown`, ~168.84 kB); the
-  Markdown group is fetched only with the Assistant route;
+  production build emits a ~172.32 kB entry (~55.42 kB gzip, including TanStack
+  Query and the generated client the admin gate uses), a ~313.90 kB Overview
+  chunk (~93.22 kB gzip) and a ~362.46 kB Assistant chunk (~111.43 kB gzip).
+  Rolldown also separates Clerk (`auth`, ~92.48 kB), HeroUI (`ui`, ~65.51 kB) and
+  the Assistant Markdown stack (`markdown`, ~168.84 kB); the Markdown group is
+  fetched only with the Assistant route;
 - Mermaid's generated parser runtime is an indivisible ~662.68 kB module
   (~143.23 kB gzip), but it is dynamically imported only when an assistant
   message contains a fenced Mermaid diagram. Vite's advisory threshold is
@@ -276,24 +328,29 @@ pnpm --filter @join-the-six/admin test
 pnpm --filter @join-the-six/admin build
 ```
 
-Root `pnpm check` runs the same four Turbo phases across the workspace. Tests
-run in vitest's node environment and assert reality without a DOM: the
-`index.html`/`App.tsx` delivery invariants (pre-paint theme, robots, focusable
-landmark, root redirect), the pure `resolveTheme` logic, and the real
-`tokens.css` resolved to WCAG AA contrast in both themes.
+Root `pnpm check` runs the same four Turbo phases across the workspace, plus
+`pnpm api:check`, which regenerates the client and fails when the committed
+output drifts from the backend contract. Tests run in vitest's node environment
+and assert reality without a DOM: the `index.html`/`App.tsx` delivery invariants
+(pre-paint theme, robots, focusable landmark, root redirect), the generated API
+client wiring (path transformer, one hook per operation, the mutator seam, the
+single query client), the pure `resolveTheme` logic, and the real `tokens.css`
+resolved to WCAG AA contrast in both themes.
 
-For each admin vertical slice, confirm the backend permission contract, add the
-schema boundary, implement loading/empty/error states, preserve accessibility,
-add accurate private metadata and write the narrowest test that protects the
-behavior.
+For each admin vertical slice, confirm the backend permission contract, consume
+the generated hooks (regenerating them with the backend change), implement
+loading/empty/error states, preserve accessibility, add accurate private metadata
+and write the narrowest test that protects the behavior.
 
 ## Official references
 
-Library behavior was verified 2026-07-23 against:
+Library behavior was verified 2026-07-25 against:
 
 - [HeroUI v3 introduction](https://v3.heroui.com/docs/introduction)
 - [Tailwind CSS v4 theme variables](https://tailwindcss.com/docs/theme)
+- [TanStack Query v5 React adapter](https://tanstack.com/query/latest/docs/framework/react/overview)
 - [TanStack Table v8 React adapter](https://tanstack.com/table/v8/docs/framework/react/react-table)
+- [orval configuration](https://orval.dev/reference/configuration/overview)
 - [React Router v7 documentation](https://reactrouter.com/)
 - [Clerk React quickstart](https://clerk.com/docs/react/getting-started/quickstart)
 - [Vite build options](https://vite.dev/guide/build.html)

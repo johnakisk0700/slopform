@@ -10,7 +10,7 @@ import {
   Param,
   Post,
 } from "@nestjs/common";
-import { ApiTags } from "@nestjs/swagger";
+import { ApiOperation, ApiTags } from "@nestjs/swagger";
 import type { Request } from "express";
 import { ZodResponse } from "nestjs-zod";
 
@@ -41,6 +41,7 @@ export class EmailController {
   constructor(private readonly email: EmailService) {}
 
   @Post()
+  @ApiOperation({ operationId: "createEmailDelivery" })
   @Header("Cache-Control", "no-store")
   @ZodResponse({ status: 201, type: EmailDeliveryDto })
   create(
@@ -54,6 +55,7 @@ export class EmailController {
   }
 
   @Get()
+  @ApiOperation({ operationId: "listEmailDeliveries" })
   @Header("Cache-Control", "no-store")
   @ZodResponse({ status: 200, type: EmailDeliveryListDto })
   list(
@@ -63,6 +65,7 @@ export class EmailController {
   }
 
   @Get(":id")
+  @ApiOperation({ operationId: "getEmailDelivery" })
   @Header("Cache-Control", "no-store")
   @ZodResponse({ status: 200, type: EmailDeliveryDto })
   get(

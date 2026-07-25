@@ -16,8 +16,9 @@ This directory is the maintained project memory. Markdown is deliberate: GitHub 
 10. [`decisions/0006-react-admin-runtime.md`](decisions/0006-react-admin-runtime.md) — React admin runtime (supersedes the Nuxt frontend)
 11. [`decisions/0007-mongodb-conversation-authority.md`](decisions/0007-mongodb-conversation-authority.md) — MongoDB conversation authority and PostgreSQL recovery boundary
 12. [`decisions/0008-post-event-feedback-conversations.md`](decisions/0008-post-event-feedback-conversations.md) — event-bound WhatsApp feedback, directed results and human control
-13. [`deployment.md`](deployment.md) — development containers and production VPS topology
-14. [`agent-readiness.md`](agent-readiness.md) — repeatable extension benchmark and current evidence gaps
+13. [`decisions/0009-generated-api-client.md`](decisions/0009-generated-api-client.md) — generated admin API client (supersedes hand-written response schemas)
+14. [`deployment.md`](deployment.md) — development containers and production VPS topology
+15. [`agent-readiness.md`](agent-readiness.md) — repeatable extension benchmark and current evidence gaps
 
 Area-specific memory:
 
@@ -25,6 +26,7 @@ Area-specific memory:
 - [`frontend/theming.md`](frontend/theming.md) — design tokens, dark mode and the HeroUI integration
 - [`frontend/assistant.md`](frontend/assistant.md) — queue-backed AI conversation route and polling contract
 - [`backend/mechanisms/README.md`](backend/mechanisms/README.md) — queue, database and runtime operations contracts
+- [`backend/mechanisms/api-contract.md`](backend/mechanisms/api-contract.md) — OpenAPI emission, admin client generation and drift detection
 - [`backend/mechanisms/mongodb.md`](backend/mechanisms/mongodb.md) — conversation-store lifecycle, security, limits and backup
 - [`backend/mechanisms/authentication.md`](backend/mechanisms/authentication.md) — Clerk identity, admin authorization and restricted-Google handoff
 - [`backend/mechanisms/wasender.md`](backend/mechanisms/wasender.md) — opt-in WhatsApp transport and webhook boundary
@@ -60,9 +62,12 @@ workspace dependency ordering and cache contracts in [`turbo.json`](../turbo.jso
 
 - `pnpm dev` loads the root `.env`, starts the native admin, Nest and worker
   processes, and passes only their declared runtime variables through Turbo.
-- `pnpm check` runs formatting, documentation, typecheck, lint, test and build
-  in that order. The Turbo phases remain separate so a failure names the phase
-  that broke rather than a merged graph.
+- `pnpm check` runs formatting, documentation, generated-API drift, typecheck,
+  lint, test and build in that order. The Turbo phases remain separate so a
+  failure names the phase that broke rather than a merged graph.
+- `pnpm api:generate` re-emits `apps/backend/openapi/openapi.json` from the Nest
+  controllers and regenerates `apps/admin/src/api/generated/`. `pnpm api:check`
+  does the same and fails when the committed output changed.
 - `pnpm install --frozen-lockfile` is the clean-machine and CI contract. pnpm
   rejects workspace cycles and unreviewed dependency build scripts.
 - GitHub Actions repeats that clean check and builds production images without

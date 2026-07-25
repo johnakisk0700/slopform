@@ -13,6 +13,7 @@
     "dev:worker": "concurrently --kill-others --names compiler,worker \"tsc -p tsconfig.build.json --watch --preserveWatchOutput\" \"node --watch --import ./dist/instrumentation.js ./dist/main-worker.js\"",
     "import:wordpress-profiles": "node ./dist/cli/import-wordpress-profiles.js",
     "lint": "tsc -p tsconfig.json --noEmit",
+    "openapi:emit": "node ./dist/cli/emit-openapi.js",
     "start:http": "node --import ./dist/instrumentation.js ./dist/main-http.js",
     "start:worker": "node --import ./dist/instrumentation.js ./dist/main-worker.js",
     "test": "vitest run",

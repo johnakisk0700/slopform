@@ -8,3 +8,5 @@ pnpm-lock.yaml
 reference
 scripts/wordpress/export-jts-profiles.php
 WP_AUDIT_2026-07-22.md
+# Emitted by `pnpm openapi:emit`; its serializer owns the formatting.
+apps/backend/openapi/openapi.json
