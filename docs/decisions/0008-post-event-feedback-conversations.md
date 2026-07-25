@@ -138,6 +138,31 @@ processing.
   `post_event_feedback`, goals and takeover, but its exact v1 state/takeover
   representation is not declared to be the final feedback product contract.
 
+## Amendments
+
+**2026-07-25, conversation persistence (WP3).** The simplification pass
+recorded in the
+[implementation plan](../../POST_EVENT_FEEDBACK_PLAN_2026-07-25.md) narrowed
+three points of this decision. The original text above stands as the accepted
+architecture; these are its current consequences:
+
+- The persisted conversation shape is now MongoDB **schema v2**: product
+  lifecycle `open | closed` with a terminal reason and orthogonal control
+  `bot | human` with a change source, replacing the schema-v1 `state` and
+  `humanTakeover` enums for this purpose. Schema v1 is untouched and keeps
+  serving the Assistant.
+- The PostgreSQL campaign-recipient projection is **not created**. The
+  conversation document carries the recipient's phone at launch and its own
+  state, a partial unique index makes inbound phone resolution unambiguous, and
+  the admin list reads compact Mongo projections.
+- Launch snapshots only the **question set and its copy**. Candidates are
+  selected live at extraction time from current attendance instead of a frozen
+  candidate snapshot, each run records the candidate IDs it used, and answered
+  goals are never auto-reopened.
+
+The extraction idempotency boundary this decision left open is now the
+document's monotonic `extraction.cursorSeq`.
+
 ## Deliberately open experiments
 
 The following require measured conversation fixtures before another decision:

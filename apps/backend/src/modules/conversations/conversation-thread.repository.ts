@@ -8,6 +8,7 @@ import {
 import { z } from "zod";
 
 import { MongoService } from "../../infrastructure/mongo/mongo.service.js";
+import { ConversationPersistenceError } from "./conversation-persistence.errors.js";
 import {
   CONVERSATION_THREAD_COLLECTION,
   CONVERSATION_THREAD_MAX_TURNS,
@@ -63,13 +64,6 @@ export interface AssistantConversationSnapshot {
   readonly createdAt: Date;
   readonly updatedAt: Date;
   readonly turns: readonly ConversationTurn[];
-}
-
-export class ConversationPersistenceError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = ConversationPersistenceError.name;
-  }
 }
 
 export class ConversationTerminalResultConflictError extends ConversationPersistenceError {

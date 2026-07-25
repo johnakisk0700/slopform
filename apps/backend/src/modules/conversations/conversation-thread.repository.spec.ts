@@ -4,7 +4,6 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { MongoService } from "../../infrastructure/mongo/mongo.service.js";
 import {
-  ConversationPersistenceError,
   ConversationTerminalResultConflictError,
   ConversationThreadRepository,
   type AssistantConversationSnapshot,

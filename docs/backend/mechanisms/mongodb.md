@@ -6,13 +6,16 @@ driver `7.5.0` and MongoDB Community `8.0.28`.
 ## Boundary
 
 MongoDB stores conversation aggregates: owner identity, purpose/channel,
-ordered turns, goal answers, conversation state and human-takeover state.
-PostgreSQL remains authoritative for relational business data, audit, outbox
-and delivery/execution projections. Redis remains queue coordination only.
+ordered content, goals, conversation lifecycle and human control. One
+collection, `conversation_threads`, holds two versioned document shapes —
+schema v1 for the admin Assistant and schema v2 for post-event feedback —
+discriminated by `schemaVersion` and `purpose`. PostgreSQL remains
+authoritative for relational business data, audit, outbox and
+delivery/execution projections. Redis remains queue coordination only.
 
-`MongoService` owns one lazy native-driver client per Nest process.
-Conversation repositories own collection queries; controllers and provider
-adapters never receive a Mongo client.
+`MongoService` owns one lazy native-driver client per Nest process. Each
+conversation repository owns its own document version and collection queries;
+controllers and provider adapters never receive a Mongo client.
 
 ```mermaid
 flowchart LR
@@ -41,9 +44,10 @@ therefore degrades readiness and conversation operations; generation is not
 allowed to continue with a stale PostgreSQL content copy.
 
 Summary lists use a narrow projection for title, timestamps and compact turn
-metadata. Full embedded content is loaded only for a thread detail/model-history
-read or an actual PostgreSQL backfill, avoiding a worst-case 50-document payload
-of near-limit aggregates.
+metadata. The feedback campaign list projects counts and last-message metadata
+through an aggregation instead of embedding transcripts. Full embedded content
+is loaded only for a thread detail/model-history read or an actual PostgreSQL
+backfill, avoiding a worst-case 50-document payload of near-limit aggregates.
 
 ## Security and provisioning
 
@@ -55,7 +59,10 @@ A fresh volume creates:
 
 - a root user from the Mongo-only root secret;
 - a database-scoped `readWrite` application user from a separate secret;
-- `conversation_threads` plus its owner/recency and purpose/state indexes.
+- `conversation_threads` plus its four reviewed indexes: the schema-v1
+  owner/recency and purpose/state indexes, the schema-v2 partial **unique**
+  index on `phoneAtLaunch` for open post-event feedback conversations, and the
+  schema-v2 campaign/recency index.
 
 API and worker receive only the application secret. They never receive the root
 secret. The repository idempotently verifies the required indexes on its first
@@ -87,11 +94,18 @@ attempts are fenced and an existing terminal result cannot be replaced by a
 different result. Provider output is validated before mutation, so oversized
 content cannot create an unreadable document.
 
-MongoDB documents have a 16 MiB BSON limit. Conversation aggregates therefore
-cap embedded turns at 75, leaving room for maximum-size UTF-8 input/output and
-BSON metadata. The Assistant append route checks early and enforces the same cap
+MongoDB documents have a 16 MiB BSON limit. Schema-v1 aggregates therefore cap
+embedded turns at 75, leaving room for maximum-size UTF-8 input/output and BSON
+metadata. The Assistant append route checks early and enforces the same cap
 inside its locked PostgreSQL sequence allocation, closing concurrent append
 races. Introduce tested rollover/archival before raising it.
+
+Schema-v2 feedback conversations cap the transcript at 150 messages of at most
+4096 characters, with a 4 MiB document backstop measured before each append.
+Sequence allocation is fenced by the current array size, so a concurrent append
+retries instead of producing a gap. Reaching either bound flags the
+conversation for human attention and fails the append loudly; the durable
+PostgreSQL ingress row still holds the message, so nothing is silently dropped.
 
 The named volume provides persistence, not backup. The
 [deployment backup/restore runbook](../../deployment.md#coordinated-backup-runbook)
@@ -103,14 +117,16 @@ its matched pair must restore and pass collection/index/owner-read checks.
 ## Tests and references
 
 Focused tests cover lifecycle/readiness without a live server, aggregate
-validation, index contract, idempotent synchronization, exact-attempt fencing
-and conflicting terminal results. A booted HTTP contract test verifies MongoDB
-in both the readiness response and generated OpenAPI, including the safe 503
-shape. Compose configuration is validated separately. No test suite silently
-depends on a developer MongoDB instance.
+validation for both schema versions, both index contracts, idempotent
+synchronization and append, exact-attempt fencing, conflicting terminal
+results, transcript capacity and the compact list projections. A booted HTTP
+contract test verifies MongoDB in both the readiness response and generated
+OpenAPI, including the safe 503 shape. Compose configuration is validated
+separately. No test suite silently depends on a developer MongoDB instance.
 
 - [Mongo service](../../../apps/backend/src/infrastructure/mongo/mongo.service.ts),
-  [conversation repository](../../../apps/backend/src/modules/conversations/conversation-thread.repository.ts)
+  [assistant conversation repository](../../../apps/backend/src/modules/conversations/conversation-thread.repository.ts),
+  [feedback conversation repository](../../../apps/backend/src/modules/conversations/feedback-conversation.repository.ts)
   and [Compose initialization](../../../docker/mongo-init/10-app-user.js)
 - [MongoDB Node.js driver connections](https://www.mongodb.com/docs/drivers/node/current/connect/connection-options/),
   [connection pools](https://www.mongodb.com/docs/drivers/node/current/connect/connection-options/connection-pools/),

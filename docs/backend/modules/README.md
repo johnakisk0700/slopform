@@ -7,11 +7,12 @@ and link the source module. Cross-cutting infrastructure belongs in
 
 Product modules:
 
-- [`conversations.md`](conversations.md) — MongoDB-authoritative, owner-scoped
-  conversation aggregates for admin and future participant channels.
-- [`post-event-feedback.md`](post-event-feedback.md) — WP0–WP2 landed
-  (question contract, stub events upstream, PostgreSQL campaign/answers/
-  notes/ingress/outbox); Mongo conversations, pipeline and UI still pending.
+- [`conversations.md`](conversations.md) — MongoDB-authoritative conversation
+  aggregates: schema v1 for the admin Assistant, schema v2 for post-event
+  feedback conversations.
+- [`post-event-feedback.md`](post-event-feedback.md) — WP0–WP3 landed
+  (question contract, stub events upstream, PostgreSQL persistence, Mongo
+  conversation schema v2); runtime pipeline and UI still pending.
 - [`events.md`](events.md) — stub events, attendance corrections and the shared
   D16 feedback-candidate helper.
 - [`assistant.md`](assistant.md) — authenticated, owner-scoped asynchronous AI

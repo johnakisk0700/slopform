@@ -2,9 +2,9 @@
 
 Status: architecture accepted in
 [ADR 0008](../../decisions/0008-post-event-feedback-conversations.md);
-**WP0 product contract**, **WP1 stub events** and **WP2 PostgreSQL persistence**
-are landed. Mongo conversations, runtime pipeline and admin inbox remain later
-work packages. Plan amendments in
+**WP0 product contract**, **WP1 stub events**, **WP2 PostgreSQL persistence**
+and **WP3 Mongo conversation schema v2** are landed. Runtime pipeline and
+admin inbox remain later work packages. Plan amendments in
 [`POST_EVENT_FEEDBACK_PLAN_2026-07-25.md`](../../../POST_EVENT_FEEDBACK_PLAN_2026-07-25.md)
 §9 supersede frozen candidate snapshots with live D16 selection.
 
@@ -51,14 +51,18 @@ no PostgreSQL FK. Repository helpers:
 One completed event may create one campaign. Each eligible respondent has at
 most one active conversation in that campaign.
 
-| Record                     | Authority  | Contract                                                       |
-| -------------------------- | ---------- | -------------------------------------------------------------- |
-| Stub `events` / attendance | PostgreSQL | Upstream WP1 facts; candidates selected live (D16)             |
-| `FeedbackCampaign`         | PostgreSQL | Event, question-set copy at launch, lifecycle                  |
-| `FeedbackConversation`     | MongoDB    | Ordered transcript, actor, goals, lifecycle, bot/human control |
-| `FeedbackAnswer`           | PostgreSQL | Directed normalized question result with message provenance    |
-| `FeedbackNote`             | PostgreSQL | Directed bounded side note with message provenance             |
-| Provider ingress/outbox    | PostgreSQL | Deduplication, audit and delivery/recovery boundary            |
+| Record                     | Authority  | Contract                                                                      |
+| -------------------------- | ---------- | ----------------------------------------------------------------------------- |
+| Stub `events` / attendance | PostgreSQL | Upstream WP1 facts; candidates selected live (D16)                            |
+| `FeedbackCampaign`         | PostgreSQL | Event, question-set version, launch copy snapshot, lifecycle                  |
+| `FeedbackConversation`     | MongoDB    | Schema v2: transcript, goals, lifecycle × control, phone at launch, attention |
+| `FeedbackAnswer`           | PostgreSQL | Directed normalized question result with message provenance                   |
+| `FeedbackNote`             | PostgreSQL | Directed bounded side note with message provenance                            |
+| Provider ingress/outbox    | PostgreSQL | Deduplication, audit and delivery/recovery boundary                           |
+
+There is no PostgreSQL campaign-recipient projection. The conversation document
+carries the recipient's phone at launch and its own state, and the admin list
+reads compact Mongo projections (the assistant list precedent).
 
 A person-specific answer or note is a directed edge:
 
@@ -75,11 +79,14 @@ the **current** live candidate set from
 `EventsService.listFeedbackCandidatesForRespondent` (present attendees minus
 the respondent — D16), and the respondent cannot be the subject. Unknown names
 degrade to subjectless notes (D18). Each extraction run records the candidate
-IDs it used in `extraction_meta`.
+IDs it used in `extraction_meta`. The conversation document stores no candidate
+list, so an attendance correction reaches every later turn instead of a frozen
+copy.
 
 Questions are versioned definitions outside the conversation. Campaign launch
-copies the question set jsonb onto the campaign row; it does **not** freeze
-attendee candidate IDs.
+snapshots the question-set version and its copy onto the campaign row, then
+creates the Mongo goals from those keys; it does **not** freeze attendee
+candidate IDs.
 
 ## Flow
 
@@ -151,8 +158,10 @@ context strategy is later selected.
 
 ## Invariants
 
-- Campaign membership is decided at launch (present ∧ opt-in ∧ phone); subject
-  candidates are selected live at extraction time (D16), never guessed.
+- Campaign membership is decided at launch (finished event ∧ present ∧ opt-in ∧
+  phone); subject candidates are selected live at extraction time (D16), never
+  guessed, and an already answered goal is never auto-reopened when a candidate
+  appears late.
 - Every structured result preserves respondent, optional subject, event
   campaign, conversation and source-message provenance.
 - The same row powers both “feedback given” and restricted “feedback received”
@@ -235,6 +244,30 @@ integrity. No runtime pipeline, queue or Mongo work is part of WP0/WP2.
 - Repository tests assert conflict targets for ingress, outbox and answer
   idempotent inserts.
 - Apply migrations with the database package migrator before runtime use.
+
+## WP3 conversation persistence (implemented)
+
+The MongoDB schema-v2 document, its Zod validators, the repository and its two
+reviewed indexes live in the
+[conversations module](conversations.md#schema-v2--post-event-feedback-conversation).
+What it settles for this module:
+
+- one conversation per (campaign, respondent) under a deterministic
+  `uuidv5(campaignId, participantId)` identifier, so launch replay is
+  idempotent and a STOP-closed conversation is never recreated;
+- product lifecycle `open | closed` with a terminal reason, orthogonal control
+  `bot | human` with the reason control changed, and no queue or delivery
+  status leaking into either;
+- goals built from the WP0 question keys, with prompts from the campaign's
+  launch copy snapshot;
+- actor-labelled messages with contiguous sequence numbers and
+  ingress/outbox/provider provenance, appended idempotently;
+- the extraction cursor that keeps replayed runs from duplicating answers;
+- `phoneAtLaunch` plus a partial unique index, which is what makes inbound
+  phone resolution unambiguous instead of a guess.
+
+Webhook ingestion, the queue, extraction, sending, reminders and the admin UI
+remain unimplemented.
 
 ## Decisions and references
 

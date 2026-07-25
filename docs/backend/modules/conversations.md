@@ -1,12 +1,15 @@
 # Conversation threads
 
-Status: storage boundary implemented; WhatsApp workflow intentionally deferred.
+Status: two versioned aggregates are implemented in one MongoDB collection —
+schema v1 for the admin Assistant, schema v2 for post-event feedback. The
+feedback runtime pipeline (webhooks, queues, extraction) is intentionally not
+part of this module.
 
 ## Purpose and authority
 
-`modules/conversations` owns the MongoDB aggregate used by the admin Assistant
-and future goal-driven participant conversations. MongoDB is authoritative for
-owner-scoped thread metadata, ordered turns and user-visible conversation
+`modules/conversations` owns the MongoDB aggregates used by the admin Assistant
+and by post-event feedback conversations. MongoDB is authoritative for
+owner-scoped thread metadata, ordered content and user-visible conversation
 state. PostgreSQL continues to own business/audit/outbox/delivery guarantees;
 provider payloads do not become this model.
 
@@ -15,16 +18,30 @@ idempotency, attempt fencing, stale-job recovery and queue correlation. Its
 content columns are a compatibility/backfill projection, not the read source
 for the API or model history.
 
-## Aggregate contract
+## Schema versions coexist
 
-Every document has a UUID string `_id`, schema version, purpose, channel,
+Both documents live in `conversation_threads` and are discriminated by
+`schemaVersion` **and** `purpose`. Neither reader touches the other's
+documents: every v1 query pins `schemaVersion` implicitly through its
+`admin_assistant` purpose filter, and every v2 query filters
+`schemaVersion: 2, purpose: "post_event_feedback"`. No v1 document is
+reinterpreted, migrated or rewritten by this module.
+
+| Version | Purpose               | Repository                       | Shape                                                  |
+| ------- | --------------------- | -------------------------------- | ------------------------------------------------------ |
+| 1       | `admin_assistant`     | `ConversationThreadRepository`   | Generic thread: turns, goals, `state`, `humanTakeover` |
+| 2       | `post_event_feedback` | `FeedbackConversationRepository` | Feedback conversation: messages, lifecycle × control   |
+
+Schema v1 still validates a `post_event_feedback` purpose because that branch
+was written before v2 existed. Nothing writes it: post-event feedback
+conversations are created only as schema-v2 documents. Removing that legacy
+branch requires the usual versioned change, not a silent edit.
+
+## Schema v1 — assistant aggregate
+
+Every v1 document has a UUID string `_id`, schema version, purpose, channel,
 owner, title, lifecycle state, at most ten ordered goals, human-takeover state,
 ordered turns and timestamps.
-
-| Purpose               | Required boundary                                     |
-| --------------------- | ----------------------------------------------------- |
-| `admin_assistant`     | admin channel, staff owner, no goals                  |
-| `post_event_feedback` | WhatsApp channel, participant owner, one to ten goals |
 
 Goals have a stable key, contiguous ordinal, prompt, status and nullable
 answer. Only an answered goal may contain an answer. Human takeover records
@@ -71,33 +88,177 @@ remains documented in the Assistant/queue contracts. A critical participant
 delivery workflow must use the PostgreSQL outbox rather than pretending a Mongo
 write also delivered a message.
 
-## Future WhatsApp extension
+## Schema v2 — post-event feedback conversation
 
-The aggregate deliberately contains goal answers, conversation state and human
-takeover state, but this change adds no Wasender send, webhook consumer,
-participant identity mapping or workflow transitions. Those require separate
-consent, audit, delivery/outbox and operator contracts. The transport adapter
-must call a conversation application service; it must not write provider
-payloads directly into MongoDB.
+One document per (campaign, respondent). It is the transcript and the
+conversation state; it is not a delivery record and not the answer store.
 
-The accepted product boundary is now recorded in
-[ADR 0008](../../decisions/0008-post-event-feedback-conversations.md) and the
-[post-event feedback contract](post-event-feedback.md). The current schema-v1
-state and takeover enums remain the implemented generic aggregate; they are not
-declared to be the final physical representation of the simpler feedback
-lifecycle/control semantics. Any reconciliation requires a versioned schema
-change rather than silently reinterpreting stored documents.
+```text
+_id                      uuidv5(campaignId, respondentParticipantId)
+schemaVersion            2
+purpose / channel        post_event_feedback / whatsapp
+campaignId               campaign UUID
+respondentParticipantId  participant UUID
+phoneAtLaunch            E.164 number captured at launch
+lifecycle                { state: open|closed,
+                           reason: completed|stopped|expired|cancelled|null,
+                           closedAt }
+control                  { mode: bot|human,
+                           source: launch|staff_action|external_outbound,
+                           changedAt }
+goals                    [ { key, ordinal, prompt,
+                             status: pending|asked|answered|skipped } ]
+messages                 [ { id, seq, actor: bot|participant|staff|system,
+                             text, providerMessageId, ingressId, outboxId, at } ]
+extraction               { cursorSeq, lastRunAt, model }
+needsAttention           boolean
+remindedAt               timestamp or null
+createdAt / updatedAt    timestamps
+```
+
+Goal keys and their order come from the versioned WP0 question set
+(`event_score`, `liked`, `meet_again`, `avoid`); the module does not redefine
+them. Prompts come from the copy snapshot the campaign took at launch, so a
+later copy edit never rewrites a live questionnaire.
+
+The document stores **no candidate list**. Candidates are selected live at
+extraction time from current attendance, so an attendance correction reaches
+every later turn instead of a frozen copy.
+
+Answers, notes, ingress rows, outbox rows and audit events stay in PostgreSQL.
+The conversation carries only their identifiers as message provenance.
+
+### Identity and idempotency
+
+`_id = uuidv5(campaignId, respondentParticipantId)` (RFC 4122 version 5, SHA-1,
+campaign as namespace). Launch replay therefore collides on the primary key
+instead of creating a second conversation, so at most one conversation per
+(campaign, participant) can ever exist. `createFromLaunch` returns
+`{ created: false }` with the stored document when it already exists — a
+conversation closed by STOP is returned as-is, never recreated.
+
+### Lifecycle and control
+
+```mermaid
+stateDiagram-v2
+  [*] --> open_bot: createFromLaunch
+  open_bot --> open_human: takeOver (staff or external outbound)
+  open_human --> open_bot: resumeBot (explicit)
+  open_bot --> closed: close(reason)
+  open_human --> closed: close(reason)
+  closed --> closed: close(stopped) overrides a softer reason
+  closed --> [*]: never reopens, never recreated
+```
+
+Lifecycle and control are orthogonal. Queue, delivery and extraction statuses
+are not conversation states.
+
+- The first closure wins, with one exception: `close(stopped)` also overrides
+  an existing softer reason, because opt-out is absolute (D14).
+- No method reopens a closed conversation, so a STOP is structurally final.
+- `resumeBot` is rejected on a closed conversation.
+- `takeOver` works in any lifecycle state: an unobserved external outbound must
+  silence the bot even on a conversation that just closed.
+- `control.source` records why control changed. `launch` is the initial bot
+  source and is invalid for human control.
+
+### Messages and provenance
+
+`seq` is contiguous from 1 and is allocated under an optimistic
+`messages: { $size: n }` fence, so a concurrent append retries instead of
+creating a gap or a duplicate sequence. Appends are idempotent by `ingressId`,
+`outboxId` or the caller's stable message `id`; a replay with the same
+provenance but different content is rejected rather than silently accepted.
+
+| Actor         | Required provenance                                      |
+| ------------- | -------------------------------------------------------- |
+| `participant` | `ingressId` (durable PostgreSQL ingress row), no outbox  |
+| `bot`         | `outboxId`                                               |
+| `staff`       | `outboxId`, or `ingressId` for an observed external send |
+| `system`      | neither; the caller supplies a stable `id`               |
+
+Appends are allowed on a closed conversation because the transcript records
+what actually happened (a STOP acknowledgement or a closing message is observed
+after the closure). Whether a message may be _sent_ is a campaign/outbox
+decision, not a transcript decision.
+
+### Extraction cursor, attention and capacity
+
+`extraction.cursorSeq` advances monotonically and can never pass the
+transcript; a replayed or late run that would not move it is an idempotent
+no-op. That is the idempotency boundary that stops the same source messages
+from producing duplicate PostgreSQL answers while the full transcript stays
+available as model context.
+
+The transcript is capped at 150 messages with a 4 MiB BSON backstop (message
+text is bounded at 4096 characters, WhatsApp's text-body limit). Reaching
+either bound sets `needsAttention` and raises
+`FeedbackConversationCapacityError`; nothing is silently dropped, and the
+durable PostgreSQL ingress row still holds the message for an operator.
+
+### Repository contract
+
+| Method                   | Contract                                                                       |
+| ------------------------ | ------------------------------------------------------------------------------ |
+| `createFromLaunch`       | Deterministic `_id`; idempotent; reports `created`; phone conflict is explicit |
+| `findById`               | Full document for a detail read                                                |
+| `findOpenByPhone`        | Inbound resolution (D9), backed by the partial unique index                    |
+| `listForCampaign`        | Compact campaign-grouped summaries; no transcripts in list reads               |
+| `appendMessage`          | Contiguous `seq`, idempotent by provenance, cap/byte guard                     |
+| `takeOver` / `resumeBot` | Explicit control transitions with a recorded source                            |
+| `close`                  | Terminal reason; STOP overrides softer reasons; nothing reopens                |
+| `advanceCursor`          | Monotonic extraction cursor bounded by the transcript                          |
+| `setNeedsAttention`      | Sets or clears the operator attention flag                                     |
+
+Every method validates the resulting document with Zod, and every transition
+reports whether it actually changed state so callers can write exactly one
+audit event.
+
+### Indexes
+
+| Index                                         | Purpose                                                                                            |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `feedback_conversation_open_phone_unique_idx` | Partial **unique** `phoneAtLaunch` where purpose is post-event feedback and lifecycle is open (D9) |
+| `feedback_conversation_campaign_updated_idx`  | `campaignId` + recency for the grouped admin list                                                  |
+
+The partial filter is what makes phone→conversation resolution unambiguous: a
+second open conversation for the same number is rejected by the database, not
+by a hopeful application check. The repository verifies both indexes on first
+use, and [Compose provisioning](../../../docker/mongo-init/10-app-user.js)
+creates them on a fresh volume.
+
+### Not owned here
+
+Webhook ingestion, the `feedback` queue, extraction, reply sending, reminders,
+expiry sweeps, goal advancement and campaign launch orchestration belong to
+later work packages. The transport adapter must call an application service; it
+must not write provider payloads into MongoDB.
 
 ## Tests and sources
 
-Tests cover purpose/channel/owner rules, ten-goal bounds, ordered goals/turns,
-takeover consistency, BSON-safe capacity, owner-scoped synchronization,
-attempt-fenced transitions, conflicting terminal results, oversized output and
-Assistant cross-store fault paths. Capacity is rechecked inside PostgreSQL's
-locked sequence allocation, not trusted to the earlier Mongo read.
+Schema-v1 tests cover purpose/channel/owner rules, ten-goal bounds, ordered
+goals/turns, takeover consistency, BSON-safe capacity, owner-scoped
+synchronization, attempt-fenced transitions, conflicting terminal results,
+oversized output and Assistant cross-store fault paths. Capacity is rechecked
+inside PostgreSQL's locked sequence allocation, not trusted to the earlier Mongo
+read.
 
-- [Schemas](../../../apps/backend/src/modules/conversations/conversation-thread.schemas.ts),
+Schema-v2 tests cover the deterministic identifier (including the RFC 4122 DNS
+vector), question-set-derived goals, lifecycle/control/provenance validation,
+transcript cap and worst-case BSON size, idempotent launch and append, phone
+conflict, capacity flagging, control and closure transition rules, monotonic
+cursor advance, the index contract and the compact list projection. No test
+requires a live MongoDB.
+
+- Schema v1:
+  [schemas](../../../apps/backend/src/modules/conversations/conversation-thread.schemas.ts),
   [repository](../../../apps/backend/src/modules/conversations/conversation-thread.repository.ts)
-  and [Assistant service](../../../apps/backend/src/modules/assistant/assistant.service.ts)
-- [MongoDB lifecycle](../mechanisms/mongodb.md) and
-  [Assistant module](assistant.md)
+- Schema v2:
+  [schemas](../../../apps/backend/src/modules/conversations/feedback-conversation.schemas.ts),
+  [repository](../../../apps/backend/src/modules/conversations/feedback-conversation.repository.ts)
+- [MongoDB lifecycle](../mechanisms/mongodb.md),
+  [Assistant module](assistant.md) and
+  [post-event feedback contract](post-event-feedback.md)
+- [ADR 0007](../../decisions/0007-mongodb-conversation-authority.md),
+  [ADR 0008](../../decisions/0008-post-event-feedback-conversations.md) and
+  [implementation plan §6](../../../POST_EVENT_FEEDBACK_PLAN_2026-07-25.md)
