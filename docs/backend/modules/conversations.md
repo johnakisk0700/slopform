@@ -80,6 +80,14 @@ consent, audit, delivery/outbox and operator contracts. The transport adapter
 must call a conversation application service; it must not write provider
 payloads directly into MongoDB.
 
+The accepted product boundary is now recorded in
+[ADR 0008](../../decisions/0008-post-event-feedback-conversations.md) and the
+[post-event feedback contract](post-event-feedback.md). The current schema-v1
+state and takeover enums remain the implemented generic aggregate; they are not
+declared to be the final physical representation of the simpler feedback
+lifecycle/control semantics. Any reconciliation requires a versioned schema
+change rather than silently reinterpreting stored documents.
+
 ## Tests and sources
 
 Tests cover purpose/channel/owner rules, ten-goal bounds, ordered goals/turns,

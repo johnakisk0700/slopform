@@ -9,6 +9,8 @@ Product modules:
 
 - [`conversations.md`](conversations.md) — MongoDB-authoritative, owner-scoped
   conversation aggregates for admin and future participant channels.
+- [`post-event-feedback.md`](post-event-feedback.md) — WP0 product contract
+  landed; campaign persistence, pipeline and UI still pending.
 - [`assistant.md`](assistant.md) — authenticated, owner-scoped asynchronous AI
   conversation threads and durable generation turns.
 - [`email-delivery.md`](email-delivery.md) — provider-agnostic email intent,

@@ -15,8 +15,9 @@ This directory is the maintained project memory. Markdown is deliberate: GitHub 
 9. [`decisions/0005-theming-and-dark-mode.md`](decisions/0005-theming-and-dark-mode.md) — design tokens and light/dark theming
 10. [`decisions/0006-react-admin-runtime.md`](decisions/0006-react-admin-runtime.md) — React admin runtime (supersedes the Nuxt frontend)
 11. [`decisions/0007-mongodb-conversation-authority.md`](decisions/0007-mongodb-conversation-authority.md) — MongoDB conversation authority and PostgreSQL recovery boundary
-12. [`deployment.md`](deployment.md) — development containers and production VPS topology
-13. [`agent-readiness.md`](agent-readiness.md) — repeatable extension benchmark and current evidence gaps
+12. [`decisions/0008-post-event-feedback-conversations.md`](decisions/0008-post-event-feedback-conversations.md) — event-bound WhatsApp feedback, directed results and human control
+13. [`deployment.md`](deployment.md) — development containers and production VPS topology
+14. [`agent-readiness.md`](agent-readiness.md) — repeatable extension benchmark and current evidence gaps
 
 Area-specific memory:
 
@@ -29,7 +30,9 @@ Area-specific memory:
 - [`backend/mechanisms/wasender.md`](backend/mechanisms/wasender.md) — opt-in WhatsApp transport and webhook boundary
 - [`backend/modules/README.md`](backend/modules/README.md) — product-domain module inventory and lifecycle docs
 - [`backend/modules/conversations.md`](backend/modules/conversations.md) — owner-scoped MongoDB conversation aggregate
+- [`backend/modules/post-event-feedback.md`](backend/modules/post-event-feedback.md) — accepted campaign, directed feedback and human-takeover contract
 - [`backend/modules/participants.md`](backend/modules/participants.md) — participant profile schema and WordPress import runbook
+- [`post-event-feedback-handover.md`](post-event-feedback-handover.md) — portable 2026-07-25 snapshot of the feedback design, assumptions and implementation plan
 - [`documentation-standard.md`](documentation-standard.md) — required shape for new component/mechanism documentation
 
 ## Evidence, decisions and implementation

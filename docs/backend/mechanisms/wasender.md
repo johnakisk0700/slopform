@@ -20,8 +20,11 @@ logging depends on a session setting; it is not a backfill source for WhatsApp
 Business/Web or WordPress history.
 
 The selected follow-up flow is conversational feedback inside WhatsApp. The
-next product slice must introduce a durable `FeedbackConversation` state
-machine, not add logic to this provider adapter.
+accepted campaign, directed-result and human-control boundary is documented in
+the [post-event feedback module](../modules/post-event-feedback.md) and
+[ADR 0008](../../decisions/0008-post-event-feedback-conversations.md). The next
+product slice must implement that durable application boundary, not add logic
+to this provider adapter.
 
 ## Contract
 
