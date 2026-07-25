@@ -10,9 +10,10 @@ Product modules:
 - [`conversations.md`](conversations.md) — MongoDB-authoritative conversation
   aggregates: schema v1 for the admin Assistant, schema v2 for post-event
   feedback conversations.
-- [`post-event-feedback.md`](post-event-feedback.md) — WP0–WP3 landed
+- [`post-event-feedback.md`](post-event-feedback.md) — WP0–WP4 landed
   (question contract, stub events upstream, PostgreSQL persistence, Mongo
-  conversation schema v2); runtime pipeline and UI still pending.
+  conversation schema v2, durable webhook ingress and materialization);
+  extraction, sending, campaign launch and UI still pending.
 - [`events.md`](events.md) — stub events, attendance corrections and the shared
   D16 feedback-candidate helper.
 - [`assistant.md`](assistant.md) — authenticated, owner-scoped asynchronous AI

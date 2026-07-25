@@ -122,8 +122,21 @@ export const wasenderWebhookAcknowledgementSchema = z
   .object({
     received: z.literal(true),
     eventCount: z.number().int().positive(),
+    /** Observed personal messages written to the durable ingress table. */
+    recordedCount: z.number().int().nonnegative(),
+    /** Group, newsletter and unrecognized chats, never stored. */
+    skippedCount: z.number().int().nonnegative(),
+    /** Delivery-status events; the outbox relay consumes them (WP6). */
+    deferredCount: z.number().int().nonnegative(),
   })
   .strict();
+
+export const wasenderCorrelationIdSchema = z.string().min(1).max(128);
+
+const WasenderCorrelationIdDtoBase = createZodDto(
+  wasenderCorrelationIdSchema,
+) as unknown as new () => object;
+export class WasenderCorrelationIdDto extends WasenderCorrelationIdDtoBase {}
 
 export class WasenderWebhookDto extends createZodDto(
   wasenderWebhookDtoSchema,

@@ -1,17 +1,28 @@
 import {
   Body,
   Controller,
+  createParamDecorator,
+  type ExecutionContext,
   Headers,
   HttpCode,
   HttpStatus,
+  Logger,
   Post,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from "@nestjs/common";
 import { ApiTags, ApiUnauthorizedResponse } from "@nestjs/swagger";
+import type { Request } from "express";
 import { ZodResponse } from "nestjs-zod";
 
 import { Public } from "../../infrastructure/auth/public.decorator.js";
 import {
+  PostEventFeedbackEnqueueError,
+  PostEventFeedbackIngressService,
+} from "../../modules/post-event-feedback/post-event-feedback-ingress.service.js";
+import { boundObservedMessageText } from "../../modules/post-event-feedback/post-event-feedback.schemas.js";
+import {
+  WasenderCorrelationIdDto,
   WasenderWebhookAcknowledgementDto,
   WasenderWebhookDto,
 } from "./wasender.schemas.js";
@@ -20,31 +31,106 @@ import {
   WasenderWebhookSignatureVerifier,
 } from "./wasender.webhook.js";
 
+type RequestWithId = Request & { id: string };
+const RequestCorrelationId = createParamDecorator(
+  (_data: unknown, context: ExecutionContext): string =>
+    context.switchToHttp().getRequest<RequestWithId>().id,
+);
+
 @ApiTags("webhooks")
 @Public()
 @Controller("webhooks/wasender")
 export class WasenderWebhookController {
+  private readonly logger = new Logger(WasenderWebhookController.name);
+
   constructor(
     private readonly verifier: WasenderWebhookSignatureVerifier,
     private readonly parser: WasenderWebhookParser,
+    private readonly ingress: PostEventFeedbackIngressService,
   ) {}
 
+  /**
+   * The provider-facing edge (D8): authenticate, normalize, then perform one
+   * durable ingress write and one materialize enqueue per observed personal
+   * message. Matching, transcripts, STOP and delivery correlation all belong to
+   * the worker, so this request never touches conversation state.
+   */
   @Post()
   @HttpCode(HttpStatus.OK)
   @ApiUnauthorizedResponse({ description: "Invalid webhook signature" })
   @ZodResponse({ status: 200, type: WasenderWebhookAcknowledgementDto })
-  receive(
+  async receive(
     @Headers("x-webhook-signature") signature: string | undefined,
     @Body() body: WasenderWebhookDto,
-  ): WasenderWebhookAcknowledgementDto {
+    @RequestCorrelationId() requestId: WasenderCorrelationIdDto,
+  ): Promise<WasenderWebhookAcknowledgementDto> {
     if (!this.verifier.verify(signature)) {
       throw new UnauthorizedException("Invalid webhook signature");
     }
 
-    // This normalized, provider-bounded event list is the handoff seam for the
-    // durable message domain. The endpoint stays disabled until that consumer
-    // exists; see the integration mechanism documentation.
-    const eventCount = this.parser.parse(body).length;
-    return { received: true, eventCount };
+    const correlationId = String(requestId);
+    const events = this.parser.parse(body);
+    let recordedCount = 0;
+    let skippedCount = 0;
+    let deferredCount = 0;
+
+    for (const event of events) {
+      if (event.type !== "message.observed") {
+        // Delivery status belongs to the outbox relay (WP6). It is counted and
+        // logged rather than silently dropped, but it is not consumed yet.
+        deferredCount += 1;
+        this.logger.log({
+          event: "wasender.webhook.status_deferred",
+          correlationId,
+          providerStatus: event.status,
+        });
+        continue;
+      }
+
+      // Feedback conversations are one-to-one chats. Group, newsletter and
+      // unrecognized chat kinds are never stored, which keeps unrelated
+      // shared-session traffic out of the durable ingress table entirely.
+      if (event.chatKind !== "personal") {
+        skippedCount += 1;
+        this.logger.log({
+          event: "wasender.webhook.chat_kind_skipped",
+          correlationId,
+          chatKind: event.chatKind,
+        });
+        continue;
+      }
+
+      try {
+        await this.ingress.recordObservedMessage(
+          {
+            providerMessageId: event.providerMessageId,
+            chatJid: event.chatJid,
+            direction: event.direction,
+            phoneE164: event.counterpartyPhoneE164,
+            text: boundObservedMessageText(event.text),
+            observedAt: new Date(event.occurredAt),
+          },
+          correlationId,
+        );
+        recordedCount += 1;
+      } catch (error) {
+        if (error instanceof PostEventFeedbackEnqueueError) {
+          // The row is committed but unqueued. Refusing the acknowledgement
+          // invites a provider redelivery instead of hiding a stalled message.
+          throw new ServiceUnavailableException(
+            "The observed message could not be queued",
+          );
+        }
+        throw error;
+      }
+    }
+
+    return {
+      received: true,
+      eventCount: events.length,
+      recordedCount,
+      skippedCount,
+      deferredCount,
+    };
   }
 }

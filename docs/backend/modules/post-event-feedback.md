@@ -2,9 +2,10 @@
 
 Status: architecture accepted in
 [ADR 0008](../../decisions/0008-post-event-feedback-conversations.md);
-**WP0 product contract**, **WP1 stub events**, **WP2 PostgreSQL persistence**
-and **WP3 Mongo conversation schema v2** are landed. Runtime pipeline and
-admin inbox remain later work packages. Plan amendments in
+**WP0 product contract**, **WP1 stub events**, **WP2 PostgreSQL persistence**,
+**WP3 Mongo conversation schema v2** and **WP4 ingress + materialization** are
+landed. Extraction, sending, campaign launch and the admin inbox remain later
+work packages. Plan amendments in
 [`POST_EVENT_FEEDBACK_PLAN_2026-07-25.md`](../../../POST_EVENT_FEEDBACK_PLAN_2026-07-25.md)
 §9 supersede frozen candidate snapshots with live D16 selection.
 
@@ -43,6 +44,9 @@ no PostgreSQL FK. Repository helpers:
 
 - `insertIngressIfAbsent` / `insertOutboxIfAbsent` / `insertAnswerIfAbsent` —
   `ON CONFLICT DO NOTHING` for webhook, reply and extraction replay;
+- `findIngressByIdForUpdate` — the row lock that fences materialization;
+- `findUnlinkedOutboxByConversationAndBody` — observed-outbound correlation when
+  the provider message id is not known yet;
 - given/received answer lists for admin profile views;
 - outbox delivery updates and cancel-queued-on-STOP.
 
@@ -196,11 +200,11 @@ review.
 No worker remains alive while waiting for a reply. Bounded jobs reload durable
 state and are safe to retry.
 
-Webhook activation remains blocked until the implementation defines and tests
-durable acknowledgement, cross-store replay/repair, outbox delivery,
-idempotency and ambiguous-send reconciliation. WP2 supplies the PostgreSQL
-ingress/outbox/result tables and uniqueness boundaries; Mongo materialization
-and queue consumers remain later work packages (D7).
+Durable acknowledgement, cross-store replay and ambiguous-send reconciliation
+now exist (WP4). Webhook activation still waits on outbox delivery (WP6) and on
+the staging acceptance and consent gates, not on missing recovery machinery.
+Nothing claims exactly-once: replay repairs forward, and a stalled job can
+repeat an idempotent step.
 
 The initial operating assumption is that `messages.upsert` observes manual
 outbound messages from the primary WhatsApp application and other linked
@@ -218,8 +222,11 @@ that full transcript context is too costly or harms extraction.
 Required pre-activation fixtures include multi-message bursts, admin follow-up,
 unknown external outbound, takeover/resume, STOP during takeover, corrections,
 ambiguous participant names, unrelated chat, safety language, duplicate and
-out-of-order webhooks and long-context extraction. Provider acceptance also
-requires primary-phone and WhatsApp Web sends plus a failed-webhook retry test.
+out-of-order webhooks and long-context extraction. WP4 covers the transport-side
+ones — unknown external outbound, STOP during takeover, unrelated chat,
+duplicate and out-of-order delivery; the extraction-side fixtures wait for WP5.
+Provider acceptance also requires primary-phone and WhatsApp Web sends plus a
+failed-webhook retry test.
 
 ## WP0 product contract (implemented)
 
@@ -245,6 +252,117 @@ integrity. No runtime pipeline, queue or Mongo work is part of WP0/WP2.
   idempotent inserts.
 - Apply migrations with the database package migrator before runtime use.
 
+## WP4 ingress and materialization (implemented)
+
+The durable consumer behind the webhook. It stays behind the existing
+`WASENDER_WEBHOOK_ENABLED` gate, which remains false by default.
+
+### The request edge
+
+[`PostEventFeedbackIngressService`](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-ingress.service.ts)
+is everything the HTTP process does (D8):
+
+1. one `provider_message_ingress` INSERT, deduplicated by the
+   `(chat_jid, provider_message_id)` unique constraint;
+2. one `feedback.materialize.v1` enqueue under the deterministic job id
+   `feedback-materialize-v1-<ingressId>`;
+3. 200.
+
+A redelivery still enqueues, because the first delivery may have crashed between
+the committed row and the queue; the job id and the idempotent consumer absorb
+the duplicate. A failed enqueue answers 503 rather than a 200 that would hide a
+stalled message. The request never reads a conversation, calls a model or sends
+anything.
+
+### The materialize job
+
+[`PostEventFeedbackMaterializer`](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-materializer.service.ts)
+reloads the ingress row and decides one outcome per delivery:
+
+| Situation                          | Outcome                    | Effects                                                                                                |
+| ---------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Row already terminal               | `already_processed`        | Nothing; this is the replay path                                                                       |
+| Phone matches no open conversation | `ignored_unmatched`        | Body dropped, metadata kept, counter incremented, never AI-processed (D10)                             |
+| Inbound STOP                       | `inbound_stopped`          | Close `stopped`, cancel queued outbox, withdraw opt-in, audit, exactly one `stop_ack` outbox row (D14) |
+| Inbound reply                      | `inbound_materialized`     | Idempotent transcript append, then one `feedback.extract.v1` for the newest transcript position        |
+| Inbound without usable text        | `inbound_not_materialized` | `needsAttention`, ingress `failed`; the durable row keeps the provider metadata for an operator        |
+| Outbound matching an outbox row    | `outbound_correlated`      | Delivery columns only — the outbox owns that message's transcript entry, so nothing is appended twice  |
+| Outbound matching an open thread   | `outbound_external`        | Take over to human control, append the observed staff message, audit external channel activity (D17)   |
+
+Conversation resolution is the Mongo `findOpenByPhone` lookup backed by the
+partial unique index (D9). Nothing infers which event or person an unmatched
+message belongs to. Because only open conversations are indexed that way, a
+message arriving after closure matches nothing — which is exactly right for a
+participant who opted out: the body is dropped and the conversation is never
+reopened.
+
+STOP is matched by the WP0 deterministic matcher **before** any model call and
+works in either control mode: a takeover does not make opt-out negotiable. The
+acknowledgement body comes from the campaign's launch copy snapshot, falling
+back to the versioned constant.
+
+An observed outbound is correlated first by provider message id and then by the
+oldest unlinked outbox row of that conversation with the same body. That
+reconciliation is what keeps an ambiguous send from being sent twice. Delivery
+status is never downgraded by a later observation. Outbound correlation by
+provider message id also runs when no open conversation matched, so the STOP
+acknowledgement — sent to a conversation that just closed — records its delivery
+instead of counting as unrelated traffic.
+
+### Why this order is replay-safe
+
+```mermaid
+sequenceDiagram
+  participant Hook as Webhook
+  participant PG as PostgreSQL
+  participant Queue as feedback queue
+  participant Worker as Materializer
+  participant Mongo as MongoDB
+
+  Hook->>PG: INSERT ingress (unique dedupe)
+  Hook->>Queue: feedback.materialize.v1(ingressId)
+  Queue-->>Worker: at least once
+  Worker->>PG: reload ingress
+  Worker->>Mongo: resolve, close or append (idempotent)
+  Worker->>Queue: feedback.extract.v1 when a participant replied
+  Worker->>PG: fenced transaction marks the row terminal
+```
+
+Every MongoDB step runs before the PostgreSQL fence, and every one of them is
+idempotent, so a crash replays into a no-op. The fence is a
+`SELECT ... FOR UPDATE` on the ingress row inside the transaction that performs
+the PostgreSQL side effects, which is what makes concurrent duplicate executions
+collapse to a single audit event, a single cancellation and a single
+acknowledgement. Extraction is enqueued before the fence for the same reason:
+the reverse order would lose the run instead of repeating it.
+
+The known gap is a row committed by the edge whose enqueue never succeeded. It
+stays `pending` and is recovered by a provider redelivery; a sweep for
+`pending` rows is not implemented.
+
+### Boundaries this package deliberately keeps
+
+Extraction, outbox relay and sending, reminders, expiry and campaign launch are
+not implemented here. `feedback.extract.v1` has a fixed name, payload and job id
+so materialization can enqueue it today; the processor branch only records the
+job until WP5 replaces it. Delivery-status webhooks (`messages.update`) are
+normalized and counted at the edge but consumed by WP6.
+
+Materialization outcomes are counted in a process-local counter surfaced as
+structured log events. The deployment exports traces only, so this is a counter
+for operators reading logs and for tests, not a metrics backend.
+
+### WP4 tests
+
+Replay and crash behavior is the point of this package, so the focused tests
+cover duplicate webhook delivery, double materialization, two concurrent
+executions of the same job, out-of-order arrival, STOP during human control, a
+replayed STOP that must not acknowledge twice, unmatched traffic keeping
+metadata only, outbound correlation without transcript duplication, a delivery
+status that must not be downgraded, and the external-outbound takeover. Process
+composition tests keep the consumer out of the HTTP graph and the producer edge
+gated with the webhook route.
+
 ## WP3 conversation persistence (implemented)
 
 The MongoDB schema-v2 document, its Zod validators, the repository and its two
@@ -266,8 +384,8 @@ What it settles for this module:
 - `phoneAtLaunch` plus a partial unique index, which is what makes inbound
   phone resolution unambiguous instead of a guess.
 
-Webhook ingestion, the queue, extraction, sending, reminders and the admin UI
-remain unimplemented.
+Webhook ingestion and the `feedback` queue landed in WP4 on top of it.
+Extraction, sending, reminders and the admin UI remain unimplemented.
 
 ## Decisions and references
 

@@ -3,7 +3,8 @@
 Status: two versioned aggregates are implemented in one MongoDB collection —
 schema v1 for the admin Assistant, schema v2 for post-event feedback. The
 feedback runtime pipeline (webhooks, queues, extraction) is intentionally not
-part of this module.
+part of this module; its first consumer is the post-event feedback
+materializer.
 
 ## Purpose and authority
 
@@ -229,10 +230,22 @@ creates them on a fresh volume.
 
 ### Not owned here
 
-Webhook ingestion, the `feedback` queue, extraction, reply sending, reminders,
-expiry sweeps, goal advancement and campaign launch orchestration belong to
-later work packages. The transport adapter must call an application service; it
-must not write provider payloads into MongoDB.
+Extraction, reply sending, reminders, expiry sweeps, goal advancement and
+campaign launch orchestration belong to later work packages. Webhook ingestion
+and the `feedback` queue now live in the
+[post-event feedback module](post-event-feedback.md#wp4-ingress-and-materialization-implemented):
+its materializer is the only caller that resolves a phone, appends inbound
+messages, closes a conversation on STOP or takes control on an unknown outbound.
+The transport adapter calls that application service; it never writes provider
+payloads into MongoDB.
+
+Two consumer expectations follow from this repository's contract rather than
+from the consumer's own code. A correlated outbound is not appended here — the
+outbox owns that message's transcript entry through `outboxId` provenance, so
+appending the same message again by `ingressId` would create a duplicate. And
+because appends allocate `seq` on arrival, the transcript records durable
+arrival order, not provider timestamps; the feedback worker runs at concurrency
+`1` so one participant's burst keeps its order.
 
 ## Tests and sources
 

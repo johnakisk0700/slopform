@@ -1,0 +1,18 @@
+import { Module } from "@nestjs/common";
+
+import { DatabaseModule } from "../../infrastructure/database/database.module.js";
+import { QueueModule } from "../../infrastructure/queue/queue.module.js";
+import { PostEventFeedbackCoreModule } from "./post-event-feedback-core.module.js";
+import { PostEventFeedbackIngressService } from "./post-event-feedback-ingress.service.js";
+
+/**
+ * The HTTP-side half of the feedback pipeline: one durable ingress write and
+ * one producer enqueue. It carries no conversation, participant or extraction
+ * providers, so the webhook edge cannot grow domain logic by accident.
+ */
+@Module({
+  imports: [DatabaseModule, QueueModule, PostEventFeedbackCoreModule],
+  providers: [PostEventFeedbackIngressService],
+  exports: [PostEventFeedbackIngressService],
+})
+export class PostEventFeedbackIngressModule {}

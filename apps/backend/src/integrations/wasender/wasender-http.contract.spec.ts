@@ -76,9 +76,41 @@ describe("Wasender webhook HTTP contract", () => {
     const response = await postWebhook(validPayload, webhookSecret);
 
     expect(response.status).toBe(200);
+    // Delivery status is normalized and counted here; the outbox relay (WP6)
+    // consumes it. Nothing durable is written for a status event, so this case
+    // needs no database.
     await expect(response.json()).resolves.toEqual({
       received: true,
       eventCount: 1,
+      recordedCount: 0,
+      skippedCount: 0,
+      deferredCount: 1,
+    });
+  });
+
+  it("never stores group traffic from the shared session", async () => {
+    const response = await postWebhook(
+      {
+        event: "messages.upsert",
+        timestamp: 1_747_775_431_467,
+        data: {
+          messages: {
+            key: {
+              id: "provider-message-group",
+              remoteJid: "120363000000000000@g.us",
+              fromMe: false,
+            },
+            messageBody: "μήνυμα σε γκρουπ",
+          },
+        },
+      },
+      webhookSecret,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      recordedCount: 0,
+      skippedCount: 1,
     });
   });
 

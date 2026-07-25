@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   ASSISTANT_QUEUE,
   EMAIL_QUEUE,
+  FEEDBACK_QUEUE,
   REFERENCE_QUEUE,
 } from "./queue.constants.js";
 import {
@@ -37,9 +38,12 @@ describe("queue process boundaries", () => {
         MODULE_METADATA.IMPORTS,
         moduleClass,
       ) as readonly unknown[];
-      const queueTokens = [ASSISTANT_QUEUE, EMAIL_QUEUE, REFERENCE_QUEUE].map(
-        (queue) => getQueueToken(queue),
-      );
+      const queueTokens = [
+        ASSISTANT_QUEUE,
+        EMAIL_QUEUE,
+        FEEDBACK_QUEUE,
+        REFERENCE_QUEUE,
+      ].map((queue) => getQueueToken(queue));
 
       for (const queueToken of queueTokens) {
         expect(

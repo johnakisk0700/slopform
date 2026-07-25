@@ -2,12 +2,13 @@ import { Module } from "@nestjs/common";
 import { ConfigModule, ConfigService } from "@nestjs/config";
 
 import type { Environment } from "../../infrastructure/config/environment.js";
+import { PostEventFeedbackIngressModule } from "../../modules/post-event-feedback/post-event-feedback-ingress.module.js";
 import { WasenderWebhookController } from "./wasender.controller.js";
 import { WasenderWebhookParser } from "./wasender.webhook.js";
 import { WasenderWebhookSignatureVerifier } from "./wasender.webhook.js";
 
 @Module({
-  imports: [ConfigModule],
+  imports: [ConfigModule, PostEventFeedbackIngressModule],
   controllers: [WasenderWebhookController],
   providers: [
     WasenderWebhookParser,

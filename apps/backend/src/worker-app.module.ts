@@ -8,7 +8,7 @@ import { ObservabilityModule } from "./infrastructure/observability/observabilit
 import { WasenderTransportModule } from "./integrations/wasender/wasender-transport.module.js";
 import { AssistantWorkerModule } from "./modules/assistant/assistant-worker.module.js";
 import { EmailWorkerModule } from "./modules/email/email-worker.module.js";
-import { PostEventFeedbackCoreModule } from "./modules/post-event-feedback/post-event-feedback-core.module.js";
+import { PostEventFeedbackWorkerModule } from "./modules/post-event-feedback/post-event-feedback-worker.module.js";
 import { ReferenceWorkerModule } from "./modules/reference/reference-worker.module.js";
 
 @Module({
@@ -22,7 +22,7 @@ import { ReferenceWorkerModule } from "./modules/reference/reference-worker.modu
     ),
     AssistantWorkerModule,
     EmailWorkerModule,
-    PostEventFeedbackCoreModule,
+    PostEventFeedbackWorkerModule,
     ReferenceWorkerModule,
   ],
 })

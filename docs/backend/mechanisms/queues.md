@@ -24,11 +24,12 @@ flowchart LR
 Redis commands use `maxRetriesPerRequest: 1` so requests fail rather than hang
 during an established-connection outage. `QueueWorkerModule` owns the worker
 boundary. Nest's BullMQ integration still creates one registration Queue per
-registered queue for processor discovery. The email outbox relay deliberately
-uses its worker-side registration Queue to publish delivery jobs after leasing
-committed PostgreSQL outbox rows; HTTP never publishes those jobs. Other worker
-modules do not use it as a producer. Each processor Worker also owns command and
-blocking connections. Worker connections use `maxRetriesPerRequest: null` and
+registered queue for processor discovery. Two worker modules deliberately use
+that worker-side registration Queue as a producer: the email outbox relay
+publishes delivery jobs after leasing committed PostgreSQL outbox rows, and the
+feedback materializer publishes `feedback.extract.v1` after appending an inbound
+message. HTTP never publishes either. No other worker module uses it as a
+producer. Each processor Worker also owns command and blocking connections. Worker connections use `maxRetriesPerRequest: null` and
 keep reconnecting.
 
 Nest closes Queues and Workers. Do not substitute `Queue.disconnect()`; it can
@@ -68,6 +69,31 @@ one-shot BullMQ jobs with immediate removal; PostgreSQL owns recovery and
 business retry timing. Until a provider is explicitly integrated, the consumer
 records a safe `provider_not_configured` blocked attempt and performs no
 external side effect.
+
+The post-event feedback contracts are:
+
+- queue `feedback`;
+- materialize job `feedback.materialize.v1`;
+- materialize payload `{ schemaVersion: 1, ingressId: UUID, correlationId: string }`;
+- materialize job ID `feedback-materialize-v1-<ingressId>`;
+- extraction job `feedback.extract.v1`;
+- extraction payload `{ schemaVersion: 1, conversationId: UUID, correlationId: string }`;
+- extraction job ID `feedback-extract-v1-<conversationId>-<latestSeq>`.
+
+The webhook edge is the producer of `feedback.materialize.v1`; the worker is the
+producer of `feedback.extract.v1`, using its own worker-side registration Queue
+exactly as the email relay does. Neither payload carries message text, phone
+numbers or provider identifiers: the processor reloads the ingress row, the
+conversation and the campaign itself.
+
+`latestSeq` is the transcript position the run must cover, so a burst of inbound
+messages collapses onto one model run per position instead of one per message.
+The extraction processor itself is a later work package; until it lands the
+consumer only records the job, and the job name and payload must not change when
+it is implemented. The feedback worker deliberately runs at concurrency `1`,
+which keeps one participant's burst in arrival order inside the transcript
+without a per-conversation lock; raising it requires explicit per-conversation
+serialization.
 
 For Assistant work, MongoDB owns the owner-scoped thread, ordered history and
 user-visible turn state. PostgreSQL retains the request id, model, attempt and
@@ -184,6 +210,16 @@ marks the outbox event consumed in the same transaction as its fenced delivery
 claim. This closes the commit/enqueue and acknowledged-job-loss gaps, not
 downstream exactly-once effects.
 
+The feedback webhook edge inverts the same idea for inbound traffic. The
+committed `provider_message_ingress` row is the durable acknowledgement, and the
+enqueue follows it: a failed enqueue is answered with 503 rather than a 200 that
+hides a stalled message, and the row stays `pending` for a provider redelivery.
+Inside the worker the order is always MongoDB first, then the PostgreSQL fence
+that marks the row terminal — every step before the fence is idempotent, so a
+crash replays into a no-op instead of a lost or duplicated effect. Rows left
+`pending` by a lost enqueue are the known gap; a recovery sweep for them is not
+implemented yet.
+
 ## Extension and tests
 
 For a real queue, define one strict versioned identifier-only envelope near the
@@ -196,11 +232,14 @@ side-effect idempotency before claiming critical delivery.
 Focused tests cover URL/options mapping, process composition, dashboard
 security, deterministic IDs, payload/version rejection, permanent failures,
 transient propagation, idempotent HTTP request replay and terminal assistant
-turn attempt fencing.
+turn attempt fencing. The feedback queue adds replay coverage: duplicate webhook
+delivery, double and concurrent materialization, out-of-order arrival and a
+replayed STOP that must not acknowledge twice.
 
 ## Sources and official references
 
 - [Queue modules](../../../apps/backend/src/infrastructure/queue/queue.module.ts), [Redis options](../../../apps/backend/src/infrastructure/queue/redis-connection.ts), [readiness](../../../apps/backend/src/infrastructure/queue/queue-health.service.ts), [assistant job contract](../../../apps/backend/src/modules/assistant/assistant.schemas.ts), [assistant processor](../../../apps/backend/src/modules/assistant/assistant.processor.ts), [reference job contract](../../../apps/backend/src/modules/reference/reference.schemas.ts) and [reference processor](../../../apps/backend/src/modules/reference/reference.processor.ts)
+- [Feedback job contract](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback.schemas.ts), [feedback processor](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback.processor.ts), [ingress edge](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-ingress.service.ts) and [materializer](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-materializer.service.ts)
 - [Nest BullMQ](https://docs.nestjs.com/techniques/queues), [BullMQ connections](https://docs.bullmq.io/guide/connections), [fail-fast producers](https://docs.bullmq.io/patterns/failing-fast-when-redis-is-down) and [worker shutdown](https://docs.bullmq.io/guide/workers/graceful-shutdown)
 - [Job IDs](https://docs.bullmq.io/guide/jobs/job-ids), [retries](https://docs.bullmq.io/guide/retrying-failing-jobs), [permanent failures](https://docs.bullmq.io/patterns/stop-retrying-jobs), [retention](https://docs.bullmq.io/guide/queues/auto-removal-of-jobs) and [metrics](https://docs.bullmq.io/guide/metrics)
 - [Bull Board](https://github.com/felixmosh/bull-board)

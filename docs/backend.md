@@ -157,7 +157,9 @@ browser origins require HTTPS.
 
 Wasender is opt-in. Its session key enables a controller-free provider module
 only in the worker graph. Its public webhook module is separately gated by
-`WASENDER_WEBHOOK_ENABLED` and a validated shared secret in the HTTP graph.
+`WASENDER_WEBHOOK_ENABLED` and a validated shared secret in the HTTP graph, and
+that gate also mounts the post-event feedback ingress edge that turns a verified
+observation into a durable row and a queue job.
 
 `AppConfigModule` parses the complete environment through the single Zod
 contract while Nest creates the HTTP or worker application, before either

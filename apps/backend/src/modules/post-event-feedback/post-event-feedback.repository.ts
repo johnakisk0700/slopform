@@ -23,7 +23,7 @@ import {
   type ProviderMessageIngressRow,
   type ProviderMessageProcessingStatus,
 } from "@join-the-six/database";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import { DatabaseService } from "../../infrastructure/database/database.service.js";
 
@@ -312,6 +312,25 @@ export class PostEventFeedbackRepository {
     return record;
   }
 
+  /**
+   * Locks the ingress row for the materialization fence. Two concurrent
+   * materialize executions serialize here, and the loser observes a terminal
+   * `processing_status` instead of repeating the side effects.
+   */
+  async findIngressByIdForUpdate(
+    transaction: AppTransaction,
+    id: string,
+  ): Promise<ProviderMessageIngressRow | undefined> {
+    const [record] = await transaction
+      .select()
+      .from(providerMessageIngress)
+      .where(eq(providerMessageIngress.id, id))
+      .limit(1)
+      .for("update");
+
+    return record;
+  }
+
   async findIngressByChatAndProviderMessage(
     executor: DatabaseExecutor,
     chatJid: string,
@@ -444,6 +463,33 @@ export class PostEventFeedbackRepository {
       .select()
       .from(messageOutbox)
       .where(eq(messageOutbox.providerMessageId, providerMessageId))
+      .limit(1);
+
+    return record;
+  }
+
+  /**
+   * Correlates an observed outbound message that carries no provider message id
+   * yet: the oldest not-yet-linked row of that conversation with the exact same
+   * body. Cancelled and held rows are excluded because they were never sent.
+   */
+  async findUnlinkedOutboxByConversationAndBody(
+    conversationId: string,
+    body: string,
+    executor: DatabaseExecutor = this.database.db,
+  ): Promise<MessageOutboxRow | undefined> {
+    const [record] = await executor
+      .select()
+      .from(messageOutbox)
+      .where(
+        and(
+          eq(messageOutbox.conversationId, conversationId),
+          eq(messageOutbox.body, body),
+          isNull(messageOutbox.providerMessageId),
+          inArray(messageOutbox.status, ["pending", "sending", "sent"]),
+        ),
+      )
+      .orderBy(asc(messageOutbox.createdAt), asc(messageOutbox.id))
       .limit(1);
 
     return record;

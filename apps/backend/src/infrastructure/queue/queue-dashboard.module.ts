@@ -9,6 +9,7 @@ import { createBullBoardAuthMiddleware } from "./bull-board-auth.middleware.js";
 import {
   ASSISTANT_QUEUE,
   EMAIL_QUEUE,
+  FEEDBACK_QUEUE,
   REFERENCE_QUEUE,
 } from "./queue.constants.js";
 import { QueueModule } from "./queue.module.js";
@@ -47,6 +48,14 @@ import { QueueModule } from "./queue.module.js";
       adapter: BullMQAdapter,
       options: {
         description: "Provider-agnostic email outbox delivery",
+        readOnlyMode: true,
+      },
+    }),
+    BullBoardModule.forFeature({
+      name: FEEDBACK_QUEUE,
+      adapter: BullMQAdapter,
+      options: {
+        description: "Post-event feedback ingress materialization",
         readOnlyMode: true,
       },
     }),
