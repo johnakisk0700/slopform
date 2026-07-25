@@ -115,10 +115,11 @@ reads better — slots and children over config objects.
   hand-write a fetch call, a URL string or a response Zod schema for an endpoint
   that exists in `apps/backend/openapi/openapi.json`; if an endpoint is missing,
   the backend change comes first, then `pnpm api:generate`. `RequireAdmin` is the
-  reference consumer; the assistant polling flow is the one legacy exception and
-  is not a pattern to copy. When a value must be validated at runtime in the
-  browser — a form draft, something persisted, a payload echoed back — use the
-  generated schema from `src/api/generated/zod/`.
+  reference consumer. The assistant, events and participants screens predate the
+  pipeline, still parse by hand, and are debt awaiting migration — not a pattern
+  to copy. When a value must be validated at runtime in the browser — a form
+  draft, something persisted, a payload echoed back — use the generated schema
+  from `src/api/generated/zod/`.
 - Routes: only `/admin` and `/admin/**` exist; `/` redirects to `/admin`; unknown
   paths render `ErrorPage`. Each view sets its title and description via
   `usePageMeta`; `robots` (`noindex, nofollow`) is declared once in `index.html`

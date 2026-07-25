@@ -28,6 +28,7 @@ export const GetReadinessResponse = zod.object({
     .regex(getReadinessResponseCheckedAtRegExp),
   checks: zod.object({
     database: zod.enum(["up"]),
+    mongodb: zod.enum(["up"]),
     redis: zod.enum(["up"]),
   }),
   status: zod.enum(["ready"]),

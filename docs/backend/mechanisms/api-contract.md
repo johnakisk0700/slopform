@@ -115,10 +115,12 @@ The generated Zod schemas exist for values that leave the typed path — a form
 draft, something persisted in the browser, a payload echoed back into a request.
 Import them from `src/api/generated/zod/`; do not hand-copy a backend schema.
 
-The assistant screen is the one legacy consumer: it still parses responses with
-`src/features/assistant/schema.ts` because its polling flow owns extra
-client-side semantics. It moves to the generated hooks in its own change; new
-code does not copy it.
+Three screens predate this pipeline and still parse responses with hand-written
+schemas: the assistant (`features/assistant/`), whose polling flow owns extra
+client-side semantics, and the WP1 events and participants screens
+(`features/event/`, `features/participant/`). Their operations are published and
+generated now, so each migrates to its hooks in its own change. New code does not
+copy them.
 
 ## Operations and tests
 

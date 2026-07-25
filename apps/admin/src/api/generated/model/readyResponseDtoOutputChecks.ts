@@ -6,9 +6,11 @@
  * OpenAPI spec version: 1.0.0
  */
 import type { ReadyResponseDtoOutputChecksDatabase } from "./readyResponseDtoOutputChecksDatabase";
+import type { ReadyResponseDtoOutputChecksMongodb } from "./readyResponseDtoOutputChecksMongodb";
 import type { ReadyResponseDtoOutputChecksRedis } from "./readyResponseDtoOutputChecksRedis";
 
 export type ReadyResponseDtoOutputChecks = {
   database: ReadyResponseDtoOutputChecksDatabase;
+  mongodb: ReadyResponseDtoOutputChecksMongodb;
   redis: ReadyResponseDtoOutputChecksRedis;
 };

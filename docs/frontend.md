@@ -220,10 +220,15 @@ The pipeline, its invariants and its failure modes are documented in
 [API contract and generated client](backend/mechanisms/api-contract.md) and
 [ADR 0009](decisions/0009-generated-api-client.md).
 
-`RequireAdmin` is the reference consumer. The assistant screen is the one
-exception still parsing responses by hand
-([`frontend/assistant.md`](frontend/assistant.md)): its polling flow owns extra
-client-side semantics and migrates in its own change. Do not copy it.
+`RequireAdmin` is the reference consumer. Three screens still predate this
+pipeline and call the facade with hand-written schemas: the assistant
+([`frontend/assistant.md`](frontend/assistant.md)), whose polling flow owns extra
+client-side semantics, and the WP1 events and participants screens
+(`routes/EventsPage.tsx`, `routes/EventDetailPage.tsx`,
+`routes/ParticipantsPage.tsx` with `features/event/` and `features/participant/`).
+They are scheduled for migration to `useListEvents`, `useGetEvent`,
+`useListParticipants` and their siblings, which now exist. Treat them as debt to
+repay, not as a pattern to copy — new screens use the generated hooks.
 
 The AI assistant is the first real queue-backed API consumer. It creates and
 resumes server-owned threads, persists each user/assistant turn, and polls the
@@ -293,19 +298,20 @@ Verified with React 19.2.8, Clerk React 6.12.6, HeroUI 3.2.2, Tailwind CSS
 - `index.html` ships the pre-paint theme script and a static, focusable
   `#main-content` fallback with a `role="status"` message and a `<noscript>`
   notice, so the landmark and status exist before the SPA mounts;
-- `OverviewPage` and `AssistantPage` are React-lazy route boundaries. The
-  production build emits a ~172.32 kB entry (~55.42 kB gzip, including TanStack
-  Query and the generated client the admin gate uses), a ~313.90 kB Overview
-  chunk (~93.22 kB gzip) and a ~362.46 kB Assistant chunk (~111.43 kB gzip).
-  Rolldown also separates Clerk (`auth`, ~92.48 kB), HeroUI (`ui`, ~65.51 kB) and
-  the Assistant Markdown stack (`markdown`, ~168.84 kB); the Markdown group is
+- every routed view is a React-lazy boundary. The production build emits a
+  ~173.53 kB entry (~55.73 kB gzip, including TanStack Query and the generated
+  client the admin gate uses), a ~159.11 kB Overview chunk (~49.87 kB gzip), a
+  ~362.53 kB Assistant chunk (~111.46 kB gzip) and small events/participants
+  chunks (~2–6 kB each) over a shared ~154.92 kB table/header chunk. Rolldown
+  also separates Clerk (`auth`, ~92.47 kB), HeroUI (`ui`, ~65.62 kB) and the
+  Assistant Markdown stack (`markdown`, ~168.84 kB); the Markdown group is
   fetched only with the Assistant route;
 - Mermaid's generated parser runtime is an indivisible ~662.68 kB module
   (~143.23 kB gzip), but it is dynamically imported only when an assistant
   message contains a fenced Mermaid diagram. Vite's advisory threshold is
   therefore 700 kB; there is no hard application-wide chunk budget for this
   private admin SPA;
-- CSS is ~455.33 kB (~50.07 kB gzip), with Manrope subsets and Mermaid diagram
+- CSS is ~455.65 kB (~50.13 kB gzip), with Manrope subsets and Mermaid diagram
   assets emitted separately;
 - client source maps stay off (Vite's default; not overridden);
 - the dev server runs on port 3000 and proxies `/api` to `http://localhost:4000`
