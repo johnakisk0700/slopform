@@ -33,4 +33,24 @@ if [ -r /run/secrets/bull_board_password ]; then
   export_secret BULL_BOARD_PASSWORD bull_board_password
 fi
 
+if [ -r /run/secrets/clerk_secret_key ]; then
+  export_secret CLERK_SECRET_KEY clerk_secret_key
+fi
+
+if [ -r /run/secrets/openai_api_key ]; then
+  export_secret OPENAI_API_KEY openai_api_key
+fi
+
+if [ -r /run/secrets/openrouter_api_key ]; then
+  export_secret OPENROUTER_API_KEY openrouter_api_key
+fi
+
+if [ -r /run/secrets/wasender_webhook_secret ]; then
+  export_secret WASENDER_WEBHOOK_SECRET wasender_webhook_secret
+fi
+
+if [ -r /run/secrets/wasender_session_api_key ]; then
+  export_secret WASENDER_SESSION_API_KEY wasender_session_api_key
+fi
+
 exec "$@"

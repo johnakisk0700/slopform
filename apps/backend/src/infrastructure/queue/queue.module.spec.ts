@@ -2,10 +2,15 @@ import { getQueueToken } from "@nestjs/bullmq";
 import { MODULE_METADATA } from "@nestjs/common/constants.js";
 import { describe, expect, it } from "vitest";
 
-import { REFERENCE_QUEUE } from "./queue.constants.js";
+import {
+  ASSISTANT_QUEUE,
+  EMAIL_QUEUE,
+  REFERENCE_QUEUE,
+} from "./queue.constants.js";
 import {
   createQueueProducerOptions,
   createQueueWorkerOptions,
+  QueueModule,
   QueueWorkerModule,
 } from "./queue.module.js";
 
@@ -25,17 +30,26 @@ describe("queue process boundaries", () => {
     ).toBeUndefined();
   });
 
-  it("registers the worker queue through the public Nest API", () => {
-    const imports = Reflect.getMetadata(
-      MODULE_METADATA.IMPORTS,
-      QueueWorkerModule,
-    ) as readonly unknown[];
-    const queueToken = getQueueToken(REFERENCE_QUEUE);
+  it.each([QueueModule, QueueWorkerModule])(
+    "registers every queue through the public Nest API in %s",
+    (moduleClass) => {
+      const imports = Reflect.getMetadata(
+        MODULE_METADATA.IMPORTS,
+        moduleClass,
+      ) as readonly unknown[];
+      const queueTokens = [ASSISTANT_QUEUE, EMAIL_QUEUE, REFERENCE_QUEUE].map(
+        (queue) => getQueueToken(queue),
+      );
 
-    expect(
-      imports.some((moduleImport) => exportsProvider(moduleImport, queueToken)),
-    ).toBe(true);
-  });
+      for (const queueToken of queueTokens) {
+        expect(
+          imports.some((moduleImport) =>
+            exportsProvider(moduleImport, queueToken),
+          ),
+        ).toBe(true);
+      }
+    },
+  );
 });
 
 function exportsProvider(moduleImport: unknown, token: string): boolean {

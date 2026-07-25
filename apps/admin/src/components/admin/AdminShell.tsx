@@ -15,18 +15,25 @@ import { AdminUserMenu } from "./AdminUserMenu";
 function AdminMain() {
   const reduceMotion = useReducedMotion();
   const { pathname } = useLocation();
+  const isAssistantRoute =
+    pathname === "/admin/assistant" || pathname.startsWith("/admin/assistant/");
 
   return (
     <main
       id="main-content"
       tabIndex={-1}
-      className="mx-auto w-full max-w-content p-[clamp(1.25rem,3vw,2.5rem)]"
+      className={
+        isAssistantRoute
+          ? "relative min-h-0 w-full flex-1 overflow-hidden focus-visible:-outline-offset-2"
+          : "mx-auto w-full max-w-content p-[clamp(1.25rem,3vw,2.5rem)]"
+      }
     >
       <motion.div
         key={pathname}
         initial={reduceMotion ? false : { opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.2, ease: "easeOut" }}
+        className={isAssistantRoute ? "h-full min-h-0" : undefined}
       >
         <Outlet />
       </motion.div>
@@ -47,8 +54,8 @@ export function AdminShell() {
   const [isNavOpen, setNavOpen] = useState(false);
 
   return (
-    <div className="min-h-screen bg-canvas lg:grid lg:grid-cols-[17rem_minmax(0,1fr)]">
-      <aside className="hidden border-r border-sidebar-border bg-sidebar px-4 py-6 text-sidebar-fg lg:sticky lg:top-0 lg:flex lg:h-dvh lg:flex-col">
+    <div className="flex min-h-0 flex-1 flex-col bg-canvas lg:grid lg:grid-cols-[17rem_minmax(0,1fr)]">
+      <aside className="hidden border-r border-sidebar-border bg-sidebar px-4 py-6 text-sidebar-fg lg:sticky lg:top-0 lg:flex lg:h-full lg:max-h-dvh lg:flex-col">
         <Link
           to="/admin"
           aria-label="Join The Six admin home"
@@ -74,7 +81,7 @@ export function AdminShell() {
         </div>
       </aside>
 
-      <div className="flex min-w-0 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-30 flex min-h-[4.5rem] items-center justify-between gap-3 border-b border-border bg-surface px-4 py-3 lg:hidden">
           <div className="flex items-center gap-3">
             {/* The Drawer's DialogTrigger wires aria-expanded / aria-controls /

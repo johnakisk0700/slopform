@@ -3,28 +3,29 @@
 Status: accepted admin-only foundation, verified 2026-07-23.
 
 The frontend in `apps/admin` is the private Join The Six administration panel.
-It is a React 19 single-page application built with HeroUI v3, Tailwind CSS v4,
-TanStack Table, React Router 7 and Vite. It replaces the retired Nuxt/PrimeVue
-client, removed in the same change that introduced this one. The public website,
-registration, intake and participant-facing journeys are owned by the existing
-Next.js application at `legacy.example.com`; see
+It is a React 19 single-page application built with Clerk 6, HeroUI v3, Tailwind
+CSS v4, TanStack Table, React Router 7 and Vite. It replaces the retired
+Nuxt/PrimeVue client, removed in the same change that introduced this one. The
+public website, registration, intake and participant-facing journeys are owned
+by the existing Next.js application at `legacy.example.com`; see
 [ADR 0004](decisions/0004-admin-only-boundary.md).
 
 ## Start here
 
-| Task                                  | Location                                | First reference                                      |
-| ------------------------------------- | --------------------------------------- | ---------------------------------------------------- |
-| Add an admin route                    | `apps/admin/src/routes/`                | `routes/OverviewPage.tsx` and the table in `App.tsx` |
-| Add a domain schema or pure helper    | `apps/admin/src/features/<domain>/`     | `features/event/schema.ts`                           |
-| Add domain UI                         | `apps/admin/src/components/admin/`      | `components/admin/AdminNavigation.tsx`               |
-| Reuse or add shared UI                | `apps/admin/src/components/ui/`         | [Component inventory](frontend/components/README.md) |
-| Use a HeroUI primitive                | Owning route or component               | Import from `@heroui/react`                          |
-| Call the API                          | `apps/admin/src/lib/api.ts`             | `apps/admin/src/lib/env.ts`                          |
-| Read appearance / toggle dark mode    | `apps/admin/src/lib/useTheme.ts`        | Pre-paint script in `index.html`                     |
-| Change the token bridge / HeroUI look | `apps/admin/src/styles/globals.css`     | Named section in that file                           |
-| Change a shared visual value          | `packages/design-tokens/src/tokens.css` | Token ownership below                                |
-| Change routing, redirect or 404       | `apps/admin/src/App.tsx`                | `Routes` table                                       |
-| Change the dev proxy or build         | `apps/admin/vite.config.ts`             | `/api` proxy and env contract below                  |
+| Task                                  | Location                                  | First reference                                      |
+| ------------------------------------- | ----------------------------------------- | ---------------------------------------------------- |
+| Add an admin route                    | `apps/admin/src/routes/`                  | `routes/OverviewPage.tsx` and the table in `App.tsx` |
+| Extend the AI assistant               | `apps/admin/src/routes/AssistantPage.tsx` | [Assistant screen contract](frontend/assistant.md)   |
+| Add a domain schema or pure helper    | `apps/admin/src/features/<domain>/`       | `features/event/schema.ts`                           |
+| Add domain UI                         | `apps/admin/src/components/admin/`        | `components/admin/AdminNavigation.tsx`               |
+| Reuse or add shared UI                | `apps/admin/src/components/ui/`           | [Component inventory](frontend/components/README.md) |
+| Use a HeroUI primitive                | Owning route or component                 | Import from `@heroui/react`                          |
+| Call the API                          | `apps/admin/src/lib/api.ts`               | `apps/admin/src/lib/env.ts`                          |
+| Read appearance / toggle dark mode    | `apps/admin/src/lib/useTheme.ts`          | Pre-paint script in `index.html`                     |
+| Change the token bridge / HeroUI look | `apps/admin/src/styles/globals.css`       | Named section in that file                           |
+| Change a shared visual value          | `packages/design-tokens/src/tokens.css`   | Token ownership below                                |
+| Change routing, redirect or 404       | `apps/admin/src/App.tsx`                  | `Routes` table                                       |
+| Change the dev proxy or build         | `apps/admin/vite.config.ts`               | `/api` proxy and env contract below                  |
 
 Components are imported explicitly — there is no filename-based discovery.
 Shared project components use the `Jts*` prefix. One component per file, named
@@ -33,11 +34,14 @@ consumer needs them.
 
 ## Product and route boundary
 
-| Route    | Behavior                                                      | Indexing                |
-| -------- | ------------------------------------------------------------- | ----------------------- |
-| `/`      | Client-side redirect to `/admin` (`<Navigate replace>`)       | Inherits private policy |
-| `/admin` | Client-rendered shell nesting the routed views via `<Outlet>` | `noindex, nofollow`     |
-| `*`      | Standalone 404 (`routes/ErrorPage.tsx`)                       | Inherits private policy |
+| Route                        | Behavior                                                       | Indexing                |
+| ---------------------------- | -------------------------------------------------------------- | ----------------------- |
+| `/sign-in/*`                 | Clerk sign-in with explicit loading and service-failure states | `noindex, nofollow`     |
+| `/`                          | Protected redirect to `/admin` (`<Navigate replace>`)          | Inherits private policy |
+| `/admin`                     | Clerk session plus backend admin check, then operations shell  | `noindex, nofollow`     |
+| `/admin/assistant`           | Protected new AI conversation in the admin shell               | `noindex, nofollow`     |
+| `/admin/assistant/:threadId` | Exact durable assistant thread resume                          | `noindex, nofollow`     |
+| `*`                          | Standalone 404 (`routes/ErrorPage.tsx`)                        | Inherits private policy |
 
 Do not add `/join`, `/register`, `/feedback`, marketing or public legal routes
 to this application. They belong in the existing Next.js public product. A
@@ -54,11 +58,13 @@ operator menu docked in the sidebar footer (a top bar carries it on small
 screens where the sidebar is hidden), the mobile drawer, the toast region
 (`<Toast.Provider />` in `App.tsx`) and the reduced-motion policy.
 
-There is no frontend authentication contract yet. The operator menu's "Sign
-out" is disabled with a note that sign-in arrives with the backend session
-contract. Add route guards and session UI only with matching backend session
-endpoints and cookie policy. A client route guard improves navigation; it does
-not authorize API requests.
+`ClerkProvider` owns browser session state. `RequireAdmin` first checks Clerk,
+then calls `/api/v1/auth/session`; only a backend-approved subject reaches the
+shell. It renders distinct loading, denial and retryable failure states. The
+operator menu displays the Clerk identity and performs real sign-out. This
+client guard improves navigation only: the Nest guard and resource-owner
+predicates authorize every API request. See
+[Admin authentication](backend/mechanisms/authentication.md).
 
 ## Application boundaries
 
@@ -66,13 +72,14 @@ not authorize API requests.
 src/
 ├── components/ui/          shared, domain-free Jts* contracts
 ├── components/admin/       admin shell and domain UI
+│   └── RequireAdmin.tsx    Clerk session + backend authorization gate
 ├── features/<domain>/      schemas, types and pure helpers (no React imports)
 ├── lib/                    hooks and facades (api, env, useTheme, usePageMeta)
 ├── routes/                 route metadata, data and composition
 ├── styles/globals.css      the design-token bridge + base layer + motifs
 ├── theme/                  reserved (empty); the HeroUI mapping lives in globals.css
 ├── App.tsx                 router: skip link, Toast.Provider, route table
-└── main.tsx                React root mount (StrictMode + createRoot)
+└── main.tsx                React root mount (StrictMode + ClerkProvider)
 ```
 
 `features/` has no React runtime behavior and remains independently testable.
@@ -134,26 +141,28 @@ truth for exact dependency versions.
 `src/lib/api.ts` exports `api`, a single `ofetch` instance with:
 
 - `baseURL` set to the validated `env.apiBase`;
-- `credentials: "include"` so the browser attaches the session cookie (the
-  backend trusts this origin for CORS);
+- Clerk's current session token overwriting `Authorization` before every
+  request, plus `credentials: "include"` for Clerk's cookie flow;
 - `retry: 0` so mutations never double-fire, and a 15-second timeout.
 
 It is the client port of the previous `$fetch` seam; because this is a client-only
 SPA, all SSR request-header forwarding is dropped.
 
 `src/lib/env.ts` validates the browser environment with Zod at module load.
-Vite exposes only `import.meta.env.VITE_*` to the bundle, and the one value
-consumed is `VITE_API_BASE`: optional, defaulting to `/api`, and required to be
-either a root-relative path or an HTTP(S) URL carrying no credentials, query or
-fragment. A misconfigured deploy fails fast with a readable message instead of
-shipping a silently-broken client. Do not read `import.meta.env` directly in
-component code — go through `env`.
+Vite exposes only `import.meta.env.VITE_*` to the bundle. `VITE_API_BASE` is
+optional, defaults to `/api`, and must be a safe root-relative or HTTP(S) URL.
+`VITE_CLERK_PUBLISHABLE_KEY` must have Clerk's public-key shape when present.
+Credential-free CI builds may omit it; the artifact then renders a clear
+configuration screen. A deployable admin image must bake the publishable key at
+build time. Do not read `import.meta.env` directly in component code — go
+through `env`.
 
 ```mermaid
 flowchart LR
-  build["Build env / .env (VITE_API_BASE)"] --> expose["import.meta.env.VITE_API_BASE"]
-  expose --> zod["Zod validateEnv() at module load"]
+  build["Build env / .env\nAPI base + Clerk publishable key"] --> expose["import.meta.env.VITE_*"]
+  expose --> zod["Zod validateEnv()"]
   zod --> base["env.apiBase (defaults to /api)"]
+  zod --> clerk["ClerkProvider or configuration screen"]
   base --> client["ofetch api client"]
   client --> proxy["Vite dev proxy or Caddy → backend"]
 ```
@@ -161,6 +170,15 @@ flowchart LR
 Treat unshared responses as `unknown` and parse them with the owning feature
 Zod schema. Prefer a generated OpenAPI client or shared contract package once
 the backend contract stabilizes.
+
+The AI assistant is the first real queue-backed API consumer. It creates and
+resumes server-owned threads, persists each user/assistant turn, and polls the
+same turn ID through `queued` / `running`. Client-minted `requestId` values make
+create/append POSTs idempotent, so recovery can replay the same write instead of
+duplicating work. Validated terminal text enters the memoized, sanitised
+Markdown renderer copied from the established `notes_ai` chat. Its exact model,
+durability, rendering and recovery contracts are maintained in
+[`frontend/assistant.md`](frontend/assistant.md).
 
 Forms connect errors with `aria-describedby`, focus the first invalid field,
 preserve values on retryable failure and never display raw server messages.
@@ -212,21 +230,28 @@ the state.
 
 ## Delivery constraints
 
-Verified with React 19.2.8, HeroUI 3.2.2, Tailwind CSS 4.3.3, TanStack Table
-8.21.3, React Router 7.18.1, Vite 8.1.5 and Zod 4.4.3 on 2026-07-23:
+Verified with React 19.2.8, Clerk React 6.12.6, HeroUI 3.2.2, Tailwind CSS
+4.3.3, TanStack Table 8.21.3, React Router 7.18.1, Vite 8.1.5 and Zod 4.4.3 on
+2026-07-23:
 
 - the client is a static SPA with no SSR or SSG; `build` runs
   `tsc -b --noEmit && vite build`, so a type error gates the bundle;
 - `index.html` ships the pre-paint theme script and a static, focusable
   `#main-content` fallback with a `role="status"` message and a `<noscript>`
   notice, so the landmark and status exist before the SPA mounts;
-- the production bundle is one entry chunk (~878 kB, ~268 kB gzip) plus the CSS
-  and the Manrope `woff2` subsets; that single chunk trips Vite's default 500 kB
-  `chunkSizeWarningLimit`. The warning is advisory only — the build passes — and
-  no manual vendor splitting is configured: with one live route, arbitrary
-  chunks would move bytes without removing them. Vite 8 bundles with Rolldown;
-  revisit `chunkSizeWarningLimit` or `build.rolldownOptions` splitting only once
-  the route surface grows;
+- `OverviewPage` and `AssistantPage` are React-lazy route boundaries. The
+  production build emits a ~169.69 kB entry (~54.34 kB gzip), a ~313.90 kB
+  Overview chunk (~93.22 kB gzip) and a ~362.46 kB Assistant chunk (~111.43 kB
+  gzip). Rolldown also separates Clerk (`auth`, ~92.48 kB), HeroUI (`ui`,
+  ~65.51 kB) and the Assistant Markdown stack (`markdown`, ~168.84 kB); the
+  Markdown group is fetched only with the Assistant route;
+- Mermaid's generated parser runtime is an indivisible ~662.68 kB module
+  (~143.23 kB gzip), but it is dynamically imported only when an assistant
+  message contains a fenced Mermaid diagram. Vite's advisory threshold is
+  therefore 700 kB; there is no hard application-wide chunk budget for this
+  private admin SPA;
+- CSS is ~455.33 kB (~50.07 kB gzip), with Manrope subsets and Mermaid diagram
+  assets emitted separately;
 - client source maps stay off (Vite's default; not overridden);
 - the dev server runs on port 3000 and proxies `/api` to `http://localhost:4000`
   (the backend `API_PORT`) with `changeOrigin`. Port 3000 is the CORS-trusted
@@ -267,7 +292,9 @@ Library behavior was verified 2026-07-23 against:
 - [Tailwind CSS v4 theme variables](https://tailwindcss.com/docs/theme)
 - [TanStack Table v8 React adapter](https://tanstack.com/table/v8/docs/framework/react/react-table)
 - [React Router v7 documentation](https://reactrouter.com/)
+- [Clerk React quickstart](https://clerk.com/docs/react/getting-started/quickstart)
 - [Vite build options](https://vite.dev/guide/build.html)
+- [Rolldown manual code splitting](https://rolldown.rs/in-depth/manual-code-splitting)
 - [Vite server proxy](https://vite.dev/config/server-options.html#server-proxy)
 - [Vite env variables and modes](https://vite.dev/guide/env-and-mode.html)
 - [Zod documentation](https://zod.dev/)

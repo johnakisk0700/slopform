@@ -1,3 +1,4 @@
+import { clerkMiddleware } from "@clerk/express";
 import { ConfigService } from "@nestjs/config";
 import { NestFactory } from "@nestjs/core";
 import type { NestExpressApplication } from "@nestjs/platform-express";
@@ -7,6 +8,7 @@ import { Logger, LoggerErrorInterceptor } from "nestjs-pino";
 import { cleanupOpenApiDoc } from "nestjs-zod";
 
 import { HttpAppModule } from "./http-app.module.js";
+import { AuthConfigService } from "./infrastructure/auth/auth-config.service.js";
 import type { Environment } from "./infrastructure/config/environment.js";
 import {
   configureHttpServer,
@@ -26,8 +28,26 @@ export async function createHttpApplication(
   onCreated?.(app);
 
   const config = app.get(ConfigService<Environment, true>);
+  const authConfig = app.get(AuthConfigService);
   const nodeEnvironment = config.get("NODE_ENV", { infer: true });
 
+  if (!authConfig.devBypassEnabled) {
+    const clerkClient = authConfig.clerkClient;
+
+    if (!clerkClient) {
+      throw new Error(
+        "Clerk client is missing while authentication is enabled",
+      );
+    }
+
+    // Clerk must inspect the untouched request before any other Express middleware.
+    app.use(
+      clerkMiddleware({
+        authorizedParties: [...authConfig.authorizedParties],
+        clerkClient,
+      }),
+    );
+  }
   app.useLogger(app.get(Logger));
   app.useGlobalInterceptors(new LoggerErrorInterceptor());
   app.enableShutdownHooks();

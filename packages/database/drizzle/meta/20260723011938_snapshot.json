@@ -1,0 +1,372 @@
+{
+  "id": "e1d0274d-f3c8-47a8-ad5d-04b4c485c3be",
+  "prevId": "5ba4295b-fe5d-43a5-8eaa-9925daaf709c",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.audit_events": {
+      "name": "audit_events",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "actor_type": {
+          "name": "actor_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor_id": {
+          "name": "actor_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "entity_type": {
+          "name": "entity_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "entity_id": {
+          "name": "entity_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "request_id": {
+          "name": "request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "context": {
+          "name": "context",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        }
+      },
+      "indexes": {
+        "audit_events_entity_idx": {
+          "name": "audit_events_entity_idx",
+          "columns": [
+            {
+              "expression": "entity_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "entity_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "occurred_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "audit_events_actor_idx": {
+          "name": "audit_events_actor_idx",
+          "columns": [
+            {
+              "expression": "actor_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "actor_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "occurred_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "audit_events_actor_type_length_check": {
+          "name": "audit_events_actor_type_length_check",
+          "value": "char_length(btrim(\"audit_events\".\"actor_type\")) between 1 and 64"
+        },
+        "audit_events_actor_id_length_check": {
+          "name": "audit_events_actor_id_length_check",
+          "value": "char_length(btrim(\"audit_events\".\"actor_id\")) between 1 and 200"
+        },
+        "audit_events_action_length_check": {
+          "name": "audit_events_action_length_check",
+          "value": "char_length(btrim(\"audit_events\".\"action\")) between 1 and 120"
+        },
+        "audit_events_entity_type_length_check": {
+          "name": "audit_events_entity_type_length_check",
+          "value": "char_length(btrim(\"audit_events\".\"entity_type\")) between 1 and 64"
+        },
+        "audit_events_entity_id_length_check": {
+          "name": "audit_events_entity_id_length_check",
+          "value": "char_length(btrim(\"audit_events\".\"entity_id\")) between 1 and 200"
+        },
+        "audit_events_request_id_length_check": {
+          "name": "audit_events_request_id_length_check",
+          "value": "char_length(btrim(\"audit_events\".\"request_id\")) between 1 and 128"
+        },
+        "audit_events_context_object_check": {
+          "name": "audit_events_context_object_check",
+          "value": "jsonb_typeof(\"audit_events\".\"context\") = 'object'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.assistant_runs": {
+      "name": "assistant_runs",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'queued'"
+        },
+        "model": {
+          "name": "model",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "messages": {
+          "name": "messages",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "response": {
+          "name": "response",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "error_code": {
+          "name": "error_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "error_message": {
+          "name": "error_message",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "completed_at": {
+          "name": "completed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "assistant_runs_status_created_idx": {
+          "name": "assistant_runs_status_created_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "assistant_runs_owner_created_idx": {
+          "name": "assistant_runs_owner_created_idx",
+          "columns": [
+            {
+              "expression": "created_by",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "assistant_runs_created_by_length_check": {
+          "name": "assistant_runs_created_by_length_check",
+          "value": "char_length(btrim(\"assistant_runs\".\"created_by\")) between 1 and 200"
+        },
+        "assistant_runs_status_check": {
+          "name": "assistant_runs_status_check",
+          "value": "\"assistant_runs\".\"status\" in ('queued', 'running', 'succeeded', 'failed')"
+        },
+        "assistant_runs_model_check": {
+          "name": "assistant_runs_model_check",
+          "value": "\"assistant_runs\".\"model\" in ('qwen/qwen3.7-max', 'qwen/qwen3.6-plus', 'openai/gpt-5.4-mini')"
+        },
+        "assistant_runs_messages_array_check": {
+          "name": "assistant_runs_messages_array_check",
+          "value": "jsonb_typeof(\"assistant_runs\".\"messages\") = 'array' and jsonb_array_length(\"assistant_runs\".\"messages\") between 1 and 50"
+        },
+        "assistant_runs_error_fields_check": {
+          "name": "assistant_runs_error_fields_check",
+          "value": "(\"assistant_runs\".\"status\" = 'failed' and \"assistant_runs\".\"error_code\" is not null and \"assistant_runs\".\"error_message\" is not null) or (\"assistant_runs\".\"status\" <> 'failed' and \"assistant_runs\".\"error_code\" is null and \"assistant_runs\".\"error_message\" is null)"
+        },
+        "assistant_runs_result_check": {
+          "name": "assistant_runs_result_check",
+          "value": "(\"assistant_runs\".\"status\" = 'succeeded' and \"assistant_runs\".\"response\" is not null and \"assistant_runs\".\"completed_at\" is not null) or (\"assistant_runs\".\"status\" <> 'succeeded' and \"assistant_runs\".\"response\" is null)"
+        },
+        "assistant_runs_completion_check": {
+          "name": "assistant_runs_completion_check",
+          "value": "(\"assistant_runs\".\"status\" in ('succeeded', 'failed') and \"assistant_runs\".\"completed_at\" is not null) or (\"assistant_runs\".\"status\" in ('queued', 'running') and \"assistant_runs\".\"completed_at\" is null)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.reference_records": {
+      "name": "reference_records",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "label": {
+          "name": "label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "reference_records_label_length_check": {
+          "name": "reference_records_label_length_check",
+          "value": "char_length(btrim(\"reference_records\".\"label\")) between 1 and 120"
+        }
+      },
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

@@ -46,6 +46,70 @@ const optionalCredential = z.preprocess(
     )
     .optional(),
 );
+const optionalWebhookSecret = z.preprocess(
+  emptyStringToUndefined,
+  z
+    .string()
+    .min(32, "Webhook secret must contain at least 32 characters")
+    .max(512)
+    .refine(
+      (value) => value === value.trim() && !/[\r\n]/u.test(value),
+      "Webhook secret must not contain surrounding whitespace or line breaks",
+    )
+    .optional(),
+);
+const optionalClerkPublishableKey = z.preprocess(
+  emptyStringToUndefined,
+  z
+    .string()
+    .min(1)
+    .max(512)
+    .regex(/^pk_(?:test|live)_/u, "Expected a Clerk publishable key")
+    .refine(
+      (value) => value === value.trim() && !/[\r\n]/u.test(value),
+      "Clerk key must not contain surrounding whitespace or line breaks",
+    )
+    .optional(),
+);
+const optionalClerkSecretKey = z.preprocess(
+  emptyStringToUndefined,
+  z
+    .string()
+    .min(1)
+    .max(512)
+    .regex(/^sk_(?:test|live)_/u, "Expected a Clerk secret key")
+    .refine(
+      (value) => value === value.trim() && !/[\r\n]/u.test(value),
+      "Clerk key must not contain surrounding whitespace or line breaks",
+    )
+    .optional(),
+);
+const optionalClerkAdminUserIds = z.preprocess(
+  emptyStringToUndefined,
+  z
+    .string()
+    .transform((value) => [
+      ...new Set(value.split(",").map((entry) => entry.trim())),
+    ])
+    .superRefine((userIds, context) => {
+      if (userIds.length === 0 || userIds.length > 100) {
+        context.addIssue({
+          code: "custom",
+          message: "Expected between 1 and 100 Clerk admin user IDs",
+        });
+      }
+
+      for (const [index, userId] of userIds.entries()) {
+        if (!/^user_[A-Za-z0-9]+$/u.test(userId)) {
+          context.addIssue({
+            code: "custom",
+            message: `Entry ${index + 1} must be a Clerk user ID`,
+          });
+        }
+      }
+    })
+    .optional(),
+);
 const webOrigins = z
   .string()
   .default("http://localhost:3000")
@@ -149,12 +213,53 @@ export const environmentSchema = observabilityEnvironmentSchema
     LOG_LEVEL: z
       .enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"])
       .default("info"),
+    CLERK_PUBLISHABLE_KEY: optionalClerkPublishableKey,
+    CLERK_SECRET_KEY: optionalClerkSecretKey,
+    CLERK_ADMIN_USER_IDS: optionalClerkAdminUserIds,
+    AUTH_DEV_BYPASS: booleanFromEnvironment,
+    OPENAI_API_KEY: optionalCredential,
+    OPENROUTER_API_KEY: optionalCredential,
+    WASENDER_SESSION_API_KEY: optionalCredential,
+    WASENDER_WEBHOOK_ENABLED: booleanFromEnvironment,
+    WASENDER_WEBHOOK_SECRET: optionalWebhookSecret,
     BULL_BOARD_ENABLED: booleanFromEnvironment,
     BULL_BOARD_USERNAME: optionalCredential,
     BULL_BOARD_PASSWORD: optionalCredential,
     REFERENCE_MODULE_ENABLED: booleanFromEnvironment,
   })
   .superRefine((environment, context) => {
+    if (environment.NODE_ENV === "production" && environment.AUTH_DEV_BYPASS) {
+      context.addIssue({
+        code: "custom",
+        message: "AUTH_DEV_BYPASS cannot be enabled in production",
+        path: ["AUTH_DEV_BYPASS"],
+      });
+    }
+
+    if (
+      Boolean(environment.CLERK_PUBLISHABLE_KEY) !==
+      Boolean(environment.CLERK_SECRET_KEY)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "CLERK_PUBLISHABLE_KEY and CLERK_SECRET_KEY must be configured together",
+        path: ["CLERK_PUBLISHABLE_KEY"],
+      });
+    }
+
+    if (
+      environment.WASENDER_WEBHOOK_ENABLED &&
+      !environment.WASENDER_WEBHOOK_SECRET
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "WASENDER_WEBHOOK_SECRET is required when the Wasender webhook is enabled",
+        path: ["WASENDER_WEBHOOK_ENABLED"],
+      });
+    }
+
     if (environment.BULL_BOARD_ENABLED) {
       if (
         !environment.BULL_BOARD_USERNAME ||
@@ -225,4 +330,16 @@ export function isReferenceModuleEnabled(
   environment: NodeJS.ProcessEnv,
 ): boolean {
   return environment.REFERENCE_MODULE_ENABLED?.trim().toLowerCase() === "true";
+}
+
+export function isWasenderWebhookEnabled(
+  environment: NodeJS.ProcessEnv,
+): boolean {
+  return environment.WASENDER_WEBHOOK_ENABLED?.trim().toLowerCase() === "true";
+}
+
+export function isWasenderTransportEnabled(
+  environment: NodeJS.ProcessEnv,
+): boolean {
+  return Boolean(environment.WASENDER_SESSION_API_KEY?.trim());
 }

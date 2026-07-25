@@ -4,6 +4,7 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
+      "env": ["VITE_API_BASE", "VITE_CLERK_PUBLISHABLE_KEY"],
       "outputs": ["dist/**"]
     },
     "@join-the-six/design-tokens#build": {
@@ -18,20 +19,38 @@
       "passThroughEnv": [
         "API_HOST",
         "API_PORT",
+        "AUTH_DEV_BYPASS",
         "BULL_BOARD_ENABLED",
         "BULL_BOARD_PASSWORD",
         "BULL_BOARD_USERNAME",
+        "CLERK_ADMIN_USER_IDS",
+        "CLERK_PUBLISHABLE_KEY",
+        "CLERK_SECRET_KEY",
         "DATABASE_POOL_MAX",
         "DATABASE_URL",
         "LOG_LEVEL",
         "NODE_ENV",
         "OTEL_EXPORTER_OTLP_ENDPOINT",
         "OTEL_SERVICE_NAME",
+        "OPENAI_API_KEY",
+        "OPENROUTER_API_KEY",
         "REDIS_URL",
         "REFERENCE_MODULE_ENABLED",
         "SENTRY_DSN",
         "SENTRY_TRACES_SAMPLE_RATE",
+        "WASENDER_SESSION_API_KEY",
+        "WASENDER_WEBHOOK_ENABLED",
+        "WASENDER_WEBHOOK_SECRET",
         "WEB_ORIGIN"
+      ],
+      "persistent": true
+    },
+    "@join-the-six/admin#dev": {
+      "cache": false,
+      "passThroughEnv": [
+        "VITE_API_BASE",
+        "VITE_AUTH_DEV_BYPASS",
+        "VITE_CLERK_PUBLISHABLE_KEY"
       ],
       "persistent": true
     },

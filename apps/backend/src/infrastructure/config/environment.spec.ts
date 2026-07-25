@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   isBullBoardEnabled,
   isReferenceModuleEnabled,
+  isWasenderTransportEnabled,
+  isWasenderWebhookEnabled,
   validateEnvironment,
   validateObservabilityEnvironment,
 } from "./environment.js";
@@ -20,7 +22,13 @@ describe("validateEnvironment", () => {
     });
 
     expect(environment.API_PORT).toBe(4100);
+    expect(environment.AUTH_DEV_BYPASS).toBe(false);
     expect(environment.BULL_BOARD_ENABLED).toBe(false);
+    expect(environment.OPENAI_API_KEY).toBeUndefined();
+    expect(environment.OPENROUTER_API_KEY).toBeUndefined();
+    expect(environment.WASENDER_SESSION_API_KEY).toBeUndefined();
+    expect(environment.WASENDER_WEBHOOK_ENABLED).toBe(false);
+    expect(environment.WASENDER_WEBHOOK_SECRET).toBeUndefined();
     expect(environment.REDIS_URL).toBe("redis://localhost:6379");
     expect(environment.WEB_ORIGIN).toEqual([
       "https://app.example.com",
@@ -39,6 +47,69 @@ describe("validateEnvironment", () => {
     expect(environment.API_PORT).toBe(4000);
     expect(environment.DATABASE_POOL_MAX).toBe(10);
     expect(environment.SENTRY_TRACES_SAMPLE_RATE).toBe(0.1);
+  });
+
+  it("accepts absent Clerk keys for non-HTTP process composition", () => {
+    const environment = validateEnvironment(requiredEnvironment);
+
+    expect(environment.CLERK_PUBLISHABLE_KEY).toBeUndefined();
+    expect(environment.CLERK_SECRET_KEY).toBeUndefined();
+    expect(environment.CLERK_ADMIN_USER_IDS).toBeUndefined();
+  });
+
+  it("validates Clerk keys as an all-or-nothing pair", () => {
+    expect(() =>
+      validateEnvironment({
+        ...requiredEnvironment,
+        CLERK_PUBLISHABLE_KEY: "pk_test_example",
+      }),
+    ).toThrow(/must be configured together/);
+
+    expect(() =>
+      validateEnvironment({
+        ...requiredEnvironment,
+        CLERK_PUBLISHABLE_KEY: "not-a-publishable-key",
+        CLERK_SECRET_KEY: "not-a-secret-key",
+      }),
+    ).toThrow(/Clerk publishable key/);
+
+    expect(
+      validateEnvironment({
+        ...requiredEnvironment,
+        CLERK_PUBLISHABLE_KEY: "pk_test_example",
+        CLERK_SECRET_KEY: "sk_test_example",
+        CLERK_ADMIN_USER_IDS: "user_admin123, user_admin456,user_admin123",
+      }),
+    ).toMatchObject({
+      CLERK_PUBLISHABLE_KEY: "pk_test_example",
+      CLERK_SECRET_KEY: "sk_test_example",
+      CLERK_ADMIN_USER_IDS: ["user_admin123", "user_admin456"],
+    });
+
+    expect(() =>
+      validateEnvironment({
+        ...requiredEnvironment,
+        CLERK_ADMIN_USER_IDS: "admin@example.com",
+      }),
+    ).toThrow(/Clerk user ID/);
+  });
+
+  it("allows the auth bypass only outside production", () => {
+    expect(
+      validateEnvironment({
+        ...requiredEnvironment,
+        AUTH_DEV_BYPASS: "true",
+      }).AUTH_DEV_BYPASS,
+    ).toBe(true);
+
+    expect(() =>
+      validateEnvironment({
+        ...requiredEnvironment,
+        AUTH_DEV_BYPASS: "true",
+        NODE_ENV: "production",
+        WEB_ORIGIN: "https://admin.example.com",
+      }),
+    ).toThrow(/AUTH_DEV_BYPASS/);
   });
 
   it("rejects paths and empty entries in WEB_ORIGIN", () => {
@@ -77,6 +148,66 @@ describe("validateEnvironment", () => {
         BULL_BOARD_USERNAME: "operator",
       }),
     ).toThrow(/at least 16 characters/);
+  });
+
+  it("normalizes blank AI credentials and rejects unsafe values", () => {
+    expect(
+      validateEnvironment({
+        ...requiredEnvironment,
+        OPENAI_API_KEY: "",
+        OPENROUTER_API_KEY: "   ",
+      }),
+    ).toMatchObject({
+      OPENAI_API_KEY: undefined,
+      OPENROUTER_API_KEY: undefined,
+    });
+
+    expect(() =>
+      validateEnvironment({
+        ...requiredEnvironment,
+        OPENAI_API_KEY: " secret",
+      }),
+    ).toThrow(/leading or trailing whitespace/);
+    expect(() =>
+      validateEnvironment({
+        ...requiredEnvironment,
+        OPENROUTER_API_KEY: "secret\nsecond-line",
+      }),
+    ).toThrow(/line breaks/);
+  });
+
+  it("validates the opt-in Wasender webhook and credentials", () => {
+    expect(
+      validateEnvironment({
+        ...requiredEnvironment,
+        WASENDER_SESSION_API_KEY: "session-key",
+        WASENDER_WEBHOOK_ENABLED: "true",
+        WASENDER_WEBHOOK_SECRET: "a".repeat(32),
+      }),
+    ).toMatchObject({
+      WASENDER_SESSION_API_KEY: "session-key",
+      WASENDER_WEBHOOK_ENABLED: true,
+      WASENDER_WEBHOOK_SECRET: "a".repeat(32),
+    });
+
+    expect(() =>
+      validateEnvironment({
+        ...requiredEnvironment,
+        WASENDER_WEBHOOK_ENABLED: "true",
+      }),
+    ).toThrow(/WASENDER_WEBHOOK_SECRET/);
+    expect(() =>
+      validateEnvironment({
+        ...requiredEnvironment,
+        WASENDER_WEBHOOK_SECRET: "too-short",
+      }),
+    ).toThrow(/at least 32 characters/);
+    expect(() =>
+      validateEnvironment({
+        ...requiredEnvironment,
+        WASENDER_SESSION_API_KEY: "session-key\nleak",
+      }),
+    ).toThrow(/line breaks/);
   });
 
   it("prevents two tracing SDKs from instrumenting the same process", () => {
@@ -151,5 +282,15 @@ describe("validateEnvironment", () => {
     expect(
       isReferenceModuleEnabled({ REFERENCE_MODULE_ENABLED: "false" }),
     ).toBe(false);
+    expect(
+      isWasenderWebhookEnabled({ WASENDER_WEBHOOK_ENABLED: " TRUE " }),
+    ).toBe(true);
+    expect(isWasenderWebhookEnabled({})).toBe(false);
+    expect(
+      isWasenderTransportEnabled({ WASENDER_SESSION_API_KEY: "key" }),
+    ).toBe(true);
+    expect(isWasenderTransportEnabled({ WASENDER_SESSION_API_KEY: "  " })).toBe(
+      false,
+    );
   });
 });

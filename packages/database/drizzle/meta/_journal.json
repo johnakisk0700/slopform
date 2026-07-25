@@ -15,6 +15,48 @@
       "when": 1784733939352,
       "tag": "20260722152539_enforce_foundation_constraints",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784769578717,
+      "tag": "20260723011938_add_assistant_runs",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1784771534877,
+      "tag": "20260723015214_durable_assistant_threads",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1784771931213,
+      "tag": "20260723015851_add_participant_profiles",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1784773008681,
+      "tag": "20260723021648_allow_incomplete_participant_profiles",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784775013608,
+      "tag": "20260723025013_allow_qwen_3_7_max_assistant_turns",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1784938192523,
+      "tag": "20260725000952_email_delivery_outbox",
+      "breakpoints": true
     }
   ]
 }

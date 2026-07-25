@@ -109,10 +109,17 @@ services:
       API_PORT: 4000
       BULL_BOARD_ENABLED: ${BULL_BOARD_ENABLED:-false}
       BULL_BOARD_USERNAME: ${BULL_BOARD_USERNAME:-}
+      CLERK_ADMIN_USER_IDS: ${CLERK_ADMIN_USER_IDS:?Set CLERK_ADMIN_USER_IDS in .env.production}
+      CLERK_PUBLISHABLE_KEY: ${CLERK_PUBLISHABLE_KEY:?Set CLERK_PUBLISHABLE_KEY in .env.production}
+      WASENDER_WEBHOOK_ENABLED: ${WASENDER_WEBHOOK_ENABLED:-false}
     secrets:
       - bull_board_password
+      - clerk_secret_key
+      - openai_api_key
+      - openrouter_api_key
       - postgres_password
       - redis_password
+      - wasender_webhook_secret
     read_only: true
     cap_drop:
       - ALL
@@ -157,8 +164,11 @@ services:
       <<: *backend-environment
       OTEL_SERVICE_NAME: join-the-six-worker
     secrets:
+      - openai_api_key
+      - openrouter_api_key
       - postgres_password
       - redis_password
+      - wasender_session_api_key
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -174,6 +184,9 @@ services:
     build:
       context: .
       target: web
+      args:
+        VITE_API_BASE: /api
+        VITE_CLERK_PUBLISHABLE_KEY: ${VITE_CLERK_PUBLISHABLE_KEY:?Set VITE_CLERK_PUBLISHABLE_KEY in .env.production}
     init: true
     read_only: true
     cap_drop:
@@ -255,7 +268,17 @@ networks:
 secrets:
   bull_board_password:
     file: ${BULL_BOARD_PASSWORD_FILE:?Set BULL_BOARD_PASSWORD_FILE in .env.production}
+  clerk_secret_key:
+    file: ${CLERK_SECRET_KEY_FILE:?Set CLERK_SECRET_KEY_FILE in .env.production}
+  openai_api_key:
+    file: ${OPENAI_API_KEY_FILE:?Set OPENAI_API_KEY_FILE in .env.production}
+  openrouter_api_key:
+    file: ${OPENROUTER_API_KEY_FILE:?Set OPENROUTER_API_KEY_FILE in .env.production}
   postgres_password:
     file: ${POSTGRES_PASSWORD_FILE:?Set POSTGRES_PASSWORD_FILE in .env.production}
   redis_password:
     file: ${REDIS_PASSWORD_FILE:?Set REDIS_PASSWORD_FILE in .env.production}
+  wasender_webhook_secret:
+    file: ${WASENDER_WEBHOOK_SECRET_FILE:?Set WASENDER_WEBHOOK_SECRET_FILE in .env.production}
+  wasender_session_api_key:
+    file: ${WASENDER_SESSION_API_KEY_FILE:?Set WASENDER_SESSION_API_KEY_FILE in .env.production}

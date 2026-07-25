@@ -23,6 +23,7 @@ flowchart LR
   API --> Redis[(Redis)]
   Redis --> Worker["BullMQ worker"]
   Worker --> DB
+  Worker --> AI["OpenRouter / OpenAI"]
   Migrate["One-shot migration"] --> DB
   Migrate -. "must succeed" .-> API
   Migrate -. "must succeed" .-> Worker
@@ -43,6 +44,7 @@ fastest inner loop:
 
 ```bash
 cp .env.example .env
+# Set matching Clerk keys, approved admin user IDs and at least one AI key.
 pnpm install
 pnpm infra:up
 pnpm dev
@@ -108,19 +110,37 @@ install -d -m 700 secrets
 umask 077
 openssl rand -hex 32 > secrets/postgres_password
 openssl rand -hex 32 > secrets/redis_password
-touch secrets/bull_board_password
+touch secrets/bull_board_password secrets/clerk_secret_key
+touch secrets/openai_api_key secrets/openrouter_api_key
+touch secrets/wasender_session_api_key secrets/wasender_webhook_secret
 ```
 
 Set `DOMAIN`, `WEB_ORIGIN`, database names and any enabled integrations. Keep
 `.env.production` and `secrets/` out of Git and unencrypted backups. The example
-points Compose at independent URL-safe database/Redis passwords and an empty
-file for disabled Bull Board authentication. Populate that file before enabling
-Bull Board; do not move the value back into an environment variable. PostgreSQL
-uses its native password-file contract, Redis reads its password file at
-startup, and a small application entrypoint exposes credentials only to the
-migration, API or worker child process that needs them. Caddy and the web tier
-receive none of them. WordPress runtime credentials are deliberately absent until a
-real adapter owns and validates them.
+points Compose at independent URL-safe database/Redis passwords and separate
+files for Clerk, disabled Bull Board authentication, the optional AI providers
+and the opt-in Wasender boundary. Populate the Clerk file before starting the
+API and at least one AI file to enable assistant generation; populate the Bull
+Board file only when the dashboard is enabled. Keep both Wasender files empty
+until enabling the transport/webhook; the session key mounts only into the
+worker and the webhook secret only into the API. Do not move these values back
+into Compose environment metadata. PostgreSQL uses its native password-file contract, Redis reads its
+password file at startup, and a small application entrypoint exposes
+credentials only to the child processes that need them. The Clerk secret is
+API-only. AI keys are mounted into API and worker because the API resolves model
+availability while only the worker makes provider calls. Caddy and the web tier
+receive none of them. WordPress remains independent; its credential is not read
+from WordPress at runtime. If the backend joins the same Wasender session, copy
+the session key into the worker secret file and coordinate rotation with
+WordPress.
+
+The web image bakes `VITE_CLERK_PUBLISHABLE_KEY` through a Docker build argument;
+it is public and must match the API's `CLERK_PUBLISHABLE_KEY`. Changing it
+requires rebuilding the web image. `CLERK_ADMIN_USER_IDS` remains API runtime
+configuration so grants and revocations do not require rebuilding the SPA. Use
+a dedicated Clerk application for production; sharing the `notes_ai` tenant
+also shares its users and social-login policy even though the API allowlist
+still blocks unapproved subjects.
 
 This limits credential distribution and keeps credentials out of container
 configuration metadata, but local secret files are not an external secret

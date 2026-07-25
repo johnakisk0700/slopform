@@ -50,4 +50,15 @@ describe("admin delivery shell", () => {
     expect(app).toContain('<Navigate to="/admin"');
     expect(app).toContain('path="/admin"');
   });
+
+  it("loads feature routes lazily and keeps dependency groups explicit", () => {
+    const app = readAdminFile("src/App.tsx");
+    const viteConfig = readAdminFile("vite.config.ts");
+
+    expect(app).toContain('import("./routes/OverviewPage")');
+    expect(app).toContain('import("./routes/AssistantPage")');
+    expect(app).toContain("<Suspense");
+    expect(viteConfig).toContain("codeSplitting");
+    expect(viteConfig).toContain("chunkSizeWarningLimit: 700");
+  });
 });

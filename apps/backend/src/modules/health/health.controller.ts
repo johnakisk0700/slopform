@@ -3,6 +3,7 @@ import { ApiServiceUnavailableResponse, ApiTags } from "@nestjs/swagger";
 import { ZodResponse } from "nestjs-zod";
 
 import { DatabaseService } from "../../infrastructure/database/database.service.js";
+import { Public } from "../../infrastructure/auth/public.decorator.js";
 import { QueueHealthService } from "../../infrastructure/queue/queue-health.service.js";
 import {
   LiveResponseDto,
@@ -11,6 +12,7 @@ import {
 } from "./health.schemas.js";
 
 @ApiTags("health")
+@Public()
 @Controller("health")
 export class HealthController {
   constructor(

@@ -23,6 +23,7 @@ admin client, Nest and the worker run natively with hot reload:
 
 ```bash
 cp .env.example .env
+# Fill the matching Clerk keys, CLERK_ADMIN_USER_IDS and at least one AI key.
 pnpm install
 pnpm infra:up
 pnpm dev

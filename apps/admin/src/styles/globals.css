@@ -195,6 +195,16 @@
     -moz-osx-font-smoothing: grayscale;
   }
 
+  body,
+  #root {
+    min-height: 100dvh;
+  }
+
+  #root {
+    display: flex;
+    flex-direction: column;
+  }
+
   h1,
   h2,
   h3 {
@@ -273,5 +283,318 @@
     height: 0.45rem;
     border-radius: 50%;
     background: var(--jts-color-success);
+  }
+}
+
+/* -----------------------------------------------------------------------------
+   4. Assistant written-page renderer — structural port from notes_ai.
+   All palette values are JTS semantic tokens; the renderer owns no theme.
+   ----------------------------------------------------------------------------- */
+
+@layer components {
+  .assistant-markdown {
+    font-family: var(--jts-font-sans);
+    font-size: 0.925rem;
+    line-height: 1.6;
+    color: var(--jts-color-text);
+    overflow-wrap: anywhere;
+  }
+
+  .assistant-markdown > :first-child {
+    margin-top: 0;
+  }
+
+  .assistant-markdown > :last-child {
+    margin-bottom: 0;
+  }
+
+  .assistant-markdown h1 {
+    margin: 0.6em 0 0.3em;
+    font-size: 1.5rem;
+    font-weight: 700;
+    line-height: 1.25;
+  }
+
+  .assistant-markdown h2 {
+    margin: 0.6em 0 0.3em;
+    font-size: 1.25rem;
+    font-weight: 700;
+    line-height: 1.3;
+  }
+
+  .assistant-markdown h3 {
+    margin: 0.5em 0 0.25em;
+    font-size: 1.1rem;
+    font-weight: 600;
+  }
+
+  .assistant-markdown p {
+    margin: 0.35em 0;
+  }
+
+  .assistant-markdown strong {
+    font-weight: 700;
+  }
+
+  .assistant-markdown em {
+    font-style: italic;
+  }
+
+  .assistant-markdown ul {
+    margin: 0.35em 0;
+    padding-left: 1.5rem;
+    list-style: disc;
+  }
+
+  .assistant-markdown ol {
+    margin: 0.35em 0;
+    padding-left: 1.5rem;
+    list-style: decimal;
+  }
+
+  .assistant-markdown li {
+    margin: 0.15em 0;
+  }
+
+  .assistant-markdown li p {
+    margin: 0;
+  }
+
+  .assistant-markdown blockquote {
+    margin: 0.5em 0;
+    padding-left: 0.75rem;
+    border-left: 3px solid var(--jts-color-border);
+    color: var(--jts-color-text-muted);
+    font-style: italic;
+  }
+
+  .assistant-markdown code {
+    padding: 0.1em 0.35em;
+    border-radius: var(--jts-radius-xs);
+    background: color-mix(in srgb, var(--jts-color-primary) 13%, transparent);
+    font-family: var(--jts-font-mono);
+    font-size: 0.85em;
+  }
+
+  .assistant-markdown pre {
+    margin: 0.6em 0;
+    padding: 0.75rem;
+    overflow-x: auto;
+    border: 1px solid var(--jts-color-border);
+    border-radius: var(--jts-radius-md);
+    background: color-mix(
+      in srgb,
+      var(--jts-color-primary) 10%,
+      var(--jts-color-surface-raised)
+    );
+    font-size: 0.85em;
+  }
+
+  .assistant-markdown pre code {
+    padding: 0;
+    background: transparent;
+    font-size: 1em;
+  }
+
+  .assistant-markdown a {
+    color: var(--jts-color-link);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .assistant-markdown hr {
+    margin: 0.75em 0;
+    border: 0;
+    border-top: 1px solid var(--jts-color-border);
+  }
+
+  .assistant-markdown table {
+    width: 100%;
+    margin: 0.7em 0;
+    border-collapse: collapse;
+    font-family: var(--jts-font-sans);
+    font-size: 0.8rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .assistant-markdown th {
+    padding: 0.35em 0.65em;
+    border-bottom: 1px solid var(--jts-color-border);
+    color: var(--jts-color-text-muted);
+    font-size: 0.68rem;
+    font-weight: 600;
+    text-align: left;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .assistant-markdown td {
+    padding: 0.35em 0.65em;
+    border-bottom: 1px solid
+      color-mix(in srgb, var(--jts-color-border) 55%, transparent);
+  }
+
+  .assistant-markdown tr:last-child td {
+    border-bottom: 0;
+  }
+
+  .assistant-markdown input[type="checkbox"] {
+    margin-right: 0.45em;
+    accent-color: var(--jts-color-primary);
+    transform: translateY(1px);
+  }
+
+  .assistant-markdown li:has(> input[type="checkbox"]) {
+    margin-left: -1.1rem;
+    list-style: none;
+  }
+
+  .assistant-markdown mark {
+    padding: 0.05em 0.18em;
+    border-radius: var(--jts-radius-xs);
+    background: color-mix(in srgb, var(--jts-color-highlight) 72%, transparent);
+    color: inherit;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+  }
+
+  .assistant-markdown kbd {
+    padding: 0.05em 0.4em;
+    border: 1px solid var(--jts-color-border);
+    border-bottom-width: 2px;
+    border-radius: var(--jts-radius-xs);
+    background: var(--jts-color-surface-raised);
+    font-family: var(--jts-font-mono);
+    font-size: 0.78em;
+  }
+
+  .assistant-markdown img {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    margin: 0.7em 0;
+    border: 1px solid var(--jts-color-border);
+    border-radius: var(--jts-radius-sm);
+    box-shadow: var(--jts-shadow-sm);
+  }
+
+  .assistant-markdown .hljs {
+    color: var(--jts-color-text);
+  }
+
+  .assistant-markdown .hljs-comment,
+  .assistant-markdown .hljs-quote {
+    color: var(--jts-color-text-muted);
+    font-style: italic;
+  }
+
+  .assistant-markdown .hljs-keyword,
+  .assistant-markdown .hljs-selector-tag,
+  .assistant-markdown .hljs-built_in,
+  .assistant-markdown .hljs-tag,
+  .assistant-markdown .hljs-name,
+  .assistant-markdown .hljs-meta {
+    color: var(--jts-color-primary);
+  }
+
+  .assistant-markdown .hljs-string,
+  .assistant-markdown .hljs-attr,
+  .assistant-markdown .hljs-number,
+  .assistant-markdown .hljs-literal,
+  .assistant-markdown .hljs-symbol,
+  .assistant-markdown .hljs-type,
+  .assistant-markdown .hljs-addition {
+    color: color-mix(
+      in srgb,
+      var(--jts-color-primary) 65%,
+      var(--jts-color-text)
+    );
+  }
+
+  .assistant-markdown .hljs-title,
+  .assistant-markdown .hljs-section {
+    color: var(--jts-color-text);
+    font-weight: 600;
+  }
+
+  .assistant-markdown .hljs-deletion {
+    color: var(--jts-color-danger);
+  }
+
+  .assistant-chart {
+    max-width: 32rem;
+    margin: 0.8em 0;
+    font-family: var(--jts-font-mono);
+  }
+
+  .assistant-chart__title {
+    margin-bottom: 0.45em;
+    color: var(--jts-color-text-muted);
+    font-family: var(--jts-font-sans);
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .assistant-chart svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    overflow: visible;
+  }
+
+  .assistant-chart-axis {
+    stroke: var(--jts-color-border);
+    stroke-width: 1;
+  }
+
+  .assistant-chart-line {
+    fill: none;
+    stroke: var(--jts-color-primary);
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .assistant-chart-area {
+    fill: color-mix(in srgb, var(--jts-color-primary) 12%, transparent);
+  }
+
+  .assistant-chart-dot {
+    fill: var(--jts-color-primary);
+  }
+
+  .assistant-mermaid {
+    display: flex;
+    justify-content: center;
+    margin: 0.8em 0;
+  }
+
+  .assistant-mermaid svg {
+    max-width: 100%;
+    height: auto;
+  }
+
+  @keyframes assistant-thinking-breathe {
+    0%,
+    100% {
+      opacity: 0.5;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+
+  .assistant-thinking {
+    color: var(--jts-color-text-muted);
+    animation: assistant-thinking-breathe 1.6s ease-in-out infinite;
+    will-change: opacity;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .assistant-thinking {
+      animation: none;
+      opacity: 1;
+    }
   }
 }

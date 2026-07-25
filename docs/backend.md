@@ -18,9 +18,11 @@ rerun the focused integration smokes, not just the compiler.
 | Persistence        | Drizzle ORM `0.45.2`; Kit `0.31.10`; `pg` `8.22.0`; `@types/pg` `8.20.0`                   | Drizzle 1.x tags remain prereleases.                                                  |
 | Queues             | `@nestjs/bullmq` `11.0.4`; BullMQ `5.80.10`; Bull Board `8.1.2`                            | BullMQ OSS only; all Bull Board packages use one version.                             |
 | Contracts and edge | Zod `4.4.3`; `nestjs-zod` `5.4.0`; Helmet `8.3.0`                                          | Zod is the single runtime/API contract source.                                        |
+| Authentication     | Clerk Express `2.1.44`                                                                     | Session verification plus a server-owned admin subject allowlist.                     |
 | Logging            | Pino `10.3.1`; `pino-http` `11.0.0`; `nestjs-pino` `4.6.1`; `pino-pretty` `13.1.3`         | Pretty output is development-only.                                                    |
 | Telemetry          | OTel API `1.9.1`; SDK/exporter `0.220.0`; auto-instrumentations `0.78.0`; Sentry `10.67.0` | Configure OTLP or Sentry, never both. Keep the OTel `0.220` cohort aligned.           |
 | Runtime peers      | `dotenv` `17.4.2`; `reflect-metadata` `0.2.2`; RxJS `7.8.2`                                | These remain direct dependencies because the runtime imports or requires them.        |
+| AI generation      | AI SDK `7.0.35`; OpenAI provider `4.0.18`; OpenRouter provider `3.0.0`                     | Provider calls run only in the worker; SDK retries are disabled in favor of BullMQ.   |
 
 Registry metadata, installed peer manifests, releases, production advisories and
 licenses were checked on **2026-07-22**. The resolved production tree contained
@@ -71,6 +73,8 @@ exception/Sentry plumbing is absent from the worker graph.
 | Queues, readiness and dashboard       | `apps/backend/src/infrastructure/queue/`, `infrastructure/readiness.ts`                           |
 | Logging and telemetry                 | `apps/backend/src/infrastructure/logging/`, `infrastructure/observability/`, `instrumentation.ts` |
 | Business audit                        | `apps/backend/src/infrastructure/audit/`, `packages/database/src/schema/audit-events.ts`          |
+| Participant profile/import            | `apps/backend/src/modules/participants/`, `packages/database/src/schema/participants.ts`          |
+| Email delivery                        | `apps/backend/src/modules/email/`, `packages/database/src/schema/email-deliveries.ts`             |
 | Domain examples                       | `apps/backend/src/modules/reference/`                                                             |
 
 The `reference` module is a disposable executable pattern. Its HTTP adapter is
@@ -105,6 +109,10 @@ does not need an interface/class wedding ceremony for every provider.
   envelopes, retry/retention, idempotency, outbox requirements and operations.
 - [Runtime operations](backend/mechanisms/runtime-operations.md) owns the HTTP
   edge, configuration, logging, tracing and startup/shutdown failure behavior.
+- [Admin authentication](backend/mechanisms/authentication.md) owns Clerk
+  session verification, the private-by-default guard and staff authorization.
+- [Wasender integration](backend/mechanisms/wasender.md) owns the optional
+  WhatsApp provider client, signed webhook and normalized transport events.
 - [Module inventory](backend/modules/README.md) records durable product module
   boundaries. Cross-cutting behavior does not belong there.
 
@@ -124,7 +132,13 @@ Three invariants span those pages:
 commands load `.env`; production does not. `DATABASE_URL` is required. The Zod
 contract supplies defaults for host/port, origins, pool size, Redis, logging and
 telemetry sampling, and guards optional telemetry, Bull Board and reference
-module settings. Production browser origins require HTTPS.
+module settings. The HTTP graph additionally requires matching Clerk keys and
+at least one `CLERK_ADMIN_USER_IDS` entry; the worker can start without them.
+Production browser origins require HTTPS.
+
+Wasender is opt-in. Its session key enables a controller-free provider module
+only in the worker graph. Its public webhook module is separately gated by
+`WASENDER_WEBHOOK_ENABLED` and a validated shared secret in the HTTP graph.
 
 `AppConfigModule` parses the complete environment through the single Zod
 contract while Nest creates the HTTP or worker application, before either

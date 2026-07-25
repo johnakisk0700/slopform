@@ -13,6 +13,34 @@ const apiProxyTarget = process.env.API_PROXY_TARGET ?? "http://localhost:4000";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  build: {
+    // Mermaid is imported only for assistant messages containing a Mermaid
+    // fence. Its generated parser is an indivisible ~663 kB lazy chunk.
+    chunkSizeWarningLimit: 700,
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            {
+              name: "auth",
+              test: /node_modules[\\/]@clerk[\\/]/,
+              includeDependenciesRecursively: false,
+            },
+            {
+              name: "ui",
+              test: /node_modules[\\/]@heroui[\\/]/,
+              includeDependenciesRecursively: false,
+            },
+            {
+              name: "markdown",
+              test: /node_modules[\\/](?:highlight\.js|react-markdown|rehype-[^\\/]+|remark-[^\\/]+|unified)[\\/]/,
+              includeDependenciesRecursively: false,
+            },
+          ],
+        },
+      },
+    },
+  },
   server: {
     port: 3000,
     proxy: {

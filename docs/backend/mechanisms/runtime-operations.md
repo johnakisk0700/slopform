@@ -16,7 +16,8 @@ their owning boundaries.
 flowchart LR
   Client["Client"] --> Edge["TLS edge / Caddy"]
   Edge --> Server["Bounded Node server"]
-  Server --> Middleware["Helmet, CORS, parsers, request log"]
+  Server --> Auth["Clerk request verification"]
+  Auth --> Middleware["Helmet, CORS, parsers, request log"]
   Middleware --> Nest["Nest controllers"]
   Nest --> Dependencies["PostgreSQL / Redis"]
   Middleware --> Logs["JSON stdout/stderr"]
@@ -44,6 +45,11 @@ bounds; route deadlines require cancellation and documented recovery.
 Bull Board is an optional separate surface at `/api/v1/admin/queues`; see
 [Queues and workers](queues.md).
 
+Nest controllers are private by default through the Clerk guard. Health
+controllers opt out explicitly; development OpenAPI is mounted outside the
+controller graph, and Bull Board keeps its independent protection. See
+[Admin authentication](authentication.md).
+
 ## Configuration
 
 `ConfigModule` validates the application environment once. Production does not
@@ -54,6 +60,20 @@ settings before an SDK starts, using the same Zod schema fragment.
   fragment. Sentry accepts its HTTP(S) DSN. They are mutually exclusive.
 - Enabled Bull Board requires an unambiguous username and a password of at least
   16 characters. It still must not be public.
+- The HTTP graph requires matching Clerk publishable/secret keys and a non-empty
+  admin user-ID allowlist. `WEB_ORIGIN` also becomes Clerk's
+  `authorizedParties`. Production mounts the secret only into the API process.
+- `OPENROUTER_API_KEY` and `OPENAI_API_KEY` are optional bounded credentials.
+  The key for the exact selected model is required to create assistant turns;
+  the Gemini default therefore requires OpenRouter. The HTTP process validates
+  provider availability but never substitutes a model. Calls occur exclusively
+  in the worker. Production supplies both through Docker secret files rather
+  than Compose environment metadata.
+- `WASENDER_SESSION_API_KEY` is an optional worker-only session bearer key.
+  `WASENDER_WEBHOOK_ENABLED=true` separately requires a 32-character minimum
+  `WASENDER_WEBHOOK_SECRET` and mounts the public provider callback only in the
+  HTTP graph. See [Wasender integration](wasender.md); leave the webhook off
+  until normalized events have a durable consumer.
 - Add new variables to the Zod contract, tests, applicable example/deployment
   configuration and this page when behavior changes. Services do not read
   scattered `process.env` values.
@@ -122,8 +142,9 @@ duration; signal handling does not make interrupted side effects atomic.
 
 ## Tests and release smokes
 
-Focused tests cover environment validation, HTTP limits/Helmet modes, request ID
-and redaction, startup ordering and telemetry shutdown. Release smokes verify
+Focused tests cover environment validation, Clerk 401/403/admin behavior, HTTP
+limits/Helmet modes, request ID and redaction, startup ordering and telemetry
+shutdown. Release smokes verify
 production docs 404, local docs render, 413 body limits, CORS allow/deny,
 suppressed liveness, traced readiness, telemetry delivery, startup exit 1 and
 SIGTERM cleanup for both processes.

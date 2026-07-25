@@ -106,6 +106,10 @@ export function JtsDataTable<T>({
   emptyActions = null,
   errorActions = null,
 }: JtsDataTableProps<T>) {
+  // TanStack Table returns an intentionally mutable API with methods that are
+  // unsafe for compiler memoization. Keep that boundary inside this component.
+  "use no memo";
+
   const titleId = useId();
   const descriptionId = useId();
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -114,6 +118,7 @@ export function JtsDataTable<T>({
     pageSize,
   });
 
+  // eslint-disable-next-line react-hooks/incompatible-library -- The explicit compiler opt-out above contains TanStack's non-memoizable table API locally.
   const table = useReactTable<T>({
     data: rows as T[],
     columns,

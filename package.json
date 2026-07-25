@@ -27,6 +27,7 @@
     "infra:down": "docker compose down",
     "infra:logs": "docker compose logs --follow postgres redis",
     "infra:up": "docker compose up -d --wait postgres redis",
+    "import:wordpress-profiles": "pnpm --filter @join-the-six/database build && pnpm --filter @join-the-six/backend build && dotenv -e .env -- pnpm --filter @join-the-six/backend import:wordpress-profiles --",
     "lint": "turbo run lint",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck"

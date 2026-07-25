@@ -21,8 +21,12 @@ Area-specific memory:
 
 - [`frontend/components/README.md`](frontend/components/README.md) — reusable component inventory and selection hierarchy
 - [`frontend/theming.md`](frontend/theming.md) — design tokens, dark mode and the HeroUI integration
+- [`frontend/assistant.md`](frontend/assistant.md) — queue-backed AI conversation route and polling contract
 - [`backend/mechanisms/README.md`](backend/mechanisms/README.md) — queue, database and runtime operations contracts
+- [`backend/mechanisms/authentication.md`](backend/mechanisms/authentication.md) — Clerk identity, admin authorization and restricted-Google handoff
+- [`backend/mechanisms/wasender.md`](backend/mechanisms/wasender.md) — opt-in WhatsApp transport and webhook boundary
 - [`backend/modules/README.md`](backend/modules/README.md) — product-domain module inventory and lifecycle docs
+- [`backend/modules/participants.md`](backend/modules/participants.md) — participant profile schema and WordPress import runbook
 - [`documentation-standard.md`](documentation-standard.md) — required shape for new component/mechanism documentation
 
 ## Evidence, decisions and implementation

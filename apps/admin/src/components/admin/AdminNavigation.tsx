@@ -1,6 +1,7 @@
 import { clsx } from "clsx";
 import type { LucideIcon } from "lucide-react";
 import {
+  Bot,
   Calendar,
   CreditCard,
   LayoutGrid,
@@ -23,9 +24,10 @@ interface NavItem {
   to?: string;
 }
 
-/** The eight admin areas, in ledger order. Only Overview is live today. */
+/** The admin areas in product order. Overview and the AI assistant are live. */
 const NAV_ITEMS: readonly NavItem[] = [
   { label: "Overview", Icon: LayoutGrid, to: "/admin" },
+  { label: "AI assistant", Icon: Bot, to: "/admin/assistant" },
   { label: "Events", Icon: Calendar },
   { label: "Participants", Icon: Users },
   { label: "Bookings", Icon: Ticket },
@@ -84,7 +86,7 @@ export interface AdminNavigationProps {
 }
 
 /**
- * The admin navigation landmark: eight indexed areas with the lit-index motif
+ * The admin navigation landmark: indexed areas with the lit-index motif
  * on the active row. One component serves both the desktop sidebar and the
  * mobile drawer via {@link AdminNavigationProps.variant}; disabled areas carry
  * a "Soon" stamp and are inert but announced.
@@ -113,7 +115,7 @@ export function AdminNavigation({
               {item.to ? (
                 <NavLink
                   to={item.to}
-                  end
+                  end={item.to === "/admin"}
                   onClick={onNavigate}
                   className={({ isActive }) =>
                     clsx(

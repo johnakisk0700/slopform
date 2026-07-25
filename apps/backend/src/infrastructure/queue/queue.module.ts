@@ -7,6 +7,8 @@ import {
   QUEUE_PREFIX,
   QUEUE_PRODUCER_CONFIG,
   QUEUE_WORKER_CONFIG,
+  ASSISTANT_QUEUE,
+  EMAIL_QUEUE,
   REFERENCE_QUEUE,
 } from "./queue.constants.js";
 import { QueueHealthService } from "./queue-health.service.js";
@@ -49,6 +51,14 @@ export function createQueueWorkerOptions(
         createQueueProducerOptions(config.get("REDIS_URL", { infer: true })),
     }),
     BullModule.registerQueue({
+      name: ASSISTANT_QUEUE,
+      configKey: QUEUE_PRODUCER_CONFIG,
+    }),
+    BullModule.registerQueue({
+      name: EMAIL_QUEUE,
+      configKey: QUEUE_PRODUCER_CONFIG,
+    }),
+    BullModule.registerQueue({
       name: REFERENCE_QUEUE,
       configKey: QUEUE_PRODUCER_CONFIG,
     }),
@@ -67,9 +77,18 @@ export class QueueModule {}
         createQueueWorkerOptions(config.get("REDIS_URL", { infer: true })),
     }),
     BullModule.registerQueue({
+      name: ASSISTANT_QUEUE,
+      configKey: QUEUE_WORKER_CONFIG,
+    }),
+    BullModule.registerQueue({
+      name: EMAIL_QUEUE,
+      configKey: QUEUE_WORKER_CONFIG,
+    }),
+    BullModule.registerQueue({
       name: REFERENCE_QUEUE,
       configKey: QUEUE_WORKER_CONFIG,
     }),
   ],
+  exports: [BullModule],
 })
 export class QueueWorkerModule {}

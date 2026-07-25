@@ -5,10 +5,19 @@ lifecycle. Use the [documentation standard](../../documentation-standard.md)
 and link the source module. Cross-cutting infrastructure belongs in
 [mechanisms](../mechanisms/README.md).
 
-No product module exists yet. `apps/backend/src/modules/reference/` is a
-disposable executable pattern, not production CRUD. The first real vertical
-slice should add its page, then remove the reference route, queue, processor and
-table through a reviewed forward migration.
+Product modules:
+
+- [`assistant.md`](assistant.md) — authenticated, owner-scoped asynchronous AI
+  conversation threads and durable generation turns.
+- [`email-delivery.md`](email-delivery.md) — provider-agnostic email intent,
+  transactional outbox, redacted attempts and safe admin visibility.
+- [`participants.md`](participants.md) — canonical participant profile schema
+  and controlled, idempotent WordPress profile import.
+
+`apps/backend/src/modules/reference/` remains a disposable executable pattern,
+not production CRUD. Remove the reference route, queue, processor and table
+through a reviewed forward migration when the foundation no longer needs the
+golden example.
 
 `REFERENCE_MODULE_ENABLED=true` adds only the reference HTTP adapter. Its worker
 remains active to drain jobs accepted by an earlier release; disabling producers

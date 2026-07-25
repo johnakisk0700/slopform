@@ -1,4 +1,5 @@
-import { useId } from "react";
+import { useId, useState } from "react";
+import { useClerk, useUser } from "@clerk/react";
 import {
   Avatar,
   Button,
@@ -10,6 +11,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { LogOut, Monitor, Moon, Sun } from "lucide-react";
 
+import { env } from "../../lib/env";
 import { useTheme, type ThemeMode } from "../../lib/useTheme";
 
 /** The three appearance choices, in display order (Auto = the `system` mode). */
@@ -45,9 +47,56 @@ export interface AdminUserMenuProps {
  * It mounts twice (sidebar footer and small-screen top bar), so the heading id
  * comes from {@link useId}.
  */
-export function AdminUserMenu({ className }: AdminUserMenuProps) {
+export function AdminUserMenu(props: AdminUserMenuProps) {
+  return env.authDevBypass ? (
+    <AdminUserMenuContent
+      {...props}
+      displayName="Local developer"
+      identityLabel="Authentication bypass"
+    />
+  ) : (
+    <ClerkAdminUserMenu {...props} />
+  );
+}
+
+function ClerkAdminUserMenu(props: AdminUserMenuProps) {
+  const { signOut } = useClerk();
+  const { user } = useUser();
+  const displayName =
+    user?.fullName ??
+    user?.firstName ??
+    user?.primaryEmailAddress?.emailAddress ??
+    "Operator";
+  const identityLabel = user?.primaryEmailAddress?.emailAddress ?? "Admin";
+
+  return (
+    <AdminUserMenuContent
+      {...props}
+      displayName={displayName}
+      identityLabel={identityLabel}
+      onSignOut={() => signOut({ redirectUrl: "/sign-in" })}
+    />
+  );
+}
+
+interface AdminUserMenuContentProps extends AdminUserMenuProps {
+  readonly displayName: string;
+  readonly identityLabel: string;
+  readonly onSignOut?: (() => Promise<void>) | undefined;
+}
+
+function AdminUserMenuContent({
+  className,
+  displayName,
+  identityLabel,
+  onSignOut,
+}: AdminUserMenuContentProps) {
   const { mode, setMode } = useTheme();
   const themeLabelId = useId();
+  const [isSigningOut, setSigningOut] = useState(false);
+  const [signOutError, setSignOutError] = useState(false);
+  const avatarFallback =
+    displayName.trim().charAt(0).toLocaleUpperCase() || "A";
 
   return (
     <Popover>
@@ -56,7 +105,7 @@ export function AdminUserMenu({ className }: AdminUserMenuProps) {
         // The accessible name leads with the visible operator label so
         // speech-input users can target it by the name they see (WCAG 2.5.3),
         // and it stays meaningful when the label is hidden on small screens.
-        aria-label="Spyridoula — account and appearance"
+        aria-label={`${displayName} — account and appearance`}
         // `h-auto` releases Button's fixed 2.5rem height so the hover surface
         // covers the whole row; the padding and the 2rem avatar then size it to
         // the 2.75rem rhythm of the navigation items.
@@ -72,10 +121,10 @@ export function AdminUserMenu({ className }: AdminUserMenuProps) {
           aria-hidden="true"
           className="rounded-md"
         >
-          <Avatar.Fallback>Σ</Avatar.Fallback>
+          <Avatar.Fallback>{avatarFallback}</Avatar.Fallback>
         </Avatar>
         <span className="hidden text-sm font-semibold sm:inline">
-          Spyridoula
+          {displayName}
         </span>
       </Button>
 
@@ -95,11 +144,11 @@ export function AdminUserMenu({ className }: AdminUserMenuProps) {
               aria-hidden="true"
               className="rounded-md"
             >
-              <Avatar.Fallback>Σ</Avatar.Fallback>
+              <Avatar.Fallback>{avatarFallback}</Avatar.Fallback>
             </Avatar>
             <div className="grid">
-              <strong className="text-base font-bold">Spyridoula</strong>
-              <span className="text-sm text-ink-muted">Operator</span>
+              <strong className="text-base font-bold">{displayName}</strong>
+              <span className="text-sm text-ink-muted">{identityLabel}</span>
             </div>
           </div>
 
@@ -137,15 +186,34 @@ export function AdminUserMenu({ className }: AdminUserMenuProps) {
 
           <Separator />
 
-          <div className="grid justify-items-start gap-2">
-            <Button variant="ghost" size="sm" isDisabled>
-              <LogOut aria-hidden="true" className="size-4" />
-              Sign out
-            </Button>
-            <p className="text-xs text-ink-subtle">
-              Sign-in arrives with the backend session contract.
+          {onSignOut ? (
+            <div className="grid justify-items-start gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                isDisabled={isSigningOut}
+                onPress={() => {
+                  setSigningOut(true);
+                  setSignOutError(false);
+                  void onSignOut()
+                    .catch(() => setSignOutError(true))
+                    .finally(() => setSigningOut(false));
+                }}
+              >
+                <LogOut aria-hidden="true" className="size-4" />
+                {isSigningOut ? "Signing out…" : "Sign out"}
+              </Button>
+              {signOutError ? (
+                <p role="alert" className="text-xs text-danger">
+                  Sign-out failed. Try again.
+                </p>
+              ) : null}
+            </div>
+          ) : (
+            <p className="text-xs font-semibold text-warning">
+              Sign-in is disabled for this local development session.
             </p>
-          </div>
+          )}
         </Popover.Dialog>
       </Popover.Content>
     </Popover>

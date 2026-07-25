@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "source": "wordpress-jts-profile",
+  "exportedAt": "2026-07-22T12:00:00+00:00",
+  "profiles": [
+    {
+      "sourceProfileId": "example-1",
+      "sourceUserId": "example-user-1",
+      "sourceStatus": "publish",
+      "sourceUpdatedAt": "2026-07-22T11:00:00+00:00",
+      "answers": {
+        "name": "Δοκιμαστικός Χρήστης",
+        "age": "25–34",
+        "telephone": "696 000 0000",
+        "city": "Κολωνάκι",
+        "interests": ["Ταξίδια", "Τεχνολογία"],
+        "personality": "3",
+        "email": "participant@example.invalid"
+      }
+    }
+  ]
+}

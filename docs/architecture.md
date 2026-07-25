@@ -15,7 +15,9 @@ future explicit API contract; shared branding is not shared runtime ownership.
 ```mermaid
 flowchart LR
   Staff["Staff browser"] --> Web["React SPA\nprivate admin panel"]
+  Web --> Clerk["Clerk identity"]
   Web --> API["Nest HTTP API"]
+  API --> Clerk
   API --> DB[(PostgreSQL)]
   API --> Redis[(Redis)]
   Redis --> Worker["Nest BullMQ worker"]
@@ -75,6 +77,9 @@ These are a migration target, not permission to generate thirteen empty CRUD mod
 - State transitions that affect participants, money or outbound communication create an application audit event.
 - Queue handlers are idempotent and retries are expected.
 - External providers are adapters. Their payloads do not become the domain schema.
+- Clerk proves staff identity; the API separately authorizes the verified
+  subject against the Join The Six admin policy. A browser route guard is not a
+  permission boundary.
 
 ## Explicitly deferred
 
@@ -82,4 +87,5 @@ These are a migration target, not permission to generate thirteen empty CRUD mod
 - CQRS/event sourcing
 - A generic repository framework
 - A second CMS
-- Automated WhatsApp/Viber sends before the approved human-review workflow exists
+- Automated WhatsApp/Viber sends before durable consent, conversation-state,
+  audit and retry policies exist

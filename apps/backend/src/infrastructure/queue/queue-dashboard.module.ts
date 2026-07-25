@@ -6,7 +6,11 @@ import { ConfigModule, ConfigService } from "@nestjs/config";
 
 import type { Environment } from "../config/environment.js";
 import { createBullBoardAuthMiddleware } from "./bull-board-auth.middleware.js";
-import { REFERENCE_QUEUE } from "./queue.constants.js";
+import {
+  ASSISTANT_QUEUE,
+  EMAIL_QUEUE,
+  REFERENCE_QUEUE,
+} from "./queue.constants.js";
 import { QueueModule } from "./queue.module.js";
 
 @Module({
@@ -29,6 +33,22 @@ import { QueueModule } from "./queue.module.js";
           },
         },
       }),
+    }),
+    BullBoardModule.forFeature({
+      name: ASSISTANT_QUEUE,
+      adapter: BullMQAdapter,
+      options: {
+        description: "Assistant response generation",
+        readOnlyMode: true,
+      },
+    }),
+    BullBoardModule.forFeature({
+      name: EMAIL_QUEUE,
+      adapter: BullMQAdapter,
+      options: {
+        description: "Provider-agnostic email outbox delivery",
+        readOnlyMode: true,
+      },
     }),
     BullBoardModule.forFeature({
       name: REFERENCE_QUEUE,

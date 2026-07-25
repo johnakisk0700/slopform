@@ -49,10 +49,30 @@ Application tables live in PostgreSQL `public`; Drizzle's journal lives at
 `drizzle.__drizzle_migrations`. TypeScript uses camel case and persisted names
 are explicit snake case.
 
-The disposable schema demonstrates the expected baseline: database-generated
-UUID/timestamp defaults; bounded non-blank text constraints; JSON-object audit
-context; and indexes selected for actual composite lookup shapes. Add indexes
-for measured queries, verify with `EXPLAIN`, and account for write cost.
+The schema uses database-generated UUID/timestamp defaults, bounded non-blank
+text constraints, JSON shape checks and indexes selected for actual composite
+lookup shapes. `assistant_threads` and `assistant_turns` persist owner-scoped
+conversation history and asynchronous generation state. Composite ownership
+foreign keys, owner-scoped request-id uniqueness and one-active-turn partial
+uniqueness keep HTTP replay and append concurrency coherent. Status/result/error
+checks protect terminal shape: successful content is explicitly non-null and
+nonblank, failure codes are allowlisted, and reasoning effort is constrained to
+`low|medium|high`. Terminal writes are conditional on both a nonterminal status
+and the current attempt. Add indexes for measured queries, verify with
+`EXPLAIN`, and account for write cost.
+
+Participant profiles use normalized unique emails, E.164 phones, constrained
+age/neighborhood/conversation values and a normalized interest join table.
+`participant_source_records` makes operational imports idempotent through a
+unique source key and canonical payload hash without retaining another raw PII
+copy. The detailed contract is in the
+[participant module](../modules/participants.md).
+
+Email delivery uses separate intent, outbox and attempt tables. Intent creation,
+outbox publication intent and admin audit share one transaction. Leases and
+conditional state transitions make relay and worker crashes recoverable;
+message content and the raw recipient remain confined to the intent table.
+See the [email delivery module](../modules/email-delivery.md).
 
 When a mutation needs business audit, the service writes the domain row and
 `audit_events` row through the same transaction. Runtime logs do not replace
@@ -80,6 +100,13 @@ data. Review generated SQL for locks, rewrites, defaults, backfills and
 destructive statements. Use expand/backfill/contract across releases when a
 change cannot safely finish inside one deployment window. Recovery is normally
 a reviewed forward migration.
+
+The two initial assistant migrations are an unshipped, same-release
+supersession. The second begins with a fail-closed guard: if the temporary
+`assistant_runs` table contains any row it aborts before creating new tables or
+dropping the old one. Export and explicitly transform that data before retrying;
+legacy model ids must not be silently relabelled. This narrow pre-release case
+does not authorize editing migrations after any shared/production rollout.
 
 ## Test data, tests and operations
 

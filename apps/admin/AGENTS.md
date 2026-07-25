@@ -10,17 +10,20 @@ decision). Component contracts live under `docs/frontend/components/`.
 
 ## Verified stack
 
-| Library               | Version        | Docs                       |
-| --------------------- | -------------- | -------------------------- |
-| react / react-dom     | 19.2.8         | https://react.dev          |
-| @heroui/react         | 3.2.2          | https://www.heroui.com     |
-| tailwindcss           | 4.3.3          | https://tailwindcss.com    |
-| @tanstack/react-table | 8.21.3         | https://tanstack.com/table |
-| react-router          | 7.18.1         | https://reactrouter.com    |
-| motion                | 12.42.2        | https://motion.dev         |
-| lucide-react          | 1.25.0         | https://lucide.dev         |
-| zod                   | 4.4.3          | https://zod.dev            |
-| vite / vitest         | 8.1.5 / 4.1.10 | https://vite.dev           |
+| Library               | Version        | Docs                                       |
+| --------------------- | -------------- | ------------------------------------------ |
+| react / react-dom     | 19.2.8         | https://react.dev                          |
+| @clerk/react          | 6.12.6         | https://clerk.com/docs                     |
+| @heroui/react         | 3.2.2          | https://www.heroui.com                     |
+| tailwindcss           | 4.3.3          | https://tailwindcss.com                    |
+| @tanstack/react-table | 8.21.3         | https://tanstack.com/table                 |
+| react-router          | 7.18.1         | https://reactrouter.com                    |
+| motion                | 12.42.2        | https://motion.dev                         |
+| lucide-react          | 1.25.0         | https://lucide.dev                         |
+| react-markdown        | 10.1.0         | https://github.com/remarkjs/react-markdown |
+| mermaid               | 11.15.0        | https://mermaid.js.org                     |
+| zod                   | 4.4.3          | https://zod.dev                            |
+| vite / vitest         | 8.1.5 / 4.1.10 | https://vite.dev                           |
 
 Verified 2026-07-23 against `apps/admin/package.json`.
 
@@ -30,7 +33,7 @@ Verified 2026-07-23 against `apps/admin/package.json`.
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `src/routes/`            | Pages: `usePageMeta`, data wiring, composition. They orchestrate; they do not absorb reusable table/form behavior.                                   |
 | `src/features/<domain>/` | Zod schemas and pure logic. **Zero React imports.**                                                                                                  |
-| `src/components/admin/`  | Admin shell and domain UI (`AdminShell`, `AdminNavigation`, `AdminUserMenu`).                                                                        |
+| `src/components/admin/`  | Admin shell and domain UI (`AdminShell`, `AdminNavigation`, `AdminUserMenu`, assistant chat composition).                                            |
 | `src/components/ui/`     | Shared, domain-free `Jts*` contracts. They own repeated operational behavior (states, a11y, layout) — never domain data, fetching or business rules. |
 | `src/lib/`               | Hooks and facades (`useTheme`, `usePageMeta`, `api`, `env`).                                                                                         |
 | `src/styles/globals.css` | The token bridge (HeroUI base tokens + Tailwind `@theme`). The only place colors are wired.                                                          |

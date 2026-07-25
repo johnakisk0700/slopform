@@ -97,6 +97,11 @@ flowchart TD
   fetching, filtering or business rules.
 - Rows may persist under `error` (stale-data warning); they vanish under
   `loading`.
+- TanStack's `useReactTable()` returns an intentionally mutable table API whose
+  methods cannot be safely compiler-memoized. `JtsDataTable` contains that API,
+  opts this component out with `"use no memo"` and carries one line-local
+  `react-hooks/incompatible-library` suppression. Do not widen that suppression
+  to the module or ESLint configuration.
 
 ## Extension points
 
@@ -118,3 +123,5 @@ Verified 2026-07-23:
   [Column defs](https://tanstack.com/table/v8/docs/guide/column-defs),
   [Sorting](https://tanstack.com/table/v8/docs/guide/sorting),
   [Pagination](https://tanstack.com/table/v8/docs/guide/pagination).
+- [React Compiler directives](https://react.dev/reference/react-compiler/directives) —
+  function-local `"use no memo"` for an incompatible third-party integration.
