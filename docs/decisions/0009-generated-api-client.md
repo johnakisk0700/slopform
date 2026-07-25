@@ -48,10 +48,9 @@ document describes are removed and forbidden.
   `pnpm api:generate` in the same change; `pnpm check` gained an `api:check`
   phase between `docs:check` and `typecheck`.
 - `apps/admin/src/features/auth/schema.ts` is deleted; `RequireAdmin` uses
-  `useGetAuthSession`. The screens that predate this decision — the assistant,
-  which owns client-side semantics beyond the response shape, and the WP1 events
-  and participants screens — keep their hand-written schemas until each migrates
-  in its own change. Their operations are published, so the hooks already exist.
+  `useGetAuthSession`. Events and participants screens use the generated hooks.
+  The assistant still keeps hand-written schemas because it owns client-side
+  semantics beyond the response shape.
 - The published contract describes the default composition: the Wasender webhook,
   the reference module and Bull Board are off. Publishing one of them is a
   deliberate change to the emit environment.

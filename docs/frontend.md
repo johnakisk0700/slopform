@@ -220,15 +220,13 @@ The pipeline, its invariants and its failure modes are documented in
 [API contract and generated client](backend/mechanisms/api-contract.md) and
 [ADR 0009](decisions/0009-generated-api-client.md).
 
-`RequireAdmin` is the reference consumer. Three screens still predate this
-pipeline and call the facade with hand-written schemas: the assistant
-([`frontend/assistant.md`](frontend/assistant.md)), whose polling flow owns extra
-client-side semantics, and the WP1 events and participants screens
-(`routes/EventsPage.tsx`, `routes/EventDetailPage.tsx`,
-`routes/ParticipantsPage.tsx` with `features/event/` and `features/participant/`).
-They are scheduled for migration to `useListEvents`, `useGetEvent`,
-`useListParticipants` and their siblings, which now exist. Treat them as debt to
-repay, not as a pattern to copy — new screens use the generated hooks.
+`RequireAdmin` is the reference consumer for generated hooks. The assistant
+([`frontend/assistant.md`](frontend/assistant.md)) still calls the transport
+facade with hand-written schemas because its polling flow owns extra client-side
+semantics beyond the response shape — not a pattern to copy for ordinary CRUD.
+Events and participants screens use `useListEvents`, `useGetEvent`,
+`useListParticipants` and their mutation siblings; new screens follow the same
+generated-hook pattern.
 
 The AI assistant is the first real queue-backed API consumer. It creates and
 resumes server-owned threads, persists each user/assistant turn, and polls the

@@ -1,32 +1,24 @@
 import { Button, Input } from "@heroui/react";
 import type { ColumnDef } from "@tanstack/react-table";
-import {
-  type FormEvent,
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import { type FormEvent, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
 
+import {
+  useAddEventAttendee,
+  useGetEvent,
+  useTransitionEventStatus,
+  useUpdateEvent,
+  useUpdateEventAttendee,
+} from "../api/generated/events";
+import type { EventDetailDtoOutput } from "../api/generated/model/eventDetailDtoOutput";
+import type { EventDetailDtoOutputAttendeesItem } from "../api/generated/model/eventDetailDtoOutputAttendeesItem";
+import type { EventDtoOutputStatus } from "../api/generated/model/eventDtoOutputStatus";
+import type { ParticipantDtoOutput } from "../api/generated/model/participantDtoOutput";
+import { useListParticipants } from "../api/generated/participants";
 import { JtsDataTable } from "../components/ui/JtsDataTable";
 import { JtsPageHeader } from "../components/ui/JtsPageHeader";
-import {
-  eventDetailSchema,
-  nextEventStatuses,
-  type EventAttendee,
-  type EventDetail,
-  type EventStatus,
-} from "../features/event/schema";
-import {
-  participantListSchema,
-  type Participant,
-} from "../features/participant/schema";
-import { api } from "../lib/api";
+import { nextEventStatuses } from "../features/event/nextEventStatuses";
 import { usePageMeta } from "../lib/usePageMeta";
-
-const EVENTS_PATH = "/v1/events";
-const PARTICIPANTS_PATH = "/v1/participants";
 
 function toDateTimeLocalValue(iso: string): string {
   const date = new Date(iso);
@@ -34,79 +26,205 @@ function toDateTimeLocalValue(iso: string): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
+function requestErrorMessage(cause: unknown, fallback: string): string {
+  return cause instanceof Error ? cause.message : fallback;
+}
+
+interface EventDetailEditorProps {
+  event: EventDetailDtoOutput;
+  availableParticipants: ParticipantDtoOutput[];
+  saving: boolean;
+  onSaveDetails: (details: {
+    title: string;
+    startsAt: string;
+  }) => Promise<void>;
+  onTransition: (status: EventDtoOutputStatus) => Promise<void>;
+  onAddAttendee: (participantId: string) => Promise<void>;
+}
+
+function EventDetailEditor({
+  event,
+  availableParticipants,
+  saving,
+  onSaveDetails: saveDetails,
+  onTransition,
+  onAddAttendee: addAttendee,
+}: EventDetailEditorProps) {
+  const [title, setTitle] = useState(event.title);
+  const [startsAt, setStartsAt] = useState(
+    toDateTimeLocalValue(event.startsAt),
+  );
+  const [participantId, setParticipantId] = useState("");
+
+  const transitions = nextEventStatuses(event.status);
+  const editable = event.status === "draft" || event.status === "scheduled";
+
+  async function handleSaveDetails(formEvent: FormEvent<HTMLFormElement>) {
+    formEvent.preventDefault();
+    await saveDetails({ title, startsAt });
+  }
+
+  async function handleAddAttendee(formEvent: FormEvent<HTMLFormElement>) {
+    formEvent.preventDefault();
+    if (!participantId) {
+      return;
+    }
+    await addAttendee(participantId);
+    setParticipantId("");
+  }
+
+  return (
+    <>
+      <form
+        onSubmit={handleSaveDetails}
+        className="flex flex-wrap items-end gap-3 rounded-md border border-border p-4"
+      >
+        <div className="grid min-w-[16rem] flex-1 gap-1.5">
+          <label htmlFor="event-title" className="text-sm font-semibold">
+            Title
+          </label>
+          <Input
+            id="event-title"
+            value={title}
+            onChange={(change) => setTitle(change.target.value)}
+            disabled={!editable || saving}
+            required
+          />
+        </div>
+        <div className="grid min-w-[14rem] gap-1.5">
+          <label htmlFor="event-starts-at" className="text-sm font-semibold">
+            Starts at
+          </label>
+          <Input
+            id="event-starts-at"
+            type="datetime-local"
+            value={startsAt}
+            onChange={(change) => setStartsAt(change.target.value)}
+            disabled={!editable || saving}
+            required
+          />
+        </div>
+        <Button type="submit" isDisabled={!editable || saving}>
+          Save details
+        </Button>
+      </form>
+
+      {transitions.length > 0 ? (
+        <div className="flex flex-wrap gap-2">
+          {transitions.map((status) => (
+            <Button
+              key={status}
+              onPress={() => {
+                void onTransition(status);
+              }}
+              isDisabled={saving}
+            >
+              Mark {status}
+            </Button>
+          ))}
+        </div>
+      ) : null}
+
+      <form
+        onSubmit={handleAddAttendee}
+        className="flex flex-wrap items-end gap-3 rounded-md border border-border p-4"
+      >
+        <label className="flex min-w-[16rem] flex-1 flex-col gap-1 text-sm">
+          <span className="font-semibold">Add participant</span>
+          <select
+            value={participantId}
+            onChange={(change) => setParticipantId(change.target.value)}
+            disabled={
+              event.status === "cancelled" ||
+              availableParticipants.length === 0 ||
+              saving
+            }
+            className="min-h-10 rounded-md border border-border bg-surface px-3"
+            required
+          >
+            <option value="">Select participant</option>
+            {availableParticipants.map((row) => (
+              <option key={row.id} value={row.id}>
+                {row.preferredName ?? row.emailNormalized}
+              </option>
+            ))}
+          </select>
+        </label>
+        <Button
+          type="submit"
+          isDisabled={event.status === "cancelled" || saving}
+        >
+          Add attendee
+        </Button>
+      </form>
+    </>
+  );
+}
+
 /** Minimal event edit + attendance screen for stub events (WP1). */
 export function EventDetailPage() {
   const { eventId = "" } = useParams();
   usePageMeta("Event", "Edit stub event details and attendance.");
 
-  const [event, setEvent] = useState<EventDetail | null>(null);
-  const [participants, setParticipants] = useState<Participant[]>([]);
-  const [title, setTitle] = useState("");
-  const [startsAt, setStartsAt] = useState("");
-  const [participantId, setParticipantId] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
+  const eventQuery = useGetEvent(eventId, {
+    query: { enabled: eventId !== "" },
+  });
+  const participantsQuery = useListParticipants();
+  const updateEvent = useUpdateEvent();
+  const transitionEventStatus = useTransitionEventStatus();
+  const addEventAttendee = useAddEventAttendee();
+  const updateEventAttendee = useUpdateEventAttendee();
 
-  const load = useCallback(async () => {
-    if (!eventId) {
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    try {
-      const [detail, participantPayload] = await Promise.all([
-        api(`${EVENTS_PATH}/${eventId}`),
-        api(PARTICIPANTS_PATH),
-      ]);
-      const parsed = eventDetailSchema.parse(detail);
-      setEvent(parsed);
-      setTitle(parsed.title);
-      setStartsAt(toDateTimeLocalValue(parsed.startsAt));
-      setParticipants(participantListSchema.parse(participantPayload).items);
-    } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "Failed to load event.",
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, [eventId]);
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
-      void load();
-    }, 0);
-    return () => window.clearTimeout(timeoutId);
-  }, [load]);
+  const event = eventQuery.data;
+
+  const saving =
+    updateEvent.isPending ||
+    transitionEventStatus.isPending ||
+    addEventAttendee.isPending ||
+    updateEventAttendee.isPending;
+
+  const loading =
+    eventQuery.isPending ||
+    eventQuery.isFetching ||
+    participantsQuery.isPending ||
+    participantsQuery.isFetching;
+
+  const loadError = eventQuery.isError
+    ? requestErrorMessage(eventQuery.error, "Failed to load event.")
+    : participantsQuery.isError
+      ? requestErrorMessage(participantsQuery.error, "Failed to load event.")
+      : null;
+
+  async function refetchEvent() {
+    await Promise.all([eventQuery.refetch(), participantsQuery.refetch()]);
+  }
 
   const availableParticipants = useMemo(() => {
+    const participantRows = participantsQuery.data?.items ?? [];
     const assigned = new Set(event?.attendees.map((row) => row.participantId));
-    return participants.filter((row) => !assigned.has(row.id));
-  }, [event, participants]);
+    return participantRows.filter((row) => !assigned.has(row.id));
+  }, [event, participantsQuery.data?.items]);
 
   async function updateAttendee(
     attendeeId: string,
     body: { present?: boolean; tableNo?: number | null },
   ) {
-    setSaving(true);
-    setError(null);
+    setActionError(null);
     try {
-      await api(`${EVENTS_PATH}/${eventId}/attendees/${attendeeId}`, {
-        method: "PUT",
-        body,
+      await updateEventAttendee.mutateAsync({
+        id: eventId,
+        attendeeId,
+        data: body,
       });
-      await load();
+      await refetchEvent();
     } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "Failed to update attendee.",
-      );
-    } finally {
-      setSaving(false);
+      setActionError(requestErrorMessage(cause, "Failed to update attendee."));
     }
   }
 
-  const columns = useMemo<ColumnDef<EventAttendee>[]>(
+  const columns = useMemo<ColumnDef<EventDetailDtoOutputAttendeesItem>[]>(
     () => [
       {
         accessorKey: "preferredName",
@@ -167,86 +285,70 @@ export function EventDetailPage() {
     [event?.status, saving, eventId],
   );
 
-  async function onSaveDetails(formEvent: FormEvent<HTMLFormElement>) {
-    formEvent.preventDefault();
-    setSaving(true);
-    setError(null);
+  async function saveEventDetails(details: {
+    title: string;
+    startsAt: string;
+  }) {
+    setActionError(null);
     try {
-      await api(`${EVENTS_PATH}/${eventId}`, {
-        method: "PATCH",
-        body: {
-          title,
-          startsAt: new Date(startsAt).toISOString(),
+      await updateEvent.mutateAsync({
+        id: eventId,
+        data: {
+          title: details.title,
+          startsAt: new Date(details.startsAt).toISOString(),
         },
       });
-      await load();
+      await refetchEvent();
     } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "Failed to save event.",
-      );
-    } finally {
-      setSaving(false);
+      setActionError(requestErrorMessage(cause, "Failed to save event."));
     }
   }
 
-  async function onTransition(status: EventStatus) {
-    setSaving(true);
-    setError(null);
+  async function transitionEvent(status: EventDtoOutputStatus) {
+    setActionError(null);
     try {
-      await api(`${EVENTS_PATH}/${eventId}/status`, {
-        method: "POST",
-        body: { status },
+      await transitionEventStatus.mutateAsync({
+        id: eventId,
+        data: { status },
       });
-      await load();
+      await refetchEvent();
     } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "Failed to transition event status.",
+      setActionError(
+        requestErrorMessage(cause, "Failed to transition event status."),
       );
-    } finally {
-      setSaving(false);
     }
   }
 
-  async function onAddAttendee(formEvent: FormEvent<HTMLFormElement>) {
-    formEvent.preventDefault();
-    if (!participantId) {
-      return;
-    }
-    setSaving(true);
-    setError(null);
+  async function addAttendee(participantId: string) {
+    setActionError(null);
     try {
-      await api(`${EVENTS_PATH}/${eventId}/attendees`, {
-        method: "POST",
-        body: { participantId, present: true },
+      await addEventAttendee.mutateAsync({
+        id: eventId,
+        data: { participantId, present: true },
       });
-      setParticipantId("");
-      await load();
+      await refetchEvent();
     } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "Failed to add attendee.",
-      );
-    } finally {
-      setSaving(false);
+      setActionError(requestErrorMessage(cause, "Failed to add attendee."));
     }
   }
 
-  if (loading && !event) {
+  const awaitingInitial =
+    (eventQuery.isPending || participantsQuery.isPending) && !event;
+
+  if (awaitingInitial) {
     return <p role="status">Loading event…</p>;
   }
 
   if (!event) {
     return (
       <div className="flex flex-col gap-4">
-        <p role="alert">{error ?? "Event not found."}</p>
+        <p role="alert">{loadError ?? actionError ?? "Event not found."}</p>
         <Link to="/admin/events">Back to events</Link>
       </div>
     );
   }
 
-  const transitions = nextEventStatuses(event.status);
-  const editable = event.status === "draft" || event.status === "scheduled";
+  const error = actionError ?? loadError;
 
   return (
     <div className="flex flex-col gap-8">
@@ -270,88 +372,15 @@ export function EventDetailPage() {
         </p>
       ) : null}
 
-      <form
-        onSubmit={onSaveDetails}
-        className="flex flex-wrap items-end gap-3 rounded-md border border-border p-4"
-      >
-        <div className="grid min-w-[16rem] flex-1 gap-1.5">
-          <label htmlFor="event-title" className="text-sm font-semibold">
-            Title
-          </label>
-          <Input
-            id="event-title"
-            value={title}
-            onChange={(change) => setTitle(change.target.value)}
-            disabled={!editable || saving}
-            required
-          />
-        </div>
-        <div className="grid min-w-[14rem] gap-1.5">
-          <label htmlFor="event-starts-at" className="text-sm font-semibold">
-            Starts at
-          </label>
-          <Input
-            id="event-starts-at"
-            type="datetime-local"
-            value={startsAt}
-            onChange={(change) => setStartsAt(change.target.value)}
-            disabled={!editable || saving}
-            required
-          />
-        </div>
-        <Button type="submit" isDisabled={!editable || saving}>
-          Save details
-        </Button>
-      </form>
-
-      {transitions.length > 0 ? (
-        <div className="flex flex-wrap gap-2">
-          {transitions.map((status) => (
-            <Button
-              key={status}
-              onPress={() => {
-                void onTransition(status);
-              }}
-              isDisabled={saving}
-            >
-              Mark {status}
-            </Button>
-          ))}
-        </div>
-      ) : null}
-
-      <form
-        onSubmit={onAddAttendee}
-        className="flex flex-wrap items-end gap-3 rounded-md border border-border p-4"
-      >
-        <label className="flex min-w-[16rem] flex-1 flex-col gap-1 text-sm">
-          <span className="font-semibold">Add participant</span>
-          <select
-            value={participantId}
-            onChange={(change) => setParticipantId(change.target.value)}
-            disabled={
-              event.status === "cancelled" ||
-              availableParticipants.length === 0 ||
-              saving
-            }
-            className="min-h-10 rounded-md border border-border bg-surface px-3"
-            required
-          >
-            <option value="">Select participant</option>
-            {availableParticipants.map((row) => (
-              <option key={row.id} value={row.id}>
-                {row.preferredName ?? row.emailNormalized}
-              </option>
-            ))}
-          </select>
-        </label>
-        <Button
-          type="submit"
-          isDisabled={event.status === "cancelled" || saving}
-        >
-          Add attendee
-        </Button>
-      </form>
+      <EventDetailEditor
+        key={event.updatedAt}
+        event={event}
+        availableParticipants={availableParticipants}
+        saving={saving}
+        onSaveDetails={saveEventDetails}
+        onTransition={transitionEvent}
+        onAddAttendee={addAttendee}
+      />
 
       <JtsDataTable
         title="Attendance"

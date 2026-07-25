@@ -1,16 +1,21 @@
+import { useQueryClient } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
+import {
+  getListParticipantsQueryKey,
+  useListParticipants,
+  useUpdateParticipantFeedbackOptIn,
+} from "../api/generated/participants";
+import type { ParticipantDtoOutput } from "../api/generated/model/participantDtoOutput";
+import type { ParticipantListDtoOutput } from "../api/generated/model/participantListDtoOutput";
 import { JtsDataTable } from "../components/ui/JtsDataTable";
 import { JtsPageHeader } from "../components/ui/JtsPageHeader";
-import {
-  participantListSchema,
-  type Participant,
-} from "../features/participant/schema";
-import { api } from "../lib/api";
 import { usePageMeta } from "../lib/usePageMeta";
 
-const PARTICIPANTS_PATH = "/v1/participants";
+function requestErrorMessage(cause: unknown, fallback: string): string {
+  return cause instanceof Error ? cause.message : fallback;
+}
 
 /** Minimal participant admin list with the post-event feedback WhatsApp opt-in toggle. */
 export function ParticipantsPage() {
@@ -19,62 +24,57 @@ export function ParticipantsPage() {
     "Participant profiles and feedback WhatsApp opt-in.",
   );
 
-  const [rows, setRows] = useState<Participant[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const participantsQuery = useListParticipants();
+  const updateFeedbackOptIn = useUpdateParticipantFeedbackOptIn();
+
+  const [actionError, setActionError] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const payload = participantListSchema.parse(await api(PARTICIPANTS_PATH));
-      setRows(payload.items);
-    } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "Failed to load participants.",
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
-      void load();
-    }, 0);
-    return () => window.clearTimeout(timeoutId);
-  }, [load]);
+  const rows = participantsQuery.data?.items ?? [];
+  const loading = participantsQuery.isPending || participantsQuery.isFetching;
+  const error = participantsQuery.isError
+    ? requestErrorMessage(
+        participantsQuery.error,
+        "Failed to load participants.",
+      )
+    : actionError;
 
   async function toggleOptIn(
     id: string,
     postEventFeedbackWhatsappOptIn: boolean,
   ) {
     setSavingId(id);
-    setError(null);
+    setActionError(null);
     try {
-      await api(`${PARTICIPANTS_PATH}/${id}/feedback-whatsapp-opt-in`, {
-        method: "PATCH",
-        body: { postEventFeedbackWhatsappOptIn },
+      await updateFeedbackOptIn.mutateAsync({
+        id,
+        data: { postEventFeedbackWhatsappOptIn },
       });
-      setRows((current) =>
-        current.map((row) =>
-          row.id === id ? { ...row, postEventFeedbackWhatsappOptIn } : row,
-        ),
+      queryClient.setQueryData<ParticipantListDtoOutput>(
+        getListParticipantsQueryKey(),
+        (current) => {
+          if (!current) {
+            return current;
+          }
+          return {
+            items: current.items.map((row) =>
+              row.id === id ? { ...row, postEventFeedbackWhatsappOptIn } : row,
+            ),
+          };
+        },
       );
     } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "Failed to update feedback opt-in.",
+      setActionError(
+        requestErrorMessage(cause, "Failed to update feedback opt-in."),
       );
-      await load();
+      await participantsQuery.refetch();
     } finally {
       setSavingId(null);
     }
   }
 
-  const columns = useMemo<ColumnDef<Participant>[]>(
+  const columns = useMemo<ColumnDef<ParticipantDtoOutput>[]>(
     () => [
       {
         accessorKey: "preferredName",

@@ -1,17 +1,15 @@
 import { Button, Input } from "@heroui/react";
 import type { ColumnDef } from "@tanstack/react-table";
-import { type FormEvent, useCallback, useEffect, useState } from "react";
+import { type FormEvent, useState } from "react";
 import { Link } from "react-router";
 
+import { useCreateEvent, useListEvents } from "../api/generated/events";
+import type { EventListDtoOutputItemsItem } from "../api/generated/model/eventListDtoOutputItemsItem";
 import { JtsDataTable } from "../components/ui/JtsDataTable";
 import { JtsPageHeader } from "../components/ui/JtsPageHeader";
-import { eventListSchema, type EventSummary } from "../features/event/schema";
-import { api } from "../lib/api";
 import { usePageMeta } from "../lib/usePageMeta";
 
-const EVENTS_PATH = "/v1/events";
-
-const columns: ColumnDef<EventSummary>[] = [
+const columns: ColumnDef<EventListDtoOutputItemsItem>[] = [
   {
     accessorKey: "title",
     header: "Event",
@@ -45,60 +43,42 @@ const columns: ColumnDef<EventSummary>[] = [
   },
 ];
 
+function requestErrorMessage(cause: unknown, fallback: string): string {
+  return cause instanceof Error ? cause.message : fallback;
+}
+
 /** Minimal staff CRUD list for stub events (WP1). */
 export function EventsPage() {
   usePageMeta("Events", "Stub events, attendance and table assignments.");
 
-  const [rows, setRows] = useState<EventSummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const eventsQuery = useListEvents();
+  const createEvent = useCreateEvent();
+
   const [title, setTitle] = useState("");
   const [startsAt, setStartsAt] = useState("");
-  const [saving, setSaving] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const payload = eventListSchema.parse(await api(EVENTS_PATH));
-      setRows(payload.items);
-    } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "Failed to load events.",
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
-      void load();
-    }, 0);
-    return () => window.clearTimeout(timeoutId);
-  }, [load]);
+  const rows = eventsQuery.data?.items ?? [];
+  const loading = eventsQuery.isPending || eventsQuery.isFetching;
+  const error = eventsQuery.isError
+    ? requestErrorMessage(eventsQuery.error, "Failed to load events.")
+    : actionError;
 
   async function onCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setSaving(true);
-    setError(null);
+    setActionError(null);
     try {
-      await api(EVENTS_PATH, {
-        method: "POST",
-        body: {
+      await createEvent.mutateAsync({
+        data: {
           title,
           startsAt: new Date(startsAt).toISOString(),
         },
       });
       setTitle("");
       setStartsAt("");
-      await load();
+      await eventsQuery.refetch();
     } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "Failed to create event.",
-      );
-    } finally {
-      setSaving(false);
+      setActionError(requestErrorMessage(cause, "Failed to create event."));
     }
   }
 
@@ -140,7 +120,7 @@ export function EventsPage() {
             required
           />
         </div>
-        <Button type="submit" isDisabled={saving}>
+        <Button type="submit" isDisabled={createEvent.isPending}>
           Create event
         </Button>
       </form>
