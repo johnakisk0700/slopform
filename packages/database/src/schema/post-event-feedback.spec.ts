@@ -1,0 +1,185 @@
+import { readFileSync } from "node:fs";
+
+import { getTableConfig, PgDialect } from "drizzle-orm/pg-core";
+import { describe, expect, it } from "vitest";
+
+import {
+  feedbackAnswers,
+  feedbackCampaigns,
+  feedbackNotes,
+  messageOutbox,
+  providerMessageIngress,
+} from "./post-event-feedback.js";
+
+const dialect = new PgDialect();
+
+describe("post-event feedback database constraints", () => {
+  it("uniquely scopes one campaign per event and restricts event deletes", () => {
+    const config = getTableConfig(feedbackCampaigns);
+    const indexes = new Map(
+      config.indexes.map((index) => [index.config.name, index]),
+    );
+    const eventFk = config.foreignKeys.find((fk) =>
+      fk.getName().includes("event_id"),
+    );
+    const uniqueIndex = indexes.get("feedback_campaigns_event_id_uidx");
+
+    expect(uniqueIndex?.config.unique).toBe(true);
+    expect(
+      uniqueIndex?.config.columns.map((column) =>
+        "name" in column ? column.name : undefined,
+      ),
+    ).toEqual(["event_id"]);
+    expect(eventFk?.onDelete).toBe("restrict");
+  });
+
+  it("enforces answer uniqueness with NULLS NOT DISTINCT including null subjects", () => {
+    const config = getTableConfig(feedbackAnswers);
+    const unique = config.uniqueConstraints.find(
+      (constraint) =>
+        constraint.name ===
+        "feedback_answers_conversation_question_subject_uidx",
+    );
+    const participantFks = config.foreignKeys.filter((fk) =>
+      fk.getName().includes("participant_id"),
+    );
+    const campaignFk = config.foreignKeys.find((fk) =>
+      fk.getName().includes("campaign_id"),
+    );
+
+    expect(unique?.nullsNotDistinct).toBe(true);
+    expect(unique?.columns.map((column) => column.name)).toEqual([
+      "conversation_id",
+      "question_key",
+      "subject_participant_id",
+    ]);
+    expect(campaignFk?.onDelete).toBe("restrict");
+    expect(participantFks.map((fk) => fk.onDelete)).toEqual([
+      "restrict",
+      "restrict",
+    ]);
+    expect(
+      config.foreignKeys.some((fk) => fk.getName().includes("event_attendee")),
+    ).toBe(false);
+  });
+
+  it("keeps notes subject-nullable with RESTRICT participant and campaign FKs", () => {
+    const config = getTableConfig(feedbackNotes);
+    const checks = new Map(
+      config.checks.map((check) => [
+        check.name,
+        dialect.sqlToQuery(check.value).sql,
+      ]),
+    );
+    const subjectColumn = config.columns.find(
+      (column) => column.name === "subject_participant_id",
+    );
+    const campaignFk = config.foreignKeys.find((fk) =>
+      fk.getName().includes("campaign_id"),
+    );
+
+    expect(subjectColumn?.notNull).toBe(false);
+    expect(checks.get("feedback_notes_note_type_check")).toContain(
+      "'activity_interest', 'general'",
+    );
+    expect(checks.get("feedback_notes_text_length_check")).toContain(
+      "between 1 and 500",
+    );
+    expect(checks.get("feedback_notes_status_check")).toContain(
+      "'new', 'dismissed'",
+    );
+    expect(campaignFk?.onDelete).toBe("restrict");
+    expect(config.foreignKeys.every((fk) => fk.onDelete === "restrict")).toBe(
+      true,
+    );
+  });
+
+  it("dedupes provider ingress on (chat_jid, provider_message_id)", () => {
+    const config = getTableConfig(providerMessageIngress);
+    const indexes = new Map(
+      config.indexes.map((index) => [index.config.name, index]),
+    );
+    const uniqueIndex = indexes.get(
+      "provider_message_ingress_chat_provider_uidx",
+    );
+    const checks = new Map(
+      config.checks.map((check) => [
+        check.name,
+        dialect.sqlToQuery(check.value).sql,
+      ]),
+    );
+
+    expect(uniqueIndex?.config.unique).toBe(true);
+    expect(
+      uniqueIndex?.config.columns.map((column) =>
+        "name" in column ? column.name : undefined,
+      ),
+    ).toEqual(["chat_jid", "provider_message_id"]);
+    expect(
+      checks.get("provider_message_ingress_unmatched_text_check"),
+    ).toContain("ignored_unmatched");
+    expect(config.foreignKeys).toHaveLength(0);
+  });
+
+  it("uniquely scopes outbox rows by dedupe_key and folds delivery columns in", () => {
+    const config = getTableConfig(messageOutbox);
+    const indexes = new Map(
+      config.indexes.map((index) => [index.config.name, index]),
+    );
+    const uniqueIndex = indexes.get("message_outbox_dedupe_key_uidx");
+    const checks = new Map(
+      config.checks.map((check) => [
+        check.name,
+        dialect.sqlToQuery(check.value).sql,
+      ]),
+    );
+    const campaignFk = config.foreignKeys.find((fk) =>
+      fk.getName().includes("campaign_id"),
+    );
+    const columnNames = new Set(config.columns.map((column) => column.name));
+
+    expect(uniqueIndex?.config.unique).toBe(true);
+    expect(
+      uniqueIndex?.config.columns.map((column) =>
+        "name" in column ? column.name : undefined,
+      ),
+    ).toEqual(["dedupe_key"]);
+    expect(checks.get("message_outbox_status_check")).toContain("'held'");
+    expect(checks.get("message_outbox_delivery_status_check")).toContain(
+      "'error', 'pending', 'sent', 'delivered', 'read', 'played'",
+    );
+    expect(campaignFk?.onDelete).toBe("restrict");
+    expect(columnNames.has("delivery_status")).toBe(true);
+    expect(columnNames.has("provider_message_id")).toBe(true);
+    expect(columnNames.has("sent_at")).toBe(true);
+  });
+
+  it("persists the five feedback tables with NULLS NOT DISTINCT and RESTRICT FKs", () => {
+    const migration = readFileSync(
+      new URL(
+        "../../drizzle/20260725181557_post_event_feedback_persistence.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+
+    expect(migration).toContain('CREATE TABLE "feedback_campaigns"');
+    expect(migration).toContain('CREATE TABLE "feedback_answers"');
+    expect(migration).toContain('CREATE TABLE "feedback_notes"');
+    expect(migration).toContain('CREATE TABLE "provider_message_ingress"');
+    expect(migration).toContain('CREATE TABLE "message_outbox"');
+    expect(migration).toContain("NULLS NOT DISTINCT");
+    expect(migration).toContain(
+      '"conversation_id","question_key","subject_participant_id"',
+    );
+    expect(migration).toContain(
+      'CREATE UNIQUE INDEX "provider_message_ingress_chat_provider_uidx"',
+    );
+    expect(migration).toContain(
+      'CREATE UNIQUE INDEX "message_outbox_dedupe_key_uidx"',
+    );
+    expect(migration).toContain("ON DELETE restrict");
+    expect(migration).not.toContain("event_attendees");
+    expect(migration).not.toContain("message_deliveries");
+  });
+});

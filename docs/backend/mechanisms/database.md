@@ -76,6 +76,15 @@ checks, a unique `(event_id, participant_id)` pair and
 `ON DELETE RESTRICT` toward participants. See the
 [events module](../modules/events.md).
 
+Post-event feedback persistence lives in `feedback_campaigns`,
+`feedback_answers`, `feedback_notes`, `provider_message_ingress` and
+`message_outbox`: one campaign per event, answer uniqueness with
+`NULLS NOT DISTINCT` (including null subjects), ingress dedupe on
+`(chat_jid, provider_message_id)`, outbox `dedupe_key` uniqueness, delivery
+columns folded into the outbox, and participant/campaign FKs
+`ON DELETE RESTRICT` with no references to `event_attendees`. See the
+[post-event feedback module](../modules/post-event-feedback.md).
+
 Email delivery uses separate intent, outbox and attempt tables. Intent creation,
 outbox publication intent and admin audit share one transaction. Leases and
 conditional state transitions make relay and worker crashes recoverable;

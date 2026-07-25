@@ -64,6 +64,13 @@
       "when": 1785002438853,
       "tag": "20260725180038_stub_events_and_feedback_opt_in",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1785003357785,
+      "tag": "20260725181557_post_event_feedback_persistence",
+      "breakpoints": true
     }
   ]
 }

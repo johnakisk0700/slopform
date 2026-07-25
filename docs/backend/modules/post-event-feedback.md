@@ -2,10 +2,9 @@
 
 Status: architecture accepted in
 [ADR 0008](../../decisions/0008-post-event-feedback-conversations.md);
-**WP0 product contract landed** (question set v1, STOP matcher, Greek extraction
-fixtures) and **WP1 stub events landed** (events, attendance and the shared
-candidate helper). Campaign persistence, Mongo conversations, runtime pipeline
-and admin inbox remain later work packages. Plan amendments in
+**WP0 product contract**, **WP1 stub events** and **WP2 PostgreSQL persistence**
+are landed. Mongo conversations, runtime pipeline and admin inbox remain later
+work packages. Plan amendments in
 [`POST_EVENT_FEEDBACK_PLAN_2026-07-25.md`](../../../POST_EVENT_FEEDBACK_PLAN_2026-07-25.md)
 §9 supersede frozen candidate snapshots with live D16 selection.
 
@@ -20,6 +19,32 @@ It does not own WhatsApp transport, participant identity, attendance, consent,
 general customer support or confidential safety case handling. Wasender remains
 an adapter, attendance and consent remain upstream gates, and safety content is
 routed to a separately authorized record.
+
+## Persisted PostgreSQL contract (WP2)
+
+Schema and migrations live in
+[`packages/database/src/schema/post-event-feedback.ts`](../../../packages/database/src/schema/post-event-feedback.ts).
+Typed repository methods for later pipeline packages live in
+[`post-event-feedback.repository.ts`](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback.repository.ts).
+There is no `message_deliveries` table and nothing references `event_attendees`.
+
+| Table                      | Authority rules                                                                                                                                                                                                  |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `feedback_campaigns`       | `event_id` **UNIQUE** (one campaign per event); `question_set_version` + `questions` jsonb copy at launch; status `launched\|paused\|closed`; event FK `ON DELETE RESTRICT`                                      |
+| `feedback_answers`         | Directed edge; optional `subject_participant_id`; `value_int` for scores; `source_message_ids uuid[]`; `extraction_meta` jsonb (model, confidence, **candidate IDs of the run** per D12)                         |
+| Answer uniqueness          | `UNIQUE NULLS NOT DISTINCT (conversation_id, question_key, subject_participant_id)` so subjectless scores cannot duplicate on replay                                                                             |
+| `feedback_notes`           | Same directionality; `note_type` `activity_interest\|general`; text ≤ 500 chars; subject **NULLABLE** (D18 unknown-name degradation); status `new\|dismissed`                                                    |
+| `provider_message_ingress` | Durable webhook ack + dedupe; `UNIQUE(chat_jid, provider_message_id)`; `text` nullable (metadata-only when `ignored_unmatched`, D10); statuses `pending\|materialized\|ignored_unmatched\|failed`                |
+| `message_outbox`           | Reply/intro/reminder/staff/system; status includes `held`; `dedupe_key` **UNIQUE**; delivery columns folded in (`delivery_status`, provider ids, sent/delivered/read/played timestamps) — no separate deliveries |
+
+All participant and campaign foreign keys use `ON DELETE RESTRICT` (D18).
+`conversation_id` / `matched_conversation_id` are Mongo conversation UUIDs with
+no PostgreSQL FK. Repository helpers:
+
+- `insertIngressIfAbsent` / `insertOutboxIfAbsent` / `insertAnswerIfAbsent` —
+  `ON CONFLICT DO NOTHING` for webhook, reply and extraction replay;
+- given/received answer lists for admin profile views;
+- outbox delivery updates and cancel-queued-on-STOP.
 
 ## Public contract
 
@@ -137,6 +162,8 @@ context strategy is later selected.
 - Unknown outbound channel activity silences the bot until explicit resume.
 - AI output cannot send, change consent or bypass domain validation.
 - PostgreSQL and MongoDB never pretend to share a transaction.
+- Participant/campaign FKs are `ON DELETE RESTRICT`; feedback never FKs
+  `event_attendees`.
 
 ## Admin views
 
@@ -162,8 +189,9 @@ state and are safe to retry.
 
 Webhook activation remains blocked until the implementation defines and tests
 durable acknowledgement, cross-store replay/repair, outbox delivery,
-idempotency and ambiguous-send reconciliation. The exact ingress/materialization
-protocol is intentionally not invented in this architecture-only change.
+idempotency and ambiguous-send reconciliation. WP2 supplies the PostgreSQL
+ingress/outbox/result tables and uniqueness boundaries; Mongo materialization
+and queue consumers remain later work packages (D7).
 
 The initial operating assumption is that `messages.upsert` observes manual
 outbound messages from the primary WhatsApp application and other linked
@@ -197,13 +225,24 @@ extraction fixtures live under
 | Extraction fixtures | `post-event-feedback-fixtures.ts`     | Typed Greek transcripts with expected-outcome annotations for later WP5 evals                                                                   |
 
 Focused unit tests cover matcher edge cases (accents, mixed case) and fixture
-integrity. No runtime pipeline, queue or PostgreSQL schema is part of WP0.
+integrity. No runtime pipeline, queue or Mongo work is part of WP0/WP2.
+
+## Tests and operations
+
+- Database package constraint tests assert answer `NULLS NOT DISTINCT`
+  uniqueness (including null subject), ingress `(chat_jid, provider_message_id)`
+  uniqueness, outbox `dedupe_key` uniqueness, RESTRICT FKs and migration SQL.
+- Repository tests assert conflict targets for ingress, outbox and answer
+  idempotent inserts.
+- Apply migrations with the database package migrator before runtime use.
 
 ## Decisions and references
 
 - [ADR 0008](../../decisions/0008-post-event-feedback-conversations.md)
 - [MongoDB conversation authority](../../decisions/0007-mongodb-conversation-authority.md)
 - [Conversation aggregate](conversations.md)
+- [Events and D16 candidates](events.md)
 - [Wasender transport](../mechanisms/wasender.md)
 - [Queues and outbox](../mechanisms/queues.md)
+- [Database lifecycle](../mechanisms/database.md)
 - [Implementation plan](../../../POST_EVENT_FEEDBACK_PLAN_2026-07-25.md)

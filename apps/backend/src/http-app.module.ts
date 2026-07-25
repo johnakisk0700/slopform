@@ -20,6 +20,7 @@ import { EmailHttpModule } from "./modules/email/email-http.module.js";
 import { EventsHttpModule } from "./modules/events/events-http.module.js";
 import { HealthModule } from "./modules/health/health.module.js";
 import { ParticipantsHttpModule } from "./modules/participants/participants-http.module.js";
+import { PostEventFeedbackCoreModule } from "./modules/post-event-feedback/post-event-feedback-core.module.js";
 import { ReferenceHttpModule } from "./modules/reference/reference-http.module.js";
 
 const StrictZodValidationPipe = createZodValidationPipe({
@@ -38,6 +39,7 @@ const StrictZodValidationPipe = createZodValidationPipe({
     EmailHttpModule,
     EventsHttpModule,
     ParticipantsHttpModule,
+    PostEventFeedbackCoreModule,
     ConditionalModule.registerWhen(
       WasenderHttpModule,
       isWasenderWebhookEnabled,
