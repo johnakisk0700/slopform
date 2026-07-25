@@ -19,7 +19,7 @@ flowchart LR
   Server --> Auth["Clerk request verification"]
   Auth --> Middleware["Helmet, CORS, parsers, request log"]
   Middleware --> Nest["Nest controllers"]
-  Nest --> Dependencies["PostgreSQL / Redis"]
+  Nest --> Dependencies["PostgreSQL / MongoDB / Redis"]
   Middleware --> Logs["JSON stdout/stderr"]
   Nest --> Telemetry["OTLP traces or Sentry"]
   Signal["Signal or startup failure"] --> Lifecycle["Close context and flush telemetry"]
@@ -39,7 +39,7 @@ flowchart LR
 
 The shared `HTTP_API_PREFIX` drives both routing and liveness suppression so
 those policies cannot drift. The 30-second request timeout bounds receipt, not
-handler execution. Database, Redis and provider operations need their own
+handler execution. PostgreSQL, MongoDB, Redis and provider operations need their own
 bounds; route deadlines require cancellation and documented recovery.
 
 Bull Board is an optional separate surface at `/api/v1/admin/queues`; see
@@ -54,7 +54,9 @@ controller graph, and Bull Board keeps its independent protection. See
 
 `ConfigModule` validates the application environment once. Production does not
 load `.env`. The instrumentation preload separately validates only telemetry
-settings before an SDK starts, using the same Zod schema fragment.
+settings before an SDK starts. Its dedicated dependency-light schema does not
+import database or provider clients, so OpenTelemetry installs instrumentation
+hooks before the application loads those libraries.
 
 - OTLP accepts an HTTP(S) base URL without embedded credentials, query or
   fragment. Sentry accepts its HTTP(S) DSN. They are mutually exclusive.
@@ -69,6 +71,11 @@ settings before an SDK starts, using the same Zod schema fragment.
   provider availability but never substitutes a model. Calls occur exclusively
   in the worker. Production supplies both through Docker secret files rather
   than Compose environment metadata.
+- `MONGODB_URI` is required and must select a database. Production requires
+  credentials and verified TLS except for the internal Compose hostname
+  `mongo`; the entrypoint builds that URI from a database-scoped application
+  secret mounted only into API and worker. MongoDB is part of readiness because
+  conversation content cannot fall back to PostgreSQL.
 - `WASENDER_SESSION_API_KEY` is an optional worker-only session bearer key.
   `WASENDER_WEBHOOK_ENABLED=true` separately requires a 32-character minimum
   `WASENDER_WEBHOOK_SECRET` and mounts the public provider callback only in the
@@ -144,14 +151,15 @@ duration; signal handling does not make interrupted side effects atomic.
 
 Focused tests cover environment validation, Clerk 401/403/admin behavior, HTTP
 limits/Helmet modes, request ID and redaction, startup ordering and telemetry
-shutdown. Release smokes verify
+shutdown. A preload dependency test fails if telemetry validation imports the
+MongoDB driver before the OpenTelemetry SDK starts. Release smokes verify
 production docs 404, local docs render, 413 body limits, CORS allow/deny,
 suppressed liveness, traced readiness, telemetry delivery, startup exit 1 and
 SIGTERM cleanup for both processes.
 
 ## Sources and official references
 
-- [HTTP factory](../../../apps/backend/src/bootstrap-http.ts), [HTTP policy](../../../apps/backend/src/infrastructure/config/http-policy.ts), [environment](../../../apps/backend/src/infrastructure/config/environment.ts), [logging](../../../apps/backend/src/infrastructure/logging/logging.module.ts), [preload](../../../apps/backend/src/instrumentation.ts) and [startup cleanup](../../../apps/backend/src/infrastructure/observability/startup-failure.ts)
+- [HTTP factory](../../../apps/backend/src/bootstrap-http.ts), [HTTP policy](../../../apps/backend/src/infrastructure/config/http-policy.ts), [environment](../../../apps/backend/src/infrastructure/config/environment.ts), [Mongo lifecycle](mongodb.md), [logging](../../../apps/backend/src/infrastructure/logging/logging.module.ts), [preload](../../../apps/backend/src/instrumentation.ts) and [startup cleanup](../../../apps/backend/src/infrastructure/observability/startup-failure.ts)
 - [Nest configuration](https://docs.nestjs.com/techniques/configuration), [CORS](https://docs.nestjs.com/security/cors), [Helmet](https://docs.nestjs.com/security/helmet) and [OpenAPI](https://docs.nestjs.com/openapi/introduction)
 - [Express proxy settings](https://expressjs.com/en/guide/behind-proxies.html), [Node 24 HTTP](https://nodejs.org/docs/latest-v24.x/api/http.html), [Pino redaction](https://getpino.io/#/docs/redaction) and [nestjs-pino](https://github.com/iamolegga/nestjs-pino)
 - [OpenTelemetry exporters](https://opentelemetry.io/docs/languages/js/exporters/), [instrumentation](https://opentelemetry.io/docs/languages/js/libraries/), [Sentry data collection](https://docs.sentry.io/platforms/javascript/guides/nestjs/data-management/data-collected/) and [Sentry draining](https://docs.sentry.io/platforms/javascript/guides/nestjs/configuration/draining/)

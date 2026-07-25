@@ -4,6 +4,7 @@ x-app-environment: &app-environment
   NODE_ENV: development
   DATABASE_URL: postgresql://${POSTGRES_USER:-join_the_six}:${POSTGRES_PASSWORD:-local_only_change_me}@postgres:5432/${POSTGRES_DB:-join_the_six}
   DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-10}
+  MONGODB_URI: mongodb://${MONGODB_APP_USER:-join_the_six}:${MONGODB_APP_PASSWORD:-local_only_change_me}@mongo:27017/${MONGODB_DB:-join_the_six}?authSource=${MONGODB_DB:-join_the_six}&retryWrites=false
   REDIS_URL: redis://redis:6379
   LOG_LEVEL: ${LOG_LEVEL:-debug}
   OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-join-the-six}
@@ -55,6 +56,30 @@ services:
       retries: 10
     volumes:
       - dev_postgres_data:/var/lib/postgresql
+
+  mongo:
+    image: mongo:8.0.28-noble@sha256:277f9152905bd1f32d3ece4526e0f90906dc238f7133b24ede8446ac9740b76d
+    environment:
+      MONGO_INITDB_DATABASE: ${MONGODB_DB:-join_the_six}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_ROOT_PASSWORD:-local_only_change_me}
+      MONGO_INITDB_ROOT_USERNAME: ${MONGODB_ROOT_USER:-join_the_six_root}
+      MONGODB_APP_PASSWORD: ${MONGODB_APP_PASSWORD:-local_only_change_me}
+      MONGODB_APP_USER: ${MONGODB_APP_USER:-join_the_six}
+    ports:
+      - "127.0.0.1:${MONGODB_HOST_PORT:-27017}:27017"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'mongosh --quiet --username "$${MONGODB_APP_USER}" --password "$${MONGODB_APP_PASSWORD}" --authenticationDatabase "$${MONGO_INITDB_DATABASE}" "$${MONGO_INITDB_DATABASE}" --eval "quit(db.runCommand({ ping: 1 }).ok ? 0 : 2)"',
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    volumes:
+      - ./docker/mongo-init:/docker-entrypoint-initdb.d:ro
+      - dev_mongodb_data:/data/db
 
   redis:
     image: redis:8.8.0-alpine3.23@sha256:9d317178eceac8454a2284a9e6df2466b93c745529947f0cd42a0fa9609d7005
@@ -117,6 +142,8 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+      mongo:
+        condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:
@@ -162,6 +189,7 @@ services:
       start_period: 20s
 
 volumes:
+  dev_mongodb_data:
   dev_postgres_data:
   dev_redis_data:
   dev_pnpm_store:

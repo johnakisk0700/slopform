@@ -41,7 +41,7 @@ export async function handleStartupFailure(
 function redactUrlSecrets(value: string): string {
   return value
     .replace(
-      /((?:https?|postgres(?:ql)?|redis(?:s)?):\/\/)[^@\s/]+@/giu,
+      /((?:https?|postgres(?:ql)?|redis(?:s)?|mongodb(?:\+srv)?):\/\/)[^@\s/]+@/giu,
       "$1[Redacted]@",
     )
     .replace(/([?&][^=&#\s]+)=[^&#\s]*/gu, "$1=[Redacted]");

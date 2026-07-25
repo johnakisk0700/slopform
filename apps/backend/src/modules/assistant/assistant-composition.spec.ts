@@ -5,6 +5,7 @@ describe("assistant process composition", () => {
   it("keeps the HTTP producer and worker processor in separate app graphs", async () => {
     process.env.DATABASE_URL ??=
       "postgresql://user:password@127.0.0.1:5432/join_the_six_test";
+    process.env.MONGODB_URI ??= "mongodb://127.0.0.1:27017/join_the_six_test";
     const [httpApp, workerApp, assistantHttp, assistantWorker] =
       await Promise.all([
         import("../../http-app.module.js"),

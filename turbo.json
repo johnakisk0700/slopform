@@ -29,6 +29,7 @@
         "DATABASE_POOL_MAX",
         "DATABASE_URL",
         "LOG_LEVEL",
+        "MONGODB_URI",
         "NODE_ENV",
         "OTEL_EXPORTER_OTLP_ENDPOINT",
         "OTEL_SERVICE_NAME",

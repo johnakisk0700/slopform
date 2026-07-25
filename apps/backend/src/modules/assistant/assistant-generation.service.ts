@@ -12,10 +12,11 @@ import {
 } from "ai";
 
 import type { Environment } from "../../infrastructure/config/environment.js";
-import type {
-  AssistantFailureCode,
-  AssistantModel,
-  AssistantReasoningEffort,
+import {
+  assistantContentSchema,
+  type AssistantFailureCode,
+  type AssistantModel,
+  type AssistantReasoningEffort,
 } from "./assistant.schemas.js";
 import { assistantModelAdapter } from "./assistant-models.js";
 
@@ -84,7 +85,12 @@ export class AssistantGenerationService {
         throw new AssistantGenerationError("generation_failed", true);
       }
 
-      return response;
+      const persistedResponse = assistantContentSchema.safeParse(response);
+      if (!persistedResponse.success) {
+        throw new AssistantGenerationError("generation_failed", false);
+      }
+
+      return persistedResponse.data;
     } catch (error) {
       if (error instanceof AssistantGenerationError) {
         throw error;

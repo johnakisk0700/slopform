@@ -1,6 +1,8 @@
 import { createZodDto } from "nestjs-zod";
 import { z } from "zod";
 
+import { CONVERSATION_MESSAGE_MAX_CONTENT_LENGTH } from "../conversations/conversation-thread.schemas.js";
+
 export const ASSISTANT_MODELS = [
   "openai/gpt-5.6-luna",
   "openai/gpt-5.6-terra",
@@ -36,7 +38,11 @@ export const assistantFailureCodeSchema = z.enum(ASSISTANT_FAILURE_CODES);
 export const assistantReasoningEffortSchema = z.enum(
   ASSISTANT_REASONING_EFFORTS,
 );
-export const assistantContentSchema = z.string().trim().min(1).max(20_000);
+export const assistantContentSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(CONVERSATION_MESSAGE_MAX_CONTENT_LENGTH);
 
 export const createAssistantTurnSchema = z
   .object({

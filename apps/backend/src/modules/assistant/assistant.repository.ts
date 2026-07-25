@@ -23,6 +23,11 @@ export interface AssistantThreadRecord {
   readonly turns: AssistantTurnRow[];
 }
 
+export interface AssistantThreadTurnInventory {
+  readonly thread: AssistantThreadRow;
+  readonly turnIds: readonly string[];
+}
+
 export interface PersistedAssistantTurn {
   readonly created: boolean;
   readonly thread: AssistantThreadRow;
@@ -40,6 +45,13 @@ export class AssistantRequestReplayPersistenceError extends Error {
   constructor() {
     super("The request id already belongs to a different assistant thread");
     this.name = AssistantRequestReplayPersistenceError.name;
+  }
+}
+
+export class AssistantThreadCapacityPersistenceError extends Error {
+  constructor(limit: number) {
+    super(`The assistant thread already contains the maximum ${limit} turns`);
+    this.name = AssistantThreadCapacityPersistenceError.name;
   }
 }
 
@@ -101,6 +113,7 @@ export class AssistantRepository {
     readonly model: AssistantModel;
     readonly effort: AssistantReasoningEffort;
     readonly content: string;
+    readonly maximumTurns: number;
   }): Promise<PersistedAssistantTurn | undefined> {
     return this.database.transaction(async (transaction) => {
       await lockRequest(transaction, input.createdBy, input.requestId);
@@ -133,6 +146,9 @@ export class AssistantRepository {
         })
         .from(assistantTurns)
         .where(eq(assistantTurns.threadId, thread.id));
+      if ((latest?.sequence ?? 0) >= input.maximumTurns) {
+        throw new AssistantThreadCapacityPersistenceError(input.maximumTurns);
+      }
       if (latest?.hasActive) {
         throw new AssistantActiveTurnPersistenceError();
       }
@@ -188,9 +204,9 @@ export class AssistantRepository {
     return { thread, turns };
   }
 
-  async listThreadRecordsForOwner(
+  async listThreadTurnInventoriesForOwner(
     createdBy: string,
-  ): Promise<AssistantThreadRecord[]> {
+  ): Promise<AssistantThreadTurnInventory[]> {
     const threads = await this.database.db
       .select()
       .from(assistantThreads)
@@ -203,14 +219,19 @@ export class AssistantRepository {
 
     const threadIds = threads.map((thread) => thread.id);
     const turns = await this.database.db
-      .select()
+      .select({
+        id: assistantTurns.id,
+        threadId: assistantTurns.threadId,
+      })
       .from(assistantTurns)
       .where(inArray(assistantTurns.threadId, threadIds))
       .orderBy(asc(assistantTurns.sequence));
 
     return threads.map((thread) => ({
       thread,
-      turns: turns.filter((turn) => turn.threadId === thread.id),
+      turnIds: turns
+        .filter((turn) => turn.threadId === thread.id)
+        .map((turn) => turn.id),
     }));
   }
 

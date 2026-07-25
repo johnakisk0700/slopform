@@ -1,10 +1,12 @@
 # Backend foundation
 
-Last verified: **2026-07-22**.
+Last verified: **2026-07-25**.
 
 The backend is a NestJS modular monolith on Node.js 24 LTS. HTTP and background
 jobs are separate processes built from the same domain modules. PostgreSQL is
-the system of record; Redis/BullMQ provides asynchronous delivery.
+the system of record for relational business, audit, outbox and delivery data;
+MongoDB is authoritative for conversation aggregates; Redis/BullMQ provides
+asynchronous delivery.
 
 ## Compatibility boundary
 
@@ -15,7 +17,7 @@ rerun the focused integration smokes, not just the compiler.
 | ------------------ | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
 | Runtime and tools  | Node `>=24.11 <25`; TypeScript `6.0.3`; `@types/node` `24.13.3`; Vitest `4.1.10`           | Production remains on Node 24 LTS. TypeScript 7 is not the stable compiler line.      |
 | Nest and HTTP      | Nest `11.1.28`; Express `5.2.1`; config `4.0.4`; Swagger `11.4.6`                          | Keep Nest core/platform patches aligned. Express is supplied by the platform package. |
-| Persistence        | Drizzle ORM `0.45.2`; Kit `0.31.10`; `pg` `8.22.0`; `@types/pg` `8.20.0`                   | Drizzle 1.x tags remain prereleases.                                                  |
+| Persistence        | Drizzle ORM `0.45.2`; Kit `0.31.10`; `pg` `8.22.0`; MongoDB driver `7.5.0`                 | PostgreSQL owns relational guarantees; MongoDB owns conversation aggregates.          |
 | Queues             | `@nestjs/bullmq` `11.0.4`; BullMQ `5.80.10`; Bull Board `8.1.2`                            | BullMQ OSS only; all Bull Board packages use one version.                             |
 | Contracts and edge | Zod `4.4.3`; `nestjs-zod` `5.4.0`; Helmet `8.3.0`                                          | Zod is the single runtime/API contract source.                                        |
 | Authentication     | Clerk Express `2.1.44`                                                                     | Session verification plus a server-owned admin subject allowlist.                     |
@@ -42,6 +44,8 @@ flowchart LR
   HTTP --> Service["Application service"]
   Service --> Repository["Domain repository"]
   Repository --> PostgreSQL[(PostgreSQL)]
+  Service --> ConversationRepository["Conversation repository"]
+  ConversationRepository --> MongoDB[(MongoDB)]
   HTTP -->|"versioned job"| Redis[(Redis / BullMQ)]
   Redis --> Worker["Worker process"]
   Worker --> Service
@@ -69,6 +73,7 @@ exception/Sentry plumbing is absent from the worker graph.
 | Process composition                   | `apps/backend/src/{http-app,worker-app}.module.ts`, `bootstrap-*.ts`, `main-*.ts`                 |
 | Runtime configuration and HTTP policy | `apps/backend/src/infrastructure/config/`                                                         |
 | Pool and transaction lifecycle        | `apps/backend/src/infrastructure/database/`, `packages/database/src/client.ts`                    |
+| Conversation-store lifecycle          | `apps/backend/src/infrastructure/mongo/`, `apps/backend/src/modules/conversations/`               |
 | Schema and deployment SQL             | `packages/database/src/schema/`, `packages/database/drizzle/`                                     |
 | Queues, readiness and dashboard       | `apps/backend/src/infrastructure/queue/`, `infrastructure/readiness.ts`                           |
 | Logging and telemetry                 | `apps/backend/src/infrastructure/logging/`, `infrastructure/observability/`, `instrumentation.ts` |
@@ -91,8 +96,10 @@ a forward migration. Do not turn it into a generic CRUD shrine.
    values to the application service.
 3. Put workflow order, invariants, transport-neutral errors and transaction
    scope in the service.
-4. Put explicit Drizzle queries in a domain repository. Pass transactions in;
-   repositories do not create pools or hidden transactions.
+4. Put explicit persistence queries in a domain repository. Use Drizzle for
+   PostgreSQL and the conversation repository for MongoDB; expose neither
+   client to controllers. Pass PostgreSQL transactions in, and do not create
+   pools or hidden transactions inside repositories.
 5. Export the smallest useful surface from one domain module. Split Core/HTTP/
    Worker modules only when one use case genuinely serves both process graphs.
 6. Import HTTP adapters only from `HttpAppModule` and processors only from
@@ -105,6 +112,8 @@ does not need an interface/class wedding ceremony for every provider.
 
 - [Database lifecycle and migrations](backend/mechanisms/database.md) owns pool
   bounds, transaction responsibility, schema/migration rules and test data.
+- [MongoDB lifecycle](backend/mechanisms/mongodb.md) owns conversation-store
+  connection, readiness, indexes, security, document limits and backup.
 - [Queues and workers](backend/mechanisms/queues.md) owns process connections,
   envelopes, retry/retention, idempotency, outbox requirements and operations.
 - [Runtime operations](backend/mechanisms/runtime-operations.md) owns the HTTP
@@ -129,12 +138,14 @@ Three invariants span those pages:
 ## Environment and operation
 
 `apps/backend/.env.example` is the backend variable inventory. Local direct
-commands load `.env`; production does not. `DATABASE_URL` is required. The Zod
-contract supplies defaults for host/port, origins, pool size, Redis, logging and
-telemetry sampling, and guards optional telemetry, Bull Board and reference
-module settings. The HTTP graph additionally requires matching Clerk keys and
-at least one `CLERK_ADMIN_USER_IDS` entry; the worker can start without them.
-Production browser origins require HTTPS.
+commands load `.env`; production does not. `DATABASE_URL` and a database-scoped
+`MONGODB_URI` are required. The Zod contract supplies defaults for host/port,
+origins, pool size, Redis, logging and telemetry sampling, and guards optional
+telemetry, Bull Board and reference module settings. Production external Mongo
+connections require authentication and verified TLS. The HTTP graph
+additionally requires matching Clerk keys and at least one
+`CLERK_ADMIN_USER_IDS` entry; the worker can start without them. Production
+browser origins require HTTPS.
 
 Wasender is opt-in. Its session key enables a controller-free provider module
 only in the worker graph. Its public webhook module is separately gated by
@@ -169,8 +180,11 @@ pnpm --filter @join-the-six/backend build
 
 Use pure unit tests for schemas, invariants and orchestration. Use real,
 disposable PostgreSQL/Redis for adapter semantics, with bounded waits and exact
-cleanup. HTTP contract tests boot `createHttpApplication()` and assert responses
-plus OpenAPI; worker composition tests boot and close
+cleanup. MongoDB lifecycle and repository unit tests inject bounded fakes and
+never silently require a developer server; run a separately provisioned
+integration smoke when changing driver/server semantics. HTTP contract tests
+boot `createHttpApplication()` and assert responses plus OpenAPI; worker
+composition tests boot and close
 `createWorkerApplication()`. Mocking Drizzle chains or BullMQ internals mostly
 tests creative writing.
 

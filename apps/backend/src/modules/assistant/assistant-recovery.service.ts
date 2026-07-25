@@ -76,12 +76,24 @@ export class AssistantRecoveryService
           continue;
         }
 
-        const recovered = await this.assistant.markFailed(
-          turn.id,
-          turn.attempt,
-          "generation_failed",
-          "The assistant turn was interrupted before completion.",
-        );
+        let recovered: boolean;
+        try {
+          recovered = await this.assistant.markFailed(
+            turn.id,
+            turn.attempt,
+            "generation_failed",
+            "The assistant turn was interrupted before completion.",
+          );
+        } catch (error) {
+          this.logger.error({
+            event: "assistant.turn.recovery_item_failed",
+            trigger,
+            turnId: turn.id,
+            attempt: turn.attempt,
+            error: { name: errorName(error) },
+          });
+          continue;
+        }
         if (recovered) {
           this.logger.warn({
             event: "assistant.turn.recovered_stale",

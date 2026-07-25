@@ -15,6 +15,8 @@ x-backend-environment: &backend-environment
   POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env.production}
   POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env.production}
   DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-10}
+  MONGODB_APP_USER: ${MONGODB_APP_USER:?Set MONGODB_APP_USER in .env.production}
+  MONGODB_DB: ${MONGODB_DB:?Set MONGODB_DB in .env.production}
   LOG_LEVEL: ${LOG_LEVEL:-info}
   OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-join-the-six-api}
   OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
@@ -41,6 +43,34 @@ services:
       start_period: 10s
     volumes:
       - postgres_data:/var/lib/postgresql
+    networks:
+      - data
+
+  mongo:
+    <<: *service-defaults
+    image: mongo:8.0.28-noble@sha256:277f9152905bd1f32d3ece4526e0f90906dc238f7133b24ede8446ac9740b76d
+    environment:
+      MONGO_INITDB_DATABASE: ${MONGODB_DB:?Set MONGODB_DB in .env.production}
+      MONGO_INITDB_ROOT_PASSWORD_FILE: /run/secrets/mongodb_root_password
+      MONGO_INITDB_ROOT_USERNAME: ${MONGODB_ROOT_USER:?Set MONGODB_ROOT_USER in .env.production}
+      MONGODB_APP_PASSWORD_FILE: /run/secrets/mongodb_app_password
+      MONGODB_APP_USER: ${MONGODB_APP_USER:?Set MONGODB_APP_USER in .env.production}
+    secrets:
+      - mongodb_app_password
+      - mongodb_root_password
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'mongosh --quiet --username "$${MONGODB_APP_USER}" --password "$$(cat /run/secrets/mongodb_app_password)" --authenticationDatabase "$${MONGO_INITDB_DATABASE}" "$${MONGO_INITDB_DATABASE}" --eval "quit(db.runCommand({ ping: 1 }).ok ? 0 : 2)"',
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    volumes:
+      - ./docker/mongo-init:/docker-entrypoint-initdb.d:ro
+      - mongodb_data:/data/db
     networks:
       - data
 
@@ -115,6 +145,7 @@ services:
     secrets:
       - bull_board_password
       - clerk_secret_key
+      - mongodb_app_password
       - openai_api_key
       - openrouter_api_key
       - postgres_password
@@ -129,6 +160,8 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+      mongo:
+        condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:
@@ -164,6 +197,7 @@ services:
       <<: *backend-environment
       OTEL_SERVICE_NAME: join-the-six-worker
     secrets:
+      - mongodb_app_password
       - openai_api_key
       - openrouter_api_key
       - postgres_password
@@ -172,6 +206,8 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+      mongo:
+        condition: service_healthy
       redis:
         condition: service_healthy
     networks:
@@ -254,6 +290,7 @@ services:
       - edge
 
 volumes:
+  mongodb_data:
   postgres_data:
   redis_data:
   caddy_data:
@@ -270,6 +307,10 @@ secrets:
     file: ${BULL_BOARD_PASSWORD_FILE:?Set BULL_BOARD_PASSWORD_FILE in .env.production}
   clerk_secret_key:
     file: ${CLERK_SECRET_KEY_FILE:?Set CLERK_SECRET_KEY_FILE in .env.production}
+  mongodb_app_password:
+    file: ${MONGODB_APP_PASSWORD_FILE:?Set MONGODB_APP_PASSWORD_FILE in .env.production}
+  mongodb_root_password:
+    file: ${MONGODB_ROOT_PASSWORD_FILE:?Set MONGODB_ROOT_PASSWORD_FILE in .env.production}
   openai_api_key:
     file: ${OPENAI_API_KEY_FILE:?Set OPENAI_API_KEY_FILE in .env.production}
   openrouter_api_key:

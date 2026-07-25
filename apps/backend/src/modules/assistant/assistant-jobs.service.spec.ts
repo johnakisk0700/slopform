@@ -45,7 +45,12 @@ describe("AssistantJobsService", () => {
         .mockResolvedValue({ id: `assistant-generate-v2-${turnId}-1` }),
     } as unknown as Queue<AssistantJobData, void, AssistantJobName>;
     const assistant = {
-      createThread: vi.fn().mockResolvedValue({ created: true, thread, turn }),
+      createThread: vi.fn().mockResolvedValue({
+        created: true,
+        enqueueRequired: true,
+        thread,
+        turn,
+      }),
       markFailed: vi.fn(),
     } as unknown as AssistantService;
     const jobs = new AssistantJobsService(queue, assistant);
@@ -71,7 +76,11 @@ describe("AssistantJobsService", () => {
       AssistantJobName
     >;
     const assistant = {
-      appendTurn: vi.fn().mockResolvedValue({ created: false, turn }),
+      appendTurn: vi.fn().mockResolvedValue({
+        created: false,
+        enqueueRequired: false,
+        turn,
+      }),
     } as unknown as AssistantService;
     const jobs = new AssistantJobsService(queue, assistant);
 
@@ -86,12 +95,43 @@ describe("AssistantJobsService", () => {
     expect(queue.add).not.toHaveBeenCalled();
   });
 
+  it("enqueues a PostgreSQL replay that had not reached MongoDB", async () => {
+    const queue = {
+      add: vi
+        .fn()
+        .mockResolvedValue({ id: `assistant-generate-v2-${turnId}-1` }),
+    } as unknown as Queue<AssistantJobData, void, AssistantJobName>;
+    const assistant = {
+      createThread: vi.fn().mockResolvedValue({
+        created: false,
+        enqueueRequired: true,
+        thread,
+        turn,
+      }),
+      markFailed: vi.fn(),
+    } as unknown as AssistantService;
+    const jobs = new AssistantJobsService(queue, assistant);
+
+    await jobs.createThreadAndEnqueue(
+      { requestId, content: "Hello" },
+      "user_owner",
+      "request-recovery",
+    );
+
+    expect(queue.add).toHaveBeenCalledOnce();
+  });
+
   it("marks the exact authoritative attempt failed when enqueueing fails", async () => {
     const queue = {
       add: vi.fn().mockRejectedValue(new Error("redis secret")),
     } as unknown as Queue<AssistantJobData, void, AssistantJobName>;
     const assistant = {
-      createThread: vi.fn().mockResolvedValue({ created: true, thread, turn }),
+      createThread: vi.fn().mockResolvedValue({
+        created: true,
+        enqueueRequired: true,
+        thread,
+        turn,
+      }),
       markFailed: vi.fn().mockResolvedValue(undefined),
     } as unknown as AssistantService;
     const jobs = new AssistantJobsService(queue, assistant);

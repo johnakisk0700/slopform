@@ -5,6 +5,7 @@ import { ZodResponse } from "nestjs-zod";
 import { DatabaseService } from "../../infrastructure/database/database.service.js";
 import { Public } from "../../infrastructure/auth/public.decorator.js";
 import { QueueHealthService } from "../../infrastructure/queue/queue-health.service.js";
+import { ConversationThreadRepository } from "../conversations/conversation-thread.repository.js";
 import {
   LiveResponseDto,
   NotReadyResponseDto,
@@ -17,6 +18,7 @@ import {
 export class HealthController {
   constructor(
     private readonly database: DatabaseService,
+    private readonly conversations: ConversationThreadRepository,
     private readonly queue: QueueHealthService,
   ) {}
 
@@ -32,6 +34,7 @@ export class HealthController {
   async ready(): Promise<ReadyResponseDto> {
     const checks = await Promise.allSettled([
       this.database.ping(),
+      this.conversations.ping(),
       this.queue.ping(),
     ]);
 
@@ -40,7 +43,8 @@ export class HealthController {
         status: "not_ready",
         checks: {
           database: checks[0]?.status === "fulfilled" ? "up" : "down",
-          redis: checks[1]?.status === "fulfilled" ? "up" : "down",
+          mongodb: checks[1]?.status === "fulfilled" ? "up" : "down",
+          redis: checks[2]?.status === "fulfilled" ? "up" : "down",
         },
       });
     }
@@ -48,7 +52,7 @@ export class HealthController {
     return {
       status: "ready",
       checkedAt: new Date().toISOString(),
-      checks: { database: "up", redis: "up" },
+      checks: { database: "up", mongodb: "up", redis: "up" },
     };
   }
 }

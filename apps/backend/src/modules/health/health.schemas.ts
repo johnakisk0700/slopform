@@ -11,6 +11,7 @@ const readyResponseSchema = z.object({
   checkedAt: z.iso.datetime(),
   checks: z.object({
     database: z.literal("up"),
+    mongodb: z.literal("up"),
     redis: z.literal("up"),
   }),
 });
@@ -19,6 +20,7 @@ const notReadyResponseSchema = z.object({
   status: z.literal("not_ready"),
   checks: z.object({
     database: z.enum(["up", "down"]),
+    mongodb: z.enum(["up", "down"]),
     redis: z.enum(["up", "down"]),
   }),
 });

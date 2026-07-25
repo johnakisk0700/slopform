@@ -2,7 +2,11 @@
 
 - Status: Accepted
 - Date: 2026-07-22
-- Scope note: frontend ownership narrowed by [ADR 0004](0004-admin-only-boundary.md); the Nuxt/Vue/PrimeVue frontend is superseded by the React admin runtime in [ADR 0006](0006-react-admin-runtime.md) (backend stack unchanged).
+- Scope note: frontend ownership narrowed by [ADR 0004](0004-admin-only-boundary.md);
+  the Nuxt/Vue/PrimeVue frontend is superseded by the React admin runtime in
+  [ADR 0006](0006-react-admin-runtime.md). The PostgreSQL-only persistence
+  boundary is later narrowed for conversation aggregates by
+  [ADR 0007](0007-mongodb-conversation-authority.md).
 
 ## Decision
 

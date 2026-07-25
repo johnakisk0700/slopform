@@ -5,7 +5,9 @@
 The application is a modular monolith with two executable surfaces: a private
 React administration panel and a NestJS backend. The backend runs as separate
 HTTP and BullMQ worker processes but shares modules and domain contracts.
-PostgreSQL is the source of truth for the operational domain.
+PostgreSQL is the source of truth for relational business, audit, outbox and
+delivery data. MongoDB is the source of truth for user conversation aggregates
+and ordered turns.
 
 The public website, registration and participant-facing journeys belong to the
 existing Next.js application at `legacy.example.com`. That application is outside
@@ -19,9 +21,11 @@ flowchart LR
   Web --> API["Nest HTTP API"]
   API --> Clerk
   API --> DB[(PostgreSQL)]
+  API --> Mongo[(MongoDB)]
   API --> Redis[(Redis)]
   Redis --> Worker["Nest BullMQ worker"]
   Worker --> DB
+  Worker --> Mongo
   Worker --> Providers["Email / messaging providers"]
   API -. "future narrow adapter" .-> WP["WordPress\ntemporary checkout + migration source"]
   WP --> Viva["Viva checkout"]
@@ -51,6 +55,7 @@ migration boundary, not a currently deployed integration.
 - `api`: Nest HTTP process. It validates input, enforces authorization and commits business state.
 - `worker`: Nest application context consuming BullMQ queues. It must be independently deployable and horizontally scalable.
 - `postgres`: durable product data and business audit events.
+- `mongo`: durable owner-scoped conversation threads, goals and ordered turns.
 - `redis`: disposable queue coordination. It is not a business source of truth.
 
 ## Domain direction
@@ -77,6 +82,8 @@ These are a migration target, not permission to generate thirteen empty CRUD mod
 - State transitions that affect participants, money or outbound communication create an application audit event.
 - Queue handlers are idempotent and retries are expected.
 - External providers are adapters. Their payloads do not become the domain schema.
+- MongoDB conversation state does not replace PostgreSQL business audit, outbox
+  or delivery guarantees. Cross-store workflows name their recovery direction.
 - Clerk proves staff identity; the API separately authorizes the verified
   subject against the Join The Six admin policy. A browser route guard is not a
   permission boundary.

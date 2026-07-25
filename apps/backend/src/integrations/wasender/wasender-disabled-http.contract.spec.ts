@@ -25,6 +25,7 @@ describe("disabled Wasender webhook HTTP contract", () => {
       "DATABASE_URL",
       "postgresql://user:password@127.0.0.1:5432/join_the_six_test",
     );
+    vi.stubEnv("MONGODB_URI", "mongodb://127.0.0.1:27017/join_the_six_test");
     vi.stubEnv("REDIS_URL", "redis://127.0.0.1:6379");
     vi.stubEnv("WEB_ORIGIN", "http://localhost:3000");
     vi.stubEnv("CLERK_PUBLISHABLE_KEY", "pk_test_example");

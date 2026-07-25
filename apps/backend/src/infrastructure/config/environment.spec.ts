@@ -6,11 +6,12 @@ import {
   isWasenderTransportEnabled,
   isWasenderWebhookEnabled,
   validateEnvironment,
-  validateObservabilityEnvironment,
 } from "./environment.js";
+import { validateObservabilityEnvironment } from "./observability-environment.js";
 
 const requiredEnvironment = {
   DATABASE_URL: "postgresql://user:password@localhost:5432/join_the_six",
+  MONGODB_URI: "mongodb://localhost:27017/join_the_six",
 };
 
 describe("validateEnvironment", () => {
@@ -29,6 +30,9 @@ describe("validateEnvironment", () => {
     expect(environment.WASENDER_SESSION_API_KEY).toBeUndefined();
     expect(environment.WASENDER_WEBHOOK_ENABLED).toBe(false);
     expect(environment.WASENDER_WEBHOOK_SECRET).toBeUndefined();
+    expect(environment.MONGODB_URI).toBe(
+      "mongodb://localhost:27017/join_the_six",
+    );
     expect(environment.REDIS_URL).toBe("redis://localhost:6379");
     expect(environment.WEB_ORIGIN).toEqual([
       "https://app.example.com",
@@ -251,11 +255,90 @@ describe("validateEnvironment", () => {
 
   it.each([
     ["DATABASE_URL", "not-a-database-url"],
+    ["MONGODB_URI", "not-a-database-url"],
     ["REDIS_URL", "not-a-redis-url"],
   ] as const)("reports malformed %s through Zod", (key, value) => {
     expect(() =>
       validateEnvironment({ ...requiredEnvironment, [key]: value }),
     ).toThrow(/Invalid URL/);
+  });
+
+  it("requires a MongoDB database name and accepts SRV URLs", () => {
+    expect(() =>
+      validateEnvironment({
+        ...requiredEnvironment,
+        MONGODB_URI: "mongodb://localhost:27017",
+      }),
+    ).toThrow(/select a database/);
+
+    expect(
+      validateEnvironment({
+        ...requiredEnvironment,
+        MONGODB_URI:
+          "mongodb+srv://cluster.example.com/join_the_six?retryWrites=true",
+      }).MONGODB_URI,
+    ).toContain("mongodb+srv://");
+  });
+
+  it("accepts driver-supported MongoDB replica-set seed lists", () => {
+    expect(
+      validateEnvironment({
+        ...requiredEnvironment,
+        MONGODB_URI:
+          "mongodb://user:password@mongo-a.example.com:27017,mongo-b.example.com:27017/join_the_six?replicaSet=rs0&tls=true",
+      }).MONGODB_URI,
+    ).toContain("mongo-a.example.com:27017,mongo-b.example.com:27017");
+  });
+
+  it("requires authenticated verified-TLS MongoDB outside the production data network", () => {
+    const production = {
+      ...requiredEnvironment,
+      NODE_ENV: "production",
+      WEB_ORIGIN: "https://admin.example.com",
+    };
+
+    expect(() =>
+      validateEnvironment({
+        ...production,
+        MONGODB_URI: "mongodb://database.example.com/join_the_six",
+      }),
+    ).toThrow(/authenticated credentials/);
+    expect(() =>
+      validateEnvironment({
+        ...production,
+        MONGODB_URI:
+          "mongodb://user:password@database.example.com/join_the_six?tls=true&tlsAllowInvalidCertificates=true",
+      }),
+    ).toThrow(/must not disable TLS certificate verification/);
+    expect(() =>
+      validateEnvironment({
+        ...production,
+        MONGODB_URI:
+          "mongodb://user:password@database.example.com/join_the_six",
+      }),
+    ).toThrow(/requires TLS/);
+
+    expect(
+      validateEnvironment({
+        ...production,
+        MONGODB_URI:
+          "mongodb://user:password@mongo:27017/join_the_six?authSource=join_the_six&retryWrites=false",
+      }).MONGODB_URI,
+    ).toContain("@mongo:27017/");
+    expect(
+      validateEnvironment({
+        ...production,
+        MONGODB_URI:
+          "mongodb+srv://user:password@cluster.example.com/join_the_six",
+      }).MONGODB_URI,
+    ).toContain("mongodb+srv://");
+    expect(
+      validateEnvironment({
+        ...production,
+        MONGODB_URI:
+          "mongodb://user:password@mongo-a.example.com:27017,mongo-b.example.com:27017/join_the_six?replicaSet=rs0&tls=true",
+      }).MONGODB_URI,
+    ).toContain("mongo-a.example.com:27017,mongo-b.example.com:27017");
   });
 
   it("reports a malformed telemetry URL through Zod", () => {

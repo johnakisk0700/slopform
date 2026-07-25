@@ -7,6 +7,7 @@ Update it with the implementation.
 | ------------------------------------------------ | ---------------------------------------------------------------------- |
 | [Admin authentication](authentication.md)        | Clerk sessions, admin authorization, Google-access handoff             |
 | [Database lifecycle and migrations](database.md) | Pool lifecycle, schema ownership, migrations and test data             |
+| [MongoDB lifecycle](mongodb.md)                  | Conversation-store connection, security, indexes, limits and backup    |
 | [Queues and workers](queues.md)                  | BullMQ production, consumption, retries, idempotency and observability |
 | [Runtime operations](runtime-operations.md)      | Configuration, HTTP edge, logging, tracing and process failure         |
 | [Wasender integration](wasender.md)              | WhatsApp transport, webhook verification and normalized events         |

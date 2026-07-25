@@ -49,7 +49,7 @@ compose=(docker compose --env-file "$environment_file" -f compose.prod.yaml)
 
 "${compose[@]}" config --quiet
 "${compose[@]}" build --pull
-"${compose[@]}" up -d --no-build --wait --wait-timeout 900 postgres redis
+"${compose[@]}" up -d --no-build --wait --wait-timeout 900 postgres mongo redis
 "${compose[@]}" run --rm --no-deps migrate
 "${compose[@]}" up -d --no-build --no-deps --wait --wait-timeout 900 api worker
 "${compose[@]}" up -d --no-build --no-deps --wait --wait-timeout 900 web

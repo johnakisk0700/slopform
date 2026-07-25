@@ -41,7 +41,7 @@ export class AssistantJobsService {
   ): Promise<AssistantThreadView> {
     const validated = createAssistantThreadSchema.parse(input);
     const creation = await this.assistant.createThread(validated, createdBy);
-    if (creation.created) {
+    if (creation.enqueueRequired) {
       await this.enqueueOrFail(creation.turn, correlationId);
     }
     return creation.thread;
@@ -59,7 +59,7 @@ export class AssistantJobsService {
       validated,
       createdBy,
     );
-    if (creation.created) {
+    if (creation.enqueueRequired) {
       await this.enqueueOrFail(creation.turn, correlationId);
     }
     return creation.turn;

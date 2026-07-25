@@ -11,6 +11,7 @@ this repository.
 - `apps/admin`: private React, HeroUI and Tailwind administration panel
 - `apps/backend`: NestJS modular monolith with separate API and worker processes
 - `packages/database`: PostgreSQL schema and versioned Drizzle migrations
+- MongoDB for authoritative owner-scoped conversation threads and ordered turns
 - Redis and BullMQ for observable background jobs
 - pnpm workspaces and Turborepo on Node.js 24 LTS
 
@@ -18,8 +19,8 @@ WordPress remains a temporary, isolated integration and migration boundary. It i
 
 ## Start locally
 
-The normal development loop runs PostgreSQL and Redis in containers, while the
-admin client, Nest and the worker run natively with hot reload:
+The normal development loop runs PostgreSQL, MongoDB and Redis in containers,
+while the admin client, Nest and the worker run natively with hot reload:
 
 ```bash
 cp .env.example .env
@@ -48,13 +49,15 @@ pnpm check
 ## Production containers
 
 Production uses separate `web`, `api`, `worker` and one-shot `migrate` images,
-plus PostgreSQL, Redis and Caddy for TLS/reverse proxying:
+plus PostgreSQL, MongoDB, Redis and Caddy for TLS/reverse proxying:
 
 ```bash
 cp .env.production.example .env.production
 install -d -m 700 secrets
 umask 077
 openssl rand -hex 32 > secrets/postgres_password
+openssl rand -hex 32 > secrets/mongodb_root_password
+openssl rand -hex 32 > secrets/mongodb_app_password
 openssl rand -hex 32 > secrets/redis_password
 # Replace every placeholder before continuing.
 docker compose --env-file .env.production -f compose.prod.yaml config --quiet

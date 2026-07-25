@@ -2,6 +2,10 @@
 
 - Status: Accepted
 - Date: 2026-07-23
+- Scope note: the statement that the backend stack was unchanged describes this
+  decision at acceptance. [ADR 0007](0007-mongodb-conversation-authority.md)
+  later adds MongoDB for conversation aggregates without changing this frontend
+  decision.
 
 ## Decision
 

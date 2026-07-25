@@ -119,6 +119,24 @@ describe("AssistantGenerationService", () => {
     );
   });
 
+  it("rejects oversized provider output as a permanent persistence failure", async () => {
+    mockedGenerateText.mockResolvedValue({
+      text: "x".repeat(20_001),
+    } as Awaited<ReturnType<typeof generateText>>);
+    const service = createService({ openRouter: "router-key" });
+
+    await expect(
+      service.generate({
+        model: "google/gemini-3.6-flash",
+        effort: "low",
+        messages: [{ role: "user", content: "Hello" }],
+      }),
+    ).rejects.toMatchObject({
+      code: "generation_failed",
+      retryable: false,
+    });
+  });
+
   it("fails permanently before any provider call when the key is absent", async () => {
     const service = createService({});
 

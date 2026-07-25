@@ -12,6 +12,7 @@ describe("email process composition", () => {
   it("keeps HTTP and worker adapters in separate app graphs", async () => {
     process.env.DATABASE_URL ??=
       "postgresql://user:password@127.0.0.1:5432/join_the_six_test";
+    process.env.MONGODB_URI ??= "mongodb://127.0.0.1:27017/join_the_six_test";
     const [httpApp, workerApp] = await Promise.all([
       import("../../http-app.module.js"),
       import("../../worker-app.module.js"),

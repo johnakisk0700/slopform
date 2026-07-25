@@ -1,4 +1,7 @@
+import { MongoClient } from "mongodb";
 import { z } from "zod";
+
+import { observabilityEnvironmentSchema } from "./observability-environment.js";
 
 const emptyStringToUndefined = (value: unknown): unknown =>
   typeof value === "string" && value.trim() === "" ? undefined : value;
@@ -9,27 +12,96 @@ const parseUrl = (value: string): URL | undefined => {
     return undefined;
   }
 };
-const httpUrl = z.url().refine((value) => {
-  const url = parseUrl(value);
-  return !url || ["http:", "https:"].includes(url.protocol);
-}, "Expected an HTTP(S) URL");
-const optionalHttpUrl = z.preprocess(
-  emptyStringToUndefined,
-  httpUrl.optional(),
-);
-const optionalOtlpEndpoint = z.preprocess(
-  emptyStringToUndefined,
-  httpUrl
-    .refine((value) => {
-      const url = parseUrl(value);
-      return !url || (!url.username && !url.password);
-    }, "OTLP endpoint credentials must not be embedded in the URL")
-    .refine((value) => {
-      const url = parseUrl(value);
-      return !url || (!url.search && !url.hash);
-    }, "OTLP endpoint must not include a query string or fragment")
-    .optional(),
-);
+interface ParsedMongoConnectionString {
+  readonly protocol: "mongodb:" | "mongodb+srv:";
+  readonly username: string | undefined;
+  readonly password: string | undefined;
+  readonly database: string | undefined;
+  readonly hostnames: readonly string[];
+  readonly searchParams: URLSearchParams;
+}
+
+const mongoOption = (
+  searchParams: URLSearchParams,
+  name: string,
+): string | undefined => {
+  const normalizedName = name.toLowerCase();
+  for (const [key, value] of searchParams) {
+    if (key.toLowerCase() === normalizedName) {
+      return value.toLowerCase();
+    }
+  }
+  return undefined;
+};
+const parseMongoConnectionString = (
+  value: string,
+): ParsedMongoConnectionString | undefined => {
+  const protocol = value.startsWith("mongodb://")
+    ? ("mongodb:" as const)
+    : value.startsWith("mongodb+srv://")
+      ? ("mongodb+srv:" as const)
+      : undefined;
+  if (!protocol || value.includes("#")) {
+    return undefined;
+  }
+
+  try {
+    // The driver's parser supports replica-set seed lists, unlike WHATWG URL.
+    new MongoClient(value);
+  } catch {
+    return undefined;
+  }
+
+  const schemeLength =
+    protocol === "mongodb:" ? "mongodb://".length : "mongodb+srv://".length;
+  const remainder = value.slice(schemeLength);
+  const queryStart = remainder.indexOf("?");
+  const addressAndPath =
+    queryStart === -1 ? remainder : remainder.slice(0, queryStart);
+  const query = queryStart === -1 ? "" : remainder.slice(queryStart + 1);
+  const pathStart = addressAndPath.indexOf("/");
+  const authority =
+    pathStart === -1 ? addressAndPath : addressAndPath.slice(0, pathStart);
+  const database =
+    pathStart === -1
+      ? undefined
+      : addressAndPath.slice(pathStart + 1) || undefined;
+  const credentialEnd = authority.lastIndexOf("@");
+  const credentials =
+    credentialEnd === -1 ? undefined : authority.slice(0, credentialEnd);
+  const seeds =
+    credentialEnd === -1 ? authority : authority.slice(credentialEnd + 1);
+  const passwordStart = credentials?.indexOf(":") ?? -1;
+  const username =
+    credentials === undefined
+      ? undefined
+      : passwordStart === -1
+        ? credentials
+        : credentials.slice(0, passwordStart);
+  const password =
+    credentials === undefined || passwordStart === -1
+      ? undefined
+      : credentials.slice(passwordStart + 1);
+
+  return {
+    protocol,
+    username: username || undefined,
+    password: password || undefined,
+    database,
+    hostnames: seeds.split(",").map(mongoSeedHostname),
+    searchParams: new URLSearchParams(query),
+  };
+};
+const mongoSeedHostname = (seed: string): string => {
+  if (seed.startsWith("[")) {
+    const bracket = seed.indexOf("]");
+    return seed.slice(1, bracket).toLowerCase();
+  }
+  const portSeparator = seed.lastIndexOf(":");
+  return (portSeparator === -1 ? seed : seed.slice(0, portSeparator))
+    .toLowerCase()
+    .trim();
+};
 const optionalCredential = z.preprocess(
   emptyStringToUndefined,
   z
@@ -147,6 +219,26 @@ const postgresUrl = z.url().refine((value) => {
   const url = parseUrl(value);
   return !url || ["postgres:", "postgresql:"].includes(url.protocol);
 }, "Expected a PostgreSQL URL");
+const mongodbUrl = z
+  .string()
+  .trim()
+  .min(1)
+  .superRefine((value, context) => {
+    const parsed = parseMongoConnectionString(value);
+    if (!parsed) {
+      context.addIssue({
+        code: "custom",
+        message: "Invalid URL: expected a MongoDB connection string",
+      });
+      return;
+    }
+    if (!parsed.database) {
+      context.addIssue({
+        code: "custom",
+        message: "MONGODB_URI must select a database",
+      });
+    }
+  });
 const redisUrl = z.url().refine((value) => {
   const url = parseUrl(value);
   return !url || ["redis:", "rediss:"].includes(url.protocol);
@@ -158,43 +250,6 @@ const booleanFromEnvironment = z.preprocess(
     .default("false")
     .transform((value) => value === "true"),
 );
-
-const nodeEnvironment = z
-  .enum(["development", "test", "production"])
-  .default("development");
-const otelServiceName = z
-  .string()
-  .trim()
-  .min(1)
-  .max(128)
-  .default("join-the-six-api");
-const sentryTracesSampleRate = z.preprocess(
-  emptyStringToUndefined,
-  z.coerce.number().min(0).max(1).default(0.1),
-);
-
-export const observabilityEnvironmentSchema = z
-  .object({
-    NODE_ENV: nodeEnvironment,
-    OTEL_SERVICE_NAME: otelServiceName,
-    OTEL_EXPORTER_OTLP_ENDPOINT: optionalOtlpEndpoint,
-    SENTRY_DSN: optionalHttpUrl,
-    SENTRY_TRACES_SAMPLE_RATE: sentryTracesSampleRate,
-  })
-  .superRefine((environment, context) => {
-    if (environment.OTEL_EXPORTER_OTLP_ENDPOINT && environment.SENTRY_DSN) {
-      context.addIssue({
-        code: "custom",
-        message:
-          "Configure either the OpenTelemetry OTLP exporter or Sentry tracing, not both",
-        path: ["OTEL_EXPORTER_OTLP_ENDPOINT"],
-      });
-    }
-  });
-
-export type ObservabilityEnvironment = z.infer<
-  typeof observabilityEnvironmentSchema
->;
 
 export const environmentSchema = observabilityEnvironmentSchema
   .safeExtend({
@@ -209,6 +264,7 @@ export const environmentSchema = observabilityEnvironmentSchema
       emptyStringToUndefined,
       z.coerce.number().int().min(1).max(100).default(10),
     ),
+    MONGODB_URI: mongodbUrl,
     REDIS_URL: redisUrl.default("redis://localhost:6379"),
     LOG_LEVEL: z
       .enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"])
@@ -306,6 +362,54 @@ export const environmentSchema = observabilityEnvironmentSchema
         path: ["WEB_ORIGIN"],
       });
     }
+
+    const mongo = parseMongoConnectionString(environment.MONGODB_URI);
+    if (mongo && environment.NODE_ENV === "production") {
+      if (!mongo.username || !mongo.password) {
+        context.addIssue({
+          code: "custom",
+          message: "Production MongoDB requires authenticated credentials",
+          path: ["MONGODB_URI"],
+        });
+      }
+
+      const unsafeOptions = [
+        "tlsInsecure",
+        "tlsAllowInvalidCertificates",
+        "tlsAllowInvalidHostnames",
+      ];
+      if (
+        unsafeOptions.some(
+          (option) => mongoOption(mongo.searchParams, option) === "true",
+        )
+      ) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "Production MongoDB must not disable TLS certificate verification",
+          path: ["MONGODB_URI"],
+        });
+      }
+
+      const tls =
+        mongoOption(mongo.searchParams, "tls") ??
+        mongoOption(mongo.searchParams, "ssl");
+      const internalComposeMongo =
+        mongo.hostnames.length === 1 && mongo.hostnames[0] === "mongo";
+      if (
+        (mongo.protocol === "mongodb+srv:" && tls === "false") ||
+        (mongo.protocol === "mongodb:" &&
+          !internalComposeMongo &&
+          tls !== "true")
+      ) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "Production MongoDB outside the internal mongo service requires TLS",
+          path: ["MONGODB_URI"],
+        });
+      }
+    }
   });
 
 export type Environment = z.infer<typeof environmentSchema>;
@@ -314,12 +418,6 @@ export function validateEnvironment(
   input: Record<string, unknown>,
 ): Environment {
   return environmentSchema.parse(input);
-}
-
-export function validateObservabilityEnvironment(
-  input: Record<string, unknown>,
-): ObservabilityEnvironment {
-  return observabilityEnvironmentSchema.parse(input);
 }
 
 export function isBullBoardEnabled(environment: NodeJS.ProcessEnv): boolean {

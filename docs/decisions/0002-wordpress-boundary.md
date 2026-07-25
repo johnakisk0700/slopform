@@ -2,6 +2,10 @@
 
 - Status: Accepted for the migration phase
 - Date: 2026-07-22
+- Scope note: the PostgreSQL-only wording for new product capabilities is later
+  narrowed for conversation aggregates by
+  [ADR 0007](0007-mongodb-conversation-authority.md). The WordPress boundary is
+  unchanged.
 
 ## Decision
 

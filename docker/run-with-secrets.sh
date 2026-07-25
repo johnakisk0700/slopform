@@ -29,6 +29,45 @@ if [ -r /run/secrets/redis_password ]; then
   export REDIS_URL="redis://:${redis_password}@redis:6379"
 fi
 
+if [ -r /run/secrets/mongodb_app_password ]; then
+  : "${MONGODB_APP_USER:?MONGODB_APP_USER is required with mongodb_app_password}"
+  : "${MONGODB_DB:?MONGODB_DB is required with mongodb_app_password}"
+  mongodb_app_password=$(read_secret mongodb_app_password)
+
+  case "$MONGODB_APP_USER" in
+    *[!A-Za-z0-9._-]*)
+      echo "MongoDB application user must be URL-safe" >&2
+      exit 1
+      ;;
+  esac
+  case "$MONGODB_DB" in
+    *[!A-Za-z0-9_-]*)
+      echo "MongoDB database name must be URL-safe" >&2
+      exit 1
+      ;;
+  esac
+  if [ "${#MONGODB_APP_USER}" -gt 64 ]; then
+    echo "MongoDB application user must contain at most 64 characters" >&2
+    exit 1
+  fi
+  if [ "${#MONGODB_DB}" -gt 63 ]; then
+    echo "MongoDB database name must contain at most 63 characters" >&2
+    exit 1
+  fi
+  case "$mongodb_app_password" in
+    *[!A-Za-z0-9._~-]*)
+      echo "MongoDB application password must be URL-safe" >&2
+      exit 1
+      ;;
+  esac
+  if [ "${#mongodb_app_password}" -lt 16 ] || [ "${#mongodb_app_password}" -gt 128 ]; then
+    echo "MongoDB application password must contain 16 to 128 characters" >&2
+    exit 1
+  fi
+
+  export MONGODB_URI="mongodb://${MONGODB_APP_USER}:${mongodb_app_password}@mongo:27017/${MONGODB_DB}?authSource=${MONGODB_DB}&retryWrites=false"
+fi
+
 if [ -r /run/secrets/bull_board_password ]; then
   export_secret BULL_BOARD_PASSWORD bull_board_password
 fi

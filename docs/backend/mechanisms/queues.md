@@ -1,6 +1,6 @@
 # Queues and workers
 
-Status: implemented foundation. Last verified: **2026-07-22** against
+Status: implemented foundation. Last verified: **2026-07-25** against
 `@nestjs/bullmq 11.0.4`, BullMQ `5.80.10` and Bull Board `8.1.2`.
 
 ## Boundary and ownership
@@ -16,6 +16,7 @@ flowchart LR
   Board["Read-only Bull Board"] --> Redis
   Redis -->|"persistent Worker"| Worker["Worker process"]
   Worker --> DB[(PostgreSQL)]
+  Worker --> Mongo[(MongoDB conversations)]
   Worker -.-> Provider["External provider"]
 ```
 
@@ -68,12 +69,13 @@ business retry timing. Until a provider is explicitly integrated, the consumer
 records a safe `provider_not_configured` blocked attempt and performs no
 external side effect.
 
-The authoritative owner, thread history, model, attempt and state remain in
-PostgreSQL. The worker reloads them by turn ID; job payloads must never contain
-chat content or provider credentials. The attempt stays out of the payload but
-is encoded in the deterministic job ID and checked against the row before
-generation. A manual retry increments it, fencing retained jobs from an older
-attempt.
+For Assistant work, MongoDB owns the owner-scoped thread, ordered history and
+user-visible turn state. PostgreSQL retains the request id, model, attempt and
+recovery/execution projection. The worker fences the PostgreSQL projection by
+turn ID and exact attempt, then loads model history from MongoDB; job payloads
+must never contain chat content or provider credentials. The attempt stays out
+of the payload but is encoded in the deterministic job ID. A manual retry
+increments it, fencing retained jobs from an older attempt.
 
 Producer and processor both validate the envelope. Redis may contain jobs from
 another deployer/version, so unknown names, unsupported versions, malformed

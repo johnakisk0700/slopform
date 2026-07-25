@@ -10,7 +10,7 @@ The root `Dockerfile` produces five targets:
 - `worker`: Nest BullMQ process;
 - `migrate`: minimal, one-shot Drizzle migration runner.
 
-PostgreSQL and Redis use pinned official images. Caddy is the production edge:
+PostgreSQL, MongoDB and Redis use pinned official images. Caddy is the production edge:
 it routes `/api/*` unchanged to Nest and all other requests to the admin SPA,
 and manages TLS when `DOMAIN` resolves to the VPS.
 
@@ -20,9 +20,11 @@ flowchart LR
   Caddy --> Web["Static admin SPA"]
   Caddy --> API["Nest API"]
   API --> DB[(PostgreSQL)]
+  API --> Mongo[(MongoDB)]
   API --> Redis[(Redis)]
   Redis --> Worker["BullMQ worker"]
   Worker --> DB
+  Worker --> Mongo
   Worker --> AI["OpenRouter / OpenAI"]
   Migrate["One-shot migration"] --> DB
   Migrate -. "must succeed" .-> API
@@ -30,7 +32,7 @@ flowchart LR
 ```
 
 Production separates `edge`, internal `data`, and worker `egress` networks.
-Caddy and the web tier cannot reach PostgreSQL or Redis. Application filesystems are
+Caddy and the web tier cannot reach PostgreSQL, MongoDB or Redis. Application filesystems are
 read-only, application and migration images run as the unprivileged `node`
 user with Linux capabilities dropped, Docker's init forwards signals and reaps
 child processes, and writable scratch space is an in-memory `/tmp`. Caddy also
@@ -67,10 +69,10 @@ after a dependency manifest, lockfile, `DEV_UID` or `DEV_GID` change, then run
 `pnpm dev:containers` to recreate the affected containers. Compose performs
 this startup sequence:
 
-1. ensure one shared development image exists, then start PostgreSQL, Redis and
-   one frozen-lockfile dependency sync into Linux-only named volumes;
+1. ensure one shared development image exists, then start PostgreSQL, MongoDB,
+   Redis and one frozen-lockfile dependency sync into Linux-only named volumes;
 2. after dependencies and PostgreSQL are ready, apply pending migrations;
-3. after migration and Redis are ready, start one backend development
+3. after migration, MongoDB and Redis are ready, start one backend development
    container containing the compiler, API and worker watchers, then wait for
    the API readiness check;
 4. start the Vite dev server with hot reload and wait for its health check.
@@ -90,14 +92,14 @@ normal loop. All development services consume the same image, so the explicit
 build exports it once rather than manufacturing four identical copies.
 
 Development ports bind to loopback only. If a default is occupied, override
-`POSTGRES_HOST_PORT`, `REDIS_HOST_PORT`, `API_HOST_PORT` or `WEB_HOST_PORT` in
+`POSTGRES_HOST_PORT`, `MONGODB_HOST_PORT`, `REDIS_HOST_PORT`, `API_HOST_PORT` or `WEB_HOST_PORT` in
 `.env`; Compose keeps browser-facing API and CORS URLs aligned automatically.
-For the native application workflow, also change the ports in `DATABASE_URL`
-and `REDIS_URL` to match the host overrides.
+For the native application workflow, also change the ports in `DATABASE_URL`,
+`MONGODB_URI` and `REDIS_URL` to match the host overrides.
 
 `docker compose down` preserves data and dependencies. `docker compose down
---volumes` deletes the development database, Redis data and dependency volumes;
-use it only for an intentional reset.
+--volumes` deletes the development PostgreSQL/MongoDB data, Redis data and
+dependency volumes; use it only for an intentional reset.
 
 ## Production configuration
 
@@ -109,6 +111,8 @@ chmod 600 .env.production
 install -d -m 700 secrets
 umask 077
 openssl rand -hex 32 > secrets/postgres_password
+openssl rand -hex 32 > secrets/mongodb_root_password
+openssl rand -hex 32 > secrets/mongodb_app_password
 openssl rand -hex 32 > secrets/redis_password
 touch secrets/bull_board_password secrets/clerk_secret_key
 touch secrets/openai_api_key secrets/openrouter_api_key
@@ -117,7 +121,7 @@ touch secrets/wasender_session_api_key secrets/wasender_webhook_secret
 
 Set `DOMAIN`, `WEB_ORIGIN`, database names and any enabled integrations. Keep
 `.env.production` and `secrets/` out of Git and unencrypted backups. The example
-points Compose at independent URL-safe database/Redis passwords and separate
+points Compose at independent URL-safe PostgreSQL/MongoDB/Redis passwords and separate
 files for Clerk, disabled Bull Board authentication, the optional AI providers
 and the opt-in Wasender boundary. Populate the Clerk file before starting the
 API and at least one AI file to enable assistant generation; populate the Bull
@@ -132,7 +136,11 @@ availability while only the worker makes provider calls. Caddy and the web tier
 receive none of them. WordPress remains independent; its credential is not read
 from WordPress at runtime. If the backend joins the same Wasender session, copy
 the session key into the worker secret file and coordinate rotation with
-WordPress.
+WordPress. MongoDB receives a root secret only for fresh-volume initialization;
+API and worker receive only the database-scoped application secret. Changing a
+MongoDB secret file does not rotate a user in an existing volume: change the
+database user password first, update the file, recreate API/worker and verify
+readiness.
 
 The web image bakes `VITE_CLERK_PUBLISHABLE_KEY` through a Docker build argument;
 it is public and must match the API's `CLERK_PUBLISHABLE_KEY`. Changing it
@@ -154,7 +162,8 @@ Before launch, measure steady-state and peak usage, then set service limits with
 headroom and verify that PostgreSQL is never the accidental OOM sacrifice.
 The default API and worker database pools are ten connections each. Budget the
 combined maximum against PostgreSQL capacity before scaling either process;
-raising one service's pool in isolation is not capacity planning.
+raising one service's pool in isolation is not capacity planning. Each process
+also owns a MongoDB pool capped at ten connections.
 
 ## Build and deploy
 
@@ -190,8 +199,9 @@ curl --fail --show-error --silent https://app.example.com/api/v1/health/ready
 curl --fail --show-error --silent --output /dev/null https://app.example.com/
 ```
 
-The migration image runs first. API and worker creation is gated on its
-successful exit; web and Caddy are gated on dependency-aware readiness checks.
+The migration image runs after PostgreSQL, MongoDB and Redis are healthy. API
+and worker creation is gated on its successful exit; web and Caddy are gated on
+dependency-aware readiness checks.
 A failed build leaves the current stack alone. The deployment scripts start or
 verify the data services, run migration as a separate foreground container, and
 only replace API/worker/web/edge containers after it succeeds. A failed
@@ -255,8 +265,87 @@ contract and does not reverse migrations. Use expand-and-contract migrations,
 exercise the old application against the migrated schema before release, and
 prefer a forward fix when compatibility is uncertain.
 
-Before production traffic, configure encrypted off-host PostgreSQL backups and
-perform a restore drill. Docker volumes are persistence, not backup.
+Docker volumes are persistence, not backup. Losing MongoDB loses authoritative
+conversation history even when the PostgreSQL execution projection survives.
+
+### Coordinated backup runbook
+
+The standalone VPS topology cannot take a transactionally consistent snapshot
+across PostgreSQL and MongoDB while writes continue. For a coordinated logical
+backup, stop the API first, then stop the worker and let its grace period finish
+active jobs. With both writers quiesced, capture both stores under one UTC
+backup id:
+
+```bash
+set -Eeuo pipefail
+export RELEASE_TAG=$(git rev-parse HEAD)
+compose=(docker compose --env-file .env.production -f compose.prod.yaml)
+backup_id=$(date -u +%Y%m%dT%H%M%SZ)
+: "${BACKUP_AGE_RECIPIENT:?Set the public age recipient}"
+install -d -m 700 backups
+
+"${compose[@]}" stop api
+"${compose[@]}" stop worker
+
+"${compose[@]}" exec -T postgres sh -ec \
+  'PGPASSWORD="$(cat /run/secrets/postgres_password)" exec pg_dump --host 127.0.0.1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --format=custom' |
+  age --recipient "$BACKUP_AGE_RECIPIENT" --output "backups/${backup_id}.postgres.dump.age"
+
+"${compose[@]}" exec -T mongo sh -ec \
+  'exec mongodump --host 127.0.0.1 --username "$MONGODB_APP_USER" --password "$(cat /run/secrets/mongodb_app_password)" --authenticationDatabase "$MONGO_INITDB_DATABASE" --db "$MONGO_INITDB_DATABASE" --archive --gzip' |
+  age --recipient "$BACKUP_AGE_RECIPIENT" --output "backups/${backup_id}.mongo.archive.gz.age"
+
+sha256sum "backups/${backup_id}."*.age > "backups/${backup_id}.sha256"
+"${compose[@]}" up -d --no-build --wait api worker
+```
+
+The example assumes `age` is installed and uses only its public recipient on the
+host; database passwords are expanded inside their containers rather than
+placed in host command history. If either dump or encryption fails, keep the
+application quiesced until the failure is understood or explicitly restart it;
+an unpaired artifact is not a coordinated restore point.
+
+Upload the encrypted pair and checksum to access-controlled off-host storage
+immediately. Until product-specific RPO/RTO and retention are approved, retain
+at least 14 daily, 8 weekly and 12 monthly pairs, monitor backup age/size and
+test decryption. Storage snapshots or a managed replica-set backup may replace
+this downtime procedure only when its cross-store consistency contract is
+documented.
+
+### Restore drill and disaster recovery
+
+Quarterly, restore a matched pair into a disposable Compose project with fresh
+credentials and empty PostgreSQL, MongoDB and Redis volumes. Never test by
+restoring over production. After decrypting through a pipe, use `pg_restore`
+for PostgreSQL and the following shape for MongoDB:
+
+```bash
+set -o pipefail
+age --decrypt backups/<backup-id>.mongo.archive.gz.age |
+  docker compose --project-name join-the-six-restore \
+    --env-file .env.restore -f compose.yaml exec -T mongo sh -ec \
+    'exec mongorestore --host 127.0.0.1 --username "$MONGODB_APP_USER" --password "$MONGODB_APP_PASSWORD" --authenticationDatabase "$MONGO_INITDB_DATABASE" --archive --gzip --drop'
+
+docker compose --project-name join-the-six-restore \
+  --env-file .env.restore -f compose.yaml exec -T mongo sh -ec \
+  'exec mongosh --quiet --username "$MONGODB_APP_USER" --password "$MONGODB_APP_PASSWORD" --authenticationDatabase "$MONGO_INITDB_DATABASE" "$MONGO_INITDB_DATABASE" --eval "const result=db.runCommand({validate:\"conversation_threads\",full:true}); if(!result.valid){quit(2)}; printjson({documents:db.conversation_threads.countDocuments({}),indexes:db.conversation_threads.getIndexes().map(index=>index.name)})"'
+```
+
+Use a restore-only password in `.env.restore`. Validate the encrypted checksums
+before decrypting, Mongo's full collection validation, the three required
+indexes, document counts, PostgreSQL migration state and representative
+owner-scoped API reads. Record elapsed time against the RTO, then destroy the
+disposable project and its volumes.
+
+For an actual rollback, keep API and worker stopped, restore PostgreSQL and
+MongoDB from the same backup id, and use a clean Redis volume; Redis is not
+restored as a source of truth. Both durable stores must be validated before
+starting any application process. Start the API first and verify readiness and
+owner-scoped reads. Reconcile Assistant terminal Mongo turns against the
+PostgreSQL execution projection, then decide how queued/running attempts are
+re-enqueued or failed before starting the worker. PostgreSQL outbox/delivery
+state remains authoritative for outbound work; MongoDB must never be used to
+invent delivery completion.
 
 ## CI boundary
 
@@ -275,10 +364,11 @@ self-hosted runner must never execute untrusted pull-request jobs.
 
 ## Pinned toolchain and references
 
-Verified 2026-07-22 with Docker Engine 29.4.1 and Docker Compose 5.1.3:
+Verified 2026-07-25 with Docker Engine 29.4.1 and Docker Compose 5.1.3:
 
 - Node `24.11.0-bookworm-slim`, pnpm `10.33.0`;
 - PostgreSQL `18.4-alpine3.24`;
+- MongoDB `8.0.28-noble`;
 - Redis `8.8.0-alpine3.23`;
 - Caddy `2.11.4-alpine`.
 
@@ -301,3 +391,5 @@ Official guidance:
 - [Official Node image best practices](https://github.com/nodejs/docker-node/blob/main/docs/BestPractices.md)
 - [node-postgres client timeouts](https://node-postgres.com/apis/client)
 - [PostgreSQL client timeouts](https://www.postgresql.org/docs/18/runtime-config-client.html)
+- [MongoDB production notes](https://www.mongodb.com/docs/manual/administration/production-notes/)
+- [MongoDB Docker official image](https://hub.docker.com/_/mongo)

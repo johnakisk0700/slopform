@@ -144,8 +144,9 @@ trade-off in an ADR.
 The participant suites cover every age/neighborhood mapping, normalization,
 incomplete legacy preservation, invalid scale and interest rejection, WXR
 parsing, source-hash idempotency, updates, identical duplicate linking and
-conflicting duplicate rejection. On 2026-07-23 the complete backend run passed
-172 tests; both database and backend builds and `drizzle-kit check` also passed.
+conflicting duplicate rejection. On 2026-07-25 the complete backend run passed
+without failures; both database and backend builds and `drizzle-kit check` also
+passed.
 
 The restricted WXR contained 45 `jts_profile` posts: 36 active and 9 trashed.
 The local import accepted 32 active profiles (22 complete and 10 incomplete),

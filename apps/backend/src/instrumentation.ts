@@ -8,7 +8,7 @@ import { config as loadEnvironmentFile } from "dotenv";
 import {
   type ObservabilityEnvironment,
   validateObservabilityEnvironment,
-} from "./infrastructure/config/environment.js";
+} from "./infrastructure/config/observability-environment.js";
 import { isLivenessRequest } from "./infrastructure/observability/http-observability.js";
 import { writeStructuredFatalEvent } from "./infrastructure/observability/startup-failure.js";
 

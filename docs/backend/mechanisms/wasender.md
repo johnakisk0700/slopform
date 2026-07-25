@@ -92,8 +92,9 @@ send. AI output never calls Wasender directly.
   `log_messages=false` unless retention and provider exposure are explicitly
   approved. The future `FeedbackConversation` ADR must define raw-content
   access, minimization and deletion.
-- Wasender is transport, not the system of record. PostgreSQL must own durable
-  conversation and feedback state.
+- Wasender is transport, not the system of record. MongoDB must own durable
+  conversation/feedback state; PostgreSQL must own business audit, outbox and
+  delivery state.
 
 ## Failure and recovery
 

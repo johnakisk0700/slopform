@@ -9,6 +9,8 @@ ORM `0.45.2`, Drizzle Kit `0.31.10`, `pg` `8.22.0` and PostgreSQL `18.4`.
 Nest HTTP/worker process owns one lazy node-postgres pool through
 `DatabaseService`. Services choose transaction scope; repositories issue
 explicit queries using the supplied transaction or service database handle.
+Conversation aggregates are outside this boundary; see
+[MongoDB lifecycle](mongodb.md).
 
 ```mermaid
 flowchart LR
@@ -51,15 +53,16 @@ are explicit snake case.
 
 The schema uses database-generated UUID/timestamp defaults, bounded non-blank
 text constraints, JSON shape checks and indexes selected for actual composite
-lookup shapes. `assistant_threads` and `assistant_turns` persist owner-scoped
-conversation history and asynchronous generation state. Composite ownership
-foreign keys, owner-scoped request-id uniqueness and one-active-turn partial
-uniqueness keep HTTP replay and append concurrency coherent. Status/result/error
-checks protect terminal shape: successful content is explicitly non-null and
-nonblank, failure codes are allowlisted, and reasoning effort is constrained to
-`low|medium|high`. Terminal writes are conditional on both a nonterminal status
-and the current attempt. Add indexes for measured queries, verify with
-`EXPLAIN`, and account for write cost.
+lookup shapes. `assistant_threads` and `assistant_turns` retain the Assistant
+execution/idempotency projection used for request replay, attempt fencing,
+stale-job recovery and queue correlation. Their content fields are a
+compatibility/backfill projection; MongoDB is authoritative for user-visible
+thread content and ordered history. Composite ownership foreign keys,
+owner-scoped request-id uniqueness and one-active-turn partial uniqueness keep
+HTTP replay and append concurrency coherent. Status/result/error checks protect
+the execution projection, and terminal writes remain conditional on both a
+nonterminal status and the current attempt. Add indexes for measured queries,
+verify with `EXPLAIN`, and account for write cost.
 
 Participant profiles use normalized unique emails, E.164 phones, constrained
 age/neighborhood/conversation values and a normalized interest join table.

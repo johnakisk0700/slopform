@@ -14,8 +14,9 @@ This directory is the maintained project memory. Markdown is deliberate: GitHub 
 8. [`decisions/0004-admin-only-boundary.md`](decisions/0004-admin-only-boundary.md) — admin/public product ownership boundary
 9. [`decisions/0005-theming-and-dark-mode.md`](decisions/0005-theming-and-dark-mode.md) — design tokens and light/dark theming
 10. [`decisions/0006-react-admin-runtime.md`](decisions/0006-react-admin-runtime.md) — React admin runtime (supersedes the Nuxt frontend)
-11. [`deployment.md`](deployment.md) — development containers and production VPS topology
-12. [`agent-readiness.md`](agent-readiness.md) — repeatable extension benchmark and current evidence gaps
+11. [`decisions/0007-mongodb-conversation-authority.md`](decisions/0007-mongodb-conversation-authority.md) — MongoDB conversation authority and PostgreSQL recovery boundary
+12. [`deployment.md`](deployment.md) — development containers and production VPS topology
+13. [`agent-readiness.md`](agent-readiness.md) — repeatable extension benchmark and current evidence gaps
 
 Area-specific memory:
 
@@ -23,9 +24,11 @@ Area-specific memory:
 - [`frontend/theming.md`](frontend/theming.md) — design tokens, dark mode and the HeroUI integration
 - [`frontend/assistant.md`](frontend/assistant.md) — queue-backed AI conversation route and polling contract
 - [`backend/mechanisms/README.md`](backend/mechanisms/README.md) — queue, database and runtime operations contracts
+- [`backend/mechanisms/mongodb.md`](backend/mechanisms/mongodb.md) — conversation-store lifecycle, security, limits and backup
 - [`backend/mechanisms/authentication.md`](backend/mechanisms/authentication.md) — Clerk identity, admin authorization and restricted-Google handoff
 - [`backend/mechanisms/wasender.md`](backend/mechanisms/wasender.md) — opt-in WhatsApp transport and webhook boundary
 - [`backend/modules/README.md`](backend/modules/README.md) — product-domain module inventory and lifecycle docs
+- [`backend/modules/conversations.md`](backend/modules/conversations.md) — owner-scoped MongoDB conversation aggregate
 - [`backend/modules/participants.md`](backend/modules/participants.md) — participant profile schema and WordPress import runbook
 - [`documentation-standard.md`](documentation-standard.md) — required shape for new component/mechanism documentation
 

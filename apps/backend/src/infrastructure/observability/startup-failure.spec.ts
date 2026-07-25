@@ -117,7 +117,7 @@ describe("handleStartupFailure", () => {
   it("redacts userinfo and query values in common service URLs", () => {
     const serialized = serializeStartupError(
       new Error(
-        "postgresql://database-user:database-password@database:5432/app?password=query-password&sslmode=require redis://:redis-password@redis:6379",
+        "postgresql://database-user:database-password@database:5432/app?password=query-password&sslmode=require redis://:redis-password@redis:6379 mongodb://mongo-user:mongo-password@mongo:27017/app mongodb+srv://srv-user:srv-password@cluster.example/app",
       ),
     );
     const output = JSON.stringify(serialized);
@@ -125,6 +125,8 @@ describe("handleStartupFailure", () => {
     expect(output).not.toContain("database-password");
     expect(output).not.toContain("query-password");
     expect(output).not.toContain("redis-password");
+    expect(output).not.toContain("mongo-password");
+    expect(output).not.toContain("srv-password");
     expect(output).not.toContain("sslmode=require");
     expect(output).toContain("sslmode=[Redacted]");
     expect(output).toContain("[Redacted]");

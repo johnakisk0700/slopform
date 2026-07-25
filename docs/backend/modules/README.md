@@ -7,6 +7,8 @@ and link the source module. Cross-cutting infrastructure belongs in
 
 Product modules:
 
+- [`conversations.md`](conversations.md) — MongoDB-authoritative, owner-scoped
+  conversation aggregates for admin and future participant channels.
 - [`assistant.md`](assistant.md) — authenticated, owner-scoped asynchronous AI
   conversation threads and durable generation turns.
 - [`email-delivery.md`](email-delivery.md) — provider-agnostic email intent,
