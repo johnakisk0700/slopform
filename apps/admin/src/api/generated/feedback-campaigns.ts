@@ -23,6 +23,8 @@ import type {
 
 import type { FeedbackCampaignDtoOutput } from "./model/feedbackCampaignDtoOutput";
 
+import type { FeedbackCampaignListDtoOutput } from "./model/feedbackCampaignListDtoOutput";
+
 import type { LaunchFeedbackCampaignDto } from "./model/launchFeedbackCampaignDto";
 
 import type { StartFeedbackConversationDto } from "./model/startFeedbackConversationDto";
@@ -50,6 +52,158 @@ const withQueryKey = <T extends object, K>(
   }
   return result;
 };
+
+export const getListFeedbackCampaignsUrl = () => {
+  return `/v1/feedback/campaigns`;
+};
+
+export const listFeedbackCampaigns = async (
+  options?: Parameters<typeof apiRequest>[1],
+): Promise<FeedbackCampaignListDtoOutput> => {
+  return apiRequest<FeedbackCampaignListDtoOutput>(
+    getListFeedbackCampaignsUrl(),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getListFeedbackCampaignsQueryKey = () => {
+  return [`/v1/feedback/campaigns`] as const;
+};
+
+export const getListFeedbackCampaignsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listFeedbackCampaigns>>,
+  TError = unknown,
+>(options?: {
+  query?: Partial<
+    UseQueryOptions<
+      Awaited<ReturnType<typeof listFeedbackCampaigns>>,
+      TError,
+      TData
+    >
+  >;
+  request?: SecondParameter<typeof apiRequest>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListFeedbackCampaignsQueryKey();
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listFeedbackCampaigns>>
+  > = ({ signal }) => listFeedbackCampaigns({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listFeedbackCampaigns>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type ListFeedbackCampaignsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listFeedbackCampaigns>>
+>;
+export type ListFeedbackCampaignsQueryError = unknown;
+
+export function useListFeedbackCampaigns<
+  TData = Awaited<ReturnType<typeof listFeedbackCampaigns>>,
+  TError = unknown,
+>(
+  options: {
+    query: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof listFeedbackCampaigns>>,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listFeedbackCampaigns>>,
+          TError,
+          Awaited<ReturnType<typeof listFeedbackCampaigns>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof apiRequest>;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useListFeedbackCampaigns<
+  TData = Awaited<ReturnType<typeof listFeedbackCampaigns>>,
+  TError = unknown,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof listFeedbackCampaigns>>,
+        TError,
+        TData
+      >
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listFeedbackCampaigns>>,
+          TError,
+          Awaited<ReturnType<typeof listFeedbackCampaigns>>
+        >,
+        "initialData"
+      >;
+    request?: SecondParameter<typeof apiRequest>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+export function useListFeedbackCampaigns<
+  TData = Awaited<ReturnType<typeof listFeedbackCampaigns>>,
+  TError = unknown,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof listFeedbackCampaigns>>,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof apiRequest>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+};
+
+export function useListFeedbackCampaigns<
+  TData = Awaited<ReturnType<typeof listFeedbackCampaigns>>,
+  TError = unknown,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<
+        Awaited<ReturnType<typeof listFeedbackCampaigns>>,
+        TError,
+        TData
+      >
+    >;
+    request?: SecondParameter<typeof apiRequest>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & {
+  queryKey: DataTag<QueryKey, TData, TError>;
+} {
+  const queryOptions = getListFeedbackCampaignsQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<
+    TData,
+    TError
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
 
 export const getLaunchFeedbackCampaignUrl = () => {
   return `/v1/feedback/campaigns/launch`;

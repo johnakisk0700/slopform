@@ -40,6 +40,29 @@ export const feedbackCampaignSchema = z
   })
   .strict();
 
+/**
+ * Compact campaign picker row: event identity, lifecycle and conversation
+ * progress counts. Transcripts stay out of the list.
+ */
+export const feedbackCampaignListItemSchema = z
+  .object({
+    id: z.uuid(),
+    eventId: z.uuid(),
+    eventTitle: z.string().min(1).max(200).nullable(),
+    status: feedbackCampaignStatusSchema,
+    launchedAt: z.iso.datetime(),
+    conversationCount: z.number().int().nonnegative(),
+    openCount: z.number().int().nonnegative(),
+    needsAttentionCount: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const feedbackCampaignListSchema = z
+  .object({
+    items: z.array(feedbackCampaignListItemSchema).max(200),
+  })
+  .strict();
+
 export const startFeedbackConversationResultSchema = z
   .object({
     campaignId: z.uuid(),
@@ -61,6 +84,9 @@ export class StartFeedbackConversationDto extends createZodDto(
   startFeedbackConversationSchema,
 ) {}
 export class FeedbackCampaignDto extends createZodDto(feedbackCampaignSchema) {}
+export class FeedbackCampaignListDto extends createZodDto(
+  feedbackCampaignListSchema,
+) {}
 export class StartFeedbackConversationResultDto extends createZodDto(
   startFeedbackConversationResultSchema,
 ) {}
@@ -72,6 +98,12 @@ export type StartFeedbackConversationInput = z.infer<
   typeof startFeedbackConversationSchema
 >;
 export type FeedbackCampaignView = z.infer<typeof feedbackCampaignSchema>;
+export type FeedbackCampaignListItemView = z.infer<
+  typeof feedbackCampaignListItemSchema
+>;
+export type FeedbackCampaignListView = z.infer<
+  typeof feedbackCampaignListSchema
+>;
 export type StartFeedbackConversationResultView = z.infer<
   typeof startFeedbackConversationResultSchema
 >;

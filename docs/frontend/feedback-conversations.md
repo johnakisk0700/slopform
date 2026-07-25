@@ -36,7 +36,8 @@ linkable and survives reload, while the list beside it stays put.
 ## Contract
 
 Every product call goes through the generated hooks in
-`apps/admin/src/api/generated/` — `useListFeedbackCampaignConversations`,
+`apps/admin/src/api/generated/` — `useListFeedbackCampaigns`,
+`useListFeedbackCampaignConversations`,
 `useGetFeedbackConversation`, `useListFeedbackConversationResults`,
 `useListFeedbackCampaignResults`, `useTakeOverFeedbackConversation`,
 `useResumeFeedbackConversationBot`, `useCloseFeedbackConversation`,
@@ -50,7 +51,6 @@ launch/pause/resume/close/get hooks.
 | `src/features/feedback/conversationView.ts` | Progress, badge rows, search folding, ordering, grouping, selection     |
 | `src/features/feedback/polling.ts`          | The U3 intervals and the stop-when-closed rule                          |
 | `src/features/feedback/simulator.ts`        | Zod schemas for the two dev-only simulator endpoints                    |
-| `src/features/feedback/recentCampaigns.ts`  | The local campaign shortcut list (see the gap below)                    |
 | `src/lib/feedbackSimulator.ts`              | The dev simulator facade over the shared `ofetch` client                |
 | `src/components/admin/feedback/`            | The three panes, the badge row, and the confirmation/start dialogs      |
 
@@ -61,7 +61,8 @@ they are unit-tested directly in `apps/admin/test/feedback-inbox.spec.ts`.
 
 ```mermaid
 flowchart LR
-  list["Conversation list\nlistFeedbackCampaignConversations"] -->|select| detail["Transcript\ngetFeedbackConversation"]
+  picker["Campaign picker\nlistFeedbackCampaigns"] -->|open| list["Conversation list\nlistFeedbackCampaignConversations"]
+  list -->|select| detail["Transcript\ngetFeedbackConversation"]
   detail --> details["Details pane\nlistFeedbackConversationResults"]
   details -->|"capability flags"| actions["Take over / Resume bot / Close / Staff send"]
   actions -->|"updated read model"| detail
@@ -127,23 +128,15 @@ assistant route does: the shell's height chain is `min-height`-based, so a
 full-height inbox would need a definite height that nothing in the chain
 provides. Capped panes give the same ergonomics without changing shared layout.
 
-## Known contract gap
+## Campaign picker
 
-The backend publishes no operation that lists campaigns, and `EventDetailDto`
-carries no campaign id. The only server-side way to turn an event into a
-campaign id is `launchFeedbackCampaign`, which is replay-safe but **also opens
-conversations and queues intros for newly eligible attendees** — so it cannot
-be used to merely look at an inbox.
-
-Until that is fixed the picker separates the two: campaigns this browser has
-already opened are plain links backed by a Zod-validated `localStorage`
-shortcut list, and launching is an explicit confirmed action whose dialog says
-what it will send. The campaign id in the URL is always the authority; the
-cache is a convenience and unparseable entries are dropped.
-
-**Recommended fix:** add `listFeedbackCampaigns` (or a `feedbackCampaignId` on
-the event read model) and delete `features/feedback/recentCampaigns.ts` with the
-picker's local list.
+`/admin/feedback` lists campaigns from `listFeedbackCampaigns` (newest first)
+with event title, status, launched_at and conversation progress counts. Opening
+an inbox is a plain link. Launching a campaign for a finished event that does
+not yet have one is a separate confirmed action — `launchFeedbackCampaign` also
+opens conversations and queues intros for newly eligible attendees, so it must
+never be used merely to navigate. Event detail carries a nullable
+`feedbackCampaignId` so screens can deep-link the inbox without launching.
 
 ## Accessibility
 
@@ -167,9 +160,9 @@ picker's local list.
 `apps/admin/test/feedback-inbox.spec.ts` covers the D18 fallback, delivery-badge
 precedence, lifecycle badges, goal progress, accent-insensitive Greek filtering,
 attention-first ordering, group pruning, selection stability under polling, the
-polling policy, the shortcut cache's merge rule, and the API-boundary invariants
-(generated hooks on the screen, capability-gated actions, exactly two
-hand-written transport callers).
+polling policy, the campaign picker consuming `useListFeedbackCampaigns`, and the
+API-boundary invariants (generated hooks on the screen, capability-gated actions,
+exactly two hand-written transport callers).
 
 ## Decisions and references
 

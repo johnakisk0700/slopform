@@ -7,6 +7,63 @@
  */
 import * as zod from "zod";
 
+export const listFeedbackCampaignsResponseItemsItemConversationCountMin = 0;
+export const listFeedbackCampaignsResponseItemsItemConversationCountMax = 9007199254740991;
+
+export const listFeedbackCampaignsResponseItemsItemEventIdRegExp = new RegExp(
+  "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+);
+export const listFeedbackCampaignsResponseItemsItemEventTitleMax = 200;
+
+export const listFeedbackCampaignsResponseItemsItemIdRegExp = new RegExp(
+  "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+);
+export const listFeedbackCampaignsResponseItemsItemLaunchedAtRegExp =
+  new RegExp(
+    "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+  );
+export const listFeedbackCampaignsResponseItemsItemNeedsAttentionCountMin = 0;
+export const listFeedbackCampaignsResponseItemsItemNeedsAttentionCountMax = 9007199254740991;
+
+export const listFeedbackCampaignsResponseItemsItemOpenCountMin = 0;
+export const listFeedbackCampaignsResponseItemsItemOpenCountMax = 9007199254740991;
+
+export const listFeedbackCampaignsResponseItemsMax = 200;
+
+export const ListFeedbackCampaignsResponse = zod.object({
+  items: zod
+    .array(
+      zod.object({
+        conversationCount: zod
+          .int()
+          .min(listFeedbackCampaignsResponseItemsItemConversationCountMin)
+          .max(listFeedbackCampaignsResponseItemsItemConversationCountMax),
+        eventId: zod
+          .uuid()
+          .regex(listFeedbackCampaignsResponseItemsItemEventIdRegExp),
+        eventTitle: zod
+          .string()
+          .min(1)
+          .max(listFeedbackCampaignsResponseItemsItemEventTitleMax)
+          .nullable(),
+        id: zod.uuid().regex(listFeedbackCampaignsResponseItemsItemIdRegExp),
+        launchedAt: zod.iso
+          .datetime({ offset: true })
+          .regex(listFeedbackCampaignsResponseItemsItemLaunchedAtRegExp),
+        needsAttentionCount: zod
+          .int()
+          .min(listFeedbackCampaignsResponseItemsItemNeedsAttentionCountMin)
+          .max(listFeedbackCampaignsResponseItemsItemNeedsAttentionCountMax),
+        openCount: zod
+          .int()
+          .min(listFeedbackCampaignsResponseItemsItemOpenCountMin)
+          .max(listFeedbackCampaignsResponseItemsItemOpenCountMax),
+        status: zod.enum(["launched", "paused", "closed"]),
+      }),
+    )
+    .max(listFeedbackCampaignsResponseItemsMax),
+});
+
 export const launchFeedbackCampaignBodyEventIdRegExp = new RegExp(
   "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
 );

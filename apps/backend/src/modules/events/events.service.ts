@@ -3,6 +3,7 @@ import type { EventStatus } from "@join-the-six/database";
 
 import { AuditRepository } from "../../infrastructure/audit/audit.repository.js";
 import { DatabaseService } from "../../infrastructure/database/database.service.js";
+import { PostEventFeedbackRepository } from "../post-event-feedback/post-event-feedback.repository.js";
 import { selectFeedbackCandidates } from "./feedback-candidates.js";
 import {
   EventsRepository,
@@ -74,6 +75,7 @@ export class EventsService {
     private readonly database: DatabaseService,
     private readonly repository: EventsRepository,
     private readonly audit: AuditRepository,
+    private readonly feedback: PostEventFeedbackRepository,
   ) {}
 
   async create(
@@ -195,10 +197,14 @@ export class EventsService {
     if (!summary) {
       throw new EventNotFoundError(id);
     }
-    const attendees = await this.repository.listAttendees(id);
+    const [attendees, campaign] = await Promise.all([
+      this.repository.listAttendees(id),
+      this.feedback.findCampaignByEventId(id),
+    ]);
     return {
       ...toEventView(summary),
       attendees: attendees.map(toAttendeeView),
+      feedbackCampaignId: campaign?.id ?? null,
     };
   }
 

@@ -661,6 +661,7 @@ runs as bounded BullMQ jobs every five minutes:
 
 | Method | Path                                                  | `operationId`               |
 | ------ | ----------------------------------------------------- | --------------------------- |
+| `GET`  | `/feedback/campaigns`                                 | `listFeedbackCampaigns`     |
 | `POST` | `/feedback/campaigns/launch`                          | `launchFeedbackCampaign`    |
 | `GET`  | `/feedback/campaigns/:campaignId`                     | `getFeedbackCampaign`       |
 | `POST` | `/feedback/campaigns/:campaignId/pause`               | `pauseFeedbackCampaign`     |
@@ -668,11 +669,19 @@ runs as bounded BullMQ jobs every five minutes:
 | `POST` | `/feedback/campaigns/:campaignId/close`               | `closeFeedbackCampaign`     |
 | `POST` | `/feedback/campaigns/:campaignId/conversations/start` | `startFeedbackConversation` |
 
+`listFeedbackCampaigns` is the read-only campaign picker: newest launch first,
+with event id + title, status, `launchedAt`, and conversation progress counts
+(`conversationCount`, `openCount`, `needsAttentionCount`). It never creates
+conversations or enqueues intros — that remains `launch` / `startConversation`.
+The event detail read model also exposes a nullable `feedbackCampaignId` so
+event screens can deep-link the inbox without calling launch.
+
 ### WP7 tests
 
 Focused coverage: eligibility gate, launch idempotency (replay creates nothing
 new), start-conversation never recreates STOP-closed threads, pause/resume
-audit, reminder/expiry edge cases (opted-out, human control, already closed),
+audit, `listFeedbackCampaigns` projection + progress counts (newest first),
+reminder/expiry edge cases (opted-out, human control, already closed),
 ingress recovery (stuck row re-enqueued, fresh pending untouched), lease skip
 for paused campaigns, and process composition (HTTP module in the API graph,
 sweeps in the worker only).

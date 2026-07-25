@@ -18,6 +18,7 @@ import { CurrentUserId } from "../../infrastructure/auth/current-user-id.decorat
 import {
   FeedbackCampaignDto,
   FeedbackCampaignIdDto,
+  FeedbackCampaignListDto,
   LaunchFeedbackCampaignDto,
   StartFeedbackConversationDto,
   StartFeedbackConversationResultDto,
@@ -43,6 +44,16 @@ const RequestCorrelationId = createParamDecorator(
 @Controller("feedback/campaigns")
 export class PostEventFeedbackCampaignController {
   constructor(private readonly campaigns: PostEventFeedbackCampaignService) {}
+
+  @Get()
+  @ApiOperation({ operationId: "listFeedbackCampaigns" })
+  @Header("Cache-Control", "no-store")
+  @ZodResponse({ status: 200, type: FeedbackCampaignListDto })
+  list(
+    @CurrentUserId() _userId: FeedbackCampaignPrincipal,
+  ): Promise<FeedbackCampaignListDto> {
+    return this.campaigns.list();
+  }
 
   @Post("launch")
   @ApiOperation({ operationId: "launchFeedbackCampaign" })

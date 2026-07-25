@@ -357,12 +357,22 @@ export function EventDetailPage() {
         title={event.title}
         description={`Status: ${event.status}. Attendance corrections use present updates — no row deletion for finished events.`}
         actions={
-          <Link
-            to="/admin/events"
-            className="text-sm font-semibold text-primary"
-          >
-            Back to list
-          </Link>
+          <div className="flex flex-wrap items-center gap-3">
+            {event.feedbackCampaignId ? (
+              <Link
+                to={`/admin/feedback/${event.feedbackCampaignId}`}
+                className="text-sm font-semibold text-primary"
+              >
+                Open inbox
+              </Link>
+            ) : null}
+            <Link
+              to="/admin/events"
+              className="text-sm font-semibold text-primary"
+            >
+              Back to list
+            </Link>
+          </div>
         }
       />
 

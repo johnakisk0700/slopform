@@ -5,6 +5,7 @@ import {
   feedbackNotes,
   feedbackSimOutbound,
   eventAttendees,
+  events,
   messageOutbox,
   participants,
   providerMessageIngress,
@@ -30,6 +31,7 @@ import {
 import {
   and,
   asc,
+  desc,
   eq,
   inArray,
   isNotNull,
@@ -51,6 +53,11 @@ export type FeedbackEligibleAttendee = {
   readonly preferredName: string | null;
   readonly emailNormalized: string;
   readonly phoneE164: string;
+};
+
+export type FeedbackCampaignWithEventTitle = {
+  readonly campaign: FeedbackCampaignRow;
+  readonly eventTitle: string;
 };
 
 type DatabaseExecutor = AppTransaction | DatabaseService["db"];
@@ -113,6 +120,31 @@ export class PostEventFeedbackRepository {
       .limit(1);
 
     return record;
+  }
+
+  /**
+   * Staff campaign picker: newest launch first, with the event title joined
+   * so the list does not need a second events round-trip.
+   */
+  async listCampaignsNewestFirst(
+    executor: DatabaseExecutor = this.database.db,
+    limit = 200,
+  ): Promise<FeedbackCampaignWithEventTitle[]> {
+    const boundedLimit = Math.min(Math.max(1, limit), 200);
+    const rows = await executor
+      .select({
+        campaign: feedbackCampaigns,
+        eventTitle: events.title,
+      })
+      .from(feedbackCampaigns)
+      .innerJoin(events, eq(events.id, feedbackCampaigns.eventId))
+      .orderBy(desc(feedbackCampaigns.launchedAt), desc(feedbackCampaigns.id))
+      .limit(boundedLimit);
+
+    return rows.map((row) => ({
+      campaign: row.campaign,
+      eventTitle: row.eventTitle,
+    }));
   }
 
   async updateCampaignStatus(

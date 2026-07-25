@@ -1,7 +1,7 @@
 import { toast } from "@heroui/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { PauseCircle, PlayCircle, SquareX } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 
 import {
@@ -46,7 +46,6 @@ import {
   RESULTS_POLL_INTERVAL_MS,
   conversationPollInterval,
 } from "../features/feedback/polling";
-import { rememberRecentCampaign } from "../features/feedback/recentCampaigns";
 import {
   useFeedbackSimulatorThread,
   useInjectFeedbackSimulatorMessage,
@@ -165,20 +164,6 @@ export function FeedbackInboxPage() {
   const pauseCampaign = usePauseFeedbackCampaign();
   const resumeCampaign = useResumeFeedbackCampaign();
   const closeCampaign = useCloseFeedbackCampaign();
-
-  // Remember this campaign so the picker can offer it again without a launch
-  // call, which would message newly eligible attendees just to look.
-  useEffect(() => {
-    if (campaign === undefined) {
-      return;
-    }
-    rememberRecentCampaign({
-      campaignId: campaign.id,
-      eventId: campaign.eventId,
-      eventTitle: campaign.eventTitle ?? "Untitled event",
-      openedAt: new Date().toISOString(),
-    });
-  }, [campaign]);
 
   function invalidateCampaign() {
     return Promise.all([

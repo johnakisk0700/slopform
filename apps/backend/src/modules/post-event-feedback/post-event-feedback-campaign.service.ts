@@ -10,6 +10,8 @@ import {
 } from "../conversations/feedback-conversation.schemas.js";
 import { EventsRepository } from "../events/events.repository.js";
 import type {
+  FeedbackCampaignListItemView,
+  FeedbackCampaignListView,
   FeedbackCampaignView,
   StartFeedbackConversationResultView,
 } from "./post-event-feedback-campaign.schemas.js";
@@ -78,6 +80,38 @@ export class PostEventFeedbackCampaignService {
     const campaign = await this.requireCampaign(campaignId);
     const summaries = await this.conversations.listForCampaign(campaign.id);
     return toCampaignView(campaign, summaries.length, 0);
+  }
+
+  /**
+   * Read-only campaign picker. Newest launch first; progress counts come from
+   * the same compact Mongo projections the inbox list uses. Never launches or
+   * enqueues intros — that remains `launch` / `startConversation` only.
+   */
+  async list(): Promise<FeedbackCampaignListView> {
+    const rows = await this.repository.listCampaignsNewestFirst();
+    const items: FeedbackCampaignListItemView[] = await Promise.all(
+      rows.map(async (row) => {
+        const summaries = await this.conversations.listForCampaign(
+          row.campaign.id,
+        );
+        return {
+          id: row.campaign.id,
+          eventId: row.campaign.eventId,
+          eventTitle: row.eventTitle,
+          status: row.campaign.status as FeedbackCampaignListItemView["status"],
+          launchedAt: row.campaign.launchedAt.toISOString(),
+          conversationCount: summaries.length,
+          openCount: summaries.filter(
+            (summary) => summary.lifecycle.state === "open",
+          ).length,
+          needsAttentionCount: summaries.filter(
+            (summary) => summary.needsAttention,
+          ).length,
+        };
+      }),
+    );
+
+    return { items };
   }
 
   /**

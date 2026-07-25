@@ -209,7 +209,11 @@ const CAMPAIGN_STATUS_TONES: Record<
 };
 
 export function campaignStatusBadge(
-  status: FeedbackCampaignConversationsDtoOutputCampaignStatus,
+  status:
+    | FeedbackCampaignConversationsDtoOutputCampaignStatus
+    | "launched"
+    | "paused"
+    | "closed",
 ): FeedbackBadge {
   return {
     key: "campaign-status",

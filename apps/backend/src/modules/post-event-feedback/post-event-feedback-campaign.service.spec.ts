@@ -220,6 +220,82 @@ describe("PostEventFeedbackCampaignService", () => {
       expect.objectContaining({ action: "feedback_campaign.resumed" }),
     );
   });
+
+  it("lists campaigns newest-first with conversation progress counts", async () => {
+    const olderCampaignId = "a9eccaa5-9ce6-4dcf-a630-5e35e4ec6f0a";
+    const olderEventId = "6c57f3b8-2b13-48f5-8730-18ac71f490cd";
+    const { service, repository, conversations } = createService();
+    repository.listCampaignsNewestFirst.mockResolvedValue([
+      {
+        campaign: campaignRow,
+        eventTitle: "Friday dinner",
+      },
+      {
+        campaign: {
+          ...campaignRow,
+          id: olderCampaignId,
+          eventId: olderEventId,
+          launchedAt: new Date("2026-07-20T00:00:00.000Z"),
+          status: "paused",
+        },
+        eventTitle: "Thursday dinner",
+      },
+    ]);
+    conversations.listForCampaign
+      .mockResolvedValueOnce([
+        {
+          lifecycle: { state: "open" },
+          needsAttention: true,
+        },
+        {
+          lifecycle: { state: "closed" },
+          needsAttention: false,
+        },
+        {
+          lifecycle: { state: "open" },
+          needsAttention: false,
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          lifecycle: { state: "closed" },
+          needsAttention: false,
+        },
+      ]);
+
+    const result = await service.list();
+
+    expect(result.items).toEqual([
+      {
+        id: campaignId,
+        eventId,
+        eventTitle: "Friday dinner",
+        status: "launched",
+        launchedAt: "2026-07-25T00:00:00.000Z",
+        conversationCount: 3,
+        openCount: 2,
+        needsAttentionCount: 1,
+      },
+      {
+        id: olderCampaignId,
+        eventId: olderEventId,
+        eventTitle: "Thursday dinner",
+        status: "paused",
+        launchedAt: "2026-07-20T00:00:00.000Z",
+        conversationCount: 1,
+        openCount: 0,
+        needsAttentionCount: 0,
+      },
+    ]);
+    expect(conversations.listForCampaign).toHaveBeenNthCalledWith(
+      1,
+      campaignId,
+    );
+    expect(conversations.listForCampaign).toHaveBeenNthCalledWith(
+      2,
+      olderCampaignId,
+    );
+  });
 });
 
 function openConversation() {
@@ -239,6 +315,7 @@ function createService(): {
   repository: {
     findCampaignByEventId: ReturnType<typeof vi.fn>;
     findCampaignById: ReturnType<typeof vi.fn>;
+    listCampaignsNewestFirst: ReturnType<typeof vi.fn>;
     createCampaign: ReturnType<typeof vi.fn>;
     updateCampaignStatus: ReturnType<typeof vi.fn>;
     listEligibleAttendeesForEvent: ReturnType<typeof vi.fn>;
@@ -258,6 +335,7 @@ function createService(): {
   const repository = {
     findCampaignByEventId: vi.fn().mockResolvedValue(undefined),
     findCampaignById: vi.fn().mockResolvedValue(campaignRow),
+    listCampaignsNewestFirst: vi.fn().mockResolvedValue([]),
     createCampaign: vi.fn(),
     updateCampaignStatus: vi.fn(),
     listEligibleAttendeesForEvent: vi.fn().mockResolvedValue([eligible]),

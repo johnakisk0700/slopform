@@ -101,6 +101,11 @@ export const eventSchema = z
 export const eventDetailSchema = eventSchema
   .extend({
     attendees: z.array(eventAttendeeSchema),
+    /**
+     * Present when this event already has a feedback campaign. Null otherwise
+     * — never invent one; launching remains an explicit write.
+     */
+    feedbackCampaignId: z.uuid().nullable(),
   })
   .strict();
 

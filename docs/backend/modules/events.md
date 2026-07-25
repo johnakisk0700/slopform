@@ -29,16 +29,20 @@ admin UI exposes no attendee delete operation for finished events (D1).
 
 Staff-only under the existing Clerk admin guard (`/api/v1/events`):
 
-| Method  | Path                                                       | Effect                                      |
-| ------- | ---------------------------------------------------------- | ------------------------------------------- |
-| `POST`  | `/events`                                                  | Create draft event + audit                  |
-| `GET`   | `/events`                                                  | List summaries with attendee/present counts |
-| `GET`   | `/events/:id`                                              | Detail with attendees                       |
-| `PATCH` | `/events/:id`                                              | Edit title/starts while draft or scheduled  |
-| `POST`  | `/events/:id/status`                                       | Transition status (see graph)               |
-| `POST`  | `/events/:id/attendees`                                    | Insert attendee (late add)                  |
-| `PUT`   | `/events/:id/attendees/:attendeeId`                        | Update `present` / `table_no` (corrections) |
-| `GET`   | `/events/:id/feedback-candidates?respondentParticipantId=` | Shared D16 candidate list                   |
+| Method  | Path                                                       | Effect                                                  |
+| ------- | ---------------------------------------------------------- | ------------------------------------------------------- |
+| `POST`  | `/events`                                                  | Create draft event + audit                              |
+| `GET`   | `/events`                                                  | List summaries with attendee/present counts             |
+| `GET`   | `/events/:id`                                              | Detail with attendees and nullable `feedbackCampaignId` |
+| `PATCH` | `/events/:id`                                              | Edit title/starts while draft or scheduled              |
+| `POST`  | `/events/:id/status`                                       | Transition status (see graph)                           |
+| `POST`  | `/events/:id/attendees`                                    | Insert attendee (late add)                              |
+| `PUT`   | `/events/:id/attendees/:attendeeId`                        | Update `present` / `table_no` (corrections)             |
+| `GET`   | `/events/:id/feedback-candidates?respondentParticipantId=` | Shared D16 candidate list                               |
+
+`feedbackCampaignId` is a read-model convenience for deep-linking the feedback
+inbox. This module still does not own campaign lifecycle; launching remains a
+feedback-module write (`launchFeedbackCampaign`).
 
 Every mutation writes an `audit_events` row in the same transaction.
 

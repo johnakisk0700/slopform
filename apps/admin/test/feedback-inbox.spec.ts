@@ -72,17 +72,9 @@ interface PollingModule {
   CONVERSATION_LIST_POLL_INTERVAL_MS: number;
 }
 
-interface RecentCampaignsModule {
-  mergeRecentCampaign: <T extends { campaignId: string }>(
-    existing: T[],
-    entry: T,
-  ) => T[];
-}
-
 let labels: LabelsModule;
 let view: ConversationViewModule;
 let polling: PollingModule;
-let recent: RecentCampaignsModule;
 
 async function loadFeatureModule<T>(relativePath: string): Promise<T> {
   const moduleUrl = new URL(`../${relativePath}`, import.meta.url).href;
@@ -98,9 +90,6 @@ beforeAll(async () => {
   );
   polling = await loadFeatureModule<PollingModule>(
     "src/features/feedback/polling.ts",
-  );
-  recent = await loadFeatureModule<RecentCampaignsModule>(
-    "src/features/feedback/recentCampaigns.ts",
   );
 });
 
@@ -344,26 +333,22 @@ describe("polling policy (U3)", () => {
   });
 });
 
-describe("recent campaign shortcuts", () => {
-  it("moves a revisited campaign to the front without duplicating it", () => {
-    const merged = recent.mergeRecentCampaign(
-      [{ campaignId: "a" }, { campaignId: "b" }],
-      { campaignId: "b" },
+describe("campaign picker", () => {
+  it("renders campaigns from the generated listFeedbackCampaigns hook", () => {
+    const page = readFileSync(
+      fileURLToPath(
+        new URL("../src/routes/FeedbackCampaignsPage.tsx", import.meta.url),
+      ),
+      "utf8",
     );
 
-    expect(merged.map((row) => row.campaignId)).toStrictEqual(["b", "a"]);
-  });
-
-  it("caps the list so the shortcut never becomes an archive", () => {
-    const existing = Array.from({ length: 12 }, (_, index) => ({
-      campaignId: `id-${index}`,
-    }));
-    const merged = recent.mergeRecentCampaign(existing, {
-      campaignId: "fresh",
-    });
-
-    expect(merged).toHaveLength(12);
-    expect(merged[0]?.campaignId).toBe("fresh");
+    expect(page).toContain("useListFeedbackCampaigns");
+    expect(page).toContain('from "../api/generated/feedback-campaigns"');
+    expect(page).toContain("useLaunchFeedbackCampaign");
+    // Launch is a deliberate write; the picker must not treat it as navigation.
+    expect(page).toContain("intro message");
+    expect(page).not.toContain("recentCampaigns");
+    expect(page).not.toContain("localStorage");
   });
 });
 

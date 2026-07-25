@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { AuditRepository } from "../../infrastructure/audit/audit.repository.js";
 import type { DatabaseService } from "../../infrastructure/database/database.service.js";
+import type { PostEventFeedbackRepository } from "../post-event-feedback/post-event-feedback.repository.js";
 import type { EventsRepository } from "./events.repository.js";
 import {
   EventMutationNotAllowedError,
@@ -33,6 +34,10 @@ function createService(options?: {
     summarize: ReturnType<typeof vi.fn>;
     listPresentAttendeeCandidates: ReturnType<typeof vi.fn>;
     findById: ReturnType<typeof vi.fn>;
+    listAttendees: ReturnType<typeof vi.fn>;
+  };
+  readonly feedback: {
+    findCampaignByEventId: ReturnType<typeof vi.fn>;
   };
 } {
   const transaction = {} as AppTransaction;
@@ -90,12 +95,15 @@ function createService(options?: {
     create: vi.fn(),
     update: vi.fn(),
     listSummaries: vi.fn(),
-    listAttendees: vi.fn(),
+    listAttendees: vi.fn().mockResolvedValue([]),
     findAttendeeById: vi.fn(),
     findAttendeeByParticipant: vi.fn(),
     insertAttendee: vi.fn(),
     updateAttendee: vi.fn(),
     participantExists: vi.fn(),
+  };
+  const feedback = {
+    findCampaignByEventId: vi.fn().mockResolvedValue(undefined),
   };
   const auditAppend = vi.fn().mockResolvedValue(undefined);
   const database = {
@@ -108,10 +116,12 @@ function createService(options?: {
   return {
     auditAppend,
     repository,
+    feedback,
     service: new EventsService(
       database,
       repository as unknown as EventsRepository,
       { append: auditAppend } as unknown as AuditRepository,
+      feedback as unknown as PostEventFeedbackRepository,
     ),
     transaction,
   };
@@ -232,5 +242,26 @@ describe("EventsService edit guards", () => {
     await expect(
       service.update(event.id, { title: "No" }, "user_admin", "request-6"),
     ).rejects.toBeInstanceOf(EventMutationNotAllowedError);
+  });
+});
+
+describe("EventsService detail read model", () => {
+  it("exposes a nullable feedbackCampaignId for inbox deep-links", async () => {
+    const withoutCampaign = createService();
+    await expect(withoutCampaign.service.get(event.id)).resolves.toMatchObject({
+      id: event.id,
+      feedbackCampaignId: null,
+      attendees: [],
+    });
+
+    const campaignId = "89eccaa5-9ce6-4dcf-a630-5e35e4ec6f0d";
+    const withCampaign = createService();
+    withCampaign.feedback.findCampaignByEventId.mockResolvedValue({
+      id: campaignId,
+    });
+
+    await expect(withCampaign.service.get(event.id)).resolves.toMatchObject({
+      feedbackCampaignId: campaignId,
+    });
   });
 });
