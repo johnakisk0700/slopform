@@ -1,6 +1,33 @@
 {
   "components": {
     "schemas": {
+      "AddFeedbackConversationNoteDto": {
+        "additionalProperties": false,
+        "properties": {
+          "noteType": {
+            "enum": [
+              "activity_interest",
+              "general"
+            ],
+            "type": "string"
+          },
+          "subjectParticipantId": {
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+            "type": "string"
+          },
+          "text": {
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "noteType",
+          "text"
+        ],
+        "type": "object"
+      },
       "AssistantThreadDto_Output": {
         "additionalProperties": false,
         "properties": {
@@ -2083,6 +2110,13 @@
                   ],
                   "type": "string"
                 },
+                "origin": {
+                  "enum": [
+                    "conversation",
+                    "staff"
+                  ],
+                  "type": "string"
+                },
                 "respondentDisplayName": {
                   "maxLength": 200,
                   "minLength": 1,
@@ -2100,7 +2134,6 @@
                     "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
                     "type": "string"
                   },
-                  "minItems": 1,
                   "type": "array"
                 },
                 "status": {
@@ -2140,6 +2173,7 @@
                 "noteType",
                 "text",
                 "status",
+                "origin",
                 "respondentParticipantId",
                 "respondentDisplayName",
                 "subjectParticipantId",
@@ -2189,6 +2223,13 @@
             ],
             "type": "string"
           },
+          "origin": {
+            "enum": [
+              "conversation",
+              "staff"
+            ],
+            "type": "string"
+          },
           "respondentDisplayName": {
             "maxLength": 200,
             "minLength": 1,
@@ -2206,7 +2247,6 @@
               "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
               "type": "string"
             },
-            "minItems": 1,
             "type": "array"
           },
           "status": {
@@ -2246,6 +2286,7 @@
           "noteType",
           "text",
           "status",
+          "origin",
           "respondentParticipantId",
           "respondentDisplayName",
           "subjectParticipantId",
@@ -3715,6 +3756,59 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/FeedbackConversationDetailDto_Output"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "summary": "",
+        "tags": [
+          "feedback-conversations"
+        ]
+      }
+    },
+    "/api/v1/feedback/campaigns/{campaignId}/conversations/{conversationId}/notes": {
+      "post": {
+        "operationId": "addFeedbackConversationNote",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "conversationId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddFeedbackConversationNoteDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackNoteViewDto_Output"
                 }
               }
             },

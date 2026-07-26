@@ -1,7 +1,7 @@
 import { Input } from "@heroui/react";
 import { clsx } from "clsx";
-import { Search } from "lucide-react";
-import { useId } from "react";
+import { Inbox, MessageSquareDashed, Search, SearchX } from "lucide-react";
+import { useId, type ReactNode } from "react";
 
 import {
   conversationBadges,
@@ -14,6 +14,7 @@ import {
   isUnresolvedParticipant,
   participantLabel,
 } from "../../../features/feedback/labels";
+import { JtsLiveIndicator } from "../../ui/JtsLiveIndicator";
 import { FeedbackBadges } from "./FeedbackBadges";
 
 export interface ConversationListProps {
@@ -26,6 +27,13 @@ export interface ConversationListProps {
   error: string | null;
   /** Total before filtering, so the empty state can tell the two cases apart. */
   totalCount: number;
+  /** True while the list query is refetching, for the live mark. */
+  isRefreshing: boolean;
+  /**
+   * The D17 «Start conversation» trigger. It belongs beside this list because
+   * that is where the conversation it creates appears.
+   */
+  startAction?: ReactNode;
 }
 
 /**
@@ -48,6 +56,8 @@ export function ConversationList({
   loading,
   error,
   totalCount,
+  isRefreshing,
+  startAction,
 }: ConversationListProps) {
   const filterId = useId();
   const headingId = useId();
@@ -60,12 +70,23 @@ export function ConversationList({
       className="flex max-h-[78vh] min-h-0 flex-col overflow-hidden rounded-md border border-border bg-surface"
     >
       <div className="border-b border-border px-4 py-3">
-        <h2
-          id={headingId}
-          className="mb-2 text-[0.7rem] font-extrabold uppercase tracking-caps text-ink-muted"
-        >
-          Conversations
-        </h2>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h2
+            id={headingId}
+            className="flex items-center gap-2 text-[0.7rem] font-extrabold uppercase tracking-caps text-ink-muted"
+          >
+            <Inbox aria-hidden="true" className="size-4 shrink-0" />
+            Conversations
+            {/* What is in the list right now, so it stays true under a filter. */}
+            <span className="font-bold tabular-nums opacity-70">
+              {conversations.length}
+            </span>
+          </h2>
+          <JtsLiveIndicator
+            active={isRefreshing}
+            label="This list refreshes automatically."
+          />
+        </div>
         <div className="relative">
           <Search
             aria-hidden="true"
@@ -80,6 +101,7 @@ export function ConversationList({
             className="w-full pl-9"
           />
         </div>
+        {startAction ? <div className="mt-2.5">{startAction}</div> : null}
       </div>
 
       {error ? (
@@ -95,7 +117,22 @@ export function ConversationList({
       ) : null}
 
       {!loading && !error && conversations.length === 0 ? (
-        <div className="px-4 py-8 text-center">
+        <div className="flex flex-col items-center px-4 py-8 text-center">
+          {totalCount === 0 ? (
+            /* Not the header's own Inbox glyph: an icon that repeats inside
+               its own section stops carrying information. */
+            <MessageSquareDashed
+              aria-hidden="true"
+              className="mb-2 size-7 text-ink-subtle"
+              strokeWidth={1.5}
+            />
+          ) : (
+            <SearchX
+              aria-hidden="true"
+              className="mb-2 size-7 text-ink-subtle"
+              strokeWidth={1.5}
+            />
+          )}
           <p className="text-sm font-semibold text-ink">
             {totalCount === 0 ? "No conversations yet" : "No matches"}
           </p>

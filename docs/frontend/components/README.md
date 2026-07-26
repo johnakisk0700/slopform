@@ -7,16 +7,19 @@ Never wrap a HeroUI component just to rename its props.
 
 ## Shared UI (`src/components/ui/`)
 
-| Component           | Contract                                   | Owns                                                                                     |
-| ------------------- | ------------------------------------------ | ---------------------------------------------------------------------------------------- |
-| `JtsPageHeader.tsx` | [`jts-page-header.md`](jts-page-header.md) | One route's `h1` with the wine marker, eyebrow, description and route-owned actions      |
-| `JtsStat.tsx`       | [`jts-stat.md`](jts-stat.md)               | One definition-list-safe metric: `dt`/`dd`, tone marker, decorative icon                 |
-| `JtsDataTable.tsx`  | [`jts-data-table.md`](jts-data-table.md)   | Table naming, loading/empty/error states, overflow, toolbar and client sort + pagination |
+| Component              | Contract                                         | Owns                                                                                     |
+| ---------------------- | ------------------------------------------------ | ---------------------------------------------------------------------------------------- |
+| `JtsPageHeader.tsx`    | [`jts-page-header.md`](jts-page-header.md)       | One route's `h1` with the wine marker, eyebrow, description and route-owned actions      |
+| `JtsStat.tsx`          | [`jts-stat.md`](jts-stat.md)                     | One definition-list-safe metric: `dt`/`dd`, tone marker, decorative icon                 |
+| `JtsDataTable.tsx`     | [`jts-data-table.md`](jts-data-table.md)         | Table naming, loading/empty/error states, overflow, toolbar and client sort + pagination |
+| `JtsLiveIndicator.tsx` | [`jts-live-indicator.md`](jts-live-indicator.md) | A polled pane's quiet refresh mark: no layout shift, no live region, no status colour    |
 
 `JtsDataTable` owns table states and framing; the page owns TanStack `ColumnDef`
 columns, cell formatting, filters, row actions and API calls. `JtsStat` renders
-inside a page-owned labelled `dl`. Add a prop or slot only after a real consumer
-needs it, then update this inventory and the focused contract in the same change.
+inside a page-owned labelled `dl`. `JtsLiveIndicator` takes a boolean and a
+hidden sentence — the pane keeps its query, its interval and its own header. Add
+a prop or slot only after a real consumer needs it, then update this inventory
+and the focused contract in the same change.
 
 ## Domain components (`src/components/admin/`)
 
@@ -39,18 +42,21 @@ one screen, not shared contracts: their props carry conversation read models and
 callbacks, and their full contract lives in
 [`../feedback-conversations.md`](../feedback-conversations.md).
 
-| Component                     | Owns                                                                                    |
-| ----------------------------- | --------------------------------------------------------------------------------------- |
-| `ConversationList.tsx`        | Filter, grouping and selection of a campaign's conversations; `aria-current` on the row |
-| `ConversationTranscript.tsx`  | Actor-labelled transcript, delivery state, the staff composer and the dev-only composer |
-| `ConversationDetails.tsx`     | Goal progress, answers, notes with review status, and the capability-gated action row   |
-| `ConfirmAction.tsx`           | A trigger plus its confirmation dialog, stating the consequence of one action           |
-| `StartConversationAction.tsx` | The D17 attendee picker that opens a missing conversation                               |
-| `FeedbackBadges.tsx`          | Renders status descriptors as HeroUI chips, always with their own text                  |
+| Component                     | Owns                                                                                                                 |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `ConversationList.tsx`        | Filter, grouping and selection of a campaign's conversations; `aria-current` on the row; hosts the D17 start trigger |
+| `ConversationTranscript.tsx`  | Actor-labelled transcript, delivery state, the staff composer and the dev-only composer                              |
+| `ConversationDetails.tsx`     | The respondent, goal progress, answers, notes and actions as labelled sections                                       |
+| `ConfirmAction.tsx`           | A trigger plus its confirmation dialog, stating the consequence of one action                                        |
+| `StartConversationAction.tsx` | The D17 attendee picker that opens a missing conversation                                                            |
+| `AddNoteAction.tsx`           | The staff note dialog: type, an optional D16-candidate subject, bounded text                                         |
+| `FeedbackBadges.tsx`          | Renders status descriptors as HeroUI chips, always with their own text                                               |
 
-No `Jts*` component was added: the status badge maps a domain tone onto HeroUI
-`Chip` props through a pure function in `features/feedback/labels.ts`, which is
-the mapping — not a wrapper that renames HeroUI's props.
+The status badge maps a domain tone onto HeroUI `Chip` props through a pure
+function in `features/feedback/labels.ts`, which is the mapping — not a wrapper
+that renames HeroUI's props. The one shared contract the screen did produce is
+`JtsLiveIndicator`, because two panes poll and both needed the same
+no-layout-shift, no-live-region treatment.
 
 ## References
 

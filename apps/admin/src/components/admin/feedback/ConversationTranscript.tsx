@@ -1,6 +1,6 @@
 import { Button, Input } from "@heroui/react";
 import { clsx } from "clsx";
-import { Bot, FlaskConical, Send, UserRound } from "lucide-react";
+import { Bot, FlaskConical, Phone, Send, UserRound } from "lucide-react";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 
 import type { FeedbackConversationDetailDtoOutput } from "../../../api/generated/model/feedbackConversationDetailDtoOutput";
@@ -16,6 +16,7 @@ import {
   participantLabel,
 } from "../../../features/feedback/labels";
 import { SIMULATOR_MESSAGE_MAX_LENGTH } from "../../../features/feedback/simulator";
+import { JtsLiveIndicator } from "../../ui/JtsLiveIndicator";
 import { FeedbackBadges } from "./FeedbackBadges";
 
 /**
@@ -102,6 +103,8 @@ export interface ConversationTranscriptProps {
   onSimulatedReply?: (text: string) => Promise<void>;
   simulatedReplyPending?: boolean;
   actionError: string | null;
+  /** True while the conversation query is refetching, for the live mark. */
+  isRefreshing: boolean;
 }
 
 /**
@@ -121,6 +124,7 @@ export function ConversationTranscript({
   onSimulatedReply,
   simulatedReplyPending = false,
   actionError,
+  isRefreshing,
 }: ConversationTranscriptProps) {
   const headingId = useId();
   const staffInputId = useId();
@@ -180,9 +184,21 @@ export function ConversationTranscript({
           >
             {name}
           </h2>
-          <p className="text-xs text-ink-muted">{conversation.phoneAtLaunch}</p>
+          <p className="flex items-center gap-1.5 text-xs text-ink-muted">
+            <Phone
+              aria-hidden="true"
+              className="size-3.5 shrink-0 text-ink-subtle"
+            />
+            {conversation.phoneAtLaunch}
+          </p>
         </div>
-        <FeedbackBadges badges={conversationBadges(conversation)} />
+        <div className="flex items-center gap-3">
+          <FeedbackBadges badges={conversationBadges(conversation)} />
+          <JtsLiveIndicator
+            active={isRefreshing}
+            label="This transcript refreshes automatically while the conversation is open."
+          />
+        </div>
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">

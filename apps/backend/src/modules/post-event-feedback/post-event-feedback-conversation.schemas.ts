@@ -173,19 +173,35 @@ export const feedbackAnswerViewSchema = z
   })
   .strict();
 
+export const FEEDBACK_NOTE_TEXT_MAX_LENGTH = 500;
+
+/**
+ * Who authored a note, as a two-value fact the admin can render.
+ *
+ * `conversation` covers everything the pipeline produced from participant
+ * testimony — a model extraction and the deterministic fallback alike, since
+ * both quote a real message. `staff` is an operator writing in their own name.
+ * The distinction exists so a staff note can never be read as something a
+ * participant said.
+ */
+export const feedbackNoteOriginSchema = z.enum(["conversation", "staff"]);
+
 export const feedbackNoteViewSchema = z
   .object({
     id: z.uuid(),
     campaignId: z.uuid(),
     conversationId: z.uuid(),
     noteType: z.enum(FEEDBACK_NOTE_TYPES),
-    text: z.string().min(1).max(500),
+    text: z.string().min(1).max(FEEDBACK_NOTE_TEXT_MAX_LENGTH),
     status: z.enum(FEEDBACK_NOTE_STATUSES),
+    origin: feedbackNoteOriginSchema,
     respondentParticipantId: z.uuid(),
     respondentDisplayName: z.string().min(1).max(200).nullable(),
     subjectParticipantId: z.uuid().nullable(),
     subjectDisplayName: z.string().min(1).max(200).nullable(),
-    sourceMessageIds: z.array(z.uuid()).min(1),
+    // A staff note quotes no message, so the array is empty rather than
+    // carrying a borrowed id. Extraction output still cites at least one.
+    sourceMessageIds: z.array(z.uuid()),
     createdAt: z.iso.datetime(),
     updatedAt: z.iso.datetime(),
   })
@@ -241,6 +257,20 @@ export const updateFeedbackNoteReviewStatusSchema = z
   })
   .strict();
 
+/**
+ * A note an operator writes by hand. The subject is optional and, when given,
+ * must be a current D16 candidate of the campaign's event — the same rule
+ * extraction obeys, so a manual note cannot direct feedback at someone the
+ * respondent never sat with.
+ */
+export const addFeedbackConversationNoteSchema = z
+  .object({
+    noteType: z.enum(FEEDBACK_NOTE_TYPES),
+    text: z.string().trim().min(1).max(FEEDBACK_NOTE_TEXT_MAX_LENGTH),
+    subjectParticipantId: z.uuid().optional(),
+  })
+  .strict();
+
 export class FeedbackCampaignConversationsDto extends createZodDto(
   feedbackCampaignConversationsSchema,
 ) {}
@@ -268,6 +298,9 @@ export class SendFeedbackStaffMessageDto extends createZodDto(
 export class UpdateFeedbackNoteReviewStatusDto extends createZodDto(
   updateFeedbackNoteReviewStatusSchema,
 ) {}
+export class AddFeedbackConversationNoteDto extends createZodDto(
+  addFeedbackConversationNoteSchema,
+) {}
 export class FeedbackNoteViewDto extends createZodDto(feedbackNoteViewSchema) {}
 
 export type FeedbackConversationCapabilities = z.infer<
@@ -291,7 +324,11 @@ export type SendFeedbackStaffMessageInput = z.infer<
 export type UpdateFeedbackNoteReviewStatusInput = z.infer<
   typeof updateFeedbackNoteReviewStatusSchema
 >;
+export type AddFeedbackConversationNoteInput = z.infer<
+  typeof addFeedbackConversationNoteSchema
+>;
 export type FeedbackNoteView = z.infer<typeof feedbackNoteViewSchema>;
+export type FeedbackNoteOrigin = z.infer<typeof feedbackNoteOriginSchema>;
 export type FeedbackConversationPrincipal = z.infer<
   typeof feedbackConversationPrincipalSchema
 >;

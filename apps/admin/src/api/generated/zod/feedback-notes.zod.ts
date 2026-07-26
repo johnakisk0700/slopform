@@ -43,7 +43,6 @@ export const updateFeedbackNoteReviewStatusResponseSourceMessageIdsItemRegExp =
   new RegExp(
     "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
   );
-
 export const updateFeedbackNoteReviewStatusResponseSubjectDisplayNameMax = 200;
 
 export const updateFeedbackNoteReviewStatusResponseSubjectParticipantIdRegExp =
@@ -68,6 +67,7 @@ export const UpdateFeedbackNoteReviewStatusResponse = zod.object({
     .regex(updateFeedbackNoteReviewStatusResponseCreatedAtRegExp),
   id: zod.uuid().regex(updateFeedbackNoteReviewStatusResponseIdRegExp),
   noteType: zod.enum(["activity_interest", "general"]),
+  origin: zod.enum(["conversation", "staff"]),
   respondentDisplayName: zod
     .string()
     .min(1)
@@ -76,15 +76,11 @@ export const UpdateFeedbackNoteReviewStatusResponse = zod.object({
   respondentParticipantId: zod
     .uuid()
     .regex(updateFeedbackNoteReviewStatusResponseRespondentParticipantIdRegExp),
-  sourceMessageIds: zod
-    .array(
-      zod
-        .uuid()
-        .regex(
-          updateFeedbackNoteReviewStatusResponseSourceMessageIdsItemRegExp,
-        ),
-    )
-    .min(1),
+  sourceMessageIds: zod.array(
+    zod
+      .uuid()
+      .regex(updateFeedbackNoteReviewStatusResponseSourceMessageIdsItemRegExp),
+  ),
   status: zod.enum(["new", "dismissed"]),
   subjectDisplayName: zod
     .string()

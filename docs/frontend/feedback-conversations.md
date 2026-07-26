@@ -1,6 +1,7 @@
 # Post-event feedback conversations screen
 
-Status: accepted, verified 2026-07-25 (WP9).
+Status: accepted, verified 2026-07-26 (WP9, design pass and staff notes in
+WP12).
 
 The operator surface for the post-event feedback feature: one campaign's
 WhatsApp conversations in a three-pane inbox, the actions that move a
@@ -22,7 +23,8 @@ vocabulary, confirmation copy for each action, polling cadence, and the
 
 It **does not** own: whether an action is allowed (capability flags), whether a
 conversation may reopen (it never does), question copy (backend constants), or
-any rule about who is a valid subject.
+any rule about who is a valid subject — including for a staff note, whose
+subject the backend re-checks against the live D16 candidate set.
 
 | Route                                 | View                    | Owns                                                  |
 | ------------------------------------- | ----------------------- | ----------------------------------------------------- |
@@ -42,17 +44,19 @@ Every product call goes through the generated hooks in
 `useListFeedbackCampaignResults`, `useTakeOverFeedbackConversation`,
 `useResumeFeedbackConversationBot`, `useCloseFeedbackConversation`,
 `useSendFeedbackConversationStaffMessage`, `useUpdateFeedbackNoteReviewStatus`,
-`useStartFeedbackConversation` and the campaign
+`useAddFeedbackConversationNote`, `useStartFeedbackConversation`,
+`useListEventFeedbackCandidates` and the campaign
 launch/pause/resume/close/get hooks.
 
-| File                                        | Owns                                                                    |
-| ------------------------------------------- | ----------------------------------------------------------------------- |
-| `src/features/feedback/labels.ts`           | Status vocabulary: tones, badges, delivery precedence, the D18 fallback |
-| `src/features/feedback/conversationView.ts` | Progress, badge rows, search folding, ordering, grouping, selection     |
-| `src/features/feedback/polling.ts`          | The U3 intervals and the stop-when-closed rule                          |
-| `src/features/feedback/simulator.ts`        | Zod schemas for the two dev-only simulator endpoints                    |
-| `src/lib/feedbackSimulator.ts`              | The dev simulator facade over the shared `ofetch` client                |
-| `src/components/admin/feedback/`            | The three panes, the badge row, and the confirmation/start dialogs      |
+| File                                        | Owns                                                                                       |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `src/features/feedback/labels.ts`           | Status vocabulary: tones, badges, delivery precedence, note origin, D18                    |
+| `src/features/feedback/conversationView.ts` | Progress, badge rows, search folding, ordering, grouping, selection                        |
+| `src/features/feedback/polling.ts`          | The U3 intervals and the stop-when-closed rule                                             |
+| `src/features/feedback/simulator.ts`        | Zod schemas for the two dev-only simulator endpoints                                       |
+| `src/lib/feedbackSimulator.ts`              | The dev simulator facade over the shared `ofetch` client                                   |
+| `src/components/admin/feedback/`            | The three panes, the badge row, and the confirm/start/add-note dialogs                     |
+| `src/components/ui/JtsLiveIndicator.tsx`    | The shared polling mark both live panes use ([contract](components/jts-live-indicator.md)) |
 
 `features/feedback/` has no React imports and carries the screen's rules, so
 they are unit-tested directly in `apps/admin/test/feedback-inbox.spec.ts`.
@@ -65,6 +69,8 @@ flowchart LR
   list -->|select| detail["Transcript\ngetFeedbackConversation"]
   detail --> details["Details pane\nlistFeedbackConversationResults"]
   details -->|"capability flags"| actions["Take over / Resume bot / Close / Staff send"]
+  details --> note["Add note\naddFeedbackConversationNote"]
+  note -->|invalidate| details
   actions -->|"updated read model"| detail
   actions -->|invalidate| list
   sim["Dev simulator\ninject + thread"] -.->|"only when mounted"| detail
@@ -93,6 +99,10 @@ flowchart LR
 - **D18 everywhere.** Any unresolved participant id renders
   `«άγνωστος συμμετέχων»` in italics — respondents, answer subjects and note
   subjects alike. Raw UUIDs never reach the screen.
+- **A staff note is never participant testimony.** A note the backend reports as
+  `origin: "staff"` carries a "Staff note" badge in the details pane and its own
+  Source column on the Results tab. Extraction output is the unlabelled default
+  because it is the pane's subject; the exception is what gets named.
 - **One documented client exception.** Only `src/lib/feedbackSimulator.ts` and
   the pre-existing assistant call the transport directly; a test enforces that
   the list stays at exactly those two.
@@ -100,9 +110,13 @@ flowchart LR
 ## Failure and loading states
 
 - The list, transcript and results panes each own loading, empty and error
-  states; the list distinguishes "no conversations yet" from "no matches".
+  states; the list distinguishes "no conversations yet" from "no matches", each
+  with its own muted glyph.
 - Action failures render in the transcript pane and leave the dialog's context
-  intact rather than closing over the error.
+  intact rather than closing over the error. «Add note» is the exception that
+  proves the rule: its failure renders **inside** its own dialog, because the
+  operator's typed text is still on screen there and the transcript pane is
+  behind the modal.
 - The dev simulator's absence is the normal case in any non-simulated
   deployment: the probe fails quietly, the composer is not rendered, and no
   error is shown.
@@ -120,6 +134,12 @@ flowchart LR
 TanStack Query's `refetchIntervalInBackground` stays at its default `false`, so
 every interval pauses while the browser tab is hidden. There is no visibility
 listener to maintain. WebSockets/SSE remain deferred.
+
+Both live panes say so on screen. The list and transcript headers render
+[`JtsLiveIndicator`](components/jts-live-indicator.md) bound to their query's
+`isFetching`: a 14px muted icon that turns during a fetch and fades out
+otherwise. It reserves its space so a poll never nudges the header, and it is
+not a live region — a three-second poll that announced itself would be unusable.
 
 ## Layout
 
@@ -143,6 +163,63 @@ artifact of headless and automation Chromium screenshot surfaces, not a layout
 fault; a plain page with no application CSS reproduces it in the same tools.
 Real Chrome paints the scrolled inbox correctly at 1280×720 and 1600×1000 in
 both themes (verified 2026-07-26 over the DevTools Protocol).
+
+### Where each control lives
+
+Placement is the screen's answer to "what does this act on?".
+
+| Control                        | Home                     | Why                                                                   |
+| ------------------------------ | ------------------------ | --------------------------------------------------------------------- |
+| «All campaigns»                | Above the page header    | Leaves the campaign — a back affordance (left arrow, link style)      |
+| Results                        | Campaign header actions  | Reads this campaign's output                                          |
+| Pause / Resume / Close         | Campaign header actions  | Changes this campaign's state; a hairline separates them from Results |
+| «Start conversation» (D17)     | Conversation list header | It creates a row in that list                                         |
+| Take over / Resume bot / Close | Details → ACTIONS        | Acts on the open conversation                                         |
+| «Add note»                     | Details → NOTES          | Writes into the list it sits above                                    |
+
+Every one of them carries a 16px muted stroke icon; the accent stays reserved
+for interactive emphasis. Icons are for orientation, never decoration — which
+is also why an empty state never reuses the glyph of the section it sits in
+(`Hourglass` under ANSWERS, `PenOff` under NOTES, `MessageSquareDashed` under
+the `Inbox`-marked list). An icon that repeats inside its own section has
+stopped carrying information.
+
+### Details pane sections
+
+The right column repeats the participant profile's section grammar (WP11): a
+tracked micro-caps label with a muted icon, sections separated by a hairline
+rather than stacked as identical grey boxes.
+
+| Section       | Icon                 | Contains                                                              |
+| ------------- | -------------------- | --------------------------------------------------------------------- |
+| RESPONDENT    | `UserRound`          | Monogram, the display name linked to `/admin/participants/:id`, phone |
+| GOAL PROGRESS | `ListChecks`         | Answered / skipped / outstanding, then one row per goal with a badge  |
+| ANSWERS       | `MessageSquareQuote` | One sunken card per extracted answer                                  |
+| NOTES         | `StickyNote`         | Note cards with origin and review badges, plus «Add note»             |
+| ACTIONS       | `SlidersHorizontal`  | Only the capability-gated actions the server publishes                |
+
+The respondent link is the join to the WP11 profile. An unresolved id (D18) has
+no profile to open, so it stays plain italic text rather than a link to nothing.
+
+## Staff notes
+
+«Add note» writes an ordinary `feedback_notes` row through
+`addFeedbackConversationNote`, so a manual note lands in the same conversation
+pane, Results tab and review queue as everything else.
+
+- **Type** is the existing note vocabulary; **text** is bounded at 500
+  characters, matching the column's check constraint.
+- **About** is optional and lists only the campaign event's current D16
+  candidates, read from `listEventFeedbackCandidates` — the same endpoint
+  extraction resolves subjects with. The backend re-checks and refuses anyone
+  else, so the picker is convenience, not the rule.
+- The note is stored with staff provenance and therefore renders with the
+  "Staff note" badge everywhere. Nothing about a model is invented.
+- It is **not** capability-gated. Writing down what you learned is not steering
+  the conversation, so it stays available after the thread closes — unlike
+  every control that could send a message.
+- On success both readers are invalidated: this conversation's results and the
+  campaign-wide Results query.
 
 ## Campaign picker
 
@@ -171,8 +248,16 @@ never be used merely to navigate. Event detail carries a nullable
 - Every control on the route has a name: the inbox at rest, the start and
   confirm dialogs, and the small-viewport navigation drawer each audit to zero
   unnamed interactive nodes (verified 2026-07-26 over the DevTools Protocol).
+  The «Add note» dialog joins that set with a labelled text area and two
+  labelled selects.
+- Details-pane sections are labelled `section`s with their own `h3`; every
+  section icon is `aria-hidden` and the label carries the meaning.
 - Both composers have visually hidden labels naming the recipient and the
   channel; the simulator composer is additionally captioned as development-only.
+  The «Add note» dialog labels its text area and both selects, and shows its
+  failure in the dialog with `role="alert"`.
+- The polling indicator is deliberately not a live region: the icon is
+  `aria-hidden` and a hidden sentence states that the pane refreshes itself.
 - Contrast was measured in both themes on the rendered screen. Two pairings
   needed correction and are commented at their call sites: the list timestamp
   uses `text-ink-muted` (`text-ink-subtle` measures 4.23:1 on `bg-primary-soft`),
@@ -188,6 +273,17 @@ never be used merely to navigate. Event detail carries a nullable
   this meaning, and the admin contract prefers the nearest AA-safe existing
   token over a new one for a single component. The pill's fill is opaque in both
   themes, so it stays legible on a selected row's `bg-primary-soft`.
+- The design pass introduced three pairings, all measured from `tokens.css` and
+  now asserted alongside the pill: answer-card text on `surface-sunken`
+  (**13.79:1 light / 16.77:1 dark**), its micro-caps label on the same fill
+  (**5.07:1 / 10.33:1**), and the respondent link on `surface` (**8.98:1 /
+  9.03:1**). The "Staff note" chip is HeroUI's soft `accent`, which the bridge
+  points at the wine primary rather than the copper accent, so it measures
+  **7.72:1 / 7.38:1** — the copper `--jts-color-accent` remains unsafe for small
+  text and is still avoided. Asserting the chip meant teaching the spec's
+  resolver `color-mix(in srgb, …)`, since every dark `-soft` token is built that
+  way; without it no tinted pairing could be measured in the theme where it
+  matters most.
 
 ## Tests
 
@@ -200,8 +296,17 @@ that both the list row and the conversation header render the badge row), and
 the API-boundary invariants (generated hooks on the screen, capability-gated
 actions, exactly two hand-written transport callers).
 
-`apps/admin/test/theme-tokens.spec.ts` adds the solid attention pill to its AA
-contrast pairs, measured from `tokens.css` in both themes.
+The design pass adds: the staff-origin badge (present for `staff`, absent
+otherwise) and that both the details pane and the Results tab render it, the
+note write going through the generated hook and invalidating both readers, the
+subject picker consuming the D16 candidate endpoint, «All campaigns» sitting
+above the header as a back affordance, «Start conversation» living with the
+list, and the polling indicator being bound to `isFetching` in both panes with
+no live region.
+
+`apps/admin/test/theme-tokens.spec.ts` asserts the solid attention pill, the
+sunken card pairings, the respondent link and the soft accent chip from
+`tokens.css` in both themes.
 
 ## Decisions and references
 

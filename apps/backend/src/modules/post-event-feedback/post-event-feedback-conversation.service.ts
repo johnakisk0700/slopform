@@ -1,12 +1,14 @@
 import { randomUUID } from "node:crypto";
 
 import { Injectable } from "@nestjs/common";
-import type {
-  FeedbackAnswerRow,
-  FeedbackCampaignRow,
-  FeedbackNoteRow,
-  MessageOutboxRow,
-  ParticipantRow,
+import {
+  FEEDBACK_EXTRACTION_ORIGIN_STAFF,
+  type FeedbackAnswerRow,
+  type FeedbackCampaignRow,
+  type FeedbackExtractionMeta,
+  type FeedbackNoteRow,
+  type MessageOutboxRow,
+  type ParticipantRow,
 } from "@join-the-six/database";
 
 import { AuditRepository } from "../../infrastructure/audit/audit.repository.js";
@@ -20,10 +22,12 @@ import {
 } from "../conversations/feedback-conversation.repository.js";
 import type { FeedbackConversationDocument } from "../conversations/feedback-conversation.schemas.js";
 import { EventsRepository } from "../events/events.repository.js";
+import { EventsService } from "../events/events.service.js";
 import { ParticipantsRepository } from "../participants/participants.repository.js";
 import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
 import { FeedbackCampaignNotFoundError } from "./post-event-feedback-campaign.service.js";
 import type {
+  AddFeedbackConversationNoteInput,
   FeedbackCampaignConversationsView,
   FeedbackCampaignResultsQuery,
   FeedbackConversationCapabilities,
@@ -31,6 +35,7 @@ import type {
   FeedbackConversationDetailView,
   FeedbackConversationPrincipal,
   FeedbackConversationResultsView,
+  FeedbackNoteOrigin,
   FeedbackNoteView,
 } from "./post-event-feedback-conversation.schemas.js";
 import { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
@@ -62,6 +67,7 @@ export class PostEventFeedbackConversationService {
     private readonly repository: PostEventFeedbackRepository,
     private readonly conversations: FeedbackConversationRepository,
     private readonly events: EventsRepository,
+    private readonly eventsService: EventsService,
     private readonly participants: ParticipantsRepository,
     private readonly audit: AuditRepository,
     private readonly outboundTranscript: FeedbackOutboundTranscriptService,
@@ -360,6 +366,96 @@ export class PostEventFeedbackConversationService {
     return this.toDetailView(recorded.conversation);
   }
 
+  /**
+   * A note an operator writes by hand, stored as an ordinary `feedback_notes`
+   * row so it reaches the same conversation pane, Results tab and review queue
+   * as everything else.
+   *
+   * It fabricates nothing on the way in. `extraction_meta` records
+   * `origin: staff` and the acting user; there is no model and no confidence,
+   * because none ran. `source_message_ids` is empty because the note quotes no
+   * message — an operator typed it — and the table's check constraint permits
+   * that for exactly this origin. The subject, when one is given, must be a
+   * current D16 candidate of the campaign's event, resolved through the same
+   * `EventsService` helper extraction uses; anyone else is refused rather than
+   * quietly stored as an undirected note.
+   */
+  async addStaffNote(
+    campaignId: string,
+    conversationId: string,
+    input: AddFeedbackConversationNoteInput,
+    actorId: FeedbackConversationPrincipal,
+    requestId: FeedbackConversationCorrelationId,
+  ): Promise<FeedbackNoteView> {
+    const conversation = await this.requireConversationInCampaign(
+      campaignId,
+      conversationId,
+    );
+    const campaign = await this.requireCampaign(campaignId);
+
+    const candidates =
+      await this.eventsService.listFeedbackCandidatesForRespondent(
+        campaign.eventId,
+        conversation.respondentParticipantId,
+      );
+    const candidateIds = candidates.items.map(
+      (candidate) => candidate.participantId,
+    );
+
+    const subjectParticipantId = input.subjectParticipantId ?? null;
+    if (
+      subjectParticipantId !== null &&
+      !candidateIds.includes(subjectParticipantId)
+    ) {
+      throw new FeedbackConversationActionNotAllowedError(
+        "A note can only be directed at a current feedback candidate of this event",
+      );
+    }
+
+    const extractionMeta: FeedbackExtractionMeta = {
+      origin: FEEDBACK_EXTRACTION_ORIGIN_STAFF,
+      staffUserId: actorId,
+      candidateIds,
+    };
+
+    const note = await this.database.transaction(async (transaction) => {
+      const row = await this.repository.insertNote(transaction, {
+        campaignId: campaign.id,
+        conversationId: conversation._id,
+        respondentParticipantId: conversation.respondentParticipantId,
+        subjectParticipantId,
+        noteType: input.noteType,
+        text: input.text,
+        sourceMessageIds: [],
+        extractionMeta,
+        status: "new",
+      });
+
+      await this.audit.append(transaction, {
+        actorType: "admin",
+        actorId,
+        action: "feedback_note.staff_created",
+        entityType: "feedback_note",
+        entityId: row.id,
+        requestId,
+        context: {
+          campaignId,
+          conversationId: conversation._id,
+          noteType: input.noteType,
+          subjectResolved: subjectParticipantId !== null,
+        },
+      });
+
+      return row;
+    });
+
+    const displayNames = await this.resolveDisplayNames([
+      note.respondentParticipantId,
+      ...(note.subjectParticipantId ? [note.subjectParticipantId] : []),
+    ]);
+    return toNoteView(note, displayNames);
+  }
+
   async updateNoteReviewStatus(
     noteId: string,
     status: FeedbackNoteView["status"],
@@ -591,6 +687,21 @@ function toAnswerView(
   };
 }
 
+/**
+ * Two values, not the raw provenance blob. A model extraction and the
+ * deterministic fallback both quote a participant message, so both read as
+ * `conversation`; only a hand-written note reads as `staff`. Rows written
+ * before `origin` existed are extraction output, which is what the default
+ * says.
+ */
+export function noteOrigin(
+  extractionMeta: FeedbackNoteRow["extractionMeta"],
+): FeedbackNoteOrigin {
+  return extractionMeta.origin === FEEDBACK_EXTRACTION_ORIGIN_STAFF
+    ? "staff"
+    : "conversation";
+}
+
 function toNoteView(
   note: FeedbackNoteRow,
   displayNames: Map<string, ParticipantRow>,
@@ -602,6 +713,7 @@ function toNoteView(
     noteType: note.noteType as FeedbackNoteView["noteType"],
     text: note.text,
     status: note.status as FeedbackNoteView["status"],
+    origin: noteOrigin(note.extractionMeta),
     respondentParticipantId: note.respondentParticipantId,
     respondentDisplayName: displayNameFor(
       displayNames.get(note.respondentParticipantId),

@@ -19,10 +19,12 @@ import { formatTimestamp } from "../features/feedback/conversationView";
 import {
   QUESTION_KEYS,
   isUnresolvedParticipant,
+  noteOriginLabel,
   noteTypeLabel,
   participantLabel,
   questionLabel,
   reviewStatusBadge,
+  staffOriginBadge,
 } from "../features/feedback/labels";
 import { RESULTS_POLL_INTERVAL_MS } from "../features/feedback/polling";
 import { usePageMeta } from "../lib/usePageMeta";
@@ -176,6 +178,22 @@ export function FeedbackResultsPage() {
           ) : (
             <ParticipantName displayName={row.original.subjectDisplayName} />
           ),
+      },
+      {
+        // A note an operator typed must never read as participant testimony,
+        // so origin is its own labelled column rather than an inline hint.
+        accessorKey: "origin",
+        header: "Source",
+        cell: ({ row }) => {
+          const badge = staffOriginBadge(row.original.origin);
+          return badge ? (
+            <FeedbackBadges badges={[badge]} />
+          ) : (
+            <span className="text-ink-muted">
+              {noteOriginLabel(row.original.origin)}
+            </span>
+          );
+        },
       },
       {
         accessorKey: "status",
@@ -349,7 +367,7 @@ export function FeedbackResultsPage() {
 
       <JtsDataTable
         title="Notes"
-        description="Side notes extracted from the conversations. A note without a subject kept the name in its text for review (D18)."
+        description="Side notes from the conversations, plus anything staff wrote by hand — the Source column says which. A note without a subject kept the name in its text for review (D18)."
         rows={notes}
         columns={noteColumns}
         getRowId={(row) => row.id}

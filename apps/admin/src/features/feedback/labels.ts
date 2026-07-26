@@ -5,6 +5,7 @@ import type { FeedbackConversationDetailDtoOutputMessagesItemActor } from "../..
 import type { FeedbackConversationDetailDtoOutputMessagesItemDelivery } from "../../api/generated/model/feedbackConversationDetailDtoOutputMessagesItemDelivery";
 import type { FeedbackConversationResultsDtoOutputAnswersItemQuestionKey } from "../../api/generated/model/feedbackConversationResultsDtoOutputAnswersItemQuestionKey";
 import type { FeedbackConversationResultsDtoOutputNotesItemNoteType } from "../../api/generated/model/feedbackConversationResultsDtoOutputNotesItemNoteType";
+import type { FeedbackConversationResultsDtoOutputNotesItemOrigin } from "../../api/generated/model/feedbackConversationResultsDtoOutputNotesItemOrigin";
 import type { FeedbackConversationResultsDtoOutputNotesItemStatus } from "../../api/generated/model/feedbackConversationResultsDtoOutputNotesItemStatus";
 
 /**
@@ -153,6 +154,33 @@ export function reviewStatusBadge(
   return status === "dismissed"
     ? { key: "review", label: "Dismissed", tone: "neutral" }
     : { key: "review", label: "Needs review", tone: "warning" };
+}
+
+const NOTE_ORIGIN_LABELS: Record<
+  FeedbackConversationResultsDtoOutputNotesItemOrigin,
+  string
+> = {
+  conversation: "From conversation",
+  staff: "Staff note",
+};
+
+export function noteOriginLabel(
+  origin: FeedbackConversationResultsDtoOutputNotesItemOrigin,
+): string {
+  return NOTE_ORIGIN_LABELS[origin];
+}
+
+/**
+ * A note an operator typed must never be read as something a participant said.
+ * Extraction output carries no badge — it is the default and the pane says so
+ * in its heading — while a staff note is labelled wherever notes render.
+ */
+export function staffOriginBadge(
+  origin: FeedbackConversationResultsDtoOutputNotesItemOrigin,
+): FeedbackBadge | null {
+  return origin === "staff"
+    ? { key: "origin", label: NOTE_ORIGIN_LABELS.staff, tone: "accent" }
+    : null;
 }
 
 const ACTOR_LABELS: Record<

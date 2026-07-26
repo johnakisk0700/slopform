@@ -1034,6 +1034,112 @@ export const SendFeedbackConversationStaffMessageResponse = zod.object({
     .regex(sendFeedbackConversationStaffMessageResponseUpdatedAtRegExp),
 });
 
+export const addFeedbackConversationNotePathCampaignIdRegExp = new RegExp(
+  "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+);
+export const addFeedbackConversationNotePathConversationIdRegExp = new RegExp(
+  "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+);
+
+export const AddFeedbackConversationNoteParams = zod.object({
+  campaignId: zod.uuid().regex(addFeedbackConversationNotePathCampaignIdRegExp),
+  conversationId: zod
+    .uuid()
+    .regex(addFeedbackConversationNotePathConversationIdRegExp),
+});
+
+export const addFeedbackConversationNoteBodySubjectParticipantIdRegExp =
+  new RegExp(
+    "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+  );
+export const addFeedbackConversationNoteBodyTextMax = 500;
+
+export const AddFeedbackConversationNoteBody = zod.object({
+  noteType: zod.enum(["activity_interest", "general"]),
+  subjectParticipantId: zod
+    .uuid()
+    .regex(addFeedbackConversationNoteBodySubjectParticipantIdRegExp)
+    .optional(),
+  text: zod.string().min(1).max(addFeedbackConversationNoteBodyTextMax),
+});
+
+export const addFeedbackConversationNoteResponseCampaignIdRegExp = new RegExp(
+  "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+);
+export const addFeedbackConversationNoteResponseConversationIdRegExp =
+  new RegExp(
+    "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+  );
+export const addFeedbackConversationNoteResponseCreatedAtRegExp = new RegExp(
+  "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+);
+export const addFeedbackConversationNoteResponseIdRegExp = new RegExp(
+  "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+);
+export const addFeedbackConversationNoteResponseRespondentDisplayNameMax = 200;
+
+export const addFeedbackConversationNoteResponseRespondentParticipantIdRegExp =
+  new RegExp(
+    "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+  );
+export const addFeedbackConversationNoteResponseSourceMessageIdsItemRegExp =
+  new RegExp(
+    "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+  );
+export const addFeedbackConversationNoteResponseSubjectDisplayNameMax = 200;
+
+export const addFeedbackConversationNoteResponseSubjectParticipantIdRegExp =
+  new RegExp(
+    "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+  );
+export const addFeedbackConversationNoteResponseTextMax = 500;
+
+export const addFeedbackConversationNoteResponseUpdatedAtRegExp = new RegExp(
+  "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+);
+
+export const AddFeedbackConversationNoteResponse = zod.object({
+  campaignId: zod
+    .uuid()
+    .regex(addFeedbackConversationNoteResponseCampaignIdRegExp),
+  conversationId: zod
+    .uuid()
+    .regex(addFeedbackConversationNoteResponseConversationIdRegExp),
+  createdAt: zod.iso
+    .datetime({ offset: true })
+    .regex(addFeedbackConversationNoteResponseCreatedAtRegExp),
+  id: zod.uuid().regex(addFeedbackConversationNoteResponseIdRegExp),
+  noteType: zod.enum(["activity_interest", "general"]),
+  origin: zod.enum(["conversation", "staff"]),
+  respondentDisplayName: zod
+    .string()
+    .min(1)
+    .max(addFeedbackConversationNoteResponseRespondentDisplayNameMax)
+    .nullable(),
+  respondentParticipantId: zod
+    .uuid()
+    .regex(addFeedbackConversationNoteResponseRespondentParticipantIdRegExp),
+  sourceMessageIds: zod.array(
+    zod
+      .uuid()
+      .regex(addFeedbackConversationNoteResponseSourceMessageIdsItemRegExp),
+  ),
+  status: zod.enum(["new", "dismissed"]),
+  subjectDisplayName: zod
+    .string()
+    .min(1)
+    .max(addFeedbackConversationNoteResponseSubjectDisplayNameMax)
+    .nullable(),
+  subjectParticipantId: zod
+    .uuid()
+    .regex(addFeedbackConversationNoteResponseSubjectParticipantIdRegExp)
+    .nullable(),
+  text: zod.string().min(1).max(addFeedbackConversationNoteResponseTextMax),
+  updatedAt: zod.iso
+    .datetime({ offset: true })
+    .regex(addFeedbackConversationNoteResponseUpdatedAtRegExp),
+});
+
 export const listFeedbackConversationResultsPathCampaignIdRegExp = new RegExp(
   "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
 );
@@ -1116,7 +1222,6 @@ export const listFeedbackConversationResultsResponseNotesItemSourceMessageIdsIte
   new RegExp(
     "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
   );
-
 export const listFeedbackConversationResultsResponseNotesItemSubjectDisplayNameMax = 200;
 
 export const listFeedbackConversationResultsResponseNotesItemSubjectParticipantIdRegExp =
@@ -1217,6 +1322,7 @@ export const ListFeedbackConversationResultsResponse = zod.object({
         .uuid()
         .regex(listFeedbackConversationResultsResponseNotesItemIdRegExp),
       noteType: zod.enum(["activity_interest", "general"]),
+      origin: zod.enum(["conversation", "staff"]),
       respondentDisplayName: zod
         .string()
         .min(1)
@@ -1229,15 +1335,13 @@ export const ListFeedbackConversationResultsResponse = zod.object({
         .regex(
           listFeedbackConversationResultsResponseNotesItemRespondentParticipantIdRegExp,
         ),
-      sourceMessageIds: zod
-        .array(
-          zod
-            .uuid()
-            .regex(
-              listFeedbackConversationResultsResponseNotesItemSourceMessageIdsItemRegExp,
-            ),
-        )
-        .min(1),
+      sourceMessageIds: zod.array(
+        zod
+          .uuid()
+          .regex(
+            listFeedbackConversationResultsResponseNotesItemSourceMessageIdsItemRegExp,
+          ),
+      ),
       status: zod.enum(["new", "dismissed"]),
       subjectDisplayName: zod
         .string()
@@ -1872,7 +1976,6 @@ export const listFeedbackCampaignResultsResponseNotesItemSourceMessageIdsItemReg
   new RegExp(
     "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
   );
-
 export const listFeedbackCampaignResultsResponseNotesItemSubjectDisplayNameMax = 200;
 
 export const listFeedbackCampaignResultsResponseNotesItemSubjectParticipantIdRegExp =
@@ -1965,6 +2068,7 @@ export const ListFeedbackCampaignResultsResponse = zod.object({
         .uuid()
         .regex(listFeedbackCampaignResultsResponseNotesItemIdRegExp),
       noteType: zod.enum(["activity_interest", "general"]),
+      origin: zod.enum(["conversation", "staff"]),
       respondentDisplayName: zod
         .string()
         .min(1)
@@ -1977,15 +2081,13 @@ export const ListFeedbackCampaignResultsResponse = zod.object({
         .regex(
           listFeedbackCampaignResultsResponseNotesItemRespondentParticipantIdRegExp,
         ),
-      sourceMessageIds: zod
-        .array(
-          zod
-            .uuid()
-            .regex(
-              listFeedbackCampaignResultsResponseNotesItemSourceMessageIdsItemRegExp,
-            ),
-        )
-        .min(1),
+      sourceMessageIds: zod.array(
+        zod
+          .uuid()
+          .regex(
+            listFeedbackCampaignResultsResponseNotesItemSourceMessageIdsItemRegExp,
+          ),
+      ),
       status: zod.enum(["new", "dismissed"]),
       subjectDisplayName: zod
         .string()

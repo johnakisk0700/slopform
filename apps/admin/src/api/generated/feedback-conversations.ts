@@ -21,11 +21,15 @@ import type {
   UseQueryResult,
 } from "@tanstack/react-query";
 
+import type { AddFeedbackConversationNoteDto } from "./model/addFeedbackConversationNoteDto";
+
 import type { FeedbackCampaignConversationsDtoOutput } from "./model/feedbackCampaignConversationsDtoOutput";
 
 import type { FeedbackConversationDetailDtoOutput } from "./model/feedbackConversationDetailDtoOutput";
 
 import type { FeedbackConversationResultsDtoOutput } from "./model/feedbackConversationResultsDtoOutput";
+
+import type { FeedbackNoteViewDtoOutput } from "./model/feedbackNoteViewDtoOutput";
 
 import type { ListFeedbackCampaignResultsParams } from "./model/listFeedbackCampaignResultsParams";
 
@@ -632,6 +636,125 @@ export const useSendFeedbackConversationStaffMessage = <
 > => {
   return useMutation(
     getSendFeedbackConversationStaffMessageMutationOptions(options),
+    queryClient,
+  );
+};
+export const getAddFeedbackConversationNoteUrl = (
+  campaignId: string,
+  conversationId: string,
+) => {
+  return `/v1/feedback/campaigns/${campaignId}/conversations/${conversationId}/notes`;
+};
+
+export const addFeedbackConversationNote = async (
+  campaignId: string,
+  conversationId: string,
+  addFeedbackConversationNoteDto: AddFeedbackConversationNoteDto,
+  options?: Parameters<typeof apiRequest>[1],
+): Promise<FeedbackNoteViewDtoOutput> => {
+  return apiRequest<FeedbackNoteViewDtoOutput>(
+    getAddFeedbackConversationNoteUrl(campaignId, conversationId),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(addFeedbackConversationNoteDto),
+    },
+  );
+};
+
+export const getAddFeedbackConversationNoteMutationOptions = <
+  TError = unknown,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof addFeedbackConversationNote>>,
+    TError,
+    {
+      campaignId: string;
+      conversationId: string;
+      data: AddFeedbackConversationNoteDto;
+    },
+    TContext
+  >;
+  request?: SecondParameter<typeof apiRequest>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof addFeedbackConversationNote>>,
+  TError,
+  {
+    campaignId: string;
+    conversationId: string;
+    data: AddFeedbackConversationNoteDto;
+  },
+  TContext
+> => {
+  const mutationKey = ["addFeedbackConversationNote"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof addFeedbackConversationNote>>,
+    {
+      campaignId: string;
+      conversationId: string;
+      data: AddFeedbackConversationNoteDto;
+    }
+  > = (props) => {
+    const { campaignId, conversationId, data } = props ?? {};
+
+    return addFeedbackConversationNote(
+      campaignId,
+      conversationId,
+      data,
+      requestOptions,
+    );
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AddFeedbackConversationNoteMutationResult = NonNullable<
+  Awaited<ReturnType<typeof addFeedbackConversationNote>>
+>;
+export type AddFeedbackConversationNoteMutationBody =
+  AddFeedbackConversationNoteDto;
+export type AddFeedbackConversationNoteMutationError = unknown;
+
+export const useAddFeedbackConversationNote = <
+  TError = unknown,
+  TContext = unknown,
+>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof addFeedbackConversationNote>>,
+      TError,
+      {
+        campaignId: string;
+        conversationId: string;
+        data: AddFeedbackConversationNoteDto;
+      },
+      TContext
+    >;
+    request?: SecondParameter<typeof apiRequest>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof addFeedbackConversationNote>>,
+  TError,
+  {
+    campaignId: string;
+    conversationId: string;
+    data: AddFeedbackConversationNoteDto;
+  },
+  TContext
+> => {
+  return useMutation(
+    getAddFeedbackConversationNoteMutationOptions(options),
     queryClient,
   );
 };

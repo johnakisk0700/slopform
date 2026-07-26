@@ -1,6 +1,17 @@
 import { toast } from "@heroui/react";
 import { useQueryClient } from "@tanstack/react-query";
-import { PauseCircle, PlayCircle, SquareX } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import {
+  BarChart3,
+  ChevronLeft,
+  FlaskConical,
+  MessageCircleMore,
+  MessagesSquare,
+  PauseCircle,
+  PlayCircle,
+  SquareX,
+  TriangleAlert,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 
@@ -14,7 +25,9 @@ import {
 import {
   getGetFeedbackConversationQueryKey,
   getListFeedbackCampaignConversationsQueryKey,
+  getListFeedbackCampaignResultsQueryKey,
   getListFeedbackConversationResultsQueryKey,
+  useAddFeedbackConversationNote,
   useCloseFeedbackConversation,
   useGetFeedbackConversation,
   useListFeedbackCampaignConversations,
@@ -24,6 +37,7 @@ import {
   useTakeOverFeedbackConversation,
 } from "../api/generated/feedback-conversations";
 import { useUpdateFeedbackNoteReviewStatus } from "../api/generated/feedback-notes";
+import type { AddFeedbackConversationNoteDtoNoteType } from "../api/generated/model/addFeedbackConversationNoteDtoNoteType";
 import type { FeedbackConversationDetailDtoOutput } from "../api/generated/model/feedbackConversationDetailDtoOutput";
 import { ConfirmAction } from "../components/admin/feedback/ConfirmAction";
 import { ConversationDetails } from "../components/admin/feedback/ConversationDetails";
@@ -59,6 +73,25 @@ function errorMessage(cause: unknown, fallback: string): string {
 }
 
 type ConversationAction = "take-over" | "resume-bot" | "close";
+
+/** One campaign tally: a muted stroke icon, the number, then what it counts. */
+function CampaignCount({
+  icon: Icon,
+  value,
+  children,
+}: {
+  icon: LucideIcon;
+  value: number;
+  children: string;
+}) {
+  return (
+    <p className="flex items-center gap-1.5 text-sm text-ink-muted">
+      <Icon aria-hidden="true" className="size-4 shrink-0 text-ink-subtle" />
+      <strong className="font-bold text-ink tabular-nums">{value}</strong>
+      {children}
+    </p>
+  );
+}
 
 /**
  * The post-event feedback inbox: one campaign's conversations in the
@@ -160,6 +193,7 @@ export function FeedbackInboxPage() {
   const closeConversation = useCloseFeedbackConversation();
   const sendStaffMessage = useSendFeedbackConversationStaffMessage();
   const updateNoteReviewStatus = useUpdateFeedbackNoteReviewStatus();
+  const addNote = useAddFeedbackConversationNote();
   const startConversation = useStartFeedbackConversation();
   const pauseCampaign = usePauseFeedbackCampaign();
   const resumeCampaign = useResumeFeedbackCampaign();
@@ -243,6 +277,38 @@ export function FeedbackInboxPage() {
     }
   }
 
+  /**
+   * Writes a staff note and refreshes both places notes are read: this
+   * conversation's results and the campaign-wide Results tab. It deliberately
+   * does not catch — the dialog surfaces the failure in its own context, where
+   * the operator's text is still on screen.
+   */
+  async function handleAddNote(
+    conversationId: string,
+    input: {
+      noteType: AddFeedbackConversationNoteDtoNoteType;
+      text: string;
+      subjectParticipantId?: string;
+    },
+  ) {
+    setActionError(null);
+    await addNote.mutateAsync({ campaignId, conversationId, data: input });
+    await Promise.all([
+      queryClient.invalidateQueries({
+        queryKey: getListFeedbackConversationResultsQueryKey(
+          campaignId,
+          conversationId,
+        ),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: getListFeedbackCampaignResultsQueryKey(campaignId),
+      }),
+    ]);
+    toast.success("Note added", {
+      description: "It is saved as a staff note and labelled as one.",
+    });
+  }
+
   async function handleNoteReviewChange(
     noteId: string,
     status: "new" | "dismissed",
@@ -324,34 +390,39 @@ export function FeedbackInboxPage() {
 
   return (
     <div className="flex flex-col gap-5">
+      {/* A back affordance, not a peer of the campaign's own actions: it leaves
+          this campaign rather than doing something to it. Same glyph and
+          classes as the profile page's back link — one admin, one pattern. */}
+      <Link
+        to="/admin/feedback"
+        className="inline-flex items-center gap-1.5 self-start text-sm font-semibold text-primary"
+      >
+        <ChevronLeft aria-hidden="true" className="size-4 shrink-0" />
+        All campaigns
+      </Link>
+
       <JtsPageHeader
         eyebrow="Post-event feedback"
         title={campaign?.eventTitle ?? "Feedback conversations"}
         description="Read every conversation for this campaign, take one over when it needs a person, and hand it back when it does not."
         actions={
           <>
-            <Link
-              to="/admin/feedback"
-              className="self-center text-sm font-semibold text-primary"
-            >
-              All campaigns
-            </Link>
             {campaign ? (
               <Link
                 to={`/admin/feedback/${campaign.id}/results`}
-                className="self-center text-sm font-semibold text-primary"
+                className="inline-flex items-center gap-1.5 self-center text-sm font-semibold text-primary"
               >
+                <BarChart3 aria-hidden="true" className="size-4 shrink-0" />
                 Results
               </Link>
             ) : null}
 
-            {campaign ? (
-              <StartConversationAction
-                eventId={campaign.eventId}
-                existingParticipantIds={existingParticipantIds}
-                isDisabled={campaign.status === "closed"}
-                isPending={startConversation.isPending}
-                onStart={handleStartConversation}
+            {/* Reading the campaign's output and changing its state are two
+                different kinds of act; a hairline says so without a heading. */}
+            {campaign && campaign.status !== "closed" ? (
+              <span
+                aria-hidden="true"
+                className="hidden h-6 self-center border-l border-border sm:block"
               />
             ) : null}
 
@@ -419,26 +490,24 @@ export function FeedbackInboxPage() {
       {campaign ? (
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-md border border-border bg-surface px-4 py-3">
           <FeedbackBadges badges={[campaignStatusBadge(campaign.status)]} />
-          <p className="text-sm text-ink-muted">
-            <strong className="font-bold text-ink tabular-nums">
-              {campaign.conversationCount}
-            </strong>{" "}
+          <CampaignCount
+            icon={MessagesSquare}
+            value={campaign.conversationCount}
+          >
             conversations
-          </p>
-          <p className="text-sm text-ink-muted">
-            <strong className="font-bold text-ink tabular-nums">
-              {campaign.openCount}
-            </strong>{" "}
+          </CampaignCount>
+          <CampaignCount icon={MessageCircleMore} value={campaign.openCount}>
             open
-          </p>
-          <p className="text-sm text-ink-muted">
-            <strong className="font-bold text-ink tabular-nums">
-              {campaign.needsAttentionCount}
-            </strong>{" "}
+          </CampaignCount>
+          <CampaignCount
+            icon={TriangleAlert}
+            value={campaign.needsAttentionCount}
+          >
             need attention
-          </p>
+          </CampaignCount>
           {simulatorAvailable ? (
-            <p className="text-[0.65rem] font-extrabold uppercase tracking-caps text-warning">
+            <p className="flex items-center gap-1.5 text-[0.65rem] font-extrabold uppercase tracking-caps text-warning">
+              <FlaskConical aria-hidden="true" className="size-3.5 shrink-0" />
               Simulated transport
             </p>
           ) : null}
@@ -459,6 +528,20 @@ export function FeedbackInboxPage() {
             loading={listQuery.isPending}
             error={listError}
             totalCount={conversations.length}
+            isRefreshing={listQuery.isFetching}
+            {...(campaign
+              ? {
+                  startAction: (
+                    <StartConversationAction
+                      eventId={campaign.eventId}
+                      existingParticipantIds={existingParticipantIds}
+                      isDisabled={campaign.status === "closed"}
+                      isPending={startConversation.isPending}
+                      onStart={handleStartConversation}
+                    />
+                  ),
+                }
+              : {})}
           />
         </div>
 
@@ -475,6 +558,7 @@ export function FeedbackInboxPage() {
                   }
                 : {})}
               actionError={actionError}
+              isRefreshing={detailQuery.isFetching}
             />
           ) : detailQuery.isError ? (
             <p role="alert" className="text-sm text-danger">
@@ -493,6 +577,7 @@ export function FeedbackInboxPage() {
           {conversation ? (
             <ConversationDetails
               conversation={conversation}
+              eventId={campaign?.eventId ?? ""}
               results={resultsQuery.data}
               resultsLoading={resultsQuery.isPending}
               resultsError={
@@ -534,8 +619,10 @@ export function FeedbackInboxPage() {
                 )
               }
               onNoteReviewChange={handleNoteReviewChange}
+              onAddNote={(input) => handleAddNote(conversation.id, input)}
               pendingAction={pendingAction}
               noteUpdatePending={updateNoteReviewStatus.isPending}
+              addNotePending={addNote.isPending}
             />
           ) : null}
         </div>

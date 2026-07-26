@@ -6,8 +6,11 @@ Status: architecture accepted in
 **WP3 Mongo conversation schema v2**, **WP4 ingress + materialization**,
 **WP5 extraction + reply loop**, **WP6 outbox relay + transport**, **WP7
 campaign service + schedulers**, **WP7b staff conversation inbox HTTP** and
-**WP8 dev simulated transport** are landed. The admin conversations UI remains
-WP9. Plan amendments in
+**WP8 dev simulated transport** are landed, as is the **WP9** admin
+conversations UI it serves
+([`docs/frontend/feedback-conversations.md`](../../frontend/feedback-conversations.md)),
+whose WP12 design pass added the staff-written note endpoint documented below.
+Plan amendments in
 [`POST_EVENT_FEEDBACK_PLAN_2026-07-25.md`](../../../POST_EVENT_FEEDBACK_PLAN_2026-07-25.md)
 §9 supersede frozen candidate snapshots with live D16 selection, and
 [D13](#d13-safety-content-travels-the-ordinary-pipeline) is amended: safety
@@ -35,14 +38,14 @@ Typed repository methods for later pipeline packages live in
 [`post-event-feedback.repository.ts`](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback.repository.ts).
 There is no `message_deliveries` table and nothing references `event_attendees`.
 
-| Table                      | Authority rules                                                                                                                                                                                                  |
-| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `feedback_campaigns`       | `event_id` **UNIQUE** (one campaign per event); `question_set_version` + `questions` jsonb copy at launch; status `launched\|paused\|closed`; event FK `ON DELETE RESTRICT`                                      |
-| `feedback_answers`         | Directed edge; optional `subject_participant_id`; `value_int` for scores; `source_message_ids uuid[]`; `extraction_meta` jsonb (model, confidence, **candidate IDs of the run** per D12)                         |
-| Answer uniqueness          | `UNIQUE NULLS NOT DISTINCT (conversation_id, question_key, subject_participant_id)` so subjectless scores cannot duplicate on replay                                                                             |
-| `feedback_notes`           | Same directionality; `note_type` `activity_interest\|general`; text ≤ 500 chars; subject **NULLABLE** (D18 unknown-name degradation); status `new\|dismissed`                                                    |
-| `provider_message_ingress` | Durable webhook ack + dedupe; `UNIQUE(chat_jid, provider_message_id)`; `text` nullable (metadata-only when `ignored_unmatched`, D10); statuses `pending\|materialized\|ignored_unmatched\|failed`                |
-| `message_outbox`           | Reply/intro/reminder/staff/system; status includes `held`; `dedupe_key` **UNIQUE**; delivery columns folded in (`delivery_status`, provider ids, sent/delivered/read/played timestamps) — no separate deliveries |
+| Table                      | Authority rules                                                                                                                                                                                                                         |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `feedback_campaigns`       | `event_id` **UNIQUE** (one campaign per event); `question_set_version` + `questions` jsonb copy at launch; status `launched\|paused\|closed`; event FK `ON DELETE RESTRICT`                                                             |
+| `feedback_answers`         | Directed edge; optional `subject_participant_id`; `value_int` for scores; `source_message_ids uuid[]`; `extraction_meta` jsonb (model, confidence, **candidate IDs of the run** per D12)                                                |
+| Answer uniqueness          | `UNIQUE NULLS NOT DISTINCT (conversation_id, question_key, subject_participant_id)` so subjectless scores cannot duplicate on replay                                                                                                    |
+| `feedback_notes`           | Same directionality; `note_type` `activity_interest\|general`; text ≤ 500 chars; subject **NULLABLE** (D18 unknown-name degradation); status `new\|dismissed`; `source_message_ids` non-empty unless `extraction_meta.origin = 'staff'` |
+| `provider_message_ingress` | Durable webhook ack + dedupe; `UNIQUE(chat_jid, provider_message_id)`; `text` nullable (metadata-only when `ignored_unmatched`, D10); statuses `pending\|materialized\|ignored_unmatched\|failed`                                       |
+| `message_outbox`           | Reply/intro/reminder/staff/system; status includes `held`; `dedupe_key` **UNIQUE**; delivery columns folded in (`delivery_status`, provider ids, sent/delivered/read/played timestamps) — no separate deliveries                        |
 
 All participant and campaign foreign keys use `ON DELETE RESTRICT` (D18).
 `conversation_id` / `matched_conversation_id` are Mongo conversation UUIDs with
@@ -971,7 +974,45 @@ flowchart LR
 | Resume bot         | open ∧ control=human                                    | `resumeBot` + audit                                                              |
 | Close              | open (STOP-closed rejected; other closed is idempotent) | `close(cancelled)`, cancel queued outbox, audit (D17)                            |
 | Staff send         | open ∧ control=human                                    | Insert `kind=staff` outbox (WP6 sends), append transcript with `outboxId`, audit |
+| Add note           | conversation exists; subject ∈ live D16 candidates      | Insert `feedback_notes` with staff provenance + audit                            |
 | Note review status | note exists                                             | `new` ↔ `dismissed` + audit                                                      |
+
+### Staff-written notes (WP12)
+
+An operator can record what they learned outside the thread. The note is an
+ordinary `feedback_notes` row, so it reaches the conversation pane, the Results
+tab and the review queue like any other — D13's rule that feedback is visible
+rather than filed separately applies to manual notes too.
+
+It asserts nothing it does not know:
+
+| Field                  | Value                                                                          |
+| ---------------------- | ------------------------------------------------------------------------------ |
+| `extraction_meta`      | `{ origin: "staff", staffUserId, candidateIds }` — no `model`, no `confidence` |
+| `source_message_ids`   | Empty. The note quotes no message; an operator typed it                        |
+| `subjectParticipantId` | Optional, and only a current D16 candidate of the campaign's event             |
+| `status`               | `new`, so a manual note enters the same review queue                           |
+
+Two consequences follow from that shape:
+
+- The `feedback_notes_source_message_ids_check` constraint now reads
+  `cardinality(source_message_ids) >= 1 or extraction_meta->>'origin' = 'staff'`
+  (migration `20260726001227_staff_authored_feedback_notes`). Every note that
+  claims conversation provenance still has to cite the message it came from;
+  only the origin that quotes nothing may be empty.
+- The note read model publishes a derived `origin` of `conversation` or `staff`
+  rather than the raw provenance blob. A model extraction and the deterministic
+  fallback both quote real testimony, so both read as `conversation`; rows
+  written before the field existed are extraction output, which is the default.
+  The admin labels the `staff` case wherever notes render so a hand-written note
+  can never be read as something a participant said.
+
+The subject is resolved through `EventsService.listFeedbackCandidatesForRespondent`
+— the same D16 helper extraction uses — and anyone outside that set is rejected
+with a 400 rather than quietly stored as an undirected note. Unlike every
+control that could send a message, adding a note is **not** capability-gated:
+writing something down is not steering the conversation, so it stays available
+after the thread closes.
 
 ### Staff HTTP contract (inbox)
 
@@ -985,6 +1026,7 @@ flowchart LR
 | `POST`  | `/feedback/campaigns/:campaignId/conversations/:conversationId/resume-bot` | `resumeFeedbackConversationBot`        |
 | `POST`  | `/feedback/campaigns/:campaignId/conversations/:conversationId/close`      | `closeFeedbackConversation`            |
 | `POST`  | `/feedback/campaigns/:campaignId/conversations/:conversationId/messages`   | `sendFeedbackConversationStaffMessage` |
+| `POST`  | `/feedback/campaigns/:campaignId/conversations/:conversationId/notes`      | `addFeedbackConversationNote`          |
 | `PATCH` | `/feedback/notes/:noteId/review-status`                                    | `updateFeedbackNoteReviewStatus`       |
 
 ### WP7b tests
@@ -996,6 +1038,12 @@ full-transcript case cancelling the staff row and refusing the send, close
 idempotency after `cancelled`, STOP-closed close rejection, take-over / resume
 audit, and campaign results display-name resolution including dangling-id `null`
 (D18).
+
+For staff notes: the written row carries `origin: staff`, the acting user and no
+model or confidence; an empty `source_message_ids`; a subject outside the live
+D16 candidates is refused before anything is inserted; a note on a closed
+conversation is accepted; and both model and deterministic-fallback rows report
+`origin: conversation`.
 
 ## Decisions and references
 

@@ -65,6 +65,37 @@ function resolveHex(
     return resolveHex(vars, next, depth + 1);
   }
 
+  // The dark theme builds every `-soft` fill with `color-mix(in srgb, …)`, so
+  // without this branch no tinted pairing could be measured at all — the soft
+  // chips the feedback inbox labels its notes with would go unasserted in the
+  // one theme where they are hardest to get right. `in srgb` interpolates the
+  // gamma-encoded channels directly, which is what this reproduces.
+  const mix = /^color-mix\(\s*in srgb\s*,([\s\S]+)\)$/.exec(value);
+  if (mix) {
+    const parts = (mix[1] ?? "").split(",").map((part) => part.trim());
+    const [first, second] = parts;
+    if (parts.length !== 2 || first === undefined || second === undefined) {
+      throw new Error(`Unsupported color-mix: ${value}`);
+    }
+    const percent = /([\d.]+)%/.exec(first);
+    const weight = percent?.[1] === undefined ? 0.5 : Number(percent[1]) / 100;
+    const from = resolveHex(
+      vars,
+      first.replace(/[\d.]+%/, "").trim(),
+      depth + 1,
+    );
+    const onto = resolveHex(vars, second, depth + 1);
+    const channels = [0, 1, 2].map((index) => {
+      const start = 1 + index * 2;
+      const a = Number.parseInt(from.slice(start, start + 2), 16);
+      const b = Number.parseInt(onto.slice(start, start + 2), 16);
+      return Math.round(a * weight + b * (1 - weight));
+    });
+    return `#${channels
+      .map((channel) => channel.toString(16).padStart(2, "0"))
+      .join("")}`;
+  }
+
   throw new Error(`Cannot resolve "${value}" to a plain hex colour`);
 }
 
@@ -117,6 +148,23 @@ const pairs: [string, string, string][] = [
     "--jts-color-canvas",
     "--jts-color-warning",
     "attention pill label on solid warning",
+  ],
+  // The feedback inbox's sunken answer cards and the profile link that opens a
+  // respondent, both introduced with the inbox design pass.
+  ["--jts-color-text", "--jts-color-surface-sunken", "card text on sunken"],
+  [
+    "--jts-color-text-muted",
+    "--jts-color-surface-sunken",
+    "card label on sunken",
+  ],
+  ["--jts-color-primary", "--jts-color-surface", "inline link on surface"],
+  // The "Staff note" badge, so a hand-written note can never be mistaken for
+  // participant testimony. HeroUI's soft accent chip pairs `--accent-soft-
+  // foreground` with `--accent-soft`, which the bridge maps to these two.
+  [
+    "--jts-color-primary",
+    "--jts-color-primary-soft",
+    "soft accent chip label on its tint",
   ],
 ];
 

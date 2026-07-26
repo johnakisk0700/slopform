@@ -107,8 +107,8 @@ Choose UI in this order:
    the real abstraction.
 4. Use semantic HTML and CSS for content and layout.
 
-The shared contracts are `JtsPageHeader`, `JtsStat` and `JtsDataTable`. Their
-contracts are linked from the
+The shared contracts are `JtsPageHeader`, `JtsStat`, `JtsDataTable` and
+`JtsLiveIndicator`. Their contracts are linked from the
 [component inventory](frontend/components/README.md). Columns, filters, cell
 formatting and row actions remain with the consuming route — adding a table
 column is a consumer-side `ColumnDef` change and touches no `Jts*` file.

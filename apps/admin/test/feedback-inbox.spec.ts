@@ -37,6 +37,10 @@ interface LabelsModule {
     state: "open" | "closed";
     reason: string | null;
   }) => { label: string; tone: string };
+  noteOriginLabel: (origin: "conversation" | "staff") => string;
+  staffOriginBadge: (
+    origin: "conversation" | "staff",
+  ) => { key: string; label: string; tone: string } | null;
 }
 
 interface ConversationViewModule {
@@ -383,6 +387,92 @@ function readSource(relativePath: string): string {
   );
 }
 
+describe("staff-written notes", () => {
+  it("badges a staff note and leaves extraction output unbadged", () => {
+    // The default is the pane's own subject; only the exception is labelled,
+    // and it is labelled in words rather than by tone alone.
+    expect(labels.staffOriginBadge("conversation")).toBeNull();
+    expect(labels.staffOriginBadge("staff")).toMatchObject({
+      key: "origin",
+      label: "Staff note",
+      tone: "accent",
+    });
+    expect(labels.noteOriginLabel("conversation")).toBe("From conversation");
+    expect(labels.noteOriginLabel("staff")).toBe("Staff note");
+  });
+
+  it("renders the origin wherever notes are read", () => {
+    const details = readSource(
+      "src/components/admin/feedback/ConversationDetails.tsx",
+    );
+    const results = readSource("src/routes/FeedbackResultsPage.tsx");
+
+    expect(details).toContain("staffOriginBadge(note.origin)");
+    // The Results tab is the other place a note is read, so it carries the
+    // same fact as its own column rather than an easily missed inline hint.
+    expect(results).toContain("staffOriginBadge(row.original.origin)");
+    expect(results).toContain('header: "Source"');
+  });
+
+  it("writes the note through the generated hook and refreshes both readers", () => {
+    const page = readSource("src/routes/FeedbackInboxPage.tsx");
+
+    expect(page).toContain("useAddFeedbackConversationNote");
+    expect(page).toContain("getListFeedbackConversationResultsQueryKey");
+    expect(page).toContain("getListFeedbackCampaignResultsQueryKey");
+  });
+
+  it("offers only D16 candidates as the subject of a note", () => {
+    const dialog = readSource(
+      "src/components/admin/feedback/AddNoteAction.tsx",
+    );
+
+    // The same endpoint extraction resolves subjects with: present attendees
+    // of the event, minus the respondent.
+    expect(dialog).toContain("useListEventFeedbackCandidates");
+    expect(dialog).toContain("respondentParticipantId");
+  });
+});
+
+describe("inbox toolbar and orientation", () => {
+  it("reads «All campaigns» as a back affordance, not a campaign action", () => {
+    const page = readSource("src/routes/FeedbackInboxPage.tsx");
+    const header = page.slice(0, page.indexOf("<JtsPageHeader"));
+
+    // It leaves the campaign, so it sits above the header with a left chevron
+    // rather than beside the actions that operate on the campaign — the same
+    // glyph the participant profile's back link uses.
+    expect(header).toContain("All campaigns");
+    expect(header).toContain("ChevronLeft");
+  });
+
+  it("keeps «Start conversation» beside the list it adds a row to", () => {
+    const page = readSource("src/routes/FeedbackInboxPage.tsx");
+    const list = readSource(
+      "src/components/admin/feedback/ConversationList.tsx",
+    );
+
+    expect(page).toContain("startAction:");
+    expect(list).toContain("startAction");
+    // Not a page-level toolbar item any more.
+    expect(page.indexOf("<StartConversationAction")).toBeGreaterThan(
+      page.indexOf("<ConversationList"),
+    );
+  });
+
+  it("shows the polling refresh in both live panes without a live region", () => {
+    const page = readSource("src/routes/FeedbackInboxPage.tsx");
+    const indicator = readSource("src/components/ui/JtsLiveIndicator.tsx");
+
+    expect(page).toContain("isRefreshing={listQuery.isFetching}");
+    expect(page).toContain("isRefreshing={detailQuery.isFetching}");
+    // A three-second poll must not announce itself over and over.
+    expect(indicator).not.toContain("aria-live");
+    expect(indicator).not.toContain('role="status"');
+    expect(indicator).toContain("sr-only");
+  });
+});
+
 describe("selection under polling", () => {
   it("keeps the operator's conversation while it survives the filter", () => {
     const visible = [{ id: "a" }, { id: "b" }];
@@ -516,6 +606,7 @@ describe("API contract boundary", () => {
       "useSendFeedbackConversationStaffMessage",
       "useUpdateFeedbackNoteReviewStatus",
       "useStartFeedbackConversation",
+      "useAddFeedbackConversationNote",
     ]) {
       expect(page).toContain(hook);
     }

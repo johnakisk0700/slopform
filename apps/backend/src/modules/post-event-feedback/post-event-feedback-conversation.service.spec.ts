@@ -17,6 +17,7 @@ import {
 } from "../conversations/feedback-conversation.repository.js";
 import type { FeedbackConversationDocument } from "../conversations/feedback-conversation.schemas.js";
 import type { EventsRepository } from "../events/events.repository.js";
+import type { EventsService } from "../events/events.service.js";
 import type { ParticipantsRepository } from "../participants/participants.repository.js";
 import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
 import { buildPostEventFeedbackQuestionLaunchSnapshot } from "./post-event-feedback-question-set.js";
@@ -430,6 +431,157 @@ describe("PostEventFeedbackConversationService", () => {
     expect(result.notes[0]?.status).toBe("new");
   });
 
+  it("records a staff note with staff provenance and no borrowed evidence", async () => {
+    const { service, repository, conversations, eventsService, auditAppend } =
+      createService();
+    conversations.findById.mockResolvedValue(openConversation());
+    eventsService.listFeedbackCandidatesForRespondent.mockResolvedValue({
+      items: [{ participantId: subjectId, displayName: "Kostas" }],
+    });
+    repository.insertNote.mockResolvedValue(
+      noteRow({
+        subjectParticipantId: subjectId,
+        sourceMessageIds: [],
+        extractionMeta: {
+          origin: "staff",
+          staffUserId: "admin-1",
+          candidateIds: [subjectId],
+        },
+      }),
+    );
+
+    const note = await service.addStaffNote(
+      campaignId,
+      conversationId,
+      {
+        noteType: "general",
+        text: "Called to check in",
+        subjectParticipantId: subjectId,
+      },
+      "admin-1",
+      "req-9",
+    );
+
+    expect(repository.insertNote).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        campaignId,
+        conversationId,
+        respondentParticipantId: participantId,
+        subjectParticipantId: subjectId,
+        noteType: "general",
+        text: "Called to check in",
+        // No message was quoted, and no model ran: neither is invented.
+        sourceMessageIds: [],
+        extractionMeta: {
+          origin: "staff",
+          staffUserId: "admin-1",
+          candidateIds: [subjectId],
+        },
+        status: "new",
+      }),
+    );
+    const [, inserted] = repository.insertNote.mock.calls[0] as [
+      unknown,
+      { extractionMeta: Record<string, unknown> },
+    ];
+    expect(inserted.extractionMeta).not.toHaveProperty("model");
+    expect(inserted.extractionMeta).not.toHaveProperty("confidence");
+
+    expect(note.origin).toBe("staff");
+    expect(note.sourceMessageIds).toStrictEqual([]);
+    expect(auditAppend).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "feedback_note.staff_created",
+        actorType: "admin",
+        actorId: "admin-1",
+        entityType: "feedback_note",
+      }),
+    );
+  });
+
+  it("refuses to direct a staff note at someone outside the D16 candidates", async () => {
+    const { service, repository, conversations, eventsService } =
+      createService();
+    conversations.findById.mockResolvedValue(openConversation());
+    eventsService.listFeedbackCandidatesForRespondent.mockResolvedValue({
+      items: [],
+    });
+
+    await expect(
+      service.addStaffNote(
+        campaignId,
+        conversationId,
+        {
+          noteType: "general",
+          text: "About someone else",
+          subjectParticipantId: subjectId,
+        },
+        "admin-1",
+        "req-10",
+      ),
+    ).rejects.toBeInstanceOf(FeedbackConversationActionNotAllowedError);
+    expect(repository.insertNote).not.toHaveBeenCalled();
+  });
+
+  it("accepts an undirected staff note on a closed conversation", async () => {
+    const { service, repository, conversations } = createService();
+    conversations.findById.mockResolvedValue(
+      openConversation({
+        lifecycle: {
+          state: "closed",
+          reason: "completed",
+          closedAt: new Date("2026-07-25T01:00:00.000Z"),
+        },
+      }),
+    );
+    repository.insertNote.mockResolvedValue(
+      noteRow({
+        sourceMessageIds: [],
+        extractionMeta: {
+          origin: "staff",
+          staffUserId: "admin-1",
+          candidateIds: [],
+        },
+      }),
+    );
+
+    // Writing down what happened is not steering the conversation, so it is
+    // not gated on the capability flags that stop messages going out.
+    const note = await service.addStaffNote(
+      campaignId,
+      conversationId,
+      { noteType: "activity_interest", text: "Wants a hiking group" },
+      "admin-1",
+      "req-11",
+    );
+
+    expect(note.origin).toBe("staff");
+    expect(note.subjectParticipantId).toBeNull();
+  });
+
+  it("reports extraction output as conversation-origin, including legacy rows", async () => {
+    const { service, repository } = createService();
+    repository.listNotesByCampaign.mockResolvedValue([
+      noteRow(),
+      noteRow({
+        id: "dddddddd-cccc-4ccc-8ccc-cccccccccccc",
+        extractionMeta: {
+          origin: "deterministic_fallback",
+          candidateIds: [],
+        },
+      }),
+    ]);
+
+    const result = await service.listCampaignResults(campaignId, {});
+
+    expect(result.notes.map((note) => note.origin)).toStrictEqual([
+      "conversation",
+      "conversation",
+    ]);
+  });
+
   it("returns null display names for dangling participant ids (D18)", async () => {
     const { service, conversations, participants } = createService();
     conversations.listForCampaign.mockResolvedValue([listSummary()]);
@@ -560,7 +712,7 @@ function answerRow(): FeedbackAnswerRow {
   };
 }
 
-function noteRow(): FeedbackNoteRow {
+function noteRow(overrides: Partial<FeedbackNoteRow> = {}): FeedbackNoteRow {
   return {
     id: noteId,
     campaignId,
@@ -574,6 +726,7 @@ function noteRow(): FeedbackNoteRow {
     status: "new",
     createdAt: new Date("2026-07-25T00:41:00.000Z"),
     updatedAt: new Date("2026-07-25T00:41:00.000Z"),
+    ...overrides,
   };
 }
 
@@ -595,6 +748,10 @@ function createService(): {
     listNotesByCampaign: ReturnType<typeof vi.fn>;
     findNoteById: ReturnType<typeof vi.fn>;
     updateNoteStatus: ReturnType<typeof vi.fn>;
+    insertNote: ReturnType<typeof vi.fn>;
+  };
+  eventsService: {
+    listFeedbackCandidatesForRespondent: ReturnType<typeof vi.fn>;
   };
   conversations: {
     listForCampaign: ReturnType<typeof vi.fn>;
@@ -623,6 +780,7 @@ function createService(): {
     listNotesByCampaign: vi.fn().mockResolvedValue([]),
     findNoteById: vi.fn(),
     updateNoteStatus: vi.fn(),
+    insertNote: vi.fn(),
   };
   const conversations = {
     listForCampaign: vi.fn().mockResolvedValue([]),
@@ -635,6 +793,11 @@ function createService(): {
   };
   const events = {
     findById: vi.fn().mockResolvedValue(eventRow),
+  };
+  const eventsService = {
+    listFeedbackCandidatesForRespondent: vi
+      .fn()
+      .mockResolvedValue({ items: [] }),
   };
   const participants = {
     findByIds: vi.fn().mockResolvedValue([participantRow()]),
@@ -651,6 +814,7 @@ function createService(): {
     repository as unknown as PostEventFeedbackRepository,
     conversations as unknown as FeedbackConversationRepository,
     events as unknown as EventsRepository,
+    eventsService as unknown as EventsService,
     participants as unknown as ParticipantsRepository,
     { append: auditAppend } as unknown as AuditRepository,
     new FeedbackOutboundTranscriptService(
@@ -660,5 +824,12 @@ function createService(): {
     ),
   );
 
-  return { service, repository, conversations, participants, auditAppend };
+  return {
+    service,
+    repository,
+    eventsService,
+    conversations,
+    participants,
+    auditAppend,
+  };
 }

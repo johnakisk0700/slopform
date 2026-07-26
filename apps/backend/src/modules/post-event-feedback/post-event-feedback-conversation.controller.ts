@@ -20,6 +20,7 @@ import { CurrentUserId } from "../../infrastructure/auth/current-user-id.decorat
 import { FeedbackConversationNotFoundError } from "../conversations/feedback-conversation.repository.js";
 import { FeedbackCampaignNotFoundError } from "./post-event-feedback-campaign.service.js";
 import {
+  AddFeedbackConversationNoteDto,
   FeedbackCampaignConversationsDto,
   FeedbackCampaignIdParamDto,
   FeedbackCampaignResultsQueryDto,
@@ -180,6 +181,27 @@ export class PostEventFeedbackConversationController {
         parameters.campaignId,
         parameters.conversationId,
         input.text,
+        String(userId),
+        String(correlationId),
+      ),
+    );
+  }
+
+  @Post(":campaignId/conversations/:conversationId/notes")
+  @ApiOperation({ operationId: "addFeedbackConversationNote" })
+  @Header("Cache-Control", "no-store")
+  @ZodResponse({ status: 201, type: FeedbackNoteViewDto })
+  addNote(
+    @Param() parameters: FeedbackConversationIdParamDto,
+    @Body() input: AddFeedbackConversationNoteDto,
+    @CurrentUserId() userId: FeedbackConversationPrincipalDto,
+    @RequestCorrelationId() correlationId: FeedbackConversationCorrelationIdDto,
+  ): Promise<FeedbackNoteViewDto> {
+    return mapConversationErrors(
+      this.conversations.addStaffNote(
+        parameters.campaignId,
+        parameters.conversationId,
+        input,
         String(userId),
         String(correlationId),
       ),

@@ -6,6 +6,7 @@
  * OpenAPI spec version: 1.0.0
  */
 import type { FeedbackConversationResultsDtoOutputNotesItemNoteType } from "./feedbackConversationResultsDtoOutputNotesItemNoteType";
+import type { FeedbackConversationResultsDtoOutputNotesItemOrigin } from "./feedbackConversationResultsDtoOutputNotesItemOrigin";
 import type { FeedbackConversationResultsDtoOutputNotesItemStatus } from "./feedbackConversationResultsDtoOutputNotesItemStatus";
 
 export type FeedbackConversationResultsDtoOutputNotesItem = {
@@ -18,6 +19,7 @@ export type FeedbackConversationResultsDtoOutputNotesItem = {
   /** @pattern ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$ */
   id: string;
   noteType: FeedbackConversationResultsDtoOutputNotesItemNoteType;
+  origin: FeedbackConversationResultsDtoOutputNotesItemOrigin;
   /**
    * @minLength 1
    * @maxLength 200
@@ -26,10 +28,7 @@ export type FeedbackConversationResultsDtoOutputNotesItem = {
   respondentDisplayName: string | null;
   /** @pattern ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$ */
   respondentParticipantId: string;
-  /**
-   * @minItems 1
-   * @items.pattern ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$
-   */
+  /** @items.pattern ^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$ */
   sourceMessageIds: string[];
   status: FeedbackConversationResultsDtoOutputNotesItemStatus;
   /**

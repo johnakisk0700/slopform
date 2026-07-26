@@ -95,12 +95,20 @@ export type MessageOutboxDeliveryStatus =
 export type FeedbackCampaignQuestions = Record<string, unknown>;
 
 /**
+ * Where a recorded answer or note came from. Absent on rows written before the
+ * field existed, which are all extraction output. `staff` is the one origin
+ * that is not derived from participant testimony at all.
+ */
+export const FEEDBACK_EXTRACTION_ORIGIN_STAFF = "staff";
+
+/**
  * Extraction provenance recorded with each answer/note (D12). `candidateIds`
  * is the live D16 set supplied to that run.
  */
 export type FeedbackExtractionMeta = {
   readonly model?: string;
   readonly confidence?: number;
+  readonly origin?: string;
   readonly candidateIds: readonly string[];
   readonly [key: string]: unknown;
 };
@@ -269,9 +277,12 @@ export const feedbackNotes = pgTable(
       "feedback_notes_text_length_check",
       sql`char_length(btrim(${table.text})) between 1 and 500`,
     ),
+    // A note that claims conversation provenance must cite the message it came
+    // from. A staff note cites nothing because nothing was said: an operator
+    // typed it, and `extraction_meta.origin` is what says so.
     check(
       "feedback_notes_source_message_ids_check",
-      sql`cardinality(${table.sourceMessageIds}) >= 1`,
+      sql`cardinality(${table.sourceMessageIds}) >= 1 or ${table.extractionMeta}->>'origin' = 'staff'`,
     ),
     check(
       "feedback_notes_extraction_meta_object_check",
