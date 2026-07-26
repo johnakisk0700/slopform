@@ -3,8 +3,11 @@ import { useQueryClient } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
 import type { LucideIcon } from "lucide-react";
 import {
+  AtSign,
+  Cake,
   Calendar,
   Check,
+  ContactRound,
   Mail,
   MapPin,
   MessageCircle,
@@ -418,14 +421,14 @@ export function ParticipantProfilePage() {
         aria-labelledby="participant-profile-heading"
         className="rounded-md border border-border bg-surface px-4 py-4"
       >
-        <SectionOverline id="participant-profile-heading" icon={UserRound}>
+        <SectionOverline id="participant-profile-heading" icon={ContactRound}>
           Profile
         </SectionOverline>
         <dl className="grid gap-4 sm:grid-cols-2">
           <FieldRow icon={UserRound} label="Preferred name">
             {displayText(participant.preferredName)}
           </FieldRow>
-          <FieldRow icon={Calendar} label="Age band">
+          <FieldRow icon={Cake} label="Age band">
             {formatAgeBand(participant.ageBand)}
           </FieldRow>
           <FieldRow icon={MapPin} label="Neighborhood">
@@ -445,7 +448,7 @@ export function ParticipantProfilePage() {
           Contact & consent
         </SectionOverline>
         <dl className="grid gap-4 sm:grid-cols-2">
-          <FieldRow icon={Mail} label="Email">
+          <FieldRow icon={AtSign} label="Email">
             {participant.emailNormalized}
           </FieldRow>
           <FieldRow icon={Phone} label="Phone">
