@@ -1,13 +1,13 @@
 import type { FeedbackAnswerQuestionKey } from "@join-the-six/database";
 
 import type { FeedbackConversationDocument } from "../../conversations/feedback-conversation.schemas.js";
-import type { FeedbackExtractionValidationResult } from "../post-event-feedback-extraction-validation.js";
+import type { FeedbackExtractionValidationResult } from "./validate-proposal.js";
 import {
   POST_EVENT_FEEDBACK_HANDOFF_REPLY,
   createFeedbackClosingDedupeKey,
   createFeedbackHandoffDedupeKey,
   createFeedbackReplyDedupeKey,
-} from "../post-event-feedback-extraction.schemas.js";
+} from "./extraction.schemas.js";
 import {
   isPostEventFeedbackAnswerQuestionKey,
   type PostEventFeedbackQuestionSetCopy,

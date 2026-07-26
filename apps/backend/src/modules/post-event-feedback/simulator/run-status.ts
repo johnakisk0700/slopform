@@ -14,7 +14,7 @@ import {
   createFeedbackFallbackDedupeKey,
   createFeedbackHandoffDedupeKey,
   createFeedbackReplyDedupeKey,
-} from "../post-event-feedback-extraction.schemas.js";
+} from "../extraction/extraction.schemas.js";
 import type {
   FeedbackSimulatorRunStage,
   FeedbackSimulatorRunView,

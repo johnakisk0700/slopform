@@ -1,16 +1,16 @@
 import type { FeedbackAnswerQuestionKey } from "@join-the-six/database";
-import { resolvePostEventFeedbackCandidateByName } from "./post-event-feedback-name-matcher.js";
+import { resolvePostEventFeedbackCandidateByName } from "../post-event-feedback-name-matcher.js";
 import {
   foldPostEventFeedbackText,
   foldedTextContainsAtWordStart,
-} from "./matching/fold-text.js";
+} from "../matching/fold-text.js";
 import {
   POST_EVENT_FEEDBACK_QUESTION_SET_V1,
   isPostEventFeedbackAnswerQuestionKey,
   isPostEventFeedbackNoteType,
   noteSignature,
   type PostEventFeedbackAnswerQuestionDefinition,
-} from "./post-event-feedback-question-set.js";
+} from "../post-event-feedback-question-set.js";
 import type {
   FeedbackExtractionAnswerProposal,
   FeedbackExtractionContext,
@@ -23,7 +23,7 @@ import type {
   ValidatedFeedbackExtraction,
   ValidatedFeedbackNote,
   ValidatedFeedbackSafetySignal,
-} from "./post-event-feedback-extraction.schemas.js";
+} from "./extraction.schemas.js";
 
 /**
  * The whole domain rule set for an extraction run, as one pure function.

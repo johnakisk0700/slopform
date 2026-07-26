@@ -2,7 +2,7 @@ import type { FeedbackConversationGoal } from "../../conversations/feedback-conv
 import type {
   FeedbackExtractionContext,
   ValidatedFeedbackExtraction,
-} from "../post-event-feedback-extraction.schemas.js";
+} from "./extraction.schemas.js";
 
 export interface GoalStatusUpdate {
   readonly key: FeedbackConversationGoal["key"];

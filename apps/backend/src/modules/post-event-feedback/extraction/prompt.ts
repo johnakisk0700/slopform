@@ -1,14 +1,14 @@
 import {
   POST_EVENT_FEEDBACK_QUESTION_SET_V1,
   type PostEventFeedbackQuestionSetCopy,
-} from "./post-event-feedback-question-set.js";
+} from "../post-event-feedback-question-set.js";
 import {
   FEEDBACK_EXTRACTION_MAX_ANSWERS,
   FEEDBACK_EXTRACTION_MAX_NOTES,
   FEEDBACK_EXTRACTION_NOTE_MAX_LENGTH,
   FEEDBACK_EXTRACTION_REPLY_MAX_LENGTH,
   type FeedbackExtractionContext,
-} from "./post-event-feedback-extraction.schemas.js";
+} from "./extraction.schemas.js";
 
 export interface FeedbackExtractionPrompt {
   readonly system: string;

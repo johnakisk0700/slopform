@@ -11,33 +11,33 @@ import {
   type LanguageModel,
 } from "ai";
 
-import type { Environment } from "../../infrastructure/config/environment.js";
+import type { Environment } from "../../../infrastructure/config/environment.js";
 import {
   assistantModelAdapter,
   isRetryableProviderError,
-} from "../assistant/assistant-models.js";
+} from "../../assistant/assistant-models.js";
 import {
   assistantModelSchema,
   type AssistantModel,
-} from "../assistant/assistant.schemas.js";
+} from "../../assistant/assistant.schemas.js";
 import {
   type FeedbackExtractionPrompt,
   estimatePromptTokens,
-} from "./post-event-feedback-prompt.js";
+} from "./prompt.js";
 import {
   FEEDBACK_ATTENTION_CLASSIFICATION_BATCH_SIZE,
   FeedbackAttentionClassificationValidationError,
   buildFeedbackAttentionClassificationPrompt,
   feedbackAttentionClassificationProposalSchema,
   validateFeedbackAttentionClassification,
-} from "./post-event-feedback-attention-classification.js";
-import { resolveFeedbackExtractionProviderSettings } from "./post-event-feedback-provider-safety.js";
+} from "./attention-classification.js";
+import { resolveFeedbackExtractionProviderSettings } from "./permissive-safety-settings.js";
 import {
   feedbackExtractionProposalSchema,
   type FeedbackExtractionMessageView,
   type FeedbackExtractionProposal,
   type FeedbackExtractionSafetySignalProposal,
-} from "./post-event-feedback-extraction.schemas.js";
+} from "./extraction.schemas.js";
 
 export const FEEDBACK_EXTRACTION_FAILURE_CODES = [
   "provider_unavailable",

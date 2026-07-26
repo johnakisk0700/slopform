@@ -1,6 +1,6 @@
 import { expect } from "vitest";
 
-import { POST_EVENT_FEEDBACK_HANDOFF_REPLY } from "./post-event-feedback-extraction.schemas.js";
+import { POST_EVENT_FEEDBACK_HANDOFF_REPLY } from "./extraction/extraction.schemas.js";
 import {
   runFeedbackScenarios,
   type FeedbackScenario,

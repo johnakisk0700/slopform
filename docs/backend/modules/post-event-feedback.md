@@ -311,7 +311,7 @@ review.
 
 ## WP5 extraction and reply loop (implemented)
 
-[`PostEventFeedbackExtractor`](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-extractor.service.ts)
+[`PostEventFeedbackExtractor`](../../../apps/backend/src/modules/post-event-feedback/extraction/extract.service.ts)
 is the consumer of `feedback.extract.v1`. It is serialized per conversation by
 the deterministic job id and made replay-safe by the MongoDB extraction cursor.
 
@@ -473,7 +473,7 @@ missing. `FEEDBACK_EXTRACTION_MODEL` selects the model and defaults to
 than quietly using the default. Provider clients live in the worker module only.
 
 Extraction additionally sends **permissive safety thresholds** on its own call
-path ([`post-event-feedback-provider-safety.ts`](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-provider-safety.ts)).
+path ([`permissive-safety-settings.ts`](../../../apps/backend/src/modules/post-event-feedback/extraction/permissive-safety-settings.ts)).
 The registry routes `google/*` through OpenRouter, so the settings ride the
 chat model's `extraBody` passthrough as `safety_settings` with `BLOCK_NONE`
 across the four Gemini harm categories. Scope is the point: they are applied to
@@ -523,7 +523,7 @@ consent but cannot receive a new classification in a later extraction run.
 
 ### Deterministic fallback for a dead run
 
-[`PostEventFeedbackExtractionFallback`](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-extraction-fallback.service.ts)
+[`PostEventFeedbackExtractionFallback`](../../../apps/backend/src/modules/post-event-feedback/extraction/fallback.service.ts)
 runs when `feedback.extract.v1` fails permanently — a non-retryable provider
 rejection, or the last attempt spent. It leaves three things behind:
 

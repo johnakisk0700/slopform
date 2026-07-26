@@ -3,11 +3,11 @@ import { z } from "zod";
 import {
   postEventFeedbackRecommendedActionSchema,
   postEventFeedbackSafetyCategorySchema,
-} from "./post-event-feedback-attention.js";
+} from "../post-event-feedback-attention.js";
 import type {
   FeedbackExtractionMessageView,
   FeedbackExtractionSafetySignalProposal,
-} from "./post-event-feedback-extraction.schemas.js";
+} from "./extraction.schemas.js";
 
 export const FEEDBACK_ATTENTION_CLASSIFICATION_BATCH_SIZE = 10;
 const FEEDBACK_ATTENTION_PRECEDING_CONTEXT_MESSAGES = 6;

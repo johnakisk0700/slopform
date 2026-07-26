@@ -4,13 +4,13 @@ import {
   FeedbackExtractionGenerationError,
   type FeedbackAttentionClassificationGenerationResult,
   type FeedbackExtractionGenerationResult,
-} from "./post-event-feedback-extraction.service.js";
+} from "./extraction/model.service.js";
 import {
   FEEDBACK_EXTRACTION_MAX_SOURCE_MESSAGES,
   feedbackExtractionProposalSchema,
   type FeedbackExtractionMessageView,
   type FeedbackExtractionProposal,
-} from "./post-event-feedback-extraction.schemas.js";
+} from "./extraction/extraction.schemas.js";
 import type {
   AttentionTurn,
   Cite,

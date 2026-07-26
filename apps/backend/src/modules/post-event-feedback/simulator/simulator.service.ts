@@ -37,7 +37,7 @@ import {
   PostEventFeedbackIngressService,
   type RecordObservedMessageResult,
 } from "../post-event-feedback-ingress.service.js";
-import { resolveFeedbackExtractionModel } from "../post-event-feedback-extraction.service.js";
+import { resolveFeedbackExtractionModel } from "../extraction/model.service.js";
 import {
   POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS,
   type PostEventFeedbackRealModelCorpusCase,

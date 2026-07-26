@@ -21,13 +21,13 @@ import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.
 import type { FeedbackTransport } from "./outbox/transport.js";
 import { MessageOutboxDeliveryService } from "./outbox/deliver.service.js";
 import { MessageOutboxRelayService } from "./outbox/relay.service.js";
-import { PostEventFeedbackExtractionFallback } from "./post-event-feedback-extraction-fallback.service.js";
-import type { PostEventFeedbackExtractionModel } from "./post-event-feedback-extraction.service.js";
+import { PostEventFeedbackExtractionFallback } from "./extraction/fallback.service.js";
+import type { PostEventFeedbackExtractionModel } from "./extraction/model.service.js";
 import {
   POST_EVENT_FEEDBACK_FALLBACK_ACK,
   POST_EVENT_FEEDBACK_HANDOFF_REPLY,
-} from "./post-event-feedback-extraction.schemas.js";
-import { PostEventFeedbackExtractor } from "./post-event-feedback-extractor.service.js";
+} from "./extraction/extraction.schemas.js";
+import { PostEventFeedbackExtractor } from "./extraction/extract.service.js";
 import { PostEventFeedbackIngressService } from "./post-event-feedback-ingress.service.js";
 import { PostEventFeedbackConversationService } from "./post-event-feedback-conversation.service.js";
 import {

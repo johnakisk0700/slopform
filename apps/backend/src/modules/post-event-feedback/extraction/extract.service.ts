@@ -8,54 +8,51 @@ import type {
   MessageOutboxRow,
 } from "@join-the-six/database";
 
-import { AuditRepository } from "../../infrastructure/audit/audit.repository.js";
+import { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
 import {
   FEEDBACK_OPERATOR_ALERT,
   type FeedbackOperatorAlert,
-} from "./feedback-operator-alert.js";
-import { DatabaseService } from "../../infrastructure/database/database.service.js";
-import { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
-import { FeedbackResultsRepository } from "./extraction/results.repository.js";
-import { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
-import { FeedbackConversationRepository } from "../conversations/feedback-conversation.repository.js";
-import type { FeedbackConversationDocument } from "../conversations/feedback-conversation.schemas.js";
-import { EventsService } from "../events/events.service.js";
-import { ParticipantsRepository } from "../participants/participants.repository.js";
-import { latestParticipantMessage } from "./conversation-reader.js";
+} from "../feedback-operator-alert.js";
+import { DatabaseService } from "../../../infrastructure/database/database.service.js";
+import { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
+import { FeedbackResultsRepository } from "./results.repository.js";
+import { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
+import { FeedbackConversationRepository } from "../../conversations/feedback-conversation.repository.js";
+import type { FeedbackConversationDocument } from "../../conversations/feedback-conversation.schemas.js";
+import { EventsService } from "../../events/events.service.js";
+import { ParticipantsRepository } from "../../participants/participants.repository.js";
+import { latestParticipantMessage } from "../conversation-reader.js";
 import {
   isCompleting,
   resolveGoalStatuses,
   type GoalStatusUpdate,
-} from "./extraction/goal-progress.js";
+} from "./goal-progress.js";
 import {
   groupSafetySignalsByMessage,
   isSafetyOrHandoffAttention,
   needsOperatorAttention,
-} from "./extraction/operator-attention.js";
-import {
-  resolveOutbound,
-  type OutboundReply,
-} from "./extraction/outbound-reply.js";
-import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
+} from "./operator-attention.js";
+import { resolveOutbound, type OutboundReply } from "./outbound-reply.js";
+import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
 import {
   PostEventFeedbackMetrics,
   type FeedbackExtractOutcome,
-} from "./post-event-feedback-metrics.service.js";
+} from "../post-event-feedback-metrics.service.js";
 import {
   noteSignature,
   resolveCampaignCopy,
-} from "./post-event-feedback-question-set.js";
+} from "../post-event-feedback-question-set.js";
 import {
   validateFeedbackExtractionProposal,
   type FeedbackExtractionValidationResult,
-} from "./post-event-feedback-extraction-validation.js";
-import { PostEventFeedbackExtractionModel } from "./post-event-feedback-extraction.service.js";
-import { FEEDBACK_EXTRACT_QUIET_WINDOW_MS } from "./post-event-feedback.schemas.js";
-import type { FeedbackExtractionContext } from "./post-event-feedback-extraction.schemas.js";
+} from "./validate-proposal.js";
+import { PostEventFeedbackExtractionModel } from "./model.service.js";
+import { FEEDBACK_EXTRACT_QUIET_WINDOW_MS } from "../post-event-feedback.schemas.js";
+import type { FeedbackExtractionContext } from "./extraction.schemas.js";
 import {
   buildFeedbackExtractionPrompt,
   estimatePromptTokens,
-} from "./post-event-feedback-prompt.js";
+} from "./prompt.js";
 
 export class PostEventFeedbackConversationNotFoundError extends Error {
   constructor(conversationId: string) {

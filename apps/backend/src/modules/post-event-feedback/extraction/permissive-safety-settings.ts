@@ -1,4 +1,4 @@
-import type { AssistantModelAdapter } from "../assistant/assistant-models.js";
+import type { AssistantModelAdapter } from "../../assistant/assistant-models.js";
 
 /**
  * Permissive provider safety thresholds for the extraction call path only.
@@ -11,7 +11,7 @@ import type { AssistantModelAdapter } from "../assistant/assistant-models.js";
  * thresholds are relaxed here.
  *
  * Scope matters. This is applied by
- * [`PostEventFeedbackExtractionModel`](./post-event-feedback-extraction.service.ts)
+ * [`PostEventFeedbackExtractionModel`](./model.service.ts)
  * to the model instance it builds for `feedback.extract.v1`, and to nothing
  * else. The assistant feature constructs its own provider clients from the same
  * registry and is untouched, so relaxing extraction cannot relax a chat surface

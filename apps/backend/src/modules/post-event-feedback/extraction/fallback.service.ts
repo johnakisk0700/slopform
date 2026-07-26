@@ -1,33 +1,33 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { FeedbackExtractionMeta } from "@join-the-six/database";
 
-import { AuditRepository } from "../../infrastructure/audit/audit.repository.js";
-import { DatabaseService } from "../../infrastructure/database/database.service.js";
-import { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
-import { FeedbackResultsRepository } from "./extraction/results.repository.js";
-import { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
-import { FeedbackConversationRepository } from "../conversations/feedback-conversation.repository.js";
+import { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
+import { DatabaseService } from "../../../infrastructure/database/database.service.js";
+import { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
+import { FeedbackResultsRepository } from "./results.repository.js";
+import { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
+import { FeedbackConversationRepository } from "../../conversations/feedback-conversation.repository.js";
 import type {
   FeedbackConversationDocument,
   FeedbackConversationGoal,
-} from "../conversations/feedback-conversation.schemas.js";
-import { EventsService } from "../events/events.service.js";
-import { latestParticipantMessage } from "./conversation-reader.js";
+} from "../../conversations/feedback-conversation.schemas.js";
+import { EventsService } from "../../events/events.service.js";
+import { latestParticipantMessage } from "../conversation-reader.js";
 import {
   FEEDBACK_OPERATOR_ALERT,
   type FeedbackOperatorAlert,
-} from "./feedback-operator-alert.js";
-import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
-import type { FeedbackExtractionFailureCause } from "./post-event-feedback-extraction.service.js";
+} from "../feedback-operator-alert.js";
+import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
+import type { FeedbackExtractionFailureCause } from "./model.service.js";
 import {
   POST_EVENT_FEEDBACK_FALLBACK_ACK,
   POST_EVENT_FEEDBACK_FALLBACK_NOTE_TEXT,
   createFeedbackFallbackDedupeKey,
-} from "./post-event-feedback-extraction.schemas.js";
+} from "./extraction.schemas.js";
 import {
   foldPostEventFeedbackText,
   foldedTextContainsAtWordStart,
-} from "./matching/fold-text.js";
+} from "../matching/fold-text.js";
 
 export interface FeedbackExtractionFallbackInput {
   readonly conversationId: string;

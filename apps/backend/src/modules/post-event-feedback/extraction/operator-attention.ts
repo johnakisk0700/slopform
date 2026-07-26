@@ -1,8 +1,8 @@
-import type { FeedbackExtractionValidationResult } from "../post-event-feedback-extraction-validation.js";
+import type { FeedbackExtractionValidationResult } from "./validate-proposal.js";
 import type {
   ValidatedFeedbackExtraction,
   ValidatedFeedbackSafetySignal,
-} from "../post-event-feedback-extraction.schemas.js";
+} from "./extraction.schemas.js";
 import {
   strongerRecommendedAction,
   type PostEventFeedbackRecommendedAction,

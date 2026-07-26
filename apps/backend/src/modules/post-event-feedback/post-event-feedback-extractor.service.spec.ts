@@ -16,11 +16,11 @@ import {
   FakeDatabase,
   FakeParticipants,
 } from "./post-event-feedback-doubles.harness.js";
-import { PostEventFeedbackExtractor } from "./post-event-feedback-extractor.service.js";
-import type { PostEventFeedbackExtractionModel } from "./post-event-feedback-extraction.service.js";
+import { PostEventFeedbackExtractor } from "./extraction/extract.service.js";
+import type { PostEventFeedbackExtractionModel } from "./extraction/model.service.js";
 import { PostEventFeedbackMetrics } from "./post-event-feedback-metrics.service.js";
 import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "./post-event-feedback-question-set.js";
-import { POST_EVENT_FEEDBACK_HANDOFF_REPLY } from "./post-event-feedback-extraction.schemas.js";
+import { POST_EVENT_FEEDBACK_HANDOFF_REPLY } from "./extraction/extraction.schemas.js";
 import type { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
 import type { FeedbackResultsRepository } from "./extraction/results.repository.js";
 import type { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";

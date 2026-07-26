@@ -4,12 +4,12 @@ import { UnrecoverableError } from "bullmq";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { ConversationPersistenceError } from "../conversations/conversation-persistence.errors.js";
-import type { PostEventFeedbackExtractionFallback } from "./post-event-feedback-extraction-fallback.service.js";
-import { FeedbackExtractionGenerationError } from "./post-event-feedback-extraction.service.js";
+import type { PostEventFeedbackExtractionFallback } from "./extraction/fallback.service.js";
+import { FeedbackExtractionGenerationError } from "./extraction/model.service.js";
 import {
   PostEventFeedbackConversationNotFoundError,
   type PostEventFeedbackExtractor,
-} from "./post-event-feedback-extractor.service.js";
+} from "./extraction/extract.service.js";
 import {
   PostEventFeedbackIngressNotFoundError,
   type PostEventFeedbackMaterializer,

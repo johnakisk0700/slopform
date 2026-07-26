@@ -14,11 +14,11 @@ import {
   FakeAudit,
   FakeEvents,
 } from "./post-event-feedback-doubles.harness.js";
-import { PostEventFeedbackExtractionFallback } from "./post-event-feedback-extraction-fallback.service.js";
+import { PostEventFeedbackExtractionFallback } from "./extraction/fallback.service.js";
 import {
   POST_EVENT_FEEDBACK_FALLBACK_ACK,
   POST_EVENT_FEEDBACK_FALLBACK_NOTE_TEXT,
-} from "./post-event-feedback-extraction.schemas.js";
+} from "./extraction/extraction.schemas.js";
 import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "./post-event-feedback-question-set.js";
 import type { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
 import type { FeedbackResultsRepository } from "./extraction/results.repository.js";

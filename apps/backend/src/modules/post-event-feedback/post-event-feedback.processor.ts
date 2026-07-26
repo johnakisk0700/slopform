@@ -13,16 +13,16 @@ import {
   MessageOutboxNotFoundError,
 } from "./outbox/deliver.service.js";
 import { MessageOutboxRelayService } from "./outbox/relay.service.js";
-import { PostEventFeedbackExtractionFallback } from "./post-event-feedback-extraction-fallback.service.js";
+import { PostEventFeedbackExtractionFallback } from "./extraction/fallback.service.js";
 import {
   FeedbackExtractionGenerationError,
   type FeedbackExtractionFailureCause,
-} from "./post-event-feedback-extraction.service.js";
+} from "./extraction/model.service.js";
 import {
   PostEventFeedbackCampaignNotFoundError,
   PostEventFeedbackConversationNotFoundError,
   PostEventFeedbackExtractor,
-} from "./post-event-feedback-extractor.service.js";
+} from "./extraction/extract.service.js";
 import {
   PostEventFeedbackIngressNotFoundError,
   PostEventFeedbackMaterializer,

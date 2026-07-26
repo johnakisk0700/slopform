@@ -12,8 +12,8 @@ import { FeedbackSweepSchedulerService } from "./feedback-sweep-scheduler.servic
 import { MessageOutboxDeliveryService } from "./outbox/deliver.service.js";
 import { MessageOutboxDeliveryStatusService } from "./outbox/delivery-status.service.js";
 import { MessageOutboxRelayService } from "./outbox/relay.service.js";
-import { PostEventFeedbackExtractionModel } from "./post-event-feedback-extraction.service.js";
-import { PostEventFeedbackExtractor } from "./post-event-feedback-extractor.service.js";
+import { PostEventFeedbackExtractionModel } from "./extraction/model.service.js";
+import { PostEventFeedbackExtractor } from "./extraction/extract.service.js";
 import { PostEventFeedbackHttpModule } from "./post-event-feedback-http.module.js";
 import { PostEventFeedbackIngressModule } from "./post-event-feedback-ingress.module.js";
 import { PostEventFeedbackIngressService } from "./post-event-feedback-ingress.service.js";

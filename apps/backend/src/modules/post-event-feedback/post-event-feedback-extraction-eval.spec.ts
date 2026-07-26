@@ -6,18 +6,18 @@ import {
   type PostEventFeedbackExtractionFixture,
 } from "./post-event-feedback-fixtures.js";
 import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "./post-event-feedback-question-set.js";
-import { validateFeedbackExtractionProposal } from "./post-event-feedback-extraction-validation.js";
+import { validateFeedbackExtractionProposal } from "./extraction/validate-proposal.js";
 import {
   feedbackExtractionProposalSchema,
   type FeedbackExtractionContext,
   type FeedbackExtractionProposal,
   type FeedbackExtractionSafetySignalProposal,
   type ValidatedFeedbackExtraction,
-} from "./post-event-feedback-extraction.schemas.js";
+} from "./extraction/extraction.schemas.js";
 import {
   buildFeedbackExtractionPrompt,
   estimatePromptTokens,
-} from "./post-event-feedback-prompt.js";
+} from "./extraction/prompt.js";
 import { matchesPostEventFeedbackStopCommand } from "./post-event-feedback-stop-matcher.js";
 
 /**

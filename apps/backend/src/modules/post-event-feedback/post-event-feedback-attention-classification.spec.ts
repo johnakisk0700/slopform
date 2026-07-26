@@ -5,8 +5,8 @@ import {
   buildFeedbackAttentionClassificationPrompt,
   feedbackAttentionClassificationProposalSchema,
   validateFeedbackAttentionClassification,
-} from "./post-event-feedback-attention-classification.js";
-import type { FeedbackExtractionMessageView } from "./post-event-feedback-extraction.schemas.js";
+} from "./extraction/attention-classification.js";
+import type { FeedbackExtractionMessageView } from "./extraction/extraction.schemas.js";
 
 const messages = [
   {
