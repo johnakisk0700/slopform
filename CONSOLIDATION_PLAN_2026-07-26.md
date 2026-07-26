@@ -457,11 +457,33 @@ Both prompts are `{system, user}`; both compute `Math.ceil((system.length + user
 Verify: `pnpm --filter @join-the-six/backend exec vitest run src/modules/post-event-feedback`
 Do not: move it to a shared/infra location. It is an extraction-phase judgement, not a neutral utility.
 
-**WP-19 — `--jts-text-2xs` + one `overline` utility** · M · deps: none · **visual change**
-Files: `packages/design-tokens/src/tokens.css` (add the missing step(s) below `--jts-text-xs: 0.75rem` at :226); `apps/admin/src/styles/globals.css` (`@utility overline` = the caps recipe at the new size); ~28 call sites currently writing `font-extrabold uppercase tracking-caps text-[0.625|0.65|0.6875|0.7rem]`.
-Done: zero arbitrary sub-`xs` `text-[Nrem]` in `apps/admin/src`; `docs/frontend/theming.md` updated in the same commit (AGENTS.md — the token bridge changed).
+**WP-19 — `--jts-text-2xs` + one `jts-overline` utility** · M · deps: none · **visual change**
+Rewritten 2026-07-26 after the first dispatch refused it and was right on every count.
+**The utility is named `jts-overline`, not `overline`.** Tailwind 4.3.3 registers `overline` as a core
+static utility — `t("overline",[["text-decoration-line","overline"]])` in `dist/lib.mjs`. Both rules
+would emit, they set different properties so neither shadows the other, and every element carrying
+the class would draw a decoration line above it. v4 dropped `corePlugins`, so only a different name
+fixes it. The `jts-` prefix matches `--jts-*` and the `Jts*` components and cannot collide with a
+future core utility either.
+Files: `packages/design-tokens/src/tokens.css` — add `--jts-text-2xs: 0.625rem` **before**
+`--jts-text-xs: 0.75rem` at :226 so the scale stays ascending; `apps/admin/src/styles/globals.css`
+(`@utility jts-overline` = the caps recipe at the new size); the **23** call sites that use exact
+`tracking-caps` with an arbitrary sub-`xs` size.
+The real census is 36 sub-`xs` arbitrary sizes, not the 28 first written here. They split three ways:
+23 exact-`tracking-caps` sites become `jts-overline`; **5 use arbitrary tracking**
+(`AssistantPage:759`, `AdminNavigation:79`, `JtsDataTable:286` and `:392`, `OverviewPage:127`) and are
+**out of scope** — folding them in would collapse letter-spacing too, a wider change than the ~1px
+this packet declares; the remaining 8 are not caps at all (tabular-nums badges and assistant chrome in
+`ConversationList`, `AdminNavigation`, `AssistantModelSelector`, `AssistantMessage`,
+`AssistantEffortSelector`, `AssistantChart`) and take the idiom the repo already uses at
+`routes/ErrorPage.tsx:49`: `text-[length:var(--jts-text-2xs)]`. No new bridge entry for those.
+Done: zero arbitrary sub-`xs` `text-[Nrem]` in `apps/admin/src` except the five arbitrary-tracking
+sites named above; `docs/frontend/theming.md` updated in the same commit (AGENTS.md — the token bridge
+changed).
 Verify: `pnpm docs:check && pnpm --filter @join-the-six/admin test && pnpm --filter @join-the-six/admin build`
-Do not: introduce a React wrapper component. This is CSS. Do not normalise the other 18 arbitrary `text-[Nrem]` above `xs` in the same commit — four sub-xs values collapsing to one is already a visible ~1px shift on eight screens and needs its own visual pass. Check `apps/admin/test/theme-tokens.spec.ts` still passes — it reads the real `tokens.css`.
+Do not: introduce a React wrapper component. This is CSS. Do not touch the 18 arbitrary `text-[Nrem]`
+above `xs`. Do not collapse the five arbitrary-tracking sites. Check `apps/admin/test/theme-tokens.spec.ts`
+still passes — it reads the real `tokens.css`.
 
 **WP-20 — `isRetryableProviderError` → `assistant-models.ts`** · S · deps: none
 Files: `modules/assistant/assistant-models.ts`, `modules/assistant/assistant-generation.service.ts:147`, `modules/post-event-feedback/post-event-feedback-extraction.service.ts:359`
