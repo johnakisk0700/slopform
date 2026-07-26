@@ -822,34 +822,18 @@ export class FeedbackConversationRepository {
     readonly maxReminders: number;
     readonly limit?: number;
   }): Promise<FeedbackConversationDocument[]> {
-    const olderThan = z.date().parse(input.olderThan);
     const maxReminders = z.number().int().min(0).parse(input.maxReminders);
-    const limit = z
-      .number()
-      .int()
-      .positive()
-      .max(500)
-      .parse(input.limit ?? 50);
-    const collection = await this.collection();
-    const documents = await collection
-      .find({
-        schemaVersion: FEEDBACK_CONVERSATION_SCHEMA_VERSION,
-        purpose: FEEDBACK_CONVERSATION_PURPOSE,
-        "lifecycle.state": "open",
-        "control.mode": "bot",
+    return this.listOpenBotConversations({
+      olderThan: input.olderThan,
+      limit: input.limit,
+      extraFilter: {
         // Everything still on the ladder, including conversations predating it.
         $or: [
           { reminderCount: { $lt: maxReminders } },
           { reminderCount: { $exists: false } },
         ],
-        createdAt: { $lte: olderThan },
-      } as Filter<FeedbackConversationDocument>)
-      .sort({ createdAt: 1, _id: 1 })
-      .limit(limit)
-      .toArray();
-    return documents.map((document) =>
-      feedbackConversationDocumentSchema.parse(document),
-    );
+      },
+    });
   }
 
   /**
@@ -863,6 +847,20 @@ export class FeedbackConversationRepository {
   async listOpenDueForExpiry(input: {
     readonly olderThan: Date;
     readonly limit?: number;
+  }): Promise<FeedbackConversationDocument[]> {
+    return this.listOpenBotConversations({
+      olderThan: input.olderThan,
+      limit: input.limit,
+      extraFilter: {},
+    });
+  }
+
+  private async listOpenBotConversations(input: {
+    readonly olderThan: Date;
+    // Explicitly `| undefined` rather than optional: the callers forward their
+    // own optional `limit`, which `exactOptionalPropertyTypes` refuses to widen.
+    readonly limit: number | undefined;
+    readonly extraFilter: Filter<FeedbackConversationDocument>;
   }): Promise<FeedbackConversationDocument[]> {
     const olderThan = z.date().parse(input.olderThan);
     const limit = z
@@ -878,6 +876,7 @@ export class FeedbackConversationRepository {
         purpose: FEEDBACK_CONVERSATION_PURPOSE,
         "lifecycle.state": "open",
         "control.mode": "bot",
+        ...input.extraFilter,
         createdAt: { $lte: olderThan },
       } as Filter<FeedbackConversationDocument>)
       .sort({ createdAt: 1, _id: 1 })
