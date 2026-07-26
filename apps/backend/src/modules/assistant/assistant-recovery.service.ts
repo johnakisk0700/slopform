@@ -16,7 +16,7 @@ import {
 import { AssistantService } from "./assistant.service.js";
 
 export const ASSISTANT_STALE_TURN_MS = 15 * 60 * 1_000;
-export const ASSISTANT_RECOVERY_INTERVAL_MS = 5 * 60 * 1_000;
+const ASSISTANT_RECOVERY_INTERVAL_MS = 5 * 60 * 1_000;
 export const ASSISTANT_RECOVERY_BATCH_SIZE = 100;
 
 const LIVE_JOB_STATES = new Set([

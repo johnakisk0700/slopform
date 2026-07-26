@@ -11,8 +11,8 @@ import {
   type EmailJobName,
 } from "./email.schemas.js";
 
-export const EMAIL_OUTBOX_RELAY_SCHEDULER_ID = EMAIL_JOB_NAMES.relayOutboxV1;
-export const EMAIL_OUTBOX_RELAY_INTERVAL_MS = 5_000;
+const EMAIL_OUTBOX_RELAY_SCHEDULER_ID = EMAIL_JOB_NAMES.relayOutboxV1;
+const EMAIL_OUTBOX_RELAY_INTERVAL_MS = 5_000;
 
 @Injectable()
 export class EmailSchedulerService implements OnApplicationBootstrap {

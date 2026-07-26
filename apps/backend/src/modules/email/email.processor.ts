@@ -18,7 +18,7 @@ import {
 } from "./email.schemas.js";
 import { EmailService } from "./email.service.js";
 
-export const EMAIL_DELIVERY_LEASE_MS = 10 * 60_000;
+const EMAIL_DELIVERY_LEASE_MS = 10 * 60_000;
 
 @Processor(
   { name: EMAIL_QUEUE, configKey: QUEUE_WORKER_CONFIG },

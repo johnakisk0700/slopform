@@ -135,7 +135,7 @@ export class AssistantGenerationService {
   }
 }
 
-export function reasoningProviderOptions(
+function reasoningProviderOptions(
   model: AssistantModel,
   effort: AssistantReasoningEffort,
 ): NonNullable<Parameters<typeof generateText>[0]["providerOptions"]> {

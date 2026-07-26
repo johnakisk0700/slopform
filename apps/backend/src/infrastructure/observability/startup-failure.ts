@@ -1,4 +1,4 @@
-export interface StartupFailureHandlers {
+export interface StartupFailureReporting {
   readonly capture: (error: unknown) => void;
   readonly closeApplication?: () => Promise<void>;
   readonly event: "http.bootstrap.failed" | "worker.bootstrap.failed";
@@ -8,7 +8,7 @@ export interface StartupFailureHandlers {
 
 export async function handleStartupFailure(
   error: unknown,
-  handlers: StartupFailureHandlers,
+  handlers: StartupFailureReporting,
 ): Promise<void> {
   try {
     handlers.capture(error);

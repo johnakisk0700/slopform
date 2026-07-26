@@ -13,10 +13,10 @@ import {
   type EmailJobName,
 } from "./email.schemas.js";
 
-export const EMAIL_OUTBOX_BATCH_SIZE = 50;
-export const EMAIL_OUTBOX_LEASE_MS = 60_000;
-export const EMAIL_OUTBOX_RETRY_MS = 30_000;
-export const EMAIL_DISPATCH_RECOVERY_MS = 5 * 60_000;
+const EMAIL_OUTBOX_BATCH_SIZE = 50;
+const EMAIL_OUTBOX_LEASE_MS = 60_000;
+const EMAIL_OUTBOX_RETRY_MS = 30_000;
+const EMAIL_DISPATCH_RECOVERY_MS = 5 * 60_000;
 
 export class EmailOutboxRelayError extends Error {
   constructor() {
