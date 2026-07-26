@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { Logger } from "@nestjs/common";
-import type { AppTransaction, AuditEventInsert } from "@join-the-six/database";
+import type { AppTransaction } from "@join-the-six/database";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import type { AuditRepository } from "../../infrastructure/audit/audit.repository.js";
@@ -10,6 +10,10 @@ import type { FeedbackConversationRepository } from "../conversations/feedback-c
 import type { EventsService } from "../events/events.service.js";
 import type { FeedbackOperatorAlertInput } from "./feedback-operator-alert.js";
 import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
+import {
+  FakeAudit,
+  FakeEvents,
+} from "./post-event-feedback-doubles.harness.js";
 import { PostEventFeedbackExtractionFallback } from "./post-event-feedback-extraction-fallback.service.js";
 import {
   POST_EVENT_FEEDBACK_FALLBACK_ACK,
@@ -151,7 +155,7 @@ describe("PostEventFeedbackExtractionFallback", () => {
 
   describe("subject resolution (D16 candidates, D18 degradation)", () => {
     it("directs the note when exactly one candidate name appears", async () => {
-      harness.events.items = [
+      harness.events.candidates = [
         { participantId: kostasOne, displayName: "Κώστας Παπαδόπουλος" },
         { participantId: eleni, displayName: "Ελένη Νικολάου" },
       ];
@@ -199,7 +203,7 @@ describe("PostEventFeedbackExtractionFallback", () => {
     });
 
     it("ignores a name that is no longer a current candidate", async () => {
-      harness.events.items = [
+      harness.events.candidates = [
         { participantId: eleni, displayName: "Ελένη Νικολάου" },
       ];
 
@@ -213,7 +217,7 @@ describe("PostEventFeedbackExtractionFallback", () => {
     });
 
     it("matches a folded given name against a full display name", async () => {
-      harness.events.items = [
+      harness.events.candidates = [
         { participantId: kostasOne, displayName: "Κώστας Παπαδόπουλος" },
       ];
       harness.conversations.setLastParticipantText("ο κωστας ηταν απαισιος");
@@ -326,6 +330,8 @@ interface FakeOutboxRow {
   status: string;
 }
 
+// Deliberately does not serialise on a promise tail; the shared FakeDatabase
+// would. Leave this local so concurrent runs can interleave.
 class FakeDatabase {
   async transaction<T>(work: (transaction: AppTransaction) => Promise<T>) {
     return work({} as AppTransaction);
@@ -465,25 +471,6 @@ class FakeConversations {
   }
 }
 
-class FakeAudit {
-  readonly events: AuditEventInsert[] = [];
-
-  async append(
-    _transaction: AppTransaction,
-    event: AuditEventInsert,
-  ): Promise<void> {
-    this.events.push(event);
-  }
-}
-
-class FakeEvents {
-  items: { participantId: string; displayName: string }[] = [];
-
-  async listFeedbackCandidatesForRespondent() {
-    return { items: this.items };
-  }
-}
-
 interface Harness {
   fallback: PostEventFeedbackExtractionFallback;
   repository: FakeFeedbackRepository;
@@ -508,7 +495,7 @@ function createHarness(): Harness {
   repository.campaigns.set(campaignId, { id: campaignId, eventId });
   // Two Κώστας by default: the ambiguous case is the interesting one, so the
   // tests that want a resolvable subject narrow the set explicitly.
-  events.items = [
+  events.candidates = [
     { participantId: kostasOne, displayName: "Κώστας Παπαδόπουλος" },
     { participantId: kostasTwo, displayName: "Κώστας Δήμου" },
     { participantId: eleni, displayName: "Ελένη Νικολάου" },

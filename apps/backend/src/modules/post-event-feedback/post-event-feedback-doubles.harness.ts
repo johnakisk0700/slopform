@@ -1234,6 +1234,32 @@ export class FakeAudit {
   }
 }
 
+/** Mirrors BullMQ's job-id suppression while the job is still in Redis. */
+export class FakeQueue {
+  readonly added: {
+    name: string;
+    data: unknown;
+    jobId: string;
+    delay?: number;
+  }[] = [];
+
+  async add(
+    name: string,
+    data: unknown,
+    options: { jobId: string; delay?: number },
+  ): Promise<{ id: string }> {
+    if (!this.added.some((job) => job.jobId === options.jobId)) {
+      this.added.push({
+        name,
+        data,
+        jobId: options.jobId,
+        ...(options.delay === undefined ? {} : { delay: options.delay }),
+      });
+    }
+    return { id: options.jobId };
+  }
+}
+
 export class FakeOperatorAlert {
   readonly raised: FeedbackOperatorAlertInput[] = [];
 

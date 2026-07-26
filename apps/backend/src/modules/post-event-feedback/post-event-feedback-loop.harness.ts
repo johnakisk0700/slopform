@@ -54,7 +54,7 @@ import {
   FEEDBACK_TEST_DEFAULT_JOB_ATTEMPTS,
   RecordingFeedbackTransport,
   type FakeOutboxRow,
-} from "./post-event-feedback-loop-doubles.harness.js";
+} from "./post-event-feedback-doubles.harness.js";
 import { PostEventFeedbackMaterializer } from "./post-event-feedback-materializer.service.js";
 import { PostEventFeedbackMetrics } from "./post-event-feedback-metrics.service.js";
 import type {
@@ -88,7 +88,7 @@ import { FEEDBACK_SWEEP_EVERY_MS } from "./feedback-sweep-scheduler.service.js";
  * the deterministic fallback, the outbox relay, delivery, the sweeps and the
  * BullMQ processor with its retry classification. Only five things are faked,
  * and each is a genuine boundary: the two stores, the queue, the WhatsApp
- * transport and the model provider (`post-event-feedback-loop-doubles.harness.ts`).
+ * transport and the model provider (`post-event-feedback-doubles.harness.ts`).
  *
  * ## What a scenario may say
  *
@@ -931,7 +931,7 @@ interface QueuedJob {
  * id, `delay` is honoured against the test clock, and jobs drain in `runAt`
  * order at concurrency one.
  */
-class FeedbackTestQueue {
+class FakeFeedbackQueue {
   private readonly waiting = new Map<string, QueuedJob>();
   private sequence = 0;
 
@@ -1063,7 +1063,7 @@ export async function createFeedbackLoopHarness(
   const metrics = new PostEventFeedbackMetrics();
   const transport = new RecordingFeedbackTransport(now);
   const model = new ScriptedExtractionModel(conversations, idByName);
-  const queue = new FeedbackTestQueue(() => nowMs);
+  const queue = new FakeFeedbackQueue(() => nowMs);
   const config = {
     get: (key: string) =>
       ({

@@ -3,13 +3,19 @@ import { randomUUID } from "node:crypto";
 import { Logger } from "@nestjs/common";
 import type { AppTransaction } from "@join-the-six/database";
 import type { Queue } from "bullmq";
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import type { DatabaseService } from "../../infrastructure/database/database.service.js";
 import type { FeedbackConversationRepository } from "../conversations/feedback-conversation.repository.js";
 import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
 import { FeedbackSimulatorService } from "./feedback-simulator.service.js";
 import { MessageOutboxDeliveryService } from "./message-outbox-delivery.service.js";
+import {
+  FakeAudit,
+  FakeDatabase,
+  FakeParticipants,
+  FakeQueue,
+} from "./post-event-feedback-doubles.harness.js";
 import { PostEventFeedbackIngressService } from "./post-event-feedback-ingress.service.js";
 import { PostEventFeedbackMaterializer } from "./post-event-feedback-materializer.service.js";
 import { PostEventFeedbackMetrics } from "./post-event-feedback-metrics.service.js";
@@ -156,22 +162,7 @@ interface FakeConversation {
   needsAttention: boolean;
 }
 
-const TRANSACTION = { fake: "transaction" } as unknown as AppTransaction;
-
-class FakeDatabase {
-  private tail: Promise<unknown> = Promise.resolve();
-
-  async transaction<T>(work: (tx: AppTransaction) => Promise<T>): Promise<T> {
-    const run = this.tail.then(() => work(TRANSACTION));
-    this.tail = run.then(
-      () => undefined,
-      () => undefined,
-    );
-    return run;
-  }
-}
-
-class SimulatorFakeRepository {
+class FakeSimulatorRepository {
   readonly ingress = new Map<string, FakeIngressRow>();
   readonly outbox: FakeOutboxRow[] = [];
   readonly simOutbound: FakeSimOutboundRow[] = [];
@@ -437,45 +428,8 @@ class FakeConversations {
   }
 }
 
-class FakeParticipants {
-  async findByIdForUpdate(
-    _transaction: AppTransaction,
-    id: string,
-  ): Promise<
-    { id: string; postEventFeedbackWhatsappOptIn: boolean } | undefined
-  > {
-    if (id !== respondentParticipantId) {
-      return undefined;
-    }
-    return { id, postEventFeedbackWhatsappOptIn: true };
-  }
-
-  async updateFeedbackOptIn(): Promise<undefined> {
-    return undefined;
-  }
-}
-
-class FakeAudit {
-  async append(): Promise<void> {}
-}
-
-class FakeQueue {
-  readonly added: { name: string; data: unknown; jobId: string }[] = [];
-
-  async add(
-    name: string,
-    data: unknown,
-    options: { jobId: string },
-  ): Promise<{ id: string }> {
-    if (!this.added.some((job) => job.jobId === options.jobId)) {
-      this.added.push({ name, data, jobId: options.jobId });
-    }
-    return { id: options.jobId };
-  }
-}
-
 interface SimulatorHarness {
-  repository: SimulatorFakeRepository;
+  repository: FakeSimulatorRepository;
   conversations: FakeConversations;
   delivery: MessageOutboxDeliveryService;
   simulator: FeedbackSimulatorService;
@@ -484,7 +438,7 @@ interface SimulatorHarness {
 }
 
 function createSimulatorHarness(): SimulatorHarness {
-  const repository = new SimulatorFakeRepository();
+  const repository = new FakeSimulatorRepository();
   const conversations = new FakeConversations();
   const queue = new FakeQueue();
   const database = new FakeDatabase();

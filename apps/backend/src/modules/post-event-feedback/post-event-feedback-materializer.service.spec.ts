@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { Logger } from "@nestjs/common";
-import type { AppTransaction, AuditEventInsert } from "@join-the-six/database";
+import type { AppTransaction } from "@join-the-six/database";
 import type { Queue } from "bullmq";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 
@@ -11,6 +11,12 @@ import type { FeedbackConversationRepository } from "../conversations/feedback-c
 import { buildFeedbackConversationGoals } from "../conversations/feedback-conversation.schemas.js";
 import type { ParticipantsRepository } from "../participants/participants.repository.js";
 import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
+import {
+  FakeAudit,
+  FakeDatabase,
+  FakeParticipants,
+  FakeQueue,
+} from "./post-event-feedback-doubles.harness.js";
 import { PostEventFeedbackMaterializer } from "./post-event-feedback-materializer.service.js";
 import { PostEventFeedbackMetrics } from "./post-event-feedback-metrics.service.js";
 import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "./post-event-feedback-question-set.js";
@@ -544,22 +550,6 @@ interface FakeConversation {
   needsAttention: boolean;
 }
 
-const TRANSACTION = { fake: "transaction" } as unknown as AppTransaction;
-
-/** Serializes transactions the way a single pooled connection would. */
-class FakeDatabase {
-  private tail: Promise<unknown> = Promise.resolve();
-
-  async transaction<T>(work: (tx: AppTransaction) => Promise<T>): Promise<T> {
-    const run = this.tail.then(() => work(TRANSACTION));
-    this.tail = run.then(
-      () => undefined,
-      () => undefined,
-    );
-    return run;
-  }
-}
-
 class FakeFeedbackRepository {
   readonly ingress = new Map<string, FakeIngressRow>();
   readonly outbox: FakeOutboxRow[] = [];
@@ -901,75 +891,6 @@ class FakeConversations {
   }
 }
 
-class FakeParticipants {
-  readonly rows = new Map<
-    string,
-    { id: string; postEventFeedbackWhatsappOptIn: boolean }
-  >();
-
-  async findByIdForUpdate(
-    _transaction: AppTransaction,
-    id: string,
-  ): Promise<
-    { id: string; postEventFeedbackWhatsappOptIn: boolean } | undefined
-  > {
-    const row = this.rows.get(id);
-    return row ? { ...row } : undefined;
-  }
-
-  async updateFeedbackOptIn(
-    _transaction: AppTransaction,
-    id: string,
-    value: boolean,
-  ): Promise<
-    { id: string; postEventFeedbackWhatsappOptIn: boolean } | undefined
-  > {
-    const row = this.rows.get(id);
-    if (!row) {
-      return undefined;
-    }
-    row.postEventFeedbackWhatsappOptIn = value;
-    return { ...row };
-  }
-}
-
-class FakeAudit {
-  readonly events: AuditEventInsert[] = [];
-
-  async append(
-    _transaction: AppTransaction,
-    event: AuditEventInsert,
-  ): Promise<void> {
-    this.events.push(event);
-  }
-}
-
-/** Mirrors BullMQ's job-id suppression while the job is still in Redis. */
-class FakeQueue {
-  readonly added: {
-    name: string;
-    data: unknown;
-    jobId: string;
-    delay?: number;
-  }[] = [];
-
-  async add(
-    name: string,
-    data: unknown,
-    options: { jobId: string; delay?: number },
-  ): Promise<{ id: string }> {
-    if (!this.added.some((job) => job.jobId === options.jobId)) {
-      this.added.push({
-        name,
-        data,
-        jobId: options.jobId,
-        ...(options.delay === undefined ? {} : { delay: options.delay }),
-      });
-    }
-    return { id: options.jobId };
-  }
-}
-
 interface Harness {
   materializer: PostEventFeedbackMaterializer;
   repository: FakeFeedbackRepository;
@@ -1005,6 +926,9 @@ function createHarness(): Harness {
   });
   participants.rows.set(respondentParticipantId, {
     id: respondentParticipantId,
+    preferredName: null,
+    emailNormalized: `${respondentParticipantId}@example.test`,
+    phoneE164: phone,
     postEventFeedbackWhatsappOptIn: true,
   });
 

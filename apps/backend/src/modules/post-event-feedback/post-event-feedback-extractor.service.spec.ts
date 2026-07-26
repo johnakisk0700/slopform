@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { Logger } from "@nestjs/common";
-import type { AppTransaction, AuditEventInsert } from "@join-the-six/database";
+import type { AppTransaction } from "@join-the-six/database";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AuditRepository } from "../../infrastructure/audit/audit.repository.js";
@@ -11,6 +11,11 @@ import type { EventsService } from "../events/events.service.js";
 import type { ParticipantsRepository } from "../participants/participants.repository.js";
 import type { FeedbackOperatorAlertInput } from "./feedback-operator-alert.js";
 import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
+import {
+  FakeAudit,
+  FakeDatabase,
+  FakeParticipants,
+} from "./post-event-feedback-doubles.harness.js";
 import { PostEventFeedbackExtractor } from "./post-event-feedback-extractor.service.js";
 import type { PostEventFeedbackExtractionModel } from "./post-event-feedback-extraction.service.js";
 import { PostEventFeedbackMetrics } from "./post-event-feedback-metrics.service.js";
@@ -329,6 +334,9 @@ describe("PostEventFeedbackExtractor", () => {
     it("never sends when opt-in was withdrawn, but still keeps the answers", async () => {
       harness.participants.rows.set(respondentId, {
         id: respondentId,
+        preferredName: null,
+        emailNormalized: `${respondentId}@example.test`,
+        phoneE164: null,
         postEventFeedbackWhatsappOptIn: false,
       });
       harness.generation.propose.mockResolvedValue(
@@ -893,21 +901,6 @@ interface FakeResultRow {
   extractionMeta: Record<string, unknown>;
 }
 
-const TRANSACTION = { fake: "transaction" } as unknown as AppTransaction;
-
-class FakeDatabase {
-  private tail: Promise<unknown> = Promise.resolve();
-
-  async transaction<T>(work: (tx: AppTransaction) => Promise<T>): Promise<T> {
-    const run = this.tail.then(() => work(TRANSACTION));
-    this.tail = run.then(
-      () => undefined,
-      () => undefined,
-    );
-    return run;
-  }
-}
-
 /** Mirrors the WP2 repository contract the extractor actually depends on. */
 class FakeFeedbackRepository {
   readonly campaigns = new Map<
@@ -1216,29 +1209,6 @@ class FakeConversations {
   }
 }
 
-class FakeParticipants {
-  readonly rows = new Map<
-    string,
-    { id: string; postEventFeedbackWhatsappOptIn: boolean }
-  >();
-
-  async findById(id: string) {
-    const row = this.rows.get(id);
-    return row ? { ...row } : undefined;
-  }
-}
-
-class FakeAudit {
-  readonly events: AuditEventInsert[] = [];
-
-  async append(
-    _transaction: AppTransaction,
-    event: AuditEventInsert,
-  ): Promise<void> {
-    this.events.push(event);
-  }
-}
-
 interface Harness {
   extractor: PostEventFeedbackExtractor;
   repository: FakeFeedbackRepository;
@@ -1317,6 +1287,9 @@ function createHarness(): Harness {
   });
   participants.rows.set(respondentId, {
     id: respondentId,
+    preferredName: null,
+    emailNormalized: `${respondentId}@example.test`,
+    phoneE164: null,
     postEventFeedbackWhatsappOptIn: true,
   });
   conversations.seed({

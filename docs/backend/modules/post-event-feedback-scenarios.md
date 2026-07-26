@@ -1433,7 +1433,7 @@ signal.
 >
 > The built harness lives in
 > `apps/backend/src/modules/post-event-feedback/post-event-feedback-loop.harness.ts`
-> (with its doubles in `…-loop-doubles.harness.ts`). Read its header before
+> (with its doubles in `…-doubles.harness.ts`). Read its header before
 > writing a scenario. The current rules are:
 >
 > - **The outcome snapshot carries no `goals`, no `modelCalls` and no
@@ -1547,7 +1547,7 @@ fix the conventions and the suite must not invent new ones:
 - Fakes are cast at the wiring site, not by implementing the interface:
   `repository as unknown as PostEventFeedbackRepository`.
 - `FakeDatabase.transaction` serialises on a promise tail (see
-  `post-event-feedback-extractor.service.spec.ts`), which is what makes
+  `post-event-feedback-doubles.harness.ts`), which is what makes
   concurrent-run assertions meaningful.
 - Fixed UUID constants at the top of the file, never `randomUUID()` for
   identifiers a test asserts on.
@@ -1557,9 +1557,9 @@ fix the conventions and the suite must not invent new ones:
 
 ### 1. The queue and the clock
 
-The existing `FakeQueue` in `post-event-feedback-simulator.integration.spec.ts`
-records `add()` calls and ignores `delay`. That is not enough: the quiet window,
-the relay stagger and the sweeps are all timing.
+The shared `FakeQueue` in `post-event-feedback-doubles.harness.ts` records
+`add()` calls including `delay`. That is enough for unit specs; the quiet window,
+the relay stagger and the sweeps still need a clock-aware queue that drains:
 
 ```ts
 interface ScheduledJob {
