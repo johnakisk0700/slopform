@@ -22,5 +22,4 @@ export const referenceRecords = pgTable(
   ],
 );
 
-export type ReferenceRecordInsert = typeof referenceRecords.$inferInsert;
 export type ReferenceRecordRow = typeof referenceRecords.$inferSelect;

@@ -92,7 +92,5 @@ export const eventAttendees = pgTable(
   ],
 );
 
-export type EventInsert = typeof events.$inferInsert;
 export type EventRow = typeof events.$inferSelect;
-export type EventAttendeeInsert = typeof eventAttendees.$inferInsert;
 export type EventAttendeeRow = typeof eventAttendees.$inferSelect;

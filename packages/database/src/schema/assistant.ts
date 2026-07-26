@@ -138,7 +138,5 @@ export const assistantTurns = pgTable(
   ],
 );
 
-export type AssistantThreadInsert = typeof assistantThreads.$inferInsert;
 export type AssistantThreadRow = typeof assistantThreads.$inferSelect;
-export type AssistantTurnInsert = typeof assistantTurns.$inferInsert;
 export type AssistantTurnRow = typeof assistantTurns.$inferSelect;

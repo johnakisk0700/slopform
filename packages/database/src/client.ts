@@ -13,7 +13,7 @@ export interface DatabaseClient {
   readonly pool: Pool;
 }
 
-export interface CreateDatabaseOptions {
+interface CreateDatabaseOptions {
   readonly connectionString: string;
   readonly applicationName: string;
   readonly maxConnections?: number;

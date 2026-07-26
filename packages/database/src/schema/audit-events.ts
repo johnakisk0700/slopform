@@ -70,4 +70,3 @@ export const auditEvents = pgTable(
 );
 
 export type AuditEventInsert = typeof auditEvents.$inferInsert;
-export type AuditEventRow = typeof auditEvents.$inferSelect;

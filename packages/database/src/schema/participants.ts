@@ -172,12 +172,7 @@ export const participantSourceRecords = pgTable(
   ],
 );
 
-export type ParticipantInsert = typeof participants.$inferInsert;
 export type ParticipantRow = typeof participants.$inferSelect;
-export type ParticipantInterestInsert =
-  typeof participantInterests.$inferInsert;
 export type ParticipantInterestRow = typeof participantInterests.$inferSelect;
-export type ParticipantSourceRecordInsert =
-  typeof participantSourceRecords.$inferInsert;
 export type ParticipantSourceRecordRow =
   typeof participantSourceRecords.$inferSelect;

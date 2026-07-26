@@ -503,17 +503,10 @@ export const feedbackSimOutbound = pgTable(
   ],
 );
 
-export type FeedbackCampaignInsert = typeof feedbackCampaigns.$inferInsert;
 export type FeedbackCampaignRow = typeof feedbackCampaigns.$inferSelect;
-export type FeedbackAnswerInsert = typeof feedbackAnswers.$inferInsert;
 export type FeedbackAnswerRow = typeof feedbackAnswers.$inferSelect;
-export type FeedbackNoteInsert = typeof feedbackNotes.$inferInsert;
 export type FeedbackNoteRow = typeof feedbackNotes.$inferSelect;
-export type ProviderMessageIngressInsert =
-  typeof providerMessageIngress.$inferInsert;
 export type ProviderMessageIngressRow =
   typeof providerMessageIngress.$inferSelect;
-export type MessageOutboxInsert = typeof messageOutbox.$inferInsert;
 export type MessageOutboxRow = typeof messageOutbox.$inferSelect;
-export type FeedbackSimOutboundInsert = typeof feedbackSimOutbound.$inferInsert;
 export type FeedbackSimOutboundRow = typeof feedbackSimOutbound.$inferSelect;
