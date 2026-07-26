@@ -11,7 +11,7 @@
     "./tokens.css": "./src/tokens.css"
   },
   "scripts": {
-    "build": "node --check scripts/verify-tokens.mjs",
+    "build": "node scripts/verify-tokens.mjs",
     "lint": "node scripts/verify-tokens.mjs",
     "test": "node scripts/verify-tokens.mjs",
     "typecheck": "node --check scripts/verify-tokens.mjs"
