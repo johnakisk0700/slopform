@@ -2,7 +2,10 @@ import { InjectQueue } from "@nestjs/bullmq";
 import { Injectable } from "@nestjs/common";
 import type { Queue } from "bullmq";
 
-import { EMAIL_QUEUE } from "../../infrastructure/queue/queue.constants.js";
+import {
+  EMAIL_QUEUE,
+  OUTBOX_RELAY_JOB_OPTIONS,
+} from "../../infrastructure/queue/queue.constants.js";
 import { EmailRepository } from "./email.repository.js";
 import {
   createEmailDeliverJobId,
@@ -50,11 +53,8 @@ export class EmailOutboxRelayService {
       });
       try {
         await this.queue.add(EMAIL_JOB_NAMES.deliverV1, data, {
+          ...OUTBOX_RELAY_JOB_OPTIONS,
           jobId: createEmailDeliverJobId(event.id),
-          attempts: 1,
-          removeOnComplete: true,
-          removeOnFail: true,
-          stackTraceLimit: 3,
         });
         await this.repository.markOutboxDispatched(
           event,

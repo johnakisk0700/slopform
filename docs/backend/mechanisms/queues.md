@@ -1,6 +1,6 @@
 # Queues and workers
 
-Status: implemented foundation. Last verified: **2026-07-25** against
+Status: implemented foundation. Last verified: **2026-07-26** against
 `@nestjs/bullmq 11.0.4`, BullMQ `5.80.10` and Bull Board `8.1.2`.
 
 ## Boundary and ownership
@@ -64,9 +64,12 @@ The email contracts are:
 correlationId: string }`;
 - delivery job ID `email-deliver-v1-<outboxEventId>`.
 
-Only PostgreSQL contains the recipient and message content. The relay uses
-one-shot BullMQ jobs with immediate removal; PostgreSQL owns recovery and
-business retry timing. Until a provider is explicitly integrated, the consumer
+Only PostgreSQL contains the recipient and message content. The email and
+feedback outbox relays publish delivery jobs with
+[`OUTBOX_RELAY_JOB_OPTIONS`](../../../apps/backend/src/infrastructure/queue/queue.constants.ts)
+(`attempts: 1`, immediate `removeOnComplete` / `removeOnFail`, `stackTraceLimit: 3`),
+deliberately overriding the producer defaults for an at-most-once enqueue policy;
+PostgreSQL owns recovery and business retry timing. Until a provider is explicitly integrated, the consumer
 records a safe `provider_not_configured` blocked attempt and performs no
 external side effect.
 
@@ -320,7 +323,7 @@ recovery re-enqueue under the stable materialize job id.
 
 ## Sources and official references
 
-- [Queue modules](../../../apps/backend/src/infrastructure/queue/queue.module.ts), [Redis options](../../../apps/backend/src/infrastructure/queue/redis-connection.ts), [readiness](../../../apps/backend/src/infrastructure/queue/queue-health.service.ts), [assistant job contract](../../../apps/backend/src/modules/assistant/assistant.schemas.ts), [assistant processor](../../../apps/backend/src/modules/assistant/assistant.processor.ts), [reference job contract](../../../apps/backend/src/modules/reference/reference.schemas.ts) and [reference processor](../../../apps/backend/src/modules/reference/reference.processor.ts)
+- [Queue modules](../../../apps/backend/src/infrastructure/queue/queue.module.ts), [queue constants](../../../apps/backend/src/infrastructure/queue/queue.constants.ts), [Redis options](../../../apps/backend/src/infrastructure/queue/redis-connection.ts), [readiness](../../../apps/backend/src/infrastructure/queue/queue-health.service.ts), [assistant job contract](../../../apps/backend/src/modules/assistant/assistant.schemas.ts), [assistant processor](../../../apps/backend/src/modules/assistant/assistant.processor.ts), [reference job contract](../../../apps/backend/src/modules/reference/reference.schemas.ts) and [reference processor](../../../apps/backend/src/modules/reference/reference.processor.ts)
 - [Feedback job contract](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback.schemas.ts), [feedback processor](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback.processor.ts), [ingress edge](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-ingress.service.ts), [materializer](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-materializer.service.ts), [message outbox relay](../../../apps/backend/src/modules/post-event-feedback/message-outbox-relay.service.ts), [delivery consumer](../../../apps/backend/src/modules/post-event-feedback/message-outbox-delivery.service.ts), [campaign service](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-campaign.service.ts) and [sweep service](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-sweep.service.ts)
 - [Nest BullMQ](https://docs.nestjs.com/techniques/queues), [BullMQ connections](https://docs.bullmq.io/guide/connections), [fail-fast producers](https://docs.bullmq.io/patterns/failing-fast-when-redis-is-down) and [worker shutdown](https://docs.bullmq.io/guide/workers/graceful-shutdown)
 - [Job IDs](https://docs.bullmq.io/guide/jobs/job-ids), [retries](https://docs.bullmq.io/guide/retrying-failing-jobs), [permanent failures](https://docs.bullmq.io/patterns/stop-retrying-jobs), [retention](https://docs.bullmq.io/guide/queues/auto-removal-of-jobs) and [metrics](https://docs.bullmq.io/guide/metrics)

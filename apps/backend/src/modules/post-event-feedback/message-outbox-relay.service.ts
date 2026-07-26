@@ -2,7 +2,10 @@ import { InjectQueue } from "@nestjs/bullmq";
 import { Injectable } from "@nestjs/common";
 import type { Queue } from "bullmq";
 
-import { FEEDBACK_QUEUE } from "../../infrastructure/queue/queue.constants.js";
+import {
+  FEEDBACK_QUEUE,
+  OUTBOX_RELAY_JOB_OPTIONS,
+} from "../../infrastructure/queue/queue.constants.js";
 import {
   FEEDBACK_OUTBOX_BATCH_SIZE,
   PostEventFeedbackRepository,
@@ -61,11 +64,8 @@ export class MessageOutboxRelayService {
 
       try {
         await this.queue.add(FEEDBACK_JOB_NAMES.deliverV1, data, {
+          ...OUTBOX_RELAY_JOB_OPTIONS,
           jobId: createFeedbackDeliverJobId(row.id),
-          attempts: 1,
-          removeOnComplete: true,
-          removeOnFail: true,
-          stackTraceLimit: 3,
           ...(stagger > 0 ? { delay: stagger } : {}),
         });
       } catch {
