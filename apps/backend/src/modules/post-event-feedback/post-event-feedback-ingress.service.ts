@@ -6,6 +6,7 @@ import { DatabaseService } from "../../infrastructure/database/database.service.
 import { FEEDBACK_QUEUE } from "../../infrastructure/queue/queue.constants.js";
 import { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
 import {
+  createFeedbackEditedProviderMessageId,
   createFeedbackMaterializeJobId,
   FEEDBACK_JOB_NAMES,
   FEEDBACK_JOB_SCHEMA_VERSION,
@@ -74,6 +75,47 @@ export class PostEventFeedbackIngressService {
       correlationId,
       ingressId: row.id,
       direction: row.direction,
+      inserted,
+    });
+
+    // Same id, different words: an edit, not a duplicate. Handled after the
+    // ordinary path so the original acknowledgement is never at risk, and
+    // recorded as its own observation rather than overwriting the first — what
+    // somebody originally wrote about another participant is not ours to erase
+    // just because they thought better of it.
+    if (!inserted && observed.text !== null && row.text !== observed.text) {
+      return this.recordEditedRedelivery(observed, correlationId);
+    }
+
+    return { ingressId: row.id, inserted };
+  }
+
+  private async recordEditedRedelivery(
+    observed: ObservedProviderMessage,
+    correlationId: string,
+  ): Promise<RecordObservedMessageResult> {
+    const editedId = createFeedbackEditedProviderMessageId(
+      observed.providerMessageId,
+      observed.text ?? "",
+    );
+    const { row, inserted } = await this.database.transaction((transaction) =>
+      this.repository.insertIngressIfAbsent(transaction, {
+        providerMessageId: editedId,
+        chatJid: observed.chatJid,
+        direction: observed.direction,
+        phoneE164: observed.phoneE164,
+        text: observed.text,
+        observedAt: observed.observedAt,
+      }),
+    );
+
+    await this.enqueueMaterialize(row.id, correlationId);
+
+    this.logger.warn({
+      event: "feedback.ingress.edited_redelivery",
+      correlationId,
+      ingressId: row.id,
+      originalProviderMessageId: observed.providerMessageId,
       inserted,
     });
 

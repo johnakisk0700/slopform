@@ -6,6 +6,12 @@ import {
   type PostEventFeedbackAnswerQuestionKey,
   type PostEventFeedbackNoteType,
 } from "./post-event-feedback-question-set.js";
+import {
+  postEventFeedbackRecommendedActionSchema,
+  postEventFeedbackSafetyCategorySchema,
+  type PostEventFeedbackRecommendedAction,
+  type PostEventFeedbackSafetyCategory,
+} from "./post-event-feedback-attention.js";
 
 /**
  * The structured proposal contract for `feedback.extract.v1`.
@@ -25,7 +31,21 @@ import {
 /** Bounds keep one malformed generation from becoming a large write batch. */
 export const FEEDBACK_EXTRACTION_MAX_ANSWERS = 8;
 export const FEEDBACK_EXTRACTION_MAX_NOTES = 5;
-export const FEEDBACK_EXTRACTION_MAX_SOURCE_MESSAGES = 10;
+/**
+ * A guard against a runaway generation, not a statement about how many messages
+ * a thought may span.
+ *
+ * It was 10, which a real burst clears easily: somebody typing in fragments can
+ * put a dozen messages inside one quiet window, and an answer that honestly
+ * cites all of them failed schema validation, exhausted its retries, and landed
+ * in the deterministic fallback — which files «Πιθανή προσβλητική/ευαίσθητη
+ * αναφορά» over a complaint about where the tables were. A tighter number does
+ * not buy accuracy; it converts accurate citation into a bogus safety note.
+ *
+ * Widening the quiet window puts more fragments in a window, so this bound has
+ * to stay ahead of it. The transcript cap (150) is the real ceiling.
+ */
+export const FEEDBACK_EXTRACTION_MAX_SOURCE_MESSAGES = 40;
 /** Matches the `feedback_notes` text check constraint. */
 export const FEEDBACK_EXTRACTION_NOTE_MAX_LENGTH = 500;
 export const FEEDBACK_EXTRACTION_REPLY_MAX_LENGTH = 1_000;
@@ -64,7 +84,10 @@ export const feedbackExtractionAnswerProposalSchema = z
     sourceMessageIds: sourceMessageIdsSchema,
     confidence: confidenceSchema,
   })
-  .strict();
+  .strict()
+  .describe(
+    "One questionnaire answer extracted from a new participant message. Safety content never replaces this answer.",
+  );
 
 export const feedbackExtractionNoteProposalSchema = z
   .object({
@@ -75,16 +98,37 @@ export const feedbackExtractionNoteProposalSchema = z
     sourceMessageIds: sourceMessageIdsSchema,
     confidence: confidenceSchema,
   })
-  .strict();
+  .strict()
+  .describe(
+    "One short factual note from a new participant message, including when that message also carries a safety signal.",
+  );
+
+export const feedbackExtractionSafetySignalProposalSchema = z
+  .object({
+    category: postEventFeedbackSafetyCategorySchema,
+    recommendedAction: postEventFeedbackRecommendedActionSchema,
+    sourceMessageIds: sourceMessageIdsSchema,
+    confidence: confidenceSchema,
+  })
+  .strict()
+  .describe(
+    "A coarse, non-diagnostic model classification for one or more new participant messages. It is independent of answers and notes.",
+  );
 
 export const feedbackExtractionProposalSchema = z
   .object({
     answers: z
       .array(feedbackExtractionAnswerProposalSchema)
-      .max(FEEDBACK_EXTRACTION_MAX_ANSWERS),
+      .max(FEEDBACK_EXTRACTION_MAX_ANSWERS)
+      .describe(
+        "All new directed questionnaire answers. If the current asked goal is answered, this array must include it even when the same message describes an incident or requests handoff.",
+      ),
     notes: z
       .array(feedbackExtractionNoteProposalSchema)
-      .max(FEEDBACK_EXTRACTION_MAX_NOTES),
+      .max(FEEDBACK_EXTRACTION_MAX_NOTES)
+      .describe(
+        "All new ordinary feedback notes. Safety-flavoured testimony remains an ordinary note.",
+      ),
     /**
      * Goals the participant explicitly declined. D3 locks every question as
      * skippable with no answer row, and without a producer for it a
@@ -93,14 +137,22 @@ export const feedbackExtractionProposalSchema = z
     skippedGoals: z
       .array(z.enum(POST_EVENT_FEEDBACK_ANSWER_QUESTION_KEYS))
       .max(POST_EVENT_FEEDBACK_ANSWER_QUESTION_KEYS.length),
-    nextGoal: z.enum(POST_EVENT_FEEDBACK_ANSWER_QUESTION_KEYS).nullable(),
+    nextGoal: z
+      .enum(POST_EVENT_FEEDBACK_ANSWER_QUESTION_KEYS)
+      .nullable()
+      .describe(
+        "The next unanswered goal after applying this proposal, or null when all goals are terminal.",
+      ),
     reply: z
       .string()
       .trim()
       .max(FEEDBACK_EXTRACTION_REPLY_MAX_LENGTH)
       .nullable(),
-    handoff: z.boolean(),
-    safetySignal: z.boolean(),
+    handoff: z
+      .boolean()
+      .describe(
+        "True only when the participant explicitly asks to speak with a human. Staff priority is classified by an independent model call.",
+      ),
     confidence: confidenceSchema,
   })
   .strict();
@@ -110,6 +162,9 @@ export type FeedbackExtractionAnswerProposal = z.infer<
 >;
 export type FeedbackExtractionNoteProposal = z.infer<
   typeof feedbackExtractionNoteProposalSchema
+>;
+export type FeedbackExtractionSafetySignalProposal = z.infer<
+  typeof feedbackExtractionSafetySignalProposalSchema
 >;
 export type FeedbackExtractionProposal = z.infer<
   typeof feedbackExtractionProposalSchema
@@ -125,6 +180,8 @@ export interface FeedbackExtractionMessageView {
   readonly id: string;
   readonly seq: number;
   readonly actor: FeedbackExtractionActor;
+  /** UTC ISO-8601 timestamp from the durable transcript entry. */
+  readonly occurredAt: string;
   readonly text: string;
 }
 
@@ -159,8 +216,15 @@ export interface FeedbackExtractionAcceptedNoteView {
  */
 export interface FeedbackExtractionContext {
   readonly respondentParticipantId: string;
+  /**
+   * What the respondent is called, so a subject naming *them* is recognised as
+   * self-reference rather than as a person we failed to find.
+   */
+  readonly respondentDisplayName: string | null;
   readonly candidates: readonly FeedbackExtractionCandidateView[];
   readonly messages: readonly FeedbackExtractionMessageView[];
+  /** Participant testimony after the durable extraction cursor for this run. */
+  readonly newParticipantMessageIds: readonly string[];
   readonly goals: readonly FeedbackExtractionGoalView[];
   readonly acceptedAnswers: readonly FeedbackExtractionAcceptedAnswerView[];
   readonly acceptedNotes: readonly FeedbackExtractionAcceptedNoteView[];
@@ -171,6 +235,7 @@ export interface FeedbackExtractionContext {
 export const FEEDBACK_EXTRACTION_REJECTION_REASONS = [
   "unknown_source_message",
   "non_participant_source",
+  "stale_source_message",
   "disallowed_question_key",
   "disallowed_note_type",
   "subject_on_subjectless_question",
@@ -187,7 +252,7 @@ export type FeedbackExtractionRejectionReason =
   (typeof FEEDBACK_EXTRACTION_REJECTION_REASONS)[number];
 
 export interface FeedbackExtractionRejection {
-  readonly scope: "answer" | "note" | "goal";
+  readonly scope: "answer" | "note" | "safety_signal" | "goal";
   readonly reason: FeedbackExtractionRejectionReason;
   readonly questionKey?: PostEventFeedbackAnswerQuestionKey;
   readonly noteType?: PostEventFeedbackNoteType;
@@ -212,6 +277,13 @@ export interface ValidatedFeedbackNote {
   readonly unresolvedSubjectName: string | null;
 }
 
+export interface ValidatedFeedbackSafetySignal {
+  readonly category: PostEventFeedbackSafetyCategory;
+  readonly recommendedAction: PostEventFeedbackRecommendedAction;
+  readonly sourceMessageIds: readonly string[];
+  readonly confidence: number;
+}
+
 export const FEEDBACK_EXTRACTION_REPLY_SUPPRESSION_REASONS = [
   "not_permitted",
   "empty",
@@ -227,14 +299,14 @@ export interface ValidatedFeedbackExtraction {
   readonly nextGoal: PostEventFeedbackAnswerQuestionKey | null;
   readonly reply: string | null;
   readonly replySuppressedReason: FeedbackExtractionReplySuppressionReason | null;
-  readonly safetySignal: boolean;
+  readonly safetySignals: readonly ValidatedFeedbackSafetySignal[];
   readonly handoff: boolean;
   readonly confidence: number;
   readonly rejections: readonly FeedbackExtractionRejection[];
 }
 
 /**
- * Neutral acknowledgement for a safety signal or an explicit handoff (D13).
+ * Neutral acknowledgement for an explicit handoff (D13).
  *
  * It deliberately lives outside the versioned question set: §5 locks the
  * questionnaire copy keys, and this text is not a question. It promises a human

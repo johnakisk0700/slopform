@@ -45,7 +45,7 @@ callbacks, and their full contract lives in
 | Component                     | Owns                                                                                                                 |
 | ----------------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | `ConversationList.tsx`        | Filter, grouping and selection of a campaign's conversations; `aria-current` on the row; hosts the D17 start trigger |
-| `ConversationTranscript.tsx`  | Actor-labelled transcript, delivery state, the staff composer and the dev-only composer                              |
+| `ConversationTranscript.tsx`  | Actor-labelled transcript, per-message attention highlighting, delivery state, staff and dev-only composers          |
 | `ConversationDetails.tsx`     | The respondent, goal progress, answers, notes and actions as labelled sections                                       |
 | `ConfirmAction.tsx`           | A trigger plus its confirmation dialog, stating the consequence of one action                                        |
 | `StartConversationAction.tsx` | The D17 attendee picker that opens a missing conversation                                                            |

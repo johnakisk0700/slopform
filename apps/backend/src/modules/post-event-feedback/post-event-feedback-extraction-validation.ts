@@ -1,3 +1,8 @@
+import { resolvePostEventFeedbackCandidateByName } from "./post-event-feedback-name-matcher.js";
+import {
+  foldPostEventFeedbackText,
+  foldedTextContainsAtWordStart,
+} from "./post-event-feedback-stop-matcher.js";
 import {
   POST_EVENT_FEEDBACK_QUESTION_SET_V1,
   isPostEventFeedbackAnswerQuestionKey,
@@ -12,9 +17,11 @@ import type {
   FeedbackExtractionNoteProposal,
   FeedbackExtractionProposal,
   FeedbackExtractionRejection,
+  FeedbackExtractionSafetySignalProposal,
   ValidatedFeedbackAnswer,
   ValidatedFeedbackExtraction,
   ValidatedFeedbackNote,
+  ValidatedFeedbackSafetySignal,
 } from "./post-event-feedback-extraction.schemas.js";
 
 /**
@@ -27,7 +34,7 @@ import type {
  *
  * The rules, in the order the plan states them (§7):
  *
- * 1. source messages must exist in *this* conversation;
+ * 1. source messages must exist in *this* conversation and belong to this run;
  * 2. only `actor: participant` messages may support an extraction;
  * 3. question keys and note types must be allowed by the versioned set;
  * 4. a subject must be in the **current** candidate set and must not be the
@@ -39,13 +46,23 @@ import type {
  * content through this same path: a disclosure becomes an ordinary, visible
  * note like any other statement. Suppressing those notes made the worst
  * material the least visible — the operator saw a flag and an empty results
- * pane, and the participant's own words survived nowhere. `safetySignal` now
- * raises attention (the extractor's job) without editing what is recorded.
+ * pane, and the participant's own words survived nowhere. `safetySignals` now
+ * raise attention (the extractor's job) without editing what is recorded.
  */
+export type FeedbackExtractionValidationResult = ValidatedFeedbackExtraction & {
+  /**
+   * An `already_recorded` answer was proposed again with a **different** value
+   * than the stored row. The row is not updated (immutability is deliberate
+   * elsewhere); the extractor raises `needsAttention` so a human can reconcile.
+   */
+  readonly conflictingAnswerRevision: boolean;
+};
+
 export function validateFeedbackExtractionProposal(
   proposal: FeedbackExtractionProposal,
   context: FeedbackExtractionContext,
-): ValidatedFeedbackExtraction {
+  attentionSignals: readonly FeedbackExtractionSafetySignalProposal[] = [],
+): FeedbackExtractionValidationResult {
   const rejections: FeedbackExtractionRejection[] = [];
   const messagesById = new Map(
     context.messages.map((message) => [message.id, message]),
@@ -53,11 +70,13 @@ export function validateFeedbackExtractionProposal(
   const candidateIds = new Set(
     context.candidates.map((candidate) => candidate.participantId),
   );
+  const newParticipantMessageIds = new Set(context.newParticipantMessageIds);
 
-  const answers = validateAnswers(
+  const answersResult = validateAnswers(
     proposal.answers,
     context,
     messagesById,
+    newParticipantMessageIds,
     candidateIds,
     rejections,
   );
@@ -65,13 +84,20 @@ export function validateFeedbackExtractionProposal(
     proposal.notes,
     context,
     messagesById,
+    newParticipantMessageIds,
     candidateIds,
+    rejections,
+  );
+  const safetySignals = validateSafetySignals(
+    attentionSignals,
+    messagesById,
+    newParticipantMessageIds,
     rejections,
   );
 
   const answeredKeys = new Set<PostEventFeedbackAnswerQuestionKey>([
     ...context.acceptedAnswers.map((answer) => answer.questionKey),
-    ...answers.map((answer) => answer.questionKey),
+    ...answersResult.answers.map((answer) => answer.questionKey),
   ]);
   const skippedGoals = validateSkippedGoals(
     proposal.skippedGoals,
@@ -86,7 +112,7 @@ export function validateFeedbackExtractionProposal(
     context.replyAllowed && trimmedReply.length > 0 ? trimmedReply : null;
 
   return {
-    answers,
+    answers: answersResult.answers,
     notes,
     skippedGoals,
     nextGoal,
@@ -95,21 +121,72 @@ export function validateFeedbackExtractionProposal(
       context.replyAllowed,
       trimmedReply,
     ),
-    safetySignal: proposal.safetySignal,
+    safetySignals,
     handoff: proposal.handoff,
     confidence: proposal.confidence,
     rejections,
+    conflictingAnswerRevision: answersResult.conflictingAnswerRevision,
   };
+}
+
+function validateSafetySignals(
+  proposals: readonly FeedbackExtractionSafetySignalProposal[],
+  messagesById: ReadonlyMap<string, FeedbackExtractionMessageView>,
+  newParticipantMessageIds: ReadonlySet<string>,
+  rejections: FeedbackExtractionRejection[],
+): ValidatedFeedbackSafetySignal[] {
+  const accepted: ValidatedFeedbackSafetySignal[] = [];
+  const seen = new Set<string>();
+
+  for (const proposal of proposals) {
+    const provenance = checkProvenance(
+      proposal.sourceMessageIds,
+      messagesById,
+      newParticipantMessageIds,
+    );
+    if (provenance) {
+      rejections.push({ scope: "safety_signal", reason: provenance });
+      continue;
+    }
+
+    const sourceMessageIds = [...new Set(proposal.sourceMessageIds)];
+    const identity = `${proposal.category}:${proposal.recommendedAction}:${sourceMessageIds
+      .slice()
+      .sort()
+      .join(",")}`;
+    if (seen.has(identity)) {
+      rejections.push({
+        scope: "safety_signal",
+        reason: "duplicate_in_run",
+      });
+      continue;
+    }
+    seen.add(identity);
+
+    accepted.push({
+      category: proposal.category,
+      recommendedAction: proposal.recommendedAction,
+      sourceMessageIds,
+      confidence: proposal.confidence,
+    });
+  }
+
+  return accepted;
 }
 
 function validateAnswers(
   proposals: readonly FeedbackExtractionAnswerProposal[],
   context: FeedbackExtractionContext,
   messagesById: ReadonlyMap<string, FeedbackExtractionMessageView>,
+  newParticipantMessageIds: ReadonlySet<string>,
   candidateIds: ReadonlySet<string>,
   rejections: FeedbackExtractionRejection[],
-): ValidatedFeedbackAnswer[] {
+): {
+  answers: ValidatedFeedbackAnswer[];
+  conflictingAnswerRevision: boolean;
+} {
   const accepted: ValidatedFeedbackAnswer[] = [];
+  let conflictingAnswerRevision = false;
   const seen = new Set(
     context.acceptedAnswers.map((answer) =>
       answerIdentity(answer.questionKey, answer.subjectParticipantId),
@@ -132,7 +209,11 @@ function validateAnswers(
       reject("disallowed_question_key");
       continue;
     }
-    const provenance = checkProvenance(proposal.sourceMessageIds, messagesById);
+    const provenance = checkProvenance(
+      proposal.sourceMessageIds,
+      messagesById,
+      newParticipantMessageIds,
+    );
     if (provenance) {
       reject(provenance);
       continue;
@@ -157,7 +238,22 @@ function validateAnswers(
       // guessed id would assert the wrong thing about a real person. The answer
       // is dropped; the participant's own words survive through notes, which is
       // where D18's degradation lives.
-      if (!proposal.subjectParticipantId) {
+      //
+      // One rescue before dropping it: the name may be the same name in the
+      // other alphabet. «o nikos gamatos» is ordinary Greek WhatsApp, and
+      // comparing raw strings threw away every directed answer a Greeklish
+      // typist gave us. The transliteration match resolves only when exactly
+      // one candidate fits, so it widens who we recognise without ever choosing
+      // between two of them.
+      const resolvedId =
+        proposal.subjectParticipantId ??
+        resolvePostEventFeedbackCandidateByName(
+          proposal.subjectMentionedName,
+          context.candidates,
+        )?.participantId ??
+        null;
+
+      if (!resolvedId) {
         reject(
           proposal.subjectMentionedName
             ? "unresolved_subject"
@@ -165,31 +261,50 @@ function validateAnswers(
         );
         continue;
       }
-      if (proposal.subjectParticipantId === context.respondentParticipantId) {
+      if (resolvedId === context.respondentParticipantId) {
         reject("subject_is_respondent");
         continue;
       }
-      if (!candidateIds.has(proposal.subjectParticipantId)) {
+      if (!candidateIds.has(resolvedId)) {
         reject("unresolved_subject");
         continue;
       }
-      subjectParticipantId = proposal.subjectParticipantId;
+      subjectParticipantId = resolvedId;
     }
 
     const identity = answerIdentity(proposal.questionKey, subjectParticipantId);
     if (seen.has(identity)) {
-      // The unique constraint would absorb this anyway; rejecting it here keeps
-      // the run's own reporting honest about what it actually wrote.
-      reject(
-        context.acceptedAnswers.some(
-          (answer) =>
-            answerIdentity(answer.questionKey, answer.subjectParticipantId) ===
-            identity,
-        )
-          ? "already_recorded"
-          : "duplicate_in_run",
+      const stored = context.acceptedAnswers.find(
+        (answer) =>
+          answerIdentity(answer.questionKey, answer.subjectParticipantId) ===
+          identity,
       );
-      continue;
+      const earlierInRun = accepted.findIndex(
+        (answer) =>
+          answerIdentity(answer.questionKey, answer.subjectParticipantId) ===
+          identity,
+      );
+      const previousValue =
+        stored?.valueInt ?? accepted[earlierInRun]?.valueInt ?? null;
+
+      // A repeat of the same value says nothing new, whether it is a replay or
+      // somebody typing «5» twice.
+      if (previousValue === valueInt) {
+        reject(stored ? "already_recorded" : "duplicate_in_run");
+        continue;
+      }
+
+      // A *different* value for the same question is a revision, and the
+      // participant meant the newer one — «βασικά 2, το ξανασκέφτηκα», or a
+      // single message that lands on a number after changing its mind twice.
+      // Dropping it left staff reading the first answer while the bot had
+      // already said it changed it.
+      if (stored) {
+        conflictingAnswerRevision = true;
+      }
+      if (earlierInRun !== -1) {
+        accepted.splice(earlierInRun, 1);
+      }
     }
     seen.add(identity);
 
@@ -202,13 +317,14 @@ function validateAnswers(
     });
   }
 
-  return accepted;
+  return { answers: accepted, conflictingAnswerRevision };
 }
 
 function validateNotes(
   proposals: readonly FeedbackExtractionNoteProposal[],
   context: FeedbackExtractionContext,
   messagesById: ReadonlyMap<string, FeedbackExtractionMessageView>,
+  newParticipantMessageIds: ReadonlySet<string>,
   candidateIds: ReadonlySet<string>,
   rejections: FeedbackExtractionRejection[],
 ): ValidatedFeedbackNote[] {
@@ -231,25 +347,46 @@ function validateNotes(
       reject("disallowed_note_type");
       continue;
     }
-    const provenance = checkProvenance(proposal.sourceMessageIds, messagesById);
+    const provenance = checkProvenance(
+      proposal.sourceMessageIds,
+      messagesById,
+      newParticipantMessageIds,
+    );
     if (provenance) {
       reject(provenance);
       continue;
     }
 
-    // D18: an unresolvable or self-referential subject degrades to a subjectless
-    // note that keeps the name in its text and is flagged for review. It never
-    // becomes a guessed participant id.
+    // D18: an unresolvable subject degrades to a subjectless note that keeps
+    // the name in its text and is flagged for review. It never becomes a
+    // guessed participant id.
+    // Same transliteration rescue as the answers path, so a Greeklish note
+    // about a candidate keeps its subject instead of degrading.
+    const proposedId =
+      proposal.subjectParticipantId ??
+      resolvePostEventFeedbackCandidateByName(
+        proposal.subjectMentionedName,
+        context.candidates,
+      )?.participantId ??
+      null;
     const resolvable =
-      proposal.subjectParticipantId &&
-      proposal.subjectParticipantId !== context.respondentParticipantId &&
-      candidateIds.has(proposal.subjectParticipantId);
+      proposedId &&
+      proposedId !== context.respondentParticipantId &&
+      candidateIds.has(proposedId);
+    // Talking about themselves is not a failure to find anybody. «η πιο βαρετή
+    // η Μαρία. εγώ δλδ 😂» resolves perfectly — to the respondent, about whom
+    // no directed row may be written — so the joke becomes a subjectless note
+    // and stops there. Flagging it put the respondent's own name in the admin's
+    // "we could not find this person" column, which is simply untrue and sends
+    // somebody looking for a participant who is already on the screen.
+    const selfReferential =
+      proposedId === context.respondentParticipantId ||
+      matchesRespondentName(proposal.subjectMentionedName, context);
     const degraded =
       Boolean(proposal.subjectParticipantId || proposal.subjectMentionedName) &&
-      !resolvable;
-    const subjectParticipantId = resolvable
-      ? proposal.subjectParticipantId
-      : null;
+      !resolvable &&
+      !selfReferential;
+    const subjectParticipantId = resolvable ? proposedId : null;
 
     const text = proposal.text.trim();
     const identity = noteIdentity(
@@ -346,15 +483,40 @@ function resolveReplySuppression(
 }
 
 /**
- * Provenance is the first gate for both answers and notes: a referenced message
- * must exist in this conversation, and only the participant's own words may
- * become their feedback. Bot prompts and staff follow-ups are context, never
- * testimony.
+ * Provenance is the first gate for both answers and notes. Every referenced
+ * message must exist in this conversation and be the participant's own words —
+ * bot and staff turns are context, never testimony. Beyond that, **at least
+ * one** reference must fall inside the current cursor window.
+ *
+ * That last rule used to demand that *every* reference be new, and it silently
+ * ate testimony split across a cursor boundary. WhatsApp is typed, so «τον Νίκο
+ * τον βρήκα» / «πολύ καλό, 5» is one ordinary thought. The window that finally
+ * carries the score cites both halves, because that is honestly where the score
+ * came from — and the whole answer was rejected for saying so, while the same
+ * answer citing only the second half passed. The rule punished accurate
+ * citation and lost the participant's own words.
+ *
+ * Requiring one new reference keeps what the rule was actually for: no result
+ * may be born without new testimony driving it, so a run cannot spontaneously
+ * re-mine the old transcript. Re-extraction of something already stored is a
+ * different concern and is already refused twice over — by `already_recorded`
+ * here, and by the answer unique constraint and the note content signature in
+ * the locked transaction that writes them.
+ *
+ * The older half stays in `sourceMessageIds`, which is the point: an operator
+ * reading the row sees the whole thought rather than its second half.
  */
 function checkProvenance(
   sourceMessageIds: readonly string[],
   messagesById: ReadonlyMap<string, FeedbackExtractionMessageView>,
-): "unknown_source_message" | "non_participant_source" | undefined {
+  newParticipantMessageIds: ReadonlySet<string>,
+):
+  | "unknown_source_message"
+  | "non_participant_source"
+  | "stale_source_message"
+  | undefined {
+  let citesNewTestimony = false;
+
   for (const id of sourceMessageIds) {
     const message = messagesById.get(id);
     if (!message) {
@@ -363,8 +525,12 @@ function checkProvenance(
     if (message.actor !== "participant") {
       return "non_participant_source";
     }
+    if (newParticipantMessageIds.has(id)) {
+      citesNewTestimony = true;
+    }
   }
-  return undefined;
+
+  return citesNewTestimony ? undefined : "stale_source_message";
 }
 
 function answerDefinition(
@@ -408,4 +574,27 @@ function noteIdentity(
     .trim()
     .replaceAll(/\s+/gu, " ")
     .toLowerCase()}`;
+}
+
+/**
+ * Whether a mentioned subject name is the respondent's own.
+ *
+ * Folded through the same comparison the STOP matcher uses, so accents,
+ * casing and punctuation do not decide it. Left-anchored containment rather
+ * than equality, because Greek inflects and people write «η Μαρία» where the
+ * profile says «Μαρία».
+ */
+function matchesRespondentName(
+  mentionedName: string | null | undefined,
+  context: FeedbackExtractionContext,
+): boolean {
+  const respondent = context.respondentDisplayName?.trim();
+  const mentioned = mentionedName?.trim();
+  if (!respondent || !mentioned) {
+    return false;
+  }
+  return foldedTextContainsAtWordStart(
+    foldPostEventFeedbackText(mentioned),
+    foldPostEventFeedbackText(respondent),
+  );
 }

@@ -104,6 +104,29 @@ one participant's burst in arrival order inside the transcript without a
 per-conversation lock and keeps outbound session pacing single-threaded; raising
 it requires explicit per-conversation serialization.
 
+That collapse only reaches jobs still waiting, so `feedback.extract.v1` is also
+enqueued with a `FEEDBACK_EXTRACT_QUIET_WINDOW_MS` delay. WhatsApp is typed, not
+dictated: one thought routinely arrives as several fragments, and a run that
+opens on the first of them bills a model call, replies to half a sentence and
+leaves the rest to be understood without its own beginning. The window is
+leading-edge — the first message starts the clock and everything typed inside it
+lands in one run — and it is applied at the enqueue only. The webhook, the
+ingress row and materialization stay immediate, because those durable writes are
+what fill the transcript while the window runs. A delayed run costs nothing in
+correctness: it reads the transcript live, a superseded position exits through
+`skipped_cursor`, and a STOP applied meanwhile closes the conversation so the
+run exits on `skipped_closed` without calling the provider at all.
+
+A message that lands after the run has taken its snapshot is the remainder the
+window cannot reach. Before inserting an outbox row the run re-reads the
+conversation, and newer participant testimony drops the reply — one reply per
+burst rather than one per fragment. Only the outbound is dropped: answers, notes
+and the cursor are written exactly as they would have been, so the rule that
+every run closes the window it opened is untouched and a retry reaches the same
+conclusion. Completion and handoff copy are never dropped; the first closes the
+conversation, after which no later run can speak, and the second promises a
+human.
+
 The extraction consumer reloads the conversation and stops before any model call
 when it is closed, under human control, already covered by the extraction cursor
 or carrying no new participant message. Results are written to PostgreSQL first

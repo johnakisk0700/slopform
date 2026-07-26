@@ -110,7 +110,8 @@ control                  { mode: bot|human,
 goals                    [ { key, ordinal, prompt,
                              status: pending|asked|answered|skipped } ]
 messages                 [ { id, seq, actor: bot|participant|staff|system,
-                             text, providerMessageId, ingressId, outboxId, at } ]
+                             text, providerMessageId, ingressId, outboxId,
+                             attention, at } ]
 extraction               { cursorSeq, lastRunAt, model }
 needsAttention           boolean
 remindedAt               timestamp or null
@@ -192,6 +193,14 @@ an outbox-backed message always carries `outboxId`. The
 [post-event feedback module](post-event-feedback.md#outbound-transcript-entries)
 owns that mapping and its crash-repair rules.
 
+Only participant messages may carry `attention`. It is `null` for legacy and
+ordinary messages; otherwise it holds unique bounded safety categories, the
+strongest recommended action and model confidence. Only validated
+attention-classification output creates this metadata; the incoming materializer
+does not inspect keywords. `mergeMessageAttention` is additive: a later model
+run may raise the action or add a category, but no replay can erase or downgrade
+a prior classification.
+
 ### Goal progress
 
 Goal statuses only move up the ladder `pending < asked < skipped < answered`,
@@ -209,7 +218,9 @@ same goal further simply leaves it alone.
 transcript; a replayed or late run that would not move it is an idempotent
 no-op. That is the idempotency boundary that stops the same source messages
 from producing duplicate PostgreSQL answers while the full transcript stays
-available as model context.
+available as extraction context. Attention classification instead receives the
+six messages preceding the new participant-message burst plus that burst; older
+messages are context only and are never new classification targets.
 
 The transcript is capped at 150 messages with a 4 MiB BSON backstop (message
 text is bounded at 4096 characters, WhatsApp's text-body limit). Reaching
@@ -230,6 +241,7 @@ message the transcript cannot record is never sent either.
 | `listOpenDueForReminder` | Approximate D11 reminder candidates; sweep reloads authoritative state         |
 | `listOpenDueForExpiry`   | Approximate D11 expiry candidates; sweep reloads authoritative state           |
 | `appendMessage`          | Contiguous `seq`, idempotent by provenance, cap/byte guard                     |
+| `mergeMessageAttention`  | Additive model categories; recommended action and confidence only strengthen   |
 | `takeOver` / `resumeBot` | Explicit control transitions with a recorded source                            |
 | `close`                  | Terminal reason; STOP overrides softer reasons; nothing reopens                |
 | `advanceCursor`          | Monotonic extraction cursor bounded by the transcript                          |

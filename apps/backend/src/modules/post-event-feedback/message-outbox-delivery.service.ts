@@ -99,7 +99,7 @@ export class MessageOutboxDeliveryService {
 
     const conversation = await this.conversations.findById(row.conversationId);
     if (!conversation) {
-      await this.markFailed(row.id);
+      await this.markFailed(row.id, null, correlationId);
       this.logger.error({
         event: "feedback.outbox.conversation_missing",
         correlationId,
@@ -152,7 +152,7 @@ export class MessageOutboxDeliveryService {
     }
 
     if (result.outcome === "not-accepted") {
-      await this.markFailed(row.id);
+      await this.markFailed(row.id, row.conversationId, correlationId);
       this.logger.warn({
         event: "feedback.outbox.not_accepted",
         correlationId,
@@ -188,7 +188,7 @@ export class MessageOutboxDeliveryService {
         const info = await this.transport.getMessageInfo(row.providerLogId);
         if (info) {
           if (info.status === "error") {
-            await this.markFailed(row.id);
+            await this.markFailed(row.id, row.conversationId, correlationId);
             return { outcome: "failed" };
           }
           await this.markSent(row, {
@@ -252,10 +252,48 @@ export class MessageOutboxDeliveryService {
     });
   }
 
-  private async markFailed(outboxId: string): Promise<void> {
+  /**
+   * A send that will never be retried, and the conversation it belongs to.
+   *
+   * The failed status alone lives on an outbox row nobody opens. From the
+   * inbox the conversation looked perfectly healthy — a participant who "went
+   * quiet" after a question they were never actually sent is indistinguishable
+   * from one who read it and could not be bothered, which is exactly the
+   * question staff open the inbox to answer. So the failure is raised where a
+   * person will see it.
+   *
+   * Attention is best-effort on purpose: the outbox row is the durable record
+   * of the failure, and a Mongo hiccup must not turn a handled dead end into a
+   * thrown job that retries a send the provider already refused.
+   */
+  private async markFailed(
+    outboxId: string,
+    /** `null` when the conversation itself is what went missing. */
+    conversationId: string | null,
+    correlationId: string,
+  ): Promise<void> {
     await this.database.transaction(async (transaction) => {
       await this.repository.updateOutboxStatus(transaction, outboxId, "failed");
     });
+    if (!conversationId) {
+      return;
+    }
+
+    try {
+      await this.conversations.setNeedsAttention({
+        conversationId,
+        needsAttention: true,
+        at: new Date(),
+      });
+    } catch (error) {
+      this.logger.error({
+        event: "feedback.outbox.attention_failed",
+        correlationId,
+        outboxId,
+        conversationId,
+        error: { name: error instanceof Error ? error.name : "Error" },
+      });
+    }
   }
 
   private async parkUnknown(

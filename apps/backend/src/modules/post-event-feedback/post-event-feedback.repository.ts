@@ -214,6 +214,39 @@ export class PostEventFeedbackRepository {
    * Inserts a directed answer. Conflicts on the NULLS NOT DISTINCT uniqueness
    * key are ignored so extraction replay stays idempotent.
    */
+  /**
+   * Removes answers about one person that the answer just written contradicts.
+   *
+   * The uniqueness key is per (conversation, question, subject), so moving
+   * somebody from `liked` to `avoid` writes a second row and keeps the first:
+   * staff then read that the participant both liked Κώστας and asked never to
+   * meet him again, with nothing to break the tie. Only the participant's
+   * newest position is true, and this is what makes it the only one on file.
+   */
+  async deleteContradictedAnswers(
+    transaction: AppTransaction,
+    input: {
+      readonly conversationId: string;
+      readonly subjectParticipantId: string;
+      readonly questionKeys: readonly FeedbackAnswerQuestionKey[];
+    },
+  ): Promise<number> {
+    if (input.questionKeys.length === 0) {
+      return 0;
+    }
+    const removed = await transaction
+      .delete(feedbackAnswers)
+      .where(
+        and(
+          eq(feedbackAnswers.conversationId, input.conversationId),
+          eq(feedbackAnswers.subjectParticipantId, input.subjectParticipantId),
+          inArray(feedbackAnswers.questionKey, [...input.questionKeys]),
+        ),
+      )
+      .returning();
+    return removed.length;
+  }
+
   async insertAnswerIfAbsent(
     transaction: AppTransaction,
     input: {
@@ -239,12 +272,27 @@ export class PostEventFeedbackRepository {
         sourceMessageIds: [...input.sourceMessageIds],
         extractionMeta: input.extractionMeta,
       })
-      .onConflictDoNothing({
+      // People change their minds — «βασικά 2, το ξανασκέφτηκα» — and an answer
+      // that cannot be revised turned that into silence: the second value was
+      // dropped, the bot said it had noted the change, and staff read the first
+      // one forever. The newest reading of a question wins, which is what the
+      // participant means by saying it again.
+      //
+      // Replay-safe: the same run rewrites the same values, and two runs on one
+      // conversation are serialized by the advisory lock while the extraction
+      // cursor stops an older run from re-reading messages a newer one has
+      // already closed. So "newest write" and "newest testimony" agree.
+      .onConflictDoUpdate({
         target: [
           feedbackAnswers.conversationId,
           feedbackAnswers.questionKey,
           feedbackAnswers.subjectParticipantId,
         ],
+        set: {
+          valueInt: input.valueInt ?? null,
+          sourceMessageIds: [...input.sourceMessageIds],
+          extractionMeta: input.extractionMeta,
+        },
       })
       .returning();
 

@@ -1,6 +1,14 @@
-import { Button, Input } from "@heroui/react";
+import { Button, Chip, Input } from "@heroui/react";
 import { clsx } from "clsx";
-import { Bot, FlaskConical, Phone, Send, UserRound } from "lucide-react";
+import {
+  BellRing,
+  Bot,
+  Eye,
+  FlaskConical,
+  Phone,
+  Send,
+  UserRound,
+} from "lucide-react";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 
 import type { FeedbackConversationDetailDtoOutput } from "../../../api/generated/model/feedbackConversationDetailDtoOutput";
@@ -13,6 +21,8 @@ import {
   actorLabel,
   deliveryBadge,
   isUnresolvedParticipant,
+  messageAttentionActionLabel,
+  messageAttentionCategoryLabel,
   participantLabel,
 } from "../../../features/feedback/labels";
 import { SIMULATOR_MESSAGE_MAX_LENGTH } from "../../../features/feedback/simulator";
@@ -61,6 +71,8 @@ interface TranscriptMessageProps {
 function TranscriptMessage({ message }: TranscriptMessageProps) {
   const styles = ACTOR_STYLES[message.actor];
   const delivery = deliveryBadge(message.delivery);
+  const attention = message.attention;
+  const ActionIcon = attention?.recommendedAction === "review" ? Eye : BellRing;
 
   return (
     <li className={clsx("flex flex-col gap-1", styles.row)}>
@@ -75,11 +87,47 @@ function TranscriptMessage({ message }: TranscriptMessageProps) {
       </p>
       <div
         className={clsx(
-          "max-w-[min(42rem,85%)] rounded-lg px-3.5 py-2.5 text-sm whitespace-pre-wrap",
-          styles.bubble,
+          "max-w-[min(42rem,85%)] rounded-lg px-3.5 py-2.5 text-sm",
+          attention
+            ? "rounded-bl-sm border border-warning-border bg-warning-soft text-ink"
+            : styles.bubble,
         )}
       >
-        {message.text}
+        <p className="whitespace-pre-wrap">{message.text}</p>
+        {attention ? (
+          <ul
+            aria-label="Message attention signals"
+            className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-warning-border pt-2"
+          >
+            {attention.categories.map((category) => (
+              <li key={category}>
+                <Chip color="warning" size="sm" variant="soft">
+                  <Chip.Label>
+                    {messageAttentionCategoryLabel(category)}
+                  </Chip.Label>
+                </Chip>
+              </li>
+            ))}
+            <li>
+              <Chip
+                color={
+                  attention.recommendedAction === "urgent_human_follow_up"
+                    ? "danger"
+                    : "warning"
+                }
+                size="sm"
+                variant="soft"
+              >
+                <Chip.Label>
+                  <span className="flex items-center gap-1">
+                    <ActionIcon aria-hidden="true" className="size-3.5" />
+                    {messageAttentionActionLabel(attention.recommendedAction)}
+                  </span>
+                </Chip.Label>
+              </Chip>
+            </li>
+          </ul>
+        ) : null}
       </div>
       {delivery ? (
         <FeedbackBadges

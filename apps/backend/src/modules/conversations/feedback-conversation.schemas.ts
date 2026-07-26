@@ -7,6 +7,7 @@ import {
   POST_EVENT_FEEDBACK_QUESTION_SET_V1,
   type PostEventFeedbackQuestionSetCopy,
 } from "../post-event-feedback/post-event-feedback-question-set.js";
+import { feedbackConversationMessageAttentionSchema } from "../post-event-feedback/post-event-feedback-attention.js";
 
 // Schema v2 is the purpose-specific post-event feedback document. It shares the
 // `conversation_threads` collection with the schema-v1 assistant aggregate and
@@ -15,8 +16,26 @@ import {
 export const FEEDBACK_CONVERSATION_SCHEMA_VERSION = 2 as const;
 export const FEEDBACK_CONVERSATION_PURPOSE = "post_event_feedback" as const;
 export const FEEDBACK_CONVERSATION_CHANNEL = "whatsapp" as const;
-// WhatsApp accepts up to 4096 characters in a text message body.
+/**
+ * The longest body we will *send*. WhatsApp accepts 4096 characters in a text
+ * message, so this bounds our own copy and every staff-written message.
+ */
 export const FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH = 4_096;
+
+/**
+ * The longest body a transcript entry may *hold*.
+ *
+ * Deliberately far above the send limit, because the two are not the same
+ * constraint and conflating them cost real testimony: an inbound message longer
+ * than one we are allowed to send was cut to 4096 before an operator ever saw
+ * it. People write their way up to the hard thing, so the tail is exactly where
+ * a disclosure lives — «και το τελευταίο που δεν είπα πριν…».
+ *
+ * Total document size is guarded separately by
+ * `FEEDBACK_CONVERSATION_MAX_DOCUMENT_BYTES`, which is what actually protects
+ * MongoDB; this limit only stops one absurd message.
+ */
+export const FEEDBACK_CONVERSATION_MESSAGE_MAX_STORED_TEXT_LENGTH = 64_000;
 // A feedback conversation is a short questionnaire. The message cap is the
 // binding guard; the byte budget is the backstop for multi-byte-heavy content
 // and stays far below MongoDB's 16 MiB BSON document limit.
@@ -94,10 +113,17 @@ export const feedbackConversationMessageSchema = z
       .string()
       .trim()
       .min(1)
-      .max(FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH),
+      .max(FEEDBACK_CONVERSATION_MESSAGE_MAX_STORED_TEXT_LENGTH),
     providerMessageId: z.string().trim().min(1).max(200).nullable(),
     ingressId: z.uuid().nullable(),
     outboxId: z.uuid().nullable(),
+    /**
+     * Optional-on-read migration: schema-v2 conversations written before the
+     * attention taxonomy parse as `null`; every new append persists the field.
+     */
+    attention: feedbackConversationMessageAttentionSchema
+      .nullable()
+      .default(null),
     at: z.date(),
   })
   .strict()
@@ -112,6 +138,12 @@ export const feedbackConversationMessageSchema = z
       context.addIssue({
         code: "custom",
         message: "A participant message cannot originate from the outbox",
+      });
+    }
+    if (message.actor !== "participant" && message.attention) {
+      context.addIssue({
+        code: "custom",
+        message: "Only participant messages can carry attention metadata",
       });
     }
     if (message.actor === "bot" && !message.outboxId) {
@@ -160,7 +192,38 @@ export const feedbackConversationDocumentSchema = z
       .max(FEEDBACK_CONVERSATION_MAX_MESSAGES),
     extraction: feedbackConversationExtractionSchema,
     needsAttention: z.boolean(),
+    /** When the most recent nudge was queued. `null` until the first one. */
     remindedAt: z.date().nullable(),
+    /**
+     * How many nudges have been sent, capped by `FEEDBACK_MAX_REMINDERS`.
+     *
+     * `remindedAt` alone cannot express the ladder: a single timestamp is
+     * either set or not, so the second reminder could never be due and a
+     * half-finished participant was asked once and then left. The count is the
+     * ledger; the timestamp stays for the admin pane.
+     *
+     * Defaulted rather than required so conversations written before the
+     * ladder existed parse as "never nudged" instead of failing validation.
+     */
+    reminderCount: z.number().int().min(0).max(10).default(0),
+    /**
+     * The bot has promised a human, or read something it must not answer, and
+     * is waiting for a person to arrive.
+     *
+     * This is the state between a handoff and somebody pressing "take over".
+     * It had no representation, so control was still `bot`, every guard passed,
+     * and the questionnaire resumed on the very next message — the participant
+     * was told a human would be in touch and then asked again who they liked.
+     *
+     * Deliberately **not** `control.mode: "human"`: D17 says a handoff is a
+     * promise and control moves when a person actually takes it. Nor
+     * `needsAttention`, which is raised for routine operator work like a
+     * subjectless note, and which the amended D13 pointedly does not treat as a
+     * reason to stop the conversation.
+     *
+     * Cleared when a person engages — takes over, or hands back to the bot.
+     */
+    awaitingHuman: z.boolean().default(false),
     createdAt: z.date(),
     updatedAt: z.date(),
   })
@@ -188,25 +251,35 @@ export const feedbackConversationDocumentSchema = z
 
     const messageIds = new Set<string>();
     const provenanceIds = new Set<string>();
-    for (const [index, message] of conversation.messages.entries()) {
+    const sequences = new Set<number>();
+    for (const message of conversation.messages) {
       const provenance = [
         message.ingressId,
         message.outboxId,
         message.providerMessageId,
       ].filter((value): value is string => Boolean(value));
+      // `seq` must be a contiguous 1..N set, but it is deliberately **not**
+      // tied to the array index. Array order is what a human reads and follows
+      // observation time, so an out-of-order webhook is shown where the
+      // participant actually said it; `seq` is arrival order and is what the
+      // extraction cursor advances through, so it must never be renumbered.
+      // Binding the two meant the transcript could only be stored in the order
+      // the provider happened to deliver.
       if (
         messageIds.has(message.id) ||
-        message.seq !== index + 1 ||
+        sequences.has(message.seq) ||
+        message.seq > conversation.messages.length ||
         message.at > conversation.updatedAt ||
         provenance.some((value) => provenanceIds.has(value))
       ) {
         context.addIssue({
           code: "custom",
           message:
-            "Conversation messages require unique ids, unique provenance, contiguous order and conversation-bounded timestamps",
+            "Conversation messages require unique ids, unique provenance, contiguous sequence numbers and conversation-bounded timestamps",
         });
         break;
       }
+      sequences.add(message.seq);
       messageIds.add(message.id);
       for (const value of provenance) {
         provenanceIds.add(value);

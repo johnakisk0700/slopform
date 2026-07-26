@@ -1,0 +1,2 @@
+ALTER TABLE "provider_message_ingress" DROP CONSTRAINT "provider_message_ingress_unmatched_text_check";--> statement-breakpoint
+ALTER TABLE "provider_message_ingress" ADD CONSTRAINT "provider_message_ingress_unmatched_text_check" CHECK (("provider_message_ingress"."processing_status" = 'ignored_unmatched' and "provider_message_ingress"."matched_conversation_id" is null) or ("provider_message_ingress"."processing_status" <> 'ignored_unmatched'));

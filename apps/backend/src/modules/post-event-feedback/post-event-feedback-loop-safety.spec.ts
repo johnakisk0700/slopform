@@ -234,21 +234,6 @@ const SCENARIOS: readonly FeedbackScenario[] = [
     id: "self_harm",
     title:
       "records the score and raises an urgent alert, then stops the questionnaire pending an approved safety policy",
-    defect:
-      "SELF-HARM-CONTINUES: an urgent self-harm signal is followed by the next questionnaire question",
-    knownCurrent: {
-      answers: [{ question: "event_score", about: null, value: 3 }],
-      flaggedMessages: [
-        { categories: ["self_harm"], action: "urgent_human_follow_up" },
-      ],
-      alerts: [
-        {
-          reason: "extraction_safety_signal",
-          detail: ["self_harm:urgent_human_follow_up"],
-        },
-      ],
-      receivedCount: { reply: 1, reminder: 0 },
-    },
     script: [
       {
         answers: [{ question: "event_score", value: 3 }],
@@ -365,28 +350,26 @@ const SCENARIOS: readonly FeedbackScenario[] = [
     },
   },
   {
-    // Not in the catalogue, and it should be. Durable ingress now keeps a body
-    // above 4,096 characters, but the conversation still cannot append it. The
-    // thread raises attention while the participant's words remain invisible
-    // to the human reading that thread. The tail is precisely where a
-    // disclosure lives, because people write their way up to it.
+    // Not in the catalogue, and it should be. The tail is precisely where a
+    // disclosure lives, because people write their way up to it — and the
+    // transcript used to cut a body at 4 096 characters, the limit on what we
+    // are allowed to *send*, which is not the same constraint as what we can
+    // hold. Two different limits wearing one name cost this message its ending.
     id: "disclosure_in_the_truncated_tail",
     title:
       "keeps the tail of an over-long message, or at minimum tells an operator that it cut one",
-    defect:
-      "LONG-INBOUND-NOT-VISIBLE: durable ingress keeps the body, but the conversation cannot expose a message above its text cap",
-    knownCurrent: {
-      lostParticipantText: [ESSAY],
-      needsAttention: true,
-    },
     script: [{}],
     steps: [
       { kind: "inbound", text: ESSAY },
       { kind: "wait", after: "settles" },
     ],
     expect: {
+      // The stronger half of the title: nothing was cut, so there is no cut to
+      // report. `retainedParticipantText` is the whole essay, tail included —
+      // asserting `lostParticipantText: []` alone would also pass if the
+      // message had never arrived.
+      retainedParticipantText: [ESSAY],
       lostParticipantText: [],
-      needsAttention: true,
     },
   },
 
@@ -457,15 +440,6 @@ const SCENARIOS: readonly FeedbackScenario[] = [
     id: "stranded_testimony_after_resume",
     title:
       "processes testimony received under human control when staff resumes the bot",
-    defect:
-      "RESUME-STRANDS-TESTIMONY: resumeBot changes control but enqueues no extraction for testimony skipped under human control",
-    knownCurrent: {
-      control: "bot",
-      answers: [],
-      receivedCount: { reply: 0 },
-      lostParticipantText: [],
-    },
-    knownCurrentUnconsumedExtractionCalls: [1],
     seed: { control: "human" },
     script: [
       {
@@ -615,19 +589,9 @@ const SCENARIOS: readonly FeedbackScenario[] = [
     id: "number_changed_owner",
     title:
       "stops questioning a stranger who says they were never there, withdraws the opt-in and marks it for a human",
-    defect:
-      "WRONG-NUMBER-UNRECOGNISED: nothing recognises a wrong number or a plain-language opt-out, so the questionnaire continues and the opt-in stands",
-    knownCurrent: {
-      optedIn: true,
-      needsAttention: false,
-      receivedCount: { reply: 1 },
-    },
-    script: [
-      {
-        reply:
-          "Συγγνώμη για την ενόχληση! Πώς σου φάνηκε συνολικά η βραδιά, από το 1 ως το 5;",
-      },
-    ],
+    // No script: «σταμάτα να μου στέλνεις» is now a plain-language opt-out, and
+    // D14 settles it before any model call — so the stranger is never asked a
+    // second question, and the burst never reaches the provider at all.
     steps: [
       {
         kind: "inbound",
@@ -655,8 +619,14 @@ const SCENARIOS: readonly FeedbackScenario[] = [
     // answered; we recorded a non-responder.
     id: "replies_from_a_different_number",
     title: "keeps what somebody sent from a number we do not recognise",
+    // The destroying half is fixed: D10 was amended and the durable ingress row
+    // now keeps the body instead of nulling it. What remains is that no screen
+    // shows it. `retainedParticipantText` deliberately counts only what a human
+    // can read in a conversation, and this text belongs to none — so closing
+    // this row needs an operator-facing surface for unmatched traffic, not
+    // another backend change.
     defect:
-      "F3/D10: an inbound from an unknown number is written ignored_unmatched with the body dropped, so a real answer is destroyed",
+      "F3/D10: unmatched text is now kept and alerted, but no conversation can show it to an operator",
     knownCurrent: {
       lostParticipantText: ["σορρυ αλλαξα νουμερο. 5, ο Νικος ηταν φοβερος"],
       retainedParticipantText: [],
@@ -686,15 +656,13 @@ const SCENARIOS: readonly FeedbackScenario[] = [
     id: "couple_sharing_one_whatsapp",
     title:
       "keeps the spouse's opinion as reported speech and never attributes it to the account owner",
-    defect:
-      "SHARED-ACCOUNT-ATTRIBUTION: a valid directed answer is trusted even when the source text says it is the spouse's opinion",
-    knownCurrent: {
-      answers: [
-        { question: "event_score", about: null, value: 5 },
-        { question: "avoid", about: "Νίκος", value: null },
-      ],
-      notes: [{ type: "general", about: "Νίκος", flagged: false }],
-    },
+    // Whose opinion a sentence carries is a judgement about the words, not a
+    // rule a validator can enforce: nothing deterministic distinguishes «ο
+    // Νίκος βαρετός» from «ο άντρας μου λέει ο Νίκος βαρετός». So the prompt
+    // owns it, the script is what the model should therefore return, and this
+    // row proves the half the application owns — the second opinion stays
+    // readable as a note and never becomes her directed answer. Whether the
+    // real model obeys is the live corpus's job.
     script: [
       {
         answers: [{ question: "event_score", value: 5 }],
@@ -702,7 +670,8 @@ const SCENARIOS: readonly FeedbackScenario[] = [
         reply: "Τέλεια! Ποιος σας έκανε την καλύτερη εντύπωση;",
       },
       {
-        answers: [{ question: "avoid", about: "Νίκος" }],
+        // No `avoid` answer: rule 9β forbids turning a reported opinion into
+        // the account owner's own.
         notes: [
           {
             type: "general",

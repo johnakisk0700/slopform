@@ -16,7 +16,11 @@ export type FeedbackMaterializeOutcome =
 export const FEEDBACK_EXTRACT_OUTCOMES = [
   "skipped_closed",
   "skipped_human_control",
+  /** Promised a human, or read something the bot must not answer. */
+  "skipped_awaiting_human",
   "skipped_cursor",
+  /** The burst is still going; the run queued behind this one will read it. */
+  "skipped_still_typing",
   "skipped_no_new_testimony",
   "extracted",
   "completed",
@@ -26,6 +30,7 @@ export const FEEDBACK_EXTRACT_OUTCOMES = [
 export type FeedbackExtractOutcome = (typeof FEEDBACK_EXTRACT_OUTCOMES)[number];
 
 export interface FeedbackExtractTokenUsage {
+  readonly phase: "feedback_extraction" | "attention_classification";
   readonly model: string;
   /** Pre-call estimate from the assembled prompt. */
   readonly estimatedPromptTokens: number;
@@ -98,6 +103,7 @@ export class PostEventFeedbackMetrics {
     this.logger.log({
       event: "feedback.extract.tokens",
       correlationId,
+      phase: usage.phase,
       model: usage.model,
       estimatedPromptTokens: usage.estimatedPromptTokens,
       inputTokens: usage.inputTokens,

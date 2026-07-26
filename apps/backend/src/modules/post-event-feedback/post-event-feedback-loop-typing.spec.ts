@@ -25,10 +25,12 @@ import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "./post-event-feedback-quest
  *   regression: the quiet window and the relaxed provenance rule landed on
  *   2026-07-26 and `split_thought` is the exact case the relaxation was written
  *   for. What is still red there is the *reply* count, never the data.
- * - **Revision** (B) is the ledger. A participant who changes their mind — a
- *   new score, or a person moved from `liked` to `avoid` — is refused by the
- *   answer key twice over (loop plan F5), and the bot answers as if the change
- *   had landed.
+ * - **Revision** (B) was the ledger. A participant who changed their mind — a
+ *   new score, or a person moved from `liked` to `avoid` — was refused by the
+ *   answer key twice over (loop plan F5) while the bot answered as if the
+ *   change had landed. The newest reading of a question now wins, so most of
+ *   these are ordinary regressions; what remains red is moving one person
+ *   between two different questions, which no single uniqueness key covers.
  */
 
 const SCENARIOS: readonly FeedbackScenario[] = [
@@ -39,25 +41,17 @@ const SCENARIOS: readonly FeedbackScenario[] = [
     // lands just outside it, so the person is still answered twice mid-thought.
     id: "slow_typist",
     title: "answers a thought typed slowly once, not once per sentence",
-    defect:
-      "F7: a slow typist is answered once per fragment, not once per thought",
-    knownCurrent: {
-      answers: [
-        { question: "event_score", about: null, value: 5 },
-        { question: "liked", about: "Νίκος", value: null },
-      ],
-      receivedCount: { reply: 2 },
-    },
+    // One scripted turn, because there is now one run: a run that comes due
+    // while the burst is still going stands down for the one queued behind it,
+    // so the whole thought is read at once instead of a sentence at a time.
     script: [
       {
-        answers: [{ question: "event_score", value: 5 }],
-        next: "liked",
-        reply: "Τέλεια, το σημείωσα.",
-      },
-      {
-        answers: [{ question: "liked", about: "Νίκος" }],
+        answers: [
+          { question: "event_score", value: 5 },
+          { question: "liked", about: "Νίκος" },
+        ],
         next: "meet_again",
-        reply: "Ωραία, το κράτησα.",
+        reply: "Τέλεια, τα σημείωσα. Με ποιους θα ήθελες να ξαναβρεθείς;",
       },
     ],
     steps: [
@@ -82,11 +76,6 @@ const SCENARIOS: readonly FeedbackScenario[] = [
     // and the participant corrects themselves two seconds later.
     id: "mid_run_arrival",
     title: "records the corrected score rather than the one it read first",
-    defect: "F5: a revised answer is rejected as already_recorded and dropped",
-    knownCurrent: {
-      answers: [{ question: "event_score", about: null, value: 3 }],
-      lostParticipantText: [],
-    },
     script: [
       {
         answers: [{ question: "event_score", value: 3 }],
@@ -369,11 +358,6 @@ const SCENARIOS: readonly FeedbackScenario[] = [
     // historical one, so read it as "the picture says 2", not "one row exists".
     id: "changes_the_score",
     title: "holds the revised score after the participant changes their mind",
-    defect: "F5: a revised answer is rejected as already_recorded and dropped",
-    knownCurrent: {
-      answers: [{ question: "event_score", about: null, value: 4 }],
-      receivedCount: { reply: 2 },
-    },
     script: [
       {
         answers: [{ question: "event_score", value: 4 }],
@@ -401,21 +385,13 @@ const SCENARIOS: readonly FeedbackScenario[] = [
     },
   },
   {
-    // S09. The same defect in its second shape. The identities differ, so both
-    // rows survive and staff read a contradiction with nothing to break the
-    // tie: the person the participant asked not to meet again is also on the
-    // list of people they liked.
+    // S09. The uniqueness key is per question, so both rows used to survive and
+    // staff read a contradiction with nothing to break the tie: the person the
+    // participant asked never to meet again was also on the list of people they
+    // liked. `avoid` and `liked` are the same decision with opposite answers,
+    // so recording one now clears the other.
     id: "moves_someone_between_lists",
-    title: "leaves a person in one list after the participant moves them",
-    defect:
-      "F5: moving a person between lists writes the new row and keeps the old one",
-    knownCurrent: {
-      answers: [
-        { question: "liked", about: "Κώστας Π.", value: null },
-        { question: "avoid", about: "Κώστας Π.", value: null },
-      ],
-      lifecycle: "open",
-    },
+    title: "moves a person out of the old list when the participant moves them",
     script: [
       {
         answers: [{ question: "liked", about: "Κώστας Π." }],
@@ -448,13 +424,6 @@ const SCENARIOS: readonly FeedbackScenario[] = [
     id: "contradicts_within_one_message",
     title:
       "uses the participant's final score when they change it inside one message",
-    defect:
-      "LATEST-INTENT: duplicate_in_run keeps the first score even when the participant explicitly marks the later one final",
-    knownCurrent: {
-      answers: [{ question: "event_score", about: null, value: 5 }],
-      notes: [{ type: "general", about: null, flagged: false }],
-      received: [{ kind: "reply" }],
-    },
     script: [
       {
         answers: [
@@ -547,12 +516,6 @@ const SCENARIOS: readonly FeedbackScenario[] = [
     id: "out_of_range_score_refused",
     title:
       "stores nothing outside the scale and does not falsely confirm that it did",
-    defect:
-      "FALSE-CONFIRMATION: validation rejects the score but still sends the model's claim that it was recorded",
-    knownCurrent: {
-      answers: [],
-      received: [{ kind: "reply" }],
-    },
     script: [
       {
         answers: [{ question: "event_score", value: 10 }],
@@ -665,12 +628,6 @@ const SCENARIOS: readonly FeedbackScenario[] = [
     // admin reads it as "we could not find this person".
     id: "names_themselves",
     title: "keeps a self-deprecating joke as a plain note, not a review item",
-    defect:
-      "S14: a self-referential subject degrades to flaggedForReview like an unknown name",
-    knownCurrent: {
-      answers: [],
-      notes: [{ type: "general", about: null, flagged: true }],
-    },
     script: [
       {
         answers: [{ question: "avoid", about: "Μαρία" }],

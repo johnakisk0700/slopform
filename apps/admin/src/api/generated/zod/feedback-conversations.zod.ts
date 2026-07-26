@@ -280,6 +280,11 @@ export const getFeedbackConversationResponseLifecycleClosedAtRegExp =
 export const getFeedbackConversationResponseMessagesItemAtRegExp = new RegExp(
   "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
 );
+export const getFeedbackConversationResponseMessagesItemAttentionCategoriesMax = 5;
+
+export const getFeedbackConversationResponseMessagesItemAttentionConfidenceMin = 0;
+export const getFeedbackConversationResponseMessagesItemAttentionConfidenceMax = 1;
+
 export const getFeedbackConversationResponseMessagesItemDeliveryDeliveredAtRegExp =
   new RegExp(
     "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
@@ -391,6 +396,37 @@ export const GetFeedbackConversationResponse = zod.object({
         at: zod.iso
           .datetime({ offset: true })
           .regex(getFeedbackConversationResponseMessagesItemAtRegExp),
+        attention: zod
+          .object({
+            categories: zod
+              .array(
+                zod.enum([
+                  "sexual_misconduct",
+                  "harassment",
+                  "violence_or_threat",
+                  "self_harm",
+                  "other_safety",
+                ]),
+              )
+              .min(1)
+              .max(
+                getFeedbackConversationResponseMessagesItemAttentionCategoriesMax,
+              ),
+            confidence: zod
+              .number()
+              .min(
+                getFeedbackConversationResponseMessagesItemAttentionConfidenceMin,
+              )
+              .max(
+                getFeedbackConversationResponseMessagesItemAttentionConfidenceMax,
+              ),
+            recommendedAction: zod.enum([
+              "review",
+              "human_follow_up",
+              "urgent_human_follow_up",
+            ]),
+          })
+          .nullable(),
         delivery: zod
           .object({
             deliveredAt: zod.iso
@@ -530,6 +566,11 @@ export const closeFeedbackConversationResponseLifecycleClosedAtRegExp =
 export const closeFeedbackConversationResponseMessagesItemAtRegExp = new RegExp(
   "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
 );
+export const closeFeedbackConversationResponseMessagesItemAttentionCategoriesMax = 5;
+
+export const closeFeedbackConversationResponseMessagesItemAttentionConfidenceMin = 0;
+export const closeFeedbackConversationResponseMessagesItemAttentionConfidenceMax = 1;
+
 export const closeFeedbackConversationResponseMessagesItemDeliveryDeliveredAtRegExp =
   new RegExp(
     "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
@@ -643,6 +684,37 @@ export const CloseFeedbackConversationResponse = zod.object({
         at: zod.iso
           .datetime({ offset: true })
           .regex(closeFeedbackConversationResponseMessagesItemAtRegExp),
+        attention: zod
+          .object({
+            categories: zod
+              .array(
+                zod.enum([
+                  "sexual_misconduct",
+                  "harassment",
+                  "violence_or_threat",
+                  "self_harm",
+                  "other_safety",
+                ]),
+              )
+              .min(1)
+              .max(
+                closeFeedbackConversationResponseMessagesItemAttentionCategoriesMax,
+              ),
+            confidence: zod
+              .number()
+              .min(
+                closeFeedbackConversationResponseMessagesItemAttentionConfidenceMin,
+              )
+              .max(
+                closeFeedbackConversationResponseMessagesItemAttentionConfidenceMax,
+              ),
+            recommendedAction: zod.enum([
+              "review",
+              "human_follow_up",
+              "urgent_human_follow_up",
+            ]),
+          })
+          .nullable(),
         delivery: zod
           .object({
             deliveredAt: zod.iso
@@ -800,6 +872,11 @@ export const sendFeedbackConversationStaffMessageResponseMessagesItemAtRegExp =
   new RegExp(
     "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
   );
+export const sendFeedbackConversationStaffMessageResponseMessagesItemAttentionCategoriesMax = 5;
+
+export const sendFeedbackConversationStaffMessageResponseMessagesItemAttentionConfidenceMin = 0;
+export const sendFeedbackConversationStaffMessageResponseMessagesItemAttentionConfidenceMax = 1;
+
 export const sendFeedbackConversationStaffMessageResponseMessagesItemDeliveryDeliveredAtRegExp =
   new RegExp(
     "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
@@ -924,6 +1001,37 @@ export const SendFeedbackConversationStaffMessageResponse = zod.object({
           .regex(
             sendFeedbackConversationStaffMessageResponseMessagesItemAtRegExp,
           ),
+        attention: zod
+          .object({
+            categories: zod
+              .array(
+                zod.enum([
+                  "sexual_misconduct",
+                  "harassment",
+                  "violence_or_threat",
+                  "self_harm",
+                  "other_safety",
+                ]),
+              )
+              .min(1)
+              .max(
+                sendFeedbackConversationStaffMessageResponseMessagesItemAttentionCategoriesMax,
+              ),
+            confidence: zod
+              .number()
+              .min(
+                sendFeedbackConversationStaffMessageResponseMessagesItemAttentionConfidenceMin,
+              )
+              .max(
+                sendFeedbackConversationStaffMessageResponseMessagesItemAttentionConfidenceMax,
+              ),
+            recommendedAction: zod.enum([
+              "review",
+              "human_follow_up",
+              "urgent_human_follow_up",
+            ]),
+          })
+          .nullable(),
         delivery: zod
           .object({
             deliveredAt: zod.iso
@@ -1411,6 +1519,11 @@ export const resumeFeedbackConversationBotResponseMessagesItemAtRegExp =
   new RegExp(
     "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
   );
+export const resumeFeedbackConversationBotResponseMessagesItemAttentionCategoriesMax = 5;
+
+export const resumeFeedbackConversationBotResponseMessagesItemAttentionConfidenceMin = 0;
+export const resumeFeedbackConversationBotResponseMessagesItemAttentionConfidenceMax = 1;
+
 export const resumeFeedbackConversationBotResponseMessagesItemDeliveryDeliveredAtRegExp =
   new RegExp(
     "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
@@ -1525,6 +1638,37 @@ export const ResumeFeedbackConversationBotResponse = zod.object({
         at: zod.iso
           .datetime({ offset: true })
           .regex(resumeFeedbackConversationBotResponseMessagesItemAtRegExp),
+        attention: zod
+          .object({
+            categories: zod
+              .array(
+                zod.enum([
+                  "sexual_misconduct",
+                  "harassment",
+                  "violence_or_threat",
+                  "self_harm",
+                  "other_safety",
+                ]),
+              )
+              .min(1)
+              .max(
+                resumeFeedbackConversationBotResponseMessagesItemAttentionCategoriesMax,
+              ),
+            confidence: zod
+              .number()
+              .min(
+                resumeFeedbackConversationBotResponseMessagesItemAttentionConfidenceMin,
+              )
+              .max(
+                resumeFeedbackConversationBotResponseMessagesItemAttentionConfidenceMax,
+              ),
+            recommendedAction: zod.enum([
+              "review",
+              "human_follow_up",
+              "urgent_human_follow_up",
+            ]),
+          })
+          .nullable(),
         delivery: zod
           .object({
             deliveredAt: zod.iso
@@ -1673,6 +1817,11 @@ export const takeOverFeedbackConversationResponseMessagesItemAtRegExp =
   new RegExp(
     "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
   );
+export const takeOverFeedbackConversationResponseMessagesItemAttentionCategoriesMax = 5;
+
+export const takeOverFeedbackConversationResponseMessagesItemAttentionConfidenceMin = 0;
+export const takeOverFeedbackConversationResponseMessagesItemAttentionConfidenceMax = 1;
+
 export const takeOverFeedbackConversationResponseMessagesItemDeliveryDeliveredAtRegExp =
   new RegExp(
     "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
@@ -1787,6 +1936,37 @@ export const TakeOverFeedbackConversationResponse = zod.object({
         at: zod.iso
           .datetime({ offset: true })
           .regex(takeOverFeedbackConversationResponseMessagesItemAtRegExp),
+        attention: zod
+          .object({
+            categories: zod
+              .array(
+                zod.enum([
+                  "sexual_misconduct",
+                  "harassment",
+                  "violence_or_threat",
+                  "self_harm",
+                  "other_safety",
+                ]),
+              )
+              .min(1)
+              .max(
+                takeOverFeedbackConversationResponseMessagesItemAttentionCategoriesMax,
+              ),
+            confidence: zod
+              .number()
+              .min(
+                takeOverFeedbackConversationResponseMessagesItemAttentionConfidenceMin,
+              )
+              .max(
+                takeOverFeedbackConversationResponseMessagesItemAttentionConfidenceMax,
+              ),
+            recommendedAction: zod.enum([
+              "review",
+              "human_follow_up",
+              "urgent_human_follow_up",
+            ]),
+          })
+          .nullable(),
         delivery: zod
           .object({
             deliveredAt: zod.iso

@@ -41,6 +41,8 @@ interface LabelsModule {
   staffOriginBadge: (
     origin: "conversation" | "staff",
   ) => { key: string; label: string; tone: string } | null;
+  messageAttentionCategoryLabel: (category: string) => string;
+  messageAttentionActionLabel: (action: string) => string;
 }
 
 interface ConversationViewModule {
@@ -368,6 +370,28 @@ describe("needs-attention emphasis", () => {
     expect(
       readSource("src/components/admin/feedback/ConversationTranscript.tsx"),
     ).toContain("<FeedbackBadges");
+  });
+
+  it("uses fixed, readable labels for per-message attention metadata", () => {
+    expect(labels.messageAttentionCategoryLabel("sexual_misconduct")).toBe(
+      "🍌 Sexual misconduct",
+    );
+    expect(labels.messageAttentionCategoryLabel("self_harm")).toBe("Self-harm");
+    expect(labels.messageAttentionActionLabel("human_follow_up")).toBe(
+      "Human follow-up",
+    );
+  });
+
+  it("highlights the cited transcript message and labels the action in text", () => {
+    const transcript = readSource(
+      "src/components/admin/feedback/ConversationTranscript.tsx",
+    );
+
+    expect(transcript).toContain("message.attention");
+    expect(transcript).toContain("bg-warning-soft");
+    expect(transcript).toContain("messageAttentionCategoryLabel(category)");
+    expect(transcript).toContain("messageAttentionActionLabel(");
+    expect(transcript).toContain("BellRing");
   });
 
   it("carries no theme branching: the tokens flip, the component does not", () => {

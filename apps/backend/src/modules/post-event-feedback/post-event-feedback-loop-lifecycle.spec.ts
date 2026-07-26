@@ -1,3 +1,5 @@
+import { expect } from "vitest";
+
 import {
   runFeedbackScenarios,
   type FeedbackScenario,
@@ -26,10 +28,15 @@ import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "./post-event-feedback-quest
  *
  * **Nudges.** A reminder after 24 hours of *silence*, a second after 48, close
  * after 72, at most two reminders ever. Silence is measured from the last
- * participant message, falling back to the last outbound when they never
- * replied at all. Today the sweep measures from `createdAt`, sends at most one
- * reminder, and only to people who never replied — F1 and F2 — so most of the
- * nudge rows below are ledger entries.
+ * participant message, falling back to launch when they never replied at all;
+ * our own outbound never resets it. The nudge restates the question they
+ * stopped at, and a conversation flagged for attention is never nudged at all.
+ *
+ * These rows were written as F1/F2 ledger entries against a sweep that measured
+ * from `createdAt`, sent at most one reminder, and skipped anyone who had ever
+ * replied — which excluded exactly the half-finished participants worth
+ * chasing. WP4 fixed it and the labels were cleared; they are ordinary
+ * regressions now.
  *
  * **Post-closure retention.** A conversation closed by `stopped` keeps metadata
  * only for anything that arrives afterwards: somebody who opted out of hearing
@@ -120,17 +127,11 @@ const STOPPING_SILENCE_AND_TIME: readonly FeedbackScenario[] = [
   },
   {
     // S19. Answered the first question with enthusiasm and then vanished. The
-    // most valuable non-responder in the campaign, and the one the sweep is
-    // built to exclude.
+    // most valuable non-responder in the campaign — and the one the sweep used
+    // to skip, because having replied once excluded them from reminders.
     id: "goes_silent_mid_questionnaire",
     title:
       "nudges a half-finished participant twice across two days of silence",
-    defect: "F1: half-finished participants are never nudged",
-    knownCurrent: {
-      answers: [{ question: "event_score", about: null, value: 5 }],
-      receivedCount: { reminder: 0 },
-      lifecycle: "open",
-    },
     script: [
       {
         answers: [{ question: "event_score", value: 5 }],
@@ -151,18 +152,11 @@ const STOPPING_SILENCE_AND_TIME: readonly FeedbackScenario[] = [
   },
   {
     // The nudge ladder in one row: two reminders and no more, then closure.
-    // Today `remindedAt` is a single timestamp, so the second one can never be
-    // sent and the conversation reaches expiry having been asked once.
+    // Both the cap and the second rung matter — the reminder used to be a
+    // single timestamp, so nobody was ever asked twice.
     id: "nudges_twice_then_closes",
     title:
       "sends at most two reminders, then closes after three days of silence",
-    defect:
-      "F1: remindedAt is a single timestamp, so only one reminder is ever sent",
-    knownCurrent: {
-      receivedCount: { reminder: 1 },
-      lifecycle: "closed",
-      closedBecause: "expired",
-    },
     steps: [{ kind: "wait", after: "73h" }],
     expect: {
       receivedCount: { reminder: 2 },
@@ -171,10 +165,74 @@ const STOPPING_SILENCE_AND_TIME: readonly FeedbackScenario[] = [
     },
   },
   {
+    // The nudge has to know what it is nudging about. The generic invitation
+    // asks somebody to tell us how the evening went; sending that to a person
+    // who told us «5, γαμάτη φάση» yesterday reads as "we lost what you sent",
+    // and that person is precisely who the ladder was built to reach.
+    id: "nudge_restates_the_open_question",
+    title:
+      "nudges a half-finished participant with the question they stopped at",
+    script: [
+      {
+        answers: [{ question: "event_score", value: 5 }],
+        next: "liked",
+        reply: "Χαιρόμαστε πολύ! Ξεχώρισε κάποιος από την παρέα;",
+      },
+    ],
+    steps: [
+      { kind: "inbound", text: "5 ναι, γαματη φαση" },
+      { kind: "wait", after: "settles" },
+      { kind: "wait", after: "25h" },
+    ],
+    expect: {
+      receivedCount: { reminder: 1 },
+      received: [
+        { kind: "reply" },
+        { kind: "reminder", text: expect.stringContaining(COPY.liked) },
+      ],
+    },
+  },
+  {
+    // The nudge ladder must not walk into a conversation a person has been
+    // asked to look at. Silence after a flag is very often *caused* by what was
+    // flagged, and «πες μας και για τα υπόλοιπα» is the worst thing that could
+    // arrive next. Expiry is deliberately not held back the same way — it sends
+    // nothing.
+    id: "flagged_conversation_is_never_nudged",
+    title: "does not nudge a conversation that is waiting for a human",
+    script: [
+      {
+        answers: [{ question: "event_score", value: 2 }],
+        notes: [
+          {
+            type: "general",
+            text: "Περιγράφει ότι κάποιος της φέρθηκε πολύ άσχημα στο τραπέζι.",
+          },
+        ],
+        next: "liked",
+        reply: "Λυπόμαστε πολύ που το άκουσμα αυτό. Το προωθούμε στην ομάδα.",
+      },
+    ],
+    attention: [[{ category: "harassment", action: "human_follow_up" }]],
+    steps: [
+      {
+        kind: "inbound",
+        text: "2. μου φερθηκε απαισια καποιος εκει και δε θελω να το ξαναζησω",
+      },
+      { kind: "wait", after: "settles" },
+      { kind: "wait", after: "49h" },
+    ],
+    expect: {
+      needsAttention: true,
+      receivedCount: { reminder: 0 },
+      lifecycle: "open",
+    },
+  },
+  {
     // Silence is measured from the participant's last message, so somebody who
-    // answered at hour 20 is not due at hour 24. This passes today for the
-    // wrong reason — they are excluded from reminders entirely — and must keep
-    // passing once that exclusion is dropped.
+    // answered at hour 20 is not due at hour 24. Its pair below proves this row
+    // passes for the right reason: reminders reach people who have replied,
+    // they are just counted from the reply.
     id: "silence_clock_resets_on_a_reply",
     title: "does not nudge within a day of the participant's own last message",
     script: [{}],
@@ -194,12 +252,6 @@ const STOPPING_SILENCE_AND_TIME: readonly FeedbackScenario[] = [
     id: "reminder_follows_the_last_reply",
     title:
       "nudges a day after the participant's own last message, not a day after launch",
-    defect:
-      "F1: a conversation with any participant reply is excluded from reminders",
-    knownCurrent: {
-      receivedCount: { reminder: 0 },
-      lifecycle: "open",
-    },
     script: [{}],
     steps: [
       { kind: "wait", after: "20h" },
@@ -216,12 +268,6 @@ const STOPPING_SILENCE_AND_TIME: readonly FeedbackScenario[] = [
     // properly. The expiry clock should measure silence, not age.
     id: "replies_at_hour_71",
     title: "keeps a conversation open when the participant engaged an hour ago",
-    defect: "F2: expiry measures from creation, with no last-activity guard",
-    knownCurrent: {
-      lifecycle: "closed",
-      closedBecause: "expired",
-      answers: [{ question: "event_score", about: null, value: 4 }],
-    },
     script: [
       {
         answers: [{ question: "event_score", value: 4 }],
@@ -352,20 +398,6 @@ const MACHINERY_FROM_THE_OUTSIDE: readonly FeedbackScenario[] = [
     id: "out_of_order_webhooks",
     title:
       "shows two fragments in the order the participant sent them, not the order webhooks arrived",
-    defect:
-      "WEBHOOK-ORDER: transcript sequence follows webhook arrival and ignores the provider observation time",
-    knownCurrent: {
-      answers: [
-        { question: "event_score", about: null, value: 5 },
-        { question: "liked", about: "Νίκος", value: null },
-      ],
-      transcript: [
-        { who: "bot", kind: "intro" },
-        { who: "participant", text: "5 λεω" },
-        { who: "participant", text: "ο Νικο" },
-        { who: "bot", kind: "reply" },
-      ],
-    },
     script: [
       {
         answers: [
@@ -420,12 +452,6 @@ const MACHINERY_FROM_THE_OUTSIDE: readonly FeedbackScenario[] = [
     id: "edited_message_redelivered",
     title:
       "keeps an edited redelivery and flags the conversation rather than dropping it",
-    defect:
-      "EDIT-DROPPED: a redelivery with different text is absorbed by the ingress unique key, so the correction is lost and nothing is flagged",
-    knownCurrent: {
-      lostParticipantText: ["ο Κωστας τελικα ηταν οκ"],
-      needsAttention: false,
-    },
     script: [{}],
     steps: [
       {
@@ -453,6 +479,11 @@ const MACHINERY_FROM_THE_OUTSIDE: readonly FeedbackScenario[] = [
     // have to survive in PostgreSQL and somebody has to be told to look.
     id: "transcript_hits_the_cap",
     title: "keeps the message and raises attention when the transcript is full",
+    // The bot no longer carries on as if nothing happened — a full transcript
+    // now hands the conversation to a person, because it genuinely cannot
+    // record what was just said. The message itself is still only in raw
+    // ingress: the transcript cap exists to stop a one-sided transcript, so
+    // showing it needs a place to put it rather than a bigger cap.
     defect:
       "CAPACITY-SILENCE: the final message remains only in raw ingress and is not human-visible in the conversation",
     knownCurrent: {
@@ -533,17 +564,13 @@ const MACHINERY_FROM_THE_OUTSIDE: readonly FeedbackScenario[] = [
   },
   {
     // A provider rejection is not a delivered reply. The structured answer is
-    // still useful, while the failed send must become visible human work.
+    // still useful, while the failed send must become visible human work — a
+    // participant who "went quiet" after a question they were never sent looks
+    // exactly like one who ignored it, and telling those apart is the whole
+    // reason somebody opens the inbox.
     id: "reply_delivery_rejected",
     title:
       "records the answer, reports the failed delivery and never pretends the participant received the reply",
-    defect:
-      "DELIVERY-ATTENTION: a terminal provider rejection marks only the outbox row failed and leaves the conversation looking healthy",
-    knownCurrent: {
-      answers: [{ question: "event_score", about: null, value: 5 }],
-      received: [],
-      needsAttention: false,
-    },
     script: [
       {
         answers: [{ question: "event_score", value: 5 }],
@@ -571,20 +598,14 @@ const MACHINERY_FROM_THE_OUTSIDE: readonly FeedbackScenario[] = [
     id: "sends_the_same_message_five_times",
     title:
       "records one score and answers once when the same message is sent five times",
-    defect:
-      "F7: a fragment arriving after the quiet window closes earns its own reply",
-    knownCurrent: {
-      answers: [{ question: "event_score", about: null, value: 5 }],
-      receivedCount: { reply: 2 },
-    },
+    // One scripted turn: five copies sent 20-25 seconds apart never let a run
+    // come due, so the whole thing settles into a single read.
     script: [
-      ...Array.from({ length: 2 }, () => ({
-        answers: [{ question: "event_score" as const, value: 5 }],
-        next: "liked" as const,
+      {
+        answers: [{ question: "event_score", value: 5 }],
+        next: "liked",
         reply: "Ευχαριστούμε! Ξεχώρισε κάποιος από την παρέα;",
-      })),
-      {},
-      {},
+      },
     ],
     steps: [
       { kind: "inbound", text: "5" },

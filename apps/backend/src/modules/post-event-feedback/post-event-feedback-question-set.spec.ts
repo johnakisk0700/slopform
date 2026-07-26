@@ -33,6 +33,8 @@ describe("post-event feedback question set v1", () => {
       "closing",
       "stop_ack",
       "reminder",
+      "reminder_followup",
+      "cannot_read_media",
     ]);
     expect(POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy.intro).toContain(
       "Join The Six",

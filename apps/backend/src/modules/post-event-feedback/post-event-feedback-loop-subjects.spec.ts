@@ -249,13 +249,6 @@ const SCENARIOS: readonly FeedbackScenario[] = [
     // while they actually answered every question.
     id: "voice_note_only",
     title: "tells a voice-note answerer once that we cannot listen yet",
-    defect:
-      "F4: a message with no text body is flagged and answered with silence",
-    knownCurrent: {
-      received: [],
-      needsAttention: true,
-      lifecycle: "open",
-    },
     steps: [
       { kind: "inbound", text: null },
       { kind: "inbound", text: null, after: "2m" },
@@ -263,9 +256,10 @@ const SCENARIOS: readonly FeedbackScenario[] = [
       { kind: "wait", after: "settles" },
     ],
     expect: {
-      // Once per conversation, not once per voice note. The copy belongs to the
-      // question set rather than the model, so only kind and count are pinned.
-      received: [{ kind: "reply" }],
+      // Once per conversation, not once per voice note — three notes, one
+      // apology. The copy belongs to the question set rather than the model, so
+      // only kind and count are pinned.
+      received: [{ kind: "media_notice" }],
       needsAttention: true,
       lifecycle: "open",
     },
@@ -444,21 +438,10 @@ const SCENARIOS: readonly FeedbackScenario[] = [
     id: "asks_for_a_human_then_keeps_talking",
     title:
       "stops questioning once it has promised that a human will get in touch",
-    defect:
-      "HANDOFF-CONTINUES: the questionnaire resumes on the next message after a human was promised",
-    knownCurrent: {
-      answers: [{ question: "event_score", about: null, value: 5 }],
-      receivedCount: { handoff: 1, reply: 1, reminder: 0 },
-      needsAttention: true,
-    },
-    script: [
-      { handoff: true },
-      {
-        answers: [{ question: "event_score", value: 5 }],
-        next: "liked",
-        reply: "Ευχαριστούμε! Ποιος σου έκανε καλή εντύπωση;",
-      },
-    ],
+    // One scripted turn, not two: once the promise is made the bot stops
+    // reading, so the second message waits for the person who was promised
+    // rather than being answered by the thing they asked to stop talking to.
+    script: [{ handoff: true }],
     steps: [
       {
         kind: "inbound",
@@ -556,21 +539,11 @@ const SCENARIOS: readonly FeedbackScenario[] = [
     id: "asks_to_delete_their_data",
     title:
       "treats an erasure request as something a human must handle, and stops questioning",
-    defect:
-      "ERASURE: a request to delete what was said is filed as an ordinary note and the questions continue",
-    knownCurrent: {
-      needsAttention: false,
-      receivedCount: { reply: 2 },
-      notes: [
-        {
-          text: "σβηστε αυτα που ειπα, δε θελω να μεινουν πουθενα πλζ",
-        },
-      ],
-      answers: [
-        { question: "event_score", about: null, value: 5 },
-        { question: "liked", about: "Νίκος", value: null },
-      ],
-    },
+    // The second turn is `handoff`, not another question: the prompt now names
+    // an erasure request as a thing to hand to a person. What this row proves
+    // is the half the application owns — given that signal, the words are kept,
+    // nothing is deleted on the model's say-so, and the questionnaire stops.
+    // Whether the real model actually emits it is the live corpus's job.
     script: [
       {
         answers: [
@@ -586,8 +559,7 @@ const SCENARIOS: readonly FeedbackScenario[] = [
             text: "σβηστε αυτα που ειπα, δε θελω να μεινουν πουθενα πλζ",
           },
         ],
-        next: "meet_again",
-        reply: "Πες μας και με ποιους θα ήθελες να ξαναβρεθείς 🙂",
+        handoff: true,
       },
     ],
     steps: [
@@ -615,21 +587,12 @@ const SCENARIOS: readonly FeedbackScenario[] = [
   {
     // Types Greek in Latin characters, as a large minority of Greek WhatsApp
     // users do. The script is what the provider returns under today's prompt,
-    // which forbids treating «Nikos» as «Νίκος»; the expectation is what an
-    // unambiguous transliteration of one candidate should produce. Clearing
-    // this row means the *system* resolves it — whether the prompt stops
-    // forbidding it or validation learns to fold the script is not this
-    // suite's business, but a prompt-side fix also means rewriting this script
-    // to emit the Greek name.
+    // which forbids treating «Nikos» as «Νίκος» — so this row proves the
+    // *system* resolves it: validation folds both alphabets to one skeleton and
+    // accepts the match only when exactly one candidate fits.
     id: "greeklish",
     title:
       "records a Greeklish typist's directed answers against the person they named",
-    defect:
-      "GREEKLISH: a Latin transliteration of a candidate's name never resolves, so directed answers are dropped",
-    knownCurrent: {
-      answers: [{ question: "event_score", about: null, value: 5 }],
-      notes: [],
-    },
     script: [
       {
         answers: [

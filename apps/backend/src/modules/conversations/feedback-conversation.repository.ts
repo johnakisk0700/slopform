@@ -30,8 +30,16 @@ import {
   feedbackConversationDocumentSchema,
   feedbackConversationMessageSchema,
 } from "./feedback-conversation.schemas.js";
+import {
+  POST_EVENT_FEEDBACK_SAFETY_CATEGORIES,
+  feedbackConversationMessageAttentionSchema,
+  strongerRecommendedAction,
+  type PostEventFeedbackRecommendedAction,
+  type PostEventFeedbackSafetyCategory,
+} from "../post-event-feedback/post-event-feedback-attention.js";
 
 const FEEDBACK_CONVERSATION_APPEND_ATTEMPTS = 3;
+const FEEDBACK_CONVERSATION_ATTENTION_MERGE_ATTEMPTS = 3;
 
 const feedbackConversationSummarySchema = z
   .object({
@@ -181,6 +189,8 @@ export class FeedbackConversationRepository {
       extraction: { cursorSeq: 0, lastRunAt: null, model: null },
       needsAttention: false,
       remindedAt: null,
+      reminderCount: 0,
+      awaitingHuman: false,
       createdAt: input.launchedAt,
       updatedAt: input.launchedAt,
     });
@@ -236,6 +246,36 @@ export class FeedbackConversationRepository {
       "lifecycle.state": "open",
       phoneAtLaunch,
     } as Filter<FeedbackConversationDocument>);
+    return document
+      ? feedbackConversationDocumentSchema.parse(document)
+      : undefined;
+  }
+
+  /**
+   * The most recently closed conversation on a number, for traffic that arrives
+   * after the questionnaire ended.
+   *
+   * The closing copy says «Ό,τι άλλο θες να μας πεις, είμαστε εδώ», and people
+   * take it literally — a correction, a second thought, or the disclosure they
+   * worked up to saying. `findOpenByPhone` cannot see any of it, so those
+   * messages used to fall through to the unmatched path and have their bodies
+   * destroyed. This is deliberately not `findOpenByPhone` with a widened filter:
+   * an open conversation is the one that may still be *spoken to*, and keeping
+   * the two lookups apart is what stops a closed thread resuming by accident.
+   */
+  async findLatestClosedByPhone(
+    phoneAtLaunch: string,
+  ): Promise<FeedbackConversationDocument | undefined> {
+    const collection = await this.collection();
+    const document = await collection.findOne(
+      {
+        schemaVersion: FEEDBACK_CONVERSATION_SCHEMA_VERSION,
+        purpose: FEEDBACK_CONVERSATION_PURPOSE,
+        "lifecycle.state": "closed",
+        phoneAtLaunch,
+      } as Filter<FeedbackConversationDocument>,
+      { sort: { updatedAt: -1 } },
+    );
     return document
       ? feedbackConversationDocumentSchema.parse(document)
       : undefined;
@@ -335,6 +375,7 @@ export class FeedbackConversationRepository {
         providerMessageId: input.providerMessageId ?? null,
         ingressId: input.ingressId ?? null,
         outboxId: input.outboxId ?? null,
+        attention: null,
         at: input.at,
       });
 
@@ -353,7 +394,17 @@ export class FeedbackConversationRepository {
           messages: { $size: current.messages.length },
         } as Filter<FeedbackConversationDocument>,
         {
-          $push: { messages: message },
+          // Stored in the order the participant *spoke*, not the order the
+          // webhooks arrived. WhatsApp tells us when each fragment was
+          // observed, and two fragments of one thought can be delivered
+          // backwards — which silently rewrites what the thought said: «5 λέω»
+          // before «ο Νίκο» reads as a different sentence from «ο Νίκο» before
+          // «5 λέω». `seq` is untouched by the sort and stays in arrival order,
+          // because the extraction cursor is a `seq` and must not be reshuffled
+          // underneath a run.
+          $push: {
+            messages: { $each: [message], $sort: { at: 1, seq: 1 } },
+          },
           $max: { updatedAt: message.at },
         } as UpdateFilter<FeedbackConversationDocument>,
       );
@@ -363,7 +414,7 @@ export class FeedbackConversationRepository {
           message,
           conversation: {
             ...current,
-            messages: [...current.messages, message],
+            messages: sortTranscript([...current.messages, message]),
             updatedAt:
               message.at > current.updatedAt ? message.at : current.updatedAt,
           },
@@ -373,6 +424,102 @@ export class FeedbackConversationRepository {
 
     throw new ConversationPersistenceError(
       "Concurrent appends prevented ordering a feedback conversation message",
+    );
+  }
+
+  /**
+   * Merges a bounded attention classification into one participant message.
+   *
+   * A replayed model run may add categories or raise the recommended action.
+   * It cannot downgrade or erase an earlier model classification, and an
+   * optimistic element guard prevents a concurrent merge from being overwritten.
+   */
+  async mergeMessageAttention(input: {
+    readonly conversationId: string;
+    readonly messageId: string;
+    readonly categories: readonly PostEventFeedbackSafetyCategory[];
+    readonly recommendedAction: PostEventFeedbackRecommendedAction;
+    readonly confidence: number;
+    readonly at: Date;
+  }): Promise<FeedbackConversationTransitionResult> {
+    const at = z.date().parse(input.at);
+    const collection = await this.collection();
+
+    for (
+      let attempt = 0;
+      attempt < FEEDBACK_CONVERSATION_ATTENTION_MERGE_ATTEMPTS;
+      attempt += 1
+    ) {
+      const current = await this.requireConversation(input.conversationId);
+      const message = current.messages.find(
+        (candidate) => candidate.id === input.messageId,
+      );
+      if (!message) {
+        throw new FeedbackConversationTransitionError(
+          `Feedback message ${input.messageId} was not found`,
+        );
+      }
+      if (message.actor !== "participant") {
+        throw new FeedbackConversationTransitionError(
+          "Only participant messages can carry attention metadata",
+        );
+      }
+
+      const categories = POST_EVENT_FEEDBACK_SAFETY_CATEGORIES.filter(
+        (category) =>
+          message.attention?.categories.includes(category) ||
+          input.categories.includes(category),
+      );
+      const attention = feedbackConversationMessageAttentionSchema.parse({
+        categories,
+        recommendedAction: message.attention
+          ? strongerRecommendedAction(
+              message.attention.recommendedAction,
+              input.recommendedAction,
+            )
+          : input.recommendedAction,
+        confidence: Math.max(
+          message.attention?.confidence ?? 0,
+          input.confidence,
+        ),
+      });
+
+      if (
+        message.attention &&
+        JSON.stringify(message.attention) === JSON.stringify(attention)
+      ) {
+        return { changed: false, conversation: current };
+      }
+
+      const updated = await collection.findOneAndUpdate(
+        {
+          ...feedbackConversationFilter(input.conversationId),
+          messages: {
+            $elemMatch: {
+              id: input.messageId,
+              attention: message.attention,
+            },
+          },
+        } as Filter<FeedbackConversationDocument>,
+        {
+          $set: { "messages.$[message].attention": attention },
+          $max: { updatedAt: at },
+        } as UpdateFilter<FeedbackConversationDocument>,
+        {
+          returnDocument: "after",
+          arrayFilters: [{ "message.id": input.messageId }],
+        },
+      );
+      if (updated) {
+        return {
+          changed: true,
+          conversation: feedbackConversationDocumentSchema.parse(updated),
+        };
+      }
+    }
+
+    throw new ConversationPersistenceError(
+      "Concurrent updates prevented merging message attention metadata",
     );
   }
 
@@ -391,8 +538,36 @@ export class FeedbackConversationRepository {
       { "control.mode": "bot" },
       {
         control: { mode: "human", source: input.source, changedAt },
+        // A person has arrived, so the wait is over either way.
+        awaitingHuman: false,
       },
       changedAt,
+    );
+    if (updated) {
+      return { changed: true, conversation: updated };
+    }
+
+    const current = await this.requireConversation(input.conversationId);
+    return { changed: false, conversation: current };
+  }
+
+  /**
+   * The bot steps back and waits for a person, without giving up control.
+   *
+   * Idempotent and one-way here: only a human engaging clears it, through
+   * `takeOver` or `resumeBot`. A replayed extraction run therefore re-asserts
+   * the same quiet state instead of speaking again.
+   */
+  async markAwaitingHuman(input: {
+    readonly conversationId: string;
+    readonly at: Date;
+  }): Promise<FeedbackConversationTransitionResult> {
+    const at = z.date().parse(input.at);
+    const updated = await this.transition(
+      input.conversationId,
+      { "lifecycle.state": "open" },
+      { awaitingHuman: true },
+      at,
     );
     if (updated) {
       return { changed: true, conversation: updated };
@@ -413,6 +588,8 @@ export class FeedbackConversationRepository {
       { "control.mode": "human", "lifecycle.state": "open" },
       {
         control: { mode: "bot", source: "staff_action", changedAt },
+        // Handing back is a deliberate "the bot may speak again".
+        awaitingHuman: false,
       },
       changedAt,
     );
@@ -593,21 +770,32 @@ export class FeedbackConversationRepository {
   }
 
   /**
-   * Records that the one D11 reminder was queued. Idempotent: a conversation
-   * that already has `remindedAt` is left alone.
+   * Advances the nudge ladder by one rung.
+   *
+   * `expectedCount` is a compare-and-set, not a hint: two sweeps racing on the
+   * same conversation both read count 1, both try to write 2, and exactly one
+   * matches. The loser reports `changed: false` and sends nothing, so a
+   * concurrent sweep cannot double-nudge somebody.
    */
   async markReminded(input: {
     readonly conversationId: string;
     readonly at: Date;
+    readonly expectedCount: number;
   }): Promise<FeedbackConversationTransitionResult> {
     const at = z.date().parse(input.at);
+    const expectedCount = z.number().int().min(0).parse(input.expectedCount);
     const updated = await this.transition(
       input.conversationId,
       {
         "lifecycle.state": "open",
-        remindedAt: null,
+        // A conversation written before the ladder existed has no counter at
+        // all; it has been nudged zero times, so let it onto the first rung.
+        $or:
+          expectedCount === 0
+            ? [{ reminderCount: 0 }, { reminderCount: { $exists: false } }]
+            : [{ reminderCount: expectedCount }],
       } as Filter<FeedbackConversationDocument>,
-      { remindedAt: at },
+      { remindedAt: at, reminderCount: expectedCount + 1 },
       at,
     );
     if (updated) {
@@ -620,13 +808,22 @@ export class FeedbackConversationRepository {
 
   /**
    * Approximate reminder candidates. The sweep reloads each conversation and
-   * re-checks campaign status, control, opt-in and participant replies.
+   * re-checks campaign status, control, opt-in and how long the participant has
+   * actually been silent.
+   *
+   * `createdAt` is deliberately the coarse filter even though the rule is about
+   * silence. Silence can never exceed a conversation's age, so an age filter is
+   * a correct superset of what is due and needs no denormalized field kept in
+   * step with the transcript. The exact rung is decided in the sweep, against
+   * the loaded document.
    */
   async listOpenDueForReminder(input: {
     readonly olderThan: Date;
+    readonly maxReminders: number;
     readonly limit?: number;
   }): Promise<FeedbackConversationDocument[]> {
     const olderThan = z.date().parse(input.olderThan);
+    const maxReminders = z.number().int().min(0).parse(input.maxReminders);
     const limit = z
       .number()
       .int()
@@ -640,7 +837,11 @@ export class FeedbackConversationRepository {
         purpose: FEEDBACK_CONVERSATION_PURPOSE,
         "lifecycle.state": "open",
         "control.mode": "bot",
-        remindedAt: null,
+        // Everything still on the ladder, including conversations predating it.
+        $or: [
+          { reminderCount: { $lt: maxReminders } },
+          { reminderCount: { $exists: false } },
+        ],
         createdAt: { $lte: olderThan },
       } as Filter<FeedbackConversationDocument>)
       .sort({ createdAt: 1, _id: 1 })
@@ -652,8 +853,12 @@ export class FeedbackConversationRepository {
   }
 
   /**
-   * Approximate expiry candidates. The sweep reloads state and skips human /
-   * opted-out conversations before closing.
+   * Approximate expiry candidates, filtered by age for the same reason as
+   * `listOpenDueForReminder`: age is a correct superset of silence, and the
+   * sweep decides on the loaded transcript.
+   *
+   * The sweep reloads state and skips human-controlled conversations before
+   * closing.
    */
   async listOpenDueForExpiry(input: {
     readonly olderThan: Date;
@@ -773,6 +978,23 @@ const GOAL_STATUS_RANK: Record<FeedbackConversationGoal["status"], number> = {
   skipped: 2,
   answered: 3,
 };
+
+/**
+ * The in-memory mirror of the `$sort` the `$push` applies, so the returned
+ * document matches what MongoDB now holds without a second read.
+ *
+ * `seq` breaks the tie, which keeps the order total: two fragments can share an
+ * observation timestamp, and an unstable sort there would make the transcript
+ * differ between two readers of the same conversation.
+ */
+function sortTranscript(
+  messages: readonly FeedbackConversationMessage[],
+): FeedbackConversationMessage[] {
+  return [...messages].sort(
+    (left, right) =>
+      left.at.getTime() - right.at.getTime() || left.seq - right.seq,
+  );
+}
 
 function goalStatusRank(status: FeedbackConversationGoal["status"]): number {
   return GOAL_STATUS_RANK[status];

@@ -6,9 +6,11 @@ import {
 import { describe, expect, it } from "vitest";
 
 import { ASSISTANT_MODEL_ADAPTERS } from "../assistant/assistant-models.js";
+import { FeedbackAttentionClassificationValidationError } from "./post-event-feedback-attention-classification.js";
 import {
   FEEDBACK_EXTRACTION_DEFAULT_MODEL,
   FeedbackExtractionGenerationError,
+  feedbackAttentionClassificationProviderOptions,
   resolveFeedbackExtractionModel,
   toGenerationError,
 } from "./post-event-feedback-extraction.service.js";
@@ -31,6 +33,17 @@ describe("feedback extraction model selection", () => {
     expect(() => resolveFeedbackExtractionModel("google/gemini-9")).toThrow(
       /registered model id/u,
     );
+  });
+
+  it("disables OpenRouter reasoning for the bounded classifier task", () => {
+    expect(
+      feedbackAttentionClassificationProviderOptions("qwen/qwen3.7-max"),
+    ).toEqual({
+      openrouter: { reasoning: { effort: "none" } },
+    });
+    expect(
+      feedbackAttentionClassificationProviderOptions("openai/gpt-5.6-terra"),
+    ).toBeUndefined();
   });
 });
 
@@ -84,6 +97,20 @@ describe("feedback extraction failure mapping", () => {
     );
 
     expect(toGenerationError(original)).toBe(original);
+  });
+
+  it("retries an incomplete attention classification as validation failure", () => {
+    expect(
+      toGenerationError(
+        new FeedbackAttentionClassificationValidationError(
+          "missing message result",
+        ),
+      ),
+    ).toMatchObject({
+      code: "extraction_failed",
+      retryable: true,
+      failureCause: "validation_failed",
+    });
   });
 
   // The classifier reads only `finishReason`, so usage is noise here.

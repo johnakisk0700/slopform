@@ -96,6 +96,12 @@ flowchart LR
   a **solid** warning pill on inbox rows and in the conversation header, while
   every other badge stays tinted. It is still a labelled badge — the emphasis is
   hierarchy, not a second channel of meaning.
+- **The cited message is explicit.** Participant messages with `attention`
+  metadata replace their normal bubble fill with the warning surface and render
+  labelled chips below the testimony. Categories and actions are fixed mappings,
+  never model-authored copy: `sexual_misconduct` is `🍌 Sexual misconduct`, and
+  human follow-up actions use the Lucide bell plus readable text. Colour and
+  symbols only reinforce the labels.
 - **D18 everywhere.** Any unresolved participant id renders
   `«άγνωστος συμμετέχων»` in italics — respondents, answer subjects and note
   subjects alike. Raw UUIDs never reach the screen.

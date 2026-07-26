@@ -2,6 +2,8 @@ import type { FeedbackCampaignConversationsDtoOutputCampaignStatus } from "../..
 import type { FeedbackConversationDetailDtoOutputControlMode } from "../../api/generated/model/feedbackConversationDetailDtoOutputControlMode";
 import type { FeedbackConversationDetailDtoOutputLifecycleReason } from "../../api/generated/model/feedbackConversationDetailDtoOutputLifecycleReason";
 import type { FeedbackConversationDetailDtoOutputMessagesItemActor } from "../../api/generated/model/feedbackConversationDetailDtoOutputMessagesItemActor";
+import type { FeedbackConversationDetailDtoOutputMessagesItemAttentionCategoriesItem } from "../../api/generated/model/feedbackConversationDetailDtoOutputMessagesItemAttentionCategoriesItem";
+import type { FeedbackConversationDetailDtoOutputMessagesItemAttentionRecommendedAction } from "../../api/generated/model/feedbackConversationDetailDtoOutputMessagesItemAttentionRecommendedAction";
 import type { FeedbackConversationDetailDtoOutputMessagesItemDelivery } from "../../api/generated/model/feedbackConversationDetailDtoOutputMessagesItemDelivery";
 import type { FeedbackConversationResultsDtoOutputAnswersItemQuestionKey } from "../../api/generated/model/feedbackConversationResultsDtoOutputAnswersItemQuestionKey";
 import type { FeedbackConversationResultsDtoOutputNotesItemNoteType } from "../../api/generated/model/feedbackConversationResultsDtoOutputNotesItemNoteType";
@@ -197,6 +199,38 @@ export function actorLabel(
   actor: FeedbackConversationDetailDtoOutputMessagesItemActor,
 ): string {
   return ACTOR_LABELS[actor];
+}
+
+const MESSAGE_ATTENTION_CATEGORY_LABELS: Record<
+  FeedbackConversationDetailDtoOutputMessagesItemAttentionCategoriesItem,
+  string
+> = {
+  sexual_misconduct: "🍌 Sexual misconduct",
+  harassment: "Harassment",
+  violence_or_threat: "Violence or threat",
+  self_harm: "Self-harm",
+  other_safety: "Other safety concern",
+};
+
+export function messageAttentionCategoryLabel(
+  category: FeedbackConversationDetailDtoOutputMessagesItemAttentionCategoriesItem,
+): string {
+  return MESSAGE_ATTENTION_CATEGORY_LABELS[category];
+}
+
+const MESSAGE_ATTENTION_ACTION_LABELS: Record<
+  FeedbackConversationDetailDtoOutputMessagesItemAttentionRecommendedAction,
+  string
+> = {
+  review: "Review",
+  human_follow_up: "Human follow-up",
+  urgent_human_follow_up: "Urgent human follow-up",
+};
+
+export function messageAttentionActionLabel(
+  action: FeedbackConversationDetailDtoOutputMessagesItemAttentionRecommendedAction,
+): string {
+  return MESSAGE_ATTENTION_ACTION_LABELS[action];
 }
 
 export function controlLabel(

@@ -11,6 +11,7 @@ import {
   feedbackExtractionProposalSchema,
   type FeedbackExtractionContext,
   type FeedbackExtractionProposal,
+  type FeedbackExtractionSafetySignalProposal,
   type ValidatedFeedbackExtraction,
 } from "./post-event-feedback-extraction.schemas.js";
 import {
@@ -45,7 +46,6 @@ function proposal(overrides: EvalProposal): FeedbackExtractionProposal {
     nextGoal: null,
     reply: null,
     handoff: false,
-    safetySignal: false,
     confidence: 0.9,
     ...overrides,
   });
@@ -61,13 +61,20 @@ function contextFor(
 ): FeedbackExtractionContext {
   return {
     respondentParticipantId: fixture.respondentParticipantId,
+    respondentDisplayName: null,
     candidates: fixture.candidates,
     messages: fixture.messages.map((message, index) => ({
       id: message.id,
       seq: index + 1,
       actor: message.actor,
+      occurredAt: new Date(
+        Date.UTC(2026, 6, 25, 18, index * 5),
+      ).toISOString(),
       text: message.text,
     })),
+    newParticipantMessageIds: fixture.messages
+      .filter((message) => message.actor === "participant")
+      .map((message) => message.id),
     goals: POST_EVENT_FEEDBACK_QUESTION_SET_V1.answerQuestions.map(
       (question, index) => ({
         key: question.key,
@@ -87,6 +94,7 @@ function runEval(
   fixtureId: PostEventFeedbackExtractionFixture["id"],
   modelProposal: FeedbackExtractionProposal,
   overrides: Partial<FeedbackExtractionContext> = {},
+  attentionSignals: readonly FeedbackExtractionSafetySignalProposal[] = [],
 ): {
   fixture: PostEventFeedbackExtractionFixture;
   result: ValidatedFeedbackExtraction;
@@ -95,7 +103,11 @@ function runEval(
   const context = contextFor(fixture, overrides);
   return {
     fixture,
-    result: validateFeedbackExtractionProposal(modelProposal, context),
+    result: validateFeedbackExtractionProposal(
+      modelProposal,
+      context,
+      attentionSignals,
+    ),
   };
 }
 
@@ -274,6 +286,25 @@ describe("post-event feedback extraction eval (WP0 fixtures)", () => {
     expect(prompt.user).toContain("p-kostas-b = Κώστας Γ.");
     expect(prompt.system).toContain("ΠΕΡΙΣΣΟΤΕΡΟΥΣ ΑΠΟ ΕΝΑΝ");
     expect(prompt.system).toContain("ΜΗΝ μαντεύεις");
+    expect(prompt.system).not.toContain("dickpics");
+    expect(prompt.system).not.toContain("ωραία βυζιά");
+    expect(prompt.system).not.toContain("Κωνσταντίνο");
+  });
+
+  it("shows the durable message timestamps to the extraction model", () => {
+    const fixture = getPostEventFeedbackExtractionFixture("happy_path");
+    const context = contextFor(fixture);
+    const prompt = buildFeedbackExtractionPrompt({
+      context,
+      copy: POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy,
+    });
+
+    expect(prompt.user).toContain(
+      `[1] at=${context.messages[0]?.occurredAt} id=m1 actor=bot:`,
+    );
+    expect(prompt.user).toContain(
+      `[2] at=${context.messages[1]?.occurredAt} id=m2 actor=participant:`,
+    );
   });
 
   it("two_kostas_ambiguity: a well-behaved run asks instead of answering", () => {
@@ -425,16 +456,23 @@ describe("post-event feedback extraction eval (WP0 fixtures)", () => {
             confidence: 0.9,
           },
         ],
-        safetySignal: true,
-        handoff: true,
         reply: "Είμαστε εδώ.",
         confidence: 0.95,
       }),
+      {},
+      [
+        {
+          category: "self_harm",
+          recommendedAction: "urgent_human_follow_up",
+          sourceMessageIds: ["m2"],
+          confidence: 0.9,
+        },
+      ],
     );
 
     expect(fixture.expected.safetySignal).toBe(true);
-    expect(result.safetySignal).toBe(true);
-    expect(result.handoff).toBe(true);
+    expect(result.safetySignals).toHaveLength(1);
+    expect(result.handoff).toBe(false);
     // D13 (amended): the disclosure reaches a human *and* the feedback tables.
     // The signal raises attention; it no longer edits what was recorded, so the
     // participant's own words are readable where an operator already looks.

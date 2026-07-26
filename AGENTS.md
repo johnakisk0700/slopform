@@ -87,6 +87,10 @@ pagination, accessibility or layout—not speculative abstraction.
 
 ## Repository workflow
 
+- Use `pnpm db:query` for direct inspection of local PostgreSQL, MongoDB or
+  Redis. It targets the Docker Compose services and is read-only by default;
+  exact mutation commands require `--write`. Read
+  `docs/backend/mechanisms/local-data-query.md` before changing local data.
 - Root `package.json` scripts are the public command surface; keep dependency
   ordering, cache inputs and real generated outputs in `turbo.json`.
 - The phases inside `pnpm check` run sequentially, fastest and most localized

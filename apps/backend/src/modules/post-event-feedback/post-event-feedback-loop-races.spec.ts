@@ -9,6 +9,12 @@ import {
  * action then travels through the same public service/store boundary it uses in
  * production before the provider call is released.
  *
+ * Every row here asks one question: the run decided to speak using state read
+ * seconds ago — is it still allowed to? The guards at the top of a run were
+ * correct and simply too early, so three of these were ledger entries until the
+ * decision to send was re-taken against reloaded state immediately before the
+ * outbox insert.
+ *
  * These are behavioural tests, not E2E tests. Real MongoDB, PostgreSQL, Redis
  * and WhatsApp are intentionally absent.
  */
@@ -16,8 +22,6 @@ const MODEL_CALL_RACES: readonly FeedbackScenario[] = [
   {
     id: "takeover_during_the_model_call",
     title: "does not send the model reply after staff takes control",
-    defect:
-      "S47: control is snapshotted before the provider call and is not reloaded before the outbox insert",
     script: [
       {
         answers: [{ question: "event_score", value: 5 }],
@@ -33,10 +37,6 @@ const MODEL_CALL_RACES: readonly FeedbackScenario[] = [
         action: { kind: "staff", action: "take_over" },
       },
     ],
-    knownCurrent: {
-      control: "human",
-      receivedCount: { reply: 1 },
-    },
     expect: {
       control: "human",
       receivedCount: { reply: 0 },
@@ -70,8 +70,6 @@ const MODEL_CALL_RACES: readonly FeedbackScenario[] = [
   {
     id: "staff_close_during_the_model_call",
     title: "does not send the model reply after staff closes the conversation",
-    defect:
-      "LIFECYCLE-RACE: a reply can be inserted after staff close already cancelled the queued outbox",
     script: [
       {
         answers: [{ question: "event_score", value: 4 }],
@@ -87,11 +85,6 @@ const MODEL_CALL_RACES: readonly FeedbackScenario[] = [
         action: { kind: "staff", action: "close" },
       },
     ],
-    knownCurrent: {
-      lifecycle: "closed",
-      closedBecause: "cancelled",
-      receivedCount: { reply: 1 },
-    },
     expect: {
       lifecycle: "closed",
       closedBecause: "cancelled",
@@ -125,8 +118,6 @@ const MODEL_CALL_RACES: readonly FeedbackScenario[] = [
   {
     id: "consent_withdrawn_during_the_model_call",
     title: "does not send the model reply after consent is withdrawn",
-    defect:
-      "CONSENT-RACE: opt-in is snapshotted before the provider call and delivery does not re-check it",
     script: [
       {
         answers: [{ question: "event_score", value: 3 }],
@@ -142,10 +133,6 @@ const MODEL_CALL_RACES: readonly FeedbackScenario[] = [
         action: { kind: "consent", optedIn: false },
       },
     ],
-    knownCurrent: {
-      optedIn: false,
-      receivedCount: { reply: 1 },
-    },
     expect: {
       optedIn: false,
       receivedCount: { reply: 0 },

@@ -9,8 +9,14 @@ import type { Environment } from "../../infrastructure/config/environment.js";
  * `needsAttention` is the durable operator signal — it lives on the
  * conversation, survives a restart and is what the admin inbox renders. This
  * port is the *notification* half: it fires when a conversation crosses from
- * calm to needing attention, so nobody has to be watching the inbox for a
- * safety disclosure or a dead extraction run to be noticed.
+ * calm to needing attention for a reason that should page someone, so nobody
+ * has to be watching the inbox for a safety disclosure or a dead extraction
+ * run to be noticed.
+ *
+ * Not every `needsAttention` crossing raises an alert. A flagged subjectless
+ * note (D18) or a refused answer revision is routine inbox work — the durable
+ * flag is enough. Safety signals, an explicit handoff and a terminal extraction
+ * failure are the reasons that notify through this port.
  *
  * It is invoked only on a real `false → true` transition. The conversation
  * repository already reports that (`setNeedsAttention` returns `changed`), so
@@ -22,8 +28,6 @@ import type { Environment } from "../../infrastructure/config/environment.js";
 export const FEEDBACK_OPERATOR_ALERT = Symbol("FEEDBACK_OPERATOR_ALERT");
 
 export const FEEDBACK_OPERATOR_ALERT_REASONS = [
-  /** The deterministic safety tripwire matched a participant message (D13). */
-  "safety_keywords",
   /** The model itself signalled safety content or asked for a human. */
   "extraction_safety_signal",
   /** `feedback.extract.v1` failed permanently and the fallback took over. */

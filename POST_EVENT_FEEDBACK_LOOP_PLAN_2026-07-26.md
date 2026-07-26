@@ -40,6 +40,34 @@ The third deserves emphasis: the old rule rejected an answer that honestly cited
 both halves of a split thought, while accepting the same answer if it cited only
 the second half. It punished accurate citation and silently lost testimony.
 
+### 2b. The ledger sweep (2026-07-26, later)
+
+The scenario suite's known-defect ledger went from **30 rows to 2**. Everything
+below is landed with tests, both typechecks and Prettier green; nothing is
+committed. Grouped by what it means for somebody on the other end of WhatsApp:
+
+| What changed                                                                                                                                                                                             | Rows |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---: |
+| **Nudges** — WP4 in full: silence-based ladder, two rungs, targeted wording, never into a flagged conversation                                                                                           |    4 |
+| **A failed send reaches the conversation** instead of dying on an outbox row nobody opens                                                                                                                |    1 |
+| **The decision to speak is re-taken** against reloaded state immediately before the outbox insert — the three "state changed during the model call" races were one fix                                   |    3 |
+| **The bot stops when it must** — urgent safety and an explicit handoff set `awaitingHuman`; STOP matches after an answer and recognises a wrong number; an erasure request goes to a person              |    5 |
+| **Testimony survives** — the transcript holds what it cannot send, an edited redelivery is its own turn, order follows the sender, a media message gets one apology, unmatched text is no longer deleted |    4 |
+| **Resume picks up** testimony that arrived under human control                                                                                                                                           |    1 |
+| **The right person** — Greeklish names resolve when exactly one candidate fits; talking about yourself is not a failed lookup                                                                            |    2 |
+| **One reply per thought** — a run that comes due mid-burst stands down for the one behind it                                                                                                             |    2 |
+| **Revision** — the newest reading of a question wins, moving somebody between lists moves them, and a refused score re-asks instead of confirming                                                        |    5 |
+| **Prompt-owned** — erasure and reported speech; the scenario proves the system half, the live corpus proves the model half                                                                               |    2 |
+
+Two remain, and neither is backend work: text from an **unmatched number** and a
+message that arrives at a **full transcript** are both now kept and flagged, but
+no screen shows them. They need an operator-facing surface for words that belong
+to no conversation.
+
+One database migration: `provider_message_ingress_unmatched_text_check` no
+longer deletes the body of an unmatched row (D10 amended). The row still links
+to no conversation, so nothing is attributed to a participant.
+
 ## 3. Findings, ranked
 
 Each is verified against the code, not inferred. Severity is judged by _how much
@@ -344,32 +372,58 @@ finds out about:
 
 Size: small. Risk: low. Disproportionate value for the effort.
 
-### WP4 — Silence-based lifecycle with targeted nudges (F1 + F2)
+### WP4 — Silence-based lifecycle with targeted nudges (F1 + F2) — ✅ **landed 2026-07-26**
 
 The largest win against the stated need, and half the architectural change in
 §7 arrives with it.
 
-1. **Measure from silence, not from birth.** Reminder and expiry eligibility
-   move from `createdAt` to last participant activity — falling back to the last
-   outbound when they never replied at all.
-2. **Allow several nudges.** `remindedAt` becomes a count plus a timestamp.
-   Drop the `hasParticipantReply` exclusion so half-finished conversations are
-   eligible too — that exclusion is precisely F1.
-3. **Make the nudge targeted.** The model writes the text, naming what is still
-   missing, instead of the fixed generic reminder. The _decision_ to nudge stays
-   with the sweeper; only the wording is the model's.
-4. **Close on exhaustion.** After the second nudge with no reply, close (D-b).
-   `closedBecause` needs a word for this: the four current reasons have no name
-   for "ran out of nudges", and calling it `expired` hides the difference between
-   somebody we chased and somebody we forgot.
+1. ✅ **Measure from silence, not from birth.** Reminder and expiry both run off
+   the participant's own newest message, falling back to launch when they never
+   wrote. Our outbound deliberately does not reset it, or nudging somebody would
+   postpone their expiry indefinitely. The Mongo queries still filter on
+   `createdAt`: age is a correct superset of silence, so the coarse filter needs
+   no denormalized field and the exact rung is decided on the loaded document.
+2. ✅ **Allow several nudges.** `reminderCount` joins `remindedAt`, and
+   `markReminded` advances it under a compare-and-set so two racing sweeps
+   cannot double-nudge. The `hasParticipantReply` exclusion is gone. Nudge _N_
+   falls due after _N_ × `FEEDBACK_REMINDER_AFTER_HOURS`, capped by the new
+   `FEEDBACK_MAX_REMINDERS` (2), and the dedupe key carries the ordinal — a
+   single per-conversation key was itself a reason the second nudge could never
+   land.
+3. ✅ **Make the nudge targeted** — but deterministically, not with a model. The
+   reminder now restates the open goal's own `prompt`, taken from the campaign's
+   launch snapshot, under new `reminder_followup` copy. Somebody who has answered
+   nothing still gets the generic invitation. A model call was the plan's
+   proposal and is not worth its failure mode here: the wording that matters is
+   the question itself, which we already store verbatim, and the sweep stays free
+   of provider latency, cost and retry non-determinism.
+4. ✅ **Close on exhaustion** — via the same silence clock, at 72 hours. **The
+   distinct `closedBecause` word was deliberately not added.** The scenario suite
+   settled on `expired` for this path, and a fifth lifecycle reason ripples
+   through the Mongo schema, the admin DTO, the generated client and the inbox
+   labels for a distinction nobody has yet asked to filter on. Worth revisiting
+   the first time somebody actually wants to tell the two apart.
+
+**One rule the suite discovered that the plan had not:** a conversation with
+`needsAttention` is never nudged. Enabling nudges for people who had replied
+meant the ladder could now walk into a conversation where somebody had disclosed
+self-harm or been promised a human — and ask them about the dinner a day later.
+Two existing scenarios already declared `reminder: 0` as their desired outcome
+and turned red the moment the exclusion was dropped, which is exactly what the
+suite is for. Expiry is deliberately not held back the same way: it sends
+nothing and releases the phone's unique index.
 
 This makes closing fully deterministic — a counter and a clock — which removes
 any need for the model to decide when a conversation is finished, and keeps
 retries deterministic because a retry re-reads stored state rather than forming a
 fresh opinion.
 
-Size: medium, mostly in `post-event-feedback-sweep.service.ts` and the two
-eligibility queries, plus a small Mongo field migration.
+Landed in `post-event-feedback-sweep.service.ts`, `feedback-conversation.{schemas,repository}.ts`,
+`post-event-feedback-question-set.ts` and `environment.ts`. No migration was
+needed: `reminderCount` is defaulted, so documents written before the ladder
+existed parse as "never nudged". Three scenarios cover it — the ladder, the
+targeted wording and the attention guard — and the last two were each verified to
+fail when their guard is removed.
 
 ### WP5 — Delivery state in the list view (F6)
 
@@ -479,7 +533,7 @@ reads scoped to the newest. The latter keeps history and is preferred.
 | ----- | ------------------- | ----------------------------------------------------------------------------------------------- |
 | 0     | **WP0**             | An opt-out that does not work, and a launch that breaks. Blocking before any real participant   |
 | 1     | WP1, WP2, WP3, WP3b | Small and independent: stop losing data, stop the silent treatment, make the safeguards visible |
-| 2     | WP4                 | Largest win against the stated operating need, and half of §7 arrives with it                   |
+| 2     | ~~WP4~~ ✅ landed   | Largest win against the stated operating need, and half of §7 arrives with it                   |
 | 3     | WP5                 | Changes the morning routine                                                                     |
 | 4     | §7                  | Architectural; on its own branch, deliberately                                                  |
 | —     | WP6                 | Only if §7 is rejected                                                                          |

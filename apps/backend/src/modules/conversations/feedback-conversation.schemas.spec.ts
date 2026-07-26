@@ -73,6 +73,8 @@ describe("buildFeedbackConversationGoals", () => {
       closing: "closing",
       stop_ack: "stop",
       reminder: "reminder",
+      reminder_followup: "followup {question}",
+      cannot_read_media: "cannot read",
     });
 
     expect(goals[0]?.prompt).toBe("Score?");
@@ -144,11 +146,23 @@ describe("feedbackConversationDocumentSchema", () => {
   });
 
   it("requires contiguous sequence numbers and unique provenance", () => {
+    // A gap: one message claiming seq 2 leaves nothing at seq 1, and the
+    // extraction cursor walks sequence numbers.
     expect(() =>
       feedbackConversationDocumentSchema.parse(
         feedbackConversation([{ ...participantMessage(1), seq: 2 }]),
       ),
-    ).toThrow(/contiguous order/);
+    ).toThrow(/contiguous sequence numbers/);
+
+    // Two messages cannot share one sequence number.
+    expect(() =>
+      feedbackConversationDocumentSchema.parse(
+        feedbackConversation([
+          participantMessage(1),
+          { ...participantMessage(2), seq: 1 },
+        ]),
+      ),
+    ).toThrow(/contiguous sequence numbers/);
 
     const ingressId = randomUUID();
     expect(() =>
@@ -223,6 +237,8 @@ function feedbackConversation(
     extraction: { cursorSeq: 0, lastRunAt: null, model: null },
     needsAttention: false,
     remindedAt: null,
+    reminderCount: 0,
+    awaitingHuman: false,
     createdAt,
     updatedAt,
   };
@@ -237,6 +253,7 @@ function participantMessage(seq: number): FeedbackConversationMessage {
     providerMessageId: null,
     ingressId: randomUUID(),
     outboxId: null,
+    attention: null,
     at: createdAt,
   };
 }
@@ -250,6 +267,7 @@ function botMessage(seq: number): FeedbackConversationMessage {
     providerMessageId: null,
     ingressId: null,
     outboxId: randomUUID(),
+    attention: null,
     at: createdAt,
   };
 }

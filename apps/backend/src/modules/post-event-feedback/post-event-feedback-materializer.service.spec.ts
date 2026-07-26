@@ -8,16 +8,17 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { AuditRepository } from "../../infrastructure/audit/audit.repository.js";
 import type { DatabaseService } from "../../infrastructure/database/database.service.js";
 import type { FeedbackConversationRepository } from "../conversations/feedback-conversation.repository.js";
+import { buildFeedbackConversationGoals } from "../conversations/feedback-conversation.schemas.js";
 import type { ParticipantsRepository } from "../participants/participants.repository.js";
-import type { FeedbackOperatorAlertInput } from "./feedback-operator-alert.js";
 import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
 import { PostEventFeedbackMaterializer } from "./post-event-feedback-materializer.service.js";
 import { PostEventFeedbackMetrics } from "./post-event-feedback-metrics.service.js";
 import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "./post-event-feedback-question-set.js";
 import type { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
-import type {
-  FeedbackJobData,
-  FeedbackJobName,
+import {
+  FEEDBACK_EXTRACT_QUIET_WINDOW_MS,
+  type FeedbackJobData,
+  type FeedbackJobName,
 } from "./post-event-feedback.schemas.js";
 
 const campaignId = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
@@ -39,7 +40,7 @@ describe("PostEventFeedbackMaterializer", () => {
     harness = createHarness();
   });
 
-  it("keeps unmatched shared-session traffic metadata-only and counts it", async () => {
+  it("keeps unmatched traffic unattributed but no longer deletes what it said", async () => {
     harness.conversations.documents.clear();
     const ingressId = harness.repository.seedIngress({
       text: "Καλησπέρα, θέλω κράτηση για αύριο",
@@ -53,7 +54,10 @@ describe("PostEventFeedbackMaterializer", () => {
     expect(result.outcome).toBe("ignored_unmatched");
     expect(harness.repository.ingress.get(ingressId)).toMatchObject({
       processingStatus: "ignored_unmatched",
-      text: null,
+      // D10 as amended: still linked to no conversation, so nothing here is
+      // attributed to a participant — but the words survive, because the same
+      // path receives «σόρρυ άλλαξα νούμερο» from a real respondent.
+      text: "Καλησπέρα, θέλω κράτηση για αύριο",
       matchedConversationId: null,
       chatJid,
     });
@@ -88,11 +92,14 @@ describe("PostEventFeedbackMaterializer", () => {
       processingStatus: "materialized",
       matchedConversationId: conversationId,
     });
+    // The quiet window is part of the enqueue contract, not an incidental
+    // option: without it the run opens on the first fragment of a typed thought.
     expect(harness.queue.added).toEqual([
       {
         name: "feedback.extract.v1",
         data: { schemaVersion: 1, conversationId, correlationId },
         jobId: `feedback-extract-v1-${conversationId}-1`,
+        delay: FEEDBACK_EXTRACT_QUIET_WINDOW_MS,
       },
     ]);
   });
@@ -271,10 +278,10 @@ describe("PostEventFeedbackMaterializer", () => {
     });
   });
 
-  describe("safety tripwire (D13 amended)", () => {
+  describe("model-only safety classification", () => {
     const disclosure = "Ο Γιώργος μας έδειχνε dickpics όλο το βράδυ";
 
-    it("flags attention and audits without suppressing extraction", async () => {
+    it("materializes testimony without classifying it from keywords", async () => {
       const ingressId = harness.repository.seedIngress({ text: disclosure });
 
       const result = await harness.materializer.materialize({
@@ -282,9 +289,6 @@ describe("PostEventFeedbackMaterializer", () => {
         correlationId,
       });
 
-      // The whole point of the amendment: the turn is *not* diverted. It
-      // materializes, it queues extraction, and the message stays in the
-      // transcript verbatim — the flag is additive.
       expect(result).toMatchObject({
         outcome: "inbound_materialized",
         conversationId,
@@ -292,99 +296,17 @@ describe("PostEventFeedbackMaterializer", () => {
       });
       expect(harness.queue.added).toHaveLength(1);
       expect(harness.conversations.transcript(conversationId)).toMatchObject([
-        { seq: 1, actor: "participant", text: disclosure },
+        {
+          seq: 1,
+          actor: "participant",
+          text: disclosure,
+        },
       ]);
-      expect(harness.conversations.get(conversationId).needsAttention).toBe(
-        true,
-      );
-
-      expect(harness.audit.events).toHaveLength(1);
-      expect(harness.audit.events[0]).toMatchObject({
-        action: "feedback_conversation.safety_keywords_matched",
-        entityType: "feedback_conversation",
-        entityId: conversationId,
-        context: { ingressId, campaignId, categories: ["sexual_content"] },
-      });
-    });
-
-    it("keeps the participant's words out of the audit payload", async () => {
-      const ingressId = harness.repository.seedIngress({ text: disclosure });
-
-      await harness.materializer.materialize({ ingressId, correlationId });
-
-      const serialized = JSON.stringify(harness.audit.events[0]);
-      expect(serialized).not.toContain("dickpics");
-      expect(serialized).not.toContain("Γιώργος");
-    });
-
-    it("does not enqueue a handoff or any outbound of its own", async () => {
-      const ingressId = harness.repository.seedIngress({ text: disclosure });
-
-      await harness.materializer.materialize({ ingressId, correlationId });
-
-      expect(harness.repository.outbox).toHaveLength(0);
-    });
-
-    it("stays quiet on ordinary feedback", async () => {
-      const ingressId = harness.repository.seedIngress({
-        text: "Ήταν τέλεια, ωραία παρέα!",
-      });
-
-      await harness.materializer.materialize({ ingressId, correlationId });
-
       expect(harness.conversations.get(conversationId).needsAttention).toBe(
         false,
       );
       expect(harness.audit.events).toHaveLength(0);
-      expect(harness.alert.raised).toHaveLength(0);
-    });
-
-    it("lets STOP win when a message matches both", async () => {
-      // STOP is checked first and returns, so an opt-out is never delayed by
-      // the tripwire and never turns into an attention flag instead.
-      const ingressId = harness.repository.seedIngress({ text: "ΣΤΟΠ" });
-
-      const result = await harness.materializer.materialize({
-        ingressId,
-        correlationId,
-      });
-
-      expect(result.outcome).toBe("inbound_stopped");
-      expect(harness.audit.events.map((event) => event.action)).not.toContain(
-        "feedback_conversation.safety_keywords_matched",
-      );
-      expect(harness.queue.added).toHaveLength(0);
-    });
-
-    it("raises the operator alert once per false → true transition", async () => {
-      const first = harness.repository.seedIngress({ text: disclosure });
-      await harness.materializer.materialize({
-        ingressId: first,
-        correlationId,
-      });
-
-      // A replay of the same delivery, then a second matching message on an
-      // already-flagged conversation. Neither is a new transition.
-      await harness.materializer.materialize({
-        ingressId: first,
-        correlationId,
-      });
-      const second = harness.repository.seedIngress({
-        text: "Επίσης με παρενόχλησε",
-        providerMessageId: "wamid.second",
-      });
-      await harness.materializer.materialize({
-        ingressId: second,
-        correlationId,
-      });
-
-      expect(harness.alert.raised).toHaveLength(1);
-      expect(harness.alert.raised[0]).toMatchObject({
-        conversationId,
-        campaignId,
-        reason: "safety_keywords",
-        detail: ["sexual_content"],
-      });
+      expect(harness.repository.outbox).toHaveLength(0);
     });
   });
 
@@ -489,7 +411,10 @@ describe("PostEventFeedbackMaterializer", () => {
     });
 
     expect(result.outcome).toBe("ignored_unmatched");
-    expect(harness.repository.ingress.get(ingressId)?.text).toBeNull();
+    // Unattributed, not erased: the row links to no conversation.
+    expect(
+      harness.repository.ingress.get(ingressId)?.matchedConversationId,
+    ).toBeNull();
   });
 
   it("treats an uncorrelated outbound as external channel activity", async () => {
@@ -599,6 +524,11 @@ interface FakeMessage {
   providerMessageId: string | null;
   ingressId: string | null;
   outboxId: string | null;
+  attention?: {
+    categories: string[];
+    recommendedAction: string;
+    confidence: number;
+  } | null;
   at: Date;
 }
 
@@ -609,6 +539,7 @@ interface FakeConversation {
   phoneAtLaunch: string;
   lifecycle: { state: string; reason: string | null; closedAt: Date | null };
   control: { mode: string; source: string; changedAt: Date };
+  goals: { key: string; ordinal: number; prompt: string; status: string }[];
   messages: FakeMessage[];
   needsAttention: boolean;
 }
@@ -848,6 +779,7 @@ class FakeConversations {
     text: string;
     ingressId: string | null;
     outboxId: string | null;
+    attention: FakeMessage["attention"];
   }[] {
     return this.get(id).messages.map((message) => ({
       seq: message.seq,
@@ -855,6 +787,7 @@ class FakeConversations {
       text: message.text,
       ingressId: message.ingressId,
       outboxId: message.outboxId,
+      attention: message.attention,
     }));
   }
 
@@ -866,6 +799,18 @@ class FakeConversations {
         conversation.phoneAtLaunch === phoneAtLaunch &&
         conversation.lifecycle.state === "open",
     );
+  }
+
+  async findLatestClosedByPhone(
+    phoneAtLaunch: string,
+  ): Promise<FakeConversation | undefined> {
+    return [...this.documents.values()]
+      .reverse()
+      .find(
+        (conversation) =>
+          conversation.phoneAtLaunch === phoneAtLaunch &&
+          conversation.lifecycle.state === "closed",
+      );
   }
 
   async appendMessage(input: {
@@ -999,29 +944,27 @@ class FakeAudit {
   }
 }
 
-/**
- * Records every operator alert so a test can assert the seam fires exactly once
- * per `false → true` transition rather than once per delivery.
- */
-class FakeOperatorAlert {
-  readonly raised: FeedbackOperatorAlertInput[] = [];
-
-  async raise(input: FeedbackOperatorAlertInput): Promise<void> {
-    this.raised.push(input);
-  }
-}
-
 /** Mirrors BullMQ's job-id suppression while the job is still in Redis. */
 class FakeQueue {
-  readonly added: { name: string; data: unknown; jobId: string }[] = [];
+  readonly added: {
+    name: string;
+    data: unknown;
+    jobId: string;
+    delay?: number;
+  }[] = [];
 
   async add(
     name: string,
     data: unknown,
-    options: { jobId: string },
+    options: { jobId: string; delay?: number },
   ): Promise<{ id: string }> {
     if (!this.added.some((job) => job.jobId === options.jobId)) {
-      this.added.push({ name, data, jobId: options.jobId });
+      this.added.push({
+        name,
+        data,
+        jobId: options.jobId,
+        ...(options.delay === undefined ? {} : { delay: options.delay }),
+      });
     }
     return { id: options.jobId };
   }
@@ -1035,7 +978,6 @@ interface Harness {
   audit: FakeAudit;
   queue: FakeQueue;
   metrics: PostEventFeedbackMetrics;
-  alert: FakeOperatorAlert;
 }
 
 function createHarness(): Harness {
@@ -1045,7 +987,6 @@ function createHarness(): Harness {
   const audit = new FakeAudit();
   const queue = new FakeQueue();
   const metrics = new PostEventFeedbackMetrics();
-  const alert = new FakeOperatorAlert();
 
   conversations.seed({
     _id: conversationId,
@@ -1058,6 +999,7 @@ function createHarness(): Harness {
       source: "launch",
       changedAt: new Date("2026-07-25T10:00:00.000Z"),
     },
+    goals: buildFeedbackConversationGoals(),
     messages: [],
     needsAttention: false,
   });
@@ -1080,7 +1022,6 @@ function createHarness(): Harness {
       repository as unknown as PostEventFeedbackRepository,
       conversations as unknown as FeedbackConversationRepository,
     ),
-    alert,
   );
 
   return {
@@ -1091,7 +1032,6 @@ function createHarness(): Harness {
     audit,
     queue,
     metrics,
-    alert,
   };
 }
 

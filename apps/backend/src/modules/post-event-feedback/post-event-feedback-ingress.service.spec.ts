@@ -73,6 +73,29 @@ describe("PostEventFeedbackIngressService", () => {
     expect(queue.add).toHaveBeenCalledTimes(1);
   });
 
+  it("records a redelivery whose words changed as its own observation", async () => {
+    // WhatsApp lets people edit what they sent. The unique key on
+    // `(chat_jid, provider_message_id)` swallowed the corrected version, so a
+    // deliberate correction about another participant simply vanished.
+    const { service, repository } = createService({
+      inserted: false,
+      storedText: "ο Κώστας ήταν χάλια",
+    });
+
+    await service.recordObservedMessage(observed, "correlation-edit");
+
+    expect(repository.insertIngressIfAbsent).toHaveBeenCalledTimes(2);
+    const second = repository.insertIngressIfAbsent.mock.calls[1]?.[1] as {
+      providerMessageId: string;
+      text: string;
+    };
+    expect(second.text).toBe(observed.text);
+    // A distinct, text-derived id: the same edit redelivered collapses on the
+    // unique key exactly as an ordinary duplicate does.
+    expect(second.providerMessageId).not.toBe(observed.providerMessageId);
+    expect(second.providerMessageId).toContain(observed.providerMessageId);
+  });
+
   it("refuses to acknowledge a message it could not queue", async () => {
     const { service } = createService({
       inserted: true,
@@ -100,14 +123,23 @@ describe("PostEventFeedbackIngressService", () => {
   });
 });
 
-function createService(options: { inserted: boolean; queueError?: Error }): {
+function createService(options: {
+  inserted: boolean;
+  queueError?: Error;
+  /** What the already-stored row holds. Differing text is an edit, not a duplicate. */
+  storedText?: string | null;
+}): {
   service: PostEventFeedbackIngressService;
   repository: { insertIngressIfAbsent: ReturnType<typeof vi.fn> };
   queue: { add: ReturnType<typeof vi.fn> };
 } {
   const repository = {
     insertIngressIfAbsent: vi.fn().mockResolvedValue({
-      row: { id: ingressId, direction: observed.direction },
+      row: {
+        id: ingressId,
+        direction: observed.direction,
+        text: options.storedText ?? observed.text,
+      },
       inserted: options.inserted,
     }),
   };

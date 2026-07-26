@@ -352,9 +352,16 @@ export const providerMessageIngress = pgTable(
       "provider_message_ingress_processing_status_check",
       sql`${table.processingStatus} in ('pending', 'materialized', 'ignored_unmatched', 'failed')`,
     ),
+    // D10, amended. An unmatched row still links to no conversation — nothing
+    // said from a number we cannot identify is ever attributed to a
+    // participant. It may now keep its body, because the rule that also
+    // deleted it turned out to destroy the case that actually happens: somebody
+    // signed up with an old number and replies from the new one, and «σόρρυ
+    // άλλαξα νούμερο. 5, ο Νίκος ήταν φοβερός» was erased on arrival while
+    // their real conversation was nudged at a number nobody reads.
     check(
       "provider_message_ingress_unmatched_text_check",
-      sql`(${table.processingStatus} = 'ignored_unmatched' and ${table.text} is null and ${table.matchedConversationId} is null) or (${table.processingStatus} <> 'ignored_unmatched')`,
+      sql`(${table.processingStatus} = 'ignored_unmatched' and ${table.matchedConversationId} is null) or (${table.processingStatus} <> 'ignored_unmatched')`,
     ),
     uniqueIndex("provider_message_ingress_chat_provider_uidx").on(
       table.chatJid,

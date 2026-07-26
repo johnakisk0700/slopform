@@ -16,6 +16,7 @@
     "db:check": "dotenv -e .env -- pnpm --filter @join-the-six/database db:check",
     "db:generate": "dotenv -e .env -- pnpm --filter @join-the-six/database db:generate",
     "db:migrate": "dotenv -e .env -- pnpm --filter @join-the-six/database db:migrate",
+    "db:query": "node scripts/local-data-query.mjs",
     "db:studio": "dotenv -e .env -- pnpm --filter @join-the-six/database db:studio",
     "dev": "dotenv -e .env -- turbo run dev",
     "dev:admin": "dotenv -e .env -- pnpm --filter @join-the-six/admin dev",

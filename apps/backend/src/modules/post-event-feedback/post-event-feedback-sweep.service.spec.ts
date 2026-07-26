@@ -6,6 +6,7 @@ import type { Environment } from "../../infrastructure/config/environment.js";
 import type { AuditRepository } from "../../infrastructure/audit/audit.repository.js";
 import type { DatabaseService } from "../../infrastructure/database/database.service.js";
 import type { FeedbackConversationRepository } from "../conversations/feedback-conversation.repository.js";
+import { buildFeedbackConversationGoals } from "../conversations/feedback-conversation.schemas.js";
 import type { ParticipantsRepository } from "../participants/participants.repository.js";
 import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
 import { buildPostEventFeedbackQuestionLaunchSnapshot } from "./post-event-feedback-question-set.js";
@@ -39,14 +40,14 @@ describe("PostEventFeedbackSweepService", () => {
       inserted: true,
     });
 
-    const result = await service.sweepReminders("corr-1", new Date());
+    const result = await service.sweepReminders("corr-1", ONE_DAY_LATER);
 
     expect(result).toEqual({ examined: 1, reminded: 1, skipped: 0 });
     expect(repository.insertOutboxIfAbsent).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
         kind: "reminder",
-        dedupeKey: `feedback-reminder-${conversationId}`,
+        dedupeKey: `feedback-reminder-${conversationId}-1`,
       }),
     );
     expect(conversations.markReminded).toHaveBeenCalled();
@@ -143,7 +144,7 @@ describe("PostEventFeedbackSweepService", () => {
     repository.findCampaignById.mockResolvedValue(launchedCampaign());
     repository.cancelQueuedOutboxForConversation.mockResolvedValue(2);
 
-    const result = await service.sweepExpiry("corr-1", new Date());
+    const result = await service.sweepExpiry("corr-1", THREE_DAYS_LATER);
 
     expect(result).toEqual({ examined: 1, expired: 1, skipped: 0 });
     expect(conversations.close).toHaveBeenCalledWith({
@@ -220,6 +221,12 @@ describe("PostEventFeedbackSweepService", () => {
   });
 });
 
+const CONVERSATION_CREATED_AT = new Date("2026-07-24T00:00:00.000Z");
+/** Exactly one reminder spacing of silence: the first rung is due, not the second. */
+const ONE_DAY_LATER = new Date("2026-07-25T00:00:00.000Z");
+/** Exactly the expiry threshold of silence. */
+const THREE_DAYS_LATER = new Date("2026-07-27T00:00:00.000Z");
+
 function openConversation() {
   return {
     _id: conversationId,
@@ -229,11 +236,13 @@ function openConversation() {
     control: {
       mode: "bot",
       source: "launch",
-      changedAt: new Date("2026-07-24T00:00:00.000Z"),
+      changedAt: CONVERSATION_CREATED_AT,
     },
+    goals: buildFeedbackConversationGoals(),
     messages: [],
     remindedAt: null,
-    createdAt: new Date("2026-07-24T00:00:00.000Z"),
+    reminderCount: 0,
+    createdAt: CONVERSATION_CREATED_AT,
   };
 }
 
@@ -301,6 +310,7 @@ function createService(): {
     get: vi.fn((key: keyof Environment) => {
       if (key === "FEEDBACK_REMINDER_AFTER_HOURS") return 24;
       if (key === "FEEDBACK_EXPIRE_AFTER_HOURS") return 72;
+      if (key === "FEEDBACK_MAX_REMINDERS") return 2;
       if (key === "FEEDBACK_INGRESS_PENDING_RECOVERY_MINUTES") return 5;
       return undefined;
     }),

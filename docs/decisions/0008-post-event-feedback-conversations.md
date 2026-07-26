@@ -1,10 +1,34 @@
 # ADR 0008: Post-event feedback conversations
 
-- Status: Accepted for the next feedback slice; implementation pending
+- Status: Accepted; implemented and amended
 - Date: 2026-07-25
+- Amended: 2026-07-26
 - Scope: WhatsApp post-event feedback only. Provider activation remains gated
   by consent, policy/legal approval and the durable ingress/outbox work named
   below.
+
+## Amendments
+
+The implementation acceptance runs superseded two original assumptions without
+rewriting the historical decision below:
+
+- candidate IDs are selected live from current attendance at each extraction
+  (D16), rather than frozen at campaign launch;
+- safety-flavoured testimony remains an ordinary answer/note with provenance
+  (D13 amended). It additionally raises `needsAttention` and attaches bounded
+  attention metadata to the cited participant message. A separately authorized
+  `SafetyReport` remains deferred.
+
+The attention metadata uses closed enums: category
+(`sexual_misconduct | harassment | violence_or_threat | self_harm |
+other_safety`), recommended action (`review | human_follow_up |
+urgent_human_follow_up`) and model confidence. An independent structured model
+call classifies only new participant message IDs, using the six preceding
+messages plus the new burst as context. The main extraction call does not
+select attention categories or actions, and there is no keyword classifier.
+Frontend copy, icons and colour are fixed application mappings. A terminal
+provider failure raises generic conversation attention but does not invent a
+message category.
 
 ## Decision
 

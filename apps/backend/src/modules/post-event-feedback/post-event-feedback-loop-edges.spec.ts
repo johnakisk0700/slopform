@@ -220,27 +220,17 @@ const SCENARIOS: readonly FeedbackScenario[] = [
     },
   },
   {
-    // Opt-out trailing an answer in the same message. Left-anchoring is what
-    // the matcher documents; this is the cost — the consent half is ignored.
+    // Opt-out trailing an answer in the same message. People put the answer
+    // first and the opt-out after it; while phrases were anchored to the start
+    // of the message, the consent half was read as testimony about the evening.
+    //
+    // No script: D14 decides STOP before any model call, so widening the
+    // matcher also means the score in front of it is never extracted. That is
+    // the intended trade — the message is a withdrawal of consent that happens
+    // to open with a number, and the words themselves are still retained.
     id: "optout_trailing_an_answer",
     title:
       "treats a trailing plain-language opt-out in the same message as a stop",
-    defect:
-      "STOP-TRAILING: an opt-out after an answer in the same message is ignored because phrases only match at the start",
-    knownCurrent: {
-      lifecycle: "open",
-      closedBecause: null,
-      optedIn: true,
-      answers: [{ question: "event_score", about: null, value: 5 }],
-      receivedCount: { stop_ack: 0, reply: 1 },
-    },
-    script: [
-      {
-        answers: [{ question: "event_score", value: 5 }],
-        next: "liked",
-        reply: "Ευχαριστούμε! Ξεχώρισε κάποιος από την παρέα;",
-      },
-    ],
     steps: [
       {
         kind: "inbound",
@@ -253,6 +243,9 @@ const SCENARIOS: readonly FeedbackScenario[] = [
       closedBecause: "stopped",
       optedIn: false,
       receivedCount: { stop_ack: 1, reply: 0 },
+      retainedParticipantText: [
+        "5 πάντως. μη μου ξαναστείλετε μηνύματα παρακαλώ",
+      ],
     },
   },
 

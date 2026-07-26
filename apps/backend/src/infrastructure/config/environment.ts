@@ -301,15 +301,40 @@ export const environmentSchema = observabilityEnvironmentSchema
      * `TRANSPORT_MODE=simulated` and a non-production `NODE_ENV`.
      */
     FEEDBACK_SIMULATOR_ENABLED: booleanFromEnvironment,
-    /** D11: hours after launch before one reminder if the participant never replied. */
+    /**
+     * D11/D-b: hours of participant silence between nudges.
+     *
+     * It is the rung spacing of a ladder, not a one-off delay: nudge N is due
+     * after N × this many hours without a participant message, so the default
+     * 24 sends at 24h and again at 48h. Silence is measured from what the
+     * participant last said, so answering resets it and somebody who answered
+     * two of four questions is nudged like anyone else — they used to be
+     * excluded from reminders entirely for having replied once.
+     */
     FEEDBACK_REMINDER_AFTER_HOURS: z.preprocess(
       emptyStringToUndefined,
       z.coerce.number().int().min(1).max(168).default(24),
     ),
-    /** D11: hours after launch before open conversations expire. */
+    /**
+     * D11: hours of participant silence before an open conversation expires.
+     *
+     * Silence, not age: somebody who finally answered at hour 71 is mid
+     * conversation, and closing them an hour later threw away the rest of what
+     * they had to say.
+     */
     FEEDBACK_EXPIRE_AFTER_HOURS: z.preprocess(
       emptyStringToUndefined,
       z.coerce.number().int().min(1).max(336).default(72),
+    ),
+    /**
+     * D-b: how many nudges one conversation may receive in total.
+     *
+     * Two, plus the intro, is three WhatsApp messages to somebody who never
+     * replies — the ceiling before outreach starts reading as spam.
+     */
+    FEEDBACK_MAX_REMINDERS: z.preprocess(
+      emptyStringToUndefined,
+      z.coerce.number().int().min(0).max(5).default(2),
     ),
     /**
      * Minutes a `provider_message_ingress` row may stay `pending` before the
@@ -321,7 +346,7 @@ export const environmentSchema = observabilityEnvironmentSchema
     ),
     /**
      * Delivery channel for the operator alert raised when a conversation first
-     * needs attention (safety tripwire or a permanently failed extraction).
+     * needs attention (model safety signal or permanently failed extraction).
      * `log` emits a structured `feedback.operator_alert` line; `off` disables
      * notification while `needsAttention` still records the state durably.
      *

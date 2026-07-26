@@ -29,6 +29,7 @@ Area-specific memory:
 - [`backend/mechanisms/README.md`](backend/mechanisms/README.md) — queue, database and runtime operations contracts
 - [`backend/mechanisms/api-contract.md`](backend/mechanisms/api-contract.md) — OpenAPI emission, admin client generation and drift detection
 - [`backend/mechanisms/mongodb.md`](backend/mechanisms/mongodb.md) — conversation-store lifecycle, security, limits and backup
+- [`backend/mechanisms/local-data-query.md`](backend/mechanisms/local-data-query.md) — guarded local PostgreSQL, MongoDB and Redis inspection
 - [`backend/mechanisms/authentication.md`](backend/mechanisms/authentication.md) — Clerk identity, admin authorization and restricted-Google handoff
 - [`backend/mechanisms/wasender.md`](backend/mechanisms/wasender.md) — opt-in WhatsApp transport and webhook boundary
 - [`backend/modules/README.md`](backend/modules/README.md) — product-domain module inventory and lifecycle docs

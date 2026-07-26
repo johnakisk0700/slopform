@@ -19,9 +19,9 @@ describe("LoggingFeedbackOperatorAlert", () => {
     await alert.raise({
       conversationId: "conversation-1",
       campaignId: "campaign-1",
-      reason: "safety_keywords",
+      reason: "extraction_safety_signal",
       correlationId: "correlation-1",
-      detail: ["sexual_content"],
+      detail: ["sexual_misconduct:human_follow_up"],
     });
 
     expect(warn).toHaveBeenCalledWith({
@@ -29,8 +29,8 @@ describe("LoggingFeedbackOperatorAlert", () => {
       correlationId: "correlation-1",
       conversationId: "conversation-1",
       campaignId: "campaign-1",
-      reason: "safety_keywords",
-      detail: ["sexual_content"],
+      reason: "extraction_safety_signal",
+      detail: ["sexual_misconduct:human_follow_up"],
     });
     warn.mockRestore();
   });

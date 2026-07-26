@@ -16,15 +16,35 @@ function context(
 ): FeedbackExtractionContext {
   return {
     respondentParticipantId: respondent,
+    respondentDisplayName: "Μαρία",
     candidates: [
       { participantId: nikos, displayName: "Νίκος" },
       { participantId: eleni, displayName: "Ελένη" },
     ],
     messages: [
-      { id: "m1", seq: 1, actor: "bot", text: "Πώς σου φάνηκε η βραδιά;" },
-      { id: "m2", seq: 2, actor: "participant", text: "5, τέλεια!" },
-      { id: "m3", seq: 3, actor: "staff", text: "Χαιρόμαστε πολύ." },
+      {
+        id: "m1",
+        seq: 1,
+        actor: "bot",
+        occurredAt: "2026-07-25T18:00:00.000Z",
+        text: "Πώς σου φάνηκε η βραδιά;",
+      },
+      {
+        id: "m2",
+        seq: 2,
+        actor: "participant",
+        occurredAt: "2026-07-27T18:00:00.000Z",
+        text: "5, τέλεια!",
+      },
+      {
+        id: "m3",
+        seq: 3,
+        actor: "staff",
+        occurredAt: "2026-07-27T18:01:00.000Z",
+        text: "Χαιρόμαστε πολύ.",
+      },
     ],
+    newParticipantMessageIds: ["m2"],
     goals: [
       { key: "event_score", ordinal: 1, prompt: "score;", status: "asked" },
       { key: "liked", ordinal: 2, prompt: "liked;", status: "pending" },
@@ -48,7 +68,6 @@ function proposal(
     nextGoal: null,
     reply: null,
     handoff: false,
-    safetySignal: false,
     confidence: 0.9,
     ...overrides,
   });
@@ -121,6 +140,60 @@ describe("validateFeedbackExtractionProposal", () => {
 
       expect(result.answers[0]?.sourceMessageIds).toEqual(["m2"]);
     });
+
+    it("accepts a thought split across a cursor boundary", () => {
+      // WhatsApp is typed: «τον Νίκο τον βρήκα» / «πολύ καλό, 5» is one
+      // ordinary thought that happens to land in two windows. The run carrying
+      // the score cites both halves because that is where the score came from,
+      // and demanding that every citation be new used to throw the answer away
+      // — while the same answer citing only the second half passed.
+      const result = validateFeedbackExtractionProposal(
+        proposal({ answers: [answer({ sourceMessageIds: ["m2", "m4"] })] }),
+        context({
+          messages: [
+            {
+              id: "m1",
+              seq: 1,
+              actor: "bot",
+              occurredAt: "2026-07-25T18:00:00.000Z",
+              text: "Πώς σου φάνηκε η βραδιά;",
+            },
+            {
+              id: "m2",
+              seq: 2,
+              actor: "participant",
+              occurredAt: "2026-07-25T18:01:00.000Z",
+              text: "τον Νίκο τον βρήκα",
+            },
+            {
+              id: "m4",
+              seq: 3,
+              actor: "participant",
+              occurredAt: "2026-07-25T18:02:00.000Z",
+              text: "πολύ καλό, 5",
+            },
+          ],
+          newParticipantMessageIds: ["m4"],
+        }),
+      );
+
+      expect(result.rejections).toEqual([]);
+      // The older half stays on the row, so an operator reads the whole thought
+      // rather than its second half.
+      expect(result.answers[0]?.sourceMessageIds).toEqual(["m2", "m4"]);
+    });
+
+    it("still rejects a batch that cites only settled testimony", () => {
+      // The rule's real job survives: no result may be born without new
+      // testimony driving it, so a run cannot re-mine the old transcript.
+      const result = validateFeedbackExtractionProposal(
+        proposal({ answers: [answer({ sourceMessageIds: ["m2"] })] }),
+        context({ newParticipantMessageIds: [] }),
+      );
+
+      expect(result.answers).toEqual([]);
+      expect(result.rejections[0]?.reason).toBe("stale_source_message");
+    });
   });
 
   describe("subject resolution", () => {
@@ -156,7 +229,7 @@ describe("validateFeedbackExtractionProposal", () => {
       expect(result.rejections[0]?.reason).toBe("missing_subject");
     });
 
-    it("degrades a note about the respondent themselves to subjectless", () => {
+    it("keeps a note about the respondent themselves subjectless, without flagging it", () => {
       const result = validateFeedbackExtractionProposal(
         proposal({
           notes: [
@@ -169,9 +242,32 @@ describe("validateFeedbackExtractionProposal", () => {
         context(),
       );
 
+      // No directed row may be written about the respondent, so it degrades —
+      // but talking about yourself is not a failure to find anybody, and
+      // flagging it sent an operator hunting for a person already on screen.
       expect(result.notes[0]).toMatchObject({
         subjectParticipantId: null,
-        flaggedForReview: true,
+        flaggedForReview: false,
+        unresolvedSubjectName: null,
+      });
+    });
+
+    it("recognises the respondent by name, not only by id", () => {
+      const result = validateFeedbackExtractionProposal(
+        proposal({
+          notes: [
+            note({
+              subjectParticipantId: null,
+              subjectMentionedName: "η Μαρία",
+            }),
+          ],
+        }),
+        context(),
+      );
+
+      expect(result.notes[0]).toMatchObject({
+        subjectParticipantId: null,
+        flaggedForReview: false,
       });
     });
 
@@ -271,6 +367,65 @@ describe("validateFeedbackExtractionProposal", () => {
 
       expect(result.answers).toEqual([]);
       expect(result.rejections[0]?.reason).toBe("already_recorded");
+      expect(result.conflictingAnswerRevision).toBe(false);
+    });
+
+    it("accepts a revision when the stored score differs, and still flags it", () => {
+      const result = validateFeedbackExtractionProposal(
+        proposal({
+          answers: [
+            answer({
+              questionKey: "event_score",
+              valueInt: 2,
+              subjectParticipantId: null,
+            }),
+          ],
+        }),
+        context({
+          acceptedAnswers: [
+            {
+              questionKey: "event_score",
+              subjectParticipantId: null,
+              valueInt: 4,
+            },
+          ],
+        }),
+      );
+
+      // The newest reading wins: saying it again is how somebody revises. The
+      // flag stays, because a change of mind is still worth a human's eye —
+      // it is no longer the only trace that the answer was ever different.
+      expect(result.answers).toMatchObject([
+        { questionKey: "event_score", valueInt: 2 },
+      ]);
+      expect(result.rejections).toEqual([]);
+      expect(result.conflictingAnswerRevision).toBe(true);
+    });
+
+    it("stays quiet when a replay proposes the same already-recorded value", () => {
+      const result = validateFeedbackExtractionProposal(
+        proposal({
+          answers: [
+            answer({
+              questionKey: "event_score",
+              valueInt: 4,
+              subjectParticipantId: null,
+            }),
+          ],
+        }),
+        context({
+          acceptedAnswers: [
+            {
+              questionKey: "event_score",
+              subjectParticipantId: null,
+              valueInt: 4,
+            },
+          ],
+        }),
+      );
+
+      expect(result.rejections[0]?.reason).toBe("already_recorded");
+      expect(result.conflictingAnswerRevision).toBe(false);
     });
 
     it("collapses a duplicate proposed twice in the same run", () => {
@@ -408,17 +563,44 @@ describe("validateFeedbackExtractionProposal", () => {
         proposal({
           answers: [answer({ questionKey: "avoid" })],
           notes: [note()],
-          safetySignal: true,
         }),
         context(),
+        [
+          {
+            category: "other_safety",
+            recommendedAction: "human_follow_up",
+            sourceMessageIds: ["m2"],
+            confidence: 0.9,
+          },
+        ],
       );
 
       // Both survive. Suppressing the note used to make the disclosure the one
       // thing an operator could not read; the flag is the signal, not a filter.
       expect(result.answers).toHaveLength(1);
       expect(result.notes).toHaveLength(1);
-      expect(result.safetySignal).toBe(true);
+      expect(result.safetySignals).toHaveLength(1);
       expect(result.rejections).toEqual([]);
+    });
+
+    it("rejects a safety classification sourced from an older turn", () => {
+      const result = validateFeedbackExtractionProposal(
+        proposal(),
+        context({ newParticipantMessageIds: [] }),
+        [
+          {
+            category: "sexual_misconduct",
+            recommendedAction: "human_follow_up",
+            sourceMessageIds: ["m2"],
+            confidence: 0.8,
+          },
+        ],
+      );
+
+      expect(result.safetySignals).toEqual([]);
+      expect(result.rejections).toEqual([
+        { scope: "safety_signal", reason: "stale_source_message" },
+      ]);
     });
 
     it("records notes on an explicit handoff too", () => {
@@ -457,7 +639,6 @@ describe("feedbackExtractionProposalSchema", () => {
         nextGoal: null,
         reply: null,
         handoff: false,
-        safetySignal: false,
         confidence: 1,
       }),
     ).toThrow();
@@ -472,7 +653,6 @@ describe("feedbackExtractionProposalSchema", () => {
         nextGoal: null,
         reply: null,
         handoff: false,
-        safetySignal: false,
         confidence: 1,
       }),
     ).toThrow();
@@ -487,7 +667,6 @@ describe("feedbackExtractionProposalSchema", () => {
         nextGoal: null,
         reply: null,
         handoff: false,
-        safetySignal: false,
         confidence: 1,
       }),
     ).toThrow();
@@ -502,7 +681,6 @@ describe("feedbackExtractionProposalSchema", () => {
         nextGoal: null,
         reply: null,
         handoff: false,
-        safetySignal: false,
         confidence: 1,
       }),
     ).toThrow();
@@ -517,7 +695,6 @@ describe("feedbackExtractionProposalSchema", () => {
         nextGoal: null,
         reply: null,
         handoff: false,
-        safetySignal: false,
         confidence: 1,
         sendNow: true,
       }),

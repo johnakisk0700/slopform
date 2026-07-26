@@ -218,7 +218,38 @@ export class FakeFeedbackRepository {
 
   async lockConversation(): Promise<void> {}
 
-  /** `ON CONFLICT DO NOTHING` on (conversation, question_key, subject). */
+  /** Moving a person between mutually exclusive questions clears the old one. */
+  async deleteContradictedAnswers(
+    _transaction: AppTransaction,
+    input: {
+      conversationId: string;
+      subjectParticipantId: string;
+      questionKeys: readonly string[];
+    },
+  ): Promise<number> {
+    if (input.questionKeys.length === 0) {
+      return 0;
+    }
+    const before = this.answers.length;
+    for (let index = this.answers.length - 1; index >= 0; index -= 1) {
+      const row = this.answers[index];
+      if (
+        row &&
+        row.conversationId === input.conversationId &&
+        row.subjectParticipantId === input.subjectParticipantId &&
+        input.questionKeys.includes(row.questionKey)
+      ) {
+        this.answers.splice(index, 1);
+      }
+    }
+    return before - this.answers.length;
+  }
+
+  /**
+   * `ON CONFLICT DO UPDATE` on (conversation, question_key, subject): the
+   * newest reading of a question wins, because saying it again is how somebody
+   * revises. The uniqueness key itself is unchanged and still real here.
+   */
   async insertAnswerIfAbsent(
     _transaction: AppTransaction,
     input: {
@@ -233,14 +264,17 @@ export class FakeFeedbackRepository {
     },
   ): Promise<FakeAnswerRow | undefined> {
     const subject = input.subjectParticipantId ?? null;
-    const exists = this.answers.some(
+    const existing = this.answers.find(
       (row) =>
         row.conversationId === input.conversationId &&
         row.questionKey === input.questionKey &&
         row.subjectParticipantId === subject,
     );
-    if (exists) {
-      return undefined;
+    if (existing) {
+      existing.valueInt = input.valueInt ?? null;
+      existing.sourceMessageIds = [...input.sourceMessageIds];
+      existing.extractionMeta = input.extractionMeta;
+      return existing;
     }
     const row: FakeAnswerRow = {
       id: randomUUID(),
@@ -596,15 +630,14 @@ export class FakeFeedbackRepository {
     }
     row.updatedAt = this.now();
 
-    // `provider_message_ingress_unmatched_text_check`. Keeping a participant's
-    // words under this status is refused by the database, so WP1 needs a status
-    // of its own rather than a wider `ignored_unmatched`.
+    // `provider_message_ingress_unmatched_text_check`, as amended: an unmatched
+    // row is still attributed to no conversation, but it may keep its body.
     if (
       row.processingStatus === "ignored_unmatched" &&
-      (row.text !== null || row.matchedConversationId !== null)
+      row.matchedConversationId !== null
     ) {
       throw new Error(
-        "provider_message_ingress_unmatched_text_check: an ignored_unmatched row keeps neither text nor a conversation link",
+        "provider_message_ingress_unmatched_text_check: an ignored_unmatched row keeps no conversation link",
       );
     }
     return { ...row };
@@ -700,6 +733,8 @@ export class FakeFeedbackConversations {
       extraction: { cursorSeq: 0, lastRunAt: null, model: null },
       needsAttention: false,
       remindedAt: null,
+      reminderCount: 0,
+      awaitingHuman: false,
       createdAt: input.launchedAt,
       updatedAt: input.launchedAt,
     });
@@ -809,7 +844,15 @@ export class FakeFeedbackConversations {
       throw new FeedbackConversationCapacityError();
     }
 
+    // Mirrors the real `$push` with `$sort`: stored in the order the
+    // participant spoke, not the order the webhooks arrived. `seq` is assigned
+    // on arrival and is deliberately not renumbered — the extraction cursor is
+    // a `seq` and must not be reshuffled underneath a run.
     conversation.messages.push(message);
+    conversation.messages.sort(
+      (left, right) =>
+        left.at.getTime() - right.at.getTime() || left.seq - right.seq,
+    );
     this.touch(conversation, message.at);
     this.revalidate(conversation);
     return {
@@ -878,6 +921,22 @@ export class FakeFeedbackConversations {
       source: input.source,
       changedAt: input.at,
     };
+    conversation.awaitingHuman = false;
+    this.touch(conversation, input.at);
+    this.revalidate(conversation);
+    return { changed: true, conversation: structuredClone(conversation) };
+  }
+
+  /** The bot steps back without giving up control; only a person clears it. */
+  async markAwaitingHuman(input: {
+    conversationId: string;
+    at: Date;
+  }): Promise<FakeConversationTransition> {
+    const conversation = this.require(input.conversationId);
+    if (conversation.lifecycle.state !== "open") {
+      return { changed: false, conversation: structuredClone(conversation) };
+    }
+    conversation.awaitingHuman = true;
     this.touch(conversation, input.at);
     this.revalidate(conversation);
     return { changed: true, conversation: structuredClone(conversation) };
@@ -901,6 +960,7 @@ export class FakeFeedbackConversations {
       source: "staff_action",
       changedAt: input.at,
     };
+    conversation.awaitingHuman = false;
     this.touch(conversation, input.at);
     this.revalidate(conversation);
     return { changed: true, conversation: structuredClone(conversation) };
@@ -1001,15 +1061,17 @@ export class FakeFeedbackConversations {
   async markReminded(input: {
     conversationId: string;
     at: Date;
+    expectedCount: number;
   }): Promise<FakeConversationTransition> {
     const conversation = this.require(input.conversationId);
     if (
       conversation.lifecycle.state !== "open" ||
-      conversation.remindedAt !== null
+      conversation.reminderCount !== input.expectedCount
     ) {
       return { changed: false, conversation: structuredClone(conversation) };
     }
     conversation.remindedAt = input.at;
+    conversation.reminderCount = input.expectedCount + 1;
     this.touch(conversation, input.at);
     this.revalidate(conversation);
     return { changed: true, conversation: structuredClone(conversation) };
@@ -1017,10 +1079,11 @@ export class FakeFeedbackConversations {
 
   async listOpenDueForReminder(input: {
     olderThan: Date;
+    maxReminders: number;
     limit?: number;
   }): Promise<FeedbackConversationDocument[]> {
     return this.listOpenOlderThan(input.olderThan, input.limit).filter(
-      (conversation) => conversation.remindedAt === null,
+      (conversation) => conversation.reminderCount < input.maxReminders,
     );
   }
 

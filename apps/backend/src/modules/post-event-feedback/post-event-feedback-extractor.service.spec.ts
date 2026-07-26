@@ -200,6 +200,52 @@ describe("PostEventFeedbackExtractor", () => {
           unresolvedSubjectName: "Ρούλα",
         },
       });
+      // D18 without a visible flag is a safeguard nobody ever learns fired.
+      expect(harness.conversations.get(conversationId).needsAttention).toBe(
+        true,
+      );
+      // Routine unresolvable names are inbox work, not a page.
+      expect(harness.alert.raised).toEqual([]);
+    });
+
+    it("records a corrected score over the stored one and still raises attention", async () => {
+      harness.repository.answers.push({
+        id: randomUUID(),
+        conversationId,
+        questionKey: "event_score",
+        subjectParticipantId: null,
+        valueInt: 4,
+        noteType: null,
+        text: null,
+        extractionMeta: { model, confidence: 1, candidateIds: [] },
+      });
+      harness.generation.propose.mockResolvedValue(
+        generation({
+          answers: [
+            {
+              questionKey: "event_score",
+              valueInt: 2,
+              subjectParticipantId: null,
+              subjectMentionedName: null,
+              sourceMessageIds: ["p1"],
+              confidence: 0.9,
+            },
+          ],
+          reply: "Το άλλαξα σε 2!",
+        }),
+      );
+
+      await harness.extractor.extract({ conversationId, correlationId });
+
+      // One row, holding what they last said. The attention flag stays because
+      // a change of mind is worth a human's eye — it is no longer the only
+      // trace that the answer was ever anything else.
+      expect(harness.repository.answers).toHaveLength(1);
+      expect(harness.repository.answers[0]).toMatchObject({ valueInt: 2 });
+      expect(harness.conversations.get(conversationId).needsAttention).toBe(
+        true,
+      );
+      expect(harness.alert.raised).toEqual([]);
     });
 
     it("enqueues exactly one reply keyed by conversation and cursor", async () => {
@@ -308,6 +354,101 @@ describe("PostEventFeedbackExtractor", () => {
     });
   });
 
+  describe("a burst that straddles the run", () => {
+    /**
+     * The participant types another fragment while the model is thinking. The
+     * quiet window on the enqueue collapses everything typed before the run
+     * opens; this is the remainder it cannot reach.
+     */
+    const typesDuringTheRun = (
+      overrides: Record<string, unknown> = { reply: "Ευχαριστούμε πολύ!" },
+    ): void => {
+      harness.generation.propose.mockImplementation(async () => {
+        await harness.conversations.appendMessage({
+          conversationId,
+          actor: "participant",
+          text: "α και κάτι ακόμα",
+          at: new Date("2026-07-25T10:06:00.000Z"),
+        });
+        return generation(overrides);
+      });
+    };
+
+    it("drops the ordinary reply, which now answers a thought that moved on", async () => {
+      typesDuringTheRun();
+
+      const result = await harness.extractor.extract({
+        conversationId,
+        correlationId,
+      });
+
+      expect(result.outcome).toBe("extracted");
+      // The run reading the newer message speaks instead: one reply per burst,
+      // not one per fragment.
+      expect(harness.repository.outbox).toEqual([]);
+    });
+
+    it("still writes its results and closes its own window", async () => {
+      typesDuringTheRun({
+        answers: [
+          {
+            questionKey: "event_score",
+            valueInt: 5,
+            subjectParticipantId: null,
+            subjectMentionedName: null,
+            sourceMessageIds: ["p1"],
+            confidence: 0.9,
+          },
+        ],
+        reply: "Ευχαριστούμε πολύ!",
+      });
+
+      const result = await harness.extractor.extract({
+        conversationId,
+        correlationId,
+      });
+
+      // Only the outbound is dropped. Suppressing the cursor instead would make
+      // "I chose to wait" indistinguishable on disk from "I crashed", and a
+      // retry could not tell which one to repair.
+      expect(result).toMatchObject({ answersWritten: 1, cursorSeq: 2 });
+      expect(harness.repository.answers).toHaveLength(1);
+      expect(
+        harness.conversations.get(conversationId).extraction.cursorSeq,
+      ).toBe(2);
+      expect(harness.repository.outbox).toEqual([]);
+    });
+
+    it("still sends the closing copy, because a closed conversation never speaks again", async () => {
+      harness.conversations.setAllGoals(conversationId, "answered");
+      typesDuringTheRun({ reply: null });
+
+      const result = await harness.extractor.extract({
+        conversationId,
+        correlationId,
+      });
+
+      expect(result.outcome).toBe("completed");
+      expect(harness.repository.outbox[0]).toMatchObject({
+        dedupeKey: `feedback-closing-${conversationId}`,
+      });
+    });
+
+    it("still sends the handoff copy, because it promises a human", async () => {
+      typesDuringTheRun({ handoff: true, reply: "Ευχαριστούμε πολύ!" });
+
+      const result = await harness.extractor.extract({
+        conversationId,
+        correlationId,
+      });
+
+      expect(result.outcome).toBe("handoff");
+      expect(harness.repository.outbox[0]).toMatchObject({
+        body: POST_EVENT_FEEDBACK_HANDOFF_REPLY,
+      });
+    });
+  });
+
   describe("completion", () => {
     it("closes as completed and sends the campaign's closing copy once", async () => {
       harness.conversations.setAllGoals(conversationId, "answered");
@@ -355,6 +496,56 @@ describe("PostEventFeedbackExtractor", () => {
         "Τα λέμε στο επόμενο τραπέζι!",
       );
     });
+
+    it("keeps the conversation open and skips the closing copy when the finishing turn discloses", async () => {
+      harness.conversations.setAllGoals(conversationId, "answered");
+      harness.conversations.setGoal(conversationId, "avoid", "asked");
+      harness.generation.propose.mockResolvedValue(
+        generation({
+          skippedGoals: ["avoid"],
+          notes: [
+            {
+              noteType: "general",
+              text: "Ο Κώστας Γ. την έπιασε από τη μέση.",
+              subjectParticipantId: null,
+              subjectMentionedName: null,
+              sourceMessageIds: ["p1"],
+              confidence: 0.9,
+            },
+          ],
+          reply: "Λυπάμαι πολύ που το ακούω.",
+        }),
+      );
+      harness.generation.classifyAttention.mockResolvedValue(
+        attentionGeneration([
+          {
+            category: "sexual_misconduct",
+            recommendedAction: "human_follow_up",
+            sourceMessageIds: ["p1"],
+            confidence: 0.95,
+          },
+        ]),
+      );
+
+      const result = await harness.extractor.extract({
+        conversationId,
+        correlationId,
+      });
+
+      expect(result.outcome).toBe("extracted");
+      expect(harness.conversations.get(conversationId).lifecycle.state).toBe(
+        "open",
+      );
+      expect(harness.repository.outbox[0]).toMatchObject({
+        body: "Λυπάμαι πολύ που το ακούω.",
+        dedupeKey: `feedback-reply-${conversationId}-2`,
+      });
+      expect(harness.repository.notes).toHaveLength(1);
+      expect(harness.conversations.get(conversationId).needsAttention).toBe(
+        true,
+      );
+      expect(harness.alert.raised).toHaveLength(1);
+    });
   });
 
   describe("safety and handoff (D13 amended)", () => {
@@ -371,9 +562,18 @@ describe("PostEventFeedbackExtractor", () => {
               confidence: 0.9,
             },
           ],
-          safetySignal: true,
           reply: "Λυπάμαι που το ακούω, θες να μιλήσουμε;",
         }),
+      );
+      harness.generation.classifyAttention.mockResolvedValue(
+        attentionGeneration([
+          {
+            category: "other_safety",
+            recommendedAction: "human_follow_up",
+            sourceMessageIds: ["p1"],
+            confidence: 0.9,
+          },
+        ]),
       );
 
       const result = await harness.extractor.extract({
@@ -392,6 +592,22 @@ describe("PostEventFeedbackExtractor", () => {
         noteType: "general",
         text: "Ο συμμετέχων δεν αντέχει.",
       });
+      expect(harness.generation.classifyAttention).toHaveBeenCalledWith(
+        [
+          expect.objectContaining({ id: "b1", actor: "bot" }),
+          expect.objectContaining({ id: "p1", actor: "participant" }),
+        ],
+        ["p1"],
+      );
+      expect(
+        harness.conversations
+          .get(conversationId)
+          .messages.find((message) => message.id === "p1")?.attention,
+      ).toMatchObject({
+        categories: ["other_safety"],
+        recommendedAction: "human_follow_up",
+        confidence: 0.9,
+      });
       expect(harness.repository.outbox[0]).toMatchObject({
         body: "Λυπάμαι που το ακούω, θες να μιλήσουμε;",
         dedupeKey: `feedback-reply-${conversationId}-2`,
@@ -405,7 +621,17 @@ describe("PostEventFeedbackExtractor", () => {
 
     it("raises the operator alert once per false → true attention transition", async () => {
       harness.generation.propose.mockResolvedValue(
-        generation({ safetySignal: true, reply: "Είμαστε εδώ." }),
+        generation({ reply: "Είμαστε εδώ." }),
+      );
+      harness.generation.classifyAttention.mockResolvedValue(
+        attentionGeneration([
+          {
+            category: "other_safety",
+            recommendedAction: "human_follow_up",
+            sourceMessageIds: ["p1"],
+            confidence: 0.9,
+          },
+        ]),
       );
 
       await harness.extractor.extract({ conversationId, correlationId });
@@ -418,7 +644,7 @@ describe("PostEventFeedbackExtractor", () => {
         conversationId,
         campaignId,
         reason: "extraction_safety_signal",
-        detail: ["safety_signal"],
+        detail: ["other_safety:human_follow_up"],
       });
     });
 
@@ -592,10 +818,10 @@ describe("PostEventFeedbackExtractor", () => {
   });
 
   describe("observability", () => {
-    it("logs token usage per run rather than message count", async () => {
+    it("logs both model phases per run rather than message count", async () => {
       await harness.extractor.extract({ conversationId, correlationId });
 
-      expect(harness.metrics.totalTokensObserved()).toBe(910);
+      expect(harness.metrics.totalTokensObserved()).toBe(1_130);
       expect(harness.metrics.countExtract("extracted")).toBe(1);
     });
   });
@@ -625,6 +851,11 @@ interface FakeMessage {
   text: string;
   at: Date;
   outboxId?: string | null;
+  attention?: {
+    categories: string[];
+    recommendedAction: string;
+    confidence: number;
+  } | null;
 }
 
 interface FakeGoal {
@@ -648,6 +879,7 @@ interface FakeConversation {
     model: string | null;
   };
   needsAttention: boolean;
+  awaitingHuman: boolean;
 }
 
 interface FakeResultRow {
@@ -709,7 +941,32 @@ class FakeFeedbackRepository {
     return Promise.resolve();
   }
 
-  /** `ON CONFLICT DO NOTHING` on (conversation, question_key, subject). */
+  /** Moving a person between mutually exclusive questions clears the old one. */
+  async deleteContradictedAnswers(
+    _transaction: AppTransaction,
+    input: {
+      conversationId: string;
+      subjectParticipantId: string;
+      questionKeys: readonly string[];
+    },
+  ): Promise<number> {
+    const before = this.answers.length;
+    for (let index = this.answers.length - 1; index >= 0; index -= 1) {
+      const row = this.answers[index];
+      if (
+        row &&
+        row.conversationId === input.conversationId &&
+        row.subjectParticipantId === input.subjectParticipantId &&
+        row.questionKey !== null &&
+        input.questionKeys.includes(row.questionKey)
+      ) {
+        this.answers.splice(index, 1);
+      }
+    }
+    return before - this.answers.length;
+  }
+
+  /** `ON CONFLICT DO UPDATE` on (conversation, question_key, subject). */
   async insertAnswerIfAbsent(
     _transaction: AppTransaction,
     input: {
@@ -721,14 +978,16 @@ class FakeFeedbackRepository {
     },
   ): Promise<FakeResultRow | undefined> {
     const subject = input.subjectParticipantId ?? null;
-    const exists = this.answers.some(
+    const existing = this.answers.find(
       (row) =>
         row.conversationId === input.conversationId &&
         row.questionKey === input.questionKey &&
         row.subjectParticipantId === subject,
     );
-    if (exists) {
-      return undefined;
+    if (existing) {
+      existing.valueInt = input.valueInt ?? null;
+      existing.extractionMeta = input.extractionMeta;
+      return existing;
     }
     const row: FakeResultRow = {
       id: randomUUID(),
@@ -900,6 +1159,45 @@ class FakeConversations {
     return { changed, conversation };
   }
 
+  async markAwaitingHuman(input: {
+    conversationId: string;
+  }): Promise<{ changed: boolean; conversation: FakeConversation }> {
+    const conversation = this.get(input.conversationId);
+    const changed = conversation.awaitingHuman !== true;
+    conversation.awaitingHuman = true;
+    return { changed, conversation };
+  }
+
+  async mergeMessageAttention(input: {
+    conversationId: string;
+    messageId: string;
+    categories: readonly string[];
+    recommendedAction: string;
+    confidence: number;
+  }): Promise<{ changed: boolean; conversation: FakeConversation }> {
+    const conversation = this.get(input.conversationId);
+    const message = conversation.messages.find(
+      (candidate) => candidate.id === input.messageId,
+    );
+    if (!message) {
+      throw new Error(`Message ${input.messageId} not found`);
+    }
+    message.attention = {
+      categories: [
+        ...new Set([
+          ...(message.attention?.categories ?? []),
+          ...input.categories,
+        ]),
+      ],
+      recommendedAction: input.recommendedAction,
+      confidence: Math.max(
+        message.attention?.confidence ?? 0,
+        input.confidence,
+      ),
+    };
+    return { changed: true, conversation };
+  }
+
   async close(input: {
     conversationId: string;
     reason: string;
@@ -947,7 +1245,10 @@ interface Harness {
   conversations: FakeConversations;
   participants: FakeParticipants;
   events: { listFeedbackCandidatesForRespondent: ReturnType<typeof vi.fn> };
-  generation: { propose: ReturnType<typeof vi.fn> };
+  generation: {
+    propose: ReturnType<typeof vi.fn>;
+    classifyAttention: ReturnType<typeof vi.fn>;
+  };
   audit: FakeAudit;
   metrics: PostEventFeedbackMetrics;
   alert: { raised: FeedbackOperatorAlertInput[] };
@@ -966,10 +1267,20 @@ function generation(
       nextGoal: null,
       reply: null,
       handoff: false,
-      safetySignal: false,
       confidence: 0.9,
       ...overrides,
     },
+  };
+}
+
+function attentionGeneration(
+  signals: readonly Record<string, unknown>[],
+): Record<string, unknown> {
+  return {
+    model,
+    usage: { inputTokens: 180, outputTokens: 40, totalTokens: 220 },
+    estimatedPromptTokens: 200,
+    signals,
   };
 }
 
@@ -989,6 +1300,7 @@ function createHarness(): Harness {
   };
   const generationService = {
     propose: vi.fn().mockResolvedValue(generation({})),
+    classifyAttention: vi.fn().mockResolvedValue(attentionGeneration([])),
   };
   const alert = {
     raised: [] as FeedbackOperatorAlertInput[],
@@ -1043,6 +1355,7 @@ function createHarness(): Harness {
     ],
     extraction: { cursorSeq: 0, lastRunAt: null, model: null },
     needsAttention: false,
+    awaitingHuman: false,
   });
 
   const database = new FakeDatabase();

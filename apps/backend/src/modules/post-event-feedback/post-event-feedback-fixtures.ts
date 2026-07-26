@@ -264,7 +264,7 @@ export const POST_EVENT_FEEDBACK_EXTRACTION_FIXTURES = [
   {
     id: "safety_language",
     description:
-      "Participant uses language that should trigger safety handoff, not ordinary notes.",
+      "Participant describes an urgent self-harm concern that needs staff attention without implicitly requesting handoff.",
     respondentParticipantId: FIXTURE_CANDIDATES.maria.participantId,
     candidates: [
       FIXTURE_CANDIDATES.nikos,
@@ -286,9 +286,15 @@ export const POST_EVENT_FEEDBACK_EXTRACTION_FIXTURES = [
     expected: {
       safetySignal: true,
       needsAttention: true,
-      handoff: true,
+      handoff: false,
       answers: [],
-      notes: [],
+      notes: [
+        {
+          noteType: "general",
+          text: "Ο συμμετέχων εξέφρασε ότι δεν αντέχει.",
+          subjectParticipantId: null,
+        },
+      ],
     },
   },
   {

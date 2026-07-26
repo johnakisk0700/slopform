@@ -12,10 +12,19 @@ import { PostEventFeedbackRepository } from "./post-event-feedback.repository.js
 function createInsertChain(returningValue: unknown[]) {
   const returning = vi.fn().mockResolvedValue(returningValue);
   const onConflictDoNothing = vi.fn().mockReturnValue({ returning });
-  const values = vi.fn().mockReturnValue({ onConflictDoNothing });
+  const onConflictDoUpdate = vi.fn().mockReturnValue({ returning });
+  const values = vi
+    .fn()
+    .mockReturnValue({ onConflictDoNothing, onConflictDoUpdate });
   const insert = vi.fn().mockReturnValue({ values });
 
-  return { insert, values, onConflictDoNothing, returning };
+  return {
+    insert,
+    values,
+    onConflictDoNothing,
+    onConflictDoUpdate,
+    returning,
+  };
 }
 
 describe("PostEventFeedbackRepository conflict targets", () => {
@@ -78,7 +87,7 @@ describe("PostEventFeedbackRepository conflict targets", () => {
     expect(result.inserted).toBe(true);
   });
 
-  it("ignores answer conflicts on the NULLS NOT DISTINCT uniqueness key", async () => {
+  it("overwrites an answer on the NULLS NOT DISTINCT uniqueness key so a revision lands", async () => {
     const chain = createInsertChain([]);
     const transaction = { insert: chain.insert };
     const repository = new PostEventFeedbackRepository({
@@ -100,12 +109,23 @@ describe("PostEventFeedbackRepository conflict targets", () => {
       },
     });
 
-    expect(chain.onConflictDoNothing).toHaveBeenCalledWith({
+    // The newest reading of a question wins, on the same uniqueness key: the
+    // participant revising an answer is the case this exists for.
+    expect(chain.onConflictDoUpdate).toHaveBeenCalledWith({
       target: [
         feedbackAnswers.conversationId,
         feedbackAnswers.questionKey,
         feedbackAnswers.subjectParticipantId,
       ],
+      set: {
+        valueInt: 5,
+        sourceMessageIds: ["88888888-8888-4888-8888-888888888888"],
+        extractionMeta: {
+          model: "google/gemini-3.6-flash",
+          confidence: 0.9,
+          candidateIds: ["99999999-9999-4999-8999-999999999999"],
+        },
+      },
     });
     expect(result).toBeUndefined();
   });

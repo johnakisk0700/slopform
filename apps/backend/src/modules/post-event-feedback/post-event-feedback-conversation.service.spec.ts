@@ -7,6 +7,7 @@ import type {
   MessageOutboxRow,
   ParticipantRow,
 } from "@join-the-six/database";
+import type { Queue } from "bullmq";
 import { describe, expect, it, vi } from "vitest";
 
 import type { AuditRepository } from "../../infrastructure/audit/audit.repository.js";
@@ -16,6 +17,10 @@ import {
   type FeedbackConversationRepository,
 } from "../conversations/feedback-conversation.repository.js";
 import type { FeedbackConversationDocument } from "../conversations/feedback-conversation.schemas.js";
+import type {
+  FeedbackJobData,
+  FeedbackJobName,
+} from "./post-event-feedback.schemas.js";
 import type { EventsRepository } from "../events/events.repository.js";
 import type { EventsService } from "../events/events.service.js";
 import type { ParticipantsRepository } from "../participants/participants.repository.js";
@@ -619,6 +624,8 @@ function openConversation(
     extraction: { cursorSeq: 0, lastRunAt: null, model: null },
     needsAttention: false,
     remindedAt: null,
+    reminderCount: 0,
+    awaitingHuman: false,
     createdAt: now,
     updatedAt: now,
     ...overrides,
@@ -810,6 +817,11 @@ function createService(): {
   };
 
   const service = new PostEventFeedbackConversationService(
+    { add: vi.fn().mockResolvedValue({ id: "job" }) } as unknown as Queue<
+      FeedbackJobData,
+      void,
+      FeedbackJobName
+    >,
     database as unknown as DatabaseService,
     repository as unknown as PostEventFeedbackRepository,
     conversations as unknown as FeedbackConversationRepository,

@@ -223,27 +223,41 @@ control mode.
 
 ## AI extraction
 
-The model input contains:
+Each run makes two independent structured calls to the configured model in
+parallel:
 
-- actor-labelled ordered transcript;
-- question copy and **live** candidates from the shared helper;
-- current goals and accepted results;
-- allowed output schema and safety/handoff rules.
+- the extraction call receives the full actor-labelled transcript, question
+  copy, **live** candidates, current goals and accepted results. It proposes
+  answers, notes, reply wording and an explicit participant-requested handoff;
+- the attention classifier receives only the six messages preceding the new
+  participant-message burst plus that burst. It returns one incident decision
+  per new participant message, with a bounded category, recommended operator
+  action and confidence.
 
-The model proposes answers and notes with source message IDs. Application code
-then verifies:
+Historical turns are classifier context only: it may attach attention metadata
+exclusively to the exact new message IDs supplied by the application. A missing,
+duplicate or unknown result rejects the classification call instead of silently
+treating a model omission as safe. Neither call supplies UI copy or icons.
+Application code then verifies:
 
 - source messages exist in the referenced conversation;
 - extracted statements came from the participant, not staff or the bot;
+- at least one cited source falls inside the current cursor window, so no result
+  is born without new testimony driving it, while a thought typed across a
+  window boundary («τον Νίκο τον βρήκα» / «πολύ καλό, 5») may still cite both
+  halves — demanding that _every_ citation be new rejected the accurate citation
+  and kept the one that named only the second fragment;
 - question keys and note types are allowed;
 - subject IDs are valid candidates and differ from the respondent;
 - replay cannot duplicate an existing answer/note;
+- attention results cover exactly the new participant message IDs;
 - current consent, lifecycle and control permit a reply.
 
-The initial context strategy is the full transcript. Input pressure is measured
-by estimated tokens rather than message count. Thresholds, summaries and
-segments remain experiments; raw history is retained independently of whatever
-context strategy is later selected.
+Input pressure is measured by estimated tokens rather than message count. The
+full transcript remains the initial extraction strategy; bounded recent context
+is deliberate for classification because old testimony must inform meaning
+without being reclassified. Raw history is retained independently of either
+model view.
 
 ## Invariants
 
@@ -255,8 +269,9 @@ context strategy is later selected.
   campaign, conversation and source-message provenance.
 - The same row powers both “feedback given” and restricted “feedback received”
   views; it is not copied onto participant profiles.
-- Safety-flavoured content is recorded as ordinary, visible notes; the operator
-  signal is `needsAttention`, never a suppressed result (D13).
+- Safety-flavoured content is recorded as ordinary, visible answers/notes; the
+  cited transcript message carries bounded attention metadata and the
+  conversation raises `needsAttention`. Nothing is suppressed (D13).
 - A permanently failed extraction still records attention, one note and one
   acknowledgement; a dead run never leaves a turn silently unmarked.
 - Wasender IDs are untrusted and deduplicated before processing.
@@ -305,7 +320,10 @@ sequenceDiagram
   Note over Run: closed / human / cursor ≥ latestSeq → skip
   Run->>Events: listFeedbackCandidatesForRespondent (live, D16)
   Run->>PG: campaign + already accepted answers/notes
-  Run->>Model: Greek prompt, Zod-validated structured output
+  par extraction and attention classification
+    Run->>Model: full transcript → answers, notes, reply
+    Run->>Model: 6 prior turns + new burst → incident per target ID
+  end
   Run->>Run: domain validation (provenance, subjects, replay)
   Run->>PG: answers, notes, audit, one outbox row
   Run->>Mongo: transcribe the outbound reply (actor bot, by outboxId)
@@ -319,17 +337,24 @@ calling the model at all.
 
 ### What the model is given and what it may return
 
-The prompt is Greek-first (the conversation is Greek) with English field names
-(they are the persisted contract). It carries the full actor-labelled
-transcript, the campaign's question copy snapshot, the **live** candidate list
-from the shared D16 helper, the already-accepted results and the output rules.
-The model has no tools and no store access.
+Both prompts are Greek-first (the conversation is Greek) with English field
+names (they are the persisted contract). The extraction proposal is
+`answers[]`, `notes[]`, `skippedGoals[]`, `nextGoal`, `reply`, `handoff`,
+`confidence`; its full transcript also carries the campaign's question copy
+snapshot, **live** D16 candidates and already-accepted results.
 
-The proposal is `answers[]`, `notes[]`, `skippedGoals[]`, `nextGoal`, `reply`,
-`handoff`, `safetySignal`, `confidence`. `skippedGoals` is a deliberate addition
-to the plan's §7 sketch: D3 locks every question as skippable with no answer
-row, and without a producer for it a participant whose remaining answer is
-«κανένας» could never reach `completed`, so the closing copy would never send.
+The independent attention proposal is `results[]`, exactly one per supplied new
+participant message: `messageId`, `incident`, nullable `category`, nullable
+`recommendedAction`, `confidence`. It is not given questionnaire or candidate
+data. The model has no tools and no store access in either call. OpenRouter
+reasoning is disabled for this bounded classification task; held-out acceptance
+must prove the direct structured answer remains reliable before that setting
+changes.
+
+`skippedGoals` is a deliberate addition to the plan's §7 sketch: D3 locks every
+question as skippable with no answer row, and without a producer for it a
+participant whose remaining answer is «κανένας» could never reach `completed`,
+so the closing copy would never send.
 
 ### Validation before any persistence or send
 
@@ -342,15 +367,21 @@ row, and without a producer for it a participant whose remaining answer is
 | Subject is a **current** candidate and ≠ respondent | Answer dropped; note degrades subjectless + flagged (D18)       |
 | Nothing already recorded is written twice           | Skipped (`already_recorded` / `duplicate_in_run`)               |
 | Lifecycle ∧ control ∧ opt-in permit a reply         | Reply suppressed, results still persisted                       |
-| Safety signal                                       | Nothing suppressed; `needsAttention` + audit (D13)              |
+| Classifier incident result                          | Nothing suppressed; annotate target message + attention + audit |
 | Explicit `handoff`                                  | Neutral handoff copy replaces the reply; notes still recorded   |
 
 D18's degradation is asymmetric on purpose. A **note** carries the
 participant's own words, so an unresolvable mention keeps the note, drops the
 subject, records `flaggedForReview` and `unresolvedSubjectName` in
-`extraction_meta`, and leaves the name in the text. A directed **answer**
-carries no text of its own; without a resolved subject it asserts nothing, so it
-is dropped rather than turned into a fabricated note.
+`extraction_meta`, and leaves the name in the text. That flagged note also
+raises `needsAttention` so the safeguard is visible in the inbox — without it,
+D18 works and nobody ever learns that it fired. A directed **answer** carries
+no text of its own; without a resolved subject it asserts nothing, so it is
+dropped rather than turned into a fabricated note.
+
+Answer immutability still drops a corrected value as `already_recorded`. When
+the proposed value differs from the stored one, the run raises `needsAttention`
+so an operator can reconcile; it does not rewrite the row.
 
 Two candidates sharing a first name («Κώστας») cannot be separated by
 application code — both ids are valid, so a correct pick and a lucky guess are
@@ -373,13 +404,22 @@ answered`, derived from stored **and** newly written answers so a replay repairs
   them;
 - exactly one outbox row per run, chosen by the application rather than the
   model: the neutral handoff copy on an **explicit** handoff, else the closing
-  copy when every goal is terminal, else the model's reply;
+  copy when every goal is terminal **and this run produced no safety
+  signals**, else the model's reply;
 - that row transcribed as an `actor: bot` message carrying its `outboxId`
   ([outbound transcript entries](#outbound-transcript-entries)), so the next run
   reads what the bot already asked;
-- `close(completed)` when every goal is terminal;
-- `needsAttention` + an audit event on safety or handoff, plus one
-  [operator alert](#operator-alert-seam) if that flag actually changed.
+- `close(completed)` when every goal is terminal **and this run produced no
+  safety signals** — a disclosure that happens to finish the questionnaire
+  keeps the conversation open so a human can take it;
+- merge model classifications into the cited participant messages without
+  downgrading an earlier model classification;
+- `needsAttention` on safety, handoff, a note written with `flaggedForReview`
+  (D18), or an `already_recorded` answer proposed again with a **different**
+  value than the stored row (a refused revision). An audit event and one
+  [operator alert](#operator-alert-seam) fire only for safety or handoff, and
+  only if the durable flag actually changed. Flagged notes and refused
+  revisions are inbox work, not pages.
 
 Extraction stops at the outbox row. The
 [WP6 relay](#wp6-outbox-relay-and-transport-implemented) leases it and sends it
@@ -433,9 +473,10 @@ on non-configurable policy, which is what the
 Staging acceptance must confirm the passthrough actually reaches the upstream
 provider.
 
-Input pressure is logged in **tokens** — both the pre-call estimate and the
-provider's reported usage — because a short thread of long Greek paragraphs is
-the expensive case that a message counter would rank as cheap.
+Input pressure is logged in **tokens**, separately for `feedback_extraction`
+and `attention_classification` — both the pre-call estimate and the provider's
+reported usage — because a short thread of long Greek paragraphs is the
+expensive case that a message counter would rank as cheap.
 
 ## D13 — safety content travels the ordinary pipeline
 
@@ -454,32 +495,18 @@ What holds now:
 | Concern              | Rule                                                                                                                                              |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Notes                | Safety-flavoured statements become **ordinary** `feedback_notes` rows, same table, status and admin view as any other note. Nothing is suppressed |
-| Handoff              | A safety signal does **not** force one. Only an explicit model `handoff` swaps in the neutral copy; the questionnaire otherwise continues         |
-| Operator signal      | `needsAttention` on the conversation, plus exactly one audit event. That flag is the signal — there is no separate incident record                |
-| Deterministic floor  | A keyword tripwire raises the same flag before any model call, so a later provider refusal cannot leave the turn unmarked                         |
+| Handoff              | Attention does **not** imply a participant-requested handoff. Only an explicit request to speak with a human swaps in the neutral copy            |
+| Operator signal      | `needsAttention`, an audit event and bounded metadata on each cited participant message; there is no separate incident record                     |
+| Classification owner | Only the independent contextual model call selects a category and recommended action for a new target message; there is no keyword classifier     |
+| Provider failure     | The terminal fallback raises generic conversation attention and writes a neutral note, but does not classify a message                            |
 | Restricted reporting | The `safety_reports` table remains deferred to the pre-real-humans gate pack; nothing in this module writes one                                   |
 
-### The deterministic tripwire
-
-[`post-event-feedback-safety-matcher.ts`](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-safety-matcher.ts)
-is a pure WP0-style matcher over a small curated Greek + English lexicon
-(sexual content, harassment, violence, self-harm). It is tuned for
-**precision over recall** — obvious explicit terms only — because the only cost
-of a match is an operator's attention.
-
-Matching folds accents and case like the STOP matcher, reduces punctuation runs
-to single spaces, and anchors each term at a **word start** while leaving the
-right edge open. That asymmetry is the whole design: Greek inflects on the
-suffix, so one stem covers a paradigm («βιασμ» → βιασμός, βιασμού, βιασμοί),
-while the closed left edge keeps `rape` out of «grape» and «βιασμ» out of
-«εκβιασμός».
-
-The materializer runs it on participant inbound **after** the STOP check, so an
-opt-out is never delayed and STOP wins when a message matches both. A match
-raises `needsAttention` and writes one audit event carrying the matched
-**categories** and never the text. It does not suppress extraction, enqueue a
-handoff or alter the transcript: the turn continues into normal extraction and
-the disclosure becomes an ordinary note.
+Classification is contextual rather than lexical. Crude or sexual banter alone
+is not a safety signal and may receive a light, non-encouraging redirection.
+Unwanted exposure, harassment or credible danger is classified from the act and
+consent described in the new testimony. The classifier sees the six preceding
+messages plus the new target burst. Older turns may disambiguate tone and
+consent but cannot receive a new classification in a later extraction run.
 
 ### Deterministic fallback for a dead run
 
@@ -522,10 +549,12 @@ no note, no audit event and raises no alert.
 port is the notification half, so nobody has to be watching the inbox for a
 disclosure or a dead run to be noticed.
 
-It is raised only on a genuine `false → true` crossing. Idempotency is
-structural rather than bookkept: `setNeedsAttention` already reports whether it
-changed anything, so a replayed job re-asserts the flag, sees `changed: false`
-and stays quiet.
+It is raised only on a genuine `false → true` crossing, and only for safety,
+an explicit handoff or a terminal extraction failure. A flagged subjectless
+note or a refused answer revision raises the durable flag without paging —
+those are routine inbox work. Idempotency is structural rather than bookkept:
+`setNeedsAttention` already reports whether it changed anything, so a replayed
+job re-asserts the flag, sees `changed: false` and stays quiet.
 
 `FEEDBACK_OPERATOR_ALERT_MODE` selects the channel — `log` (default) emits a
 structured `feedback.operator_alert` warning; `off` disables notification while
@@ -551,13 +580,13 @@ classification — including that a `content-filter` finish reason is read as
 `provider_refusal` rather than a schema mishap, and that the permissive safety
 settings are attached to Google models only. No test calls a provider.
 
-D13's own coverage sits alongside it: matcher precision (accents, mixed case,
-`grape`/«εκβιασμός» near-misses), the tripwire flagging without suppressing
-extraction, STOP winning when both match, the audit payload containing no
-participant text, the fallback writing exactly one note + one acknowledgement +
-one audit event and nothing on replay, unique-name subject resolution versus
-two-name ambiguity, the alert firing once per `false → true` transition, and the
-processor surfacing each bounded cause class in `failedReason`.
+D13's own coverage sits alongside it: the independent classifier requiring
+exact target-message coverage without suppressing notes or answers, the
+materializer leaving inbound text unclassified before extraction, the fallback
+writing exactly one note + one acknowledgement + one audit event and nothing on
+replay, unique-name subject resolution versus two-name ambiguity, the alert
+firing once per `false → true` transition, and the processor surfacing each
+bounded cause class in `failedReason`.
 
 ## Failure and recovery
 
@@ -589,7 +618,9 @@ application or another explicit single-writer workflow.
 Add question definitions through a versioned question set, not prompt-only
 changes. Add note types only when they have a named product use, visibility and
 retention rule. Add summarization or segments only after fixtures demonstrate
-that full transcript context is too costly or harms extraction.
+that full transcript context is too costly or harms extraction. Change the
+classifier's six-message history window only with held-out incident and banter
+evals; it is a meaning boundary, not a token-budget accident.
 
 Required pre-activation fixtures include multi-message bursts, admin follow-up,
 unknown external outbound, takeover/resume, STOP during takeover, corrections,
@@ -609,21 +640,20 @@ Versioned questionnaire constants, the deterministic STOP matcher and Greek
 extraction fixtures live under
 [`apps/backend/src/modules/post-event-feedback/`](../../../apps/backend/src/modules/post-event-feedback/).
 
-| Artifact             | Source                                  | Contract                                                                                                                                        |
-| -------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| Question set v1      | `post-event-feedback-question-set.ts`   | Keys `event_score`, `liked`, `meet_again`, `avoid`; note types `activity_interest`, `general`; draft Greek copy editable without schema changes |
-| STOP matcher (D14)   | `post-event-feedback-stop-matcher.ts`   | Pure function; `STOP`, `STOP ALL`, `UNSUBSCRIBE`, `ΔΙΑΚΟΠΗ`, `ΣΤΟΠ`; case-, whitespace- and accent-insensitive                                  |
-| Safety matcher (D13) | `post-event-feedback-safety-matcher.ts` | Pure function over a curated Greek + English lexicon; word-start anchored, right-open, accent- and case-folded                                  |
-| Extraction fixtures  | `post-event-feedback-fixtures.ts`       | Typed Greek transcripts with expected-outcome annotations for later WP5 evals                                                                   |
+| Artifact            | Source                                | Contract                                                                                                                                        |
+| ------------------- | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Question set v1     | `post-event-feedback-question-set.ts` | Keys `event_score`, `liked`, `meet_again`, `avoid`; note types `activity_interest`, `general`; draft Greek copy editable without schema changes |
+| STOP matcher (D14)  | `post-event-feedback-stop-matcher.ts` | Pure function; `STOP`, `STOP ALL`, `UNSUBSCRIBE`, `ΔΙΑΚΟΠΗ`, `ΣΤΟΠ`; case-, whitespace- and accent-insensitive                                  |
+| Extraction fixtures | `post-event-feedback-fixtures.ts`     | Typed Greek transcripts with expected-outcome annotations for later WP5 evals                                                                   |
 
-Both matchers share `foldPostEventFeedbackText` /
-`foldedTextContainsAtWordStart` from the STOP module. The STOP matcher itself
-still compares whole strings — stripping punctuation there would widen the
-command rather than normalise it.
+The STOP matcher is the sole deterministic text matcher. It compares whole
+commands; stripping punctuation there would widen the command rather than
+normalise it. Attention classification intentionally has no curated keyword
+list.
 
-Focused unit tests cover matcher edge cases (accents, mixed case, precision
-against near-miss words) and fixture integrity. No runtime pipeline, queue or
-Mongo work is part of WP0/WP2.
+Focused unit tests cover STOP edge cases (accents, mixed case, precision against
+near-miss strings), classifier target ownership and fixture integrity. No
+runtime pipeline, queue or Mongo work is part of WP0/WP2.
 
 ## Tests and operations
 
@@ -661,16 +691,15 @@ anything.
 [`PostEventFeedbackMaterializer`](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-materializer.service.ts)
 reloads the ingress row and decides one outcome per delivery:
 
-| Situation                           | Outcome                    | Effects                                                                                                                            |
-| ----------------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| Row already terminal                | `already_processed`        | Nothing; this is the replay path                                                                                                   |
-| Phone matches no open conversation  | `ignored_unmatched`        | Body dropped, metadata kept, counter incremented, never AI-processed (D10)                                                         |
-| Inbound STOP                        | `inbound_stopped`          | Close `stopped`, cancel queued outbox, withdraw opt-in, audit, exactly one `stop_ack` outbox row transcribed as `actor: bot` (D14) |
-| Inbound reply                       | `inbound_materialized`     | Idempotent transcript append, then one `feedback.extract.v1` for the newest transcript position                                    |
-| Inbound matching the safety lexicon | `inbound_materialized`     | Additive only: `needsAttention` + one audit event naming the categories, then the ordinary reply path above (D13)                  |
-| Inbound without usable text         | `inbound_not_materialized` | `needsAttention`, ingress `failed`; the durable row keeps the provider metadata for an operator                                    |
-| Outbound matching an outbox row     | `outbound_correlated`      | Delivery columns only — the outbox owns that message's transcript entry, so nothing is appended twice                              |
-| Outbound matching an open thread    | `outbound_external`        | Take over to human control, append the observed staff message, audit external channel activity (D17)                               |
+| Situation                          | Outcome                    | Effects                                                                                                                            |
+| ---------------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Row already terminal               | `already_processed`        | Nothing; this is the replay path                                                                                                   |
+| Phone matches no open conversation | `ignored_unmatched`        | Body dropped, metadata kept, counter incremented, never AI-processed (D10)                                                         |
+| Inbound STOP                       | `inbound_stopped`          | Close `stopped`, cancel queued outbox, withdraw opt-in, audit, exactly one `stop_ack` outbox row transcribed as `actor: bot` (D14) |
+| Inbound reply                      | `inbound_materialized`     | Idempotent transcript append, then one `feedback.extract.v1` for the newest transcript position                                    |
+| Inbound without usable text        | `inbound_not_materialized` | `needsAttention`, ingress `failed`; the durable row keeps the provider metadata for an operator                                    |
+| Outbound matching an outbox row    | `outbound_correlated`      | Delivery columns only — the outbox owns that message's transcript entry, so nothing is appended twice                              |
+| Outbound matching an open thread   | `outbound_external`        | Take over to human control, append the observed staff message, audit external channel activity (D17)                               |
 
 Conversation resolution is the Mongo `findOpenByPhone` lookup backed by the
 partial unique index (D9). Nothing infers which event or person an unmatched
@@ -683,13 +712,6 @@ STOP is matched by the WP0 deterministic matcher **before** any model call and
 works in either control mode: a takeover does not make opt-out negotiable. The
 acknowledgement body comes from the campaign's launch copy snapshot, falling
 back to the versioned constant.
-
-The [safety tripwire](#the-deterministic-tripwire) runs immediately after the
-STOP branch returns, which is what makes STOP win when a message matches both.
-Its audit event is written inside the same ingress fence as the terminal status
-update, so two concurrent executions collapse to one event exactly as the STOP
-path does; its `needsAttention` write and its alert are idempotent on their own
-transition.
 
 An observed outbound is correlated first by provider message id and then by the
 oldest unlinked outbox row of that conversation with the same body. That
@@ -959,11 +981,11 @@ relay leases them with stagger.
 [`PostEventFeedbackSweepService`](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-sweep.service.ts)
 runs as bounded BullMQ jobs every five minutes:
 
-| Job                           | Contract                                                                                                                                                                                                                                                                           |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `feedback.sweep-reminders.v1` | One reminder at `FEEDBACK_REMINDER_AFTER_HOURS` (default 24) when there is no participant reply; transcribed as `actor: bot` before `markReminded`, so a crash between the two repairs on the next sweep; skips closed / human / opted-out / already reminded / inactive campaign. |
-| `feedback.sweep-expiry.v1`    | At `FEEDBACK_EXPIRE_AFTER_HOURS` (default 72) → `close(expired)` + cancel queued outbox; same skip set.                                                                                                                                                                            |
-| `feedback.sweep-ingress.v1`   | Re-enqueues `feedback.materialize.v1` for `pending` ingress rows older than `FEEDBACK_INGRESS_PENDING_RECOVERY_MINUTES` (default 5) under the existing stable job id.                                                                                                              |
+| Job                           | Contract                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `feedback.sweep-reminders.v1` | A ladder of up to `FEEDBACK_MAX_REMINDERS` (default 2) nudges: nudge _N_ falls due after _N_ × `FEEDBACK_REMINDER_AFTER_HOURS` (default 24) of **participant silence**, so the defaults send at 24h and 48h. Silence runs from the participant's own newest message, or from launch if they never wrote; our outbound never resets it. `reminderCount` is the ladder state and `markReminded` advances it under a compare-and-set, so concurrent sweeps cannot double-nudge. Transcribed as `actor: bot` before `markReminded`, so a crash between the two repairs on the next sweep under the same per-ordinal `dedupe_key`. Skips closed / human / opted-out / inactive campaign, **and any conversation with `needsAttention`** — a conversation waiting for a person must not be chased by a machine. |
+| `feedback.sweep-expiry.v1`    | At `FEEDBACK_EXPIRE_AFTER_HOURS` (default 72) of the same **silence** measure → `close(expired)` + cancel queued outbox. Same skip set except attention: expiry sends nothing and releases the `phoneAtLaunch` unique index, so withholding it only strands the row.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `feedback.sweep-ingress.v1`   | Re-enqueues `feedback.materialize.v1` for `pending` ingress rows older than `FEEDBACK_INGRESS_PENDING_RECOVERY_MINUTES` (default 5) under the existing stable job id.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
 ### Staff HTTP contract
 

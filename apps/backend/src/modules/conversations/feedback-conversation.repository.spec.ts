@@ -174,7 +174,11 @@ describe("FeedbackConversationRepository", () => {
         messages: { $size: 1 },
       },
       {
-        $push: { messages: result.message },
+        // Sorted on write by observation time: webhooks can arrive backwards
+        // and a transcript read in arrival order rewrites a split thought.
+        $push: {
+          messages: { $each: [result.message], $sort: { at: 1, seq: 1 } },
+        },
         $max: { updatedAt: repliedAt },
       },
     );
@@ -201,6 +205,51 @@ describe("FeedbackConversationRepository", () => {
       expect.objectContaining({ appended: false, message: existing }),
     );
     expect(collection.updateOne).not.toHaveBeenCalled();
+  });
+
+  it("merges attention metadata onto the cited participant message", async () => {
+    const message = participantMessage(1);
+    const current = feedbackConversation({ messages: [message] });
+    const attention = {
+      categories: ["sexual_misconduct"] as const,
+      recommendedAction: "human_follow_up" as const,
+      confidence: 0.94,
+    };
+    const collection = collectionMock({
+      findOne: vi.fn().mockResolvedValue(current),
+      findOneAndUpdate: vi.fn().mockResolvedValue({
+        ...current,
+        messages: [{ ...message, attention }],
+      }),
+    });
+    const repository = createRepository(collection);
+
+    const result = await repository.mergeMessageAttention({
+      conversationId,
+      messageId: message.id,
+      categories: ["sexual_misconduct"],
+      recommendedAction: "human_follow_up",
+      confidence: 0.94,
+      at: repliedAt,
+    });
+
+    expect(result.changed).toBe(true);
+    expect(result.conversation.messages[0]?.attention).toEqual(attention);
+    expect(collection.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: {
+          $elemMatch: { id: message.id, attention: null },
+        },
+      }),
+      {
+        $set: { "messages.$[message].attention": attention },
+        $max: { updatedAt: repliedAt },
+      },
+      {
+        returnDocument: "after",
+        arrayFilters: [{ "message.id": message.id }],
+      },
+    );
   });
 
   it("rejects a replayed provenance id carrying different content", async () => {
@@ -303,6 +352,8 @@ describe("FeedbackConversationRepository", () => {
             source: "external_outbound",
             changedAt: repliedAt,
           },
+          // A person has arrived, so any bot-side wait for one is over.
+          awaitingHuman: false,
         },
         $max: { updatedAt: repliedAt },
       },
@@ -701,6 +752,8 @@ function feedbackConversation(
     extraction: { cursorSeq: 0, lastRunAt: null, model: null },
     needsAttention: false,
     remindedAt: null,
+    reminderCount: 0,
+    awaitingHuman: false,
     createdAt: launchedAt,
     updatedAt: repliedAt,
     ...overrides,
@@ -716,6 +769,7 @@ function botMessage(seq: number): FeedbackConversationMessage {
     providerMessageId: null,
     ingressId: null,
     outboxId: seq === 1 ? outboxId : randomUUID(),
+    attention: null,
     at: launchedAt,
   };
 }
@@ -729,6 +783,7 @@ function participantMessage(seq: number): FeedbackConversationMessage {
     providerMessageId: null,
     ingressId: randomUUID(),
     outboxId: null,
+    attention: null,
     at: launchedAt,
   };
 }

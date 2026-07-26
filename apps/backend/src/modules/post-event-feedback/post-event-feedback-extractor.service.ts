@@ -26,12 +26,17 @@ import {
 } from "./post-event-feedback-metrics.service.js";
 import {
   POST_EVENT_FEEDBACK_QUESTION_SET_V1,
+  isPostEventFeedbackAnswerQuestionKey,
   type PostEventFeedbackAnswerQuestionKey,
   type PostEventFeedbackNoteType,
   type PostEventFeedbackQuestionSetCopy,
 } from "./post-event-feedback-question-set.js";
-import { validateFeedbackExtractionProposal } from "./post-event-feedback-extraction-validation.js";
+import {
+  validateFeedbackExtractionProposal,
+  type FeedbackExtractionValidationResult,
+} from "./post-event-feedback-extraction-validation.js";
 import { PostEventFeedbackExtractionModel } from "./post-event-feedback-extraction.service.js";
+import { FEEDBACK_EXTRACT_QUIET_WINDOW_MS } from "./post-event-feedback.schemas.js";
 import {
   POST_EVENT_FEEDBACK_HANDOFF_REPLY,
   createFeedbackClosingDedupeKey,
@@ -39,7 +44,13 @@ import {
   createFeedbackReplyDedupeKey,
   type FeedbackExtractionContext,
   type ValidatedFeedbackExtraction,
+  type ValidatedFeedbackSafetySignal,
 } from "./post-event-feedback-extraction.schemas.js";
+import {
+  strongerRecommendedAction,
+  type PostEventFeedbackRecommendedAction,
+  type PostEventFeedbackSafetyCategory,
+} from "./post-event-feedback-attention.js";
 import {
   buildFeedbackExtractionPrompt,
   estimateFeedbackExtractionTokens,
@@ -173,9 +184,16 @@ export class PostEventFeedbackExtractor {
     const prompt = buildFeedbackExtractionPrompt({ context, copy });
     const estimatedPromptTokens = estimateFeedbackExtractionTokens(prompt);
 
-    const generated = await this.generation.propose(prompt);
+    const [generated, attention] = await Promise.all([
+      this.generation.propose(prompt),
+      this.generation.classifyAttention(
+        context.messages,
+        context.newParticipantMessageIds,
+      ),
+    ]);
     this.metrics.recordExtractTokens(
       {
+        phase: "feedback_extraction",
         model: generated.model,
         estimatedPromptTokens,
         inputTokens: generated.usage.inputTokens,
@@ -184,10 +202,22 @@ export class PostEventFeedbackExtractor {
       },
       input.correlationId,
     );
+    this.metrics.recordExtractTokens(
+      {
+        phase: "attention_classification",
+        model: attention.model,
+        estimatedPromptTokens: attention.estimatedPromptTokens,
+        inputTokens: attention.usage.inputTokens,
+        outputTokens: attention.usage.outputTokens,
+        totalTokens: attention.usage.totalTokens,
+      },
+      input.correlationId,
+    );
 
     const validated = validateFeedbackExtractionProposal(
       generated.proposal,
       context,
+      attention.signals,
     );
     if (validated.rejections.length > 0) {
       this.logger.warn({
@@ -204,6 +234,20 @@ export class PostEventFeedbackExtractor {
       validated,
     );
     const completing = isCompleting(conversation.goals, goalStatuses);
+    // A disclosure that happens to finish the questionnaire is not a finish
+    // line: closing copy and close() wait for a run that did not raise safety.
+    // Results, attention and the alert still write; only the conversational
+    // ending is deferred so a human can take the thread.
+    const closingNow = completing && validated.safetySignals.length === 0;
+    // The two signals that end the questionnaire outright, as opposed to
+    // flagging it. Both mean the same thing — from here a person is answering,
+    // not the bot — so both hand control over, which is the existing brake:
+    // `resolveSkip` refuses to run under human control and the reminder sweep
+    // refuses to nudge a flagged conversation.
+    const urgentSafety = validated.safetySignals.some(
+      (signal) => signal.recommendedAction === "urgent_human_follow_up",
+    );
+    const dutyOfCare = validated.handoff || urgentSafety;
     // Anchored on the participant's own latest message rather than on the
     // transcript length, because this run appends its reply to that same
     // transcript: a length-based key would differ on a replay that already sees
@@ -211,17 +255,40 @@ export class PostEventFeedbackExtractor {
     const outbound = this.resolveOutbound(
       conversation,
       validated,
-      completing,
+      closingNow,
+      urgentSafety,
       lastParticipantSeq(conversation) ?? cursorSeq,
       copy,
     );
+    const withheld = outbound
+      ? await this.reviewBeforeSending({
+          conversation,
+          cursorSeq,
+          // Only an ordinary conversational reply may be dropped for being
+          // superseded. Completion and handoff are application commitments with
+          // their own copy: the first closes the conversation, after which no
+          // later run can speak at all, and the second promises a human.
+          // Swallowing either leaves the participant waiting for a message that
+          // is never coming.
+          ordinaryReply: !closingNow && !validated.handoff,
+        })
+      : undefined;
+    if (withheld) {
+      this.logger.log({
+        event: "feedback.extract.outbound_withheld",
+        correlationId: input.correlationId,
+        conversationId: conversation._id,
+        cursorSeq,
+        reason: withheld,
+      });
+    }
 
     const written = await this.persist({
       conversation,
       campaign,
       context,
       validated,
-      outbound,
+      outbound: withheld ? undefined : outbound,
       model: generated.model,
       correlationId: input.correlationId,
     });
@@ -243,7 +310,8 @@ export class PostEventFeedbackExtractor {
       conversation,
       validated,
       goalStatuses,
-      completing,
+      closingNow,
+      dutyOfCare,
       cursorSeq,
       model: generated.model,
       correlationId: input.correlationId,
@@ -253,8 +321,9 @@ export class PostEventFeedbackExtractor {
       {
         // A safety signal is no longer an outcome of its own: the run extracted
         // normally and the flag is what an operator acts on. Only an explicit
-        // handoff changes what the conversation did.
-        outcome: completing
+        // handoff changes what the conversation did. Closing is deferred when
+        // this run produced safety signals even if every goal is terminal.
+        outcome: closingNow
           ? "completed"
           : validated.handoff
             ? "handoff"
@@ -285,10 +354,55 @@ export class PostEventFeedbackExtractor {
     if (conversation.control.mode === "human") {
       return "skipped_human_control";
     }
+    // Control is still `bot`, and the bot has still stopped talking: it has
+    // promised a person, or read something it must not answer. The questionnaire
+    // used to resume here on the very next message.
+    if (conversation.awaitingHuman) {
+      return "skipped_awaiting_human";
+    }
     if (conversation.extraction.cursorSeq >= latestSeq) {
       return "skipped_cursor";
     }
+    if (this.stillTyping(conversation)) {
+      return "skipped_still_typing";
+    }
     return undefined;
+  }
+
+  /**
+   * The burst is not over yet, so this run stands down for the one behind it.
+   *
+   * The quiet window is leading-edge: the *first* message of a burst starts a
+   * clock, and every message after it starts another. Somebody typing a
+   * fragment every twenty-five seconds therefore had a run come due while they
+   * were still mid-thought, and got a reply per fragment — the exact behaviour
+   * the window was added to stop, just moved along by one gap.
+   *
+   * Deferring here converts the fixed window into a real settle: a run only
+   * proceeds once nothing new has arrived for a full window. It costs nothing,
+   * because the message that made this run early has already queued a run of
+   * its own, further out, and that one reads everything this one would have.
+   *
+   * Liveness comes from the same fact. The newest message's own run comes due
+   * exactly one window after it arrived, so its check reads `>=` and always
+   * proceeds; only runs with something newer behind them ever defer. The cursor
+   * is deliberately left where it was — a deferred run reads nothing, so it has
+   * no window to close.
+   */
+  private stillTyping(conversation: FeedbackConversationDocument): boolean {
+    let spokeAt: number | undefined;
+    for (const message of conversation.messages) {
+      if (
+        message.actor === "participant" &&
+        (spokeAt === undefined || message.at.getTime() > spokeAt)
+      ) {
+        spokeAt = message.at.getTime();
+      }
+    }
+    return (
+      spokeAt !== undefined &&
+      Date.now() - spokeAt < FEEDBACK_EXTRACT_QUIET_WINDOW_MS
+    );
   }
 
   private async buildContext(
@@ -310,13 +424,22 @@ export class PostEventFeedbackExtractor {
 
     return {
       respondentParticipantId: conversation.respondentParticipantId,
+      respondentDisplayName: participant?.preferredName?.trim() || null,
       candidates: candidates.items,
       messages: conversation.messages.map((message) => ({
         id: message.id,
         seq: message.seq,
         actor: message.actor,
+        occurredAt: message.at.toISOString(),
         text: message.text,
       })),
+      newParticipantMessageIds: conversation.messages
+        .filter(
+          (message) =>
+            message.actor === "participant" &&
+            message.seq > conversation.extraction.cursorSeq,
+        )
+        .map((message) => message.id),
       goals: conversation.goals,
       acceptedAnswers: acceptedAnswers.map((answer) => ({
         questionKey: answer.questionKey as PostEventFeedbackAnswerQuestionKey,
@@ -346,15 +469,30 @@ export class PostEventFeedbackExtractor {
    *
    * `testimonySeq` is the last participant message's `seq` — the replay-stable
    * anchor for the dedupe key.
+   *
+   * `closingNow` is already the decision to send the closing copy — the caller
+   * withholds it when this run produced safety signals, even if every goal is
+   * terminal. Ranking completion above a disclosure thanked someone who had
+   * just described being grabbed and closed the door on them.
    */
   private resolveOutbound(
     conversation: FeedbackConversationDocument,
-    validated: ValidatedFeedbackExtraction,
-    completing: boolean,
+    validated: FeedbackExtractionValidationResult,
+    closingNow: boolean,
+    urgentSafety: boolean,
     testimonySeq: number,
     copy: PostEventFeedbackQuestionSetCopy,
   ): OutboundReply | undefined {
-    if (!validated.reply && !completing && !validated.handoff) {
+    // Somebody has just said they do not want to live. There is no approved
+    // copy for that, and every option the questionnaire owns is wrong: the next
+    // question treats it as a lull in conversation, and the thank-you treats it
+    // as an ending. Until a policy defines a safe reply, the bot says nothing
+    // and the conversation goes to a person. An explicit handoff is the one
+    // exception, because its copy says exactly that.
+    if (urgentSafety && !validated.handoff) {
+      return undefined;
+    }
+    if (!validated.reply && !closingNow && !validated.handoff) {
       return undefined;
     }
     if (validated.replySuppressedReason === "not_permitted") {
@@ -375,12 +513,26 @@ export class PostEventFeedbackExtractor {
         ),
       };
     }
-    if (completing) {
+    if (closingNow) {
       return {
         body: copy.closing,
         dedupeKey: createFeedbackClosingDedupeKey(conversation._id),
       };
     }
+    // The model wrote its reply believing its own proposal was accepted. When
+    // validation then refused the answer, «Τέλεια, το σημείωσα!» is a straight
+    // untruth: nothing was recorded, the participant believes the question is
+    // behind them, and the score is lost with nobody aware. Ask the question
+    // again instead — in the campaign's own words, which are the only ones here
+    // guaranteed to still be true.
+    const refused = refusedAnswerQuestionKey(validated);
+    if (refused) {
+      return {
+        body: copy[refused],
+        dedupeKey: createFeedbackReplyDedupeKey(conversation._id, testimonySeq),
+      };
+    }
+
     return validated.reply
       ? {
           body: validated.reply,
@@ -393,6 +545,65 @@ export class PostEventFeedbackExtractor {
   }
 
   /**
+   * The last look before anything reaches a phone. Returns why the outbound was
+   * withheld, or `undefined` to send it.
+   *
+   * Everything the run decided with was snapshotted before the provider call,
+   * and that call takes seconds — long enough for staff to take the
+   * conversation over, close it, or for the participant to withdraw consent.
+   * The snapshot cannot see any of that, which is what made these three races
+   * real: the guards at the top of the run were correct and simply too early.
+   *
+   * The first three reasons silence **every** kind of outbound, closing copy and
+   * handoff included. A thank-you sent into a conversation a colleague has taken
+   * over, or a promise of a human sent to somebody who just asked us to stop
+   * writing, is worse than saying nothing. Only the last reason — the
+   * participant kept typing while the model was thinking — is limited to an
+   * ordinary reply, because there the conversation is healthy and merely has a
+   * newer thought for the next run to answer.
+   *
+   * Only the outbound is ever dropped. Answers, notes and the cursor are written
+   * exactly as they would have been, which is what keeps this safe under
+   * retries: the rule that every run closes the window it opened stays intact.
+   * Every reason is a database read rather than a model judgement, so a replay
+   * of the same job reaches the same conclusion instead of a fresh opinion.
+   */
+  private async reviewBeforeSending(input: {
+    readonly conversation: FeedbackConversationDocument;
+    readonly cursorSeq: number;
+    readonly ordinaryReply: boolean;
+  }): Promise<string | undefined> {
+    const current = await this.conversations.findById(input.conversation._id);
+    if (!current) {
+      return "conversation_missing";
+    }
+    if (current.lifecycle.state !== "open") {
+      return "conversation_closed";
+    }
+    if (current.control.mode !== "bot") {
+      return "human_control";
+    }
+
+    const participant = await this.participants.findById(
+      input.conversation.respondentParticipantId,
+    );
+    if (!participant?.postEventFeedbackWhatsappOptIn) {
+      return "consent_withdrawn";
+    }
+
+    if (
+      input.ordinaryReply &&
+      current.messages.some(
+        (message) =>
+          message.actor === "participant" && message.seq > input.cursorSeq,
+      )
+    ) {
+      return "superseded_by_newer_testimony";
+    }
+    return undefined;
+  }
+
+  /**
    * One PostgreSQL transaction per run, fenced by the conversation advisory
    * lock so two executions of the same job cannot interleave their inserts.
    */
@@ -400,7 +611,7 @@ export class PostEventFeedbackExtractor {
     readonly conversation: FeedbackConversationDocument;
     readonly campaign: FeedbackCampaignRow;
     readonly context: FeedbackExtractionContext;
-    readonly validated: ValidatedFeedbackExtraction;
+    readonly validated: FeedbackExtractionValidationResult;
     readonly outbound: OutboundReply | undefined;
     readonly model: string;
     readonly correlationId: string;
@@ -421,6 +632,16 @@ export class PostEventFeedbackExtractor {
 
       let answersWritten = 0;
       for (const answer of input.validated.answers) {
+        // «άκυρο, τον Κώστα Π. καλύτερα όχι ξανά» moves a person, it does not
+        // add a second opinion about them. Clearing the questions this one
+        // contradicts is what makes the move a move.
+        if (answer.subjectParticipantId) {
+          await this.repository.deleteContradictedAnswers(transaction, {
+            conversationId: input.conversation._id,
+            subjectParticipantId: answer.subjectParticipantId,
+            questionKeys: contradictedQuestionKeys(answer.questionKey),
+          });
+        }
         const inserted = await this.repository.insertAnswerIfAbsent(
           transaction,
           {
@@ -492,14 +713,17 @@ export class PostEventFeedbackExtractor {
 
       // D13 (amended): the audit records that a human should look, not what was
       // said — the notes above already hold the participant's own words, in the
-      // ordinary place an operator reads them.
-      if (needsOperatorAttention(input.validated)) {
+      // ordinary place an operator reads them. Flagged-note and revision
+      // attention are quieter: they raise the durable flag without an incident
+      // audit of their own.
+      if (isSafetyOrHandoffAttention(input.validated)) {
         await this.audit.append(transaction, {
           actorType: "system",
           actorId: "feedback_extraction",
-          action: input.validated.safetySignal
-            ? "feedback_conversation.safety_signalled"
-            : "feedback_conversation.handoff_requested",
+          action:
+            input.validated.safetySignals.length > 0
+              ? "feedback_conversation.safety_signalled"
+              : "feedback_conversation.handoff_requested",
           entityType: "feedback_conversation",
           entityId: input.conversation._id,
           requestId: input.correlationId,
@@ -507,7 +731,13 @@ export class PostEventFeedbackExtractor {
             campaignId: input.conversation.campaignId,
             model: input.model,
             confidence: input.validated.confidence,
-            safetySignal: input.validated.safetySignal,
+            safetySignal: input.validated.safetySignals.length > 0,
+            safetySignals: input.validated.safetySignals.map((signal) => ({
+              category: signal.category,
+              recommendedAction: signal.recommendedAction,
+              sourceMessageIds: [...signal.sourceMessageIds],
+              confidence: signal.confidence,
+            })),
             handoff: input.validated.handoff,
           },
         });
@@ -542,9 +772,10 @@ export class PostEventFeedbackExtractor {
    */
   private async applyConversationState(input: {
     readonly conversation: FeedbackConversationDocument;
-    readonly validated: ValidatedFeedbackExtraction;
+    readonly validated: FeedbackExtractionValidationResult;
     readonly goalStatuses: readonly GoalStatusUpdate[];
-    readonly completing: boolean;
+    readonly closingNow: boolean;
+    readonly dutyOfCare: boolean;
     readonly cursorSeq: number;
     readonly model: string;
     readonly correlationId: string;
@@ -559,22 +790,40 @@ export class PostEventFeedbackExtractor {
       });
     }
 
+    for (const attention of groupSafetySignalsByMessage(
+      input.validated.safetySignals,
+    )) {
+      await this.conversations.mergeMessageAttention({
+        conversationId: input.conversation._id,
+        messageId: attention.messageId,
+        categories: attention.categories,
+        recommendedAction: attention.recommendedAction,
+        confidence: attention.confidence,
+        at,
+      });
+    }
+
     if (needsOperatorAttention(input.validated)) {
       const attention = await this.conversations.setNeedsAttention({
         conversationId: input.conversation._id,
         needsAttention: true,
         at,
       });
-      // Only the false → true crossing notifies. A replayed run re-asserts the
-      // same flag, gets `changed: false` and stays quiet.
-      if (attention.changed) {
+      // Only the false → true crossing notifies, and only for safety or an
+      // explicit handoff. A flagged subjectless note or a refused revision is
+      // routine operator work — durable in the inbox, not a page-worthy alert.
+      // A replayed run re-asserts the same flag, gets `changed: false` and
+      // stays quiet either way.
+      if (attention.changed && isSafetyOrHandoffAttention(input.validated)) {
         await this.alert.raise({
           conversationId: input.conversation._id,
           campaignId: input.conversation.campaignId,
           reason: "extraction_safety_signal",
           correlationId: input.correlationId,
           detail: [
-            ...(input.validated.safetySignal ? ["safety_signal"] : []),
+            ...input.validated.safetySignals.map(
+              (signal) => `${signal.category}:${signal.recommendedAction}`,
+            ),
             ...(input.validated.handoff ? ["handoff"] : []),
           ],
         });
@@ -588,7 +837,23 @@ export class PostEventFeedbackExtractor {
       model: input.model,
     });
 
-    if (input.completing) {
+    // After the cursor, so this run's window is closed before the bot goes
+    // quiet — a cursor left behind would strand the testimony this run read.
+    //
+    // Not `takeOver`: D17 is explicit that a handoff is a promise and control
+    // moves when a person presses the button. This is the state between those
+    // two moments, which the conversation had no way to represent — so the bot
+    // promised a human and then asked about the dinner again on the next
+    // message. The conversation stays open and under bot control; the bot
+    // simply stops speaking until somebody arrives.
+    if (input.dutyOfCare) {
+      await this.conversations.markAwaitingHuman({
+        conversationId: input.conversation._id,
+        at,
+      });
+    }
+
+    if (input.closingNow) {
       await this.conversations.close({
         conversationId: input.conversation._id,
         reason: "completed",
@@ -693,14 +958,72 @@ function isCompleting(
 }
 
 /**
- * Both signals still deserve a human, and both still raise `needsAttention` —
- * that is what D13's amendment kept. What changed is that neither one edits the
- * results any more.
+ * Anything that should surface in the admin inbox. Safety and handoff are the
+ * incident path (D13); a flagged subjectless note (D18) and a refused answer
+ * revision are quieter — the safeguard already wrote the note or kept the
+ * stored value, and without the flag nobody would know to look.
  */
 function needsOperatorAttention(
+  validated: FeedbackExtractionValidationResult,
+): boolean {
+  return (
+    isSafetyOrHandoffAttention(validated) ||
+    validated.notes.some((note) => note.flaggedForReview) ||
+    validated.conflictingAnswerRevision
+  );
+}
+
+function isSafetyOrHandoffAttention(
   validated: ValidatedFeedbackExtraction,
 ): boolean {
-  return validated.safetySignal || validated.handoff;
+  return validated.safetySignals.length > 0 || validated.handoff;
+}
+
+interface GroupedMessageAttention {
+  readonly messageId: string;
+  readonly categories: readonly PostEventFeedbackSafetyCategory[];
+  readonly recommendedAction: PostEventFeedbackRecommendedAction;
+  readonly confidence: number;
+}
+
+function groupSafetySignalsByMessage(
+  signals: readonly ValidatedFeedbackSafetySignal[],
+): GroupedMessageAttention[] {
+  const grouped = new Map<
+    string,
+    {
+      categories: Set<PostEventFeedbackSafetyCategory>;
+      recommendedAction: PostEventFeedbackRecommendedAction;
+      confidence: number;
+    }
+  >();
+
+  for (const signal of signals) {
+    for (const messageId of signal.sourceMessageIds) {
+      const current = grouped.get(messageId);
+      if (current) {
+        current.categories.add(signal.category);
+        current.recommendedAction = strongerRecommendedAction(
+          current.recommendedAction,
+          signal.recommendedAction,
+        );
+        current.confidence = Math.max(current.confidence, signal.confidence);
+      } else {
+        grouped.set(messageId, {
+          categories: new Set([signal.category]),
+          recommendedAction: signal.recommendedAction,
+          confidence: signal.confidence,
+        });
+      }
+    }
+  }
+
+  return [...grouped.entries()].map(([messageId, attention]) => ({
+    messageId,
+    categories: [...attention.categories],
+    recommendedAction: attention.recommendedAction,
+    confidence: attention.confidence,
+  }));
 }
 
 /**
@@ -754,4 +1077,49 @@ export function resolveQuestionCopy(
     }
   }
   return resolved;
+}
+
+/**
+ * The question whose answer this run refused for being unusable, if any.
+ *
+ * Only refusals the participant can act on count. An `already_recorded`
+ * duplicate or an unresolvable name needs no second attempt from them, while an
+ * out-of-range score or a missing subject does — and re-asking is the only way
+ * they ever find out we did not take it.
+ */
+function refusedAnswerQuestionKey(
+  validated: FeedbackExtractionValidationResult,
+): PostEventFeedbackAnswerQuestionKey | undefined {
+  const actionable = validated.rejections.find(
+    (rejection) =>
+      rejection.scope === "answer" &&
+      (rejection.reason === "invalid_score" ||
+        rejection.reason === "missing_subject"),
+  );
+  const key = actionable?.questionKey;
+  return key && isPostEventFeedbackAnswerQuestionKey(key)
+    ? (key as PostEventFeedbackAnswerQuestionKey)
+    : undefined;
+}
+
+/**
+ * Questions that cannot both be true about the same person at the same time.
+ *
+ * «Θα τον ξαναέβλεπα» and «καλύτερα όχι ξανά» are the same decision with
+ * opposite answers, so recording one has to clear the other. `liked` counts as
+ * incompatible with `avoid` for the same reason a participant does: somebody
+ * they now want to steer clear of is not somebody who made a good impression.
+ * Nothing else conflicts — a score says nothing about a person, and liking
+ * somebody and wanting to see them again agree.
+ */
+function contradictedQuestionKeys(
+  questionKey: PostEventFeedbackAnswerQuestionKey,
+): readonly PostEventFeedbackAnswerQuestionKey[] {
+  if (questionKey === "avoid") {
+    return ["liked", "meet_again"];
+  }
+  if (questionKey === "liked" || questionKey === "meet_again") {
+    return ["avoid"];
+  }
+  return [];
 }

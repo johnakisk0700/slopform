@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 
+import { InjectQueue } from "@nestjs/bullmq";
 import { Injectable } from "@nestjs/common";
+import type { Queue } from "bullmq";
 import {
   FEEDBACK_EXTRACTION_ORIGIN_STAFF,
   type FeedbackAnswerRow,
@@ -13,6 +15,7 @@ import {
 
 import { AuditRepository } from "../../infrastructure/audit/audit.repository.js";
 import { DatabaseService } from "../../infrastructure/database/database.service.js";
+import { FEEDBACK_QUEUE } from "../../infrastructure/queue/queue.constants.js";
 import {
   FeedbackConversationCapacityError,
   FeedbackConversationNotFoundError,
@@ -39,6 +42,15 @@ import type {
   FeedbackNoteView,
 } from "./post-event-feedback-conversation.schemas.js";
 import { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
+import {
+  createFeedbackExtractJobId,
+  FEEDBACK_EXTRACT_QUIET_WINDOW_MS,
+  FEEDBACK_JOB_NAMES,
+  FEEDBACK_JOB_SCHEMA_VERSION,
+  feedbackExtractJobDataSchema,
+  type FeedbackJobData,
+  type FeedbackJobName,
+} from "./post-event-feedback.schemas.js";
 
 export class FeedbackConversationActionNotAllowedError extends Error {
   constructor(message: string) {
@@ -63,6 +75,8 @@ export class FeedbackNoteNotFoundError extends Error {
 @Injectable()
 export class PostEventFeedbackConversationService {
   constructor(
+    @InjectQueue(FEEDBACK_QUEUE)
+    private readonly queue: Queue<FeedbackJobData, void, FeedbackJobName>,
     private readonly database: DatabaseService,
     private readonly repository: PostEventFeedbackRepository,
     private readonly conversations: FeedbackConversationRepository,
@@ -233,9 +247,48 @@ export class PostEventFeedbackConversationService {
           context: { campaignId },
         });
       });
+
+      // Anything the participant said while a person held the conversation is
+      // sitting behind the extraction cursor: those runs correctly stood down
+      // on `skipped_human_control` and nothing re-queues them. Handing back
+      // without this, the answer waits for a brand-new message that may never
+      // come — «τελικά βάλε 4, όχι 3» simply never lands.
+      await this.enqueueExtractionForUnreadTestimony(
+        transition.conversation,
+        requestId,
+      );
     }
 
     return this.toDetailView(transition.conversation);
+  }
+
+  private async enqueueExtractionForUnreadTestimony(
+    conversation: FeedbackConversationDocument,
+    correlationId: string,
+  ): Promise<void> {
+    const latestSeq = conversation.messages
+      .filter((message) => message.actor === "participant")
+      .reduce((highest, message) => Math.max(highest, message.seq), 0);
+    if (latestSeq <= conversation.extraction.cursorSeq) {
+      return;
+    }
+
+    const data = feedbackExtractJobDataSchema.parse({
+      schemaVersion: FEEDBACK_JOB_SCHEMA_VERSION,
+      conversationId: conversation._id,
+      correlationId,
+    });
+    // The same deterministic id and quiet window the materializer uses, so a
+    // resume that races an inbound message collapses onto one run.
+    await this.queue.add(FEEDBACK_JOB_NAMES.extractV1, data, {
+      jobId: createFeedbackExtractJobId(conversation._id, latestSeq),
+      delay: FEEDBACK_EXTRACT_QUIET_WINDOW_MS,
+      attempts: 5,
+      backoff: { type: "exponential", delay: 1_000 },
+      removeOnComplete: 1_000,
+      removeOnFail: 5_000,
+      stackTraceLimit: 10,
+    });
   }
 
   /**
@@ -542,6 +595,7 @@ export class PostEventFeedbackConversationService {
         providerMessageId: message.providerMessageId,
         ingressId: message.ingressId,
         outboxId: message.outboxId,
+        attention: message.attention,
         at: message.at.toISOString(),
         delivery: deliveryFor(message.outboxId, outboxById),
       })),

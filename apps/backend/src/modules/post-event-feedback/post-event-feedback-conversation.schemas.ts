@@ -9,6 +9,7 @@ import { createZodDto } from "nestjs-zod";
 import { z } from "zod";
 
 import { FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH } from "../conversations/feedback-conversation.schemas.js";
+import { feedbackConversationMessageAttentionSchema } from "./post-event-feedback-attention.js";
 import { POST_EVENT_FEEDBACK_ANSWER_QUESTION_KEYS } from "./post-event-feedback-question-set.js";
 
 export const feedbackConversationPrincipalSchema = z.string().min(1).max(200);
@@ -111,6 +112,7 @@ export const feedbackConversationMessageSchema = z
     providerMessageId: z.string().min(1).max(200).nullable(),
     ingressId: z.uuid().nullable(),
     outboxId: z.uuid().nullable(),
+    attention: feedbackConversationMessageAttentionSchema.nullable(),
     at: z.iso.datetime(),
     delivery: feedbackConversationMessageDeliverySchema.nullable(),
   })

@@ -1,9 +1,12 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import type { FeedbackCampaignRow } from "@join-the-six/database";
 
 import { AuditRepository } from "../../infrastructure/audit/audit.repository.js";
 import { DatabaseService } from "../../infrastructure/database/database.service.js";
-import { FeedbackConversationRepository } from "../conversations/feedback-conversation.repository.js";
+import {
+  FeedbackConversationPhoneConflictError,
+  FeedbackConversationRepository,
+} from "../conversations/feedback-conversation.repository.js";
 import {
   buildFeedbackConversationGoals,
   type FeedbackConversationDocument,
@@ -69,6 +72,8 @@ export class FeedbackCampaignParticipantNotEligibleError extends Error {
  */
 @Injectable()
 export class PostEventFeedbackCampaignService {
+  private readonly logger = new Logger(PostEventFeedbackCampaignService.name);
+
   constructor(
     private readonly database: DatabaseService,
     private readonly repository: PostEventFeedbackRepository,
@@ -183,20 +188,57 @@ export class PostEventFeedbackCampaignService {
           return created;
         });
 
+    // One attendee's phone conflict must not abandon the launch. The partial
+    // unique index allows a single open conversation per number, so a stale row
+    // — or two attendees sharing a handset — used to throw out of this loop and
+    // leave a campaign half-launched: some people had their intro, the rest
+    // never would, and re-running produced the same failure at the same
+    // attendee. Skipping and reporting keeps the launch complete for everyone
+    // else and leaves an operator something to act on.
     let conversationsCreated = 0;
+    const phoneConflicts: string[] = [];
     for (const attendee of eligible) {
-      const result = await this.ensureConversationAndIntro({
-        campaign,
-        attendee,
-        copy,
-        launchedAt,
-        actorId,
-        requestId,
-        auditOnCreate: true,
-      });
+      let result;
+      try {
+        result = await this.ensureConversationAndIntro({
+          campaign,
+          attendee,
+          copy,
+          launchedAt,
+          actorId,
+          requestId,
+          auditOnCreate: true,
+        });
+      } catch (error) {
+        if (!(error instanceof FeedbackConversationPhoneConflictError)) {
+          throw error;
+        }
+        phoneConflicts.push(attendee.participantId);
+        this.logger.warn({
+          event: "feedback.campaign.launch_phone_conflict",
+          requestId,
+          campaignId: campaign.id,
+          participantId: attendee.participantId,
+        });
+        continue;
+      }
       if (result.created) {
         conversationsCreated += 1;
       }
+    }
+
+    if (phoneConflicts.length > 0) {
+      await this.database.transaction((transaction) =>
+        this.audit.append(transaction, {
+          actorType: "staff",
+          actorId,
+          action: "feedback_campaign.launch_phone_conflicts",
+          entityType: "feedback_campaign",
+          entityId: campaign.id,
+          requestId,
+          context: { eventId, participantIds: phoneConflicts },
+        }),
+      );
     }
 
     const summaries = await this.conversations.listForCampaign(campaign.id);

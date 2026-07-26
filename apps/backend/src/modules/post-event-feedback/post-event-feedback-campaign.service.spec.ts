@@ -7,7 +7,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { AuditRepository } from "../../infrastructure/audit/audit.repository.js";
 import type { DatabaseService } from "../../infrastructure/database/database.service.js";
-import type { FeedbackConversationRepository } from "../conversations/feedback-conversation.repository.js";
+import {
+  FeedbackConversationPhoneConflictError,
+  type FeedbackConversationRepository,
+} from "../conversations/feedback-conversation.repository.js";
 import type { EventsRepository } from "../events/events.repository.js";
 import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
 import {
@@ -149,6 +152,64 @@ describe("PostEventFeedbackCampaignService", () => {
       at: expect.any(Date),
       outboxId: introOutboxId,
     });
+  });
+
+  it("skips an attendee whose phone is already in use and launches everyone else", async () => {
+    // One stale open conversation on a shared or recycled number used to throw
+    // out of the launch loop, leaving a campaign that had reached some
+    // attendees, would never reach the rest, and failed at the same person on
+    // every retry.
+    const { service, repository, conversations, auditAppend } = createService();
+    const blocked = {
+      ...eligible,
+      participantId: "b2c3d4e5-f607-4809-8a1b-2c3d4e5f6071",
+      preferredName: "Kostas",
+    };
+    repository.findCampaignByEventId.mockResolvedValue(undefined);
+    repository.createCampaign.mockResolvedValue(campaignRow);
+    repository.listEligibleAttendeesForEvent.mockResolvedValue([
+      blocked,
+      eligible,
+    ]);
+    repository.insertOutboxIfAbsent.mockResolvedValue({
+      row: introOutboxRow(),
+      inserted: true,
+    });
+    conversations.createFromLaunch
+      .mockRejectedValueOnce(new FeedbackConversationPhoneConflictError())
+      .mockResolvedValueOnce({
+        created: true,
+        conversation: openConversation(),
+      });
+    conversations.listForCampaign.mockResolvedValue([{ id: conversationId }]);
+
+    const result = await service.launch(eventId, "admin-1", "req-1");
+
+    expect(result.conversationsCreated).toBe(1);
+    expect(conversations.createFromLaunch).toHaveBeenCalledTimes(2);
+    // The skip is not silent: an operator needs to know who was left out.
+    expect(auditAppend).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "feedback_campaign.launch_phone_conflicts",
+        context: expect.objectContaining({
+          participantIds: [blocked.participantId],
+        }),
+      }),
+    );
+  });
+
+  it("still fails the launch when a conversation error is not a phone conflict", async () => {
+    const { service, repository, conversations } = createService();
+    repository.findCampaignByEventId.mockResolvedValue(undefined);
+    repository.createCampaign.mockResolvedValue(campaignRow);
+    conversations.createFromLaunch.mockRejectedValue(
+      new Error("mongo is unreachable"),
+    );
+
+    await expect(service.launch(eventId, "admin-1", "req-1")).rejects.toThrow(
+      "mongo is unreachable",
+    );
   });
 
   it("repairs a missing intro transcript entry when launch is replayed", async () => {

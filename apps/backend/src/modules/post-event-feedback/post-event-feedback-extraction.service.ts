@@ -18,10 +18,20 @@ import {
   type AssistantModel,
 } from "../assistant/assistant.schemas.js";
 import type { FeedbackExtractionPrompt } from "./post-event-feedback-prompt.js";
+import {
+  FEEDBACK_ATTENTION_CLASSIFICATION_BATCH_SIZE,
+  FeedbackAttentionClassificationValidationError,
+  buildFeedbackAttentionClassificationPrompt,
+  estimateFeedbackAttentionClassificationTokens,
+  feedbackAttentionClassificationProposalSchema,
+  validateFeedbackAttentionClassification,
+} from "./post-event-feedback-attention-classification.js";
 import { resolveFeedbackExtractionProviderSettings } from "./post-event-feedback-provider-safety.js";
 import {
   feedbackExtractionProposalSchema,
+  type FeedbackExtractionMessageView,
   type FeedbackExtractionProposal,
+  type FeedbackExtractionSafetySignalProposal,
 } from "./post-event-feedback-extraction.schemas.js";
 
 export const FEEDBACK_EXTRACTION_FAILURE_CODES = [
@@ -80,6 +90,23 @@ export interface FeedbackExtractionGenerationResult {
   readonly model: AssistantModel;
   readonly proposal: FeedbackExtractionProposal;
   readonly usage: FeedbackExtractionUsage;
+}
+
+export interface FeedbackAttentionClassificationGenerationResult {
+  readonly model: AssistantModel;
+  readonly signals: readonly FeedbackExtractionSafetySignalProposal[];
+  readonly usage: FeedbackExtractionUsage;
+  readonly estimatedPromptTokens: number;
+}
+
+export function feedbackAttentionClassificationProviderOptions(
+  model: AssistantModel,
+):
+  | NonNullable<Parameters<typeof generateObject>[0]["providerOptions"]>
+  | undefined {
+  return assistantModelAdapter(model).provider === "openrouter"
+    ? { openrouter: { reasoning: { effort: "none" } } }
+    : undefined;
 }
 
 /**
@@ -182,6 +209,69 @@ export class PostEventFeedbackExtractionModel {
     }
   }
 
+  async classifyAttention(
+    messages: readonly FeedbackExtractionMessageView[],
+    targetMessageIds: readonly string[],
+  ): Promise<FeedbackAttentionClassificationGenerationResult> {
+    const model = this.resolveProviderModel(this.model);
+    const batches = chunk(
+      targetMessageIds,
+      FEEDBACK_ATTENTION_CLASSIFICATION_BATCH_SIZE,
+    );
+    const signals: FeedbackExtractionSafetySignalProposal[] = [];
+    const usages: FeedbackExtractionUsage[] = [];
+    const providerOptions = feedbackAttentionClassificationProviderOptions(
+      this.model,
+    );
+    let estimatedPromptTokens = 0;
+
+    try {
+      for (const batch of batches) {
+        const prompt = buildFeedbackAttentionClassificationPrompt({
+          messages,
+          targetMessageIds: batch,
+        });
+        estimatedPromptTokens +=
+          estimateFeedbackAttentionClassificationTokens(prompt);
+        const result = await generateObject({
+          model,
+          schema: feedbackAttentionClassificationProposalSchema,
+          schemaName: "post_event_feedback_attention_classification",
+          schemaDescription:
+            "One contextual incident classification for every supplied participant message.",
+          system: prompt.system,
+          prompt: prompt.user,
+          maxOutputTokens: 1_024,
+          maxRetries: 0,
+          ...(providerOptions ? { providerOptions } : {}),
+          abortSignal: AbortSignal.timeout(
+            FEEDBACK_EXTRACTION_TIMEOUT_MILLISECONDS,
+          ),
+        });
+        const proposal = feedbackAttentionClassificationProposalSchema.parse(
+          result.object,
+        );
+        signals.push(
+          ...validateFeedbackAttentionClassification(proposal, batch),
+        );
+        usages.push({
+          inputTokens: result.usage.inputTokens ?? null,
+          outputTokens: result.usage.outputTokens ?? null,
+          totalTokens: result.usage.totalTokens ?? null,
+        });
+      }
+    } catch (error) {
+      throw toGenerationError(error);
+    }
+
+    return {
+      model: this.model,
+      signals,
+      usage: combineUsage(usages),
+      estimatedPromptTokens,
+    };
+  }
+
   private resolveProviderModel(model: AssistantModel): LanguageModel {
     const adapter = assistantModelAdapter(model);
 
@@ -212,6 +302,31 @@ export class PostEventFeedbackExtractionModel {
     }
     return this.openAiProvider(adapter.providerModelId);
   }
+}
+
+function chunk<T>(items: readonly T[], size: number): readonly T[][] {
+  const batches: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    batches.push(items.slice(index, index + size));
+  }
+  return batches;
+}
+
+function combineUsage(
+  usages: readonly FeedbackExtractionUsage[],
+): FeedbackExtractionUsage {
+  return {
+    inputTokens: sumKnown(usages.map((usage) => usage.inputTokens)),
+    outputTokens: sumKnown(usages.map((usage) => usage.outputTokens)),
+    totalTokens: sumKnown(usages.map((usage) => usage.totalTokens)),
+  };
+}
+
+function sumKnown(values: readonly (number | null)[]): number | null {
+  const known = values.filter((value): value is number => value !== null);
+  return known.length === values.length
+    ? known.reduce((total, value) => total + value, 0)
+    : null;
 }
 
 /**
@@ -263,6 +378,13 @@ export function toGenerationError(
     );
   }
   if (TypeValidationError.isInstance(error)) {
+    return new FeedbackExtractionGenerationError(
+      "extraction_failed",
+      true,
+      "validation_failed",
+    );
+  }
+  if (error instanceof FeedbackAttentionClassificationValidationError) {
     return new FeedbackExtractionGenerationError(
       "extraction_failed",
       true,

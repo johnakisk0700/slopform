@@ -401,6 +401,8 @@ export const FEEDBACK_RECEIVED_KINDS = [
   "handoff",
   "fallback",
   "stop_ack",
+  /** «δεν μπορούμε να ακούσουμε φωνητικά» — one per conversation, not per note. */
+  "media_notice",
   "staff",
 ] as const;
 
@@ -1128,6 +1130,7 @@ export async function createFeedbackLoopHarness(
       ({
         FEEDBACK_REMINDER_AFTER_HOURS: 24,
         FEEDBACK_EXPIRE_AFTER_HOURS: 72,
+        FEEDBACK_MAX_REMINDERS: 2,
         FEEDBACK_INGRESS_PENDING_RECOVERY_MINUTES: 5,
       })[key],
   } as unknown as ConfigService<Environment, true>;
@@ -1194,6 +1197,8 @@ export async function createFeedbackLoopHarness(
     extraction: { cursorSeq: 0, lastRunAt: null, model: null },
     needsAttention: false,
     remindedAt: null,
+    reminderCount: 0,
+    awaitingHuman: false,
     createdAt: FEEDBACK_LOOP_START,
     updatedAt: FEEDBACK_LOOP_START,
   });
@@ -1261,6 +1266,7 @@ export async function createFeedbackLoopHarness(
     conversations as unknown as FeedbackConversationRepository,
   );
   const staffConversations = new PostEventFeedbackConversationService(
+    queuePort,
     database as unknown as DatabaseService,
     repository as unknown as PostEventFeedbackRepository,
     conversations as unknown as FeedbackConversationRepository,
@@ -1746,7 +1752,11 @@ function classifyOutbound(
     return "staff";
   }
   if (row.kind === "system") {
-    return "stop_ack";
+    // Both are application-owned `system` copy; the dedupe key is what says
+    // which, and it is stable in a way the wording is not.
+    return row.dedupeKey.startsWith("feedback-media-notice-")
+      ? "media_notice"
+      : "stop_ack";
   }
   const body = row.body.trim();
   if (body === closing.trim()) {
