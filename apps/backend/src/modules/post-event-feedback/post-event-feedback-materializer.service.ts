@@ -9,6 +9,9 @@ import type { Queue } from "bullmq";
 
 import { AuditRepository } from "../../infrastructure/audit/audit.repository.js";
 import { DatabaseService } from "../../infrastructure/database/database.service.js";
+import { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
+import { FeedbackIngressRepository } from "./ingress/ingress.repository.js";
+import { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
 import { FEEDBACK_QUEUE } from "../../infrastructure/queue/queue.constants.js";
 import {
   FeedbackConversationCapacityError,
@@ -32,7 +35,6 @@ import {
   resolveCampaignCopy,
 } from "./post-event-feedback-question-set.js";
 import { matchesPostEventFeedbackStopCommand } from "./post-event-feedback-stop-matcher.js";
-import { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
 import {
   createFeedbackExtractJobId,
   FEEDBACK_EXTRACT_QUIET_WINDOW_MS,
@@ -84,7 +86,9 @@ export class PostEventFeedbackMaterializer {
     @InjectQueue(FEEDBACK_QUEUE)
     private readonly queue: Queue<FeedbackJobData, void, FeedbackJobName>,
     private readonly database: DatabaseService,
-    private readonly repository: PostEventFeedbackRepository,
+    private readonly campaigns: FeedbackCampaignRepository,
+    private readonly ingress: FeedbackIngressRepository,
+    private readonly outbox: FeedbackOutboxRepository,
     private readonly conversations: FeedbackConversationRepository,
     private readonly participants: ParticipantsRepository,
     private readonly audit: AuditRepository,
@@ -95,7 +99,7 @@ export class PostEventFeedbackMaterializer {
   async materialize(
     input: MaterializeFeedbackIngressInput,
   ): Promise<MaterializeFeedbackIngressResult> {
-    const ingress = await this.repository.findIngressById(input.ingressId);
+    const ingress = await this.ingress.findIngressById(input.ingressId);
     if (!ingress) {
       throw new PostEventFeedbackIngressNotFoundError(input.ingressId);
     }
@@ -218,7 +222,7 @@ export class PostEventFeedbackMaterializer {
           textRetained: retainsText,
         },
       });
-      await this.repository.updateIngressProcessing(transaction, ingress.id, {
+      await this.ingress.updateIngressProcessing(transaction, ingress.id, {
         processingStatus: "materialized",
         matchedConversationId: conversation._id,
         ...(retainsText ? {} : { text: null }),
@@ -271,7 +275,7 @@ export class PostEventFeedbackMaterializer {
     const hasBody = (ingress.text?.trim().length ?? 0) > 0;
 
     await this.withPendingIngress(ingress.id, (transaction) =>
-      this.repository.updateIngressProcessing(transaction, ingress.id, {
+      this.ingress.updateIngressProcessing(transaction, ingress.id, {
         processingStatus: "ignored_unmatched",
         matchedConversationId: null,
       }),
@@ -383,7 +387,7 @@ export class PostEventFeedbackMaterializer {
     );
 
     await this.withPendingIngress(ingress.id, async (transaction) => {
-      await this.repository.updateIngressProcessing(transaction, ingress.id, {
+      await this.ingress.updateIngressProcessing(transaction, ingress.id, {
         processingStatus: "materialized",
         matchedConversationId: conversation._id,
       });
@@ -440,28 +444,25 @@ export class PostEventFeedbackMaterializer {
       ingress.id,
       async (transaction) => {
         const cancelledOutboxCount =
-          await this.repository.cancelQueuedOutboxForConversation(
+          await this.outbox.cancelQueuedOutboxForConversation(
             transaction,
             conversation._id,
           );
 
-        const campaign = await this.repository.findCampaignById(
+        const campaign = await this.campaigns.findCampaignById(
           conversation.campaignId,
           transaction,
         );
-        const stopAck = await this.repository.insertOutboxIfAbsent(
-          transaction,
-          {
-            conversationId: conversation._id,
-            campaignId: conversation.campaignId,
-            kind: "system",
-            body: resolveCampaignCopy(campaign?.questions).stop_ack.slice(
-              0,
-              FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH,
-            ),
-            dedupeKey: createFeedbackStopAckDedupeKey(conversation._id),
-          },
-        );
+        const stopAck = await this.outbox.insertOutboxIfAbsent(transaction, {
+          conversationId: conversation._id,
+          campaignId: conversation.campaignId,
+          kind: "system",
+          body: resolveCampaignCopy(campaign?.questions).stop_ack.slice(
+            0,
+            FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH,
+          ),
+          dedupeKey: createFeedbackStopAckDedupeKey(conversation._id),
+        });
 
         const optInWithdrawn = await this.withdrawFeedbackOptIn(
           transaction,
@@ -485,7 +486,7 @@ export class PostEventFeedbackMaterializer {
           },
         });
 
-        await this.repository.updateIngressProcessing(transaction, ingress.id, {
+        await this.ingress.updateIngressProcessing(transaction, ingress.id, {
           processingStatus: "materialized",
           matchedConversationId: conversation._id,
         });
@@ -568,7 +569,7 @@ export class PostEventFeedbackMaterializer {
 
     if (correlated) {
       await this.withPendingIngress(ingress.id, async (transaction) => {
-        await this.repository.updateOutboxDelivery(transaction, correlated.id, {
+        await this.outbox.updateOutboxDelivery(transaction, correlated.id, {
           deliveryStatus: coalesceDeliveryStatus(
             correlated.deliveryStatus,
             "sent",
@@ -581,7 +582,7 @@ export class PostEventFeedbackMaterializer {
             ? { status: "sent" as const }
             : {}),
         });
-        await this.repository.updateIngressProcessing(transaction, ingress.id, {
+        await this.ingress.updateIngressProcessing(transaction, ingress.id, {
           processingStatus: "materialized",
           matchedConversationId: correlated.conversationId,
         });
@@ -648,7 +649,7 @@ export class PostEventFeedbackMaterializer {
           controlChanged: takeover.changed,
         },
       });
-      await this.repository.updateIngressProcessing(transaction, ingress.id, {
+      await this.ingress.updateIngressProcessing(transaction, ingress.id, {
         processingStatus: "materialized",
         matchedConversationId: conversation._id,
       });
@@ -671,10 +672,9 @@ export class PostEventFeedbackMaterializer {
     ingress: ProviderMessageIngressRow,
     conversation: FeedbackConversationDocument | undefined,
   ): Promise<MessageOutboxRow | undefined> {
-    const byProviderMessageId =
-      await this.repository.findOutboxByProviderMessageId(
-        ingress.providerMessageId,
-      );
+    const byProviderMessageId = await this.outbox.findOutboxByProviderMessageId(
+      ingress.providerMessageId,
+    );
     if (byProviderMessageId) {
       return !conversation ||
         byProviderMessageId.conversationId === conversation._id
@@ -687,7 +687,7 @@ export class PostEventFeedbackMaterializer {
       return undefined;
     }
 
-    return this.repository.findUnlinkedOutboxByConversationAndBody(
+    return this.outbox.findUnlinkedOutboxByConversationAndBody(
       conversation._id,
       text,
     );
@@ -730,7 +730,7 @@ export class PostEventFeedbackMaterializer {
     }
 
     await this.withPendingIngress(ingress.id, (transaction) =>
-      this.repository.updateIngressProcessing(transaction, ingress.id, {
+      this.ingress.updateIngressProcessing(transaction, ingress.id, {
         processingStatus: "failed",
         matchedConversationId: conversation._id,
       }),
@@ -764,7 +764,7 @@ export class PostEventFeedbackMaterializer {
     conversation: FeedbackConversationDocument,
     correlationId: string,
   ): Promise<{ inserted: boolean }> {
-    const campaign = await this.repository.findCampaignById(
+    const campaign = await this.campaigns.findCampaignById(
       conversation.campaignId,
     );
     // The kill switch still governs: a paused campaign says nothing at all.
@@ -773,7 +773,7 @@ export class PostEventFeedbackMaterializer {
     }
 
     const notice = await this.database.transaction((transaction) =>
-      this.repository.insertOutboxIfAbsent(transaction, {
+      this.outbox.insertOutboxIfAbsent(transaction, {
         conversationId: conversation._id,
         campaignId: conversation.campaignId,
         kind: "system",
@@ -834,7 +834,7 @@ export class PostEventFeedbackMaterializer {
     ) => Promise<T>,
   ): Promise<T | undefined> {
     return this.database.transaction(async (transaction) => {
-      const row = await this.repository.findIngressByIdForUpdate(
+      const row = await this.ingress.findIngressByIdForUpdate(
         transaction,
         ingressId,
       );

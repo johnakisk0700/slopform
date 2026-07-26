@@ -15,7 +15,7 @@ import {
   type FeedbackConversationActor,
   type FeedbackConversationDocument,
 } from "../conversations/feedback-conversation.schemas.js";
-import { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
+import { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
 
 /**
  * Every outbound message reaches a participant through one `message_outbox`
@@ -86,7 +86,7 @@ export class FeedbackOutboundTranscriptService {
 
   constructor(
     private readonly database: DatabaseService,
-    private readonly repository: PostEventFeedbackRepository,
+    private readonly repository: FeedbackOutboxRepository,
     private readonly conversations: FeedbackConversationRepository,
   ) {}
 

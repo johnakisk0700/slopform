@@ -54,7 +54,10 @@ import {
   renderPostEventFeedbackCopy,
 } from "./post-event-feedback-question-set.js";
 import { PostEventFeedbackProcessor } from "./post-event-feedback.processor.js";
-import type { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
+import type { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
+import type { FeedbackResultsRepository } from "./extraction/results.repository.js";
+import type { FeedbackIngressRepository } from "./ingress/ingress.repository.js";
+import type { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
 import { PostEventFeedbackSweepService } from "./post-event-feedback-sweep.service.js";
 import {
   FEEDBACK_JOB_NAMES,
@@ -468,13 +471,15 @@ export async function createFeedbackLoopHarness(
   >;
   const outboundTranscript = new FeedbackOutboundTranscriptService(
     database as unknown as DatabaseService,
-    repository as unknown as PostEventFeedbackRepository,
+    repository as unknown as FeedbackOutboxRepository,
     conversations as unknown as FeedbackConversationRepository,
   );
   const staffConversations = new PostEventFeedbackConversationService(
     queuePort,
     database as unknown as DatabaseService,
-    repository as unknown as PostEventFeedbackRepository,
+    repository as unknown as FeedbackCampaignRepository,
+    repository as unknown as FeedbackResultsRepository,
+    repository as unknown as FeedbackOutboxRepository,
     conversations as unknown as FeedbackConversationRepository,
     events as unknown as EventsRepository,
     events as unknown as EventsService,
@@ -485,13 +490,15 @@ export async function createFeedbackLoopHarness(
   const ingress = new PostEventFeedbackIngressService(
     queuePort,
     database as unknown as DatabaseService,
-    repository as unknown as PostEventFeedbackRepository,
+    repository as unknown as FeedbackIngressRepository,
   );
   const processor = new PostEventFeedbackProcessor(
     new PostEventFeedbackMaterializer(
       queuePort,
       database as unknown as DatabaseService,
-      repository as unknown as PostEventFeedbackRepository,
+      repository as unknown as FeedbackCampaignRepository,
+      repository as unknown as FeedbackIngressRepository,
+      repository as unknown as FeedbackOutboxRepository,
       conversations as unknown as FeedbackConversationRepository,
       participants as unknown as ParticipantsRepository,
       audit as unknown as AuditRepository,
@@ -500,18 +507,21 @@ export async function createFeedbackLoopHarness(
     ),
     new MessageOutboxRelayService(
       queuePort,
-      repository as unknown as PostEventFeedbackRepository,
+      repository as unknown as FeedbackOutboxRepository,
     ),
     new MessageOutboxDeliveryService(
       database as unknown as DatabaseService,
-      repository as unknown as PostEventFeedbackRepository,
+      repository as unknown as FeedbackCampaignRepository,
+      repository as unknown as FeedbackOutboxRepository,
       conversations as unknown as FeedbackConversationRepository,
       outboundTranscript,
       transport as FeedbackTransport,
     ),
     new PostEventFeedbackExtractor(
       database as unknown as DatabaseService,
-      repository as unknown as PostEventFeedbackRepository,
+      repository as unknown as FeedbackCampaignRepository,
+      repository as unknown as FeedbackResultsRepository,
+      repository as unknown as FeedbackOutboxRepository,
       conversations as unknown as FeedbackConversationRepository,
       events as unknown as EventsService,
       participants as unknown as ParticipantsRepository,
@@ -525,7 +535,9 @@ export async function createFeedbackLoopHarness(
       queuePort,
       config,
       database as unknown as DatabaseService,
-      repository as unknown as PostEventFeedbackRepository,
+      repository as unknown as FeedbackCampaignRepository,
+      repository as unknown as FeedbackIngressRepository,
+      repository as unknown as FeedbackOutboxRepository,
       conversations as unknown as FeedbackConversationRepository,
       participants as unknown as ParticipantsRepository,
       audit as unknown as AuditRepository,
@@ -533,7 +545,9 @@ export async function createFeedbackLoopHarness(
     ),
     new PostEventFeedbackExtractionFallback(
       database as unknown as DatabaseService,
-      repository as unknown as PostEventFeedbackRepository,
+      repository as unknown as FeedbackCampaignRepository,
+      repository as unknown as FeedbackResultsRepository,
+      repository as unknown as FeedbackOutboxRepository,
       conversations as unknown as FeedbackConversationRepository,
       events as unknown as EventsService,
       audit as unknown as AuditRepository,

@@ -6,7 +6,7 @@ import {
   coalesceDeliveryStatus,
   deliveryTimestampFields,
 } from "./message-outbox-delivery-status.js";
-import { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
+import { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
 
 export type ApplyOutboxDeliveryStatusInput = {
   readonly providerMessageId: string;
@@ -30,7 +30,7 @@ export class MessageOutboxDeliveryStatusService {
 
   constructor(
     private readonly database: DatabaseService,
-    private readonly repository: PostEventFeedbackRepository,
+    private readonly repository: FeedbackOutboxRepository,
   ) {}
 
   async applyStatusChange(

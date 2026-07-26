@@ -3,9 +3,10 @@ import { describe, expect, it, vi } from "vitest";
 import { messageOutbox } from "@join-the-six/database";
 
 import type { DatabaseService } from "../../infrastructure/database/database.service.js";
-import { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
+import { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
+import { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
 
-describe("PostEventFeedbackRepository cancelQueuedOutboxForConversation", () => {
+describe("FeedbackOutboxRepository cancelQueuedOutboxForConversation", () => {
   it("cancels only pending and held rows for the conversation", async () => {
     const returning = vi
       .fn()
@@ -16,10 +17,14 @@ describe("PostEventFeedbackRepository cancelQueuedOutboxForConversation", () => 
     const where = vi.fn().mockReturnValue({ returning });
     const set = vi.fn().mockReturnValue({ where });
     const update = vi.fn().mockReturnValue({ set });
-    const repository = new PostEventFeedbackRepository({
+    const database = {
       db: {},
       transaction: vi.fn(),
-    } as unknown as DatabaseService);
+    } as unknown as DatabaseService;
+    const repository = new FeedbackOutboxRepository(
+      database,
+      new FeedbackCampaignRepository(database),
+    );
 
     const cancelled = await repository.cancelQueuedOutboxForConversation(
       { update } as never,

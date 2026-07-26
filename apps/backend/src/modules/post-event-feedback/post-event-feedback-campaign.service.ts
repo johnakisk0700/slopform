@@ -4,6 +4,11 @@ import type { FeedbackCampaignRow } from "@join-the-six/database";
 import { AuditRepository } from "../../infrastructure/audit/audit.repository.js";
 import { DatabaseService } from "../../infrastructure/database/database.service.js";
 import {
+  FeedbackCampaignRepository,
+  type FeedbackEligibleAttendee,
+} from "./campaign/campaign.repository.js";
+import { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
+import {
   FeedbackConversationPhoneConflictError,
   FeedbackConversationRepository,
 } from "../conversations/feedback-conversation.repository.js";
@@ -26,10 +31,6 @@ import {
   resolveCampaignCopy,
   type PostEventFeedbackQuestionSetCopy,
 } from "./post-event-feedback-question-set.js";
-import {
-  PostEventFeedbackRepository,
-  type FeedbackEligibleAttendee,
-} from "./post-event-feedback.repository.js";
 
 export class FeedbackCampaignNotFoundError extends Error {
   constructor(id: string) {
@@ -77,7 +78,8 @@ export class PostEventFeedbackCampaignService {
 
   constructor(
     private readonly database: DatabaseService,
-    private readonly repository: PostEventFeedbackRepository,
+    private readonly campaigns: FeedbackCampaignRepository,
+    private readonly outbox: FeedbackOutboxRepository,
     private readonly conversations: FeedbackConversationRepository,
     private readonly events: EventsRepository,
     private readonly audit: AuditRepository,
@@ -96,7 +98,7 @@ export class PostEventFeedbackCampaignService {
    * enqueues intros — that remains `launch` / `startConversation` only.
    */
   async list(): Promise<FeedbackCampaignListView> {
-    const rows = await this.repository.listCampaignsNewestFirst();
+    const rows = await this.campaigns.listCampaignsNewestFirst();
     const items: FeedbackCampaignListItemView[] = await Promise.all(
       rows.map(async (row) => {
         const summaries = await this.conversations.listForCampaign(
@@ -143,8 +145,8 @@ export class PostEventFeedbackCampaignService {
     }
 
     const eligible =
-      await this.repository.listEligibleAttendeesForEvent(eventId);
-    const existing = await this.repository.findCampaignByEventId(eventId);
+      await this.campaigns.listEligibleAttendeesForEvent(eventId);
+    const existing = await this.campaigns.findCampaignByEventId(eventId);
 
     if (!existing && eligible.length === 0) {
       throw new FeedbackCampaignLaunchNotAllowedError(
@@ -165,7 +167,7 @@ export class PostEventFeedbackCampaignService {
     const campaign = existing
       ? existing
       : await this.database.transaction(async (transaction) => {
-          const created = await this.repository.createCampaign(transaction, {
+          const created = await this.campaigns.createCampaign(transaction, {
             eventId,
             questionSetVersion: snapshot.questionSetVersion,
             questions: snapshot,
@@ -278,7 +280,7 @@ export class PostEventFeedbackCampaignService {
     }
 
     const updated = await this.database.transaction(async (transaction) => {
-      const next = await this.repository.updateCampaignStatus(
+      const next = await this.campaigns.updateCampaignStatus(
         transaction,
         campaign.id,
         "closed",
@@ -287,7 +289,7 @@ export class PostEventFeedbackCampaignService {
         throw new FeedbackCampaignNotFoundError(campaignId);
       }
       const cancelledOutboxCount =
-        await this.repository.cancelQueuedOutboxForCampaign(
+        await this.outbox.cancelQueuedOutboxForCampaign(
           transaction,
           campaign.id,
         );
@@ -328,7 +330,7 @@ export class PostEventFeedbackCampaignService {
       );
     }
 
-    const eligible = await this.repository.listEligibleAttendeesForEvent(
+    const eligible = await this.campaigns.listEligibleAttendeesForEvent(
       campaign.eventId,
     );
     const attendee = eligible.find(
@@ -380,7 +382,7 @@ export class PostEventFeedbackCampaignService {
     }
 
     const updated = await this.database.transaction(async (transaction) => {
-      const next = await this.repository.updateCampaignStatus(
+      const next = await this.campaigns.updateCampaignStatus(
         transaction,
         campaign.id,
         to,
@@ -448,16 +450,13 @@ export class PostEventFeedbackCampaignService {
     let introEnqueued = false;
     if (creation.conversation.lifecycle.state === "open") {
       const intro = await this.database.transaction(async (transaction) => {
-        const enqueued = await this.repository.insertOutboxIfAbsent(
-          transaction,
-          {
-            conversationId: creation.conversation._id,
-            campaignId: input.campaign.id,
-            kind: "intro",
-            body: renderPostEventFeedbackCopy(input.copy.intro, displayName),
-            dedupeKey: createFeedbackIntroDedupeKey(creation.conversation._id),
-          },
-        );
+        const enqueued = await this.outbox.insertOutboxIfAbsent(transaction, {
+          conversationId: creation.conversation._id,
+          campaignId: input.campaign.id,
+          kind: "intro",
+          body: renderPostEventFeedbackCopy(input.copy.intro, displayName),
+          dedupeKey: createFeedbackIntroDedupeKey(creation.conversation._id),
+        });
 
         if (creation.created && input.auditOnCreate) {
           await this.audit.append(transaction, {
@@ -497,7 +496,7 @@ export class PostEventFeedbackCampaignService {
   private async requireCampaign(
     campaignId: string,
   ): Promise<FeedbackCampaignRow> {
-    const campaign = await this.repository.findCampaignById(campaignId);
+    const campaign = await this.campaigns.findCampaignById(campaignId);
     if (!campaign) {
       throw new FeedbackCampaignNotFoundError(campaignId);
     }

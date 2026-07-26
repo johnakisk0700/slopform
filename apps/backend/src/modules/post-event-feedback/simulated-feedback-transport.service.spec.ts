@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { describe, expect, it, vi } from "vitest";
 
-import type { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
+import type { FeedbackSimOutboundRepository } from "./simulator/sim-outbound.repository.js";
 import { SimulatedFeedbackTransport } from "./simulated-feedback-transport.service.js";
 
 describe("SimulatedFeedbackTransport", () => {
@@ -26,7 +26,7 @@ describe("SimulatedFeedbackTransport", () => {
       findSimOutboundById: vi.fn(async (id: string) =>
         rows.find((row) => row.id === id),
       ),
-    } as unknown as PostEventFeedbackRepository;
+    } as unknown as FeedbackSimOutboundRepository;
 
     const transport = new SimulatedFeedbackTransport(repository);
     const result = await transport.sendText({

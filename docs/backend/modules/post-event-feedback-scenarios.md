@@ -1530,7 +1530,10 @@ Real, unmocked, in every scenario:
 (`validateFeedbackExtractionProposal`, the STOP matcher, the question set, the
 prompt builders).
 
-Faked: `DatabaseService`, `PostEventFeedbackRepository`,
+Faked: `DatabaseService`, the five per-table feedback repositories
+(`FeedbackCampaignRepository`, `FeedbackResultsRepository`,
+`FeedbackIngressRepository`, `FeedbackOutboxRepository`,
+`FeedbackSimOutboundRepository`),
 `FeedbackConversationRepository`, `ParticipantsRepository`, `EventsService`,
 `AuditRepository`, `ConfigService`, `Queue`, `FeedbackTransport`,
 `FeedbackOperatorAlert`, `PostEventFeedbackExtractionModel`.
@@ -1552,7 +1555,8 @@ fix the conventions and the suite must not invent new ones:
   six files in the backend, all of them module-boundary contract specs. Do not
   add a seventh.
 - Fakes are cast at the wiring site, not by implementing the interface:
-  `repository as unknown as PostEventFeedbackRepository`.
+  `repository as unknown as FeedbackCampaignRepository` (and the sibling
+  repository types the constructor needs).
 - `FakeDatabase.transaction` serialises on a promise tail (see
   `post-event-feedback-doubles.harness.ts`), which is what makes
   concurrent-run assertions meaningful.

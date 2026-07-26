@@ -8,8 +8,8 @@ import {
 } from "../../infrastructure/queue/queue.constants.js";
 import {
   FEEDBACK_OUTBOX_BATCH_SIZE,
-  PostEventFeedbackRepository,
-} from "./post-event-feedback.repository.js";
+  FeedbackOutboxRepository,
+} from "./outbox/outbox.repository.js";
 import {
   createFeedbackDeliverJobId,
   FEEDBACK_JOB_NAMES,
@@ -40,7 +40,7 @@ export class MessageOutboxRelayService {
   constructor(
     @InjectQueue(FEEDBACK_QUEUE)
     private readonly queue: Queue<FeedbackJobData, void, FeedbackJobName>,
-    private readonly repository: PostEventFeedbackRepository,
+    private readonly repository: FeedbackOutboxRepository,
   ) {}
 
   async relay(now = new Date()): Promise<number> {

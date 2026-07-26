@@ -3,6 +3,9 @@ import type { FeedbackExtractionMeta } from "@join-the-six/database";
 
 import { AuditRepository } from "../../infrastructure/audit/audit.repository.js";
 import { DatabaseService } from "../../infrastructure/database/database.service.js";
+import { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
+import { FeedbackResultsRepository } from "./extraction/results.repository.js";
+import { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
 import { FeedbackConversationRepository } from "../conversations/feedback-conversation.repository.js";
 import type {
   FeedbackConversationDocument,
@@ -25,7 +28,6 @@ import {
   foldPostEventFeedbackText,
   foldedTextContainsAtWordStart,
 } from "./matching/fold-text.js";
-import { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
 
 export interface FeedbackExtractionFallbackInput {
   readonly conversationId: string;
@@ -72,7 +74,9 @@ export class PostEventFeedbackExtractionFallback {
 
   constructor(
     private readonly database: DatabaseService,
-    private readonly repository: PostEventFeedbackRepository,
+    private readonly campaigns: FeedbackCampaignRepository,
+    private readonly results: FeedbackResultsRepository,
+    private readonly outbox: FeedbackOutboxRepository,
     private readonly conversations: FeedbackConversationRepository,
     private readonly events: EventsService,
     private readonly audit: AuditRepository,
@@ -108,7 +112,7 @@ export class PostEventFeedbackExtractionFallback {
       return { applied: false };
     }
 
-    const campaign = await this.repository.findCampaignById(
+    const campaign = await this.campaigns.findCampaignById(
       conversation.campaignId,
     );
     if (!campaign) {
@@ -126,12 +130,12 @@ export class PostEventFeedbackExtractionFallback {
     );
 
     const written = await this.database.transaction(async (transaction) => {
-      await this.repository.lockConversation(transaction, conversation._id);
+      await this.results.lockConversation(transaction, conversation._id);
 
       // The outbox `dedupe_key` is the fence for the entire fallback. Insert it
       // first: if it was already there, this is a replay and the note, the
       // audit event and the alert must not happen a second time.
-      const enqueued = await this.repository.insertOutboxIfAbsent(transaction, {
+      const enqueued = await this.outbox.insertOutboxIfAbsent(transaction, {
         conversationId: conversation._id,
         campaignId: campaign.id,
         kind: "reply",
@@ -145,7 +149,7 @@ export class PostEventFeedbackExtractionFallback {
         return { outbox: enqueued.row, replayed: true as const };
       }
 
-      const note = await this.repository.insertNote(transaction, {
+      const note = await this.results.insertNote(transaction, {
         campaignId: campaign.id,
         conversationId: conversation._id,
         respondentParticipantId: conversation.respondentParticipantId,

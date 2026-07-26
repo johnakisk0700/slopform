@@ -14,6 +14,9 @@ import {
 
 import { AuditRepository } from "../../infrastructure/audit/audit.repository.js";
 import { DatabaseService } from "../../infrastructure/database/database.service.js";
+import { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
+import { FeedbackResultsRepository } from "./extraction/results.repository.js";
+import { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
 import { FEEDBACK_QUEUE } from "../../infrastructure/queue/queue.constants.js";
 import {
   FeedbackConversationCapacityError,
@@ -45,7 +48,6 @@ import type {
   FeedbackConversationResultsView,
   FeedbackNoteView,
 } from "./post-event-feedback-conversation.schemas.js";
-import { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
 import {
   createFeedbackExtractJobId,
   FEEDBACK_EXTRACT_QUIET_WINDOW_MS,
@@ -82,7 +84,9 @@ export class PostEventFeedbackConversationService {
     @InjectQueue(FEEDBACK_QUEUE)
     private readonly queue: Queue<FeedbackJobData, void, FeedbackJobName>,
     private readonly database: DatabaseService,
-    private readonly repository: PostEventFeedbackRepository,
+    private readonly campaigns: FeedbackCampaignRepository,
+    private readonly results: FeedbackResultsRepository,
+    private readonly outbox: FeedbackOutboxRepository,
     private readonly conversations: FeedbackConversationRepository,
     private readonly events: EventsRepository,
     private readonly eventsService: EventsService,
@@ -143,8 +147,8 @@ export class PostEventFeedbackConversationService {
   ): Promise<FeedbackConversationResultsView> {
     await this.requireConversationInCampaign(campaignId, conversationId);
     const [answers, notes] = await Promise.all([
-      this.repository.listAnswersByConversation(conversationId),
-      this.repository.listNotesByConversation(conversationId),
+      this.results.listAnswersByConversation(conversationId),
+      this.results.listNotesByConversation(conversationId),
     ]);
     return this.toResultsView(answers, notes);
   }
@@ -155,11 +159,11 @@ export class PostEventFeedbackConversationService {
   ): Promise<FeedbackConversationResultsView> {
     await this.requireCampaign(campaignId);
     const [answers, notes] = await Promise.all([
-      this.repository.listAnswersByCampaign(campaignId, {
+      this.results.listAnswersByCampaign(campaignId, {
         ...(query.questionKey ? { questionKey: query.questionKey } : {}),
         ...(query.participantId ? { participantId: query.participantId } : {}),
       }),
-      this.repository.listNotesByCampaign(campaignId, {
+      this.results.listNotesByCampaign(campaignId, {
         ...(query.participantId ? { participantId: query.participantId } : {}),
         ...(query.reviewStatus ? { reviewStatus: query.reviewStatus } : {}),
       }),
@@ -341,7 +345,7 @@ export class PostEventFeedbackConversationService {
 
     if (transition.changed) {
       await this.database.transaction(async (transaction) => {
-        await this.repository.cancelQueuedOutboxForConversation(
+        await this.outbox.cancelQueuedOutboxForConversation(
           transaction,
           conversation._id,
         );
@@ -387,7 +391,7 @@ export class PostEventFeedbackConversationService {
     const dedupeKey = `feedback-staff-${conversation._id}-${randomUUID()}`;
 
     const outbox = await this.database.transaction(async (transaction) => {
-      const inserted = await this.repository.insertOutboxIfAbsent(transaction, {
+      const inserted = await this.outbox.insertOutboxIfAbsent(transaction, {
         conversationId: conversation._id,
         campaignId: conversation.campaignId,
         kind: "staff",
@@ -476,7 +480,7 @@ export class PostEventFeedbackConversationService {
     };
 
     const note = await this.database.transaction(async (transaction) => {
-      const row = await this.repository.insertNote(transaction, {
+      const row = await this.results.insertNote(transaction, {
         campaignId: campaign.id,
         conversationId: conversation._id,
         respondentParticipantId: conversation.respondentParticipantId,
@@ -519,7 +523,7 @@ export class PostEventFeedbackConversationService {
     actorId: FeedbackConversationPrincipal,
     requestId: FeedbackConversationCorrelationId,
   ): Promise<FeedbackNoteView> {
-    const existing = await this.repository.findNoteById(noteId);
+    const existing = await this.results.findNoteById(noteId);
     if (!existing) {
       throw new FeedbackNoteNotFoundError(noteId);
     }
@@ -528,7 +532,7 @@ export class PostEventFeedbackConversationService {
       const row =
         existing.status === status
           ? existing
-          : await this.repository.updateNoteStatus(transaction, noteId, status);
+          : await this.results.updateNoteStatus(transaction, noteId, status);
       if (!row) {
         throw new FeedbackNoteNotFoundError(noteId);
       }
@@ -563,7 +567,7 @@ export class PostEventFeedbackConversationService {
   ): Promise<FeedbackConversationDetailView> {
     const [displayNames, outboxRows] = await Promise.all([
       this.resolveDisplayNames([conversation.respondentParticipantId]),
-      this.repository.listOutboxByConversation(conversation._id),
+      this.outbox.listOutboxByConversation(conversation._id),
     ]);
     const outboxById = new Map(outboxRows.map((row) => [row.id, row]));
 
@@ -635,7 +639,7 @@ export class PostEventFeedbackConversationService {
   private async requireCampaign(
     campaignId: string,
   ): Promise<FeedbackCampaignRow> {
-    const campaign = await this.repository.findCampaignById(campaignId);
+    const campaign = await this.campaigns.findCampaignById(campaignId);
     if (!campaign) {
       throw new FeedbackCampaignNotFoundError(campaignId);
     }

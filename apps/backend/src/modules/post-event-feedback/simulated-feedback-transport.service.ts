@@ -8,7 +8,7 @@ import type {
   FeedbackTransportSendInput,
   FeedbackTransportSendResult,
 } from "./feedback-transport.js";
-import { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
+import { FeedbackSimOutboundRepository } from "./simulator/sim-outbound.repository.js";
 
 /**
  * Durable PostgreSQL outbound sink for `TRANSPORT_MODE=simulated` (WP8).
@@ -21,7 +21,7 @@ import { PostEventFeedbackRepository } from "./post-event-feedback.repository.js
 export class SimulatedFeedbackTransport implements FeedbackTransport {
   private readonly logger = new Logger(SimulatedFeedbackTransport.name);
 
-  constructor(private readonly repository: PostEventFeedbackRepository) {}
+  constructor(private readonly repository: FeedbackSimOutboundRepository) {}
 
   async sendText(
     input: FeedbackTransportSendInput,

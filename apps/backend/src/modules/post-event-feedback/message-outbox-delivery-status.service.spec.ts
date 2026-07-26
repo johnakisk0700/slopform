@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { DatabaseService } from "../../infrastructure/database/database.service.js";
 import { MessageOutboxDeliveryStatusService } from "./message-outbox-delivery-status.service.js";
-import type { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
+import type { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
 
 const outboxId = "66de52a8-1a26-4cbb-b8d1-fcf8bdc2dd51";
 
@@ -27,7 +27,7 @@ describe("MessageOutboxDeliveryStatusService", () => {
     };
     const service = new MessageOutboxDeliveryStatusService(
       database as unknown as DatabaseService,
-      repository as unknown as PostEventFeedbackRepository,
+      repository as unknown as FeedbackOutboxRepository,
     );
 
     await expect(
@@ -67,7 +67,7 @@ describe("MessageOutboxDeliveryStatusService", () => {
     };
     const service = new MessageOutboxDeliveryStatusService(
       { transaction: vi.fn() } as unknown as DatabaseService,
-      repository as unknown as PostEventFeedbackRepository,
+      repository as unknown as FeedbackOutboxRepository,
     );
 
     await expect(
@@ -90,7 +90,7 @@ describe("MessageOutboxDeliveryStatusService", () => {
     };
     const service = new MessageOutboxDeliveryStatusService(
       { transaction: vi.fn() } as unknown as DatabaseService,
-      repository as unknown as PostEventFeedbackRepository,
+      repository as unknown as FeedbackOutboxRepository,
     );
 
     await expect(

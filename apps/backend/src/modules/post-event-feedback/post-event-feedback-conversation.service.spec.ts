@@ -26,7 +26,9 @@ import type { EventsService } from "../events/events.service.js";
 import type { ParticipantsRepository } from "../participants/participants.repository.js";
 import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
 import { buildPostEventFeedbackQuestionLaunchSnapshot } from "./post-event-feedback-question-set.js";
-import type { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
+import type { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
+import type { FeedbackResultsRepository } from "./extraction/results.repository.js";
+import type { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
 import { conversationCapabilities } from "./inbox/conversation.view.js";
 import {
   FeedbackConversationActionNotAllowedError,
@@ -823,7 +825,9 @@ function createService(): {
       FeedbackJobName
     >,
     database as unknown as DatabaseService,
-    repository as unknown as PostEventFeedbackRepository,
+    repository as unknown as FeedbackCampaignRepository,
+    repository as unknown as FeedbackResultsRepository,
+    repository as unknown as FeedbackOutboxRepository,
     conversations as unknown as FeedbackConversationRepository,
     events as unknown as EventsRepository,
     eventsService as unknown as EventsService,
@@ -831,7 +835,7 @@ function createService(): {
     { append: auditAppend } as unknown as AuditRepository,
     new FeedbackOutboundTranscriptService(
       database as unknown as DatabaseService,
-      repository as unknown as PostEventFeedbackRepository,
+      repository as unknown as FeedbackOutboxRepository,
       conversations as unknown as FeedbackConversationRepository,
     ),
   );

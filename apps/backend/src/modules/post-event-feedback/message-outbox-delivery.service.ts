@@ -6,6 +6,8 @@ import type {
 } from "@join-the-six/database";
 
 import { DatabaseService } from "../../infrastructure/database/database.service.js";
+import { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
+import { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
 import { FeedbackConversationRepository } from "../conversations/feedback-conversation.repository.js";
 import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
 import {
@@ -16,7 +18,6 @@ import {
   coalesceDeliveryStatus,
   deliveryTimestampFields,
 } from "./message-outbox-delivery-status.js";
-import { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
 
 export class MessageOutboxNotFoundError extends Error {
   constructor(outboxId: string) {
@@ -46,7 +47,8 @@ export class MessageOutboxDeliveryService {
 
   constructor(
     private readonly database: DatabaseService,
-    private readonly repository: PostEventFeedbackRepository,
+    private readonly campaigns: FeedbackCampaignRepository,
+    private readonly outbox: FeedbackOutboxRepository,
     private readonly conversations: FeedbackConversationRepository,
     private readonly outboundTranscript: FeedbackOutboundTranscriptService,
     @Inject(FEEDBACK_TRANSPORT)
@@ -57,7 +59,7 @@ export class MessageOutboxDeliveryService {
     outboxId: string,
     correlationId: string,
   ): Promise<DeliverMessageOutboxResult> {
-    const row = await this.repository.findOutboxById(outboxId);
+    const row = await this.outbox.findOutboxById(outboxId);
     if (!row) {
       throw new MessageOutboxNotFoundError(outboxId);
     }
@@ -75,9 +77,9 @@ export class MessageOutboxDeliveryService {
       return { outcome: "skipped_not_sending" };
     }
 
-    const campaign = await this.repository.findCampaignById(row.campaignId);
+    const campaign = await this.campaigns.findCampaignById(row.campaignId);
     if (campaign?.status !== "launched") {
-      await this.repository.releaseOutboxLease(row.id, new Date());
+      await this.outbox.releaseOutboxLease(row.id, new Date());
       this.logger.log({
         event: "feedback.outbox.skipped_campaign_inactive",
         correlationId,
@@ -240,7 +242,7 @@ export class MessageOutboxDeliveryService {
     const timestamps = deliveryTimestampFields(deliveryStatus, input.at, row);
 
     await this.database.transaction(async (transaction) => {
-      await this.repository.updateOutboxDelivery(transaction, row.id, {
+      await this.outbox.updateOutboxDelivery(transaction, row.id, {
         deliveryStatus,
         providerLogId: input.providerLogId,
         ...(input.providerMessageId
@@ -273,7 +275,7 @@ export class MessageOutboxDeliveryService {
     correlationId: string,
   ): Promise<void> {
     await this.database.transaction(async (transaction) => {
-      await this.repository.updateOutboxStatus(transaction, outboxId, "failed");
+      await this.outbox.updateOutboxStatus(transaction, outboxId, "failed");
     });
     if (!conversationId) {
       return;
@@ -301,7 +303,7 @@ export class MessageOutboxDeliveryService {
     providerLogId: string | undefined,
   ): Promise<void> {
     await this.database.transaction(async (transaction) => {
-      await this.repository.updateOutboxDelivery(transaction, outboxId, {
+      await this.outbox.updateOutboxDelivery(transaction, outboxId, {
         deliveryStatus: "pending",
         ...(providerLogId ? { providerLogId } : {}),
         status: "sending",

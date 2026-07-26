@@ -3,7 +3,7 @@ import type { EventStatus } from "@join-the-six/database";
 
 import { AuditRepository } from "../../infrastructure/audit/audit.repository.js";
 import { DatabaseService } from "../../infrastructure/database/database.service.js";
-import { PostEventFeedbackRepository } from "../post-event-feedback/post-event-feedback.repository.js";
+import { FeedbackCampaignRepository } from "../post-event-feedback/campaign/campaign.repository.js";
 import { selectFeedbackCandidates } from "./feedback-candidates.js";
 import {
   EventsRepository,
@@ -75,7 +75,7 @@ export class EventsService {
     private readonly database: DatabaseService,
     private readonly repository: EventsRepository,
     private readonly audit: AuditRepository,
-    private readonly feedback: PostEventFeedbackRepository,
+    private readonly feedback: FeedbackCampaignRepository,
   ) {}
 
   async create(

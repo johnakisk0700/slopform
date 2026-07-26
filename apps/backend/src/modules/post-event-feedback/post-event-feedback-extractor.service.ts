@@ -14,6 +14,9 @@ import {
   type FeedbackOperatorAlert,
 } from "./feedback-operator-alert.js";
 import { DatabaseService } from "../../infrastructure/database/database.service.js";
+import { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
+import { FeedbackResultsRepository } from "./extraction/results.repository.js";
+import { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
 import { FeedbackConversationRepository } from "../conversations/feedback-conversation.repository.js";
 import type { FeedbackConversationDocument } from "../conversations/feedback-conversation.schemas.js";
 import { EventsService } from "../events/events.service.js";
@@ -53,7 +56,6 @@ import {
   buildFeedbackExtractionPrompt,
   estimatePromptTokens,
 } from "./post-event-feedback-prompt.js";
-import { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
 
 export class PostEventFeedbackConversationNotFoundError extends Error {
   constructor(conversationId: string) {
@@ -108,7 +110,9 @@ export class PostEventFeedbackExtractor {
 
   constructor(
     private readonly database: DatabaseService,
-    private readonly repository: PostEventFeedbackRepository,
+    private readonly campaigns: FeedbackCampaignRepository,
+    private readonly results: FeedbackResultsRepository,
+    private readonly outbox: FeedbackOutboxRepository,
     private readonly conversations: FeedbackConversationRepository,
     private readonly events: EventsService,
     private readonly participants: ParticipantsRepository,
@@ -170,7 +174,7 @@ export class PostEventFeedbackExtractor {
       );
     }
 
-    const campaign = await this.repository.findCampaignById(
+    const campaign = await this.campaigns.findCampaignById(
       conversation.campaignId,
     );
     if (!campaign) {
@@ -407,8 +411,8 @@ export class PostEventFeedbackExtractor {
       conversation.respondentParticipantId,
     );
     const [acceptedAnswers, acceptedNotes, participant] = await Promise.all([
-      this.repository.listAnswersByConversation(conversation._id),
-      this.repository.listNotesByConversation(conversation._id),
+      this.results.listAnswersByConversation(conversation._id),
+      this.results.listNotesByConversation(conversation._id),
       this.participants.findById(conversation.respondentParticipantId),
     ]);
 
@@ -533,10 +537,7 @@ export class PostEventFeedbackExtractor {
     );
 
     return this.database.transaction(async (transaction) => {
-      await this.repository.lockConversation(
-        transaction,
-        input.conversation._id,
-      );
+      await this.results.lockConversation(transaction, input.conversation._id);
 
       let answersWritten = 0;
       for (const answer of input.validated.answers) {
@@ -544,29 +545,26 @@ export class PostEventFeedbackExtractor {
         // add a second opinion about them. Clearing the questions this one
         // contradicts is what makes the move a move.
         if (answer.subjectParticipantId) {
-          await this.repository.deleteContradictedAnswers(transaction, {
+          await this.results.deleteContradictedAnswers(transaction, {
             conversationId: input.conversation._id,
             subjectParticipantId: answer.subjectParticipantId,
             questionKeys: contradictedQuestionKeys(answer.questionKey),
           });
         }
-        const inserted = await this.repository.insertAnswerIfAbsent(
-          transaction,
-          {
-            campaignId: input.campaign.id,
-            conversationId: input.conversation._id,
-            respondentParticipantId: input.conversation.respondentParticipantId,
-            subjectParticipantId: answer.subjectParticipantId,
-            questionKey: answer.questionKey,
-            valueInt: answer.valueInt,
-            sourceMessageIds: answer.sourceMessageIds,
-            extractionMeta: buildExtractionMeta({
-              model: input.model,
-              confidence: answer.confidence,
-              candidateIds,
-            }),
-          },
-        );
+        const inserted = await this.results.insertAnswerIfAbsent(transaction, {
+          campaignId: input.campaign.id,
+          conversationId: input.conversation._id,
+          respondentParticipantId: input.conversation.respondentParticipantId,
+          subjectParticipantId: answer.subjectParticipantId,
+          questionKey: answer.questionKey,
+          valueInt: answer.valueInt,
+          sourceMessageIds: answer.sourceMessageIds,
+          extractionMeta: buildExtractionMeta({
+            model: input.model,
+            confidence: answer.confidence,
+            candidateIds,
+          }),
+        });
         if (inserted) {
           answersWritten += 1;
         }
@@ -575,7 +573,7 @@ export class PostEventFeedbackExtractor {
       // `feedback_notes` has no natural unique key, so the run re-reads what is
       // already stored inside the same locked transaction. Together with the
       // cursor that is the note replay guard.
-      const storedNotes = await this.repository.listNotesByConversation(
+      const storedNotes = await this.results.listNotesByConversation(
         input.conversation._id,
         transaction,
       );
@@ -600,7 +598,7 @@ export class PostEventFeedbackExtractor {
           continue;
         }
         storedNoteKeys.add(signature);
-        await this.repository.insertNote(transaction, {
+        await this.results.insertNote(transaction, {
           campaignId: input.campaign.id,
           conversationId: input.conversation._id,
           respondentParticipantId: input.conversation.respondentParticipantId,
@@ -653,16 +651,13 @@ export class PostEventFeedbackExtractor {
 
       let outbox: MessageOutboxRow | undefined;
       if (input.outbound) {
-        const enqueued = await this.repository.insertOutboxIfAbsent(
-          transaction,
-          {
-            conversationId: input.conversation._id,
-            campaignId: input.campaign.id,
-            kind: "reply",
-            body: input.outbound.body,
-            dedupeKey: input.outbound.dedupeKey,
-          },
-        );
+        const enqueued = await this.outbox.insertOutboxIfAbsent(transaction, {
+          conversationId: input.conversation._id,
+          campaignId: input.campaign.id,
+          kind: "reply",
+          body: input.outbound.body,
+          dedupeKey: input.outbound.dedupeKey,
+        });
         outbox = enqueued.row;
       }
 

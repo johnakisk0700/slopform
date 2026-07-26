@@ -6,6 +6,12 @@ import type { Queue } from "bullmq";
 import type { Environment } from "../../infrastructure/config/environment.js";
 import { AuditRepository } from "../../infrastructure/audit/audit.repository.js";
 import { DatabaseService } from "../../infrastructure/database/database.service.js";
+import { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
+import {
+  FEEDBACK_SWEEP_BATCH_SIZE,
+  FeedbackIngressRepository,
+} from "./ingress/ingress.repository.js";
+import { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
 import { FEEDBACK_QUEUE } from "../../infrastructure/queue/queue.constants.js";
 import { FeedbackConversationRepository } from "../conversations/feedback-conversation.repository.js";
 import type { FeedbackConversationDocument } from "../conversations/feedback-conversation.schemas.js";
@@ -26,10 +32,6 @@ import {
   type FeedbackJobData,
   type FeedbackJobName,
 } from "./post-event-feedback.schemas.js";
-import {
-  FEEDBACK_SWEEP_BATCH_SIZE,
-  PostEventFeedbackRepository,
-} from "./post-event-feedback.repository.js";
 
 export type FeedbackReminderSweepResult = {
   readonly examined: number;
@@ -62,7 +64,9 @@ export class PostEventFeedbackSweepService {
     private readonly queue: Queue<FeedbackJobData, void, FeedbackJobName>,
     private readonly config: ConfigService<Environment, true>,
     private readonly database: DatabaseService,
-    private readonly repository: PostEventFeedbackRepository,
+    private readonly campaigns: FeedbackCampaignRepository,
+    private readonly ingress: FeedbackIngressRepository,
+    private readonly outbox: FeedbackOutboxRepository,
     private readonly conversations: FeedbackConversationRepository,
     private readonly participants: ParticipantsRepository,
     private readonly audit: AuditRepository,
@@ -168,7 +172,7 @@ export class PostEventFeedbackSweepService {
       },
     );
     const olderThan = new Date(now.getTime() - minutes * 60_000);
-    const rows = await this.repository.listPendingIngressOlderThan(
+    const rows = await this.ingress.listPendingIngressOlderThan(
       olderThan,
       FEEDBACK_SWEEP_BATCH_SIZE,
     );
@@ -253,7 +257,7 @@ export class PostEventFeedbackSweepService {
       return false;
     }
 
-    const campaign = await this.repository.findCampaignById(
+    const campaign = await this.campaigns.findCampaignById(
       conversation.campaignId,
     );
     if (campaign?.status !== "launched") {
@@ -272,7 +276,7 @@ export class PostEventFeedbackSweepService {
       participant.preferredName?.trim() || participant.emailNormalized;
 
     const reminder = await this.database.transaction(async (transaction) => {
-      const enqueued = await this.repository.insertOutboxIfAbsent(transaction, {
+      const enqueued = await this.outbox.insertOutboxIfAbsent(transaction, {
         conversationId: conversation._id,
         campaignId: conversation.campaignId,
         kind: "reminder",
@@ -336,7 +340,7 @@ export class PostEventFeedbackSweepService {
       return false;
     }
 
-    const campaign = await this.repository.findCampaignById(
+    const campaign = await this.campaigns.findCampaignById(
       conversation.campaignId,
     );
     if (!campaign || campaign.status === "closed") {
@@ -361,7 +365,7 @@ export class PostEventFeedbackSweepService {
 
     await this.database.transaction(async (transaction) => {
       const cancelledOutboxCount =
-        await this.repository.cancelQueuedOutboxForConversation(
+        await this.outbox.cancelQueuedOutboxForConversation(
           transaction,
           conversation._id,
         );

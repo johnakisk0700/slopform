@@ -21,7 +21,9 @@ import type { PostEventFeedbackExtractionModel } from "./post-event-feedback-ext
 import { PostEventFeedbackMetrics } from "./post-event-feedback-metrics.service.js";
 import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "./post-event-feedback-question-set.js";
 import { POST_EVENT_FEEDBACK_HANDOFF_REPLY } from "./post-event-feedback-extraction.schemas.js";
-import type { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
+import type { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
+import type { FeedbackResultsRepository } from "./extraction/results.repository.js";
+import type { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
 
 const campaignId = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 const eventId = "5c2f0b8e-9b1a-4a41-8f27-1a6f9b0c2d10";
@@ -1334,7 +1336,9 @@ function createHarness(): Harness {
   const database = new FakeDatabase();
   const extractor = new PostEventFeedbackExtractor(
     database as unknown as DatabaseService,
-    repository as unknown as PostEventFeedbackRepository,
+    repository as unknown as FeedbackCampaignRepository,
+    repository as unknown as FeedbackResultsRepository,
+    repository as unknown as FeedbackOutboxRepository,
     conversations as unknown as FeedbackConversationRepository,
     events as unknown as EventsService,
     participants as unknown as ParticipantsRepository,
@@ -1343,7 +1347,7 @@ function createHarness(): Harness {
     metrics,
     new FeedbackOutboundTranscriptService(
       database as unknown as DatabaseService,
-      repository as unknown as PostEventFeedbackRepository,
+      repository as unknown as FeedbackOutboxRepository,
       conversations as unknown as FeedbackConversationRepository,
     ),
     alert,

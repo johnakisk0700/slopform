@@ -19,7 +19,11 @@ import {
 import { PostEventFeedbackIngressService } from "./post-event-feedback-ingress.service.js";
 import { PostEventFeedbackMaterializer } from "./post-event-feedback-materializer.service.js";
 import { PostEventFeedbackMetrics } from "./post-event-feedback-metrics.service.js";
-import type { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
+import type { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
+import type { FeedbackResultsRepository } from "./extraction/results.repository.js";
+import type { FeedbackIngressRepository } from "./ingress/ingress.repository.js";
+import type { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
+import type { FeedbackSimOutboundRepository } from "./simulator/sim-outbound.repository.js";
 import type {
   FeedbackJobData,
   FeedbackJobName,
@@ -443,7 +447,7 @@ function createSimulatorHarness(): SimulatorHarness {
   const queue = new FakeQueue();
   const database = new FakeDatabase();
   const transport = new SimulatedFeedbackTransport(
-    repository as unknown as PostEventFeedbackRepository,
+    repository as unknown as FeedbackSimOutboundRepository,
   );
 
   conversations.seed({
@@ -464,12 +468,12 @@ function createSimulatorHarness(): SimulatorHarness {
   const ingress = new PostEventFeedbackIngressService(
     queue as unknown as Queue<FeedbackJobData, void, FeedbackJobName>,
     database as unknown as DatabaseService,
-    repository as unknown as PostEventFeedbackRepository,
+    repository as unknown as FeedbackIngressRepository,
   );
 
   const outboundTranscript = new FeedbackOutboundTranscriptService(
     database as unknown as DatabaseService,
-    repository as unknown as PostEventFeedbackRepository,
+    repository as unknown as FeedbackOutboxRepository,
     conversations as unknown as FeedbackConversationRepository,
   );
 
@@ -479,7 +483,8 @@ function createSimulatorHarness(): SimulatorHarness {
     queue,
     delivery: new MessageOutboxDeliveryService(
       database as unknown as DatabaseService,
-      repository as unknown as PostEventFeedbackRepository,
+      repository as unknown as FeedbackCampaignRepository,
+      repository as unknown as FeedbackOutboxRepository,
       conversations as unknown as FeedbackConversationRepository,
       outboundTranscript,
       transport,
@@ -497,7 +502,11 @@ function createSimulatorHarness(): SimulatorHarness {
         },
       } as never,
       ingress,
-      repository as unknown as PostEventFeedbackRepository,
+      repository as unknown as FeedbackCampaignRepository,
+      repository as unknown as FeedbackResultsRepository,
+      repository as unknown as FeedbackIngressRepository,
+      repository as unknown as FeedbackOutboxRepository,
+      repository as unknown as FeedbackSimOutboundRepository,
       conversations as unknown as FeedbackConversationRepository,
       {} as never,
       {} as never,
@@ -507,7 +516,9 @@ function createSimulatorHarness(): SimulatorHarness {
     materializer: new PostEventFeedbackMaterializer(
       queue as unknown as Queue<FeedbackJobData, void, FeedbackJobName>,
       database as unknown as DatabaseService,
-      repository as unknown as PostEventFeedbackRepository,
+      repository as unknown as FeedbackCampaignRepository,
+      repository as unknown as FeedbackIngressRepository,
+      repository as unknown as FeedbackOutboxRepository,
       conversations as unknown as FeedbackConversationRepository,
       new FakeParticipants() as never,
       new FakeAudit() as never,

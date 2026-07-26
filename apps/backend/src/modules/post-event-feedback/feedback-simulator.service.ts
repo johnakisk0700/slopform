@@ -14,6 +14,11 @@ import { EventsService } from "../events/events.service.js";
 import { ParticipantsRepository } from "../participants/participants.repository.js";
 import type { AssistantModel } from "../assistant/assistant.schemas.js";
 import { phoneE164ToChatJid } from "../../integrations/wasender/wasender.jid.js";
+import { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
+import { FeedbackResultsRepository } from "./extraction/results.repository.js";
+import { FeedbackIngressRepository } from "./ingress/ingress.repository.js";
+import { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
+import { FeedbackSimOutboundRepository } from "./simulator/sim-outbound.repository.js";
 import {
   feedbackSimulatorCandidateSlotSchema,
   feedbackSimulatorRubricSchema,
@@ -45,7 +50,6 @@ import {
   type FeedbackJobData,
   type FeedbackJobName,
 } from "./post-event-feedback.schemas.js";
-import { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
 import { toRunView } from "./simulator/run-status.js";
 
 const FEEDBACK_SIMULATOR_RUN_LIMIT = 100;
@@ -123,7 +127,11 @@ export class FeedbackSimulatorService {
     private readonly queue: Queue<FeedbackJobData, void, FeedbackJobName>,
     private readonly config: ConfigService<Environment, true>,
     private readonly ingress: PostEventFeedbackIngressService,
-    private readonly repository: PostEventFeedbackRepository,
+    private readonly campaigns: FeedbackCampaignRepository,
+    private readonly results: FeedbackResultsRepository,
+    private readonly ingressRepository: FeedbackIngressRepository,
+    private readonly outbox: FeedbackOutboxRepository,
+    private readonly simOutbound: FeedbackSimOutboundRepository,
     private readonly conversations: FeedbackConversationRepository,
     private readonly events: EventsRepository,
     private readonly eventsService: EventsService,
@@ -159,7 +167,7 @@ export class FeedbackSimulatorService {
     const workers = await this.queue.getWorkers();
     const workerRegistered = workers.length > 0;
     const [campaign, conversation] = await Promise.all([
-      this.repository.findCampaignById(input.campaignId),
+      this.campaigns.findCampaignById(input.campaignId),
       this.conversations.findById(input.conversationId),
     ]);
     if (!campaign || !conversation) {
@@ -189,11 +197,11 @@ export class FeedbackSimulatorService {
         campaign.eventId,
         conversation.respondentParticipantId,
       ),
-      this.repository.listAnswersByConversation(conversation._id),
-      this.repository.listNotesByConversation(conversation._id),
-      this.repository.listOutboxByConversation(conversation._id),
-      this.repository.listIngressByPhoneE164(conversation.phoneAtLaunch),
-      this.repository.listSimOutboundByPhoneE164(conversation.phoneAtLaunch),
+      this.results.listAnswersByConversation(conversation._id),
+      this.results.listNotesByConversation(conversation._id),
+      this.outbox.listOutboxByConversation(conversation._id),
+      this.ingressRepository.listIngressByPhoneE164(conversation.phoneAtLaunch),
+      this.simOutbound.listSimOutboundByPhoneE164(conversation.phoneAtLaunch),
     ]);
 
     if (event?.status !== "finished") {
@@ -359,7 +367,7 @@ export class FeedbackSimulatorService {
       }
 
       const [campaign, initialConversation] = await Promise.all([
-        this.repository.findCampaignById(input.campaignId),
+        this.campaigns.findCampaignById(input.campaignId),
         this.conversations.findById(input.conversationId),
       ]);
       if (!campaign || !initialConversation) {
@@ -389,13 +397,13 @@ export class FeedbackSimulatorService {
           campaign.eventId,
           initialConversation.respondentParticipantId,
         ),
-        this.repository.listAnswersByConversation(initialConversation._id),
-        this.repository.listNotesByConversation(initialConversation._id),
-        this.repository.listOutboxByConversation(initialConversation._id),
-        this.repository.listIngressByPhoneE164(
+        this.results.listAnswersByConversation(initialConversation._id),
+        this.results.listNotesByConversation(initialConversation._id),
+        this.outbox.listOutboxByConversation(initialConversation._id),
+        this.ingressRepository.listIngressByPhoneE164(
           initialConversation.phoneAtLaunch,
         ),
-        this.repository.listSimOutboundByPhoneE164(
+        this.simOutbound.listSimOutboundByPhoneE164(
           initialConversation.phoneAtLaunch,
         ),
       ]);
@@ -588,13 +596,13 @@ export class FeedbackSimulatorService {
         this.conversations.findById(run.conversationId),
         Promise.all(
           run.ingressIds.map((ingressId) =>
-            this.repository.findIngressById(ingressId),
+            this.ingressRepository.findIngressById(ingressId),
           ),
         ),
-        this.repository.listAnswersByConversation(run.conversationId),
-        this.repository.listNotesByConversation(run.conversationId),
-        this.repository.listOutboxByConversation(run.conversationId),
-        this.repository.listSimOutboundByPhoneE164(run.phoneE164),
+        this.results.listAnswersByConversation(run.conversationId),
+        this.results.listNotesByConversation(run.conversationId),
+        this.outbox.listOutboxByConversation(run.conversationId),
+        this.simOutbound.listSimOutboundByPhoneE164(run.phoneE164),
       ]);
 
     const extractionJobs = await this.inspectExtractionJobs(run);
@@ -647,8 +655,8 @@ export class FeedbackSimulatorService {
   ): Promise<FeedbackSimulatorThreadResponseDto> {
     this.assertEnabled();
     const [ingressRows, outboundRows] = await Promise.all([
-      this.repository.listIngressByPhoneE164(phoneE164),
-      this.repository.listSimOutboundByPhoneE164(phoneE164),
+      this.ingressRepository.listIngressByPhoneE164(phoneE164),
+      this.simOutbound.listSimOutboundByPhoneE164(phoneE164),
     ]);
 
     const messages = [

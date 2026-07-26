@@ -8,7 +8,7 @@ import {
   PostEventFeedbackEnqueueError,
   PostEventFeedbackIngressService,
 } from "./post-event-feedback-ingress.service.js";
-import type { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
+import type { FeedbackIngressRepository } from "./ingress/ingress.repository.js";
 import {
   FEEDBACK_OBSERVED_TEXT_HARD_LIMIT,
   type FeedbackJobData,
@@ -159,7 +159,7 @@ function createService(options: {
     service: new PostEventFeedbackIngressService(
       queue as unknown as Queue<FeedbackJobData, void, FeedbackJobName>,
       database as unknown as DatabaseService,
-      repository as unknown as PostEventFeedbackRepository,
+      repository as unknown as FeedbackIngressRepository,
     ),
     repository,
     queue,

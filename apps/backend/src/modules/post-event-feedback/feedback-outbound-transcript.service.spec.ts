@@ -13,7 +13,7 @@ import {
   FeedbackOutboundTranscriptService,
   UnsupportedMessageOutboxKindError,
 } from "./feedback-outbound-transcript.service.js";
-import type { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
+import type { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
 
 const conversationId = "6f0f2f8a-2b73-5a02-9d0a-3f0b8f5b1c21";
 const outboxId = "d3e9a2c6-4e87-4c4b-9c40-4f2c5a4e3d99";
@@ -178,7 +178,7 @@ function createService(): {
   return {
     service: new FeedbackOutboundTranscriptService(
       database as unknown as DatabaseService,
-      repository as unknown as PostEventFeedbackRepository,
+      repository as unknown as FeedbackOutboxRepository,
       conversations as unknown as FeedbackConversationRepository,
     ),
     conversations,

@@ -10,7 +10,8 @@ import {
 import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
 import type { FeedbackTransport } from "./feedback-transport.js";
 import { MessageOutboxDeliveryService } from "./message-outbox-delivery.service.js";
-import type { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
+import type { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
+import type { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
 
 const outboxId = "66de52a8-1a26-4cbb-b8d1-fcf8bdc2dd51";
 const conversationId = "7c57f3b8-2b13-48f5-8730-18ac71f490cd";
@@ -275,11 +276,12 @@ function createService(): {
   return {
     service: new MessageOutboxDeliveryService(
       database as unknown as DatabaseService,
-      repository as unknown as PostEventFeedbackRepository,
+      repository as unknown as FeedbackCampaignRepository,
+      repository as unknown as FeedbackOutboxRepository,
       conversations as unknown as FeedbackConversationRepository,
       new FeedbackOutboundTranscriptService(
         database as unknown as DatabaseService,
-        repository as unknown as PostEventFeedbackRepository,
+        repository as unknown as FeedbackOutboxRepository,
         conversations as unknown as FeedbackConversationRepository,
       ),
       transport as unknown as FeedbackTransport,

@@ -10,7 +10,9 @@ import { buildFeedbackConversationGoals } from "../conversations/feedback-conver
 import type { ParticipantsRepository } from "../participants/participants.repository.js";
 import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
 import { buildPostEventFeedbackQuestionLaunchSnapshot } from "./post-event-feedback-question-set.js";
-import type { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
+import type { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
+import type { FeedbackIngressRepository } from "./ingress/ingress.repository.js";
+import type { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
 import { PostEventFeedbackSweepService } from "./post-event-feedback-sweep.service.js";
 import {
   createFeedbackMaterializeJobId,
@@ -326,13 +328,15 @@ function createService(): {
       queue as never,
       config as unknown as ConfigService<Environment, true>,
       database as unknown as DatabaseService,
-      repository as unknown as PostEventFeedbackRepository,
+      repository as unknown as FeedbackCampaignRepository,
+      repository as unknown as FeedbackIngressRepository,
+      repository as unknown as FeedbackOutboxRepository,
       conversations as unknown as FeedbackConversationRepository,
       participants as unknown as ParticipantsRepository,
       { append: auditAppend } as unknown as AuditRepository,
       new FeedbackOutboundTranscriptService(
         database as unknown as DatabaseService,
-        repository as unknown as PostEventFeedbackRepository,
+        repository as unknown as FeedbackOutboxRepository,
         conversations as unknown as FeedbackConversationRepository,
       ),
     ),

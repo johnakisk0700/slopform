@@ -20,7 +20,9 @@ import {
 import { PostEventFeedbackMaterializer } from "./post-event-feedback-materializer.service.js";
 import { PostEventFeedbackMetrics } from "./post-event-feedback-metrics.service.js";
 import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "./post-event-feedback-question-set.js";
-import type { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
+import type { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
+import type { FeedbackIngressRepository } from "./ingress/ingress.repository.js";
+import type { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
 import {
   FEEDBACK_EXTRACT_QUIET_WINDOW_MS,
   type FeedbackJobData,
@@ -936,14 +938,16 @@ function createHarness(): Harness {
   const materializer = new PostEventFeedbackMaterializer(
     queue as unknown as Queue<FeedbackJobData, void, FeedbackJobName>,
     database as unknown as DatabaseService,
-    repository as unknown as PostEventFeedbackRepository,
+    repository as unknown as FeedbackCampaignRepository,
+    repository as unknown as FeedbackIngressRepository,
+    repository as unknown as FeedbackOutboxRepository,
     conversations as unknown as FeedbackConversationRepository,
     participants as unknown as ParticipantsRepository,
     audit as unknown as AuditRepository,
     metrics,
     new FeedbackOutboundTranscriptService(
       database as unknown as DatabaseService,
-      repository as unknown as PostEventFeedbackRepository,
+      repository as unknown as FeedbackOutboxRepository,
       conversations as unknown as FeedbackConversationRepository,
     ),
   );

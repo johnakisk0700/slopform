@@ -1,12 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { DatabaseService } from "../../infrastructure/database/database.service.js";
+import { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
 import {
   FEEDBACK_OUTBOX_RECOVERY_MS,
-  PostEventFeedbackRepository,
-} from "./post-event-feedback.repository.js";
+  FeedbackOutboxRepository,
+} from "./outbox/outbox.repository.js";
 
-describe("PostEventFeedbackRepository outbox lease", () => {
+describe("FeedbackOutboxRepository lease", () => {
   it("claims pending rows with FOR UPDATE SKIP LOCKED and never selects held", async () => {
     const campaignId = "89eccaa5-9ce6-4dcf-a630-5e35e4ec6f0d";
     const outboxId = "11111111-1111-4111-8111-111111111111";
@@ -48,10 +49,14 @@ describe("PostEventFeedbackRepository outbox lease", () => {
     const transaction = vi.fn(async (work: (tx: unknown) => Promise<unknown>) =>
       work({ select, update }),
     );
-    const repository = new PostEventFeedbackRepository({
+    const database = {
       transaction,
       db: {},
-    } as unknown as DatabaseService);
+    } as unknown as DatabaseService;
+    const repository = new FeedbackOutboxRepository(
+      database,
+      new FeedbackCampaignRepository(database),
+    );
 
     const now = new Date("2026-07-25T12:00:00.000Z");
     await repository.claimOutboxBatch(now, 10);
@@ -85,12 +90,16 @@ describe("PostEventFeedbackRepository outbox lease", () => {
       return { from: campaignFrom };
     });
 
-    const repository = new PostEventFeedbackRepository({
+    const database = {
       transaction: vi.fn(async (work: (tx: unknown) => Promise<unknown>) =>
         work({ select, update }),
       ),
       db: {},
-    } as unknown as DatabaseService);
+    } as unknown as DatabaseService;
+    const repository = new FeedbackOutboxRepository(
+      database,
+      new FeedbackCampaignRepository(database),
+    );
 
     await expect(
       repository.claimOutboxBatch(new Date("2026-07-25T12:00:00.000Z"), 10),
@@ -107,10 +116,14 @@ describe("PostEventFeedbackRepository outbox lease", () => {
     const where = vi.fn().mockReturnValue({ returning });
     const set = vi.fn().mockReturnValue({ where });
     const update = vi.fn().mockReturnValue({ set });
-    const repository = new PostEventFeedbackRepository({
+    const database = {
       db: { update },
       transaction: vi.fn(),
-    } as unknown as DatabaseService);
+    } as unknown as DatabaseService;
+    const repository = new FeedbackOutboxRepository(
+      database,
+      new FeedbackCampaignRepository(database),
+    );
 
     const now = new Date("2026-07-25T12:00:00.000Z");
     await repository.releaseOutboxLease(

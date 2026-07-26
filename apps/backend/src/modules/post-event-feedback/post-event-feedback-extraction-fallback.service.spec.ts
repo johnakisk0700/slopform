@@ -20,7 +20,9 @@ import {
   POST_EVENT_FEEDBACK_FALLBACK_NOTE_TEXT,
 } from "./post-event-feedback-extraction.schemas.js";
 import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "./post-event-feedback-question-set.js";
-import type { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
+import type { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
+import type { FeedbackResultsRepository } from "./extraction/results.repository.js";
+import type { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
 
 const campaignId = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 const eventId = "6b1d2f43-2f6a-4a1f-9f39-0f2c1f6c9a10";
@@ -541,13 +543,15 @@ function createHarness(): Harness {
   const database = new FakeDatabase();
   const fallback = new PostEventFeedbackExtractionFallback(
     database as unknown as DatabaseService,
-    repository as unknown as PostEventFeedbackRepository,
+    repository as unknown as FeedbackCampaignRepository,
+    repository as unknown as FeedbackResultsRepository,
+    repository as unknown as FeedbackOutboxRepository,
     conversations as unknown as FeedbackConversationRepository,
     events as unknown as EventsService,
     audit as unknown as AuditRepository,
     new FeedbackOutboundTranscriptService(
       database as unknown as DatabaseService,
-      repository as unknown as PostEventFeedbackRepository,
+      repository as unknown as FeedbackOutboxRepository,
       conversations as unknown as FeedbackConversationRepository,
     ),
     alert,

@@ -18,7 +18,11 @@ import {
 import { startFeedbackSimulatorRunSchema } from "./feedback-simulator.schemas.js";
 import { runStage } from "./simulator/run-status.js";
 import type { PostEventFeedbackIngressService } from "./post-event-feedback-ingress.service.js";
-import type { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
+import type { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
+import type { FeedbackResultsRepository } from "./extraction/results.repository.js";
+import type { FeedbackIngressRepository } from "./ingress/ingress.repository.js";
+import type { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
+import type { FeedbackSimOutboundRepository } from "./simulator/sim-outbound.repository.js";
 import type {
   FeedbackJobData,
   FeedbackJobName,
@@ -457,7 +461,11 @@ function createHarness(environment: Partial<Environment> = {}): {
       queue as unknown as Queue<FeedbackJobData, void, FeedbackJobName>,
       config as unknown as ConfigService<Environment, true>,
       ingress as unknown as PostEventFeedbackIngressService,
-      repository as unknown as PostEventFeedbackRepository,
+      repository as unknown as FeedbackCampaignRepository,
+      repository as unknown as FeedbackResultsRepository,
+      repository as unknown as FeedbackIngressRepository,
+      repository as unknown as FeedbackOutboxRepository,
+      repository as unknown as FeedbackSimOutboundRepository,
       conversations as unknown as FeedbackConversationRepository,
       events as unknown as EventsRepository,
       eventsService as unknown as EventsService,

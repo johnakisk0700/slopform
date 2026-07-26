@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { AuditRepository } from "../../infrastructure/audit/audit.repository.js";
 import type { DatabaseService } from "../../infrastructure/database/database.service.js";
-import type { PostEventFeedbackRepository } from "../post-event-feedback/post-event-feedback.repository.js";
+import type { FeedbackCampaignRepository } from "../post-event-feedback/campaign/campaign.repository.js";
 import type { EventsRepository } from "./events.repository.js";
 import {
   EventMutationNotAllowedError,
@@ -121,7 +121,7 @@ function createService(options?: {
       database,
       repository as unknown as EventsRepository,
       { append: auditAppend } as unknown as AuditRepository,
-      feedback as unknown as PostEventFeedbackRepository,
+      feedback as unknown as FeedbackCampaignRepository,
     ),
     transaction,
   };

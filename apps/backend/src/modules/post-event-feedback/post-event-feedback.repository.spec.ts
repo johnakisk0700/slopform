@@ -7,7 +7,10 @@ import {
 } from "@join-the-six/database";
 
 import type { DatabaseService } from "../../infrastructure/database/database.service.js";
-import { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
+import { FeedbackResultsRepository } from "./extraction/results.repository.js";
+import { FeedbackIngressRepository } from "./ingress/ingress.repository.js";
+import { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
+import { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
 
 function createInsertChain(returningValue: unknown[]) {
   const returning = vi.fn().mockResolvedValue(returningValue);
@@ -27,7 +30,7 @@ function createInsertChain(returningValue: unknown[]) {
   };
 }
 
-describe("PostEventFeedbackRepository conflict targets", () => {
+describe("feedback repository conflict targets", () => {
   it("dedupes ingress inserts on (chat_jid, provider_message_id)", async () => {
     const chain = createInsertChain([
       {
@@ -37,7 +40,7 @@ describe("PostEventFeedbackRepository conflict targets", () => {
       },
     ]);
     const transaction = { insert: chain.insert };
-    const repository = new PostEventFeedbackRepository({
+    const repository = new FeedbackIngressRepository({
       db: {},
     } as DatabaseService);
 
@@ -69,9 +72,11 @@ describe("PostEventFeedbackRepository conflict targets", () => {
       },
     ]);
     const transaction = { insert: chain.insert };
-    const repository = new PostEventFeedbackRepository({
-      db: {},
-    } as DatabaseService);
+    const database = { db: {} } as DatabaseService;
+    const repository = new FeedbackOutboxRepository(
+      database,
+      new FeedbackCampaignRepository(database),
+    );
 
     const result = await repository.insertOutboxIfAbsent(transaction as never, {
       conversationId: "33333333-3333-4333-8333-333333333333",
@@ -90,7 +95,7 @@ describe("PostEventFeedbackRepository conflict targets", () => {
   it("overwrites an answer on the NULLS NOT DISTINCT uniqueness key so a revision lands", async () => {
     const chain = createInsertChain([]);
     const transaction = { insert: chain.insert };
-    const repository = new PostEventFeedbackRepository({
+    const repository = new FeedbackResultsRepository({
       db: {},
     } as DatabaseService);
 

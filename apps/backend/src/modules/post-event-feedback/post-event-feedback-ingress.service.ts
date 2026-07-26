@@ -4,7 +4,7 @@ import type { Queue } from "bullmq";
 
 import { DatabaseService } from "../../infrastructure/database/database.service.js";
 import { FEEDBACK_QUEUE } from "../../infrastructure/queue/queue.constants.js";
-import { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
+import { FeedbackIngressRepository } from "./ingress/ingress.repository.js";
 import {
   createFeedbackEditedProviderMessageId,
   createFeedbackMaterializeJobId,
@@ -45,7 +45,7 @@ export class PostEventFeedbackIngressService {
     @InjectQueue(FEEDBACK_QUEUE)
     private readonly queue: Queue<FeedbackJobData, void, FeedbackJobName>,
     private readonly database: DatabaseService,
-    private readonly repository: PostEventFeedbackRepository,
+    private readonly repository: FeedbackIngressRepository,
   ) {}
 
   async recordObservedMessage(

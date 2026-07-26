@@ -17,7 +17,8 @@ import {
   FeedbackCampaignLaunchNotAllowedError,
   PostEventFeedbackCampaignService,
 } from "./post-event-feedback-campaign.service.js";
-import type { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
+import type { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
+import type { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
 import { buildPostEventFeedbackQuestionLaunchSnapshot } from "./post-event-feedback-question-set.js";
 
 const eventId = "7c57f3b8-2b13-48f5-8730-18ac71f490cd";
@@ -435,13 +436,14 @@ function createService(): {
   return {
     service: new PostEventFeedbackCampaignService(
       database as unknown as DatabaseService,
-      repository as unknown as PostEventFeedbackRepository,
+      repository as unknown as FeedbackCampaignRepository,
+      repository as unknown as FeedbackOutboxRepository,
       conversations as unknown as FeedbackConversationRepository,
       events as unknown as EventsRepository,
       { append: auditAppend } as unknown as AuditRepository,
       new FeedbackOutboundTranscriptService(
         database as unknown as DatabaseService,
-        repository as unknown as PostEventFeedbackRepository,
+        repository as unknown as FeedbackOutboxRepository,
         conversations as unknown as FeedbackConversationRepository,
       ),
     ),

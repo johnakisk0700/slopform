@@ -34,8 +34,19 @@ content travels the **ordinary** pipeline and is visible as ordinary notes
 
 Schema and migrations live in
 [`packages/database/src/schema/post-event-feedback.ts`](../../../packages/database/src/schema/post-event-feedback.ts).
-Typed repository methods for later pipeline packages live in
-[`post-event-feedback.repository.ts`](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback.repository.ts).
+Typed repository methods live per table under
+[`campaign/campaign.repository.ts`](../../../apps/backend/src/modules/post-event-feedback/campaign/campaign.repository.ts)
+(`FeedbackCampaignRepository`),
+[`extraction/results.repository.ts`](../../../apps/backend/src/modules/post-event-feedback/extraction/results.repository.ts)
+(`FeedbackResultsRepository`),
+[`ingress/ingress.repository.ts`](../../../apps/backend/src/modules/post-event-feedback/ingress/ingress.repository.ts)
+(`FeedbackIngressRepository`),
+[`outbox/outbox.repository.ts`](../../../apps/backend/src/modules/post-event-feedback/outbox/outbox.repository.ts)
+(`FeedbackOutboxRepository`), and
+[`simulator/sim-outbound.repository.ts`](../../../apps/backend/src/modules/post-event-feedback/simulator/sim-outbound.repository.ts)
+(`FeedbackSimOutboundRepository`). The paused-campaign kill switch stays inside
+`FeedbackOutboxRepository.claimOutboxBatch`, which reads campaign status through
+`FeedbackCampaignRepository.findCampaignById` on the same transaction.
 There is no `message_deliveries` table and nothing references `event_attendees`.
 
 | Table                      | Authority rules                                                                                                                                                                                                                         |

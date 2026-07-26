@@ -1,7 +1,7 @@
 import type { Queue } from "bullmq";
 import { describe, expect, it, vi } from "vitest";
 
-import type { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
+import type { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
 import {
   FEEDBACK_CAMPAIGN_STAGGER_MS,
   MessageOutboxRelayError,
@@ -43,7 +43,7 @@ describe("MessageOutboxRelayService", () => {
     };
     const relay = new MessageOutboxRelayService(
       queue as unknown as Queue<FeedbackJobData, void, FeedbackJobName>,
-      repository as unknown as PostEventFeedbackRepository,
+      repository as unknown as FeedbackOutboxRepository,
     );
 
     await expect(
@@ -89,7 +89,7 @@ describe("MessageOutboxRelayService", () => {
     };
     const relay = new MessageOutboxRelayService(
       queue as unknown as Queue<FeedbackJobData, void, FeedbackJobName>,
-      repository as unknown as PostEventFeedbackRepository,
+      repository as unknown as FeedbackOutboxRepository,
     );
 
     await relay.relay();
@@ -122,7 +122,7 @@ describe("MessageOutboxRelayService", () => {
     };
     const relay = new MessageOutboxRelayService(
       queue as unknown as Queue<FeedbackJobData, void, FeedbackJobName>,
-      repository as unknown as PostEventFeedbackRepository,
+      repository as unknown as FeedbackOutboxRepository,
     );
 
     await expect(relay.relay()).rejects.toBeInstanceOf(MessageOutboxRelayError);
