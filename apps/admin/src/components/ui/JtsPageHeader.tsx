@@ -25,20 +25,24 @@ export function JtsPageHeader({
     <header className="flex items-end justify-between gap-6">
       <div className="max-w-[58rem]">
         {eyebrow ? (
-          <p className="mb-3 text-xs font-extrabold uppercase tracking-caps text-primary">
+          <p className="mb-1.5 text-[0.65rem] font-extrabold uppercase tracking-caps text-primary">
             {eyebrow}
           </p>
         ) : null}
-        <h1 className="mb-2 font-display text-[clamp(1.75rem,_1.4rem_+_1.4vw,_2.6rem)] font-extrabold tracking-tighter after:mt-3 after:block after:h-[3px] after:w-11 after:bg-primary after:content-['']">
+        {/* Fixed 1.375rem, not a viewport clamp: an operations panel is read at
+            one working size all day, and a title that grew to 2.6rem on a wide
+            monitor spent the height the actual work needs. The base layer's
+            --jts-tracking-tight already applies; no utility overrides it. */}
+        <h1 className="mb-2 font-display text-[1.375rem] font-extrabold after:mt-2 after:block after:h-[3px] after:w-8 after:bg-primary after:content-['']">
           {title}
         </h1>
         {description ? (
-          <p className="mb-0 max-w-[65ch] text-base text-ink-muted">
+          <p className="mb-0 max-w-[65ch] text-sm text-ink-muted">
             {description}
           </p>
         ) : null}
         {actions ? (
-          <div className="mt-5 flex flex-wrap gap-3">{actions}</div>
+          <div className="mt-3 flex flex-wrap gap-3">{actions}</div>
         ) : null}
       </div>
     </header>

@@ -24,9 +24,10 @@ The assistant is the one edge-to-edge route inside `AdminShell`: the shell
 removes its ordinary content width and padding for both assistant URLs, and the
 route fills the shell's remaining flex height. It does not recreate the normal
 page header, description or bordered page card. `#root` and `AdminShell` own the
-available height, including the local authentication-bypass banner and the
-small-screen navigation header; `AssistantPage` therefore needs no viewport
-height calculation.
+available height, including the small-screen navigation header;
+`AssistantPage` therefore needs no viewport height calculation. Nothing is
+stacked above the shell — the local authentication bypass is announced in the
+sidebar's environment block, not by a banner that would shorten every route.
 
 Streaming, attachments and tools are not enabled. In particular, this screen
 cannot mutate product data. Future database tools require an explicit

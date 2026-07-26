@@ -128,9 +128,21 @@ single stack below that. Each pane is its own scroll container capped at `78vh`,
 so switching conversations never costs an operator their place in the list.
 
 The screen deliberately does **not** take over the viewport the way the
-assistant route does: the shell's height chain is `min-height`-based, so a
-full-height inbox would need a definite height that nothing in the chain
-provides. Capped panes give the same ergonomics without changing shared layout.
+assistant route does. The reason is the height budget, not a shell limitation:
+`#root` at `min-height: 100dvh` plus `flex-1 min-h-0` on `AdminShell` and its
+content column already hand a route a definite height — that chain is exactly
+how `/admin/assistant` fills the shell, and the inbox could use it too. It was
+measured and rejected. At 1280×720 the page header and the campaign summary row
+leave roughly 320 px for the pane grid, which the `lg` two-column layout splits
+into two rows of about 150 px — less than one message bubble plus a composer.
+Capped panes with an ordinary document scroll keep the transcript readable at
+that size.
+
+A blank band above displaced panes while the document is scrolled is an
+artifact of headless and automation Chromium screenshot surfaces, not a layout
+fault; a plain page with no application CSS reproduces it in the same tools.
+Real Chrome paints the scrolled inbox correctly at 1280×720 and 1600×1000 in
+both themes (verified 2026-07-26 over the DevTools Protocol).
 
 ## Campaign picker
 
@@ -149,6 +161,16 @@ never be used merely to navigate. Event detail carries a nullable
   `aria-current`. Goal progress is announced as text (`2/4 answered`) with the
   bar `aria-hidden`, because a `<button>` may not contain the `div`-based HeroUI
   `ProgressBar`.
+- A row's accessible name is computed from its own content — Chrome reports
+  `"Σοφία 02:03 +306936888183 3/4 answered Open"`. Do not add an `aria-label`
+  here: it would replace that name with a shorter one that no longer contains
+  the visible text, which is what WCAG 2.5.3 Label in Name forbids. Automation
+  accessibility trees that report these rows as bare `button` entries are
+  under-reporting name-from-content; `<button><span>text</span></button>`
+  reproduces it with no application code involved.
+- Every control on the route has a name: the inbox at rest, the start and
+  confirm dialogs, and the small-viewport navigation drawer each audit to zero
+  unnamed interactive nodes (verified 2026-07-26 over the DevTools Protocol).
 - Both composers have visually hidden labels naming the recipient and the
   channel; the simulator composer is additionally captioned as development-only.
 - Contrast was measured in both themes on the rendered screen. Two pairings

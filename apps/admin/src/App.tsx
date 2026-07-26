@@ -183,15 +183,16 @@ function AppRoutes() {
   );
 }
 
+/**
+ * The local development tree. The bypass is announced in the shell's
+ * environment block under the brand mark rather than by a banner above the
+ * shell: a full-width strip pushed every route past the viewport height, which
+ * cost the whole panel a permanent document scrollbar for a permanently true
+ * message.
+ */
 function DevelopmentBypassApp() {
   return (
     <BrowserRouter>
-      <p
-        role="status"
-        className="border-b border-warning-border bg-warning-soft px-4 py-2 text-center text-sm font-semibold text-warning"
-      >
-        Local development authentication bypass is active.
-      </p>
       <AppRoutes />
     </BrowserRouter>
   );

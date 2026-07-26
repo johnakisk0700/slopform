@@ -17,9 +17,22 @@ Source: [`JtsPageHeader.tsx`](../../../apps/admin/src/components/ui/JtsPageHeade
 | `description` | `string?`    | Muted supporting sentence under the title (max ~65ch).               |
 | `actions`     | `ReactNode?` | Route-owned controls/links in a wrapping row below the copy.         |
 
-The marker is a `::after` pseudo-element on the `h1` (3px tall, 2.75rem wide,
+The marker is a `::after` pseudo-element on the `h1` (3px tall, 2rem wide,
 `bg-primary`) — motif 1 from the design contract, meaning "this matters", never
 "you are here".
+
+## Scale
+
+The title is a fixed `1.375rem` display weight, the description `text-sm`, the
+eyebrow `0.65rem`. It is deliberately not a viewport clamp. An operations panel
+is read at one working size for a whole shift, so a title that grew toward
+`2.6rem` on a wide monitor spent height on itself that the tables, transcripts
+and forms below it needed. Letter-spacing comes from the base layer's
+`--jts-tracking-tight` on `h1`; no utility overrides it.
+
+`ParticipantProfilePage` owns its own `h1` so the title can pair with the
+participant avatar. It matches these values by hand — if this scale changes,
+change it there too.
 
 ## Invariants
 

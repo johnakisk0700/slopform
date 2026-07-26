@@ -4,8 +4,44 @@ import { Menu } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import { Link, Outlet, useLocation } from "react-router";
 
+import { env } from "../../lib/env";
 import { AdminNavigation } from "./AdminNavigation";
 import { AdminUserMenu } from "./AdminUserMenu";
+
+/**
+ * The environment block under the brand mark: which deployment this is, and —
+ * when it is on — that the local authentication bypass is answering for the
+ * operator. It is the shell's only environment indicator, so it renders in
+ * both places the brand mark does (wine sidebar, light drawer) with the tones
+ * of each surface.
+ */
+function EnvironmentBlock({ variant }: { variant: "sidebar" | "drawer" }) {
+  const muted =
+    variant === "sidebar" ? "text-sidebar-fg-muted" : "text-ink-muted";
+  const strong = variant === "sidebar" ? "text-sidebar-fg" : "text-ink";
+
+  return (
+    <>
+      <p className={`text-xs font-bold uppercase tracking-caps ${muted}`}>
+        Admin workspace
+      </p>
+      <p className={`flex items-center gap-2 text-xs font-semibold ${muted}`}>
+        <span className="status-dot" aria-hidden="true" />
+        <span>Local environment</span>
+      </p>
+      {env.authDevBypass ? (
+        // Full-strength foreground rather than a warning tone: both verified
+        // pairs (text on wine, text on surface) clear AA, and warning-on-surface
+        // is not one of the measured pairings.
+        <p
+          className={`text-[0.65rem] font-extrabold uppercase tracking-caps ${strong}`}
+        >
+          Authentication bypass active
+        </p>
+      ) : null}
+    </>
+  );
+}
 
 /**
  * The routed main region: the content column with the signature 200ms
@@ -45,17 +81,23 @@ function AdminMain() {
  * The admin application shell.
  *
  * Desktop (>=64rem): a two-column grid over the warm canvas with a sticky,
- * full-height wine sidebar (brand, kicker, navigation, operator menu + the
- * static environment line) and no top bar. Small screens hide the sidebar and
+ * full-height wine sidebar (brand, kicker, {@link EnvironmentBlock},
+ * navigation, operator menu) and no top bar. Small screens hide the sidebar and
  * surface a top bar whose hamburger opens the same navigation in a left drawer.
- * The operator menu and navigation components render in both places.
+ * The environment block, operator menu and navigation render in both places.
+ *
+ * Nothing is stacked above this element: the shell is the whole viewport, so
+ * every route's own scrolling starts from a full height rather than from the
+ * height a banner left behind.
  */
 export function AdminShell() {
   const [isNavOpen, setNavOpen] = useState(false);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-canvas lg:grid lg:grid-cols-[17rem_minmax(0,1fr)]">
-      <aside className="hidden border-r border-sidebar-border bg-sidebar px-4 py-6 text-sidebar-fg lg:sticky lg:top-0 lg:flex lg:h-full lg:max-h-dvh lg:flex-col">
+      {/* pb-4 matches the operator row's own pt-4, so that row sits centred
+          between its rule and the panel edge instead of riding 8px high. */}
+      <aside className="hidden border-r border-sidebar-border bg-sidebar px-4 pt-6 pb-4 text-sidebar-fg lg:sticky lg:top-0 lg:flex lg:h-full lg:max-h-dvh lg:flex-col">
         <Link
           to="/admin"
           aria-label="Join The Six admin home"
@@ -65,13 +107,7 @@ export function AdminShell() {
           <span>Join The Six</span>
         </Link>
         <div className="mt-2 mb-5 grid gap-1.5 border-b border-sidebar-border px-3 pb-6">
-          <p className="text-xs font-bold uppercase tracking-caps text-sidebar-fg-muted">
-            Admin workspace
-          </p>
-          <p className="flex items-center gap-2 text-xs font-semibold text-sidebar-fg-muted">
-            <span className="status-dot" aria-hidden="true" />
-            <span>Local environment</span>
-          </p>
+          <EnvironmentBlock variant="sidebar" />
         </div>
 
         <AdminNavigation variant="sidebar" />
@@ -104,13 +140,7 @@ export function AdminShell() {
                     </Drawer.Header>
                     <Drawer.Body className="flex flex-col gap-4">
                       <div className="grid gap-1.5 border-b border-border pb-4">
-                        <p className="text-xs font-bold uppercase tracking-caps text-ink-muted">
-                          Admin workspace
-                        </p>
-                        <p className="flex items-center gap-2 text-xs font-semibold text-ink-muted">
-                          <span className="status-dot" aria-hidden="true" />
-                          <span>Local environment</span>
-                        </p>
+                        <EnvironmentBlock variant="drawer" />
                       </div>
                       <AdminNavigation
                         variant="drawer"

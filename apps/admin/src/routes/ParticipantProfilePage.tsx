@@ -372,10 +372,12 @@ export function ParticipantProfilePage() {
               <Avatar.Fallback>{monogram}</Avatar.Fallback>
             </Avatar>
             <div className="min-w-0">
-              <h1 className="mb-0 font-display text-[clamp(1.5rem,_1.25rem_+_1.1vw,_2.25rem)] font-extrabold tracking-tighter text-ink after:mt-3 after:block after:h-[3px] after:w-11 after:bg-primary after:content-['']">
+              {/* Matches JtsPageHeader's scale — this route owns its own h1 for
+                  the avatar pairing, not a different title hierarchy. */}
+              <h1 className="mb-0 font-display text-[1.375rem] font-extrabold text-ink after:mt-2 after:block after:h-[3px] after:w-8 after:bg-primary after:content-['']">
                 {displayName}
               </h1>
-              <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-ink-muted">
+              <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-ink-muted">
                 <span className="inline-flex items-center gap-1.5">
                   <Mail
                     aria-hidden="true"
