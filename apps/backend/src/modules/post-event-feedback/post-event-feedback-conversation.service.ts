@@ -748,7 +748,7 @@ function toAnswerView(
  * before `origin` existed are extraction output, which is what the default
  * says.
  */
-export function noteOrigin(
+function noteOrigin(
   extractionMeta: FeedbackNoteRow["extractionMeta"],
 ): FeedbackNoteOrigin {
   return extractionMeta.origin === FEEDBACK_EXTRACTION_ORIGIN_STAFF

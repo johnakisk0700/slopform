@@ -983,7 +983,7 @@ export function deriveFeedbackSimulatorRunStage(input: {
   return "waiting_quiet_window";
 }
 
-export function feedbackSimulatorProgressPercent(input: {
+function feedbackSimulatorProgressPercent(input: {
   readonly stage: FeedbackSimulatorRunStage;
   readonly injectedMessages: number;
   readonly materializedMessages: number;

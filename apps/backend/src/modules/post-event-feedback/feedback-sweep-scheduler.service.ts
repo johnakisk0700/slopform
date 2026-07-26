@@ -10,12 +10,10 @@ import {
   type FeedbackJobData,
 } from "./post-event-feedback.schemas.js";
 
-export const FEEDBACK_REMINDER_SWEEP_SCHEDULER_ID =
+const FEEDBACK_REMINDER_SWEEP_SCHEDULER_ID =
   FEEDBACK_JOB_NAMES.sweepRemindersV1;
-export const FEEDBACK_EXPIRY_SWEEP_SCHEDULER_ID =
-  FEEDBACK_JOB_NAMES.sweepExpiryV1;
-export const FEEDBACK_INGRESS_SWEEP_SCHEDULER_ID =
-  FEEDBACK_JOB_NAMES.sweepIngressV1;
+const FEEDBACK_EXPIRY_SWEEP_SCHEDULER_ID = FEEDBACK_JOB_NAMES.sweepExpiryV1;
+const FEEDBACK_INGRESS_SWEEP_SCHEDULER_ID = FEEDBACK_JOB_NAMES.sweepIngressV1;
 
 /** Reminder / expiry / ingress recovery share a five-minute cadence. */
 export const FEEDBACK_SWEEP_EVERY_MS = 5 * 60_000;

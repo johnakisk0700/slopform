@@ -10,7 +10,7 @@ import type {
 } from "./post-event-feedback-extraction.schemas.js";
 
 export const FEEDBACK_ATTENTION_CLASSIFICATION_BATCH_SIZE = 10;
-export const FEEDBACK_ATTENTION_PRECEDING_CONTEXT_MESSAGES = 6;
+const FEEDBACK_ATTENTION_PRECEDING_CONTEXT_MESSAGES = 6;
 const FEEDBACK_ATTENTION_CLASSIFICATION_CHARS_PER_TOKEN = 2.5;
 
 const feedbackAttentionClassificationResultSchema = z

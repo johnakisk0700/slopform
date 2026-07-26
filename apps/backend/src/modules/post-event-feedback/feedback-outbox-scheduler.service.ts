@@ -11,9 +11,8 @@ import {
   type FeedbackJobName,
 } from "./post-event-feedback.schemas.js";
 
-export const FEEDBACK_OUTBOX_RELAY_SCHEDULER_ID =
-  FEEDBACK_JOB_NAMES.relayOutboxV1;
-export const FEEDBACK_OUTBOX_RELAY_EVERY_MS = 5_000;
+const FEEDBACK_OUTBOX_RELAY_SCHEDULER_ID = FEEDBACK_JOB_NAMES.relayOutboxV1;
+const FEEDBACK_OUTBOX_RELAY_EVERY_MS = 5_000;
 
 @Injectable()
 export class FeedbackOutboxSchedulerService implements OnApplicationBootstrap {

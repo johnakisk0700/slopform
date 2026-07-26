@@ -1,6 +1,6 @@
 import type { MessageOutboxDeliveryStatus } from "@join-the-six/database";
 
-export const MESSAGE_OUTBOX_DELIVERY_STATUS_RANK: Record<
+const MESSAGE_OUTBOX_DELIVERY_STATUS_RANK: Record<
   MessageOutboxDeliveryStatus,
   number
 > = {

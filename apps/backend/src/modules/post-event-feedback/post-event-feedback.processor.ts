@@ -334,7 +334,7 @@ export class PostEventFeedbackProcessor extends WorkerHost {
  * stay small enough to act on, so a persistence fault and a bug both land in
  * the bucket that means "read the logs".
  */
-export function resolveExtractionFailureCause(
+function resolveExtractionFailureCause(
   error: unknown,
 ): FeedbackExtractionFailureCause {
   return error instanceof FeedbackExtractionGenerationError

@@ -290,7 +290,7 @@ function buildFallbackReply(
  * «ο Κώστας» matches «Κώστας Παπαδόπουλος» — which is also precisely what makes
  * two Κώστας rows ambiguous instead of silently picking the first.
  */
-export function resolveUniqueNamedSubject(
+function resolveUniqueNamedSubject(
   text: string,
   candidates: readonly { participantId: string; displayName: string }[],
 ): string | null {
