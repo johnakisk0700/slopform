@@ -18,7 +18,10 @@ import {
   type AssistantModel,
   type AssistantReasoningEffort,
 } from "./assistant.schemas.js";
-import { assistantModelAdapter } from "./assistant-models.js";
+import {
+  assistantModelAdapter,
+  isRetryableProviderError,
+} from "./assistant-models.js";
 
 const ASSISTANT_SYSTEM_PROMPT =
   "You are the Join The Six administrative assistant. Answer clearly and concisely. Do not claim to have performed actions or accessed data that was not supplied in this conversation.";
@@ -106,7 +109,7 @@ export class AssistantGenerationService {
       if (RetryError.isInstance(error)) {
         throw new AssistantGenerationError(
           retryableCause(error.lastError),
-          isRetryableCause(error.lastError),
+          isRetryableProviderError(error.lastError),
         );
       }
 
@@ -144,10 +147,8 @@ function reasoningProviderOptions(
     : { openrouter: { reasoning: { effort } } };
 }
 
-function isRetryableCause(error: unknown): boolean {
-  return !APICallError.isInstance(error) || error.isRetryable;
-}
-
 function retryableCause(error: unknown): AssistantFailureCode {
-  return isRetryableCause(error) ? "generation_failed" : "provider_rejected";
+  return isRetryableProviderError(error)
+    ? "generation_failed"
+    : "provider_rejected";
 }

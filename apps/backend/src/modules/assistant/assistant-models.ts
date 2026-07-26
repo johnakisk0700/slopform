@@ -1,3 +1,5 @@
+import { APICallError } from "ai";
+
 import type { AssistantModel } from "./assistant.schemas.js";
 
 export type AssistantProvider = "openai" | "openrouter";
@@ -35,4 +37,8 @@ export function assistantModelAdapter(
   model: AssistantModel,
 ): AssistantModelAdapter {
   return ASSISTANT_MODEL_ADAPTERS[model];
+}
+
+export function isRetryableProviderError(error: unknown): boolean {
+  return !APICallError.isInstance(error) || error.isRetryable;
 }

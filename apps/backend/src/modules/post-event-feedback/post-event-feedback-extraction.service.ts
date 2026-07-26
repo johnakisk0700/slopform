@@ -12,7 +12,10 @@ import {
 } from "ai";
 
 import type { Environment } from "../../infrastructure/config/environment.js";
-import { assistantModelAdapter } from "../assistant/assistant-models.js";
+import {
+  assistantModelAdapter,
+  isRetryableProviderError,
+} from "../assistant/assistant-models.js";
 import {
   assistantModelSchema,
   type AssistantModel,
@@ -357,8 +360,7 @@ export function toGenerationError(
   }
   if (RetryError.isInstance(error)) {
     const lastError = error.lastError;
-    const retryable =
-      !APICallError.isInstance(lastError) || lastError.isRetryable;
+    const retryable = isRetryableProviderError(lastError);
     return new FeedbackExtractionGenerationError(
       retryable ? "extraction_failed" : "provider_rejected",
       retryable,
