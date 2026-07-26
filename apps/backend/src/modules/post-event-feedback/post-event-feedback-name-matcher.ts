@@ -1,4 +1,4 @@
-import { foldPostEventFeedbackText } from "./post-event-feedback-stop-matcher.js";
+import { foldPostEventFeedbackText } from "./matching/fold-text.js";
 
 /**
  * Resolving a name somebody typed to a candidate, across the two alphabets

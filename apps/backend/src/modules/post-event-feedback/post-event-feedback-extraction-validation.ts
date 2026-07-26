@@ -3,7 +3,7 @@ import { resolvePostEventFeedbackCandidateByName } from "./post-event-feedback-n
 import {
   foldPostEventFeedbackText,
   foldedTextContainsAtWordStart,
-} from "./post-event-feedback-stop-matcher.js";
+} from "./matching/fold-text.js";
 import {
   POST_EVENT_FEEDBACK_QUESTION_SET_V1,
   isPostEventFeedbackAnswerQuestionKey,

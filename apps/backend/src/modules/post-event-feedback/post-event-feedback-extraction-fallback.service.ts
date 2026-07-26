@@ -24,7 +24,7 @@ import {
 import {
   foldPostEventFeedbackText,
   foldedTextContainsAtWordStart,
-} from "./post-event-feedback-stop-matcher.js";
+} from "./matching/fold-text.js";
 import { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
 
 export interface FeedbackExtractionFallbackInput {
