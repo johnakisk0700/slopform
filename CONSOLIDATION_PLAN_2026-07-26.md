@@ -212,10 +212,11 @@ Do not: touch `lib/useTheme.ts` — `test/theme-switch.spec.ts:88` asserts on th
 
 **WP-03 — Backend infra + non-feedback modules: drop stray `export` keywords** · S · deps: none
 Files: `infrastructure/openapi/openapi-document.ts`, `infrastructure/observability/startup-failure.ts`, `infrastructure/queue/{bull-board-auth.middleware,redis-connection}.ts`, `modules/email/{email-outbox-relay.service,email.processor,email-scheduler.service}.ts`, `modules/assistant/{assistant-generation.service,assistant-recovery.service}.ts`
-Drop `export` on `OPENAPI_TITLE/DESCRIPTION/VERSION`, `StartupFailureHandlers` (rename it to `StartupFailureReporting` in the same edit), `BullBoardCredentials`, `redisConnectionFromUrl`, the four `EMAIL_OUTBOX_*`/`EMAIL_DISPATCH_RECOVERY_MS`, `EMAIL_DELIVERY_LEASE_MS`, `EMAIL_OUTBOX_RELAY_SCHEDULER_ID/_INTERVAL_MS`, `reasoningProviderOptions`, `ASSISTANT_RECOVERY_INTERVAL_MS`.
+Drop `export` on `OPENAPI_TITLE/DESCRIPTION/VERSION`, the four `EMAIL_OUTBOX_*`/`EMAIL_DISPATCH_RECOVERY_MS`, `EMAIL_DELIVERY_LEASE_MS`, `EMAIL_OUTBOX_RELAY_SCHEDULER_ID/_INTERVAL_MS`, `reasoningProviderOptions`, `ASSISTANT_RECOVERY_INTERVAL_MS`. Separately, rename `StartupFailureHandlers` to `StartupFailureReporting` — it stays exported.
 Done: build passes with `declaration: true`.
 Verify: `pnpm --filter @join-the-six/backend build && pnpm --filter @join-the-six/backend test`
 Do not: touch `ASSISTANT_STALE_TURN_MS`, `ASSISTANT_RECOVERY_BATCH_SIZE`, `HTTP_*_MILLISECONDS`, `createQueueProducerOptions/WorkerOptions`, `validIncomingRequestId` — all are read by specs.
+Amended 2026-07-26 after the first dispatch refused it, correctly. Three symbols left the drop list: `redisConnectionFromUrl` is imported and directly tested by `redis-connection.spec.ts:4` with its own describe block; `StartupFailureHandlers` (`startup-failure.ts:11`) and `BullBoardCredentials` (`bull-board-auth.middleware.ts:20`) are parameter types of exported functions, so unexporting them is TS4023 at build.
 
 **WP-04 — Feedback module: drop stray `export` keywords** · S · deps: none
 Files: `post-event-feedback/{post-event-feedback-conversation.service,post-event-feedback.processor,feedback-simulator.service,message-outbox-delivery-status,post-event-feedback-attention-classification,post-event-feedback-extraction-fallback.service,feedback-outbox-scheduler.service,feedback-sweep-scheduler.service}.ts`
@@ -488,6 +489,15 @@ Order: Group A (WP-01 → WP-06) → WP-00 → WP-0B → Group B → Group C →
 - **`apps/backend/openapi/openapi.json` is generated, not retyped.** `pnpm api:check` runs inside
   `pnpm check` and fails on drift. If a packet produces an unexpected diff, stop and report — do not
   regenerate to make the check pass.
+- **A symbol a spec imports is not an over-export.** The census separates "referenced nowhere else"
+  from "referenced only by tests", and a de-export packet may only take the first kind. A pure
+  function with its own describe block is legitimately exported; dropping that export to satisfy a
+  count breaks the spec, and specs may not be edited to make a de-export packet pass. Grep the whole
+  repo including `*.spec.ts` before dropping any `export` — if a spec imports it, take it out of the
+  packet and report it. WP-03 shipped with this mistake and was correctly refused by its agent.
+- **A type used in an exported signature cannot be unexported.** `declaration: true` over
+  `src/**/*.ts` makes that TS4023 — at build, not at typecheck. This applies to every packet, not
+  just the ones whose text repeats it.
 - **Code taste.** Simple and dumb beats clever. No `Manager`, `Helper`, `Utils`, `Handler`,
   `Processor`, `Base*`, `*Impl`, `Abstract*` as the meaning-carrying part of a name; equally, no
   hyper-concrete names restating the whole call chain. An extraction needs **two real existing call
