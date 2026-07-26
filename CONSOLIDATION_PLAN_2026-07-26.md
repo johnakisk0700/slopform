@@ -399,25 +399,6 @@ Done: dependency runs one way — scenario ← model ← harness ← runner. Upd
 Verify: `pnpm docs:check && pnpm --filter @join-the-six/backend build && pnpm --filter @join-the-six/backend exec vitest run src/modules/post-event-feedback`
 Do not: lift `drainTo` (L1400-1464) or `FeedbackTestQueue` (L977-1053) out — the former closes over processor and repeatables and has no second caller.
 
-**WP-32B — Break up the 637-line harness factory** · L · deps: WP-32 · **SIMPLIFY**
-Added 2026-07-26. WP-32 alone leaves the harness at ~1010 lines, which misses this plan's own "largest
-file < 600" target. The whole remainder is one function: `createFeedbackLoopHarness` (L1032-1668
-today), which builds the world, wires the services and then drives them.
-File: `post-event-feedback-loop.harness.ts` → new `post-event-feedback-loop-world.ts` (the seeding
-phase, today L1038-1200: clock, name/id maps, the eleven fakes, config, copy, derived conversation id,
-goal statuses — returns one `FeedbackLoopWorld` value) and new `post-event-feedback-loop-driver.ts`
-(today L1306-1645: `runJob`, `drainTo`, `advance`, `applyExternalAction`, `apply`).
-This is **not** a byte-move and must not be attempted as one. Both halves close over mutable state —
-`nowMs`, `failures`, `inboundTexts`, `observedCounter` — that today lives in the factory's scope.
-Thread it explicitly: the world returns its state, the driver takes it as a parameter. Any state that
-turns out to need two owners stays in the factory rather than being duplicated.
-Done: harness under 600 lines; all seven `post-event-feedback-loop-*.spec.ts` files are **byte-identical**
-to their current content and all 90 tests pass. If a spec needs editing, this packet is wrong — stop.
-Verify: `pnpm --filter @join-the-six/backend build && pnpm --filter @join-the-six/backend exec vitest run src/modules/post-event-feedback && git diff --stat -- '*.spec.ts'` (the last must print nothing)
-Do not: convert the closure into a class, introduce a `HarnessContext` god-object, or "tidy" the
-seeding while moving it. Route this to a strong model and land it alone — it is test infrastructure,
-so a subtle mistake weakens every loop suite instead of failing one.
-
 **WP-33 — Simulator run-status split** · M · deps: WP-04, WP-22
 File: `feedback-simulator.service.ts` → new sibling holding L589-750 (`getScenarioRun`, pure status derivation) plus its two helpers at L938-1009, renamed to `runStage` / `renderTemplate` / `progressPercent` now the file name carries the prefix.
 Verify: `pnpm --filter @join-the-six/backend exec vitest run src/modules/post-event-feedback/post-event-feedback-simulator.integration.spec.ts`
@@ -572,14 +553,28 @@ is MOVE unless it brings its own test.
 
 ### Campaign targets (baseline measured 2026-07-26)
 
-| Measure                              | Now                      | Target     |
-| ------------------------------------ | ------------------------ | ---------- |
-| handwritten source (excl. generated) | 63,641 lines / 327 files | lower      |
-| files ≥ 1000 lines                   | 9                        | 0          |
-| files ≥ 500 lines                    | 34                       | ≤ 10       |
-| largest file                         | 1,902                    | < 600      |
-| exports no other file reads          | 332                      | ≤ 30       |
-| tests                                | 791 green / 105 files    | 791+ green |
+| Measure                              | Now                      | What the packets actually deliver |
+| ------------------------------------ | ------------------------ | --------------------------------- |
+| handwritten source (excl. generated) | 63,641 lines / 327 files | ~1.5% lower — see the note below  |
+| files ≥ 1000 lines                   | 9                        | 0                                 |
+| files ≥ 500 lines                    | 34                       | ≤ 10                              |
+| largest file                         | 1,902                    | ~900                              |
+| exports no other file reads          | 332                      | ≤ 30                              |
+| tests                                | 790 green / 105 files    | 790+ green                        |
+
+Two honest corrections to the earlier version of this table.
+
+**Line count was never the disease.** Groups C and D move code without deleting it, and splits add
+imports. The real deletions — the duplicated fakes (WP-16), `assertCleanSimulatorBaseline` (WP-22),
+seven copies of `errorMessage` (WP-07), three of four copy resolvers (WP-12) — total roughly 800–1,000
+lines against 63,641. Judge this campaign on placement, not on volume.
+
+**"Largest file under 600" is not achievable from these packets and is not being chased.** The
+packets' own targets land at `feedback-conversation.repository.ts` ~900, `assistant.service.ts` ~790,
+`conversation.service.ts` ~660. The loop harness is a deliberate exception at ~1,010: its remainder
+after WP-32 is one 637-line factory whose seeding and driver phases share mutable closure state, so
+splitting it is SIMPLIFY on test infrastructure that has nothing testing it. The nine files over
+1,000 lines still go to zero — that was the complaint worth fixing.
 
 - **Verification.** Run the packet's own command while iterating. Run `pnpm check` before handoff
   for WP-09, WP-19, WP-26, WP-36 and every Group D packet. Backend packets that touch exports must
