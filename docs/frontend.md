@@ -48,7 +48,7 @@ consumer needs them.
 | `/admin/events`                       | Stub event list and create                                     | `noindex, nofollow`     |
 | `/admin/events/:eventId`              | Event edit, status transitions and attendance                  | `noindex, nofollow`     |
 | `/admin/participants`                 | Participant list and feedback WhatsApp opt-in                  | `noindex, nofollow`     |
-| `/admin/participants/:id`             | Participant profile, opt-in toggle and event history           | `noindex, nofollow`     |
+| `/admin/participants/:id`             | Participant profile, opt-in chip/toggle and dinner history     | `noindex, nofollow`     |
 | `/admin/feedback`                     | Feedback campaign picker (open a campaign, or launch one)      | `noindex, nofollow`     |
 | `/admin/feedback/:campaignId`         | Three-pane post-event feedback conversation inbox              | `noindex, nofollow`     |
 | `/admin/feedback/:campaignId/results` | Campaign answers and notes                                     | `noindex, nofollow`     |

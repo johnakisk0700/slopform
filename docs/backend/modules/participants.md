@@ -77,7 +77,10 @@ attendance remains owned by the events module.
 The admin Participants list links into `/admin/participants/:id`, which loads
 the profile through `getParticipant`, the history through
 `listParticipantEvents`, and reuses `updateParticipantFeedbackOptIn` for the
-WhatsApp opt-in toggle. Import remains a CLI operation, not an HTTP signup.
+WhatsApp opt-in toggle. Age band and neighborhood are humanized only in the UI
+(display mapping; stored codes are unchanged). Opt-in state is also surfaced as
+a soft status chip in the identity header using the same HeroUI chip grammar as
+campaign status. Import remains a CLI operation, not an HTTP signup.
 
 ## Import flow
 

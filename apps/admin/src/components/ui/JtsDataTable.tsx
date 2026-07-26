@@ -47,6 +47,11 @@ export interface JtsDataTableProps<T> {
   emptyTitle?: string;
   /** Ready-but-empty supporting copy. */
   emptyDescription?: string;
+  /**
+   * Optional decorative mark for the empty state. Defaults to the six-dot
+   * brand mark; pages may pass a muted lucide glyph for domain character.
+   */
+  emptyIcon?: ReactNode;
   /** Enables client-side pagination, hidden while it is unnecessary. */
   paginator?: boolean;
   /** Initial page size. */
@@ -99,6 +104,7 @@ export function JtsDataTable<T>({
   error = null,
   emptyTitle = "Nothing to show yet",
   emptyDescription = "Rows will appear here when they are available.",
+  emptyIcon = null,
   paginator = false,
   pageSize = 10,
   rowsPerPageOptions = [10, 25, 50],
@@ -322,12 +328,16 @@ export function JtsDataTable<T>({
                       </div>
                     ) : (
                       <div className="grid min-h-40 place-content-center justify-items-center gap-2 p-8 text-center text-ink-muted">
-                        <span
-                          aria-hidden="true"
-                          className="brand-mark size-9 text-primary"
-                        />
+                        {emptyIcon ?? (
+                          <span
+                            aria-hidden="true"
+                            className="brand-mark size-9 text-primary"
+                          />
+                        )}
                         <strong className="text-ink">{emptyTitle}</strong>
-                        <span className="text-sm">{emptyDescription}</span>
+                        {emptyDescription ? (
+                          <span className="text-sm">{emptyDescription}</span>
+                        ) : null}
                         {emptyActions ? (
                           <div className="mt-4 flex flex-wrap justify-center gap-2">
                             {emptyActions}

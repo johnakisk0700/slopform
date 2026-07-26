@@ -20,7 +20,9 @@ describe("participant profile page", () => {
     expect(page).toContain("useListParticipantEvents");
     expect(page).toContain("useUpdateParticipantFeedbackOptIn");
     expect(page).toContain('from "../api/generated/participants"');
-    expect(page).toContain("Event history");
+    expect(page).toContain("Dinner history");
+    expect(page).toContain("No dinners yet");
+    expect(page).toContain("Opted in");
     expect(page).not.toContain('api("');
     expect(page).not.toContain("api(`");
 
