@@ -31,7 +31,7 @@ import {
   type InjectFeedbackSimulatorMessageResponseDto,
   type StartFeedbackSimulatorRunInput,
 } from "./simulator.schemas.js";
-import { FeedbackOutboundTranscriptService } from "../feedback-outbound-transcript.service.js";
+import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
 import {
   PostEventFeedbackEnqueueError,
   PostEventFeedbackIngressService,

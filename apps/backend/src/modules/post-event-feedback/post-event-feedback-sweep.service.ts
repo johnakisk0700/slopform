@@ -17,7 +17,7 @@ import { FeedbackConversationRepository } from "../conversations/feedback-conver
 import type { FeedbackConversationDocument } from "../conversations/feedback-conversation.schemas.js";
 import { ParticipantsRepository } from "../participants/participants.repository.js";
 import { latestParticipantMessage } from "./conversation-reader.js";
-import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
+import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
 import {
   createFeedbackReminderDedupeKey,
   renderPostEventFeedbackCopy,

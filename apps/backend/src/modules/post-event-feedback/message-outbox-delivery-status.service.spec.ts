@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { DatabaseService } from "../../infrastructure/database/database.service.js";
-import { MessageOutboxDeliveryStatusService } from "./message-outbox-delivery-status.service.js";
+import { MessageOutboxDeliveryStatusService } from "./outbox/delivery-status.service.js";
 import type { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
 
 const outboxId = "66de52a8-1a26-4cbb-b8d1-fcf8bdc2dd51";

@@ -7,11 +7,11 @@ import {
   QueueWorkerModule,
 } from "../../infrastructure/queue/queue.module.js";
 import { EventsCoreModule } from "../events/events-core.module.js";
-import { FeedbackOutboxSchedulerService } from "./feedback-outbox-scheduler.service.js";
+import { FeedbackOutboxSchedulerService } from "./outbox/relay-scheduler.service.js";
 import { FeedbackSweepSchedulerService } from "./feedback-sweep-scheduler.service.js";
-import { MessageOutboxDeliveryService } from "./message-outbox-delivery.service.js";
-import { MessageOutboxDeliveryStatusService } from "./message-outbox-delivery-status.service.js";
-import { MessageOutboxRelayService } from "./message-outbox-relay.service.js";
+import { MessageOutboxDeliveryService } from "./outbox/deliver.service.js";
+import { MessageOutboxDeliveryStatusService } from "./outbox/delivery-status.service.js";
+import { MessageOutboxRelayService } from "./outbox/relay.service.js";
 import { PostEventFeedbackExtractionModel } from "./post-event-feedback-extraction.service.js";
 import { PostEventFeedbackExtractor } from "./post-event-feedback-extractor.service.js";
 import { PostEventFeedbackHttpModule } from "./post-event-feedback-http.module.js";

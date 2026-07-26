@@ -5,17 +5,17 @@ import type {
   MessageOutboxRow,
 } from "@join-the-six/database";
 
-import { DatabaseService } from "../../infrastructure/database/database.service.js";
+import { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import {
   FeedbackConversationCapacityError,
   FeedbackConversationRepository,
-} from "../conversations/feedback-conversation.repository.js";
+} from "../../conversations/feedback-conversation.repository.js";
 import {
   FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH,
   type FeedbackConversationActor,
   type FeedbackConversationDocument,
-} from "../conversations/feedback-conversation.schemas.js";
-import { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
+} from "../../conversations/feedback-conversation.schemas.js";
+import { FeedbackOutboxRepository } from "./outbox.repository.js";
 
 /**
  * Every outbound message reaches a participant through one `message_outbox`

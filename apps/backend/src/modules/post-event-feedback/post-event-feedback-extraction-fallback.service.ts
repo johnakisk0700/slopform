@@ -17,7 +17,7 @@ import {
   FEEDBACK_OPERATOR_ALERT,
   type FeedbackOperatorAlert,
 } from "./feedback-operator-alert.js";
-import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
+import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
 import type { FeedbackExtractionFailureCause } from "./post-event-feedback-extraction.service.js";
 import {
   POST_EVENT_FEEDBACK_FALLBACK_ACK,

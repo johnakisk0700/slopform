@@ -24,7 +24,7 @@ import type {
 import type { EventsRepository } from "../events/events.repository.js";
 import type { EventsService } from "../events/events.service.js";
 import type { ParticipantsRepository } from "../participants/participants.repository.js";
-import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
+import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
 import { buildPostEventFeedbackQuestionLaunchSnapshot } from "./post-event-feedback-question-set.js";
 import type { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
 import type { FeedbackResultsRepository } from "./extraction/results.repository.js";

@@ -13,12 +13,12 @@ import {
   FEEDBACK_OPERATOR_ALERT,
   LoggingFeedbackOperatorAlert,
 } from "./feedback-operator-alert.js";
-import { FeedbackOutboxSchedulerService } from "./feedback-outbox-scheduler.service.js";
-import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
+import { FeedbackOutboxSchedulerService } from "./outbox/relay-scheduler.service.js";
+import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
 import { FeedbackSweepSchedulerService } from "./feedback-sweep-scheduler.service.js";
-import { FEEDBACK_TRANSPORT } from "./feedback-transport.js";
-import { MessageOutboxDeliveryService } from "./message-outbox-delivery.service.js";
-import { MessageOutboxRelayService } from "./message-outbox-relay.service.js";
+import { FEEDBACK_TRANSPORT } from "./outbox/transport.js";
+import { MessageOutboxDeliveryService } from "./outbox/deliver.service.js";
+import { MessageOutboxRelayService } from "./outbox/relay.service.js";
 import { PostEventFeedbackCoreModule } from "./post-event-feedback-core.module.js";
 import { PostEventFeedbackExtractionFallback } from "./post-event-feedback-extraction-fallback.service.js";
 import { PostEventFeedbackExtractionModel } from "./post-event-feedback-extraction.service.js";
@@ -27,8 +27,8 @@ import { PostEventFeedbackMaterializer } from "./post-event-feedback-materialize
 import { PostEventFeedbackMetrics } from "./post-event-feedback-metrics.service.js";
 import { PostEventFeedbackProcessor } from "./post-event-feedback.processor.js";
 import { PostEventFeedbackSweepService } from "./post-event-feedback-sweep.service.js";
-import { SimulatedFeedbackTransport } from "./simulated-feedback-transport.service.js";
-import { WasenderFeedbackTransport } from "./wasender-feedback-transport.service.js";
+import { SimulatedFeedbackTransport } from "./outbox/simulated-transport.service.js";
+import { WasenderFeedbackTransport } from "./outbox/wasender-transport.service.js";
 
 /**
  * The worker-side half: the `feedback` queue consumer and every store it needs

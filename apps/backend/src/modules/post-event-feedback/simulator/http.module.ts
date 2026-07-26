@@ -7,7 +7,7 @@ import { EventsCoreModule } from "../../events/events-core.module.js";
 import { ParticipantsCoreModule } from "../../participants/participants-core.module.js";
 import { FeedbackSimulatorController } from "./simulator.controller.js";
 import { FeedbackSimulatorService } from "./simulator.service.js";
-import { FeedbackOutboundTranscriptService } from "../feedback-outbound-transcript.service.js";
+import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
 import { PostEventFeedbackIngressModule } from "../post-event-feedback-ingress.module.js";
 import { PostEventFeedbackCoreModule } from "../post-event-feedback-core.module.js";
 

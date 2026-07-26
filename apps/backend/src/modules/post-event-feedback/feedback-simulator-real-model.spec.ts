@@ -8,7 +8,7 @@ import type { FeedbackConversationRepository } from "../conversations/feedback-c
 import type { EventsRepository } from "../events/events.repository.js";
 import type { EventsService } from "../events/events.service.js";
 import type { ParticipantsRepository } from "../participants/participants.repository.js";
-import type { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
+import type { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
 import {
   FeedbackSimulatorRunRejectedError,
   FeedbackSimulatorService,

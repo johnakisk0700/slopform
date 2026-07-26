@@ -36,7 +36,7 @@ import {
   resolveOutbound,
   type OutboundReply,
 } from "./extraction/outbound-reply.js";
-import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
+import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
 import {
   PostEventFeedbackMetrics,
   type FeedbackExtractOutcome,

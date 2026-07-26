@@ -12,7 +12,7 @@ import {
   type FeedbackConversationRepository,
 } from "../conversations/feedback-conversation.repository.js";
 import type { EventsRepository } from "../events/events.repository.js";
-import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
+import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
 import {
   FeedbackCampaignLaunchNotAllowedError,
   PostEventFeedbackCampaignService,

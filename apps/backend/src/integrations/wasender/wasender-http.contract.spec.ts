@@ -53,7 +53,7 @@ describe("Wasender webhook HTTP contract", () => {
     const { createHttpApplication } = await import("../../bootstrap-http.js");
     app = await createHttpApplication();
     const { MessageOutboxDeliveryStatusService } =
-      await import("../../modules/post-event-feedback/message-outbox-delivery-status.service.js");
+      await import("../../modules/post-event-feedback/outbox/delivery-status.service.js");
     vi.spyOn(
       app.get(MessageOutboxDeliveryStatusService),
       "applyStatusChange",

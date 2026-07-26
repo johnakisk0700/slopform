@@ -10,7 +10,7 @@ import type { FeedbackConversationRepository } from "../conversations/feedback-c
 import type { EventsService } from "../events/events.service.js";
 import type { ParticipantsRepository } from "../participants/participants.repository.js";
 import type { FeedbackOperatorAlertInput } from "./feedback-operator-alert.js";
-import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
+import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
 import {
   FakeAudit,
   FakeDatabase,

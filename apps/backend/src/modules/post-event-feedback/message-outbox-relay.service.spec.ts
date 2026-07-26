@@ -6,7 +6,7 @@ import {
   FEEDBACK_CAMPAIGN_STAGGER_MS,
   MessageOutboxRelayError,
   MessageOutboxRelayService,
-} from "./message-outbox-relay.service.js";
+} from "./outbox/relay.service.js";
 import {
   FEEDBACK_JOB_NAMES,
   type FeedbackJobData,

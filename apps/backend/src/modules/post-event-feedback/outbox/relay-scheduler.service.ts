@@ -2,14 +2,14 @@ import { InjectQueue } from "@nestjs/bullmq";
 import { Injectable, type OnApplicationBootstrap } from "@nestjs/common";
 import type { Queue } from "bullmq";
 
-import { FEEDBACK_QUEUE } from "../../infrastructure/queue/queue.constants.js";
+import { FEEDBACK_QUEUE } from "../../../infrastructure/queue/queue.constants.js";
 import {
   FEEDBACK_JOB_NAMES,
   FEEDBACK_JOB_SCHEMA_VERSION,
   feedbackRelayJobDataSchema,
   type FeedbackJobData,
   type FeedbackJobName,
-} from "./post-event-feedback.schemas.js";
+} from "../post-event-feedback.schemas.js";
 
 const FEEDBACK_OUTBOX_RELAY_SCHEDULER_ID = FEEDBACK_JOB_NAMES.relayOutboxV1;
 const FEEDBACK_OUTBOX_RELAY_EVERY_MS = 5_000;

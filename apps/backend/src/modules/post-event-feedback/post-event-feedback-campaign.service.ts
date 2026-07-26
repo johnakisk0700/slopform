@@ -17,7 +17,7 @@ import {
   type FeedbackConversationDocument,
 } from "../conversations/feedback-conversation.schemas.js";
 import { EventsRepository } from "../events/events.repository.js";
-import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
+import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
 import type {
   FeedbackCampaignListItemView,
   FeedbackCampaignListView,

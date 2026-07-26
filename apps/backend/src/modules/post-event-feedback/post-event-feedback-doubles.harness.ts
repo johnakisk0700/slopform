@@ -23,7 +23,7 @@ import type {
   FeedbackTransport,
   FeedbackTransportSendInput,
   FeedbackTransportSendResult,
-} from "./feedback-transport.js";
+} from "./outbox/transport.js";
 import {
   POST_EVENT_FEEDBACK_SAFETY_CATEGORIES,
   strongerRecommendedAction,

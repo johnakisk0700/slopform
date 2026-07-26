@@ -7,9 +7,9 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import type { DatabaseService } from "../../infrastructure/database/database.service.js";
 import type { FeedbackConversationRepository } from "../conversations/feedback-conversation.repository.js";
-import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
+import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
 import { FeedbackSimulatorService } from "./simulator/simulator.service.js";
-import { MessageOutboxDeliveryService } from "./message-outbox-delivery.service.js";
+import { MessageOutboxDeliveryService } from "./outbox/deliver.service.js";
 import {
   FakeAudit,
   FakeDatabase,
@@ -28,7 +28,7 @@ import type {
   FeedbackJobData,
   FeedbackJobName,
 } from "./post-event-feedback.schemas.js";
-import { SimulatedFeedbackTransport } from "./simulated-feedback-transport.service.js";
+import { SimulatedFeedbackTransport } from "./outbox/simulated-transport.service.js";
 
 const campaignId = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 const respondentParticipantId = "9f3c1a52-6e2b-4b4a-9a17-2cb2a6d13a55";

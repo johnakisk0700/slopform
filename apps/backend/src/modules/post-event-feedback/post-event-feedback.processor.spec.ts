@@ -14,8 +14,8 @@ import {
   PostEventFeedbackIngressNotFoundError,
   type PostEventFeedbackMaterializer,
 } from "./post-event-feedback-materializer.service.js";
-import type { MessageOutboxDeliveryService } from "./message-outbox-delivery.service.js";
-import type { MessageOutboxRelayService } from "./message-outbox-relay.service.js";
+import type { MessageOutboxDeliveryService } from "./outbox/deliver.service.js";
+import type { MessageOutboxRelayService } from "./outbox/relay.service.js";
 import {
   FEEDBACK_WORKER_CONCURRENCY,
   PostEventFeedbackProcessor,

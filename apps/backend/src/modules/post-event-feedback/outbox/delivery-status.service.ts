@@ -1,12 +1,12 @@
 import { Injectable, Logger } from "@nestjs/common";
 import type { MessageOutboxDeliveryStatus } from "@join-the-six/database";
 
-import { DatabaseService } from "../../infrastructure/database/database.service.js";
+import { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import {
   coalesceDeliveryStatus,
   deliveryTimestampFields,
-} from "./message-outbox-delivery-status.js";
-import { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
+} from "./delivery-status.js";
+import { FeedbackOutboxRepository } from "./outbox.repository.js";
 
 export type ApplyOutboxDeliveryStatusInput = {
   readonly providerMessageId: string;

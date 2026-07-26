@@ -10,7 +10,7 @@ import type { DatabaseService } from "../../infrastructure/database/database.ser
 import type { FeedbackConversationRepository } from "../conversations/feedback-conversation.repository.js";
 import { buildFeedbackConversationGoals } from "../conversations/feedback-conversation.schemas.js";
 import type { ParticipantsRepository } from "../participants/participants.repository.js";
-import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
+import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
 import {
   FakeAudit,
   FakeDatabase,

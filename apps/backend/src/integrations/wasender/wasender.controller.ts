@@ -16,7 +16,7 @@ import type { Request } from "express";
 import { ZodResponse } from "nestjs-zod";
 
 import { Public } from "../../infrastructure/auth/public.decorator.js";
-import { MessageOutboxDeliveryStatusService } from "../../modules/post-event-feedback/message-outbox-delivery-status.service.js";
+import { MessageOutboxDeliveryStatusService } from "../../modules/post-event-feedback/outbox/delivery-status.service.js";
 import {
   PostEventFeedbackEnqueueError,
   PostEventFeedbackIngressService,

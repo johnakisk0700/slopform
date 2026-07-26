@@ -3,18 +3,18 @@ import { Injectable, Logger } from "@nestjs/common";
 import {
   WasenderClient,
   WasenderClientError,
-} from "../../integrations/wasender/wasender.client.js";
+} from "../../../integrations/wasender/wasender.client.js";
 import {
   FeedbackSessionPacer,
   FEEDBACK_SEND_JITTER_MS,
   FEEDBACK_SEND_MIN_INTERVAL_MS,
-} from "./feedback-session-pacer.js";
+} from "./session-pacer.js";
 import type {
   FeedbackTransport,
   FeedbackTransportMessageInfo,
   FeedbackTransportSendInput,
   FeedbackTransportSendResult,
-} from "./feedback-transport.js";
+} from "./transport.js";
 
 /**
  * Wasender-backed transport. Every send waits on the shared-session pacer

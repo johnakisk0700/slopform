@@ -11,8 +11,8 @@ import { ConversationPersistenceError } from "../conversations/conversation-pers
 import {
   MessageOutboxDeliveryService,
   MessageOutboxNotFoundError,
-} from "./message-outbox-delivery.service.js";
-import { MessageOutboxRelayService } from "./message-outbox-relay.service.js";
+} from "./outbox/deliver.service.js";
+import { MessageOutboxRelayService } from "./outbox/relay.service.js";
 import { PostEventFeedbackExtractionFallback } from "./post-event-feedback-extraction-fallback.service.js";
 import {
   FeedbackExtractionGenerationError,

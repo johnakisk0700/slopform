@@ -2,7 +2,7 @@ import { Module } from "@nestjs/common";
 
 import { DatabaseModule } from "../../infrastructure/database/database.module.js";
 import { QueueModule } from "../../infrastructure/queue/queue.module.js";
-import { MessageOutboxDeliveryStatusService } from "./message-outbox-delivery-status.service.js";
+import { MessageOutboxDeliveryStatusService } from "./outbox/delivery-status.service.js";
 import { PostEventFeedbackCoreModule } from "./post-event-feedback-core.module.js";
 import { PostEventFeedbackIngressService } from "./post-event-feedback-ingress.service.js";
 

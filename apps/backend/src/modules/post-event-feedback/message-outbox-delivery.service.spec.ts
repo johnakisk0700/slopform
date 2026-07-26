@@ -7,9 +7,9 @@ import {
   FeedbackConversationCapacityError,
   type FeedbackConversationRepository,
 } from "../conversations/feedback-conversation.repository.js";
-import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
-import type { FeedbackTransport } from "./feedback-transport.js";
-import { MessageOutboxDeliveryService } from "./message-outbox-delivery.service.js";
+import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
+import type { FeedbackTransport } from "./outbox/transport.js";
+import { MessageOutboxDeliveryService } from "./outbox/deliver.service.js";
 import type { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
 import type { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
 

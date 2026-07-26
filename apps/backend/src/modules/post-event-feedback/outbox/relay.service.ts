@@ -5,11 +5,11 @@ import type { Queue } from "bullmq";
 import {
   FEEDBACK_QUEUE,
   OUTBOX_RELAY_JOB_OPTIONS,
-} from "../../infrastructure/queue/queue.constants.js";
+} from "../../../infrastructure/queue/queue.constants.js";
 import {
   FEEDBACK_OUTBOX_BATCH_SIZE,
   FeedbackOutboxRepository,
-} from "./outbox/outbox.repository.js";
+} from "./outbox.repository.js";
 import {
   createFeedbackDeliverJobId,
   FEEDBACK_JOB_NAMES,
@@ -17,7 +17,7 @@ import {
   feedbackDeliverJobDataSchema,
   type FeedbackJobData,
   type FeedbackJobName,
-} from "./post-event-feedback.schemas.js";
+} from "../post-event-feedback.schemas.js";
 
 /** Extra delay between campaign intro/reminder jobs leased in the same batch. */
 export const FEEDBACK_CAMPAIGN_STAGGER_MS = 2_000;

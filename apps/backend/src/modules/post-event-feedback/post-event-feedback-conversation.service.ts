@@ -28,7 +28,7 @@ import type { FeedbackConversationDocument } from "../conversations/feedback-con
 import { EventsRepository } from "../events/events.repository.js";
 import { EventsService } from "../events/events.service.js";
 import { ParticipantsRepository } from "../participants/participants.repository.js";
-import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
+import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
 import {
   conversationCapabilities,
   deliveryFor,

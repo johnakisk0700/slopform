@@ -140,7 +140,7 @@ actor-labelled rather than one-sided — see
 
 Every outbound message reaches a participant through one `message_outbox` row,
 and every such row is also recorded in the MongoDB transcript by
-[`FeedbackOutboundTranscriptService`](../../../apps/backend/src/modules/post-event-feedback/feedback-outbound-transcript.service.ts).
+[`FeedbackOutboundTranscriptService`](../../../apps/backend/src/modules/post-event-feedback/outbox/outbound-transcript.service.ts).
 That is what makes the transcript actor-labelled on both sides: without it the
 admin detail pane shows a one-sided conversation and the extraction prompt's
 "full actor-labelled transcript" contains no bot turns.
@@ -805,7 +805,7 @@ transport boundary.
 
 ### Relay and deliver
 
-[`MessageOutboxRelayService`](../../../apps/backend/src/modules/post-event-feedback/message-outbox-relay.service.ts)
+[`MessageOutboxRelayService`](../../../apps/backend/src/modules/post-event-feedback/outbox/relay.service.ts)
 leases due rows with `FOR UPDATE SKIP LOCKED`:
 
 - `pending` rows are claimed into `sending`;
@@ -820,7 +820,7 @@ STOP/expiry cancellations flip `pending` and `held` rows to `cancelled` through
 the existing repository helper; a deliver job that finds `cancelled` or `held`
 exits without sending.
 
-[`MessageOutboxDeliveryService`](../../../apps/backend/src/modules/post-event-feedback/message-outbox-delivery.service.ts)
+[`MessageOutboxDeliveryService`](../../../apps/backend/src/modules/post-event-feedback/outbox/deliver.service.ts)
 reloads the conversation phone, ensures the row's transcript entry exists (the
 idempotent forward repair described in
 [outbound transcript entries](#outbound-transcript-entries)) and then sends
@@ -861,7 +861,7 @@ rejects `TRANSPORT_MODE=simulated` and never mounts the simulator module.
 
 ### Durable simulated outbound
 
-[`SimulatedFeedbackTransport`](../../../apps/backend/src/modules/post-event-feedback/simulated-feedback-transport.service.ts)
+[`SimulatedFeedbackTransport`](../../../apps/backend/src/modules/post-event-feedback/outbox/simulated-transport.service.ts)
 implements the same `FeedbackTransport` port as Wasender. Each accepted send
 inserts one row into `feedback_sim_outbound` (no foreign keys — dev-only
 traffic, simplest replay/query shape). The outbox `provider_log_id` is the sink

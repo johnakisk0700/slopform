@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 
 import type { FeedbackSimOutboundRepository } from "./simulator/sim-outbound.repository.js";
-import { SimulatedFeedbackTransport } from "./simulated-feedback-transport.service.js";
+import { SimulatedFeedbackTransport } from "./outbox/simulated-transport.service.js";
 
 describe("SimulatedFeedbackTransport", () => {
   it("persists outbound sends for later sim-thread reads", async () => {

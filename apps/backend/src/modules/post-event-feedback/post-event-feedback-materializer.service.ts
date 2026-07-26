@@ -22,8 +22,8 @@ import {
   type FeedbackConversationDocument,
 } from "../conversations/feedback-conversation.schemas.js";
 import { ParticipantsRepository } from "../participants/participants.repository.js";
-import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
-import { coalesceDeliveryStatus } from "./message-outbox-delivery-status.js";
+import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
+import { coalesceDeliveryStatus } from "./outbox/delivery-status.js";
 import {
   PostEventFeedbackMetrics,
   type FeedbackMaterializeOutcome,

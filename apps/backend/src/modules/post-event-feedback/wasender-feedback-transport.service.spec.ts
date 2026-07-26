@@ -4,8 +4,8 @@ import {
   WasenderClient,
   WasenderClientError,
 } from "../../integrations/wasender/wasender.client.js";
-import { FeedbackSessionPacer } from "./feedback-session-pacer.js";
-import { WasenderFeedbackTransport } from "./wasender-feedback-transport.service.js";
+import { FeedbackSessionPacer } from "./outbox/session-pacer.js";
+import { WasenderFeedbackTransport } from "./outbox/wasender-transport.service.js";
 
 describe("WasenderFeedbackTransport", () => {
   it("paces before sendText and maps acceptance", async () => {

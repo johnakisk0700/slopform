@@ -17,10 +17,10 @@ import type { EventsService } from "../events/events.service.js";
 import type { ParticipantsRepository } from "../participants/participants.repository.js";
 import { phoneE164ToChatJid } from "../../integrations/wasender/wasender.jid.js";
 import type { FeedbackOperatorAlert } from "./feedback-operator-alert.js";
-import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
-import type { FeedbackTransport } from "./feedback-transport.js";
-import { MessageOutboxDeliveryService } from "./message-outbox-delivery.service.js";
-import { MessageOutboxRelayService } from "./message-outbox-relay.service.js";
+import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
+import type { FeedbackTransport } from "./outbox/transport.js";
+import { MessageOutboxDeliveryService } from "./outbox/deliver.service.js";
+import { MessageOutboxRelayService } from "./outbox/relay.service.js";
 import { PostEventFeedbackExtractionFallback } from "./post-event-feedback-extraction-fallback.service.js";
 import type { PostEventFeedbackExtractionModel } from "./post-event-feedback-extraction.service.js";
 import {

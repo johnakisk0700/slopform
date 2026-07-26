@@ -7,8 +7,8 @@ import type {
   FeedbackTransportMessageInfo,
   FeedbackTransportSendInput,
   FeedbackTransportSendResult,
-} from "./feedback-transport.js";
-import { FeedbackSimOutboundRepository } from "./simulator/sim-outbound.repository.js";
+} from "./transport.js";
+import { FeedbackSimOutboundRepository } from "../simulator/sim-outbound.repository.js";
 
 /**
  * Durable PostgreSQL outbound sink for `TRANSPORT_MODE=simulated` (WP8).

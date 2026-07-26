@@ -4,7 +4,7 @@ import {
   FeedbackSessionPacer,
   FEEDBACK_SEND_JITTER_MS,
   FEEDBACK_SEND_MIN_INTERVAL_MS,
-} from "./feedback-session-pacer.js";
+} from "./outbox/session-pacer.js";
 
 describe("FeedbackSessionPacer", () => {
   it("waits at least the minimum interval plus jitter between turns", async () => {

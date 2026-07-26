@@ -12,7 +12,7 @@ import {
   FEEDBACK_OUTBOX_KIND_ACTORS,
   FeedbackOutboundTranscriptService,
   UnsupportedMessageOutboxKindError,
-} from "./feedback-outbound-transcript.service.js";
+} from "./outbox/outbound-transcript.service.js";
 import type { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
 
 const conversationId = "6f0f2f8a-2b73-5a02-9d0a-3f0b8f5b1c21";

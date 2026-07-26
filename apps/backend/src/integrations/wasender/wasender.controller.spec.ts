@@ -9,7 +9,7 @@ import {
   PostEventFeedbackEnqueueError,
   type PostEventFeedbackIngressService,
 } from "../../modules/post-event-feedback/post-event-feedback-ingress.service.js";
-import type { MessageOutboxDeliveryStatusService } from "../../modules/post-event-feedback/message-outbox-delivery-status.service.js";
+import type { MessageOutboxDeliveryStatusService } from "../../modules/post-event-feedback/outbox/delivery-status.service.js";
 import { WasenderWebhookController } from "./wasender.controller.js";
 import type {
   WasenderCorrelationIdDto,

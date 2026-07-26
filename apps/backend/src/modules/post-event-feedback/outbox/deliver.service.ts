@@ -5,19 +5,16 @@ import type {
   MessageOutboxRow,
 } from "@join-the-six/database";
 
-import { DatabaseService } from "../../infrastructure/database/database.service.js";
-import { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
-import { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
-import { FeedbackConversationRepository } from "../conversations/feedback-conversation.repository.js";
-import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
-import {
-  FEEDBACK_TRANSPORT,
-  type FeedbackTransport,
-} from "./feedback-transport.js";
+import { DatabaseService } from "../../../infrastructure/database/database.service.js";
+import { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
+import { FeedbackOutboxRepository } from "./outbox.repository.js";
+import { FeedbackConversationRepository } from "../../conversations/feedback-conversation.repository.js";
+import { FeedbackOutboundTranscriptService } from "./outbound-transcript.service.js";
+import { FEEDBACK_TRANSPORT, type FeedbackTransport } from "./transport.js";
 import {
   coalesceDeliveryStatus,
   deliveryTimestampFields,
-} from "./message-outbox-delivery-status.js";
+} from "./delivery-status.js";
 
 export class MessageOutboxNotFoundError extends Error {
   constructor(outboxId: string) {
