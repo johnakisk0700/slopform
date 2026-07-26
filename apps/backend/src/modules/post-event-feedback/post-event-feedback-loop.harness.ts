@@ -161,10 +161,10 @@ const PERSON_IDS = [
   "71628f72-8394-a5b6-8057-61829304b5c6",
 ] as const;
 
-export const FEEDBACK_LOOP_START = new Date("2026-07-25T20:00:00.000Z");
+const FEEDBACK_LOOP_START = new Date("2026-07-25T20:00:00.000Z");
 export const DEFAULT_RESPONDENT = "Μαρία";
-export const DEFAULT_PHONE = "+306900000001";
-export const DEFAULT_CANDIDATES = [
+const DEFAULT_PHONE = "+306900000001";
+const DEFAULT_CANDIDATES = [
   "Νίκος",
   "Ελένη",
   "Κώστας Π.",
@@ -212,7 +212,7 @@ const DURATION_UNITS: Record<string, number> = {
 /** Comfortably past the quiet window, whatever the window currently is. */
 const SETTLES_MS = FEEDBACK_EXTRACT_QUIET_WINDOW_MS + 5_000;
 
-export function parseDuration(duration: Duration): number {
+function parseDuration(duration: Duration): number {
   if (typeof duration === "number") {
     return duration;
   }
@@ -242,8 +242,6 @@ export type Cite =
   | "all-new"
   /** The newest participant message. */
   | "last"
-  /** The oldest participant message this run has not read yet. */
-  | "first-new"
   /** The newest bot message — for proving that bot turns are not testimony. */
   | "bot"
   | string
@@ -299,10 +297,6 @@ export interface ModelTurn {
   readonly confidence?: number;
   /** The provider throws instead of answering. */
   readonly fails?: ModelFailure;
-  /** Fail this many times, then take the turn normally. Default: always fail. */
-  readonly failTimes?: number;
-  /** Ignore the fields above and emit a proposal the domain rules must refuse. */
-  readonly garbage?: true;
 }
 
 export type FeedbackExternalAction =
@@ -387,8 +381,6 @@ export interface FeedbackSeedOptions {
     readonly about?: string;
     readonly value?: number;
   }[];
-  /** Whether the intro was already sent. Default true. */
-  readonly intro?: boolean;
 }
 
 // ── The outcome snapshot ────────────────────────────────────────────────────
@@ -537,11 +529,6 @@ export type FeedbackScenario =
        * `expect` remains the desired product contract.
        */
       readonly knownCurrent: ExpectedFeedbackOutcome;
-      /**
-       * Exact scripted extraction turns the defect prevents from running.
-       * Omit for the normal invariant that every scripted turn is consumed.
-       */
-      readonly knownCurrentUnconsumedExtractionCalls?: readonly number[];
     });
 
 // ── The scripted model ──────────────────────────────────────────────────────
@@ -685,11 +672,7 @@ export class ScriptedExtractionModel {
     }
     this.turnIndex += 1;
     this.failuresTaken = 0;
-    return this.emit(
-      turn.garbage
-        ? GARBAGE_PROPOSAL
-        : buildProposal(turn, conversation, this.idByName),
-    );
+    return this.emit(buildProposal(turn, conversation, this.idByName));
   }
 
   async classifyAttention(
@@ -736,9 +719,6 @@ export class ScriptedExtractionModel {
 
   private takeScriptedFailure(turn: ModelTurn): Error | undefined {
     if (!turn.fails) {
-      return undefined;
-    }
-    if (this.failuresTaken >= (turn.failTimes ?? Number.POSITIVE_INFINITY)) {
       return undefined;
     }
     this.failuresTaken += 1;
@@ -796,35 +776,6 @@ function modelFailure(
       );
   }
 }
-
-/** Structurally valid, domain-invalid: every rule this proposal touches refuses it. */
-const GARBAGE_PROPOSAL = {
-  answers: [
-    {
-      questionKey: "event_score",
-      valueInt: 42,
-      subjectParticipantId: null,
-      subjectMentionedName: null,
-      sourceMessageIds: ["not-a-message-in-this-conversation"],
-      confidence: 0.9,
-    },
-  ],
-  notes: [
-    {
-      noteType: "general",
-      text: "Κάτι που δεν είπε ποτέ κανείς.",
-      subjectParticipantId: "00000000-0000-4000-8000-000000000000",
-      subjectMentionedName: "Κανείς",
-      sourceMessageIds: ["not-a-message-in-this-conversation"],
-      confidence: 0.5,
-    },
-  ],
-  skippedGoals: [],
-  nextGoal: null,
-  reply: null,
-  handoff: false,
-  confidence: 0.1,
-} as const;
 
 function buildProposal(
   turn: ModelTurn,
@@ -896,10 +847,6 @@ function resolveCite(
         return (unread.length > 0 ? unread : participant.slice(-1)).map(
           (message) => message.id,
         );
-      case "first-new":
-        return (unread[0] ?? participant.at(-1))?.id
-          ? [(unread[0] ?? participant.at(-1))!.id]
-          : [];
       case "last":
         return participant.at(-1) ? [participant.at(-1)!.id] : [];
       case "bot": {
@@ -951,10 +898,6 @@ function resolveAttentionCite(
   if (cite === "last") {
     const last = targetMessageIds.at(-1);
     return last ? [last] : [];
-  }
-  if (cite === "first-new") {
-    const first = targetMessageIds[0];
-    return first ? [first] : [];
   }
   const references = Array.isArray(cite)
     ? (cite as readonly (string | number)[])
@@ -1168,7 +1111,7 @@ export async function createFeedbackLoopHarness(
     CAMPAIGN_ID,
     respondentId,
   );
-  const wantsIntro = seed.intro ?? true;
+  const wantsIntro = true;
   const goalStatuses: Partial<
     Record<
       PostEventFeedbackAnswerQuestionKey,
@@ -1816,11 +1759,7 @@ export function runFeedbackScenarios(
             "extraction",
             harness.model.unconsumedExtractionCalls,
           ),
-        ).toEqual(
-          scenario.defect
-            ? (scenario.knownCurrentUnconsumedExtractionCalls ?? [])
-            : [],
-        );
+        ).toEqual([]);
         expect(
           harness.model.unconsumedAttentionCalls,
           scriptConsumptionMessage(
