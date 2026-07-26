@@ -184,3 +184,15 @@ export function isPostEventFeedbackNoteType(
 ): value is FeedbackNoteType {
   return (FEEDBACK_NOTE_TYPES as readonly string[]).includes(value);
 }
+
+/** Replay guard for `feedback_notes`, which has no natural unique key. */
+export function noteSignature(
+  noteType: string,
+  text: string,
+  subjectParticipantId: string | null,
+): string {
+  return `${noteType}::${subjectParticipantId ?? ""}::${text
+    .trim()
+    .replaceAll(/\s+/gu, " ")
+    .toLowerCase()}`;
+}

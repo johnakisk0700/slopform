@@ -29,6 +29,7 @@ import {
 import {
   POST_EVENT_FEEDBACK_QUESTION_SET_V1,
   isPostEventFeedbackAnswerQuestionKey,
+  noteSignature,
   type PostEventFeedbackQuestionSetCopy,
 } from "./post-event-feedback-question-set.js";
 import {
@@ -1040,17 +1041,6 @@ function lastParticipantSeq(
     }
   }
   return undefined;
-}
-
-function noteSignature(
-  noteType: string,
-  text: string,
-  subjectParticipantId: string | null,
-): string {
-  return `${noteType}::${subjectParticipantId ?? ""}::${text
-    .trim()
-    .replaceAll(/\s+/gu, " ")
-    .toLowerCase()}`;
 }
 
 /**

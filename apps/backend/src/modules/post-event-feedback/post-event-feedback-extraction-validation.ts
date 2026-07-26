@@ -8,6 +8,7 @@ import {
   POST_EVENT_FEEDBACK_QUESTION_SET_V1,
   isPostEventFeedbackAnswerQuestionKey,
   isPostEventFeedbackNoteType,
+  noteSignature,
   type PostEventFeedbackAnswerQuestionDefinition,
 } from "./post-event-feedback-question-set.js";
 import type {
@@ -331,7 +332,7 @@ function validateNotes(
   const accepted: ValidatedFeedbackNote[] = [];
   const seen = new Set(
     context.acceptedNotes.map((note) =>
-      noteIdentity(note.noteType, note.text, note.subjectParticipantId),
+      noteSignature(note.noteType, note.text, note.subjectParticipantId),
     ),
   );
 
@@ -389,7 +390,7 @@ function validateNotes(
     const subjectParticipantId = resolvable ? proposedId : null;
 
     const text = proposal.text.trim();
-    const identity = noteIdentity(
+    const identity = noteSignature(
       proposal.noteType,
       text,
       subjectParticipantId,
@@ -400,7 +401,7 @@ function validateNotes(
       reject(
         context.acceptedNotes.some(
           (note) =>
-            noteIdentity(
+            noteSignature(
               note.noteType,
               note.text,
               note.subjectParticipantId,
@@ -563,17 +564,6 @@ function answerIdentity(
   subjectParticipantId: string | null,
 ): string {
   return `${questionKey}::${subjectParticipantId ?? ""}`;
-}
-
-function noteIdentity(
-  noteType: string,
-  text: string,
-  subjectParticipantId: string | null,
-): string {
-  return `${noteType}::${subjectParticipantId ?? ""}::${text
-    .trim()
-    .replaceAll(/\s+/gu, " ")
-    .toLowerCase()}`;
 }
 
 /**
