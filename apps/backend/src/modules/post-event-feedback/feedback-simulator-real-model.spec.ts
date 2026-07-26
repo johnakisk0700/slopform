@@ -10,13 +10,13 @@ import type { EventsService } from "../events/events.service.js";
 import type { ParticipantsRepository } from "../participants/participants.repository.js";
 import type { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
 import {
-  deriveFeedbackSimulatorRunStage,
   FeedbackSimulatorRunRejectedError,
   FeedbackSimulatorService,
   isFeedbackSimulatorSingleTurnScenario,
   renderFeedbackSimulatorTemplate,
 } from "./feedback-simulator.service.js";
 import { startFeedbackSimulatorRunSchema } from "./feedback-simulator.schemas.js";
+import { runStage } from "./simulator/run-status.js";
 import type { PostEventFeedbackIngressService } from "./post-event-feedback-ingress.service.js";
 import type { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
 import type {
@@ -275,23 +275,21 @@ describe("real-model feedback simulator", () => {
     };
 
     expect(
-      deriveFeedbackSimulatorRunStage({
+      runStage({
         ...completeCursor,
         extractionFailed: true,
         outboxSettled: true,
       }),
     ).toBe("failed");
     expect(
-      deriveFeedbackSimulatorRunStage({
+      runStage({
         ...completeCursor,
         outboxMissing: true,
       }),
     ).toBe("failed");
-    expect(deriveFeedbackSimulatorRunStage(completeCursor)).toBe(
-      "delivering_simulated_outbox",
-    );
+    expect(runStage(completeCursor)).toBe("delivering_simulated_outbox");
     expect(
-      deriveFeedbackSimulatorRunStage({
+      runStage({
         ...completeCursor,
         outboxSettled: true,
       }),
