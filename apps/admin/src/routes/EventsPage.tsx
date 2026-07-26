@@ -7,6 +7,7 @@ import { useCreateEvent, useListEvents } from "../api/generated/events";
 import type { EventListDtoOutputItemsItem } from "../api/generated/model/eventListDtoOutputItemsItem";
 import { JtsDataTable } from "../components/ui/JtsDataTable";
 import { JtsPageHeader } from "../components/ui/JtsPageHeader";
+import { apiErrorMessage } from "../lib/api";
 import { usePageMeta } from "../lib/usePageMeta";
 
 const columns: ColumnDef<EventListDtoOutputItemsItem>[] = [
@@ -43,10 +44,6 @@ const columns: ColumnDef<EventListDtoOutputItemsItem>[] = [
   },
 ];
 
-function requestErrorMessage(cause: unknown, fallback: string): string {
-  return cause instanceof Error ? cause.message : fallback;
-}
-
 /** Minimal staff CRUD list for stub events (WP1). */
 export function EventsPage() {
   usePageMeta("Events", "Stub events, attendance and table assignments.");
@@ -61,7 +58,7 @@ export function EventsPage() {
   const rows = eventsQuery.data?.items ?? [];
   const loading = eventsQuery.isPending || eventsQuery.isFetching;
   const error = eventsQuery.isError
-    ? requestErrorMessage(eventsQuery.error, "Failed to load events.")
+    ? apiErrorMessage(eventsQuery.error, "Failed to load events.")
     : actionError;
 
   async function onCreate(event: FormEvent<HTMLFormElement>) {
@@ -78,7 +75,7 @@ export function EventsPage() {
       setStartsAt("");
       await eventsQuery.refetch();
     } catch (cause) {
-      setActionError(requestErrorMessage(cause, "Failed to create event."));
+      setActionError(apiErrorMessage(cause, "Failed to create event."));
     }
   }
 

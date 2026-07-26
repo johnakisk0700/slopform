@@ -27,15 +27,10 @@ import {
   staffOriginBadge,
 } from "../features/feedback/labels";
 import { RESULTS_POLL_INTERVAL_MS } from "../features/feedback/polling";
+import { apiErrorMessage } from "../lib/api";
 import { usePageMeta } from "../lib/usePageMeta";
 
 const ANY = "__any__";
-
-function errorMessage(cause: unknown, fallback: string): string {
-  return cause instanceof Error && cause.message !== ""
-    ? cause.message
-    : fallback;
-}
 
 /** Renders a participant name, marking the D18 fallback so it reads as absence. */
 function ParticipantName({ displayName }: { displayName: string | null }) {
@@ -207,7 +202,7 @@ export function FeedbackResultsPage() {
   );
 
   const loadError = resultsQuery.isError
-    ? errorMessage(resultsQuery.error, "Failed to load results.")
+    ? apiErrorMessage(resultsQuery.error, "Failed to load results.")
     : null;
 
   const answers = resultsQuery.data?.answers ?? [];

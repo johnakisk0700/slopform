@@ -5,6 +5,7 @@ import { useId, useState } from "react";
 import { useListEventFeedbackCandidates } from "../../../api/generated/events";
 import type { AddFeedbackConversationNoteDtoNoteType } from "../../../api/generated/model/addFeedbackConversationNoteDtoNoteType";
 import { noteTypeLabel } from "../../../features/feedback/labels";
+import { apiErrorMessage } from "../../../lib/api";
 
 /** Mirrors the backend's `feedback_notes_text_length_check`. */
 export const FEEDBACK_NOTE_TEXT_MAX_LENGTH = 500;
@@ -28,12 +29,6 @@ interface AddNoteActionProps {
     text: string;
     subjectParticipantId?: string;
   }) => Promise<void>;
-}
-
-function errorMessage(cause: unknown, fallback: string): string {
-  return cause instanceof Error && cause.message !== ""
-    ? cause.message
-    : fallback;
 }
 
 /**
@@ -93,7 +88,7 @@ export function AddNoteAction({
       reset();
       setOpen(false);
     } catch (cause) {
-      setError(errorMessage(cause, "The note could not be saved."));
+      setError(apiErrorMessage(cause, "The note could not be saved."));
     }
   }
 

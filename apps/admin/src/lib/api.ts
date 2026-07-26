@@ -38,3 +38,9 @@ function createApiHeaders(
 
   return headers;
 }
+
+export function apiErrorMessage(cause: unknown, fallback: string): string {
+  return cause instanceof Error && cause.message !== ""
+    ? cause.message
+    : fallback;
+}

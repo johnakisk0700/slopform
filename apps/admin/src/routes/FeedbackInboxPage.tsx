@@ -60,17 +60,12 @@ import {
   RESULTS_POLL_INTERVAL_MS,
   conversationPollInterval,
 } from "../features/feedback/polling";
+import { apiErrorMessage } from "../lib/api";
 import {
   useFeedbackSimulatorThread,
   useInjectFeedbackSimulatorMessage,
 } from "../lib/feedbackSimulator";
 import { usePageMeta } from "../lib/usePageMeta";
-
-function errorMessage(cause: unknown, fallback: string): string {
-  return cause instanceof Error && cause.message !== ""
-    ? cause.message
-    : fallback;
-}
 
 type ConversationAction = "take-over" | "resume-bot" | "close";
 
@@ -235,7 +230,7 @@ export function FeedbackInboxPage() {
     try {
       await applyConversationResult(await run());
     } catch (cause) {
-      setActionError(errorMessage(cause, failure));
+      setActionError(apiErrorMessage(cause, failure));
     } finally {
       setPendingAction(null);
     }
@@ -254,7 +249,9 @@ export function FeedbackInboxPage() {
       });
       await applyConversationResult(updated);
     } catch (cause) {
-      setActionError(errorMessage(cause, "The message could not be queued."));
+      setActionError(
+        apiErrorMessage(cause, "The message could not be queued."),
+      );
     }
   }
 
@@ -272,7 +269,7 @@ export function FeedbackInboxPage() {
       await invalidateCampaign();
     } catch (cause) {
       setActionError(
-        errorMessage(cause, "The simulated message could not be injected."),
+        apiErrorMessage(cause, "The simulated message could not be injected."),
       );
     }
   }
@@ -323,7 +320,7 @@ export function FeedbackInboxPage() {
         ),
       });
     } catch (cause) {
-      setActionError(errorMessage(cause, "The note could not be updated."));
+      setActionError(apiErrorMessage(cause, "The note could not be updated."));
     }
   }
 
@@ -346,7 +343,7 @@ export function FeedbackInboxPage() {
       );
     } catch (cause) {
       setActionError(
-        errorMessage(cause, "The conversation could not be started."),
+        apiErrorMessage(cause, "The conversation could not be started."),
       );
     }
   }
@@ -362,7 +359,7 @@ export function FeedbackInboxPage() {
       await invalidateCampaign();
       toast.success(success);
     } catch (cause) {
-      setActionError(errorMessage(cause, failure));
+      setActionError(apiErrorMessage(cause, failure));
     }
   }
 
@@ -372,7 +369,7 @@ export function FeedbackInboxPage() {
   );
 
   const listError = listQuery.isError
-    ? errorMessage(listQuery.error, "Failed to load conversations.")
+    ? apiErrorMessage(listQuery.error, "Failed to load conversations.")
     : null;
 
   if (campaignId === "") {
@@ -562,7 +559,10 @@ export function FeedbackInboxPage() {
             />
           ) : detailQuery.isError ? (
             <p role="alert" className="text-sm text-danger">
-              {errorMessage(detailQuery.error, "Failed to load conversation.")}
+              {apiErrorMessage(
+                detailQuery.error,
+                "Failed to load conversation.",
+              )}
             </p>
           ) : detailQuery.isPending && selectedId !== null ? (
             <p role="status" className="text-sm text-ink-muted">
@@ -582,7 +582,10 @@ export function FeedbackInboxPage() {
               resultsLoading={resultsQuery.isPending}
               resultsError={
                 resultsQuery.isError
-                  ? errorMessage(resultsQuery.error, "Failed to load answers.")
+                  ? apiErrorMessage(
+                      resultsQuery.error,
+                      "Failed to load answers.",
+                    )
                   : null
               }
               onTakeOver={() =>

@@ -18,16 +18,13 @@ import { useListParticipants } from "../api/generated/participants";
 import { JtsDataTable } from "../components/ui/JtsDataTable";
 import { JtsPageHeader } from "../components/ui/JtsPageHeader";
 import { nextEventStatuses } from "../features/event/nextEventStatuses";
+import { apiErrorMessage } from "../lib/api";
 import { usePageMeta } from "../lib/usePageMeta";
 
 function toDateTimeLocalValue(iso: string): string {
   const date = new Date(iso);
   const pad = (value: number) => String(value).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
-function requestErrorMessage(cause: unknown, fallback: string): string {
-  return cause instanceof Error ? cause.message : fallback;
 }
 
 interface EventDetailEditorProps {
@@ -192,9 +189,9 @@ export function EventDetailPage() {
     participantsQuery.isFetching;
 
   const loadError = eventQuery.isError
-    ? requestErrorMessage(eventQuery.error, "Failed to load event.")
+    ? apiErrorMessage(eventQuery.error, "Failed to load event.")
     : participantsQuery.isError
-      ? requestErrorMessage(participantsQuery.error, "Failed to load event.")
+      ? apiErrorMessage(participantsQuery.error, "Failed to load event.")
       : null;
 
   async function refetchEvent() {
@@ -220,7 +217,7 @@ export function EventDetailPage() {
       });
       await refetchEvent();
     } catch (cause) {
-      setActionError(requestErrorMessage(cause, "Failed to update attendee."));
+      setActionError(apiErrorMessage(cause, "Failed to update attendee."));
     }
   }
 
@@ -300,7 +297,7 @@ export function EventDetailPage() {
       });
       await refetchEvent();
     } catch (cause) {
-      setActionError(requestErrorMessage(cause, "Failed to save event."));
+      setActionError(apiErrorMessage(cause, "Failed to save event."));
     }
   }
 
@@ -314,7 +311,7 @@ export function EventDetailPage() {
       await refetchEvent();
     } catch (cause) {
       setActionError(
-        requestErrorMessage(cause, "Failed to transition event status."),
+        apiErrorMessage(cause, "Failed to transition event status."),
       );
     }
   }
@@ -328,7 +325,7 @@ export function EventDetailPage() {
       });
       await refetchEvent();
     } catch (cause) {
-      setActionError(requestErrorMessage(cause, "Failed to add attendee."));
+      setActionError(apiErrorMessage(cause, "Failed to add attendee."));
     }
   }
 

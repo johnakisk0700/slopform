@@ -12,13 +12,8 @@ import { ConfirmAction } from "../components/admin/feedback/ConfirmAction";
 import { JtsPageHeader } from "../components/ui/JtsPageHeader";
 import { formatTimestamp } from "../features/feedback/conversationView";
 import { campaignStatusBadge, chipColor } from "../features/feedback/labels";
+import { apiErrorMessage } from "../lib/api";
 import { usePageMeta } from "../lib/usePageMeta";
-
-function errorMessage(cause: unknown, fallback: string): string {
-  return cause instanceof Error && cause.message !== ""
-    ? cause.message
-    : fallback;
-}
 
 /**
  * The way into a feedback campaign.
@@ -61,7 +56,7 @@ export function FeedbackCampaignsPage() {
       await navigate(`/admin/feedback/${campaign.id}`);
     } catch (cause) {
       setLaunchError(
-        errorMessage(cause, "The campaign could not be launched or opened."),
+        apiErrorMessage(cause, "The campaign could not be launched or opened."),
       );
     }
   }
@@ -94,7 +89,7 @@ export function FeedbackCampaignsPage() {
           </p>
         ) : campaignsQuery.isError ? (
           <p role="alert" className="text-sm text-danger">
-            {errorMessage(campaignsQuery.error, "Failed to load campaigns.")}
+            {apiErrorMessage(campaignsQuery.error, "Failed to load campaigns.")}
           </p>
         ) : campaigns.length === 0 ? (
           <p className="text-sm text-ink-muted">
@@ -152,7 +147,7 @@ export function FeedbackCampaignsPage() {
           </p>
         ) : eventsQuery.isError ? (
           <p role="alert" className="text-sm text-danger">
-            {errorMessage(eventsQuery.error, "Failed to load events.")}
+            {apiErrorMessage(eventsQuery.error, "Failed to load events.")}
           </p>
         ) : finishedEventsWithoutCampaign.length === 0 ? (
           <p className="text-sm text-ink-muted">

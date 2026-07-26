@@ -31,11 +31,8 @@ import type { ParticipantEventHistoryDtoOutputItemsItem } from "../api/generated
 import type { ParticipantEventHistoryDtoOutputItemsItemStatus } from "../api/generated/model/participantEventHistoryDtoOutputItemsItemStatus";
 import type { ParticipantListDtoOutput } from "../api/generated/model/participantListDtoOutput";
 import { JtsDataTable } from "../components/ui/JtsDataTable";
+import { apiErrorMessage } from "../lib/api";
 import { usePageMeta } from "../lib/usePageMeta";
-
-function requestErrorMessage(cause: unknown, fallback: string): string {
-  return cause instanceof Error ? cause.message : fallback;
-}
 
 const backToParticipantsLinkClassName =
   "inline-flex items-center gap-1.5 self-start text-sm font-semibold text-primary";
@@ -221,11 +218,11 @@ export function ParticipantProfilePage() {
   const historyRows = eventsQuery.data?.items ?? [];
   const historyLoading = eventsQuery.isPending || eventsQuery.isFetching;
   const historyError = eventsQuery.isError
-    ? requestErrorMessage(eventsQuery.error, "Failed to load event history.")
+    ? apiErrorMessage(eventsQuery.error, "Failed to load event history.")
     : null;
 
   const loadError = participantQuery.isError
-    ? requestErrorMessage(participantQuery.error, "Failed to load participant.")
+    ? apiErrorMessage(participantQuery.error, "Failed to load participant.")
     : null;
 
   async function toggleOptIn(postEventFeedbackWhatsappOptIn: boolean) {
@@ -260,7 +257,7 @@ export function ParticipantProfilePage() {
       );
     } catch (cause) {
       setActionError(
-        requestErrorMessage(cause, "Failed to update feedback opt-in."),
+        apiErrorMessage(cause, "Failed to update feedback opt-in."),
       );
       await participantQuery.refetch();
     } finally {

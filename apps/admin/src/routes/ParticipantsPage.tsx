@@ -12,11 +12,8 @@ import type { ParticipantDtoOutput } from "../api/generated/model/participantDto
 import type { ParticipantListDtoOutput } from "../api/generated/model/participantListDtoOutput";
 import { JtsDataTable } from "../components/ui/JtsDataTable";
 import { JtsPageHeader } from "../components/ui/JtsPageHeader";
+import { apiErrorMessage } from "../lib/api";
 import { usePageMeta } from "../lib/usePageMeta";
-
-function requestErrorMessage(cause: unknown, fallback: string): string {
-  return cause instanceof Error ? cause.message : fallback;
-}
 
 /** Minimal participant admin list with the post-event feedback WhatsApp opt-in toggle. */
 export function ParticipantsPage() {
@@ -35,10 +32,7 @@ export function ParticipantsPage() {
   const rows = participantsQuery.data?.items ?? [];
   const loading = participantsQuery.isPending || participantsQuery.isFetching;
   const error = participantsQuery.isError
-    ? requestErrorMessage(
-        participantsQuery.error,
-        "Failed to load participants.",
-      )
+    ? apiErrorMessage(participantsQuery.error, "Failed to load participants.")
     : actionError;
 
   async function toggleOptIn(
@@ -67,7 +61,7 @@ export function ParticipantsPage() {
       );
     } catch (cause) {
       setActionError(
-        requestErrorMessage(cause, "Failed to update feedback opt-in."),
+        apiErrorMessage(cause, "Failed to update feedback opt-in."),
       );
       await participantsQuery.refetch();
     } finally {
