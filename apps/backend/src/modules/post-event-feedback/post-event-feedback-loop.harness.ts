@@ -16,6 +16,7 @@ import {
 import type { EventsRepository } from "../events/events.repository.js";
 import type { EventsService } from "../events/events.service.js";
 import type { ParticipantsRepository } from "../participants/participants.repository.js";
+import { phoneE164ToChatJid } from "../../integrations/wasender/wasender.jid.js";
 import type { FeedbackOperatorAlert } from "./feedback-operator-alert.js";
 import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
 import type { FeedbackTransport } from "./feedback-transport.js";
@@ -1417,7 +1418,7 @@ export async function createFeedbackLoopHarness(
         {
           providerMessageId:
             action.providerMessageId ?? `wa-in-${observedCounter}`,
-          chatJid: toChatJid(from),
+          chatJid: phoneE164ToChatJid(from),
           direction: "inbound",
           phoneE164: from,
           text: bounded,
@@ -1436,7 +1437,7 @@ export async function createFeedbackLoopHarness(
         {
           providerMessageId:
             action.providerMessageId ?? `wa-obs-${observedCounter}`,
-          chatJid: toChatJid(phone),
+          chatJid: phoneE164ToChatJid(phone),
           direction: "outbound",
           phoneE164: phone,
           text: boundObservedMessageText(action.text),
@@ -1657,10 +1658,6 @@ export async function createFeedbackLoopHarness(
     },
     outcome,
   };
-}
-
-function toChatJid(phoneE164: string): string {
-  return `${phoneE164.replace("+", "")}@s.whatsapp.net`;
 }
 
 function questionOrdinal(key: FeedbackAnswerQuestionKey): number {

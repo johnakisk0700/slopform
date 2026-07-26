@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 
 import { Injectable } from "@nestjs/common";
 
+import { normalizePhone } from "./wasender.jid.js";
 import {
   type NormalizedWasenderWebhookEvent,
   type WasenderMessageKey,
@@ -129,15 +130,4 @@ function resolveCounterpartyPhone(key: WasenderMessageKey): string | null {
   }
 
   return null;
-}
-
-function normalizePhone(value: string | undefined): string | undefined {
-  if (!value) {
-    return undefined;
-  }
-
-  const localPart = value.split("@", 1)[0]?.replace(/^\+/u, "");
-  return localPart && /^[1-9]\d{7,14}$/u.test(localPart)
-    ? `+${localPart}`
-    : undefined;
 }

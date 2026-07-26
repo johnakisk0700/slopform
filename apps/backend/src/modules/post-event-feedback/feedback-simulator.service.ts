@@ -16,7 +16,7 @@ import {
   assistantModelSchema,
   type AssistantModel,
 } from "../assistant/assistant.schemas.js";
-import { feedbackPhoneE164ToChatJid } from "./feedback-simulator-phone.js";
+import { phoneE164ToChatJid } from "../../integrations/wasender/wasender.jid.js";
 import {
   feedbackSimulatorCandidateSlotSchema,
   feedbackSimulatorRubricSchema,
@@ -760,7 +760,7 @@ export class FeedbackSimulatorService {
     this.assertEnabled();
     const observedAt = new Date();
     const providerMessageId = `sim-inject-${randomUUID()}`;
-    const chatJid = feedbackPhoneE164ToChatJid(input.phoneE164);
+    const chatJid = phoneE164ToChatJid(input.phoneE164);
 
     const result: RecordObservedMessageResult =
       await this.ingress.recordObservedMessage(

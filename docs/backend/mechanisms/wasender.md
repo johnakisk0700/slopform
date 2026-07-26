@@ -200,6 +200,7 @@ and unknown-outcome no-retry.
 ## Sources and official references
 
 - [Client and schemas](../../../apps/backend/src/integrations/wasender/wasender.client.ts),
+  [JID encode/decode](../../../apps/backend/src/integrations/wasender/wasender.jid.ts),
   [webhook adapter](../../../apps/backend/src/integrations/wasender/wasender.webhook.ts),
   [HTTP controller](../../../apps/backend/src/integrations/wasender/wasender.controller.ts)
   and [transport module](../../../apps/backend/src/integrations/wasender/wasender-transport.module.ts)
