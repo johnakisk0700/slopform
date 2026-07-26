@@ -677,12 +677,17 @@ is MOVE unless it brings its own test.
 
 ### Invariants every commit must hold
 
-- **793 passing tests across 106 files** — backend 668/93, admin 104/9, database 21/4. No number
+- **796 passing tests across 107 files** — backend 671/94, admin 104/9, database 21/4. No number
   drops and none silently rises. A packet that changes a test count, or touches a spec file it did
   not declare, is out of scope — revert it. The baseline was 791 at `b773211`; WP-05 deliberately
-  deleted one test, and WP-07 deliberately added three (`api-error-message.spec.ts`), which is why
-  this line is edited in the same commit that changed the count. A test count may only change this
-  way: declared in the packet, and recorded here.
+  deleted one test, WP-07 deliberately added three (`api-error-message.spec.ts`), and the queue
+  shutdown fix added three more (`queue-lifecycle.service.spec.ts`) — that last one is not a packet,
+  it is the repair of an intermittent failure that was making this very invariant unreadable. A test
+  count may only change this way: declared, and recorded here in the same commit that changes it.
+- **The suite is now deterministic.** Before `0094ae6`, roughly one backend run in six exited
+  non-zero with every assertion passing, because a BullMQ producer connection could be closed
+  mid-handshake during teardown. While that was true, a red gate proved nothing and a green gate
+  proved less. If random failures reappear, stop dispatching packets and fix them first.
 - **`pnpm test` stays under ~25s and needs no Docker.** If a packet makes the suite need infra,
   it is the wrong packet.
 - **Net lines go down.** Close every packet with `git diff --shortstat`. A positive net is only
@@ -701,7 +706,7 @@ is MOVE unless it brings its own test.
 | files ≥ 500 lines                    | 34                       | ≤ 10                              |
 | largest file                         | 1,902                    | ~900                              |
 | exports no other file reads          | 332                      | ≤ 30                              |
-| tests                                | 790 green / 105 files    | 790+ green                        |
+| tests                                | 796 green / 107 files    | 796+ green                        |
 
 Two honest corrections to the earlier version of this table.
 
