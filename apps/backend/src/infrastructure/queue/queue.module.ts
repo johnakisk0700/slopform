@@ -13,6 +13,7 @@ import {
   REFERENCE_QUEUE,
 } from "./queue.constants.js";
 import { QueueHealthService } from "./queue-health.service.js";
+import { QueueLifecycleService } from "./queue-lifecycle.service.js";
 import {
   redisProducerConnectionFromUrl,
   redisWorkerConnectionFromUrl,
@@ -68,7 +69,7 @@ export function createQueueWorkerOptions(
       configKey: QUEUE_PRODUCER_CONFIG,
     }),
   ],
-  providers: [QueueHealthService],
+  providers: [QueueHealthService, QueueLifecycleService],
   exports: [BullModule, QueueHealthService],
 })
 export class QueueModule {}
@@ -98,6 +99,7 @@ export class QueueModule {}
       configKey: QUEUE_WORKER_CONFIG,
     }),
   ],
+  providers: [QueueLifecycleService],
   exports: [BullModule],
 })
 export class QueueWorkerModule {}

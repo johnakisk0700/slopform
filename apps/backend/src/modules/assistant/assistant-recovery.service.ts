@@ -2,8 +2,8 @@ import { InjectQueue } from "@nestjs/bullmq";
 import {
   Injectable,
   Logger,
+  type BeforeApplicationShutdown,
   type OnApplicationBootstrap,
-  type OnApplicationShutdown,
 } from "@nestjs/common";
 import type { Queue } from "bullmq";
 
@@ -29,7 +29,7 @@ const LIVE_JOB_STATES = new Set([
 
 @Injectable()
 export class AssistantRecoveryService
-  implements OnApplicationBootstrap, OnApplicationShutdown
+  implements OnApplicationBootstrap, BeforeApplicationShutdown
 {
   private readonly logger = new Logger(AssistantRecoveryService.name);
   private interval: NodeJS.Timeout | undefined;
@@ -49,7 +49,9 @@ export class AssistantRecoveryService
     this.interval.unref();
   }
 
-  async onApplicationShutdown(): Promise<void> {
+  // A recovery pass reads the assistant queue, so it must finish before the
+  // Nest BullMQ integration closes that queue in `onApplicationShutdown`.
+  async beforeApplicationShutdown(): Promise<void> {
     if (this.interval) {
       clearInterval(this.interval);
       this.interval = undefined;

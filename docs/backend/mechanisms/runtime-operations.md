@@ -155,6 +155,9 @@ Nest exists, it emits
 immediately; there is no application context or SDK to close.
 
 On `SIGTERM`/`SIGINT`, Nest hooks close pools/queues and call telemetry shutdown.
+Queue connections settle in the earlier `beforeApplicationShutdown` phase so a
+signal that arrives while a connection is still opening cannot leave a Redis
+command outliving its client ([queues](queues.md)).
 Deployment grace must still exceed bounded database work and normal active-job
 duration; signal handling does not make interrupted side effects atomic.
 

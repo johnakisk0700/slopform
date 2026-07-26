@@ -38,6 +38,23 @@ fetches and waits for active jobs without its own deadline. Deployment grace
 must exceed normal job duration; an ungraceful stop relies on stalled recovery
 and can execute the job again.
 
+Close is ordered, not merely awaited. BullMQ opens each connection lazily and
+keeps `RedisConnection.init()` pending across a Redis `INFO` round trip that
+runs _after_ the socket is already ready. Closing a Queue inside that window
+hard-disconnects the client, so ioredis flushes the in-flight `INFO` with
+`Connection is closed.` and BullMQ re-emits that rejection on a connection whose
+listeners `close()` has just removed. Nothing is left to receive it and the
+process sees an unhandled rejection per queue.
+[`QueueLifecycleService`](../../../apps/backend/src/infrastructure/queue/queue-lifecycle.service.ts)
+therefore settles every connection in `beforeApplicationShutdown`, a phase that
+completes before any `onApplicationShutdown` hook and so before the Nest BullMQ
+integration closes a Queue. Close then always takes the drained `quit()` path.
+The wait is bounded by `QUEUE_SETTLE_TIMEOUT_MS` so a Redis outage cannot hold
+the process open; a connection that never opened has no command in flight, so
+closing it was already safe. Anything that reads a queue during shutdown belongs
+in the same phase for the same reason — that is why the assistant recovery
+scheduler clears its interval and drains its in-flight pass there.
+
 ## Versioned contract
 
 The disposable reference contract is explicit:
@@ -310,7 +327,8 @@ processor failure classification and module composition. Add a real Redis test
 with a unique prefix, bounded waits and exact cleanup. Add the outbox and durable
 side-effect idempotency before claiming critical delivery.
 
-Focused tests cover URL/options mapping, process composition, dashboard
+Focused tests cover URL/options mapping, process composition, connection settling
+and its bound at shutdown, dashboard
 security, deterministic IDs, payload/version rejection, permanent failures,
 transient propagation, idempotent HTTP request replay and terminal assistant
 turn attempt fencing. The feedback queue adds replay coverage: duplicate webhook
@@ -323,7 +341,7 @@ recovery re-enqueue under the stable materialize job id.
 
 ## Sources and official references
 
-- [Queue modules](../../../apps/backend/src/infrastructure/queue/queue.module.ts), [queue constants](../../../apps/backend/src/infrastructure/queue/queue.constants.ts), [Redis options](../../../apps/backend/src/infrastructure/queue/redis-connection.ts), [readiness](../../../apps/backend/src/infrastructure/queue/queue-health.service.ts), [assistant job contract](../../../apps/backend/src/modules/assistant/assistant.schemas.ts), [assistant processor](../../../apps/backend/src/modules/assistant/assistant.processor.ts), [reference job contract](../../../apps/backend/src/modules/reference/reference.schemas.ts) and [reference processor](../../../apps/backend/src/modules/reference/reference.processor.ts)
+- [Queue modules](../../../apps/backend/src/infrastructure/queue/queue.module.ts), [queue constants](../../../apps/backend/src/infrastructure/queue/queue.constants.ts), [Redis options](../../../apps/backend/src/infrastructure/queue/redis-connection.ts), [readiness](../../../apps/backend/src/infrastructure/queue/queue-health.service.ts), [shutdown ordering](../../../apps/backend/src/infrastructure/queue/queue-lifecycle.service.ts), [assistant job contract](../../../apps/backend/src/modules/assistant/assistant.schemas.ts), [assistant processor](../../../apps/backend/src/modules/assistant/assistant.processor.ts), [reference job contract](../../../apps/backend/src/modules/reference/reference.schemas.ts) and [reference processor](../../../apps/backend/src/modules/reference/reference.processor.ts)
 - [Feedback job contract](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback.schemas.ts), [feedback processor](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback.processor.ts), [ingress edge](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-ingress.service.ts), [materializer](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-materializer.service.ts), [message outbox relay](../../../apps/backend/src/modules/post-event-feedback/message-outbox-relay.service.ts), [delivery consumer](../../../apps/backend/src/modules/post-event-feedback/message-outbox-delivery.service.ts), [campaign service](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-campaign.service.ts) and [sweep service](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-sweep.service.ts)
 - [Nest BullMQ](https://docs.nestjs.com/techniques/queues), [BullMQ connections](https://docs.bullmq.io/guide/connections), [fail-fast producers](https://docs.bullmq.io/patterns/failing-fast-when-redis-is-down) and [worker shutdown](https://docs.bullmq.io/guide/workers/graceful-shutdown)
 - [Job IDs](https://docs.bullmq.io/guide/jobs/job-ids), [retries](https://docs.bullmq.io/guide/retrying-failing-jobs), [permanent failures](https://docs.bullmq.io/patterns/stop-retrying-jobs), [retention](https://docs.bullmq.io/guide/queues/auto-removal-of-jobs) and [metrics](https://docs.bullmq.io/guide/metrics)

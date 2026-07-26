@@ -207,7 +207,10 @@ then `app.init()`. Exercise the real `/api/v1/...` path through the HTTP server
 and fetch `/api/openapi.json`; close the application in `afterEach`. Do not
 reconstruct a miniature Nest application, repeat the global prefix, or install
 validation/interceptors by hand: that test can stay green while production
-composition is broken. Use a disposable database instead of a repository stub
+composition is broken. An awaited `app.close()` is the whole teardown: the queue
+module settles its own connections before Nest closes them
+([queues](backend/mechanisms/queues.md)), so a spec must never drain queues,
+poll Redis or ignore unhandled rejections to get a clean exit. Use a disposable database instead of a repository stub
 when ordering, constraints or transaction semantics are the behavior under test.
 
 ## Deliberate exclusions
