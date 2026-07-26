@@ -21,6 +21,7 @@ import type {
 } from "../conversations/feedback-conversation.schemas.js";
 import { EventsService } from "../events/events.service.js";
 import { ParticipantsRepository } from "../participants/participants.repository.js";
+import { latestParticipantMessage } from "./conversation-reader.js";
 import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
 import {
   PostEventFeedbackMetrics,
@@ -258,7 +259,7 @@ export class PostEventFeedbackExtractor {
       validated,
       closingNow,
       urgentSafety,
-      lastParticipantSeq(conversation) ?? cursorSeq,
+      latestParticipantMessage(conversation)?.seq ?? cursorSeq,
       copy,
     );
     const withheld = outbound
@@ -391,18 +392,10 @@ export class PostEventFeedbackExtractor {
    * no window to close.
    */
   private stillTyping(conversation: FeedbackConversationDocument): boolean {
-    let spokeAt: number | undefined;
-    for (const message of conversation.messages) {
-      if (
-        message.actor === "participant" &&
-        (spokeAt === undefined || message.at.getTime() > spokeAt)
-      ) {
-        spokeAt = message.at.getTime();
-      }
-    }
+    const spokeAt = latestParticipantMessage(conversation)?.at;
     return (
       spokeAt !== undefined &&
-      Date.now() - spokeAt < FEEDBACK_EXTRACT_QUIET_WINDOW_MS
+      Date.now() - spokeAt.getTime() < FEEDBACK_EXTRACT_QUIET_WINDOW_MS
     );
   }
 
@@ -1025,22 +1018,6 @@ function groupSafetySignalsByMessage(
     recommendedAction: attention.recommendedAction,
     confidence: attention.confidence,
   }));
-}
-
-/**
- * The transcript position the run is answering. Stable across replays because
- * only the participant can move it — the bot reply this run appends cannot.
- */
-function lastParticipantSeq(
-  conversation: FeedbackConversationDocument,
-): number | undefined {
-  for (let index = conversation.messages.length - 1; index >= 0; index -= 1) {
-    const message = conversation.messages[index];
-    if (message?.actor === "participant") {
-      return message.seq;
-    }
-  }
-  return undefined;
 }
 
 /**

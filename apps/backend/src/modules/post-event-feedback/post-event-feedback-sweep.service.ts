@@ -10,6 +10,7 @@ import { FEEDBACK_QUEUE } from "../../infrastructure/queue/queue.constants.js";
 import { FeedbackConversationRepository } from "../conversations/feedback-conversation.repository.js";
 import type { FeedbackConversationDocument } from "../conversations/feedback-conversation.schemas.js";
 import { ParticipantsRepository } from "../participants/participants.repository.js";
+import { latestParticipantMessage } from "./conversation-reader.js";
 import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
 import {
   createFeedbackReminderDedupeKey,
@@ -388,24 +389,12 @@ export class PostEventFeedbackSweepService {
  * Measured from the last thing *they* said, falling back to the launch when
  * they never said anything — our own reminders deliberately do not reset it, or
  * nudging somebody would postpone their own expiry indefinitely.
- *
- * The newest participant timestamp is found by scanning rather than by taking
- * the last message: transcript order follows arrival, and a webhook can be
- * delivered out of order.
  */
 function silenceMs(
   conversation: FeedbackConversationDocument,
   now: Date,
 ): number {
-  let spokeAt: Date | null = null;
-  for (const message of conversation.messages) {
-    if (
-      message.actor === "participant" &&
-      (spokeAt === null || message.at > spokeAt)
-    ) {
-      spokeAt = message.at;
-    }
-  }
+  const spokeAt = latestParticipantMessage(conversation)?.at;
   return now.getTime() - (spokeAt ?? conversation.createdAt).getTime();
 }
 

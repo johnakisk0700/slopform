@@ -9,6 +9,7 @@ import type {
   FeedbackConversationGoal,
 } from "../conversations/feedback-conversation.schemas.js";
 import { EventsService } from "../events/events.service.js";
+import { latestParticipantMessage } from "./conversation-reader.js";
 import {
   FEEDBACK_OPERATOR_ALERT,
   type FeedbackOperatorAlert,
@@ -97,7 +98,7 @@ export class PostEventFeedbackExtractionFallback {
       return { applied: false };
     }
 
-    const testimony = lastParticipantMessage(conversation);
+    const testimony = latestParticipantMessage(conversation);
     if (!testimony) {
       // No participant turn means the run never had testimony to lose. Raise
       // attention so the dead job is visible and stop there: a note with no
@@ -319,16 +320,4 @@ function resolveUniqueNamedSubject(
   }
   const [only] = matched;
   return only ?? null;
-}
-
-function lastParticipantMessage(
-  conversation: FeedbackConversationDocument,
-): FeedbackConversationDocument["messages"][number] | undefined {
-  for (let index = conversation.messages.length - 1; index >= 0; index -= 1) {
-    const message = conversation.messages[index];
-    if (message?.actor === "participant") {
-      return message;
-    }
-  }
-  return undefined;
 }
