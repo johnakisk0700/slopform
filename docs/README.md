@@ -17,8 +17,9 @@ This directory is the maintained project memory. Markdown is deliberate: GitHub 
 11. [`decisions/0007-mongodb-conversation-authority.md`](decisions/0007-mongodb-conversation-authority.md) — MongoDB conversation authority and PostgreSQL recovery boundary
 12. [`decisions/0008-post-event-feedback-conversations.md`](decisions/0008-post-event-feedback-conversations.md) — event-bound WhatsApp feedback, directed results and human control
 13. [`decisions/0009-generated-api-client.md`](decisions/0009-generated-api-client.md) — generated admin API client (supersedes hand-written response schemas)
-14. [`deployment.md`](deployment.md) — development containers and production VPS topology
-15. [`agent-readiness.md`](agent-readiness.md) — repeatable extension benchmark and current evidence gaps
+14. [`decisions/0010-generated-client-not-committed.md`](decisions/0010-generated-client-not-committed.md) — generated admin client is local output, not a committed artifact (supersedes that consequence of ADR 0009)
+15. [`deployment.md`](deployment.md) — development containers and production VPS topology
+16. [`agent-readiness.md`](agent-readiness.md) — repeatable extension benchmark and current evidence gaps
 
 Area-specific memory:
 
@@ -68,8 +69,9 @@ workspace dependency ordering and cache contracts in [`turbo.json`](../turbo.jso
   lint, test and build in that order. The Turbo phases remain separate so a
   failure names the phase that broke rather than a merged graph.
 - `pnpm api:generate` re-emits `apps/backend/openapi/openapi.json` from the Nest
-  controllers and regenerates `apps/admin/src/api/generated/`. `pnpm api:check`
-  does the same and fails when the committed output changed.
+  controllers and regenerates `apps/admin/src/api/generated/` (gitignored).
+  `pnpm api:check` does the same and fails when the committed OpenAPI document
+  changed.
 - `pnpm install --frozen-lockfile` is the clean-machine and CI contract. pnpm
   rejects workspace cycles and unreviewed dependency build scripts.
 - GitHub Actions repeats that clean check and builds production images without

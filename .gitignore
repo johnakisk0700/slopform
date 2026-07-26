@@ -12,6 +12,9 @@ coverage/
 report/
 *.tsbuildinfo
 
+# Deterministic orval output from apps/backend/openapi/openapi.json
+apps/admin/src/api/generated/
+
 # Environment and local secrets
 .env
 .env.*

@@ -8,7 +8,8 @@ Status: accepted, verified 2026-07-25 with `@nestjs/swagger` 11.4.6,
 One contract crosses the HTTP boundary: the OpenAPI document that
 `@nestjs/swagger` builds from the controllers and their `nestjs-zod` DTOs. This
 page owns how that document becomes a committed artifact and how the admin SPA
-consumes it as generated, named, typed functions.
+consumes it as generated, named, typed functions that are produced locally and
+not committed.
 
 It owns:
 
@@ -32,18 +33,18 @@ It does not own transport policy (that is `apps/admin/src/lib/api.ts`, see
 | Artifact                            | Produced by                                  | Consumed by                                  |
 | ----------------------------------- | -------------------------------------------- | -------------------------------------------- |
 | `apps/backend/openapi/openapi.json` | `pnpm openapi:emit`                          | orval, contract review, external integrators |
-| `src/api/generated/<tag>.ts`        | `pnpm api:generate`                          | admin routes and components                  |
-| `src/api/generated/model/*.ts`      | `pnpm api:generate`                          | response and request types                   |
-| `src/api/generated/zod/*.zod.ts`    | `pnpm api:generate`                          | hand-rolled validation of a value we persist |
+| `src/api/generated/<tag>.ts`        | `pnpm api:generate` (gitignored)             | admin routes and components                  |
+| `src/api/generated/model/*.ts`      | `pnpm api:generate` (gitignored)             | response and request types                   |
+| `src/api/generated/zod/*.zod.ts`    | `pnpm api:generate` (gitignored)             | hand-rolled validation of a value we persist |
 | `/api/openapi.json` (runtime)       | `createHttpApplication()` outside production | Swagger UI at `/api/docs`, manual inspection |
 
 Commands, all from the repository root:
 
-| Command             | Effect                                                                 |
-| ------------------- | ---------------------------------------------------------------------- |
-| `pnpm openapi:emit` | Builds the backend through Turbo, then rewrites the committed document |
-| `pnpm api:generate` | Emits the document and regenerates the admin client from it            |
-| `pnpm api:check`    | Regenerates and fails when anything changed; part of `pnpm check`      |
+| Command             | Effect                                                                  |
+| ------------------- | ----------------------------------------------------------------------- |
+| `pnpm openapi:emit` | Builds the backend through Turbo, then rewrites the committed document  |
+| `pnpm api:generate` | Emits the document and regenerates the admin client from it             |
+| `pnpm api:check`    | Regenerates and fails when `openapi.json` changed; part of `pnpm check` |
 
 Operation names are the public API. Every operation declares
 `@ApiOperation({ operationId })` in lower camel case; orval derives the exported
@@ -62,7 +63,7 @@ flowchart LR
   orval --> generated["src/api/generated/**"]
   generated --> mutator["apiRequest mutator"]
   mutator --> client["ofetch api client\n(Clerk bearer, retry 0, 15s)"]
-  artifact --> check["pnpm api:check\nregenerate and compare"]
+  artifact --> check["pnpm api:check\ncompare openapi.json"]
 ```
 
 ## Invariants
@@ -79,8 +80,8 @@ flowchart LR
   the same `createOpenApiDocument()`; a backend test asserts they are identical
   byte for byte.
 - Generated code is never edited. It carries an orval header, is excluded from
-  ESLint (so no autofix rewrites a file the next run overwrites) and is still
-  typechecked by `tsc`.
+  ESLint (so no autofix rewrites a file the next run overwrites), is gitignored,
+  and is still typechecked by `tsc` after generation.
 - `apiRequest` is the only bridge between generated code and HTTP, and it adds no
   policy of its own — authentication, retries and timeouts stay in `api.ts`.
 - Published paths keep the `/api` mount point; `openapi.transformer.ts` removes
@@ -92,14 +93,15 @@ flowchart LR
 
 | Situation                                    | Behavior                                                                                           |
 | -------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| Controller changed, artifact not regenerated | `pnpm api:check` regenerates, lists the changed files and fails; `pnpm test` fails too             |
-| Generated client edited by hand              | The next generation overwrites it and `pnpm api:check` fails                                       |
+| Controller changed, artifact not regenerated | `pnpm api:check` regenerates, lists the changed `openapi.json` and fails; `pnpm test` fails too    |
+| Generated client edited by hand              | The next generation overwrites it; the client is not a review surface                              |
 | Operation without an explicit `operationId`  | The OpenAPI document test fails before a class-derived hook name can reach the client              |
 | Backend unbuildable                          | `pnpm api:check` prints the Turbo output and fails without touching the artifact                   |
 | Request fails at runtime                     | The hook reports `isError`; the screen owns the denial/retry/failure state, as `RequireAdmin` does |
 
-`pnpm api:check` leaves the regenerated files in place: a failure is an
-instruction to review and commit them, never to hand-edit them.
+`pnpm api:check` leaves the regenerated files in place: a contract failure is an
+instruction to review and commit `openapi.json`, never to hand-edit generated
+files. The admin client is produced locally and is not committed.
 
 ## Extension points
 
@@ -107,8 +109,8 @@ Adding or changing an endpoint:
 
 1. Change the controller, its Zod schemas and DTOs; declare
    `@ApiOperation({ operationId })` for a new operation.
-2. Run `pnpm api:generate`; commit `openapi.json` and the generated client with
-   the backend change.
+2. Run `pnpm api:generate`; commit `openapi.json` with the backend change. The
+   admin client is regenerated locally and is not committed.
 3. Consume the new hook in the admin app. Do not write a Zod schema for a
    response that the document already describes.
 
@@ -131,7 +133,8 @@ new code does not copy the assistant pattern for ordinary CRUD.
   per published operation, every generated file routed through the mutator, the
   admin gate on the generated hook and the single `QueryClientProvider`.
 - `pnpm api:check` runs between `docs:check` and `typecheck` in `pnpm check`, so
-  the compiler, linter and tests always read a current client.
+  the compiler, linter and tests always read a current client. Admin Turbo tasks
+  also depend on `api:generate`.
 - Emitting opens no port and contacts no dependency: `NestFactory.create()` only
   instantiates providers, and `onModuleInit` — which opens the database pool —
   never runs.
@@ -140,6 +143,8 @@ new code does not copy the assistant pattern for ordinary CRUD.
 
 - [ADR 0009](../../decisions/0009-generated-api-client.md) — generated client
   over hand-written response schemas.
+- [ADR 0010](../../decisions/0010-generated-client-not-committed.md) — client is
+  local output; only `openapi.json` is the committed contract.
 - [Frontend foundation](../../frontend.md) — how admin screens consume the hooks.
 - [Backend foundation](../../backend.md) — controller, DTO and slice conventions.
 - [Nest OpenAPI](https://docs.nestjs.com/openapi/introduction) and

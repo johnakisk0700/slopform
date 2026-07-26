@@ -1,50 +1,36 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 /**
- * Fails the repository check when the committed API contract or the generated
- * admin client no longer matches the backend source.
+ * Fails the repository check when the committed OpenAPI contract no longer
+ * matches the backend source.
  *
- * The regeneration is the check: this script fingerprints the generated files,
- * runs `pnpm api:generate`, and compares. Git state is deliberately not
+ * The regeneration is the check: this script fingerprints
+ * `apps/backend/openapi/openapi.json`, runs `pnpm api:generate`, and compares
+ * that file alone. The admin client is produced as a side effect and is not
+ * part of the drift comparison — it is a deterministic function of the
+ * contract and is generated on demand. Git state is deliberately not
  * consulted, so an unrelated uncommitted edit elsewhere cannot fail the check
- * and a stale artifact cannot pass it. Regenerated files are left in place —
- * a failure only asks the developer to review and commit them.
+ * and a stale contract cannot pass it. Regenerated files are left in place —
+ * a failure only asks the developer to review and commit the contract.
  */
 const repositoryRoot = path.resolve(import.meta.dirname, "..");
-const generatedPaths = [
-  path.join(repositoryRoot, "apps/backend/openapi/openapi.json"),
-  path.join(repositoryRoot, "apps/admin/src/api/generated"),
-];
-
-function filesBelow(entryPath) {
-  if (!existsSync(entryPath)) return [];
-
-  return readdirSync(entryPath, { withFileTypes: true }).flatMap((entry) => {
-    const childPath = path.join(entryPath, entry.name);
-    if (entry.isDirectory()) return filesBelow(childPath);
-    return entry.isFile() ? [childPath] : [];
-  });
-}
+const contractPath = path.join(
+  repositoryRoot,
+  "apps/backend/openapi/openapi.json",
+);
 
 function fingerprint() {
-  const files = generatedPaths.flatMap((entryPath) => {
-    if (!existsSync(entryPath)) return [];
-    return statSync(entryPath).isDirectory()
-      ? filesBelow(entryPath)
-      : [entryPath];
-  });
+  if (!existsSync(contractPath)) return new Map();
 
-  return new Map(
-    files
-      .sort()
-      .map((file) => [
-        path.relative(repositoryRoot, file),
-        createHash("sha256").update(readFileSync(file)).digest("hex"),
-      ]),
-  );
+  return new Map([
+    [
+      path.relative(repositoryRoot, contractPath),
+      createHash("sha256").update(readFileSync(contractPath)).digest("hex"),
+    ],
+  ]);
 }
 
 function describeDrift(before, after) {
@@ -82,14 +68,15 @@ if (generation.status !== 0) {
     );
     for (const entry of drifted) console.error(`- ${entry}`);
     console.error(
-      "\nThe files above have just been regenerated for you. Review the diff," +
-        "\ncommit it with the backend change, and rerun `pnpm check`." +
-        "\nNever edit generated files by hand: run `pnpm api:generate`.",
+      "\nThe OpenAPI document has just been regenerated for you. Review the" +
+        "\ndiff, commit it with the backend change, and rerun `pnpm check`." +
+        "\nNever edit generated files by hand: run `pnpm api:generate`." +
+        "\nThe admin client is produced locally and is not committed.",
     );
     process.exitCode = 1;
   } else {
     console.log(
-      `Verified ${before.size} generated API files against the backend contract.`,
+      "Verified apps/backend/openapi/openapi.json against the backend contract.",
     );
   }
 }

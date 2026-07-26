@@ -52,7 +52,7 @@ and official references. Use `docs/documentation-standard.md` as the template.
 
 The backend's OpenAPI document is the only description of the HTTP boundary.
 `apps/backend/openapi/openapi.json` is committed, and `apps/admin/src/api/generated/`
-is generated from it with orval.
+is generated from it with orval and is not committed ([ADR 0010](docs/decisions/0010-generated-client-not-committed.md)).
 
 - Admin features call backend endpoints through the generated TanStack Query
   hooks (`useGetAuthSession`, …). Do not hand-write a fetch call, a URL string,
@@ -60,14 +60,16 @@ is generated from it with orval.
 - Every operation declares `@ApiOperation({ operationId })` in lower camel case;
   that name becomes the generated function, hook, query key and Zod schema.
 - Changing an endpoint means running `pnpm api:generate` and committing the
-  regenerated artifact and client in the same change. `pnpm api:check` runs
-  inside `pnpm check` and fails on drift.
+  regenerated `openapi.json` in the same change. `pnpm api:check` runs inside
+  `pnpm check` and fails on contract drift; the admin client is produced as a
+  side effect and is not reviewed or committed.
 - Generated files are never edited by hand, and no generated call may bypass the
   `apiRequest` mutator that wraps the single `ofetch` client.
 
 The pipeline is documented in
-[`docs/backend/mechanisms/api-contract.md`](docs/backend/mechanisms/api-contract.md)
-and [ADR 0009](docs/decisions/0009-generated-api-client.md).
+[`docs/backend/mechanisms/api-contract.md`](docs/backend/mechanisms/api-contract.md),
+[ADR 0009](docs/decisions/0009-generated-api-client.md) and
+[ADR 0010](docs/decisions/0010-generated-client-not-committed.md).
 
 ## Frontend component selection
 
@@ -96,13 +98,14 @@ pagination, accessibility or layout—not speculative abstraction.
 - The phases inside `pnpm check` run sequentially, fastest and most localized
   first: `format:check`, `docs:check`, `api:check`, `typecheck`, `lint`, `test`,
   then the full `build` last. `api:check` regenerates the API contract and the
-  admin client and fails on any difference, so every later phase reads a current
-  client. This ordering exists to fail fast, not to serialize contended
-  state. Turbo owns dependency ordering and caching: every `typecheck`, `lint`,
-  `test` and `build` task waits on its workspace dependencies' `build` (`^build`),
-  so `@join-the-six/design-tokens` is built before the apps consume it. The admin
-  app is a plain Vite/`tsc -b` build with no shared generated state; reorder the
-  phases only if the fail-fast intent survives.
+  admin client and fails when `openapi.json` drifted, so every later phase reads
+  a current client. Admin `typecheck`, `lint`, `test` and `build` also depend on
+  `api:generate` in Turbo. This ordering exists to fail fast, not to serialize
+  contended state. Turbo owns dependency ordering and caching: every
+  `typecheck`, `lint`, `test` and `build` task waits on its workspace
+  dependencies' `build` (`^build`), so `@join-the-six/design-tokens` is built
+  before the apps consume it. Reorder the phases only if the fail-fast intent
+  survives.
 - Declare environment variables needed by persistent Turbo tasks explicitly.
   Do not pass the entire host environment through to every workspace.
 - Internal dependencies use `workspace:*`. Update `pnpm-lock.yaml` with manifest

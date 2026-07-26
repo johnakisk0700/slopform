@@ -3,12 +3,17 @@
   "ui": "tui",
   "tasks": {
     "api:generate": {
-      "cache": false,
+      "cache": true,
       "dependsOn": ["@join-the-six/backend#openapi:emit"],
-      "outputs": []
+      "outputs": ["src/api/generated/**"]
     },
     "build": {
       "dependsOn": ["^build"],
+      "env": ["VITE_API_BASE", "VITE_CLERK_PUBLISHABLE_KEY"],
+      "outputs": ["dist/**"]
+    },
+    "@join-the-six/admin#build": {
+      "dependsOn": ["^build", "api:generate"],
       "env": ["VITE_API_BASE", "VITE_CLERK_PUBLISHABLE_KEY"],
       "outputs": ["dist/**"]
     },
@@ -66,6 +71,9 @@
     "lint": {
       "dependsOn": ["^build"]
     },
+    "@join-the-six/admin#lint": {
+      "dependsOn": ["^build", "api:generate"]
+    },
     "openapi:emit": {
       "cache": false,
       "dependsOn": ["build"],
@@ -75,8 +83,15 @@
       "dependsOn": ["^build"],
       "outputs": []
     },
+    "@join-the-six/admin#test": {
+      "dependsOn": ["^build", "api:generate"],
+      "outputs": []
+    },
     "typecheck": {
       "dependsOn": ["^build"]
+    },
+    "@join-the-six/admin#typecheck": {
+      "dependsOn": ["^build", "api:generate"]
     }
   }
 }

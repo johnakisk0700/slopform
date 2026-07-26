@@ -1,6 +1,8 @@
 # ADR 0009: Generated admin API client
 
-- Status: Accepted
+- Status: Accepted — the "committed generated directory" consequence is
+  superseded by [ADR 0010](0010-generated-client-not-committed.md); the rest
+  stands.
 - Date: 2026-07-25
 
 ## Decision
@@ -42,11 +44,13 @@ document describes are removed and forbidden.
 
 ## Consequences
 
-- The generated directory is committed, excluded from ESLint, still typechecked,
-  and never hand-edited.
+- The generated directory is excluded from ESLint, still typechecked, and never
+  hand-edited. It is no longer committed — see
+  [ADR 0010](0010-generated-client-not-committed.md).
 - Adding an endpoint means adding an `operationId` and running
   `pnpm api:generate` in the same change; `pnpm check` gained an `api:check`
-  phase between `docs:check` and `typecheck`.
+  phase between `docs:check` and `typecheck`. Commit the regenerated
+  `openapi.json`; do not commit the client.
 - `apps/admin/src/features/auth/schema.ts` is deleted; `RequireAdmin` uses
   `useGetAuthSession`. Events and participants screens use the generated hooks.
   The assistant still keeps hand-written schemas because it owns client-side
