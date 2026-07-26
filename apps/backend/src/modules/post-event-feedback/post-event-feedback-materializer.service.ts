@@ -15,7 +15,6 @@ import {
   FeedbackConversationRepository,
 } from "../conversations/feedback-conversation.repository.js";
 import {
-  FEEDBACK_CONVERSATION_MESSAGE_MAX_STORED_TEXT_LENGTH,
   FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH,
   type FeedbackConversationDocument,
 } from "../conversations/feedback-conversation.schemas.js";
@@ -28,6 +27,8 @@ import {
 } from "./post-event-feedback-metrics.service.js";
 import {
   createFeedbackMediaNoticeDedupeKey,
+  createFeedbackStopAckDedupeKey,
+  fitToTranscript,
   resolveCampaignCopy,
 } from "./post-event-feedback-question-set.js";
 import { matchesPostEventFeedbackStopCommand } from "./post-event-feedback-stop-matcher.js";
@@ -62,8 +63,6 @@ export interface MaterializeFeedbackIngressResult {
   readonly stopAckOutboxId?: string;
   readonly correlatedOutboxId?: string;
 }
-
-export const FEEDBACK_STOP_ACK_DEDUPE_PREFIX = "feedback-stop-ack";
 
 /**
  * The durable consumer behind the webhook (D7). It reloads every authoritative
@@ -460,7 +459,7 @@ export class PostEventFeedbackMaterializer {
               0,
               FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH,
             ),
-            dedupeKey: `${FEEDBACK_STOP_ACK_DEDUPE_PREFIX}-${conversation._id}`,
+            dedupeKey: createFeedbackStopAckDedupeKey(conversation._id),
           },
         );
 
@@ -853,28 +852,4 @@ export class PostEventFeedbackMaterializer {
     this.metrics.recordMaterializeOutcome(result.outcome, correlationId);
     return result;
   }
-}
-
-/**
- * Fits a body to the transcript, which is bounded, without pretending the rest
- * never existed.
- *
- * The bound is the transcript's *storage* limit, not the 4 096 characters we
- * are allowed to send. Those were once the same number and the cut happened at
- * the webhook edge, so a long message lost its tail before anything durable was
- * written and nobody was told — and the tail is where the thing somebody worked
- * up to saying actually lives. At 64 000 characters this now fires only for a
- * genuinely absurd payload, and still says so.
- */
-function fitToTranscript(text: string): {
-  readonly text: string;
-  readonly truncated: boolean;
-} {
-  if (text.length <= FEEDBACK_CONVERSATION_MESSAGE_MAX_STORED_TEXT_LENGTH) {
-    return { text, truncated: false };
-  }
-  return {
-    text: text.slice(0, FEEDBACK_CONVERSATION_MESSAGE_MAX_STORED_TEXT_LENGTH),
-    truncated: true,
-  };
 }

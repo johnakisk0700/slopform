@@ -5,6 +5,8 @@ import {
   type FeedbackNoteType,
 } from "@join-the-six/database";
 
+import { FEEDBACK_CONVERSATION_MESSAGE_MAX_STORED_TEXT_LENGTH } from "../conversations/feedback-conversation.schemas.js";
+
 export { FEEDBACK_ANSWER_QUESTION_KEYS, FEEDBACK_NOTE_TYPES };
 
 export const POST_EVENT_FEEDBACK_QUESTION_SET_VERSION = 1 as const;
@@ -170,6 +172,10 @@ export function createFeedbackIntroDedupeKey(conversationId: string): string {
   return `feedback-intro-${conversationId}`;
 }
 
+export function createFeedbackStopAckDedupeKey(conversationId: string): string {
+  return `feedback-stop-ack-${conversationId}`;
+}
+
 /**
  * One "we cannot read that" notice per conversation, not per voice note.
  *
@@ -221,4 +227,28 @@ export function noteSignature(
     .trim()
     .replaceAll(/\s+/gu, " ")
     .toLowerCase()}`;
+}
+
+/**
+ * Fits a body to the transcript, which is bounded, without pretending the rest
+ * never existed.
+ *
+ * The bound is the transcript's *storage* limit, not the 4 096 characters we
+ * are allowed to send. Those were once the same number and the cut happened at
+ * the webhook edge, so a long message lost its tail before anything durable was
+ * written and nobody was told — and the tail is where the thing somebody worked
+ * up to saying actually lives. At 64 000 characters this now fires only for a
+ * genuinely absurd payload, and still says so.
+ */
+export function fitToTranscript(text: string): {
+  readonly text: string;
+  readonly truncated: boolean;
+} {
+  if (text.length <= FEEDBACK_CONVERSATION_MESSAGE_MAX_STORED_TEXT_LENGTH) {
+    return { text, truncated: false };
+  }
+  return {
+    text: text.slice(0, FEEDBACK_CONVERSATION_MESSAGE_MAX_STORED_TEXT_LENGTH),
+    truncated: true,
+  };
 }
