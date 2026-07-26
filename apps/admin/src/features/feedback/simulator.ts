@@ -11,7 +11,7 @@ import { z } from "zod";
  * published OpenAPI document and the generated client cannot describe it.
  * Every product endpoint on this screen goes through the generated hooks.
  *
- * Mirrors `apps/backend/src/modules/post-event-feedback/feedback-simulator.schemas.ts`.
+ * Mirrors `apps/backend/src/modules/post-event-feedback/simulator/simulator.schemas.ts`.
  */
 
 const simulatorPhoneSchema = z

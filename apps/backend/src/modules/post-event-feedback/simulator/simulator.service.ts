@@ -5,20 +5,20 @@ import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import type { Queue } from "bullmq";
 
-import type { Environment } from "../../infrastructure/config/environment.js";
-import { FEEDBACK_QUEUE } from "../../infrastructure/queue/queue.constants.js";
-import { FeedbackConversationRepository } from "../conversations/feedback-conversation.repository.js";
-import { FEEDBACK_CONVERSATION_MAX_MESSAGES } from "../conversations/feedback-conversation.schemas.js";
-import { EventsRepository } from "../events/events.repository.js";
-import { EventsService } from "../events/events.service.js";
-import { ParticipantsRepository } from "../participants/participants.repository.js";
-import type { AssistantModel } from "../assistant/assistant.schemas.js";
-import { phoneE164ToChatJid } from "../../integrations/wasender/wasender.jid.js";
-import { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
-import { FeedbackResultsRepository } from "./extraction/results.repository.js";
-import { FeedbackIngressRepository } from "./ingress/ingress.repository.js";
-import { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
-import { FeedbackSimOutboundRepository } from "./simulator/sim-outbound.repository.js";
+import type { Environment } from "../../../infrastructure/config/environment.js";
+import { FEEDBACK_QUEUE } from "../../../infrastructure/queue/queue.constants.js";
+import { FeedbackConversationRepository } from "../../conversations/feedback-conversation.repository.js";
+import { FEEDBACK_CONVERSATION_MAX_MESSAGES } from "../../conversations/feedback-conversation.schemas.js";
+import { EventsRepository } from "../../events/events.repository.js";
+import { EventsService } from "../../events/events.service.js";
+import { ParticipantsRepository } from "../../participants/participants.repository.js";
+import type { AssistantModel } from "../../assistant/assistant.schemas.js";
+import { phoneE164ToChatJid } from "../../../integrations/wasender/wasender.jid.js";
+import { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
+import { FeedbackResultsRepository } from "../extraction/results.repository.js";
+import { FeedbackIngressRepository } from "../ingress/ingress.repository.js";
+import { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
+import { FeedbackSimOutboundRepository } from "./sim-outbound.repository.js";
 import {
   feedbackSimulatorCandidateSlotSchema,
   feedbackSimulatorRubricSchema,
@@ -30,27 +30,27 @@ import {
   type FeedbackSimulatorThreadResponseDto,
   type InjectFeedbackSimulatorMessageResponseDto,
   type StartFeedbackSimulatorRunInput,
-} from "./feedback-simulator.schemas.js";
-import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
+} from "./simulator.schemas.js";
+import { FeedbackOutboundTranscriptService } from "../feedback-outbound-transcript.service.js";
 import {
   PostEventFeedbackEnqueueError,
   PostEventFeedbackIngressService,
   type RecordObservedMessageResult,
-} from "./post-event-feedback-ingress.service.js";
-import { resolveFeedbackExtractionModel } from "./post-event-feedback-extraction.service.js";
+} from "../post-event-feedback-ingress.service.js";
+import { resolveFeedbackExtractionModel } from "../post-event-feedback-extraction.service.js";
 import {
   POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS,
   type PostEventFeedbackRealModelCorpusCase,
-} from "./post-event-feedback-real-model-corpus.js";
-import { FEEDBACK_ANSWER_QUESTION_KEYS } from "./post-event-feedback-question-set.js";
+} from "../post-event-feedback-real-model-corpus.js";
+import { FEEDBACK_ANSWER_QUESTION_KEYS } from "../post-event-feedback-question-set.js";
 import {
   boundObservedMessageText,
   createFeedbackExtractJobId,
   FEEDBACK_EXTRACT_QUIET_WINDOW_MS,
   type FeedbackJobData,
   type FeedbackJobName,
-} from "./post-event-feedback.schemas.js";
-import { toRunView } from "./simulator/run-status.js";
+} from "../post-event-feedback.schemas.js";
+import { toRunView } from "./run-status.js";
 
 const FEEDBACK_SIMULATOR_RUN_LIMIT = 100;
 const FEEDBACK_SIMULATOR_NON_MODEL_SCENARIO_IDS = new Set([

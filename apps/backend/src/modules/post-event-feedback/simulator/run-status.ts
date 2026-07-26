@@ -18,7 +18,7 @@ import {
 import type {
   FeedbackSimulatorRunStage,
   FeedbackSimulatorRunView,
-} from "../feedback-simulator.schemas.js";
+} from "./simulator.schemas.js";
 
 export function toRunView({
   run,

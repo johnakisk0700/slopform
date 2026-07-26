@@ -18,14 +18,14 @@ import { ApiOperation, ApiTags } from "@nestjs/swagger";
 import type { Request } from "express";
 import { ZodResponse } from "nestjs-zod";
 
-import { CorrelationIdDto } from "../../infrastructure/auth/auth.schemas.js";
-import { PostEventFeedbackEnqueueError } from "./post-event-feedback-ingress.service.js";
+import { CorrelationIdDto } from "../../../infrastructure/auth/auth.schemas.js";
+import { PostEventFeedbackEnqueueError } from "../post-event-feedback-ingress.service.js";
 import {
   FeedbackSimulatorRunNotFoundError,
   FeedbackSimulatorRunRejectedError,
   FeedbackSimulatorScenarioNotFoundError,
   FeedbackSimulatorService,
-} from "./feedback-simulator.service.js";
+} from "./simulator.service.js";
 import {
   FeedbackSimulatorCatalogResponseDto,
   FeedbackSimulatorPreflightDto,
@@ -37,7 +37,7 @@ import {
   InjectFeedbackSimulatorMessageDto,
   InjectFeedbackSimulatorMessageResponseDto,
   StartFeedbackSimulatorRunDto,
-} from "./feedback-simulator.schemas.js";
+} from "./simulator.schemas.js";
 
 type RequestWithId = Request & { id: string };
 const RequestCorrelationId = createParamDecorator(

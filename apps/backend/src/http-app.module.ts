@@ -23,7 +23,7 @@ import { HealthModule } from "./modules/health/health.module.js";
 import { ParticipantsHttpModule } from "./modules/participants/participants-http.module.js";
 import { PostEventFeedbackCoreModule } from "./modules/post-event-feedback/post-event-feedback-core.module.js";
 import { PostEventFeedbackHttpModule } from "./modules/post-event-feedback/post-event-feedback-http.module.js";
-import { PostEventFeedbackSimulatorHttpModule } from "./modules/post-event-feedback/post-event-feedback-simulator-http.module.js";
+import { PostEventFeedbackSimulatorHttpModule } from "./modules/post-event-feedback/simulator/http.module.js";
 import { ReferenceHttpModule } from "./modules/reference/reference-http.module.js";
 
 const StrictZodValidationPipe = createZodValidationPipe({

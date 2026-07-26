@@ -871,7 +871,7 @@ row primary key; `provider_message_id` is `sim-<uuid>`.
 
 When `FEEDBACK_SIMULATOR_ENABLED=true`, `NODE_ENV` is not `production`, and
 `TRANSPORT_MODE=simulated`, the HTTP process mounts
-[`PostEventFeedbackSimulatorHttpModule`](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-simulator-http.module.ts):
+[`PostEventFeedbackSimulatorHttpModule`](../../../apps/backend/src/modules/post-event-feedback/simulator/http.module.ts):
 
 | Operation                                | Purpose                                                                                                                                                                                                                        |
 | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |

@@ -14,8 +14,8 @@ import {
   FeedbackSimulatorService,
   isFeedbackSimulatorSingleTurnScenario,
   renderFeedbackSimulatorTemplate,
-} from "./feedback-simulator.service.js";
-import { startFeedbackSimulatorRunSchema } from "./feedback-simulator.schemas.js";
+} from "./simulator/simulator.service.js";
+import { startFeedbackSimulatorRunSchema } from "./simulator/simulator.schemas.js";
 import { runStage } from "./simulator/run-status.js";
 import type { PostEventFeedbackIngressService } from "./post-event-feedback-ingress.service.js";
 import type { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
