@@ -3,27 +3,27 @@ import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import type { Queue } from "bullmq";
 
-import type { Environment } from "../../infrastructure/config/environment.js";
-import { AuditRepository } from "../../infrastructure/audit/audit.repository.js";
-import { DatabaseService } from "../../infrastructure/database/database.service.js";
-import { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
+import type { Environment } from "../../../infrastructure/config/environment.js";
+import { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
+import { DatabaseService } from "../../../infrastructure/database/database.service.js";
+import { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
 import {
   FEEDBACK_SWEEP_BATCH_SIZE,
   FeedbackIngressRepository,
-} from "./ingress/ingress.repository.js";
-import { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
-import { FEEDBACK_QUEUE } from "../../infrastructure/queue/queue.constants.js";
-import { FeedbackConversationRepository } from "../conversations/feedback-conversation.repository.js";
-import type { FeedbackConversationDocument } from "../conversations/feedback-conversation.schemas.js";
-import { ParticipantsRepository } from "../participants/participants.repository.js";
-import { latestParticipantMessage } from "./conversation-reader.js";
-import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
+} from "../ingress/ingress.repository.js";
+import { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
+import { FEEDBACK_QUEUE } from "../../../infrastructure/queue/queue.constants.js";
+import { FeedbackConversationRepository } from "../../conversations/feedback-conversation.repository.js";
+import type { FeedbackConversationDocument } from "../../conversations/feedback-conversation.schemas.js";
+import { ParticipantsRepository } from "../../participants/participants.repository.js";
+import { latestParticipantMessage } from "../conversation-reader.js";
+import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
 import {
   createFeedbackReminderDedupeKey,
   renderPostEventFeedbackCopy,
   resolveCampaignCopy,
   type PostEventFeedbackQuestionSetCopy,
-} from "./post-event-feedback-question-set.js";
+} from "../question-set.js";
 import {
   createFeedbackMaterializeJobId,
   FEEDBACK_JOB_NAMES,
@@ -31,7 +31,7 @@ import {
   feedbackMaterializeJobDataSchema,
   type FeedbackJobData,
   type FeedbackJobName,
-} from "./post-event-feedback.schemas.js";
+} from "../jobs.schemas.js";
 
 export type FeedbackReminderSweepResult = {
   readonly examined: number;

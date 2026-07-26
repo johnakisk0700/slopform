@@ -13,19 +13,19 @@ import {
 import {
   PostEventFeedbackIngressNotFoundError,
   type PostEventFeedbackMaterializer,
-} from "./post-event-feedback-materializer.service.js";
+} from "./ingress/materialize.service.js";
 import type { MessageOutboxDeliveryService } from "./outbox/deliver.service.js";
 import type { MessageOutboxRelayService } from "./outbox/relay.service.js";
 import {
   FEEDBACK_WORKER_CONCURRENCY,
   PostEventFeedbackProcessor,
-} from "./post-event-feedback.processor.js";
+} from "./processor.js";
 import {
   createFeedbackMaterializeJobId,
   FEEDBACK_JOB_NAMES,
   type FeedbackJobData,
   type FeedbackJobName,
-} from "./post-event-feedback.schemas.js";
+} from "./jobs.schemas.js";
 
 const ingressId = "b1c9e0a4-2c65-4a29-9a2e-2d0a3f2e1b77";
 const conversationId = "6f0f2f8a-2b73-5a02-9d0a-3f0b8f5b1c21";

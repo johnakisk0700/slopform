@@ -1,36 +1,36 @@
 import { Injectable, Logger } from "@nestjs/common";
 import type { FeedbackCampaignRow } from "@join-the-six/database";
 
-import { AuditRepository } from "../../infrastructure/audit/audit.repository.js";
-import { DatabaseService } from "../../infrastructure/database/database.service.js";
+import { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
+import { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import {
   FeedbackCampaignRepository,
   type FeedbackEligibleAttendee,
-} from "./campaign/campaign.repository.js";
-import { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
+} from "./campaign.repository.js";
+import { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
 import {
   FeedbackConversationPhoneConflictError,
   FeedbackConversationRepository,
-} from "../conversations/feedback-conversation.repository.js";
+} from "../../conversations/feedback-conversation.repository.js";
 import {
   buildFeedbackConversationGoals,
   type FeedbackConversationDocument,
-} from "../conversations/feedback-conversation.schemas.js";
-import { EventsRepository } from "../events/events.repository.js";
-import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
+} from "../../conversations/feedback-conversation.schemas.js";
+import { EventsRepository } from "../../events/events.repository.js";
+import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
 import type {
   FeedbackCampaignListItemView,
   FeedbackCampaignListView,
   FeedbackCampaignView,
   StartFeedbackConversationResultView,
-} from "./post-event-feedback-campaign.schemas.js";
+} from "./campaign.schemas.js";
 import {
   buildPostEventFeedbackQuestionLaunchSnapshot,
   createFeedbackIntroDedupeKey,
   renderPostEventFeedbackCopy,
   resolveCampaignCopy,
   type PostEventFeedbackQuestionSetCopy,
-} from "./post-event-feedback-question-set.js";
+} from "../question-set.js";
 
 export class FeedbackCampaignNotFoundError extends Error {
   constructor(id: string) {

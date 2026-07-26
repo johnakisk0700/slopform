@@ -9,15 +9,15 @@ import type { FeedbackConversationRepository } from "../conversations/feedback-c
 import { buildFeedbackConversationGoals } from "../conversations/feedback-conversation.schemas.js";
 import type { ParticipantsRepository } from "../participants/participants.repository.js";
 import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
-import { buildPostEventFeedbackQuestionLaunchSnapshot } from "./post-event-feedback-question-set.js";
+import { buildPostEventFeedbackQuestionLaunchSnapshot } from "./question-set.js";
 import type { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
 import type { FeedbackIngressRepository } from "./ingress/ingress.repository.js";
 import type { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
-import { PostEventFeedbackSweepService } from "./post-event-feedback-sweep.service.js";
+import { PostEventFeedbackSweepService } from "./sweeps/sweep.service.js";
 import {
   createFeedbackMaterializeJobId,
   FEEDBACK_JOB_NAMES,
-} from "./post-event-feedback.schemas.js";
+} from "./jobs.schemas.js";
 
 const conversationId = "6f0f2f8a-2b73-5a02-9d0a-3f0b8f5b1c21";
 const campaignId = "89eccaa5-9ce6-4dcf-a630-5e35e4ec6f0d";

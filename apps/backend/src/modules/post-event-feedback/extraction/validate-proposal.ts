@@ -1,5 +1,5 @@
 import type { FeedbackAnswerQuestionKey } from "@join-the-six/database";
-import { resolvePostEventFeedbackCandidateByName } from "../post-event-feedback-name-matcher.js";
+import { resolvePostEventFeedbackCandidateByName } from "../matching/candidate-name.js";
 import {
   foldPostEventFeedbackText,
   foldedTextContainsAtWordStart,
@@ -10,7 +10,7 @@ import {
   isPostEventFeedbackNoteType,
   noteSignature,
   type PostEventFeedbackAnswerQuestionDefinition,
-} from "../post-event-feedback-question-set.js";
+} from "../question-set.js";
 import type {
   FeedbackExtractionAnswerProposal,
   FeedbackExtractionContext,

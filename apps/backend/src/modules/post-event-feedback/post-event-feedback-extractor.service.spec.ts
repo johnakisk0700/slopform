@@ -9,7 +9,7 @@ import type { DatabaseService } from "../../infrastructure/database/database.ser
 import type { FeedbackConversationRepository } from "../conversations/feedback-conversation.repository.js";
 import type { EventsService } from "../events/events.service.js";
 import type { ParticipantsRepository } from "../participants/participants.repository.js";
-import type { FeedbackOperatorAlertInput } from "./feedback-operator-alert.js";
+import type { FeedbackOperatorAlertInput } from "./operator-alert.js";
 import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
 import {
   FakeAudit,
@@ -18,8 +18,8 @@ import {
 } from "./post-event-feedback-doubles.harness.js";
 import { PostEventFeedbackExtractor } from "./extraction/extract.service.js";
 import type { PostEventFeedbackExtractionModel } from "./extraction/model.service.js";
-import { PostEventFeedbackMetrics } from "./post-event-feedback-metrics.service.js";
-import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "./post-event-feedback-question-set.js";
+import { PostEventFeedbackMetrics } from "./metrics.service.js";
+import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "./question-set.js";
 import { POST_EVENT_FEEDBACK_HANDOFF_REPLY } from "./extraction/extraction.schemas.js";
 import type { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
 import type { FeedbackResultsRepository } from "./extraction/results.repository.js";

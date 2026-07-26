@@ -6,11 +6,11 @@ import type { FeedbackConversationGoal } from "../conversations/feedback-convers
 import type {
   PostEventFeedbackRecommendedAction,
   PostEventFeedbackSafetyCategory,
-} from "./post-event-feedback-attention.js";
+} from "./attention.js";
 import {
   FEEDBACK_EXTRACT_QUIET_WINDOW_MS,
   type FeedbackJobName,
-} from "./post-event-feedback.schemas.js";
+} from "./jobs.schemas.js";
 
 // ── Fixed identity ──────────────────────────────────────────────────────────
 // Fixed rather than random so a failure is reproducible and a diff is readable.

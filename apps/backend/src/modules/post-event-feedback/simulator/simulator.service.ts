@@ -36,20 +36,20 @@ import {
   PostEventFeedbackEnqueueError,
   PostEventFeedbackIngressService,
   type RecordObservedMessageResult,
-} from "../post-event-feedback-ingress.service.js";
+} from "../ingress/ingress.service.js";
 import { resolveFeedbackExtractionModel } from "../extraction/model.service.js";
 import {
   POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS,
   type PostEventFeedbackRealModelCorpusCase,
 } from "../post-event-feedback-real-model-corpus.js";
-import { FEEDBACK_ANSWER_QUESTION_KEYS } from "../post-event-feedback-question-set.js";
+import { FEEDBACK_ANSWER_QUESTION_KEYS } from "../question-set.js";
 import {
   boundObservedMessageText,
   createFeedbackExtractJobId,
   FEEDBACK_EXTRACT_QUIET_WINDOW_MS,
   type FeedbackJobData,
   type FeedbackJobName,
-} from "../post-event-feedback.schemas.js";
+} from "../jobs.schemas.js";
 import { toRunView } from "./run-status.js";
 
 const FEEDBACK_SIMULATOR_RUN_LIMIT = 100;

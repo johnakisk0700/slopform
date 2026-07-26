@@ -1,7 +1,7 @@
 import {
   foldPostEventFeedbackText,
   foldedTextContainsAtWordStart,
-} from "./matching/fold-text.js";
+} from "./fold-text.js";
 
 /**
  * Opt-out commands, compared against the whole folded message.

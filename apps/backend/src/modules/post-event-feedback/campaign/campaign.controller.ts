@@ -14,11 +14,11 @@ import { ApiOperation, ApiTags } from "@nestjs/swagger";
 import type { Request } from "express";
 import { ZodResponse } from "nestjs-zod";
 
-import { CurrentUserId } from "../../infrastructure/auth/current-user-id.decorator.js";
+import { CurrentUserId } from "../../../infrastructure/auth/current-user-id.decorator.js";
 import {
   CorrelationIdDto,
   PrincipalDto,
-} from "../../infrastructure/auth/auth.schemas.js";
+} from "../../../infrastructure/auth/auth.schemas.js";
 import {
   FeedbackCampaignDto,
   FeedbackCampaignIdDto,
@@ -26,7 +26,7 @@ import {
   LaunchFeedbackCampaignDto,
   StartFeedbackConversationDto,
   StartFeedbackConversationResultDto,
-} from "./post-event-feedback-campaign.schemas.js";
+} from "./campaign.schemas.js";
 import {
   FeedbackCampaignEventNotFoundError,
   FeedbackCampaignLaunchNotAllowedError,
@@ -34,7 +34,7 @@ import {
   FeedbackCampaignNotFoundError,
   FeedbackCampaignParticipantNotEligibleError,
   PostEventFeedbackCampaignService,
-} from "./post-event-feedback-campaign.service.js";
+} from "./campaign.service.js";
 
 type RequestWithId = Request & { id: string };
 const RequestCorrelationId = createParamDecorator(

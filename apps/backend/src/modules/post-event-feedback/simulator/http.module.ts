@@ -8,8 +8,8 @@ import { ParticipantsCoreModule } from "../../participants/participants-core.mod
 import { FeedbackSimulatorController } from "./simulator.controller.js";
 import { FeedbackSimulatorService } from "./simulator.service.js";
 import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
-import { PostEventFeedbackIngressModule } from "../post-event-feedback-ingress.module.js";
-import { PostEventFeedbackCoreModule } from "../post-event-feedback-core.module.js";
+import { PostEventFeedbackIngressModule } from "../ingress/ingress.module.js";
+import { PostEventFeedbackCoreModule } from "../core.module.js";
 
 /**
  * Dev/staging-only HTTP surface for the simulated feedback transport (WP8).

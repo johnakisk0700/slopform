@@ -16,13 +16,13 @@ import { ApiOperation, ApiTags } from "@nestjs/swagger";
 import type { Request } from "express";
 import { ZodResponse } from "nestjs-zod";
 
-import { CurrentUserId } from "../../infrastructure/auth/current-user-id.decorator.js";
+import { CurrentUserId } from "../../../infrastructure/auth/current-user-id.decorator.js";
 import {
   CorrelationIdDto,
   PrincipalDto,
-} from "../../infrastructure/auth/auth.schemas.js";
-import { FeedbackConversationNotFoundError } from "../conversations/feedback-conversation.repository.js";
-import { FeedbackCampaignNotFoundError } from "./post-event-feedback-campaign.service.js";
+} from "../../../infrastructure/auth/auth.schemas.js";
+import { FeedbackConversationNotFoundError } from "../../conversations/feedback-conversation.repository.js";
+import { FeedbackCampaignNotFoundError } from "../campaign/campaign.service.js";
 import {
   AddFeedbackConversationNoteDto,
   FeedbackCampaignConversationsDto,
@@ -35,12 +35,12 @@ import {
   FeedbackNoteViewDto,
   SendFeedbackStaffMessageDto,
   UpdateFeedbackNoteReviewStatusDto,
-} from "./post-event-feedback-conversation.schemas.js";
+} from "./conversation.schemas.js";
 import {
   FeedbackConversationActionNotAllowedError,
   FeedbackNoteNotFoundError,
   PostEventFeedbackConversationService,
-} from "./post-event-feedback-conversation.service.js";
+} from "./conversation.service.js";
 
 type RequestWithId = Request & { id: string };
 const RequestCorrelationId = createParamDecorator(

@@ -207,7 +207,7 @@ and unknown-outcome no-retry.
 - [Feedback transport port](../../../apps/backend/src/modules/post-event-feedback/outbox/transport.ts),
   [Wasender adapter](../../../apps/backend/src/modules/post-event-feedback/outbox/wasender-transport.service.ts),
   [simulated sink](../../../apps/backend/src/modules/post-event-feedback/outbox/simulated-transport.service.ts),
-  [ingress service](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-ingress.service.ts)
+  [ingress service](../../../apps/backend/src/modules/post-event-feedback/ingress/ingress.service.ts)
   and the [post-event feedback module](../modules/post-event-feedback.md) that
   owns everything past the normalized event
 - Wasender [session bearer authentication](https://wasenderapi.com/api-docs/authentication/how-to-authenticate-api-requests-using-bearer-tokens),

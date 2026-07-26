@@ -12,23 +12,23 @@ import {
   type ParticipantRow,
 } from "@join-the-six/database";
 
-import { AuditRepository } from "../../infrastructure/audit/audit.repository.js";
-import { DatabaseService } from "../../infrastructure/database/database.service.js";
-import { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
-import { FeedbackResultsRepository } from "./extraction/results.repository.js";
-import { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
-import { FEEDBACK_QUEUE } from "../../infrastructure/queue/queue.constants.js";
+import { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
+import { DatabaseService } from "../../../infrastructure/database/database.service.js";
+import { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
+import { FeedbackResultsRepository } from "../extraction/results.repository.js";
+import { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
+import { FEEDBACK_QUEUE } from "../../../infrastructure/queue/queue.constants.js";
 import {
   FeedbackConversationCapacityError,
   FeedbackConversationNotFoundError,
   FeedbackConversationRepository,
   FeedbackConversationTransitionError,
-} from "../conversations/feedback-conversation.repository.js";
-import type { FeedbackConversationDocument } from "../conversations/feedback-conversation.schemas.js";
-import { EventsRepository } from "../events/events.repository.js";
-import { EventsService } from "../events/events.service.js";
-import { ParticipantsRepository } from "../participants/participants.repository.js";
-import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
+} from "../../conversations/feedback-conversation.repository.js";
+import type { FeedbackConversationDocument } from "../../conversations/feedback-conversation.schemas.js";
+import { EventsRepository } from "../../events/events.repository.js";
+import { EventsService } from "../../events/events.service.js";
+import { ParticipantsRepository } from "../../participants/participants.repository.js";
+import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
 import {
   conversationCapabilities,
   deliveryFor,
@@ -36,8 +36,8 @@ import {
   toAnswerView,
   toListItem,
   toNoteView,
-} from "./inbox/conversation.view.js";
-import { FeedbackCampaignNotFoundError } from "./post-event-feedback-campaign.service.js";
+} from "./conversation.view.js";
+import { FeedbackCampaignNotFoundError } from "../campaign/campaign.service.js";
 import type {
   AddFeedbackConversationNoteInput,
   FeedbackCampaignConversationsView,
@@ -47,7 +47,7 @@ import type {
   FeedbackConversationPrincipal,
   FeedbackConversationResultsView,
   FeedbackNoteView,
-} from "./post-event-feedback-conversation.schemas.js";
+} from "./conversation.schemas.js";
 import {
   createFeedbackExtractJobId,
   FEEDBACK_EXTRACT_QUIET_WINDOW_MS,
@@ -56,7 +56,7 @@ import {
   feedbackExtractJobDataSchema,
   type FeedbackJobData,
   type FeedbackJobName,
-} from "./post-event-feedback.schemas.js";
+} from "../jobs.schemas.js";
 
 export class FeedbackConversationActionNotAllowedError extends Error {
   constructor(message: string) {

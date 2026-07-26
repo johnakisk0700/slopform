@@ -17,15 +17,12 @@ import {
   type FeedbackConversationRepository,
 } from "../conversations/feedback-conversation.repository.js";
 import type { FeedbackConversationDocument } from "../conversations/feedback-conversation.schemas.js";
-import type {
-  FeedbackJobData,
-  FeedbackJobName,
-} from "./post-event-feedback.schemas.js";
+import type { FeedbackJobData, FeedbackJobName } from "./jobs.schemas.js";
 import type { EventsRepository } from "../events/events.repository.js";
 import type { EventsService } from "../events/events.service.js";
 import type { ParticipantsRepository } from "../participants/participants.repository.js";
 import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
-import { buildPostEventFeedbackQuestionLaunchSnapshot } from "./post-event-feedback-question-set.js";
+import { buildPostEventFeedbackQuestionLaunchSnapshot } from "./question-set.js";
 import type { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
 import type { FeedbackResultsRepository } from "./extraction/results.repository.js";
 import type { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
@@ -33,7 +30,7 @@ import { conversationCapabilities } from "./inbox/conversation.view.js";
 import {
   FeedbackConversationActionNotAllowedError,
   PostEventFeedbackConversationService,
-} from "./post-event-feedback-conversation.service.js";
+} from "./inbox/conversation.service.js";
 
 const eventId = "7c57f3b8-2b13-48f5-8730-18ac71f490cd";
 const campaignId = "89eccaa5-9ce6-4dcf-a630-5e35e4ec6f0d";

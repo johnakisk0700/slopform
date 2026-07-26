@@ -3,7 +3,7 @@ import { z } from "zod";
 import {
   postEventFeedbackRecommendedActionSchema,
   postEventFeedbackSafetyCategorySchema,
-} from "../post-event-feedback-attention.js";
+} from "../attention.js";
 import type {
   FeedbackExtractionMessageView,
   FeedbackExtractionSafetySignalProposal,

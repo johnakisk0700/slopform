@@ -9,7 +9,7 @@ import {
   feedbackRelayJobDataSchema,
   type FeedbackJobData,
   type FeedbackJobName,
-} from "../post-event-feedback.schemas.js";
+} from "../jobs.schemas.js";
 
 const FEEDBACK_OUTBOX_RELAY_SCHEDULER_ID = FEEDBACK_JOB_NAMES.relayOutboxV1;
 const FEEDBACK_OUTBOX_RELAY_EVERY_MS = 5_000;

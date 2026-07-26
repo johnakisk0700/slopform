@@ -16,18 +16,15 @@ import {
   FakeParticipants,
   FakeQueue,
 } from "./post-event-feedback-doubles.harness.js";
-import { PostEventFeedbackIngressService } from "./post-event-feedback-ingress.service.js";
-import { PostEventFeedbackMaterializer } from "./post-event-feedback-materializer.service.js";
-import { PostEventFeedbackMetrics } from "./post-event-feedback-metrics.service.js";
+import { PostEventFeedbackIngressService } from "./ingress/ingress.service.js";
+import { PostEventFeedbackMaterializer } from "./ingress/materialize.service.js";
+import { PostEventFeedbackMetrics } from "./metrics.service.js";
 import type { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
 import type { FeedbackResultsRepository } from "./extraction/results.repository.js";
 import type { FeedbackIngressRepository } from "./ingress/ingress.repository.js";
 import type { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
 import type { FeedbackSimOutboundRepository } from "./simulator/sim-outbound.repository.js";
-import type {
-  FeedbackJobData,
-  FeedbackJobName,
-} from "./post-event-feedback.schemas.js";
+import type { FeedbackJobData, FeedbackJobName } from "./jobs.schemas.js";
 import { SimulatedFeedbackTransport } from "./outbox/simulated-transport.service.js";
 
 const campaignId = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";

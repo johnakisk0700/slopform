@@ -1,7 +1,7 @@
 import {
   POST_EVENT_FEEDBACK_QUESTION_SET_V1,
   type PostEventFeedbackQuestionSetCopy,
-} from "../post-event-feedback-question-set.js";
+} from "../question-set.js";
 import {
   FEEDBACK_EXTRACTION_MAX_ANSWERS,
   FEEDBACK_EXTRACTION_MAX_NOTES,

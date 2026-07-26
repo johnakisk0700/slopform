@@ -7,14 +7,14 @@ import { ConversationThreadModule } from "../conversations/conversation-thread.m
 import { EventsCoreModule } from "../events/events-core.module.js";
 import { ParticipantsCoreModule } from "../participants/participants-core.module.js";
 import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
-import { PostEventFeedbackCampaignController } from "./post-event-feedback-campaign.controller.js";
-import { PostEventFeedbackCampaignService } from "./post-event-feedback-campaign.service.js";
+import { PostEventFeedbackCampaignController } from "./campaign/campaign.controller.js";
+import { PostEventFeedbackCampaignService } from "./campaign/campaign.service.js";
 import {
   PostEventFeedbackConversationController,
   PostEventFeedbackNoteController,
-} from "./post-event-feedback-conversation.controller.js";
-import { PostEventFeedbackConversationService } from "./post-event-feedback-conversation.service.js";
-import { PostEventFeedbackCoreModule } from "./post-event-feedback-core.module.js";
+} from "./inbox/conversation.controller.js";
+import { PostEventFeedbackConversationService } from "./inbox/conversation.service.js";
+import { PostEventFeedbackCoreModule } from "./core.module.js";
 
 @Module({
   imports: [

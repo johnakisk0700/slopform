@@ -16,7 +16,7 @@ import { latestParticipantMessage } from "../conversation-reader.js";
 import {
   FEEDBACK_OPERATOR_ALERT,
   type FeedbackOperatorAlert,
-} from "../feedback-operator-alert.js";
+} from "../operator-alert.js";
 import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
 import type { FeedbackExtractionFailureCause } from "./model.service.js";
 import {

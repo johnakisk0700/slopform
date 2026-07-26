@@ -2,13 +2,13 @@ import { InjectQueue } from "@nestjs/bullmq";
 import { Injectable, type OnApplicationBootstrap } from "@nestjs/common";
 import type { Queue } from "bullmq";
 
-import { FEEDBACK_QUEUE } from "../../infrastructure/queue/queue.constants.js";
+import { FEEDBACK_QUEUE } from "../../../infrastructure/queue/queue.constants.js";
 import {
   FEEDBACK_JOB_NAMES,
   FEEDBACK_JOB_SCHEMA_VERSION,
   feedbackSweepJobDataSchema,
   type FeedbackJobData,
-} from "./post-event-feedback.schemas.js";
+} from "../jobs.schemas.js";
 
 const FEEDBACK_REMINDER_SWEEP_SCHEDULER_ID =
   FEEDBACK_JOB_NAMES.sweepRemindersV1;

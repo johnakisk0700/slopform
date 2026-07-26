@@ -7,13 +7,13 @@ import type { DatabaseService } from "../../infrastructure/database/database.ser
 import {
   PostEventFeedbackEnqueueError,
   PostEventFeedbackIngressService,
-} from "./post-event-feedback-ingress.service.js";
+} from "./ingress/ingress.service.js";
 import type { FeedbackIngressRepository } from "./ingress/ingress.repository.js";
 import {
   FEEDBACK_OBSERVED_TEXT_HARD_LIMIT,
   type FeedbackJobData,
   type FeedbackJobName,
-} from "./post-event-feedback.schemas.js";
+} from "./jobs.schemas.js";
 
 const ingressId = "b1c9e0a4-2c65-4a29-9a2e-2d0a3f2e1b77";
 const observed = {

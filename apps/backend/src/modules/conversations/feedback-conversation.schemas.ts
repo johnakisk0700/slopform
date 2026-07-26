@@ -8,8 +8,8 @@ import { FEEDBACK_ANSWER_QUESTION_KEYS } from "@join-the-six/database";
 import {
   POST_EVENT_FEEDBACK_QUESTION_SET_V1,
   type PostEventFeedbackQuestionSetCopy,
-} from "../post-event-feedback/post-event-feedback-question-set.js";
-import { feedbackConversationMessageAttentionSchema } from "../post-event-feedback/post-event-feedback-attention.js";
+} from "../post-event-feedback/question-set.js";
+import { feedbackConversationMessageAttentionSchema } from "../post-event-feedback/attention.js";
 import { ConversationPersistenceError } from "./conversation-persistence.errors.js";
 
 // Schema v2 is the purpose-specific post-event feedback document. It shares the

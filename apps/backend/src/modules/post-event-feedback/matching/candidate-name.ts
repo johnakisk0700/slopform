@@ -1,4 +1,4 @@
-import { foldPostEventFeedbackText } from "./matching/fold-text.js";
+import { foldPostEventFeedbackText } from "./fold-text.js";
 
 /**
  * Resolving a name somebody typed to a candidate, across the two alphabets

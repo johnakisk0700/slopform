@@ -19,7 +19,7 @@ import type { Request } from "express";
 import { ZodResponse } from "nestjs-zod";
 
 import { CorrelationIdDto } from "../../../infrastructure/auth/auth.schemas.js";
-import { PostEventFeedbackEnqueueError } from "../post-event-feedback-ingress.service.js";
+import { PostEventFeedbackEnqueueError } from "../ingress/ingress.service.js";
 import {
   FeedbackSimulatorRunNotFoundError,
   FeedbackSimulatorRunRejectedError,

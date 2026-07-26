@@ -11,7 +11,7 @@ import {
   postEventFeedbackSafetyCategorySchema,
   type PostEventFeedbackRecommendedAction,
   type PostEventFeedbackSafetyCategory,
-} from "../post-event-feedback-attention.js";
+} from "../attention.js";
 
 /**
  * The structured proposal contract for `feedback.extract.v1`.

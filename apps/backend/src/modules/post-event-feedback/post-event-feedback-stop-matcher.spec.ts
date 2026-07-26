@@ -4,7 +4,7 @@ import {
   foldGreekAccents,
   foldPostEventFeedbackText,
 } from "./matching/fold-text.js";
-import { matchesPostEventFeedbackStopCommand } from "./post-event-feedback-stop-matcher.js";
+import { matchesPostEventFeedbackStopCommand } from "./matching/stop-command.js";
 
 describe("post-event feedback STOP matcher", () => {
   it("matches English commands case- and whitespace-insensitively", () => {

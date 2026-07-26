@@ -20,8 +20,8 @@ import { MessageOutboxDeliveryStatusService } from "../../modules/post-event-fee
 import {
   PostEventFeedbackEnqueueError,
   PostEventFeedbackIngressService,
-} from "../../modules/post-event-feedback/post-event-feedback-ingress.service.js";
-import { boundObservedMessageText } from "../../modules/post-event-feedback/post-event-feedback.schemas.js";
+} from "../../modules/post-event-feedback/ingress/ingress.service.js";
+import { boundObservedMessageText } from "../../modules/post-event-feedback/jobs.schemas.js";
 import {
   WasenderCorrelationIdDto,
   WasenderWebhookAcknowledgementDto,

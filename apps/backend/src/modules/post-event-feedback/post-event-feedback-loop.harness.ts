@@ -16,7 +16,7 @@ import type { EventsRepository } from "../events/events.repository.js";
 import type { EventsService } from "../events/events.service.js";
 import type { ParticipantsRepository } from "../participants/participants.repository.js";
 import { phoneE164ToChatJid } from "../../integrations/wasender/wasender.jid.js";
-import type { FeedbackOperatorAlert } from "./feedback-operator-alert.js";
+import type { FeedbackOperatorAlert } from "./operator-alert.js";
 import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
 import type { FeedbackTransport } from "./outbox/transport.js";
 import { MessageOutboxDeliveryService } from "./outbox/deliver.service.js";
@@ -28,8 +28,8 @@ import {
   POST_EVENT_FEEDBACK_HANDOFF_REPLY,
 } from "./extraction/extraction.schemas.js";
 import { PostEventFeedbackExtractor } from "./extraction/extract.service.js";
-import { PostEventFeedbackIngressService } from "./post-event-feedback-ingress.service.js";
-import { PostEventFeedbackConversationService } from "./post-event-feedback-conversation.service.js";
+import { PostEventFeedbackIngressService } from "./ingress/ingress.service.js";
+import { PostEventFeedbackConversationService } from "./inbox/conversation.service.js";
 import {
   FakeAudit,
   FakeDatabase,
@@ -42,8 +42,8 @@ import {
   RecordingFeedbackTransport,
   type FakeOutboxRow,
 } from "./post-event-feedback-doubles.harness.js";
-import { PostEventFeedbackMaterializer } from "./post-event-feedback-materializer.service.js";
-import { PostEventFeedbackMetrics } from "./post-event-feedback-metrics.service.js";
+import { PostEventFeedbackMaterializer } from "./ingress/materialize.service.js";
+import { PostEventFeedbackMetrics } from "./metrics.service.js";
 import type {
   FeedbackAnswerQuestionKey,
   FeedbackNoteType,
@@ -52,21 +52,21 @@ import {
   POST_EVENT_FEEDBACK_QUESTION_SET_V1,
   createFeedbackIntroDedupeKey,
   renderPostEventFeedbackCopy,
-} from "./post-event-feedback-question-set.js";
-import { PostEventFeedbackProcessor } from "./post-event-feedback.processor.js";
+} from "./question-set.js";
+import { PostEventFeedbackProcessor } from "./processor.js";
 import type { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
 import type { FeedbackResultsRepository } from "./extraction/results.repository.js";
 import type { FeedbackIngressRepository } from "./ingress/ingress.repository.js";
 import type { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
-import { PostEventFeedbackSweepService } from "./post-event-feedback-sweep.service.js";
+import { PostEventFeedbackSweepService } from "./sweeps/sweep.service.js";
 import {
   FEEDBACK_JOB_NAMES,
   FEEDBACK_JOB_SCHEMA_VERSION,
   boundObservedMessageText,
   type FeedbackJobData,
   type FeedbackJobName,
-} from "./post-event-feedback.schemas.js";
-import { FEEDBACK_SWEEP_EVERY_MS } from "./feedback-sweep-scheduler.service.js";
+} from "./jobs.schemas.js";
+import { FEEDBACK_SWEEP_EVERY_MS } from "./sweeps/sweep-scheduler.service.js";
 import {
   ScriptedExtractionModel,
   SCRIPT_MODEL,

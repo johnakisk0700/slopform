@@ -11,7 +11,7 @@ import {
 import {
   isPostEventFeedbackAnswerQuestionKey,
   type PostEventFeedbackQuestionSetCopy,
-} from "../post-event-feedback-question-set.js";
+} from "../question-set.js";
 
 export interface OutboundReply {
   readonly body: string;

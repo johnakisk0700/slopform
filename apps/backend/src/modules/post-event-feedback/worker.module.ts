@@ -12,21 +12,21 @@ import { ParticipantsCoreModule } from "../participants/participants-core.module
 import {
   FEEDBACK_OPERATOR_ALERT,
   LoggingFeedbackOperatorAlert,
-} from "./feedback-operator-alert.js";
+} from "./operator-alert.js";
 import { FeedbackOutboxSchedulerService } from "./outbox/relay-scheduler.service.js";
 import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
-import { FeedbackSweepSchedulerService } from "./feedback-sweep-scheduler.service.js";
+import { FeedbackSweepSchedulerService } from "./sweeps/sweep-scheduler.service.js";
 import { FEEDBACK_TRANSPORT } from "./outbox/transport.js";
 import { MessageOutboxDeliveryService } from "./outbox/deliver.service.js";
 import { MessageOutboxRelayService } from "./outbox/relay.service.js";
-import { PostEventFeedbackCoreModule } from "./post-event-feedback-core.module.js";
+import { PostEventFeedbackCoreModule } from "./core.module.js";
 import { PostEventFeedbackExtractionFallback } from "./extraction/fallback.service.js";
 import { PostEventFeedbackExtractionModel } from "./extraction/model.service.js";
 import { PostEventFeedbackExtractor } from "./extraction/extract.service.js";
-import { PostEventFeedbackMaterializer } from "./post-event-feedback-materializer.service.js";
-import { PostEventFeedbackMetrics } from "./post-event-feedback-metrics.service.js";
-import { PostEventFeedbackProcessor } from "./post-event-feedback.processor.js";
-import { PostEventFeedbackSweepService } from "./post-event-feedback-sweep.service.js";
+import { PostEventFeedbackMaterializer } from "./ingress/materialize.service.js";
+import { PostEventFeedbackMetrics } from "./metrics.service.js";
+import { PostEventFeedbackProcessor } from "./processor.js";
+import { PostEventFeedbackSweepService } from "./sweeps/sweep.service.js";
 import { SimulatedFeedbackTransport } from "./outbox/simulated-transport.service.js";
 import { WasenderFeedbackTransport } from "./outbox/wasender-transport.service.js";
 

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   foldPostEventFeedbackName,
   resolvePostEventFeedbackCandidateByName,
-} from "./post-event-feedback-name-matcher.js";
+} from "./matching/candidate-name.js";
 
 const NIKOS = { participantId: "p-nikos", displayName: "Νίκος" };
 const ELENI = { participantId: "p-eleni", displayName: "Ελένη" };

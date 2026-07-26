@@ -12,9 +12,9 @@ import { z } from "zod";
 import {
   correlationIdSchema,
   principalSchema,
-} from "../../infrastructure/auth/auth.schemas.js";
-import { FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH } from "../conversations/feedback-conversation.schemas.js";
-import { feedbackConversationMessageAttentionSchema } from "./post-event-feedback-attention.js";
+} from "../../../infrastructure/auth/auth.schemas.js";
+import { FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH } from "../../conversations/feedback-conversation.schemas.js";
+import { feedbackConversationMessageAttentionSchema } from "../attention.js";
 
 export const feedbackConversationCapabilitiesSchema = z
   .object({

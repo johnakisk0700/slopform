@@ -8,19 +8,19 @@ import {
 } from "../../infrastructure/queue/queue.module.js";
 import { EventsCoreModule } from "../events/events-core.module.js";
 import { FeedbackOutboxSchedulerService } from "./outbox/relay-scheduler.service.js";
-import { FeedbackSweepSchedulerService } from "./feedback-sweep-scheduler.service.js";
+import { FeedbackSweepSchedulerService } from "./sweeps/sweep-scheduler.service.js";
 import { MessageOutboxDeliveryService } from "./outbox/deliver.service.js";
 import { MessageOutboxDeliveryStatusService } from "./outbox/delivery-status.service.js";
 import { MessageOutboxRelayService } from "./outbox/relay.service.js";
 import { PostEventFeedbackExtractionModel } from "./extraction/model.service.js";
 import { PostEventFeedbackExtractor } from "./extraction/extract.service.js";
-import { PostEventFeedbackHttpModule } from "./post-event-feedback-http.module.js";
-import { PostEventFeedbackIngressModule } from "./post-event-feedback-ingress.module.js";
-import { PostEventFeedbackIngressService } from "./post-event-feedback-ingress.service.js";
-import { PostEventFeedbackMaterializer } from "./post-event-feedback-materializer.service.js";
-import { PostEventFeedbackSweepService } from "./post-event-feedback-sweep.service.js";
-import { PostEventFeedbackWorkerModule } from "./post-event-feedback-worker.module.js";
-import { PostEventFeedbackProcessor } from "./post-event-feedback.processor.js";
+import { PostEventFeedbackHttpModule } from "./http.module.js";
+import { PostEventFeedbackIngressModule } from "./ingress/ingress.module.js";
+import { PostEventFeedbackIngressService } from "./ingress/ingress.service.js";
+import { PostEventFeedbackMaterializer } from "./ingress/materialize.service.js";
+import { PostEventFeedbackSweepService } from "./sweeps/sweep.service.js";
+import { PostEventFeedbackWorkerModule } from "./worker.module.js";
+import { PostEventFeedbackProcessor } from "./processor.js";
 
 describe("post-event feedback process composition", () => {
   it("keeps the durable consumer in the worker graph only", async () => {

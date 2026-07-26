@@ -26,7 +26,7 @@ import {
 import {
   PostEventFeedbackIngressNotFoundError,
   PostEventFeedbackMaterializer,
-} from "./post-event-feedback-materializer.service.js";
+} from "./ingress/materialize.service.js";
 import {
   createFeedbackDeliverJobId,
   createFeedbackMaterializeJobId,
@@ -38,8 +38,8 @@ import {
   feedbackSweepJobDataSchema,
   type FeedbackJobData,
   type FeedbackJobName,
-} from "./post-event-feedback.schemas.js";
-import { PostEventFeedbackSweepService } from "./post-event-feedback-sweep.service.js";
+} from "./jobs.schemas.js";
+import { PostEventFeedbackSweepService } from "./sweeps/sweep.service.js";
 
 /**
  * Actual per-process feedback job concurrency.

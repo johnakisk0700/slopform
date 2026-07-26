@@ -11,7 +11,7 @@ import {
   FEEDBACK_JOB_NAMES,
   type FeedbackJobData,
   type FeedbackJobName,
-} from "./post-event-feedback.schemas.js";
+} from "./jobs.schemas.js";
 
 const pendingRow = {
   id: "66de52a8-1a26-4cbb-b8d1-fcf8bdc2dd51",

@@ -3,7 +3,7 @@ import type { ConfigService } from "@nestjs/config";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { Environment } from "../../infrastructure/config/environment.js";
-import { LoggingFeedbackOperatorAlert } from "./feedback-operator-alert.js";
+import { LoggingFeedbackOperatorAlert } from "./operator-alert.js";
 
 describe("LoggingFeedbackOperatorAlert", () => {
   beforeAll(() => {

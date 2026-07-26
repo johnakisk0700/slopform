@@ -7,7 +7,7 @@ import {
   strongerRecommendedAction,
   type PostEventFeedbackRecommendedAction,
   type PostEventFeedbackSafetyCategory,
-} from "../post-event-feedback-attention.js";
+} from "../attention.js";
 
 /**
  * Anything that should surface in the admin inbox. Safety and handoff are the

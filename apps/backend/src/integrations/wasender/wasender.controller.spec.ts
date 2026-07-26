@@ -8,7 +8,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import {
   PostEventFeedbackEnqueueError,
   type PostEventFeedbackIngressService,
-} from "../../modules/post-event-feedback/post-event-feedback-ingress.service.js";
+} from "../../modules/post-event-feedback/ingress/ingress.service.js";
 import type { MessageOutboxDeliveryStatusService } from "../../modules/post-event-feedback/outbox/delivery-status.service.js";
 import { WasenderWebhookController } from "./wasender.controller.js";
 import type {

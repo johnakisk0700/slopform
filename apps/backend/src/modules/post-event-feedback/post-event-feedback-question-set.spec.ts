@@ -9,7 +9,7 @@ import {
   buildPostEventFeedbackQuestionLaunchSnapshot,
   isPostEventFeedbackAnswerQuestionKey,
   isPostEventFeedbackNoteType,
-} from "./post-event-feedback-question-set.js";
+} from "./question-set.js";
 
 describe("post-event feedback question set v1", () => {
   it("locks version 1 answer keys, note types and Greek copy from the plan", () => {

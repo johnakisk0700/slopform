@@ -6,7 +6,7 @@ import {
 import {
   POST_EVENT_FEEDBACK_QUESTION_SET_V1,
   renderPostEventFeedbackCopy,
-} from "./post-event-feedback-question-set.js";
+} from "./question-set.js";
 
 const REMINDER_COPY = renderPostEventFeedbackCopy(
   POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy.reminder,

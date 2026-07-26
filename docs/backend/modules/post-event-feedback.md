@@ -558,7 +558,7 @@ no note, no audit event and raises no alert.
 ### Operator alert seam
 
 `needsAttention` is the durable signal; the
-[`FeedbackOperatorAlert`](../../../apps/backend/src/modules/post-event-feedback/feedback-operator-alert.ts)
+[`FeedbackOperatorAlert`](../../../apps/backend/src/modules/post-event-feedback/operator-alert.ts)
 port is the notification half, so nobody has to be watching the inbox for a
 disclosure or a dead run to be noticed.
 
@@ -653,12 +653,12 @@ Versioned questionnaire constants, the deterministic STOP matcher and Greek
 extraction fixtures live under
 [`apps/backend/src/modules/post-event-feedback/`](../../../apps/backend/src/modules/post-event-feedback/).
 
-| Artifact            | Source                                                         | Contract                                                                                                                                                                                                                |
-| ------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Question set v1     | `packages/database` + `post-event-feedback-question-set.ts`    | Keys `FEEDBACK_ANSWER_QUESTION_KEYS` / `FEEDBACK_NOTE_TYPES` in the database schema; draft Greek copy in question-set, editable without schema changes                                                                  |
-| Campaign copy       | `resolveCampaignCopy` in `post-event-feedback-question-set.ts` | Merges the campaign launch snapshot per key onto the versioned defaults; missing or blank keys use the default (so a pre-existing campaign still sends new copy keys such as `reminder_followup` / `cannot_read_media`) |
-| STOP matcher (D14)  | `post-event-feedback-stop-matcher.ts`                          | Pure function; `STOP`, `STOP ALL`, `UNSUBSCRIBE`, `ΔΙΑΚΟΠΗ`, `ΣΤΟΠ`; case-, whitespace- and accent-insensitive                                                                                                          |
-| Extraction fixtures | `post-event-feedback-fixtures.ts`                              | Typed Greek transcripts with expected-outcome annotations for later WP5 evals                                                                                                                                           |
+| Artifact            | Source                                     | Contract                                                                                                                                                                                                                |
+| ------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Question set v1     | `packages/database` + `question-set.ts`    | Keys `FEEDBACK_ANSWER_QUESTION_KEYS` / `FEEDBACK_NOTE_TYPES` in the database schema; draft Greek copy in question-set, editable without schema changes                                                                  |
+| Campaign copy       | `resolveCampaignCopy` in `question-set.ts` | Merges the campaign launch snapshot per key onto the versioned defaults; missing or blank keys use the default (so a pre-existing campaign still sends new copy keys such as `reminder_followup` / `cannot_read_media`) |
+| STOP matcher (D14)  | `matching/stop-command.ts`                 | Pure function; `STOP`, `STOP ALL`, `UNSUBSCRIBE`, `ΔΙΑΚΟΠΗ`, `ΣΤΟΠ`; case-, whitespace- and accent-insensitive                                                                                                          |
+| Extraction fixtures | `post-event-feedback-fixtures.ts`          | Typed Greek transcripts with expected-outcome annotations for later WP5 evals                                                                                                                                           |
 
 The STOP matcher is the sole deterministic text matcher. It compares whole
 commands; stripping punctuation there would widen the command rather than
@@ -685,7 +685,7 @@ The durable consumer behind the webhook. It stays behind the existing
 
 ### The request edge
 
-[`PostEventFeedbackIngressService`](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-ingress.service.ts)
+[`PostEventFeedbackIngressService`](../../../apps/backend/src/modules/post-event-feedback/ingress/ingress.service.ts)
 is everything the HTTP process does (D8):
 
 1. one `provider_message_ingress` INSERT, deduplicated by the
@@ -702,7 +702,7 @@ anything.
 
 ### The materialize job
 
-[`PostEventFeedbackMaterializer`](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-materializer.service.ts)
+[`PostEventFeedbackMaterializer`](../../../apps/backend/src/modules/post-event-feedback/ingress/materialize.service.ts)
 reloads the ingress row and decides one outcome per delivery:
 
 | Situation                          | Outcome                    | Effects                                                                                                                            |
@@ -725,7 +725,7 @@ reopened.
 STOP is matched by the WP0 deterministic matcher **before** any model call and
 works in either control mode: a takeover does not make opt-out negotiable. The
 acknowledgement body is resolved by `resolveCampaignCopy` in
-`post-event-feedback-question-set.ts`: the campaign's launch copy snapshot owns
+`question-set.ts`: the campaign's launch copy snapshot owns
 each key, with per-key fallback to the versioned constant when a key is missing
 or blank. A campaign launched before a copy key existed therefore sends that
 default instead of nothing.
@@ -980,7 +980,7 @@ Staff HTTP under `/feedback/campaigns` plus bounded BullMQ sweep jobs.
 
 ### Launch and kill switch
 
-[`PostEventFeedbackCampaignService`](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-campaign.service.ts)
+[`PostEventFeedbackCampaignService`](../../../apps/backend/src/modules/post-event-feedback/campaign/campaign.service.ts)
 owns the application boundary:
 
 | Action              | Gate / effect                                                                                                                                                                                                                                                                                                                                                                                                          |
@@ -995,7 +995,7 @@ relay leases them with stagger.
 
 ### Reminder, expiry and ingress recovery
 
-[`PostEventFeedbackSweepService`](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-sweep.service.ts)
+[`PostEventFeedbackSweepService`](../../../apps/backend/src/modules/post-event-feedback/sweeps/sweep.service.ts)
 runs as bounded BullMQ jobs every five minutes:
 
 | Job                           | Contract                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
@@ -1041,7 +1041,7 @@ The admin conversations UI (WP9) needs a staff-only read/action surface on top
 of the WP3 projections and WP7 campaign service. No extraction or relay
 behavior changes here.
 
-[`PostEventFeedbackConversationService`](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-conversation.service.ts)
+[`PostEventFeedbackConversationService`](../../../apps/backend/src/modules/post-event-feedback/inbox/conversation.service.ts)
 owns the inbox read model and capability-gated actions:
 
 | Concern       | Contract                                                                                                                         |

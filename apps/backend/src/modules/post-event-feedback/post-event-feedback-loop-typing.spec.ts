@@ -2,7 +2,7 @@ import {
   runFeedbackScenarios,
   type FeedbackScenario,
 } from "./post-event-feedback-loop.harness.js";
-import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "./post-event-feedback-question-set.js";
+import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "./question-set.js";
 
 /**
  * Sections **A. How people type** and **B. How people answer** of

@@ -18,7 +18,7 @@ import {
   type FeedbackConversationGoal,
   type FeedbackConversationMessage,
 } from "../conversations/feedback-conversation.schemas.js";
-import type { FeedbackOperatorAlertInput } from "./feedback-operator-alert.js";
+import type { FeedbackOperatorAlertInput } from "./operator-alert.js";
 import type {
   FeedbackTransport,
   FeedbackTransportSendInput,
@@ -29,7 +29,7 @@ import {
   strongerRecommendedAction,
   type PostEventFeedbackRecommendedAction,
   type PostEventFeedbackSafetyCategory,
-} from "./post-event-feedback-attention.js";
+} from "./attention.js";
 
 /**
  * The faked seams of the post-event feedback loop: the two stores, the

@@ -5,7 +5,7 @@ import {
   getPostEventFeedbackExtractionFixture,
   type PostEventFeedbackExtractionFixture,
 } from "./post-event-feedback-fixtures.js";
-import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "./post-event-feedback-question-set.js";
+import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "./question-set.js";
 import { validateFeedbackExtractionProposal } from "./extraction/validate-proposal.js";
 import {
   feedbackExtractionProposalSchema,
@@ -18,7 +18,7 @@ import {
   buildFeedbackExtractionPrompt,
   estimatePromptTokens,
 } from "./extraction/prompt.js";
-import { matchesPostEventFeedbackStopCommand } from "./post-event-feedback-stop-matcher.js";
+import { matchesPostEventFeedbackStopCommand } from "./matching/stop-command.js";
 
 /**
  * Offline extraction eval.

@@ -17,7 +17,7 @@ import {
   feedbackDeliverJobDataSchema,
   type FeedbackJobData,
   type FeedbackJobName,
-} from "../post-event-feedback.schemas.js";
+} from "../jobs.schemas.js";
 
 /** Extra delay between campaign intro/reminder jobs leased in the same batch. */
 export const FEEDBACK_CAMPAIGN_STAGGER_MS = 2_000;

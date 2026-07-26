@@ -7,34 +7,34 @@ import type {
 } from "@join-the-six/database";
 import type { Queue } from "bullmq";
 
-import { AuditRepository } from "../../infrastructure/audit/audit.repository.js";
-import { DatabaseService } from "../../infrastructure/database/database.service.js";
-import { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
-import { FeedbackIngressRepository } from "./ingress/ingress.repository.js";
-import { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
-import { FEEDBACK_QUEUE } from "../../infrastructure/queue/queue.constants.js";
+import { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
+import { DatabaseService } from "../../../infrastructure/database/database.service.js";
+import { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
+import { FeedbackIngressRepository } from "./ingress.repository.js";
+import { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
+import { FEEDBACK_QUEUE } from "../../../infrastructure/queue/queue.constants.js";
 import {
   FeedbackConversationCapacityError,
   FeedbackConversationRepository,
-} from "../conversations/feedback-conversation.repository.js";
+} from "../../conversations/feedback-conversation.repository.js";
 import {
   FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH,
   type FeedbackConversationDocument,
-} from "../conversations/feedback-conversation.schemas.js";
-import { ParticipantsRepository } from "../participants/participants.repository.js";
-import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
-import { coalesceDeliveryStatus } from "./outbox/delivery-status.js";
+} from "../../conversations/feedback-conversation.schemas.js";
+import { ParticipantsRepository } from "../../participants/participants.repository.js";
+import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
+import { coalesceDeliveryStatus } from "../outbox/delivery-status.js";
 import {
   PostEventFeedbackMetrics,
   type FeedbackMaterializeOutcome,
-} from "./post-event-feedback-metrics.service.js";
+} from "../metrics.service.js";
 import {
   createFeedbackMediaNoticeDedupeKey,
   createFeedbackStopAckDedupeKey,
   fitToTranscript,
   resolveCampaignCopy,
-} from "./post-event-feedback-question-set.js";
-import { matchesPostEventFeedbackStopCommand } from "./post-event-feedback-stop-matcher.js";
+} from "../question-set.js";
+import { matchesPostEventFeedbackStopCommand } from "../matching/stop-command.js";
 import {
   createFeedbackExtractJobId,
   FEEDBACK_EXTRACT_QUIET_WINDOW_MS,
@@ -44,7 +44,7 @@ import {
   isFeedbackEditedProviderMessageId,
   type FeedbackJobData,
   type FeedbackJobName,
-} from "./post-event-feedback.schemas.js";
+} from "../jobs.schemas.js";
 
 export class PostEventFeedbackIngressNotFoundError extends Error {
   constructor(ingressId: string) {

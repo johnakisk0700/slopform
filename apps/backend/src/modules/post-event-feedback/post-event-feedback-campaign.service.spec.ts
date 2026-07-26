@@ -16,10 +16,10 @@ import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.
 import {
   FeedbackCampaignLaunchNotAllowedError,
   PostEventFeedbackCampaignService,
-} from "./post-event-feedback-campaign.service.js";
+} from "./campaign/campaign.service.js";
 import type { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
 import type { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
-import { buildPostEventFeedbackQuestionLaunchSnapshot } from "./post-event-feedback-question-set.js";
+import { buildPostEventFeedbackQuestionLaunchSnapshot } from "./question-set.js";
 
 const eventId = "7c57f3b8-2b13-48f5-8730-18ac71f490cd";
 const campaignId = "89eccaa5-9ce6-4dcf-a630-5e35e4ec6f0d";

@@ -412,7 +412,7 @@ equality on an accent-folded, lower-cased, whitespace-collapsed form.
 **Today.** 🔴 None of the three match. «στοπ!» ≠ «στοπ». The message is
 materialized as ordinary testimony, sent to the model, and the participant who
 just asked to be left alone receives another question — and a reminder 24 hours
-later if they say nothing else. The comment in `post-event-feedback-stop-matcher.ts`
+later if they say nothing else. The comment in `matching/stop-command.ts`
 argues that stripping punctuation "would widen the command rather than normalise
 it"; that reasoning holds for interior punctuation, not for a trailing `!`.
 

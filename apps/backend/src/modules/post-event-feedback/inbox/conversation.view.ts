@@ -14,7 +14,7 @@ import type {
   FeedbackConversationResultsView,
   FeedbackNoteOrigin,
   FeedbackNoteView,
-} from "../post-event-feedback-conversation.schemas.js";
+} from "./conversation.schemas.js";
 
 /** Capability flags the admin UI trusts instead of hardcoding transition rules. */
 export function conversationCapabilities(conversation: {

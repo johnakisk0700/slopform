@@ -2,9 +2,9 @@ import { InjectQueue } from "@nestjs/bullmq";
 import { Injectable, Logger } from "@nestjs/common";
 import type { Queue } from "bullmq";
 
-import { DatabaseService } from "../../infrastructure/database/database.service.js";
-import { FEEDBACK_QUEUE } from "../../infrastructure/queue/queue.constants.js";
-import { FeedbackIngressRepository } from "./ingress/ingress.repository.js";
+import { DatabaseService } from "../../../infrastructure/database/database.service.js";
+import { FEEDBACK_QUEUE } from "../../../infrastructure/queue/queue.constants.js";
+import { FeedbackIngressRepository } from "./ingress.repository.js";
 import {
   createFeedbackEditedProviderMessageId,
   createFeedbackMaterializeJobId,
@@ -15,7 +15,7 @@ import {
   type FeedbackJobData,
   type FeedbackJobName,
   type ObservedProviderMessage,
-} from "./post-event-feedback.schemas.js";
+} from "../jobs.schemas.js";
 
 export class PostEventFeedbackEnqueueError extends Error {
   constructor(readonly ingressId: string) {

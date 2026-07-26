@@ -7,12 +7,12 @@ import {
 import {
   isPostEventFeedbackAnswerQuestionKey,
   isPostEventFeedbackNoteType,
-} from "./post-event-feedback-question-set.js";
+} from "./question-set.js";
 import {
   POST_EVENT_FEEDBACK_EXTRACTION_FIXTURES,
   getPostEventFeedbackExtractionFixture,
 } from "./post-event-feedback-fixtures.js";
-import { matchesPostEventFeedbackStopCommand } from "./post-event-feedback-stop-matcher.js";
+import { matchesPostEventFeedbackStopCommand } from "./matching/stop-command.js";
 
 describe("post-event feedback extraction fixtures", () => {
   it("covers the WP0 Greek transcript scenarios with unique ids", () => {

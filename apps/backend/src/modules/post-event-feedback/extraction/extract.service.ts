@@ -12,7 +12,7 @@ import { AuditRepository } from "../../../infrastructure/audit/audit.repository.
 import {
   FEEDBACK_OPERATOR_ALERT,
   type FeedbackOperatorAlert,
-} from "../feedback-operator-alert.js";
+} from "../operator-alert.js";
 import { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
 import { FeedbackResultsRepository } from "./results.repository.js";
@@ -37,17 +37,14 @@ import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript
 import {
   PostEventFeedbackMetrics,
   type FeedbackExtractOutcome,
-} from "../post-event-feedback-metrics.service.js";
-import {
-  noteSignature,
-  resolveCampaignCopy,
-} from "../post-event-feedback-question-set.js";
+} from "../metrics.service.js";
+import { noteSignature, resolveCampaignCopy } from "../question-set.js";
 import {
   validateFeedbackExtractionProposal,
   type FeedbackExtractionValidationResult,
 } from "./validate-proposal.js";
 import { PostEventFeedbackExtractionModel } from "./model.service.js";
-import { FEEDBACK_EXTRACT_QUIET_WINDOW_MS } from "../post-event-feedback.schemas.js";
+import { FEEDBACK_EXTRACT_QUIET_WINDOW_MS } from "../jobs.schemas.js";
 import type { FeedbackExtractionContext } from "./extraction.schemas.js";
 import {
   buildFeedbackExtractionPrompt,

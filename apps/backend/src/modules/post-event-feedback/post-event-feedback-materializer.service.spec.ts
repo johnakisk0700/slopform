@@ -17,9 +17,9 @@ import {
   FakeParticipants,
   FakeQueue,
 } from "./post-event-feedback-doubles.harness.js";
-import { PostEventFeedbackMaterializer } from "./post-event-feedback-materializer.service.js";
-import { PostEventFeedbackMetrics } from "./post-event-feedback-metrics.service.js";
-import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "./post-event-feedback-question-set.js";
+import { PostEventFeedbackMaterializer } from "./ingress/materialize.service.js";
+import { PostEventFeedbackMetrics } from "./metrics.service.js";
+import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "./question-set.js";
 import type { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
 import type { FeedbackIngressRepository } from "./ingress/ingress.repository.js";
 import type { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
@@ -27,7 +27,7 @@ import {
   FEEDBACK_EXTRACT_QUIET_WINDOW_MS,
   type FeedbackJobData,
   type FeedbackJobName,
-} from "./post-event-feedback.schemas.js";
+} from "./jobs.schemas.js";
 
 const campaignId = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 const respondentParticipantId = "9f3c1a52-6e2b-4b4a-9a17-2cb2a6d13a55";

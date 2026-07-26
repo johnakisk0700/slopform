@@ -43,7 +43,7 @@ import {
   strongerRecommendedAction,
   type PostEventFeedbackRecommendedAction,
   type PostEventFeedbackSafetyCategory,
-} from "../post-event-feedback/post-event-feedback-attention.js";
+} from "../post-event-feedback/attention.js";
 
 const FEEDBACK_CONVERSATION_APPEND_ATTEMPTS = 3;
 const FEEDBACK_CONVERSATION_ATTENTION_MERGE_ATTEMPTS = 3;
