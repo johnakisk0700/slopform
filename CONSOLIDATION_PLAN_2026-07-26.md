@@ -537,9 +537,11 @@ is MOVE unless it brings its own test.
 
 ### Invariants every commit must hold
 
-- **791 passing tests across 105 files** — backend 669/93, admin 101/8, database 21/4, measured on
-  `main` at `b773211`. No number drops and none silently rises. A packet that changes a test count,
-  or touches a spec file it did not declare, is out of scope — revert it.
+- **790 passing tests across 105 files** — backend 668/93, admin 101/8, database 21/4. No number
+  drops and none silently rises. A packet that changes a test count, or touches a spec file it did
+  not declare, is out of scope — revert it. The baseline was 791 at `b773211`; WP-05 deliberately
+  deleted one test, which is why this line is edited in the same commit that deleted it. A test
+  count may only change this way: declared in the packet, and recorded here.
 - **`pnpm test` stays under ~25s and needs no Docker.** If a packet makes the suite need infra,
   it is the wrong packet.
 - **Net lines go down.** Close every packet with `git diff --shortstat`. A positive net is only

@@ -534,17 +534,3 @@ function resolveLaunchCopy(
   }
   return buildPostEventFeedbackQuestionLaunchSnapshot().copy;
 }
-
-/** Exported for focused eligibility tests without spinning the Nest module. */
-export function isEligibleFeedbackRespondent(input: {
-  readonly present: boolean;
-  readonly postEventFeedbackWhatsappOptIn: boolean;
-  readonly phoneE164: string | null | undefined;
-}): boolean {
-  return (
-    input.present &&
-    input.postEventFeedbackWhatsappOptIn &&
-    typeof input.phoneE164 === "string" &&
-    input.phoneE164.length > 0
-  );
-}

@@ -15,7 +15,6 @@ import type { EventsRepository } from "../events/events.repository.js";
 import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
 import {
   FeedbackCampaignLaunchNotAllowedError,
-  isEligibleFeedbackRespondent,
   PostEventFeedbackCampaignService,
 } from "./post-event-feedback-campaign.service.js";
 import type { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
@@ -54,39 +53,6 @@ const eligible = {
   emailNormalized: "roula@example.com",
   phoneE164: "+306900000001",
 };
-
-describe("isEligibleFeedbackRespondent", () => {
-  it("requires present, opt-in and an E.164 phone", () => {
-    expect(
-      isEligibleFeedbackRespondent({
-        present: true,
-        postEventFeedbackWhatsappOptIn: true,
-        phoneE164: "+306900000001",
-      }),
-    ).toBe(true);
-    expect(
-      isEligibleFeedbackRespondent({
-        present: false,
-        postEventFeedbackWhatsappOptIn: true,
-        phoneE164: "+306900000001",
-      }),
-    ).toBe(false);
-    expect(
-      isEligibleFeedbackRespondent({
-        present: true,
-        postEventFeedbackWhatsappOptIn: false,
-        phoneE164: "+306900000001",
-      }),
-    ).toBe(false);
-    expect(
-      isEligibleFeedbackRespondent({
-        present: true,
-        postEventFeedbackWhatsappOptIn: true,
-        phoneE164: null,
-      }),
-    ).toBe(false);
-  });
-});
 
 describe("PostEventFeedbackCampaignService", () => {
   it("rejects launch when the event is not finished", async () => {
