@@ -25,7 +25,7 @@ export const api: $Fetch = ofetch.create({
 });
 
 /** Builds an isolated header set and never preserves a caller-supplied bearer. */
-export function createApiHeaders(
+function createApiHeaders(
   input: HeadersInit | undefined,
   token: string | null,
 ): Headers {
@@ -38,6 +38,3 @@ export function createApiHeaders(
 
   return headers;
 }
-
-/** The type of the shared API client, for typing facades and callers. */
-export type ApiClient = typeof api;

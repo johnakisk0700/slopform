@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 
 import { useGetEvent } from "../../../api/generated/events";
 
-export interface StartConversationActionProps {
+interface StartConversationActionProps {
   eventId: string;
   /** Participants who already have a conversation in this campaign. */
   existingParticipantIds: ReadonlySet<string>;

@@ -31,7 +31,7 @@ const COPY: Record<
   },
 };
 
-export interface AuthStatusScreenProps {
+interface AuthStatusScreenProps {
   kind: AuthStatusKind;
   actionLabel?: string;
   onAction?: () => void;

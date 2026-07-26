@@ -14,7 +14,7 @@ import { z } from "zod";
  * Mirrors `apps/backend/src/modules/post-event-feedback/feedback-simulator.schemas.ts`.
  */
 
-export const simulatorPhoneSchema = z
+const simulatorPhoneSchema = z
   .string()
   .regex(/^\+[1-9]\d{7,14}$/u, "Expected an E.164 phone number");
 
@@ -27,7 +27,7 @@ export type SimulatorInjectResponse = z.infer<
   typeof simulatorInjectResponseSchema
 >;
 
-export const simulatorThreadMessageSchema = z.object({
+const simulatorThreadMessageSchema = z.object({
   id: z.string().min(1).max(200),
   source: z.enum(["ingress", "sim_outbound"]),
   direction: z.enum(["inbound", "outbound"]),

@@ -12,7 +12,7 @@ export type AssistantModel = z.infer<typeof assistantModelSchema>;
 
 export const ASSISTANT_EFFORTS = ["low", "medium", "high"] as const;
 export const DEFAULT_ASSISTANT_EFFORT = "low" as const;
-export const assistantEffortSchema = z.enum(ASSISTANT_EFFORTS);
+const assistantEffortSchema = z.enum(ASSISTANT_EFFORTS);
 export type AssistantEffort = z.infer<typeof assistantEffortSchema>;
 
 export function isAssistantEffort(value: unknown): value is AssistantEffort {
@@ -21,7 +21,7 @@ export function isAssistantEffort(value: unknown): value is AssistantEffort {
 
 export type AssistantModelBrand = "openai" | "google" | "qwen";
 
-export interface AssistantModelOption {
+interface AssistantModelOption {
   id: AssistantModel;
   label: string;
   brand: AssistantModelBrand;
@@ -87,7 +87,7 @@ const assistantMessageSchema = z
   })
   .strict();
 
-export const assistantTurnRequestSchema = z
+const assistantTurnRequestSchema = z
   .object({
     requestId: z.uuid(),
     model: assistantModelSchema.optional(),
@@ -96,7 +96,7 @@ export const assistantTurnRequestSchema = z
   })
   .strict();
 
-export type AssistantTurnRequest = z.infer<typeof assistantTurnRequestSchema>;
+type AssistantTurnRequest = z.infer<typeof assistantTurnRequestSchema>;
 
 export function buildAssistantTurnRequest(
   requestId: string,
@@ -112,7 +112,7 @@ export function buildAssistantTurnRequest(
   });
 }
 
-export const assistantFailureSchema = z
+const assistantFailureSchema = z
   .object({
     code: z.enum([
       "provider_unavailable",

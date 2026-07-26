@@ -78,7 +78,7 @@ const ICON_BASE = "size-[1.1rem] shrink-0";
 const SOON_BASE =
   "ml-auto rounded-sm border border-[color-mix(in_srgb,currentcolor_40%,transparent)] px-[0.45rem] py-[0.1rem] text-[0.7rem] font-extrabold uppercase tracking-[0.05em]";
 
-export interface AdminNavigationProps {
+interface AdminNavigationProps {
   /** Surface the nav sits on. Defaults to the wine sidebar. */
   variant?: NavVariant;
   /** Fired after a link is followed — the drawer uses it to close itself. */

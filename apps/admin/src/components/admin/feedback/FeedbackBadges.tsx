@@ -6,7 +6,7 @@ import {
   type FeedbackBadge,
 } from "../../../features/feedback/labels";
 
-export interface FeedbackBadgesProps {
+interface FeedbackBadgesProps {
   badges: readonly FeedbackBadge[];
   size?: "sm" | "md";
   className?: string;

@@ -24,7 +24,7 @@ import { api } from "./api";
 
 const SIMULATOR_BASE = "/v1/dev/feedback/simulator";
 
-export function getFeedbackSimulatorThreadQueryKey(phoneE164: string) {
+function getFeedbackSimulatorThreadQueryKey(phoneE164: string) {
   return [`${SIMULATOR_BASE}/thread`, phoneE164] as const;
 }
 

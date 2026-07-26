@@ -11,7 +11,7 @@ export interface EventPreviewDraft {
   date: Date | null;
 }
 
-export type EventPreviewField = keyof EventPreviewDraft;
+type EventPreviewField = keyof EventPreviewDraft;
 
 export function getEventPreviewErrors(
   input: unknown,

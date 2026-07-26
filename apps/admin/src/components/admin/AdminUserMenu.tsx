@@ -25,7 +25,7 @@ const THEME_OPTIONS: ReadonlyArray<{
   { value: "system", label: "Auto", Icon: Monitor },
 ];
 
-export interface AdminUserMenuProps {
+interface AdminUserMenuProps {
   /**
    * Context styling for the trigger row — the shell passes width / text-colour
    * tweaks so the same button reads on the wine sidebar footer and the light

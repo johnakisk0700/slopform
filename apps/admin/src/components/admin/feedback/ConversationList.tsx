@@ -17,7 +17,7 @@ import {
 import { JtsLiveIndicator } from "../../ui/JtsLiveIndicator";
 import { FeedbackBadges } from "./FeedbackBadges";
 
-export interface ConversationListProps {
+interface ConversationListProps {
   conversations: readonly ConversationListItem[];
   selectedId: string | null;
   query: string;

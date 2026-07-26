@@ -1,7 +1,7 @@
 import { Button, Modal } from "@heroui/react";
 import { useState, type ReactNode } from "react";
 
-export interface ConfirmActionProps {
+interface ConfirmActionProps {
   /** Trigger label, also the accessible name of the opening button. */
   label: string;
   /** Dialog heading — name the action, not the outcome. */

@@ -105,7 +105,7 @@ export function conversationBadges(
  * name and the phone it launched against. Accent- and case-insensitive so
  * "κωστας" finds «Κώστας», matching the STOP matcher's folding rule (D14).
  */
-export function foldForSearch(value: string): string {
+function foldForSearch(value: string): string {
   return value
     .normalize("NFD")
     .replace(/\p{Diacritic}/gu, "")

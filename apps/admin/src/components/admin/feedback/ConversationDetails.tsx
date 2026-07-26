@@ -35,7 +35,7 @@ import { AddNoteAction } from "./AddNoteAction";
 import { ConfirmAction } from "./ConfirmAction";
 import { FeedbackBadges } from "./FeedbackBadges";
 
-export interface ConversationDetailsProps {
+interface ConversationDetailsProps {
   conversation: FeedbackConversationDetailDtoOutput;
   /** The campaign's event, for the note subject picker's D16 candidates. */
   eventId: string;

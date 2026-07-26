@@ -91,7 +91,7 @@ export interface Env {
   clerkPublishableKey?: string | undefined;
 }
 
-export function validateEnv(input: {
+function validateEnv(input: {
   readonly DEV: unknown;
   readonly VITE_API_BASE: unknown;
   readonly VITE_AUTH_DEV_BYPASS: unknown;

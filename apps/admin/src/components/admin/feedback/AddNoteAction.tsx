@@ -16,7 +16,7 @@ const NOTE_TYPES: readonly AddFeedbackConversationNoteDtoNoteType[] = [
 
 const NO_SUBJECT = "__none__";
 
-export interface AddNoteActionProps {
+interface AddNoteActionProps {
   /** The campaign's event, whose present attendees are the D16 candidates. */
   eventId: string;
   respondentParticipantId: string;

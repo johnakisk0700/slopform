@@ -139,7 +139,7 @@ function TranscriptMessage({ message }: TranscriptMessageProps) {
   );
 }
 
-export interface ConversationTranscriptProps {
+interface ConversationTranscriptProps {
   conversation: FeedbackConversationDetailDtoOutput;
   /** Sends as staff — only offered while the server says control is human. */
   onStaffSend: (text: string) => Promise<void>;
