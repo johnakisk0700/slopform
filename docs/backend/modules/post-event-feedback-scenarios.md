@@ -1432,9 +1432,10 @@ signal.
 > **The harness and specs are the operational contract.**
 >
 > The built harness lives in
-> `apps/backend/src/modules/post-event-feedback/post-event-feedback-loop.harness.ts`
-> (with its doubles in `…-doubles.harness.ts`). Read its header before
-> writing a scenario. The current rules are:
+> `apps/backend/src/modules/post-event-feedback/post-event-feedback-loop.harness.ts`,
+> with scenario vocabulary in `…-loop-scenario.ts`, the scripted model in
+> `…-loop-model.harness.ts`, and doubles in `…-doubles.harness.ts`. Read the
+> harness header before writing a scenario. The current rules are:
 >
 > - **The outcome snapshot carries no `goals`, no `modelCalls` and no
 >   `droppedIngress`.** Goal statuses, model call counts and ingress processing
@@ -1459,7 +1460,13 @@ signal.
 > `toEqual` and never a snapshot file, and two to four facts per scenario — only
 > what that scenario is about.
 
-The seven executable files are:
+The harness splits as:
+
+- `post-event-feedback-loop-scenario.ts` — scenario and outcome vocabulary;
+- `post-event-feedback-loop-model.harness.ts` — scripted extraction model;
+- `post-event-feedback-loop.harness.ts` — factory, queue and runner;
+
+and the seven executable files are:
 
 - `post-event-feedback-loop.spec.ts` — ordinary loop completion and silence;
 - `post-event-feedback-loop-typing.spec.ts` — bursts, long/partial/non-text and

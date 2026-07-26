@@ -10,7 +10,6 @@ import type { FeedbackConversationRepository } from "../conversations/feedback-c
 import {
   buildFeedbackConversationGoals,
   deriveFeedbackConversationId,
-  type FeedbackConversationDocument,
   type FeedbackConversationGoal,
 } from "../conversations/feedback-conversation.schemas.js";
 import type { EventsRepository } from "../events/events.repository.js";
@@ -22,24 +21,11 @@ import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcrip
 import type { FeedbackTransport } from "./feedback-transport.js";
 import { MessageOutboxDeliveryService } from "./message-outbox-delivery.service.js";
 import { MessageOutboxRelayService } from "./message-outbox-relay.service.js";
-import type {
-  PostEventFeedbackRecommendedAction,
-  PostEventFeedbackSafetyCategory,
-} from "./post-event-feedback-attention.js";
 import { PostEventFeedbackExtractionFallback } from "./post-event-feedback-extraction-fallback.service.js";
+import type { PostEventFeedbackExtractionModel } from "./post-event-feedback-extraction.service.js";
 import {
-  FeedbackExtractionGenerationError,
-  type FeedbackAttentionClassificationGenerationResult,
-  type FeedbackExtractionGenerationResult,
-  type PostEventFeedbackExtractionModel,
-} from "./post-event-feedback-extraction.service.js";
-import {
-  FEEDBACK_EXTRACTION_MAX_SOURCE_MESSAGES,
   POST_EVENT_FEEDBACK_FALLBACK_ACK,
   POST_EVENT_FEEDBACK_HANDOFF_REPLY,
-  feedbackExtractionProposalSchema,
-  type FeedbackExtractionMessageView,
-  type FeedbackExtractionProposal,
 } from "./post-event-feedback-extraction.schemas.js";
 import { PostEventFeedbackExtractor } from "./post-event-feedback-extractor.service.js";
 import { PostEventFeedbackIngressService } from "./post-event-feedback-ingress.service.js";
@@ -71,7 +57,6 @@ import { PostEventFeedbackProcessor } from "./post-event-feedback.processor.js";
 import type { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
 import { PostEventFeedbackSweepService } from "./post-event-feedback-sweep.service.js";
 import {
-  FEEDBACK_EXTRACT_QUIET_WINDOW_MS,
   FEEDBACK_JOB_NAMES,
   FEEDBACK_JOB_SCHEMA_VERSION,
   boundObservedMessageText,
@@ -79,6 +64,60 @@ import {
   type FeedbackJobName,
 } from "./post-event-feedback.schemas.js";
 import { FEEDBACK_SWEEP_EVERY_MS } from "./feedback-sweep-scheduler.service.js";
+import {
+  ScriptedExtractionModel,
+  SCRIPT_MODEL,
+} from "./post-event-feedback-loop-model.harness.js";
+import {
+  CAMPAIGN_ID,
+  DEFAULT_CANDIDATES,
+  DEFAULT_PHONE,
+  DEFAULT_RESPONDENT,
+  EVENT_ID,
+  FEEDBACK_LOOP_START,
+  FEEDBACK_RECEIVED_KINDS,
+  MAX_DRAIN_STEPS,
+  PERSON_IDS,
+  RELAY_JOB_ID,
+  TEST_STAFF_ID,
+  parseDuration,
+  type ExpectedJobFailure,
+  type FeedbackExternalAction,
+  type FeedbackLoopOutcome,
+  type FeedbackReceivedKind,
+  type FeedbackScenario,
+  type FeedbackSeedOptions,
+  type FeedbackStep,
+  type ModelFailure,
+  type ScenarioDuration,
+} from "./post-event-feedback-loop-scenario.js";
+
+export {
+  DEFAULT_RESPONDENT,
+  FEEDBACK_RECEIVED_KINDS,
+  type AttentionTurn,
+  type Cite,
+  type ExpectedFeedbackOutcome,
+  type ExpectedJobFailure,
+  type FeedbackExternalAction,
+  type FeedbackLoopOutcome,
+  type FeedbackReceivedKind,
+  type FeedbackReceivedMessage,
+  type FeedbackScenario,
+  type FeedbackSeedOptions,
+  type FeedbackStep,
+  type FeedbackTranscriptEntry,
+  type ModelFailure,
+  type ModelTurn,
+  type ScenarioDuration,
+  type ScriptedAnswer,
+  type ScriptedAttention,
+  type ScriptedNote,
+} from "./post-event-feedback-loop-scenario.js";
+export {
+  ScriptedExtractionModel,
+  type ScriptedModelPause,
+} from "./post-event-feedback-loop-model.harness.js";
 
 /**
  * Fake-backed behavioural harness for the post-event feedback conversation
@@ -143,776 +182,6 @@ import { FEEDBACK_SWEEP_EVERY_MS } from "./feedback-sweep-scheduler.service.js";
  * not to match the desired outcome. A random worker crash therefore cannot
  * turn a known-defect row green, unlike bare `it.fails`.
  */
-
-// ── Fixed identity ──────────────────────────────────────────────────────────
-// Fixed rather than random so a failure is reproducible and a diff is readable.
-// Scenarios never type any of these: names resolve to ids inside the harness.
-
-const CAMPAIGN_ID = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
-const EVENT_ID = "5c2f0b8e-9b1a-4a41-8f27-1a6f9b0c2d10";
-const PERSON_IDS = [
-  "9f3c1a52-6e2b-4b4a-9a17-2cb2a6d13a55",
-  "1b0a2f1c-2d3e-4f50-8a91-0b2c3d4e5f60",
-  "2c1b3a2d-3e4f-5061-9b02-1c3d4e5f6071",
-  "3d2c4b3e-4f50-6172-8c13-2d4e5f607182",
-  "4e3d5c4f-5061-7283-9d24-3e5f60718293",
-  "5f4e6d50-6172-8394-8e35-4f60718293a4",
-  "60517e61-7283-94a5-9f46-5071829304b5",
-  "71628f72-8394-a5b6-8057-61829304b5c6",
-] as const;
-
-const FEEDBACK_LOOP_START = new Date("2026-07-25T20:00:00.000Z");
-export const DEFAULT_RESPONDENT = "Μαρία";
-const DEFAULT_PHONE = "+306900000001";
-const DEFAULT_CANDIDATES = [
-  "Νίκος",
-  "Ελένη",
-  "Κώστας Π.",
-  "Κώστας Γ.",
-] as const;
-
-const RELAY_JOB_ID = "feedback-relay-outbox-v1";
-const MAX_DRAIN_STEPS = 100_000;
-const TEST_STAFF_ID = "staff-loop-harness";
-
-// ── Durations ───────────────────────────────────────────────────────────────
-
-/**
- * `"12s"`, `"3m"`, `"25h"`, `"4d"` — readable in a scenario table — plus one
- * symbolic duration, `"settles"`.
- *
- * **Use `"settles"` whenever the scenario means "long enough for the model to
- * read what was just said".** It resolves against the real quiet window, so
- * tuning that constant does not touch a single scenario. Writing `"20s"` for
- * that intent looks equivalent and is not: it silently couples the row to
- * today's value, and raising the window from 12s to 45s turned forty green rows
- * red at once for no behavioural reason.
- *
- * A literal duration is for scenarios where the *elapsed time itself* is the
- * subject — a reminder at 25h, a reply four days later, a burst typed at 2s
- * intervals.
- */
-export type Duration =
-  | `${number}ms`
-  | `${number}s`
-  | `${number}m`
-  | `${number}h`
-  | `${number}d`
-  | number
-  | "settles";
-
-const DURATION_UNITS: Record<string, number> = {
-  ms: 1,
-  s: 1_000,
-  m: 60_000,
-  h: 3_600_000,
-  d: 86_400_000,
-};
-
-/** Comfortably past the quiet window, whatever the window currently is. */
-const SETTLES_MS = FEEDBACK_EXTRACT_QUIET_WINDOW_MS + 5_000;
-
-function parseDuration(duration: Duration): number {
-  if (typeof duration === "number") {
-    return duration;
-  }
-  if (duration === "settles") {
-    return SETTLES_MS;
-  }
-  const match = /^(?<value>\d+(?:\.\d+)?)(?<unit>ms|s|m|h|d)$/u.exec(duration);
-  const value = match?.groups?.["value"];
-  const unit = match?.groups?.["unit"];
-  if (!value || !unit) {
-    throw new Error(`Unreadable duration: ${duration}`);
-  }
-  return Number(value) * (DURATION_UNITS[unit] ?? 1);
-}
-
-// ── The scenario vocabulary ─────────────────────────────────────────────────
-
-/**
- * Which transcript messages a scripted extraction cites.
- *
- * Scenario authors never see a generated id: a citation is a keyword, the exact
- * text of a participant message, or the 1-based position of a participant
- * message in the transcript. Keywords win over identical message text.
- */
-export type Cite =
-  /** Every participant message this run has not read yet. The default. */
-  | "all-new"
-  /** The newest participant message. */
-  | "last"
-  /** The newest bot message — for proving that bot turns are not testimony. */
-  | "bot"
-  | string
-  | number
-  | readonly (string | number)[];
-
-export type ModelFailure =
-  /** The provider's content filter declined. Retryable, so attempts exhaust. */
-  | "refuses"
-  /** A missing key or a hard rejection. Permanent — no retry, straight to the fallback. */
-  | "unavailable"
-  /** A timeout or a 5xx. Retryable. */
-  | "times_out"
-  /** A response that never satisfies the agreed schema. Retryable. */
-  | "malformed";
-
-export interface ScriptedAnswer {
-  readonly question: FeedbackAnswerQuestionKey;
-  /** Only `event_score` carries a value. */
-  readonly value?: number;
-  /** A display name. An unseeded name is one the model could not resolve. */
-  readonly about?: string;
-  readonly cite?: Cite;
-  readonly confidence?: number;
-}
-
-export interface ScriptedNote {
-  readonly type?: FeedbackNoteType;
-  readonly text: string;
-  readonly about?: string;
-  readonly cite?: Cite;
-  readonly confidence?: number;
-}
-
-export interface ScriptedAttention {
-  readonly category: PostEventFeedbackSafetyCategory;
-  readonly action: PostEventFeedbackRecommendedAction;
-  readonly on?: Cite;
-  readonly confidence?: number;
-}
-
-/** One classification call's worth of signals. Empty means "nothing to flag". */
-export type AttentionTurn = readonly ScriptedAttention[];
-
-/** What the model does the next time it is asked to read the transcript. */
-export interface ModelTurn {
-  readonly answers?: readonly ScriptedAnswer[];
-  readonly notes?: readonly ScriptedNote[];
-  readonly skip?: readonly FeedbackAnswerQuestionKey[];
-  readonly next?: FeedbackAnswerQuestionKey;
-  readonly reply?: string;
-  readonly handoff?: boolean;
-  readonly confidence?: number;
-  /** The provider throws instead of answering. */
-  readonly fails?: ModelFailure;
-}
-
-export type FeedbackExternalAction =
-  /** A WhatsApp message arrived. `text: null` is a voice note, photo or reaction. */
-  | {
-      readonly kind: "inbound";
-      readonly text: string | null;
-      /** Provider event time relative to scenario start; defaults to arrival time. */
-      readonly observedAt?: Duration;
-      /** A different phone than the respondent's. */
-      readonly from?: string;
-      /** Reuse an id to replay a provider redelivery. */
-      readonly providerMessageId?: string;
-    }
-  /** An outbound message was observed on the shared session. */
-  | {
-      readonly kind: "observed_outbound";
-      readonly text: string;
-      /** Provider event time relative to scenario start; defaults to arrival time. */
-      readonly observedAt?: Duration;
-      readonly providerMessageId?: string;
-    }
-  /** An operator used the real staff-facing conversation service. */
-  | {
-      readonly kind: "staff";
-      readonly action: "take_over" | "resume" | "close";
-    }
-  | {
-      readonly kind: "staff";
-      readonly action: "send";
-      readonly text: string;
-    }
-  /** An upstream campaign lifecycle change reached the shared store. */
-  | {
-      readonly kind: "campaign";
-      readonly status: "launched" | "paused" | "closed";
-    }
-  /** The participant's independently owned messaging consent changed. */
-  | {
-      readonly kind: "consent";
-      readonly optedIn: boolean;
-    }
-  /** The next transport send returns this provider outcome. */
-  | {
-      readonly kind: "transport";
-      readonly outcome: "accepted" | "not-accepted" | "unknown";
-    };
-
-export type FeedbackStep =
-  | (FeedbackExternalAction & { readonly after?: Duration })
-  /** Time passed. Delayed extraction runs and the sweeps fire inside it. */
-  | { readonly kind: "wait"; readonly after: Duration }
-  /**
-   * Start advancing the worker clock, wait until the extraction provider call
-   * is genuinely in flight, apply one external action, then release the call.
-   * This is the race vocabulary; scenario code never reaches into the extractor.
-   */
-  | {
-      readonly kind: "during_model";
-      readonly after: Duration;
-      readonly action: FeedbackExternalAction;
-    };
-
-export interface FeedbackSeedOptions {
-  readonly respondent?: string;
-  readonly phone?: string;
-  readonly candidates?: readonly string[];
-  readonly optedIn?: boolean;
-  readonly campaign?: "launched" | "paused" | "closed";
-  readonly control?: "bot" | "human";
-  /** Start from an already-closed conversation. */
-  readonly closed?: "completed" | "stopped" | "expired" | "cancelled";
-  readonly goals?: Partial<
-    Record<FeedbackAnswerQuestionKey, FeedbackConversationGoal["status"]>
-  >;
-  /** Answers recorded before the scenario starts. */
-  readonly answers?: readonly {
-    readonly question: FeedbackAnswerQuestionKey;
-    readonly about?: string;
-    readonly value?: number;
-  }[];
-}
-
-// ── The outcome snapshot ────────────────────────────────────────────────────
-
-export const FEEDBACK_RECEIVED_KINDS = [
-  "intro",
-  "reminder",
-  "reply",
-  "closing",
-  "handoff",
-  "fallback",
-  "stop_ack",
-  /** «δεν μπορούμε να ακούσουμε φωνητικά» — one per conversation, not per note. */
-  "media_notice",
-  "staff",
-] as const;
-
-export type FeedbackReceivedKind = (typeof FEEDBACK_RECEIVED_KINDS)[number];
-
-export interface FeedbackReceivedMessage {
-  /** Assert this. Application-owned copy may also be asserted by `text`. */
-  readonly kind: FeedbackReceivedKind;
-  readonly text: string;
-}
-
-export interface FeedbackTranscriptEntry {
-  readonly who: "participant" | "bot" | "staff" | "system";
-  readonly text: string;
-  /** What the bot was saying. `null` for a participant turn. */
-  readonly kind: FeedbackReceivedKind | null;
-}
-
-/**
- * Where the conversation ended up. The whole assertion vocabulary of the suite.
- *
- * Every field is something a human would look at in the admin or on their
- * phone: what was recorded, who it is about **by name**, what the participant
- * was actually sent, whether an operator was called, and whether the
- * participant's own words still exist. Nothing here is a mechanism, so §7 can
- * delete the goal ladder, the cursor and per-turn extraction without this file
- * changing.
- */
-export interface FeedbackLoopOutcome {
-  readonly lifecycle: "open" | "closed";
-  readonly closedBecause:
-    "completed" | "stopped" | "expired" | "cancelled" | null;
-  readonly control: "bot" | "human";
-  /** The participant's standing consent to be messaged again. */
-  readonly optedIn: boolean;
-
-  /** Recorded answers, by question and by the display name they are about. */
-  readonly answers: readonly {
-    readonly question: FeedbackAnswerQuestionKey;
-    readonly about: string | null;
-    readonly value: number | null;
-  }[];
-  /** Recorded notes, in the order they were written. */
-  readonly notes: readonly {
-    readonly type: FeedbackNoteType;
-    readonly text: string;
-    readonly about: string | null;
-    readonly flagged: boolean;
-  }[];
-
-  readonly needsAttention: boolean;
-  readonly flaggedMessages: readonly {
-    readonly text: string;
-    readonly categories: readonly PostEventFeedbackSafetyCategory[];
-    readonly action: PostEventFeedbackRecommendedAction;
-  }[];
-  readonly alerts: readonly {
-    readonly reason: string;
-    readonly detail: readonly string[];
-  }[];
-
-  /** What the participant actually received, in order, read from the transport. */
-  readonly received: readonly FeedbackReceivedMessage[];
-  /** The same thing counted by kind. Every kind is present, so `{ closing: 0 }` asserts. */
-  readonly receivedCount: Record<FeedbackReceivedKind, number>;
-  /** The conversation as a human reads it, in order. */
-  readonly transcript: readonly FeedbackTranscriptEntry[];
-
-  /** Participant words the system still holds somewhere a human can read them. */
-  readonly retainedParticipantText: readonly string[];
-  /**
-   * Participant words that arrived and are held nowhere, in full, any more.
-   * `lostParticipantText: []` is how a scenario says "nothing this person said
-   * was destroyed" without naming a store or a processing status.
-   */
-  readonly lostParticipantText: readonly string[];
-}
-
-type Expected<T> = T extends readonly (infer Element)[]
-  ? readonly Expected<Element>[]
-  : T extends Date
-    ? T
-    : T extends object
-      ? { readonly [Key in keyof T]?: Expected<T[Key]> }
-      : T;
-
-export type ExpectedFeedbackOutcome = Expected<FeedbackLoopOutcome>;
-
-interface FeedbackScenarioBase {
-  /** The snake_case name from the scenario catalogue, e.g. `burst_typist`. */
-  readonly id: string;
-  /** The human sentence describing what should happen. */
-  readonly title: string;
-  readonly seed?: FeedbackSeedOptions;
-  readonly script?: readonly ModelTurn[];
-  /** One entry per model call, not per scenario step. */
-  readonly attention?: readonly AttentionTurn[];
-  /**
-   * Narrow escape hatch for a scenario that deliberately fills the transcript
-   * with many irrelevant turns. Normal rows must script every provider call so
-   * an accidental extra paid call cannot hide behind an empty default result.
-   */
-  readonly allowUnscriptedExtractionCalls?: boolean;
-  /**
-   * Exact background failures intentionally caused by this scenario. Every
-   * unlisted failure fails the row before outcome assertions run.
-   */
-  readonly expectedJobFailures?: readonly ExpectedJobFailure[];
-  readonly steps: readonly FeedbackStep[];
-  readonly expect: ExpectedFeedbackOutcome;
-}
-
-export interface ExpectedJobFailure {
-  readonly job: FeedbackJobName;
-  readonly kind: ModelFailure;
-  readonly count: number;
-}
-
-export type FeedbackScenario =
-  | (FeedbackScenarioBase & {
-      readonly defect?: undefined;
-      readonly knownCurrent?: never;
-    })
-  | (FeedbackScenarioBase & {
-      /**
-       * Diagnostic label for a known production defect. Clear this together
-       * with `knownCurrent` when the desired outcome lands.
-       */
-      readonly defect: string;
-      /**
-       * The exact observable subset produced by the known defect today.
-       * `expect` remains the desired product contract.
-       */
-      readonly knownCurrent: ExpectedFeedbackOutcome;
-    });
-
-// ── The scripted model ──────────────────────────────────────────────────────
-
-const SCRIPT_MODEL = "google/gemini-3.6-flash";
-const SCRIPT_USAGE = { inputTokens: 800, outputTokens: 110, totalTokens: 910 };
-
-export interface ScriptedModelPause {
-  /** Resolves only after the provider boundary has been entered. */
-  readonly started: Promise<void>;
-  /** Let the provider call return to the extractor. Idempotent. */
-  release(): void;
-}
-
-interface PendingModelPause {
-  readonly phase: "extraction" | "attention";
-  readonly started: Promise<void>;
-  markStarted(): void;
-  readonly released: Promise<void>;
-  release(): void;
-}
-
-/**
- * The model boundary, driven by a scenario's script.
- *
- * `propose` receives rendered Greek prose and must answer with transcript
- * message **ids** the scenario cannot know in advance, so the job driver tells
- * this class which conversation the run is about and citations are resolved
- * here against the live transcript. Every proposal is parsed by the real
- * proposal schema before it is returned, exactly as the production boundary
- * does, so a scripted turn cannot smuggle in a shape the provider could not
- * have produced.
- */
-export class ScriptedExtractionModel {
-  private turns: readonly ModelTurn[] = [];
-  private attentionTurns: readonly AttentionTurn[] = [];
-  private turnIndex = 0;
-  private attentionIndex = 0;
-  private failuresTaken = 0;
-  private runConversationId: string | undefined;
-  private readonly attemptedTurnIndexes = new Set<number>();
-  private readonly emittedFailures: ModelFailure[] = [];
-  private pendingPause: PendingModelPause | undefined;
-  private allowUnscriptedExtractionCalls = false;
-
-  constructor(
-    private readonly conversations: FakeFeedbackConversations,
-    private readonly idByName: ReadonlyMap<string, string>,
-  ) {}
-
-  script(
-    turns: readonly ModelTurn[],
-    allowUnscriptedExtractionCalls = false,
-  ): void {
-    this.turns = [...turns];
-    this.turnIndex = 0;
-    this.failuresTaken = 0;
-    this.attemptedTurnIndexes.clear();
-    this.emittedFailures.splice(0);
-    this.allowUnscriptedExtractionCalls = allowUnscriptedExtractionCalls;
-  }
-
-  scriptAttention(turns: readonly AttentionTurn[]): void {
-    this.attentionTurns = [...turns];
-    this.attentionIndex = 0;
-  }
-
-  /** Called by the job driver immediately before an extraction job is dispatched. */
-  beginRun(conversationId: string): void {
-    this.runConversationId = conversationId;
-  }
-
-  /**
-   * Pause exactly the next provider call at the requested phase. The extractor
-   * has already snapshotted its context when `started` resolves.
-   */
-  pauseNext(
-    phase: "extraction" | "attention" = "extraction",
-  ): ScriptedModelPause {
-    if (this.pendingPause) {
-      throw new Error("A scripted model pause is already waiting");
-    }
-    let markStarted!: () => void;
-    let release!: () => void;
-    const started = new Promise<void>((resolve) => {
-      markStarted = resolve;
-    });
-    const released = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    this.pendingPause = {
-      phase,
-      started,
-      markStarted,
-      released,
-      release,
-    };
-    return { started, release };
-  }
-
-  /** The 1-based scripted call positions that no provider call reached. */
-  get unconsumedExtractionCalls(): readonly number[] {
-    return this.turns.flatMap((_turn, index) =>
-      this.attemptedTurnIndexes.has(index) ? [] : [index + 1],
-    );
-  }
-
-  /** The 1-based attention call positions that no classifier call reached. */
-  get unconsumedAttentionCalls(): readonly number[] {
-    return this.attentionTurns.flatMap((_turn, index) =>
-      index < this.attentionIndex ? [] : [index + 1],
-    );
-  }
-
-  /** Debugging aid retained for direct harness callers. */
-  get unusedTurns(): number {
-    return this.unconsumedExtractionCalls.length;
-  }
-
-  takeEmittedFailure(): ModelFailure | undefined {
-    return this.emittedFailures.shift();
-  }
-
-  async propose(): Promise<FeedbackExtractionGenerationResult> {
-    const conversation = this.requireRunConversation();
-    await this.waitAtPause("extraction");
-    const turn = this.turns[this.turnIndex];
-    if (!turn) {
-      if (this.allowUnscriptedExtractionCalls) {
-        return this.emit(buildProposal({}, conversation, this.idByName));
-      }
-      throw new Error(
-        `Unexpected extraction provider call ${this.turnIndex + 1}: the scenario script is exhausted`,
-      );
-    }
-
-    this.attemptedTurnIndexes.add(this.turnIndex);
-    const failure = this.takeScriptedFailure(turn);
-    if (failure) {
-      throw failure;
-    }
-    this.turnIndex += 1;
-    this.failuresTaken = 0;
-    return this.emit(buildProposal(turn, conversation, this.idByName));
-  }
-
-  async classifyAttention(
-    messages: readonly FeedbackExtractionMessageView[],
-    targetMessageIds: readonly string[],
-  ): Promise<FeedbackAttentionClassificationGenerationResult> {
-    await this.waitAtPause("attention");
-    const turn = this.attentionTurns[this.attentionIndex] ?? [];
-    this.attentionIndex += 1;
-    return {
-      model: SCRIPT_MODEL,
-      usage: { inputTokens: 180, outputTokens: 40, totalTokens: 220 },
-      estimatedPromptTokens: 200,
-      signals: turn.map((signal) => ({
-        category: signal.category,
-        recommendedAction: signal.action,
-        sourceMessageIds: resolveAttentionCite(
-          signal.on ?? "all-new",
-          messages,
-          targetMessageIds,
-        ),
-        confidence: signal.confidence ?? 0.9,
-      })),
-    };
-  }
-
-  private emit(
-    proposal: Record<string, unknown>,
-  ): FeedbackExtractionGenerationResult {
-    let parsed: FeedbackExtractionProposal;
-    try {
-      parsed = feedbackExtractionProposalSchema.parse(proposal);
-    } catch {
-      // The production boundary reports a response that never satisfied the
-      // agreed schema exactly this way.
-      throw new FeedbackExtractionGenerationError(
-        "extraction_failed",
-        true,
-        "validation_failed",
-      );
-    }
-    return { model: SCRIPT_MODEL, proposal: parsed, usage: SCRIPT_USAGE };
-  }
-
-  private takeScriptedFailure(turn: ModelTurn): Error | undefined {
-    if (!turn.fails) {
-      return undefined;
-    }
-    this.failuresTaken += 1;
-    this.emittedFailures.push(turn.fails);
-    return modelFailure(turn.fails);
-  }
-
-  private async waitAtPause(phase: PendingModelPause["phase"]): Promise<void> {
-    const pause = this.pendingPause;
-    if (!pause || pause.phase !== phase) {
-      return;
-    }
-    this.pendingPause = undefined;
-    pause.markStarted();
-    await pause.released;
-  }
-
-  private requireRunConversation(): FeedbackConversationDocument {
-    if (!this.runConversationId) {
-      throw new Error(
-        "The scripted model was called outside an extraction run",
-      );
-    }
-    return this.conversations.get(this.runConversationId);
-  }
-}
-
-function modelFailure(
-  failure: ModelFailure,
-): FeedbackExtractionGenerationError {
-  switch (failure) {
-    case "unavailable":
-      return new FeedbackExtractionGenerationError(
-        "provider_unavailable",
-        false,
-        "provider_error",
-      );
-    case "refuses":
-      return new FeedbackExtractionGenerationError(
-        "extraction_failed",
-        true,
-        "provider_refusal",
-      );
-    case "malformed":
-      return new FeedbackExtractionGenerationError(
-        "extraction_failed",
-        true,
-        "validation_failed",
-      );
-    default:
-      return new FeedbackExtractionGenerationError(
-        "extraction_failed",
-        true,
-        "provider_error",
-      );
-  }
-}
-
-function buildProposal(
-  turn: ModelTurn,
-  conversation: FeedbackConversationDocument,
-  idByName: ReadonlyMap<string, string>,
-): Record<string, unknown> {
-  const subject = (
-    about: string | undefined,
-  ): { id: string | null; mentioned: string | null } => {
-    if (!about) {
-      return { id: null, mentioned: null };
-    }
-    return { id: idByName.get(about) ?? null, mentioned: about };
-  };
-
-  return {
-    answers: (turn.answers ?? []).map((answer) => {
-      const resolved = subject(answer.about);
-      return {
-        questionKey: answer.question,
-        valueInt: answer.value ?? null,
-        subjectParticipantId: resolved.id,
-        subjectMentionedName: resolved.mentioned,
-        sourceMessageIds: resolveCite(answer.cite ?? "all-new", conversation),
-        confidence: answer.confidence ?? 0.9,
-      };
-    }),
-    notes: (turn.notes ?? []).map((note) => {
-      const resolved = subject(note.about);
-      return {
-        noteType: note.type ?? "general",
-        text: note.text,
-        subjectParticipantId: resolved.id,
-        subjectMentionedName: resolved.mentioned,
-        sourceMessageIds: resolveCite(note.cite ?? "all-new", conversation),
-        confidence: note.confidence ?? 0.7,
-      };
-    }),
-    skippedGoals: [...(turn.skip ?? [])],
-    nextGoal: turn.next ?? null,
-    reply: turn.reply ?? null,
-    handoff: turn.handoff ?? false,
-    confidence: turn.confidence ?? 0.9,
-  };
-}
-
-function resolveCite(
-  cite: Cite,
-  conversation: FeedbackConversationDocument,
-): string[] {
-  const participant = conversation.messages.filter(
-    (message) => message.actor === "participant",
-  );
-  const unread = participant.filter(
-    (message) => message.seq > conversation.extraction.cursorSeq,
-  );
-  const pick = (reference: string | number): string[] => {
-    if (typeof reference === "number") {
-      const message = participant[reference - 1];
-      if (!message) {
-        throw new Error(
-          `The scenario cited participant message #${reference}, which does not exist`,
-        );
-      }
-      return [message.id];
-    }
-    switch (reference) {
-      case "all-new":
-        return (unread.length > 0 ? unread : participant.slice(-1)).map(
-          (message) => message.id,
-        );
-      case "last":
-        return participant.at(-1) ? [participant.at(-1)!.id] : [];
-      case "bot": {
-        const bot = conversation.messages.filter(
-          (message) => message.actor === "bot",
-        );
-        return bot.at(-1) ? [bot.at(-1)!.id] : [];
-      }
-      default: {
-        const match = participant.find(
-          (message) => message.text === reference.trim(),
-        );
-        if (!match) {
-          throw new Error(
-            `The scenario cited a participant message reading "${reference}", which was never sent`,
-          );
-        }
-        return [match.id];
-      }
-    }
-  };
-
-  const references = Array.isArray(cite)
-    ? (cite as readonly (string | number)[])
-    : [cite as string | number];
-  const ids = [...new Set(references.flatMap((reference) => pick(reference)))];
-  if (ids.length === 0) {
-    throw new Error(
-      "The scenario scripted an extraction before the participant said anything",
-    );
-  }
-  // Do not trim to the production bound here. The real proposal schema must
-  // accept or reject exactly what the scenario scripted; slicing with the same
-  // constant would let a bound regression silently rewrite the test input.
-  return ids;
-}
-
-function resolveAttentionCite(
-  cite: Cite,
-  messages: readonly FeedbackExtractionMessageView[],
-  targetMessageIds: readonly string[],
-): string[] {
-  if (cite === "all-new") {
-    return [...targetMessageIds].slice(
-      0,
-      FEEDBACK_EXTRACTION_MAX_SOURCE_MESSAGES,
-    );
-  }
-  if (cite === "last") {
-    const last = targetMessageIds.at(-1);
-    return last ? [last] : [];
-  }
-  const references = Array.isArray(cite)
-    ? (cite as readonly (string | number)[])
-    : [cite as string | number];
-  const participant = messages.filter(
-    (message) => message.actor === "participant",
-  );
-  return references.flatMap((reference) => {
-    if (typeof reference === "number") {
-      const message = participant[reference - 1];
-      return message ? [message.id] : [];
-    }
-    const match = participant.find(
-      (message) => message.text === reference.trim(),
-    );
-    return match ? [match.id] : [];
-  });
-}
 
 // ── The queue ───────────────────────────────────────────────────────────────
 
@@ -1011,7 +280,7 @@ export interface FeedbackLoopHarness {
     readonly error: unknown;
   }[];
   now(): Date;
-  advance(after: Duration): Promise<void>;
+  advance(after: ScenarioDuration): Promise<void>;
   apply(step: FeedbackStep): Promise<void>;
   run(steps: readonly FeedbackStep[]): Promise<void>;
   outcome(): FeedbackLoopOutcome;
@@ -1400,7 +669,7 @@ export async function createFeedbackLoopHarness(
     setNow(target);
   };
 
-  const advance = async (after: Duration): Promise<void> => {
+  const advance = async (after: ScenarioDuration): Promise<void> => {
     await drainTo(nowMs + parseDuration(after));
   };
 
