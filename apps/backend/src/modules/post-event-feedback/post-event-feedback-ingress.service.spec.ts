@@ -9,9 +9,10 @@ import {
   PostEventFeedbackIngressService,
 } from "./post-event-feedback-ingress.service.js";
 import type { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
-import type {
-  FeedbackJobData,
-  FeedbackJobName,
+import {
+  FEEDBACK_OBSERVED_TEXT_HARD_LIMIT,
+  type FeedbackJobData,
+  type FeedbackJobName,
 } from "./post-event-feedback.schemas.js";
 
 const ingressId = "b1c9e0a4-2c65-4a29-9a2e-2d0a3f2e1b77";
@@ -88,7 +89,10 @@ describe("PostEventFeedbackIngressService", () => {
 
     await expect(
       service.recordObservedMessage(
-        { ...observed, text: "x".repeat(4_097) },
+        {
+          ...observed,
+          text: "x".repeat(FEEDBACK_OBSERVED_TEXT_HARD_LIMIT + 1),
+        },
         "correlation-4",
       ),
     ).rejects.toThrow();

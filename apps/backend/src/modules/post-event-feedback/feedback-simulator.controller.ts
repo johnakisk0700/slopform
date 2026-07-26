@@ -1,10 +1,14 @@
 import {
   Controller,
+  BadRequestException,
+  ConflictException,
   createParamDecorator,
   type ExecutionContext,
   Get,
   HttpCode,
   HttpStatus,
+  NotFoundException,
+  Param,
   Post,
   Query,
   ServiceUnavailableException,
@@ -15,12 +19,23 @@ import type { Request } from "express";
 import { ZodResponse } from "nestjs-zod";
 
 import { PostEventFeedbackEnqueueError } from "./post-event-feedback-ingress.service.js";
-import { FeedbackSimulatorService } from "./feedback-simulator.service.js";
 import {
+  FeedbackSimulatorRunNotFoundError,
+  FeedbackSimulatorRunRejectedError,
+  FeedbackSimulatorScenarioNotFoundError,
+  FeedbackSimulatorService,
+} from "./feedback-simulator.service.js";
+import {
+  FeedbackSimulatorCatalogResponseDto,
+  FeedbackSimulatorPreflightDto,
+  FeedbackSimulatorPreflightResponseDto,
+  FeedbackSimulatorRunParamDto,
+  FeedbackSimulatorRunResponseDto,
   FeedbackSimulatorThreadQueryDto,
   FeedbackSimulatorThreadResponseDto,
   InjectFeedbackSimulatorMessageDto,
   InjectFeedbackSimulatorMessageResponseDto,
+  StartFeedbackSimulatorRunDto,
 } from "./feedback-simulator.schemas.js";
 import { FeedbackConversationCorrelationIdDto } from "./post-event-feedback-conversation.schemas.js";
 
@@ -34,6 +49,88 @@ const RequestCorrelationId = createParamDecorator(
 @Controller("dev/feedback/simulator")
 export class FeedbackSimulatorController {
   constructor(private readonly simulator: FeedbackSimulatorService) {}
+
+  @Get("catalog")
+  @ApiOperation({ operationId: "getFeedbackSimulatorCatalog" })
+  @ZodResponse({ status: 200, type: FeedbackSimulatorCatalogResponseDto })
+  getCatalog(): FeedbackSimulatorCatalogResponseDto {
+    return this.simulator.getCatalog();
+  }
+
+  @Post("preflight")
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ operationId: "preflightFeedbackSimulatorRun" })
+  @ZodResponse({ status: 200, type: FeedbackSimulatorPreflightResponseDto })
+  async preflightRun(
+    @Body() body: FeedbackSimulatorPreflightDto,
+    @RequestCorrelationId() requestId: FeedbackConversationCorrelationIdDto,
+  ): Promise<FeedbackSimulatorPreflightResponseDto> {
+    try {
+      return await this.simulator.preflightScenarioRun(
+        {
+          campaignId: body.campaignId,
+          conversationId: body.conversationId,
+          scenarioId: body.scenarioId,
+          expectedModel: body.expectedModel,
+        },
+        String(requestId),
+      );
+    } catch (error) {
+      if (error instanceof FeedbackSimulatorScenarioNotFoundError) {
+        throw new BadRequestException(error.message);
+      }
+      if (error instanceof FeedbackSimulatorRunRejectedError) {
+        throw new ConflictException(error.message);
+      }
+      throw error;
+    }
+  }
+
+  @Post("runs")
+  @HttpCode(HttpStatus.ACCEPTED)
+  @ApiOperation({ operationId: "startFeedbackSimulatorRun" })
+  @ZodResponse({ status: 202, type: FeedbackSimulatorRunResponseDto })
+  async startRun(
+    @Body() body: StartFeedbackSimulatorRunDto,
+    @RequestCorrelationId() requestId: FeedbackConversationCorrelationIdDto,
+  ): Promise<FeedbackSimulatorRunResponseDto> {
+    try {
+      return await this.simulator.startScenarioRun(
+        {
+          campaignId: body.campaignId,
+          conversationId: body.conversationId,
+          scenarioId: body.scenarioId,
+          expectedModel: body.expectedModel,
+          confirmPaidRun: body.confirmPaidRun,
+        },
+        String(requestId),
+      );
+    } catch (error) {
+      if (error instanceof FeedbackSimulatorScenarioNotFoundError) {
+        throw new BadRequestException(error.message);
+      }
+      if (error instanceof FeedbackSimulatorRunRejectedError) {
+        throw new ConflictException(error.message);
+      }
+      throw error;
+    }
+  }
+
+  @Get("runs/:runId")
+  @ApiOperation({ operationId: "getFeedbackSimulatorRun" })
+  @ZodResponse({ status: 200, type: FeedbackSimulatorRunResponseDto })
+  async getRun(
+    @Param() params: FeedbackSimulatorRunParamDto,
+  ): Promise<FeedbackSimulatorRunResponseDto> {
+    try {
+      return await this.simulator.getScenarioRun(params.runId);
+    } catch (error) {
+      if (error instanceof FeedbackSimulatorRunNotFoundError) {
+        throw new NotFoundException(error.message);
+      }
+      throw error;
+    }
+  }
 
   @Post("inject")
   @HttpCode(HttpStatus.OK)

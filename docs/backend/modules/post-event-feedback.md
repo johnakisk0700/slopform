@@ -828,28 +828,85 @@ inserts one row into `feedback_sim_outbound` (no foreign keys — dev-only
 traffic, simplest replay/query shape). The outbox `provider_log_id` is the sink
 row primary key; `provider_message_id` is `sim-<uuid>`.
 
-### Dev inject and sim thread
+### Dev HTTP surface and headless real-model evaluation
 
 When `FEEDBACK_SIMULATOR_ENABLED=true`, `NODE_ENV` is not `production`, and
 `TRANSPORT_MODE=simulated`, the HTTP process mounts
 [`PostEventFeedbackSimulatorHttpModule`](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-simulator-http.module.ts):
 
-| Operation                             | `operationId`                    | Contract                                                                                                                                                                                                                     |
-| ------------------------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /dev/feedback/simulator/inject` | `injectFeedbackSimulatorMessage` | `phoneE164`, `text`, optional `fromMe` → `ObservedProviderMessage` → [`PostEventFeedbackIngressService.recordObservedMessage`](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-ingress.service.ts) |
-| `GET /dev/feedback/simulator/thread`  | `getFeedbackSimulatorThread`     | Merges ingress rows and `feedback_sim_outbound` for one phone (WP9 composer)                                                                                                                                                 |
+| Operation                                | Purpose                                                                                                                                                                                                                        |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `POST /dev/feedback/simulator/inject`    | Existing manual composer path: `ObservedProviderMessage` → normal durable ingress.                                                                                                                                             |
+| `GET /dev/feedback/simulator/thread`     | Existing manual composer read: merge ingress rows and `feedback_sim_outbound` for one phone.                                                                                                                                   |
+| `GET /dev/feedback/simulator/catalog`    | Read the configured model, the two permitted eval models (`openai/gpt-5.6-luna`, `qwen/qwen3.7-max`) and corpus cases eligible from a clean intro baseline.                                                                    |
+| `POST /dev/feedback/simulator/preflight` | Read-only validation of a finished event, launched campaign, clean open bot conversation, sent intro in the simulated sink, pending goals, cursor 0, opt-in and candidate capacity; resolves exact live bindings and messages. |
+| `POST /dev/feedback/simulator/runs`      | Explicitly confirmed paid run. Repairs a missing intro transcript idempotently, then writes scenario messages through normal ingress; it never supplies a per-run model override.                                              |
+| `GET /dev/feedback/simulator/runs/:id`   | Poll ordinary ingress, Mongo cursor/model, results, run-created outbox rows and their simulated sink rows.                                                                                                                     |
 
 The published `openapi.json` keeps `FEEDBACK_SIMULATOR_ENABLED=false`, so these
-routes stay out of the generated admin client until deliberately promoted.
+routes stay out of the generated admin client. The admin product screen is not
+an eval runner; it retains only the existing manual inject/thread composer.
+
+Run the headless tool against an already-running local API and worker:
+
+```sh
+pnpm feedback:simulate --list
+pnpm feedback:simulate \
+  --campaign <campaign-uuid> \
+  --conversation <conversation-uuid> \
+  --scenario <eligible-corpus-id> \
+  --model openai/gpt-5.6-luna \
+  --preflight
+pnpm feedback:simulate \
+  --campaign <campaign-uuid> \
+  --conversation <conversation-uuid> \
+  --scenario <eligible-corpus-id> \
+  --model openai/gpt-5.6-luna \
+  --confirm-paid-run
+```
+
+The preflight never repairs or injects. The paid command requires the literal
+confirmation flag, sends a stable `x-request-id`, and prints run, scenario,
+model, event, campaign, conversation, respondent and correlation identifiers,
+the exact rendered batch/rubric, plus inbox/results links. The normal
+PostgreSQL/MongoDB/Redis worker path remains the source of truth:
+ingress → materialization → delayed extraction → answer/note/outbox writes →
+relay → `feedback_sim_outbound`. No real WhatsApp adapter is reachable.
+Preflight reports whether a worker registration is visible through the feedback
+queue but remains useful when the worker is stopped, so inspecting readiness
+cannot wake sweep jobs. Confirmed start hard-blocks before intro repair or
+ingress when no worker is registered.
+
+One logical run is not necessarily one invoice line: it makes one extraction
+call plus one or more attention-classification calls (classification batches at
+ten new participant messages). The confirmation covers all of them.
+
+The runner deliberately exposes only corpus cases that fit one leading-edge
+45-second window and whose rubric is valid from the clean intro baseline.
+Multi-turn, later-goal and deterministic ingress cases are rejected instead of
+being crushed into a misleading burst. A confirmed run permanently consumes
+the conversation and performs no cleanup; use a separate conversation with an
+equivalent clean baseline for the other model. Candidate bindings can differ,
+so compare the printed inputs rather than calling the baselines magically
+identical.
+
+Run status is process-local and disappears on an API restart. The conversation,
+observed extraction model, answers, notes, outbox and simulated sends are normal
+durable records and remain inspectable in the existing admin views. Worker logs
+contain provider token usage, but usage is not durably stored; no authoritative
+price card exists, so the CLI reports token/cost fields as unavailable rather
+than manufacturing accounting.
 
 ### WP8 tests
 
 Integration coverage runs intro delivery → inject reply → materialize →
 `feedback.extract.v1` enqueue (extraction execution remains WP5) and asserts the
-resulting transcript holds both sides: the intro as `actor: bot` at `seq 1` with
-its `outboxId`, the reply as `actor: participant` at `seq 2` with its
-`ingressId`. Composition tests assert production cannot enable the HTTP
-simulator.
+resulting transcript holds both sides. Focused real-model-runner tests cover
+read-only preflight, paid confirmation, live candidate rendering, cumulative
+leading-edge eligibility, production rejection, failed extraction precedence
+and completion only after the run-created outbox reaches the simulated sink.
+They use fakes and never call a provider. Composition tests assert production
+cannot enable the HTTP simulator.
 
 ## WP3 conversation persistence (implemented)
 

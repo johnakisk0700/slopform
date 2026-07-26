@@ -82,6 +82,12 @@ hooks before the application loads those libraries.
 - `WASENDER_SESSION_API_KEY` is an optional worker-only session bearer key.
   `TRANSPORT_MODE` selects the feedback outbound adapter (`simulated` default,
   or `wasender` which requires the session key).
+  `FEEDBACK_SIMULATOR_ENABLED=true` mounts the non-production dev simulator
+  surface only when the transport is `simulated`. It enables the existing
+  manual composer and the explicitly invoked `pnpm feedback:simulate` headless
+  evaluator; production ignores the flag and cannot mount either route set.
+  Real-model runs still use the worker-wide `FEEDBACK_EXTRACTION_MODEL` and
+  require `--confirm-paid-run`.
   `WASENDER_WEBHOOK_ENABLED=true` separately requires a 32-character minimum
   `WASENDER_WEBHOOK_SECRET` and mounts the public provider callback only in the
   HTTP graph. See [Wasender integration](wasender.md); leave the webhook off

@@ -531,8 +531,24 @@ function createSimulatorHarness(): SimulatorHarness {
       transport,
     ),
     simulator: new FeedbackSimulatorService(
+      queue as unknown as Queue<FeedbackJobData, void, FeedbackJobName>,
+      {
+        get(key: string) {
+          return {
+            NODE_ENV: "test",
+            FEEDBACK_SIMULATOR_ENABLED: true,
+            TRANSPORT_MODE: "simulated",
+            FEEDBACK_EXTRACTION_MODEL: "google/gemini-3.6-flash",
+          }[key];
+        },
+      } as never,
       ingress,
       repository as unknown as PostEventFeedbackRepository,
+      conversations as unknown as FeedbackConversationRepository,
+      {} as never,
+      {} as never,
+      {} as never,
+      outboundTranscript,
     ),
     materializer: new PostEventFeedbackMaterializer(
       queue as unknown as Queue<FeedbackJobData, void, FeedbackJobName>,

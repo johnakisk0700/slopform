@@ -14,6 +14,9 @@ Product modules:
   (question contract, stub events upstream, PostgreSQL persistence, Mongo
   conversation schema v2, durable webhook ingress and materialization);
   extraction, sending, campaign launch and UI still pending.
+- [`post-event-feedback-scenarios.md`](post-event-feedback-scenarios.md) — the
+  executable behavior suite, its desired end states and known defects, plus the
+  mocked harness and occasional real-model corpus contracts.
 - [`events.md`](events.md) — stub events, attendance corrections and the shared
   D16 feedback-candidate helper.
 - [`assistant.md`](assistant.md) — authenticated, owner-scoped asynchronous AI
