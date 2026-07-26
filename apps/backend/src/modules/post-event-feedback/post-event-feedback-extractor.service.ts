@@ -27,9 +27,9 @@ import {
   type FeedbackExtractOutcome,
 } from "./post-event-feedback-metrics.service.js";
 import {
-  POST_EVENT_FEEDBACK_QUESTION_SET_V1,
   isPostEventFeedbackAnswerQuestionKey,
   noteSignature,
+  resolveCampaignCopy,
   type PostEventFeedbackQuestionSetCopy,
 } from "./post-event-feedback-question-set.js";
 import {
@@ -181,7 +181,7 @@ export class PostEventFeedbackExtractor {
     }
 
     const context = await this.buildContext(conversation, campaign);
-    const copy = resolveQuestionCopy(campaign.questions);
+    const copy = resolveCampaignCopy(campaign.questions);
     const prompt = buildFeedbackExtractionPrompt({ context, copy });
     const estimatedPromptTokens = estimateFeedbackExtractionTokens(prompt);
 
@@ -1041,32 +1041,6 @@ function lastParticipantSeq(
     }
   }
   return undefined;
-}
-
-/**
- * The campaign's launch copy snapshot owns the wording, so a later copy edit
- * never rewrites a live questionnaire. The versioned constant is the fallback
- * when the snapshot is missing or malformed.
- */
-export function resolveQuestionCopy(
-  questions: Record<string, unknown> | undefined,
-): PostEventFeedbackQuestionSetCopy {
-  const snapshot = (questions as { copy?: Record<string, unknown> } | undefined)
-    ?.copy;
-  const resolved: PostEventFeedbackQuestionSetCopy = {
-    ...POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy,
-  };
-
-  if (!snapshot) {
-    return resolved;
-  }
-  for (const key of Object.keys(resolved) as (keyof typeof resolved)[]) {
-    const value = snapshot[key];
-    if (typeof value === "string" && value.trim().length > 0) {
-      resolved[key] = value.trim();
-    }
-  }
-  return resolved;
 }
 
 /**

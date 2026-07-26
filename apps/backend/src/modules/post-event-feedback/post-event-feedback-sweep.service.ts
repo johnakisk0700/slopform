@@ -12,9 +12,9 @@ import type { FeedbackConversationDocument } from "../conversations/feedback-con
 import { ParticipantsRepository } from "../participants/participants.repository.js";
 import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
 import {
-  buildPostEventFeedbackQuestionLaunchSnapshot,
   createFeedbackReminderDedupeKey,
   renderPostEventFeedbackCopy,
+  resolveCampaignCopy,
   type PostEventFeedbackQuestionSetCopy,
 } from "./post-event-feedback-question-set.js";
 import {
@@ -266,7 +266,7 @@ export class PostEventFeedbackSweepService {
       return false;
     }
 
-    const copy = resolveCopy(campaign.questions);
+    const copy = resolveCampaignCopy(campaign.questions);
     const displayName =
       participant.preferredName?.trim() || participant.emailNormalized;
 
@@ -433,8 +433,7 @@ function renderReminderBody(
   const hasAnswered = conversation.goals.some(
     (goal) => goal.status === "answered",
   );
-  // A campaign launched before this copy existed carries a snapshot without it.
-  const followUp = copy.reminder_followup as string | undefined;
+  const followUp = copy.reminder_followup;
 
   if (!hasAnswered || !openGoal || !followUp) {
     return renderPostEventFeedbackCopy(copy.reminder, displayName);
@@ -443,12 +442,4 @@ function renderReminderBody(
     "{question}",
     openGoal.prompt,
   );
-}
-
-function resolveCopy(questions: unknown): PostEventFeedbackQuestionSetCopy {
-  const record = questions as { copy?: PostEventFeedbackQuestionSetCopy };
-  if (record.copy) {
-    return record.copy;
-  }
-  return buildPostEventFeedbackQuestionLaunchSnapshot().copy;
 }

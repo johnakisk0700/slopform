@@ -23,6 +23,7 @@ import {
   buildPostEventFeedbackQuestionLaunchSnapshot,
   createFeedbackIntroDedupeKey,
   renderPostEventFeedbackCopy,
+  resolveCampaignCopy,
   type PostEventFeedbackQuestionSetCopy,
 } from "./post-event-feedback-question-set.js";
 import {
@@ -339,7 +340,7 @@ export class PostEventFeedbackCampaignService {
       );
     }
 
-    const snapshot = resolveLaunchCopy(campaign);
+    const snapshot = resolveCampaignCopy(campaign.questions);
     const result = await this.ensureConversationAndIntro({
       campaign,
       attendee,
@@ -521,16 +522,4 @@ function toCampaignView(
     conversationCount,
     conversationsCreated,
   };
-}
-
-function resolveLaunchCopy(
-  campaign: FeedbackCampaignRow,
-): PostEventFeedbackQuestionSetCopy {
-  const questions = campaign.questions as {
-    copy?: PostEventFeedbackQuestionSetCopy;
-  };
-  if (questions.copy) {
-    return questions.copy;
-  }
-  return buildPostEventFeedbackQuestionLaunchSnapshot().copy;
 }

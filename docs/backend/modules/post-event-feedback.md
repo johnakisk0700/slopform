@@ -642,11 +642,12 @@ Versioned questionnaire constants, the deterministic STOP matcher and Greek
 extraction fixtures live under
 [`apps/backend/src/modules/post-event-feedback/`](../../../apps/backend/src/modules/post-event-feedback/).
 
-| Artifact            | Source                                                      | Contract                                                                                                                                               |
-| ------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Question set v1     | `packages/database` + `post-event-feedback-question-set.ts` | Keys `FEEDBACK_ANSWER_QUESTION_KEYS` / `FEEDBACK_NOTE_TYPES` in the database schema; draft Greek copy in question-set, editable without schema changes |
-| STOP matcher (D14)  | `post-event-feedback-stop-matcher.ts`                       | Pure function; `STOP`, `STOP ALL`, `UNSUBSCRIBE`, `ΔΙΑΚΟΠΗ`, `ΣΤΟΠ`; case-, whitespace- and accent-insensitive                                         |
-| Extraction fixtures | `post-event-feedback-fixtures.ts`                           | Typed Greek transcripts with expected-outcome annotations for later WP5 evals                                                                          |
+| Artifact            | Source                                                         | Contract                                                                                                                                                                                                                |
+| ------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Question set v1     | `packages/database` + `post-event-feedback-question-set.ts`    | Keys `FEEDBACK_ANSWER_QUESTION_KEYS` / `FEEDBACK_NOTE_TYPES` in the database schema; draft Greek copy in question-set, editable without schema changes                                                                  |
+| Campaign copy       | `resolveCampaignCopy` in `post-event-feedback-question-set.ts` | Merges the campaign launch snapshot per key onto the versioned defaults; missing or blank keys use the default (so a pre-existing campaign still sends new copy keys such as `reminder_followup` / `cannot_read_media`) |
+| STOP matcher (D14)  | `post-event-feedback-stop-matcher.ts`                          | Pure function; `STOP`, `STOP ALL`, `UNSUBSCRIBE`, `ΔΙΑΚΟΠΗ`, `ΣΤΟΠ`; case-, whitespace- and accent-insensitive                                                                                                          |
+| Extraction fixtures | `post-event-feedback-fixtures.ts`                              | Typed Greek transcripts with expected-outcome annotations for later WP5 evals                                                                                                                                           |
 
 The STOP matcher is the sole deterministic text matcher. It compares whole
 commands; stripping punctuation there would widen the command rather than
@@ -712,8 +713,11 @@ reopened.
 
 STOP is matched by the WP0 deterministic matcher **before** any model call and
 works in either control mode: a takeover does not make opt-out negotiable. The
-acknowledgement body comes from the campaign's launch copy snapshot, falling
-back to the versioned constant.
+acknowledgement body is resolved by `resolveCampaignCopy` in
+`post-event-feedback-question-set.ts`: the campaign's launch copy snapshot owns
+each key, with per-key fallback to the versioned constant when a key is missing
+or blank. A campaign launched before a copy key existed therefore sends that
+default instead of nothing.
 
 An observed outbound is correlated first by provider message id and then by the
 oldest unlinked outbox row of that conversation with the same body. That

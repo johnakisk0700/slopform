@@ -131,6 +131,32 @@ export function buildPostEventFeedbackQuestionLaunchSnapshot(): PostEventFeedbac
   };
 }
 
+/**
+ * The campaign's launch copy snapshot owns the wording, so a later copy edit
+ * never rewrites a live questionnaire. The versioned constant is the fallback
+ * when the snapshot is missing or malformed.
+ */
+export function resolveCampaignCopy(
+  questions: Record<string, unknown> | undefined,
+): PostEventFeedbackQuestionSetCopy {
+  const snapshot = (questions as { copy?: Record<string, unknown> } | undefined)
+    ?.copy;
+  const resolved: PostEventFeedbackQuestionSetCopy = {
+    ...POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy,
+  };
+
+  if (!snapshot) {
+    return resolved;
+  }
+  for (const key of Object.keys(resolved) as (keyof typeof resolved)[]) {
+    const value = snapshot[key];
+    if (typeof value === "string" && value.trim().length > 0) {
+      resolved[key] = value.trim();
+    }
+  }
+  return resolved;
+}
+
 /** Substitutes `{name}` in intro/reminder copy with a display name. */
 export function renderPostEventFeedbackCopy(
   template: string,

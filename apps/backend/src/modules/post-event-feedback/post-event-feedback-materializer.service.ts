@@ -28,7 +28,7 @@ import {
 } from "./post-event-feedback-metrics.service.js";
 import {
   createFeedbackMediaNoticeDedupeKey,
-  POST_EVENT_FEEDBACK_QUESTION_SET_V1,
+  resolveCampaignCopy,
 } from "./post-event-feedback-question-set.js";
 import { matchesPostEventFeedbackStopCommand } from "./post-event-feedback-stop-matcher.js";
 import { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
@@ -456,7 +456,10 @@ export class PostEventFeedbackMaterializer {
             conversationId: conversation._id,
             campaignId: conversation.campaignId,
             kind: "system",
-            body: resolveStopAcknowledgementCopy(campaign?.questions),
+            body: resolveCampaignCopy(campaign?.questions).stop_ack.slice(
+              0,
+              FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH,
+            ),
             dedupeKey: `${FEEDBACK_STOP_ACK_DEDUPE_PREFIX}-${conversation._id}`,
           },
         );
@@ -775,7 +778,10 @@ export class PostEventFeedbackMaterializer {
         conversationId: conversation._id,
         campaignId: conversation.campaignId,
         kind: "system",
-        body: resolveCannotReadMediaCopy(campaign.questions),
+        body: resolveCampaignCopy(campaign.questions).cannot_read_media.slice(
+          0,
+          FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH,
+        ),
         dedupeKey: createFeedbackMediaNoticeDedupeKey(conversation._id),
       }),
     );
@@ -871,37 +877,4 @@ function fitToTranscript(text: string): {
     text: text.slice(0, FEEDBACK_CONVERSATION_MESSAGE_MAX_STORED_TEXT_LENGTH),
     truncated: true,
   };
-}
-
-/**
- * The campaign's launch copy snapshot owns the acknowledgement wording, so a
- * later copy edit never rewrites a live questionnaire. The versioned constant
- * is the fallback when the snapshot is missing or malformed.
- */
-function resolveStopAcknowledgementCopy(
-  questions: Record<string, unknown> | undefined,
-): string {
-  return resolveCampaignCopy(questions, "stop_ack");
-}
-
-/** A campaign launched before this copy existed falls back to the constant. */
-function resolveCannotReadMediaCopy(
-  questions: Record<string, unknown> | undefined,
-): string {
-  return resolveCampaignCopy(questions, "cannot_read_media");
-}
-
-function resolveCampaignCopy(
-  questions: Record<string, unknown> | undefined,
-  key: "stop_ack" | "cannot_read_media",
-): string {
-  const copy = (questions as { copy?: Record<string, unknown> } | undefined)
-    ?.copy;
-  const snapshot = typeof copy?.[key] === "string" ? copy[key] : "";
-  const resolved =
-    snapshot.trim().length > 0
-      ? snapshot.trim()
-      : POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy[key];
-
-  return resolved.slice(0, FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH);
 }

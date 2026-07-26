@@ -40,10 +40,7 @@ import {
   type FeedbackExtractionMessageView,
   type FeedbackExtractionProposal,
 } from "./post-event-feedback-extraction.schemas.js";
-import {
-  PostEventFeedbackExtractor,
-  resolveQuestionCopy,
-} from "./post-event-feedback-extractor.service.js";
+import { PostEventFeedbackExtractor } from "./post-event-feedback-extractor.service.js";
 import { PostEventFeedbackIngressService } from "./post-event-feedback-ingress.service.js";
 import { PostEventFeedbackConversationService } from "./post-event-feedback-conversation.service.js";
 import {
