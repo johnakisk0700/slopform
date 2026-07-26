@@ -27,8 +27,8 @@ import type { ParticipantsRepository } from "../participants/participants.reposi
 import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
 import { buildPostEventFeedbackQuestionLaunchSnapshot } from "./post-event-feedback-question-set.js";
 import type { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
+import { conversationCapabilities } from "./inbox/conversation.view.js";
 import {
-  conversationCapabilities,
   FeedbackConversationActionNotAllowedError,
   PostEventFeedbackConversationService,
 } from "./post-event-feedback-conversation.service.js";
