@@ -542,9 +542,24 @@ Verify: `pnpm --filter @join-the-six/backend exec vitest run src/modules/post-ev
 Do not: also move `toDetailView`/`toResultsView` (L557-629) — each does a repository read.
 
 **WP-30 — Pure helpers out of the extractor** · M · deps: WP-11, WP-12, WP-13
-Files: `post-event-feedback-extractor.service.ts` (1125 → ~600) → new siblings for `resolveOutbound` (L465-545, the pure four-copy/dedupe-key decision), `resolveGoalStatuses` + `isCompleting` (L908-958), the attention grouping (L960-1027). Rename `resolveSkip` (L347) → `skipOutcome` — it returns a `FeedbackExtractOutcome | undefined`, not a boolean.
-Verify: `pnpm --filter @join-the-six/backend exec vitest run src/modules/post-event-feedback`
-Do not: move `reviewBeforeSending` (L547-604) — it does two reads and stays in the service.
+Files: `post-event-feedback-extractor.service.ts` (1125 → ~600) → three new files, named here after the
+first dispatch correctly refused to invent them, all landing in `extraction/` per the target tree and
+the WP-14/WP-29 precedent:
+
+- **`extraction/outbound-reply.ts`** — `resolveOutbound` (L465-545), today a private method that never
+  touches `this`. It decides which reply the bot sends next, including the safety case where it
+  deliberately sends nothing; the return type is already `OutboundReply`. Convert it to a module
+  function exactly as WP-27 did, and carry the safety comment with it — it is the reason the function
+  exists.
+- **`extraction/goal-progress.ts`** — `resolveGoalStatuses` + `isCompleting` (L908-958): how goals
+  advance and whether every goal is settled.
+- **`extraction/operator-attention.ts`** — the attention grouping (L960-1027): `needsOperatorAttention`,
+  `isSafetyOrHandoffAttention`, `GroupedMessageAttention`, `groupSafetySignalsByMessage` and
+  `strongerRecommendedAction`. Named for the question it answers — does this run need a person — which
+  is what distinguishes it from `post-event-feedback-attention.ts` (the schema) and
+  `post-event-feedback-attention-classification.ts` (the model call). Rename `resolveSkip` (L347) → `skipOutcome` — it returns a `FeedbackExtractOutcome | undefined`, not a boolean.
+  Verify: `pnpm --filter @join-the-six/backend exec vitest run src/modules/post-event-feedback`
+  Do not: move `reviewBeforeSending` (L547-604) — it does two reads and stays in the service.
 
 **WP-31 — Four pure helpers out of the materializer** · S · deps: WP-12
 File: `post-event-feedback-materializer.service.ts` L852-907 → `question-set.ts` (`fitToTranscript` + the campaign-copy resolvers, most of which WP-12 already collapsed). Also move `FEEDBACK_STOP_ACK_DEDUPE_PREFIX` (L66) into `question-set.ts` as `createFeedbackStopAckDedupeKey(conversationId)`, replacing the string concatenation at L460.
