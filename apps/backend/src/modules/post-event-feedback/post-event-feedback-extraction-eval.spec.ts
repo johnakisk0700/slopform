@@ -16,7 +16,7 @@ import {
 } from "./post-event-feedback-extraction.schemas.js";
 import {
   buildFeedbackExtractionPrompt,
-  estimateFeedbackExtractionTokens,
+  estimatePromptTokens,
 } from "./post-event-feedback-prompt.js";
 import { matchesPostEventFeedbackStopCommand } from "./post-event-feedback-stop-matcher.js";
 
@@ -575,7 +575,7 @@ describe("post-event feedback extraction eval (WP0 fixtures)", () => {
     const costs = POST_EVENT_FEEDBACK_EXTRACTION_FIXTURES.map((fixture) => ({
       id: fixture.id,
       messages: fixture.messages.length,
-      tokens: estimateFeedbackExtractionTokens(
+      tokens: estimatePromptTokens(
         buildFeedbackExtractionPrompt({
           context: contextFor(fixture),
           copy: POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy,

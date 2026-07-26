@@ -165,9 +165,10 @@ function formatTranscript(context: FeedbackExtractionContext): string {
  */
 export const FEEDBACK_EXTRACTION_CHARS_PER_TOKEN = 2.5;
 
-export function estimateFeedbackExtractionTokens(
-  prompt: FeedbackExtractionPrompt,
-): number {
+export function estimatePromptTokens(prompt: {
+  readonly system: string;
+  readonly user: string;
+}): number {
   const characters = prompt.system.length + prompt.user.length;
   return Math.ceil(characters / FEEDBACK_EXTRACTION_CHARS_PER_TOKEN);
 }

@@ -678,8 +678,14 @@ is MOVE unless it brings its own test.
 ### Invariants every commit must hold
 
 - **796 passing tests across 107 files** — backend 671/94, admin 104/9, database 21/4. No number
-  drops and none silently rises. A packet that changes a test count, or touches a spec file it did
-  not declare, is out of scope — revert it. The baseline was 791 at `b773211`; WP-05 deliberately
+  drops and none silently rises. A packet that changes a test count, or changes what a spec
+  **asserts** without declaring it, is out of scope — revert it. Updating a spec's import path or a
+  renamed identifier is not that: it is mechanical, expected when a packet moves something a spec
+  reads, and preferable to the alternative. WP-18 shipped an
+  `export { estimatePromptTokens as estimateFeedbackExtractionTokens }` alias purely to avoid editing
+  one import line in `post-event-feedback-extraction-eval.spec.ts`; the alias was removed in review,
+  because a permanent compatibility shim is a worse outcome than a one-line import change. The
+  baseline was 791 at `b773211`; WP-05 deliberately
   deleted one test, WP-07 deliberately added three (`api-error-message.spec.ts`), and the queue
   shutdown fix added three more (`queue-lifecycle.service.spec.ts`) — that last one is not a packet,
   it is the repair of an intermittent failure that was making this very invariant unreadable. A test

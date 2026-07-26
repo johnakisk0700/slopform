@@ -11,7 +11,6 @@ import type {
 
 export const FEEDBACK_ATTENTION_CLASSIFICATION_BATCH_SIZE = 10;
 const FEEDBACK_ATTENTION_PRECEDING_CONTEXT_MESSAGES = 6;
-const FEEDBACK_ATTENTION_CLASSIFICATION_CHARS_PER_TOKEN = 2.5;
 
 const feedbackAttentionClassificationResultSchema = z
   .object({
@@ -134,15 +133,6 @@ export function buildFeedbackAttentionClassificationPrompt(
       })),
     }),
   };
-}
-
-export function estimateFeedbackAttentionClassificationTokens(
-  prompt: FeedbackAttentionClassificationPrompt,
-): number {
-  return Math.ceil(
-    (prompt.system.length + prompt.user.length) /
-      FEEDBACK_ATTENTION_CLASSIFICATION_CHARS_PER_TOKEN,
-  );
 }
 
 /**

@@ -55,7 +55,7 @@ import {
 } from "./post-event-feedback-attention.js";
 import {
   buildFeedbackExtractionPrompt,
-  estimateFeedbackExtractionTokens,
+  estimatePromptTokens,
 } from "./post-event-feedback-prompt.js";
 import { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
 
@@ -184,7 +184,7 @@ export class PostEventFeedbackExtractor {
     const context = await this.buildContext(conversation, campaign);
     const copy = resolveCampaignCopy(campaign.questions);
     const prompt = buildFeedbackExtractionPrompt({ context, copy });
-    const estimatedPromptTokens = estimateFeedbackExtractionTokens(prompt);
+    const estimatedPromptTokens = estimatePromptTokens(prompt);
 
     const [generated, attention] = await Promise.all([
       this.generation.propose(prompt),

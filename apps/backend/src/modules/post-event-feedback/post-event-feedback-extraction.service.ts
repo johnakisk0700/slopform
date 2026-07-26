@@ -17,12 +17,14 @@ import {
   assistantModelSchema,
   type AssistantModel,
 } from "../assistant/assistant.schemas.js";
-import type { FeedbackExtractionPrompt } from "./post-event-feedback-prompt.js";
+import {
+  type FeedbackExtractionPrompt,
+  estimatePromptTokens,
+} from "./post-event-feedback-prompt.js";
 import {
   FEEDBACK_ATTENTION_CLASSIFICATION_BATCH_SIZE,
   FeedbackAttentionClassificationValidationError,
   buildFeedbackAttentionClassificationPrompt,
-  estimateFeedbackAttentionClassificationTokens,
   feedbackAttentionClassificationProposalSchema,
   validateFeedbackAttentionClassification,
 } from "./post-event-feedback-attention-classification.js";
@@ -231,8 +233,7 @@ export class PostEventFeedbackExtractionModel {
           messages,
           targetMessageIds: batch,
         });
-        estimatedPromptTokens +=
-          estimateFeedbackAttentionClassificationTokens(prompt);
+        estimatedPromptTokens += estimatePromptTokens(prompt);
         const result = await generateObject({
           model,
           schema: feedbackAttentionClassificationProposalSchema,
