@@ -608,10 +608,38 @@ Do not: split campaigns from transport. `messageOutbox.campaignId` is a `notNull
 ### Group D — folder moves (largest diffs; land last, one per commit, never mixed with behaviour)
 
 **WP-36 — Split `post-event-feedback.repository.ts` per table** · L · deps: WP-29, WP-30, WP-31
-File: `post-event-feedback.repository.ts` (1049) → five `@Injectable`s: campaigns + eligible-attendee join (L69-211), answers + notes + the advisory lock at L1040-1048 (L213-473), `provider_message_ingress` (L475-612, L835-854, L1013-1025), `message_outbox` (L614-830, L856-969), `feedback_sim_outbound` (L971-1038). Update `post-event-feedback-{core,http,worker}.module.ts` providers/exports.
-Done: every module resolves at runtime — check by booting, not only by typecheck.
-Verify: `pnpm --filter @join-the-six/backend build && pnpm --filter @join-the-six/backend test`
-Do not: drop the campaign-status read inside `claimOutboxBatch` (L877-930). It calls `findCampaignById` inside its own outbox transaction to enforce the paused-campaign kill switch; the outbox repository must keep that read or take the status as a parameter, or a paused campaign silently re-arms.
+Rewritten 2026-07-26 after the first dispatch refused it for naming none of the five results.
+`post-event-feedback.repository.ts` (1049) becomes five `@Injectable`s. Each lands **directly in its
+target folder**, as WP-14, WP-29, WP-30 and WP-33 already did, so WP-37 to WP-40 have nothing left to
+move for these files:
+
+| Lines                                      | File                                   | Class                           |
+| ------------------------------------------ | -------------------------------------- | ------------------------------- |
+| L69-211                                    | `campaign/campaign.repository.ts`      | `FeedbackCampaignRepository`    |
+| L213-473 + the advisory lock at L1040-1048 | `extraction/results.repository.ts`     | `FeedbackResultsRepository`     |
+| L475-612, L835-854, L1013-1025             | `ingress/ingress.repository.ts`        | `FeedbackIngressRepository`     |
+| L614-830, L856-969                         | `outbox/outbox.repository.ts`          | `FeedbackOutboxRepository`      |
+| L971-1038                                  | `simulator/sim-outbound.repository.ts` | `FeedbackSimOutboundRepository` |
+
+Shared exports go with the table they describe: `FeedbackEligibleAttendee` and
+`FeedbackCampaignWithEventTitle` to the campaign file, every `FEEDBACK_OUTBOX_*` constant to the outbox
+file. `PostEventFeedbackRepository` is deleted, not kept as a facade — every consumer injects the
+repositories it actually uses, and a class that forwards to five others is the shim this campaign
+exists to remove. Update the providers and exports in
+`post-event-feedback-{core,http,worker}.module.ts`.
+
+**The paused-campaign kill switch is the one thing that must not move.** `claimOutboxBatch`
+(L877-930) calls `findCampaignById` **inside its own outbox transaction**, and `findCampaignById`
+already takes an optional executor for exactly that reason. So `FeedbackOutboxRepository` injects
+`FeedbackCampaignRepository` and keeps calling it with the transaction. Do **not** read the status
+before opening the transaction and pass it in: a pause landing between that read and the claim would
+be missed, and a paused campaign would keep sending. Do not duplicate the campaigns query into the
+outbox file either.
+Done: every module resolves at runtime — boot it, do not only typecheck. `claimOutboxBatch` still
+reads campaign status inside its transaction.
+Verify: `pnpm --filter @join-the-six/backend build && pnpm --filter @join-the-six/backend typecheck && pnpm --filter @join-the-six/backend test`
+Do not: leave a re-export of the old class, change any SQL, or alter a method signature beyond the
+executor parameter the split requires.
 
 **WP-37 — `simulator/` folder** · M · deps: WP-33, WP-36
 Move `feedback-simulator.{service,controller,schemas}.ts`, `post-event-feedback-simulator-http.module.ts`, the run-status file from WP-33 and the sim-outbound repository from WP-36 into `post-event-feedback/simulator/`, dropping the prefixes. Most isolated group (dev/staging only, behind three env conditions) — do it first to prove the move recipe.
