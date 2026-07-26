@@ -1,11 +1,11 @@
+import {
+  FEEDBACK_ANSWER_QUESTION_KEYS,
+  FEEDBACK_NOTE_TYPES,
+  type FeedbackAnswerQuestionKey,
+  type FeedbackNoteType,
+} from "@join-the-six/database";
 import { z } from "zod";
 
-import {
-  POST_EVENT_FEEDBACK_ANSWER_QUESTION_KEYS,
-  POST_EVENT_FEEDBACK_NOTE_TYPES,
-  type PostEventFeedbackAnswerQuestionKey,
-  type PostEventFeedbackNoteType,
-} from "./post-event-feedback-question-set.js";
 import {
   postEventFeedbackRecommendedActionSchema,
   postEventFeedbackSafetyCategorySchema,
@@ -74,7 +74,7 @@ const subjectMentionSchema = z
 
 export const feedbackExtractionAnswerProposalSchema = z
   .object({
-    questionKey: z.enum(POST_EVENT_FEEDBACK_ANSWER_QUESTION_KEYS),
+    questionKey: z.enum(FEEDBACK_ANSWER_QUESTION_KEYS),
     /** Only `event_score` carries a value; other questions are directed edges. */
     valueInt: z.number().int().nullable(),
     /** A candidate id the model believes it resolved. Never trusted as given. */
@@ -91,7 +91,7 @@ export const feedbackExtractionAnswerProposalSchema = z
 
 export const feedbackExtractionNoteProposalSchema = z
   .object({
-    noteType: z.enum(POST_EVENT_FEEDBACK_NOTE_TYPES),
+    noteType: z.enum(FEEDBACK_NOTE_TYPES),
     text: z.string().trim().min(1).max(FEEDBACK_EXTRACTION_NOTE_MAX_LENGTH),
     subjectParticipantId: messageReferenceSchema.nullable(),
     subjectMentionedName: subjectMentionSchema,
@@ -135,10 +135,10 @@ export const feedbackExtractionProposalSchema = z
      * conversation whose remaining answer is «κανένας» could never complete.
      */
     skippedGoals: z
-      .array(z.enum(POST_EVENT_FEEDBACK_ANSWER_QUESTION_KEYS))
-      .max(POST_EVENT_FEEDBACK_ANSWER_QUESTION_KEYS.length),
+      .array(z.enum(FEEDBACK_ANSWER_QUESTION_KEYS))
+      .max(FEEDBACK_ANSWER_QUESTION_KEYS.length),
     nextGoal: z
-      .enum(POST_EVENT_FEEDBACK_ANSWER_QUESTION_KEYS)
+      .enum(FEEDBACK_ANSWER_QUESTION_KEYS)
       .nullable()
       .describe(
         "The next unanswered goal after applying this proposal, or null when all goals are terminal.",
@@ -191,20 +191,20 @@ export interface FeedbackExtractionCandidateView {
 }
 
 export interface FeedbackExtractionGoalView {
-  readonly key: PostEventFeedbackAnswerQuestionKey;
+  readonly key: FeedbackAnswerQuestionKey;
   readonly ordinal: number;
   readonly prompt: string;
   readonly status: FeedbackExtractionGoalStatus;
 }
 
 export interface FeedbackExtractionAcceptedAnswerView {
-  readonly questionKey: PostEventFeedbackAnswerQuestionKey;
+  readonly questionKey: FeedbackAnswerQuestionKey;
   readonly subjectParticipantId: string | null;
   readonly valueInt: number | null;
 }
 
 export interface FeedbackExtractionAcceptedNoteView {
-  readonly noteType: PostEventFeedbackNoteType;
+  readonly noteType: FeedbackNoteType;
   readonly text: string;
   readonly subjectParticipantId: string | null;
 }
@@ -254,12 +254,12 @@ export type FeedbackExtractionRejectionReason =
 export interface FeedbackExtractionRejection {
   readonly scope: "answer" | "note" | "safety_signal" | "goal";
   readonly reason: FeedbackExtractionRejectionReason;
-  readonly questionKey?: PostEventFeedbackAnswerQuestionKey;
-  readonly noteType?: PostEventFeedbackNoteType;
+  readonly questionKey?: FeedbackAnswerQuestionKey;
+  readonly noteType?: FeedbackNoteType;
 }
 
 export interface ValidatedFeedbackAnswer {
-  readonly questionKey: PostEventFeedbackAnswerQuestionKey;
+  readonly questionKey: FeedbackAnswerQuestionKey;
   readonly valueInt: number | null;
   readonly subjectParticipantId: string | null;
   readonly sourceMessageIds: readonly string[];
@@ -267,7 +267,7 @@ export interface ValidatedFeedbackAnswer {
 }
 
 export interface ValidatedFeedbackNote {
-  readonly noteType: PostEventFeedbackNoteType;
+  readonly noteType: FeedbackNoteType;
   readonly text: string;
   readonly subjectParticipantId: string | null;
   readonly sourceMessageIds: readonly string[];
@@ -295,8 +295,8 @@ export type FeedbackExtractionReplySuppressionReason =
 export interface ValidatedFeedbackExtraction {
   readonly answers: readonly ValidatedFeedbackAnswer[];
   readonly notes: readonly ValidatedFeedbackNote[];
-  readonly skippedGoals: readonly PostEventFeedbackAnswerQuestionKey[];
-  readonly nextGoal: PostEventFeedbackAnswerQuestionKey | null;
+  readonly skippedGoals: readonly FeedbackAnswerQuestionKey[];
+  readonly nextGoal: FeedbackAnswerQuestionKey | null;
   readonly reply: string | null;
   readonly replySuppressedReason: FeedbackExtractionReplySuppressionReason | null;
   readonly safetySignals: readonly ValidatedFeedbackSafetySignal[];

@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  POST_EVENT_FEEDBACK_ANSWER_QUESTION_KEYS,
+  FEEDBACK_ANSWER_QUESTION_KEYS,
+  FEEDBACK_NOTE_TYPES,
   POST_EVENT_FEEDBACK_COPY_KEYS,
-  POST_EVENT_FEEDBACK_NOTE_TYPES,
   POST_EVENT_FEEDBACK_QUESTION_SET_V1,
   POST_EVENT_FEEDBACK_QUESTION_SET_VERSION,
   buildPostEventFeedbackQuestionLaunchSnapshot,
@@ -14,16 +14,13 @@ import {
 describe("post-event feedback question set v1", () => {
   it("locks version 1 answer keys, note types and Greek copy from the plan", () => {
     expect(POST_EVENT_FEEDBACK_QUESTION_SET_VERSION).toBe(1);
-    expect(POST_EVENT_FEEDBACK_ANSWER_QUESTION_KEYS).toEqual([
+    expect(FEEDBACK_ANSWER_QUESTION_KEYS).toEqual([
       "event_score",
       "liked",
       "meet_again",
       "avoid",
     ]);
-    expect(POST_EVENT_FEEDBACK_NOTE_TYPES).toEqual([
-      "activity_interest",
-      "general",
-    ]);
+    expect(FEEDBACK_NOTE_TYPES).toEqual(["activity_interest", "general"]);
     expect(POST_EVENT_FEEDBACK_COPY_KEYS).toEqual([
       "intro",
       "event_score",

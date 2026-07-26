@@ -1,4 +1,5 @@
 import {
+  FEEDBACK_ANSWER_QUESTION_KEYS,
   FEEDBACK_CAMPAIGN_STATUSES,
   FEEDBACK_NOTE_STATUSES,
   FEEDBACK_NOTE_TYPES,
@@ -14,7 +15,6 @@ import {
 } from "../../infrastructure/auth/auth.schemas.js";
 import { FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH } from "../conversations/feedback-conversation.schemas.js";
 import { feedbackConversationMessageAttentionSchema } from "./post-event-feedback-attention.js";
-import { POST_EVENT_FEEDBACK_ANSWER_QUESTION_KEYS } from "./post-event-feedback-question-set.js";
 
 export const feedbackConversationCapabilitiesSchema = z
   .object({
@@ -27,7 +27,7 @@ export const feedbackConversationCapabilitiesSchema = z
 
 export const feedbackConversationGoalProgressSchema = z
   .object({
-    key: z.enum(POST_EVENT_FEEDBACK_ANSWER_QUESTION_KEYS),
+    key: z.enum(FEEDBACK_ANSWER_QUESTION_KEYS),
     ordinal: z.number().int().positive(),
     status: z.enum(["pending", "asked", "answered", "skipped"]),
   })
@@ -161,7 +161,7 @@ export const feedbackAnswerViewSchema = z
     id: z.uuid(),
     campaignId: z.uuid(),
     conversationId: z.uuid(),
-    questionKey: z.enum(POST_EVENT_FEEDBACK_ANSWER_QUESTION_KEYS),
+    questionKey: z.enum(FEEDBACK_ANSWER_QUESTION_KEYS),
     valueInt: z.number().int().min(1).max(5).nullable(),
     respondentParticipantId: z.uuid(),
     respondentDisplayName: z.string().min(1).max(200).nullable(),
@@ -216,7 +216,7 @@ export const feedbackConversationResultsSchema = z
 
 export const feedbackCampaignResultsQuerySchema = z
   .object({
-    questionKey: z.enum(POST_EVENT_FEEDBACK_ANSWER_QUESTION_KEYS).optional(),
+    questionKey: z.enum(FEEDBACK_ANSWER_QUESTION_KEYS).optional(),
     participantId: z.uuid().optional(),
     reviewStatus: z.enum(FEEDBACK_NOTE_STATUSES).optional(),
   })

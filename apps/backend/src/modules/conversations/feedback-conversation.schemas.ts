@@ -2,8 +2,9 @@ import { createHash } from "node:crypto";
 
 import { z } from "zod";
 
+import { FEEDBACK_ANSWER_QUESTION_KEYS } from "@join-the-six/database";
+
 import {
-  POST_EVENT_FEEDBACK_ANSWER_QUESTION_KEYS,
   POST_EVENT_FEEDBACK_QUESTION_SET_V1,
   type PostEventFeedbackQuestionSetCopy,
 } from "../post-event-feedback/post-event-feedback-question-set.js";
@@ -92,7 +93,7 @@ export const feedbackConversationControlSchema = z
   });
 
 export const feedbackConversationGoalKeySchema = z.enum(
-  POST_EVENT_FEEDBACK_ANSWER_QUESTION_KEYS,
+  FEEDBACK_ANSWER_QUESTION_KEYS,
 );
 
 export const feedbackConversationGoalSchema = z

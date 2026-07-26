@@ -1862,10 +1862,7 @@ interface FeedbackOutcome {
   lifecycle: "open" | "closed";
   closedBecause: "completed" | "stopped" | "expired" | "cancelled" | null;
   control: "bot" | "human";
-  goals: Record<
-    PostEventFeedbackAnswerQuestionKey,
-    FeedbackConversationGoal["status"]
-  >;
+  goals: Record<FeedbackAnswerQuestionKey, FeedbackConversationGoal["status"]>;
   answers: { question: string; about: string | null; value: number | null }[];
   notes: {
     type: string;

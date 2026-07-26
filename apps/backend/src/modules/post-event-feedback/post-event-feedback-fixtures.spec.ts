@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  POST_EVENT_FEEDBACK_ANSWER_QUESTION_KEYS,
-  POST_EVENT_FEEDBACK_NOTE_TYPES,
+  FEEDBACK_ANSWER_QUESTION_KEYS,
+  FEEDBACK_NOTE_TYPES,
+} from "@join-the-six/database";
+import {
   isPostEventFeedbackAnswerQuestionKey,
   isPostEventFeedbackNoteType,
 } from "./post-event-feedback-question-set.js";
@@ -86,7 +88,7 @@ describe("post-event feedback extraction fixtures", () => {
 
   it("requires every answer question key to appear in at least one fixture", () => {
     const coveredKeys = new Set<
-      (typeof POST_EVENT_FEEDBACK_ANSWER_QUESTION_KEYS)[number]
+      (typeof FEEDBACK_ANSWER_QUESTION_KEYS)[number]
     >();
     for (const fixture of POST_EVENT_FEEDBACK_EXTRACTION_FIXTURES) {
       for (const answer of fixture.expected.answers) {
@@ -104,9 +106,7 @@ describe("post-event feedback extraction fixtures", () => {
   });
 
   it("requires every note type to appear in at least one fixture", () => {
-    const coveredNoteTypes = new Set<
-      (typeof POST_EVENT_FEEDBACK_NOTE_TYPES)[number]
-    >();
+    const coveredNoteTypes = new Set<(typeof FEEDBACK_NOTE_TYPES)[number]>();
     for (const fixture of POST_EVENT_FEEDBACK_EXTRACTION_FIXTURES) {
       for (const note of fixture.expected.notes) {
         coveredNoteTypes.add(note.noteType);

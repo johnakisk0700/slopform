@@ -1,7 +1,7 @@
 import type {
-  PostEventFeedbackAnswerQuestionKey,
-  PostEventFeedbackNoteType,
-} from "./post-event-feedback-question-set.js";
+  FeedbackAnswerQuestionKey,
+  FeedbackNoteType,
+} from "@join-the-six/database";
 
 export type PostEventFeedbackFixtureActor =
   "bot" | "participant" | "staff" | "system";
@@ -18,14 +18,14 @@ export type PostEventFeedbackFixtureCandidate = {
 };
 
 export type PostEventFeedbackFixtureExpectedAnswer = {
-  questionKey: PostEventFeedbackAnswerQuestionKey;
+  questionKey: FeedbackAnswerQuestionKey;
   valueInt?: number;
   subjectParticipantIds?: readonly string[];
   skipped?: boolean;
 };
 
 export type PostEventFeedbackFixtureExpectedNote = {
-  noteType: PostEventFeedbackNoteType;
+  noteType: FeedbackNoteType;
   text: string;
   subjectParticipantId?: string | null;
   flaggedForReview?: boolean;

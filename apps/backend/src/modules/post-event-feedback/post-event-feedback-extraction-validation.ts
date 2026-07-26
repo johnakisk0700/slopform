@@ -1,3 +1,4 @@
+import type { FeedbackAnswerQuestionKey } from "@join-the-six/database";
 import { resolvePostEventFeedbackCandidateByName } from "./post-event-feedback-name-matcher.js";
 import {
   foldPostEventFeedbackText,
@@ -8,7 +9,6 @@ import {
   isPostEventFeedbackAnswerQuestionKey,
   isPostEventFeedbackNoteType,
   type PostEventFeedbackAnswerQuestionDefinition,
-  type PostEventFeedbackAnswerQuestionKey,
 } from "./post-event-feedback-question-set.js";
 import type {
   FeedbackExtractionAnswerProposal,
@@ -95,7 +95,7 @@ export function validateFeedbackExtractionProposal(
     rejections,
   );
 
-  const answeredKeys = new Set<PostEventFeedbackAnswerQuestionKey>([
+  const answeredKeys = new Set<FeedbackAnswerQuestionKey>([
     ...context.acceptedAnswers.map((answer) => answer.questionKey),
     ...answersResult.answers.map((answer) => answer.questionKey),
   ]);
@@ -434,13 +434,13 @@ function validateNotes(
  * and the same reasoning forbids retroactively skipping one.
  */
 function validateSkippedGoals(
-  proposals: readonly PostEventFeedbackAnswerQuestionKey[],
+  proposals: readonly FeedbackAnswerQuestionKey[],
   context: FeedbackExtractionContext,
-  answeredKeys: ReadonlySet<PostEventFeedbackAnswerQuestionKey>,
+  answeredKeys: ReadonlySet<FeedbackAnswerQuestionKey>,
   rejections: FeedbackExtractionRejection[],
-): PostEventFeedbackAnswerQuestionKey[] {
+): FeedbackAnswerQuestionKey[] {
   const goalKeys = new Set(context.goals.map((goal) => goal.key));
-  const skipped: PostEventFeedbackAnswerQuestionKey[] = [];
+  const skipped: FeedbackAnswerQuestionKey[] = [];
 
   for (const key of proposals) {
     if (!goalKeys.has(key) || answeredKeys.has(key)) {
@@ -460,9 +460,9 @@ function validateSkippedGoals(
 }
 
 function resolveNextGoal(
-  nextGoal: PostEventFeedbackAnswerQuestionKey | null,
+  nextGoal: FeedbackAnswerQuestionKey | null,
   context: FeedbackExtractionContext,
-): PostEventFeedbackAnswerQuestionKey | null {
+): FeedbackAnswerQuestionKey | null {
   if (!nextGoal) {
     return null;
   }
@@ -534,7 +534,7 @@ function checkProvenance(
 }
 
 function answerDefinition(
-  key: PostEventFeedbackAnswerQuestionKey,
+  key: FeedbackAnswerQuestionKey,
 ): PostEventFeedbackAnswerQuestionDefinition {
   const definition = POST_EVENT_FEEDBACK_QUESTION_SET_V1.answerQuestions.find(
     (question) => question.key === key,

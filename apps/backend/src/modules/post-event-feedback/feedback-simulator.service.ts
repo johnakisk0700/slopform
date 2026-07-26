@@ -47,7 +47,7 @@ import {
   POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS,
   type PostEventFeedbackRealModelCorpusCase,
 } from "./post-event-feedback-real-model-corpus.js";
-import { POST_EVENT_FEEDBACK_ANSWER_QUESTION_KEYS } from "./post-event-feedback-question-set.js";
+import { FEEDBACK_ANSWER_QUESTION_KEYS } from "./post-event-feedback-question-set.js";
 import {
   boundObservedMessageText,
   createFeedbackExtractJobId,
@@ -1034,10 +1034,10 @@ function hasCleanSimulatorGoals(
   }[],
 ): boolean {
   return (
-    goals.length === POST_EVENT_FEEDBACK_ANSWER_QUESTION_KEYS.length &&
+    goals.length === FEEDBACK_ANSWER_QUESTION_KEYS.length &&
     goals.every(
       (goal, index) =>
-        goal.key === POST_EVENT_FEEDBACK_ANSWER_QUESTION_KEYS[index] &&
+        goal.key === FEEDBACK_ANSWER_QUESTION_KEYS[index] &&
         goal.ordinal === index + 1 &&
         goal.status === "pending",
     )

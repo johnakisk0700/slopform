@@ -1,8 +1,10 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import type {
   AppTransaction,
+  FeedbackAnswerQuestionKey,
   FeedbackCampaignRow,
   FeedbackExtractionMeta,
+  FeedbackNoteType,
   MessageOutboxRow,
 } from "@join-the-six/database";
 
@@ -27,8 +29,6 @@ import {
 import {
   POST_EVENT_FEEDBACK_QUESTION_SET_V1,
   isPostEventFeedbackAnswerQuestionKey,
-  type PostEventFeedbackAnswerQuestionKey,
-  type PostEventFeedbackNoteType,
   type PostEventFeedbackQuestionSetCopy,
 } from "./post-event-feedback-question-set.js";
 import {
@@ -442,12 +442,12 @@ export class PostEventFeedbackExtractor {
         .map((message) => message.id),
       goals: conversation.goals,
       acceptedAnswers: acceptedAnswers.map((answer) => ({
-        questionKey: answer.questionKey as PostEventFeedbackAnswerQuestionKey,
+        questionKey: answer.questionKey as FeedbackAnswerQuestionKey,
         subjectParticipantId: answer.subjectParticipantId,
         valueInt: answer.valueInt,
       })),
       acceptedNotes: acceptedNotes.map((note) => ({
-        noteType: note.noteType as PostEventFeedbackNoteType,
+        noteType: note.noteType as FeedbackNoteType,
         text: note.text,
         subjectParticipantId: note.subjectParticipantId,
       })),
@@ -1089,7 +1089,7 @@ export function resolveQuestionCopy(
  */
 function refusedAnswerQuestionKey(
   validated: FeedbackExtractionValidationResult,
-): PostEventFeedbackAnswerQuestionKey | undefined {
+): FeedbackAnswerQuestionKey | undefined {
   const actionable = validated.rejections.find(
     (rejection) =>
       rejection.scope === "answer" &&
@@ -1098,7 +1098,7 @@ function refusedAnswerQuestionKey(
   );
   const key = actionable?.questionKey;
   return key && isPostEventFeedbackAnswerQuestionKey(key)
-    ? (key as PostEventFeedbackAnswerQuestionKey)
+    ? (key as FeedbackAnswerQuestionKey)
     : undefined;
 }
 
@@ -1113,8 +1113,8 @@ function refusedAnswerQuestionKey(
  * somebody and wanting to see them again agree.
  */
 function contradictedQuestionKeys(
-  questionKey: PostEventFeedbackAnswerQuestionKey,
-): readonly PostEventFeedbackAnswerQuestionKey[] {
+  questionKey: FeedbackAnswerQuestionKey,
+): readonly FeedbackAnswerQuestionKey[] {
   if (questionKey === "avoid") {
     return ["liked", "meet_again"];
   }

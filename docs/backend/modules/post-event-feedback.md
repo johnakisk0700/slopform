@@ -642,11 +642,11 @@ Versioned questionnaire constants, the deterministic STOP matcher and Greek
 extraction fixtures live under
 [`apps/backend/src/modules/post-event-feedback/`](../../../apps/backend/src/modules/post-event-feedback/).
 
-| Artifact            | Source                                | Contract                                                                                                                                        |
-| ------------------- | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| Question set v1     | `post-event-feedback-question-set.ts` | Keys `event_score`, `liked`, `meet_again`, `avoid`; note types `activity_interest`, `general`; draft Greek copy editable without schema changes |
-| STOP matcher (D14)  | `post-event-feedback-stop-matcher.ts` | Pure function; `STOP`, `STOP ALL`, `UNSUBSCRIBE`, `ΔΙΑΚΟΠΗ`, `ΣΤΟΠ`; case-, whitespace- and accent-insensitive                                  |
-| Extraction fixtures | `post-event-feedback-fixtures.ts`     | Typed Greek transcripts with expected-outcome annotations for later WP5 evals                                                                   |
+| Artifact            | Source                                                      | Contract                                                                                                                                               |
+| ------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Question set v1     | `packages/database` + `post-event-feedback-question-set.ts` | Keys `FEEDBACK_ANSWER_QUESTION_KEYS` / `FEEDBACK_NOTE_TYPES` in the database schema; draft Greek copy in question-set, editable without schema changes |
+| STOP matcher (D14)  | `post-event-feedback-stop-matcher.ts`                       | Pure function; `STOP`, `STOP ALL`, `UNSUBSCRIBE`, `ΔΙΑΚΟΠΗ`, `ΣΤΟΠ`; case-, whitespace- and accent-insensitive                                         |
+| Extraction fixtures | `post-event-feedback-fixtures.ts`                           | Typed Greek transcripts with expected-outcome annotations for later WP5 evals                                                                          |
 
 The STOP matcher is the sole deterministic text matcher. It compares whole
 commands; stripping punctuation there would widen the command rather than

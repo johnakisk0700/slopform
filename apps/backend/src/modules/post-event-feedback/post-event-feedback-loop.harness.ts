@@ -60,12 +60,14 @@ import {
 } from "./post-event-feedback-loop-doubles.harness.js";
 import { PostEventFeedbackMaterializer } from "./post-event-feedback-materializer.service.js";
 import { PostEventFeedbackMetrics } from "./post-event-feedback-metrics.service.js";
+import type {
+  FeedbackAnswerQuestionKey,
+  FeedbackNoteType,
+} from "@join-the-six/database";
 import {
   POST_EVENT_FEEDBACK_QUESTION_SET_V1,
   createFeedbackIntroDedupeKey,
   renderPostEventFeedbackCopy,
-  type PostEventFeedbackAnswerQuestionKey,
-  type PostEventFeedbackNoteType,
 } from "./post-event-feedback-question-set.js";
 import { PostEventFeedbackProcessor } from "./post-event-feedback.processor.js";
 import type { PostEventFeedbackRepository } from "./post-event-feedback.repository.js";
@@ -259,7 +261,7 @@ export type ModelFailure =
   | "malformed";
 
 export interface ScriptedAnswer {
-  readonly question: PostEventFeedbackAnswerQuestionKey;
+  readonly question: FeedbackAnswerQuestionKey;
   /** Only `event_score` carries a value. */
   readonly value?: number;
   /** A display name. An unseeded name is one the model could not resolve. */
@@ -269,7 +271,7 @@ export interface ScriptedAnswer {
 }
 
 export interface ScriptedNote {
-  readonly type?: PostEventFeedbackNoteType;
+  readonly type?: FeedbackNoteType;
   readonly text: string;
   readonly about?: string;
   readonly cite?: Cite;
@@ -290,8 +292,8 @@ export type AttentionTurn = readonly ScriptedAttention[];
 export interface ModelTurn {
   readonly answers?: readonly ScriptedAnswer[];
   readonly notes?: readonly ScriptedNote[];
-  readonly skip?: readonly PostEventFeedbackAnswerQuestionKey[];
-  readonly next?: PostEventFeedbackAnswerQuestionKey;
+  readonly skip?: readonly FeedbackAnswerQuestionKey[];
+  readonly next?: FeedbackAnswerQuestionKey;
   readonly reply?: string;
   readonly handoff?: boolean;
   readonly confidence?: number;
@@ -370,14 +372,11 @@ export interface FeedbackSeedOptions {
   /** Start from an already-closed conversation. */
   readonly closed?: "completed" | "stopped" | "expired" | "cancelled";
   readonly goals?: Partial<
-    Record<
-      PostEventFeedbackAnswerQuestionKey,
-      FeedbackConversationGoal["status"]
-    >
+    Record<FeedbackAnswerQuestionKey, FeedbackConversationGoal["status"]>
   >;
   /** Answers recorded before the scenario starts. */
   readonly answers?: readonly {
-    readonly question: PostEventFeedbackAnswerQuestionKey;
+    readonly question: FeedbackAnswerQuestionKey;
     readonly about?: string;
     readonly value?: number;
   }[];
@@ -433,13 +432,13 @@ export interface FeedbackLoopOutcome {
 
   /** Recorded answers, by question and by the display name they are about. */
   readonly answers: readonly {
-    readonly question: PostEventFeedbackAnswerQuestionKey;
+    readonly question: FeedbackAnswerQuestionKey;
     readonly about: string | null;
     readonly value: number | null;
   }[];
   /** Recorded notes, in the order they were written. */
   readonly notes: readonly {
-    readonly type: PostEventFeedbackNoteType;
+    readonly type: FeedbackNoteType;
     readonly text: string;
     readonly about: string | null;
     readonly flagged: boolean;
@@ -1113,10 +1112,7 @@ export async function createFeedbackLoopHarness(
   );
   const wantsIntro = true;
   const goalStatuses: Partial<
-    Record<
-      PostEventFeedbackAnswerQuestionKey,
-      FeedbackConversationGoal["status"]
-    >
+    Record<FeedbackAnswerQuestionKey, FeedbackConversationGoal["status"]>
   > = {
     // The catalogue's scenario zero: the intro asked the first question.
     ...(wantsIntro ? { event_score: "asked" as const } : {}),
@@ -1585,7 +1581,7 @@ export async function createFeedbackLoopHarness(
       answers: repository.answers
         .filter((row) => row.conversationId === conversationId)
         .map((row) => ({
-          question: row.questionKey as PostEventFeedbackAnswerQuestionKey,
+          question: row.questionKey as FeedbackAnswerQuestionKey,
           about: row.subjectParticipantId
             ? (nameById.get(row.subjectParticipantId) ?? "unknown person")
             : null,
@@ -1599,7 +1595,7 @@ export async function createFeedbackLoopHarness(
       notes: repository.notes
         .filter((row) => row.conversationId === conversationId)
         .map((row) => ({
-          type: row.noteType as PostEventFeedbackNoteType,
+          type: row.noteType as FeedbackNoteType,
           text: row.text,
           about: row.subjectParticipantId
             ? (nameById.get(row.subjectParticipantId) ?? "unknown person")
@@ -1670,7 +1666,7 @@ function toChatJid(phoneE164: string): string {
   return `${phoneE164.replace("+", "")}@s.whatsapp.net`;
 }
 
-function questionOrdinal(key: PostEventFeedbackAnswerQuestionKey): number {
+function questionOrdinal(key: FeedbackAnswerQuestionKey): number {
   return POST_EVENT_FEEDBACK_QUESTION_SET_V1.answerQuestions.findIndex(
     (question) => question.key === key,
   );

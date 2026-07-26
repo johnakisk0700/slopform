@@ -1,16 +1,13 @@
+import {
+  FEEDBACK_ANSWER_QUESTION_KEYS,
+  FEEDBACK_NOTE_TYPES,
+  type FeedbackAnswerQuestionKey,
+  type FeedbackNoteType,
+} from "@join-the-six/database";
+
+export { FEEDBACK_ANSWER_QUESTION_KEYS, FEEDBACK_NOTE_TYPES };
+
 export const POST_EVENT_FEEDBACK_QUESTION_SET_VERSION = 1 as const;
-
-export const POST_EVENT_FEEDBACK_ANSWER_QUESTION_KEYS = [
-  "event_score",
-  "liked",
-  "meet_again",
-  "avoid",
-] as const;
-
-export const POST_EVENT_FEEDBACK_NOTE_TYPES = [
-  "activity_interest",
-  "general",
-] as const;
 
 export const POST_EVENT_FEEDBACK_COPY_KEYS = [
   "intro",
@@ -28,17 +25,11 @@ export const POST_EVENT_FEEDBACK_COPY_KEYS = [
 export type PostEventFeedbackQuestionSetVersion =
   typeof POST_EVENT_FEEDBACK_QUESTION_SET_VERSION;
 
-export type PostEventFeedbackAnswerQuestionKey =
-  (typeof POST_EVENT_FEEDBACK_ANSWER_QUESTION_KEYS)[number];
-
-export type PostEventFeedbackNoteType =
-  (typeof POST_EVENT_FEEDBACK_NOTE_TYPES)[number];
-
 export type PostEventFeedbackCopyKey =
   (typeof POST_EVENT_FEEDBACK_COPY_KEYS)[number];
 
 export type PostEventFeedbackAnswerQuestionDefinition = {
-  key: PostEventFeedbackAnswerQuestionKey;
+  key: FeedbackAnswerQuestionKey;
   valueKind: "int" | "candidate_ids";
   subjectless: boolean;
   skippable: true;
@@ -47,7 +38,7 @@ export type PostEventFeedbackAnswerQuestionDefinition = {
 };
 
 export type PostEventFeedbackNoteTypeDefinition = {
-  key: PostEventFeedbackNoteType;
+  key: FeedbackNoteType;
   maxLength: number;
 };
 
@@ -184,14 +175,12 @@ export function createFeedbackReminderDedupeKey(
 
 export function isPostEventFeedbackAnswerQuestionKey(
   value: string,
-): value is PostEventFeedbackAnswerQuestionKey {
-  return (
-    POST_EVENT_FEEDBACK_ANSWER_QUESTION_KEYS as readonly string[]
-  ).includes(value);
+): value is FeedbackAnswerQuestionKey {
+  return (FEEDBACK_ANSWER_QUESTION_KEYS as readonly string[]).includes(value);
 }
 
 export function isPostEventFeedbackNoteType(
   value: string,
-): value is PostEventFeedbackNoteType {
-  return (POST_EVENT_FEEDBACK_NOTE_TYPES as readonly string[]).includes(value);
+): value is FeedbackNoteType {
+  return (FEEDBACK_NOTE_TYPES as readonly string[]).includes(value);
 }

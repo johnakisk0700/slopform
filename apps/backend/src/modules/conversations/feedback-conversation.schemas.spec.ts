@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { BSON } from "mongodb";
 import { describe, expect, it } from "vitest";
 
-import { POST_EVENT_FEEDBACK_ANSWER_QUESTION_KEYS } from "../post-event-feedback/post-event-feedback-question-set.js";
+import { FEEDBACK_ANSWER_QUESTION_KEYS } from "@join-the-six/database";
 import { conversationThreadDocumentSchema } from "./conversation-thread.schemas.js";
 import {
   FEEDBACK_CONVERSATION_MAX_MESSAGES,
@@ -57,7 +57,7 @@ describe("buildFeedbackConversationGoals", () => {
     const goals = buildFeedbackConversationGoals();
 
     expect(goals.map((goal) => goal.key)).toEqual([
-      ...POST_EVENT_FEEDBACK_ANSWER_QUESTION_KEYS,
+      ...FEEDBACK_ANSWER_QUESTION_KEYS,
     ]);
     expect(goals.map((goal) => goal.ordinal)).toEqual([1, 2, 3, 4]);
     expect(goals.every((goal) => goal.status === "pending")).toBe(true);
