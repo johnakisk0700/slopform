@@ -8,6 +8,7 @@ import type { EventListDtoOutputItemsItem } from "../api/generated/model/eventLi
 import { JtsDataTable } from "../components/ui/JtsDataTable";
 import { JtsPageHeader } from "../components/ui/JtsPageHeader";
 import { apiErrorMessage } from "../lib/api";
+import { formatDateTime } from "../lib/dateTime";
 import { usePageMeta } from "../lib/usePageMeta";
 
 const columns: ColumnDef<EventListDtoOutputItemsItem>[] = [
@@ -26,11 +27,7 @@ const columns: ColumnDef<EventListDtoOutputItemsItem>[] = [
   {
     accessorKey: "startsAt",
     header: "Starts",
-    cell: ({ row }) =>
-      new Date(row.original.startsAt).toLocaleString("en-GB", {
-        dateStyle: "medium",
-        timeStyle: "short",
-      }),
+    cell: ({ row }) => formatDateTime(row.original.startsAt),
   },
   {
     accessorKey: "status",

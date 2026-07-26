@@ -32,6 +32,7 @@ import type { ParticipantEventHistoryDtoOutputItemsItemStatus } from "../api/gen
 import type { ParticipantListDtoOutput } from "../api/generated/model/participantListDtoOutput";
 import { JtsDataTable } from "../components/ui/JtsDataTable";
 import { apiErrorMessage } from "../lib/api";
+import { formatDateTime } from "../lib/dateTime";
 import { usePageMeta } from "../lib/usePageMeta";
 
 const backToParticipantsLinkClassName =
@@ -82,13 +83,6 @@ function formatNeighborhood(value: string | null): ReactNode {
     .split("_")
     .map((part) => part.charAt(0).toLocaleUpperCase() + part.slice(1))
     .join(" ");
-}
-
-function formatEventDate(iso: string): string {
-  return new Date(iso).toLocaleString("en-GB", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
 }
 
 const EVENT_STATUS_LABEL: Record<
@@ -286,7 +280,7 @@ export function ParticipantProfilePage() {
         header: "Date",
         cell: ({ row }) => (
           <span className="tabular-nums">
-            {formatEventDate(row.original.startsAt)}
+            {formatDateTime(row.original.startsAt)}
           </span>
         ),
       },

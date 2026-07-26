@@ -33,6 +33,7 @@ import {
   type AssistantTurnStatus,
 } from "../features/assistant/schema";
 import { api } from "../lib/api";
+import { formatDateTime } from "../lib/dateTime";
 import { usePageMeta } from "../lib/usePageMeta";
 
 const ASSISTANT_THREADS_PATH = "/v1/assistant/threads";
@@ -742,10 +743,7 @@ export function AssistantPage() {
                       {thread.title}
                     </span>
                     <span className="text-xs text-ink-muted">
-                      {new Date(thread.updatedAt).toLocaleString("en-GB", {
-                        dateStyle: "medium",
-                        timeStyle: "short",
-                      })}
+                      {formatDateTime(thread.updatedAt)}
                     </span>
                   </span>
                 </ListBox.Item>
