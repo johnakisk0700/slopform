@@ -8,7 +8,7 @@ import type {
 
 import type { AssistantModel } from "../../assistant/assistant.schemas.js";
 import { assistantModelSchema } from "../../assistant/assistant.schemas.js";
-import type { FeedbackConversationDocument } from "../../conversations/feedback-conversation.schemas.js";
+import type { FeedbackConversationDocument } from "../post-event-feedback-conversation.document.js";
 import {
   createFeedbackClosingDedupeKey,
   createFeedbackFallbackDedupeKey,

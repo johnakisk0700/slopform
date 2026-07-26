@@ -10,8 +10,8 @@ import {
 import { z } from "zod";
 
 import { MongoService } from "../../infrastructure/mongo/mongo.service.js";
-import { ConversationPersistenceError } from "./conversation-persistence.errors.js";
-import { CONVERSATION_THREAD_COLLECTION } from "./conversation-thread.schemas.js";
+import { ConversationPersistenceError } from "../conversations/conversation-persistence.errors.js";
+import { CONVERSATION_THREAD_COLLECTION } from "../conversations/conversation-thread.schemas.js";
 import {
   FEEDBACK_CONVERSATION_CHANNEL,
   FEEDBACK_CONVERSATION_PURPOSE,
@@ -29,21 +29,21 @@ import {
   exceedsCapacity,
   feedbackConversationDocumentSchema,
   feedbackConversationFilter,
-  feedbackConversationMessageSchema,
+  feedbackConversationStoredMessageSchema,
   feedbackConversationSummarySchema,
   goalStatusRank,
   lowerGoalStatuses,
   messageIdentityKeys,
   sortTranscript,
   type AppendFeedbackConversationMessageInput,
-} from "./feedback-conversation.schemas.js";
+} from "./post-event-feedback-conversation.document.js";
 import {
   POST_EVENT_FEEDBACK_SAFETY_CATEGORIES,
   feedbackConversationMessageAttentionSchema,
   strongerRecommendedAction,
   type PostEventFeedbackRecommendedAction,
   type PostEventFeedbackSafetyCategory,
-} from "../post-event-feedback/attention.js";
+} from "./attention.js";
 
 const FEEDBACK_CONVERSATION_APPEND_ATTEMPTS = 3;
 const FEEDBACK_CONVERSATION_ATTENTION_MERGE_ATTEMPTS = 3;
@@ -317,7 +317,7 @@ export class FeedbackConversationRepository {
         return { appended: false, message: existing, conversation: current };
       }
 
-      const message = feedbackConversationMessageSchema.parse({
+      const message = feedbackConversationStoredMessageSchema.parse({
         id: input.id ?? randomUUID(),
         seq: current.messages.length + 1,
         actor: input.actor,

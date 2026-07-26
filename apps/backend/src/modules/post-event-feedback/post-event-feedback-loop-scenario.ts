@@ -2,7 +2,7 @@ import type {
   FeedbackAnswerQuestionKey,
   FeedbackNoteType,
 } from "@join-the-six/database";
-import type { FeedbackConversationGoal } from "../conversations/feedback-conversation.schemas.js";
+import type { FeedbackConversationGoal } from "./post-event-feedback-conversation.document.js";
 import type {
   PostEventFeedbackRecommendedAction,
   PostEventFeedbackSafetyCategory,

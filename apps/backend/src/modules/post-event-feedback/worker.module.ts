@@ -6,7 +6,6 @@ import { AuditModule } from "../../infrastructure/audit/audit.module.js";
 import { DatabaseModule } from "../../infrastructure/database/database.module.js";
 import { QueueWorkerModule } from "../../infrastructure/queue/queue.module.js";
 import { WasenderClient } from "../../integrations/wasender/wasender.client.js";
-import { ConversationThreadModule } from "../conversations/conversation-thread.module.js";
 import { EventsCoreModule } from "../events/events-core.module.js";
 import { ParticipantsCoreModule } from "../participants/participants-core.module.js";
 import {
@@ -51,7 +50,6 @@ import { WasenderFeedbackTransport } from "./outbox/wasender-transport.service.j
   imports: [
     AuditModule,
     ConfigModule,
-    ConversationThreadModule,
     DatabaseModule,
     EventsCoreModule,
     ParticipantsCoreModule,

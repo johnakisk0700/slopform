@@ -8,9 +8,9 @@ import { FEEDBACK_ANSWER_QUESTION_KEYS } from "@join-the-six/database";
 import {
   POST_EVENT_FEEDBACK_QUESTION_SET_V1,
   type PostEventFeedbackQuestionSetCopy,
-} from "../post-event-feedback/question-set.js";
-import { feedbackConversationMessageAttentionSchema } from "../post-event-feedback/attention.js";
-import { ConversationPersistenceError } from "./conversation-persistence.errors.js";
+} from "./question-set.js";
+import { feedbackConversationMessageAttentionSchema } from "./attention.js";
+import { ConversationPersistenceError } from "../conversations/conversation-persistence.errors.js";
 
 // Schema v2 is the purpose-specific post-event feedback document. It shares the
 // `conversation_threads` collection with the schema-v1 assistant aggregate and
@@ -107,7 +107,7 @@ export const feedbackConversationGoalSchema = z
   })
   .strict();
 
-export const feedbackConversationMessageSchema = z
+export const feedbackConversationStoredMessageSchema = z
   .object({
     id: z.uuid(),
     seq: z.number().int().positive(),
@@ -191,7 +191,7 @@ export const feedbackConversationDocumentSchema = z
     control: feedbackConversationControlSchema,
     goals: z.array(feedbackConversationGoalSchema).min(1).max(10),
     messages: z
-      .array(feedbackConversationMessageSchema)
+      .array(feedbackConversationStoredMessageSchema)
       .max(FEEDBACK_CONVERSATION_MAX_MESSAGES),
     extraction: feedbackConversationExtractionSchema,
     needsAttention: z.boolean(),
@@ -301,7 +301,7 @@ export type FeedbackConversationDocument = z.infer<
   typeof feedbackConversationDocumentSchema
 >;
 export type FeedbackConversationMessage = z.infer<
-  typeof feedbackConversationMessageSchema
+  typeof feedbackConversationStoredMessageSchema
 >;
 export type FeedbackConversationGoal = z.infer<
   typeof feedbackConversationGoalSchema

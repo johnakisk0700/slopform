@@ -9,12 +9,12 @@ import { DatabaseService } from "../../../infrastructure/database/database.servi
 import {
   FeedbackConversationCapacityError,
   FeedbackConversationRepository,
-} from "../../conversations/feedback-conversation.repository.js";
+} from "../post-event-feedback-conversation.repository.js";
 import {
   FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH,
   type FeedbackConversationActor,
   type FeedbackConversationDocument,
-} from "../../conversations/feedback-conversation.schemas.js";
+} from "../post-event-feedback-conversation.document.js";
 import { FeedbackOutboxRepository } from "./outbox.repository.js";
 
 /**

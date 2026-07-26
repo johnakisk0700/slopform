@@ -5,7 +5,7 @@ import {
   type FeedbackNoteType,
 } from "@join-the-six/database";
 
-import { FEEDBACK_CONVERSATION_MESSAGE_MAX_STORED_TEXT_LENGTH } from "../conversations/feedback-conversation.schemas.js";
+import { FEEDBACK_CONVERSATION_MESSAGE_MAX_STORED_TEXT_LENGTH } from "./post-event-feedback-conversation.document.js";
 
 export { FEEDBACK_ANSWER_QUESTION_KEYS, FEEDBACK_NOTE_TYPES };
 

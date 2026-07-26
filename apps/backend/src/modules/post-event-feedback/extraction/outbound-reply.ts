@@ -1,6 +1,6 @@
 import type { FeedbackAnswerQuestionKey } from "@join-the-six/database";
 
-import type { FeedbackConversationDocument } from "../../conversations/feedback-conversation.schemas.js";
+import type { FeedbackConversationDocument } from "../post-event-feedback-conversation.document.js";
 import type { FeedbackExtractionValidationResult } from "./validate-proposal.js";
 import {
   POST_EVENT_FEEDBACK_HANDOFF_REPLY,

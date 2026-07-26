@@ -1,4 +1,4 @@
-import type { FeedbackConversationDocument } from "../conversations/feedback-conversation.schemas.js";
+import type { FeedbackConversationDocument } from "./post-event-feedback-conversation.document.js";
 
 /**
  * The newest participant timestamp is found by scanning rather than by taking

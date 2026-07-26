@@ -949,10 +949,58 @@ cannot enable the HTTP simulator.
 
 ## WP3 conversation persistence (implemented)
 
+## Schema v2 — post-event feedback conversation
+
 The MongoDB schema-v2 document, its Zod validators, the repository and its two
-reviewed indexes live in the
-[conversations module](conversations.md#schema-v2--post-event-feedback-conversation).
-What it settles for this module:
+reviewed indexes live in this module:
+
+- [document](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-conversation.document.ts)
+- [repository](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-conversation.repository.ts)
+
+Both aggregates share `conversation_threads`; the schema-v1/v2 co-tenancy
+invariant is stated once in
+[conversations.md](conversations.md#schema-versions-coexist).
+
+One document per (campaign, respondent). It is the transcript and the
+conversation state; it is not a delivery record and not the answer store.
+
+```text
+_id                      uuidv5(campaignId, respondentParticipantId)
+schemaVersion            2
+purpose / channel        post_event_feedback / whatsapp
+campaignId               campaign UUID
+respondentParticipantId  participant UUID
+phoneAtLaunch            E.164 number captured at launch
+lifecycle                { state: open|closed,
+                           reason: completed|stopped|expired|cancelled|null,
+                           closedAt }
+control                  { mode: bot|human,
+                           source: launch|staff_action|external_outbound,
+                           changedAt }
+goals                    [ { key, ordinal, prompt,
+                             status: pending|asked|answered|skipped } ]
+messages                 [ { id, seq, actor: bot|participant|staff|system,
+                             text, providerMessageId, ingressId, outboxId,
+                             attention, at } ]
+extraction               { cursorSeq, lastRunAt, model }
+needsAttention           boolean
+remindedAt               timestamp or null
+createdAt / updatedAt    timestamps
+```
+
+Goal keys and their order come from the versioned WP0 question set
+(`event_score`, `liked`, `meet_again`, `avoid`); the module does not redefine
+them. Prompts come from the copy snapshot the campaign took at launch, so a
+later copy edit never rewrites a live questionnaire.
+
+The document stores **no candidate list**. Candidates are selected live at
+extraction time from current attendance, so an attendance correction reaches
+every later turn instead of a frozen copy.
+
+Answers, notes, ingress rows, outbox rows and audit events stay in PostgreSQL.
+The conversation carries only their identifiers as message provenance.
+
+What WP3 settles for this module:
 
 - one conversation per (campaign, respondent) under a deterministic
   `uuidv5(campaignId, participantId)` identifier, so launch replay is
@@ -967,6 +1015,175 @@ What it settles for this module:
 - the extraction cursor that keeps replayed runs from duplicating answers;
 - `phoneAtLaunch` plus a partial unique index, which is what makes inbound
   phone resolution unambiguous instead of a guess.
+
+### Identity and idempotency
+
+`_id = uuidv5(campaignId, respondentParticipantId)` (RFC 4122 version 5, SHA-1,
+campaign as namespace). Launch replay therefore collides on the primary key
+instead of creating a second conversation, so at most one conversation per
+(campaign, participant) can ever exist. `createFromLaunch` returns
+`{ created: false }` with the stored document when it already exists — a
+conversation closed by STOP is returned as-is, never recreated.
+
+### Lifecycle and control
+
+```mermaid
+stateDiagram-v2
+  [*] --> open_bot: createFromLaunch
+  open_bot --> open_human: takeOver (staff or external outbound)
+  open_human --> open_bot: resumeBot (explicit)
+  open_bot --> closed: close(reason)
+  open_human --> closed: close(reason)
+  closed --> closed: close(stopped) overrides a softer reason
+  closed --> [*]: never reopens, never recreated
+```
+
+Lifecycle and control are orthogonal. Queue, delivery and extraction statuses
+are not conversation states.
+
+- The first closure wins, with one exception: `close(stopped)` also overrides
+  an existing softer reason, because opt-out is absolute (D14).
+- No method reopens a closed conversation, so a STOP is structurally final.
+- `resumeBot` is rejected on a closed conversation.
+- `takeOver` works in any lifecycle state: an unobserved external outbound must
+  silence the bot even on a conversation that just closed.
+- `control.source` records why control changed. `launch` is the initial bot
+  source and is invalid for human control.
+
+### Messages and provenance
+
+`seq` is contiguous from 1 and is allocated under an optimistic
+`messages: { $size: n }` fence, so a concurrent append retries instead of
+creating a gap or a duplicate sequence. Appends are idempotent by `ingressId`,
+`outboxId` or the caller's stable message `id`; a replay with the same
+provenance but different content is rejected rather than silently accepted.
+
+| Actor         | Required provenance                                      |
+| ------------- | -------------------------------------------------------- |
+| `participant` | `ingressId` (durable PostgreSQL ingress row), no outbox  |
+| `bot`         | `outboxId`                                               |
+| `staff`       | `outboxId`, or `ingressId` for an observed external send |
+| `system`      | neither; the caller supplies a stable `id`               |
+
+Appends are allowed on a closed conversation because the transcript records
+what actually happened (a STOP acknowledgement or a closing message is observed
+after the closure). Whether a message may be _sent_ is a campaign/outbox
+decision, not a transcript decision.
+
+Outbound entries are written when the `message_outbox` row is created, not when
+it is delivered, and the row's `kind` decides the actor: `intro`, `reminder`,
+`reply` and `system` are the bot speaking, `staff` is a staff send. A STOP
+acknowledgement is therefore `actor: bot`, not `actor: system` — this schema
+reserves the `system` actor for entries with **no** transport provenance, and
+an outbox-backed message always carries `outboxId`. The
+[outbound transcript entries](#outbound-transcript-entries) mapping and its
+crash-repair rules live in this module.
+
+Only participant messages may carry `attention`. It is `null` for legacy and
+ordinary messages; otherwise it holds unique bounded safety categories, the
+strongest recommended action and model confidence. Only validated
+attention-classification output creates this metadata; the incoming materializer
+does not inspect keywords. `mergeMessageAttention` is additive: a later model
+run may raise the action or add a category, but no replay can erase or downgrade
+a prior classification.
+
+### Goal progress
+
+Goal statuses only move up the ladder `pending < asked < skipped < answered`,
+enforced by a MongoDB array filter rather than by a hopeful read-modify-write.
+That rank is what implements D16's "an answered goal is never auto-reopened": a
+later extraction run cannot demote a recorded answer back to a question the bot
+would ask again, however confident the model is. `answered` outranks `skipped`
+so a participant who changes their mind is still recorded — that direction adds
+a fact instead of discarding one. A concurrent run that already advanced the
+same goal further simply leaves it alone.
+
+### Extraction cursor, attention and capacity
+
+`extraction.cursorSeq` advances monotonically and can never pass the
+transcript; a replayed or late run that would not move it is an idempotent
+no-op. That is the idempotency boundary that stops the same source messages
+from producing duplicate PostgreSQL answers while the full transcript stays
+available as extraction context. Attention classification instead receives the
+six messages preceding the new participant-message burst plus that burst; older
+messages are context only and are never new classification targets.
+
+The transcript is capped at 150 messages with a 4 MiB BSON backstop (message
+text is bounded at 4096 characters, WhatsApp's text-body limit). Reaching
+either bound sets `needsAttention` and raises
+`FeedbackConversationCapacityError`; nothing is silently dropped, and the
+durable PostgreSQL ingress row still holds the message for an operator. For an
+**outbound** message the caller additionally cancels the outbox row, so a
+message the transcript cannot record is never sent either.
+
+### Repository contract
+
+| Method                   | Contract                                                                       |
+| ------------------------ | ------------------------------------------------------------------------------ |
+| `createFromLaunch`       | Deterministic `_id`; idempotent; reports `created`; phone conflict is explicit |
+| `findById`               | Full document for a detail read                                                |
+| `findOpenByPhone`        | Inbound resolution (D9), backed by the partial unique index                    |
+| `listForCampaign`        | Compact campaign-grouped summaries; no transcripts in list reads               |
+| `listOpenDueForReminder` | Approximate D11 reminder candidates; sweep reloads authoritative state         |
+| `listOpenDueForExpiry`   | Approximate D11 expiry candidates; sweep reloads authoritative state           |
+| `appendMessage`          | Contiguous `seq`, idempotent by provenance, cap/byte guard                     |
+| `mergeMessageAttention`  | Additive model categories; recommended action and confidence only strengthen   |
+| `takeOver` / `resumeBot` | Explicit control transitions with a recorded source                            |
+| `close`                  | Terminal reason; STOP overrides softer reasons; nothing reopens                |
+| `advanceCursor`          | Monotonic extraction cursor bounded by the transcript                          |
+| `updateGoalStatuses`     | Monotonic goal ladder `pending < asked < skipped < answered`                   |
+| `setNeedsAttention`      | Sets or clears the operator attention flag                                     |
+| `markReminded`           | Idempotent D11 reminder stamp (`remindedAt`)                                   |
+
+Every method validates the resulting document with Zod, and every transition
+reports whether it actually changed state so callers can write exactly one
+audit event.
+
+### Indexes
+
+| Index                                         | Purpose                                                                                            |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `feedback_conversation_open_phone_unique_idx` | Partial **unique** `phoneAtLaunch` where purpose is post-event feedback and lifecycle is open (D9) |
+| `feedback_conversation_campaign_updated_idx`  | `campaignId` + recency for the grouped admin list                                                  |
+
+The partial filter is what makes phone→conversation resolution unambiguous: a
+second open conversation for the same number is rejected by the database, not
+by a hopeful application check. The repository verifies both indexes on first
+use, and [Compose provisioning](../../../docker/mongo-init/10-app-user.js)
+creates them on a fresh volume.
+
+### Related runtime surfaces
+
+Reply sending belongs to the outbox/relay path; that path also owns every
+outbound transcript entry through
+[`FeedbackOutboundTranscriptService`](#outbound-transcript-entries).
+Campaign launch, reminders, expiry sweeps and ingress recovery live in
+[WP7](#wp7-campaign-service-and-schedulers-implemented). Staff inbox HTTP
+(list/detail/results reads, takeover/resume/close/staff-send and note
+review-status, with per-conversation capability flags) lives in
+[WP7b](#wp7b-staff-conversation-inbox-http-implemented); it projects
+`listForCampaign` / `findById` and calls the transition methods above but does
+not redefine them. Extraction drives goal advancement, the cursor and
+`close(completed)` through the methods above and lives in
+[WP5](#wp5-extraction-and-reply-loop-implemented). Webhook ingestion and the
+`feedback` queue live in
+[WP4](#wp4-ingress-and-materialization-implemented): its materializer is the
+only caller that resolves a phone, appends inbound messages, closes a
+conversation on STOP or takes control on an unknown outbound. The transport
+adapter calls that application service; it never writes provider payloads into
+MongoDB.
+
+Two consumer expectations follow from this repository's contract rather than
+from the consumer's own code. A correlated outbound is not appended by the
+materializer — the outbox owns that message's transcript entry through
+`outboxId` provenance, so appending the same message again by `ingressId` would
+create a duplicate. And because appends allocate `seq` on arrival, the
+transcript records durable arrival order, not provider timestamps; the feedback
+worker runs at concurrency `1` so one participant's burst keeps its order.
+
+One consequence of outbound entries occupying sequence numbers: a participant's
+reply no longer lands at `seq 1`. The bot intro is `seq 1`, so the first reply
+is `seq 2` and the deterministic extract job id follows it.
 
 Webhook ingestion, the `feedback` queue and the outbox relay landed in WP4/WP6
 on top of it, and extraction advances the cursor and the goals in WP5.
@@ -1145,7 +1362,7 @@ conversation is accepted; and both model and deterministic-fallback rows report
 
 - [ADR 0008](../../decisions/0008-post-event-feedback-conversations.md)
 - [MongoDB conversation authority](../../decisions/0007-mongodb-conversation-authority.md)
-- [Conversation aggregate](conversations.md)
+- [Conversation co-tenancy (schema v1)](conversations.md#schema-versions-coexist)
 - [Events and D16 candidates](events.md)
 - [Wasender transport](../mechanisms/wasender.md)
 - [Queues and outbox](../mechanisms/queues.md)

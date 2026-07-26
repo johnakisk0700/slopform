@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 
 import { correlationIdSchema } from "../../infrastructure/auth/auth.schemas.js";
-import { FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH } from "../conversations/feedback-conversation.schemas.js";
+import { FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH } from "./post-event-feedback-conversation.document.js";
 
 /**
  * Versioned `feedback` queue contract. Both payloads are identifier-only: the

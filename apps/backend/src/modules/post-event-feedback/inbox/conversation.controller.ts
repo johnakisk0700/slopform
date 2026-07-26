@@ -21,7 +21,7 @@ import {
   CorrelationIdDto,
   PrincipalDto,
 } from "../../../infrastructure/auth/auth.schemas.js";
-import { FeedbackConversationNotFoundError } from "../../conversations/feedback-conversation.repository.js";
+import { FeedbackConversationNotFoundError } from "../post-event-feedback-conversation.repository.js";
 import { FeedbackCampaignNotFoundError } from "../campaign/campaign.service.js";
 import {
   AddFeedbackConversationNoteDto,

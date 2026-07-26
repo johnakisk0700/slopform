@@ -16,11 +16,11 @@ import { FEEDBACK_QUEUE } from "../../../infrastructure/queue/queue.constants.js
 import {
   FeedbackConversationCapacityError,
   FeedbackConversationRepository,
-} from "../../conversations/feedback-conversation.repository.js";
+} from "../post-event-feedback-conversation.repository.js";
 import {
   FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH,
   type FeedbackConversationDocument,
-} from "../../conversations/feedback-conversation.schemas.js";
+} from "../post-event-feedback-conversation.document.js";
 import { ParticipantsRepository } from "../../participants/participants.repository.js";
 import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
 import { coalesceDeliveryStatus } from "../outbox/delivery-status.js";

@@ -6,8 +6,8 @@ import type { DatabaseService } from "../../infrastructure/database/database.ser
 import {
   FeedbackConversationCapacityError,
   type FeedbackConversationRepository,
-} from "../conversations/feedback-conversation.repository.js";
-import { FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH } from "../conversations/feedback-conversation.schemas.js";
+} from "./post-event-feedback-conversation.repository.js";
+import { FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH } from "./post-event-feedback-conversation.document.js";
 import {
   FEEDBACK_OUTBOX_KIND_ACTORS,
   FeedbackOutboundTranscriptService,

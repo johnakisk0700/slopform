@@ -23,8 +23,8 @@ import {
   FeedbackConversationNotFoundError,
   FeedbackConversationRepository,
   FeedbackConversationTransitionError,
-} from "../../conversations/feedback-conversation.repository.js";
-import type { FeedbackConversationDocument } from "../../conversations/feedback-conversation.schemas.js";
+} from "../post-event-feedback-conversation.repository.js";
+import type { FeedbackConversationDocument } from "../post-event-feedback-conversation.document.js";
 import { EventsRepository } from "../../events/events.repository.js";
 import { EventsService } from "../../events/events.service.js";
 import { ParticipantsRepository } from "../../participants/participants.repository.js";

@@ -5,21 +5,21 @@ import { MongoServerError } from "mongodb";
 import { describe, expect, it, vi } from "vitest";
 
 import type { MongoService } from "../../infrastructure/mongo/mongo.service.js";
-import { ConversationPersistenceError } from "./conversation-persistence.errors.js";
+import { ConversationPersistenceError } from "../conversations/conversation-persistence.errors.js";
 import {
   FeedbackConversationCapacityError,
   FeedbackConversationNotFoundError,
   FeedbackConversationPhoneConflictError,
   FeedbackConversationRepository,
   FeedbackConversationTransitionError,
-} from "./feedback-conversation.repository.js";
+} from "./post-event-feedback-conversation.repository.js";
 import {
   FEEDBACK_CONVERSATION_MAX_MESSAGES,
   type FeedbackConversationDocument,
   type FeedbackConversationMessage,
   buildFeedbackConversationGoals,
   deriveFeedbackConversationId,
-} from "./feedback-conversation.schemas.js";
+} from "./post-event-feedback-conversation.document.js";
 
 const campaignId = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 const respondentParticipantId = "9f3c1a52-6e2b-4b4a-9a17-2cb2a6d13a55";

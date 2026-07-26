@@ -10,7 +10,7 @@ import type { DatabaseService } from "../../infrastructure/database/database.ser
 import {
   FeedbackConversationPhoneConflictError,
   type FeedbackConversationRepository,
-} from "../conversations/feedback-conversation.repository.js";
+} from "./post-event-feedback-conversation.repository.js";
 import type { EventsRepository } from "../events/events.repository.js";
 import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
 import {

@@ -6,12 +6,12 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AuditRepository } from "../../infrastructure/audit/audit.repository.js";
 import type { Environment } from "../../infrastructure/config/environment.js";
 import type { DatabaseService } from "../../infrastructure/database/database.service.js";
-import type { FeedbackConversationRepository } from "../conversations/feedback-conversation.repository.js";
+import type { FeedbackConversationRepository } from "./post-event-feedback-conversation.repository.js";
 import {
   buildFeedbackConversationGoals,
   deriveFeedbackConversationId,
   type FeedbackConversationGoal,
-} from "../conversations/feedback-conversation.schemas.js";
+} from "./post-event-feedback-conversation.document.js";
 import type { EventsRepository } from "../events/events.repository.js";
 import type { EventsService } from "../events/events.service.js";
 import type { ParticipantsRepository } from "../participants/participants.repository.js";

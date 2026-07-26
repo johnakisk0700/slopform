@@ -7,13 +7,13 @@ and link the source module. Cross-cutting infrastructure belongs in
 
 Product modules:
 
-- [`conversations.md`](conversations.md) — MongoDB-authoritative conversation
-  aggregates: schema v1 for the admin Assistant, schema v2 for post-event
-  feedback conversations.
+- [`conversations.md`](conversations.md) — MongoDB-authoritative schema-v1
+  assistant conversation aggregate; co-tenancy with schema-v2 feedback
+  documents in the shared `conversation_threads` collection.
 - [`post-event-feedback.md`](post-event-feedback.md) — WP0–WP4 landed
   (question contract, stub events upstream, PostgreSQL persistence, Mongo
-  conversation schema v2, durable webhook ingress and materialization);
-  extraction, sending, campaign launch and UI still pending.
+  conversation schema v2 owned here, durable webhook ingress and
+  materialization); extraction, sending, campaign launch and UI still pending.
 - [`post-event-feedback-scenarios.md`](post-event-feedback-scenarios.md) — the
   executable behavior suite, its desired end states and known defects, plus the
   mocked harness and occasional real-model corpus contracts.

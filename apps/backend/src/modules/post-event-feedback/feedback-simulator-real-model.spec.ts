@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { ConfigService } from "@nestjs/config";
 
 import type { Environment } from "../../infrastructure/config/environment.js";
-import type { FeedbackConversationRepository } from "../conversations/feedback-conversation.repository.js";
+import type { FeedbackConversationRepository } from "./post-event-feedback-conversation.repository.js";
 import type { EventsRepository } from "../events/events.repository.js";
 import type { EventsService } from "../events/events.service.js";
 import type { ParticipantsRepository } from "../participants/participants.repository.js";

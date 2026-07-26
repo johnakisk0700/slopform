@@ -1,7 +1,7 @@
 import { createZodDto } from "nestjs-zod";
 import { z } from "zod";
 
-import { FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH } from "../../conversations/feedback-conversation.schemas.js";
+import { FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH } from "../post-event-feedback-conversation.document.js";
 import { assistantModelSchema } from "../../assistant/assistant.schemas.js";
 
 export const feedbackSimulatorPhoneSchema = z

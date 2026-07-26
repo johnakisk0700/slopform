@@ -8,16 +8,16 @@ import {
   FeedbackConversationNotFoundError,
   FeedbackConversationPhoneConflictError,
   FeedbackConversationTransitionError,
-} from "../conversations/feedback-conversation.repository.js";
+} from "./post-event-feedback-conversation.repository.js";
 import {
   FEEDBACK_CONVERSATION_MAX_DOCUMENT_BYTES,
   FEEDBACK_CONVERSATION_MAX_MESSAGES,
   feedbackConversationDocumentSchema,
-  feedbackConversationMessageSchema,
+  feedbackConversationStoredMessageSchema,
   type FeedbackConversationDocument,
   type FeedbackConversationGoal,
   type FeedbackConversationMessage,
-} from "../conversations/feedback-conversation.schemas.js";
+} from "./post-event-feedback-conversation.document.js";
 import type { FeedbackOperatorAlertInput } from "./operator-alert.js";
 import type {
   FeedbackTransport,
@@ -823,7 +823,7 @@ export class FakeFeedbackConversations {
       };
     }
 
-    const message = feedbackConversationMessageSchema.parse({
+    const message = feedbackConversationStoredMessageSchema.parse({
       id: input.id ?? randomUUID(),
       seq: conversation.messages.length + 1,
       actor: input.actor,

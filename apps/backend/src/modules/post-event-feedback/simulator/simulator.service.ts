@@ -7,8 +7,8 @@ import type { Queue } from "bullmq";
 
 import type { Environment } from "../../../infrastructure/config/environment.js";
 import { FEEDBACK_QUEUE } from "../../../infrastructure/queue/queue.constants.js";
-import { FeedbackConversationRepository } from "../../conversations/feedback-conversation.repository.js";
-import { FEEDBACK_CONVERSATION_MAX_MESSAGES } from "../../conversations/feedback-conversation.schemas.js";
+import { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
+import { FEEDBACK_CONVERSATION_MAX_MESSAGES } from "../post-event-feedback-conversation.document.js";
 import { EventsRepository } from "../../events/events.repository.js";
 import { EventsService } from "../../events/events.service.js";
 import { ParticipantsRepository } from "../../participants/participants.repository.js";

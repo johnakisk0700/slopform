@@ -13,8 +13,8 @@ import {
 } from "../ingress/ingress.repository.js";
 import { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
 import { FEEDBACK_QUEUE } from "../../../infrastructure/queue/queue.constants.js";
-import { FeedbackConversationRepository } from "../../conversations/feedback-conversation.repository.js";
-import type { FeedbackConversationDocument } from "../../conversations/feedback-conversation.schemas.js";
+import { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
+import type { FeedbackConversationDocument } from "../post-event-feedback-conversation.document.js";
 import { ParticipantsRepository } from "../../participants/participants.repository.js";
 import { latestParticipantMessage } from "../conversation-reader.js";
 import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";

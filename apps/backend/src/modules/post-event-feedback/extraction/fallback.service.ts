@@ -6,11 +6,11 @@ import { DatabaseService } from "../../../infrastructure/database/database.servi
 import { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
 import { FeedbackResultsRepository } from "./results.repository.js";
 import { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
-import { FeedbackConversationRepository } from "../../conversations/feedback-conversation.repository.js";
+import { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
 import type {
   FeedbackConversationDocument,
   FeedbackConversationGoal,
-} from "../../conversations/feedback-conversation.schemas.js";
+} from "../post-event-feedback-conversation.document.js";
 import { EventsService } from "../../events/events.service.js";
 import { latestParticipantMessage } from "../conversation-reader.js";
 import {

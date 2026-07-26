@@ -1,4 +1,4 @@
-import type { FeedbackConversationDocument } from "../conversations/feedback-conversation.schemas.js";
+import type { FeedbackConversationDocument } from "./post-event-feedback-conversation.document.js";
 import type { FakeFeedbackConversations } from "./post-event-feedback-doubles.harness.js";
 import {
   FeedbackExtractionGenerationError,

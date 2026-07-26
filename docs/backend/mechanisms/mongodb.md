@@ -126,7 +126,7 @@ separately. No test suite silently depends on a developer MongoDB instance.
 
 - [Mongo service](../../../apps/backend/src/infrastructure/mongo/mongo.service.ts),
   [assistant conversation repository](../../../apps/backend/src/modules/conversations/conversation-thread.repository.ts),
-  [feedback conversation repository](../../../apps/backend/src/modules/conversations/feedback-conversation.repository.ts)
+  [feedback conversation repository](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-conversation.repository.ts)
   and [Compose initialization](../../../docker/mongo-init/10-app-user.js)
 - [MongoDB Node.js driver connections](https://www.mongodb.com/docs/drivers/node/current/connect/connection-options/),
   [connection pools](https://www.mongodb.com/docs/drivers/node/current/connect/connection-options/connection-pools/),

@@ -2,7 +2,6 @@ import { Module } from "@nestjs/common";
 
 import { DatabaseModule } from "../../../infrastructure/database/database.module.js";
 import { QueueModule } from "../../../infrastructure/queue/queue.module.js";
-import { ConversationThreadModule } from "../../conversations/conversation-thread.module.js";
 import { EventsCoreModule } from "../../events/events-core.module.js";
 import { ParticipantsCoreModule } from "../../participants/participants-core.module.js";
 import { FeedbackSimulatorController } from "./simulator.controller.js";
@@ -18,7 +17,6 @@ import { PostEventFeedbackCoreModule } from "../core.module.js";
  */
 @Module({
   imports: [
-    ConversationThreadModule,
     DatabaseModule,
     EventsCoreModule,
     ParticipantsCoreModule,

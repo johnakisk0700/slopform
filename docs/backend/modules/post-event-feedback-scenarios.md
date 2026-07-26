@@ -30,7 +30,7 @@ only the paid corpus can provide evidence that a real model understood the
 language.
 
 Related reading: [`post-event-feedback.md`](post-event-feedback.md) (module
-contract), [`conversations.md`](conversations.md) (schema v2 aggregate),
+contract and schema v2 aggregate),
 [ADR 0008](../../decisions/0008-post-event-feedback-conversations.md).
 
 ## Ground rules
@@ -2096,9 +2096,10 @@ an _ordering_ the step list cannot show.
 ## Decisions and references
 
 - [ADR 0008 — post-event feedback conversations](../../decisions/0008-post-event-feedback-conversations.md)
-- [`post-event-feedback.md`](post-event-feedback.md) — module contract, D13 as amended, the fallback
-- [`conversations.md`](conversations.md) — schema v2, capacity, close-reason precedence
+- [`post-event-feedback.md`](post-event-feedback.md) — module contract, D13 as amended, the fallback,
+  schema v2, capacity, close-reason precedence
+- [`conversations.md`](conversations.md) — schema-v1/v2 co-tenancy in `conversation_threads`
 - [`POST_EVENT_FEEDBACK_LOOP_PLAN_2026-07-26.md`](../../../POST_EVENT_FEEDBACK_LOOP_PLAN_2026-07-26.md) — F1–F7 and WP1–WP6, which this suite is the acceptance gate for
 - Source: `apps/backend/src/modules/post-event-feedback/`,
-  `apps/backend/src/modules/conversations/feedback-conversation.repository.ts`
+  `apps/backend/src/modules/post-event-feedback/post-event-feedback-conversation.repository.ts`
 - Precedent harness: `post-event-feedback-simulator.integration.spec.ts`

@@ -6,7 +6,7 @@ import {
   type ParticipantRow,
 } from "@join-the-six/database";
 
-import type { FeedbackConversationSummary } from "../../conversations/feedback-conversation.schemas.js";
+import type { FeedbackConversationSummary } from "../post-event-feedback-conversation.document.js";
 import type {
   FeedbackCampaignConversationsView,
   FeedbackConversationCapabilities,

@@ -7,8 +7,8 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import type { AuditRepository } from "../../infrastructure/audit/audit.repository.js";
 import type { DatabaseService } from "../../infrastructure/database/database.service.js";
-import type { FeedbackConversationRepository } from "../conversations/feedback-conversation.repository.js";
-import { buildFeedbackConversationGoals } from "../conversations/feedback-conversation.schemas.js";
+import type { FeedbackConversationRepository } from "./post-event-feedback-conversation.repository.js";
+import { buildFeedbackConversationGoals } from "./post-event-feedback-conversation.document.js";
 import type { ParticipantsRepository } from "../participants/participants.repository.js";
 import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
 import {

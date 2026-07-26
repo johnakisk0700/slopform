@@ -15,8 +15,8 @@ import type { DatabaseService } from "../../infrastructure/database/database.ser
 import {
   FeedbackConversationCapacityError,
   type FeedbackConversationRepository,
-} from "../conversations/feedback-conversation.repository.js";
-import type { FeedbackConversationDocument } from "../conversations/feedback-conversation.schemas.js";
+} from "./post-event-feedback-conversation.repository.js";
+import type { FeedbackConversationDocument } from "./post-event-feedback-conversation.document.js";
 import type { FeedbackJobData, FeedbackJobName } from "./jobs.schemas.js";
 import type { EventsRepository } from "../events/events.repository.js";
 import type { EventsService } from "../events/events.service.js";

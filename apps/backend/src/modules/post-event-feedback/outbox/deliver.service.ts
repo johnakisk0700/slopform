@@ -8,7 +8,7 @@ import type {
 import { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
 import { FeedbackOutboxRepository } from "./outbox.repository.js";
-import { FeedbackConversationRepository } from "../../conversations/feedback-conversation.repository.js";
+import { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
 import { FeedbackOutboundTranscriptService } from "./outbound-transcript.service.js";
 import { FEEDBACK_TRANSPORT, type FeedbackTransport } from "./transport.js";
 import {

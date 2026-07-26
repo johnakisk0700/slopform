@@ -11,11 +11,11 @@ import { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
 import {
   FeedbackConversationPhoneConflictError,
   FeedbackConversationRepository,
-} from "../../conversations/feedback-conversation.repository.js";
+} from "../post-event-feedback-conversation.repository.js";
 import {
   buildFeedbackConversationGoals,
   type FeedbackConversationDocument,
-} from "../../conversations/feedback-conversation.schemas.js";
+} from "../post-event-feedback-conversation.document.js";
 import { EventsRepository } from "../../events/events.repository.js";
 import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
 import type {
