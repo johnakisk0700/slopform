@@ -4,8 +4,6 @@ import { z } from "zod";
 import { FEEDBACK_CAMPAIGN_STATUSES } from "@join-the-six/database";
 
 export const feedbackCampaignStatusSchema = z.enum(FEEDBACK_CAMPAIGN_STATUSES);
-export const feedbackCampaignPrincipalSchema = z.string().min(1).max(200);
-export const feedbackCampaignCorrelationIdSchema = z.string().min(1).max(128);
 
 export const launchFeedbackCampaignSchema = z
   .object({
@@ -107,18 +105,3 @@ export type FeedbackCampaignListView = z.infer<
 export type StartFeedbackConversationResultView = z.infer<
   typeof startFeedbackConversationResultSchema
 >;
-export type FeedbackCampaignPrincipal = z.infer<
-  typeof feedbackCampaignPrincipalSchema
->;
-export type FeedbackCampaignCorrelationId = z.infer<
-  typeof feedbackCampaignCorrelationIdSchema
->;
-
-const FeedbackCampaignPrincipalDtoBase = createZodDto(
-  feedbackCampaignPrincipalSchema,
-) as unknown as new () => object;
-const FeedbackCampaignCorrelationIdDtoBase = createZodDto(
-  feedbackCampaignCorrelationIdSchema,
-) as unknown as new () => object;
-export class FeedbackCampaignPrincipalDto extends FeedbackCampaignPrincipalDtoBase {}
-export class FeedbackCampaignCorrelationIdDto extends FeedbackCampaignCorrelationIdDtoBase {}

@@ -60,9 +60,6 @@ export const assistantThreadIdSchema = z.object({ id: z.uuid() }).strict();
 export const assistantTurnParametersSchema = z
   .object({ threadId: z.uuid(), turnId: z.uuid() })
   .strict();
-export const assistantPrincipalSchema = z.string().min(1).max(200);
-export const assistantCorrelationIdSchema = z.string().min(1).max(128);
-
 export const assistantTurnErrorSchema = z
   .object({
     code: assistantFailureCodeSchema,
@@ -172,14 +169,6 @@ export class AssistantThreadIdDto extends createZodDto(
 export class AssistantTurnParametersDto extends createZodDto(
   assistantTurnParametersSchema,
 ) {}
-const AssistantPrincipalDtoBase = createZodDto(
-  assistantPrincipalSchema,
-) as unknown as new () => object;
-const AssistantCorrelationIdDtoBase = createZodDto(
-  assistantCorrelationIdSchema,
-) as unknown as new () => object;
-export class AssistantPrincipalDto extends AssistantPrincipalDtoBase {}
-export class AssistantCorrelationIdDto extends AssistantCorrelationIdDtoBase {}
 export class AssistantTurnDto extends createZodDto(assistantTurnSchema) {}
 export class AssistantThreadDto extends createZodDto(assistantThreadSchema) {}
 export class AssistantThreadListDto extends createZodDto(

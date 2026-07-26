@@ -16,12 +16,14 @@ import { ZodResponse } from "nestjs-zod";
 
 import { CurrentUserId } from "../../infrastructure/auth/current-user-id.decorator.js";
 import {
+  CorrelationIdDto,
+  PrincipalDto,
+} from "../../infrastructure/auth/auth.schemas.js";
+import {
   AssistantEnqueueError,
   AssistantJobsService,
 } from "./assistant-jobs.service.js";
 import {
-  AssistantCorrelationIdDto,
-  AssistantPrincipalDto,
   AssistantThreadDto,
   AssistantThreadIdDto,
   AssistantThreadListDto,
@@ -57,8 +59,8 @@ export class AssistantController {
   @ZodResponse({ status: 201, type: AssistantThreadDto })
   createThread(
     @Body() input: CreateAssistantThreadDto,
-    @CurrentUserId() userId: AssistantPrincipalDto,
-    @RequestCorrelationId() correlationId: AssistantCorrelationIdDto,
+    @CurrentUserId() userId: PrincipalDto,
+    @RequestCorrelationId() correlationId: CorrelationIdDto,
   ): Promise<AssistantThreadDto> {
     return mapAssistantErrors(
       this.jobs.createThreadAndEnqueue(
@@ -72,9 +74,7 @@ export class AssistantController {
   @Get()
   @ApiOperation({ operationId: "listAssistantThreads" })
   @ZodResponse({ status: 200, type: AssistantThreadListDto })
-  list(
-    @CurrentUserId() userId: AssistantPrincipalDto,
-  ): Promise<AssistantThreadListDto> {
+  list(@CurrentUserId() userId: PrincipalDto): Promise<AssistantThreadListDto> {
     return mapAssistantErrors(this.assistant.list(String(userId)));
   }
 
@@ -83,7 +83,7 @@ export class AssistantController {
   @ZodResponse({ status: 200, type: AssistantThreadDto })
   getThread(
     @Param() parameters: AssistantThreadIdDto,
-    @CurrentUserId() userId: AssistantPrincipalDto,
+    @CurrentUserId() userId: PrincipalDto,
   ): Promise<AssistantThreadDto> {
     return mapAssistantErrors(
       this.assistant.getThread(parameters.id, String(userId)),
@@ -96,8 +96,8 @@ export class AssistantController {
   appendTurn(
     @Param() parameters: AssistantThreadIdDto,
     @Body() input: CreateAssistantTurnDto,
-    @CurrentUserId() userId: AssistantPrincipalDto,
-    @RequestCorrelationId() correlationId: AssistantCorrelationIdDto,
+    @CurrentUserId() userId: PrincipalDto,
+    @RequestCorrelationId() correlationId: CorrelationIdDto,
   ): Promise<AssistantTurnDto> {
     return mapAssistantErrors(
       this.jobs.appendTurnAndEnqueue(
@@ -114,7 +114,7 @@ export class AssistantController {
   @ZodResponse({ status: 200, type: AssistantTurnDto })
   getTurn(
     @Param() parameters: AssistantTurnParametersDto,
-    @CurrentUserId() userId: AssistantPrincipalDto,
+    @CurrentUserId() userId: PrincipalDto,
   ): Promise<AssistantTurnDto> {
     return mapAssistantErrors(
       this.assistant.getTurn(
@@ -130,8 +130,8 @@ export class AssistantController {
   @ZodResponse({ status: 201, type: AssistantTurnDto })
   retryTurn(
     @Param() parameters: AssistantTurnParametersDto,
-    @CurrentUserId() userId: AssistantPrincipalDto,
-    @RequestCorrelationId() correlationId: AssistantCorrelationIdDto,
+    @CurrentUserId() userId: PrincipalDto,
+    @RequestCorrelationId() correlationId: CorrelationIdDto,
   ): Promise<AssistantTurnDto> {
     return mapAssistantErrors(
       this.jobs.retryTurnAndEnqueue(

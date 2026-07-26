@@ -16,12 +16,14 @@ import { ZodResponse } from "nestjs-zod";
 
 import { CurrentUserId } from "../../infrastructure/auth/current-user-id.decorator.js";
 import {
+  CorrelationIdDto,
+  PrincipalDto,
+} from "../../infrastructure/auth/auth.schemas.js";
+import {
   CreateEmailDeliveryDto,
-  EmailCorrelationIdDto,
   EmailDeliveryDto,
   EmailDeliveryIdDto,
   EmailDeliveryListDto,
-  EmailPrincipalDto,
 } from "./email.schemas.js";
 import {
   EmailDeliveryConflictError,
@@ -46,8 +48,8 @@ export class EmailController {
   @ZodResponse({ status: 201, type: EmailDeliveryDto })
   create(
     @Body() input: CreateEmailDeliveryDto,
-    @CurrentUserId() userId: EmailPrincipalDto,
-    @RequestCorrelationId() correlationId: EmailCorrelationIdDto,
+    @CurrentUserId() userId: PrincipalDto,
+    @RequestCorrelationId() correlationId: CorrelationIdDto,
   ): Promise<EmailDeliveryDto> {
     return mapEmailErrors(
       this.email.create(input, String(userId), String(correlationId)),
@@ -58,9 +60,7 @@ export class EmailController {
   @ApiOperation({ operationId: "listEmailDeliveries" })
   @Header("Cache-Control", "no-store")
   @ZodResponse({ status: 200, type: EmailDeliveryListDto })
-  list(
-    @CurrentUserId() userId: EmailPrincipalDto,
-  ): Promise<EmailDeliveryListDto> {
+  list(@CurrentUserId() userId: PrincipalDto): Promise<EmailDeliveryListDto> {
     return this.email.list(String(userId));
   }
 
@@ -70,7 +70,7 @@ export class EmailController {
   @ZodResponse({ status: 200, type: EmailDeliveryDto })
   get(
     @Param() parameters: EmailDeliveryIdDto,
-    @CurrentUserId() userId: EmailPrincipalDto,
+    @CurrentUserId() userId: PrincipalDto,
   ): Promise<EmailDeliveryDto> {
     return mapEmailErrors(this.email.get(parameters.id, String(userId)));
   }

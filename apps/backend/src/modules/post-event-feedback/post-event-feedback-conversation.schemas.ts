@@ -8,15 +8,13 @@ import {
 import { createZodDto } from "nestjs-zod";
 import { z } from "zod";
 
+import {
+  correlationIdSchema,
+  principalSchema,
+} from "../../infrastructure/auth/auth.schemas.js";
 import { FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH } from "../conversations/feedback-conversation.schemas.js";
 import { feedbackConversationMessageAttentionSchema } from "./post-event-feedback-attention.js";
 import { POST_EVENT_FEEDBACK_ANSWER_QUESTION_KEYS } from "./post-event-feedback-question-set.js";
-
-export const feedbackConversationPrincipalSchema = z.string().min(1).max(200);
-export const feedbackConversationCorrelationIdSchema = z
-  .string()
-  .min(1)
-  .max(128);
 
 export const feedbackConversationCapabilitiesSchema = z
   .object({
@@ -331,18 +329,7 @@ export type AddFeedbackConversationNoteInput = z.infer<
 >;
 export type FeedbackNoteView = z.infer<typeof feedbackNoteViewSchema>;
 export type FeedbackNoteOrigin = z.infer<typeof feedbackNoteOriginSchema>;
-export type FeedbackConversationPrincipal = z.infer<
-  typeof feedbackConversationPrincipalSchema
->;
+export type FeedbackConversationPrincipal = z.infer<typeof principalSchema>;
 export type FeedbackConversationCorrelationId = z.infer<
-  typeof feedbackConversationCorrelationIdSchema
+  typeof correlationIdSchema
 >;
-
-const FeedbackConversationPrincipalDtoBase = createZodDto(
-  feedbackConversationPrincipalSchema,
-) as unknown as new () => object;
-const FeedbackConversationCorrelationIdDtoBase = createZodDto(
-  feedbackConversationCorrelationIdSchema,
-) as unknown as new () => object;
-export class FeedbackConversationPrincipalDto extends FeedbackConversationPrincipalDtoBase {}
-export class FeedbackConversationCorrelationIdDto extends FeedbackConversationCorrelationIdDtoBase {}

@@ -20,15 +20,17 @@ import { ZodResponse } from "nestjs-zod";
 
 import { CurrentUserId } from "../../infrastructure/auth/current-user-id.decorator.js";
 import {
+  CorrelationIdDto,
+  PrincipalDto,
+} from "../../infrastructure/auth/auth.schemas.js";
+import {
   CreateEventDto,
   EventAttendeeDto,
   EventAttendeeIdDto,
-  EventCorrelationIdDto,
   EventDetailDto,
   EventDto,
   EventIdDto,
   EventListDto,
-  EventPrincipalDto,
   FeedbackCandidatesDto,
   FeedbackCandidatesQueryDto,
   TransitionEventStatusDto,
@@ -63,8 +65,8 @@ export class EventsController {
   @ZodResponse({ status: 201, type: EventDto })
   create(
     @Body() input: CreateEventDto,
-    @CurrentUserId() userId: EventPrincipalDto,
-    @RequestCorrelationId() correlationId: EventCorrelationIdDto,
+    @CurrentUserId() userId: PrincipalDto,
+    @RequestCorrelationId() correlationId: CorrelationIdDto,
   ): Promise<EventDto> {
     return mapEventErrors(
       this.events.create(input, String(userId), String(correlationId)),
@@ -75,7 +77,7 @@ export class EventsController {
   @ApiOperation({ operationId: "listEvents" })
   @Header("Cache-Control", "no-store")
   @ZodResponse({ status: 200, type: EventListDto })
-  list(@CurrentUserId() _userId: EventPrincipalDto): Promise<EventListDto> {
+  list(@CurrentUserId() _userId: PrincipalDto): Promise<EventListDto> {
     return this.events.list();
   }
 
@@ -85,7 +87,7 @@ export class EventsController {
   @ZodResponse({ status: 200, type: EventDetailDto })
   get(
     @Param() parameters: EventIdDto,
-    @CurrentUserId() _userId: EventPrincipalDto,
+    @CurrentUserId() _userId: PrincipalDto,
   ): Promise<EventDetailDto> {
     return mapEventErrors(this.events.get(parameters.id));
   }
@@ -97,8 +99,8 @@ export class EventsController {
   update(
     @Param() parameters: EventIdDto,
     @Body() input: UpdateEventDto,
-    @CurrentUserId() userId: EventPrincipalDto,
-    @RequestCorrelationId() correlationId: EventCorrelationIdDto,
+    @CurrentUserId() userId: PrincipalDto,
+    @RequestCorrelationId() correlationId: CorrelationIdDto,
   ): Promise<EventDto> {
     return mapEventErrors(
       this.events.update(
@@ -117,8 +119,8 @@ export class EventsController {
   transitionStatus(
     @Param() parameters: EventIdDto,
     @Body() input: TransitionEventStatusDto,
-    @CurrentUserId() userId: EventPrincipalDto,
-    @RequestCorrelationId() correlationId: EventCorrelationIdDto,
+    @CurrentUserId() userId: PrincipalDto,
+    @RequestCorrelationId() correlationId: CorrelationIdDto,
   ): Promise<EventDto> {
     return mapEventErrors(
       this.events.transitionStatus(
@@ -137,7 +139,7 @@ export class EventsController {
   listFeedbackCandidates(
     @Param() parameters: EventIdDto,
     @Query() query: FeedbackCandidatesQueryDto,
-    @CurrentUserId() _userId: EventPrincipalDto,
+    @CurrentUserId() _userId: PrincipalDto,
   ): Promise<FeedbackCandidatesDto> {
     return mapEventErrors(
       this.events.listFeedbackCandidatesForRespondent(
@@ -154,8 +156,8 @@ export class EventsController {
   addAttendee(
     @Param() parameters: EventIdDto,
     @Body() input: UpsertEventAttendeeDto,
-    @CurrentUserId() userId: EventPrincipalDto,
-    @RequestCorrelationId() correlationId: EventCorrelationIdDto,
+    @CurrentUserId() userId: PrincipalDto,
+    @RequestCorrelationId() correlationId: CorrelationIdDto,
   ): Promise<EventAttendeeDto> {
     return mapEventErrors(
       this.events.upsertAttendee(
@@ -174,8 +176,8 @@ export class EventsController {
   updateAttendee(
     @Param() parameters: EventAttendeeIdDto,
     @Body() input: UpdateEventAttendeeDto,
-    @CurrentUserId() userId: EventPrincipalDto,
-    @RequestCorrelationId() correlationId: EventCorrelationIdDto,
+    @CurrentUserId() userId: PrincipalDto,
+    @RequestCorrelationId() correlationId: CorrelationIdDto,
   ): Promise<EventAttendeeDto> {
     return mapEventErrors(
       this.events.updateAttendee(

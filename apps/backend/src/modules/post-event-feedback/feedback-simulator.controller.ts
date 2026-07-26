@@ -18,6 +18,7 @@ import { ApiOperation, ApiTags } from "@nestjs/swagger";
 import type { Request } from "express";
 import { ZodResponse } from "nestjs-zod";
 
+import { CorrelationIdDto } from "../../infrastructure/auth/auth.schemas.js";
 import { PostEventFeedbackEnqueueError } from "./post-event-feedback-ingress.service.js";
 import {
   FeedbackSimulatorRunNotFoundError,
@@ -37,7 +38,6 @@ import {
   InjectFeedbackSimulatorMessageResponseDto,
   StartFeedbackSimulatorRunDto,
 } from "./feedback-simulator.schemas.js";
-import { FeedbackConversationCorrelationIdDto } from "./post-event-feedback-conversation.schemas.js";
 
 type RequestWithId = Request & { id: string };
 const RequestCorrelationId = createParamDecorator(
@@ -63,7 +63,7 @@ export class FeedbackSimulatorController {
   @ZodResponse({ status: 200, type: FeedbackSimulatorPreflightResponseDto })
   async preflightRun(
     @Body() body: FeedbackSimulatorPreflightDto,
-    @RequestCorrelationId() requestId: FeedbackConversationCorrelationIdDto,
+    @RequestCorrelationId() requestId: CorrelationIdDto,
   ): Promise<FeedbackSimulatorPreflightResponseDto> {
     try {
       return await this.simulator.preflightScenarioRun(
@@ -92,7 +92,7 @@ export class FeedbackSimulatorController {
   @ZodResponse({ status: 202, type: FeedbackSimulatorRunResponseDto })
   async startRun(
     @Body() body: StartFeedbackSimulatorRunDto,
-    @RequestCorrelationId() requestId: FeedbackConversationCorrelationIdDto,
+    @RequestCorrelationId() requestId: CorrelationIdDto,
   ): Promise<FeedbackSimulatorRunResponseDto> {
     try {
       return await this.simulator.startScenarioRun(
@@ -138,7 +138,7 @@ export class FeedbackSimulatorController {
   @ZodResponse({ status: 200, type: InjectFeedbackSimulatorMessageResponseDto })
   async inject(
     @Body() body: InjectFeedbackSimulatorMessageDto,
-    @RequestCorrelationId() requestId: FeedbackConversationCorrelationIdDto,
+    @RequestCorrelationId() requestId: CorrelationIdDto,
   ): Promise<InjectFeedbackSimulatorMessageResponseDto> {
     try {
       return await this.simulator.injectObservedMessage(

@@ -15,12 +15,14 @@ import { ZodResponse } from "nestjs-zod";
 
 import { CurrentUserId } from "../../infrastructure/auth/current-user-id.decorator.js";
 import {
-  ParticipantCorrelationIdDto,
+  CorrelationIdDto,
+  PrincipalDto,
+} from "../../infrastructure/auth/auth.schemas.js";
+import {
   ParticipantDto,
   ParticipantEventHistoryDto,
   ParticipantIdDto,
   ParticipantListDto,
-  ParticipantPrincipalDto,
   UpdateParticipantFeedbackOptInDto,
 } from "./participants.schemas.js";
 import {
@@ -43,9 +45,7 @@ export class ParticipantsController {
   @ApiOperation({ operationId: "listParticipants" })
   @Header("Cache-Control", "no-store")
   @ZodResponse({ status: 200, type: ParticipantListDto })
-  list(
-    @CurrentUserId() _userId: ParticipantPrincipalDto,
-  ): Promise<ParticipantListDto> {
+  list(@CurrentUserId() _userId: PrincipalDto): Promise<ParticipantListDto> {
     return this.participants.list();
   }
 
@@ -55,7 +55,7 @@ export class ParticipantsController {
   @ZodResponse({ status: 200, type: ParticipantDto })
   get(
     @Param() parameters: ParticipantIdDto,
-    @CurrentUserId() _userId: ParticipantPrincipalDto,
+    @CurrentUserId() _userId: PrincipalDto,
   ): Promise<ParticipantDto> {
     return mapParticipantErrors(this.participants.get(parameters.id));
   }
@@ -66,7 +66,7 @@ export class ParticipantsController {
   @ZodResponse({ status: 200, type: ParticipantEventHistoryDto })
   listEvents(
     @Param() parameters: ParticipantIdDto,
-    @CurrentUserId() _userId: ParticipantPrincipalDto,
+    @CurrentUserId() _userId: PrincipalDto,
   ): Promise<ParticipantEventHistoryDto> {
     return mapParticipantErrors(this.participants.listEvents(parameters.id));
   }
@@ -78,8 +78,8 @@ export class ParticipantsController {
   updateFeedbackOptIn(
     @Param() parameters: ParticipantIdDto,
     @Body() input: UpdateParticipantFeedbackOptInDto,
-    @CurrentUserId() userId: ParticipantPrincipalDto,
-    @RequestCorrelationId() correlationId: ParticipantCorrelationIdDto,
+    @CurrentUserId() userId: PrincipalDto,
+    @RequestCorrelationId() correlationId: CorrelationIdDto,
   ): Promise<ParticipantDto> {
     return mapParticipantErrors(
       this.participants.updateFeedbackOptIn(

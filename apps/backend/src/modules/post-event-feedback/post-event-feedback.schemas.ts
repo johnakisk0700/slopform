@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import { z } from "zod";
 
+import { correlationIdSchema } from "../../infrastructure/auth/auth.schemas.js";
 import { FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH } from "../conversations/feedback-conversation.schemas.js";
 
 /**
@@ -21,13 +22,11 @@ export const FEEDBACK_JOB_NAMES = {
 
 export const FEEDBACK_JOB_SCHEMA_VERSION = 1;
 
-export const feedbackCorrelationIdSchema = z.string().min(1).max(128);
-
 export const feedbackMaterializeJobDataSchema = z
   .object({
     schemaVersion: z.literal(FEEDBACK_JOB_SCHEMA_VERSION),
     ingressId: z.uuid(),
-    correlationId: feedbackCorrelationIdSchema,
+    correlationId: correlationIdSchema,
   })
   .strict();
 
@@ -40,14 +39,14 @@ export const feedbackExtractJobDataSchema = z
   .object({
     schemaVersion: z.literal(FEEDBACK_JOB_SCHEMA_VERSION),
     conversationId: z.uuid(),
-    correlationId: feedbackCorrelationIdSchema,
+    correlationId: correlationIdSchema,
   })
   .strict();
 
 export const feedbackRelayJobDataSchema = z
   .object({
     schemaVersion: z.literal(FEEDBACK_JOB_SCHEMA_VERSION),
-    correlationId: feedbackCorrelationIdSchema,
+    correlationId: correlationIdSchema,
   })
   .strict();
 
@@ -55,7 +54,7 @@ export const feedbackDeliverJobDataSchema = z
   .object({
     schemaVersion: z.literal(FEEDBACK_JOB_SCHEMA_VERSION),
     outboxId: z.uuid(),
-    correlationId: feedbackCorrelationIdSchema,
+    correlationId: correlationIdSchema,
   })
   .strict();
 
@@ -63,7 +62,7 @@ export const feedbackDeliverJobDataSchema = z
 export const feedbackSweepJobDataSchema = z
   .object({
     schemaVersion: z.literal(FEEDBACK_JOB_SCHEMA_VERSION),
-    correlationId: feedbackCorrelationIdSchema,
+    correlationId: correlationIdSchema,
   })
   .strict();
 

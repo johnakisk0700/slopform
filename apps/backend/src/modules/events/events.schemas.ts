@@ -14,8 +14,6 @@ export const EVENT_STATUS_TRANSITIONS = {
 >;
 
 export const eventStatusSchema = z.enum(EVENT_STATUSES);
-export const eventPrincipalSchema = z.string().min(1).max(200);
-export const eventCorrelationIdSchema = z.string().min(1).max(128);
 
 export const createEventSchema = z
   .object({
@@ -151,14 +149,6 @@ export class EventAttendeeDto extends createZodDto(eventAttendeeSchema) {}
 export class EventDto extends createZodDto(eventSchema) {}
 export class EventDetailDto extends createZodDto(eventDetailSchema) {}
 export class EventListDto extends createZodDto(eventListSchema) {}
-const EventPrincipalDtoBase = createZodDto(
-  eventPrincipalSchema,
-) as unknown as new () => object;
-const EventCorrelationIdDtoBase = createZodDto(
-  eventCorrelationIdSchema,
-) as unknown as new () => object;
-export class EventPrincipalDto extends EventPrincipalDtoBase {}
-export class EventCorrelationIdDto extends EventCorrelationIdDtoBase {}
 export class FeedbackCandidatesDto extends createZodDto(
   feedbackCandidatesSchema,
 ) {}

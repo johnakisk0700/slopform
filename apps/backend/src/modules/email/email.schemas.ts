@@ -39,8 +39,6 @@ export const createEmailDeliverySchema = z
   })
   .strict();
 export const emailDeliveryIdSchema = z.object({ id: z.uuid() }).strict();
-export const emailPrincipalSchema = z.string().min(1).max(200);
-export const emailCorrelationIdSchema = z.string().min(1).max(128);
 
 export const emailAttemptSchema = z
   .object({
@@ -90,14 +88,6 @@ export class CreateEmailDeliveryDto extends createZodDto(
   createEmailDeliverySchema,
 ) {}
 export class EmailDeliveryIdDto extends createZodDto(emailDeliveryIdSchema) {}
-const EmailPrincipalDtoBase = createZodDto(
-  emailPrincipalSchema,
-) as unknown as new () => object;
-const EmailCorrelationIdDtoBase = createZodDto(
-  emailCorrelationIdSchema,
-) as unknown as new () => object;
-export class EmailPrincipalDto extends EmailPrincipalDtoBase {}
-export class EmailCorrelationIdDto extends EmailCorrelationIdDtoBase {}
 export class EmailDeliveryDto extends createZodDto(emailDeliverySchema) {}
 export class EmailDeliveryListDto extends createZodDto(
   emailDeliveryListSchema,

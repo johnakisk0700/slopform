@@ -2,9 +2,6 @@ import { EVENT_STATUSES } from "@join-the-six/database";
 import { createZodDto } from "nestjs-zod";
 import { z } from "zod";
 
-export const participantPrincipalSchema = z.string().min(1).max(200);
-export const participantCorrelationIdSchema = z.string().min(1).max(128);
-
 export const participantIdSchema = z.object({ id: z.uuid() }).strict();
 
 export const updateParticipantFeedbackOptInSchema = z
@@ -60,14 +57,6 @@ export class ParticipantListDto extends createZodDto(participantListSchema) {}
 export class ParticipantEventHistoryDto extends createZodDto(
   participantEventHistorySchema,
 ) {}
-const ParticipantPrincipalDtoBase = createZodDto(
-  participantPrincipalSchema,
-) as unknown as new () => object;
-const ParticipantCorrelationIdDtoBase = createZodDto(
-  participantCorrelationIdSchema,
-) as unknown as new () => object;
-export class ParticipantPrincipalDto extends ParticipantPrincipalDtoBase {}
-export class ParticipantCorrelationIdDto extends ParticipantCorrelationIdDtoBase {}
 
 export type UpdateParticipantFeedbackOptInInput = z.infer<
   typeof updateParticipantFeedbackOptInSchema
