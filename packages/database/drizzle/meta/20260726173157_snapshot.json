@@ -476,14 +476,8 @@
           "name": "assistant_turns_thread_owner_fk",
           "tableFrom": "assistant_turns",
           "tableTo": "assistant_threads",
-          "columnsFrom": [
-            "thread_id",
-            "created_by"
-          ],
-          "columnsTo": [
-            "id",
-            "created_by"
-          ],
+          "columnsFrom": ["thread_id", "created_by"],
+          "columnsTo": ["id", "created_by"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -888,12 +882,8 @@
           "name": "email_delivery_attempts_delivery_fk",
           "tableFrom": "email_delivery_attempts",
           "tableTo": "email_deliveries",
-          "columnsFrom": [
-            "delivery_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["delivery_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -1072,12 +1062,8 @@
           "name": "email_outbox_events_delivery_fk",
           "tableFrom": "email_outbox_events",
           "tableTo": "email_deliveries",
-          "columnsFrom": [
-            "delivery_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["delivery_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -1232,12 +1218,8 @@
           "name": "event_attendees_event_id_events_id_fk",
           "tableFrom": "event_attendees",
           "tableTo": "events",
-          "columnsFrom": [
-            "event_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["event_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -1245,12 +1227,8 @@
           "name": "event_attendees_participant_id_participants_id_fk",
           "tableFrom": "event_attendees",
           "tableTo": "participants",
-          "columnsFrom": [
-            "participant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["participant_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -1402,12 +1380,8 @@
           "name": "participant_interests_participant_id_participants_id_fk",
           "tableFrom": "participant_interests",
           "tableTo": "participants",
-          "columnsFrom": [
-            "participant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["participant_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1415,10 +1389,7 @@
       "compositePrimaryKeys": {
         "participant_interests_pk": {
           "name": "participant_interests_pk",
-          "columns": [
-            "participant_id",
-            "interest"
-          ]
+          "columns": ["participant_id", "interest"]
         }
       },
       "uniqueConstraints": {},
@@ -1529,12 +1500,8 @@
           "name": "participant_source_records_participant_id_participants_id_fk",
           "tableFrom": "participant_source_records",
           "tableTo": "participants",
-          "columnsFrom": [
-            "participant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["participant_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1839,12 +1806,8 @@
           "name": "feedback_answers_campaign_id_feedback_campaigns_id_fk",
           "tableFrom": "feedback_answers",
           "tableTo": "feedback_campaigns",
-          "columnsFrom": [
-            "campaign_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["campaign_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -1852,12 +1815,8 @@
           "name": "feedback_answers_respondent_participant_id_participants_id_fk",
           "tableFrom": "feedback_answers",
           "tableTo": "participants",
-          "columnsFrom": [
-            "respondent_participant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["respondent_participant_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -1865,12 +1824,8 @@
           "name": "feedback_answers_subject_participant_id_participants_id_fk",
           "tableFrom": "feedback_answers",
           "tableTo": "participants",
-          "columnsFrom": [
-            "subject_participant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["subject_participant_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -2014,12 +1969,8 @@
           "name": "feedback_campaigns_event_id_events_id_fk",
           "tableFrom": "feedback_campaigns",
           "tableTo": "events",
-          "columnsFrom": [
-            "event_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["event_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -2207,12 +2158,8 @@
           "name": "feedback_notes_campaign_id_feedback_campaigns_id_fk",
           "tableFrom": "feedback_notes",
           "tableTo": "feedback_campaigns",
-          "columnsFrom": [
-            "campaign_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["campaign_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -2220,12 +2167,8 @@
           "name": "feedback_notes_respondent_participant_id_participants_id_fk",
           "tableFrom": "feedback_notes",
           "tableTo": "participants",
-          "columnsFrom": [
-            "respondent_participant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["respondent_participant_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
@@ -2233,12 +2176,8 @@
           "name": "feedback_notes_subject_participant_id_participants_id_fk",
           "tableFrom": "feedback_notes",
           "tableTo": "participants",
-          "columnsFrom": [
-            "subject_participant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["subject_participant_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }
@@ -2590,12 +2529,8 @@
           "name": "message_outbox_campaign_id_feedback_campaigns_id_fk",
           "tableFrom": "message_outbox",
           "tableTo": "feedback_campaigns",
-          "columnsFrom": [
-            "campaign_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["campaign_id"],
+          "columnsTo": ["id"],
           "onDelete": "restrict",
           "onUpdate": "no action"
         }

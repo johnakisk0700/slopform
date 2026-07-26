@@ -16,7 +16,10 @@ import {
 } from "./post-event-feedback-materializer.service.js";
 import type { MessageOutboxDeliveryService } from "./message-outbox-delivery.service.js";
 import type { MessageOutboxRelayService } from "./message-outbox-relay.service.js";
-import { PostEventFeedbackProcessor } from "./post-event-feedback.processor.js";
+import {
+  FEEDBACK_WORKER_CONCURRENCY,
+  PostEventFeedbackProcessor,
+} from "./post-event-feedback.processor.js";
 import {
   createFeedbackMaterializeJobId,
   FEEDBACK_JOB_NAMES,
@@ -35,6 +38,10 @@ const validData = {
 describe("PostEventFeedbackProcessor", () => {
   beforeAll(() => {
     Logger.overrideLogger(false);
+  });
+
+  it("keeps the documented per-process ordering limit explicit", () => {
+    expect(FEEDBACK_WORKER_CONCURRENCY).toBe(1);
   });
 
   it("materializes a valid job through the durable consumer", async () => {

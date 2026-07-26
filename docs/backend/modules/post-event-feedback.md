@@ -338,10 +338,12 @@ calling the model at all.
 ### What the model is given and what it may return
 
 Both prompts are Greek-first (the conversation is Greek) with English field
-names (they are the persisted contract). The extraction proposal is
-`answers[]`, `notes[]`, `skippedGoals[]`, `nextGoal`, `reply`, `handoff`,
-`confidence`; its full transcript also carries the campaign's question copy
-snapshot, **live** D16 candidates and already-accepted results.
+names (they are the persisted contract). Every transcript entry includes its
+durable UTC ISO-8601 timestamp, so elapsed time and staff/participant ordering
+remain visible to both extraction and attention classification. The extraction
+proposal is `answers[]`, `notes[]`, `skippedGoals[]`, `nextGoal`, `reply`,
+`handoff`, `confidence`; its full transcript also carries the campaign's
+question copy snapshot, **live** D16 candidates and already-accepted results.
 
 The independent attention proposal is `results[]`, exactly one per supplied new
 participant message: `messageId`, `incident`, nullable `category`, nullable

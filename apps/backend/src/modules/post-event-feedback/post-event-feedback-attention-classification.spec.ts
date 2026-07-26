@@ -94,9 +94,7 @@ describe("feedback attention classification", () => {
       id: `m-${index + 1}`,
       seq: index + 1,
       actor: index === 8 ? ("participant" as const) : ("bot" as const),
-      occurredAt: new Date(
-        Date.UTC(2026, 6, 25, 18, index),
-      ).toISOString(),
+      occurredAt: new Date(Date.UTC(2026, 6, 25, 18, index)).toISOString(),
       text: `turn ${index + 1}`,
     }));
 

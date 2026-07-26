@@ -99,10 +99,20 @@ before acting.
 
 `latestSeq` is the transcript position the extraction run must cover, so a burst
 of inbound messages collapses onto one model run per position instead of one per
-message. The feedback worker deliberately runs at concurrency `1`, which keeps
-one participant's burst in arrival order inside the transcript without a
-per-conversation lock and keeps outbound session pacing single-threaded; raising
-it requires explicit per-conversation serialization.
+message. `FEEDBACK_WORKER_CONCURRENCY` is the hardcoded, per-process truth and
+currently equals `1`: at most one feedback job / conversation is actively
+processed by one worker process. One extraction job still opens up to two model
+requests concurrently (questionnaire extraction plus attention classification).
+The value keeps one participant's burst in arrival order without a
+per-conversation lock and keeps outbound session pacing single-threaded; worker
+replicas multiply it.
+
+This is an application ordering limit, not an OpenRouter limit. OpenRouter
+publishes no universal concurrency cap for paid models; upstream capacity is
+model/provider-specific and returns retryable `429`/`503` signals. Raising the
+worker value therefore requires explicit per-conversation serialization and a
+separate deployment-wide provider limiter, not a larger integer justified by
+fictional precision.
 
 That collapse only reaches jobs still waiting, so `feedback.extract.v1` is also
 enqueued with a `FEEDBACK_EXTRACT_QUIET_WINDOW_MS` delay. WhatsApp is typed, not
@@ -315,3 +325,4 @@ recovery re-enqueue under the stable materialize job id.
 - [Nest BullMQ](https://docs.nestjs.com/techniques/queues), [BullMQ connections](https://docs.bullmq.io/guide/connections), [fail-fast producers](https://docs.bullmq.io/patterns/failing-fast-when-redis-is-down) and [worker shutdown](https://docs.bullmq.io/guide/workers/graceful-shutdown)
 - [Job IDs](https://docs.bullmq.io/guide/jobs/job-ids), [retries](https://docs.bullmq.io/guide/retrying-failing-jobs), [permanent failures](https://docs.bullmq.io/patterns/stop-retrying-jobs), [retention](https://docs.bullmq.io/guide/queues/auto-removal-of-jobs) and [metrics](https://docs.bullmq.io/guide/metrics)
 - [Bull Board](https://github.com/felixmosh/bull-board)
+- [OpenRouter limits](https://openrouter.ai/docs/api_reference/limits), [errors and `Retry-After`](https://openrouter.ai/docs/api/reference/errors-and-debugging) and [provider routing](https://openrouter.ai/docs/guides/routing/provider-selection), verified 2026-07-26

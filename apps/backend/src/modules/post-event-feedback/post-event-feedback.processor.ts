@@ -41,6 +41,23 @@ import {
 } from "./post-event-feedback.schemas.js";
 import { PostEventFeedbackSweepService } from "./post-event-feedback-sweep.service.js";
 
+/**
+ * Actual per-process feedback job concurrency.
+ *
+ * This is an application ordering limit, not an OpenRouter quota. OpenRouter
+ * publishes no fixed concurrency cap for paid models; upstream capacity is
+ * dynamic and surfaces as retryable 429/503 responses. One extraction job can
+ * already make two provider calls in parallel (extraction + attention).
+ *
+ * Keep this at one until jobs for the same conversation are serialized and
+ * provider-call limiting is separated from transcript/outbox ordering. Worker
+ * replicas multiply this value.
+ *
+ * Verified 2026-07-26:
+ * https://openrouter.ai/docs/api_reference/limits
+ */
+export const FEEDBACK_WORKER_CONCURRENCY = 1;
+
 @Processor(
   { name: FEEDBACK_QUEUE, configKey: QUEUE_WORKER_CONFIG },
   {
@@ -49,7 +66,7 @@ import { PostEventFeedbackSweepService } from "./post-event-feedback-sweep.servi
     // conversations, not a firehose; raise this only together with explicit
     // per-conversation serialization. Outbox delivery also shares this worker,
     // so session pacing remains single-threaded here.
-    concurrency: 1,
+    concurrency: FEEDBACK_WORKER_CONCURRENCY,
     maxStalledCount: 1,
     metrics: { maxDataPoints: MetricsTime.ONE_WEEK * 2 },
     name: "feedback-worker",

@@ -67,9 +67,7 @@ function contextFor(
       id: message.id,
       seq: index + 1,
       actor: message.actor,
-      occurredAt: new Date(
-        Date.UTC(2026, 6, 25, 18, index * 5),
-      ).toISOString(),
+      occurredAt: new Date(Date.UTC(2026, 6, 25, 18, index * 5)).toISOString(),
       text: message.text,
     })),
     newParticipantMessageIds: fixture.messages
