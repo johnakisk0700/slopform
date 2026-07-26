@@ -8,6 +8,8 @@ node_modules/
 .output/
 dist/
 coverage/
+**/coverage/coverage-final.json
+report/
 *.tsbuildinfo
 
 # Environment and local secrets

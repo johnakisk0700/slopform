@@ -169,6 +169,105 @@ the execution contract for what each one is allowed to change and what proves it
 - Verify: `pnpm test`
 - Effort: S · Depends on: nothing · **Do not** add coverage thresholds to CI in this packet.
 
+## Baseline
+
+Measured 2026-07-26 on branch `chore/consolidation` before Group B/C work. **Line coverage** is
+statement-derived from vitest v8 `coverage/coverage-final.json` after `pnpm --filter
+@join-the-six/backend coverage` and `pnpm --filter @join-the-six/admin coverage`. **`n/a`** means the
+path does not exist yet (planned extraction) or is not instrumented (CSS, `package.json`,
+`packages/database` — no vitest coverage in this packet). **0.0** means the file exists but had no
+executed lines in the admin suite (routes and most page components).
+
+### Coverage — Groups B and C targets
+
+| Packet(s)           | File                                                                                                    | Lines % |
+| ------------------- | ------------------------------------------------------------------------------------------------------- | ------- |
+| WP-07               | `apps/admin/src/components/admin/feedback/AddNoteAction.tsx`                                            | 0.0     |
+| WP-34               | `apps/admin/src/components/admin/feedback/CampaignHeader.tsx` (new in WP-34)                            | n/a     |
+| WP-21               | `apps/admin/src/components/admin/feedback/ConversationDetails.tsx`                                      | 0.0     |
+| WP-21               | `apps/admin/src/components/admin/feedback/ParticipantName.tsx` (new in WP-21)                           | n/a     |
+| WP-34               | `apps/admin/src/features/assistant/composerSettings.ts` (new in WP-34)                                  | n/a     |
+| WP-34               | `apps/admin/src/features/assistant/failureMessages.ts` (new in WP-34)                                   | n/a     |
+| WP-24               | `apps/admin/src/features/feedback/conversationView.ts`                                                  | 88.8    |
+| WP-24               | `apps/admin/src/features/feedback/labels.ts`                                                            | 89.2    |
+| WP-07               | `apps/admin/src/lib/api.ts`                                                                             | 0.0     |
+| WP-08               | `apps/admin/src/lib/dateTime.ts` (new in WP-08)                                                         | n/a     |
+| WP-08, WP-34        | `apps/admin/src/routes/AssistantPage.tsx`                                                               | 0.0     |
+| WP-07               | `apps/admin/src/routes/EventDetailPage.tsx`                                                             | 0.0     |
+| WP-07               | `apps/admin/src/routes/EventsPage.tsx`                                                                  | 0.0     |
+| WP-07               | `apps/admin/src/routes/FeedbackCampaignsPage.tsx`                                                       | 0.0     |
+| WP-07, WP-34        | `apps/admin/src/routes/FeedbackInboxPage.tsx`                                                           | 0.0     |
+| WP-07               | `apps/admin/src/routes/FeedbackResultsPage.tsx`                                                         | 0.0     |
+| WP-07               | `apps/admin/src/routes/ParticipantProfilePage.tsx`                                                      | 0.0     |
+| WP-07               | `apps/admin/src/routes/ParticipantsPage.tsx`                                                            | 0.0     |
+| WP-19               | `apps/admin/src/styles/globals.css`                                                                     | n/a     |
+| WP-09               | `apps/backend/src/infrastructure/auth/auth.schemas.ts`                                                  | 100.0   |
+| WP-26               | `apps/backend/src/infrastructure/config/enabled-modules.ts` (new in WP-26)                              | n/a     |
+| WP-26               | `apps/backend/src/infrastructure/config/environment-values.ts` (new in WP-26)                           | n/a     |
+| WP-26               | `apps/backend/src/infrastructure/config/environment.ts`                                                 | 100.0   |
+| WP-26               | `apps/backend/src/infrastructure/config/mongo-connection-string.ts` (new in WP-26)                      | n/a     |
+| WP-26               | `apps/backend/src/infrastructure/config/observability-environment.ts`                                   | 100.0   |
+| WP-15               | `apps/backend/src/infrastructure/queue/queue.constants.ts`                                              | 100.0   |
+| WP-17               | `apps/backend/src/integrations/wasender/wasender.jid.ts` (new in WP-17)                                 | n/a     |
+| WP-20               | `apps/backend/src/modules/assistant/assistant-generation.service.ts`                                    | 98.2    |
+| WP-20               | `apps/backend/src/modules/assistant/assistant-models.ts`                                                | 100.0   |
+| WP-27               | `apps/backend/src/modules/assistant/assistant-turn-view.ts` (new in WP-27)                              | n/a     |
+| WP-09               | `apps/backend/src/modules/assistant/assistant.schemas.ts`                                               | 100.0   |
+| WP-27               | `apps/backend/src/modules/assistant/assistant.service.ts`                                               | 99.7    |
+| WP-23, WP-28        | `apps/backend/src/modules/conversations/feedback-conversation.repository.ts`                            | 100.0   |
+| WP-10, WP-28        | `apps/backend/src/modules/conversations/feedback-conversation.schemas.ts`                               | 100.0   |
+| WP-15               | `apps/backend/src/modules/email/email-outbox-relay.service.ts`                                          | 100.0   |
+| WP-09               | `apps/backend/src/modules/email/email.schemas.ts`                                                       | 100.0   |
+| WP-09               | `apps/backend/src/modules/events/events.schemas.ts`                                                     | 100.0   |
+| WP-09               | `apps/backend/src/modules/participants/participants.schemas.ts`                                         | 100.0   |
+| WP-13               | `apps/backend/src/modules/post-event-feedback/conversation-reader.ts` (new in WP-13)                    | n/a     |
+| WP-17               | `apps/backend/src/modules/post-event-feedback/feedback-simulator-phone.ts`                              | 100.0   |
+| WP-10, WP-22, WP-33 | `apps/backend/src/modules/post-event-feedback/feedback-simulator.service.ts`                            | 97.7    |
+| WP-14               | `apps/backend/src/modules/post-event-feedback/matching/fold-text.ts` (new in WP-14)                     | n/a     |
+| WP-15               | `apps/backend/src/modules/post-event-feedback/message-outbox-relay.service.ts`                          | 100.0   |
+| WP-18               | `apps/backend/src/modules/post-event-feedback/post-event-feedback-attention-classification.ts`          | 97.0    |
+| WP-09               | `apps/backend/src/modules/post-event-feedback/post-event-feedback-campaign.schemas.ts`                  | 100.0   |
+| WP-12               | `apps/backend/src/modules/post-event-feedback/post-event-feedback-campaign.service.ts`                  | 98.0    |
+| WP-09               | `apps/backend/src/modules/post-event-feedback/post-event-feedback-conversation.schemas.ts`              | 100.0   |
+| WP-29               | `apps/backend/src/modules/post-event-feedback/post-event-feedback-conversation.service.ts`              | 99.7    |
+| WP-13               | `apps/backend/src/modules/post-event-feedback/post-event-feedback-extraction-fallback.service.ts`       | 100.0   |
+| WP-11               | `apps/backend/src/modules/post-event-feedback/post-event-feedback-extraction-validation.ts`             | 100.0   |
+| WP-20               | `apps/backend/src/modules/post-event-feedback/post-event-feedback-extraction.service.ts`                | 94.5    |
+| WP-11, WP-30        | `apps/backend/src/modules/post-event-feedback/post-event-feedback-extractor.service.ts`                 | 99.8    |
+| WP-16               | `apps/backend/src/modules/post-event-feedback/post-event-feedback-loop-doubles.harness.ts`              | 90.0    |
+| WP-32               | `apps/backend/src/modules/post-event-feedback/post-event-feedback-loop-model.harness.ts` (new in WP-32) | n/a     |
+| WP-32               | `apps/backend/src/modules/post-event-feedback/post-event-feedback-loop-scenario.ts` (new in WP-32)      | n/a     |
+| WP-17, WP-32        | `apps/backend/src/modules/post-event-feedback/post-event-feedback-loop.harness.ts`                      | 99.6    |
+| WP-12, WP-31        | `apps/backend/src/modules/post-event-feedback/post-event-feedback-materializer.service.ts`              | 99.5    |
+| WP-14               | `apps/backend/src/modules/post-event-feedback/post-event-feedback-name-matcher.ts`                      | 100.0   |
+| WP-18               | `apps/backend/src/modules/post-event-feedback/post-event-feedback-prompt.ts`                            | 100.0   |
+| WP-10               | `apps/backend/src/modules/post-event-feedback/post-event-feedback-question-set.ts`                      | 100.0   |
+| WP-14               | `apps/backend/src/modules/post-event-feedback/post-event-feedback-stop-matcher.ts`                      | 100.0   |
+| WP-12               | `apps/backend/src/modules/post-event-feedback/post-event-feedback-sweep.service.ts`                     | 99.7    |
+| WP-09               | `apps/backend/src/modules/post-event-feedback/post-event-feedback.schemas.ts`                           | 100.0   |
+| WP-35               | `packages/database/src/schema/feedback-sim-outbound.ts` (new in WP-35)                                  | n/a     |
+| WP-35               | `packages/database/src/schema/post-event-feedback.ts`                                                   | n/a     |
+| WP-25               | `packages/design-tokens/package.json`                                                                   | n/a     |
+| WP-19               | `packages/design-tokens/src/tokens.css`                                                                 | n/a     |
+
+### jscpd (one-off, no repo dependency)
+
+```bash
+npx jscpd --min-lines 8 --reporters json \
+  apps/admin/src apps/backend/src packages/database/src packages/design-tokens/src \
+  --ignore '**/api/generated/**'
+```
+
+Writes `report/jscpd-report.json` (gitignored, not committed). Census in the same scan:
+
+| sources | lines  | duplicated lines | % lines duplicated |
+| ------- | ------ | ---------------- | ------------------ |
+| 301     | 62,664 | 1,472            | 2.35               |
+
+Campaign table above cites **327** handwritten source files (63,641 lines); this jscpd invocation
+scans **301** paths under the four `src` trees (excludes `apps/admin/test` and other paths outside
+those roots). Use the totals row for duplicate-line trend only.
+
 **WP-0B · Stop tracking the generated admin client** — MOVE (no source semantics change)
 
 The client is a deterministic function of `openapi.json` + `orval.config.ts`. Committing it adds 166
