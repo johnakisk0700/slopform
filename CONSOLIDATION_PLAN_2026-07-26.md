@@ -456,6 +456,27 @@ Do not: change the webhook route, its `@ApiOperation({ operationId })` or its `@
 
 ## Execution contract for implementing agents
 
+### Dispatch and routing
+
+Packets go one at a time to a Cursor CLI model, in the same working tree. They are **not** run
+concurrently: the Group A packets own disjoint files, but two agents sharing one tree still collide
+on `pnpm format`, the turbo cache and each other's half-finished builds. The implementing agent
+never commits — it leaves the tree dirty, and the orchestrator reviews the diff, re-runs the
+verification and commits.
+
+The reason a cheap model is safe on most of this is that **the naming decisions are not delegated**.
+Every name a packet introduces is already fixed in the packet text, chosen during synthesis. The
+implementing agent types the decided name; it does not invent one. A packet that would force an
+agent to name something itself is an incomplete packet — it comes back here to be finished.
+
+| Model                  | Gets                                          | Why                                                              |
+| ---------------------- | --------------------------------------------- | ---------------------------------------------------------------- |
+| `composer-2.5`         | WP-00, WP-01, WP-02, WP-05                    | Explicit symbol lists, no type traps, nothing to decide          |
+| `cursor-grok-4.5-high` | WP-03, WP-04, WP-06, WP-0B, Group B/C backend | TS4023 traps, harness surgery, infra wiring — judgement required |
+| Opus 5 (max reasoning) | WP-19, every admin packet in Group C          | Visual work, and `apps/admin/src` has no test net                |
+
+Order: Group A (WP-01 → WP-06) → WP-00 → WP-0B → Group B → Group C → Group D.
+
 - **Read `AGENTS.md` before touching anything.** Docs are part of the implementation: update
   `docs/` in the **same commit** whenever the change touches architecture, ownership, runtime
   boundaries, a job/retry contract, configuration, or a component contract. `pnpm docs:check`
