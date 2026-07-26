@@ -13,12 +13,12 @@ import type { ListFeedbackCampaignResultsParams } from "../api/generated/model/l
 import type { ListFeedbackCampaignResultsQuestionKey } from "../api/generated/model/listFeedbackCampaignResultsQuestionKey";
 import type { ListFeedbackCampaignResultsReviewStatus } from "../api/generated/model/listFeedbackCampaignResultsReviewStatus";
 import { FeedbackBadges } from "../components/admin/feedback/FeedbackBadges";
+import { ParticipantName } from "../components/admin/feedback/ParticipantName";
 import { JtsDataTable } from "../components/ui/JtsDataTable";
 import { JtsPageHeader } from "../components/ui/JtsPageHeader";
 import { formatTimestamp } from "../features/feedback/conversationView";
 import {
   QUESTION_KEYS,
-  isUnresolvedParticipant,
   noteOriginLabel,
   noteTypeLabel,
   participantLabel,
@@ -31,21 +31,6 @@ import { apiErrorMessage } from "../lib/api";
 import { usePageMeta } from "../lib/usePageMeta";
 
 const ANY = "__any__";
-
-/** Renders a participant name, marking the D18 fallback so it reads as absence. */
-function ParticipantName({ displayName }: { displayName: string | null }) {
-  return (
-    <span
-      className={
-        isUnresolvedParticipant(displayName)
-          ? "italic text-ink-muted"
-          : undefined
-      }
-    >
-      {participantLabel(displayName)}
-    </span>
-  );
-}
 
 /**
  * U4 — the campaign's results tab: every answer and every side note the

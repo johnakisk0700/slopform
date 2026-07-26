@@ -1,5 +1,4 @@
 import { Avatar, Button } from "@heroui/react";
-import { clsx } from "clsx";
 import type { LucideIcon } from "lucide-react";
 import {
   BotMessageSquare,
@@ -34,6 +33,7 @@ import {
 import { AddNoteAction } from "./AddNoteAction";
 import { ConfirmAction } from "./ConfirmAction";
 import { FeedbackBadges } from "./FeedbackBadges";
+import { ParticipantName } from "./ParticipantName";
 
 interface ConversationDetailsProps {
   conversation: FeedbackConversationDetailDtoOutput;
@@ -199,8 +199,10 @@ export function ConversationDetails({
               {/* An unresolved id (D18) has no profile to open, so it stays
                   plain italic text rather than a link to nothing. */}
               {unresolved ? (
-                <p className="truncate text-sm font-bold text-ink italic">
-                  {name}
+                <p className="truncate text-sm font-bold text-ink">
+                  <ParticipantName
+                    displayName={conversation.respondentDisplayName}
+                  />
                 </p>
               ) : (
                 <Link
@@ -270,17 +272,14 @@ export function ConversationDetails({
                   <p className="jts-overline text-ink-muted">
                     {questionLabel(answer.questionKey)}
                   </p>
-                  <p
-                    className={clsx(
-                      "mt-0.5 text-sm text-ink",
-                      answer.valueInt === null &&
-                        isUnresolvedParticipant(answer.subjectDisplayName) &&
-                        "italic",
+                  <p className="mt-0.5 text-sm text-ink">
+                    {answer.valueInt === null ? (
+                      <ParticipantName
+                        displayName={answer.subjectDisplayName}
+                      />
+                    ) : (
+                      `${answer.valueInt} / 5`
                     )}
-                  >
-                    {answer.valueInt === null
-                      ? participantLabel(answer.subjectDisplayName)
-                      : `${answer.valueInt} / 5`}
                   </p>
                 </li>
               ))}
