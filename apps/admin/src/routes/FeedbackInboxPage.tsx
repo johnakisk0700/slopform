@@ -503,7 +503,7 @@ export function FeedbackInboxPage() {
             need attention
           </CampaignCount>
           {simulatorAvailable ? (
-            <p className="flex items-center gap-1.5 text-[0.65rem] font-extrabold uppercase tracking-caps text-warning">
+            <p className="flex items-center gap-1.5 jts-overline text-warning">
               <FlaskConical aria-hidden="true" className="size-3.5 shrink-0" />
               Simulated transport
             </p>

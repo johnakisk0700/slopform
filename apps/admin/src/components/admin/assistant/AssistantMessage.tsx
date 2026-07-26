@@ -103,7 +103,7 @@ function AssistantMessageActions({
           <Copy aria-hidden="true" className="size-3.5" />
         )}
       </Button>
-      <span className="ml-1 text-[0.625rem] tabular-nums text-ink-subtle">
+      <span className="ml-1 text-[length:var(--jts-text-2xs)] tabular-nums text-ink-subtle">
         {model} · {effort} thinking
       </span>
     </div>

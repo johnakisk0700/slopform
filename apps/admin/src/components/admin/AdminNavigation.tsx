@@ -73,7 +73,7 @@ const VARIANTS: Record<NavVariant, NavVariantStyles> = {
 const LINK_BASE =
   "flex min-h-[2.75rem] w-full items-center gap-3 rounded-md px-3 py-[0.65rem] text-sm font-semibold no-underline transition-colors";
 const INDEX_BASE =
-  "w-[1.1rem] shrink-0 text-[0.65rem] font-semibold tabular-nums";
+  "w-[1.1rem] shrink-0 text-[length:var(--jts-text-2xs)] font-semibold tabular-nums";
 const ICON_BASE = "size-[1.1rem] shrink-0";
 const SOON_BASE =
   "ml-auto rounded-sm border border-[color-mix(in_srgb,currentcolor_40%,transparent)] px-[0.45rem] py-[0.1rem] text-[0.7rem] font-extrabold uppercase tracking-[0.05em]";

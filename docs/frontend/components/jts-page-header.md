@@ -24,10 +24,10 @@ The marker is a `::after` pseudo-element on the `h1` (3px tall, 2rem wide,
 ## Scale
 
 The title is a fixed `1.375rem` display weight, the description `text-sm`, the
-eyebrow `0.65rem`. It is deliberately not a viewport clamp. An operations panel
-is read at one working size for a whole shift, so a title that grew toward
-`2.6rem` on a wide monitor spent height on itself that the tables, transcripts
-and forms below it needed. Letter-spacing comes from the base layer's
+eyebrow the shared `jts-overline` recipe (`--jts-text-2xs`). It is deliberately
+not a viewport clamp. An operations panel is read at one working size for a whole
+shift, so a title that grew toward `2.6rem` on a wide monitor spent height on
+itself that the tables, transcripts and forms below it needed. Letter-spacing comes from the base layer's
 `--jts-tracking-tight` on `h1`; no utility overrides it.
 
 `ParticipantProfilePage` owns its own `h1` so the title can pair with the

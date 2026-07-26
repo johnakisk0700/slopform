@@ -33,11 +33,7 @@ function EnvironmentBlock({ variant }: { variant: "sidebar" | "drawer" }) {
         // Full-strength foreground rather than a warning tone: both verified
         // pairs (text on wine, text on surface) clear AA, and warning-on-surface
         // is not one of the measured pairings.
-        <p
-          className={`text-[0.65rem] font-extrabold uppercase tracking-caps ${strong}`}
-        >
-          Authentication bypass active
-        </p>
+        <p className={`jts-overline ${strong}`}>Authentication bypass active</p>
       ) : null}
     </>
   );
@@ -153,9 +149,7 @@ export function AdminShell() {
             </Drawer>
 
             <div>
-              <p className="text-[0.7rem] font-extrabold uppercase tracking-caps text-ink-muted">
-                Join The Six
-              </p>
+              <p className="jts-overline text-ink-muted">Join The Six</p>
               <strong className="text-sm font-bold">Control center</strong>
             </div>
           </div>

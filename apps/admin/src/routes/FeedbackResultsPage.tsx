@@ -221,9 +221,7 @@ export function FeedbackResultsPage() {
   const filters = (
     <div className="flex flex-wrap items-end gap-3">
       <div className="grid gap-1.5">
-        <span className="text-[0.65rem] font-extrabold uppercase tracking-caps text-ink-muted">
-          Question
-        </span>
+        <span className="jts-overline text-ink-muted">Question</span>
         <Select
           aria-label="Filter by question"
           selectedKey={questionKey}
@@ -249,9 +247,7 @@ export function FeedbackResultsPage() {
       </div>
 
       <div className="grid gap-1.5">
-        <span className="text-[0.65rem] font-extrabold uppercase tracking-caps text-ink-muted">
-          Participant
-        </span>
+        <span className="jts-overline text-ink-muted">Participant</span>
         <Select
           aria-label="Filter by participant"
           selectedKey={participantId}
@@ -281,9 +277,7 @@ export function FeedbackResultsPage() {
       </div>
 
       <div className="grid gap-1.5">
-        <span className="text-[0.65rem] font-extrabold uppercase tracking-caps text-ink-muted">
-          Review status
-        </span>
+        <span className="jts-overline text-ink-muted">Review status</span>
         <Select
           aria-label="Filter notes by review status"
           selectedKey={reviewStatus}

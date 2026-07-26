@@ -223,6 +223,7 @@
   --jts-weight-extrabold: 800;
 
   /* Type scale (fluid where it helps) */
+  --jts-text-2xs: 0.625rem;
   --jts-text-xs: 0.75rem;
   --jts-text-sm: 0.875rem;
   --jts-text-md: 1rem;

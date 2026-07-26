@@ -179,6 +179,16 @@
   --container-content: var(--jts-content-width);
 }
 
+/* The tracked micro-caps recipe every metadata label shares (tags, table
+   labels, kickers). Prefixed because Tailwind's core `overline` utility sets
+   text-decoration-line and both rules would emit. */
+@utility jts-overline {
+  font-size: var(--jts-text-2xs);
+  font-weight: var(--jts-weight-extrabold);
+  text-transform: uppercase;
+  letter-spacing: var(--jts-tracking-caps);
+}
+
 /* -----------------------------------------------------------------------------
    3. Base rules and the sanctioned motif classes.
    ----------------------------------------------------------------------------- */

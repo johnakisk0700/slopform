@@ -156,7 +156,7 @@ function LineChart({
           : null}
       </svg>
       {!sparkline ? (
-        <div className="mt-1 flex justify-between text-[0.625rem] text-ink-muted">
+        <div className="mt-1 flex justify-between text-[length:var(--jts-text-2xs)] text-ink-muted">
           <span>{spec.data[0]?.label ?? ""}</span>
           <span>{spec.data[count - 1]?.label ?? ""}</span>
         </div>

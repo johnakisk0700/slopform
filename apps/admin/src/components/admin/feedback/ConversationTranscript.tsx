@@ -76,7 +76,7 @@ function TranscriptMessage({ message }: TranscriptMessageProps) {
 
   return (
     <li className={clsx("flex flex-col gap-1", styles.row)}>
-      <p className="flex items-center gap-2 px-1 text-[0.65rem] font-extrabold uppercase tracking-caps">
+      <p className="flex items-center gap-2 px-1 jts-overline">
         <span className={styles.label}>{actorLabel(message.actor)}</span>
         <time
           dateTime={message.at}
@@ -309,7 +309,7 @@ export function ConversationTranscript({
             onSubmit={handleSimulatedSubmit}
             className="flex flex-wrap items-center gap-2 border-t border-dashed border-border bg-surface-sunken px-5 py-3"
           >
-            <p className="flex w-full items-center gap-2 text-[0.65rem] font-extrabold uppercase tracking-caps text-ink-muted">
+            <p className="flex w-full items-center gap-2 jts-overline text-ink-muted">
               <FlaskConical aria-hidden="true" className="size-3.5" />
               Development simulator — not a real WhatsApp message
             </p>

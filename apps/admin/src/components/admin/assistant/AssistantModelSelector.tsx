@@ -59,7 +59,7 @@ export function AssistantModelSelector({
         />
         <span className="max-w-36 truncate">{current.label}</span>
         <span
-          className="flex items-center gap-0.5 border-l border-border-subtle pl-1.5 text-[0.625rem] text-ink-muted"
+          className="flex items-center gap-0.5 border-l border-border-subtle pl-1.5 text-[length:var(--jts-text-2xs)] text-ink-muted"
           title={`Reasoning effort: ${effort}`}
         >
           <Brain aria-hidden="true" className="size-3" />
@@ -101,7 +101,7 @@ export function AssistantModelSelector({
                       <strong className="truncate text-sm text-ink">
                         {model.label}
                       </strong>
-                      <span className="shrink-0 rounded border border-border px-1 py-px text-[0.625rem] leading-none text-ink-muted">
+                      <span className="shrink-0 rounded border border-border px-1 py-px text-[length:var(--jts-text-2xs)] leading-none text-ink-muted">
                         {model.provider}
                       </span>
                     </span>

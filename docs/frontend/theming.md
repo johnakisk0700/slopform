@@ -55,7 +55,7 @@ Tokens are layered. Consume the semantic layer; never hardcode primitives.
 Non-colour scales: `--jts-space-{1..24}`, `--jts-radius-{xs..xl,pill,circle}`,
 `--jts-shadow-{xs,sm,md,lg}`, `--jts-z-{base..max}`,
 `--jts-duration-*` / `--jts-ease-*`, and type
-(`--jts-font-{sans,display,mono}`, `--jts-text-{xs..3xl}`,
+(`--jts-font-{sans,display,mono}`, `--jts-text-{2xs..3xl}`,
 `--jts-weight-*`, `--jts-tracking-*`, `--jts-leading-*`,
 `--jts-numeric-tabular`).
 
@@ -94,7 +94,7 @@ flowchart LR
 
 HeroUI v3 is CSS-first: there is no theme provider and no JS theme object.
 Components read plain CSS variables, and `apps/admin/src/styles/globals.css`
-points those variables at the tokens. Three mechanisms do it:
+points those variables at the tokens. Four mechanisms do it:
 
 1. **Unlayered `:root` override of HeroUI's base tokens.** HeroUI defines its
    base tokens (`--background`, `--surface`, `--accent`, `--danger`, `--field-*`,
@@ -114,6 +114,12 @@ points those variables at the tokens. Three mechanisms do it:
 3. **`@custom-variant dark (&:is(.dark *))`.** This makes Tailwind's `dark:`
    variant key off the same `dark` class, for the rare genuinely structural
    override. Colours never need it — the tokens already flip.
+4. **`@utility jts-overline` — the one multi-property type recipe.** Metadata
+   labels repeat the same four declarations (`--jts-text-2xs`, extrabold,
+   uppercase, `--jts-tracking-caps`) on 23 elements, which no single `@theme`
+   entry can express. The `jts-` prefix is required: Tailwind 4.3.3 ships a core
+   `overline` utility that sets `text-decoration-line`, v4 dropped
+   `corePlugins`, and both rules would emit against the same class.
 
 ### Extending it
 
@@ -160,7 +166,8 @@ continuity or state change and never carries status by itself.
   here" (the active sidebar item lights its index numeral instead) — and do not
   invent parallel emphasis devices.
 - Metadata text (tags, table column headers, labels, kickers) is tracked
-  micro-caps; content and numbers stay sentence case with tabular figures.
+  micro-caps via `jts-overline`, not a hand-written size/weight/tracking triple;
+  content and numbers stay sentence case with tabular figures.
 - Both themes stay at or above WCAG AA for text.
 
 ## Tests

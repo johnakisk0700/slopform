@@ -118,7 +118,7 @@ function SectionOverline({
   return (
     <h2
       id={id}
-      className="mb-4 flex items-center gap-2 text-[0.65rem] font-extrabold uppercase tracking-caps text-ink-muted"
+      className="mb-4 flex items-center gap-2 jts-overline text-ink-muted"
     >
       <Icon aria-hidden="true" className="size-4 shrink-0" />
       {children}

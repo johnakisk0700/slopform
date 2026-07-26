@@ -73,7 +73,7 @@ export function ConversationList({
         <div className="mb-2 flex items-center justify-between gap-2">
           <h2
             id={headingId}
-            className="flex items-center gap-2 text-[0.7rem] font-extrabold uppercase tracking-caps text-ink-muted"
+            className="flex items-center gap-2 jts-overline text-ink-muted"
           >
             <Inbox aria-hidden="true" className="size-4 shrink-0" />
             Conversations
@@ -148,7 +148,7 @@ export function ConversationList({
         <div className="min-h-0 flex-1 overflow-y-auto">
           {groups.map((group) => (
             <section key={group.key} aria-label={group.title}>
-              <h3 className="sticky top-0 z-10 border-y border-border bg-surface-sunken px-4 py-1.5 text-[0.65rem] font-extrabold uppercase tracking-caps text-ink-muted">
+              <h3 className="sticky top-0 z-10 border-y border-border bg-surface-sunken px-4 py-1.5 jts-overline text-ink-muted">
                 {group.title}
                 <span className="ml-1.5 font-bold tabular-nums opacity-70">
                   {group.conversations.length}
@@ -191,7 +191,7 @@ export function ConversationList({
                           </span>
                           {/* ink-muted, not ink-subtle: the selected row sits on
                               primary-soft, where subtle drops under AA. */}
-                          <span className="shrink-0 text-[0.7rem] font-semibold tabular-nums text-ink-muted">
+                          <span className="shrink-0 text-[length:var(--jts-text-2xs)] font-semibold tabular-nums text-ink-muted">
                             {conversation.lastMessageAt === null
                               ? "—"
                               : formatTimestamp(conversation.lastMessageAt)}
@@ -212,7 +212,7 @@ export function ConversationList({
                               style={{ width: `${progress.percent}%` }}
                             />
                           </span>
-                          <span className="shrink-0 text-[0.7rem] font-bold tabular-nums text-ink-muted">
+                          <span className="shrink-0 text-[length:var(--jts-text-2xs)] font-bold tabular-nums text-ink-muted">
                             {settled}/{progress.total} answered
                           </span>
                         </span>

@@ -85,7 +85,7 @@ function DetailSection({
       <div className="mb-3 flex items-center justify-between gap-2">
         <h3
           id={headingId}
-          className="flex items-center gap-2 text-[0.65rem] font-extrabold uppercase tracking-caps text-ink-muted"
+          className="flex items-center gap-2 jts-overline text-ink-muted"
         >
           <Icon aria-hidden="true" className="size-4 shrink-0" />
           {title}
@@ -171,7 +171,7 @@ export function ConversationDetails({
       <header className="border-b border-border px-4 py-3">
         <h2
           id={headingId}
-          className="flex items-center gap-2 text-[0.7rem] font-extrabold uppercase tracking-caps text-ink-muted"
+          className="flex items-center gap-2 jts-overline text-ink-muted"
         >
           <PanelRight aria-hidden="true" className="size-4 shrink-0" />
           Details
@@ -267,7 +267,7 @@ export function ConversationDetails({
                   key={answer.id}
                   className="rounded-md border border-border-subtle bg-surface-sunken px-3 py-2"
                 >
-                  <p className="text-[0.65rem] font-extrabold uppercase tracking-caps text-ink-muted">
+                  <p className="jts-overline text-ink-muted">
                     {questionLabel(answer.questionKey)}
                   </p>
                   <p
@@ -317,7 +317,7 @@ export function ConversationDetails({
                     className="rounded-md border border-border-subtle px-3 py-2"
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-[0.65rem] font-extrabold uppercase tracking-caps text-ink-muted">
+                      <p className="jts-overline text-ink-muted">
                         {noteTypeLabel(note.noteType)}
                       </p>
                       <FeedbackBadges badges={badges} />

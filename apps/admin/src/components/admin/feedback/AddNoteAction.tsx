@@ -126,9 +126,7 @@ export function AddNoteAction({
               </p>
 
               <div className="grid gap-1.5">
-                <span className="text-[0.65rem] font-extrabold uppercase tracking-caps text-ink-muted">
-                  Type
-                </span>
+                <span className="jts-overline text-ink-muted">Type</span>
                 <Select
                   aria-label="Note type"
                   selectedKey={noteType}
@@ -161,7 +159,7 @@ export function AddNoteAction({
               </div>
 
               <div className="grid gap-1.5">
-                <span className="text-[0.65rem] font-extrabold uppercase tracking-caps text-ink-muted">
+                <span className="jts-overline text-ink-muted">
                   About (optional)
                 </span>
                 {candidatesQuery.isError ? (
@@ -207,10 +205,7 @@ export function AddNoteAction({
               </div>
 
               <div className="grid gap-1.5">
-                <label
-                  htmlFor={textId}
-                  className="text-[0.65rem] font-extrabold uppercase tracking-caps text-ink-muted"
-                >
+                <label htmlFor={textId} className="jts-overline text-ink-muted">
                   Note
                 </label>
                 <TextArea

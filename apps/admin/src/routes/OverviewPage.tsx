@@ -412,7 +412,7 @@ export function OverviewPage() {
                           className="flex items-center gap-2 text-sm font-semibold text-ink"
                         >
                           Event name
-                          <span className="text-[0.7rem] font-extrabold uppercase tracking-caps text-ink-muted">
+                          <span className="jts-overline text-ink-muted">
                             Required
                           </span>
                         </label>
@@ -449,7 +449,7 @@ export function OverviewPage() {
                         >
                           <span className="flex items-center gap-2 text-sm font-semibold text-ink">
                             Dinner date
-                            <span className="text-[0.7rem] font-extrabold uppercase tracking-caps text-ink-muted">
+                            <span className="jts-overline text-ink-muted">
                               Required
                             </span>
                           </span>

@@ -76,10 +76,7 @@ export function FeedbackCampaignsPage() {
       ) : null}
 
       <section aria-labelledby="campaigns" className="flex flex-col gap-3">
-        <h2
-          id="campaigns"
-          className="text-[0.7rem] font-extrabold uppercase tracking-caps text-ink-muted"
-        >
+        <h2 id="campaigns" className="jts-overline text-ink-muted">
           Campaigns
         </h2>
 
@@ -134,10 +131,7 @@ export function FeedbackCampaignsPage() {
         aria-labelledby="finished-events"
         className="flex flex-col gap-3"
       >
-        <h2
-          id="finished-events"
-          className="text-[0.7rem] font-extrabold uppercase tracking-caps text-ink-muted"
-        >
+        <h2 id="finished-events" className="jts-overline text-ink-muted">
           Finished events without a campaign
         </h2>
 

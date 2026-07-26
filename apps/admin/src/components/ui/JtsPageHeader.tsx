@@ -25,9 +25,7 @@ export function JtsPageHeader({
     <header className="flex items-end justify-between gap-6">
       <div className="max-w-[58rem]">
         {eyebrow ? (
-          <p className="mb-1.5 text-[0.65rem] font-extrabold uppercase tracking-caps text-primary">
-            {eyebrow}
-          </p>
+          <p className="mb-1.5 jts-overline text-primary">{eyebrow}</p>
         ) : null}
         {/* Fixed 1.375rem, not a viewport clamp: an operations panel is read at
             one working size all day, and a title that grew to 2.6rem on a wide

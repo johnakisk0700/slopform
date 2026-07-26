@@ -38,7 +38,7 @@ export function AssistantEffortSelector({
             type="button"
             aria-pressed={value === effort}
             onClick={() => onChange(effort)}
-            className={`rounded-sm px-2 py-1 text-[0.6875rem] transition-colors ${
+            className={`rounded-sm px-2 py-1 text-[length:var(--jts-text-2xs)] transition-colors ${
               value === effort
                 ? "bg-primary-soft font-semibold text-primary"
                 : "text-ink-muted hover:bg-surface-sunken hover:text-ink"
