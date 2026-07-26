@@ -573,9 +573,26 @@ Verify: `pnpm docs:check && pnpm --filter @join-the-six/backend build && pnpm --
 Do not: lift `drainTo` (L1400-1464) or `FeedbackTestQueue` (L977-1053) out — the former closes over processor and repeatables and has no second caller.
 
 **WP-33 — Simulator run-status split** · M · deps: WP-04
-File: `feedback-simulator.service.ts` → new sibling holding L589-750 (`getScenarioRun`, pure status derivation) plus its two helpers at L938-1009, renamed to `runStage` / `renderTemplate` / `progressPercent` now the file name carries the prefix.
-Verify: `pnpm --filter @join-the-six/backend exec vitest run src/modules/post-event-feedback/post-event-feedback-simulator.integration.spec.ts`
-Do not: touch `post-event-feedback-real-model-corpus.ts` — it is imported by production code at `feedback-simulator.service.ts:47,150`.
+Rewritten 2026-07-26 after the first dispatch refused it for naming nothing and contradicting itself.
+File: `feedback-simulator.service.ts` (1077 → ~910) → new **`simulator/run-status.ts`** holding three
+things:
+
+- **`toRunView`** — the pure tail of `getScenarioRun`, today L610-750. Verified: that range touches
+  `this` nowhere; every repository read happens in the `Promise.all` at L595-609. It takes the loaded
+  rows as one parameter object and returns the `FeedbackSimulatorRunView`. The name matches the
+  repo's existing `toDetailView` / `toResultsView` / `toListItem`.
+- **`runStage`** — `deriveFeedbackSimulatorRunStage` (L938), renamed now the file carries the prefix.
+- **`progressPercent`** — `feedbackSimulatorProgressPercent` (L986), same reason.
+
+`getScenarioRun` **stays a method**: it loads six collections through `this.conversations`,
+`this.repository` and `this.runs`, and moving it would mean passing all three in — a rewrite, not a
+move. It keeps the awaits and calls `toRunView` with what they returned.
+`renderFeedbackSimulatorTemplate` **also stays**, contrary to the earlier draft: it renders scenario
+messages at send time (L323, L530), which is not run status. Filing it under `run-status.ts` would put
+it in the wrong concern to satisfy a rename.
+Done: `getScenarioRun` contains only the loads and one call; the moved bodies are byte-identical.
+Verify: `pnpm --filter @join-the-six/backend build && pnpm --filter @join-the-six/backend typecheck && pnpm --filter @join-the-six/backend exec vitest run src/modules/post-event-feedback`
+Do not: move `getScenarioRun` itself, move the template renderer, or change what any stage resolves to.
 
 **WP-34 — `AssistantPage` and `FeedbackInboxPage` pure-code extraction** · M · deps: WP-07
 Files: `routes/AssistantPage.tsx` (835 → ~600) → `features/assistant/failureMessages.ts` (L115-147, next to the existing `assistantFailureMessage`) and `features/assistant/composerSettings.ts` (the L82-98 readers plus the L588-604 writers, which currently live 500 lines apart); `routes/FeedbackInboxPage.tsx` (632 → ~500) → `components/admin/feedback/CampaignHeader.tsx` (L391-515 plus the local `CampaignCount` at L78-94), taking the campaign read model and four callbacks.
