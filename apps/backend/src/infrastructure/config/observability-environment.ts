@@ -1,14 +1,7 @@
 import { z } from "zod";
 
-const emptyStringToUndefined = (value: unknown): unknown =>
-  typeof value === "string" && value.trim() === "" ? undefined : value;
-const parseUrl = (value: string): URL | undefined => {
-  try {
-    return new URL(value);
-  } catch {
-    return undefined;
-  }
-};
+import { emptyStringToUndefined, parseUrl } from "./environment-values.js";
+
 const httpUrl = z.url().refine((value) => {
   const url = parseUrl(value);
   return !url || ["http:", "https:"].includes(url.protocol);

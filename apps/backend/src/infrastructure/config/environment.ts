@@ -1,107 +1,12 @@
-import { MongoClient } from "mongodb";
 import { z } from "zod";
 
+import { emptyStringToUndefined, parseUrl } from "./environment-values.js";
+import {
+  addProductionMongoIssues,
+  parseMongoConnectionString,
+} from "./mongo-connection-string.js";
 import { observabilityEnvironmentSchema } from "./observability-environment.js";
 
-const emptyStringToUndefined = (value: unknown): unknown =>
-  typeof value === "string" && value.trim() === "" ? undefined : value;
-const parseUrl = (value: string): URL | undefined => {
-  try {
-    return new URL(value);
-  } catch {
-    return undefined;
-  }
-};
-interface ParsedMongoConnectionString {
-  readonly protocol: "mongodb:" | "mongodb+srv:";
-  readonly username: string | undefined;
-  readonly password: string | undefined;
-  readonly database: string | undefined;
-  readonly hostnames: readonly string[];
-  readonly searchParams: URLSearchParams;
-}
-
-const mongoOption = (
-  searchParams: URLSearchParams,
-  name: string,
-): string | undefined => {
-  const normalizedName = name.toLowerCase();
-  for (const [key, value] of searchParams) {
-    if (key.toLowerCase() === normalizedName) {
-      return value.toLowerCase();
-    }
-  }
-  return undefined;
-};
-const parseMongoConnectionString = (
-  value: string,
-): ParsedMongoConnectionString | undefined => {
-  const protocol = value.startsWith("mongodb://")
-    ? ("mongodb:" as const)
-    : value.startsWith("mongodb+srv://")
-      ? ("mongodb+srv:" as const)
-      : undefined;
-  if (!protocol || value.includes("#")) {
-    return undefined;
-  }
-
-  try {
-    // The driver's parser supports replica-set seed lists, unlike WHATWG URL.
-    new MongoClient(value);
-  } catch {
-    return undefined;
-  }
-
-  const schemeLength =
-    protocol === "mongodb:" ? "mongodb://".length : "mongodb+srv://".length;
-  const remainder = value.slice(schemeLength);
-  const queryStart = remainder.indexOf("?");
-  const addressAndPath =
-    queryStart === -1 ? remainder : remainder.slice(0, queryStart);
-  const query = queryStart === -1 ? "" : remainder.slice(queryStart + 1);
-  const pathStart = addressAndPath.indexOf("/");
-  const authority =
-    pathStart === -1 ? addressAndPath : addressAndPath.slice(0, pathStart);
-  const database =
-    pathStart === -1
-      ? undefined
-      : addressAndPath.slice(pathStart + 1) || undefined;
-  const credentialEnd = authority.lastIndexOf("@");
-  const credentials =
-    credentialEnd === -1 ? undefined : authority.slice(0, credentialEnd);
-  const seeds =
-    credentialEnd === -1 ? authority : authority.slice(credentialEnd + 1);
-  const passwordStart = credentials?.indexOf(":") ?? -1;
-  const username =
-    credentials === undefined
-      ? undefined
-      : passwordStart === -1
-        ? credentials
-        : credentials.slice(0, passwordStart);
-  const password =
-    credentials === undefined || passwordStart === -1
-      ? undefined
-      : credentials.slice(passwordStart + 1);
-
-  return {
-    protocol,
-    username: username || undefined,
-    password: password || undefined,
-    database,
-    hostnames: seeds.split(",").map(mongoSeedHostname),
-    searchParams: new URLSearchParams(query),
-  };
-};
-const mongoSeedHostname = (seed: string): string => {
-  if (seed.startsWith("[")) {
-    const bracket = seed.indexOf("]");
-    return seed.slice(1, bracket).toLowerCase();
-  }
-  const portSeparator = seed.lastIndexOf(":");
-  return (portSeparator === -1 ? seed : seed.slice(0, portSeparator))
-    .toLowerCase()
-    .trim();
-};
 const optionalCredential = z.preprocess(
   emptyStringToUndefined,
   z
@@ -486,50 +391,7 @@ export const environmentSchema = observabilityEnvironmentSchema
 
     const mongo = parseMongoConnectionString(environment.MONGODB_URI);
     if (mongo && environment.NODE_ENV === "production") {
-      if (!mongo.username || !mongo.password) {
-        context.addIssue({
-          code: "custom",
-          message: "Production MongoDB requires authenticated credentials",
-          path: ["MONGODB_URI"],
-        });
-      }
-
-      const unsafeOptions = [
-        "tlsInsecure",
-        "tlsAllowInvalidCertificates",
-        "tlsAllowInvalidHostnames",
-      ];
-      if (
-        unsafeOptions.some(
-          (option) => mongoOption(mongo.searchParams, option) === "true",
-        )
-      ) {
-        context.addIssue({
-          code: "custom",
-          message:
-            "Production MongoDB must not disable TLS certificate verification",
-          path: ["MONGODB_URI"],
-        });
-      }
-
-      const tls =
-        mongoOption(mongo.searchParams, "tls") ??
-        mongoOption(mongo.searchParams, "ssl");
-      const internalComposeMongo =
-        mongo.hostnames.length === 1 && mongo.hostnames[0] === "mongo";
-      if (
-        (mongo.protocol === "mongodb+srv:" && tls === "false") ||
-        (mongo.protocol === "mongodb:" &&
-          !internalComposeMongo &&
-          tls !== "true")
-      ) {
-        context.addIssue({
-          code: "custom",
-          message:
-            "Production MongoDB outside the internal mongo service requires TLS",
-          path: ["MONGODB_URI"],
-        });
-      }
+      addProductionMongoIssues(mongo, context);
     }
   });
 
@@ -539,43 +401,4 @@ export function validateEnvironment(
   input: Record<string, unknown>,
 ): Environment {
   return environmentSchema.parse(input);
-}
-
-export function isBullBoardEnabled(environment: NodeJS.ProcessEnv): boolean {
-  return environment.BULL_BOARD_ENABLED?.trim().toLowerCase() === "true";
-}
-
-export function isReferenceModuleEnabled(
-  environment: NodeJS.ProcessEnv,
-): boolean {
-  return environment.REFERENCE_MODULE_ENABLED?.trim().toLowerCase() === "true";
-}
-
-export function isWasenderWebhookEnabled(
-  environment: NodeJS.ProcessEnv,
-): boolean {
-  return environment.WASENDER_WEBHOOK_ENABLED?.trim().toLowerCase() === "true";
-}
-
-export function isFeedbackSimulatorHttpEnabled(
-  environment: NodeJS.ProcessEnv,
-): boolean {
-  if (environment.NODE_ENV?.trim() === "production") {
-    return false;
-  }
-
-  return (
-    environment.FEEDBACK_SIMULATOR_ENABLED?.trim().toLowerCase() === "true" &&
-    (environment.TRANSPORT_MODE?.trim().toLowerCase() ?? "simulated") ===
-      "simulated"
-  );
-}
-
-export function isWasenderTransportEnabled(
-  environment: NodeJS.ProcessEnv,
-): boolean {
-  return (
-    Boolean(environment.WASENDER_SESSION_API_KEY?.trim()) ||
-    environment.TRANSPORT_MODE?.trim().toLowerCase() === "wasender"
-  );
 }

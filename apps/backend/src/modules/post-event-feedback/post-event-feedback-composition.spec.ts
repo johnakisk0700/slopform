@@ -1,7 +1,7 @@
 import { MODULE_METADATA } from "@nestjs/common/constants.js";
 import { describe, expect, it } from "vitest";
 
-import { isFeedbackSimulatorHttpEnabled } from "../../infrastructure/config/environment.js";
+import { isFeedbackSimulatorHttpEnabled } from "../../infrastructure/config/enabled-modules.js";
 import {
   QueueModule,
   QueueWorkerModule,

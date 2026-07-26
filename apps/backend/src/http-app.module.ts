@@ -12,7 +12,7 @@ import {
   isFeedbackSimulatorHttpEnabled,
   isReferenceModuleEnabled,
   isWasenderWebhookEnabled,
-} from "./infrastructure/config/environment.js";
+} from "./infrastructure/config/enabled-modules.js";
 import { LoggingModule } from "./infrastructure/logging/logging.module.js";
 import { ObservabilityModule } from "./infrastructure/observability/observability.module.js";
 import { QueueDashboardModule } from "./infrastructure/queue/queue-dashboard.module.js";

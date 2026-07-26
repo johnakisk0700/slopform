@@ -6,8 +6,8 @@ import {
   isReferenceModuleEnabled,
   isWasenderTransportEnabled,
   isWasenderWebhookEnabled,
-  validateEnvironment,
-} from "./environment.js";
+} from "./enabled-modules.js";
+import { validateEnvironment } from "./environment.js";
 import { validateObservabilityEnvironment } from "./observability-environment.js";
 
 const requiredEnvironment = {
