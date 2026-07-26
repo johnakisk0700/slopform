@@ -15,23 +15,32 @@ import {
 } from "./feedback-operator-alert.js";
 import { DatabaseService } from "../../infrastructure/database/database.service.js";
 import { FeedbackConversationRepository } from "../conversations/feedback-conversation.repository.js";
-import type {
-  FeedbackConversationDocument,
-  FeedbackConversationGoal,
-} from "../conversations/feedback-conversation.schemas.js";
+import type { FeedbackConversationDocument } from "../conversations/feedback-conversation.schemas.js";
 import { EventsService } from "../events/events.service.js";
 import { ParticipantsRepository } from "../participants/participants.repository.js";
 import { latestParticipantMessage } from "./conversation-reader.js";
+import {
+  isCompleting,
+  resolveGoalStatuses,
+  type GoalStatusUpdate,
+} from "./extraction/goal-progress.js";
+import {
+  groupSafetySignalsByMessage,
+  isSafetyOrHandoffAttention,
+  needsOperatorAttention,
+} from "./extraction/operator-attention.js";
+import {
+  resolveOutbound,
+  type OutboundReply,
+} from "./extraction/outbound-reply.js";
 import { FeedbackOutboundTranscriptService } from "./feedback-outbound-transcript.service.js";
 import {
   PostEventFeedbackMetrics,
   type FeedbackExtractOutcome,
 } from "./post-event-feedback-metrics.service.js";
 import {
-  isPostEventFeedbackAnswerQuestionKey,
   noteSignature,
   resolveCampaignCopy,
-  type PostEventFeedbackQuestionSetCopy,
 } from "./post-event-feedback-question-set.js";
 import {
   validateFeedbackExtractionProposal,
@@ -39,20 +48,7 @@ import {
 } from "./post-event-feedback-extraction-validation.js";
 import { PostEventFeedbackExtractionModel } from "./post-event-feedback-extraction.service.js";
 import { FEEDBACK_EXTRACT_QUIET_WINDOW_MS } from "./post-event-feedback.schemas.js";
-import {
-  POST_EVENT_FEEDBACK_HANDOFF_REPLY,
-  createFeedbackClosingDedupeKey,
-  createFeedbackHandoffDedupeKey,
-  createFeedbackReplyDedupeKey,
-  type FeedbackExtractionContext,
-  type ValidatedFeedbackExtraction,
-  type ValidatedFeedbackSafetySignal,
-} from "./post-event-feedback-extraction.schemas.js";
-import {
-  strongerRecommendedAction,
-  type PostEventFeedbackRecommendedAction,
-  type PostEventFeedbackSafetyCategory,
-} from "./post-event-feedback-attention.js";
+import type { FeedbackExtractionContext } from "./post-event-feedback-extraction.schemas.js";
 import {
   buildFeedbackExtractionPrompt,
   estimatePromptTokens,
@@ -135,7 +131,7 @@ export class PostEventFeedbackExtractor {
     }
 
     const cursorSeq = conversation.messages.length;
-    const skipped = this.resolveSkip(conversation, cursorSeq);
+    const skipped = this.skipOutcome(conversation, cursorSeq);
     if (skipped) {
       return this.complete(
         {
@@ -244,7 +240,7 @@ export class PostEventFeedbackExtractor {
     // The two signals that end the questionnaire outright, as opposed to
     // flagging it. Both mean the same thing — from here a person is answering,
     // not the bot — so both hand control over, which is the existing brake:
-    // `resolveSkip` refuses to run under human control and the reminder sweep
+    // `skipOutcome` refuses to run under human control and the reminder sweep
     // refuses to nudge a flagged conversation.
     const urgentSafety = validated.safetySignals.some(
       (signal) => signal.recommendedAction === "urgent_human_follow_up",
@@ -254,7 +250,7 @@ export class PostEventFeedbackExtractor {
     // transcript length, because this run appends its reply to that same
     // transcript: a length-based key would differ on a replay that already sees
     // the reply, and a different `dedupe_key` is a second WhatsApp message.
-    const outbound = this.resolveOutbound(
+    const outbound = resolveOutbound(
       conversation,
       validated,
       closingNow,
@@ -346,7 +342,7 @@ export class PostEventFeedbackExtractor {
    * queue assumption, because the job may have waited behind a STOP, a staff
    * takeover or a newer run for the same conversation.
    */
-  private resolveSkip(
+  private skipOutcome(
     conversation: FeedbackConversationDocument,
     latestSeq: number,
   ): FeedbackExtractOutcome | undefined {
@@ -454,88 +450,6 @@ export class PostEventFeedbackExtractor {
         participant?.postEventFeedbackWhatsappOptIn === true &&
         campaign.status === "launched",
     };
-  }
-
-  /**
-   * At most one outbound per run, chosen deterministically rather than by the
-   * model. Completion and safety are application decisions with their own copy;
-   * only the ordinary case forwards the model's text.
-   *
-   * `testimonySeq` is the last participant message's `seq` — the replay-stable
-   * anchor for the dedupe key.
-   *
-   * `closingNow` is already the decision to send the closing copy — the caller
-   * withholds it when this run produced safety signals, even if every goal is
-   * terminal. Ranking completion above a disclosure thanked someone who had
-   * just described being grabbed and closed the door on them.
-   */
-  private resolveOutbound(
-    conversation: FeedbackConversationDocument,
-    validated: FeedbackExtractionValidationResult,
-    closingNow: boolean,
-    urgentSafety: boolean,
-    testimonySeq: number,
-    copy: PostEventFeedbackQuestionSetCopy,
-  ): OutboundReply | undefined {
-    // Somebody has just said they do not want to live. There is no approved
-    // copy for that, and every option the questionnaire owns is wrong: the next
-    // question treats it as a lull in conversation, and the thank-you treats it
-    // as an ending. Until a policy defines a safe reply, the bot says nothing
-    // and the conversation goes to a person. An explicit handoff is the one
-    // exception, because its copy says exactly that.
-    if (urgentSafety && !validated.handoff) {
-      return undefined;
-    }
-    if (!validated.reply && !closingNow && !validated.handoff) {
-      return undefined;
-    }
-    if (validated.replySuppressedReason === "not_permitted") {
-      return undefined;
-    }
-
-    // Only an *explicit* handoff swaps the copy. A safety signal no longer does
-    // (D13, amended): forcing the neutral "someone will contact you" line ended
-    // the questionnaire on the model's say-so, and the participant who had just
-    // disclosed something got the most abrupt possible reply. Attention is
-    // raised instead, and the conversation continues normally.
-    if (validated.handoff) {
-      return {
-        body: POST_EVENT_FEEDBACK_HANDOFF_REPLY,
-        dedupeKey: createFeedbackHandoffDedupeKey(
-          conversation._id,
-          testimonySeq,
-        ),
-      };
-    }
-    if (closingNow) {
-      return {
-        body: copy.closing,
-        dedupeKey: createFeedbackClosingDedupeKey(conversation._id),
-      };
-    }
-    // The model wrote its reply believing its own proposal was accepted. When
-    // validation then refused the answer, «Τέλεια, το σημείωσα!» is a straight
-    // untruth: nothing was recorded, the participant believes the question is
-    // behind them, and the score is lost with nobody aware. Ask the question
-    // again instead — in the campaign's own words, which are the only ones here
-    // guaranteed to still be true.
-    const refused = refusedAnswerQuestionKey(validated);
-    if (refused) {
-      return {
-        body: copy[refused],
-        dedupeKey: createFeedbackReplyDedupeKey(conversation._id, testimonySeq),
-      };
-    }
-
-    return validated.reply
-      ? {
-          body: validated.reply,
-          dedupeKey: createFeedbackReplyDedupeKey(
-            conversation._id,
-            testimonySeq,
-          ),
-        }
-      : undefined;
   }
 
   /**
@@ -865,16 +779,6 @@ export class PostEventFeedbackExtractor {
   }
 }
 
-interface OutboundReply {
-  readonly body: string;
-  readonly dedupeKey: string;
-}
-
-interface GoalStatusUpdate {
-  readonly key: FeedbackConversationGoal["key"];
-  readonly status: FeedbackConversationGoal["status"];
-}
-
 /**
  * D12: every persisted row records the model, its confidence and the exact
  * candidate ids supplied to that run. Under live selection (D16) the candidate
@@ -897,150 +801,6 @@ function buildExtractionMeta(input: {
       ? { unresolvedSubjectName: input.unresolvedSubjectName }
       : {}),
   };
-}
-
-/**
- * Answered wins over everything, including a skip proposed in the same run.
- * Goals answered in an earlier run are re-derived rather than remembered, so a
- * replay that finds its answers already stored still repairs the statuses.
- */
-function resolveGoalStatuses(
-  goals: readonly FeedbackConversationGoal[],
-  context: FeedbackExtractionContext,
-  validated: ValidatedFeedbackExtraction,
-): GoalStatusUpdate[] {
-  const answered = new Set<string>([
-    ...context.acceptedAnswers.map((answer) => answer.questionKey),
-    ...validated.answers.map((answer) => answer.questionKey),
-  ]);
-  const updates = new Map<string, GoalStatusUpdate>();
-
-  for (const goal of goals) {
-    if (answered.has(goal.key)) {
-      updates.set(goal.key, { key: goal.key, status: "answered" });
-    }
-  }
-  for (const key of validated.skippedGoals) {
-    if (!answered.has(key)) {
-      updates.set(key, { key, status: "skipped" });
-    }
-  }
-  // The next question is only "asked" once an outbound actually carries it.
-  if (
-    validated.nextGoal &&
-    validated.reply &&
-    !updates.has(validated.nextGoal)
-  ) {
-    updates.set(validated.nextGoal, {
-      key: validated.nextGoal,
-      status: "asked",
-    });
-  }
-
-  return [...updates.values()];
-}
-
-function isCompleting(
-  goals: readonly FeedbackConversationGoal[],
-  updates: readonly GoalStatusUpdate[],
-): boolean {
-  const byKey = new Map(updates.map((update) => [update.key, update.status]));
-  return goals.every((goal) => {
-    const status = byKey.get(goal.key) ?? goal.status;
-    return status === "answered" || status === "skipped";
-  });
-}
-
-/**
- * Anything that should surface in the admin inbox. Safety and handoff are the
- * incident path (D13); a flagged subjectless note (D18) and a refused answer
- * revision are quieter — the safeguard already wrote the note or kept the
- * stored value, and without the flag nobody would know to look.
- */
-function needsOperatorAttention(
-  validated: FeedbackExtractionValidationResult,
-): boolean {
-  return (
-    isSafetyOrHandoffAttention(validated) ||
-    validated.notes.some((note) => note.flaggedForReview) ||
-    validated.conflictingAnswerRevision
-  );
-}
-
-function isSafetyOrHandoffAttention(
-  validated: ValidatedFeedbackExtraction,
-): boolean {
-  return validated.safetySignals.length > 0 || validated.handoff;
-}
-
-interface GroupedMessageAttention {
-  readonly messageId: string;
-  readonly categories: readonly PostEventFeedbackSafetyCategory[];
-  readonly recommendedAction: PostEventFeedbackRecommendedAction;
-  readonly confidence: number;
-}
-
-function groupSafetySignalsByMessage(
-  signals: readonly ValidatedFeedbackSafetySignal[],
-): GroupedMessageAttention[] {
-  const grouped = new Map<
-    string,
-    {
-      categories: Set<PostEventFeedbackSafetyCategory>;
-      recommendedAction: PostEventFeedbackRecommendedAction;
-      confidence: number;
-    }
-  >();
-
-  for (const signal of signals) {
-    for (const messageId of signal.sourceMessageIds) {
-      const current = grouped.get(messageId);
-      if (current) {
-        current.categories.add(signal.category);
-        current.recommendedAction = strongerRecommendedAction(
-          current.recommendedAction,
-          signal.recommendedAction,
-        );
-        current.confidence = Math.max(current.confidence, signal.confidence);
-      } else {
-        grouped.set(messageId, {
-          categories: new Set([signal.category]),
-          recommendedAction: signal.recommendedAction,
-          confidence: signal.confidence,
-        });
-      }
-    }
-  }
-
-  return [...grouped.entries()].map(([messageId, attention]) => ({
-    messageId,
-    categories: [...attention.categories],
-    recommendedAction: attention.recommendedAction,
-    confidence: attention.confidence,
-  }));
-}
-
-/**
- * The question whose answer this run refused for being unusable, if any.
- *
- * Only refusals the participant can act on count. An `already_recorded`
- * duplicate or an unresolvable name needs no second attempt from them, while an
- * out-of-range score or a missing subject does — and re-asking is the only way
- * they ever find out we did not take it.
- */
-function refusedAnswerQuestionKey(
-  validated: FeedbackExtractionValidationResult,
-): FeedbackAnswerQuestionKey | undefined {
-  const actionable = validated.rejections.find(
-    (rejection) =>
-      rejection.scope === "answer" &&
-      (rejection.reason === "invalid_score" ||
-        rejection.reason === "missing_subject"),
-  );
-  const key = actionable?.questionKey;
-  return key && isPostEventFeedbackAnswerQuestionKey(key)
-    ? (key as FeedbackAnswerQuestionKey)
-    : undefined;
 }
 
 /**
