@@ -178,6 +178,27 @@ path does not exist yet (planned extraction) or is not instrumented (CSS, `packa
 `packages/database` — no vitest coverage in this packet). **0.0** means the file exists but had no
 executed lines in the admin suite (routes and most page components).
 
+### Duplication — measured, not estimated
+
+`npx jscpd --min-lines 8 --min-tokens 50` over `apps/*/src` and `packages/database/src`, generated
+output excluded, run 2026-07-26.
+
+| Format     | Files | Lines  | Duplicated        |
+| ---------- | ----- | ------ | ----------------- |
+| TypeScript | 260   | 53,393 | 1,461 (2.74%)     |
+| TSX        | 39    | 8,230  | 11 (0.13%)        |
+| CSS        | 1     | 600    | 0                 |
+| **Total**  | 300   | 62,223 | **1,472 (2.37%)** |
+
+122 clones. This repo is not half copy-paste: the admin app is 0.13% duplicated, and most of the 122
+are Drizzle column declarations repeated across `schema/assistant.ts`, `schema/post-event-feedback.ts`
+and `schema/email-deliveries.ts` — identical because table definitions are identical, and not
+removable without an abstraction layer over the schema, which the taste rules forbid.
+
+The duplication worth removing is dangerous rather than voluminous. `noteSignature` exists twice and
+is the `feedback_notes` replay guard; the campaign copy rule exists four times and has already
+diverged. Six clones matter; Group B takes those.
+
 ### Coverage — Groups B and C targets
 
 | Packet(s)           | File                                                                                                    | Lines % |
@@ -643,11 +664,12 @@ is MOVE unless it brings its own test.
 
 ### Invariants every commit must hold
 
-- **790 passing tests across 105 files** — backend 668/93, admin 101/8, database 21/4. No number
+- **793 passing tests across 106 files** — backend 668/93, admin 104/9, database 21/4. No number
   drops and none silently rises. A packet that changes a test count, or touches a spec file it did
   not declare, is out of scope — revert it. The baseline was 791 at `b773211`; WP-05 deliberately
-  deleted one test, which is why this line is edited in the same commit that deleted it. A test
-  count may only change this way: declared in the packet, and recorded here.
+  deleted one test, and WP-07 deliberately added three (`api-error-message.spec.ts`), which is why
+  this line is edited in the same commit that changed the count. A test count may only change this
+  way: declared in the packet, and recorded here.
 - **`pnpm test` stays under ~25s and needs no Docker.** If a packet makes the suite need infra,
   it is the wrong packet.
 - **Net lines go down.** Close every packet with `git diff --shortstat`. A positive net is only
