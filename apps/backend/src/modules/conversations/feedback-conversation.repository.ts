@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 
 import { Injectable } from "@nestjs/common";
 import {
-  BSON,
   type Collection,
   type Filter,
   MongoServerError,
@@ -15,8 +14,6 @@ import { ConversationPersistenceError } from "./conversation-persistence.errors.
 import { CONVERSATION_THREAD_COLLECTION } from "./conversation-thread.schemas.js";
 import {
   FEEDBACK_CONVERSATION_CHANNEL,
-  FEEDBACK_CONVERSATION_MAX_DOCUMENT_BYTES,
-  FEEDBACK_CONVERSATION_MAX_MESSAGES,
   FEEDBACK_CONVERSATION_PURPOSE,
   FEEDBACK_CONVERSATION_SCHEMA_VERSION,
   type FeedbackConversationActor,
@@ -25,10 +22,20 @@ import {
   type FeedbackConversationGoal,
   type FeedbackConversationLifecycleReason,
   type FeedbackConversationMessage,
+  type FeedbackConversationSummary,
+  assertMessageIdentity,
   buildFeedbackConversationGoals,
   deriveFeedbackConversationId,
+  exceedsCapacity,
   feedbackConversationDocumentSchema,
+  feedbackConversationFilter,
   feedbackConversationMessageSchema,
+  feedbackConversationSummarySchema,
+  goalStatusRank,
+  lowerGoalStatuses,
+  messageIdentityKeys,
+  sortTranscript,
+  type AppendFeedbackConversationMessageInput,
 } from "./feedback-conversation.schemas.js";
 import {
   POST_EVENT_FEEDBACK_SAFETY_CATEGORIES,
@@ -40,52 +47,6 @@ import {
 
 const FEEDBACK_CONVERSATION_APPEND_ATTEMPTS = 3;
 const FEEDBACK_CONVERSATION_ATTENTION_MERGE_ATTEMPTS = 3;
-
-const feedbackConversationSummarySchema = z
-  .object({
-    _id: z.uuid(),
-    campaignId: z.uuid(),
-    respondentParticipantId: z.uuid(),
-    phoneAtLaunch: z.string().trim().min(1),
-    lifecycle: z
-      .object({
-        state: z.enum(["open", "closed"]),
-        reason: z
-          .enum(["completed", "stopped", "expired", "cancelled"])
-          .nullable(),
-      })
-      .strict(),
-    control: z
-      .object({
-        mode: z.enum(["bot", "human"]),
-        source: z.enum(["launch", "staff_action", "external_outbound"]),
-      })
-      .strict(),
-    goals: z.array(
-      z
-        .object({
-          key: z.string().trim().min(1),
-          ordinal: z.number().int().positive(),
-          status: z.enum(["pending", "asked", "answered", "skipped"]),
-        })
-        .strict(),
-    ),
-    messageCount: z.number().int().min(0),
-    lastMessageAt: z.date().nullable(),
-    lastMessageActor: z
-      .enum(["bot", "participant", "staff", "system"])
-      .nullable(),
-    cursorSeq: z.number().int().min(0),
-    needsAttention: z.boolean(),
-    remindedAt: z.date().nullable(),
-    createdAt: z.date(),
-    updatedAt: z.date(),
-  })
-  .strict();
-
-export type FeedbackConversationSummary = z.infer<
-  typeof feedbackConversationSummarySchema
->;
 
 export interface FeedbackConversationLaunchInput {
   readonly campaignId: string;
@@ -103,17 +64,6 @@ export interface FeedbackConversationCreationResult {
 export interface FeedbackConversationTransitionResult {
   readonly changed: boolean;
   readonly conversation: FeedbackConversationDocument;
-}
-
-export interface AppendFeedbackConversationMessageInput {
-  readonly conversationId: string;
-  readonly actor: FeedbackConversationActor;
-  readonly text: string;
-  readonly at: Date;
-  readonly id?: string;
-  readonly providerMessageId?: string | null;
-  readonly ingressId?: string | null;
-  readonly outboxId?: string | null;
 }
 
 export interface FeedbackConversationAppendResult {
@@ -954,95 +904,6 @@ export class FeedbackConversationRepository {
     ]);
     return collection;
   }
-}
-
-function feedbackConversationFilter(
-  id: string,
-): Filter<FeedbackConversationDocument> {
-  return {
-    _id: id,
-    schemaVersion: FEEDBACK_CONVERSATION_SCHEMA_VERSION,
-    purpose: FEEDBACK_CONVERSATION_PURPOSE,
-  } as Filter<FeedbackConversationDocument>;
-}
-
-/**
- * Goal progress is a monotonic ladder. `answered` outranks `skipped` so a
- * participant who changes their mind can still be recorded, while nothing
- * demotes a recorded answer back to a question the bot would ask again.
- */
-const GOAL_STATUS_RANK: Record<FeedbackConversationGoal["status"], number> = {
-  pending: 0,
-  asked: 1,
-  skipped: 2,
-  answered: 3,
-};
-
-/**
- * The in-memory mirror of the `$sort` the `$push` applies, so the returned
- * document matches what MongoDB now holds without a second read.
- *
- * `seq` breaks the tie, which keeps the order total: two fragments can share an
- * observation timestamp, and an unstable sort there would make the transcript
- * differ between two readers of the same conversation.
- */
-function sortTranscript(
-  messages: readonly FeedbackConversationMessage[],
-): FeedbackConversationMessage[] {
-  return [...messages].sort(
-    (left, right) =>
-      left.at.getTime() - right.at.getTime() || left.seq - right.seq,
-  );
-}
-
-function goalStatusRank(status: FeedbackConversationGoal["status"]): number {
-  return GOAL_STATUS_RANK[status];
-}
-
-function lowerGoalStatuses(
-  status: FeedbackConversationGoal["status"],
-): FeedbackConversationGoal["status"][] {
-  const rank = goalStatusRank(status);
-  return (
-    Object.keys(GOAL_STATUS_RANK) as FeedbackConversationGoal["status"][]
-  ).filter((candidate) => goalStatusRank(candidate) < rank);
-}
-
-function messageIdentityKeys(message: {
-  readonly id?: string | undefined;
-  readonly ingressId?: string | null | undefined;
-  readonly outboxId?: string | null | undefined;
-}): string[] {
-  return [message.id, message.ingressId, message.outboxId].filter(
-    (value): value is string => Boolean(value),
-  );
-}
-
-function assertMessageIdentity(
-  existing: FeedbackConversationMessage,
-  replayed: AppendFeedbackConversationMessageInput,
-): void {
-  if (
-    existing.actor !== replayed.actor ||
-    existing.text !== replayed.text.trim()
-  ) {
-    throw new ConversationPersistenceError(
-      "A feedback conversation message was replayed with different content",
-    );
-  }
-}
-
-function exceedsCapacity(
-  conversation: FeedbackConversationDocument,
-  message: FeedbackConversationMessage,
-): boolean {
-  if (conversation.messages.length >= FEEDBACK_CONVERSATION_MAX_MESSAGES) {
-    return true;
-  }
-  return (
-    BSON.calculateObjectSize(conversation) + BSON.calculateObjectSize(message) >
-    FEEDBACK_CONVERSATION_MAX_DOCUMENT_BYTES
-  );
 }
 
 function isDuplicateKeyError(error: unknown): boolean {

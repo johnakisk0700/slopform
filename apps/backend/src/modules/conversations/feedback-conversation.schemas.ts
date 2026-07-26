@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { BSON, type Filter } from "mongodb";
 import { z } from "zod";
 
 import { FEEDBACK_ANSWER_QUESTION_KEYS } from "@join-the-six/database";
@@ -9,6 +10,7 @@ import {
   type PostEventFeedbackQuestionSetCopy,
 } from "../post-event-feedback/post-event-feedback-question-set.js";
 import { feedbackConversationMessageAttentionSchema } from "../post-event-feedback/post-event-feedback-attention.js";
+import { ConversationPersistenceError } from "./conversation-persistence.errors.js";
 
 // Schema v2 is the purpose-specific post-event feedback document. It shares the
 // `conversation_threads` collection with the schema-v1 assistant aggregate and
@@ -365,4 +367,152 @@ function uuidV5(namespace: string, name: string): string {
 
 function uuidToBytes(uuid: string): Buffer {
   return Buffer.from(uuid.replaceAll("-", ""), "hex");
+}
+
+export const feedbackConversationSummarySchema = z
+  .object({
+    _id: z.uuid(),
+    campaignId: z.uuid(),
+    respondentParticipantId: z.uuid(),
+    phoneAtLaunch: z.string().trim().min(1),
+    lifecycle: z
+      .object({
+        state: z.enum(["open", "closed"]),
+        reason: z
+          .enum(["completed", "stopped", "expired", "cancelled"])
+          .nullable(),
+      })
+      .strict(),
+    control: z
+      .object({
+        mode: z.enum(["bot", "human"]),
+        source: z.enum(["launch", "staff_action", "external_outbound"]),
+      })
+      .strict(),
+    goals: z.array(
+      z
+        .object({
+          key: z.string().trim().min(1),
+          ordinal: z.number().int().positive(),
+          status: z.enum(["pending", "asked", "answered", "skipped"]),
+        })
+        .strict(),
+    ),
+    messageCount: z.number().int().min(0),
+    lastMessageAt: z.date().nullable(),
+    lastMessageActor: z
+      .enum(["bot", "participant", "staff", "system"])
+      .nullable(),
+    cursorSeq: z.number().int().min(0),
+    needsAttention: z.boolean(),
+    remindedAt: z.date().nullable(),
+    createdAt: z.date(),
+    updatedAt: z.date(),
+  })
+  .strict();
+
+export type FeedbackConversationSummary = z.infer<
+  typeof feedbackConversationSummarySchema
+>;
+
+export function feedbackConversationFilter(
+  id: string,
+): Filter<FeedbackConversationDocument> {
+  return {
+    _id: id,
+    schemaVersion: FEEDBACK_CONVERSATION_SCHEMA_VERSION,
+    purpose: FEEDBACK_CONVERSATION_PURPOSE,
+  } as Filter<FeedbackConversationDocument>;
+}
+
+/**
+ * Goal progress is a monotonic ladder. `answered` outranks `skipped` so a
+ * participant who changes their mind can still be recorded, while nothing
+ * demotes a recorded answer back to a question the bot would ask again.
+ */
+const GOAL_STATUS_RANK: Record<FeedbackConversationGoal["status"], number> = {
+  pending: 0,
+  asked: 1,
+  skipped: 2,
+  answered: 3,
+};
+
+/**
+ * The in-memory mirror of the `$sort` the `$push` applies, so the returned
+ * document matches what MongoDB now holds without a second read.
+ *
+ * `seq` breaks the tie, which keeps the order total: two fragments can share an
+ * observation timestamp, and an unstable sort there would make the transcript
+ * differ between two readers of the same conversation.
+ */
+export function sortTranscript(
+  messages: readonly FeedbackConversationMessage[],
+): FeedbackConversationMessage[] {
+  return [...messages].sort(
+    (left, right) =>
+      left.at.getTime() - right.at.getTime() || left.seq - right.seq,
+  );
+}
+
+export function goalStatusRank(
+  status: FeedbackConversationGoal["status"],
+): number {
+  return GOAL_STATUS_RANK[status];
+}
+
+export function lowerGoalStatuses(
+  status: FeedbackConversationGoal["status"],
+): FeedbackConversationGoal["status"][] {
+  const rank = goalStatusRank(status);
+  return (
+    Object.keys(GOAL_STATUS_RANK) as FeedbackConversationGoal["status"][]
+  ).filter((candidate) => goalStatusRank(candidate) < rank);
+}
+
+export interface AppendFeedbackConversationMessageInput {
+  readonly conversationId: string;
+  readonly actor: FeedbackConversationActor;
+  readonly text: string;
+  readonly at: Date;
+  readonly id?: string;
+  readonly providerMessageId?: string | null;
+  readonly ingressId?: string | null;
+  readonly outboxId?: string | null;
+}
+
+export function messageIdentityKeys(message: {
+  readonly id?: string | undefined;
+  readonly ingressId?: string | null | undefined;
+  readonly outboxId?: string | null | undefined;
+}): string[] {
+  return [message.id, message.ingressId, message.outboxId].filter(
+    (value): value is string => Boolean(value),
+  );
+}
+
+export function assertMessageIdentity(
+  existing: FeedbackConversationMessage,
+  replayed: AppendFeedbackConversationMessageInput,
+): void {
+  if (
+    existing.actor !== replayed.actor ||
+    existing.text !== replayed.text.trim()
+  ) {
+    throw new ConversationPersistenceError(
+      "A feedback conversation message was replayed with different content",
+    );
+  }
+}
+
+export function exceedsCapacity(
+  conversation: FeedbackConversationDocument,
+  message: FeedbackConversationMessage,
+): boolean {
+  if (conversation.messages.length >= FEEDBACK_CONVERSATION_MAX_MESSAGES) {
+    return true;
+  }
+  return (
+    BSON.calculateObjectSize(conversation) + BSON.calculateObjectSize(message) >
+    FEEDBACK_CONVERSATION_MAX_DOCUMENT_BYTES
+  );
 }
