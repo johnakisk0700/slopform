@@ -7,6 +7,7 @@ import {
   Cake,
   Calendar,
   Check,
+  ChevronLeft,
   ContactRound,
   Mail,
   MapPin,
@@ -34,6 +35,18 @@ import { usePageMeta } from "../lib/usePageMeta";
 
 function requestErrorMessage(cause: unknown, fallback: string): string {
   return cause instanceof Error ? cause.message : fallback;
+}
+
+const backToParticipantsLinkClassName =
+  "inline-flex items-center gap-1.5 self-start text-sm font-semibold text-primary";
+
+function BackToParticipantsLink() {
+  return (
+    <Link to="/admin/participants" className={backToParticipantsLinkClassName}>
+      <ChevronLeft aria-hidden="true" className="size-4 shrink-0" />
+      Back to participants
+    </Link>
+  );
 }
 
 /** Quiet em dash for missing profile fields (subtle ink, never empty-looking). */
@@ -336,12 +349,7 @@ export function ParticipantProfilePage() {
         <p role="alert">
           {loadError ?? actionError ?? "Participant not found."}
         </p>
-        <Link
-          to="/admin/participants"
-          className="text-sm font-semibold text-primary"
-        >
-          Back to participants
-        </Link>
+        <BackToParticipantsLink />
       </div>
     );
   }
@@ -352,24 +360,21 @@ export function ParticipantProfilePage() {
   return (
     <div className="flex flex-col gap-5">
       <div className="mb-3 flex flex-col gap-4">
-        <Link
-          to="/admin/participants"
-          className="self-start text-sm font-semibold text-primary"
-        >
-          Back to participants
-        </Link>
+        <BackToParticipantsLink />
 
         <header className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex min-w-0 items-start gap-4">
             {/* Rounded square: circle motif stays reserved for the brand mark. */}
             <Avatar
-              color="accent"
+              color="default"
               variant="soft"
               size="lg"
               aria-hidden="true"
-              className="size-14 shrink-0 rounded-md text-lg font-extrabold"
+              className="size-14 shrink-0 rounded-md"
             >
-              <Avatar.Fallback>{monogram}</Avatar.Fallback>
+              <Avatar.Fallback className="border border-border bg-surface-raised text-lg font-extrabold text-ink">
+                {monogram}
+              </Avatar.Fallback>
             </Avatar>
             <div className="min-w-0">
               {/* Matches JtsPageHeader's scale — this route owns its own h1 for
