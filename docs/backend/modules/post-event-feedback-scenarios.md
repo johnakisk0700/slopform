@@ -2102,4 +2102,4 @@ an _ordering_ the step list cannot show.
 - [`POST_EVENT_FEEDBACK_LOOP_PLAN_2026-07-26.md`](../../../POST_EVENT_FEEDBACK_LOOP_PLAN_2026-07-26.md) — F1–F7 and WP1–WP6, which this suite is the acceptance gate for
 - Source: `apps/backend/src/modules/post-event-feedback/`,
   `apps/backend/src/modules/post-event-feedback/post-event-feedback-conversation.repository.ts`
-- Precedent harness: `post-event-feedback-simulator.integration.spec.ts`
+- Precedent harness: `simulator/simulator.service.integration.spec.ts`

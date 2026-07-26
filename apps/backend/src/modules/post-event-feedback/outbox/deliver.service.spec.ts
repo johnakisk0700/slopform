@@ -2,16 +2,16 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { MessageOutboxRow } from "@join-the-six/database";
 
-import type { DatabaseService } from "../../infrastructure/database/database.service.js";
+import type { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import {
   FeedbackConversationCapacityError,
   type FeedbackConversationRepository,
-} from "./post-event-feedback-conversation.repository.js";
-import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
-import type { FeedbackTransport } from "./outbox/transport.js";
-import { MessageOutboxDeliveryService } from "./outbox/deliver.service.js";
-import type { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
-import type { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
+} from "../post-event-feedback-conversation.repository.js";
+import { FeedbackOutboundTranscriptService } from "./outbound-transcript.service.js";
+import type { FeedbackTransport } from "./transport.js";
+import { MessageOutboxDeliveryService } from "./deliver.service.js";
+import type { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
+import type { FeedbackOutboxRepository } from "./outbox.repository.js";
 
 const outboxId = "66de52a8-1a26-4cbb-b8d1-fcf8bdc2dd51";
 const conversationId = "7c57f3b8-2b13-48f5-8730-18ac71f490cd";

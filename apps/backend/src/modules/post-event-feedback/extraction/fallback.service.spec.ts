@@ -4,25 +4,25 @@ import { Logger } from "@nestjs/common";
 import type { AppTransaction } from "@join-the-six/database";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 
-import type { AuditRepository } from "../../infrastructure/audit/audit.repository.js";
-import type { DatabaseService } from "../../infrastructure/database/database.service.js";
-import type { FeedbackConversationRepository } from "./post-event-feedback-conversation.repository.js";
-import type { EventsService } from "../events/events.service.js";
-import type { FeedbackOperatorAlertInput } from "./operator-alert.js";
-import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
+import type { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
+import type { DatabaseService } from "../../../infrastructure/database/database.service.js";
+import type { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
+import type { EventsService } from "../../events/events.service.js";
+import type { FeedbackOperatorAlertInput } from "../operator-alert.js";
+import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
 import {
   FakeAudit,
   FakeEvents,
-} from "./post-event-feedback-doubles.harness.js";
-import { PostEventFeedbackExtractionFallback } from "./extraction/fallback.service.js";
+} from "../post-event-feedback-doubles.harness.js";
+import { PostEventFeedbackExtractionFallback } from "./fallback.service.js";
 import {
   POST_EVENT_FEEDBACK_FALLBACK_ACK,
   POST_EVENT_FEEDBACK_FALLBACK_NOTE_TEXT,
-} from "./extraction/extraction.schemas.js";
-import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "./question-set.js";
-import type { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
-import type { FeedbackResultsRepository } from "./extraction/results.repository.js";
-import type { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
+} from "./extraction.schemas.js";
+import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "../question-set.js";
+import type { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
+import type { FeedbackResultsRepository } from "./results.repository.js";
+import type { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
 
 const campaignId = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 const eventId = "6b1d2f43-2f6a-4a1f-9f39-0f2c1f6c9a10";

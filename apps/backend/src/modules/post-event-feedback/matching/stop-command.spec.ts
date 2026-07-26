@@ -1,10 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  foldGreekAccents,
-  foldPostEventFeedbackText,
-} from "./matching/fold-text.js";
-import { matchesPostEventFeedbackStopCommand } from "./matching/stop-command.js";
+import { foldGreekAccents, foldPostEventFeedbackText } from "./fold-text.js";
+import { matchesPostEventFeedbackStopCommand } from "./stop-command.js";
 
 describe("post-event feedback STOP matcher", () => {
   it("matches English commands case- and whitespace-insensitively", () => {

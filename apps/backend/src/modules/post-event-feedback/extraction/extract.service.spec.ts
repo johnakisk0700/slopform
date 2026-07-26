@@ -4,26 +4,26 @@ import { Logger } from "@nestjs/common";
 import type { AppTransaction } from "@join-the-six/database";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { AuditRepository } from "../../infrastructure/audit/audit.repository.js";
-import type { DatabaseService } from "../../infrastructure/database/database.service.js";
-import type { FeedbackConversationRepository } from "./post-event-feedback-conversation.repository.js";
-import type { EventsService } from "../events/events.service.js";
-import type { ParticipantsRepository } from "../participants/participants.repository.js";
-import type { FeedbackOperatorAlertInput } from "./operator-alert.js";
-import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
+import type { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
+import type { DatabaseService } from "../../../infrastructure/database/database.service.js";
+import type { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
+import type { EventsService } from "../../events/events.service.js";
+import type { ParticipantsRepository } from "../../participants/participants.repository.js";
+import type { FeedbackOperatorAlertInput } from "../operator-alert.js";
+import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
 import {
   FakeAudit,
   FakeDatabase,
   FakeParticipants,
-} from "./post-event-feedback-doubles.harness.js";
-import { PostEventFeedbackExtractor } from "./extraction/extract.service.js";
-import type { PostEventFeedbackExtractionModel } from "./extraction/model.service.js";
-import { PostEventFeedbackMetrics } from "./metrics.service.js";
-import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "./question-set.js";
-import { POST_EVENT_FEEDBACK_HANDOFF_REPLY } from "./extraction/extraction.schemas.js";
-import type { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
-import type { FeedbackResultsRepository } from "./extraction/results.repository.js";
-import type { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
+} from "../post-event-feedback-doubles.harness.js";
+import { PostEventFeedbackExtractor } from "./extract.service.js";
+import type { PostEventFeedbackExtractionModel } from "./model.service.js";
+import { PostEventFeedbackMetrics } from "../metrics.service.js";
+import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "../question-set.js";
+import { POST_EVENT_FEEDBACK_HANDOFF_REPLY } from "./extraction.schemas.js";
+import type { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
+import type { FeedbackResultsRepository } from "./results.repository.js";
+import type { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
 
 const campaignId = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 const eventId = "5c2f0b8e-9b1a-4a41-8f27-1a6f9b0c2d10";

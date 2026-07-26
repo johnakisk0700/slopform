@@ -3,27 +3,27 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { ConfigService } from "@nestjs/config";
 
-import type { Environment } from "../../infrastructure/config/environment.js";
-import type { FeedbackConversationRepository } from "./post-event-feedback-conversation.repository.js";
-import type { EventsRepository } from "../events/events.repository.js";
-import type { EventsService } from "../events/events.service.js";
-import type { ParticipantsRepository } from "../participants/participants.repository.js";
-import type { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
+import type { Environment } from "../../../infrastructure/config/environment.js";
+import type { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
+import type { EventsRepository } from "../../events/events.repository.js";
+import type { EventsService } from "../../events/events.service.js";
+import type { ParticipantsRepository } from "../../participants/participants.repository.js";
+import type { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
 import {
   FeedbackSimulatorRunRejectedError,
   FeedbackSimulatorService,
   isFeedbackSimulatorSingleTurnScenario,
   renderFeedbackSimulatorTemplate,
-} from "./simulator/simulator.service.js";
-import { startFeedbackSimulatorRunSchema } from "./simulator/simulator.schemas.js";
-import { runStage } from "./simulator/run-status.js";
-import type { PostEventFeedbackIngressService } from "./ingress/ingress.service.js";
-import type { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
-import type { FeedbackResultsRepository } from "./extraction/results.repository.js";
-import type { FeedbackIngressRepository } from "./ingress/ingress.repository.js";
-import type { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
-import type { FeedbackSimOutboundRepository } from "./simulator/sim-outbound.repository.js";
-import type { FeedbackJobData, FeedbackJobName } from "./jobs.schemas.js";
+} from "./simulator.service.js";
+import { startFeedbackSimulatorRunSchema } from "./simulator.schemas.js";
+import { runStage } from "./run-status.js";
+import type { PostEventFeedbackIngressService } from "../ingress/ingress.service.js";
+import type { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
+import type { FeedbackResultsRepository } from "../extraction/results.repository.js";
+import type { FeedbackIngressRepository } from "../ingress/ingress.repository.js";
+import type { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
+import type { FeedbackSimOutboundRepository } from "./sim-outbound.repository.js";
+import type { FeedbackJobData, FeedbackJobName } from "../jobs.schemas.js";
 
 const campaignId = "11111111-1111-4111-8111-111111111111";
 const eventId = "22222222-2222-4222-8222-222222222222";

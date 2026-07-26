@@ -5,29 +5,29 @@ import type { AppTransaction } from "@join-the-six/database";
 import type { Queue } from "bullmq";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 
-import type { AuditRepository } from "../../infrastructure/audit/audit.repository.js";
-import type { DatabaseService } from "../../infrastructure/database/database.service.js";
-import type { FeedbackConversationRepository } from "./post-event-feedback-conversation.repository.js";
-import { buildFeedbackConversationGoals } from "./post-event-feedback-conversation.document.js";
-import type { ParticipantsRepository } from "../participants/participants.repository.js";
-import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
+import type { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
+import type { DatabaseService } from "../../../infrastructure/database/database.service.js";
+import type { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
+import { buildFeedbackConversationGoals } from "../post-event-feedback-conversation.document.js";
+import type { ParticipantsRepository } from "../../participants/participants.repository.js";
+import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
 import {
   FakeAudit,
   FakeDatabase,
   FakeParticipants,
   FakeQueue,
-} from "./post-event-feedback-doubles.harness.js";
-import { PostEventFeedbackMaterializer } from "./ingress/materialize.service.js";
-import { PostEventFeedbackMetrics } from "./metrics.service.js";
-import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "./question-set.js";
-import type { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
-import type { FeedbackIngressRepository } from "./ingress/ingress.repository.js";
-import type { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
+} from "../post-event-feedback-doubles.harness.js";
+import { PostEventFeedbackMaterializer } from "./materialize.service.js";
+import { PostEventFeedbackMetrics } from "../metrics.service.js";
+import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "../question-set.js";
+import type { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
+import type { FeedbackIngressRepository } from "./ingress.repository.js";
+import type { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
 import {
   FEEDBACK_EXTRACT_QUIET_WINDOW_MS,
   type FeedbackJobData,
   type FeedbackJobName,
-} from "./jobs.schemas.js";
+} from "../jobs.schemas.js";
 
 const campaignId = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 const respondentParticipantId = "9f3c1a52-6e2b-4b4a-9a17-2cb2a6d13a55";

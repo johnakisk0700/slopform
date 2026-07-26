@@ -5,27 +5,27 @@ import type { AppTransaction } from "@join-the-six/database";
 import type { Queue } from "bullmq";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 
-import type { DatabaseService } from "../../infrastructure/database/database.service.js";
-import type { FeedbackConversationRepository } from "./post-event-feedback-conversation.repository.js";
-import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
-import { FeedbackSimulatorService } from "./simulator/simulator.service.js";
-import { MessageOutboxDeliveryService } from "./outbox/deliver.service.js";
+import type { DatabaseService } from "../../../infrastructure/database/database.service.js";
+import type { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
+import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
+import { FeedbackSimulatorService } from "./simulator.service.js";
+import { MessageOutboxDeliveryService } from "../outbox/deliver.service.js";
 import {
   FakeAudit,
   FakeDatabase,
   FakeParticipants,
   FakeQueue,
-} from "./post-event-feedback-doubles.harness.js";
-import { PostEventFeedbackIngressService } from "./ingress/ingress.service.js";
-import { PostEventFeedbackMaterializer } from "./ingress/materialize.service.js";
-import { PostEventFeedbackMetrics } from "./metrics.service.js";
-import type { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
-import type { FeedbackResultsRepository } from "./extraction/results.repository.js";
-import type { FeedbackIngressRepository } from "./ingress/ingress.repository.js";
-import type { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
-import type { FeedbackSimOutboundRepository } from "./simulator/sim-outbound.repository.js";
-import type { FeedbackJobData, FeedbackJobName } from "./jobs.schemas.js";
-import { SimulatedFeedbackTransport } from "./outbox/simulated-transport.service.js";
+} from "../post-event-feedback-doubles.harness.js";
+import { PostEventFeedbackIngressService } from "../ingress/ingress.service.js";
+import { PostEventFeedbackMaterializer } from "../ingress/materialize.service.js";
+import { PostEventFeedbackMetrics } from "../metrics.service.js";
+import type { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
+import type { FeedbackResultsRepository } from "../extraction/results.repository.js";
+import type { FeedbackIngressRepository } from "../ingress/ingress.repository.js";
+import type { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
+import type { FeedbackSimOutboundRepository } from "./sim-outbound.repository.js";
+import type { FeedbackJobData, FeedbackJobName } from "../jobs.schemas.js";
+import { SimulatedFeedbackTransport } from "../outbox/simulated-transport.service.js";
 
 const campaignId = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 const respondentParticipantId = "9f3c1a52-6e2b-4b4a-9a17-2cb2a6d13a55";

@@ -1,17 +1,17 @@
 import type { Queue } from "bullmq";
 import { describe, expect, it, vi } from "vitest";
 
-import type { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
+import type { FeedbackOutboxRepository } from "./outbox.repository.js";
 import {
   FEEDBACK_CAMPAIGN_STAGGER_MS,
   MessageOutboxRelayError,
   MessageOutboxRelayService,
-} from "./outbox/relay.service.js";
+} from "./relay.service.js";
 import {
   FEEDBACK_JOB_NAMES,
   type FeedbackJobData,
   type FeedbackJobName,
-} from "./jobs.schemas.js";
+} from "../jobs.schemas.js";
 
 const pendingRow = {
   id: "66de52a8-1a26-4cbb-b8d1-fcf8bdc2dd51",

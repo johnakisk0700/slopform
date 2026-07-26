@@ -5,15 +5,15 @@ import {
 } from "ai";
 import { describe, expect, it } from "vitest";
 
-import { ASSISTANT_MODEL_ADAPTERS } from "../assistant/assistant-models.js";
-import { FeedbackAttentionClassificationValidationError } from "./extraction/attention-classification.js";
+import { ASSISTANT_MODEL_ADAPTERS } from "../../assistant/assistant-models.js";
+import { FeedbackAttentionClassificationValidationError } from "./attention-classification.js";
 import {
   FEEDBACK_EXTRACTION_DEFAULT_MODEL,
   FeedbackExtractionGenerationError,
   feedbackAttentionClassificationProviderOptions,
   resolveFeedbackExtractionModel,
   toGenerationError,
-} from "./extraction/model.service.js";
+} from "./model.service.js";
 
 describe("feedback extraction model selection", () => {
   it("defaults to the D12 model", () => {

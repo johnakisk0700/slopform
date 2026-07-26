@@ -3,17 +3,17 @@ import type { AppTransaction } from "@join-the-six/database";
 import type { Queue } from "bullmq";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { DatabaseService } from "../../infrastructure/database/database.service.js";
+import type { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import {
   PostEventFeedbackEnqueueError,
   PostEventFeedbackIngressService,
-} from "./ingress/ingress.service.js";
-import type { FeedbackIngressRepository } from "./ingress/ingress.repository.js";
+} from "./ingress.service.js";
+import type { FeedbackIngressRepository } from "./ingress.repository.js";
 import {
   FEEDBACK_OBSERVED_TEXT_HARD_LIMIT,
   type FeedbackJobData,
   type FeedbackJobName,
-} from "./jobs.schemas.js";
+} from "../jobs.schemas.js";
 
 const ingressId = "b1c9e0a4-2c65-4a29-9a2e-2d0a3f2e1b77";
 const observed = {

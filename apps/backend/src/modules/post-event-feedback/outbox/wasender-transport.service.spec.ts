@@ -3,9 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 import {
   WasenderClient,
   WasenderClientError,
-} from "../../integrations/wasender/wasender.client.js";
-import { FeedbackSessionPacer } from "./outbox/session-pacer.js";
-import { WasenderFeedbackTransport } from "./outbox/wasender-transport.service.js";
+} from "../../../integrations/wasender/wasender.client.js";
+import { FeedbackSessionPacer } from "./session-pacer.js";
+import { WasenderFeedbackTransport } from "./wasender-transport.service.js";
 
 describe("WasenderFeedbackTransport", () => {
   it("paces before sendText and maps acceptance", async () => {

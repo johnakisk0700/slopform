@@ -2,22 +2,22 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { ConfigService } from "@nestjs/config";
 
-import type { Environment } from "../../infrastructure/config/environment.js";
-import type { AuditRepository } from "../../infrastructure/audit/audit.repository.js";
-import type { DatabaseService } from "../../infrastructure/database/database.service.js";
-import type { FeedbackConversationRepository } from "./post-event-feedback-conversation.repository.js";
-import { buildFeedbackConversationGoals } from "./post-event-feedback-conversation.document.js";
-import type { ParticipantsRepository } from "../participants/participants.repository.js";
-import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
-import { buildPostEventFeedbackQuestionLaunchSnapshot } from "./question-set.js";
-import type { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
-import type { FeedbackIngressRepository } from "./ingress/ingress.repository.js";
-import type { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
-import { PostEventFeedbackSweepService } from "./sweeps/sweep.service.js";
+import type { Environment } from "../../../infrastructure/config/environment.js";
+import type { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
+import type { DatabaseService } from "../../../infrastructure/database/database.service.js";
+import type { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
+import { buildFeedbackConversationGoals } from "../post-event-feedback-conversation.document.js";
+import type { ParticipantsRepository } from "../../participants/participants.repository.js";
+import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
+import { buildPostEventFeedbackQuestionLaunchSnapshot } from "../question-set.js";
+import type { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
+import type { FeedbackIngressRepository } from "../ingress/ingress.repository.js";
+import type { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
+import { PostEventFeedbackSweepService } from "./sweep.service.js";
 import {
   createFeedbackMaterializeJobId,
   FEEDBACK_JOB_NAMES,
-} from "./jobs.schemas.js";
+} from "../jobs.schemas.js";
 
 const conversationId = "6f0f2f8a-2b73-5a02-9d0a-3f0b8f5b1c21";
 const campaignId = "89eccaa5-9ce6-4dcf-a630-5e35e4ec6f0d";

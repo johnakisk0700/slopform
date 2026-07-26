@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { validateFeedbackExtractionProposal } from "./extraction/validate-proposal.js";
+import { validateFeedbackExtractionProposal } from "./validate-proposal.js";
 import {
   feedbackExtractionProposalSchema,
   type FeedbackExtractionContext,
   type FeedbackExtractionProposal,
-} from "./extraction/extraction.schemas.js";
+} from "./extraction.schemas.js";
 
 const respondent = "p-respondent";
 const nikos = "p-nikos";

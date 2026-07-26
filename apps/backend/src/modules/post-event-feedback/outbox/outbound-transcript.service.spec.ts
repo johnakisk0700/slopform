@@ -2,18 +2,18 @@ import { Logger } from "@nestjs/common";
 import type { AppTransaction, MessageOutboxRow } from "@join-the-six/database";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { DatabaseService } from "../../infrastructure/database/database.service.js";
+import type { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import {
   FeedbackConversationCapacityError,
   type FeedbackConversationRepository,
-} from "./post-event-feedback-conversation.repository.js";
-import { FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH } from "./post-event-feedback-conversation.document.js";
+} from "../post-event-feedback-conversation.repository.js";
+import { FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH } from "../post-event-feedback-conversation.document.js";
 import {
   FEEDBACK_OUTBOX_KIND_ACTORS,
   FeedbackOutboundTranscriptService,
   UnsupportedMessageOutboxKindError,
-} from "./outbox/outbound-transcript.service.js";
-import type { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
+} from "./outbound-transcript.service.js";
+import type { FeedbackOutboxRepository } from "./outbox.repository.js";
 
 const conversationId = "6f0f2f8a-2b73-5a02-9d0a-3f0b8f5b1c21";
 const outboxId = "d3e9a2c6-4e87-4c4b-9c40-4f2c5a4e3d99";

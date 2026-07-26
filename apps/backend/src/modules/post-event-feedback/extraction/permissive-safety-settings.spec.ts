@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { assistantModelAdapter } from "../assistant/assistant-models.js";
+import { assistantModelAdapter } from "../../assistant/assistant-models.js";
 import {
   FEEDBACK_EXTRACTION_PERMISSIVE_SAFETY_SETTINGS,
   resolveFeedbackExtractionProviderSettings,
-} from "./extraction/permissive-safety-settings.js";
+} from "./permissive-safety-settings.js";
 
 describe("feedback extraction provider safety settings", () => {
   it("relaxes the thresholds for the default Gemini extraction model", () => {

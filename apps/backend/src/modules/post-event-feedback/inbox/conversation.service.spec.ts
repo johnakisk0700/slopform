@@ -10,27 +10,27 @@ import type {
 import type { Queue } from "bullmq";
 import { describe, expect, it, vi } from "vitest";
 
-import type { AuditRepository } from "../../infrastructure/audit/audit.repository.js";
-import type { DatabaseService } from "../../infrastructure/database/database.service.js";
+import type { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
+import type { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import {
   FeedbackConversationCapacityError,
   type FeedbackConversationRepository,
-} from "./post-event-feedback-conversation.repository.js";
-import type { FeedbackConversationDocument } from "./post-event-feedback-conversation.document.js";
-import type { FeedbackJobData, FeedbackJobName } from "./jobs.schemas.js";
-import type { EventsRepository } from "../events/events.repository.js";
-import type { EventsService } from "../events/events.service.js";
-import type { ParticipantsRepository } from "../participants/participants.repository.js";
-import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
-import { buildPostEventFeedbackQuestionLaunchSnapshot } from "./question-set.js";
-import type { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
-import type { FeedbackResultsRepository } from "./extraction/results.repository.js";
-import type { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
-import { conversationCapabilities } from "./inbox/conversation.view.js";
+} from "../post-event-feedback-conversation.repository.js";
+import type { FeedbackConversationDocument } from "../post-event-feedback-conversation.document.js";
+import type { FeedbackJobData, FeedbackJobName } from "../jobs.schemas.js";
+import type { EventsRepository } from "../../events/events.repository.js";
+import type { EventsService } from "../../events/events.service.js";
+import type { ParticipantsRepository } from "../../participants/participants.repository.js";
+import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
+import { buildPostEventFeedbackQuestionLaunchSnapshot } from "../question-set.js";
+import type { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
+import type { FeedbackResultsRepository } from "../extraction/results.repository.js";
+import type { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
+import { conversationCapabilities } from "./conversation.view.js";
 import {
   FeedbackConversationActionNotAllowedError,
   PostEventFeedbackConversationService,
-} from "./inbox/conversation.service.js";
+} from "./conversation.service.js";
 
 const eventId = "7c57f3b8-2b13-48f5-8730-18ac71f490cd";
 const campaignId = "89eccaa5-9ce6-4dcf-a630-5e35e4ec6f0d";

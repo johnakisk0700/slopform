@@ -5,21 +5,21 @@ import type {
 } from "@join-the-six/database";
 import { describe, expect, it, vi } from "vitest";
 
-import type { AuditRepository } from "../../infrastructure/audit/audit.repository.js";
-import type { DatabaseService } from "../../infrastructure/database/database.service.js";
+import type { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
+import type { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import {
   FeedbackConversationPhoneConflictError,
   type FeedbackConversationRepository,
-} from "./post-event-feedback-conversation.repository.js";
-import type { EventsRepository } from "../events/events.repository.js";
-import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
+} from "../post-event-feedback-conversation.repository.js";
+import type { EventsRepository } from "../../events/events.repository.js";
+import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
 import {
   FeedbackCampaignLaunchNotAllowedError,
   PostEventFeedbackCampaignService,
-} from "./campaign/campaign.service.js";
-import type { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
-import type { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
-import { buildPostEventFeedbackQuestionLaunchSnapshot } from "./question-set.js";
+} from "./campaign.service.js";
+import type { FeedbackCampaignRepository } from "./campaign.repository.js";
+import type { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
+import { buildPostEventFeedbackQuestionLaunchSnapshot } from "../question-set.js";
 
 const eventId = "7c57f3b8-2b13-48f5-8730-18ac71f490cd";
 const campaignId = "89eccaa5-9ce6-4dcf-a630-5e35e4ec6f0d";
