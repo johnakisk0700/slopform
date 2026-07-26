@@ -1,4 +1,7 @@
 import type { FeedbackCampaignConversationsDtoOutputConversationsItem } from "../../api/generated/model/feedbackCampaignConversationsDtoOutputConversationsItem";
+import type { FeedbackConversationDetailDtoOutputControlMode } from "../../api/generated/model/feedbackConversationDetailDtoOutputControlMode";
+import type { FeedbackConversationDetailDtoOutputGoalsItemStatus } from "../../api/generated/model/feedbackConversationDetailDtoOutputGoalsItemStatus";
+import type { FeedbackConversationDetailDtoOutputLifecycleState } from "../../api/generated/model/feedbackConversationDetailDtoOutputLifecycleState";
 import {
   controlLabel,
   lifecycleBadge,
@@ -18,10 +21,15 @@ export type ConversationListItem =
   FeedbackCampaignConversationsDtoOutputConversationsItem;
 
 /** The subset of a conversation the progress and badge helpers need. */
-export interface ConversationLike {
-  goals: readonly { status: "pending" | "asked" | "answered" | "skipped" }[];
-  lifecycle: { state: "open" | "closed"; reason: string | null };
-  control: { mode: "bot" | "human" };
+export interface ConversationStatusFields {
+  goals: readonly {
+    status: FeedbackConversationDetailDtoOutputGoalsItemStatus;
+  }[];
+  lifecycle: {
+    state: FeedbackConversationDetailDtoOutputLifecycleState;
+    reason: string | null;
+  };
+  control: { mode: FeedbackConversationDetailDtoOutputControlMode };
   needsAttention: boolean;
 }
 
@@ -37,7 +45,9 @@ export interface GoalProgress {
   percent: number;
 }
 
-export function goalProgress(goals: ConversationLike["goals"]): GoalProgress {
+export function goalProgress(
+  goals: ConversationStatusFields["goals"],
+): GoalProgress {
   const total = goals.length;
   let answered = 0;
   let skipped = 0;
@@ -66,7 +76,7 @@ export function goalProgress(goals: ConversationLike["goals"]): GoalProgress {
  * eye, most urgent last so it reads as the rightmost emphasis.
  */
 export function conversationBadges(
-  conversation: ConversationLike,
+  conversation: ConversationStatusFields,
 ): FeedbackBadge[] {
   const badges: FeedbackBadge[] = [
     lifecycleBadge({

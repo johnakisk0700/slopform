@@ -1,5 +1,6 @@
 import type { FeedbackCampaignConversationsDtoOutputCampaignStatus } from "../../api/generated/model/feedbackCampaignConversationsDtoOutputCampaignStatus";
 import type { FeedbackConversationDetailDtoOutputControlMode } from "../../api/generated/model/feedbackConversationDetailDtoOutputControlMode";
+import type { FeedbackConversationDetailDtoOutputGoalsItemStatus } from "../../api/generated/model/feedbackConversationDetailDtoOutputGoalsItemStatus";
 import type { FeedbackConversationDetailDtoOutputLifecycleReason } from "../../api/generated/model/feedbackConversationDetailDtoOutputLifecycleReason";
 import type { FeedbackConversationDetailDtoOutputMessagesItemActor } from "../../api/generated/model/feedbackConversationDetailDtoOutputMessagesItemActor";
 import type { FeedbackConversationDetailDtoOutputMessagesItemAttentionCategoriesItem } from "../../api/generated/model/feedbackConversationDetailDtoOutputMessagesItemAttentionCategoriesItem";
@@ -107,7 +108,7 @@ export const QUESTION_KEYS: readonly FeedbackConversationResultsDtoOutputAnswers
   ["event_score", "liked", "meet_again", "avoid"];
 
 const GOAL_STATUS_LABELS: Record<
-  "pending" | "asked" | "answered" | "skipped",
+  FeedbackConversationDetailDtoOutputGoalsItemStatus,
   string
 > = {
   pending: "Not asked",
@@ -117,7 +118,7 @@ const GOAL_STATUS_LABELS: Record<
 };
 
 const GOAL_STATUS_TONES: Record<
-  "pending" | "asked" | "answered" | "skipped",
+  FeedbackConversationDetailDtoOutputGoalsItemStatus,
   FeedbackTone
 > = {
   pending: "neutral",
@@ -127,7 +128,7 @@ const GOAL_STATUS_TONES: Record<
 };
 
 export function goalStatusBadge(
-  status: "pending" | "asked" | "answered" | "skipped",
+  status: FeedbackConversationDetailDtoOutputGoalsItemStatus,
 ): FeedbackBadge {
   return {
     key: "goal-status",

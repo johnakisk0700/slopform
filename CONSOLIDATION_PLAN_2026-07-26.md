@@ -714,9 +714,14 @@ is MOVE unless it brings its own test.
   proved less. If random failures reappear, stop dispatching packets and fix them first.
 - **`pnpm test` stays under ~25s and needs no Docker.** If a packet makes the suite need infra,
   it is the wrong packet.
-- **Net lines go down.** Close every packet with `git diff --shortstat`. A positive net is only
-  acceptable when the packet adds tests. An extraction that does not delete a duplicate is not
-  reuse — it is one more file, and it should have been rejected.
+- **Duplication goes down; line count is the proxy, not the goal.** Close every packet with
+  `git diff --shortstat`. A positive net needs a stated reason, and only two count: the packet adds
+  tests, or the deleted duplicate was shorter than the shared thing that replaced it. WP-24 is the
+  second case — replacing three hand-written `"pending" | "asked" | ...` unions with the generated
+  types removed the duplication and added 11 lines, because the generated identifiers are long enough
+  that Prettier wraps them. Inventing local aliases to win the line count back would be worse. What
+  is never acceptable is an extraction that deletes no duplicate: that is not reuse, it is one more
+  file, and it should have been rejected.
 - **Run `pnpm format` before handoff.** `format:check` is the first phase of `pnpm check` and it
   covers markdown, so an unformatted plan or doc edit fails the gate before a single test runs.
   This is the cheapest possible way to waste a packet.
