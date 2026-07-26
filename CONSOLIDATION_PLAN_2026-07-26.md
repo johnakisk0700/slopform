@@ -383,10 +383,23 @@ Do not: fold in `conversationView.formatTimestamp` (deliberately same-day-relati
 
 **WP-09 — One `principalSchema` / `correlationIdSchema`** · M · deps: WP-03
 Files: `infrastructure/auth/auth.schemas.ts`; `modules/{events,participants,email,assistant}/*.schemas.ts`; `modules/post-event-feedback/post-event-feedback-{conversation,campaign}.schemas.ts`, `post-event-feedback.schemas.ts`
-Declare `principalSchema` (`.max(200)`) and `correlationIdSchema` (`.max(128)`) once; delete the seven prefixed pairs and their DTO wrappers. Leave `wasenderCorrelationIdSchema` alone for now — it moves with WP-24.
-Done: `pnpm api:check` shows no diff in `apps/backend/openapi/openapi.json`.
+Declare `principalSchema` (`.max(200)`) and `correlationIdSchema` (`.max(128)`) once in
+`auth.schemas.ts`, and **also declare one shared `PrincipalDto` / `CorrelationIdDto` pair there** via
+`createZodDto`. Delete the seven prefixed schema pairs and the seven DTO wrapper pairs, then repoint
+every `@CurrentUserId()` and `@RequestCorrelationId()` parameter annotation at the two shared DTO
+classes. Leave `wasenderCorrelationIdSchema` alone for now — it moves with WP-24.
+**The DTO wrappers are load-bearing, not ceremony.** A parameter's declared type is the metadata
+`StrictZodValidationPipe` reads; annotating these parameters as `string` removes the schema from the
+HTTP boundary and every request 500s. Typecheck and `api:check` both still pass in that state — only
+the contract specs catch it.
+Amended 2026-07-26 after the first dispatch did exactly that and failed with
+`ZodSchemaDeclarationException` (backend 666/668).
+Done: `pnpm api:check` shows no diff in `apps/backend/openapi/openapi.json`, and
+`assistant-http.contract.spec.ts` passes all three of its cases.
 Verify: `pnpm api:check && pnpm --filter @join-the-six/backend typecheck && pnpm --filter @join-the-six/backend test`
-Do not: change any `max()` bound or make the schemas branded. If `api:check` produces a diff, stop and report — do not commit a regenerated client to make it pass.
+Do not: change any `max()` bound, make the schemas branded, or replace a DTO parameter annotation
+with a primitive type. If `api:check` produces a diff, stop and report — do not commit a regenerated
+client to make it pass.
 
 **WP-10 — Delete the duplicated questionnaire vocabulary** · M · deps: none
 Files: `post-event-feedback-question-set.ts`, `post-event-feedback-question-set.spec.ts`, `post-event-feedback-conversation.schemas.ts`, `conversations/feedback-conversation.schemas.ts`, `feedback-simulator.service.ts`, plus every importer of the two deleted consts.
