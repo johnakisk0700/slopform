@@ -343,9 +343,16 @@ Do not: unexport `DEFAULT_RESPONDENT` (`post-event-feedback-loop.spec.ts:2`) or 
 **WP-07 — `apiErrorMessage` in `lib/api.ts`** · S · deps: WP-02
 Files: `apps/admin/src/lib/api.ts` + the 8 call sites listed in the extractions table.
 Adopt the **guarded** variant (`cause instanceof Error && cause.message !== "" ? cause.message : fallback`) — the four unguarded copies change behaviour for an `Error` with an empty message, which is the correct outcome, but state it in the commit message.
-Done: zero remaining local `errorMessage`/`requestErrorMessage` definitions in `apps/admin/src`.
+This is the first **SIMPLIFY** packet, and the WP-00 baseline records every one of its eight call
+sites at 0.0% coverage. So it also brings its own proof: add `apps/admin/test/api-error-message.spec.ts`
+covering the three cases that distinguish the two variants — an `Error` with a message (returns the
+message), an `Error` with an empty message (returns the fallback, the deliberate change), and a
+non-`Error` cause (returns the fallback). The admin test count rises 101 → 104; declare it.
+Done: zero remaining local `errorMessage`/`requestErrorMessage` definitions in `apps/admin/src`, and
+the new spec passes.
 Verify: `pnpm --filter @join-the-six/admin typecheck && pnpm --filter @join-the-six/admin test`
-Do not: add a toast/notification layer while you are in there.
+Do not: add a toast/notification layer while you are in there. Do not test the eight call sites — the
+helper is what changed.
 
 **WP-08 — `formatDateTime` in `lib/dateTime.ts`** · S · deps: none
 Files: new `apps/admin/src/lib/dateTime.ts`; `routes/{ParticipantProfilePage,EventsPage,AssistantPage}.tsx`
