@@ -14,15 +14,21 @@ import { useNavigate, useParams } from "react-router";
 import { AssistantComposer } from "../components/admin/assistant/AssistantComposer";
 import { AssistantConversation } from "../components/admin/assistant/AssistantConversation";
 import {
+  EFFORT_STORAGE_KEY,
+  MODEL_STORAGE_KEY,
+  readSavedEffort,
+  readSavedModel,
+} from "../features/assistant/composerSettings";
+import {
+  requestFailureMessage,
+  responseStatus,
+} from "../features/assistant/failureMessages";
+import {
   assistantFailureMessage,
   assistantThreadListSchema,
   assistantThreadSchema,
   assistantTurnSchema,
   buildAssistantTurnRequest,
-  DEFAULT_ASSISTANT_EFFORT,
-  DEFAULT_ASSISTANT_MODEL,
-  isAssistantEffort,
-  isAssistantModel,
   messagesFromThread,
   type AssistantDisplayMessage,
   type AssistantEffort,
@@ -38,8 +44,6 @@ import { usePageMeta } from "../lib/usePageMeta";
 
 const ASSISTANT_THREADS_PATH = "/v1/assistant/threads";
 const POLL_INTERVAL_MS = 1_200;
-const MODEL_STORAGE_KEY = "jts-assistant-model";
-const EFFORT_STORAGE_KEY = "jts-assistant-effort";
 const NEW_THREAD_KEY = "new";
 
 type PagePhase = "loading" | "idle" | "submitting" | AssistantTurnStatus;
@@ -80,24 +84,6 @@ interface PendingUserMessage {
   content: string;
 }
 
-function readSavedModel(): AssistantModel {
-  try {
-    const saved = localStorage.getItem(MODEL_STORAGE_KEY);
-    return isAssistantModel(saved) ? saved : DEFAULT_ASSISTANT_MODEL;
-  } catch {
-    return DEFAULT_ASSISTANT_MODEL;
-  }
-}
-
-function readSavedEffort(): AssistantEffort {
-  try {
-    const saved = localStorage.getItem(EFFORT_STORAGE_KEY);
-    return isAssistantEffort(saved) ? saved : DEFAULT_ASSISTANT_EFFORT;
-  } catch {
-    return DEFAULT_ASSISTANT_EFFORT;
-  }
-}
-
 function waitForNextPoll(signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
     let timeoutId = 0;
@@ -111,40 +97,6 @@ function waitForNextPoll(signal: AbortSignal): Promise<void> {
     timeoutId = window.setTimeout(finish, POLL_INTERVAL_MS);
     signal.addEventListener("abort", finish, { once: true });
   });
-}
-
-function responseStatus(error: unknown): number | null {
-  if (typeof error !== "object" || error === null || !("response" in error)) {
-    return null;
-  }
-
-  const { response } = error;
-  if (
-    typeof response !== "object" ||
-    response === null ||
-    !("status" in response) ||
-    typeof response.status !== "number"
-  ) {
-    return null;
-  }
-
-  return response.status;
-}
-
-function requestFailureMessage(status: number | null): string {
-  switch (status) {
-    case 401:
-    case 403:
-      return "Your session cannot access the assistant. Sign in again, then try once more.";
-    case 404:
-      return "This conversation is no longer available. Open another conversation or start a new one.";
-    case 409:
-      return "Another turn is already active in this conversation. Reload it to resume the durable turn.";
-    case 503:
-      return "The assistant service or selected model is unavailable. Ask an administrator to check the AI credentials.";
-    default:
-      return "The assistant service could not be reached or returned an invalid response. The same request can be retried safely.";
-  }
 }
 
 function turnPath(threadId: string, turnId: string): string {

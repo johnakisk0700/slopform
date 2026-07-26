@@ -460,7 +460,7 @@ describe("staff-written notes", () => {
 
 describe("inbox toolbar and orientation", () => {
   it("reads «All campaigns» as a back affordance, not a campaign action", () => {
-    const page = readSource("src/routes/FeedbackInboxPage.tsx");
+    const page = readSource("src/components/admin/feedback/CampaignHeader.tsx");
     const header = page.slice(0, page.indexOf("<JtsPageHeader"));
 
     // It leaves the campaign, so it sits above the header with a left chevron

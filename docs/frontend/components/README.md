@@ -44,6 +44,7 @@ callbacks, and their full contract lives in
 
 | Component                     | Owns                                                                                                                 |
 | ----------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `CampaignHeader.tsx`          | The back link, campaign title, pause/resume/close actions and the campaign tallies                                   |
 | `ConversationList.tsx`        | Filter, grouping and selection of a campaign's conversations; `aria-current` on the row; hosts the D17 start trigger |
 | `ConversationTranscript.tsx`  | Actor-labelled transcript, per-message attention highlighting, delivery state, staff and dev-only composers          |
 | `ConversationDetails.tsx`     | The respondent, goal progress, answers, notes and actions as labelled sections                                       |

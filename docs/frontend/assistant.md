@@ -41,6 +41,10 @@ Sources:
   copied chat composition, composer, message and rich-output renderer.
 - [`schema.ts`](../../apps/admin/src/features/assistant/schema.ts) — exact model,
   request, thread and turn validation.
+- [`composerSettings.ts`](../../apps/admin/src/features/assistant/composerSettings.ts) —
+  the persisted model and effort selection.
+- [`failureMessages.ts`](../../apps/admin/src/features/assistant/failureMessages.ts) —
+  operator copy for a failed request, by HTTP status.
 - [`globals.css`](../../apps/admin/src/styles/globals.css) — token-only
   `.assistant-markdown`, chart, Mermaid and thinking styles.
 
