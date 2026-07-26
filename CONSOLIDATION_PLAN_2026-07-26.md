@@ -673,6 +673,24 @@ Done: `integrations/wasender/` imports no product code; `grep -rn "modules/post-
 Verify: `pnpm api:check && pnpm --filter @join-the-six/backend build && pnpm --filter @join-the-six/backend test && pnpm docs:check` — update `docs/backend/mechanisms/wasender.md` in the same commit.
 Do not: change the webhook route, its `@ApiOperation({ operationId })` or its `@ApiTags`. If `api:check` diffs, revert and report — do not commit a regenerated client.
 
+**WP-43 — Move the spec and harness files next to what they test** · L · deps: WP-40, WP-41, WP-42
+Added 2026-07-27, after Group D revealed the target tree only ever described production files.
+Forty-two `*.spec.ts` and `*.harness.ts` files still sit in the `post-event-feedback/` root carrying
+`post-event-feedback-` prefixes, while their subjects moved into folders — the extractor spec is at
+the root and `extraction/extract.service.ts` is not. That is the original complaint, "a flat folder
+doing a namespace's job", still true for the test surface.
+Each spec moves next to its subject and drops the prefix, matching the file it tests:
+`post-event-feedback-extractor.service.spec.ts` → `extraction/extract.service.spec.ts`,
+`message-outbox-relay.service.spec.ts` → `outbox/relay.service.spec.ts`, and so on. The seven
+`post-event-feedback-loop-*.spec.ts` files, the three harnesses, the fixtures, the corpus and
+`post-event-feedback-composition.spec.ts` stay at the root: they exercise the whole module rather than
+one file, which is what the root is for now.
+Done: the root holds only module-wide tests and the thirteen shared production files; every moved spec
+sits beside its subject; no assertion changes anywhere.
+Verify: `pnpm --filter @join-the-six/backend typecheck && pnpm --filter @join-the-six/backend test && pnpm docs:check`
+Do not: rename a describe block, merge two specs, or move a spec whose subject is the module rather
+than a file. Import paths and file locations only — `git diff -M` must pair every move as a rename.
+
 ## Execution contract for implementing agents
 
 ### Dispatch and routing
