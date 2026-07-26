@@ -1,11 +1,11 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule, ConfigService } from "@nestjs/config";
 
-import type { Environment } from "../../infrastructure/config/environment.js";
-import { PostEventFeedbackIngressModule } from "../../modules/post-event-feedback/ingress/ingress.module.js";
+import type { Environment } from "../../../infrastructure/config/environment.js";
+import { WasenderWebhookParser } from "../../../integrations/wasender/wasender.webhook.js";
+import { WasenderWebhookSignatureVerifier } from "../../../integrations/wasender/wasender.webhook.js";
+import { PostEventFeedbackIngressModule } from "./ingress.module.js";
 import { WasenderWebhookController } from "./wasender.controller.js";
-import { WasenderWebhookParser } from "./wasender.webhook.js";
-import { WasenderWebhookSignatureVerifier } from "./wasender.webhook.js";
 
 @Module({
   imports: [ConfigModule, PostEventFeedbackIngressModule],
@@ -30,4 +30,4 @@ import { WasenderWebhookSignatureVerifier } from "./wasender.webhook.js";
   ],
   exports: [WasenderWebhookParser],
 })
-export class WasenderHttpModule {}
+export class WasenderWebhookModule {}

@@ -1,7 +1,7 @@
 # Wasender transport and webhook boundary
 
 Status: transport adapter, opt-in HTTP edge, durable ingress consumer and
-paced outbound feedback transport implemented. Last verified: **2026-07-25**
+paced outbound feedback transport implemented. Last verified: **2026-07-27**
 against the official Wasender API documentation. The implementation uses Node 24
 `fetch`, not the pre-1.0 Wasender Node SDK.
 
@@ -13,14 +13,15 @@ replacement. This boundary owns authenticated provider calls, bounded response
 validation, webhook authentication and normalization of provider payloads.
 
 It does not own conversations, participant matching, AI feedback state, retries,
-consent, a staff inbox or an admin UI. The webhook controller hands each
-normalized observation to the post-event feedback ingress service and each
-delivery-status event to the outbox delivery-status service, but the adapter
-itself still writes nothing: durable rows, queue jobs and every domain decision
-belong to that module. The Wasender dashboard is not treated as a shared-inbox
-product. Its message-log API contains messages sent through the Wasender API
-only, and content/recipient logging depends on a session setting; it is not a
-backfill source for WhatsApp Business/Web or WordPress history.
+consent, a staff inbox or an admin UI. The webhook controller lives in the
+post-event feedback ingress edge and hands each normalized observation to the
+ingress service and each delivery-status event to the outbox delivery-status
+service. The `integrations/wasender` adapter itself still writes nothing:
+durable rows, queue jobs and every domain decision belong to that module. The
+Wasender dashboard is not treated as a shared-inbox product. Its message-log API
+contains messages sent through the Wasender API only, and content/recipient
+logging depends on a session setting; it is not a backfill source for WhatsApp
+Business/Web or WordPress history.
 
 The selected follow-up flow is conversational feedback inside WhatsApp. The
 accepted campaign, directed-result and human-control boundary is documented in
@@ -32,7 +33,7 @@ directly.
 
 ## Contract
 
-`WasenderClient` is exported from a controller-free transport module for worker
+`WasenderClient` is exported from a controller-free client module for worker
 composition. It exposes:
 
 | Operation           | Input                                 | Normalized output                                        |
@@ -201,10 +202,11 @@ and unknown-outcome no-retry.
 
 - [Client and schemas](../../../apps/backend/src/integrations/wasender/wasender.client.ts),
   [JID encode/decode](../../../apps/backend/src/integrations/wasender/wasender.jid.ts),
-  [webhook adapter](../../../apps/backend/src/integrations/wasender/wasender.webhook.ts),
-  [HTTP controller](../../../apps/backend/src/integrations/wasender/wasender.controller.ts)
-  and [transport module](../../../apps/backend/src/integrations/wasender/wasender-transport.module.ts)
-- [Feedback transport port](../../../apps/backend/src/modules/post-event-feedback/outbox/transport.ts),
+  [webhook adapter](../../../apps/backend/src/integrations/wasender/wasender.webhook.ts)
+  and [client module](../../../apps/backend/src/integrations/wasender/wasender-client.module.ts)
+- [Webhook controller](../../../apps/backend/src/modules/post-event-feedback/ingress/wasender.controller.ts),
+  [webhook module](../../../apps/backend/src/modules/post-event-feedback/ingress/wasender-webhook.module.ts),
+  [Feedback transport port](../../../apps/backend/src/modules/post-event-feedback/outbox/transport.ts),
   [Wasender adapter](../../../apps/backend/src/modules/post-event-feedback/outbox/wasender-transport.service.ts),
   [simulated sink](../../../apps/backend/src/modules/post-event-feedback/outbox/simulated-transport.service.ts),
   [ingress service](../../../apps/backend/src/modules/post-event-feedback/ingress/ingress.service.ts)

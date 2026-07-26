@@ -50,10 +50,11 @@ describe("Wasender webhook HTTP contract", () => {
     vi.stubEnv("WASENDER_WEBHOOK_SECRET", webhookSecret);
     vi.stubEnv("LOG_LEVEL", "silent");
 
-    const { createHttpApplication } = await import("../../bootstrap-http.js");
+    const { createHttpApplication } =
+      await import("../../../bootstrap-http.js");
     app = await createHttpApplication();
     const { MessageOutboxDeliveryStatusService } =
-      await import("../../modules/post-event-feedback/outbox/delivery-status.service.js");
+      await import("../outbox/delivery-status.service.js");
     vi.spyOn(
       app.get(MessageOutboxDeliveryStatusService),
       "applyStatusChange",

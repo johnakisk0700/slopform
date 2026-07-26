@@ -15,22 +15,22 @@ import { ApiTags, ApiUnauthorizedResponse } from "@nestjs/swagger";
 import type { Request } from "express";
 import { ZodResponse } from "nestjs-zod";
 
-import { Public } from "../../infrastructure/auth/public.decorator.js";
-import { MessageOutboxDeliveryStatusService } from "../../modules/post-event-feedback/outbox/delivery-status.service.js";
+import { CorrelationIdDto } from "../../../infrastructure/auth/auth.schemas.js";
+import { Public } from "../../../infrastructure/auth/public.decorator.js";
 import {
-  PostEventFeedbackEnqueueError,
-  PostEventFeedbackIngressService,
-} from "../../modules/post-event-feedback/ingress/ingress.service.js";
-import { boundObservedMessageText } from "../../modules/post-event-feedback/jobs.schemas.js";
-import {
-  WasenderCorrelationIdDto,
   WasenderWebhookAcknowledgementDto,
   WasenderWebhookDto,
-} from "./wasender.schemas.js";
+} from "../../../integrations/wasender/wasender.schemas.js";
 import {
   WasenderWebhookParser,
   WasenderWebhookSignatureVerifier,
-} from "./wasender.webhook.js";
+} from "../../../integrations/wasender/wasender.webhook.js";
+import { MessageOutboxDeliveryStatusService } from "../outbox/delivery-status.service.js";
+import { boundObservedMessageText } from "../jobs.schemas.js";
+import {
+  PostEventFeedbackEnqueueError,
+  PostEventFeedbackIngressService,
+} from "./ingress.service.js";
 
 type RequestWithId = Request & { id: string };
 const RequestCorrelationId = createParamDecorator(
@@ -64,7 +64,7 @@ export class WasenderWebhookController {
   async receive(
     @Headers("x-webhook-signature") signature: string | undefined,
     @Body() body: WasenderWebhookDto,
-    @RequestCorrelationId() requestId: WasenderCorrelationIdDto,
+    @RequestCorrelationId() requestId: CorrelationIdDto,
   ): Promise<WasenderWebhookAcknowledgementDto> {
     if (!this.verifier.verify(signature)) {
       throw new UnauthorizedException("Invalid webhook signature");

@@ -6,7 +6,6 @@ import { createZodValidationPipe, ZodSerializerInterceptor } from "nestjs-zod";
 
 import { AppConfigModule } from "./infrastructure/config/app-config.module.js";
 import { AuthModule } from "./infrastructure/auth/auth.module.js";
-import { WasenderHttpModule } from "./integrations/wasender/wasender-http.module.js";
 import {
   isBullBoardEnabled,
   isFeedbackSimulatorHttpEnabled,
@@ -23,6 +22,7 @@ import { HealthModule } from "./modules/health/health.module.js";
 import { ParticipantsHttpModule } from "./modules/participants/participants-http.module.js";
 import { PostEventFeedbackCoreModule } from "./modules/post-event-feedback/core.module.js";
 import { PostEventFeedbackHttpModule } from "./modules/post-event-feedback/http.module.js";
+import { WasenderWebhookModule } from "./modules/post-event-feedback/ingress/wasender-webhook.module.js";
 import { PostEventFeedbackSimulatorHttpModule } from "./modules/post-event-feedback/simulator/http.module.js";
 import { ReferenceHttpModule } from "./modules/reference/reference-http.module.js";
 
@@ -45,7 +45,7 @@ const StrictZodValidationPipe = createZodValidationPipe({
     PostEventFeedbackCoreModule,
     PostEventFeedbackHttpModule,
     ConditionalModule.registerWhen(
-      WasenderHttpModule,
+      WasenderWebhookModule,
       isWasenderWebhookEnabled,
     ),
     ConditionalModule.registerWhen(QueueDashboardModule, isBullBoardEnabled),

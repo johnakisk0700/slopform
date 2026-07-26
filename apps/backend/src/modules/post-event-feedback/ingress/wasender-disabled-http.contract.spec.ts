@@ -35,7 +35,8 @@ describe("disabled Wasender webhook HTTP contract", () => {
     vi.stubEnv("WASENDER_WEBHOOK_SECRET", "");
     vi.stubEnv("LOG_LEVEL", "silent");
 
-    const { createHttpApplication } = await import("../../bootstrap-http.js");
+    const { createHttpApplication } =
+      await import("../../../bootstrap-http.js");
     app = await createHttpApplication();
     await app.listen(0, "127.0.0.1");
     const address = app.getHttpServer().address() as AddressInfo;

@@ -46,11 +46,11 @@ describe("post-event feedback process composition", () => {
   });
 
   it("mounts the webhook ingress edge only with the Wasender HTTP module", async () => {
-    const { WasenderHttpModule } =
-      await import("../../integrations/wasender/wasender-http.module.js");
+    const { WasenderWebhookModule } =
+      await import("./ingress/wasender-webhook.module.js");
     const imports = Reflect.getMetadata(
       MODULE_METADATA.IMPORTS,
-      WasenderHttpModule,
+      WasenderWebhookModule,
     ) as readonly unknown[];
 
     // The webhook route is env-gated, so the producer edge must arrive with it

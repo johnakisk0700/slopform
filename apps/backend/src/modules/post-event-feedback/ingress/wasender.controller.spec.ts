@@ -5,23 +5,21 @@ import {
 } from "@nestjs/common";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import {
-  PostEventFeedbackEnqueueError,
-  type PostEventFeedbackIngressService,
-} from "../../modules/post-event-feedback/ingress/ingress.service.js";
-import type { MessageOutboxDeliveryStatusService } from "../../modules/post-event-feedback/outbox/delivery-status.service.js";
-import { WasenderWebhookController } from "./wasender.controller.js";
-import type {
-  WasenderCorrelationIdDto,
-  WasenderWebhookDto,
-} from "./wasender.schemas.js";
+import type { CorrelationIdDto } from "../../../infrastructure/auth/auth.schemas.js";
+import type { WasenderWebhookDto } from "../../../integrations/wasender/wasender.schemas.js";
 import {
   WasenderWebhookParser,
   WasenderWebhookSignatureVerifier,
-} from "./wasender.webhook.js";
+} from "../../../integrations/wasender/wasender.webhook.js";
+import type { MessageOutboxDeliveryStatusService } from "../outbox/delivery-status.service.js";
+import {
+  PostEventFeedbackEnqueueError,
+  type PostEventFeedbackIngressService,
+} from "./ingress.service.js";
+import { WasenderWebhookController } from "./wasender.controller.js";
 
 const secret = "webhook-secret-that-is-at-least-32-characters";
-const correlationId = "correlation-1" as unknown as WasenderCorrelationIdDto;
+const correlationId = "correlation-1" as unknown as CorrelationIdDto;
 
 function upsert(
   key: Record<string, unknown>,

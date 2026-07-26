@@ -26,4 +26,4 @@ import { WasenderClient } from "./wasender.client.js";
   ],
   exports: [WasenderClient],
 })
-export class WasenderTransportModule {}
+export class WasenderClientModule {}
