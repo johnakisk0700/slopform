@@ -117,12 +117,19 @@ function TranscriptMessage({ message }: TranscriptMessageProps) {
       >
         <p className="whitespace-pre-wrap">{message.text}</p>
         {attention ? (
+          /* Every item is `flex` so the chip is a flex item rather than an
+             inline one. An inline-flex chip sits on its line box's baseline,
+             and a chip whose first child is an icon reports the icon's edge as
+             that baseline while a text-only chip reports the text's — which is
+             why the category chips and the action chip sat on two different
+             lines, a half-step apart, on the one row an operator reads before
+             deciding whether to act. */
           <ul
             aria-label="Message attention signals"
             className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-warning-border pt-2"
           >
             {attention.categories.map((category) => (
-              <li key={category}>
+              <li key={category} className="flex">
                 <Chip color="warning" size="sm" variant="soft">
                   <Chip.Label>
                     {messageAttentionCategoryLabel(category)}
@@ -130,7 +137,11 @@ function TranscriptMessage({ message }: TranscriptMessageProps) {
                 </Chip>
               </li>
             ))}
-            <li>
+            <li className="flex">
+              {/* The icon is the chip's own child, not a second flex layer
+                  inside the label: `.chip` already centres its children and
+                  owns the gap, so the action chip keeps the same height and
+                  inner padding as the plain ones instead of an ad-hoc pair. */}
               <Chip
                 color={
                   attention.recommendedAction === "urgent_human_follow_up"
@@ -140,11 +151,9 @@ function TranscriptMessage({ message }: TranscriptMessageProps) {
                 size="sm"
                 variant="soft"
               >
+                <ActionIcon aria-hidden="true" className="size-3.5 shrink-0" />
                 <Chip.Label>
-                  <span className="flex items-center gap-1">
-                    <ActionIcon aria-hidden="true" className="size-3.5" />
-                    {messageAttentionActionLabel(attention.recommendedAction)}
-                  </span>
+                  {messageAttentionActionLabel(attention.recommendedAction)}
                 </Chip.Label>
               </Chip>
             </li>

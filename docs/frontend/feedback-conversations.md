@@ -155,7 +155,10 @@ flowchart LR
   labelled chips below the testimony. Categories and actions are fixed mappings,
   never model-authored copy: `sexual_misconduct` is `🍌 Sexual misconduct`, and
   human follow-up actions use the Lucide bell plus readable text. Colour and
-  symbols only reinforce the labels.
+  symbols only reinforce the labels. The chips are one row of equal-height flex
+  items: the action icon is the chip's own child rather than a flex layer
+  nested inside its label, because that layer made the icon the chip's baseline
+  and left the action sitting 2.5px above the categories beside it.
 - **D18 everywhere.** Any unresolved participant id renders
   `«άγνωστος συμμετέχων»` in italics — respondents, answer subjects and note
   subjects alike. Raw UUIDs never reach the screen.

@@ -32,6 +32,9 @@ const launchedAt = new Date("2026-07-25T10:00:00.000Z");
 const repliedAt = new Date("2026-07-25T10:05:00.000Z");
 const ingressId = "b1c9e0a4-2c65-4a29-9a2e-2d0a3f2e1b77";
 const outboxId = "d4a4b3c2-8f1e-4d3c-9b2a-1e0f9d8c7b6a";
+const messageId = "5c7e6f10-3a2b-4c1d-8e9f-0a1b2c3d4e5f";
+const reasonId = "7a1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d";
+const secondReasonId = "8b2c3d4e-5f6a-4b7c-9d8e-1f2a3b4c5d6e";
 
 describe("FeedbackConversationRepository", () => {
   it("creates the launch document under a deterministic id and reviewed indexes", async () => {
@@ -677,6 +680,129 @@ describe("FeedbackConversationRepository", () => {
     expect(projection["messageCount"]).toEqual({ $size: "$messages" });
   });
 
+  it("raises the badge and records why, anchored on the message to open", async () => {
+    const collection = collectionMock({
+      findOneAndUpdate: vi.fn().mockResolvedValue(
+        feedbackConversation({
+          needsAttention: true,
+          attentionReasons: [attentionReason({ kind: "safety" })],
+        }),
+      ),
+    });
+    const repository = createRepository(collection);
+
+    const result = await repository.raiseAttention({
+      conversationId,
+      kind: "safety",
+      messageId,
+      at: repliedAt,
+    });
+
+    expect(result.changed).toBe(true);
+    const [filter, update] = collection.findOneAndUpdate.mock.calls[0] as [
+      Record<string, unknown>,
+      Record<string, Record<string, unknown>>,
+    ];
+    // Idempotency is the filter, not a read-then-write: two workers replaying
+    // the same run race, and only one of them may push a row.
+    expect(filter["attentionReasons"]).toEqual({
+      $not: { $elemMatch: { kind: "safety", messageId, resolvedAt: null } },
+    });
+    expect(update["$set"]).toEqual({ needsAttention: true });
+    expect(update["$push"]?.["attentionReasons"]).toMatchObject({
+      kind: "safety",
+      messageId,
+      at: repliedAt,
+      resolvedAt: null,
+      resolvedBy: null,
+    });
+  });
+
+  it("does not stack a second row for a reason already standing", async () => {
+    const standing = feedbackConversation({
+      needsAttention: true,
+      attentionReasons: [attentionReason({ kind: "safety" })],
+    });
+    const collection = collectionMock({
+      findOneAndUpdate: vi.fn().mockResolvedValue(null),
+      findOne: vi.fn().mockResolvedValue(standing),
+    });
+    const repository = createRepository(collection);
+
+    const result = await repository.raiseAttention({
+      conversationId,
+      kind: "safety",
+      messageId,
+      at: repliedAt,
+    });
+
+    // A retried job says the same thing twice; the operator must not have to
+    // dismiss it twice.
+    expect(result.changed).toBe(false);
+    expect(result.conversation.attentionReasons).toHaveLength(1);
+  });
+
+  it("lowers the badge when the reason resolved was the last one standing", async () => {
+    const resolvedAll = feedbackConversation({
+      needsAttention: true,
+      attentionReasons: [
+        attentionReason({ kind: "safety", resolvedAt: repliedAt }),
+      ],
+    });
+    const lowered = feedbackConversation({
+      needsAttention: false,
+      attentionReasons: resolvedAll.attentionReasons,
+    });
+    const collection = collectionMock({
+      findOneAndUpdate: vi
+        .fn()
+        .mockResolvedValueOnce(resolvedAll)
+        .mockResolvedValueOnce(lowered),
+    });
+    const repository = createRepository(collection);
+
+    const result = await repository.resolveAttentionReason({
+      conversationId,
+      reasonId,
+      resolvedBy: "admin-1",
+      at: repliedAt,
+    });
+
+    expect(result.changed).toBe(true);
+    expect(result.conversation.needsAttention).toBe(false);
+    expect(collection.findOneAndUpdate).toHaveBeenCalledTimes(2);
+    expect(collection.findOneAndUpdate.mock.calls[1]?.[1]).toMatchObject({
+      $set: { needsAttention: false },
+    });
+  });
+
+  it("keeps the badge up while another reason is still unresolved", async () => {
+    const collection = collectionMock({
+      findOneAndUpdate: vi.fn().mockResolvedValue(
+        feedbackConversation({
+          needsAttention: true,
+          attentionReasons: [
+            attentionReason({ kind: "answer_revision", resolvedAt: repliedAt }),
+            attentionReason({ kind: "safety", id: secondReasonId }),
+          ],
+        }),
+      ),
+    });
+    const repository = createRepository(collection);
+
+    const result = await repository.resolveAttentionReason({
+      conversationId,
+      reasonId,
+      resolvedBy: "admin-1",
+      at: repliedAt,
+    });
+
+    // Clearing a revised score must never take a disclosure down with it.
+    expect(result.changed).toBe(true);
+    expect(result.conversation.needsAttention).toBe(true);
+    expect(collection.findOneAndUpdate).toHaveBeenCalledTimes(1);
+  });
+
   it("reports a missing conversation instead of inventing one", async () => {
     const collection = collectionMock({
       findOne: vi.fn().mockResolvedValue(null),
@@ -759,6 +885,23 @@ function feedbackConversation(
     createdAt: launchedAt,
     updatedAt: repliedAt,
     ...overrides,
+  };
+}
+
+function attentionReason(
+  overrides: Partial<
+    FeedbackConversationDocument["attentionReasons"][number]
+  > = {},
+): FeedbackConversationDocument["attentionReasons"][number] {
+  const resolvedAt = overrides.resolvedAt ?? null;
+  return {
+    id: reasonId,
+    kind: "safety",
+    messageId,
+    at: repliedAt,
+    resolvedBy: resolvedAt === null ? null : "admin-1",
+    ...overrides,
+    resolvedAt,
   };
 }
 

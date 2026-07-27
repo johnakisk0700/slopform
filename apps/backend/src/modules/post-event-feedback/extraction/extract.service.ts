@@ -34,7 +34,7 @@ import {
 import {
   groupSafetySignalsByMessage,
   isSafetyOrHandoffAttention,
-  needsOperatorAttention,
+  operatorAttentionRaises,
 } from "./operator-attention.js";
 import { resolveOutbound, type OutboundReply } from "./outbound-reply.js";
 import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
@@ -368,6 +368,8 @@ export class PostEventFeedbackExtractor {
       closingNow,
       dutyOfCare,
       withdrew,
+      newestParticipantMessageId:
+        context.newParticipantMessageIds.at(-1) ?? null,
       cursorSeq,
       model: generated.model,
       correlationId: input.correlationId,
@@ -734,6 +736,8 @@ export class PostEventFeedbackExtractor {
     readonly closingNow: boolean;
     readonly dutyOfCare: boolean;
     readonly withdrew: boolean;
+    /** The anchor for a reason this run raised that cites no message itself. */
+    readonly newestParticipantMessageId: string | null;
     readonly cursorSeq: number;
     readonly model: string;
     readonly correlationId: string;
@@ -761,31 +765,55 @@ export class PostEventFeedbackExtractor {
       });
     }
 
-    if (needsOperatorAttention(input.validated) || input.withdrew) {
-      const attention = await this.conversations.setNeedsAttention({
+    const raises = operatorAttentionRaises(
+      input.validated,
+      input.newestParticipantMessageId,
+    );
+    let raisedIncident = false;
+    for (const raise of raises) {
+      const attention = await this.conversations.raiseAttention({
+        conversationId: input.conversation._id,
+        kind: raise.kind,
+        messageId: raise.messageId,
+        at,
+      });
+      // The badge is raised with the reason or not at all: a bare flag is what
+      // reached the inbox saying nothing an operator could read or dismiss.
+      raisedIncident ||=
+        attention.changed &&
+        (raise.kind === "safety" || raise.kind === "handoff");
+    }
+
+    // A withdrawal has no reason kind, and inventing one would be inventing a
+    // classifier: the list names what a *participant* did, and this is the bot
+    // running out of things it was willing to say. So the badge rises without a
+    // line to dismiss — the one situation the inbox still cannot explain.
+    if (raises.length === 0 && input.withdrew) {
+      await this.conversations.setNeedsAttention({
         conversationId: input.conversation._id,
         needsAttention: true,
         at,
       });
-      // Only the false → true crossing notifies, and only for safety or an
-      // explicit handoff. A flagged subjectless note or a refused revision is
-      // routine operator work — durable in the inbox, not a page-worthy alert.
-      // A replayed run re-asserts the same flag, gets `changed: false` and
-      // stays quiet either way.
-      if (attention.changed && isSafetyOrHandoffAttention(input.validated)) {
-        await this.alert.raise({
-          conversationId: input.conversation._id,
-          campaignId: input.conversation.campaignId,
-          reason: "extraction_safety_signal",
-          correlationId: input.correlationId,
-          detail: [
-            ...input.validated.safetySignals.map(
-              (signal) => `${signal.category}:${signal.recommendedAction}`,
-            ),
-            ...(input.validated.handoff ? ["handoff"] : []),
-          ],
-        });
-      }
+    }
+
+    // Only a newly recorded safety or handoff reason notifies. A flagged
+    // subjectless note or a refused revision is routine operator work — durable
+    // in the inbox, not a page-worthy alert. A replayed run re-raises the same
+    // kind against the same message, gets `changed: false` from the idempotent
+    // write and stays quiet.
+    if (raisedIncident) {
+      await this.alert.raise({
+        conversationId: input.conversation._id,
+        campaignId: input.conversation.campaignId,
+        reason: "extraction_safety_signal",
+        correlationId: input.correlationId,
+        detail: [
+          ...input.validated.safetySignals.map(
+            (signal) => `${signal.category}:${signal.recommendedAction}`,
+          ),
+          ...(input.validated.handoff ? ["handoff"] : []),
+        ],
+      });
     }
 
     await this.conversations.advanceCursor({

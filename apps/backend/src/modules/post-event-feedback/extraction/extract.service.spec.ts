@@ -941,6 +941,135 @@ describe("PostEventFeedbackExtractor", () => {
     });
   });
 
+  /**
+   * The badge on its own was unreadable and unclearable: four unrelated
+   * situations arrived as one boolean, so an operator could see that something
+   * was wrong and never what. Each raise now names itself and points at a
+   * message.
+   */
+  describe("why the conversation wants a person", () => {
+    it("names a safety signal against the message that carried it", async () => {
+      harness.generation.propose.mockResolvedValue(
+        generation({ reply: "Είμαστε εδώ." }),
+      );
+      harness.generation.classifyAttention.mockResolvedValue(
+        attentionGeneration([
+          {
+            category: "other_safety",
+            recommendedAction: "human_follow_up",
+            sourceMessageIds: ["p1"],
+            confidence: 0.9,
+          },
+        ]),
+      );
+
+      await harness.extractor.extract({ conversationId, correlationId });
+
+      expect(
+        harness.conversations.get(conversationId).attentionReasons,
+      ).toMatchObject([{ kind: "safety", messageId: "p1", resolvedAt: null }]);
+    });
+
+    it("names an unattributed note against the message the name was typed in", async () => {
+      harness.generation.propose.mockResolvedValue(
+        generation({
+          notes: [
+            {
+              noteType: "general",
+              text: "Η Ρούλα ήταν πολύ γλυκιά.",
+              subjectParticipantId: null,
+              subjectMentionedName: "Ρούλα",
+              sourceMessageIds: ["p1"],
+              confidence: 0.6,
+            },
+          ],
+        }),
+      );
+
+      await harness.extractor.extract({ conversationId, correlationId });
+
+      expect(
+        harness.conversations.get(conversationId).attentionReasons,
+      ).toMatchObject([{ kind: "unattributed_note", messageId: "p1" }]);
+    });
+
+    it("names a refused revision, anchored on the newest message the run read", async () => {
+      harness.repository.answers.push({
+        id: randomUUID(),
+        conversationId,
+        questionKey: "event_score",
+        subjectParticipantId: null,
+        valueInt: 4,
+        noteType: null,
+        text: null,
+        extractionMeta: { model, confidence: 1, candidateIds: [] },
+      });
+      harness.generation.propose.mockResolvedValue(
+        generation({
+          answers: [
+            {
+              questionKey: "event_score",
+              valueInt: 2,
+              subjectParticipantId: null,
+              subjectMentionedName: null,
+              sourceMessageIds: ["p1"],
+              confidence: 0.9,
+            },
+          ],
+          reply: "Το άλλαξα σε 2!",
+          nextGoal: "liked",
+        }),
+      );
+
+      await harness.extractor.extract({ conversationId, correlationId });
+
+      // A revision is about the stored row rather than about one line, so the
+      // anchor is the burst that proposed it. A reason linking nowhere is the
+      // thing worth avoiding.
+      expect(
+        harness.conversations.get(conversationId).attentionReasons,
+      ).toMatchObject([{ kind: "answer_revision", messageId: "p1" }]);
+    });
+
+    it("names a handoff, so the badge and the promise say the same thing", async () => {
+      harness.generation.propose.mockResolvedValue(
+        generation({ handoff: true }),
+      );
+
+      await harness.extractor.extract({ conversationId, correlationId });
+
+      expect(
+        harness.conversations.get(conversationId).attentionReasons,
+      ).toMatchObject([{ kind: "handoff", messageId: "p1" }]);
+    });
+
+    it("does not stack the same reason when the run replays", async () => {
+      harness.generation.propose.mockResolvedValue(
+        generation({ reply: "Είμαστε εδώ." }),
+      );
+      harness.generation.classifyAttention.mockResolvedValue(
+        attentionGeneration([
+          {
+            category: "other_safety",
+            recommendedAction: "human_follow_up",
+            sourceMessageIds: ["p1"],
+            confidence: 0.9,
+          },
+        ]),
+      );
+
+      await harness.extractor.extract({ conversationId, correlationId });
+      harness.conversations.get(conversationId).extraction.cursorSeq = 0;
+      await harness.extractor.extract({ conversationId, correlationId });
+
+      // Three identical rows is three dismissals for one thing that happened
+      // once, which is how a list stops being read at all.
+      expect(
+        harness.conversations.get(conversationId).attentionReasons,
+      ).toHaveLength(1);
+    });
+  });
+
   describe("replay", () => {
     it("writes nothing new when the same job runs twice", async () => {
       harness.generation.propose.mockResolvedValue(
@@ -1141,6 +1270,12 @@ interface FakeConversation {
     model: string | null;
   };
   needsAttention: boolean;
+  attentionReasons: {
+    id: string;
+    kind: string;
+    messageId: string | null;
+    resolvedAt: Date | null;
+  }[];
   awaitingHuman: boolean;
 }
 
@@ -1406,6 +1541,33 @@ class FakeConversations {
     return { changed, conversation };
   }
 
+  /** Idempotent on kind + message, exactly as the Mongo guard filter is. */
+  async raiseAttention(input: {
+    conversationId: string;
+    kind: string;
+    messageId: string | null;
+    at: Date;
+  }): Promise<{ changed: boolean; conversation: FakeConversation }> {
+    const conversation = this.get(input.conversationId);
+    const standing = conversation.attentionReasons.some(
+      (reason) =>
+        reason.kind === input.kind &&
+        reason.messageId === input.messageId &&
+        reason.resolvedAt === null,
+    );
+    if (standing) {
+      return { changed: false, conversation };
+    }
+    conversation.attentionReasons.push({
+      id: randomUUID(),
+      kind: input.kind,
+      messageId: input.messageId,
+      resolvedAt: null,
+    });
+    conversation.needsAttention = true;
+    return { changed: true, conversation };
+  }
+
   async markAwaitingHuman(input: {
     conversationId: string;
   }): Promise<{ changed: boolean; conversation: FakeConversation }> {
@@ -1597,6 +1759,7 @@ function createHarness(): Harness {
     ],
     extraction: { cursorSeq: 0, lastRunAt: null, model: null },
     needsAttention: false,
+    attentionReasons: [],
     awaitingHuman: false,
   });
 

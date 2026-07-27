@@ -5,24 +5,65 @@ import type {
 } from "./extraction.schemas.js";
 import {
   strongerRecommendedAction,
+  type PostEventFeedbackAttentionReason,
   type PostEventFeedbackRecommendedAction,
   type PostEventFeedbackSafetyCategory,
 } from "../attention.js";
 
+/** One reason to raise, and the message an operator should be reading. */
+export interface FeedbackOperatorAttentionRaise {
+  readonly kind: PostEventFeedbackAttentionReason;
+  readonly messageId: string | null;
+}
+
 /**
- * Anything that should surface in the admin inbox. Safety and handoff are the
- * incident path (D13); a flagged subjectless note (D18) and a refused answer
- * revision are quieter — the safeguard already wrote the note or kept the
- * stored value, and without the flag nobody would know to look.
+ * Everything about this run that should surface in the admin inbox, named.
+ *
+ * This used to answer `true`, which is the whole defect: safety and handoff are
+ * the incident path (D13), while a flagged subjectless note (D18) and a refused
+ * answer revision are quieter inbox work — and all four arrived as one badge
+ * that said nothing and could not be cleared, because there was nothing
+ * specific enough to clear.
+ *
+ * Two of the four carry no citation of their own. An explicit handoff is a
+ * property of the run rather than of a line, and a refused revision is about
+ * the *stored* answer it disagreed with; both are anchored on the newest
+ * message this run read, which is the burst an operator wants open. That is a
+ * weaker claim than the safety anchor and deliberately so — the alternative is
+ * a reason that links nowhere.
  */
-export function needsOperatorAttention(
+export function operatorAttentionRaises(
   validated: FeedbackExtractionValidationResult,
-): boolean {
-  return (
-    isSafetyOrHandoffAttention(validated) ||
-    validated.notes.some((note) => note.flaggedForReview) ||
-    validated.conflictingAnswerRevision
-  );
+  newestParticipantMessageId: string | null,
+): FeedbackOperatorAttentionRaise[] {
+  const raises: FeedbackOperatorAttentionRaise[] = [];
+
+  for (const attention of groupSafetySignalsByMessage(
+    validated.safetySignals,
+  )) {
+    raises.push({ kind: "safety", messageId: attention.messageId });
+  }
+  if (validated.handoff) {
+    raises.push({ kind: "handoff", messageId: newestParticipantMessageId });
+  }
+  for (const note of validated.notes) {
+    // D18 flags exactly the notes whose mention resolved to nobody, so the
+    // note's own first citation is where the unattributable name was typed.
+    if (note.flaggedForReview) {
+      raises.push({
+        kind: "unattributed_note",
+        messageId: note.sourceMessageIds[0] ?? null,
+      });
+    }
+  }
+  if (validated.conflictingAnswerRevision) {
+    raises.push({
+      kind: "answer_revision",
+      messageId: newestParticipantMessageId,
+    });
+  }
+
+  return raises;
 }
 
 export function isSafetyOrHandoffAttention(

@@ -27,6 +27,7 @@ import type {
 import {
   POST_EVENT_FEEDBACK_SAFETY_CATEGORIES,
   strongerRecommendedAction,
+  type PostEventFeedbackAttentionReason,
   type PostEventFeedbackRecommendedAction,
   type PostEventFeedbackSafetyCategory,
 } from "./attention.js";
@@ -1057,6 +1058,40 @@ export class FakeFeedbackConversations {
       this.revalidate(conversation);
     }
     return { changed, conversation: structuredClone(conversation) };
+  }
+
+  /**
+   * Idempotent on kind + message, the way the Mongo guard filter is: a retried
+   * job must not leave an operator three identical rows to dismiss.
+   */
+  async raiseAttention(input: {
+    conversationId: string;
+    kind: PostEventFeedbackAttentionReason;
+    messageId: string | null;
+    at: Date;
+  }): Promise<FakeConversationTransition> {
+    const conversation = this.require(input.conversationId);
+    const standing = conversation.attentionReasons.some(
+      (reason) =>
+        reason.kind === input.kind &&
+        reason.messageId === input.messageId &&
+        reason.resolvedAt === null,
+    );
+    if (standing) {
+      return { changed: false, conversation: structuredClone(conversation) };
+    }
+    conversation.attentionReasons.push({
+      id: randomUUID(),
+      kind: input.kind,
+      messageId: input.messageId,
+      at: input.at,
+      resolvedAt: null,
+      resolvedBy: null,
+    });
+    conversation.needsAttention = true;
+    this.touch(conversation, input.at);
+    this.revalidate(conversation);
+    return { changed: true, conversation: structuredClone(conversation) };
   }
 
   async markReminded(input: {

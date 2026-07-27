@@ -628,6 +628,9 @@ describe("needs-attention emphasis", () => {
   });
 
   it("uses fixed, readable labels for per-message attention metadata", () => {
+    // The banana is deliberate and stays — this screen is read by the two or
+    // three people who run the dinners, not by participants, and it is the
+    // owner's call how their own back office reads.
     expect(labels.messageAttentionCategoryLabel("sexual_misconduct")).toBe(
       "🍌 Sexual misconduct",
     );
@@ -647,6 +650,24 @@ describe("needs-attention emphasis", () => {
     expect(transcript).toContain("messageAttentionCategoryLabel(category)");
     expect(transcript).toContain("messageAttentionActionLabel(");
     expect(transcript).toContain("BellRing");
+  });
+
+  it("keeps the category and action chips on one line, at one height", () => {
+    const transcript = readSource(
+      "src/components/admin/feedback/ConversationTranscript.tsx",
+    );
+
+    // The icon belongs to the chip, not to a flex layer nested inside its
+    // label: that layer gave the action chip its own baseline and its own
+    // padding, so it sat a half-step off the categories beside it.
+    expect(transcript).not.toMatch(/<Chip\.Label>\s*<span className="flex/u);
+    expect(transcript).toContain(
+      '<ActionIcon aria-hidden="true" className="size-3.5 shrink-0" />',
+    );
+    // Each list item is a flex container, so its chip is a flex item with no
+    // inline baseline to sit on and no descender gap under it.
+    expect(transcript).toContain('<li key={category} className="flex">');
+    expect(transcript).toContain("flex flex-wrap items-center gap-1.5");
   });
 
   it("carries no theme branching: the tokens flip, the component does not", () => {

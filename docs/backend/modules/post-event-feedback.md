@@ -418,14 +418,15 @@ D18's degradation is asymmetric on purpose. A **note** carries the
 participant's own words, so an unresolvable mention keeps the note, drops the
 subject, records `flaggedForReview` and `unresolvedSubjectName` in
 `extraction_meta`, and leaves the name in the text. That flagged note also
-raises `needsAttention` so the safeguard is visible in the inbox — without it,
-D18 works and nobody ever learns that it fired. A directed **answer** carries
+raises an `unattributed_note` reason so the safeguard is visible in the inbox —
+without it, D18 works and nobody ever learns that it fired. A directed **answer** carries
 no text of its own; without a resolved subject it asserts nothing, so it is
 dropped rather than turned into a fabricated note.
 
 Answer immutability still drops a corrected value as `already_recorded`. When
-the proposed value differs from the stored one, the run raises `needsAttention`
-so an operator can reconcile; it does not rewrite the row.
+the proposed value differs from the stored one, the run raises an
+`answer_revision` reason so an operator can reconcile; it does not rewrite the
+row.
 
 Two candidates sharing a first name («Κώστας») cannot be separated by
 application code — both ids are valid, so a correct pick and a lucky guess are
@@ -483,12 +484,12 @@ answered`, derived from stored **and** newly written answers so a replay repairs
   keeps the conversation open so a human can take it;
 - merge model classifications into the cited participant messages without
   downgrading an earlier model classification;
-- `needsAttention` on safety, handoff, a note written with `flaggedForReview`
-  (D18), or an `already_recorded` answer proposed again with a **different**
-  value than the stored row (a refused revision). An audit event and one
+- one **named** attention reason per situation the run found, through
+  `raiseAttention` rather than the bare flag — see
+  [naming the raise](#naming-the-raise). An audit event and one
   [operator alert](#operator-alert-seam) fire only for safety or handoff, and
-  only if the durable flag actually changed. Flagged notes and refused
-  revisions are inbox work, not pages.
+  only if that reason was newly recorded. Flagged notes and refused revisions
+  are inbox work, not pages.
 
 Extraction stops at the outbox row. The
 [WP6 relay](#wp6-outbox-relay-and-transport-implemented) leases it and sends it
@@ -500,6 +501,45 @@ Control is **not** seized on a handoff. `control.source` is `staff_action` or
 `external_outbound`; an AI signal is neither, and D17 keeps control changes a
 human button. The bot stops asking, flags attention and lets an operator take
 over explicitly.
+
+### Naming the raise
+
+A run does not set `needsAttention` directly. Every situation it finds is
+recorded through `raiseAttention` as a `kind` plus the message an operator
+should open, and the badge is that list's summary
+([clearing attention](#clearing-attention) is the other half). The mapping is
+owned by
+[`operator-attention.ts`](../../../apps/backend/src/modules/post-event-feedback/extraction/operator-attention.ts):
+
+| Situation                                                           | `kind`              | Anchor                             |
+| ------------------------------------------------------------------- | ------------------- | ---------------------------------- |
+| A classified safety signal                                          | `safety`            | each message the signal cited      |
+| An explicit participant handoff request                             | `handoff`           | the newest message the run read    |
+| A note kept but degraded to subjectless (D18)                       | `unattributed_note` | the note's own first cited message |
+| An `already_recorded` answer re-proposed with a **different** value | `answer_revision`   | the newest message the run read    |
+
+Two of them have no citation of their own — a handoff is a property of the run
+and a refused revision is about the stored row it disagreed with — so both
+anchor on the burst that produced them. That is a weaker claim than the safety
+anchor and deliberately so: a reason that links nowhere leaves the operator
+searching a 150-message transcript for the thing the badge would not name.
+
+The write is idempotent on `kind` + `messageId`, so a replayed run re-raises the
+same reason and changes nothing; two notes degraded in the same message collapse
+to one entry for the same reason.
+
+Two raises are still **unnamed**, and both are known gaps rather than design.
+A withdrawal — the bot running out of things it was willing to say — has no
+kind, because the taxonomy names what a participant did and inventing a
+hostility verdict for a bot that gave up would be a classifier nobody asked for
+(`hostile_to_bot` therefore has no producer). Neither has anything outside
+extraction: the
+[deterministic fallback](#deterministic-fallback-for-a-dead-run), the
+materializer's unusable/truncated/edited inbound and unanswered STOP paths, a
+permanently failed delivery and a body that could not be transcribed all still
+call `setNeedsAttention`. Those conversations reach the inbox flagged with
+nothing to read and nothing to dismiss, which is the original defect surviving
+in the places the reason vocabulary does not yet cover.
 
 ### Store order and replay
 
@@ -621,12 +661,15 @@ no note, no audit event and raises no alert.
 port is the notification half, so nobody has to be watching the inbox for a
 disclosure or a dead run to be noticed.
 
-It is raised only on a genuine `false → true` crossing, and only for safety,
-an explicit handoff or a terminal extraction failure. A flagged subjectless
-note or a refused answer revision raises the durable flag without paging —
-those are routine inbox work. Idempotency is structural rather than bookkept:
-`setNeedsAttention` already reports whether it changed anything, so a replayed
-job re-asserts the flag, sees `changed: false` and stays quiet.
+It is raised only for safety, an explicit handoff or a terminal extraction
+failure, and only when that reason was newly recorded. A flagged subjectless
+note or a refused answer revision raises its own reason without paging — those
+are routine inbox work. Idempotency is structural rather than bookkept:
+`raiseAttention` reports whether it pushed a row, so a replayed job re-raises
+the same kind against the same message, sees `changed: false` and stays quiet.
+A _second_ disclosure in an already-flagged conversation does page, because it
+is a second message somebody has to read — under the old boolean crossing it
+was silently swallowed.
 
 `FEEDBACK_OPERATOR_ALERT_MODE` selects the channel — `log` (default) emits a
 structured `feedback.operator_alert` warning; `off` disables notification while
