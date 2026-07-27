@@ -3,7 +3,11 @@ import { z } from "zod";
 
 import { FEEDBACK_ANSWER_QUESTION_KEYS } from "@join-the-six/database";
 
-import { BURST_CAMPAIGN_SLUGS } from "./burst-scenario.js";
+import {
+  BURST_CAMPAIGNS,
+  BURST_CAMPAIGN_SLUGS,
+  BURST_PERSONAS_PER_CAMPAIGN,
+} from "./burst-scenario.js";
 
 const burstCampaignSlugSchema = z.enum(BURST_CAMPAIGN_SLUGS);
 
@@ -39,7 +43,7 @@ const burstPersonaMessageSchema = z
 export const feedbackBurstCampaignSchema = z
   .object({
     slug: burstCampaignSlugSchema,
-    ordinal: z.number().int().min(1).max(3),
+    ordinal: z.number().int().min(1).max(BURST_CAMPAIGNS.length),
     title: z.string().trim().min(1).max(200),
   })
   .strict();
@@ -48,7 +52,7 @@ export const feedbackBurstPersonaCatalogEntrySchema = z
   .object({
     id: z.string().trim().min(1).max(100),
     campaign: burstCampaignSlugSchema,
-    ordinal: z.number().int().min(1).max(6),
+    ordinal: z.number().int().min(1).max(BURST_PERSONAS_PER_CAMPAIGN),
     displayName: z.string().trim().min(1).max(200),
     phoneE164: z
       .string()
@@ -72,7 +76,19 @@ export const feedbackBurstCatalogResponseSchema = z
     /** True when at least one BullMQ worker is registered on the feedback queue. */
     workerRegistered: z.boolean(),
     campaigns: z.array(feedbackBurstCampaignSchema).min(1),
-    personas: z.array(feedbackBurstPersonaCatalogEntrySchema).length(18),
+    /**
+     * Bounded by the catalogue rather than by a number typed here.
+     *
+     * This was `.length(18)`, and a fourth dinner turned the whole endpoint
+     * into a 500 that no test could see: every unit test builds its own
+     * catalogue, so nothing ever parsed the real one. The runner reads this
+     * endpoint before it does anything, so the failure surfaced as the
+     * rehearsal refusing to start.
+     */
+    personas: z
+      .array(feedbackBurstPersonaCatalogEntrySchema)
+      .min(1)
+      .max(BURST_CAMPAIGNS.length * BURST_PERSONAS_PER_CAMPAIGN),
   })
   .strict();
 
