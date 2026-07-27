@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { FEEDBACK_OBSERVED_TEXT_HARD_LIMIT } from "../jobs.schemas.js";
+import { FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH } from "../post-event-feedback-conversation.document.js";
 import { BURST_PERSONAS } from "./burst-personas.js";
 import {
   BURST_CAMPAIGNS,
@@ -77,6 +79,39 @@ describe("BURST_PERSONAS", () => {
         Array.from({ length: BURST_PERSONAS_PER_CAMPAIGN }, (_, i) => i + 1),
       );
     }
+  });
+
+  it("keeps every message on one line", () => {
+    // The extraction prompt renders one transcript message per line, and the
+    // scripted model recovers messages by parsing those lines. A newline inside
+    // a message ends the block early, so the persona simply stops being
+    // findable — and the failure arrives as "matched no BURST_PERSONAS entry"
+    // mid-rehearsal rather than here.
+    for (const persona of BURST_PERSONAS) {
+      for (const message of persona.messages) {
+        expect(
+          message.text ?? "",
+          `${persona.id} sends a multi-line message`,
+        ).not.toContain("\n");
+      }
+    }
+  });
+
+  it("drives one message past the send limit and none past the stored limit", () => {
+    // The two bounds are different constraints and conflating them cost real
+    // testimony (S31): 4 096 is what WhatsApp lets us *send*, 64 000 is what a
+    // transcript entry may *hold*. A corpus entirely under the send limit never
+    // exercises the gap, so at least one persona must sit inside it.
+    const lengths = BURST_PERSONAS.flatMap((persona) =>
+      persona.messages.map((message) => message.text?.length ?? 0),
+    );
+
+    expect(Math.max(...lengths)).toBeGreaterThan(
+      FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH,
+    );
+    expect(Math.max(...lengths)).toBeLessThanOrEqual(
+      FEEDBACK_OBSERVED_TEXT_HARD_LIMIT,
+    );
   });
 
   it("declares one stub turn per extraction run its script causes", () => {

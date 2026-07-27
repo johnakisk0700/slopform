@@ -8,8 +8,9 @@ import type { BurstPersona } from "./burst-scenario.js";
  * `docs/backend/modules/post-event-feedback-scenarios.md`; `mirrors` names it,
  * so a failure here points at a row somebody already argued about rather than
  * at a new opinion. What the rehearsal adds is contention: the same rules under
- * many conversations, four campaigns and one queue. Where no catalogue row
- * covers the hazard, the persona comment says so rather than inventing an id.
+ * many conversations, every campaign at once and one queue. Where no catalogue
+ * row covers the hazard, the persona comment says so rather than inventing an
+ * id.
  *
  * ## How to read one entry
  *
@@ -38,13 +39,19 @@ import type { BurstPersona } from "./burst-scenario.js";
  * queue is. Shrink it under 45 s and consecutive clusters collapse into one
  * extraction run, and every stub that assumed two turns is suddenly short.
  *
- * Sixteen personas answer or skip every goal and close as `completed`. Eight
+ * Nineteen personas answer or skip every goal and close as `completed`. Eleven
  * stay unfinished on purpose: silence mid-questionnaire, STOP, a Greeklish
  * opt-out, an explicit human handoff, an erasure handoff, STOP followed by
- * chatter, emoji-only non-answers, and somebody who only ever swears at us.
- * Handoff sets `awaitingHuman`, so later messages exit `skipped_awaiting_human`
- * and never reach the stub — those two rows declare exactly one turn for the
- * handoff run.
+ * chatter, emoji-only non-answers, somebody who only ever swears at us,
+ * somebody who says she does not want to be here any more, somebody whose
+ * answer to `avoid` is racist abuse, and somebody who only ever sends voice
+ * notes.
+ *
+ * `awaitingHuman` is what keeps three of those from finishing. A handoff sets
+ * it, and so does an urgent safety signal — `dutyOfCare` in `extract.service.ts`
+ * is either one — after which later messages exit `skipped_awaiting_human` and
+ * never reach the stub. Those rows declare exactly one turn for the run that
+ * raised it and none for anything the participant sends afterwards.
  *
  * ## Naming a fellow attendee
  *
@@ -70,6 +77,72 @@ import type { BurstPersona } from "./burst-scenario.js";
  * state the correct product outcome as an ordinary expectation, and a failure in
  * either is a regression, not a known defect.
  */
+/**
+ * Σωτήρης Σεντονογράφος's single message: 4 476 characters, one line.
+ *
+ * Written as clauses joined by a space rather than as one string literal for
+ * two reasons. It stays readable in review, and — more importantly — it cannot
+ * accidentally acquire a newline: the extraction prompt renders one transcript
+ * message per line, so a newline inside a message silently ends the block the
+ * scripted model parses and the persona stops being findable.
+ *
+ * The four answers are the last three clauses, all of them past character
+ * 4 096. That placement is the whole point of the persona; do not move them
+ * earlier when editing.
+ */
+const OUZERI_WALL_OF_TEXT = [
+  "λοιπον ρε παιδια επειδη με ρωτησατε θα σας τα πω ολα κ οχι με δυο λεξεις, γιατι πηγα με ορεξη κ θελω να ξερετε τι πηγε καλα κ τι οχι",
+  "ξεκιναω απο τον χωρο",
+  "το ουζερι ειναι ακριβως οπως το φανταζομουν, παλιο, με ξυλινα τραπεζια, ασπρα τραπεζομαντηλα κ εναν κυριο μεγαλυτερο στο ταμειο που μας καλωσορισε σαν να μας ηξερε χρονια",
+  "μυριζε ομως πολυ τηγανιτο απο την κουζινα κ βγηκα με τα ρουχα μου να μυριζουν καλαμαρι, το γραφω γιατι ισως σας το εχουν ξαναπει κ αλλοι",
+  "η μουσικη ηταν δυνατη την πρωτη ωρα κ φωναζαμε για να ακουστουμε, μετα την χαμηλωσαν μονοι τους χωρις να το ζητησει κανεις, μπραβο τους για αυτο",
+  "τα τραπεζακια ομως ειναι πολυ κοντα μεταξυ τους",
+  "ειχαμε στα δεξια μας μια παρεα εξι ατομων που γιορταζαν γενεθλια κ σε καποια φαση αρχισαν τα τραγουδια, οποτε για κανα δεκαλεπτο δεν ακουγαμε ο ενας τον αλλον καθολου",
+  "δεν φταιτε εσεις σε αυτο, το ξερω, αλλα αν ξαναδιαλεξετε το ιδιο μαγαζι ισως ζητησετε τραπεζι πιο μεσα",
+  "παω στο φαγητο",
+  "τα μεζεδακια ηρθαν γρηγορα κ ηταν πολλα, το οποιο μου αρεσε γιατι δεν προλαβες να πεινασεις",
+  "η ταραμοσαλατα ηταν απο τις καλυτερες που εχω φαει, το ιδιο κ οι κεφτεδες",
+  "το χταποδι ηταν λιγο λαστιχο, δεν θα το ξαναπαραγγελνα",
+  "οι πατατες ηρθαν κρυες κ τις γυρισαμε, μας τις εφεραν ζεστες χωρις γκρινια σε πεντε λεπτα",
+  "το κρασι ηταν χυμα κ πολυ καλο για τα λεφτα του",
+  "καποιοι απο εμας επιναν ουζο κ ελεγαν οτι ηταν βαρυ, εγω δεν πινω ουζο οποτε δεν κρινω",
+  "ο λογαριασμος βγηκε λιγο πιο πανω απ οτι περιμεναμε αλλα οχι τραγικα, καπου εικοσι δυο ευρω το ατομο νομιζω",
+  "τωρα για την παρεα, που ειναι κ αυτο που ρωταγατε",
+  "ημασταν εξι κ οι πρωτες δεκα λεπτα ηταν λιγο αμηχανες οπως παντα, ολοι κοιταγαμε τον καταλογο για να μη μιλησουμε",
+  "μετα το εσπασε η Γεωργια που αρχισε να ρωταει τον καθενα με τι ασχολειται, κ απο κει κ περα κυλησε",
+  "η Τουλα δεν μιλησε σχεδον καθολου την πρωτη ωρα, νομιζα οτι βαριοταν, κ μετα αποδειχτηκε οτι απλα ειναι ντροπαλη",
+  "μας εδειξε φωτογραφιες απο ενα ταξιδι της κ ηταν πολυ γλυκια",
+  "ο Τακης ελεγε συνεχεια ιστοριες απο τη δουλεια του κ καποιες ηταν οντως αστειες, αλλα καπου στο τριτο τεταρτο αρχισε να μονοπωλει την κουβεντα",
+  "δεν το λεω κακοπροαιρετα, απλα οποιος καθισει διπλα του πρεπει να ξερει οτι θα ακουσει πολλα",
+  "η Στελλα μιλαγε αγγλικα κ οχι ελληνικα, οποτε μερικες φορες χανοταν λιγο η κουβεντα",
+  "εγω τα βγαζω περα στα αγγλικα κ καθισα διπλα της για να μεταφραζω οποτε χρειαζοταν",
+  "της αξιζει ενα μπραβο παντως γιατι δεν το εβαλε κατω κ προσπαθουσε να πει κ ελληνικες λεξεις",
+  "η Γιωτα ηταν πολυ ησυχη ολο το βραδυ",
+  "καθισε απεναντι μου κ μιλησαμε λιγο για δουλειες",
+  "μου φανηκε κουρασμενη αλλα ευγενικη, της ειπα να προσεχει κ γελασε",
+  "δεν ξερω αν πρεπει να το γραφω αυτο, αλλα το γραφω γιατι μου εμεινε",
+  "για την οργανωση τωρα",
+  "το μηνυμα με την κρατηση ηρθε στην ωρα του κ ημασταν ολοι εκει στις εννεα παρα πεντε, το οποιο δεν ειναι αυτονοητο",
+  "ισως θα βοηθουσε να λετε απο πριν αν το μαγαζι εχει σκαλια, γιατι μια κοπελα απο αλλη παρεα δυσκολευτηκε πολυ",
+  "επισης θα προτεινα να λετε καπου ποσο περιπου βγαινει το ατομο, οχι για μενα αλλα για να μη στεναχωριεται κανεις στο τελος",
+  "α κ κατι ακομα, το ονομα της κρατησης ηταν λαθος κ ψαχναμε πεντε λεπτα, μικρο το κακο αλλα το λεω",
+  "κατι τελευταιο για την ωρα, στις εντεκα κ κατι αρχισαν να μαζευουν διπλα μας κ νιωσαμε λιγο οτι μας διωχνουν, αν κ κανεις δεν μας ειπε τιποτα",
+  "εμεις παντως καθισαμε μεχρι τις δωδεκα παρα τεταρτο κ φυγαμε ολοι μαζι",
+  "καποιοι ειπαν να παμε για ενα ποτο μετα αλλα ημουν κουρασμενος κ γυρισα σπιτι",
+  "αν με ρωτατε αν θα προτιμουσα μεσοβδομαδα η σαββατοκυριακο, θα ελεγα μεσοβδομαδα γιατι το μαγαζι ειναι πιο ησυχο",
+  "κ κατι για την επομενη φορα, θα ηθελα λιγο πιο μικρη παρεα, τα εξι ατομα ειναι ωραια αλλα σε ενα στενο τραπεζι γινονται δυο κουβεντες παραλληλα κ χανεις τη μιση",
+  "τεσπα, δεν ειμαι απο αυτους που γκρινιαζουν, τα γραφω ολα για να εχετε εικονα κ οχι για να παραπονεθω",
+  "γενικα περασα καλα κ δεν το μετανιωσα καθολου που ηρθα",
+  "θα ξαναερθω κ ισως φερω κ μια φιλη μου αν επιτρεπεται",
+  "δεν ξερω αν διαβαζει κανεις ολο αυτο, αλλα ειπα να τα γραψω ολα μαζι για να μη σας στελνω δεκα μηνυματα",
+  "τελος παντων, να απαντησω κ στα ερωτηματα σας για να μην μεινετε παραπονεμενοι κ να μη νομιζετε οτι εγραψα τοσα χωρις να πω το βασικο",
+  "τα αφησα επιτηδες για το τελος γιατι ηθελα πρωτα να καταλαβετε γιατι λεω αυτα που λεω παρακατω",
+  "συνολικα βαζω 4 στη βραδια",
+  "η Γεωργια μου εκανε την καλυτερη εντυπωση, αυτη εσπασε τον παγο κ χωρις αυτη θα καθομασταν σαν ξυλα",
+  "μαζι της θα ξαναεβγαινα σιγουρα σε επομενο τραπεζι",
+  "να αποφυγω καποιον δεν θελω κανεναν, ολοι μια χαρα ηταν με τον τροπο τους",
+].join(" ");
+
 export const BURST_PERSONAS: readonly BurstPersona[] = [
   // ── taverna ───────────────────────────────────────────────────────────────
   {
@@ -77,8 +150,8 @@ export const BURST_PERSONAS: readonly BurstPersona[] = [
     // and the whole scenario is a count: three thoughts, one answer set, one
     // reply. Being answered per sentence is what the settle rule exists to
     // prevent, and it is invisible in the data — the answers are right either
-    // way — so the bound on `received` is the only thing that catches it. Under
-    // eighteen concurrent conversations it is also the row most likely to break:
+    // way — so the bound on `received` is the only thing that catches it. With
+    // the whole catalogue running at once it is also the row most likely to break:
     // a run that reads a stale document sees a lull that was never there.
     //
     // After that trick settles, two more slow sentences finish the
@@ -147,8 +220,8 @@ export const BURST_PERSONAS: readonly BurstPersona[] = [
     // The ordinary way WhatsApp is typed, and the cheap half of the same rule:
     // five fragments eight seconds apart are one thought. The scenario is worth
     // running concurrently because the four superseded jobs are real queue work
-    // — they must collapse without a model call while seventeen other
-    // conversations are competing for the same worker.
+    // — they must collapse without a model call while every other conversation
+    // in the rehearsal competes for the same worker.
     //
     // Once that burst has settled and been answered, one later refusal finishes
     // the questionnaire the only way «κανέναν» can — as a skip.
@@ -268,7 +341,7 @@ export const BURST_PERSONAS: readonly BurstPersona[] = [
     // of an operator instead.
     //
     // Deliberately the one persona who names somebody outside her own campaign.
-    // With three dinners in flight, a name resolving across campaigns would be
+    // With every dinner in flight at once, a name resolving across campaigns is
     // the worst possible bug and nothing else in the file would catch it. After
     // the ghost mention she finishes the questionnaire about people who were
     // actually there; the flagged note stays, and so does `needsAttention`.
@@ -334,8 +407,8 @@ export const BURST_PERSONAS: readonly BurstPersona[] = [
     // person actually types. Part 1 records S16 as 🔴; the folded comparison
     // fixed it and the lifecycle suite pins it, so this is a regression row.
     // What the rehearsal adds is the ordering guarantee: STOP is settled at
-    // materialization, before any model call, while seventeen other
-    // conversations are keeping the extractor busy — hence no stub turn at all.
+    // materialization, before any model call, while every other conversation is
+    // keeping the extractor busy — hence no stub turn at all.
     //
     // `needsAttention` is the subtle half and is easy to write wrong. Opting out
     // without having answered anything is the shape of a number that changed
@@ -1404,8 +1477,8 @@ export const BURST_PERSONAS: readonly BurstPersona[] = [
     // He names himself as the person he liked. `subject_is_respondent` exists
     // so a directed row never lands on the person writing it, and no burst row
     // proposes that shape today — under contention the failure mode is an
-    // answer stored against the respondent while seventeen other conversations
-    // keep the validator busy. The stub proposes the answer with him as
+    // answer stored against the respondent while every other conversation keeps
+    // the validator busy. The stub proposes the answer with him as
     // subject (and keeps the joke as a note); the mechanism drops the answer.
     // The note uses `mentionedName` rather than `about` because the respondent
     // is never in ΥΠΟΨΗΦΙΟΙ — the scripted model can only resolve candidate
@@ -1591,6 +1664,470 @@ export const BURST_PERSONAS: readonly BurstPersona[] = [
       // declining everything.
       minReceived: 2,
       maxReceived: 2,
+    },
+  },
+
+  // ── ouzeri ────────────────────────────────────────────────────────────────
+  {
+    // The one path in the whole system where the bot deliberately says
+    // **nothing**, and until now the only one that had never been rehearsed.
+    //
+    // `resolveOutbound` returns undefined when a run carries an
+    // `urgent_human_follow_up` signal and no explicit handoff, because there is
+    // no approved copy for this and every option the questionnaire owns is
+    // wrong: the next question reads her as a lull in conversation, and the
+    // thank-you reads her as an ending. The stub still proposes a calm reply,
+    // which is what a competent model does — the difference between the two
+    // halves is the row. Nothing the model wrote reaches her phone.
+    //
+    // The other half is that the disclosure must not swallow her testimony. She
+    // answered two goals before it, and those rows have to be there afterwards:
+    // a conversation that loses what somebody already told us in order to
+    // handle what they said next has handled neither.
+    //
+    // Three clusters, two stub turns. `urgentSafety` is `dutyOfCare`, so the
+    // run marks `awaitingHuman` and her third message exits
+    // `skipped_awaiting_human` without reaching the provider — a third turn
+    // here would sit unconsumed, which is what a wrong run count looks like
+    // from the outside. `awaitingHuman` and the operator alert are not in
+    // `BurstExpectedOutcome`; what the runner can see is an open conversation,
+    // the flag, the answers, and a bot that stopped talking.
+    id: "ouzeri_self_harm_disclosure",
+    campaign: "ouzeri",
+    ordinal: 1,
+    firstName: "Γιώτα",
+    lastName: "Αυτοκτονούλα",
+    quirk:
+      "Λέει ήσυχα ότι δεν θέλει να είναι πια εδώ, αφού έχει ήδη απαντήσει.",
+    mirrors: "S43 · self_harm",
+    messages: [
+      {
+        afterMs: 0,
+        text: "3 βαζω. η Στελλα ηταν πολυ γλυκια μαζι μου, με εβαλε στην κουβεντα",
+      },
+      {
+        afterMs: 90_000,
+        text: "δε θελω να μιλαω για τραπεζια τωρα. δεν αντεχω αλλο, δε θελω να ειμαι εδω πια",
+      },
+      { afterMs: 90_000, text: "συγγνωμη που το πεταξα ετσι" },
+    ],
+    stub: [
+      {
+        answers: [
+          { question: "event_score", value: 3 },
+          { question: "liked", about: "Στέλλα Αγγλοαπαντού" },
+        ],
+        nextGoal: "meet_again",
+        reply: "Ευχαριστούμε! Με ποιους θα ήθελες να ξαναβρεθείς;",
+      },
+      {
+        // Subjectless on purpose: nobody at the table is being described, so
+        // there is no subject to resolve and nothing to degrade. A note with
+        // neither `about` nor `mentionedName` is not flagged, which keeps
+        // `safety` the only reason on the conversation.
+        notes: [
+          {
+            type: "general",
+            text: "Λέει ότι δεν αντέχει άλλο και ότι δεν θέλει να είναι πια εδώ.",
+            cite: "last",
+          },
+        ],
+        attention: [
+          {
+            categories: ["self_harm"],
+            action: "urgent_human_follow_up",
+            on: "last",
+          },
+        ],
+        // What an honest model writes, and what the application refuses to
+        // send. No clinical language, no resource list, no promise of contact —
+        // and still not a message we have approved for this.
+        nextGoal: "meet_again",
+        reply: "Σε ακούω. Είμαι εδώ, δεν χρειάζεται να πεις τίποτα άλλο τώρα.",
+      },
+    ],
+    expect: {
+      lifecycle: "open",
+      closedBecause: null,
+      optedIn: true,
+      // Given before the disclosure, and still here after it. This half of the
+      // row is as important as the silence.
+      answers: [
+        { question: "event_score", about: null, value: 3 },
+        { question: "liked", about: "Στέλλα Αγγλοαπαντού", value: null },
+      ],
+      needsAttention: true,
+      // The intro and the one ordinary reply. A third outbound means the run
+      // that read «δεν θέλω να είμαι εδώ πια» answered her with something —
+      // the model's line, the next question or the thank-you — and each of
+      // those is the failure this row exists to catch.
+      minReceived: 2,
+      maxReceived: 2,
+    },
+  },
+  {
+    // Asked who she would rather not meet again, she names a fellow attendee
+    // and the reason is that the woman is not Greek.
+    //
+    // **The finding this row carries, stated rather than buried.** Her «δεν
+    // θέλω να την ξαναδώ» *is* a plain answer to `avoid` under prompt rule 9δ,
+    // so the mechanism records it — correctly, by its own rule. But an `avoid`
+    // is a matching constraint: it is the platform's instruction to keep two
+    // people off the same table. The constraint therefore lands on the woman
+    // she abused. She is the one who gets kept away from tables, on the
+    // strength of somebody else's racism, and nothing downstream distinguishes
+    // that row from any other `avoid`.
+    //
+    // That is why this conversation has to reach a person, and why the row does
+    // not pretend the mechanism solves it. The expectation below is what the
+    // loop does **today**: the answer recorded, attention raised, and a note
+    // that captures her conduct without repeating her words. Naming the defect
+    // is the job here; inventing a mechanism to fix it inside a rehearsal
+    // fixture would hide it.
+    //
+    // The taxonomy has no category for "the respondent is the one behaving
+    // badly" — the five names all describe harm somebody reported — so
+    // `other_safety` is the honest bucket rather than the right one. A second
+    // gap, recorded here so it is not rediscovered as an unmarked hole.
+    //
+    // The reply is the third assertion. Rule 11γ cancels 11β outright whenever a
+    // person is described being treated badly, so there is no joke and no light
+    // touch anywhere in this conversation, and the reply must not echo what she
+    // said — the words are hers, not ours to repeat back. The conversation stays
+    // open even though every goal is terminal: a run that raised safety does not
+    // earn the closing copy.
+    id: "ouzeri_racist_about_an_attendee",
+    campaign: "ouzeri",
+    ordinal: 2,
+    firstName: "Γεωργία",
+    lastName: "Ρατσιστρόνα",
+    quirk:
+      "Απαντά στο avoid κατονομάζοντας συμμετέχουσα, με ρατσιστική αιτιολόγηση.",
+    mirrors: "S61 · racist_about_an_attendee",
+    messages: [
+      {
+        afterMs: 0,
+        text: "4 η βραδια. ο Σωτηρης ηταν οκ, θα τον ξαναεβλεπα ανετα",
+      },
+      {
+        afterMs: 90_000,
+        text: "τη Στελλα δε θελω να την ξαναδω. δεν ειναι απο δω, ουτε ελληνικα δε μιλαει, κ δεν καθομαι με ξενους στο ιδιο τραπεζι",
+      },
+    ],
+    stub: [
+      {
+        answers: [
+          { question: "event_score", value: 4 },
+          { question: "liked", about: "Σωτήρης Σεντονογράφος" },
+          { question: "meet_again", about: "Σωτήρης Σεντονογράφος" },
+        ],
+        nextGoal: "avoid",
+        reply:
+          "Ευχαριστούμε! Υπάρχει κάποιος που θα προτιμούσες να μην ξαναπετύχεις;",
+      },
+      {
+        answers: [{ question: "avoid", about: "Στέλλα Αγγλοαπαντού" }],
+        notes: [
+          {
+            type: "general",
+            text: "Δηλώνει ότι δεν θέλει να ξαναβρεθεί με τη Στέλλα Αγγλοαπαντού, με αιτιολόγηση την καταγωγή και τη γλώσσα της. Η συμπεριφορά είναι της ίδιας· η Στέλλα δεν έκανε τίποτα.",
+            about: "Στέλλα Αγγλοαπαντού",
+            cite: "last",
+          },
+        ],
+        attention: [
+          {
+            categories: ["other_safety"],
+            action: "human_follow_up",
+            on: "last",
+          },
+        ],
+        // Neutral, brief, no humour, and nothing of hers quoted back.
+        nextGoal: null,
+        reply: "Ευχαριστούμε για τον χρόνο σου. Το σημείωσα.",
+      },
+    ],
+    expect: {
+      lifecycle: "open",
+      closedBecause: null,
+      optedIn: true,
+      // The uncomfortable row, written down. `avoid → Στέλλα` is what the
+      // mechanism stores, and it is a constraint against the wrong person.
+      answers: [
+        { question: "event_score", about: null, value: 4 },
+        { question: "liked", about: "Σωτήρης Σεντονογράφος", value: null },
+        { question: "meet_again", about: "Σωτήρης Σεντονογράφος", value: null },
+        { question: "avoid", about: "Στέλλα Αγγλοαπαντού", value: null },
+      ],
+      needsAttention: true,
+      // Intro, the avoid question, and the acknowledgement — which the
+      // application extends with its own safety assurance. A fourth message
+      // would be the closing copy, and completion does not outrank this.
+      minReceived: 3,
+      maxReceived: 3,
+    },
+  },
+  {
+    // She answers out loud from the car, so nothing she says can be used as
+    // testimony. Every other persona in the catalogue sends words; this is the
+    // first inbound the loop cannot read at all.
+    //
+    // `materializeInbound` sees an empty body, sends the campaign's
+    // `cannot_read_media` copy exactly once per conversation, marks the ingress
+    // row `failed` and calls `setNeedsAttention` — the bare flag, not
+    // `raiseAttention`. That is the point of the row: she arrives in the inbox
+    // badged with **nothing an operator can read or dismiss**, because the
+    // reason vocabulary does not reach outside extraction. `post-event-feedback.md`
+    // records it as a known gap under "naming the raise", and this is the first
+    // rehearsal that produces one.
+    //
+    // No extraction run is enqueued at all — the quiet window is born where a
+    // model turn is born, and there is no turn here — so the stub is empty and
+    // the second voice note draws nothing: the notice's dedupe key is what
+    // makes "once" true. She never completes, and in the campaign list she
+    // looks exactly like a non-responder while having answered everything.
+    id: "ouzeri_sends_only_voice_notes",
+    campaign: "ouzeri",
+    ordinal: 3,
+    firstName: "Τούλα",
+    lastName: "Φωνητικομανού",
+    quirk: "Απαντάει μόνο με φωνητικά και μία φωτογραφία — ποτέ με κείμενο.",
+    mirrors: "S28 · voice_note_only / S29 · photo_reply",
+    messages: [
+      // `null` is the whole persona: a voice note and a photo, neither with a
+      // body. Anything typed here would put her back on the ordinary path.
+      { afterMs: 0, text: null },
+      { afterMs: 90_000, text: null },
+    ],
+    // Nothing reaches the provider, so there is nothing to script.
+    stub: [],
+    expect: {
+      lifecycle: "open",
+      closedBecause: null,
+      optedIn: true,
+      answers: [],
+      // True, and unnamed. If the reason vocabulary ever grows to cover the
+      // materializer, this row is where that shows up first.
+      needsAttention: true,
+      // Intro plus one «δεν μπορούμε να ακούσουμε φωνητικά». A third message
+      // would mean the second voice note got its own notice, which is the
+      // dedupe key failing under a burst.
+      minReceived: 2,
+      maxReceived: 2,
+    },
+  },
+  {
+    // One message of 4 476 characters, which is the only interesting number
+    // here: WhatsApp lets us **send** 4 096, and a transcript entry may **hold**
+    // 64 000. Those were once the same bound and the cut happened at the
+    // webhook edge, so a long message lost its tail before anything durable
+    // existed — S31, and the reason `FEEDBACK_OBSERVED_TEXT_HARD_LIMIT` and
+    // `fitToTranscript` are separate from the send limit today.
+    //
+    // The tail is where the content is, so the tail is where his answers are:
+    // all four sit past character 4 096, after four hundred characters of
+    // preamble about why he saved them for last. Sliced at the old bound this
+    // conversation extracts **nothing** while looking complete in the admin.
+    // People do write their way up to the hard thing.
+    //
+    // `needsAttention: false` is the second assertion and the easy one to get
+    // backwards. 4 476 is under the storage bound, so nothing is truncated and
+    // nothing is flagged: a long message is not a suspicious message. The flag
+    // belongs to a message we actually had to cut.
+    //
+    // One line, no newlines — the rendered prompt puts one transcript message
+    // per line, so a message containing a newline is a message the scripted
+    // model can no longer find. Composed from clauses for that reason as much
+    // as for readability.
+    id: "ouzeri_wall_of_text",
+    campaign: "ouzeri",
+    ordinal: 4,
+    firstName: "Σωτήρης",
+    lastName: "Σεντονογράφος",
+    quirk:
+      "Γράφει ένα σεντόνι 4.476 χαρακτήρων και αφήνει τις απαντήσεις για το τέλος.",
+    mirrors: "S31 · nine_hundred_word_essay",
+    messages: [{ afterMs: 0, text: OUZERI_WALL_OF_TEXT }],
+    stub: [
+      {
+        answers: [
+          { question: "event_score", value: 4 },
+          { question: "liked", about: "Γεωργία Ρατσιστρόνα" },
+          { question: "meet_again", about: "Γεωργία Ρατσιστρόνα" },
+        ],
+        skippedGoals: ["avoid"],
+        nextGoal: null,
+        reply: null,
+      },
+    ],
+    expect: {
+      lifecycle: "closed",
+      closedBecause: "completed",
+      optedIn: true,
+      // Every one of these lives past character 4 096. An empty answer list is
+      // the old defect returning.
+      answers: [
+        { question: "event_score", about: null, value: 4 },
+        { question: "liked", about: "Γεωργία Ρατσιστρόνα", value: null },
+        { question: "meet_again", about: "Γεωργία Ρατσιστρόνα", value: null },
+      ],
+      needsAttention: false,
+      // Intro and closing.
+      minReceived: 2,
+      maxReceived: 2,
+    },
+  },
+  {
+    // She writes English throughout, and every reply she gets is Greek.
+    //
+    // `rooftop_greeklish` is Greek in Latin characters — a different problem,
+    // solved by alphabet folding. This is a different language, and prompt rule
+    // 11ζ settles it in one clause: «Γράφεις πάντα στα ελληνικά». The
+    // application-owned copy has no choice in the matter either; the campaign
+    // snapshot is Greek, so the closing line she receives is Greek whatever the
+    // model would have preferred. What the rehearsal pins is that a consistent
+    // decision is actually reached rather than one conversation drifting between
+    // two languages — and that an English name resolves to a Greek display name
+    // exactly as a Greeklish one does.
+    //
+    // The catalogue calls the language of the reply "unconstrained" (S38). It is
+    // not, since the rule landed; this row is where a regression would show.
+    id: "ouzeri_answers_in_english",
+    campaign: "ouzeri",
+    ordinal: 5,
+    firstName: "Στέλλα",
+    lastName: "Αγγλοαπαντού",
+    quirk: "Γράφει αγγλικά σε όλη τη συνομιλία και παίρνει ελληνικά πίσω.",
+    mirrors: "S38 · replies_in_english",
+    messages: [
+      {
+        afterMs: 0,
+        text: "Hi! It was a lovely evening, I'd give it a 5. Takis was by far the warmest person at the table.",
+      },
+      {
+        afterMs: 90_000,
+        text: "I would definitely meet Takis again. There is nobody I'd rather avoid, everyone was lovely.",
+      },
+    ],
+    stub: [
+      {
+        answers: [
+          { question: "event_score", value: 5 },
+          { question: "liked", about: "Τάκης Ναιμεναλλάκιας" },
+        ],
+        nextGoal: "meet_again",
+        reply: "Χαιρόμαστε πολύ! Με ποιους θα ήθελες να ξαναβρεθείς;",
+      },
+      {
+        answers: [
+          {
+            question: "meet_again",
+            about: "Τάκης Ναιμεναλλάκιας",
+            cite: "last",
+          },
+        ],
+        skippedGoals: ["avoid"],
+        nextGoal: null,
+        reply: null,
+      },
+    ],
+    expect: {
+      lifecycle: "closed",
+      closedBecause: "completed",
+      optedIn: true,
+      answers: [
+        { question: "event_score", about: null, value: 5 },
+        { question: "liked", about: "Τάκης Ναιμεναλλάκιας", value: null },
+        { question: "meet_again", about: "Τάκης Ναιμεναλλάκιας", value: null },
+      ],
+      needsAttention: false,
+      minReceived: 3,
+      maxReceived: 3,
+    },
+  },
+  {
+    // He praises somebody, takes it back and then says both are true — all in
+    // one message, about one person.
+    //
+    // S09 is the same ending reached across two messages and is marked 🔴 there:
+    // the person lands in two lists with nothing recording that the participant
+    // changed their mind. S10 is contradiction inside one message, but about the
+    // score, where `duplicate_in_run` catches it. Nobody has ever crossed the
+    // two, and the crossing is the case where neither guard applies: `liked`,
+    // `meet_again` and `avoid` are three different questions, so three rows
+    // about Τούλα are not duplicates of anything and validation has no opinion
+    // about a subject appearing in contradictory lists.
+    //
+    // The stub is the faithful reading, not a convenient one. «κ τα δυο
+    // ισχυουν» is him refusing to choose, and a model that silently picks the
+    // ending would be deciding for him — which is precisely what rule 9δ
+    // forbids for `avoid`, because an `avoid` changes future tables for two real
+    // people. So it proposes what he said, and the expectation below records
+    // what the mechanism then does with it.
+    //
+    // **This row is an observation, not yet a contract.** `needsAttention:
+    // false` is the finding: nothing notices that one person is now in both the
+    // "would meet again" and the "would rather not" column, so nobody is asked
+    // to reconcile it. `answer_revision` covers a stored answer contradicted by
+    // a later *value*; it has nothing to say about two questions disagreeing
+    // about the same subject. Narrow this row when that gap is closed.
+    id: "ouzeri_contradicts_within_one_message",
+    campaign: "ouzeri",
+    ordinal: 6,
+    firstName: "Τάκης",
+    lastName: "Ναιμεναλλάκιας",
+    quirk:
+      "Σε μία πρόταση λέει ότι θα ξανάβγαινε μαζί της και ότι θα την απέφευγε.",
+    mirrors:
+      "S09 · moves_someone_between_lists / S10 · contradicts_within_one_message",
+    messages: [
+      {
+        afterMs: 0,
+        text: "η Τουλα ηταν ο,τι καλυτερο στο τραπεζι, σιγουρα θα την ξαναεβλεπα. αν κ με τα μισα που ελεγε ενιωθα χαλια, καλυτερα να μην την ξαναπετυχω δηλαδη. ε δεν ξερω, κ τα δυο ισχυουν",
+      },
+      { afterMs: 90_000, text: "α κ 3 βαζω τη βραδια, ετσι κ ετσι ητανε" },
+    ],
+    stub: [
+      {
+        answers: [
+          { question: "liked", about: "Τούλα Φωνητικομανού" },
+          { question: "meet_again", about: "Τούλα Φωνητικομανού" },
+          { question: "avoid", about: "Τούλα Φωνητικομανού" },
+        ],
+        notes: [
+          {
+            type: "general",
+            text: "Λέει ταυτόχρονα ότι η Τούλα ήταν ό,τι καλύτερο και ότι θα προτιμούσε να μην την ξαναπετύχει· δηλώνει ρητά ότι ισχύουν και τα δύο.",
+            about: "Τούλα Φωνητικομανού",
+          },
+        ],
+        nextGoal: "event_score",
+        reply: "Το κράτησα. Και συνολικά η βραδιά, από το 1 ως το 5;",
+      },
+      {
+        answers: [{ question: "event_score", value: 3 }],
+        nextGoal: null,
+        reply: null,
+      },
+    ],
+    expect: {
+      lifecycle: "closed",
+      closedBecause: "completed",
+      optedIn: true,
+      // Τούλα in three lists, two of which contradict each other. Written down
+      // because it is what happens, not because it is right.
+      answers: [
+        { question: "event_score", about: null, value: 3 },
+        { question: "liked", about: "Τούλα Φωνητικομανού", value: null },
+        { question: "meet_again", about: "Τούλα Φωνητικομανού", value: null },
+        { question: "avoid", about: "Τούλα Φωνητικομανού", value: null },
+      ],
+      // The observation. Nothing raises a flag for a subject in two opposed
+      // lists, so the profile carries the contradiction and no operator is told.
+      needsAttention: false,
+      // Intro, the score question, then closing.
+      minReceived: 3,
+      maxReceived: 3,
     },
   },
 ];

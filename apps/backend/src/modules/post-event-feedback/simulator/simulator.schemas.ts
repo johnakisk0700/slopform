@@ -2,12 +2,28 @@ import { createZodDto } from "nestjs-zod";
 import { z } from "zod";
 
 import { FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH } from "../post-event-feedback-conversation.document.js";
+import { FEEDBACK_OBSERVED_TEXT_HARD_LIMIT } from "../jobs.schemas.js";
 import { assistantModelSchema } from "../../assistant/assistant.schemas.js";
 
 export const feedbackSimulatorPhoneSchema = z
   .string()
   .regex(/^\+[1-9]\d{7,14}$/u, "Expected an E.164 phone number");
 
+/**
+ * What a provider may hand us, not what we are allowed to say.
+ *
+ * This was bounded by the 4 096-character *send* limit and rejected anything
+ * longer — the same conflation S31 records, one layer up: the one message a
+ * rehearsal most wants to inject is the one too long to send back, because that
+ * is where a lost tail hides. The durable ingress column is bounded by
+ * `FEEDBACK_OBSERVED_TEXT_HARD_LIMIT` and the transcript fits itself, so this
+ * bound belongs there too.
+ *
+ * `null` is a voice note, photo or reaction. `boundObservedMessageText` already
+ * normalizes an absent body to `null` and every store below it is nullable;
+ * only this edge insisted on words, so the materializer's unusable-inbound path
+ * was unreachable from the simulator.
+ */
 export const injectFeedbackSimulatorMessageSchema = z
   .object({
     phoneE164: feedbackSimulatorPhoneSchema,
@@ -15,7 +31,8 @@ export const injectFeedbackSimulatorMessageSchema = z
       .string()
       .trim()
       .min(1)
-      .max(FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH),
+      .max(FEEDBACK_OBSERVED_TEXT_HARD_LIMIT)
+      .nullable(),
     fromMe: z.boolean().optional().default(false),
   })
   .strict();
@@ -50,7 +67,11 @@ export const feedbackSimulatorThreadMessageSchema = z
     id: z.string().min(1).max(200),
     source: z.enum(["ingress", "sim_outbound"]),
     direction: z.enum(["inbound", "outbound"]),
-    text: z.string().min(1).max(FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH),
+    // Inbound rows are replayed here verbatim, so this reads back whatever the
+    // ingress row holds. Bounding it by the send limit turned a long inbound
+    // into a 500 on the thread endpoint rather than a message somebody could
+    // read; outbound bodies are bounded where they are written.
+    text: z.string().min(1).max(FEEDBACK_OBSERVED_TEXT_HARD_LIMIT),
     occurredAt: z.iso.datetime(),
     ingressId: z.uuid().optional(),
     outboxId: z.uuid().optional(),

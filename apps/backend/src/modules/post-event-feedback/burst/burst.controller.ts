@@ -22,8 +22,11 @@ import {
  * Dev-only catalogue for the multi-campaign burst rehearsal runner.
  *
  * The runner is plain Node and cannot import TypeScript, so it learns the
- * eighteen personas and three campaigns from this route — the same reason the
- * simulator exposes its own catalog. It also reports whether this process has
+ * campaigns and personas from this route — the same reason the simulator
+ * exposes its own catalog. Counts are never restated here: the runner reports
+ * what this endpoint serves, which is how a stale `dist` becomes visible in the
+ * log instead of quietly measuring code nobody is running. It also reports
+ * whether this process has
  * the extraction stub on and whether a feedback worker is registered, so the
  * runner can refuse a free rehearsal that would otherwise bill a provider.
  */

@@ -8,8 +8,8 @@
  *
  * The screen answers one question in its first screenful — **did anything
  * break, and where** — and then lets the operator drill into any of the
- * eighteen conversations without navigating away. Today that answer costs
- * eighteen round trips through the admin.
+ * rehearsal's conversations without navigating away. Today that answer costs
+ * one round trip through the admin per conversation.
  *
  * Two rules this file exists to keep:
  *
@@ -537,7 +537,8 @@ function tile(label, value, tone, hint) {
 /**
  * Findings come before the conversation list because they outrank it: a
  * duplicate outbound is a worse result than any one persona missing an
- * expectation, and burying it under eighteen rows would invert that.
+ * expectation, and burying it under a screenful of persona rows would invert
+ * that.
  */
 function renderFindings(findings, index) {
   if (findings.length === 0) {

@@ -975,21 +975,21 @@ When `FEEDBACK_SIMULATOR_ENABLED=true`, `NODE_ENV` is not `production`, and
 `TRANSPORT_MODE=simulated`, the HTTP process mounts
 [`PostEventFeedbackSimulatorHttpModule`](../../../apps/backend/src/modules/post-event-feedback/simulator/http.module.ts):
 
-| Operation                                | Purpose                                                                                                                                                                                                                        |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `POST /dev/feedback/simulator/inject`    | Existing manual composer path: `ObservedProviderMessage` → normal durable ingress.                                                                                                                                             |
-| `GET /dev/feedback/simulator/thread`     | Existing manual composer read: merge ingress rows and `feedback_sim_outbound` for one phone.                                                                                                                                   |
-| `GET /dev/feedback/simulator/catalog`    | Read the configured model, the two permitted eval models (`openai/gpt-5.6-luna`, `qwen/qwen3.7-max`) and corpus cases eligible from a clean intro baseline.                                                                    |
-| `POST /dev/feedback/simulator/preflight` | Read-only validation of a finished event, launched campaign, clean open bot conversation, sent intro in the simulated sink, pending goals, cursor 0, opt-in and candidate capacity; resolves exact live bindings and messages. |
-| `POST /dev/feedback/simulator/runs`      | Explicitly confirmed paid run. Repairs a missing intro transcript idempotently, then writes scenario messages through normal ingress; it never supplies a per-run model override.                                              |
-| `GET /dev/feedback/simulator/runs/:id`   | Poll ordinary ingress, Mongo cursor/model, results, run-created outbox rows and their simulated sink rows.                                                                                                                     |
+| Operation                                | Purpose                                                                                                                                                                                                                                                                                         |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /dev/feedback/simulator/inject`    | Existing manual composer path: `ObservedProviderMessage` → normal durable ingress. `text` is bounded by what an inbound may durably hold (`FEEDBACK_OBSERVED_TEXT_HARD_LIMIT`), not by the 4 096-character send limit, and `null` injects a bodyless inbound — a voice note, photo or reaction. |
+| `GET /dev/feedback/simulator/thread`     | Existing manual composer read: merge ingress rows and `feedback_sim_outbound` for one phone.                                                                                                                                                                                                    |
+| `GET /dev/feedback/simulator/catalog`    | Read the configured model, the two permitted eval models (`openai/gpt-5.6-luna`, `qwen/qwen3.7-max`) and corpus cases eligible from a clean intro baseline.                                                                                                                                     |
+| `POST /dev/feedback/simulator/preflight` | Read-only validation of a finished event, launched campaign, clean open bot conversation, sent intro in the simulated sink, pending goals, cursor 0, opt-in and candidate capacity; resolves exact live bindings and messages.                                                                  |
+| `POST /dev/feedback/simulator/runs`      | Explicitly confirmed paid run. Repairs a missing intro transcript idempotently, then writes scenario messages through normal ingress; it never supplies a per-run model override.                                                                                                               |
+| `GET /dev/feedback/simulator/runs/:id`   | Poll ordinary ingress, Mongo cursor/model, results, run-created outbox rows and their simulated sink rows.                                                                                                                                                                                      |
 
 The same gate also mounts
 [`PostEventFeedbackBurstHttpModule`](../../../apps/backend/src/modules/post-event-feedback/burst/http.module.ts):
 
-| Operation                         | Purpose                                                                                                                                                                                 |
-| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /dev/feedback/burst/catalog` | Read whether the extraction stub is on, whether a feedback worker is registered, the three rehearsal campaigns and the eighteen personas (messages, expected outcome, reserved phones). |
+| Operation                         | Purpose                                                                                                                                                                                                                                                                                                                                                  |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /dev/feedback/burst/catalog` | Read whether the extraction stub is on, whether a feedback worker is registered, and the rehearsal campaigns and personas (messages, expected outcome, reserved phones). Counts are never restated by a caller: the runner reports what this endpoint serves, so a stale `dist` shows up in the log instead of quietly measuring code nobody is running. |
 
 `FEEDBACK_EXTRACTION_STUB=true` (requires the simulator gate, refused in
 production) swaps the worker's `PostEventFeedbackExtractionModel` for
@@ -1021,14 +1021,17 @@ pnpm feedback:simulate \
   --confirm-paid-run
 ```
 
-The multi-campaign burst rehearsal drives all eighteen personas at once:
+The multi-campaign burst rehearsal drives every persona at once — currently
+thirty, six each across `taverna`, `rooftop`, `wine`, `mezedopoleio` and
+`ouzeri`. A dinner is added rather than grown so each table stays a Six, because
+the candidate list is the input extraction is measured on:
 
 ```sh
 # Free deterministic stub (default). Requires FEEDBACK_EXTRACTION_STUB=true on
 # both API and worker, plus the simulator gate above.
 pnpm feedback:burst
 
-# Paid provider mode — eighteen conversations, each at least two provider calls.
+# Paid provider mode — one conversation per persona, each at least two calls.
 pnpm feedback:burst \
   --model qwen/qwen3.7-max \
   --confirm-paid-run

@@ -61,7 +61,7 @@ export class ScriptedBurstExtractionModel implements FeedbackExtractionModelPort
    *
    * The rendered prompt never carries a conversation id, and recovering one
    * from the persona's phone would need a store this stub does not own.
-   * Persona ids are unique across all three campaigns, so they are a stable
+   * Persona ids are unique across every campaign, so they are a stable
    * per-conversation key for the rehearsal.
    *
    * `propose` and `classifyAttention` run concurrently for one extraction job
@@ -347,8 +347,13 @@ function matchPersona(
   const matched: BurstPersona[] = [];
 
   for (const persona of personas) {
+    // A bodyless message (voice note, photo, reaction) never reaches a
+    // transcript, so it can never identify anybody here. Matching on it would
+    // mean matching every such persona against every other one's run.
     const personaTexts = new Set(
-      persona.messages.map((message) => message.text.trim()),
+      persona.messages
+        .map((message) => message.text?.trim())
+        .filter((text): text is string => text !== undefined),
     );
     if (!trimmed.some((text) => personaTexts.has(text))) {
       continue;

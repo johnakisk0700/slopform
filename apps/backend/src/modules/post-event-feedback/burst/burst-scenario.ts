@@ -16,7 +16,7 @@ import type {
  * reaches a phone, no answer is written against the wrong conversation, and
  * every campaign reaches a terminal state without a human touching it.
  *
- * Four campaigns run concurrently, six personas each when the catalogue is
+ * The campaigns run concurrently, six personas each when the catalogue is
  * complete. A persona is named after the thing that makes it hard — `Κώστας
  * Αργοπληκτρολογάκιας` types slowly, `Μαρία Φλερτατζού` flirts — so the admin
  * conversation list reads as the scenario catalogue and a failure is
@@ -24,9 +24,13 @@ import type {
  * not decoration: the display name is the only scenario label that survives
  * into MongoDB, the outbox and the report.
  *
- * A fourth campaign exists so the table stays a Six: growing any existing
- * dinner would rewrite every persona's candidate list. `mezedopoleio` is that
- * campaign.
+ * Every dinner past the third exists so the table stays a Six: growing an
+ * existing campaign would rewrite every persona's candidate list in it, and the
+ * candidate list is the input extraction is measured on. `mezedopoleio` and
+ * `ouzeri` are those campaigns. Nothing here counts campaigns or personas by
+ * hand — the runner, the catalog endpoint and the response bound all derive
+ * from `BURST_CAMPAIGNS.length` and `BURST_PERSONAS.length`, so a sixth dinner
+ * costs one entry in each list.
  *
  * This file holds types and identifiers only. The personas live in
  * `burst-personas.ts`, the deterministic model in
@@ -40,13 +44,14 @@ export const BURST_CAMPAIGN_SLUGS = [
   "rooftop",
   "wine",
   "mezedopoleio",
+  "ouzeri",
 ] as const;
 
 export type BurstCampaignSlug = (typeof BURST_CAMPAIGN_SLUGS)[number];
 
 export interface BurstCampaignDefinition {
   readonly slug: BurstCampaignSlug;
-  /** Ordinal 1-4. Fixes the phone block and the seeding order. */
+  /** Ordinal from one, in catalogue order. Fixes the phone block and seeding. */
   readonly ordinal: number;
   /** Event title as it appears in the admin. */
   readonly title: string;
@@ -61,6 +66,7 @@ export const BURST_CAMPAIGNS: readonly BurstCampaignDefinition[] = [
     ordinal: 4,
     title: "Δοκιμαστικό δείπνο — Μεζεδοπωλείο",
   },
+  { slug: "ouzeri", ordinal: 5, title: "Δοκιμαστικό δείπνο — Ουζερί" },
 ];
 
 /** Six personas per campaign when the catalogue is full. */
@@ -84,7 +90,17 @@ export function burstPhoneE164(
 export interface BurstPersonaMessage {
   /** Delay after the previous message. The first message is always 0. */
   readonly afterMs: number;
-  readonly text: string;
+  /**
+   * `null` is a voice note, a photo or a reaction — an inbound the provider
+   * hands us with no body at all.
+   *
+   * The same convention the single-conversation harness uses
+   * (`post-event-feedback-loop-scenario.ts`). It is not a shorthand for "empty
+   * string": the materializer treats a missing body as something it cannot turn
+   * into testimony, which is a different path from any text we could read, and
+   * a persona had no way to reach it while this field was a plain string.
+   */
+  readonly text: string | null;
 }
 
 /**

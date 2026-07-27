@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { FEEDBACK_ANSWER_QUESTION_KEYS } from "@join-the-six/database";
 
+import { FEEDBACK_OBSERVED_TEXT_HARD_LIMIT } from "../jobs.schemas.js";
 import {
   BURST_CAMPAIGNS,
   BURST_CAMPAIGN_SLUGS,
@@ -36,7 +37,14 @@ const burstExpectedOutcomeSchema = z
 const burstPersonaMessageSchema = z
   .object({
     afterMs: z.number().int().min(0),
-    text: z.string().min(1),
+    /**
+     * Bounded by what an inbound may durably *hold*, not by what we are allowed
+     * to send. Those are different numbers on purpose
+     * (`FEEDBACK_OBSERVED_TEXT_HARD_LIMIT` against the 4 096-character send
+     * limit), and a persona exists specifically to drive a message into the gap
+     * between them. `null` is a voice note or a photo — an inbound with no body.
+     */
+    text: z.string().min(1).max(FEEDBACK_OBSERVED_TEXT_HARD_LIMIT).nullable(),
   })
   .strict();
 

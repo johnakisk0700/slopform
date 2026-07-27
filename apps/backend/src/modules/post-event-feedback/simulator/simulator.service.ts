@@ -621,7 +621,8 @@ export class FeedbackSimulatorService {
   async injectObservedMessage(
     input: {
       readonly phoneE164: string;
-      readonly text: string;
+      /** `null` is a voice note, photo or reaction — an inbound with no body. */
+      readonly text: string | null;
       readonly fromMe: boolean;
     },
     correlationId: string,

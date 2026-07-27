@@ -51,7 +51,7 @@ const { asc, eq, inArray } = require("drizzle-orm");
 const REQUEST_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 const STUB_MODEL_ID = "stub/burst-rehearsal";
 // An allowlist rather than "any id the provider accepts": a typo here bills a
-// real account for twenty-four conversations before anybody reads the log.
+// real account for the whole catalogue before anybody reads the log.
 const PAID_MODELS = new Set([
   "qwen/qwen3.7-max",
   "openai/gpt-5.6-luna",
@@ -229,7 +229,7 @@ async function main() {
     maxConnections: 4,
   });
 
-  /** @type {Map<string, {persona: object, participantId: string, eventId?: string, campaignId?: string, conversationId?: string, injected: {text: string, at: string}[]}>} */
+  /** @type {Map<string, {persona: object, participantId: string, eventId?: string, campaignId?: string, conversationId?: string, injected: {text: string | null, at: string}[]}>} */
   const byPersonaId = new Map();
   /** @type {Map<string, {slug: string, title: string, ordinal: number, eventId: string, campaignId: string, personaIds: string[]}>} */
   const byCampaignSlug = new Map();
@@ -772,6 +772,9 @@ async function drivePersona({ apiBase, headers, entry, correlationId }) {
     if (message.afterMs > 0) {
       await sleep(message.afterMs);
     }
+    // `text: null` is a voice note, photo or reaction. It travels through the
+    // same inject route — the point of the persona who sends them is that the
+    // ordinary path is what decides they cannot become testimony.
     await requestJson(`${apiBase}/dev/feedback/simulator/inject`, {
       method: "POST",
       headers: {
@@ -780,12 +783,12 @@ async function drivePersona({ apiBase, headers, entry, correlationId }) {
       },
       body: JSON.stringify({
         phoneE164: persona.phoneE164,
-        text: message.text,
+        text: message.text ?? null,
         fromMe: false,
       }),
     });
     entry.injected.push({
-      text: message.text,
+      text: message.text ?? null,
       at: new Date().toISOString(),
     });
   }
@@ -905,6 +908,11 @@ async function collectSnapshot({
           ? Date.parse(detail.lifecycle.closedAt)
           : undefined;
       const injectCaughtUp = entry.injected.every((injected) => {
+        // A bodyless inbound has no transcript representation by design, so
+        // waiting for one to appear would never settle.
+        if (injected.text === null) {
+          return true;
+        }
         if (stoppedAt !== undefined && Date.parse(injected.at) >= stoppedAt) {
           return true;
         }
@@ -1163,8 +1171,12 @@ function findLostParticipantText(snapshot, byPersonaId) {
       lifecycle.reason === "stopped" && lifecycle.closedAt
         ? Date.parse(lifecycle.closedAt)
         : undefined;
+    // Same rule for a voice note or a photo: the product deliberately has
+    // nowhere to put a body it never received, and the participant is told so
+    // once. Counting it as lost text would report the media path as data loss.
     const missing = entry.injected.filter(
       (injected) =>
+        injected.text !== null &&
         !(stoppedAt !== undefined && Date.parse(injected.at) >= stoppedAt) &&
         !conversation.detail.messages.some(
           (message) =>
