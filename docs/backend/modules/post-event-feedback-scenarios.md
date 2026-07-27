@@ -1022,7 +1022,7 @@ content filter refuses to emit structured output for it.
   on every attempt
 
 **Should end with.** After attempts are exhausted: `needsAttention: true`, one
-generic note («Πιθανή προσβλητική/ευαίσθητη αναφορά — δείτε τη συζήτηση.») with
+generic note («Η αυτόματη ανάλυση δεν ολοκληρώθηκε — δείτε τη συζήτηση.») with
 `origin: deterministic_fallback` and no fabricated model/confidence, one
 acknowledgement plus the current question so the thread does not dead-end, one
 audit event carrying `provider_refusal`, one operator alert. The job dies as

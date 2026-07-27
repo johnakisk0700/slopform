@@ -38,9 +38,9 @@ export const FEEDBACK_EXTRACTION_MAX_NOTES = 5;
  * It was 10, which a real burst clears easily: somebody typing in fragments can
  * put a dozen messages inside one quiet window, and an answer that honestly
  * cites all of them failed schema validation, exhausted its retries, and landed
- * in the deterministic fallback — which files «Πιθανή προσβλητική/ευαίσθητη
- * αναφορά» over a complaint about where the tables were. A tighter number does
- * not buy accuracy; it converts accurate citation into a bogus safety note.
+ * in the deterministic fallback — which files a generic note over a complaint
+ * about where the tables were. A tighter number does not buy accuracy; it
+ * converts accurate citation into a run that could not be read at all.
  *
  * Widening the quiet window puts more fragments in a window, so this bound has
  * to stay ahead of it. The transcript cap (150) is the real ceiling.
@@ -334,9 +334,17 @@ export const POST_EVENT_FEEDBACK_FALLBACK_ACK =
  * Bounded, non-clinical and deliberately content-free: nothing was extracted,
  * so the note may not characterise what was said. It points an operator at the
  * conversation, which is the only honest thing it can do.
+ *
+ * It used to read «Πιθανή προσβλητική/ευαίσθητη αναφορά», which is a
+ * characterisation — the exact thing the paragraph above forbids — and one the
+ * system has no grounds for. A run reaches here for any permanent failure, and
+ * `failureCause` is `unknown` for every failure this provider produces, so the
+ * note asserted possible offensiveness about text nothing had read. Observed in
+ * a rehearsal: a participant who wrote that somebody was pleasant company had
+ * «possible offensive reference» filed against her name.
  */
 export const POST_EVENT_FEEDBACK_FALLBACK_NOTE_TEXT =
-  "Πιθανή προσβλητική/ευαίσθητη αναφορά — δείτε τη συζήτηση.";
+  "Η αυτόματη ανάλυση δεν ολοκληρώθηκε — δείτε τη συζήτηση.";
 
 export const FEEDBACK_REPLY_DEDUPE_PREFIX = "feedback-reply";
 export const FEEDBACK_CLOSING_DEDUPE_PREFIX = "feedback-closing";
