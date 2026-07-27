@@ -45,7 +45,8 @@ Every product call goes through the generated hooks in
 `useResumeFeedbackConversationBot`, `useCloseFeedbackConversation`,
 `useSendFeedbackConversationStaffMessage`, `useUpdateFeedbackNoteReviewStatus`,
 `useResolveFeedbackConversationAttentionReason`,
-`useAddFeedbackConversationNote`, `useStartFeedbackConversation`,
+`useAddFeedbackConversationNote`, `useCorrectFeedbackConversationAnswer`,
+`useWithdrawFeedbackConversationAnswer`, `useStartFeedbackConversation`,
 `useListEventFeedbackCandidates` and the campaign
 launch/pause/resume/close/get hooks.
 
@@ -54,6 +55,7 @@ launch/pause/resume/close/get hooks.
 | `src/features/feedback/labels.ts`            | Status vocabulary: tones, badges, delivery precedence, note origin, D18                    |
 | `src/features/feedback/conversationView.ts`  | Progress, badge rows, search folding, ordering, grouping, selection, message anchor ids    |
 | `src/features/feedback/extractionStatus.ts`  | Greek copy for the detail-pane extraction block (unread, due time, failure, model)         |
+| `src/features/feedback/answerCorrections.ts` | Which control a recorded answer gets, the «corrected by» line, the withdrawal wording      |
 | `src/features/feedback/polling.ts`           | The U3 intervals and the stop-when-closed rule                                             |
 | `src/features/feedback/simulator.ts`         | Zod schemas for the two dev-only simulator endpoints                                       |
 | `src/lib/feedbackSimulator.ts`               | The dev simulator facade over the shared `ofetch` client                                   |
@@ -76,7 +78,9 @@ flowchart LR
   detail --> details["Detail cards\nlistFeedbackConversationResults"]
   details --> profile["Respondent card\ngetParticipant"]
   details --> note["Add note\naddFeedbackConversationNote"]
+  details --> fix["Correct / withdraw an answer\ncorrect + withdrawFeedbackConversationAnswer"]
   note -->|invalidate| details
+  fix -->|invalidate| details
   actions -->|"updated read model"| detail
   actions -->|invalidate| list
   sim["Dev simulator\ninject + thread"] -.->|"only when mounted"| detail
@@ -149,7 +153,9 @@ flowchart LR
   cleared. Resolved reasons are not shown, and the whole block is absent when
   nothing is unresolved. A reason whose message is no longer in the 150-message
   transcript keeps its sentence and drops the link rather than scrolling
-  nowhere.
+  nowhere, and so does a reason that never had one: a voice note the transcript
+  could not hold, a full document and a send that never went out are all about
+  something the transcript does not contain, which is the point of saying so.
 - **The cited message is explicit.** Participant messages with `attention`
   metadata replace their normal bubble fill with the warning surface and render
   labelled chips below the testimony. Categories and actions are fixed mappings,
@@ -276,6 +282,7 @@ Placement is the screen's answer to "what does this act on?".
 | «Start conversation» (D17)     | Conversation list header | It creates a row in that list, directly under the filter over it      |
 | Take over / Resume bot / Close | Transcript, foot         | On the line that says who may write here — the question they answer   |
 | «Add note»                     | NOTES card header        | Writes into the list it sits above                                    |
+| Correct / withdraw an answer   | On the answer's own row  | Acts on that one recorded answer, beside the value it disagrees with  |
 
 Every one of them carries a 16px muted stroke icon; the accent stays reserved
 for interactive emphasis. Icons are for orientation, never decoration — which
@@ -291,11 +298,11 @@ its own scroll container — so the screen reads as one set of panels rather tha
 two panes plus some boxes. Inside, the participant profile's section grammar
 (WP11) still applies: a tracked micro-caps label with a muted icon.
 
-| Card               | Icon         | Contains                                                                              |
-| ------------------ | ------------ | ------------------------------------------------------------------------------------- |
-| PROGRESS & ANSWERS | `ListChecks` | `settled/total` in the header, then one row per goal carrying its answer or its badge |
-| NOTES              | `StickyNote` | Note cards with origin and review badges, plus «Add note»                             |
-| RESPONDENT         | `UserRound`  | Monogram and profile link, then the participant's own record (see below)              |
+| Card               | Icon         | Contains                                                                                                                     |
+| ------------------ | ------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| PROGRESS & ANSWERS | `ListChecks` | `settled/total` in the header, then one row per goal carrying its answer (with its correct / withdraw controls) or its badge |
+| NOTES              | `StickyNote` | Note cards with origin and review badges, plus «Add note»                                                                    |
+| RESPONDENT         | `UserRound`  | Monogram and profile link, then the participant's own record (see below)                                                     |
 
 Two things that used to live here now belong to the transcript, because both
 are about the messages rather than about the conversation as a record: the
@@ -383,6 +390,39 @@ pane, Results tab and review queue as everything else.
   every control that could send a message.
 - On success both readers are invalidated: this conversation's results and the
   campaign-wide Results query.
+
+## Correcting an answer
+
+An operator who reads a score the model got wrong can fix it from the row it is
+wrong on. Two controls, because they are two different statements — see
+[the backend module](../backend/modules/post-event-feedback.md#operator-corrections-to-recorded-answers-wp12b)
+for how each is recorded.
+
+- **A score** is an inline edit: press the pencil beside the value, pick from
+  1–5, save. `correctFeedbackConversationAnswer` answers with the updated answer
+  and both answer readers are invalidated. Offered only where the answer is a
+  number (`event_score`); on `liked` / `meet_again` / `avoid` the subject _is_
+  the answer, so there is no number to pick.
+- **A wrong person** is a withdrawal: the same `ConfirmAction` dialog every
+  consequential control on this screen uses, naming the person and the question
+  and saying that it cannot be undone here. `withdrawFeedbackConversationAnswer`
+  deletes the row; only the audit log remembers it.
+- Neither is **capability-gated**, and that is the point: a closed thread is the
+  case they exist for, because nothing will ever re-read it and a wrong number
+  would stay wrong for good. `src/features/feedback/answerCorrections.ts` owns
+  which control an answer gets and the line that says who corrected it.
+- A corrected answer carries «Corrected by … · date» under its value.
+  `createdAt` stops meaning "when this value was decided" the moment a correction
+  lands, and a corrected number with no author was the thing that could not be
+  told apart from the model's own reading.
+- Failures are reported **on the answer's own row** rather than in the pane-level
+  error line, because that is where the operator is looking and where the value
+  they tried to save still is. It is not a workflow: nothing is assigned and
+  nothing is approved.
+- One thing the screen cannot do: re-aim an answer at the right person. There is
+  no operator-authored answer path, so a withdrawal is the honest end of it.
+  A goal already badged «answered» also stays badged after its only answer is
+  withdrawn — that snapshot is monotonic in the conversation document.
 
 ## Campaign picker
 
@@ -494,6 +534,12 @@ now that nothing draws a bar.
 The bento pass adds that PROGRESS & ANSWERS resolves a goal's answers by
 `questionKey` and keeps no second answers list, and that the respondent card
 reads the participant record through the generated `useGetParticipant`.
+
+The corrections pass adds `answerCorrections`: that a value edit is offered only
+on a scored question and a withdrawal only on a directed one, that a corrected
+answer says who decided it while an untouched one stays silent, that the
+withdrawal dialog names the person, the question and the fact that it cannot be
+undone, and that both controls live on the answer row with no capability gate.
 
 The extraction-status pass adds `extractionStatusLines`: Greek unread wording,
 a due-time line rather than a spinner, failure named as failure with the

@@ -99,9 +99,9 @@ describe("FeedbackOutboundTranscriptService", () => {
       outboxId,
       "cancelled",
     );
-    // The repository already raised the flag on this path; raising it twice
-    // would be a redundant write.
-    expect(conversations.setNeedsAttention).not.toHaveBeenCalled();
+    // `appendMessage` already named this one `transcript_full`; raising it
+    // twice would be a redundant write.
+    expect(conversations.raiseAttention).not.toHaveBeenCalled();
   });
 
   it("cancels and flags a body the transcript cannot hold, without retrying forever", async () => {
@@ -118,8 +118,14 @@ describe("FeedbackOutboundTranscriptService", () => {
       outboxId,
       "cancelled",
     );
-    expect(conversations.setNeedsAttention).toHaveBeenCalledWith(
-      expect.objectContaining({ conversationId, needsAttention: true }),
+    // Named, and named the same as a send the provider refused for good: the
+    // participant will never see this message and somebody has to reach them.
+    expect(conversations.raiseAttention).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId,
+        kind: "undelivered_message",
+        messageId: null,
+      }),
     );
   });
 
@@ -156,7 +162,7 @@ function createService(): {
   service: FeedbackOutboundTranscriptService;
   conversations: {
     appendMessage: ReturnType<typeof vi.fn>;
-    setNeedsAttention: ReturnType<typeof vi.fn>;
+    raiseAttention: ReturnType<typeof vi.fn>;
   };
   repository: { updateOutboxStatus: ReturnType<typeof vi.fn> };
 } {
@@ -164,7 +170,7 @@ function createService(): {
     appendMessage: vi
       .fn()
       .mockResolvedValue({ appended: true, message: {}, conversation: {} }),
-    setNeedsAttention: vi.fn().mockResolvedValue({ changed: true }),
+    raiseAttention: vi.fn().mockResolvedValue({ changed: true }),
   };
   const repository = {
     updateOutboxStatus: vi.fn().mockResolvedValue(undefined),

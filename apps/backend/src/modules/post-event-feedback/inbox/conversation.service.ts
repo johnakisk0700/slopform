@@ -15,7 +15,12 @@ import {
 import { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
 import { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
+import {
+  appendAnswerCorrection,
+  type FeedbackAnswerCorrection,
+} from "../extraction/answer-corrections.js";
 import { FeedbackResultsRepository } from "../extraction/results.repository.js";
+import { isScoredPostEventFeedbackQuestion } from "../question-set.js";
 import { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
 import { FEEDBACK_QUEUE } from "../../../infrastructure/queue/queue.constants.js";
 import {
@@ -44,6 +49,9 @@ import {
 import { FeedbackCampaignNotFoundError } from "../campaign/campaign.service.js";
 import type {
   AddFeedbackConversationNoteInput,
+  CorrectFeedbackConversationAnswerInput,
+  FeedbackAnswerView,
+  FeedbackAnswerWithdrawalView,
   FeedbackCampaignConversationsView,
   FeedbackCampaignResultsQuery,
   FeedbackConversationCorrelationId,
@@ -74,6 +82,13 @@ export class FeedbackNoteNotFoundError extends Error {
   constructor(id: string) {
     super(`Feedback note ${id} was not found`);
     this.name = FeedbackNoteNotFoundError.name;
+  }
+}
+
+export class FeedbackAnswerNotFoundError extends Error {
+  constructor(id: string) {
+    super(`Feedback answer ${id} was not found`);
+    this.name = FeedbackAnswerNotFoundError.name;
   }
 }
 
@@ -640,6 +655,204 @@ export class PostEventFeedbackConversationService {
       ...(updated.subjectParticipantId ? [updated.subjectParticipantId] : []),
     ]);
     return toNoteView(updated, displayNames);
+  }
+
+  /**
+   * An operator fixing a score the model read wrong.
+   *
+   * The row is edited in place and the correction is appended to
+   * `extraction_meta.corrections`, so what the model proposed — its name, its
+   * confidence, the candidate set of that run — stays on the row beside the
+   * value a human decided. `audit_events` carries the same before and after and
+   * is the durable copy.
+   *
+   * Deliberately **not** capability-gated, on the staff-note precedent: saying
+   * what is true is not steering the conversation. A closed thread is in fact
+   * the case this exists for — once it closes the model will never revisit it,
+   * so a wrong number stays wrong for good unless a person can change it.
+   *
+   * Only a question whose value *is* a number may be corrected. On `liked`,
+   * `meet_again` and `avoid` the subject is the answer and `value_int` is null;
+   * writing a 3 there would assert something the question cannot express. The
+   * wrong-person case is a withdrawal, not a value.
+   *
+   * Idempotent on the value already stored: a retried or double-clicked request
+   * returns the row rather than appending a second identical correction. The
+   * consequence, stated rather than hidden: re-affirming the model's own value
+   * is not a way to freeze it.
+   */
+  async correctAnswerValue(
+    campaignId: string,
+    conversationId: string,
+    answerId: string,
+    input: CorrectFeedbackConversationAnswerInput,
+    actorId: FeedbackConversationPrincipal,
+    requestId: FeedbackConversationCorrelationId,
+  ): Promise<FeedbackAnswerView> {
+    const existing = await this.requireAnswerInConversation(
+      campaignId,
+      conversationId,
+      answerId,
+    );
+    if (!isScoredPostEventFeedbackQuestion(existing.questionKey)) {
+      throw new FeedbackConversationActionNotAllowedError(
+        "Only a scored question's value can be corrected; withdraw an answer recorded about the wrong person instead",
+      );
+    }
+    if (existing.valueInt === input.valueInt) {
+      return this.toAnswerViewWithNames(existing);
+    }
+
+    const correction: FeedbackAnswerCorrection = {
+      at: new Date().toISOString(),
+      by: actorId,
+      from: { valueInt: existing.valueInt },
+      to: { valueInt: input.valueInt },
+      ...(input.note ? { note: input.note } : {}),
+    };
+
+    const updated = await this.database.transaction(async (transaction) => {
+      // The same advisory lock an extraction run persists under, so a
+      // correction cannot interleave with a run writing the same row.
+      await this.results.lockConversation(transaction, conversationId);
+      // Re-read behind the lock: the provenance blob is what gets rewritten
+      // here, and a run that landed between the guard above and this write would
+      // otherwise have its model, confidence and candidate set replaced by the
+      // older copy this request read.
+      const locked =
+        (await this.results.findAnswerById(answerId, transaction)) ?? existing;
+      const row = await this.results.updateAnswerValue(transaction, {
+        id: answerId,
+        valueInt: input.valueInt,
+        extractionMeta: appendAnswerCorrection(
+          locked.extractionMeta,
+          correction,
+        ),
+      });
+      if (!row) {
+        throw new FeedbackAnswerNotFoundError(answerId);
+      }
+
+      await this.audit.append(transaction, {
+        actorType: "admin",
+        actorId,
+        action: "feedback_answer.corrected",
+        entityType: "feedback_answer",
+        entityId: row.id,
+        requestId,
+        context: {
+          campaignId,
+          conversationId,
+          questionKey: row.questionKey,
+          subjectParticipantId: row.subjectParticipantId,
+          from: correction.from,
+          to: correction.to,
+          ...(correction.note ? { note: correction.note } : {}),
+        },
+      });
+
+      return row;
+    });
+
+    return this.toAnswerViewWithNames(updated);
+  }
+
+  /**
+   * Withdraws an answer recorded about the wrong person.
+   *
+   * A separate operation from a correction because it is a separate assertion. A
+   * wrong score keeps the claim and changes its magnitude; an `avoid` row
+   * against somebody the respondent never mentioned is a claim about a third
+   * party that has no correct value, and the row should stop existing.
+   *
+   * The whole row goes into the audit context before it goes. The deletion is
+   * then invisible in the product, and for a false assertion about somebody who
+   * was never named, that is the point.
+   *
+   * Re-aiming the answer at the right person is deliberately not offered here:
+   * the subject moves across the `NULLS NOT DISTINCT` uniqueness key and can
+   * collide with an existing answer, and the new subject would have to be
+   * revalidated against the live D16 candidate set. An operator who knows the
+   * right person cannot record it yet — `cardinality(source_message_ids) >= 1`
+   * forbids an operator-authored answer without a migration.
+   */
+  async withdrawAnswer(
+    campaignId: string,
+    conversationId: string,
+    answerId: string,
+    actorId: FeedbackConversationPrincipal,
+    requestId: FeedbackConversationCorrelationId,
+  ): Promise<FeedbackAnswerWithdrawalView> {
+    const existing = await this.requireAnswerInConversation(
+      campaignId,
+      conversationId,
+      answerId,
+    );
+
+    await this.database.transaction(async (transaction) => {
+      await this.results.lockConversation(transaction, conversationId);
+      const removed = await this.results.deleteAnswer(transaction, answerId);
+      if (!removed) {
+        throw new FeedbackAnswerNotFoundError(answerId);
+      }
+
+      await this.audit.append(transaction, {
+        actorType: "admin",
+        actorId,
+        action: "feedback_answer.withdrawn",
+        entityType: "feedback_answer",
+        entityId: removed.id,
+        requestId,
+        context: {
+          campaignId,
+          conversationId,
+          // The whole withdrawn row, because nothing else will hold it: the
+          // provenance, the value and the person it was about are all only
+          // recoverable from here once the row is gone.
+          answer: {
+            id: removed.id,
+            campaignId: removed.campaignId,
+            conversationId: removed.conversationId,
+            respondentParticipantId: removed.respondentParticipantId,
+            subjectParticipantId: removed.subjectParticipantId,
+            questionKey: removed.questionKey,
+            valueInt: removed.valueInt,
+            sourceMessageIds: removed.sourceMessageIds,
+            extractionMeta: removed.extractionMeta,
+            createdAt: removed.createdAt.toISOString(),
+            updatedAt: removed.updatedAt.toISOString(),
+          },
+        },
+      });
+    });
+
+    return { id: existing.id };
+  }
+
+  private async requireAnswerInConversation(
+    campaignId: string,
+    conversationId: string,
+    answerId: string,
+  ): Promise<FeedbackAnswerRow> {
+    await this.requireConversationInCampaign(campaignId, conversationId);
+    const answer = await this.results.findAnswerById(answerId);
+    // An answer belonging to another conversation is not this conversation's to
+    // edit, and saying "not found" rather than "not yours" is the same answer
+    // the note and attention-reason paths give.
+    if (!answer || answer.conversationId !== conversationId) {
+      throw new FeedbackAnswerNotFoundError(answerId);
+    }
+    return answer;
+  }
+
+  private async toAnswerViewWithNames(
+    answer: FeedbackAnswerRow,
+  ): Promise<FeedbackAnswerView> {
+    const displayNames = await this.resolveDisplayNames([
+      answer.respondentParticipantId,
+      ...(answer.subjectParticipantId ? [answer.subjectParticipantId] : []),
+    ]);
+    return toAnswerView(answer, displayNames);
   }
 
   private async toDetailView(

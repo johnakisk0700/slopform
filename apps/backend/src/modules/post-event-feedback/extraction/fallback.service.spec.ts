@@ -125,6 +125,14 @@ describe("PostEventFeedbackExtractionFallback", () => {
     });
 
     expect(harness.conversations.get(conversationId).needsAttention).toBe(true);
+    // Named and anchored: nothing structured came out of this burst, and the
+    // testimony the dead run was reading is what the operator has to record by
+    // hand. A bare flag here said only that something was wrong.
+    expect(
+      harness.conversations.get(conversationId).attentionReasons,
+    ).toMatchObject([
+      { kind: "extraction_failed", messageId: "p1", resolvedAt: null },
+    ]);
     expect(harness.alert.raised).toHaveLength(1);
     expect(harness.alert.raised[0]).toMatchObject({
       conversationId,
@@ -275,6 +283,11 @@ describe("PostEventFeedbackExtractionFallback", () => {
     expect(harness.repository.notes).toHaveLength(0);
     expect(harness.repository.outbox).toHaveLength(0);
     expect(harness.conversations.get(conversationId).needsAttention).toBe(true);
+    // A run with no testimony has nothing to point at, and says so rather than
+    // anchoring the operator on the bot's own greeting.
+    expect(
+      harness.conversations.get(conversationId).attentionReasons,
+    ).toMatchObject([{ kind: "extraction_failed", messageId: null }]);
   });
 
   it("does nothing at all when the conversation is gone", async () => {
@@ -307,6 +320,11 @@ interface FakeConversation {
   goals: { key: string; ordinal: number; prompt: string; status: string }[];
   messages: FakeMessage[];
   needsAttention: boolean;
+  attentionReasons: {
+    kind: string;
+    messageId: string | null;
+    resolvedAt: Date | null;
+  }[];
 }
 
 interface FakeNoteRow {
@@ -462,14 +480,29 @@ class FakeConversations {
     return { appended: true, conversation };
   }
 
-  async setNeedsAttention(input: {
+  /** Idempotent on kind + message, exactly as the Mongo guard filter is. */
+  async raiseAttention(input: {
     conversationId: string;
-    needsAttention: boolean;
+    kind: string;
+    messageId: string | null;
   }): Promise<{ changed: boolean; conversation: FakeConversation }> {
     const conversation = this.get(input.conversationId);
-    const changed = conversation.needsAttention !== input.needsAttention;
-    conversation.needsAttention = input.needsAttention;
-    return { changed, conversation };
+    const standing = conversation.attentionReasons.some(
+      (reason) =>
+        reason.kind === input.kind &&
+        reason.messageId === input.messageId &&
+        reason.resolvedAt === null,
+    );
+    if (standing) {
+      return { changed: false, conversation };
+    }
+    conversation.attentionReasons.push({
+      kind: input.kind,
+      messageId: input.messageId,
+      resolvedAt: null,
+    });
+    conversation.needsAttention = true;
+    return { changed: true, conversation };
   }
 }
 
@@ -538,6 +571,7 @@ function createHarness(): Harness {
       },
     ],
     needsAttention: false,
+    attentionReasons: [],
   });
 
   const database = new FakeDatabase();

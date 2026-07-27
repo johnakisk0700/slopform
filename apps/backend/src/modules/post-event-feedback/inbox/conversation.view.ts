@@ -6,8 +6,10 @@ import {
   type ParticipantRow,
 } from "@join-the-six/database";
 
+import { latestAnswerCorrection } from "../extraction/answer-corrections.js";
 import type { FeedbackConversationSummary } from "../post-event-feedback-conversation.document.js";
 import type {
+  FeedbackAnswerView,
   FeedbackCampaignConversationsView,
   FeedbackConversationCapabilities,
   FeedbackConversationDetailView,
@@ -93,9 +95,24 @@ export function toAnswerView(
       ? displayNameFor(displayNames.get(answer.subjectParticipantId))
       : null,
     sourceMessageIds: answer.sourceMessageIds,
+    correction: answerCorrection(answer.extractionMeta),
     createdAt: answer.createdAt.toISOString(),
     updatedAt: answer.updatedAt.toISOString(),
   };
+}
+
+/**
+ * Two values from the newest correction, or null on a row no human has touched.
+ *
+ * `createdAt` stops meaning "when this value was decided" the moment a
+ * correction lands, and this is what lets the admin say so instead of showing a
+ * number with no author.
+ */
+function answerCorrection(
+  extractionMeta: FeedbackAnswerRow["extractionMeta"],
+): FeedbackAnswerView["correction"] {
+  const correction = latestAnswerCorrection(extractionMeta);
+  return correction ? { at: correction.at, by: correction.by } : null;
 }
 
 /**

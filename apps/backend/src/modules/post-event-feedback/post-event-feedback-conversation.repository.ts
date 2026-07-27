@@ -373,9 +373,15 @@ export class FeedbackConversationRepository {
       });
 
       if (exceedsCapacity(current, message)) {
-        await this.setNeedsAttention({
+        // Named here rather than left to the caller because this is the only
+        // place that knows the document is full, and every caller — inbound,
+        // outbound transcript, post-closure text — hits it the same way. The
+        // anchor is null: the message that would have said what happened is the
+        // one there was no room for.
+        await this.raiseAttention({
           conversationId: current._id,
-          needsAttention: true,
+          kind: "transcript_full",
+          messageId: null,
           at: input.at,
         });
         throw new FeedbackConversationCapacityError();
@@ -603,6 +609,24 @@ export class FeedbackConversationRepository {
    * Closes the conversation with a terminal reason. The first closure wins,
    * except that a STOP always overrides a softer reason. Nothing reopens a
    * closed conversation, so a STOP is final.
+   *
+   * Closing also lowers the badge — but only when there is nothing unresolved
+   * left to lower it for. Both halves of that matter:
+   *
+   * The lowering is a real bug fix. The inbox buckets on attention *before*
+   * lifecycle, so a conversation that was flagged and then closed sat pinned
+   * above every open conversation for good, and closing it — the one action an
+   * operator has for «I am done with this» — did nothing about the flag.
+   *
+   * The condition is the other half. A closed conversation with a standing
+   * reason still wants a person: «σβήστε ό,τι σας είπα» does not stop being a
+   * request because the questionnaire ended, and auto-resolving reasons here
+   * would mark them handled by nobody, with a `resolvedBy` we would have to
+   * invent. So close never touches an unresolved reason. It lowers the flag when
+   * every reason is already dismissed, and when there are no reasons at all —
+   * which is the pre-reason bare flag, and the only thing that can raise the
+   * badge without saying why. What is left is what the operator dismisses, and
+   * dismissing the last one lowers the badge on its own.
    */
   async close(input: {
     readonly conversationId: string;
@@ -627,11 +651,43 @@ export class FeedbackConversationRepository {
       closedAt,
     );
     if (updated) {
-      return { changed: true, conversation: updated };
+      return {
+        changed: true,
+        conversation: await this.lowerSettledAttention(updated, closedAt),
+      };
     }
 
     const current = await this.requireConversation(input.conversationId);
     return { changed: false, conversation: current };
+  }
+
+  /**
+   * Drops a badge that nothing unresolved is holding up.
+   *
+   * Guarded on `needsAttention: true` and on the reason list being clean, so a
+   * reason raised between the close and this write keeps its badge: the guard is
+   * the whole point, not a formality.
+   */
+  private async lowerSettledAttention(
+    conversation: FeedbackConversationDocument,
+    at: Date,
+  ): Promise<FeedbackConversationDocument> {
+    if (
+      !conversation.needsAttention ||
+      conversation.attentionReasons.some((reason) => reason.resolvedAt === null)
+    ) {
+      return conversation;
+    }
+    const lowered = await this.transition(
+      conversation._id,
+      {
+        needsAttention: true,
+        attentionReasons: { $not: { $elemMatch: { resolvedAt: null } } },
+      } as Filter<FeedbackConversationDocument>,
+      { needsAttention: false },
+      at,
+    );
+    return lowered ?? conversation;
   }
 
   /**
@@ -741,34 +797,21 @@ export class FeedbackConversationRepository {
     return { changed, conversation };
   }
 
-  /** Flags or clears the operator attention badge. */
-  async setNeedsAttention(input: {
-    readonly conversationId: string;
-    readonly needsAttention: boolean;
-    readonly at: Date;
-  }): Promise<FeedbackConversationTransitionResult> {
-    const at = z.date().parse(input.at);
-    const updated = await this.transition(
-      input.conversationId,
-      { needsAttention: !input.needsAttention },
-      { needsAttention: input.needsAttention },
-      at,
-    );
-    if (updated) {
-      return { changed: true, conversation: updated };
-    }
-
-    const current = await this.requireConversation(input.conversationId);
-    return { changed: false, conversation: current };
-  }
-
   /**
    * Raises the badge and records why, in one write.
+   *
+   * The only way to raise it. There is deliberately no bare setter any more:
+   * every situation that wants a person now has a name in the reason vocabulary,
+   * and a flag with no reason is a badge an operator can neither read nor
+   * dismiss — which is the defect this replaced.
    *
    * Idempotent on the pair that identifies the situation: re-reading the same
    * hostile message, or a retried job, must not stack three identical rows an
    * operator then has to dismiss three times. A *new* message of the same kind
-   * is a new row, because it is a new thing to look at.
+   * is a new row, because it is a new thing to look at. A kind with no anchor
+   * (a full transcript, a send that never went out) therefore stands once until
+   * it is dismissed, which is the right count for «there is something here you
+   * cannot see» — it is one piece of news, however many times it recurs.
    */
   async raiseAttention(input: {
     readonly conversationId: string;

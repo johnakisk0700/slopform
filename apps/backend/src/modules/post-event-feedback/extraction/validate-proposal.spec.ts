@@ -379,6 +379,7 @@ describe("validateFeedbackExtractionProposal", () => {
               questionKey: "liked",
               subjectParticipantId: nikos,
               valueInt: null,
+              correctedByOperator: false,
             },
           ],
         }),
@@ -406,6 +407,7 @@ describe("validateFeedbackExtractionProposal", () => {
               questionKey: "event_score",
               subjectParticipantId: null,
               valueInt: 4,
+              correctedByOperator: false,
             },
           ],
         }),
@@ -419,6 +421,73 @@ describe("validateFeedbackExtractionProposal", () => {
       ]);
       expect(result.rejections).toEqual([]);
       expect(result.conflictingAnswerRevision).toBe(true);
+    });
+
+    it("refuses to overwrite a score an operator corrected, and flags it", () => {
+      const result = validateFeedbackExtractionProposal(
+        proposal({
+          answers: [
+            answer({
+              questionKey: "event_score",
+              valueInt: 4,
+              subjectParticipantId: null,
+            }),
+          ],
+        }),
+        context({
+          acceptedAnswers: [
+            {
+              questionKey: "event_score",
+              subjectParticipantId: null,
+              valueInt: 2,
+              correctedByOperator: true,
+            },
+          ],
+        }),
+      );
+
+      // Newest-testimony-wins is the rule between the participant and the
+      // model. It is not a rule the model applies to somebody who read the
+      // transcript and said what the answer is: the correction stands and the
+      // disagreement is put in front of the operator instead.
+      expect(result.answers).toEqual([]);
+      expect(result.rejections).toEqual([
+        {
+          scope: "answer",
+          reason: "answer_corrected_by_operator",
+          questionKey: "event_score",
+        },
+      ]);
+      expect(result.conflictingAnswerRevision).toBe(true);
+    });
+
+    it("says nothing when the model lands on the corrected value anyway", () => {
+      const result = validateFeedbackExtractionProposal(
+        proposal({
+          answers: [
+            answer({
+              questionKey: "event_score",
+              valueInt: 2,
+              subjectParticipantId: null,
+            }),
+          ],
+        }),
+        context({
+          acceptedAnswers: [
+            {
+              questionKey: "event_score",
+              subjectParticipantId: null,
+              valueInt: 2,
+              correctedByOperator: true,
+            },
+          ],
+        }),
+      );
+
+      // Agreement is not a conflict, so it must not raise a badge asking an
+      // operator to adjudicate between a value and itself.
+      expect(result.rejections[0]?.reason).toBe("already_recorded");
+      expect(result.conflictingAnswerRevision).toBe(false);
     });
 
     it("stays quiet when a replay proposes the same already-recorded value", () => {
@@ -438,6 +507,7 @@ describe("validateFeedbackExtractionProposal", () => {
               questionKey: "event_score",
               subjectParticipantId: null,
               valueInt: 4,
+              correctedByOperator: false,
             },
           ],
         }),
@@ -526,6 +596,7 @@ describe("validateFeedbackExtractionProposal", () => {
               questionKey: "liked",
               subjectParticipantId: eleni,
               valueInt: null,
+              correctedByOperator: false,
             },
           ],
         }),

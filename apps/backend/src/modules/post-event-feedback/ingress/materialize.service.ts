@@ -174,13 +174,14 @@ export class PostEventFeedbackMaterializer {
     const text = ingress.text?.trim() ?? "";
 
     if (text.length > 0 && matchesPostEventFeedbackStopCommand(text)) {
-      return this.applyStop(ingress, conversation, correlationId);
+      return this.applyStop(ingress, conversation, correlationId, null);
     }
 
     const retainsText = conversation.lifecycle.reason !== "stopped";
+    let writtenMessageId: string | null = null;
     if (retainsText && text.length > 0) {
       try {
-        await this.conversations.appendMessage({
+        const appended = await this.conversations.appendMessage({
           conversationId: conversation._id,
           actor: "participant",
           text: fitToTranscript(text).text,
@@ -188,6 +189,7 @@ export class PostEventFeedbackMaterializer {
           providerMessageId: ingress.providerMessageId,
           ingressId: ingress.id,
         });
+        writtenMessageId = appended.message.id;
       } catch (error) {
         if (!(error instanceof FeedbackConversationCapacityError)) {
           throw error;
@@ -201,9 +203,14 @@ export class PostEventFeedbackMaterializer {
       }
     }
 
-    await this.conversations.setNeedsAttention({
+    // Anchored on the turn that was just written, because the whole reason this
+    // path raises at all is that nobody is watching a closed conversation and
+    // this is the message they need to read. A STOP-closed thread keeps no text,
+    // so there is nothing to link to and the reason says so.
+    await this.conversations.raiseAttention({
       conversationId: conversation._id,
-      needsAttention: true,
+      kind: "post_closure_message",
+      messageId: writtenMessageId,
       at: ingress.observedAt,
     });
 
@@ -313,6 +320,7 @@ export class PostEventFeedbackMaterializer {
     const stopRequested = matchesPostEventFeedbackStopCommand(text);
     const rendered = fitToTranscript(text);
     let latestSeq: number;
+    let writtenMessageId: string;
 
     try {
       const appended = await this.conversations.appendMessage({
@@ -324,6 +332,7 @@ export class PostEventFeedbackMaterializer {
         ingressId: ingress.id,
       });
       latestSeq = appended.conversation.messages.length;
+      writtenMessageId = appended.message.id;
     } catch (error) {
       if (!(error instanceof FeedbackConversationCapacityError)) {
         throw error;
@@ -341,9 +350,10 @@ export class PostEventFeedbackMaterializer {
     // admin as the complete message, and the part that did not fit is the part
     // people build up to.
     if (rendered.truncated) {
-      await this.conversations.setNeedsAttention({
+      await this.conversations.raiseAttention({
         conversationId: conversation._id,
-        needsAttention: true,
+        kind: "transcript_mismatch",
+        messageId: writtenMessageId,
         at: ingress.observedAt,
       });
       this.logger.warn({
@@ -360,10 +370,16 @@ export class PostEventFeedbackMaterializer {
     // a person — «ο Κώστας ήταν χάλια» corrected to «ο Κώστας τελικά ήταν οκ»
     // is about a real participant, and neither silently overwriting the first
     // nor silently keeping it is ours to decide.
+    //
+    // Same reason kind as a truncation on purpose: both say the transcript is
+    // not what arrived, and the operator does the same thing about either —
+    // open this message and read what the participant actually sent. A message
+    // that was both cut and edited is therefore one row to dismiss, not two.
     if (isFeedbackEditedProviderMessageId(ingress.providerMessageId)) {
-      await this.conversations.setNeedsAttention({
+      await this.conversations.raiseAttention({
         conversationId: conversation._id,
-        needsAttention: true,
+        kind: "transcript_mismatch",
+        messageId: writtenMessageId,
         at: ingress.observedAt,
       });
       this.logger.warn({
@@ -375,7 +391,12 @@ export class PostEventFeedbackMaterializer {
     }
 
     if (stopRequested) {
-      return this.applyStop(ingress, conversation, correlationId);
+      return this.applyStop(
+        ingress,
+        conversation,
+        correlationId,
+        writtenMessageId,
+      );
     }
 
     // Enqueued before the ingress row becomes terminal: a crash in between
@@ -413,6 +434,12 @@ export class PostEventFeedbackMaterializer {
     ingress: ProviderMessageIngressRow,
     conversation: FeedbackConversationDocument,
     correlationId: string,
+    /**
+     * The transcript turn carrying the STOP, when there is one. A STOP that
+     * arrives after closure is never written to the transcript, so that path
+     * has nothing to anchor on and passes `null` rather than inventing a link.
+     */
+    stopMessageId: string | null,
   ): Promise<MaterializeFeedbackIngressResult> {
     await this.conversations.close({
       conversationId: conversation._id,
@@ -433,9 +460,13 @@ export class PostEventFeedbackMaterializer {
       (goal) => goal.status !== "answered",
     );
     if (answeredNothing) {
-      await this.conversations.setNeedsAttention({
+      // Named for the fact, not for a verdict on it. «Wrong number» is the
+      // likeliest of the three explanations and still a guess, and a reason that
+      // guesses is a reason an operator learns to disbelieve.
+      await this.conversations.raiseAttention({
         conversationId: conversation._id,
-        needsAttention: true,
+        kind: "stopped_without_answers",
+        messageId: stopMessageId,
         at: ingress.observedAt,
       });
     }
@@ -699,9 +730,18 @@ export class PostEventFeedbackMaterializer {
     correlationId: string,
     reason: "empty_body" | "transcript_capacity",
   ): Promise<MaterializeFeedbackIngressResult> {
-    await this.conversations.setNeedsAttention({
+    // Two situations, two names, because the operator does two different things.
+    // A voice note is work they can finish — listen to it on the phone and
+    // record the answer. A full transcript is not: nothing more can be written
+    // here at all, which is why this path also hands the thread to a person.
+    //
+    // No anchor either way: nothing was appended, so there is no transcript line
+    // to link to. The reason is about a message the transcript does not contain,
+    // which is precisely what the operator has to be told.
+    await this.conversations.raiseAttention({
       conversationId: conversation._id,
-      needsAttention: true,
+      kind: reason === "empty_body" ? "unreadable_message" : "transcript_full",
+      messageId: null,
       at: ingress.observedAt,
     });
 

@@ -291,7 +291,7 @@ describe("FeedbackConversationRepository", () => {
     expect(collection.updateOne).not.toHaveBeenCalled();
   });
 
-  it("flags attention instead of dropping a message at the transcript cap", async () => {
+  it("names the raise instead of dropping a message at the transcript cap", async () => {
     const messages = Array.from(
       { length: FEEDBACK_CONVERSATION_MAX_MESSAGES },
       (_, index) => participantMessage(index + 1),
@@ -299,9 +299,13 @@ describe("FeedbackConversationRepository", () => {
     const full = feedbackConversation({ messages });
     const collection = collectionMock({
       findOne: vi.fn().mockResolvedValue(full),
-      findOneAndUpdate: vi
-        .fn()
-        .mockResolvedValue({ ...full, needsAttention: true }),
+      findOneAndUpdate: vi.fn().mockResolvedValue({
+        ...full,
+        needsAttention: true,
+        attentionReasons: [
+          attentionReason({ kind: "transcript_full", messageId: null }),
+        ],
+      }),
     });
     const repository = createRepository(collection);
 
@@ -314,11 +318,19 @@ describe("FeedbackConversationRepository", () => {
         ingressId,
       }),
     ).rejects.toBeInstanceOf(FeedbackConversationCapacityError);
-    expect(collection.findOneAndUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({ needsAttention: false }),
-      expect.objectContaining({ $set: { needsAttention: true } }),
-      { returnDocument: "after" },
-    );
+    // The one raise no caller can name for itself, because only the repository
+    // knows the document is full. Anchored on nothing: the message that would
+    // have explained it is the one there was no room for.
+    const [, update] = collection.findOneAndUpdate.mock.calls[0] as [
+      Record<string, unknown>,
+      Record<string, Record<string, unknown>>,
+    ];
+    expect(update["$set"]).toEqual({ needsAttention: true });
+    expect(update["$push"]?.["attentionReasons"]).toMatchObject({
+      kind: "transcript_full",
+      messageId: null,
+      resolvedAt: null,
+    });
     expect(collection.updateOne).not.toHaveBeenCalled();
   });
 
@@ -461,6 +473,98 @@ describe("FeedbackConversationRepository", () => {
       expect.any(Object),
       { returnDocument: "after" },
     );
+  });
+
+  it("lowers the badge on close when no reason is holding it up", async () => {
+    // The bug: the inbox buckets on attention before lifecycle, so a flagged
+    // conversation that was then closed pinned itself above every open one for
+    // good — and closing it, the operator's one «I am done with this», did
+    // nothing about the flag. A bare flag has no reason to dismiss instead.
+    const flagged = feedbackConversation({ needsAttention: true });
+    const closed = feedbackConversation({
+      needsAttention: true,
+      lifecycle: { state: "closed", reason: "cancelled", closedAt: repliedAt },
+    });
+    const collection = collectionMock({
+      findOneAndUpdate: vi
+        .fn()
+        .mockResolvedValueOnce(closed)
+        .mockResolvedValueOnce({ ...closed, needsAttention: false }),
+      findOne: vi.fn().mockResolvedValue(flagged),
+    });
+    const repository = createRepository(collection);
+
+    const result = await repository.close({
+      conversationId,
+      reason: "cancelled",
+      at: repliedAt,
+    });
+
+    expect(result.changed).toBe(true);
+    expect(result.conversation.needsAttention).toBe(false);
+    // Guarded on the list still being clean, so a reason raised between the two
+    // writes keeps its badge.
+    const [filter, update] = collection.findOneAndUpdate.mock.calls[1] as [
+      Record<string, unknown>,
+      Record<string, unknown>,
+    ];
+    expect(filter["needsAttention"]).toBe(true);
+    expect(filter["attentionReasons"]).toEqual({
+      $not: { $elemMatch: { resolvedAt: null } },
+    });
+    expect(update["$set"]).toEqual({ needsAttention: false });
+  });
+
+  it("lowers the badge on close once every reason has been dismissed", async () => {
+    const closed = feedbackConversation({
+      needsAttention: true,
+      lifecycle: { state: "closed", reason: "completed", closedAt: repliedAt },
+      attentionReasons: [
+        attentionReason({ kind: "safety", resolvedAt: repliedAt }),
+      ],
+    });
+    const collection = collectionMock({
+      findOneAndUpdate: vi
+        .fn()
+        .mockResolvedValueOnce(closed)
+        .mockResolvedValueOnce({ ...closed, needsAttention: false }),
+    });
+    const repository = createRepository(collection);
+
+    const result = await repository.close({
+      conversationId,
+      reason: "completed",
+      at: repliedAt,
+    });
+
+    expect(result.conversation.needsAttention).toBe(false);
+    expect(collection.findOneAndUpdate).toHaveBeenCalledTimes(2);
+  });
+
+  it("never auto-resolves a standing reason just because the thread closed", async () => {
+    const closed = feedbackConversation({
+      needsAttention: true,
+      lifecycle: { state: "closed", reason: "cancelled", closedAt: repliedAt },
+      attentionReasons: [attentionReason({ kind: "handoff" })],
+    });
+    const collection = collectionMock({
+      findOneAndUpdate: vi.fn().mockResolvedValue(closed),
+    });
+    const repository = createRepository(collection);
+
+    const result = await repository.close({
+      conversationId,
+      reason: "cancelled",
+      at: repliedAt,
+    });
+
+    // «σβήστε ό,τι σας είπα» does not stop being a request because the
+    // questionnaire ended, and resolving it here would file it as handled by
+    // nobody, under a `resolvedBy` we would have had to invent. One write only:
+    // the close itself.
+    expect(result.conversation.needsAttention).toBe(true);
+    expect(result.conversation.attentionReasons[0]?.resolvedAt).toBeNull();
+    expect(collection.findOneAndUpdate).toHaveBeenCalledTimes(1);
   });
 
   it("advances the extraction cursor only forward and only inside the transcript", async () => {
@@ -810,9 +914,10 @@ describe("FeedbackConversationRepository", () => {
     const repository = createRepository(collection);
 
     await expect(
-      repository.setNeedsAttention({
+      repository.raiseAttention({
         conversationId,
-        needsAttention: true,
+        kind: "safety",
+        messageId,
         at: repliedAt,
       }),
     ).rejects.toBeInstanceOf(FeedbackConversationNotFoundError);

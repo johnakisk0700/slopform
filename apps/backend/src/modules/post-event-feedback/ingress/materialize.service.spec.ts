@@ -8,7 +8,10 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
 import type { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import type { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
-import { buildFeedbackConversationGoals } from "../post-event-feedback-conversation.document.js";
+import {
+  FEEDBACK_CONVERSATION_MESSAGE_MAX_STORED_TEXT_LENGTH,
+  buildFeedbackConversationGoals,
+} from "../post-event-feedback-conversation.document.js";
 import type { ParticipantsRepository } from "../../participants/participants.repository.js";
 import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
 import {
@@ -25,6 +28,7 @@ import type { FeedbackIngressRepository } from "./ingress.repository.js";
 import type { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
 import {
   FEEDBACK_EXTRACT_QUIET_WINDOW_MS,
+  createFeedbackEditedProviderMessageId,
   type FeedbackJobData,
   type FeedbackJobName,
 } from "../jobs.schemas.js";
@@ -474,6 +478,150 @@ describe("PostEventFeedbackMaterializer", () => {
     expect(harness.queue.added).toHaveLength(0);
   });
 
+  /**
+   * Each of these used to raise the bare flag, so the inbox said «Needs
+   * attention» and nothing else — no reason to read, no line to dismiss. Τούλα
+   * Φωνητικομανού sends voice notes and nothing but voice notes, and hit the
+   * first one on every rehearsal run.
+   */
+  describe("naming why the materializer wants a person", () => {
+    const standing = (): { kind: string; messageId: string | null }[] =>
+      harness.conversations
+        .get(conversationId)
+        .attentionReasons.filter((reason) => reason.resolvedAt === null)
+        .map((reason) => ({
+          kind: reason.kind,
+          messageId: reason.messageId,
+        }));
+
+    it("names a body it cannot transcribe, with nothing to link to", async () => {
+      const ingressId = harness.repository.seedIngress({ text: null });
+
+      await harness.materializer.materialize({ ingressId, correlationId });
+
+      // No anchor on purpose: the message is not in the transcript at all, which
+      // is exactly what the operator is being told.
+      expect(standing()).toEqual([
+        { kind: "unreadable_message", messageId: null },
+      ]);
+    });
+
+    it("does not stack a second row for a second voice note", async () => {
+      for (const _ of [1, 2, 3]) {
+        const ingressId = harness.repository.seedIngress({ text: null });
+        await harness.materializer.materialize({ ingressId, correlationId });
+      }
+
+      // Three unreadable messages are one piece of news. An operator who has to
+      // dismiss the same sentence three times stops dismissing anything.
+      expect(standing()).toEqual([
+        { kind: "unreadable_message", messageId: null },
+      ]);
+    });
+
+    it("names a truncated render, anchored on the turn that was cut", async () => {
+      const ingressId = harness.repository.seedIngress({
+        text: "α".repeat(
+          FEEDBACK_CONVERSATION_MESSAGE_MAX_STORED_TEXT_LENGTH + 1,
+        ),
+      });
+
+      await harness.materializer.materialize({ ingressId, correlationId });
+
+      const written = harness.conversations.get(conversationId).messages[0];
+      expect(standing()).toEqual([
+        { kind: "transcript_mismatch", messageId: written?.id ?? null },
+      ]);
+    });
+
+    it("names an edited redelivery under the same reason as a truncation", async () => {
+      const ingressId = harness.repository.seedIngress({
+        text: "ο Κώστας τελικά ήταν οκ",
+        providerMessageId: createFeedbackEditedProviderMessageId(
+          "provider-message-edited",
+          "ο Κώστας τελικά ήταν οκ",
+        ),
+      });
+
+      await harness.materializer.materialize({ ingressId, correlationId });
+
+      // Same kind, because the operator does the same thing about either: open
+      // the message and read what the participant actually sent.
+      const written = harness.conversations.get(conversationId).messages[0];
+      expect(standing()).toEqual([
+        { kind: "transcript_mismatch", messageId: written?.id ?? null },
+      ]);
+    });
+
+    it("names a STOP from somebody who answered nothing, anchored on the STOP", async () => {
+      const ingressId = harness.repository.seedIngress({ text: "ΣΤΟΠ" });
+
+      await harness.materializer.materialize({ ingressId, correlationId });
+
+      const written = harness.conversations.get(conversationId).messages[0];
+      expect(standing()).toEqual([
+        { kind: "stopped_without_answers", messageId: written?.id ?? null },
+      ]);
+    });
+
+    it("leaves a STOP alone once a goal has been answered", async () => {
+      const conversation = harness.conversations.get(conversationId);
+      const goal = conversation.goals[0];
+      if (goal) {
+        goal.status = "answered";
+      }
+      const ingressId = harness.repository.seedIngress({ text: "ΣΤΟΠ" });
+
+      await harness.materializer.materialize({ ingressId, correlationId });
+
+      // An opt-out after answering is the ordinary healthy ending. An inbox that
+      // fills up with every STOP is an inbox nobody reads.
+      expect(standing()).toEqual([]);
+      expect(conversation.needsAttention).toBe(false);
+    });
+
+    it("names a message that arrived after the conversation closed", async () => {
+      harness.conversations.get(conversationId).lifecycle = {
+        state: "closed",
+        reason: "completed",
+        closedAt: observedAt,
+      };
+      const ingressId = harness.repository.seedIngress({
+        text: "Ξέχασα να πω ότι ο Νίκος με πίεζε όλο το βράδυ",
+      });
+
+      await harness.materializer.materialize({ ingressId, correlationId });
+
+      // The whole point of this path is that nobody is watching a closed
+      // conversation, so the reason has to point at the words that arrived.
+      const written = harness.conversations.get(conversationId).messages[0];
+      expect(written?.text).toContain("ο Νίκος");
+      expect(standing()).toEqual([
+        { kind: "post_closure_message", messageId: written?.id ?? null },
+      ]);
+    });
+
+    it("keeps no anchor for a post-closure message it is not allowed to store", async () => {
+      harness.conversations.get(conversationId).lifecycle = {
+        state: "closed",
+        reason: "stopped",
+        closedAt: observedAt,
+      };
+      const ingressId = harness.repository.seedIngress({ text: "Ένα ακόμα" });
+
+      await harness.materializer.materialize({ ingressId, correlationId });
+
+      // A STOP-closed conversation keeps metadata only, so there is no turn to
+      // link to and the reason says so rather than guessing.
+      expect(harness.conversations.get(conversationId).messages).toHaveLength(
+        0,
+      );
+      expect(standing()).toEqual([
+        { kind: "post_closure_message", messageId: null },
+      ]);
+    });
+  });
+
   it("refuses to reprocess a terminal ingress row", async () => {
     const ingressId = harness.repository.seedIngress({
       text: "Ήταν τέλεια!",
@@ -550,6 +698,13 @@ interface FakeConversation {
   goals: { key: string; ordinal: number; prompt: string; status: string }[];
   messages: FakeMessage[];
   needsAttention: boolean;
+  attentionReasons: FakeAttentionReason[];
+}
+
+interface FakeAttentionReason {
+  kind: string;
+  messageId: string | null;
+  resolvedAt: Date | null;
 }
 
 class FakeFeedbackRepository {
@@ -882,14 +1037,29 @@ class FakeConversations {
     return { changed: true, conversation };
   }
 
-  async setNeedsAttention(input: {
+  /** Idempotent on kind + message, exactly as the Mongo guard filter is. */
+  async raiseAttention(input: {
     conversationId: string;
-    needsAttention: boolean;
+    kind: string;
+    messageId: string | null;
   }): Promise<{ changed: boolean; conversation: FakeConversation }> {
     const conversation = this.get(input.conversationId);
-    const changed = conversation.needsAttention !== input.needsAttention;
-    conversation.needsAttention = input.needsAttention;
-    return { changed, conversation };
+    const standing = conversation.attentionReasons.some(
+      (reason) =>
+        reason.kind === input.kind &&
+        reason.messageId === input.messageId &&
+        reason.resolvedAt === null,
+    );
+    if (standing) {
+      return { changed: false, conversation };
+    }
+    conversation.attentionReasons.push({
+      kind: input.kind,
+      messageId: input.messageId,
+      resolvedAt: null,
+    });
+    conversation.needsAttention = true;
+    return { changed: true, conversation };
   }
 }
 
@@ -925,6 +1095,7 @@ function createHarness(): Harness {
     goals: buildFeedbackConversationGoals(),
     messages: [],
     needsAttention: false,
+    attentionReasons: [],
   });
   participants.rows.set(respondentParticipantId, {
     id: respondentParticipantId,

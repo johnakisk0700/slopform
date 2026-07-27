@@ -279,9 +279,14 @@ export class MessageOutboxDeliveryService {
     }
 
     try {
-      await this.conversations.setNeedsAttention({
+      // No anchor. The transcript entry for a failed send exists, but the outbox
+      // row is what carries the failure and the transcript line beside it looks
+      // like an ordinary bot turn; pointing the operator at it would suggest the
+      // message is the problem rather than its delivery.
+      await this.conversations.raiseAttention({
         conversationId,
-        needsAttention: true,
+        kind: "undelivered_message",
+        messageId: null,
         at: new Date(),
       });
     } catch (error) {

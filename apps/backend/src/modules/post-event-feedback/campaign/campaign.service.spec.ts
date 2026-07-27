@@ -397,7 +397,6 @@ function createService(): {
     createFromLaunch: ReturnType<typeof vi.fn>;
     listForCampaign: ReturnType<typeof vi.fn>;
     appendMessage: ReturnType<typeof vi.fn>;
-    setNeedsAttention: ReturnType<typeof vi.fn>;
   };
   events: {
     findById: ReturnType<typeof vi.fn>;
@@ -421,7 +420,6 @@ function createService(): {
     appendMessage: vi
       .fn()
       .mockResolvedValue({ appended: true, message: {}, conversation: {} }),
-    setNeedsAttention: vi.fn().mockResolvedValue({ changed: true }),
   };
   const events = {
     findById: vi.fn().mockResolvedValue(finishedEvent),

@@ -209,10 +209,17 @@ export function messageAttentionActionLabel(
  * Why a conversation is asking for a person, in one plain sentence each.
  *
  * These are the whole point of the reason list: «Needs attention» said only
- * that something was wrong, and five unrelated situations arrived in the inbox
- * looking identical. Each line says what happened, not what to do about it —
- * what to do is the operator's call once they have read the message it links
- * to.
+ * that something was wrong, and a dozen unrelated situations arrived in the
+ * inbox looking identical. Each line says what happened, not what to do about
+ * it — what to do is the operator's call once they have read the message it
+ * links to.
+ *
+ * Some sentences deliberately cover more than one cause, because the backend
+ * gives them one name when the operator's next move is the same either way: a
+ * message cut short and a message edited after the fact are both «go and read
+ * the original», and a send that failed and a send too long to record are both
+ * «they never got this». Splitting them here would put a distinction on screen
+ * that makes no difference to anybody reading it.
  */
 const ATTENTION_REASON_LABELS: Record<
   FeedbackConversationDetailDtoOutputAttentionReasonsItemKind,
@@ -223,6 +230,19 @@ const ATTENTION_REASON_LABELS: Record<
   unattributed_note: "A note could not be attributed to anyone.",
   answer_revision: "An answer was revised after it had been recorded.",
   hostile_to_bot: "The participant was hostile to the bot.",
+  unfinished_questionnaire:
+    "The bot stopped asking before the questionnaire was finished.",
+  extraction_failed: "Nothing could be extracted from what was said here.",
+  unreadable_message:
+    "Something arrived with no text to read — a voice note, or media.",
+  transcript_mismatch:
+    "The transcript is not a faithful copy of a message that arrived.",
+  transcript_full: "The transcript is full, so nothing more can be recorded.",
+  undelivered_message: "A message the bot wrote never reached the participant.",
+  post_closure_message:
+    "The participant wrote after the conversation had closed.",
+  stopped_without_answers:
+    "The participant stopped without having answered anything.",
 };
 
 export function attentionReasonLabel(

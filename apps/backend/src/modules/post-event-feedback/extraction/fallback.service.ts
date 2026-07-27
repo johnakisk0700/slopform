@@ -108,7 +108,7 @@ export class PostEventFeedbackExtractionFallback {
       // attention so the dead job is visible and stop there: a note with no
       // source message would have no provenance, and an acknowledgement would
       // answer a message nobody sent.
-      await this.raiseAttention(conversation, input, []);
+      await this.raiseAttention(conversation, input, [], null);
       return { applied: false };
     }
 
@@ -116,7 +116,7 @@ export class PostEventFeedbackExtractionFallback {
       conversation.campaignId,
     );
     if (!campaign) {
-      await this.raiseAttention(conversation, input, []);
+      await this.raiseAttention(conversation, input, [], testimony.id);
       return { applied: false };
     }
 
@@ -200,7 +200,7 @@ export class PostEventFeedbackExtractionFallback {
       return { applied: false, outboxId: written.outbox.id };
     }
 
-    await this.raiseAttention(conversation, input, [input.cause]);
+    await this.raiseAttention(conversation, input, [input.cause], testimony.id);
 
     this.logger.warn({
       event: "feedback.extract.fallback_applied",
@@ -220,14 +220,25 @@ export class PostEventFeedbackExtractionFallback {
     };
   }
 
+  /**
+   * The badge, named. `extraction_failed` is what the operator has to act on:
+   * this burst produced no structured answers, so whatever the participant said
+   * in it is theirs to read and record by hand.
+   *
+   * Anchored on the testimony the dead run was reading, which is the message
+   * they will want open. A run that never had a participant turn has nothing to
+   * point at and says so with a null anchor rather than guessing.
+   */
   private async raiseAttention(
     conversation: FeedbackConversationDocument,
     input: FeedbackExtractionFallbackInput,
     detail: readonly string[],
+    messageId: string | null,
   ): Promise<void> {
-    const attention = await this.conversations.setNeedsAttention({
+    const attention = await this.conversations.raiseAttention({
       conversationId: conversation._id,
-      needsAttention: true,
+      kind: "extraction_failed",
+      messageId,
       at: new Date(),
     });
     if (attention.changed) {

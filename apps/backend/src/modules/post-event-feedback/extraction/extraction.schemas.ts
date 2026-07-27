@@ -355,6 +355,14 @@ export interface FeedbackExtractionAcceptedAnswerView {
   readonly questionKey: FeedbackAnswerQuestionKey;
   readonly subjectParticipantId: string | null;
   readonly valueInt: number | null;
+  /**
+   * An operator decided this value by hand, so the run may not replace it.
+   *
+   * Stated per row rather than read from `extraction_meta` here, because the
+   * rules are a pure function of this context: the freeze is a fact about the
+   * stored answer, not a jsonb lookup validation is allowed to perform.
+   */
+  readonly correctedByOperator: boolean;
 }
 
 export interface FeedbackExtractionAcceptedNoteView {
@@ -399,6 +407,11 @@ export const FEEDBACK_EXTRACTION_REJECTION_REASONS = [
   "subject_is_respondent",
   "duplicate_in_run",
   "already_recorded",
+  /**
+   * The stored row carries an operator's correction, so the newer reading does
+   * not win. The run raises `answer_revision` instead and a human adjudicates.
+   */
+  "answer_corrected_by_operator",
   "unknown_goal",
   /**
    * `status: "answered"` with nothing in `answers`. A discriminated union would

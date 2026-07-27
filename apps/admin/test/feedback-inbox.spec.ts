@@ -109,10 +109,29 @@ interface ExtractionStatusModule {
   };
 }
 
+interface TestAnswer {
+  questionKey: string;
+  valueInt: number | null;
+  subjectParticipantId: string | null;
+  correction: { at: string; by: string } | null;
+}
+
+interface AnswerCorrectionsModule {
+  FEEDBACK_SCORE_CHOICES: readonly number[];
+  canCorrectAnswerValue: (answer: TestAnswer) => boolean;
+  canWithdrawAnswer: (answer: TestAnswer) => boolean;
+  correctionSummary: (answer: TestAnswer) => string | null;
+  withdrawalDescription: (
+    questionLabel: string,
+    subjectLabel: string,
+  ) => string;
+}
+
 let labels: LabelsModule;
 let view: ConversationViewModule;
 let polling: PollingModule;
 let extractionStatus: ExtractionStatusModule;
+let answerCorrections: AnswerCorrectionsModule;
 
 async function loadFeatureModule<T>(relativePath: string): Promise<T> {
   const moduleUrl = new URL(`../${relativePath}`, import.meta.url).href;
@@ -131,6 +150,9 @@ beforeAll(async () => {
   );
   extractionStatus = await loadFeatureModule<ExtractionStatusModule>(
     "src/features/feedback/extractionStatus.ts",
+  );
+  answerCorrections = await loadFeatureModule<AnswerCorrectionsModule>(
+    "src/features/feedback/answerCorrections.ts",
   );
 });
 
@@ -682,8 +704,8 @@ describe("needs-attention emphasis", () => {
 
 describe("attention reasons (why a conversation wants a person)", () => {
   it("says plainly what each kind of reason is", () => {
-    // Five situations that used to arrive looking identical. Every one is a
-    // sentence about what happened, not an instruction.
+    // Situations that used to arrive looking identical. Every one is a sentence
+    // about what happened, not an instruction.
     expect(labels.attentionReasonLabel("safety")).toBe(
       "A message raised a safety concern.",
     );
@@ -698,6 +720,53 @@ describe("attention reasons (why a conversation wants a person)", () => {
     );
     expect(labels.attentionReasonLabel("hostile_to_bot")).toBe(
       "The participant was hostile to the bot.",
+    );
+  });
+
+  it("has words for every reason the backend can raise", () => {
+    // The list the backend enumerates, kept here on purpose: a kind with no
+    // label renders the box with a blank line, which is the original defect with
+    // extra steps. Τούλα Φωνητικομανού's voice notes hit `unreadable_message`
+    // on every rehearsal run and had nothing to show for it.
+    const kinds = [
+      "safety",
+      "handoff",
+      "unattributed_note",
+      "answer_revision",
+      "hostile_to_bot",
+      "unfinished_questionnaire",
+      "extraction_failed",
+      "unreadable_message",
+      "transcript_mismatch",
+      "transcript_full",
+      "undelivered_message",
+      "post_closure_message",
+      "stopped_without_answers",
+    ];
+
+    for (const kind of kinds) {
+      const label = labels.attentionReasonLabel(kind);
+      expect(label, kind).toBeTypeOf("string");
+      expect(label, kind).toMatch(/^[A-Z].*\.$/u);
+    }
+  });
+
+  it("names what happened rather than telling the operator what to do", () => {
+    // The reason box is not a task list. What to do is the operator's call once
+    // they have read the message the reason links to.
+    expect(labels.attentionReasonLabel("unreadable_message")).toBe(
+      "Something arrived with no text to read — a voice note, or media.",
+    );
+    expect(labels.attentionReasonLabel("unfinished_questionnaire")).toBe(
+      "The bot stopped asking before the questionnaire was finished.",
+    );
+    // One sentence for two causes, because a truncated copy and an edited
+    // redelivery are the same job: go and read what actually arrived.
+    expect(labels.attentionReasonLabel("transcript_mismatch")).toBe(
+      "The transcript is not a faithful copy of a message that arrived.",
+    );
+    expect(labels.attentionReasonLabel("undelivered_message")).toBe(
+      "A message the bot wrote never reached the participant.",
     );
   });
 
@@ -920,6 +989,93 @@ describe("staff-written notes", () => {
   });
 });
 
+describe("operator corrections to recorded answers", () => {
+  const score = {
+    questionKey: "event_score",
+    valueInt: 4,
+    subjectParticipantId: null,
+    correction: null,
+  };
+  const directed = {
+    questionKey: "avoid",
+    valueInt: null,
+    subjectParticipantId: "p-nikos",
+    correction: null,
+  };
+
+  it("offers a value edit only where the answer is a number", () => {
+    // On liked / meet_again / avoid the subject *is* the answer and `valueInt`
+    // is null, so a 1–5 picker there would ask an operator to assert something
+    // the question cannot express.
+    expect(answerCorrections.canCorrectAnswerValue(score)).toBe(true);
+    expect(answerCorrections.canCorrectAnswerValue(directed)).toBe(false);
+    expect(answerCorrections.FEEDBACK_SCORE_CHOICES).toStrictEqual([
+      1, 2, 3, 4, 5,
+    ]);
+  });
+
+  it("offers a withdrawal only where the answer is about a person", () => {
+    // The wrong-person case: a claim about a third party who was never named
+    // has no correct value, so the row should stop existing.
+    expect(answerCorrections.canWithdrawAnswer(directed)).toBe(true);
+    expect(answerCorrections.canWithdrawAnswer(score)).toBe(false);
+  });
+
+  it("says who decided a corrected value, and stays silent otherwise", () => {
+    // `createdAt` stops meaning "when this value was decided" once a correction
+    // lands, so a corrected number without this line has no author.
+    expect(answerCorrections.correctionSummary(score)).toBeNull();
+    const summary = answerCorrections.correctionSummary({
+      ...score,
+      valueInt: 2,
+      correction: { at: "2026-07-27T10:00:00.000Z", by: "admin-1" },
+    });
+    expect(summary).toContain("Corrected by admin-1");
+    expect(summary).toContain("2026");
+  });
+
+  it("names the person and the question before withdrawing an answer", () => {
+    const description = answerCorrections.withdrawalDescription(
+      "Avoid",
+      "Νίκος",
+    );
+
+    expect(description).toContain("Avoid");
+    expect(description).toContain("Νίκος");
+    // It is a hard delete: only the audit log remembers the row afterwards.
+    expect(description).toContain("cannot be undone");
+  });
+
+  it("puts both controls on the answer itself, without a capability gate", () => {
+    const row = readSource(
+      "src/components/admin/feedback/AnswerCorrection.tsx",
+    );
+    const details = readSource(
+      "src/components/admin/feedback/ConversationDetails.tsx",
+    );
+
+    expect(details).toContain("<AnswerValue");
+    // Recording what is true is not steering the conversation, so unlike every
+    // control that could send a message these survive a closed thread — which
+    // is the case they exist for, since nothing will ever re-read it.
+    expect(row).not.toContain("capabilities");
+    // A confirm for the destructive half, an inline edit for the other. No
+    // workflow: nothing to assign and nothing to approve.
+    expect(row).toContain("ConfirmAction");
+    expect(row).toContain("Withdraw answer");
+  });
+
+  it("drives both operations through the generated hooks", () => {
+    const page = readSource("src/routes/FeedbackInboxPage.tsx");
+
+    expect(page).toContain("useCorrectFeedbackConversationAnswer");
+    expect(page).toContain("useWithdrawFeedbackConversationAnswer");
+    // Both readers of an answer are refreshed: this conversation's results and
+    // the campaign-wide Results tab.
+    expect(page).toContain("invalidateResults");
+  });
+});
+
 describe("inbox toolbar and orientation", () => {
   it("reads «All campaigns» as a back affordance, not a campaign action", () => {
     const page = readSource("src/components/admin/feedback/CampaignHeader.tsx");
@@ -1094,6 +1250,8 @@ describe("API contract boundary", () => {
       "useResolveFeedbackConversationAttentionReason",
       "useStartFeedbackConversation",
       "useAddFeedbackConversationNote",
+      "useCorrectFeedbackConversationAnswer",
+      "useWithdrawFeedbackConversationAnswer",
     ]) {
       expect(page).toContain(hook);
     }

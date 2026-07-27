@@ -62,8 +62,15 @@ All participant and campaign foreign keys use `ON DELETE RESTRICT` (D18).
 `conversation_id` / `matched_conversation_id` are Mongo conversation UUIDs with
 no PostgreSQL FK. Repository helpers:
 
-- `insertIngressIfAbsent` / `insertOutboxIfAbsent` / `insertAnswerIfAbsent` —
-  `ON CONFLICT DO NOTHING` for webhook, reply and extraction replay;
+- `insertIngressIfAbsent` / `insertOutboxIfAbsent` — `ON CONFLICT DO NOTHING`
+  for webhook and reply replay;
+- `insertAnswerIfAbsent` — `ON CONFLICT DO UPDATE` on the answer uniqueness key,
+  so a participant's revision lands. The update is skipped entirely on a row an
+  operator corrected (`setWhere: not (extraction_meta ? 'corrections')`), and
+  otherwise merges the new provenance over the old blob carrying `corrections`
+  across rather than replacing `extraction_meta` wholesale;
+- `findAnswerById` / `updateAnswerValue` / `deleteAnswer` — the operator
+  correction and withdrawal paths;
 - `findIngressByIdForUpdate` — the row lock that fences materialization;
 - `findUnlinkedOutboxByConversationAndBody` — observed-outbound correlation when
   the provider message id is not known yet;
@@ -423,10 +430,24 @@ without it, D18 works and nobody ever learns that it fired. A directed **answer*
 no text of its own; without a resolved subject it asserts nothing, so it is
 dropped rather than turned into a fabricated note.
 
-Answer immutability still drops a corrected value as `already_recorded`. When
-the proposed value differs from the stored one, the run raises an
-`answer_revision` reason so an operator can reconcile; it does not rewrite the
-row.
+A stored answer re-proposed with a **different** value is a revision, and the
+newest reading of a question wins: saying it again is how somebody changes their
+mind, and the row is rewritten through `insertAnswerIfAbsent`'s
+`ON CONFLICT DO UPDATE`. The run still raises an `answer_revision` reason, so a
+value that changed under whoever was reading it is visible rather than silent.
+Re-proposing the value already stored is `already_recorded` and says nothing.
+
+**One exception, and it is deliberate: a value an operator corrected is frozen.**
+Newest-testimony-wins is the rule between the participant and the model. It is
+not a rule the model applies to a person who has read the transcript and said
+what the answer is — a correction that the next run could quietly revert would be
+a suggestion, and the only trace of the reversal would be a badge. So a proposal
+whose identity matches a corrected row is refused with
+`answer_corrected_by_operator` and raises `answer_revision` instead, which puts
+the disagreement in front of the operator rather than resolving it against them.
+What this costs: a participant who genuinely changes their mind after a
+correction is no longer recorded automatically, and somebody has to notice the
+badge. See [operator corrections](#operator-corrections-to-recorded-answers-wp12b).
 
 Two candidates sharing a first name («Κώστας») cannot be separated by
 application code — both ids are valid, so a correct pick and a lucky guess are
@@ -504,42 +525,65 @@ over explicitly.
 
 ### Naming the raise
 
-A run does not set `needsAttention` directly. Every situation it finds is
-recorded through `raiseAttention` as a `kind` plus the message an operator
-should open, and the badge is that list's summary
-([clearing attention](#clearing-attention) is the other half). The mapping is
-owned by
+Nothing sets `needsAttention` directly — there is no bare setter left on the
+repository at all. Every situation that wants a person is recorded through
+`raiseAttention` as a `kind` plus the message an operator should open, and the
+badge is that list's summary
+([clearing attention](#clearing-attention) is the other half). The extraction
+run's own mapping is owned by
 [`operator-attention.ts`](../../../apps/backend/src/modules/post-event-feedback/extraction/operator-attention.ts):
 
-| Situation                                                           | `kind`              | Anchor                             |
-| ------------------------------------------------------------------- | ------------------- | ---------------------------------- |
-| A classified safety signal                                          | `safety`            | each message the signal cited      |
-| An explicit participant handoff request                             | `handoff`           | the newest message the run read    |
-| A note kept but degraded to subjectless (D18)                       | `unattributed_note` | the note's own first cited message |
-| An `already_recorded` answer re-proposed with a **different** value | `answer_revision`   | the newest message the run read    |
+| Situation                                                                                               | `kind`                     | Anchor                             |
+| ------------------------------------------------------------------------------------------------------- | -------------------------- | ---------------------------------- |
+| A classified safety signal                                                                              | `safety`                   | each message the signal cited      |
+| An explicit participant handoff request                                                                 | `handoff`                  | the newest message the run read    |
+| A note kept but degraded to subjectless (D18)                                                           | `unattributed_note`        | the note's own first cited message |
+| A stored answer re-proposed with a **different** value, revised or refused because a human corrected it | `answer_revision`          | the newest message the run read    |
+| The bot withdrew, leaving goals unanswered                                                              | `unfinished_questionnaire` | the newest message the run read    |
 
-Two of them have no citation of their own — a handoff is a property of the run
-and a refused revision is about the stored row it disagreed with — so both
-anchor on the burst that produced them. That is a weaker claim than the safety
-anchor and deliberately so: a reason that links nowhere leaves the operator
-searching a 150-message transcript for the thing the badge would not name.
+Three of them have no citation of their own — a handoff is a property of the run,
+a refused revision is about the stored row it disagreed with, and a withdrawal is
+about the run deciding to stop — so all three anchor on the burst that produced
+them. That is a weaker claim than the safety anchor and deliberately so: a reason
+that links nowhere leaves the operator searching a 150-message transcript for the
+thing the badge would not name.
 
 The write is idempotent on `kind` + `messageId`, so a replayed run re-raises the
 same reason and changes nothing; two notes degraded in the same message collapse
 to one entry for the same reason.
 
-Two raises are still **unnamed**, and both are known gaps rather than design.
-A withdrawal — the bot running out of things it was willing to say — has no
-kind, because the taxonomy names what a participant did and inventing a
-hostility verdict for a bot that gave up would be a classifier nobody asked for
-(`hostile_to_bot` therefore has no producer). Neither has anything outside
-extraction: the
-[deterministic fallback](#deterministic-fallback-for-a-dead-run), the
-materializer's unusable/truncated/edited inbound and unanswered STOP paths, a
-permanently failed delivery and a body that could not be transcribed all still
-call `setNeedsAttention`. Those conversations reach the inbox flagged with
-nothing to read and nothing to dismiss, which is the original defect surviving
-in the places the reason vocabulary does not yet cover.
+Everything outside extraction raises through the same call:
+
+| Situation                                                       | `kind`                    | Anchor                        |
+| --------------------------------------------------------------- | ------------------------- | ----------------------------- |
+| A [dead run's fallback](#deterministic-fallback-for-a-dead-run) | `extraction_failed`       | the testimony it read         |
+| An inbound with no transcribable text (voice note, media)       | `unreadable_message`      | none — nothing was stored     |
+| A rendered copy cut short, **or** an edited redelivery          | `transcript_mismatch`     | the stored turn               |
+| An append refused because the document is full                  | `transcript_full`         | none — there was no room      |
+| A send that failed for good, **or** a body too long to record   | `undelivered_message`     | none — the outbox row owns it |
+| Somebody writing after their conversation closed                | `post_closure_message`    | the stored turn, when kept    |
+| A STOP from somebody who had answered nothing                   | `stopped_without_answers` | the STOP turn, when stored    |
+
+Two of those names cover two producers each, because the operator's next move is
+identical either way. A truncated render and an edited redelivery both mean the
+transcript is not what arrived, so both say `transcript_mismatch` — and a message
+that was both cut and edited is therefore one row to dismiss, not two. A delivery
+the provider refused for good and an outbound too long to record both mean the
+participant will never see it, so both say `undelivered_message`; _why_ it did
+not go out is on the outbox row for whoever wants it. `transcript_full` is raised
+by `appendMessage` itself rather than by its callers, because that is the only
+place that knows the document is full and every caller reaches it the same way.
+
+A kind with no anchor stands **once** until it is dismissed. Six voice notes in a
+row are one piece of news — «there is something here you cannot see» — and six
+identical rows is how a list stops being read.
+
+`hostile_to_bot` remains in the enum with **no producer**, and the withdrawal
+path is deliberately not it: prompt rule 7δ withdraws after two or three
+unanswered attempts and says in as many words that somebody who swears has not
+refused to answer, so reading a withdrawal as hostility would invent the
+classifier the taxonomy refuses. The name is kept because a raise for it would be
+honest if the model ever reported it directly; nothing in the loop does today.
 
 ### Store order and replay
 
@@ -1273,22 +1317,23 @@ message the transcript cannot record is never sent either.
 
 ### Repository contract
 
-| Method                   | Contract                                                                       |
-| ------------------------ | ------------------------------------------------------------------------------ |
-| `createFromLaunch`       | Deterministic `_id`; idempotent; reports `created`; phone conflict is explicit |
-| `findById`               | Full document for a detail read                                                |
-| `findOpenByPhone`        | Inbound resolution (D9), backed by the partial unique index                    |
-| `listForCampaign`        | Compact campaign-grouped summaries; no transcripts in list reads               |
-| `listOpenDueForReminder` | Approximate D11 reminder candidates; sweep reloads authoritative state         |
-| `listOpenDueForExpiry`   | Approximate D11 expiry candidates; sweep reloads authoritative state           |
-| `appendMessage`          | Contiguous `seq`, idempotent by provenance, cap/byte guard                     |
-| `mergeMessageAttention`  | Additive model categories; recommended action and confidence only strengthen   |
-| `takeOver` / `resumeBot` | Explicit control transitions with a recorded source                            |
-| `close`                  | Terminal reason; STOP overrides softer reasons; nothing reopens                |
-| `advanceCursor`          | Monotonic extraction cursor bounded by the transcript                          |
-| `updateGoalStatuses`     | Monotonic goal ladder `pending < asked < skipped < answered`                   |
-| `setNeedsAttention`      | Sets or clears the operator attention flag                                     |
-| `markReminded`           | Idempotent D11 reminder stamp (`remindedAt`)                                   |
+| Method                   | Contract                                                                                                            |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| `createFromLaunch`       | Deterministic `_id`; idempotent; reports `created`; phone conflict is explicit                                      |
+| `findById`               | Full document for a detail read                                                                                     |
+| `findOpenByPhone`        | Inbound resolution (D9), backed by the partial unique index                                                         |
+| `listForCampaign`        | Compact campaign-grouped summaries; no transcripts in list reads                                                    |
+| `listOpenDueForReminder` | Approximate D11 reminder candidates; sweep reloads authoritative state                                              |
+| `listOpenDueForExpiry`   | Approximate D11 expiry candidates; sweep reloads authoritative state                                                |
+| `appendMessage`          | Contiguous `seq`, idempotent by provenance, cap/byte guard                                                          |
+| `mergeMessageAttention`  | Additive model categories; recommended action and confidence only strengthen                                        |
+| `takeOver` / `resumeBot` | Explicit control transitions with a recorded source                                                                 |
+| `close`                  | Terminal reason; STOP overrides softer reasons; nothing reopens; lowers the badge only when no reason is unresolved |
+| `advanceCursor`          | Monotonic extraction cursor bounded by the transcript                                                               |
+| `updateGoalStatuses`     | Monotonic goal ladder `pending < asked < skipped < answered`                                                        |
+| `raiseAttention`         | The only way to raise the badge: a named reason, idempotent on `kind` + `messageId`                                 |
+| `resolveAttentionReason` | Dismisses one reason; lowers the badge only when it was the last unresolved one                                     |
+| `markReminded`           | Idempotent D11 reminder stamp (`remindedAt`)                                                                        |
 
 Every method validates the resulting document with Zod, and every transition
 reports whether it actually changed state so callers can write exactly one
@@ -1444,6 +1489,8 @@ flowchart LR
 | Staff send         | open ∧ control=human                                    | Insert `kind=staff` outbox (WP6 sends), append transcript with `outboxId`, audit |
 | Add note           | conversation exists; subject ∈ live D16 candidates      | Insert `feedback_notes` with staff provenance + audit                            |
 | Note review status | note exists                                             | `new` ↔ `dismissed` + audit                                                      |
+| Correct an answer  | answer ∈ this conversation ∧ scored question            | Edit `value_int` in place, append `extraction_meta.corrections`, audit           |
+| Withdraw an answer | answer ∈ this conversation                              | Delete the row, audit carrying the whole row                                     |
 
 ### Staff-written notes (WP12)
 
@@ -1482,21 +1529,119 @@ control that could send a message, adding a note is **not** capability-gated:
 writing something down is not steering the conversation, so it stays available
 after the thread closes.
 
+### Operator corrections to recorded answers (WP12b)
+
+An operator reading a score the model got wrong could previously do nothing about
+it: no route mutated `feedback_answers` at all. On a **closed** conversation that
+was permanent, because nothing will ever re-read the thread — which is why both
+operations below stay available after it closes, on the same reasoning as staff
+notes.
+
+Two operations, because they are two assertions:
+
+| Operation     | What it asserts                                                             |
+| ------------- | --------------------------------------------------------------------------- |
+| `PATCH` value | The participant did rate the evening; we wrote down the wrong number        |
+| `DELETE`      | This claim about a person should not exist — there is no right value for it |
+
+A withdrawal is deliberately not modelled as a null-valued `PATCH`: `value_int`
+is already null on every `liked` / `meet_again` / `avoid` row, where the subject
+_is_ the answer, so null could not also mean "withdrawn". Symmetrically, only a
+question whose `valueKind` is `int` (today `event_score`) may be corrected; a
+number on a person-shaped question is refused with a 400.
+
+**How a correction is represented.** The row is edited in place and the
+correction is appended to `extraction_meta.corrections` — an array, never
+overwritten, each entry `{ at, by, from: { valueInt }, to: { valueInt }, note? }`
+([`extraction/answer-corrections.ts`](../../../apps/backend/src/modules/post-event-feedback/extraction/answer-corrections.ts)).
+`model`, `confidence` and `candidateIds` from the run that proposed the value are
+left exactly where they are, so what the model said survives beside what the
+human decided, and `source_message_ids` is untouched because a correction is the
+same testimony read differently. `extraction_meta` is an open jsonb record, so
+this needs **no migration**. A superseding row would have needed one: the answer
+uniqueness key is `NULLS NOT DISTINCT (conversation, question, subject)`, so a
+superseding row cannot coexist with the row it supersedes, and every reader —
+`listAnswersByConversation`, `listAnswersByCampaign`, the run's
+`acceptedAnswers`, `deleteContradictedAnswers`, the simulator — would have to
+remember a `superseded_at is null` filter, where one omission double-counts a
+score.
+
+`audit_events` carries the same before and after, and is the durable copy:
+`feedback_answer.corrected` and `feedback_answer.withdrawn`, `entityType:
+"feedback_answer"`. A withdrawal's context carries the **whole** row — value,
+subject, provenance, timestamps — because the delete is hard and nothing else
+will hold it. The delete is hard rather than a `withdrawn_at` column for the same
+reason `deleteContradictedAnswers` already hard-deletes: a soft-deleted row still
+occupies the uniqueness key, so a later run proposing the same question and
+subject would upsert onto it and resurrect it with a fresh value while the flag
+silently persisted.
+
+**Freezing, and what enforces it** (see also
+[validation](#validation-before-any-persistence-or-send)):
+
+- `validate-proposal` refuses a proposal whose identity matches a corrected row
+  with `answer_corrected_by_operator` and sets `conflictingAnswerRevision`, so
+  the run raises `answer_revision` rather than deciding;
+- `insertAnswerIfAbsent` skips the conflict update on a corrected row in SQL, so
+  a run that built its context _before_ the correction landed still cannot
+  overwrite it — the context is read outside the advisory lock, the guard is not;
+- `deleteContradictedAnswers` skips corrected rows. This is the module's one
+  model-driven hard delete of an answer, and without the guard a later run
+  accepting `avoid` for somebody would erase a corrected `liked` row outright.
+  Freezing means the model may stop agreeing with a human, not that it may delete
+  them;
+- corrections are appended to `extraction_meta` and the extraction upsert
+  therefore **merges** rather than replaces that column, so an ordinary revision
+  on an uncorrected row cannot erase the array either.
+
+The read model publishes a derived `correction: { at, by } | null` on each answer
+— the same discipline a note's `origin` follows. The before/after and the
+operator's note stay in `audit_events`: publishing them would put a second,
+editable history in the read model, and the model's own confidence score stays
+off the operator's screen because it is a number they cannot calibrate.
+
+Both operations take the conversation advisory lock
+(`FeedbackResultsRepository.lockConversation`) in the same transaction as the
+write, so a correction cannot interleave with a running extraction persist.
+Correcting to the value already stored is a no-op with no audit row, so a retried
+request cannot append a second identical correction — with the consequence, said
+out loud, that re-affirming the model's own value is not a way to freeze it.
+
+**What this slice deliberately does not do:**
+
+- **Re-aim an answer at a different person.** Moving `subject_participant_id`
+  crosses the uniqueness key and can collide with an existing answer for the new
+  subject (a 409 and a "correct that one instead" story), and the new subject
+  would need revalidating against the live D16 candidate set. So an operator who
+  knows the right person cannot record it: there is no operator-authored answer
+  path, and `cardinality(source_message_ids) >= 1` forbids one without a
+  migration mirroring `20260726001227_staff_authored_feedback_notes`.
+- **Freeze a withdrawal.** A withdrawn row leaves no tombstone, so a later run
+  citing new testimony can record the same question and subject again. Nothing
+  short of a column or a table can hold "this was withdrawn on purpose", and this
+  slice writes no migration.
+- **Move the two monotonic snapshots.** Mongo `goals[].status` never demotes, so
+  withdrawing an answer leaves a goal badged «answered» with no answer row under
+  it in the admin's progress panel, and the reminder copy in
+  `sweeps/sweep.service.ts` branches on that same snapshot.
+
 ### Staff HTTP contract (inbox)
 
-| Method  | Path                                                                                                | `operationId`                                |
-| ------- | --------------------------------------------------------------------------------------------------- | -------------------------------------------- |
-| `GET`   | `/feedback/campaigns/:campaignId/conversations`                                                     | `listFeedbackCampaignConversations`          |
-| `GET`   | `/feedback/campaigns/:campaignId/conversations/:conversationId`                                     | `getFeedbackConversation`                    |
-| `GET`   | `/feedback/campaigns/:campaignId/conversations/:conversationId/results`                             | `listFeedbackConversationResults`            |
-| `GET`   | `/feedback/campaigns/:campaignId/results`                                                           | `listFeedbackCampaignResults`                |
-| `POST`  | `/feedback/campaigns/:campaignId/conversations/:conversationId/take-over`                           | `takeOverFeedbackConversation`               |
-| `POST`  | `/feedback/campaigns/:campaignId/conversations/:conversationId/resume-bot`                          | `resumeFeedbackConversationBot`              |
-| `POST`  | `/feedback/campaigns/:campaignId/conversations/:conversationId/close`                               | `closeFeedbackConversation`                  |
-| `POST`  | `/feedback/campaigns/:campaignId/conversations/:conversationId/messages`                            | `sendFeedbackConversationStaffMessage`       |
-| `POST`  | `/feedback/campaigns/:campaignId/conversations/:conversationId/notes`                               | `addFeedbackConversationNote`                |
-| `POST`  | `/feedback/campaigns/:campaignId/conversations/:conversationId/attention-reasons/:reasonId/resolve` | `resolveFeedbackConversationAttentionReason` |
-| `PATCH` | `/feedback/notes/:noteId/review-status`                                                             | `updateFeedbackNoteReviewStatus`             |
+| Method   | Path                                                                                                | `operationId`                                |
+| -------- | --------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| `GET`    | `/feedback/campaigns/:campaignId/conversations`                                                     | `listFeedbackCampaignConversations`          |
+| `GET`    | `/feedback/campaigns/:campaignId/conversations/:conversationId`                                     | `getFeedbackConversation`                    |
+| `GET`    | `/feedback/campaigns/:campaignId/conversations/:conversationId/results`                             | `listFeedbackConversationResults`            |
+| `GET`    | `/feedback/campaigns/:campaignId/results`                                                           | `listFeedbackCampaignResults`                |
+| `POST`   | `/feedback/campaigns/:campaignId/conversations/:conversationId/take-over`                           | `takeOverFeedbackConversation`               |
+| `POST`   | `/feedback/campaigns/:campaignId/conversations/:conversationId/resume-bot`                          | `resumeFeedbackConversationBot`              |
+| `POST`   | `/feedback/campaigns/:campaignId/conversations/:conversationId/close`                               | `closeFeedbackConversation`                  |
+| `POST`   | `/feedback/campaigns/:campaignId/conversations/:conversationId/messages`                            | `sendFeedbackConversationStaffMessage`       |
+| `POST`   | `/feedback/campaigns/:campaignId/conversations/:conversationId/notes`                               | `addFeedbackConversationNote`                |
+| `POST`   | `/feedback/campaigns/:campaignId/conversations/:conversationId/attention-reasons/:reasonId/resolve` | `resolveFeedbackConversationAttentionReason` |
+| `PATCH`  | `/feedback/campaigns/:campaignId/conversations/:conversationId/answers/:answerId`                   | `correctFeedbackConversationAnswer`          |
+| `DELETE` | `/feedback/campaigns/:campaignId/conversations/:conversationId/answers/:answerId`                   | `withdrawFeedbackConversationAnswer`         |
+| `PATCH`  | `/feedback/notes/:noteId/review-status`                                                             | `updateFeedbackNoteReviewStatus`             |
 
 `getFeedbackConversation` includes an `extraction` object so the operator can
 see how far behind the delayed extract job is: unread participant turns beyond
@@ -1514,16 +1659,30 @@ indistinguishable once both signals are gone.
 
 `getFeedbackConversation` also publishes `attentionReasons`: `{ id, kind,
 messageId, at, resolvedAt, resolvedBy }` per entry, `kind` drawn from the
-`safety | handoff | unattributed_note | answer_revision | hostile_to_bot`
-taxonomy. Resolved entries stay in the response — the admin renders only the
-unresolved ones, but a dismissal must remain distinguishable from a reason that
-was never raised.
+taxonomy in
+[`attention.ts`](../../../apps/backend/src/modules/post-event-feedback/attention.ts)
+and mapped to operator-facing sentences in the admin's `labels.ts`
+([naming the raise](#naming-the-raise) lists which situation produces which).
+Resolved entries stay in the response — the admin renders only the unresolved
+ones, but a dismissal must remain distinguishable from a reason that was never
+raised.
 
-`resolveFeedbackConversationAttentionReason` is the only thing that lowers
-`needsAttention` from the outside, and it does it one reason at a time. The
-repository clears the badge only when the dismissed entry was the last
-unresolved one, so clearing a revised score cannot take a safety disclosure
-down with it. It takes no body: the operator has read the message the reason
+`resolveFeedbackConversationAttentionReason` is how an operator lowers
+`needsAttention`, and it does it one reason at a time. The repository clears the
+badge only when the dismissed entry was the last unresolved one, so clearing a
+revised score cannot take a safety disclosure down with it.
+
+Closing is the other half, and it is narrower than it looks. `close` lowers the
+badge only when nothing unresolved is left to hold it up — which covers a
+pre-reason bare flag and a conversation whose reasons have all been dismissed. It
+never resolves a standing reason: «σβήστε ό,τι σας είπα» does not stop being a
+request because the questionnaire ended, and auto-resolving it would file it as
+handled by nobody under a `resolvedBy` we would have to invent. So a closed
+conversation with a standing reason keeps its badge, and the operator dismisses
+it — which is now possible, because every raise has a name. Without the lowering,
+a flagged-then-closed conversation stayed pinned above every open one for good:
+the inbox buckets on attention before lifecycle, so the one action meaning «I am
+done with this» did nothing to the flag. It takes no body: the operator has read the message the reason
 points at, and there is nothing further to state. Dismissing an already-resolved
 entry returns the current read model without a second audit row; an id the
 conversation never carried is a 404. A successful first dismissal writes

@@ -10,20 +10,31 @@ import {
   type FeedbackNoteStatus,
   type FeedbackNoteType,
 } from "@join-the-six/database";
-import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
 
 import { DatabaseService } from "../../../infrastructure/database/database.service.js";
+import { FEEDBACK_ANSWER_CORRECTIONS_KEY } from "./answer-corrections.js";
 
 type DatabaseExecutor = AppTransaction | DatabaseService["db"];
+
+/**
+ * `'corrections'`, inlined rather than bound.
+ *
+ * The key is a compile-time constant of this module, never operator input, and
+ * inlining it keeps the jsonb `?` and `->` operators away from an untyped bind
+ * parameter.
+ */
+const CORRECTIONS_KEY = sql.raw(`'${FEEDBACK_ANSWER_CORRECTIONS_KEY}'`);
+
+/** Rows no operator has corrected — the freeze predicate, in SQL. */
+function notCorrected(): SQL {
+  return sql`not (${feedbackAnswers.extractionMeta} ? ${CORRECTIONS_KEY})`;
+}
 
 @Injectable()
 export class FeedbackResultsRepository {
   constructor(private readonly database: DatabaseService) {}
 
-  /**
-   * Inserts a directed answer. Conflicts on the NULLS NOT DISTINCT uniqueness
-   * key are ignored so extraction replay stays idempotent.
-   */
   /**
    * Removes answers about one person that the answer just written contradicts.
    *
@@ -32,6 +43,13 @@ export class FeedbackResultsRepository {
    * staff then read that the participant both liked Κώστας and asked never to
    * meet him again, with nothing to break the tie. Only the participant's
    * newest position is true, and this is what makes it the only one on file.
+   *
+   * A row a human corrected is left alone. This is the one place in the module
+   * that hard-deletes an answer the model did not write, and the delete is
+   * driven by the model: a later run accepting `avoid` for somebody would
+   * otherwise erase an operator's corrected `liked` row with no trace on the
+   * row at all. Freezing means the model may stop agreeing with a human, not
+   * that it may delete them.
    */
   async deleteContradictedAnswers(
     transaction: AppTransaction,
@@ -51,6 +69,7 @@ export class FeedbackResultsRepository {
           eq(feedbackAnswers.conversationId, input.conversationId),
           eq(feedbackAnswers.subjectParticipantId, input.subjectParticipantId),
           inArray(feedbackAnswers.questionKey, [...input.questionKeys]),
+          notCorrected(),
         ),
       )
       .returning();
@@ -92,16 +111,26 @@ export class FeedbackResultsRepository {
       // conversation are serialized by the advisory lock while the extraction
       // cursor stops an older run from re-reading messages a newer one has
       // already closed. So "newest write" and "newest testimony" agree.
+      //
+      // Two things the update is not allowed to do. It may not overwrite a row
+      // an operator corrected — `setWhere` skips those, so the conflicting
+      // insert writes nothing and the correction stands even if a run built its
+      // context before the correction landed. And it may not drop the
+      // `corrections` array while updating a row that is *not* frozen, so the
+      // new provenance is merged over the old blob with that key carried
+      // across; replacing `extraction_meta` wholesale would leave the audit
+      // table as the only record that a human had ever touched the row.
       .onConflictDoUpdate({
         target: [
           feedbackAnswers.conversationId,
           feedbackAnswers.questionKey,
           feedbackAnswers.subjectParticipantId,
         ],
+        setWhere: notCorrected(),
         set: {
           valueInt: input.valueInt ?? null,
           sourceMessageIds: [...input.sourceMessageIds],
-          extractionMeta: input.extractionMeta,
+          extractionMeta: sql`${sql.raw(`excluded.${feedbackAnswers.extractionMeta.name}`)} || case when ${feedbackAnswers.extractionMeta} ? ${CORRECTIONS_KEY} then jsonb_build_object(${CORRECTIONS_KEY}, ${feedbackAnswers.extractionMeta} -> ${CORRECTIONS_KEY}) else '{}'::jsonb end`,
         },
       })
       .returning();
@@ -118,6 +147,72 @@ export class FeedbackResultsRepository {
       .from(feedbackAnswers)
       .where(eq(feedbackAnswers.conversationId, conversationId))
       .orderBy(asc(feedbackAnswers.createdAt), asc(feedbackAnswers.id));
+  }
+
+  async findAnswerById(
+    id: string,
+    executor: DatabaseExecutor = this.database.db,
+  ): Promise<FeedbackAnswerRow | undefined> {
+    const [record] = await executor
+      .select()
+      .from(feedbackAnswers)
+      .where(eq(feedbackAnswers.id, id))
+      .limit(1);
+
+    return record;
+  }
+
+  /**
+   * An operator's correction to a recorded value.
+   *
+   * The row is edited in place; `extractionMeta` is supplied by the caller with
+   * the correction already appended, so `model`, `confidence` and
+   * `candidateIds` from the run that proposed the value survive on the row.
+   * `sourceMessageIds` is untouched: the correction reads the same testimony
+   * differently, and rewriting the citation would claim evidence that does not
+   * exist.
+   */
+  async updateAnswerValue(
+    transaction: AppTransaction,
+    input: {
+      readonly id: string;
+      readonly valueInt: number | null;
+      readonly extractionMeta: FeedbackExtractionMeta;
+    },
+  ): Promise<FeedbackAnswerRow | undefined> {
+    const [record] = await transaction
+      .update(feedbackAnswers)
+      .set({
+        valueInt: input.valueInt,
+        extractionMeta: input.extractionMeta,
+        updatedAt: new Date(),
+      })
+      .where(eq(feedbackAnswers.id, input.id))
+      .returning();
+
+    return record;
+  }
+
+  /**
+   * Withdraws one answer entirely.
+   *
+   * A hard delete, as `deleteContradictedAnswers` already is: a soft-deleted row
+   * still occupies the `NULLS NOT DISTINCT` uniqueness key, so a later run
+   * proposing the same question and subject would upsert onto the withdrawn row
+   * and resurrect it with a fresh value while the withdrawal flag silently
+   * persisted. The whole row goes into the audit context before it goes, which
+   * is where a withdrawal is answerable.
+   */
+  async deleteAnswer(
+    transaction: AppTransaction,
+    id: string,
+  ): Promise<FeedbackAnswerRow | undefined> {
+    const [record] = await transaction
+      .delete(feedbackAnswers)
+      .where(eq(feedbackAnswers.id, id))
+      .returning();
+
+    return record;
   }
 
   async listAnswersGivenByParticipant(

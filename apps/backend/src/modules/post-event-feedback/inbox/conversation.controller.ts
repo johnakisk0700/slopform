@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   createParamDecorator,
+  Delete,
   type ExecutionContext,
   Get,
   Header,
@@ -25,6 +26,10 @@ import { FeedbackConversationNotFoundError } from "../post-event-feedback-conver
 import { FeedbackCampaignNotFoundError } from "../campaign/campaign.service.js";
 import {
   AddFeedbackConversationNoteDto,
+  CorrectFeedbackConversationAnswerDto,
+  FeedbackAnswerIdParamDto,
+  FeedbackAnswerViewDto,
+  FeedbackAnswerWithdrawalDto,
   FeedbackAttentionReasonIdParamDto,
   FeedbackCampaignConversationsDto,
   FeedbackCampaignIdParamDto,
@@ -38,6 +43,7 @@ import {
   UpdateFeedbackNoteReviewStatusDto,
 } from "./conversation.schemas.js";
 import {
+  FeedbackAnswerNotFoundError,
   FeedbackAttentionReasonNotFoundError,
   FeedbackConversationActionNotAllowedError,
   FeedbackNoteNotFoundError,
@@ -213,6 +219,61 @@ export class PostEventFeedbackConversationController {
     );
   }
 
+  /**
+   * Correcting a recorded score. `PATCH` because it changes one field of an
+   * existing row, which is the shape the note review status already uses for a
+   * human adjudicating model output.
+   *
+   * Not capability-gated: a closed conversation is the case this exists for,
+   * since nothing will ever re-read it.
+   */
+  @Patch(":campaignId/conversations/:conversationId/answers/:answerId")
+  @ApiOperation({ operationId: "correctFeedbackConversationAnswer" })
+  @Header("Cache-Control", "no-store")
+  @ZodResponse({ status: 200, type: FeedbackAnswerViewDto })
+  correctAnswer(
+    @Param() parameters: FeedbackAnswerIdParamDto,
+    @Body() input: CorrectFeedbackConversationAnswerDto,
+    @CurrentUserId() userId: PrincipalDto,
+    @RequestCorrelationId() correlationId: CorrelationIdDto,
+  ): Promise<FeedbackAnswerViewDto> {
+    return mapConversationErrors(
+      this.conversations.correctAnswerValue(
+        parameters.campaignId,
+        parameters.conversationId,
+        parameters.answerId,
+        input,
+        String(userId),
+        String(correlationId),
+      ),
+    );
+  }
+
+  /**
+   * Withdrawing an answer recorded about the wrong person. A separate verb from
+   * the correction above because it is a separate assertion: not "this number is
+   * wrong" but "this claim about somebody should not exist".
+   */
+  @Delete(":campaignId/conversations/:conversationId/answers/:answerId")
+  @ApiOperation({ operationId: "withdrawFeedbackConversationAnswer" })
+  @Header("Cache-Control", "no-store")
+  @ZodResponse({ status: 200, type: FeedbackAnswerWithdrawalDto })
+  withdrawAnswer(
+    @Param() parameters: FeedbackAnswerIdParamDto,
+    @CurrentUserId() userId: PrincipalDto,
+    @RequestCorrelationId() correlationId: CorrelationIdDto,
+  ): Promise<FeedbackAnswerWithdrawalDto> {
+    return mapConversationErrors(
+      this.conversations.withdrawAnswer(
+        parameters.campaignId,
+        parameters.conversationId,
+        parameters.answerId,
+        String(userId),
+        String(correlationId),
+      ),
+    );
+  }
+
   @Post(":campaignId/conversations/:conversationId/notes")
   @ApiOperation({ operationId: "addFeedbackConversationNote" })
   @Header("Cache-Control", "no-store")
@@ -271,6 +332,7 @@ async function mapConversationErrors<T>(operation: Promise<T>): Promise<T> {
       error instanceof FeedbackCampaignNotFoundError ||
       error instanceof FeedbackConversationNotFoundError ||
       error instanceof FeedbackNoteNotFoundError ||
+      error instanceof FeedbackAnswerNotFoundError ||
       error instanceof FeedbackAttentionReasonNotFoundError
     ) {
       throw new NotFoundException(error.message, { cause: error });

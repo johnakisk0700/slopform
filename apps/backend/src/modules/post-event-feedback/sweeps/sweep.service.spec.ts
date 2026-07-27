@@ -265,7 +265,6 @@ function createService(): {
     markReminded: ReturnType<typeof vi.fn>;
     close: ReturnType<typeof vi.fn>;
     appendMessage: ReturnType<typeof vi.fn>;
-    setNeedsAttention: ReturnType<typeof vi.fn>;
   };
   repository: {
     findCampaignById: ReturnType<typeof vi.fn>;
@@ -290,7 +289,6 @@ function createService(): {
     appendMessage: vi
       .fn()
       .mockResolvedValue({ appended: true, message: {}, conversation: {} }),
-    setNeedsAttention: vi.fn().mockResolvedValue({ changed: true }),
   };
   const repository = {
     findCampaignById: vi.fn(),

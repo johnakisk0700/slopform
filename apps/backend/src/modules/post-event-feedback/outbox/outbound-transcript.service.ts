@@ -170,12 +170,19 @@ export class FeedbackOutboundTranscriptService {
       );
     });
 
-    // `appendMessage` raises the flag itself on the capacity path; an oversized
-    // body never reached it, so the flag is raised here instead.
+    // `appendMessage` names the capacity path itself (`transcript_full`); an
+    // oversized body never reached it, so the reason is raised here instead.
+    //
+    // It is the *same* reason as a send the provider refused for good, because
+    // the operator's position is identical either way: the bot decided to say
+    // something, the row is cancelled, and the participant will never see it —
+    // so somebody has to reach them by hand. Why it did not go out is on the
+    // outbox row for whoever wants it.
     if (reason === "body_too_long") {
-      await this.conversations.setNeedsAttention({
+      await this.conversations.raiseAttention({
         conversationId: row.conversationId,
-        needsAttention: true,
+        kind: "undelivered_message",
+        messageId: null,
         at,
       });
     }

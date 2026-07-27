@@ -228,6 +228,23 @@ export const feedbackConversationDetailSchema = z
   })
   .strict();
 
+/**
+ * That a human decided this value, and who — not the correction's history.
+ *
+ * Derived from `extraction_meta`, on the same discipline as a note's `origin`:
+ * the row's provenance blob does not go on the wire. The before/after and any
+ * operator note live in `audit_events`, which is where "what did it used to say"
+ * is answerable; publishing them here would put a second, editable history in
+ * the read model. The model's own confidence score stays off the screen too —
+ * a number an operator cannot calibrate invites them to trust it.
+ */
+export const feedbackAnswerCorrectionSchema = z
+  .object({
+    at: z.iso.datetime(),
+    by: z.string().min(1).max(200),
+  })
+  .strict();
+
 export const feedbackAnswerViewSchema = z
   .object({
     id: z.uuid(),
@@ -240,6 +257,7 @@ export const feedbackAnswerViewSchema = z
     subjectParticipantId: z.uuid().nullable(),
     subjectDisplayName: z.string().min(1).max(200).nullable(),
     sourceMessageIds: z.array(z.uuid()).min(1),
+    correction: feedbackAnswerCorrectionSchema.nullable(),
     createdAt: z.iso.datetime(),
     updatedAt: z.iso.datetime(),
   })
@@ -315,6 +333,14 @@ export const feedbackAttentionReasonIdParamSchema = z
   })
   .strict();
 
+export const feedbackAnswerIdParamSchema = z
+  .object({
+    campaignId: z.uuid(),
+    conversationId: z.uuid(),
+    answerId: z.uuid(),
+  })
+  .strict();
+
 export const feedbackNoteIdParamSchema = z
   .object({
     noteId: z.uuid(),
@@ -334,6 +360,46 @@ export const sendFeedbackStaffMessageSchema = z
 export const updateFeedbackNoteReviewStatusSchema = z
   .object({
     status: z.enum(FEEDBACK_NOTE_STATUSES),
+  })
+  .strict();
+
+export const FEEDBACK_ANSWER_CORRECTION_NOTE_MAX_LENGTH = 500;
+
+/**
+ * An operator fixing a score the model read wrong.
+ *
+ * `valueInt` is required and bounded by the question set's own 1–5 range: this
+ * route changes a number, and there is no "no value" to send. Withdrawing an
+ * answer is a different assertion and a different verb — `value_int` is already
+ * null on every `liked` / `meet_again` / `avoid` row, where the subject *is* the
+ * answer, so a null here could not mean "withdrawn" without colliding with the
+ * ordinary shape of three quarters of the table.
+ *
+ * The note is for the operator's reasoning and is recorded in the audit context
+ * only. It never reaches the participant and is not published in the read model.
+ */
+export const correctFeedbackConversationAnswerSchema = z
+  .object({
+    valueInt: z.number().int().min(1).max(5),
+    note: z
+      .string()
+      .trim()
+      .min(1)
+      .max(FEEDBACK_ANSWER_CORRECTION_NOTE_MAX_LENGTH)
+      .optional(),
+  })
+  .strict();
+
+/**
+ * What a withdrawal answers with: the id that is gone.
+ *
+ * There is no row left to return, and the whole conversation's results are
+ * re-read by the caller anyway. The withdrawn row survives in the audit context,
+ * not here.
+ */
+export const feedbackAnswerWithdrawalSchema = z
+  .object({
+    id: z.uuid(),
   })
   .strict();
 
@@ -372,8 +438,20 @@ export class FeedbackConversationIdParamDto extends createZodDto(
 export class FeedbackAttentionReasonIdParamDto extends createZodDto(
   feedbackAttentionReasonIdParamSchema,
 ) {}
+export class FeedbackAnswerIdParamDto extends createZodDto(
+  feedbackAnswerIdParamSchema,
+) {}
 export class FeedbackNoteIdParamDto extends createZodDto(
   feedbackNoteIdParamSchema,
+) {}
+export class CorrectFeedbackConversationAnswerDto extends createZodDto(
+  correctFeedbackConversationAnswerSchema,
+) {}
+export class FeedbackAnswerViewDto extends createZodDto(
+  feedbackAnswerViewSchema,
+) {}
+export class FeedbackAnswerWithdrawalDto extends createZodDto(
+  feedbackAnswerWithdrawalSchema,
 ) {}
 export class SendFeedbackStaffMessageDto extends createZodDto(
   sendFeedbackStaffMessageSchema,
@@ -415,6 +493,13 @@ export type UpdateFeedbackNoteReviewStatusInput = z.infer<
 >;
 export type AddFeedbackConversationNoteInput = z.infer<
   typeof addFeedbackConversationNoteSchema
+>;
+export type CorrectFeedbackConversationAnswerInput = z.infer<
+  typeof correctFeedbackConversationAnswerSchema
+>;
+export type FeedbackAnswerView = z.infer<typeof feedbackAnswerViewSchema>;
+export type FeedbackAnswerWithdrawalView = z.infer<
+  typeof feedbackAnswerWithdrawalSchema
 >;
 export type FeedbackNoteView = z.infer<typeof feedbackNoteViewSchema>;
 export type FeedbackNoteOrigin = z.infer<typeof feedbackNoteOriginSchema>;

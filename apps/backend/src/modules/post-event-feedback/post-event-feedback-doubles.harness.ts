@@ -4,6 +4,10 @@ import type { AppTransaction, AuditEventInsert } from "@join-the-six/database";
 
 import { ConversationPersistenceError } from "../conversations/conversation-persistence.errors.js";
 import {
+  FEEDBACK_ANSWER_CORRECTIONS_KEY,
+  isCorrectedAnswer,
+} from "./extraction/answer-corrections.js";
+import {
   FeedbackConversationCapacityError,
   FeedbackConversationNotFoundError,
   FeedbackConversationPhoneConflictError,
@@ -238,7 +242,9 @@ export class FakeFeedbackRepository {
         row &&
         row.conversationId === input.conversationId &&
         row.subjectParticipantId === input.subjectParticipantId &&
-        input.questionKeys.includes(row.questionKey)
+        input.questionKeys.includes(row.questionKey) &&
+        // A row an operator corrected is not the model's to delete.
+        !isCorrectedAnswer(row.extractionMeta)
       ) {
         this.answers.splice(index, 1);
       }
@@ -272,9 +278,22 @@ export class FakeFeedbackRepository {
         row.subjectParticipantId === subject,
     );
     if (existing) {
+      // `setWhere: not (extraction_meta ? 'corrections')` — a corrected row is
+      // frozen, and the conflicting insert writes nothing at all.
+      if (isCorrectedAnswer(existing.extractionMeta)) {
+        return undefined;
+      }
       existing.valueInt = input.valueInt ?? null;
       existing.sourceMessageIds = [...input.sourceMessageIds];
-      existing.extractionMeta = input.extractionMeta;
+      // The update merges provenance over the old blob and carries
+      // `corrections` across rather than replacing it wholesale.
+      const carried = existing.extractionMeta[FEEDBACK_ANSWER_CORRECTIONS_KEY];
+      existing.extractionMeta = {
+        ...input.extractionMeta,
+        ...(carried === undefined
+          ? {}
+          : { [FEEDBACK_ANSWER_CORRECTIONS_KEY]: carried }),
+      };
       return existing;
     }
     const row: FakeAnswerRow = {
@@ -838,9 +857,10 @@ export class FakeFeedbackConversations {
     });
 
     if (this.exceedsCapacity(conversation, message)) {
-      await this.setNeedsAttention({
+      await this.raiseAttention({
         conversationId: conversation._id,
-        needsAttention: true,
+        kind: "transcript_full",
+        messageId: null,
         at: input.at,
       });
       throw new FeedbackConversationCapacityError();
@@ -968,7 +988,13 @@ export class FakeFeedbackConversations {
     return { changed: true, conversation: structuredClone(conversation) };
   }
 
-  /** The first closure wins, except that a STOP overrides a softer reason. */
+  /**
+   * The first closure wins, except that a STOP overrides a softer reason.
+   *
+   * Closing lowers the badge only when nothing unresolved is holding it up, as
+   * the repository does: an unresolved reason survives a close and is the
+   * operator's to dismiss.
+   */
   async close(input: {
     conversationId: string;
     reason: "completed" | "stopped" | "expired" | "cancelled";
@@ -987,6 +1013,14 @@ export class FakeFeedbackConversations {
       reason: input.reason,
       closedAt: input.at,
     };
+    if (
+      conversation.needsAttention &&
+      !conversation.attentionReasons.some(
+        (reason) => reason.resolvedAt === null,
+      )
+    ) {
+      conversation.needsAttention = false;
+    }
     this.touch(conversation, input.at);
     this.revalidate(conversation);
     return { changed: true, conversation: structuredClone(conversation) };
@@ -1038,21 +1072,6 @@ export class FakeFeedbackConversations {
         changed = true;
       }
     }
-    if (changed) {
-      this.touch(conversation, input.at);
-      this.revalidate(conversation);
-    }
-    return { changed, conversation: structuredClone(conversation) };
-  }
-
-  async setNeedsAttention(input: {
-    conversationId: string;
-    needsAttention: boolean;
-    at: Date;
-  }): Promise<FakeConversationTransition> {
-    const conversation = this.require(input.conversationId);
-    const changed = conversation.needsAttention !== input.needsAttention;
-    conversation.needsAttention = input.needsAttention;
     if (changed) {
       this.touch(conversation, input.at);
       this.revalidate(conversation);

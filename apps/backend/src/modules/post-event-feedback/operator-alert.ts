@@ -18,11 +18,14 @@ import type { Environment } from "../../infrastructure/config/environment.js";
  * flag is enough. Safety signals, an explicit handoff and a terminal extraction
  * failure are the reasons that notify through this port.
  *
- * It is invoked only on a real `false → true` transition. The conversation
- * repository already reports that (`setNeedsAttention` returns `changed`), so
- * idempotency is structural: a replayed job re-asserts `true`, sees
- * `changed: false` and raises nothing. That is the only reason this port can be
- * fire-and-forget without spamming an operator on every retry.
+ * It is invoked only when a reason is newly recorded. `raiseAttention` reports
+ * that (`changed`), and it is idempotent on kind plus message, so idempotency
+ * here is structural: a replayed job re-raises the same reason, sees
+ * `changed: false` and notifies nobody. That is the only reason this port can be
+ * fire-and-forget without spamming an operator on every retry. It keys off the
+ * reason rather than the `needsAttention` boolean deliberately — a second,
+ * different disclosure in an already-flagged conversation is news, and under the
+ * old boolean crossing it was swallowed.
  */
 
 export const FEEDBACK_OPERATOR_ALERT = Symbol("FEEDBACK_OPERATOR_ALERT");

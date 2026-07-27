@@ -36,6 +36,7 @@ import {
   FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH,
 } from "../post-event-feedback-conversation.document.js";
 import {
+  FeedbackAnswerNotFoundError,
   FeedbackAttentionReasonNotFoundError,
   FeedbackConversationActionNotAllowedError,
   PostEventFeedbackConversationService,
@@ -47,6 +48,7 @@ const participantId = "aaaaaaa1-aaaa-4aaa-8aaa-aaaaaaaaaaa1";
 const subjectId = "bbbbbbb1-bbbb-4bbb-8bbb-bbbbbbbbbbb1";
 const conversationId = "6f0f2f8a-2b73-5a02-9d0a-3f0b8f5b1c21";
 const noteId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+const answerId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
 const outboxId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 const reasonId = "99999999-9999-4999-8999-999999999901";
 const secondReasonId = "99999999-9999-4999-8999-999999999902";
@@ -696,6 +698,270 @@ describe("PostEventFeedbackConversationService", () => {
     expect(note.subjectParticipantId).toBeNull();
   });
 
+  it("corrects a score in place and keeps what the model proposed", async () => {
+    const { service, repository, conversations, auditAppend } = createService();
+    conversations.findById.mockResolvedValue(openConversation());
+    repository.findAnswerById.mockResolvedValue(scoreRow());
+    repository.updateAnswerValue.mockImplementation(
+      async (_transaction: unknown, input: { extractionMeta: unknown }) =>
+        scoreRow({
+          valueInt: 2,
+          extractionMeta:
+            input.extractionMeta as FeedbackAnswerRow["extractionMeta"],
+        }),
+    );
+
+    const view = await service.correctAnswerValue(
+      campaignId,
+      conversationId,
+      answerId,
+      { valueInt: 2, note: "Είπε 2 στο τέλος" },
+      "admin-1",
+      "req-20",
+    );
+
+    const [, update] = repository.updateAnswerValue.mock.calls[0] as [
+      unknown,
+      { id: string; valueInt: number; extractionMeta: Record<string, unknown> },
+    ];
+    expect(update.id).toBe(answerId);
+    expect(update.valueInt).toBe(2);
+    // What the model said survives beside what the operator decided: the
+    // correction is appended to the same blob rather than replacing it, which is
+    // the whole reason this needs no migration and no reader changes.
+    expect(update.extractionMeta).toMatchObject({
+      model: "google/gemini-3.6-flash",
+      confidence: 0.82,
+      candidateIds: [subjectId],
+      corrections: [
+        {
+          by: "admin-1",
+          from: { valueInt: 4 },
+          to: { valueInt: 2 },
+          note: "Είπε 2 στο τέλος",
+        },
+      ],
+    });
+    // Serialized against a running extraction by the same advisory lock the
+    // persist path takes.
+    expect(repository.lockConversation).toHaveBeenCalled();
+
+    expect(view.valueInt).toBe(2);
+    expect(view.correction).toMatchObject({ by: "admin-1" });
+    expect(auditAppend).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "feedback_answer.corrected",
+        actorType: "admin",
+        actorId: "admin-1",
+        entityType: "feedback_answer",
+        entityId: answerId,
+        context: expect.objectContaining({
+          questionKey: "event_score",
+          from: { valueInt: 4 },
+          to: { valueInt: 2 },
+          note: "Είπε 2 στο τέλος",
+        }),
+      }),
+    );
+  });
+
+  it("corrects a score on a closed conversation, which is the case it exists for", async () => {
+    const { service, repository, conversations } = createService();
+    conversations.findById.mockResolvedValue(
+      openConversation({
+        lifecycle: {
+          state: "closed",
+          reason: "completed",
+          closedAt: new Date("2026-07-25T01:00:00.000Z"),
+        },
+      }),
+    );
+    repository.findAnswerById.mockResolvedValue(scoreRow());
+    repository.updateAnswerValue.mockResolvedValue(scoreRow({ valueInt: 3 }));
+
+    // Once a thread closes the model will never read it again, so a wrong
+    // number is wrong for good unless a person can change it. Recording what is
+    // true is not steering the conversation, so this is not capability-gated.
+    const view = await service.correctAnswerValue(
+      campaignId,
+      conversationId,
+      answerId,
+      { valueInt: 3 },
+      "admin-1",
+      "req-21",
+    );
+
+    expect(view.valueInt).toBe(3);
+    expect(repository.updateAnswerValue).toHaveBeenCalled();
+  });
+
+  it("does nothing when the value is already the one recorded", async () => {
+    const { service, repository, conversations, auditAppend } = createService();
+    conversations.findById.mockResolvedValue(openConversation());
+    repository.findAnswerById.mockResolvedValue(scoreRow({ valueInt: 2 }));
+
+    const view = await service.correctAnswerValue(
+      campaignId,
+      conversationId,
+      answerId,
+      { valueInt: 2 },
+      "admin-1",
+      "req-22",
+    );
+
+    // A double-clicked or retried request must not append a second identical
+    // correction. The consequence is stated rather than hidden: re-affirming the
+    // model's own value is not a way to freeze it.
+    expect(view.valueInt).toBe(2);
+    expect(repository.updateAnswerValue).not.toHaveBeenCalled();
+    expect(auditAppend).not.toHaveBeenCalled();
+  });
+
+  it("refuses to put a number on a question whose answer is a person", async () => {
+    const { service, repository, conversations } = createService();
+    conversations.findById.mockResolvedValue(openConversation());
+    repository.findAnswerById.mockResolvedValue(answerRow());
+
+    // `value_int` is null on every liked / meet_again / avoid row because the
+    // subject is the answer. A 3 there would assert something the question
+    // cannot express; the wrong-person case is a withdrawal.
+    await expect(
+      service.correctAnswerValue(
+        campaignId,
+        conversationId,
+        answerId,
+        { valueInt: 3 },
+        "admin-1",
+        "req-23",
+      ),
+    ).rejects.toBeInstanceOf(FeedbackConversationActionNotAllowedError);
+    expect(repository.updateAnswerValue).not.toHaveBeenCalled();
+  });
+
+  it("will not touch an answer belonging to another conversation", async () => {
+    const { service, repository, conversations } = createService();
+    conversations.findById.mockResolvedValue(openConversation());
+    repository.findAnswerById.mockResolvedValue(
+      scoreRow({ conversationId: "7f0f2f8a-2b73-5a02-9d0a-3f0b8f5b1c22" }),
+    );
+
+    await expect(
+      service.correctAnswerValue(
+        campaignId,
+        conversationId,
+        answerId,
+        { valueInt: 3 },
+        "admin-1",
+        "req-24",
+      ),
+    ).rejects.toBeInstanceOf(FeedbackAnswerNotFoundError);
+    await expect(
+      service.withdrawAnswer(
+        campaignId,
+        conversationId,
+        answerId,
+        "admin-1",
+        "req-25",
+      ),
+    ).rejects.toBeInstanceOf(FeedbackAnswerNotFoundError);
+  });
+
+  it("withdraws a wrong-subject answer with the whole row in the audit context", async () => {
+    const { service, repository, conversations, auditAppend } = createService();
+    conversations.findById.mockResolvedValue(
+      openConversation({
+        lifecycle: {
+          state: "closed",
+          reason: "cancelled",
+          closedAt: new Date("2026-07-25T01:00:00.000Z"),
+        },
+      }),
+    );
+    const withdrawn = answerRow({ questionKey: "avoid" });
+    repository.findAnswerById.mockResolvedValue(withdrawn);
+    repository.deleteAnswer.mockResolvedValue(withdrawn);
+
+    const result = await service.withdrawAnswer(
+      campaignId,
+      conversationId,
+      answerId,
+      "admin-1",
+      "req-26",
+    );
+
+    expect(result).toStrictEqual({ id: answerId });
+    expect(repository.deleteAnswer).toHaveBeenCalledWith(
+      expect.anything(),
+      answerId,
+    );
+    expect(repository.lockConversation).toHaveBeenCalled();
+    // A hard delete, as the contradiction path already is, because a
+    // soft-deleted row still occupies the NULLS NOT DISTINCT uniqueness key and
+    // a later run would upsert onto it. So the audit context is the only place
+    // the withdrawn assertion survives, and it carries the whole row.
+    expect(auditAppend).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "feedback_answer.withdrawn",
+        entityType: "feedback_answer",
+        entityId: answerId,
+        context: expect.objectContaining({
+          campaignId,
+          conversationId,
+          answer: {
+            id: answerId,
+            campaignId,
+            conversationId,
+            respondentParticipantId: participantId,
+            subjectParticipantId: subjectId,
+            questionKey: "avoid",
+            valueInt: null,
+            sourceMessageIds: ["ffffffff-ffff-4fff-8fff-ffffffffffff"],
+            extractionMeta: { candidateIds: [subjectId] },
+            createdAt: "2026-07-25T00:40:00.000Z",
+            updatedAt: "2026-07-25T00:40:00.000Z",
+          },
+        }),
+      }),
+    );
+  });
+
+  it("publishes a correction on the answers read model, and nothing more", async () => {
+    const { service, repository } = createService();
+    repository.listAnswersByCampaign.mockResolvedValue([
+      scoreRow({
+        valueInt: 2,
+        extractionMeta: {
+          model: "google/gemini-3.6-flash",
+          confidence: 0.82,
+          candidateIds: [subjectId],
+          corrections: [
+            {
+              at: "2026-07-27T10:00:00.000Z",
+              by: "admin-1",
+              from: { valueInt: 4 },
+              to: { valueInt: 2 },
+              note: "Είπε 2 στο τέλος",
+            },
+          ],
+        },
+      }),
+    ]);
+
+    const result = await service.listCampaignResults(campaignId, {});
+
+    // Enough for the admin to say who decided this value and when. The
+    // before/after and the operator's note stay in `audit_events`: publishing
+    // them here would put a second, editable history in the read model, and the
+    // model's confidence score is a number an operator cannot calibrate.
+    expect(result.answers[0]?.correction).toStrictEqual({
+      at: "2026-07-27T10:00:00.000Z",
+      by: "admin-1",
+    });
+    expect(result.answers[0]).not.toHaveProperty("extractionMeta");
+  });
+
   it("reports extraction output as conversation-origin, including legacy rows", async () => {
     const { service, repository } = createService();
     repository.listNotesByCampaign.mockResolvedValue([
@@ -989,9 +1255,11 @@ function outboxRow(): MessageOutboxRow {
   };
 }
 
-function answerRow(): FeedbackAnswerRow {
+function answerRow(
+  overrides: Partial<FeedbackAnswerRow> = {},
+): FeedbackAnswerRow {
   return {
-    id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+    id: answerId,
     campaignId,
     conversationId,
     respondentParticipantId: participantId,
@@ -1002,7 +1270,25 @@ function answerRow(): FeedbackAnswerRow {
     extractionMeta: { candidateIds: [subjectId] },
     createdAt: new Date("2026-07-25T00:40:00.000Z"),
     updatedAt: new Date("2026-07-25T00:40:00.000Z"),
+    ...overrides,
   };
+}
+
+/** The one question whose answer is a number, so the one that can be corrected. */
+function scoreRow(
+  overrides: Partial<FeedbackAnswerRow> = {},
+): FeedbackAnswerRow {
+  return answerRow({
+    questionKey: "event_score",
+    subjectParticipantId: null,
+    valueInt: 4,
+    extractionMeta: {
+      model: "google/gemini-3.6-flash",
+      confidence: 0.82,
+      candidateIds: [subjectId],
+    },
+    ...overrides,
+  });
 }
 
 function noteRow(overrides: Partial<FeedbackNoteRow> = {}): FeedbackNoteRow {
@@ -1046,6 +1332,10 @@ function createService(): {
     findNoteById: ReturnType<typeof vi.fn>;
     updateNoteStatus: ReturnType<typeof vi.fn>;
     insertNote: ReturnType<typeof vi.fn>;
+    findAnswerById: ReturnType<typeof vi.fn>;
+    updateAnswerValue: ReturnType<typeof vi.fn>;
+    deleteAnswer: ReturnType<typeof vi.fn>;
+    lockConversation: ReturnType<typeof vi.fn>;
   };
   eventsService: {
     listFeedbackCandidatesForRespondent: ReturnType<typeof vi.fn>;
@@ -1057,7 +1347,6 @@ function createService(): {
     resumeBot: ReturnType<typeof vi.fn>;
     close: ReturnType<typeof vi.fn>;
     appendMessage: ReturnType<typeof vi.fn>;
-    setNeedsAttention: ReturnType<typeof vi.fn>;
     resolveAttentionReason: ReturnType<typeof vi.fn>;
   };
   participants: {
@@ -1079,6 +1368,10 @@ function createService(): {
     findNoteById: vi.fn(),
     updateNoteStatus: vi.fn(),
     insertNote: vi.fn(),
+    findAnswerById: vi.fn(),
+    updateAnswerValue: vi.fn(),
+    deleteAnswer: vi.fn(),
+    lockConversation: vi.fn().mockResolvedValue(undefined),
   };
   const conversations = {
     listForCampaign: vi.fn().mockResolvedValue([]),
@@ -1087,7 +1380,6 @@ function createService(): {
     resumeBot: vi.fn(),
     close: vi.fn(),
     appendMessage: vi.fn(),
-    setNeedsAttention: vi.fn().mockResolvedValue({ changed: true }),
     resolveAttentionReason: vi.fn(),
   };
   const events = {

@@ -25,16 +25,23 @@ export interface FeedbackOperatorAttentionRaise {
  * that said nothing and could not be cleared, because there was nothing
  * specific enough to clear.
  *
- * Two of the four carry no citation of their own. An explicit handoff is a
- * property of the run rather than of a line, and a refused revision is about
- * the *stored* answer it disagreed with; both are anchored on the newest
- * message this run read, which is the burst an operator wants open. That is a
- * weaker claim than the safety anchor and deliberately so — the alternative is
- * a reason that links nowhere.
+ * Three of the five carry no citation of their own. An explicit handoff is a
+ * property of the run rather than of a line, a refused revision is about the
+ * *stored* answer it disagreed with, and a withdrawal is about the run deciding
+ * to stop; all three are anchored on the newest message this run read, which is
+ * the burst an operator wants open. That is a weaker claim than the safety
+ * anchor and deliberately so — the alternative is a reason that links nowhere.
+ *
+ * `withdrew` is passed in rather than derived here because it depends on what
+ * actually reached the phone, which only the run knows. It belongs in this list
+ * all the same: a withdrawal used to raise the bare flag, so the one situation
+ * where the bot gave up on a questionnaire was also the one an operator could
+ * not read or dismiss.
  */
 export function operatorAttentionRaises(
   validated: FeedbackExtractionValidationResult,
   newestParticipantMessageId: string | null,
+  withdrew = false,
 ): FeedbackOperatorAttentionRaise[] {
   const raises: FeedbackOperatorAttentionRaise[] = [];
 
@@ -59,6 +66,16 @@ export function operatorAttentionRaises(
   if (validated.conflictingAnswerRevision) {
     raises.push({
       kind: "answer_revision",
+      messageId: newestParticipantMessageId,
+    });
+  }
+  // Named for the outcome an operator has to decide about — a questionnaire
+  // that stopped short — rather than for the bot's decision to bow out. The two
+  // are the same event; only one of them tells the operator what is on their
+  // plate. Not `hostile_to_bot`: rule 7δ withdraws on silence, not on rudeness.
+  if (withdrew) {
+    raises.push({
+      kind: "unfinished_questionnaire",
       messageId: newestParticipantMessageId,
     });
   }

@@ -17,6 +17,7 @@ import {
   getListFeedbackConversationResultsQueryKey,
   useAddFeedbackConversationNote,
   useCloseFeedbackConversation,
+  useCorrectFeedbackConversationAnswer,
   useGetFeedbackConversation,
   useListFeedbackCampaignConversations,
   useListFeedbackConversationResults,
@@ -24,6 +25,7 @@ import {
   useResumeFeedbackConversationBot,
   useSendFeedbackConversationStaffMessage,
   useTakeOverFeedbackConversation,
+  useWithdrawFeedbackConversationAnswer,
 } from "../api/generated/feedback-conversations";
 import { useUpdateFeedbackNoteReviewStatus } from "../api/generated/feedback-notes";
 import type { AddFeedbackConversationNoteDtoNoteType } from "../api/generated/model/addFeedbackConversationNoteDtoNoteType";
@@ -167,6 +169,8 @@ export function FeedbackInboxPage() {
     useResolveFeedbackConversationAttentionReason();
   const updateNoteReviewStatus = useUpdateFeedbackNoteReviewStatus();
   const addNote = useAddFeedbackConversationNote();
+  const correctAnswer = useCorrectFeedbackConversationAnswer();
+  const withdrawAnswer = useWithdrawFeedbackConversationAnswer();
   const startConversation = useStartFeedbackConversation();
   const pauseCampaign = usePauseFeedbackCampaign();
   const resumeCampaign = useResumeFeedbackCampaign();
@@ -268,7 +272,18 @@ export function FeedbackInboxPage() {
   ) {
     setActionError(null);
     await addNote.mutateAsync({ campaignId, conversationId, data: input });
-    await Promise.all([
+    await invalidateResults(conversationId);
+    toast.success("Note added", {
+      description: "It is saved as a staff note and labelled as one.",
+    });
+  }
+
+  /**
+   * Re-reads both places answers are shown after one has changed: this
+   * conversation's results and the campaign-wide Results tab.
+   */
+  function invalidateResults(conversationId: string) {
+    return Promise.all([
       queryClient.invalidateQueries({
         queryKey: getListFeedbackConversationResultsQueryKey(
           campaignId,
@@ -279,8 +294,44 @@ export function FeedbackInboxPage() {
         queryKey: getListFeedbackCampaignResultsQueryKey(campaignId),
       }),
     ]);
-    toast.success("Note added", {
-      description: "It is saved as a staff note and labelled as one.",
+  }
+
+  /**
+   * Corrects one recorded score. It deliberately does not catch: the answer's
+   * own row reports the failure, which is where the operator is looking and
+   * where the value they tried to save still is.
+   */
+  async function handleCorrectAnswer(answerId: string, valueInt: number) {
+    setActionError(null);
+    if (selectedId === null) {
+      return;
+    }
+    await correctAnswer.mutateAsync({
+      campaignId,
+      conversationId: selectedId,
+      answerId,
+      data: { valueInt },
+    });
+    await invalidateResults(selectedId);
+    toast.success("Answer corrected", {
+      description: "The recorded value is yours now, and says so.",
+    });
+  }
+
+  /** Withdraws one answer recorded about the wrong person. */
+  async function handleWithdrawAnswer(answerId: string) {
+    setActionError(null);
+    if (selectedId === null) {
+      return;
+    }
+    await withdrawAnswer.mutateAsync({
+      campaignId,
+      conversationId: selectedId,
+      answerId,
+    });
+    await invalidateResults(selectedId);
+    toast.success("Answer withdrawn", {
+      description: "It is off the record and no longer counts for anyone.",
     });
   }
 
@@ -543,6 +594,11 @@ export function FeedbackInboxPage() {
                       "Failed to load answers.",
                     )
                   : null
+              }
+              onCorrectAnswer={handleCorrectAnswer}
+              onWithdrawAnswer={handleWithdrawAnswer}
+              answerUpdatePending={
+                correctAnswer.isPending || withdrawAnswer.isPending
               }
             />
             <NotesPanel

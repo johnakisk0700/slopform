@@ -211,6 +211,19 @@ export function isPostEventFeedbackAnswerQuestionKey(
   return (FEEDBACK_ANSWER_QUESTION_KEYS as readonly string[]).includes(value);
 }
 
+/**
+ * Whether this question's answer is a number.
+ *
+ * `event_score` is; `liked`, `meet_again` and `avoid` answer with a person and
+ * leave `value_int` null. The distinction decides what an operator correction
+ * can even mean: there is no number to fix on a question whose answer is who.
+ */
+export function isScoredPostEventFeedbackQuestion(value: string): boolean {
+  return POST_EVENT_FEEDBACK_QUESTION_SET_V1.answerQuestions.some(
+    (question) => question.key === value && question.valueKind === "int",
+  );
+}
+
 export function isPostEventFeedbackNoteType(
   value: string,
 ): value is FeedbackNoteType {

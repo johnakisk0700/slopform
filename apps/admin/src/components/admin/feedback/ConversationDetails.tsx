@@ -40,6 +40,7 @@ import {
   formatNeighborhood,
 } from "../../../features/participants/profileFields";
 import { AddNoteAction } from "./AddNoteAction";
+import { AnswerValue } from "./AnswerCorrection";
 import { ConfirmAction } from "./ConfirmAction";
 import { FeedbackBadges } from "./FeedbackBadges";
 import { ParticipantName } from "./ParticipantName";
@@ -58,12 +59,13 @@ export type ConversationPendingAction =
  * `ConversationActions` and `ReadingStatus` belong to the transcript instead —
  * both are about the messages, so they render at the foot of them.
  *
- * Every control is gated on the capability flags the backend publishes for this
- * conversation — a STOP-closed thread simply reports no capabilities and the
- * whole action row disappears, with no client-side rule deciding that. «Add
- * note» is the one exception, and deliberately so: writing down what you
- * learned is not steering the conversation, so it stays available after the
- * thread closes.
+ * Every control that could reach a participant is gated on the capability flags
+ * the backend publishes for this conversation — a STOP-closed thread simply
+ * reports no capabilities and the whole action row disappears, with no
+ * client-side rule deciding that. «Add note» and the per-answer correction and
+ * withdrawal are the exceptions, and deliberately so: recording what is true is
+ * not steering the conversation, so they stay available after the thread closes,
+ * which is exactly where they matter.
  */
 
 /**
@@ -227,6 +229,10 @@ interface ProgressPanelProps {
   results: FeedbackConversationResultsDtoOutput | undefined;
   resultsLoading: boolean;
   resultsError: string | null;
+  /** Rejects on failure; the answer's own row reports the reason. */
+  onCorrectAnswer: (answerId: string, valueInt: number) => Promise<void>;
+  onWithdrawAnswer: (answerId: string) => Promise<void>;
+  answerUpdatePending: boolean;
 }
 
 /**
@@ -238,12 +244,20 @@ interface ProgressPanelProps {
  * the strongest possible statement that a goal is answered, so where there is
  * one it replaces the badge, and the badge is left to say the only things an
  * answer cannot: not asked, awaiting a reply, skipped.
+ *
+ * Each answer is also where it can be disagreed with. An operator who reads a
+ * score the model got wrong could previously do nothing about it — recorded
+ * answers were immutable from the product — and on a closed thread that was
+ * permanent, because nothing will ever re-read it.
  */
 export function ProgressPanel({
   conversation,
   results,
   resultsLoading,
   resultsError,
+  onCorrectAnswer,
+  onWithdrawAnswer,
+  answerUpdatePending,
 }: ProgressPanelProps) {
   const progress = goalProgress(conversation.goals);
   const answers = results?.answers ?? [];
@@ -284,24 +298,20 @@ export function ProgressPanel({
                 {questionLabel(goal.key)}
               </span>
               {given.length > 0 ? (
-                <span className="min-w-0 text-right text-sm font-semibold break-words text-ink">
-                  {given.map((answer, index) => (
-                    <span key={answer.id}>
-                      {index > 0 ? (
-                        <span aria-hidden="true" className="text-ink-subtle">
-                          {" · "}
-                        </span>
-                      ) : null}
-                      {answer.valueInt === null ? (
-                        <ParticipantName
-                          displayName={answer.subjectDisplayName}
-                        />
-                      ) : (
-                        `${answer.valueInt} / 5`
-                      )}
-                    </span>
+                /* One block per answer rather than a run of inline values: each
+                   one now carries its own controls and, where a human decided
+                   it, the line saying who. */
+                <div className="flex min-w-0 flex-col items-end gap-1 text-right text-sm font-semibold break-words text-ink">
+                  {given.map((answer) => (
+                    <AnswerValue
+                      key={answer.id}
+                      answer={answer}
+                      onCorrect={onCorrectAnswer}
+                      onWithdraw={onWithdrawAnswer}
+                      isDisabled={answerUpdatePending}
+                    />
                   ))}
-                </span>
+                </div>
               ) : (
                 <FeedbackBadges badges={[goalStatusBadge(goal.status)]} />
               )}

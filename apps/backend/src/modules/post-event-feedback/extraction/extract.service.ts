@@ -9,6 +9,7 @@ import type {
 } from "@join-the-six/database";
 
 import { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
+import { isCorrectedAnswer } from "./answer-corrections.js";
 import {
   FEEDBACK_OPERATOR_ALERT,
   type FeedbackOperatorAlert,
@@ -495,6 +496,7 @@ export class PostEventFeedbackExtractor {
         questionKey: answer.questionKey as FeedbackAnswerQuestionKey,
         subjectParticipantId: answer.subjectParticipantId,
         valueInt: answer.valueInt,
+        correctedByOperator: isCorrectedAnswer(answer.extractionMeta),
       })),
       acceptedNotes: acceptedNotes.map((note) => ({
         noteType: note.noteType as FeedbackNoteType,
@@ -768,6 +770,7 @@ export class PostEventFeedbackExtractor {
     const raises = operatorAttentionRaises(
       input.validated,
       input.newestParticipantMessageId,
+      input.withdrew,
     );
     let raisedIncident = false;
     for (const raise of raises) {
@@ -782,18 +785,6 @@ export class PostEventFeedbackExtractor {
       raisedIncident ||=
         attention.changed &&
         (raise.kind === "safety" || raise.kind === "handoff");
-    }
-
-    // A withdrawal has no reason kind, and inventing one would be inventing a
-    // classifier: the list names what a *participant* did, and this is the bot
-    // running out of things it was willing to say. So the badge rises without a
-    // line to dismiss — the one situation the inbox still cannot explain.
-    if (raises.length === 0 && input.withdrew) {
-      await this.conversations.setNeedsAttention({
-        conversationId: input.conversation._id,
-        needsAttention: true,
-        at,
-      });
     }
 
     // Only a newly recorded safety or handoff reason notifies. A flagged

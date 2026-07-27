@@ -58,16 +58,27 @@ export type FeedbackConversationMessageAttention = z.infer<
 /**
  * Why a conversation is asking for a person.
  *
- * `needsAttention` was a bare boolean, so five different situations arrived in
- * the inbox looking identical and the admin could not say what the problem was.
- * Naming the reason is what lets the operator read one and dismiss it — and
- * dismissing is per reason, so clearing a score somebody revised can never take
- * a disclosure down with it.
+ * `needsAttention` was a bare boolean, so a dozen different situations arrived
+ * in the inbox looking identical and the admin could not say what the problem
+ * was. Naming the reason is what lets the operator read one and dismiss it —
+ * and dismissing is per reason, so clearing a score somebody revised can never
+ * take a disclosure down with it.
+ *
+ * The vocabulary is deliberately smaller than the list of places that raise:
+ * two situations share a name whenever the operator does the same thing about
+ * them. A truncated render and an edited redelivery are both «the transcript is
+ * not what arrived, go and read the original», and a send that failed for good
+ * and one that was too long to record are both «this never reached them». The
+ * name is the operator's job, not the code path that noticed.
  *
  * Distinct from the safety taxonomy above, which classifies harm to a person.
  * `hostile_to_bot` is deliberately not a safety category: somebody swearing at
  * us is rude, not an incident, and folding it into the categories would start
- * flagging every participant who told the bot to get lost.
+ * flagging every participant who told the bot to get lost. It also still has no
+ * producer, and the withdrawal path is not it — prompt rule 7δ withdraws after
+ * two or three unanswered attempts and says in as many words that somebody who
+ * swears has not refused, so reading a withdrawal as hostility would be
+ * inventing exactly the classifier this comment refuses.
  */
 export const POST_EVENT_FEEDBACK_ATTENTION_REASONS = [
   "safety",
@@ -75,6 +86,22 @@ export const POST_EVENT_FEEDBACK_ATTENTION_REASONS = [
   "unattributed_note",
   "answer_revision",
   "hostile_to_bot",
+  /** The bot stopped asking with goals still unanswered. */
+  "unfinished_questionnaire",
+  /** No model run survived; a deterministic fallback stood in for it. */
+  "extraction_failed",
+  /** An inbound arrived with nothing we can transcribe — voice note, media. */
+  "unreadable_message",
+  /** The stored turn is not a faithful copy: cut short, or edited in place. */
+  "transcript_mismatch",
+  /** The transcript is full, so nothing more can be recorded here. */
+  "transcript_full",
+  /** Something the bot was going to say will never reach the participant. */
+  "undelivered_message",
+  /** Somebody wrote after their conversation had closed. */
+  "post_closure_message",
+  /** A STOP from somebody who had answered nothing at all. */
+  "stopped_without_answers",
 ] as const;
 
 export const postEventFeedbackAttentionReasonSchema = z.enum(

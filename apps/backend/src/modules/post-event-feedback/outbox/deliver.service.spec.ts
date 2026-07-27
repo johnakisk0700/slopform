@@ -207,8 +207,8 @@ describe("MessageOutboxDeliveryService", () => {
     expect(transport.sendText).not.toHaveBeenCalled();
   });
 
-  it("marks a rejected send as failed", async () => {
-    const { service, repository, transport } = createService();
+  it("marks a rejected send as failed and names it in the inbox", async () => {
+    const { service, repository, transport, conversations } = createService();
     repository.findOutboxById.mockResolvedValue(sendingRow());
     transport.sendText.mockResolvedValue({
       outcome: "not-accepted",
@@ -222,6 +222,17 @@ describe("MessageOutboxDeliveryService", () => {
       expect.anything(),
       outboxId,
       "failed",
+    );
+    // A participant who «went quiet» after a question they were never sent used
+    // to be indistinguishable from one who ignored it, and the badge that said
+    // so could not say which. Anchored on nothing: the transcript line beside it
+    // reads as an ordinary bot turn, and the failure is the delivery.
+    expect(conversations.raiseAttention).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId,
+        kind: "undelivered_message",
+        messageId: null,
+      }),
     );
   });
 });
@@ -242,7 +253,7 @@ function createService(): {
   conversations: {
     findById: ReturnType<typeof vi.fn>;
     appendMessage: ReturnType<typeof vi.fn>;
-    setNeedsAttention: ReturnType<typeof vi.fn>;
+    raiseAttention: ReturnType<typeof vi.fn>;
   };
 } {
   const repository = {
@@ -270,7 +281,7 @@ function createService(): {
     appendMessage: vi
       .fn()
       .mockResolvedValue({ appended: true, message: {}, conversation }),
-    setNeedsAttention: vi.fn().mockResolvedValue({ changed: true }),
+    raiseAttention: vi.fn().mockResolvedValue({ changed: true }),
   };
 
   return {

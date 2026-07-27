@@ -52,9 +52,14 @@ import type {
  */
 export type FeedbackExtractionValidationResult = ValidatedFeedbackExtraction & {
   /**
-   * An `already_recorded` answer was proposed again with a **different** value
-   * than the stored row. The row is not updated (immutability is deliberate
-   * elsewhere); the extractor raises `needsAttention` so a human can reconcile.
+   * A stored answer was proposed again with a **different** value.
+   *
+   * Two situations, one flag, because the operator's question is the same in
+   * both: this conversation now holds two readings of one answer. An ordinary
+   * revision is written — the newest testimony is what the participant means —
+   * and the reason says a value changed under whoever was reading it. A row an
+   * operator corrected is *not* written, and the reason is how they learn the
+   * model disagreed with them.
    */
   readonly conflictingAnswerRevision: boolean;
 };
@@ -342,6 +347,19 @@ function validateAnswers(
       // somebody typing «5» twice.
       if (previousValue === valueInt) {
         reject(stored ? "already_recorded" : "duplicate_in_run");
+        continue;
+      }
+
+      // A value an operator decided by hand is frozen. Newest-testimony-wins is
+      // the rule between the participant and the model; it is not a rule the
+      // model gets to apply to a person who has already read the transcript and
+      // said what the answer is. So the proposal is refused and
+      // `answer_revision` is raised on it — the same badge a participant's own
+      // revision raises — which puts the disagreement in front of the operator
+      // rather than resolving it silently against them.
+      if (stored?.correctedByOperator) {
+        conflictingAnswerRevision = true;
+        reject("answer_corrected_by_operator");
         continue;
       }
 

@@ -16,6 +16,10 @@ import {
   FakeDatabase,
   FakeParticipants,
 } from "../post-event-feedback-doubles.harness.js";
+import {
+  FEEDBACK_ANSWER_CORRECTIONS_KEY,
+  isCorrectedAnswer,
+} from "./answer-corrections.js";
 import { PostEventFeedbackExtractor } from "./extract.service.js";
 import type { PostEventFeedbackExtractionModel } from "./model.service.js";
 import { PostEventFeedbackMetrics } from "../metrics.service.js";
@@ -1031,6 +1035,63 @@ describe("PostEventFeedbackExtractor", () => {
       ).toMatchObject([{ kind: "answer_revision", messageId: "p1" }]);
     });
 
+    it("leaves an operator's corrected score alone and asks them to look again", async () => {
+      harness.repository.answers.push({
+        id: randomUUID(),
+        conversationId,
+        questionKey: "event_score",
+        subjectParticipantId: null,
+        valueInt: 2,
+        noteType: null,
+        text: null,
+        extractionMeta: {
+          model,
+          confidence: 1,
+          candidateIds: [],
+          [FEEDBACK_ANSWER_CORRECTIONS_KEY]: [
+            {
+              at: "2026-07-27T10:00:00.000Z",
+              by: "admin-1",
+              from: { valueInt: 4 },
+              to: { valueInt: 2 },
+            },
+          ],
+        },
+      });
+      harness.generation.propose.mockResolvedValue(
+        generation({
+          answers: [
+            {
+              questionKey: "event_score",
+              valueInt: 4,
+              subjectParticipantId: null,
+              subjectMentionedName: null,
+              sourceMessageIds: ["p1"],
+              confidence: 0.9,
+            },
+          ],
+          nextGoal: "liked",
+        }),
+      );
+
+      await harness.extractor.extract({ conversationId, correlationId });
+
+      // The model reading it as 4 again is exactly how a correction used to be
+      // undone: the row went back to 4, `extraction_meta` was replaced, and the
+      // only trace of the operator's judgement was a badge. The value stands,
+      // the correction stands, and the badge is now the invitation to
+      // adjudicate rather than the receipt for a silent revert.
+      const stored = harness.repository.answers.filter(
+        (row) => row.questionKey === "event_score",
+      );
+      expect(stored).toHaveLength(1);
+      expect(stored[0]?.valueInt).toBe(2);
+      expect(isCorrectedAnswer(stored[0]?.extractionMeta ?? {})).toBe(true);
+      expect(
+        harness.conversations.get(conversationId).attentionReasons,
+      ).toMatchObject([{ kind: "answer_revision", messageId: "p1" }]);
+    });
+
     it("names a handoff, so the badge and the promise say the same thing", async () => {
       harness.generation.propose.mockResolvedValue(
         generation({ handoff: true }),
@@ -1041,6 +1102,45 @@ describe("PostEventFeedbackExtractor", () => {
       expect(
         harness.conversations.get(conversationId).attentionReasons,
       ).toMatchObject([{ kind: "handoff", messageId: "p1" }]);
+    });
+
+    it("names a questionnaire the bot stopped short, not the bot's mood", async () => {
+      // Πάνος Μούλαρος again, from the reason list's side. This raise used to be
+      // the bare flag: the one situation the inbox could not explain, because
+      // naming it `hostile_to_bot` would have been a hostility verdict nobody
+      // asked for — rule 7δ withdraws after unanswered attempts, and says in as
+      // many words that somebody who swears has not refused to answer.
+      harness.generation.propose.mockResolvedValue(
+        generation({
+          nextGoal: "event_score",
+          reply: "Εντάξει, το άξιζα 😅 Δεν θα σε ζαλίσω άλλο",
+        }),
+      );
+
+      await harness.extractor.extract({ conversationId, correlationId });
+
+      expect(
+        harness.conversations.get(conversationId).attentionReasons,
+      ).toMatchObject([
+        { kind: "unfinished_questionnaire", messageId: "p1", resolvedAt: null },
+      ]);
+    });
+
+    it("does not stack a withdrawal the run reads twice", async () => {
+      harness.generation.propose.mockResolvedValue(
+        generation({
+          nextGoal: "event_score",
+          reply: "Εντάξει, το άξιζα 😅 Δεν θα σε ζαλίσω άλλο",
+        }),
+      );
+
+      await harness.extractor.extract({ conversationId, correlationId });
+      harness.conversations.get(conversationId).extraction.cursorSeq = 0;
+      await harness.extractor.extract({ conversationId, correlationId });
+
+      expect(
+        harness.conversations.get(conversationId).attentionReasons,
+      ).toHaveLength(1);
     });
 
     it("does not stack the same reason when the run replays", async () => {
@@ -1340,7 +1440,9 @@ class FakeFeedbackRepository {
         row.conversationId === input.conversationId &&
         row.subjectParticipantId === input.subjectParticipantId &&
         row.questionKey !== null &&
-        input.questionKeys.includes(row.questionKey)
+        input.questionKeys.includes(row.questionKey) &&
+        // A row an operator corrected is not the model's to delete.
+        !isCorrectedAnswer(row.extractionMeta)
       ) {
         this.answers.splice(index, 1);
       }
@@ -1367,8 +1469,19 @@ class FakeFeedbackRepository {
         row.subjectParticipantId === subject,
     );
     if (existing) {
+      // `setWhere: not (extraction_meta ? 'corrections')` — a corrected row is
+      // frozen and the conflicting insert writes nothing.
+      if (isCorrectedAnswer(existing.extractionMeta)) {
+        return undefined;
+      }
+      const carried = existing.extractionMeta[FEEDBACK_ANSWER_CORRECTIONS_KEY];
       existing.valueInt = input.valueInt ?? null;
-      existing.extractionMeta = input.extractionMeta;
+      existing.extractionMeta = {
+        ...input.extractionMeta,
+        ...(carried === undefined
+          ? {}
+          : { [FEEDBACK_ANSWER_CORRECTIONS_KEY]: carried }),
+      };
       return existing;
     }
     const row: FakeResultRow = {
@@ -1529,16 +1642,6 @@ class FakeConversations {
       model: input.model ?? null,
     };
     return { changed: true, conversation };
-  }
-
-  async setNeedsAttention(input: {
-    conversationId: string;
-    needsAttention: boolean;
-  }): Promise<{ changed: boolean; conversation: FakeConversation }> {
-    const conversation = this.get(input.conversationId);
-    const changed = conversation.needsAttention !== input.needsAttention;
-    conversation.needsAttention = input.needsAttention;
-    return { changed, conversation };
   }
 
   /** Idempotent on kind + message, exactly as the Mongo guard filter is. */

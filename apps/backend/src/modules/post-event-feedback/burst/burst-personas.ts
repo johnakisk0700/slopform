@@ -1874,12 +1874,11 @@ export const BURST_PERSONAS: readonly BurstPersona[] = [
     //
     // `materializeInbound` sees an empty body, sends the campaign's
     // `cannot_read_media` copy exactly once per conversation, marks the ingress
-    // row `failed` and calls `setNeedsAttention` — the bare flag, not
-    // `raiseAttention`. That is the point of the row: she arrives in the inbox
-    // badged with **nothing an operator can read or dismiss**, because the
-    // reason vocabulary does not reach outside extraction. `post-event-feedback.md`
-    // records it as a known gap under "naming the raise", and this is the first
-    // rehearsal that produces one.
+    // row `failed` and raises `unreadable_message` — a named reason with no
+    // anchor, because the thing to look at is not in the transcript at all. She
+    // used to arrive badged with the bare flag and **nothing an operator could
+    // read or dismiss**; her second voice note still adds no second row, since
+    // one unreadable message and three are the same piece of news.
     //
     // No extraction run is enqueued at all — the quiet window is born where a
     // model turn is born, and there is no turn here — so the stub is empty and

@@ -25,7 +25,7 @@ interface ConversationAttentionProps {
  *
  * Dismissing takes one press. No dialog and no note: by the time somebody
  * clicks they have read the message the reason links to, and the alternative —
- * a confirmation for each of five possible reasons — is how a badge ends up
+ * a confirmation for each of a dozen possible reasons — is how a badge ends up
  * never being cleared, which is the state this whole list exists to end. That
  * is safe because it is per reason and reversible in the only sense that
  * matters: whatever raised it will raise it again on the next message.
