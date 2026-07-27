@@ -163,6 +163,48 @@ describe("buildFeedbackExtractionPrompt", () => {
     expect(prompt.system).toContain("ΠΕΡΙΣΣΟΤΕΡΟΥΣ ΑΠΟ ΕΝΑΝ υποψήφιο");
   });
 
+  it("refuses to bank a name the participant is still weighing", () => {
+    const prompt = buildFeedbackExtractionPrompt({
+      context: context(),
+      copy: COPY,
+    });
+
+    // Φάνης Πολυλογόπουλος produced three `liked` answers he never gave, about
+    // three named real people, on his first run: he weighs everyone aloud
+    // before deciding and every name he passed through was banked as a
+    // preference. An invented answer is worse than a missing one — staff read
+    // it and act on it.
+    expect(prompt.system).toContain("7γ.");
+    expect(prompt.system).toContain("ΖΥΓΙΖΕΤΑΙ δεν είναι απάντηση");
+  });
+
+  it("makes withdrawing a decision about the whole questionnaire", () => {
+    const prompt = buildFeedbackExtractionPrompt({
+      context: context(),
+      copy: COPY,
+    });
+
+    // Both people the bot backed away from were left open with goals pending,
+    // so the reminder ladder would chase them about a questionnaire the bot
+    // itself had abandoned. `isCompleting` closes a conversation once every
+    // goal is terminal; nothing was telling the model to make them terminal.
+    expect(prompt.system).toContain("7δ.");
+    expect(prompt.system).toContain("declined σε αυτή την κλήση");
+  });
+
+  it("keeps a score the participant gave on behalf of two people", () => {
+    const prompt = buildFeedbackExtractionPrompt({
+      context: context(),
+      copy: COPY,
+    });
+
+    // «εγώ κι ο άντρας μου βάζουμε 5» was refused three times as somebody
+    // else's opinion and her score was lost. Rule 9β exists to stop a stranger's
+    // view being filed as hers — not to discard one she plainly stated.
+    expect(prompt.system).toContain("9γ.");
+    expect(prompt.system).toContain("ΤΟΝ ΕΑΥΤΟ ΤΟΥ");
+  });
+
   it("treats an explicit change of mind as answerable, not as settled", () => {
     const prompt = buildFeedbackExtractionPrompt({
       context: context(),
