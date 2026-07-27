@@ -885,9 +885,9 @@ When `FEEDBACK_SIMULATOR_ENABLED=true`, `NODE_ENV` is not `production`, and
 The same gate also mounts
 [`PostEventFeedbackBurstHttpModule`](../../../apps/backend/src/modules/post-event-feedback/burst/http.module.ts):
 
-| Operation                         | Purpose                                                                                                                                                |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `GET /dev/feedback/burst/catalog` | Read the three rehearsal campaigns and the eighteen personas (id, campaign, ordinal, display name, phone, quirk, mirrors, messages, expected outcome). |
+| Operation                         | Purpose                                                                                                                                                                                 |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /dev/feedback/burst/catalog` | Read whether the extraction stub is on, whether a feedback worker is registered, the three rehearsal campaigns and the eighteen personas (messages, expected outcome, reserved phones). |
 
 `FEEDBACK_EXTRACTION_STUB=true` (requires the simulator gate, refused in
 production) swaps the worker's `PostEventFeedbackExtractionModel` for
@@ -918,6 +918,29 @@ pnpm feedback:simulate \
   --model openai/gpt-5.6-luna \
   --confirm-paid-run
 ```
+
+The multi-campaign burst rehearsal drives all eighteen personas at once:
+
+```sh
+# Free deterministic stub (default). Requires FEEDBACK_EXTRACTION_STUB=true on
+# both API and worker, plus the simulator gate above.
+pnpm feedback:burst
+
+# Paid provider mode — eighteen conversations, each at least two provider calls.
+pnpm feedback:burst \
+  --model qwen/qwen3.7-max \
+  --confirm-paid-run
+```
+
+`pnpm feedback:burst` seeds participants through `@join-the-six/database` on the
+reserved phone block `+3069000<cc><pp>`, creates one finished event per
+catalogue campaign (draft → scheduled → finished), launches via
+`launchFeedbackCampaign`, injects every persona concurrently through the
+ordinary simulator path, then writes `report/feedback-burst-<timestamp>.html`.
+It never cleans up. Stub mode refuses to start unless the burst catalogue
+reports `extractionStub: true` and a feedback worker is registered; paid mode
+treats per-persona semantic expectations as observations and keeps the
+cross-cutting correctness checks as hard failures.
 
 The preflight never repairs or injects. The paid command requires the literal
 confirmation flag, sends a stable `x-request-id`, and prints run, scenario,

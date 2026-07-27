@@ -62,6 +62,15 @@ export const feedbackBurstPersonaCatalogEntrySchema = z
 
 export const feedbackBurstCatalogResponseSchema = z
   .object({
+    /**
+     * Whether this API process constructed the deterministic extraction stub.
+     * The burst runner refuses a free rehearsal unless this is true — checking
+     * only the caller's env would miss a worker that was started without the
+     * stub and quietly billed a provider.
+     */
+    extractionStub: z.boolean(),
+    /** True when at least one BullMQ worker is registered on the feedback queue. */
+    workerRegistered: z.boolean(),
     campaigns: z.array(feedbackBurstCampaignSchema).min(1),
     personas: z.array(feedbackBurstPersonaCatalogEntrySchema).length(18),
   })

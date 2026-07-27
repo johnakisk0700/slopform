@@ -12,7 +12,7 @@
     "api:check": "node scripts/verify-generated-api.mjs",
     "api:generate": "turbo run api:generate --filter=@join-the-six/admin",
     "build": "turbo run build",
-    "check": "pnpm format:check && pnpm docs:check && pnpm api:check && pnpm typecheck && pnpm lint && pnpm test && pnpm build",
+    "check": "pnpm format:check && pnpm docs:check && pnpm api:check && pnpm typecheck && pnpm lint && pnpm test && pnpm test:scripts && pnpm build",
     "db:check": "dotenv -e .env -- pnpm --filter @join-the-six/database db:check",
     "db:generate": "dotenv -e .env -- pnpm --filter @join-the-six/database db:generate",
     "db:migrate": "dotenv -e .env -- pnpm --filter @join-the-six/database db:migrate",
@@ -27,6 +27,7 @@
     "docs:check": "node scripts/verify-docs.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "feedback:burst": "dotenv -e .env -- node scripts/run-feedback-burst.mjs",
     "feedback:simulate": "node scripts/run-feedback-simulator.mjs",
     "import:wordpress-profiles": "pnpm --filter @join-the-six/database build && pnpm --filter @join-the-six/backend build && dotenv -e .env -- pnpm --filter @join-the-six/backend import:wordpress-profiles --",
     "infra:down": "docker compose down",
@@ -35,6 +36,7 @@
     "lint": "turbo run lint",
     "openapi:emit": "turbo run openapi:emit --filter=@join-the-six/backend",
     "test": "turbo run test",
+    "test:scripts": "node --test \"scripts/*.spec.mjs\"",
     "typecheck": "turbo run typecheck"
   },
   "devDependencies": {

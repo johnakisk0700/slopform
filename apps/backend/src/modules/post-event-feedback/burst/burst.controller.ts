@@ -1,9 +1,12 @@
+import { InjectQueue } from "@nestjs/bullmq";
 import { ConflictException, Controller, Get } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { ApiOperation, ApiTags } from "@nestjs/swagger";
 import { ZodResponse } from "nestjs-zod";
+import type { Queue } from "bullmq";
 
 import type { Environment } from "../../../infrastructure/config/environment.js";
+import { FEEDBACK_QUEUE } from "../../../infrastructure/queue/queue.constants.js";
 import { BURST_PERSONAS } from "./burst-personas.js";
 import {
   BURST_CAMPAIGNS,
@@ -20,19 +23,29 @@ import {
  *
  * The runner is plain Node and cannot import TypeScript, so it learns the
  * eighteen personas and three campaigns from this route — the same reason the
- * simulator exposes its own catalog.
+ * simulator exposes its own catalog. It also reports whether this process has
+ * the extraction stub on and whether a feedback worker is registered, so the
+ * runner can refuse a free rehearsal that would otherwise bill a provider.
  */
 @ApiTags("dev-feedback-burst")
 @Controller("dev/feedback/burst")
 export class FeedbackBurstController {
-  constructor(private readonly config: ConfigService<Environment, true>) {}
+  constructor(
+    private readonly config: ConfigService<Environment, true>,
+    @InjectQueue(FEEDBACK_QUEUE) private readonly queue: Queue,
+  ) {}
 
   @Get("catalog")
   @ApiOperation({ operationId: "getFeedbackBurstCatalog" })
   @ZodResponse({ status: 200, type: FeedbackBurstCatalogResponseDto })
-  getCatalog(): FeedbackBurstCatalogResponseDto {
+  async getCatalog(): Promise<FeedbackBurstCatalogResponseDto> {
     this.assertEnabled();
+    const workers = await this.queue.getWorkers();
     return feedbackBurstCatalogResponseSchema.parse({
+      extractionStub: this.config.get("FEEDBACK_EXTRACTION_STUB", {
+        infer: true,
+      }),
+      workerRegistered: workers.length > 0,
       campaigns: BURST_CAMPAIGNS.map((campaign) => ({
         slug: campaign.slug,
         ordinal: campaign.ordinal,

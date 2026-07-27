@@ -30,6 +30,19 @@ pnpm infra:up
 pnpm dev
 ```
 
+Useful local commands once the stack is up:
+
+```bash
+pnpm feedback:simulate --list
+pnpm feedback:burst
+```
+
+`pnpm feedback:burst` seeds three finished events, launches eighteen concurrent
+post-event feedback conversations, and writes
+`report/feedback-burst-<timestamp>.html`. Default mode is the free deterministic
+stub (`FEEDBACK_EXTRACTION_STUB=true`); paid provider mode needs `--model` and
+`--confirm-paid-run`. It never cleans up.
+
 To run the application processes in containers too:
 
 ```bash
