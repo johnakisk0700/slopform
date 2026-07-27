@@ -592,6 +592,36 @@ describe("PostEventFeedbackExtractor", () => {
       ]);
     });
 
+    it("does not close a questionnaire it has just promised to a human", async () => {
+      // Κώστας Σβηστομετανιώτης wrote «σβήστε ό,τι σας είπα σας παρακαλώ». The
+      // bot said somebody would be in touch, marked the two remaining goals
+      // declined, and the conversation closed as `completed` — `awaitingHuman`
+      // set on a thread nobody would ever open again. A deletion request is not
+      // a refusal to answer; it is work for a person, and it belongs to them.
+      harness.conversations.setAllGoals(conversationId, "answered");
+      harness.conversations.setGoal(conversationId, "avoid", "asked");
+      harness.generation.propose.mockResolvedValue(
+        generation({
+          handoff: true,
+          skippedGoals: ["avoid"],
+          reply: "Ας συνεχίσουμε.",
+        }),
+      );
+
+      const result = await harness.extractor.extract({
+        conversationId,
+        correlationId,
+      });
+
+      expect(result.outcome).toBe("handoff");
+      const conversation = harness.conversations.get(conversationId);
+      expect(conversation.lifecycle.state).toBe("open");
+      expect(conversation.awaitingHuman).toBe(true);
+      expect(harness.repository.outbox).toEqual([
+        expect.objectContaining({ body: POST_EVENT_FEEDBACK_HANDOFF_REPLY }),
+      ]);
+    });
+
     it("does not record liked as asked when the bot bows out without mentioning it", async () => {
       // Μπάμπης Διπλογαμωσταυρίδης after sustained abuse: the model named
       // nextGoal liked while writing a withdrawal. The next day's
@@ -620,7 +650,6 @@ describe("PostEventFeedbackExtractor", () => {
         correlationId,
       });
 
-      expect(result.outcome).toBe("completed");
       expect(harness.repository.outbox).toEqual([
         expect.objectContaining({
           body: "ΟΚ, το πιάνω — το bot αποσύρεται με σκυμμένο κεφάλι",
@@ -632,18 +661,16 @@ describe("PostEventFeedbackExtractor", () => {
         meet_again: "skipped",
         avoid: "skipped",
       });
-      expect(harness.conversations.get(conversationId).lifecycle).toMatchObject(
-        {
-          state: "closed",
-          reason: "completed",
-        },
-      );
     });
 
-    it("closes when the bot withdraws rather than leaving the ladder open for reminders", async () => {
+    it("freezes rather than completing when the bot is the one who gave up", async () => {
       // Πάνος Μούλαρος: «Εντάξει, το άξιζα 😅 Δεν θα σε ζαλίσω άλλο» — no
-      // answers, no notes, no question. Without settling, he stayed open and
-      // was chased by the reminder ladder after being told it was over.
+      // answers, no notes, no question. The settled ladder is what stops the
+      // reminders; closing on top of it is a different claim, and a wrong one.
+      // Μπάμπης's conversation closed as `completed` after one «άντε γαμήσου»,
+      // so his next message was answered with «Τέλεια, ευχαριστούμε πολύ! 🙌».
+      // Somebody who declines every question is finished; a bot that ran out of
+      // things it was willing to say is a conversation for a person to read.
       harness.generation.propose.mockResolvedValue(
         generation({
           nextGoal: "event_score",
@@ -656,13 +683,21 @@ describe("PostEventFeedbackExtractor", () => {
         correlationId,
       });
 
-      expect(result.outcome).toBe("completed");
+      expect(result.outcome).not.toBe("completed");
       expect(harness.repository.outbox[0]?.["body"]).toBe(
         "Εντάξει, το άξιζα 😅 Δεν θα σε ζαλίσω άλλο",
       );
-      expect(harness.conversations.get(conversationId).lifecycle.state).toBe(
-        "closed",
-      );
+      const conversation = harness.conversations.get(conversationId);
+      expect(conversation.lifecycle.state).toBe("open");
+      expect(conversation.awaitingHuman).toBe(true);
+      expect(conversation.needsAttention).toBe(true);
+      // The ladder is still settled, so no reminder chases him tomorrow.
+      expect(harness.conversations.goalStatuses(conversationId)).toEqual({
+        event_score: "skipped",
+        liked: "skipped",
+        meet_again: "skipped",
+        avoid: "skipped",
+      });
     });
 
     it("keeps the conversation open when nothing was extracted but the bot still asked", async () => {

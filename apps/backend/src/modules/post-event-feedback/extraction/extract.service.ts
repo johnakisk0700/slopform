@@ -300,7 +300,7 @@ export class PostEventFeedbackExtractor {
     // side-question answer and must not settle. Safety and handoff keep the
     // ladder open for a human — closing on a disclosure that produced no
     // structured rows would slam the door.
-    if (
+    const withdrew =
       !dutyOfCare &&
       validated.safetySignals.length === 0 &&
       isWithdrawal({
@@ -312,17 +312,31 @@ export class PostEventFeedbackExtractor {
         repairingStoredResults: validated.rejections.some(
           (rejection) => rejection.reason === "already_recorded",
         ),
-      })
-    ) {
+      });
+    if (withdrew) {
       goalStatuses = withSettledOpenGoals(conversation.goals, goalStatuses);
     }
     // A disclosure that happens to finish the questionnaire is not a finish
     // line: closing copy and close() wait for a run that did not raise safety.
     // Results, attention and the alert still write; only the conversational
     // ending is deferred so a human can take the thread.
+    //
+    // Neither is a withdrawal a finish line. Μπάμπης Διπλογαμωσταυρίδης swore
+    // at the bot, the bot bowed out, every goal settled — and the conversation
+    // closed as `completed`, so his next message was answered with «Τέλεια,
+    // ευχαριστούμε πολύ! 🙌». A participant who explicitly declines every
+    // question is finished; a bot that gave up on one is not, and a person
+    // should look at it. The ladder stops either way, which is what the settled
+    // goals are for.
+    //
+    // The handoff is the third: `awaitingHuman` says the bot is waiting for a
+    // person, and closing the thread underneath that promise is how «σβήστε
+    // ό,τι σας είπα» was answered with a human's name and then filed as done.
     const closingNow =
       isCompleting(conversation.goals, goalStatuses) &&
-      validated.safetySignals.length === 0;
+      validated.safetySignals.length === 0 &&
+      !dutyOfCare &&
+      !withdrew;
 
     const written = await this.persist({
       conversation,
@@ -353,6 +367,7 @@ export class PostEventFeedbackExtractor {
       goalStatuses,
       closingNow,
       dutyOfCare,
+      withdrew,
       cursorSeq,
       model: generated.model,
       correlationId: input.correlationId,
@@ -718,6 +733,7 @@ export class PostEventFeedbackExtractor {
     readonly goalStatuses: readonly GoalStatusUpdate[];
     readonly closingNow: boolean;
     readonly dutyOfCare: boolean;
+    readonly withdrew: boolean;
     readonly cursorSeq: number;
     readonly model: string;
     readonly correlationId: string;
@@ -745,7 +761,7 @@ export class PostEventFeedbackExtractor {
       });
     }
 
-    if (needsOperatorAttention(input.validated)) {
+    if (needsOperatorAttention(input.validated) || input.withdrew) {
       const attention = await this.conversations.setNeedsAttention({
         conversationId: input.conversation._id,
         needsAttention: true,
@@ -788,7 +804,13 @@ export class PostEventFeedbackExtractor {
     // promised a human and then asked about the dinner again on the next
     // message. The conversation stays open and under bot control; the bot
     // simply stops speaking until somebody arrives.
-    if (input.dutyOfCare) {
+    //
+    // A withdrawal lands in the same state for a different reason: the bot did
+    // not promise anybody, it ran out of things it was willing to say. Leaving
+    // it under bot control with the ladder settled and nothing flagged means
+    // nobody ever looks — the conversation just goes quiet with no answers in
+    // it. Waiting for a person is the honest description of where it is.
+    if (input.dutyOfCare || input.withdrew) {
       await this.conversations.markAwaitingHuman({
         conversationId: input.conversation._id,
         at,

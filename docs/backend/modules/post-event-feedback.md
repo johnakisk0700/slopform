@@ -456,10 +456,16 @@ answered`, derived from stored **and** newly written answers so a replay repairs
 - a run that accepts no answers, accepts no notes, sends no question, and still
   carries a `nextGoal` is a **withdrawal**: the model claimed the ladder
   continued while writing a statement. Remaining open goals are settled as
-  `skipped` so `isCompleting` can close, instead of leaving the ladder open for
-  the reminder chase after the bot said it was backing off. A bare
+  `skipped`, which is what stops the reminder chase after the bot said it was
+  backing off — but the conversation does **not** close. It is marked
+  `awaitingHuman` and flagged, because the bot gave up rather than the
+  participant finishing; closing it as `completed` is how one «άντε γαμήσου»
+  earned a «Τέλεια, ευχαριστούμε πολύ! 🙌» on the next message. A bare
   `nextGoal: null` reply with nothing to extract is a side-question answer and
   does not settle; safety signals and handoff keep the ladder open for a human;
+- **nothing closes over a duty of care.** An explicit handoff or urgent safety
+  signal sets `awaitingHuman`, and closing underneath that promise left «σβήστε
+  ό,τι σας είπα» answered with a human's name and then filed as `completed`;
 - exactly one outbox row per run, chosen by the application rather than the
   model: the neutral handoff copy on an **explicit** handoff, else the closing
   copy when every **recorded** goal is terminal **and this run produced no safety
@@ -1196,9 +1202,10 @@ same goal further simply leaves it alone. `asked` is recorded only when the
 outbound that will be sent actually poses the question; a statement that still
 carries a `nextGoal` does not. A withdrawal — no accepted answers, no accepted
 notes, no question on the sent outbound, and a still-named `nextGoal` — settles
-every remaining open goal as `skipped` so the conversation can complete instead
-of being chased by reminders. A `nextGoal: null` statement with nothing to
-extract is left alone so side-question replies do not end the questionnaire.
+every remaining open goal as `skipped` so reminders stop chasing it, and freezes
+the conversation for a person (`awaitingHuman` + `needsAttention`) rather than
+closing it as completed. A `nextGoal: null` statement with nothing to extract is
+left alone so side-question replies do not end the questionnaire.
 
 ### Extraction cursor, attention and capacity
 

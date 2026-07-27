@@ -192,6 +192,34 @@ describe("buildFeedbackExtractionPrompt", () => {
     expect(prompt.system).toContain("declined σε αυτή την κλήση");
   });
 
+  it("exempts a handoff from the rule that a withdrawal declines everything", () => {
+    const prompt = buildFeedbackExtractionPrompt({
+      context: context(),
+      copy: COPY,
+    });
+
+    // «σβήστε ό,τι σας είπα σας παρακαλώ» read as a refusal to answer: the
+    // remaining goals were declined, the ladder finished, and the thread closed
+    // as completed over a deletion request nobody had looked at. Handing over
+    // is not giving up — the open goals belong to the person taking it.
+    expect(prompt.system).toContain("7ε.");
+    expect(prompt.system).toContain("ΔΕΝ ισχύει όταν βάζεις handoff=true");
+  });
+
+  it("leaves an avoid drawn from a disclosure to the participant to confirm", () => {
+    const prompt = buildFeedbackExtractionPrompt({
+      context: context(),
+      copy: COPY,
+    });
+
+    // Χαρά Παραπεντού said «να αποφύγω κανέναν βασικά» and then described
+    // being grabbed at the bar. The model recorded the man as her `avoid`. It
+    // reads as protective, but it is an answer she declined to give, and an
+    // avoid changes future tables for two real people — so the bot asks.
+    expect(prompt.system).toContain("9δ.");
+    expect(prompt.system).toContain("ΜΗΝ το μετατρέπεις μόνος σου");
+  });
+
   it("keeps a score the participant gave on behalf of two people", () => {
     const prompt = buildFeedbackExtractionPrompt({
       context: context(),
