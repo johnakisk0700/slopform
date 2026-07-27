@@ -443,6 +443,9 @@ describe("FeedbackConversationRepository", () => {
             reason: "stopped",
             closedAt: repliedAt,
           },
+          // STOP clears any earlier staff close reason so "abusive" cannot
+          // survive a consent withdrawal that superseded it.
+          staffClose: null,
         },
       }),
       { returnDocument: "after" },
@@ -987,6 +990,7 @@ function feedbackConversation(
     remindedAt: null,
     reminderCount: 0,
     awaitingHuman: false,
+    extractionFallbackAckSent: false,
     createdAt: launchedAt,
     updatedAt: repliedAt,
     ...overrides,

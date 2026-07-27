@@ -262,6 +262,31 @@ const SCENARIOS: readonly FeedbackScenario[] = [
       control: "human",
     },
   },
+  {
+    // Two consecutive permanent failures during a provider outage: each run still
+    // files operator evidence, but the participant hears the canned apology once.
+    id: "one_fallback_ack_across_consecutive_dead_runs",
+    title:
+      "speaks one deterministic fallback acknowledgement across consecutive dead runs",
+    script: [{ fails: "refuses" }],
+    expectedJobFailures: [
+      { job: "feedback.extract.v1", kind: "refuses", count: 10 },
+    ],
+    steps: [
+      { kind: "inbound", text: "ήταν όλα καλά" },
+      { kind: "wait", after: "settles" },
+      { kind: "inbound", text: "και η βραδιά ήταν τέλεια" },
+      { kind: "wait", after: "settles" },
+    ],
+    expect: {
+      notes: [
+        { type: "general", about: null },
+        { type: "general", about: null },
+      ],
+      needsAttention: true,
+      receivedCount: { fallback: 1 },
+    },
+  },
 ];
 
 runFeedbackScenarios("post-event feedback loop — edge seams", SCENARIOS);

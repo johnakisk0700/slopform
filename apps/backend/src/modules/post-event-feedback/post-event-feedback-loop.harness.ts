@@ -433,6 +433,7 @@ export async function createFeedbackLoopHarness(
     remindedAt: null,
     reminderCount: 0,
     awaitingHuman: false,
+    extractionFallbackAckSent: false,
     createdAt: FEEDBACK_LOOP_START,
     updatedAt: FEEDBACK_LOOP_START,
   });
@@ -797,6 +798,7 @@ export async function createFeedbackLoopHarness(
         await staffConversations.close(
           CAMPAIGN_ID,
           conversationId,
+          { reason: "other" },
           TEST_STAFF_ID,
           requestId,
         );

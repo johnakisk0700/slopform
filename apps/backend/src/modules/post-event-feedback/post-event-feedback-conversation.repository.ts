@@ -144,6 +144,7 @@ export class FeedbackConversationRepository {
       remindedAt: null,
       reminderCount: 0,
       awaitingHuman: false,
+      extractionFallbackAckSent: false,
       createdAt: input.launchedAt,
       updatedAt: input.launchedAt,
     });
@@ -576,6 +577,38 @@ export class FeedbackConversationRepository {
     return { changed: false, conversation: current };
   }
 
+  /**
+   * Records that the deterministic fallback acknowledgement was queued. Later
+   * permanent failures in the same conversation still file notes, but must not
+   * speak the same apology again.
+   *
+   * Idempotent: a replayed dead run or a second outage after the flag is already
+   * set is a no-op rather than a second send.
+   */
+  async markExtractionFallbackAckSent(input: {
+    readonly conversationId: string;
+    readonly at: Date;
+  }): Promise<FeedbackConversationTransitionResult> {
+    const at = z.date().parse(input.at);
+    const updated = await this.transition(
+      input.conversationId,
+      {
+        $or: [
+          { extractionFallbackAckSent: false },
+          { extractionFallbackAckSent: { $exists: false } },
+        ],
+      } as Filter<FeedbackConversationDocument>,
+      { extractionFallbackAckSent: true },
+      at,
+    );
+    if (updated) {
+      return { changed: true, conversation: updated };
+    }
+
+    const current = await this.requireConversation(input.conversationId);
+    return { changed: false, conversation: current };
+  }
+
   /** Returns bot control. A closed conversation is never resumed. */
   async resumeBot(input: {
     readonly conversationId: string;
@@ -632,6 +665,13 @@ export class FeedbackConversationRepository {
     readonly conversationId: string;
     readonly reason: FeedbackConversationLifecycleReason;
     readonly at: Date;
+    /**
+     * Staff-only close intent. Absent on every bot close; when present the
+     * lifecycle reason is still `cancelled` and this is what the admin reads
+     * a month later. Cleared to null on any close that does not pass it so a
+     * STOP cannot leave an earlier "abusive" label standing.
+     */
+    readonly staffClose?: FeedbackConversationDocument["staffClose"];
   }): Promise<FeedbackConversationTransitionResult> {
     const closedAt = z.date().parse(input.at);
     const guard: Filter<FeedbackConversationDocument> =
@@ -647,6 +687,9 @@ export class FeedbackConversationRepository {
       guard,
       {
         lifecycle: { state: "closed", reason: input.reason, closedAt },
+        // Always written: a STOP that overrides a staff-cancelled thread must
+        // drop the operator reason, not leave "abusive" on a consent withdrawal.
+        staffClose: input.staffClose ?? null,
       },
       closedAt,
     );

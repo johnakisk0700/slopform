@@ -21,7 +21,9 @@ import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript
 import type { FeedbackExtractionFailureCause } from "./model.service.js";
 import {
   POST_EVENT_FEEDBACK_FALLBACK_ACK,
+  POST_EVENT_FEEDBACK_FALLBACK_FENCE_BODY,
   POST_EVENT_FEEDBACK_FALLBACK_NOTE_TEXT,
+  createFeedbackFallbackAckDedupeKey,
   createFeedbackFallbackDedupeKey,
 } from "./extraction.schemas.js";
 import {
@@ -132,21 +134,35 @@ export class PostEventFeedbackExtractionFallback {
     const written = await this.database.transaction(async (transaction) => {
       await this.results.lockConversation(transaction, conversation._id);
 
-      // The outbox `dedupe_key` is the fence for the entire fallback. Insert it
-      // first: if it was already there, this is a replay and the note, the
-      // audit event and the alert must not happen a second time.
-      const enqueued = await this.outbox.insertOutboxIfAbsent(transaction, {
+      // The per-testimony fence absorbs replays of the same dead run. The row is
+      // never delivered; it exists so note, audit and alert are not duplicated.
+      const fenced = await this.outbox.insertOutboxIfAbsent(transaction, {
         conversationId: conversation._id,
         campaignId: campaign.id,
-        kind: "reply",
-        body: buildFallbackReply(conversation.goals),
+        kind: "system",
+        body: POST_EVENT_FEEDBACK_FALLBACK_FENCE_BODY,
+        status: "cancelled",
         dedupeKey: createFeedbackFallbackDedupeKey(
           conversation._id,
           testimony.seq,
         ),
       });
-      if (!enqueued.inserted) {
-        return { outbox: enqueued.row, replayed: true as const };
+      if (!fenced.inserted) {
+        return { replayed: true as const, ackOutbox: null, note: null };
+      }
+
+      let ackOutbox: typeof fenced.row | null = null;
+      if (!conversation.extractionFallbackAckSent) {
+        const enqueued = await this.outbox.insertOutboxIfAbsent(transaction, {
+          conversationId: conversation._id,
+          campaignId: campaign.id,
+          kind: "reply",
+          body: buildFallbackReply(conversation.goals),
+          dedupeKey: createFeedbackFallbackAckDedupeKey(conversation._id),
+        });
+        if (enqueued.inserted) {
+          ackOutbox = enqueued.row;
+        }
       }
 
       const note = await this.results.insertNote(transaction, {
@@ -179,25 +195,36 @@ export class PostEventFeedbackExtractionFallback {
           cause: input.cause,
           sourceMessageId: testimony.id,
           noteId: note.id,
-          outboxId: enqueued.row.id,
+          outboxId: ackOutbox?.id ?? null,
           subjectResolved: subjectParticipantId !== null,
         },
       });
 
-      return { outbox: enqueued.row, note, replayed: false as const };
+      return { ackOutbox, note, replayed: false as const };
     });
 
-    // Same forward-repair contract as an ordinary run: PostgreSQL is durable
-    // first, the transcript entry is idempotent by `outboxId`, and the delivery
-    // job repeats it before sending if this crashed.
-    await this.outboundTranscript.record(
-      written.outbox,
-      new Date(),
-      input.correlationId,
-    );
-
     if (written.replayed) {
-      return { applied: false, outboxId: written.outbox.id };
+      // No outbox id to name. The fence row exists, but it is a cancelled
+      // system row that will never be delivered, and reporting it as the
+      // fallback's outbox would read as «we sent this» to every caller and log
+      // line downstream. The ack, if one was ever sent, belongs to the run that
+      // sent it.
+      return { applied: false };
+    }
+
+    if (written.ackOutbox) {
+      await this.conversations.markExtractionFallbackAckSent({
+        conversationId: conversation._id,
+        at: new Date(),
+      });
+      // Same forward-repair contract as an ordinary run: PostgreSQL is durable
+      // first, the transcript entry is idempotent by `outboxId`, and the delivery
+      // job repeats it before sending if this crashed.
+      await this.outboundTranscript.record(
+        written.ackOutbox,
+        new Date(),
+        input.correlationId,
+      );
     }
 
     await this.raiseAttention(conversation, input, [input.cause], testimony.id);
@@ -208,14 +235,18 @@ export class PostEventFeedbackExtractionFallback {
       conversationId: conversation._id,
       cause: input.cause,
       noteId: written.note.id,
-      outboxId: written.outbox.id,
+      outboxId: written.ackOutbox?.id,
       subjectResolved: subjectParticipantId !== null,
     });
 
     return {
       applied: true,
       noteId: written.note.id,
-      outboxId: written.outbox.id,
+      // Absent rather than undefined: the acknowledgement is sent once per
+      // conversation, so every dead run after the first has no outbox of its
+      // own, and `exactOptionalPropertyTypes` is the compiler holding us to the
+      // difference between «no id» and «an id that is undefined».
+      ...(written.ackOutbox ? { outboxId: written.ackOutbox.id } : {}),
       subjectParticipantId,
     };
   }

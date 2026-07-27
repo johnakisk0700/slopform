@@ -756,6 +756,7 @@ export class FakeFeedbackConversations {
       remindedAt: null,
       reminderCount: 0,
       awaitingHuman: false,
+      extractionFallbackAckSent: false,
       createdAt: input.launchedAt,
       updatedAt: input.launchedAt,
     });
@@ -959,6 +960,20 @@ export class FakeFeedbackConversations {
       return { changed: false, conversation: structuredClone(conversation) };
     }
     conversation.awaitingHuman = true;
+    this.touch(conversation, input.at);
+    this.revalidate(conversation);
+    return { changed: true, conversation: structuredClone(conversation) };
+  }
+
+  async markExtractionFallbackAckSent(input: {
+    conversationId: string;
+    at: Date;
+  }): Promise<FakeConversationTransition> {
+    const conversation = this.require(input.conversationId);
+    if (conversation.extractionFallbackAckSent) {
+      return { changed: false, conversation: structuredClone(conversation) };
+    }
+    conversation.extractionFallbackAckSent = true;
     this.touch(conversation, input.at);
     this.revalidate(conversation);
     return { changed: true, conversation: structuredClone(conversation) };

@@ -11,6 +11,7 @@ import { assistantModelSchema } from "../../assistant/assistant.schemas.js";
 import type { FeedbackConversationDocument } from "../post-event-feedback-conversation.document.js";
 import {
   createFeedbackClosingDedupeKey,
+  createFeedbackFallbackAckDedupeKey,
   createFeedbackFallbackDedupeKey,
   createFeedbackHandoffDedupeKey,
   createFeedbackReplyDedupeKey,
@@ -83,6 +84,7 @@ export function toRunView({
     createFeedbackReplyDedupeKey(run.conversationId, run.targetCursorSeq),
     createFeedbackHandoffDedupeKey(run.conversationId, run.targetCursorSeq),
     createFeedbackFallbackDedupeKey(run.conversationId, run.targetCursorSeq),
+    createFeedbackFallbackAckDedupeKey(run.conversationId),
     createFeedbackClosingDedupeKey(run.conversationId),
   ]);
   const runOutbox = outbox.filter(
