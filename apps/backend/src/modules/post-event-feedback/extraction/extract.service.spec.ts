@@ -23,6 +23,7 @@ import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "../question-set.js";
 import type { FeedbackAnswerQuestionKey } from "@join-the-six/database";
 import {
   POST_EVENT_FEEDBACK_HANDOFF_REPLY,
+  POST_EVENT_FEEDBACK_SAFETY_ASSURANCE,
   feedbackExtractionGoalVerdicts,
   type FeedbackExtractionAnswerProposal,
 } from "./extraction.schemas.js";
@@ -794,7 +795,9 @@ describe("PostEventFeedbackExtractor", () => {
         "open",
       );
       expect(harness.repository.outbox[0]).toMatchObject({
-        body: "Λυπάμαι πολύ που το ακούω.",
+        // The model's words, plus the application's own sentence saying the
+        // disclosure reached a person.
+        body: `Λυπάμαι πολύ που το ακούω.\n\n${POST_EVENT_FEEDBACK_SAFETY_ASSURANCE}`,
         dedupeKey: `feedback-reply-${conversationId}-2`,
       });
       expect(harness.repository.notes).toHaveLength(1);
@@ -866,7 +869,7 @@ describe("PostEventFeedbackExtractor", () => {
         confidence: 0.9,
       });
       expect(harness.repository.outbox[0]).toMatchObject({
-        body: "Λυπάμαι που το ακούω, θες να μιλήσουμε;",
+        body: `Λυπάμαι που το ακούω, θες να μιλήσουμε;\n\n${POST_EVENT_FEEDBACK_SAFETY_ASSURANCE}`,
         dedupeKey: `feedback-reply-${conversationId}-2`,
       });
       expect(harness.audit.events[0]).toMatchObject({

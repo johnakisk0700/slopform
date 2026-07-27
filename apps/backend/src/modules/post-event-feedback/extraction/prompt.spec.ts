@@ -223,6 +223,21 @@ describe("buildFeedbackExtractionPrompt", () => {
     expect(prompt.system).toContain("ΗΔΗ πει «κανέναν να αποφύγω»");
   });
 
+  it("asks the reply to sound like it is addressed to this person", () => {
+    const prompt = buildFeedbackExtractionPrompt({
+      context: context(),
+      copy: COPY,
+    });
+
+    // «Καλησπέρα σας, θα έλεγα 4» and «ρε φίλε χάλια, 2 βάζω 😂» were getting
+    // the same register back. Matching how somebody writes is what makes a
+    // reply read as addressed to them — bounded by 11γ, which outranks it the
+    // moment the subject turns serious.
+    expect(prompt.system).toContain("11ζ.");
+    expect(prompt.system).toContain("Πιάσε τον ρυθμό του");
+    expect(prompt.system).toContain("ο 11γ υπερισχύει");
+  });
+
   it("keeps a score the participant gave on behalf of two people", () => {
     const prompt = buildFeedbackExtractionPrompt({
       context: context(),

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { FeedbackConversationDocument } from "../post-event-feedback-conversation.document.js";
 import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "../question-set.js";
 import type { FeedbackExtractionValidationResult } from "./validate-proposal.js";
+import { POST_EVENT_FEEDBACK_SAFETY_ASSURANCE } from "./extraction.schemas.js";
 import { resolveOutbound } from "./outbound-reply.js";
 
 const copy = POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy;
@@ -217,6 +218,55 @@ describe("resolveOutbound", () => {
     });
   });
 
+  it("tells the participant their disclosure reached a person, once", () => {
+    // Ειρήνη Καταγγελού described being touched under the table. The flag went
+    // up, staff were alerted, and she was told none of it — from where she sat
+    // she had handed something hard to a questionnaire that moved on. Rule 11ε
+    // still forbids the model from promising a human; this sentence belongs to
+    // the code that actually raises the alert.
+    const disclosure = validated({
+      nextGoal: "event_score",
+      reply: "Λυπάμαι πολύ που το βίωσες αυτό — δεν είναι καθόλου οκ.",
+      safetySignals: [
+        {
+          category: "sexual_misconduct",
+          recommendedAction: "human_follow_up",
+          sourceMessageIds: ["m1"],
+          confidence: 0.9,
+        },
+      ],
+    });
+
+    expect(
+      resolveOutbound(
+        conversation,
+        disclosure,
+        false,
+        false,
+        4,
+        copy,
+        "event_score",
+      )?.body,
+    ).toContain(POST_EVENT_FEEDBACK_SAFETY_ASSURANCE);
+
+    // Already flagged: she has been told, and saying it every turn reads as a
+    // brush-off rather than an answer.
+    expect(
+      resolveOutbound(
+        {
+          ...conversation,
+          needsAttention: true,
+        } as FeedbackConversationDocument,
+        disclosure,
+        false,
+        false,
+        4,
+        copy,
+        "event_score",
+      )?.body,
+    ).not.toContain(POST_EVENT_FEEDBACK_SAFETY_ASSURANCE);
+  });
+
   it("forwards the model's reply when the recorded next goal agrees with it", () => {
     const outbound = resolveOutbound(
       conversation,
@@ -310,7 +360,7 @@ describe("resolveOutbound", () => {
     );
 
     expect(outbound).toEqual({
-      body: "Λυπάμαι που το ακούω, θες να μιλήσουμε;",
+      body: `Λυπάμαι που το ακούω, θες να μιλήσουμε;\n\n${POST_EVENT_FEEDBACK_SAFETY_ASSURANCE}`,
       dedupeKey: "feedback-reply-conv-1-2",
     });
   });

@@ -476,6 +476,24 @@ export const POST_EVENT_FEEDBACK_HANDOFF_REPLY =
   "Σε ευχαριστούμε που μας το είπες. Κάποιος από την ομάδα μας θα επικοινωνήσει μαζί σου προσωπικά.";
 
 /**
+ * Appended to the model's own reply the first time a run raises a safety
+ * signal, so somebody who has just described being treated badly is told what
+ * happened with it.
+ *
+ * Ειρήνη Καταγγελού described being touched under the table. The bot answered
+ * warmly, the flag went up, an alert reached staff — and she was told none of
+ * it. From where she sat she had handed something hard to a questionnaire that
+ * moved on to the next question.
+ *
+ * Rule 11ε forbids the *model* from promising a human, and still does: a
+ * promise it invents is one nobody has to keep. This sentence is the
+ * application's, added only on the run that actually raises the alert, so the
+ * promise is made by the code that raises it.
+ */
+export const POST_EVENT_FEEDBACK_SAFETY_ASSURANCE =
+  "Το προώθησα ήδη στην ομάδα μας και κάποιος θα σου μιλήσει προσωπικά.";
+
+/**
  * The acknowledgement half of the deterministic fallback reply.
  *
  * It is the first sentence of the handoff copy above, reused verbatim rather

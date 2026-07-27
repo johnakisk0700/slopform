@@ -5,6 +5,7 @@ import type { FeedbackExtractionValidationResult } from "./validate-proposal.js"
 import type { FeedbackExtractionRejectionReason } from "./extraction.schemas.js";
 import {
   POST_EVENT_FEEDBACK_HANDOFF_REPLY,
+  POST_EVENT_FEEDBACK_SAFETY_ASSURANCE,
   createFeedbackClosingDedupeKey,
   createFeedbackHandoffDedupeKey,
   createFeedbackReplyDedupeKey,
@@ -64,6 +65,53 @@ const ACTIONABLE_ANSWER_REFUSALS: ReadonlySet<FeedbackExtractionRejectionReason>
  * question instead.
  */
 export function resolveOutbound(
+  conversation: FeedbackConversationDocument,
+  validated: FeedbackExtractionValidationResult,
+  closingNow: boolean,
+  urgentSafety: boolean,
+  testimonySeq: number,
+  copy: PostEventFeedbackQuestionSetCopy,
+  nextOpenGoal: FeedbackAnswerQuestionKey | null,
+): OutboundReply | undefined {
+  const outbound = chooseOutbound(
+    conversation,
+    validated,
+    closingNow,
+    urgentSafety,
+    testimonySeq,
+    copy,
+    nextOpenGoal,
+  );
+  return withSafetyAssurance(conversation, validated, outbound);
+}
+
+/**
+ * Tell somebody who has just disclosed something that it reached a person.
+ *
+ * Only on the run that raises the flag — a conversation already flagged has
+ * already been told, and repeating it every turn reads as a brush-off. Not on
+ * the handoff copy, which says the same thing in its own words.
+ */
+function withSafetyAssurance(
+  conversation: FeedbackConversationDocument,
+  validated: FeedbackExtractionValidationResult,
+  outbound: OutboundReply | undefined,
+): OutboundReply | undefined {
+  if (
+    !outbound ||
+    validated.safetySignals.length === 0 ||
+    conversation.needsAttention ||
+    validated.handoff
+  ) {
+    return outbound;
+  }
+  return {
+    ...outbound,
+    body: `${outbound.body}\n\n${POST_EVENT_FEEDBACK_SAFETY_ASSURANCE}`,
+  };
+}
+
+function chooseOutbound(
   conversation: FeedbackConversationDocument,
   validated: FeedbackExtractionValidationResult,
   closingNow: boolean,
