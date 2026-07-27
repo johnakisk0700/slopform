@@ -43,6 +43,7 @@ interface LabelsModule {
   ) => { key: string; label: string; tone: string } | null;
   messageAttentionCategoryLabel: (category: string) => string;
   messageAttentionActionLabel: (action: string) => string;
+  attentionReasonLabel: (kind: string) => string;
 }
 
 interface ConversationViewModule {
@@ -76,6 +77,7 @@ interface ConversationViewModule {
     conversation: TestConversation,
     group: "attention" | "open" | "closed",
   ) => { key: string; label: string; tone: string; emphasis?: string }[];
+  transcriptMessageAnchorId: (messageId: string) => string;
 }
 
 interface PollingModule {
@@ -657,6 +659,77 @@ describe("needs-attention emphasis", () => {
   });
 });
 
+describe("attention reasons (why a conversation wants a person)", () => {
+  it("says plainly what each kind of reason is", () => {
+    // Five situations that used to arrive looking identical. Every one is a
+    // sentence about what happened, not an instruction.
+    expect(labels.attentionReasonLabel("safety")).toBe(
+      "A message raised a safety concern.",
+    );
+    expect(labels.attentionReasonLabel("handoff")).toBe(
+      "The participant asked to speak to a person.",
+    );
+    expect(labels.attentionReasonLabel("unattributed_note")).toBe(
+      "A note could not be attributed to anyone.",
+    );
+    expect(labels.attentionReasonLabel("answer_revision")).toBe(
+      "An answer was revised after it had been recorded.",
+    );
+    expect(labels.attentionReasonLabel("hostile_to_bot")).toBe(
+      "The participant was hostile to the bot.",
+    );
+  });
+
+  it("anchors a message with one id both ends of the link share", () => {
+    expect(view.transcriptMessageAnchorId("abc")).toBe(
+      "transcript-message-abc",
+    );
+    // The anchor and the thing pointing at it must come from the same helper,
+    // or the link silently scrolls nowhere.
+    for (const file of [
+      "src/components/admin/feedback/ConversationTranscript.tsx",
+      "src/components/admin/feedback/ConversationAttention.tsx",
+    ]) {
+      expect(readSource(file)).toContain("transcriptMessageAnchorId");
+    }
+  });
+
+  it("shows only unresolved reasons, and nothing at all when there are none", () => {
+    const block = readSource(
+      "src/components/admin/feedback/ConversationAttention.tsx",
+    );
+
+    expect(block).toContain("reason.resolvedAt === null");
+    expect(block).toContain("unresolved.length === 0");
+    expect(block).toContain("return null");
+  });
+
+  it("dismisses in one press: no dialog, no note", () => {
+    const block = readSource(
+      "src/components/admin/feedback/ConversationAttention.tsx",
+    );
+
+    // The product decision is that it goes away like an email. A confirmation
+    // here is how the badge ends up never being cleared at all.
+    expect(block).not.toContain("ConfirmAction");
+    expect(block).not.toContain("Modal");
+    expect(block).toContain("onDismiss(reason.id)");
+  });
+
+  it("paints itself from the status tokens, in both themes", () => {
+    const block = readSource(
+      "src/components/admin/feedback/ConversationAttention.tsx",
+    );
+
+    expect(block).toContain("border-warning-border");
+    expect(block).toContain("bg-warning-soft");
+    // No literal colour, and no theme branching — the tokens flip, not the
+    // component.
+    expect(block).not.toContain("dark:");
+    expect(block).not.toMatch(/#[0-9a-f]{3,8}\b|rgb\(|oklch\(/iu);
+  });
+});
+
 describe("extraction status (operator visibility)", () => {
   const idle = {
     unreadParticipantMessages: 0,
@@ -997,6 +1070,7 @@ describe("API contract boundary", () => {
       "useCloseFeedbackConversation",
       "useSendFeedbackConversationStaffMessage",
       "useUpdateFeedbackNoteReviewStatus",
+      "useResolveFeedbackConversationAttentionReason",
       "useStartFeedbackConversation",
       "useAddFeedbackConversationNote",
     ]) {

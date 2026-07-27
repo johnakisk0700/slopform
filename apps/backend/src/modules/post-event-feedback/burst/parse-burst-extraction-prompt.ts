@@ -19,6 +19,12 @@ export interface ParsedBurstTranscriptMessage {
 }
 
 export interface ParsedBurstExtractionPrompt {
+  /**
+   * The person writing. A stub may deliberately name them — that is the whole
+   * point of the persona who answers «εμένα μου άρεσα» — and validation must be
+   * the thing that refuses it, not the stub's inability to express it.
+   */
+  readonly respondent: ParsedBurstCandidate | undefined;
   readonly candidates: readonly ParsedBurstCandidate[];
   readonly newMessageIds: readonly string[];
   readonly transcript: readonly ParsedBurstTranscriptMessage[];
@@ -32,21 +38,19 @@ const TRANSCRIPT_LINE =
 export function parseBurstExtractionPrompt(
   userPrompt: string,
 ): ParsedBurstExtractionPrompt {
-  const candidates = linesAfterHeader(
-    userPrompt,
-    "ΥΠΟΨΗΦΙΟΙ (μόνο αυτοί επιτρέπονται ως υποκείμενα)",
-  )
-    .map((line) => {
-      const match = CANDIDATE_LINE.exec(line);
-      if (!match?.groups) {
-        return null;
-      }
-      return {
-        participantId: match.groups["participantId"]!,
-        displayName: match.groups["displayName"]!.trim(),
-      };
-    })
-    .filter((entry): entry is ParsedBurstCandidate => entry !== null);
+  const respondent = parseCandidateLines(
+    linesAfterHeader(
+      userPrompt,
+      "ΣΥΝΟΜΙΛΗΤΗΣ (αυτός γράφει· ποτέ δεν είναι υποκείμενο)",
+    ),
+  )[0];
+
+  const candidates = parseCandidateLines(
+    linesAfterHeader(
+      userPrompt,
+      "ΥΠΟΨΗΦΙΟΙ (μόνο αυτοί επιτρέπονται ως υποκείμενα)",
+    ),
+  );
 
   const newMessageIds = linesAfterHeader(
     userPrompt,
@@ -74,7 +78,22 @@ export function parseBurstExtractionPrompt(
     })
     .filter((entry): entry is ParsedBurstTranscriptMessage => entry !== null);
 
-  return { candidates, newMessageIds, transcript };
+  return { respondent, candidates, newMessageIds, transcript };
+}
+
+function parseCandidateLines(lines: readonly string[]): ParsedBurstCandidate[] {
+  return lines
+    .map((line) => {
+      const match = CANDIDATE_LINE.exec(line);
+      if (!match?.groups) {
+        return null;
+      }
+      return {
+        participantId: match.groups["participantId"]!,
+        displayName: match.groups["displayName"]!.trim(),
+      };
+    })
+    .filter((entry): entry is ParsedBurstCandidate => entry !== null);
 }
 
 /**

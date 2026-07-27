@@ -1402,18 +1402,19 @@ after the thread closes.
 
 ### Staff HTTP contract (inbox)
 
-| Method  | Path                                                                       | `operationId`                          |
-| ------- | -------------------------------------------------------------------------- | -------------------------------------- |
-| `GET`   | `/feedback/campaigns/:campaignId/conversations`                            | `listFeedbackCampaignConversations`    |
-| `GET`   | `/feedback/campaigns/:campaignId/conversations/:conversationId`            | `getFeedbackConversation`              |
-| `GET`   | `/feedback/campaigns/:campaignId/conversations/:conversationId/results`    | `listFeedbackConversationResults`      |
-| `GET`   | `/feedback/campaigns/:campaignId/results`                                  | `listFeedbackCampaignResults`          |
-| `POST`  | `/feedback/campaigns/:campaignId/conversations/:conversationId/take-over`  | `takeOverFeedbackConversation`         |
-| `POST`  | `/feedback/campaigns/:campaignId/conversations/:conversationId/resume-bot` | `resumeFeedbackConversationBot`        |
-| `POST`  | `/feedback/campaigns/:campaignId/conversations/:conversationId/close`      | `closeFeedbackConversation`            |
-| `POST`  | `/feedback/campaigns/:campaignId/conversations/:conversationId/messages`   | `sendFeedbackConversationStaffMessage` |
-| `POST`  | `/feedback/campaigns/:campaignId/conversations/:conversationId/notes`      | `addFeedbackConversationNote`          |
-| `PATCH` | `/feedback/notes/:noteId/review-status`                                    | `updateFeedbackNoteReviewStatus`       |
+| Method  | Path                                                                                                | `operationId`                                |
+| ------- | --------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| `GET`   | `/feedback/campaigns/:campaignId/conversations`                                                     | `listFeedbackCampaignConversations`          |
+| `GET`   | `/feedback/campaigns/:campaignId/conversations/:conversationId`                                     | `getFeedbackConversation`                    |
+| `GET`   | `/feedback/campaigns/:campaignId/conversations/:conversationId/results`                             | `listFeedbackConversationResults`            |
+| `GET`   | `/feedback/campaigns/:campaignId/results`                                                           | `listFeedbackCampaignResults`                |
+| `POST`  | `/feedback/campaigns/:campaignId/conversations/:conversationId/take-over`                           | `takeOverFeedbackConversation`               |
+| `POST`  | `/feedback/campaigns/:campaignId/conversations/:conversationId/resume-bot`                          | `resumeFeedbackConversationBot`              |
+| `POST`  | `/feedback/campaigns/:campaignId/conversations/:conversationId/close`                               | `closeFeedbackConversation`                  |
+| `POST`  | `/feedback/campaigns/:campaignId/conversations/:conversationId/messages`                            | `sendFeedbackConversationStaffMessage`       |
+| `POST`  | `/feedback/campaigns/:campaignId/conversations/:conversationId/notes`                               | `addFeedbackConversationNote`                |
+| `POST`  | `/feedback/campaigns/:campaignId/conversations/:conversationId/attention-reasons/:reasonId/resolve` | `resolveFeedbackConversationAttentionReason` |
+| `PATCH` | `/feedback/notes/:noteId/review-status`                                                             | `updateFeedbackNoteReviewStatus`             |
 
 `getFeedbackConversation` includes an `extraction` object so the operator can
 see how far behind the delayed extract job is: unread participant turns beyond
@@ -1427,6 +1428,26 @@ missing job with no fallback note is reported as null/false fields, never as a
 confident "idle": retention removal, a lost enqueue and "already ran" remain
 indistinguishable once both signals are gone.
 
+### Clearing attention
+
+`getFeedbackConversation` also publishes `attentionReasons`: `{ id, kind,
+messageId, at, resolvedAt, resolvedBy }` per entry, `kind` drawn from the
+`safety | handoff | unattributed_note | answer_revision | hostile_to_bot`
+taxonomy. Resolved entries stay in the response — the admin renders only the
+unresolved ones, but a dismissal must remain distinguishable from a reason that
+was never raised.
+
+`resolveFeedbackConversationAttentionReason` is the only thing that lowers
+`needsAttention` from the outside, and it does it one reason at a time. The
+repository clears the badge only when the dismissed entry was the last
+unresolved one, so clearing a revised score cannot take a safety disclosure
+down with it. It takes no body: the operator has read the message the reason
+points at, and there is nothing further to state. Dismissing an already-resolved
+entry returns the current read model without a second audit row; an id the
+conversation never carried is a 404. A successful first dismissal writes
+`feedback_conversation.attention_resolved`, whose context records the reason's
+`kind` and whether the conversation still needs attention afterwards.
+
 ### WP7b tests
 
 Focused coverage: capability flags per lifecycle/control state (including
@@ -1438,6 +1459,12 @@ audit, campaign results display-name resolution including dangling-id `null`
 (D18), and the detail view's `extraction` object (unread count from the
 document, delayed-job due time from BullMQ, no invented "idle" when the job is
 absent).
+
+For attention reasons: the detail view maps every entry, resolved ones included;
+a first dismissal calls the repository with the acting user and audits
+`feedback_conversation.attention_resolved`; a second one on the same entry
+writes nothing; an unknown reason id is refused before the repository is
+touched.
 
 For staff notes: the written row carries `origin: staff`, the acting user and no
 model or confidence; an empty `source_message_ids`; a subject outside the live

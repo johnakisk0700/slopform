@@ -77,6 +77,13 @@ export class FeedbackNoteNotFoundError extends Error {
   }
 }
 
+export class FeedbackAttentionReasonNotFoundError extends Error {
+  constructor(id: string) {
+    super(`Feedback attention reason ${id} was not found`);
+    this.name = FeedbackAttentionReasonNotFoundError.name;
+  }
+}
+
 /**
  * Staff-facing conversation inbox read model and actions (WP7b). Capability
  * flags are computed server-side so the admin UI does not hardcode transition
@@ -370,6 +377,74 @@ export class PostEventFeedbackConversationService {
   }
 
   /**
+   * Dismisses one reason the operator has dealt with.
+   *
+   * Per reason and with nothing to fill in: by the time somebody clicks this
+   * they have read the message it points at, and a confirmation dialog asking
+   * them to say so again is how a badge stops being cleared at all. The
+   * repository lowers `needsAttention` only when this was the last unresolved
+   * entry, so clearing a revised score cannot take a safety disclosure down
+   * with it.
+   *
+   * Idempotent on an already-resolved entry: a double click or a retried
+   * request returns the current read model rather than a second audit row.
+   * An id this conversation never carried is a 404, not a silent success —
+   * that is a client pointing at the wrong thing.
+   */
+  async resolveAttentionReason(
+    campaignId: string,
+    conversationId: string,
+    reasonId: string,
+    actorId: FeedbackConversationPrincipal,
+    requestId: FeedbackConversationCorrelationId,
+  ): Promise<FeedbackConversationDetailView> {
+    const conversation = await this.requireConversationInCampaign(
+      campaignId,
+      conversationId,
+    );
+    const reason = conversation.attentionReasons.find(
+      (candidate) => candidate.id === reasonId,
+    );
+    if (!reason) {
+      throw new FeedbackAttentionReasonNotFoundError(reasonId);
+    }
+    if (reason.resolvedAt !== null) {
+      return this.toDetailView(conversation);
+    }
+
+    const at = new Date();
+    const transition = await this.conversations.resolveAttentionReason({
+      conversationId: conversation._id,
+      reasonId,
+      resolvedBy: actorId,
+      at,
+    });
+
+    if (transition.changed) {
+      await this.database.transaction(async (transaction) => {
+        await this.audit.append(transaction, {
+          actorType: "admin",
+          actorId,
+          action: "feedback_conversation.attention_resolved",
+          entityType: "feedback_conversation",
+          entityId: conversation._id,
+          requestId,
+          context: {
+            campaignId,
+            reasonId,
+            kind: reason.kind,
+            // Whether this was the last one standing, which is the difference
+            // between clearing an item and clearing the conversation.
+            stillNeedsAttention: transition.conversation.needsAttention,
+          },
+        });
+      });
+    }
+
+    return this.toDetailView(transition.conversation);
+  }
+
+  /**
    * Staff send under human control only. Creates a `kind=staff` outbox row for
    * the WP6 relay and appends the actor-labelled transcript entry correlated by
    * `outboxId` so the detail read model can surface delivery state.
@@ -615,6 +690,14 @@ export class PostEventFeedbackConversationService {
       })),
       extraction,
       needsAttention: conversation.needsAttention,
+      attentionReasons: conversation.attentionReasons.map((reason) => ({
+        id: reason.id,
+        kind: reason.kind,
+        messageId: reason.messageId,
+        at: reason.at.toISOString(),
+        resolvedAt: reason.resolvedAt?.toISOString() ?? null,
+        resolvedBy: reason.resolvedBy,
+      })),
       remindedAt: conversation.remindedAt?.toISOString() ?? null,
       createdAt: conversation.createdAt.toISOString(),
       updatedAt: conversation.updatedAt.toISOString(),

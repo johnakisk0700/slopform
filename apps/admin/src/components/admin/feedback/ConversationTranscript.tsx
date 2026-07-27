@@ -23,6 +23,7 @@ import type { FeedbackConversationDetailDtoOutputMessagesItem } from "../../../a
 import {
   conversationBadges,
   formatTimestamp,
+  transcriptMessageAnchorId,
 } from "../../../features/feedback/conversationView";
 import {
   actorLabel,
@@ -85,7 +86,14 @@ function TranscriptMessage({ message }: TranscriptMessageProps) {
   const ActionIcon = attention?.recommendedAction === "review" ? Eye : BellRing;
 
   return (
-    <li className={clsx("flex flex-col gap-1", styles.row)}>
+    /* Anchored and focusable so an attention reason can send the operator to
+       the exact message that caused it. `tabIndex={-1}` keeps it out of the
+       tab order — it is a destination, not a stop. */
+    <li
+      id={transcriptMessageAnchorId(message.id)}
+      tabIndex={-1}
+      className={clsx("flex scroll-my-4 flex-col gap-1", styles.row)}
+    >
       <p className="flex items-center gap-2 px-1 jts-overline">
         <span className={styles.label}>{actorLabel(message.actor)}</span>
         <time
@@ -173,6 +181,12 @@ interface ConversationTranscriptProps {
   /** True while the conversation query is refetching, for the live mark. */
   isRefreshing: boolean;
   /**
+   * The unresolved attention reasons, if any — see `ConversationAttention`.
+   * It sits above the messages rather than in the scroll container, so it
+   * cannot scroll away from the operator it is addressing.
+   */
+  attention?: ReactNode;
+  /**
    * The capability-gated conversation actions. They live at the foot of this
    * pane, on the line that says who may write here — see
    * `ConversationActions`.
@@ -198,6 +212,7 @@ export function ConversationTranscript({
   simulatedReplyPending = false,
   actionError,
   isRefreshing,
+  attention,
   actions,
 }: ConversationTranscriptProps) {
   const headingId = useId();
@@ -280,6 +295,8 @@ export function ConversationTranscript({
           />
         </div>
       </header>
+
+      {attention}
 
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
         {conversation.messages.length === 0 ? (

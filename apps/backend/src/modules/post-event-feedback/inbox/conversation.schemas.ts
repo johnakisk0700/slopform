@@ -13,8 +13,14 @@ import {
   correlationIdSchema,
   principalSchema,
 } from "../../../infrastructure/auth/auth.schemas.js";
-import { FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH } from "../post-event-feedback-conversation.document.js";
-import { feedbackConversationMessageAttentionSchema } from "../attention.js";
+import {
+  FEEDBACK_CONVERSATION_MAX_ATTENTION_REASONS,
+  FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH,
+} from "../post-event-feedback-conversation.document.js";
+import {
+  feedbackConversationMessageAttentionSchema,
+  postEventFeedbackAttentionReasonSchema,
+} from "../attention.js";
 
 export const feedbackConversationCapabilitiesSchema = z
   .object({
@@ -153,6 +159,27 @@ export const feedbackConversationExtractionSchema = z
   })
   .strict();
 
+/**
+ * Why this conversation is asking for a person, one entry per situation.
+ *
+ * `needsAttention` says only that something is wrong; this is what says what.
+ * `messageId` is the anchor the detail pane links to, and is null for a reason
+ * no single message caused. Resolved entries stay in the response — the pane
+ * shows only the unresolved ones, but the list is the record of what was
+ * raised and cleared, and hiding the cleared ones here would make a dismissal
+ * indistinguishable from a reason that was never raised.
+ */
+export const feedbackConversationAttentionReasonSchema = z
+  .object({
+    id: z.uuid(),
+    kind: postEventFeedbackAttentionReasonSchema,
+    messageId: z.uuid().nullable(),
+    at: z.iso.datetime(),
+    resolvedAt: z.iso.datetime().nullable(),
+    resolvedBy: z.string().min(1).max(200).nullable(),
+  })
+  .strict();
+
 export const feedbackConversationDetailSchema = z
   .object({
     id: z.uuid(),
@@ -180,6 +207,9 @@ export const feedbackConversationDetailSchema = z
     messages: z.array(feedbackConversationMessageSchema).max(150),
     extraction: feedbackConversationExtractionSchema,
     needsAttention: z.boolean(),
+    attentionReasons: z
+      .array(feedbackConversationAttentionReasonSchema)
+      .max(FEEDBACK_CONVERSATION_MAX_ATTENTION_REASONS),
     remindedAt: z.iso.datetime().nullable(),
     createdAt: z.iso.datetime(),
     updatedAt: z.iso.datetime(),
@@ -266,6 +296,14 @@ export const feedbackConversationIdParamSchema = z
   })
   .strict();
 
+export const feedbackAttentionReasonIdParamSchema = z
+  .object({
+    campaignId: z.uuid(),
+    conversationId: z.uuid(),
+    reasonId: z.uuid(),
+  })
+  .strict();
+
 export const feedbackNoteIdParamSchema = z
   .object({
     noteId: z.uuid(),
@@ -320,6 +358,9 @@ export class FeedbackCampaignIdParamDto extends createZodDto(
 export class FeedbackConversationIdParamDto extends createZodDto(
   feedbackConversationIdParamSchema,
 ) {}
+export class FeedbackAttentionReasonIdParamDto extends createZodDto(
+  feedbackAttentionReasonIdParamSchema,
+) {}
 export class FeedbackNoteIdParamDto extends createZodDto(
   feedbackNoteIdParamSchema,
 ) {}
@@ -345,6 +386,9 @@ export type FeedbackCampaignConversationsView = z.infer<
 >;
 export type FeedbackConversationDetailView = z.infer<
   typeof feedbackConversationDetailSchema
+>;
+export type FeedbackConversationAttentionReasonView = z.infer<
+  typeof feedbackConversationAttentionReasonSchema
 >;
 export type FeedbackConversationResultsView = z.infer<
   typeof feedbackConversationResultsSchema

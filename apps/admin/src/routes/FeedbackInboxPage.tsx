@@ -20,6 +20,7 @@ import {
   useGetFeedbackConversation,
   useListFeedbackCampaignConversations,
   useListFeedbackConversationResults,
+  useResolveFeedbackConversationAttentionReason,
   useResumeFeedbackConversationBot,
   useSendFeedbackConversationStaffMessage,
   useTakeOverFeedbackConversation,
@@ -28,6 +29,7 @@ import { useUpdateFeedbackNoteReviewStatus } from "../api/generated/feedback-not
 import type { AddFeedbackConversationNoteDtoNoteType } from "../api/generated/model/addFeedbackConversationNoteDtoNoteType";
 import type { FeedbackConversationDetailDtoOutput } from "../api/generated/model/feedbackConversationDetailDtoOutput";
 import { CampaignHeader } from "../components/admin/feedback/CampaignHeader";
+import { ConversationAttention } from "../components/admin/feedback/ConversationAttention";
 import {
   ConversationActions,
   NotesPanel,
@@ -77,6 +79,9 @@ export function FeedbackInboxPage() {
   const [query, setQuery] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<ConversationAction | null>(
+    null,
+  );
+  const [dismissingReasonId, setDismissingReasonId] = useState<string | null>(
     null,
   );
 
@@ -158,6 +163,8 @@ export function FeedbackInboxPage() {
   const resumeBot = useResumeFeedbackConversationBot();
   const closeConversation = useCloseFeedbackConversation();
   const sendStaffMessage = useSendFeedbackConversationStaffMessage();
+  const resolveAttentionReason =
+    useResolveFeedbackConversationAttentionReason();
   const updateNoteReviewStatus = useUpdateFeedbackNoteReviewStatus();
   const addNote = useAddFeedbackConversationNote();
   const startConversation = useStartFeedbackConversation();
@@ -275,6 +282,33 @@ export function FeedbackInboxPage() {
     toast.success("Note added", {
       description: "It is saved as a staff note and labelled as one.",
     });
+  }
+
+  /**
+   * Clears one attention reason, straight from the press. The response is the
+   * updated conversation, so the row goes and — when that was the last
+   * unresolved reason — the inbox badge with it, without waiting for a poll.
+   */
+  async function handleDismissAttentionReason(reasonId: string) {
+    setActionError(null);
+    if (selectedId === null) {
+      return;
+    }
+    setDismissingReasonId(reasonId);
+    try {
+      const updated = await resolveAttentionReason.mutateAsync({
+        campaignId,
+        conversationId: selectedId,
+        reasonId,
+      });
+      await applyConversationResult(updated);
+    } catch (cause) {
+      setActionError(
+        apiErrorMessage(cause, "The reason could not be dismissed."),
+      );
+    } finally {
+      setDismissingReasonId(null);
+    }
   }
 
   async function handleNoteReviewChange(
@@ -429,6 +463,13 @@ export function FeedbackInboxPage() {
                 : {})}
               actionError={actionError}
               isRefreshing={detailQuery.isFetching}
+              attention={
+                <ConversationAttention
+                  conversation={conversation}
+                  dismissingReasonId={dismissingReasonId}
+                  onDismiss={handleDismissAttentionReason}
+                />
+              }
               actions={
                 <ConversationActions
                   conversation={conversation}

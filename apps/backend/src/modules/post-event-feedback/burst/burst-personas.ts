@@ -33,12 +33,13 @@ import type { BurstPersona } from "./burst-scenario.js";
  * boundary, so the run count is a property of the script rather than of how busy
  * the queue was.
  *
- * Sixteen personas answer or skip every goal and close as `completed`. Seven
+ * Sixteen personas answer or skip every goal and close as `completed`. Eight
  * stay unfinished on purpose: silence mid-questionnaire, STOP, a Greeklish
  * opt-out, an explicit human handoff, an erasure handoff, STOP followed by
- * chatter, and emoji-only non-answers. Handoff sets `awaitingHuman`, so later
- * messages exit `skipped_awaiting_human` and never reach the stub — those two
- * rows declare exactly one turn for the handoff run.
+ * chatter, emoji-only non-answers, and somebody who only ever swears at us.
+ * Handoff sets `awaitingHuman`, so later messages exit `skipped_awaiting_human`
+ * and never reach the stub — those two rows declare exactly one turn for the
+ * handoff run.
  *
  * ## Naming a fellow attendee
  *
@@ -49,9 +50,10 @@ import type { BurstPersona } from "./burst-scenario.js";
  * candidate. A mention that resolves to nobody has nowhere to go on an answer
  * and travels as a note's `mentionedName` instead, which is D18's degradation
  * written as data: `taverna_praises_a_ghost` and `wine_only_a_first_name` are
- * the two rows that use it. `mezedopoleio` ordinal 1 is reserved elsewhere in
- * this change set; until that row lands the table has five names, and these
- * five only name each other.
+ * the two rows that use it. The respondent is now named in the prompt too, in
+ * its own block: `subject_is_respondent` forbids answering about yourself, and
+ * until that block existed the rule asked the model to avoid somebody it had no
+ * way to identify.
  *
  * ## Two entries whose catalogue verdict is stale
  *
@@ -1179,8 +1181,85 @@ export const BURST_PERSONAS: readonly BurstPersona[] = [
   },
 
   // ── mezedopoleio ──────────────────────────────────────────────────────────
-  // Ordinal 1 is reserved — another change lands it. These five only name each
-  // other until that sixth seat is filled.
+  {
+    // Somebody who opted in and then spent the evening swearing at a robot.
+    //
+    // `rooftop_swears_at_the_bot` swears once and then answers, which is the
+    // ordinary case and the one that keeps the safety taxonomy honest: an
+    // insult aimed at us is rudeness, not an incident, and must never reach the
+    // operator inbox. This row is the case that one does not cover — abuse that
+    // never turns into an answer, four clusters of it, with the questionnaire
+    // untouched at the end.
+    //
+    // **This row is an observation, not yet a contract.** The intended product
+    // behaviour is two or three calm replies and then a closing «δεν μπορούμε
+    // να συνεχίσουμε κουβέντα έτσι», after which the bot goes quiet and the
+    // conversation is frozen for a person to look at. None of that mechanism
+    // exists yet, so the expectation below states what the loop does *today*
+    // and the bound on `received` is deliberately wide: the rehearsal is here
+    // to tell us how many times the bot actually answers him, which is the
+    // number the freeze has to change. Narrow it when the freeze lands.
+    //
+    // The four clusters are three minutes apart on purpose. Under the quiet
+    // window four messages sent together would be one run and one reply, and
+    // the thing worth watching is precisely whether the bot keeps talking.
+    id: "mezedopoleio_abuses_the_bot_throughout",
+    campaign: "mezedopoleio",
+    ordinal: 1,
+    firstName: "Μπάμπης",
+    lastName: "Διπλογαμωσταυρίδης",
+    quirk: "Βρίζει σε κάθε μήνυμα και δεν απαντά ποτέ σε τίποτα.",
+    mirrors:
+      "νέο — καμία σειρά καταλόγου δεν καλύπτει επίμονη κακοποίηση χωρίς απάντηση",
+    messages: [
+      { afterMs: 0, text: "αντε γαμησου ρε μαλακισμενο μποτ" },
+      {
+        afterMs: 180_000,
+        text: "σοβαρα ποιος σχεδιασε αυτη τη μαλακια, γαμω το κερατο μου",
+      },
+      { afterMs: 180_000, text: "δε σου απανταω τιποτα, ασχετε" },
+      { afterMs: 180_000, text: "ακομα εδω εισαι ρε ηλιθιε; γαμω" },
+    ],
+    stub: [
+      // No answers, no notes, and no attention signal on any turn — nobody is
+      // being described, so there is nothing to record and nothing to flag. The
+      // replies are what a calm bot says; whether it should still be saying
+      // them by the fourth one is the open question.
+      {
+        nextGoal: "event_score",
+        reply:
+          "Σε άκουσα. Αν θες, πες μου μόνο ένα νούμερο από το 1 ως το 5 για τη βραδιά.",
+      },
+      {
+        nextGoal: "event_score",
+        reply:
+          "Εντάξει. Είμαι εδώ αν θελήσεις να μου πεις δυο πράγματα για το τραπέζι.",
+      },
+      {
+        nextGoal: "event_score",
+        reply: "Κανένα πρόβλημα, δεν χρειάζεται να απαντήσεις.",
+      },
+      {
+        nextGoal: "event_score",
+        reply: null,
+      },
+    ],
+    expect: {
+      lifecycle: "open",
+      closedBecause: null,
+      // He never wrote ΣΤΟΠ. Nothing here is his opt-out, and reading it as one
+      // would be us deciding on his behalf.
+      optedIn: true,
+      answers: [],
+      // False today, and that is the finding rather than the goal: swearing at
+      // us is correctly not an incident, so nothing raises the badge and the
+      // conversation would sit open being nudged tomorrow.
+      needsAttention: false,
+      // Intro plus however many replies he draws. Wide on purpose — see above.
+      minReceived: 1,
+      maxReceived: 5,
+    },
+  },
   {
     // The scale tops out at five and he writes ten. No existing burst row
     // proposes an out-of-range integer, so `invalid_score` is unrehearsed under

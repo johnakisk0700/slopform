@@ -25,6 +25,7 @@ import { FeedbackConversationNotFoundError } from "../post-event-feedback-conver
 import { FeedbackCampaignNotFoundError } from "../campaign/campaign.service.js";
 import {
   AddFeedbackConversationNoteDto,
+  FeedbackAttentionReasonIdParamDto,
   FeedbackCampaignConversationsDto,
   FeedbackCampaignIdParamDto,
   FeedbackCampaignResultsQueryDto,
@@ -37,6 +38,7 @@ import {
   UpdateFeedbackNoteReviewStatusDto,
 } from "./conversation.schemas.js";
 import {
+  FeedbackAttentionReasonNotFoundError,
   FeedbackConversationActionNotAllowedError,
   FeedbackNoteNotFoundError,
   PostEventFeedbackConversationService,
@@ -168,6 +170,28 @@ export class PostEventFeedbackConversationController {
     );
   }
 
+  @Post(
+    ":campaignId/conversations/:conversationId/attention-reasons/:reasonId/resolve",
+  )
+  @ApiOperation({ operationId: "resolveFeedbackConversationAttentionReason" })
+  @Header("Cache-Control", "no-store")
+  @ZodResponse({ status: 200, type: FeedbackConversationDetailDto })
+  resolveAttentionReason(
+    @Param() parameters: FeedbackAttentionReasonIdParamDto,
+    @CurrentUserId() userId: PrincipalDto,
+    @RequestCorrelationId() correlationId: CorrelationIdDto,
+  ): Promise<FeedbackConversationDetailDto> {
+    return mapConversationErrors(
+      this.conversations.resolveAttentionReason(
+        parameters.campaignId,
+        parameters.conversationId,
+        parameters.reasonId,
+        String(userId),
+        String(correlationId),
+      ),
+    );
+  }
+
   @Post(":campaignId/conversations/:conversationId/messages")
   @ApiOperation({ operationId: "sendFeedbackConversationStaffMessage" })
   @Header("Cache-Control", "no-store")
@@ -246,7 +270,8 @@ async function mapConversationErrors<T>(operation: Promise<T>): Promise<T> {
     if (
       error instanceof FeedbackCampaignNotFoundError ||
       error instanceof FeedbackConversationNotFoundError ||
-      error instanceof FeedbackNoteNotFoundError
+      error instanceof FeedbackNoteNotFoundError ||
+      error instanceof FeedbackAttentionReasonNotFoundError
     ) {
       throw new NotFoundException(error.message, { cause: error });
     }

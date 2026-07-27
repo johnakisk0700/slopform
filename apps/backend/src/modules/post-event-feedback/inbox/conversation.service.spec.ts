@@ -28,6 +28,7 @@ import type { FeedbackResultsRepository } from "../extraction/results.repository
 import type { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
 import { conversationCapabilities } from "./conversation.view.js";
 import {
+  FeedbackAttentionReasonNotFoundError,
   FeedbackConversationActionNotAllowedError,
   PostEventFeedbackConversationService,
 } from "./conversation.service.js";
@@ -39,6 +40,9 @@ const subjectId = "bbbbbbb1-bbbb-4bbb-8bbb-bbbbbbbbbbb1";
 const conversationId = "6f0f2f8a-2b73-5a02-9d0a-3f0b8f5b1c21";
 const noteId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const outboxId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+const reasonId = "99999999-9999-4999-8999-999999999901";
+const secondReasonId = "99999999-9999-4999-8999-999999999902";
+const attentionMessageId = "11111111-1111-4111-8111-111111111199";
 
 const campaignRow: FeedbackCampaignRow = {
   id: campaignId,
@@ -660,6 +664,145 @@ describe("PostEventFeedbackConversationService", () => {
     ]);
   });
 
+  it("exposes attention reasons, resolved ones included, on the detail view", async () => {
+    const { service, conversations } = createService();
+    conversations.findById.mockResolvedValue(
+      openConversation({
+        needsAttention: true,
+        attentionReasons: [
+          attentionReason(),
+          attentionReason({
+            id: secondReasonId,
+            kind: "answer_revision",
+            messageId: null,
+            resolvedAt: new Date("2026-07-25T02:00:00.000Z"),
+            resolvedBy: "admin-2",
+          }),
+        ],
+      }),
+    );
+
+    const detail = await service.get(campaignId, conversationId);
+
+    expect(detail.attentionReasons).toStrictEqual([
+      {
+        id: reasonId,
+        kind: "safety",
+        messageId: attentionMessageId,
+        at: "2026-07-25T01:00:00.000Z",
+        resolvedAt: null,
+        resolvedBy: null,
+      },
+      {
+        id: secondReasonId,
+        kind: "answer_revision",
+        messageId: null,
+        at: "2026-07-25T01:00:00.000Z",
+        resolvedAt: "2026-07-25T02:00:00.000Z",
+        resolvedBy: "admin-2",
+      },
+    ]);
+  });
+
+  it("dismisses one reason and records who dismissed it", async () => {
+    const { service, conversations, auditAppend } = createService();
+    const flagged = openConversation({
+      needsAttention: true,
+      attentionReasons: [attentionReason()],
+    });
+    conversations.findById.mockResolvedValue(flagged);
+    conversations.resolveAttentionReason.mockResolvedValue({
+      changed: true,
+      conversation: {
+        ...flagged,
+        needsAttention: false,
+        attentionReasons: [
+          attentionReason({
+            resolvedAt: new Date("2026-07-25T03:00:00.000Z"),
+            resolvedBy: "admin-1",
+          }),
+        ],
+      },
+    });
+
+    const detail = await service.resolveAttentionReason(
+      campaignId,
+      conversationId,
+      reasonId,
+      "admin-1",
+      "req-12",
+    );
+
+    expect(conversations.resolveAttentionReason).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId,
+        reasonId,
+        resolvedBy: "admin-1",
+      }),
+    );
+    expect(detail.needsAttention).toBe(false);
+    expect(detail.attentionReasons[0]?.resolvedBy).toBe("admin-1");
+    expect(auditAppend).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "feedback_conversation.attention_resolved",
+        actorType: "admin",
+        actorId: "admin-1",
+        entityType: "feedback_conversation",
+        entityId: conversationId,
+        context: expect.objectContaining({
+          reasonId,
+          kind: "safety",
+          stillNeedsAttention: false,
+        }),
+      }),
+    );
+  });
+
+  it("treats dismissing an already-resolved reason as a no-op", async () => {
+    const { service, conversations, auditAppend } = createService();
+    conversations.findById.mockResolvedValue(
+      openConversation({
+        attentionReasons: [
+          attentionReason({
+            resolvedAt: new Date("2026-07-25T03:00:00.000Z"),
+            resolvedBy: "admin-2",
+          }),
+        ],
+      }),
+    );
+
+    // A double click must not write a second audit row saying it was cleared
+    // again by somebody else.
+    const detail = await service.resolveAttentionReason(
+      campaignId,
+      conversationId,
+      reasonId,
+      "admin-1",
+      "req-13",
+    );
+
+    expect(conversations.resolveAttentionReason).not.toHaveBeenCalled();
+    expect(auditAppend).not.toHaveBeenCalled();
+    expect(detail.attentionReasons[0]?.resolvedBy).toBe("admin-2");
+  });
+
+  it("refuses to dismiss a reason this conversation never carried", async () => {
+    const { service, conversations } = createService();
+    conversations.findById.mockResolvedValue(openConversation());
+
+    await expect(
+      service.resolveAttentionReason(
+        campaignId,
+        conversationId,
+        reasonId,
+        "admin-1",
+        "req-14",
+      ),
+    ).rejects.toBeInstanceOf(FeedbackAttentionReasonNotFoundError);
+    expect(conversations.resolveAttentionReason).not.toHaveBeenCalled();
+  });
+
   it("returns null display names for dangling participant ids (D18)", async () => {
     const { service, conversations, participants } = createService();
     conversations.listForCampaign.mockResolvedValue([listSummary()]);
@@ -702,6 +845,22 @@ function openConversation(
     awaitingHuman: false,
     createdAt: now,
     updatedAt: now,
+    ...overrides,
+  };
+}
+
+function attentionReason(
+  overrides: Partial<
+    FeedbackConversationDocument["attentionReasons"][number]
+  > = {},
+): FeedbackConversationDocument["attentionReasons"][number] {
+  return {
+    id: reasonId,
+    kind: "safety",
+    messageId: attentionMessageId,
+    at: new Date("2026-07-25T01:00:00.000Z"),
+    resolvedAt: null,
+    resolvedBy: null,
     ...overrides,
   };
 }
@@ -846,6 +1005,7 @@ function createService(): {
     close: ReturnType<typeof vi.fn>;
     appendMessage: ReturnType<typeof vi.fn>;
     setNeedsAttention: ReturnType<typeof vi.fn>;
+    resolveAttentionReason: ReturnType<typeof vi.fn>;
   };
   participants: {
     findByIds: ReturnType<typeof vi.fn>;
@@ -875,6 +1035,7 @@ function createService(): {
     close: vi.fn(),
     appendMessage: vi.fn(),
     setNeedsAttention: vi.fn().mockResolvedValue({ changed: true }),
+    resolveAttentionReason: vi.fn(),
   };
   const events = {
     findById: vi.fn().mockResolvedValue(eventRow),

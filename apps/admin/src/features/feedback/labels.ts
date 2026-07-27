@@ -1,4 +1,5 @@
 import type { FeedbackCampaignConversationsDtoOutputCampaignStatus } from "../../api/generated/model/feedbackCampaignConversationsDtoOutputCampaignStatus";
+import type { FeedbackConversationDetailDtoOutputAttentionReasonsItemKind } from "../../api/generated/model/feedbackConversationDetailDtoOutputAttentionReasonsItemKind";
 import type { FeedbackConversationDetailDtoOutputControlMode } from "../../api/generated/model/feedbackConversationDetailDtoOutputControlMode";
 import type { FeedbackConversationDetailDtoOutputGoalsItemStatus } from "../../api/generated/model/feedbackConversationDetailDtoOutputGoalsItemStatus";
 import type { FeedbackConversationDetailDtoOutputLifecycleReason } from "../../api/generated/model/feedbackConversationDetailDtoOutputLifecycleReason";
@@ -202,6 +203,32 @@ export function messageAttentionActionLabel(
   action: FeedbackConversationDetailDtoOutputMessagesItemAttentionRecommendedAction,
 ): string {
   return MESSAGE_ATTENTION_ACTION_LABELS[action];
+}
+
+/**
+ * Why a conversation is asking for a person, in one plain sentence each.
+ *
+ * These are the whole point of the reason list: «Needs attention» said only
+ * that something was wrong, and five unrelated situations arrived in the inbox
+ * looking identical. Each line says what happened, not what to do about it —
+ * what to do is the operator's call once they have read the message it links
+ * to.
+ */
+const ATTENTION_REASON_LABELS: Record<
+  FeedbackConversationDetailDtoOutputAttentionReasonsItemKind,
+  string
+> = {
+  safety: "A message raised a safety concern.",
+  handoff: "The participant asked to speak to a person.",
+  unattributed_note: "A note could not be attributed to anyone.",
+  answer_revision: "An answer was revised after it had been recorded.",
+  hostile_to_bot: "The participant was hostile to the bot.",
+};
+
+export function attentionReasonLabel(
+  kind: FeedbackConversationDetailDtoOutputAttentionReasonsItemKind,
+): string {
+  return ATTENTION_REASON_LABELS[kind];
 }
 
 export function controlLabel(

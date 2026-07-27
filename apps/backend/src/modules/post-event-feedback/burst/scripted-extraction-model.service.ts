@@ -180,7 +180,16 @@ function buildProposal(
   _persona: BurstPersona,
 ): FeedbackExtractionProposal {
   const confidence = turn.confidence ?? 0.9;
-  const byName = candidateIndex(parsed.candidates);
+  // The respondent is addressable on purpose. A stub that could only name
+  // candidates could not express the proposal `subject_is_respondent` exists to
+  // refuse, so the rule had no rehearsal — the persona who answers «εμένα μου
+  // άρεσα» would have failed on the stub's own limitation rather than on the
+  // mechanism under test.
+  const byName = candidateIndex(
+    parsed.respondent
+      ? [...parsed.candidates, parsed.respondent]
+      : parsed.candidates,
+  );
 
   const declineCite = resolveCite("all-new", parsed.newMessageIds);
 
@@ -240,7 +249,7 @@ function resolveSubject(
     const participantId = byName.get(about.trim());
     if (!participantId) {
       throw scriptFailure(
-        `Scripted burst about "${about}" is not in the ΥΠΟΨΗΦΙΟΙ block`,
+        `Scripted burst about "${about}" is neither a ΥΠΟΨΗΦΙΟΙ candidate nor the ΣΥΝΟΜΙΛΗΤΗΣ`,
       );
     }
     return {

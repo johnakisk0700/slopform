@@ -261,6 +261,15 @@ export function resolveSelectedConversationId(
   return visible[0]?.id ?? null;
 }
 
+/**
+ * The DOM id a transcript message carries, so an attention reason can link to
+ * the message that caused it. One function for both ends of that link, so the
+ * anchor and the thing pointing at it cannot drift apart.
+ */
+export function transcriptMessageAnchorId(messageId: string): string {
+  return `transcript-message-${messageId}`;
+}
+
 /** Short absolute timestamp for transcript lines and list rows. */
 export function formatTimestamp(iso: string, now: Date = new Date()): string {
   const at = new Date(iso);

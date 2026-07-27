@@ -109,6 +109,41 @@ describe("buildFeedbackExtractionPrompt", () => {
     expect(prompt.system).toContain("liked ΚΑΙ στο meet_again");
   });
 
+  it("names the person writing, so the rule against answering about yourself can be followed", () => {
+    const prompt = buildFeedbackExtractionPrompt({
+      context: context({ respondentDisplayName: "Νίκος Αυτοθαυμαστάκιας" }),
+      copy: COPY,
+    });
+
+    // Validation refuses `subject_is_respondent`, and the system prompt has
+    // always forbidden it — but the respondent was never named anywhere, so the
+    // model was asked to avoid a person it could not identify. Worse when they
+    // share a first name with a candidate: resolving «ο Νίκος» to the candidate
+    // was the reasonable reading of everything it had been told.
+    expect(
+      section(
+        prompt.user,
+        "ΣΥΝΟΜΙΛΗΤΗΣ (αυτός γράφει· ποτέ δεν είναι υποκείμενο)",
+      ),
+    ).toEqual(["- respondent-1 = Νίκος Αυτοθαυμαστάκιας"]);
+  });
+
+  it("still names the respondent when the display name is missing", () => {
+    const prompt = buildFeedbackExtractionPrompt({
+      context: context({ respondentDisplayName: null }),
+      copy: COPY,
+    });
+
+    // The id is what an answer carries, so it has to be there even when we have
+    // nothing to call them.
+    expect(
+      section(
+        prompt.user,
+        "ΣΥΝΟΜΙΛΗΤΗΣ (αυτός γράφει· ποτέ δεν είναι υποκείμενο)",
+      ),
+    ).toEqual(["- respondent-1 = (άγνωστο όνομα)"]);
+  });
+
   it("hands the alphabet decision to the code instead of asking the participant", () => {
     const prompt = buildFeedbackExtractionPrompt({
       context: context(),

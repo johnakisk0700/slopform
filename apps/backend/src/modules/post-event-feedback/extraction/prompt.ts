@@ -84,6 +84,9 @@ function buildUserPrompt(input: BuildFeedbackExtractionPromptInput): string {
     "ΣΤΟΧΟΙ",
     formatGoals(context),
     "",
+    "ΣΥΝΟΜΙΛΗΤΗΣ (αυτός γράφει· ποτέ δεν είναι υποκείμενο)",
+    formatRespondent(context),
+    "",
     "ΥΠΟΨΗΦΙΟΙ (μόνο αυτοί επιτρέπονται ως υποκείμενα)",
     formatCandidates(context),
     "",
@@ -126,6 +129,22 @@ function formatGoals(context: FeedbackExtractionContext): string {
         `- ${goal.ordinal}. ${goal.key}: ${goal.status} — ρωτήθηκε ως «${goal.prompt}»`,
     )
     .join("\n");
+}
+
+/**
+ * Who is writing.
+ *
+ * Rule 3 forbids making the respondent the subject of their own answer, and
+ * validation refuses it as `subject_is_respondent` — but the prompt never said
+ * who the respondent was, so the rule asked the model to avoid a person it
+ * could not identify. «Εμένα μου άρεσα, ο καλύτερος ήμουν εγώ» was
+ * indistinguishable from naming somebody at the table, and a first name shared
+ * with a candidate was worse: the model had every reason to resolve it to the
+ * candidate. The id is here because the answer carries ids, not names.
+ */
+function formatRespondent(context: FeedbackExtractionContext): string {
+  const name = context.respondentDisplayName?.trim();
+  return `- ${context.respondentParticipantId} = ${name && name.length > 0 ? name : "(άγνωστο όνομα)"}`;
 }
 
 function formatCandidates(context: FeedbackExtractionContext): string {
