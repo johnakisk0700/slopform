@@ -2,9 +2,29 @@ import type { Queue } from "bullmq";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  ASSISTANT_QUEUE,
+  EMAIL_QUEUE,
+  FEEDBACK_INGRESS_QUEUE,
+  FEEDBACK_QUEUE,
+  REFERENCE_QUEUE,
+} from "./queue.constants.js";
+import {
   QUEUE_SETTLE_TIMEOUT_MS,
   QueueLifecycleService,
 } from "./queue-lifecycle.service.js";
+
+/**
+ * Every queue the service settles, in constructor order. Adding a queue to the
+ * service without adding it here fails to compile, which is the point: a queue
+ * left out of shutdown is a connection that can hold the process open.
+ */
+const SETTLED_QUEUES = [
+  ASSISTANT_QUEUE,
+  EMAIL_QUEUE,
+  FEEDBACK_QUEUE,
+  FEEDBACK_INGRESS_QUEUE,
+  REFERENCE_QUEUE,
+] as const;
 
 afterEach(() => {
   vi.useRealTimers();
@@ -20,12 +40,9 @@ describe("QueueLifecycleService", () => {
     const pending = new Promise<void>((resolve) => {
       settle = resolve;
     });
-    const queues = [
-      createQueue("assistant", () => pending),
-      createQueue("email-delivery", () => pending),
-      createQueue("feedback", () => pending),
-      createQueue("reference", () => pending),
-    ];
+    const queues = SETTLED_QUEUES.map((name) =>
+      createQueue(name, () => pending),
+    );
     const lifecycle = new QueueLifecycleService(...queueTuple(queues));
 
     let finished = false;
@@ -47,12 +64,9 @@ describe("QueueLifecycleService", () => {
 
   it("bounds the wait so an unreachable Redis cannot hold shutdown open", async () => {
     vi.useFakeTimers();
-    const queues = [
-      createQueue("assistant", () => new Promise(() => undefined)),
-      createQueue("email-delivery", () => new Promise(() => undefined)),
-      createQueue("feedback", () => new Promise(() => undefined)),
-      createQueue("reference", () => new Promise(() => undefined)),
-    ];
+    const queues = SETTLED_QUEUES.map((name) =>
+      createQueue(name, () => new Promise(() => undefined)),
+    );
     const lifecycle = new QueueLifecycleService(...queueTuple(queues));
 
     const shutdown = lifecycle.beforeApplicationShutdown();
@@ -62,12 +76,11 @@ describe("QueueLifecycleService", () => {
   });
 
   it("keeps shutting down when a connection settles as a failure", async () => {
-    const queues = [
-      createQueue("assistant", () => Promise.reject(new Error("no redis"))),
-      createQueue("email-delivery", () => Promise.resolve()),
-      createQueue("feedback", () => Promise.resolve()),
-      createQueue("reference", () => Promise.resolve()),
-    ];
+    const queues = SETTLED_QUEUES.map((name, index) =>
+      createQueue(name, () =>
+        index === 0 ? Promise.reject(new Error("no redis")) : Promise.resolve(),
+      ),
+    );
     const lifecycle = new QueueLifecycleService(...queueTuple(queues));
 
     await expect(
@@ -76,7 +89,9 @@ describe("QueueLifecycleService", () => {
   });
 });
 
-function queueTuple(queues: readonly Queue[]): [Queue, Queue, Queue, Queue] {
-  const [assistant, email, feedback, reference] = queues;
-  return [assistant!, email!, feedback!, reference!];
+function queueTuple(
+  queues: readonly Queue[],
+): [Queue, Queue, Queue, Queue, Queue] {
+  const [assistant, email, feedback, feedbackIngress, reference] = queues;
+  return [assistant!, email!, feedback!, feedbackIngress!, reference!];
 }

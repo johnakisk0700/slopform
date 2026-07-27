@@ -532,8 +532,11 @@ rejection, or the last attempt spent. It leaves three things behind:
    class is thrown as the `UnrecoverableError` message, so it is visible in
    BullMQ's `failedReason` and not only in the audit table.
 2. **One ordinary note** (`note_type: general`, `status: new`) with bounded
-   generic text — «Πιθανή προσβλητική/ευαίσθητη αναφορά — δείτε τη συζήτηση.».
-   Nothing was extracted, so nothing may be characterised.
+   generic text — «Η αυτόματη ανάλυση δεν ολοκληρώθηκε — δείτε τη συζήτηση.».
+   Nothing was extracted, so nothing may be characterised. The text names the
+   failure rather than the content for exactly that reason: a run reaches the
+   fallback for any permanent failure, and the earlier wording asserted a
+   possible offensive reference about text nothing had read.
 3. **One bot acknowledgement** so the participant is not left on read: a short
    acknowledgement plus the current goal's prompt from the campaign copy
    snapshot. No new copy is authored.
@@ -690,8 +693,8 @@ is everything the HTTP process does (D8):
 
 1. one `provider_message_ingress` INSERT, deduplicated by the
    `(chat_jid, provider_message_id)` unique constraint;
-2. one `feedback.materialize.v1` enqueue under the deterministic job id
-   `feedback-materialize-v1-<ingressId>`;
+2. one `feedback.materialize.v1` enqueue onto the `feedback-ingress` queue under
+   the deterministic job id `feedback-materialize-v1-<ingressId>`;
 3. 200.
 
 A redelivery still enqueues, because the first delivery may have crashed between
@@ -744,7 +747,7 @@ instead of counting as unrelated traffic.
 sequenceDiagram
   participant Hook as Webhook
   participant PG as PostgreSQL
-  participant Queue as feedback queue
+  participant Queue as feedback-ingress queue
   participant Worker as Materializer
   participant Mongo as MongoDB
 
@@ -767,8 +770,8 @@ the reverse order would lose the run instead of repeating it.
 
 The known gap is a row committed by the edge whose enqueue never succeeded. It
 stays `pending` and is recovered by a provider redelivery **or** by the WP7
-ingress recovery sweep, which re-enqueues `feedback.materialize.v1` under the
-same stable job id for rows older than
+ingress recovery sweep, which re-enqueues `feedback.materialize.v1` to
+`feedback-ingress` under the same stable job id for rows older than
 `FEEDBACK_INGRESS_PENDING_RECOVERY_MINUTES` (default 5).
 
 ### Boundaries this package deliberately keeps
@@ -1205,7 +1208,7 @@ review-status, with per-conversation capability flags) lives in
 not redefine them. Extraction drives goal advancement, the cursor and
 `close(completed)` through the methods above and lives in
 [WP5](#wp5-extraction-and-reply-loop-implemented). Webhook ingestion and the
-`feedback` queue live in
+`feedback-ingress` queue live in
 [WP4](#wp4-ingress-and-materialization-implemented): its materializer is the
 only caller that resolves a phone, appends inbound messages, closes a
 conversation on STOP or takes control on an unknown outbound. The transport
@@ -1381,6 +1384,18 @@ after the thread closes.
 | `POST`  | `/feedback/campaigns/:campaignId/conversations/:conversationId/notes`      | `addFeedbackConversationNote`          |
 | `PATCH` | `/feedback/notes/:noteId/review-status`                                    | `updateFeedbackNoteReviewStatus`       |
 
+`getFeedbackConversation` includes an `extraction` object so the operator can
+see how far behind the delayed extract job is: unread participant turns beyond
+`cursorSeq` (document alone), `nextRunAt` / `runInFlight` / `runQueued` from
+retained BullMQ jobs for those seqs, `lastRunFailed` from a retained failed job
+**or** a durable note with `origin: deterministic_fallback` while unread
+testimony remains (Redis retention would otherwise hide the failure), plus
+document `lastRunAt` and `model`. **Only the detail endpoint may touch Redis
+for this** — the polled conversation list must not look up a job per row. A
+missing job with no fallback note is reported as null/false fields, never as a
+confident "idle": retention removal, a lost enqueue and "already ran" remain
+indistinguishable once both signals are gone.
+
 ### WP7b tests
 
 Focused coverage: capability flags per lifecycle/control state (including
@@ -1388,8 +1403,10 @@ STOP-closed), staff-send rejected under bot control and accepted under human
 control (outbox `kind=staff` + `actor: staff` transcript append), the
 full-transcript case cancelling the staff row and refusing the send, close
 idempotency after `cancelled`, STOP-closed close rejection, take-over / resume
-audit, and campaign results display-name resolution including dangling-id `null`
-(D18).
+audit, campaign results display-name resolution including dangling-id `null`
+(D18), and the detail view's `extraction` object (unread count from the
+document, delayed-job due time from BullMQ, no invented "idle" when the job is
+absent).
 
 For staff notes: the written row carries `origin: staff`, the acting user and no
 model or confidence; an empty `source_message_ids`; a subject outside the live

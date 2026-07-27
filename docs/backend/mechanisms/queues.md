@@ -92,8 +92,9 @@ external side effect.
 
 The post-event feedback contracts are:
 
-- queue `feedback`;
-- materialize job `feedback.materialize.v1`;
+- queue `feedback`, for extraction, delivery, relay and sweeps;
+- queue `feedback-ingress`, for materialization alone;
+- materialize job `feedback.materialize.v1`, on `feedback-ingress`;
 - materialize payload `{ schemaVersion: 1, ingressId: UUID, correlationId: string }`;
 - materialize job ID `feedback-materialize-v1-<ingressId>`;
 - extraction job `feedback.extract.v1`;
@@ -108,9 +109,29 @@ The post-event feedback contracts are:
 - ingress recovery sweep job `feedback.sweep-ingress.v1`;
 - sweep payload `{ schemaVersion: 1, correlationId: string }`.
 
-The webhook edge is the producer of `feedback.materialize.v1`; the worker is the
-producer of `feedback.extract.v1` and `feedback.deliver.v1`, using its own
-worker-side registration Queue exactly as the email relay does. Neither payload
+The webhook edge is the producer of `feedback.materialize.v1`, onto
+`feedback-ingress`; the worker is the producer of `feedback.extract.v1` and
+`feedback.deliver.v1` onto `feedback`, using its own worker-side registration
+Queue exactly as the email relay does.
+
+**Materialization has its own queue because it must not wait for a model call.**
+Writing an inbound message into the transcript is a Mongo append and a short
+PostgreSQL transaction; an extraction run holds its slot for as long as the
+provider takes. On one queue the fast job inherits the slow job's service time.
+A rehearsal of eighteen concurrent conversations on 2026-07-27 measured what
+that costs: 52 provider calls consumed 2340 of the 2364 slot-seconds that
+existed, so 45 inbound messages reached the transcript after 118 seconds on
+average and 296 at worst. Three things downstream assume otherwise — the quiet
+window collects what materialization has already written, `stillTyping` and
+`superseded_by_newer_testimony` compare against the transcript, and the admin
+renders it in timestamp order — so all three silently degraded: the bot answered
+questions the participant had already answered, and a message observed at 11:41
+appeared below a question asked at 11:42 because it was appended after it.
+
+Separating the queues is the whole remedy; nothing about the jobs changed. The
+`feedback` processor still accepts `feedback.materialize.v1` so a deploy can
+drain what it caught in flight, and that branch is removable once no such job
+has appeared on that queue for a retention period. Neither payload
 carries message text, phone numbers or provider identifiers: the processor
 reloads the ingress row, the conversation, the outbox row and the campaign
 itself. Reminder, expiry and ingress-recovery sweeps are also worker-owned
@@ -142,7 +163,8 @@ leaves the rest to be understood without its own beginning. The window is
 leading-edge — the first message starts the clock and everything typed inside it
 lands in one run — and it is applied at the enqueue only. The webhook, the
 ingress row and materialization stay immediate, because those durable writes are
-what fill the transcript while the window runs. A delayed run costs nothing in
+what fill the transcript while the window runs — which is why materialization
+holds a queue of its own, where nothing can make it wait. A delayed run costs nothing in
 correctness: it reads the transcript live, a superseded position exits through
 `skipped_cursor`, and a STOP applied meanwhile closes the conversation so the
 run exits on `skipped_closed` without calling the provider at all.
@@ -313,7 +335,7 @@ crash replays into a no-op instead of a lost or duplicated effect. Rows left
 `pending` by a lost enqueue are recovered by the WP7 ingress sweep
 (`feedback.sweep-ingress.v1`): it selects `pending` rows older than
 `FEEDBACK_INGRESS_PENDING_RECOVERY_MINUTES` (default five) in a bounded batch
-and re-adds `feedback.materialize.v1` under the existing
+and re-adds `feedback.materialize.v1` to `feedback-ingress` under the existing
 `feedback-materialize-v1-<ingressId>` job id. Fresh pending rows stay untouched
 so the webhook's own enqueue is not raced. Provider redelivery remains a second
 recovery path; both collapse on the same idempotent consumer.

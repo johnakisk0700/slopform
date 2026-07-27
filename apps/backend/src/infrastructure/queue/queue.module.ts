@@ -9,6 +9,7 @@ import {
   QUEUE_WORKER_CONFIG,
   ASSISTANT_QUEUE,
   EMAIL_QUEUE,
+  FEEDBACK_INGRESS_QUEUE,
   FEEDBACK_QUEUE,
   REFERENCE_QUEUE,
 } from "./queue.constants.js";
@@ -81,6 +82,10 @@ export function createQueueWorkerOptions(
       configKey: QUEUE_PRODUCER_CONFIG,
     }),
     BullModule.registerQueue({
+      name: FEEDBACK_INGRESS_QUEUE,
+      configKey: QUEUE_PRODUCER_CONFIG,
+    }),
+    BullModule.registerQueue({
       name: REFERENCE_QUEUE,
       configKey: QUEUE_PRODUCER_CONFIG,
     }),
@@ -108,6 +113,10 @@ export class QueueModule {}
     }),
     BullModule.registerQueue({
       name: FEEDBACK_QUEUE,
+      configKey: QUEUE_WORKER_CONFIG,
+    }),
+    BullModule.registerQueue({
+      name: FEEDBACK_INGRESS_QUEUE,
       configKey: QUEUE_WORKER_CONFIG,
     }),
     BullModule.registerQueue({

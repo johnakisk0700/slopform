@@ -134,6 +134,12 @@ export class PostEventFeedbackProcessor extends WorkerHost {
         return;
       }
 
+      // Materialization moved to FEEDBACK_INGRESS_QUEUE on 2026-07-27 and no
+      // producer targets this queue any more. The branch stays to drain what a
+      // deploy caught mid-flight; deleting it would bury those jobs as
+      // "unsupported" instead of finishing them. Safe to remove once no
+      // `feedback.materialize.v1` has been seen on this queue for a retention
+      // period.
       if (job.name === FEEDBACK_JOB_NAMES.materializeV1) {
         const data = feedbackMaterializeJobDataSchema.parse(job.data);
         if (job.id !== createFeedbackMaterializeJobId(data.ingressId)) {

@@ -26,6 +26,7 @@ import { PostEventFeedbackExtractionModel } from "./extraction/model.service.js"
 import { PostEventFeedbackExtractor } from "./extraction/extract.service.js";
 import { PostEventFeedbackMaterializer } from "./ingress/materialize.service.js";
 import { PostEventFeedbackMetrics } from "./metrics.service.js";
+import { PostEventFeedbackIngressProcessor } from "./ingress/ingress.processor.js";
 import { PostEventFeedbackProcessor } from "./processor.js";
 import { PostEventFeedbackSweepService } from "./sweeps/sweep.service.js";
 import { SimulatedFeedbackTransport } from "./outbox/simulated-transport.service.js";
@@ -108,6 +109,7 @@ import { WasenderFeedbackTransport } from "./outbox/wasender-transport.service.j
       },
     },
     PostEventFeedbackProcessor,
+    PostEventFeedbackIngressProcessor,
   ],
   exports: [
     PostEventFeedbackExtractor,

@@ -12,7 +12,7 @@ import {
   FeedbackIngressRepository,
 } from "../ingress/ingress.repository.js";
 import { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
-import { FEEDBACK_QUEUE } from "../../../infrastructure/queue/queue.constants.js";
+import { FEEDBACK_INGRESS_QUEUE } from "../../../infrastructure/queue/queue.constants.js";
 import { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
 import type { FeedbackConversationDocument } from "../post-event-feedback-conversation.document.js";
 import { ParticipantsRepository } from "../../participants/participants.repository.js";
@@ -60,7 +60,10 @@ export class PostEventFeedbackSweepService {
   private readonly logger = new Logger(PostEventFeedbackSweepService.name);
 
   constructor(
-    @InjectQueue(FEEDBACK_QUEUE)
+    // Recovery re-enqueues materialization, which lives on the ingress queue.
+    // The sweep jobs that call this service are themselves scheduled onto
+    // FEEDBACK_QUEUE by the sweep scheduler; only the produced job moves.
+    @InjectQueue(FEEDBACK_INGRESS_QUEUE)
     private readonly queue: Queue<FeedbackJobData, void, FeedbackJobName>,
     private readonly config: ConfigService<Environment, true>,
     private readonly database: DatabaseService,

@@ -53,6 +53,7 @@ import {
   createFeedbackIntroDedupeKey,
   renderPostEventFeedbackCopy,
 } from "./question-set.js";
+import { PostEventFeedbackIngressProcessor } from "./ingress/ingress.processor.js";
 import { PostEventFeedbackProcessor } from "./processor.js";
 import type { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
 import type { FeedbackResultsRepository } from "./extraction/results.repository.js";
@@ -492,19 +493,25 @@ export async function createFeedbackLoopHarness(
     database as unknown as DatabaseService,
     repository as unknown as FeedbackIngressRepository,
   );
+  // Materialization runs on its own queue in production, so it runs on its own
+  // processor here. Both are driven by the one fake queue — the harness models
+  // ordering and delay, not slot contention — but the class that handles a
+  // materialize job is the class that handles it in the deployment.
+  const materializer = new PostEventFeedbackMaterializer(
+    queuePort,
+    database as unknown as DatabaseService,
+    repository as unknown as FeedbackCampaignRepository,
+    repository as unknown as FeedbackIngressRepository,
+    repository as unknown as FeedbackOutboxRepository,
+    conversations as unknown as FeedbackConversationRepository,
+    participants as unknown as ParticipantsRepository,
+    audit as unknown as AuditRepository,
+    metrics,
+    outboundTranscript,
+  );
+  const ingressProcessor = new PostEventFeedbackIngressProcessor(materializer);
   const processor = new PostEventFeedbackProcessor(
-    new PostEventFeedbackMaterializer(
-      queuePort,
-      database as unknown as DatabaseService,
-      repository as unknown as FeedbackCampaignRepository,
-      repository as unknown as FeedbackIngressRepository,
-      repository as unknown as FeedbackOutboxRepository,
-      conversations as unknown as FeedbackConversationRepository,
-      participants as unknown as ParticipantsRepository,
-      audit as unknown as AuditRepository,
-      metrics,
-      outboundTranscript,
-    ),
+    materializer,
     new MessageOutboxRelayService(
       queuePort,
       repository as unknown as FeedbackOutboxRepository,
@@ -588,7 +595,11 @@ export async function createFeedbackLoopHarness(
             (job.data as { conversationId: string }).conversationId,
           );
         }
-        await processor.process({
+        const target =
+          job.name === FEEDBACK_JOB_NAMES.materializeV1
+            ? ingressProcessor
+            : processor;
+        await target.process({
           id: job.id,
           name: job.name,
           data: job.data,

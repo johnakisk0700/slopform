@@ -3,7 +3,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import type { Queue } from "bullmq";
 
 import { DatabaseService } from "../../../infrastructure/database/database.service.js";
-import { FEEDBACK_QUEUE } from "../../../infrastructure/queue/queue.constants.js";
+import { FEEDBACK_INGRESS_QUEUE } from "../../../infrastructure/queue/queue.constants.js";
 import { FeedbackIngressRepository } from "./ingress.repository.js";
 import {
   createFeedbackEditedProviderMessageId,
@@ -42,7 +42,9 @@ export class PostEventFeedbackIngressService {
   private readonly logger = new Logger(PostEventFeedbackIngressService.name);
 
   constructor(
-    @InjectQueue(FEEDBACK_QUEUE)
+    // The ingress queue, not the feedback queue: this enqueue must not land
+    // behind a model call. See FEEDBACK_INGRESS_QUEUE for what that cost.
+    @InjectQueue(FEEDBACK_INGRESS_QUEUE)
     private readonly queue: Queue<FeedbackJobData, void, FeedbackJobName>,
     private readonly database: DatabaseService,
     private readonly repository: FeedbackIngressRepository,
