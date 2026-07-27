@@ -149,8 +149,17 @@ const pairs: [string, string, string][] = [
     "--jts-color-warning",
     "attention pill label on solid warning",
   ],
+  // The inbox's NEEDS ATTENTION group heading, which is the strip an operator
+  // scans for first. It is the same pairing the app-wide warning banner uses,
+  // so asserting it covers both.
+  [
+    "--jts-color-warning",
+    "--jts-color-warning-soft",
+    "attention group heading on its tint",
+  ],
   // The feedback inbox's sunken answer cards and the profile link that opens a
-  // respondent, both introduced with the inbox design pass.
+  // respondent, both introduced with the inbox design pass. The OPEN and CLOSED
+  // group headings sit on the same fill, at ink and ink-muted respectively.
   ["--jts-color-text", "--jts-color-surface-sunken", "card text on sunken"],
   [
     "--jts-color-text-muted",

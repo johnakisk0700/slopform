@@ -1,7 +1,7 @@
 # Post-event feedback conversations screen
 
-Status: accepted, verified 2026-07-26 (WP9, design pass and staff notes in
-WP12).
+Status: accepted, verified 2026-07-27 (WP9, design pass and staff notes in
+WP12, conversation-list pass).
 
 The operator surface for the post-event feedback feature: one campaign's
 WhatsApp conversations in a three-pane inbox, the actions that move a
@@ -92,6 +92,22 @@ flowchart LR
 - **Status is text plus tone.** Every badge carries its own label; colour is
   reinforcement. The transcript distinguishes actors by label, alignment and
   fill together.
+- **A row never repeats its own heading.** The grouping answers "is anything
+  waiting for me", so the heading carries that weight and
+  `conversationRowBadges` strips whatever the heading already said: no «Needs
+  attention» chip under NEEDS ATTENTION, no «Open» under OPEN, no bare «Closed»
+  under CLOSED. A _named_ closing reason («Stopped», «Completed») and human
+  control survive anywhere, because no heading states them. An ordinary open
+  conversation therefore carries no chip at all, which is what makes a chip in
+  this list worth looking at. The transcript header keeps the full
+  `conversationBadges` set — it stands alone with no heading to inherit from.
+- **Each fact appears once.** Goal progress is one number in words
+  («3/4 done»), not a bar beside its own caption: the text is what a screen
+  reader reads out of the row's name, and four goals give a bar five states it
+  cannot express more precisely. `GoalProgress` publishes `settled` — the count
+  the row shows — and no `percent`, which existed only to size that bar. The
+  wording is `done` rather than `answered` because a skipped goal is settled
+  without being answered; the details pane still breaks the two apart.
 - **Attention is emphasised, not merely coloured.** `needsAttention` renders as
   a **solid** warning pill on inbox rows and in the conversation header, while
   every other badge stays tinted. It is still a labelled badge — the emphasis is
@@ -170,6 +186,34 @@ fault; a plain page with no application CSS reproduces it in the same tools.
 Real Chrome paints the scrolled inbox correctly at 1280×720 and 1600×1000 in
 both themes (verified 2026-07-26 over the DevTools Protocol).
 
+### The conversation list column
+
+An operator scanning it asks three things in order: _is anything waiting for
+me_, _who is it_, _how far did they get_. The first is answered by the
+grouping, so the heading is the loudest thing in the column and the rows are
+deliberately quiet.
+
+| Part            | Treatment                                                                                                                                                  |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Heading         | Sticky micro-caps strip: own fill, `border-border-strong` hairline top and bottom, a 14px glyph, the bucket count right-aligned                            |
+| NEEDS ATTENTION | `bg-warning-soft` / `text-warning` plus the signature 3px marker (`TriangleAlert`) — the only group that means "stop and read this"                        |
+| OPEN            | `bg-surface-sunken` / `text-ink` (`MessageCircleMore`), the working set at full contrast                                                                   |
+| CLOSED          | `bg-surface-sunken` / `text-ink-muted` (`Archive`), the quiet archive                                                                                      |
+| Row             | Name (two lines, `break-words`, never one truncated line), time, then one metadata line: phone `·` `N/M done`. Chips only when the heading has not said it |
+
+The glyphs are the campaign tallies' own — an operator reads «2 need attention»
+in the summary row and meets the same triangle over the group. The other two
+headings reserve the marker's 3px gutter with a transparent border so every
+label starts on one line. The marker itself stays on the one group that earns
+it: the motif means "this matters", and putting it on all three would mean
+nothing.
+
+Row height matters because the column cannot grow wider. At its declared
+minimum (`15rem`) a 43-character Greek name still wraps to two lines and clamps
+rather than being cut mid-name at one; «Κώστας Αργοπληκτρολογάκιας» wraps whole.
+Verified in both themes at 240 px and 304 px over the DevTools Protocol
+(2026-07-27).
+
 ### Where each control lives
 
 Placement is the screen's answer to "what does this act on?".
@@ -240,12 +284,20 @@ never be used merely to navigate. Event detail carries a nullable
 ## Accessibility
 
 - One `h1` per route through `JtsPageHeader`; panes are labelled `section`s.
+- **The grouping a screen reader hears is the grouping an operator sees.** Each
+  bucket is a `section` whose `aria-labelledby` points at its own visible `h3`,
+  so the region is named with the heading _and_ its count — Chrome reports the
+  three regions as `"NEEDS ATTENTION 2"`, `"OPEN 3"` and `"CLOSED 1"`, matching
+  the strips on screen exactly. The group icons are `aria-hidden`; the words
+  carry the meaning.
 - Conversation rows are buttons in a list; the selected row carries
-  `aria-current`. Goal progress is announced as text (`2/4 answered`) with the
-  bar `aria-hidden`, because a `<button>` may not contain the `div`-based HeroUI
+  `aria-current`. Goal progress is announced as text (`3/4 done`), which is
+  also why it is not a bar: a `<button>` may not contain the `div`-based HeroUI
   `ProgressBar`.
 - A row's accessible name is computed from its own content — Chrome reports
-  `"Σοφία 02:03 +306936888183 3/4 answered Open"`. Do not add an `aria-label`
+  `"Ελένη Ριπομηνυματού 11:39 +30690000102 3/4 done"` (the `·` between phone
+  and progress is `aria-hidden`, and an open conversation under OPEN adds no
+  trailing badge). Do not add an `aria-label`
   here: it would replace that name with a shorter one that no longer contains
   the visible text, which is what WCAG 2.5.3 Label in Name forbids. Automation
   accessibility trees that report these rows as bare `button` entries are
@@ -310,8 +362,19 @@ above the header as a back affordance, «Start conversation» living with the
 list, and the polling indicator being bound to `isFetching` in both panes with
 no live region.
 
+The list-column pass adds `conversationRowBadges`: that the attention chip is
+dropped under its own heading while the lifecycle survives there (open and
+stopped are a real distinction inside that bucket), that an ordinary open
+conversation ends up with no chips, that a named closing reason survives while
+the bare «Closed» does not, that human control is never dropped, that the
+transcript header still receives the full set, and that each reader calls the
+function it should. It also pins the one title table both the headings and that
+filter read, and asserts `GoalProgress` publishes `settled` and no `percent`
+now that nothing draws a bar.
+
 `apps/admin/test/theme-tokens.spec.ts` asserts the solid attention pill, the
-sunken card pairings, the respondent link and the soft accent chip from
+NEEDS ATTENTION heading on its tint, the sunken card pairings (which the OPEN
+and CLOSED headings share), the respondent link and the soft accent chip from
 `tokens.css` in both themes.
 
 ## Decisions and references

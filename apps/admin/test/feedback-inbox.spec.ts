@@ -50,8 +50,8 @@ interface ConversationViewModule {
     answered: number;
     skipped: number;
     outstanding: number;
+    settled: number;
     total: number;
-    percent: number;
   };
   matchesConversationQuery: (
     conversation: {
@@ -63,13 +63,18 @@ interface ConversationViewModule {
   sortConversationsForInbox: (rows: TestConversation[]) => TestConversation[];
   groupConversations: (
     rows: TestConversation[],
-  ) => { key: string; conversations: TestConversation[] }[];
+  ) => { key: string; title: string; conversations: TestConversation[] }[];
+  CONVERSATION_GROUP_TITLES: Record<string, string>;
   resolveSelectedConversationId: (
     visible: { id: string }[],
     requested: string | null,
   ) => string | null;
   conversationBadges: (
     conversation: TestConversation,
+  ) => { key: string; label: string; tone: string; emphasis?: string }[];
+  conversationRowBadges: (
+    conversation: TestConversation,
+    group: "attention" | "open" | "closed",
   ) => { key: string; label: string; tone: string; emphasis?: string }[];
 }
 
@@ -222,13 +227,34 @@ describe("goal progress", () => {
       answered: 1,
       skipped: 1,
       outstanding: 2,
+      settled: 2,
       total: 4,
-      percent: 50,
     });
   });
 
-  it("does not divide by zero before the goals exist", () => {
-    expect(view.goalProgress([]).percent).toBe(0);
+  it("holds at zero before the goals exist", () => {
+    expect(view.goalProgress([])).toEqual({
+      answered: 0,
+      skipped: 0,
+      outstanding: 0,
+      settled: 0,
+      total: 0,
+    });
+  });
+
+  it("publishes no percentage now that no reader draws a bar", () => {
+    // The inbox row states the fraction once, in words a screen reader can
+    // read out of the row's name. A second, rounded encoding of the same
+    // number had exactly one consumer and it is gone.
+    expect(view.goalProgress([{ status: "answered" }])).not.toHaveProperty(
+      "percent",
+    );
+
+    const list = readSource(
+      "src/components/admin/feedback/ConversationList.tsx",
+    );
+    expect(list).toContain("progress.settled");
+    expect(list).not.toContain("style={{ width:");
   });
 });
 
@@ -288,6 +314,28 @@ describe("inbox ordering and grouping", () => {
     expect(groups.map((group) => group.key)).toStrictEqual(["open", "closed"]);
   });
 
+  it("takes every heading from the one title table the rows are measured against", () => {
+    const groups = view.groupConversations([
+      conversation({ id: "attention", needsAttention: true }),
+      conversation({ id: "open" }),
+      conversation({
+        id: "closed",
+        lifecycle: { state: "closed", reason: null },
+      }),
+    ]);
+
+    expect(groups.map((group) => group.title)).toStrictEqual([
+      view.CONVERSATION_GROUP_TITLES.attention,
+      view.CONVERSATION_GROUP_TITLES.open,
+      view.CONVERSATION_GROUP_TITLES.closed,
+    ]);
+    expect(groups.map((group) => group.title)).toStrictEqual([
+      "Needs attention",
+      "Open",
+      "Closed",
+    ]);
+  });
+
   it("labels human control and attention in text, not by colour alone", () => {
     const badges = view.conversationBadges(
       conversation({
@@ -302,6 +350,98 @@ describe("inbox ordering and grouping", () => {
       "Human control",
       "Needs attention",
     ]);
+  });
+});
+
+describe("a row never repeats its own heading", () => {
+  it("drops «Needs attention» from the rows filed under it", () => {
+    const badges = view.conversationRowBadges(
+      conversation({ id: "a", needsAttention: true }),
+      "attention",
+    );
+
+    expect(badges.some((badge) => badge.key === "attention")).toBe(false);
+  });
+
+  it("keeps the lifecycle in that group, because open and stopped differ there", () => {
+    // Both need a human; only one can still be replied to. That distinction is
+    // the reason the chip survives the heading.
+    const open = view.conversationRowBadges(
+      conversation({ id: "a", needsAttention: true }),
+      "attention",
+    );
+    const stopped = view.conversationRowBadges(
+      conversation({
+        id: "b",
+        needsAttention: true,
+        lifecycle: { state: "closed", reason: "stopped" },
+      }),
+      "attention",
+    );
+
+    expect(open.map((badge) => badge.label)).toStrictEqual(["Open"]);
+    expect(stopped.map((badge) => badge.label)).toStrictEqual(["Stopped"]);
+  });
+
+  it("leaves an ordinary open conversation with no chips at all", () => {
+    expect(
+      view.conversationRowBadges(conversation({ id: "a" }), "open"),
+    ).toStrictEqual([]);
+  });
+
+  it("keeps the closing reason but not the bare word the heading already says", () => {
+    const completed = view.conversationRowBadges(
+      conversation({
+        id: "a",
+        lifecycle: { state: "closed", reason: "completed" },
+      }),
+      "closed",
+    );
+    const unexplained = view.conversationRowBadges(
+      conversation({ id: "b", lifecycle: { state: "closed", reason: null } }),
+      "closed",
+    );
+
+    expect(completed.map((badge) => badge.label)).toStrictEqual(["Completed"]);
+    expect(unexplained).toStrictEqual([]);
+  });
+
+  it("never drops human control, which no heading states", () => {
+    for (const group of ["attention", "open", "closed"] as const) {
+      const badges = view.conversationRowBadges(
+        conversation({
+          id: "a",
+          needsAttention: group === "attention",
+          control: { mode: "human" },
+          ...(group === "closed"
+            ? { lifecycle: { state: "closed" as const, reason: null } }
+            : {}),
+        }),
+        group,
+      );
+
+      expect(badges.map((badge) => badge.key)).toContain("control");
+    }
+  });
+
+  it("leaves the transcript header the full set, having no heading above it", () => {
+    const full = view.conversationBadges(
+      conversation({ id: "a", needsAttention: true }),
+    );
+
+    expect(full.map((badge) => badge.label)).toStrictEqual([
+      "Open",
+      "Needs attention",
+    ]);
+  });
+
+  it("wires the two readers to the badge set each one needs", () => {
+    expect(
+      readSource("src/components/admin/feedback/ConversationList.tsx"),
+    ).toContain("conversationRowBadges(");
+    expect(
+      readSource("src/components/admin/feedback/ConversationTranscript.tsx"),
+    ).toContain("conversationBadges(");
   });
 });
 

@@ -40,9 +40,13 @@ export interface GoalProgress {
   skipped: number;
   /** Goals that are neither answered nor skipped. */
   outstanding: number;
+  /**
+   * Goals the questionnaire is finished with: answered plus skipped. It is the
+   * one number an inbox row shows, which is why it is named for what it counts
+   * — «2/4 answered» would have claimed two answers where one was a skip.
+   */
+  settled: number;
   total: number;
-  /** Answered plus skipped, as a 0–100 integer. Zero when there are no goals. */
-  percent: number;
 }
 
 export function goalProgress(
@@ -65,8 +69,8 @@ export function goalProgress(
     answered,
     skipped,
     outstanding: total - settled,
+    settled,
     total,
-    percent: total === 0 ? 0 : Math.round((settled / total) * 100),
   };
 }
 
@@ -163,11 +167,24 @@ export function sortConversationsForInbox(
   });
 }
 
+export type ConversationGroupKey = "attention" | "open" | "closed";
+
 export interface ConversationGroup {
-  key: "attention" | "open" | "closed";
+  key: ConversationGroupKey;
   title: string;
   conversations: ConversationListItem[];
 }
+
+/**
+ * The heading each bucket renders. It is also what `conversationRowBadges`
+ * measures a row's badges against, so a title and the redundancy it creates
+ * can never drift apart.
+ */
+export const CONVERSATION_GROUP_TITLES: Record<ConversationGroupKey, string> = {
+  attention: "Needs attention",
+  open: "Open",
+  closed: "Closed",
+};
 
 /**
  * Groups the filtered list into the three buckets an operator triages by.
@@ -176,29 +193,57 @@ export interface ConversationGroup {
 export function groupConversations(
   conversations: readonly ConversationListItem[],
 ): ConversationGroup[] {
-  const attention: ConversationListItem[] = [];
-  const open: ConversationListItem[] = [];
-  const closed: ConversationListItem[] = [];
+  const buckets: Record<ConversationGroupKey, ConversationListItem[]> = {
+    attention: [],
+    open: [],
+    closed: [],
+  };
 
   for (const conversation of conversations) {
     if (conversation.needsAttention) {
-      attention.push(conversation);
+      buckets.attention.push(conversation);
     } else if (conversation.lifecycle.state === "open") {
-      open.push(conversation);
+      buckets.open.push(conversation);
     } else {
-      closed.push(conversation);
+      buckets.closed.push(conversation);
     }
   }
 
-  return [
-    {
-      key: "attention" as const,
-      title: "Needs attention",
-      conversations: attention,
-    },
-    { key: "open" as const, title: "Open", conversations: open },
-    { key: "closed" as const, title: "Closed", conversations: closed },
-  ].filter((group) => group.conversations.length > 0);
+  return (["attention", "open", "closed"] as const)
+    .map((key) => ({
+      key,
+      title: CONVERSATION_GROUP_TITLES[key],
+      conversations: buckets[key],
+    }))
+    .filter((group) => group.conversations.length > 0);
+}
+
+/**
+ * The badges a row still needs once its own heading has spoken.
+ *
+ * A conversation filed under NEEDS ATTENTION does not repeat «Needs attention»,
+ * and no row repeats a lifecycle its heading already states — «Open» under
+ * OPEN, the bare «Closed» under CLOSED. A *named* closing reason survives
+ * anywhere, because «Stopped» is news the heading does not carry; so does human
+ * control. What is left is only ever the exceptional, which is what makes a
+ * chip in this list worth looking at.
+ *
+ * The transcript header keeps the full `conversationBadges` set: it stands
+ * alone, with no heading above it to inherit meaning from.
+ */
+export function conversationRowBadges(
+  conversation: ConversationStatusFields,
+  group: ConversationGroupKey,
+): FeedbackBadge[] {
+  return conversationBadges(conversation).filter((badge) => {
+    if (badge.key === "attention") {
+      return group !== "attention";
+    }
+    if (badge.key === "lifecycle") {
+      return badge.label !== CONVERSATION_GROUP_TITLES[group];
+    }
+    return true;
+  });
 }
 
 /**

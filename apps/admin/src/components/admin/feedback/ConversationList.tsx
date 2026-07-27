@@ -1,13 +1,23 @@
 import { Input } from "@heroui/react";
 import { clsx } from "clsx";
-import { Inbox, MessageSquareDashed, Search, SearchX } from "lucide-react";
+import {
+  Archive,
+  Inbox,
+  MessageCircleMore,
+  MessageSquareDashed,
+  Search,
+  SearchX,
+  TriangleAlert,
+  type LucideIcon,
+} from "lucide-react";
 import { useId, type ReactNode } from "react";
 
 import {
-  conversationBadges,
+  conversationRowBadges,
   formatTimestamp,
   goalProgress,
   groupConversations,
+  type ConversationGroupKey,
   type ConversationListItem,
 } from "../../../features/feedback/conversationView";
 import {
@@ -37,15 +47,51 @@ interface ConversationListProps {
 }
 
 /**
+ * How each group announces itself. The heading is where an operator answers
+ * "is anything waiting for me", so it carries the weight the rows deliberately
+ * shed: its own fill, a strong hairline top and bottom, and the same glyph the
+ * campaign tallies use for the same idea. Only NEEDS ATTENTION means "stop and
+ * read this", so only it takes the 3px marker and the warning tone; the other
+ * two reserve the marker's gutter so every heading label starts on one line.
+ */
+const GROUP_STYLES: Record<
+  ConversationGroupKey,
+  { icon: LucideIcon; heading: string }
+> = {
+  attention: {
+    icon: TriangleAlert,
+    heading:
+      "border-warning-border border-l-warning bg-warning-soft text-warning",
+  },
+  open: {
+    icon: MessageCircleMore,
+    heading:
+      "border-border-strong border-l-transparent bg-surface-sunken text-ink",
+  },
+  closed: {
+    icon: Archive,
+    heading:
+      "border-border-strong border-l-transparent bg-surface-sunken text-ink-muted",
+  },
+};
+
+/**
  * The inbox column: a text filter over one campaign's conversations, grouped
  * into the buckets an operator triages by (attention, open, closed).
  *
+ * The grouping answers the first question an operator has, so the heading is
+ * the loudest thing here and a row states only what its heading does not — see
+ * `conversationRowBadges`. Rows spend their space on the name instead, which is
+ * allowed two lines because a Greek full name truncated to one is not a person
+ * any more.
+ *
  * Choosing a row swaps the panes beside it rather than navigating, which is
  * what keeps a helpdesk operator's place while several threads move at once.
- * The selected row carries `aria-current`, and goal progress is announced as
- * text with the bar left decorative — a `<button>` may not contain the
- * `div`-based HeroUI `ProgressBar`, and the count already says everything the
- * bar does.
+ * The selected row carries `aria-current`. Goal progress is one number in text
+ * rather than a bar beside its own caption: a `<button>` may not contain the
+ * `div`-based HeroUI `ProgressBar`, the text is what a screen reader reads out
+ * of the row's name, and four goals give a bar five states it cannot express
+ * more precisely than «2/4» already does.
  */
 export function ConversationList({
   conversations,
@@ -61,6 +107,7 @@ export function ConversationList({
 }: ConversationListProps) {
   const filterId = useId();
   const headingId = useId();
+  const groupHeadingId = useId();
 
   const groups = groupConversations(conversations);
 
@@ -146,88 +193,105 @@ export function ConversationList({
 
       {conversations.length > 0 ? (
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {groups.map((group) => (
-            <section key={group.key} aria-label={group.title}>
-              <h3 className="sticky top-0 z-10 border-y border-border bg-surface-sunken px-4 py-1.5 jts-overline text-ink-muted">
-                {group.title}
-                <span className="ml-1.5 font-bold tabular-nums opacity-70">
-                  {group.conversations.length}
-                </span>
-              </h3>
-              <ul>
-                {group.conversations.map((conversation) => {
-                  const isSelected = conversation.id === selectedId;
-                  const progress = goalProgress(conversation.goals);
-                  const name = participantLabel(
-                    conversation.respondentDisplayName,
-                  );
-                  const unresolved = isUnresolvedParticipant(
-                    conversation.respondentDisplayName,
-                  );
-                  const settled = progress.answered + progress.skipped;
+          {groups.map((group) => {
+            const style = GROUP_STYLES[group.key];
+            const GroupIcon = style.icon;
+            const groupId = `${groupHeadingId}-${group.key}`;
 
-                  return (
-                    <li key={conversation.id}>
-                      <button
-                        type="button"
-                        {...(isSelected ? { "aria-current": true } : {})}
-                        onClick={() => onSelect(conversation.id)}
-                        className={clsx(
-                          "block w-full cursor-pointer border-b border-border-subtle px-4 py-3 text-left transition-colors",
-                          isSelected
-                            ? "bg-primary-soft"
-                            : "hover:bg-surface-sunken",
-                        )}
+            return (
+              /* The heading is the group in the markup too, so a screen
+                 reader's grouping and a sighted operator's are the same one. */
+              <section key={group.key} aria-labelledby={groupId}>
+                <h3
+                  id={groupId}
+                  className={clsx(
+                    "sticky top-0 z-10 flex items-center gap-2 border-y border-l-[3px] py-2 pr-4 pl-3.5 jts-overline",
+                    style.heading,
+                  )}
+                >
+                  <GroupIcon aria-hidden="true" className="size-3.5 shrink-0" />
+                  <span className="min-w-0 flex-1 truncate">{group.title}</span>
+                  <span className="shrink-0 tabular-nums tracking-normal">
+                    {group.conversations.length}
+                  </span>
+                </h3>
+                <ul>
+                  {group.conversations.map((conversation) => {
+                    const isSelected = conversation.id === selectedId;
+                    const progress = goalProgress(conversation.goals);
+                    const name = participantLabel(
+                      conversation.respondentDisplayName,
+                    );
+                    const unresolved = isUnresolvedParticipant(
+                      conversation.respondentDisplayName,
+                    );
+                    const badges = conversationRowBadges(
+                      conversation,
+                      group.key,
+                    );
+
+                    return (
+                      <li
+                        key={conversation.id}
+                        className="border-b border-border-subtle last:border-b-0"
                       >
-                        <span className="flex items-baseline justify-between gap-2">
-                          <span
-                            className={clsx(
-                              "truncate text-sm font-bold",
-                              isSelected ? "text-primary" : "text-ink",
-                              unresolved && "italic",
-                            )}
-                          >
-                            {name}
-                          </span>
-                          {/* ink-muted, not ink-subtle: the selected row sits on
-                              primary-soft, where subtle drops under AA. */}
-                          <span className="shrink-0 text-[length:var(--jts-text-2xs)] font-semibold tabular-nums text-ink-muted">
-                            {conversation.lastMessageAt === null
-                              ? "—"
-                              : formatTimestamp(conversation.lastMessageAt)}
-                          </span>
-                        </span>
-
-                        <span className="mt-0.5 block truncate text-xs text-ink-muted">
-                          {conversation.phoneAtLaunch}
-                        </span>
-
-                        <span className="mt-2 flex items-center gap-2">
-                          <span
-                            aria-hidden="true"
-                            className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-surface-sunken"
-                          >
+                        <button
+                          type="button"
+                          {...(isSelected ? { "aria-current": true } : {})}
+                          onClick={() => onSelect(conversation.id)}
+                          className={clsx(
+                            "block w-full cursor-pointer px-4 py-2.5 text-left transition-colors",
+                            isSelected
+                              ? "bg-primary-soft"
+                              : "hover:bg-surface-sunken",
+                          )}
+                        >
+                          <span className="flex items-start justify-between gap-2">
+                            {/* Two lines, not an ellipsis: «Κώστας
+                                Αργοπληκτρολογάκιας» cut to the column width is
+                                no longer a person an operator recognises. */}
                             <span
-                              className="block h-full rounded-full bg-primary"
-                              style={{ width: `${progress.percent}%` }}
-                            />
+                              className={clsx(
+                                "line-clamp-2 min-w-0 flex-1 text-sm leading-snug font-bold break-words",
+                                isSelected ? "text-primary" : "text-ink",
+                                unresolved && "italic",
+                              )}
+                            >
+                              {name}
+                            </span>
+                            {/* ink-muted, not ink-subtle: the selected row sits
+                                on primary-soft, where subtle drops under AA. */}
+                            <span className="shrink-0 pt-px text-[length:var(--jts-text-2xs)] font-semibold tabular-nums text-ink-muted">
+                              {conversation.lastMessageAt === null
+                                ? "—"
+                                : formatTimestamp(conversation.lastMessageAt)}
+                            </span>
                           </span>
-                          <span className="shrink-0 text-[length:var(--jts-text-2xs)] font-bold tabular-nums text-ink-muted">
-                            {settled}/{progress.total} answered
-                          </span>
-                        </span>
 
-                        <FeedbackBadges
-                          badges={conversationBadges(conversation)}
-                          className="mt-2 flex flex-wrap items-center gap-1.5"
-                        />
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </section>
-          ))}
+                          <span className="mt-1 flex items-center gap-1.5 text-xs text-ink-muted">
+                            <span className="min-w-0 truncate tabular-nums">
+                              {conversation.phoneAtLaunch}
+                            </span>
+                            <span aria-hidden="true">·</span>
+                            <span className="shrink-0 font-semibold tabular-nums">
+                              {progress.settled}/{progress.total} done
+                            </span>
+                          </span>
+
+                          {badges.length > 0 ? (
+                            <FeedbackBadges
+                              badges={badges}
+                              className="mt-1.5 flex flex-wrap items-center gap-1.5"
+                            />
+                          ) : null}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            );
+          })}
         </div>
       ) : null}
     </section>

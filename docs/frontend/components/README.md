@@ -42,16 +42,16 @@ one screen, not shared contracts: their props carry conversation read models and
 callbacks, and their full contract lives in
 [`../feedback-conversations.md`](../feedback-conversations.md).
 
-| Component                     | Owns                                                                                                                 |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `CampaignHeader.tsx`          | The back link, campaign title, pause/resume/close actions and the campaign tallies                                   |
-| `ConversationList.tsx`        | Filter, grouping and selection of a campaign's conversations; `aria-current` on the row; hosts the D17 start trigger |
-| `ConversationTranscript.tsx`  | Actor-labelled transcript, per-message attention highlighting, delivery state, staff and dev-only composers          |
-| `ConversationDetails.tsx`     | The respondent, goal progress, answers, notes and actions as labelled sections                                       |
-| `ConfirmAction.tsx`           | A trigger plus its confirmation dialog, stating the consequence of one action                                        |
-| `StartConversationAction.tsx` | The D17 attendee picker that opens a missing conversation                                                            |
-| `AddNoteAction.tsx`           | The staff note dialog: type, an optional D16-candidate subject, bounded text                                         |
-| `FeedbackBadges.tsx`          | Renders status descriptors as HeroUI chips, always with their own text                                               |
+| Component                     | Owns                                                                                                                                                                                                                                                                           |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `CampaignHeader.tsx`          | The back link, campaign title, pause/resume/close actions and the campaign tallies                                                                                                                                                                                             |
+| `ConversationList.tsx`        | Filter, grouping and selection of a campaign's conversations. The group heading carries the triage weight (own fill, glyph, count, `aria-labelledby` on its `section`) and a row states only what the heading does not; `aria-current` on the row; hosts the D17 start trigger |
+| `ConversationTranscript.tsx`  | Actor-labelled transcript, per-message attention highlighting, delivery state, staff and dev-only composers                                                                                                                                                                    |
+| `ConversationDetails.tsx`     | The respondent, goal progress, answers, notes and actions as labelled sections                                                                                                                                                                                                 |
+| `ConfirmAction.tsx`           | A trigger plus its confirmation dialog, stating the consequence of one action                                                                                                                                                                                                  |
+| `StartConversationAction.tsx` | The D17 attendee picker that opens a missing conversation                                                                                                                                                                                                                      |
+| `AddNoteAction.tsx`           | The staff note dialog: type, an optional D16-candidate subject, bounded text                                                                                                                                                                                                   |
+| `FeedbackBadges.tsx`          | Renders status descriptors as HeroUI chips, always with their own text                                                                                                                                                                                                         |
 
 The status badge maps a domain tone onto HeroUI `Chip` props through a pure
 function in `features/feedback/labels.ts`, which is the mapping — not a wrapper
