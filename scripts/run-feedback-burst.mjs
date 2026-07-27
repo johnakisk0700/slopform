@@ -830,13 +830,30 @@ async function collectSnapshot({
       };
 
       const expectations = buildExpectations(persona.expect, actual, received);
-      const injectCaughtUp = entry.injected.every((injected) =>
-        detail.messages.some(
+      // Text sent after a STOP is deliberately not retained — the campaign
+      // keeps metadata only once somebody has opted out, because not storing is
+      // reversible and storing is not. Requiring it in the transcript therefore
+      // asks for something the product must never do: the run reported
+      // `lost_participant_text` for a message we correctly discarded, failed on
+      // it, and burned its whole settlement deadline waiting for it to appear.
+      //
+      // Narrow on purpose. Only `stopped` suppresses retention; a conversation
+      // closed as completed or expired still records what arrives afterwards,
+      // and a message missing from one of those is a real loss.
+      const stoppedAt =
+        detail.lifecycle.reason === "stopped" && detail.lifecycle.closedAt
+          ? Date.parse(detail.lifecycle.closedAt)
+          : undefined;
+      const injectCaughtUp = entry.injected.every((injected) => {
+        if (stoppedAt !== undefined && Date.parse(injected.at) >= stoppedAt) {
+          return true;
+        }
+        return detail.messages.some(
           (message) =>
             message.actor === "participant" &&
             message.text.trim() === injected.text.trim(),
-        ),
-      );
+        );
+      });
       const lastInjectAt = entry.injected.at(-1)?.at;
       const quietElapsed =
         !lastInjectAt ||
@@ -1075,8 +1092,18 @@ function findLostParticipantText(snapshot, byPersonaId) {
   const findings = [];
   for (const conversation of snapshot.conversations) {
     const entry = byPersonaId.get(conversation.personaId);
+    // Same rule as the settle check: after STOP the campaign keeps metadata
+    // only, so text sent afterwards is discarded on purpose and is not a loss.
+    // Reporting it as one sent us hunting a data-loss bug that was the product
+    // honouring an opt-out.
+    const lifecycle = conversation.detail.lifecycle;
+    const stoppedAt =
+      lifecycle.reason === "stopped" && lifecycle.closedAt
+        ? Date.parse(lifecycle.closedAt)
+        : undefined;
     const missing = entry.injected.filter(
       (injected) =>
+        !(stoppedAt !== undefined && Date.parse(injected.at) >= stoppedAt) &&
         !conversation.detail.messages.some(
           (message) =>
             message.actor === "participant" &&
