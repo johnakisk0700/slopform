@@ -13,15 +13,23 @@ export interface AssistantModelAdapter {
  * The persisted/public id is intentionally separate from the provider id. This
  * table is the complete adapter boundary: changing providers never rewrites a
  * saved turn, and no model may silently substitute another model.
+ *
+ * Every entry is reached through OpenRouter, which is the only provider this
+ * deployment holds credit with. The two OpenAI models used to name `openai`
+ * here and it read as a routing choice; it was really an unfunded one. A 2026-07-27
+ * rehearsal pointed extraction at `openai/gpt-5.6-luna` and every one of the
+ * thirty-six extract jobs died on `provider_error` before a single token was
+ * billed. OpenRouter serves the same two model ids verbatim, so the public ids
+ * did not have to move — only the route under them.
  */
 export const ASSISTANT_MODEL_ADAPTERS = {
   "openai/gpt-5.6-luna": {
-    provider: "openai",
-    providerModelId: "gpt-5.6-luna",
+    provider: "openrouter",
+    providerModelId: "openai/gpt-5.6-luna",
   },
   "openai/gpt-5.6-terra": {
-    provider: "openai",
-    providerModelId: "gpt-5.6-terra",
+    provider: "openrouter",
+    providerModelId: "openai/gpt-5.6-terra",
   },
   "google/gemini-3.6-flash": {
     provider: "openrouter",

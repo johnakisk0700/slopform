@@ -189,18 +189,23 @@ describe("AssistantService", () => {
     );
   });
 
+  // Both halves used to be reached by naming an OpenAI-routed model; every
+  // registry entry now goes through OpenRouter, so the unconfigured provider has
+  // to be the missing key rather than the wrong model. The rule under test is
+  // unchanged: default or explicit, the model's provider must be funded before a
+  // turn is created, and a missing key is never quietly worked around.
   it("never silently substitutes an unavailable default or explicit model", async () => {
-    const onlyOpenAi = createService({ openAi: true }).service;
+    const noProviders = createService().service;
     await expect(
-      onlyOpenAi.createThread(
+      noProviders.createThread(
         { requestId: turn.requestId, content: "Hello" },
         "user_owner",
       ),
     ).rejects.toBeInstanceOf(AssistantProviderUnavailableError);
 
-    const onlyOpenRouter = createService({ openRouter: true }).service;
+    const onlyOpenAi = createService({ openAi: true }).service;
     await expect(
-      onlyOpenRouter.createThread(
+      onlyOpenAi.createThread(
         {
           requestId: turn.requestId,
           model: "openai/gpt-5.6-terra",

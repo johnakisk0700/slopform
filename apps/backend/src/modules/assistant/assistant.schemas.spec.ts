@@ -35,12 +35,12 @@ describe("assistant schemas", () => {
   it("maps every public model id to the exact provider model id", () => {
     expect(ASSISTANT_MODEL_ADAPTERS).toEqual({
       "openai/gpt-5.6-luna": {
-        provider: "openai",
-        providerModelId: "gpt-5.6-luna",
+        provider: "openrouter",
+        providerModelId: "openai/gpt-5.6-luna",
       },
       "openai/gpt-5.6-terra": {
-        provider: "openai",
-        providerModelId: "gpt-5.6-terra",
+        provider: "openrouter",
+        providerModelId: "openai/gpt-5.6-terra",
       },
       "google/gemini-3.6-flash": {
         provider: "openrouter",
@@ -51,6 +51,18 @@ describe("assistant schemas", () => {
         providerModelId: "qwen/qwen3.7-max",
       },
     });
+  });
+
+  // The failure this guards against is silent: an entry naming a provider this
+  // deployment holds no credit with still typechecks, still reads like a
+  // deliberate route, and only shows up as `provider_error` on every call.
+  it("routes every model through the one provider this deployment funds", () => {
+    for (const [model, adapter] of Object.entries(ASSISTANT_MODEL_ADAPTERS)) {
+      expect(adapter.provider, model).toBe("openrouter");
+      // OpenRouter addresses models as `vendor/model`, so a bare provider id
+      // here would resolve to nothing.
+      expect(adapter.providerModelId, model).toContain("/");
+    }
   });
 
   it("keeps the v2 job envelope strict and identifier-only", () => {
