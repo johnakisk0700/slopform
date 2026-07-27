@@ -8,6 +8,7 @@ import {
   MessageSquareQuote,
   PanelRight,
   PenOff,
+  ScanText,
   SlidersHorizontal,
   SquareX,
   StickyNote,
@@ -20,6 +21,7 @@ import type { AddFeedbackConversationNoteDtoNoteType } from "../../../api/genera
 import type { FeedbackConversationDetailDtoOutput } from "../../../api/generated/model/feedbackConversationDetailDtoOutput";
 import type { FeedbackConversationResultsDtoOutput } from "../../../api/generated/model/feedbackConversationResultsDtoOutput";
 import { goalProgress } from "../../../features/feedback/conversationView";
+import { extractionStatusLines } from "../../../features/feedback/extractionStatus";
 import {
   goalStatusBadge,
   isUnresolvedParticipant,
@@ -154,6 +156,7 @@ export function ConversationDetails({
     capabilities.canTakeOver ||
     capabilities.canResumeBot ||
     capabilities.canClose;
+  const extractionLines = extractionStatusLines(conversation.extraction);
 
   const name = participantLabel(conversation.respondentDisplayName);
   const unresolved = isUnresolvedParticipant(
@@ -216,6 +219,54 @@ export function ConversationDetails({
                 {conversation.phoneAtLaunch}
               </p>
             </div>
+          </div>
+        </DetailSection>
+
+        <DetailSection icon={ScanText} title="Ανάγνωση">
+          {/*
+            Polite live region: unread count and due time change under the
+            reader as the quiet window runs and the worker catches up. Same
+            text across a 3s poll does not re-announce. Not a spinner — a dead
+            worker must not look like progress.
+          */}
+          <div
+            role="status"
+            aria-live="polite"
+            className={
+              extractionLines.attention === "danger"
+                ? "rounded-md border border-danger/35 bg-danger-soft px-3 py-2"
+                : extractionLines.attention === "pending"
+                  ? "rounded-md border border-warning-border bg-warning-soft px-3 py-2"
+                  : undefined
+            }
+          >
+            <p
+              className={
+                extractionLines.attention === "danger"
+                  ? "text-sm font-semibold text-danger"
+                  : extractionLines.attention === "pending"
+                    ? "text-sm font-semibold text-warning"
+                    : "text-sm text-ink"
+              }
+            >
+              {extractionLines.unread}
+            </p>
+            {extractionLines.schedule ? (
+              <p
+                className={
+                  extractionLines.attention === "danger"
+                    ? "mt-1 text-sm text-danger"
+                    : "mt-1 text-sm text-ink-muted"
+                }
+              >
+                {extractionLines.schedule}
+              </p>
+            ) : null}
+            {extractionLines.model ? (
+              <p className="mt-1 text-xs text-ink-subtle tabular-nums">
+                {extractionLines.model}
+              </p>
+            ) : null}
           </div>
         </DetailSection>
 

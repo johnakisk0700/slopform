@@ -232,6 +232,29 @@ class FakeFeedbackQueue {
     return { id };
   }
 
+  /**
+   * Detail-pane extraction status inspects retained jobs. Map waiting entries
+   * onto the BullMQ shape that reader expects; absence stays `null`.
+   */
+  async getJob(jobId: string): Promise<{
+    timestamp: number;
+    opts: { delay: number };
+    getState: () => Promise<"delayed" | "waiting">;
+    failedReason: undefined;
+  } | null> {
+    const job = this.waiting.get(jobId);
+    if (!job) {
+      return null;
+    }
+    const delay = Math.max(0, job.runAt - this.nowMs());
+    return {
+      timestamp: job.runAt - delay,
+      opts: { delay },
+      getState: async () => (delay > 0 ? "delayed" : "waiting"),
+      failedReason: undefined,
+    };
+  }
+
   /** The schedulers run at bootstrap; the harness owns repeat cadence instead. */
   async upsertJobScheduler(): Promise<void> {}
 

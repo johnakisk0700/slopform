@@ -1710,6 +1710,60 @@
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
             "type": "string"
           },
+          "extraction": {
+            "additionalProperties": false,
+            "properties": {
+              "failedReason": {
+                "maxLength": 500,
+                "minLength": 1,
+                "nullable": true,
+                "type": "string"
+              },
+              "lastRunAt": {
+                "format": "date-time",
+                "nullable": true,
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                "type": "string"
+              },
+              "lastRunFailed": {
+                "type": "boolean"
+              },
+              "model": {
+                "maxLength": 200,
+                "minLength": 1,
+                "nullable": true,
+                "type": "string"
+              },
+              "nextRunAt": {
+                "format": "date-time",
+                "nullable": true,
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                "type": "string"
+              },
+              "runInFlight": {
+                "type": "boolean"
+              },
+              "runQueued": {
+                "type": "boolean"
+              },
+              "unreadParticipantMessages": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "unreadParticipantMessages",
+              "lastRunAt",
+              "model",
+              "nextRunAt",
+              "runInFlight",
+              "runQueued",
+              "lastRunFailed",
+              "failedReason"
+            ],
+            "type": "object"
+          },
           "goals": {
             "items": {
               "additionalProperties": false,
@@ -2014,6 +2068,7 @@
           "control",
           "goals",
           "messages",
+          "extraction",
           "needsAttention",
           "remindedAt",
           "createdAt",

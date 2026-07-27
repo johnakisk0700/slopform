@@ -1,7 +1,7 @@
 # Post-event feedback conversations screen
 
 Status: accepted, verified 2026-07-27 (WP9, design pass and staff notes in
-WP12, conversation-list pass).
+WP12, conversation-list pass, extraction status on the detail pane).
 
 The operator surface for the post-event feedback feature: one campaign's
 WhatsApp conversations in a three-pane inbox, the actions that move a
@@ -52,6 +52,7 @@ launch/pause/resume/close/get hooks.
 | ------------------------------------------- | ------------------------------------------------------------------------------------------ |
 | `src/features/feedback/labels.ts`           | Status vocabulary: tones, badges, delivery precedence, note origin, D18                    |
 | `src/features/feedback/conversationView.ts` | Progress, badge rows, search folding, ordering, grouping, selection                        |
+| `src/features/feedback/extractionStatus.ts` | Greek copy for the detail-pane extraction block (unread, due time, failure, model)         |
 | `src/features/feedback/polling.ts`          | The U3 intervals and the stop-when-closed rule                                             |
 | `src/features/feedback/simulator.ts`        | Zod schemas for the two dev-only simulator endpoints                                       |
 | `src/lib/feedbackSimulator.ts`              | The dev simulator facade over the shared `ofetch` client                                   |
@@ -240,13 +241,44 @@ The right column repeats the participant profile's section grammar (WP11): a
 tracked micro-caps label with a muted icon, sections separated by a hairline
 rather than stacked as identical grey boxes.
 
-| Section       | Icon                 | Contains                                                              |
-| ------------- | -------------------- | --------------------------------------------------------------------- |
-| RESPONDENT    | `UserRound`          | Monogram, the display name linked to `/admin/participants/:id`, phone |
-| GOAL PROGRESS | `ListChecks`         | Answered / skipped / outstanding, then one row per goal with a badge  |
-| ANSWERS       | `MessageSquareQuote` | One sunken card per extracted answer                                  |
-| NOTES         | `StickyNote`         | Note cards with origin and review badges, plus «Add note»             |
-| ACTIONS       | `SlidersHorizontal`  | Only the capability-gated actions the server publishes                |
+| Section       | Icon                 | Contains                                                                                 |
+| ------------- | -------------------- | ---------------------------------------------------------------------------------------- |
+| RESPONDENT    | `UserRound`          | Monogram, the display name linked to `/admin/participants/:id`, phone                    |
+| ΑΝΑΓΝΩΣΗ      | `ScanText`           | How far behind the extract job is, when the next run is due, in-flight / failure / model |
+| GOAL PROGRESS | `ListChecks`         | Answered / skipped / outstanding, then one row per goal with a badge                     |
+| ANSWERS       | `MessageSquareQuote` | One sunken card per extracted answer                                                     |
+| NOTES         | `StickyNote`         | Note cards with origin and review badges, plus «Add note»                                |
+| ACTIONS       | `SlidersHorizontal`  | Only the capability-gated actions the server publishes                                   |
+
+### Extraction status
+
+A feedback conversation is read by a delayed background job, not on arrival.
+The details pane is the only place that says so. `getFeedbackConversation`
+publishes an `extraction` object; the list endpoint never touches Redis for
+this — anything shown on a row would have to come from data already loaded.
+
+| Field                       | Source                                                                       | What the screen may say                                            |
+| --------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `unreadParticipantMessages` | Document alone (participant turns beyond `cursorSeq`)                        | «N μηνύματα δεν έχουν διαβαστεί ακόμα»                             |
+| `nextRunAt`                 | Earliest delayed extract job for an unread seq                               | «Επόμενη ανάγνωση 11:47» — a time, never a spinner                 |
+| `runInFlight` / `runQueued` | BullMQ `active` / waiting-or-delayed among those jobs                        | «Ανάγνωση σε εξέλιξη» / «Ανάγνωση στην ουρά»                       |
+| `lastRunFailed`             | Retained failed extract job, or a `deterministic_fallback` note while unread | «Η ανάγνωση απέτυχε · απάντησε η εναλλακτική διαδικασία»           |
+| `lastRunAt` / `model`       | Conversation document                                                        | Quiet provenance; a stub id is a different thing from a real model |
+
+**No unresolving spinner.** A dead worker looks identical to a busy one; the
+pane states a time when there is one and failure as failure. When unread
+testimony exists but no job is retained, the schedule line is «Ώρα επόμενης
+ανάγνωσης άγνωστη» — retention removal, a lost enqueue and "already ran" are
+indistinguishable once the Redis row is gone, and inventing «έτοιμο» would lie.
+
+The block is a polite live region (`role="status"` / `aria-live="polite"`).
+Unread count and due time change under the reader as the quiet window runs;
+identical text across a three-second poll does not re-announce. The polling
+indicator beside the transcript stays deliberately silent — that is a fetch
+mark, not operator-actionable state.
+
+Greek copy lives in `src/features/feedback/extractionStatus.ts`; every colour
+is a token (`warning-soft` for backlog, `danger-soft` for failure).
 
 The respondent link is the join to the WP11 profile. An unresolved id (D18) has
 no profile to open, so it stays plain italic text rather than a link to nothing.
@@ -316,6 +348,9 @@ never be used merely to navigate. Event detail carries a nullable
   failure in the dialog with `role="alert"`.
 - The polling indicator is deliberately not a live region: the icon is
   `aria-hidden` and a hidden sentence states that the pane refreshes itself.
+  The extraction status block **is** a polite live region — unread count and
+  due time are operator-actionable state that changes under the reader, and
+  identical text across a poll does not re-announce.
 - Contrast was measured in both themes on the rendered screen. Two pairings
   needed correction and are commented at their call sites: the list timestamp
   uses `text-ink-muted` (`text-ink-subtle` measures 4.23:1 on `bg-primary-soft`),
@@ -371,6 +406,12 @@ transcript header still receives the full set, and that each reader calls the
 function it should. It also pins the one title table both the headings and that
 filter read, and asserts `GoalProgress` publishes `settled` and no `percent`
 now that nothing draws a bar.
+
+The extraction-status pass adds `extractionStatusLines`: Greek unread wording,
+a due-time line rather than a spinner, failure named as failure with the
+fallback, «άγνωστο» when unread testimony has no retained job, and that the
+details pane mounts the block as a polite live region without an indefinite
+spinner.
 
 `apps/admin/test/theme-tokens.spec.ts` asserts the solid attention pill, the
 NEEDS ATTENTION heading on its tint, the sunken card pairings (which the OPEN

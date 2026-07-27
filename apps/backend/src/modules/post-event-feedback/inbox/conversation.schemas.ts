@@ -123,6 +123,36 @@ export const feedbackConversationGoalDetailSchema =
     })
     .strict();
 
+/**
+ * What the detail pane can honestly say about the delayed extract job.
+ *
+ * `unreadParticipantMessages` is derived from the conversation document alone
+ * (participant turns beyond `extraction.cursorSeq`) and needs no queue access.
+ * Queue fields come from BullMQ job state for those unread positions only —
+ * the list endpoint must never look them up. A missing job is left as null /
+ * false rather than labelled "idle": retention removal, a lost enqueue and
+ * "already ran" are indistinguishable once the row is gone.
+ */
+export const feedbackConversationExtractionSchema = z
+  .object({
+    unreadParticipantMessages: z.number().int().nonnegative(),
+    lastRunAt: z.iso.datetime().nullable(),
+    model: z.string().min(1).max(200).nullable(),
+    /** Earliest delayed-job due time; null when none of the unread jobs is delayed. */
+    nextRunAt: z.iso.datetime().nullable(),
+    /** BullMQ `active` — a worker is executing an extract job right now. */
+    runInFlight: z.boolean(),
+    /**
+     * Delayed or waiting (including waiting-children / prioritized). Distinct
+     * from `runInFlight`: a job past its quiet window sits here with no due
+     * time until a worker picks it up.
+     */
+    runQueued: z.boolean(),
+    lastRunFailed: z.boolean(),
+    failedReason: z.string().min(1).max(500).nullable(),
+  })
+  .strict();
+
 export const feedbackConversationDetailSchema = z
   .object({
     id: z.uuid(),
@@ -148,6 +178,7 @@ export const feedbackConversationDetailSchema = z
       .strict(),
     goals: z.array(feedbackConversationGoalDetailSchema).max(10),
     messages: z.array(feedbackConversationMessageSchema).max(150),
+    extraction: feedbackConversationExtractionSchema,
     needsAttention: z.boolean(),
     remindedAt: z.iso.datetime().nullable(),
     createdAt: z.iso.datetime(),
@@ -305,6 +336,9 @@ export class FeedbackNoteViewDto extends createZodDto(feedbackNoteViewSchema) {}
 
 export type FeedbackConversationCapabilities = z.infer<
   typeof feedbackConversationCapabilitiesSchema
+>;
+export type FeedbackConversationExtractionView = z.infer<
+  typeof feedbackConversationExtractionSchema
 >;
 export type FeedbackCampaignConversationsView = z.infer<
   typeof feedbackCampaignConversationsSchema

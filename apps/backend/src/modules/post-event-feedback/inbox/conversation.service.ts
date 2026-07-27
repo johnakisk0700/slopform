@@ -37,6 +37,10 @@ import {
   toListItem,
   toNoteView,
 } from "./conversation.view.js";
+import {
+  inspectFeedbackExtractJobs,
+  unreadParticipantSeqs,
+} from "./inspect-extract-jobs.js";
 import { FeedbackCampaignNotFoundError } from "../campaign/campaign.service.js";
 import type {
   AddFeedbackConversationNoteInput,
@@ -44,6 +48,7 @@ import type {
   FeedbackCampaignResultsQuery,
   FeedbackConversationCorrelationId,
   FeedbackConversationDetailView,
+  FeedbackConversationExtractionView,
   FeedbackConversationPrincipal,
   FeedbackConversationResultsView,
   FeedbackNoteView,
@@ -565,9 +570,10 @@ export class PostEventFeedbackConversationService {
   private async toDetailView(
     conversation: FeedbackConversationDocument,
   ): Promise<FeedbackConversationDetailView> {
-    const [displayNames, outboxRows] = await Promise.all([
+    const [displayNames, outboxRows, extraction] = await Promise.all([
       this.resolveDisplayNames([conversation.respondentParticipantId]),
       this.outbox.listOutboxByConversation(conversation._id),
+      this.toExtractionView(conversation),
     ]);
     const outboxById = new Map(outboxRows.map((row) => [row.id, row]));
 
@@ -607,11 +613,49 @@ export class PostEventFeedbackConversationService {
         at: message.at.toISOString(),
         delivery: deliveryFor(message.outboxId, outboxById),
       })),
+      extraction,
       needsAttention: conversation.needsAttention,
       remindedAt: conversation.remindedAt?.toISOString() ?? null,
       createdAt: conversation.createdAt.toISOString(),
       updatedAt: conversation.updatedAt.toISOString(),
       capabilities: conversationCapabilities(conversation),
+    };
+  }
+
+  /**
+   * Document fields plus a single Redis lookup for extract jobs covering the
+   * unread window. Detail-only: the polled list must not do this per row.
+   *
+   * Failure is reported from a retained failed job, or — when the job has
+   * already aged out of Redis — from a durable note with
+   * `origin: deterministic_fallback`. The fallback does not advance the
+   * cursor, so unread testimony plus that note is still the unrepaired
+   * failure; inventing "idle" because the queue row is gone would hide it.
+   */
+  private async toExtractionView(
+    conversation: FeedbackConversationDocument,
+  ): Promise<FeedbackConversationExtractionView> {
+    const unreadSeqs = unreadParticipantSeqs(conversation);
+    const [jobs, notes] = await Promise.all([
+      inspectFeedbackExtractJobs(this.queue, conversation._id, unreadSeqs),
+      unreadSeqs.length > 0
+        ? this.results.listNotesByConversation(conversation._id)
+        : Promise.resolve([]),
+    ]);
+    const fallbackRecorded = notes.some(
+      (note) => note.extractionMeta.origin === "deterministic_fallback",
+    );
+    const lastRunFailed = jobs.failedReason !== null || fallbackRecorded;
+
+    return {
+      unreadParticipantMessages: unreadSeqs.length,
+      lastRunAt: conversation.extraction.lastRunAt?.toISOString() ?? null,
+      model: conversation.extraction.model,
+      nextRunAt: jobs.nextExtractionAt?.toISOString() ?? null,
+      runInFlight: jobs.active,
+      runQueued: jobs.pending,
+      lastRunFailed,
+      failedReason: jobs.failedReason,
     };
   }
 

@@ -168,6 +168,80 @@ describe("PostEventFeedbackConversationService", () => {
     expect(repository.insertOutboxIfAbsent).not.toHaveBeenCalled();
   });
 
+  it("reports unread testimony and delayed extract job state on the detail view", async () => {
+    const { service, conversations, queue } = createService();
+    const at = new Date("2026-07-27T10:00:00.000Z");
+    conversations.findById.mockResolvedValue(
+      openConversation({
+        messages: [
+          {
+            id: "11111111-1111-4111-8111-111111111101",
+            seq: 1,
+            actor: "bot",
+            text: "Πώς σου φάνηκε;",
+            providerMessageId: null,
+            ingressId: null,
+            outboxId: outboxId,
+            attention: null,
+            at,
+          },
+          {
+            id: "11111111-1111-4111-8111-111111111102",
+            seq: 2,
+            actor: "participant",
+            text: "Καλά",
+            providerMessageId: "p-1",
+            ingressId: "22222222-2222-4222-8222-222222222201",
+            outboxId: null,
+            attention: null,
+            at,
+          },
+          {
+            id: "11111111-1111-4111-8111-111111111103",
+            seq: 3,
+            actor: "participant",
+            text: "Θα έβαζα 4",
+            providerMessageId: "p-2",
+            ingressId: "22222222-2222-4222-8222-222222222202",
+            outboxId: null,
+            attention: null,
+            at,
+          },
+        ],
+        extraction: {
+          cursorSeq: 1,
+          lastRunAt: null,
+          model: null,
+        },
+      }),
+    );
+    queue.getJob.mockResolvedValue({
+      timestamp: Date.parse("2026-07-27T10:01:00.000Z"),
+      opts: { delay: 45_000 },
+      getState: vi.fn().mockResolvedValue("delayed"),
+      failedReason: undefined,
+    });
+
+    const result = await service.get(campaignId, conversationId);
+
+    expect(result.extraction).toEqual({
+      unreadParticipantMessages: 2,
+      lastRunAt: null,
+      model: null,
+      nextRunAt: "2026-07-27T10:01:45.000Z",
+      runInFlight: false,
+      runQueued: true,
+      lastRunFailed: false,
+      failedReason: null,
+    });
+    expect(queue.getJob).toHaveBeenCalledWith(
+      `feedback-extract-v1-${conversationId}-2`,
+    );
+    expect(queue.getJob).toHaveBeenCalledWith(
+      `feedback-extract-v1-${conversationId}-3`,
+    );
+  });
+
   it("enqueues a staff outbox row and appends the transcript under human control", async () => {
     const { service, conversations, repository, auditAppend } = createService();
     const human = openConversation({
@@ -742,6 +816,10 @@ function randomMessageId(): string {
 
 function createService(): {
   service: PostEventFeedbackConversationService;
+  queue: {
+    add: ReturnType<typeof vi.fn>;
+    getJob: ReturnType<typeof vi.fn>;
+  };
   repository: {
     findCampaignById: ReturnType<typeof vi.fn>;
     insertOutboxIfAbsent: ReturnType<typeof vi.fn>;
@@ -814,13 +892,13 @@ function createService(): {
       work(transaction),
     ),
   };
+  const queue = {
+    add: vi.fn().mockResolvedValue({ id: "job" }),
+    getJob: vi.fn().mockResolvedValue(null),
+  };
 
   const service = new PostEventFeedbackConversationService(
-    { add: vi.fn().mockResolvedValue({ id: "job" }) } as unknown as Queue<
-      FeedbackJobData,
-      void,
-      FeedbackJobName
-    >,
+    queue as unknown as Queue<FeedbackJobData, void, FeedbackJobName>,
     database as unknown as DatabaseService,
     repository as unknown as FeedbackCampaignRepository,
     repository as unknown as FeedbackResultsRepository,
@@ -839,6 +917,7 @@ function createService(): {
 
   return {
     service,
+    queue,
     repository,
     eventsService,
     conversations,

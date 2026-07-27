@@ -114,6 +114,12 @@ Adding or changing an endpoint:
 3. Consume the new hook in the admin app. Do not write a Zod schema for a
    response that the document already describes.
 
+Queue-derived fields on a read model are allowed only when the endpoint is not
+polled as a collection. `getFeedbackConversation` may inspect BullMQ for the
+selected conversation's extract job; `listFeedbackCampaignConversations` must
+not — a Redis lookup per row on a ten-second poll is a load amplifier, and any
+list signal has to come from data already loaded for the row.
+
 The generated Zod schemas exist for values that leave the typed path — a form
 draft, something persisted in the browser, a payload echoed back into a request.
 Import them from `src/api/generated/zod/`; do not hand-copy a backend schema.

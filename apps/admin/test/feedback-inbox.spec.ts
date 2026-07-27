@@ -86,9 +86,31 @@ interface PollingModule {
   CONVERSATION_LIST_POLL_INTERVAL_MS: number;
 }
 
+interface ExtractionStatusModule {
+  extractionStatusLines: (
+    extraction: {
+      unreadParticipantMessages: number;
+      lastRunAt: string | null;
+      model: string | null;
+      nextRunAt: string | null;
+      runInFlight: boolean;
+      runQueued: boolean;
+      lastRunFailed: boolean;
+      failedReason: string | null;
+    },
+    now?: Date,
+  ) => {
+    unread: string;
+    schedule: string | null;
+    model: string | null;
+    attention: "none" | "pending" | "danger";
+  };
+}
+
 let labels: LabelsModule;
 let view: ConversationViewModule;
 let polling: PollingModule;
+let extractionStatus: ExtractionStatusModule;
 
 async function loadFeatureModule<T>(relativePath: string): Promise<T> {
   const moduleUrl = new URL(`../${relativePath}`, import.meta.url).href;
@@ -104,6 +126,9 @@ beforeAll(async () => {
   );
   polling = await loadFeatureModule<PollingModule>(
     "src/features/feedback/polling.ts",
+  );
+  extractionStatus = await loadFeatureModule<ExtractionStatusModule>(
+    "src/features/feedback/extractionStatus.ts",
   );
 });
 
@@ -541,6 +566,86 @@ describe("needs-attention emphasis", () => {
     ]) {
       expect(readSource(file)).not.toContain("dark:");
     }
+  });
+});
+
+describe("extraction status (operator visibility)", () => {
+  const idle = {
+    unreadParticipantMessages: 0,
+    lastRunAt: null as string | null,
+    model: null as string | null,
+    nextRunAt: null as string | null,
+    runInFlight: false,
+    runQueued: false,
+    lastRunFailed: false,
+    failedReason: null as string | null,
+  };
+
+  it("names how far behind the reading is, in Greek", () => {
+    expect(
+      extractionStatus.extractionStatusLines({
+        ...idle,
+        unreadParticipantMessages: 3,
+      }).unread,
+    ).toBe("3 μηνύματα δεν έχουν διαβαστεί ακόμα.");
+    expect(
+      extractionStatus.extractionStatusLines({
+        ...idle,
+        unreadParticipantMessages: 1,
+      }).unread,
+    ).toBe("1 μήνυμα δεν έχει διαβαστεί ακόμα.");
+  });
+
+  it("shows a due time rather than a spinner when a run is scheduled", () => {
+    const lines = extractionStatus.extractionStatusLines(
+      {
+        ...idle,
+        unreadParticipantMessages: 2,
+        nextRunAt: "2026-07-27T11:47:00.000Z",
+        runQueued: true,
+      },
+      new Date("2026-07-27T11:00:00.000Z"),
+    );
+
+    expect(lines.schedule).toMatch(/^Επόμενη ανάγνωση /);
+    expect(lines.attention).toBe("pending");
+  });
+
+  it("shows failure as failure, with the fallback named", () => {
+    const lines = extractionStatus.extractionStatusLines({
+      ...idle,
+      unreadParticipantMessages: 1,
+      lastRunFailed: true,
+      failedReason: "Feedback extraction failed permanently: provider_refusal",
+    });
+
+    expect(lines.schedule).toBe(
+      "Η ανάγνωση απέτυχε · απάντησε η εναλλακτική διαδικασία.",
+    );
+    expect(lines.attention).toBe("danger");
+  });
+
+  it("admits when the queue state is unknown rather than inventing idle", () => {
+    const lines = extractionStatus.extractionStatusLines({
+      ...idle,
+      unreadParticipantMessages: 2,
+    });
+
+    expect(lines.schedule).toBe("Ώρα επόμενης ανάγνωσης άγνωστη.");
+    expect(lines.attention).toBe("pending");
+  });
+
+  it("renders the status block as a polite live region without a spinner", () => {
+    const details = readSource(
+      "src/components/admin/feedback/ConversationDetails.tsx",
+    );
+
+    expect(details).toContain("extractionStatusLines");
+    expect(details).toContain('role="status"');
+    expect(details).toContain('aria-live="polite"');
+    expect(details).toContain("Ανάγνωση");
+    expect(details).not.toContain("animate-spin");
+    expect(details).not.toContain("Loader");
   });
 });
 
