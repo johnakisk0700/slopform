@@ -325,9 +325,11 @@ completes, closing copy sent.
 **Stresses.** D3's "every question is skippable"; `skippedGoals` as the only
 route to `completed` when an answer is a refusal.
 
-**Today.** ❓ Machinery correct. Entirely dependent on the model producing
-`skippedGoals: ["avoid"]`; if it returns an empty proposal the conversation
-never completes and eventually dies by expiry.
+**Today.** ✅ Machinery correct for an explicit `skippedGoals: ["avoid"]`. A
+run that instead writes a goodbye with no answers, no notes, no question, and a
+still-named `nextGoal` is now treated as a withdrawal: remaining open goals are
+settled and the conversation closes. A `nextGoal: null` goodbye without
+`skippedGoals` is still the model's to finish via rule 7δ.
 
 ### S13 · `answers_only_yes`
 
@@ -347,9 +349,11 @@ exhaustion rather than by expiry at 72 h.
 **Stresses.** The extractor's zero-write path; the absence of any "this
 conversation is going nowhere" counter.
 
-**Today.** ⚠️ Correct but pointless. Three model calls, no data, no
-`needsAttention`, and the participant stays open for 72 hours. WP4's nudge
-counter is the intended fix.
+**Today.** ⚠️ While the bot keeps posing a question, three model calls, no data,
+no `needsAttention`, and the participant stays open — that is still going, not
+a withdrawal. If a later turn writes a goodbye with no question, the withdrawal
+net settles the ladder and closes. WP4's nudge counter remains the intended fix
+for the "keeps re-asking the same way" half.
 
 ### S14 · `names_themselves`
 

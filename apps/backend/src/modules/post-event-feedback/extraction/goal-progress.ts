@@ -94,6 +94,62 @@ export function withAskedGoal(
   return [...without, { key: askedGoal, status: "asked" }];
 }
 
+/**
+ * A run that wrote nothing and asked nothing is a withdrawal: the bot decided
+ * to stop. Without this, remaining goals stay pending/asked, the reminder
+ * ladder keeps chasing, and the conversation only dies at expiry — days after
+ * the participant was told the bot was backing off. `isCompleting` already
+ * closes once every goal is terminal; this is what feeds it.
+ *
+ * Answered wins; an already-skipped goal stays skipped. Only open goals
+ * (pending or asked, including ones not yet in the update list) become skipped.
+ */
+export function withSettledOpenGoals(
+  goals: readonly FeedbackConversationGoal[],
+  updates: readonly GoalStatusUpdate[],
+): GoalStatusUpdate[] {
+  const byKey = new Map(updates.map((update) => [update.key, update]));
+  for (const goal of goals) {
+    const status = byKey.get(goal.key)?.status ?? goal.status;
+    if (status === "answered" || status === "skipped") {
+      continue;
+    }
+    byKey.set(goal.key, { key: goal.key, status: "skipped" });
+  }
+  return [...byKey.values()];
+}
+
+/**
+ * No accepted answers, no accepted notes, and the outbound that will actually
+ * go out does not pose a question — while the model still named a `nextGoal`.
+ * That is a withdrawal: it claimed the ladder continued and then wrote a
+ * statement («το bot αποσύρεται…»). A bare `nextGoal: null` reply with nothing
+ * to extract is how the bot answers a side question (flirting, "who reads
+ * this") without ending the questionnaire, and must not settle the ladder.
+ *
+ * A replay of a finished write looks the same on the accepted lists (validation
+ * refuses the duplicates as `already_recorded`), so those refusals are the
+ * signal that this run is repairing, not bowing out — without them a replayed
+ * «Τέλεια, το σημείωσα!» would settle the ladder and close mid-questionnaire.
+ */
+export function isWithdrawal(input: {
+  readonly answers: { readonly length: number };
+  readonly notes: { readonly length: number };
+  readonly nextGoal: FeedbackAnswerQuestionKey | null;
+  readonly askedGoal: FeedbackAnswerQuestionKey | undefined;
+  readonly outboundSent: boolean;
+  readonly repairingStoredResults?: boolean;
+}): boolean {
+  return (
+    input.outboundSent &&
+    input.answers.length === 0 &&
+    input.notes.length === 0 &&
+    input.nextGoal !== null &&
+    input.askedGoal === undefined &&
+    !input.repairingStoredResults
+  );
+}
+
 export function isCompleting(
   goals: readonly FeedbackConversationGoal[],
   updates: readonly GoalStatusUpdate[],

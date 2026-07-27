@@ -190,6 +190,55 @@ describe("resolveOutbound", () => {
     });
   });
 
+  it("does not mark a goal asked when the bot bows out without posing a question", () => {
+    // Μπάμπης Διπλογαμωσταυρίδης: the model still named nextGoal liked while
+    // writing a withdrawal. The reminder ladder then restated liked the next
+    // day — a question nobody had asked him.
+    const outbound = resolveOutbound(
+      conversation,
+      validated({
+        nextGoal: "liked",
+        reply: "ΟΚ, το πιάνω — το bot αποσύρεται με σκυμμένο κεφάλι",
+      }),
+      false,
+      false,
+      4,
+      copy,
+      "liked",
+    );
+
+    expect(outbound).toEqual({
+      body: "ΟΚ, το πιάνω — το bot αποσύρεται με σκυμμένο κεφάλι",
+      dedupeKey: "feedback-reply-conv-1-4",
+    });
+    expect(outbound).not.toHaveProperty("askedGoal");
+  });
+
+  it("marks the goal asked when the bot asks in the imperative, without a question mark", () => {
+    // Verbatim from the last rehearsal. Six of the eight punctuation-free
+    // questions it produced were shaped like this, and reading them as
+    // statements is not cosmetic: `isWithdrawal` keys off the same answer, so
+    // it would settle every open goal and close a conversation that had just
+    // asked for the score.
+    for (const reply of [
+      "Χαχα, εντάξει, δεν βιάζομαι 😄 Πέτα μου μόνο έναν αριθμό από το 1 ως το 5 για τη βραδιά και μετά συνεχίζουμε το ζύγισμα.",
+      "Πάρε τον χρόνο σου 🙂 Όταν τα βάλεις σε σειρά, στείλε μου έστω έναν αριθμό από το 1 ως το 5.",
+      "Λυπάμαι που ένιωσες έτσι — δεν ακούγεται καθόλου άνετο. Αν θες, πες μου και συνολικά πώς σου φάνηκε η βραδιά, από 1 ως 5.",
+    ]) {
+      expect(
+        resolveOutbound(
+          conversation,
+          validated({ nextGoal: "event_score", reply }),
+          false,
+          false,
+          4,
+          copy,
+          "event_score",
+        ),
+      ).toHaveProperty("askedGoal", "event_score");
+    }
+  });
+
   it("keeps the model's reply under a safety signal even when nextGoal is unset", () => {
     const outbound = resolveOutbound(
       conversation,

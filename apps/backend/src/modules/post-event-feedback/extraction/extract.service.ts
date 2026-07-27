@@ -24,9 +24,11 @@ import { ParticipantsRepository } from "../../participants/participants.reposito
 import { latestParticipantMessage } from "../conversation-reader.js";
 import {
   isCompleting,
+  isWithdrawal,
   nextOpenGoal,
   resolveGoalStatuses,
   withAskedGoal,
+  withSettledOpenGoals,
   type GoalStatusUpdate,
 } from "./goal-progress.js";
 import {
@@ -235,13 +237,14 @@ export class PostEventFeedbackExtractor {
       context,
       validated,
     );
-    const completing = isCompleting(conversation.goals, recordedStatuses);
     const openGoal = nextOpenGoal(conversation.goals, recordedStatuses);
-    // A disclosure that happens to finish the questionnaire is not a finish
-    // line: closing copy and close() wait for a run that did not raise safety.
-    // Results, attention and the alert still write; only the conversational
-    // ending is deferred so a human can take the thread.
-    const closingNow = completing && validated.safetySignals.length === 0;
+    // Closing copy is only earned by answers/skips that already finished the
+    // ladder. A withdrawal settles open goals *after* the outbound is chosen,
+    // so the participant still gets the model's goodbye rather than the
+    // campaign thank-you — then `closingNow` below closes on the settled state.
+    const progressClosing =
+      isCompleting(conversation.goals, recordedStatuses) &&
+      validated.safetySignals.length === 0;
     // The two signals that end the questionnaire outright, as opposed to
     // flagging it. Both mean the same thing — from here a person is answering,
     // not the bot — so both hand control over, which is the existing brake:
@@ -258,13 +261,12 @@ export class PostEventFeedbackExtractor {
     const outbound = resolveOutbound(
       conversation,
       validated,
-      closingNow,
+      progressClosing,
       urgentSafety,
       latestParticipantMessage(conversation)?.seq ?? cursorSeq,
       copy,
       openGoal,
     );
-    const goalStatuses = withAskedGoal(recordedStatuses, outbound?.askedGoal);
     const withheld = outbound
       ? await this.reviewBeforeSending({
           conversation,
@@ -275,7 +277,7 @@ export class PostEventFeedbackExtractor {
           // later run can speak at all, and the second promises a human.
           // Swallowing either leaves the participant waiting for a message that
           // is never coming.
-          ordinaryReply: !closingNow && !validated.handoff,
+          ordinaryReply: !progressClosing && !validated.handoff,
         })
       : undefined;
     if (withheld) {
@@ -287,13 +289,47 @@ export class PostEventFeedbackExtractor {
         reason: withheld,
       });
     }
+    // Asked and withdrawal both key off what will actually reach the phone.
+    // Marking liked asked — or settling the ladder — for a reply that was
+    // withheld is the same class of lie as attaching askedGoal to a statement.
+    const sentOutbound = withheld ? undefined : outbound;
+    let goalStatuses = withAskedGoal(recordedStatuses, sentOutbound?.askedGoal);
+    // Prompt rule 7δ already tells the model to decline every open goal when
+    // it withdraws; this is the net when it writes the goodbye, still names a
+    // nextGoal, and forgets the declines. A nextGoal-null statement is a
+    // side-question answer and must not settle. Safety and handoff keep the
+    // ladder open for a human — closing on a disclosure that produced no
+    // structured rows would slam the door.
+    if (
+      !dutyOfCare &&
+      validated.safetySignals.length === 0 &&
+      isWithdrawal({
+        answers: validated.answers,
+        notes: validated.notes,
+        nextGoal: validated.nextGoal,
+        askedGoal: sentOutbound?.askedGoal,
+        outboundSent: sentOutbound !== undefined,
+        repairingStoredResults: validated.rejections.some(
+          (rejection) => rejection.reason === "already_recorded",
+        ),
+      })
+    ) {
+      goalStatuses = withSettledOpenGoals(conversation.goals, goalStatuses);
+    }
+    // A disclosure that happens to finish the questionnaire is not a finish
+    // line: closing copy and close() wait for a run that did not raise safety.
+    // Results, attention and the alert still write; only the conversational
+    // ending is deferred so a human can take the thread.
+    const closingNow =
+      isCompleting(conversation.goals, goalStatuses) &&
+      validated.safetySignals.length === 0;
 
     const written = await this.persist({
       conversation,
       campaign,
       context,
       validated,
-      outbound: withheld ? undefined : outbound,
+      outbound: sentOutbound,
       model: generated.model,
       correlationId: input.correlationId,
     });

@@ -445,7 +445,21 @@ only way to explain later why a subject was — or was not — resolvable.
   has no natural unique key;
 - goal statuses advanced monotonically along `pending < asked < skipped <
 answered`, derived from stored **and** newly written answers so a replay repairs
-  them;
+  them; `asked` is taken only from an outbound that actually poses a question
+  (campaign re-ask, or a model reply whose words include `?` / `;` or a Greek
+  imperative ask such as «πες μου» / «στείλε»), never from a bare `nextGoal` on
+  a statement — otherwise a withdrawal marks the next rung asked and
+  `reminder_followup` restates a question nobody posed. The doubt is spent
+  towards "it asked": under-reading an ask also trips the withdrawal net below,
+  which closes the conversation, while over-reading one costs a restated
+  question;
+- a run that accepts no answers, accepts no notes, sends no question, and still
+  carries a `nextGoal` is a **withdrawal**: the model claimed the ladder
+  continued while writing a statement. Remaining open goals are settled as
+  `skipped` so `isCompleting` can close, instead of leaving the ladder open for
+  the reminder chase after the bot said it was backing off. A bare
+  `nextGoal: null` reply with nothing to extract is a side-question answer and
+  does not settle; safety signals and handoff keep the ladder open for a human;
 - exactly one outbox row per run, chosen by the application rather than the
   model: the neutral handoff copy on an **explicit** handoff, else the closing
   copy when every **recorded** goal is terminal **and this run produced no safety
@@ -976,7 +990,11 @@ reserved phone block `+3069000<cc><pp>`, creates one finished event per
 catalogue campaign (draft → scheduled → finished), launches via
 `launchFeedbackCampaign`, injects every persona concurrently through the
 ordinary simulator path, then writes `report/feedback-burst-<timestamp>.html`.
-It never cleans up. Stub mode refuses to start unless the burst catalogue
+It never cleans up. Settlement polling keeps the configured deadline as an outer
+bound, but stops early when the settled set and every conversation's message
+count are unchanged for several polls after the quiet-settle threshold — and
+names the unsettled personas so a quiet stop is never mistaken for success.
+Stub mode refuses to start unless the burst catalogue
 reports `extractionStub: true` and a feedback worker is registered; paid mode
 treats per-persona semantic expectations as observations and keeps the
 cross-cutting correctness checks as hard failures.
@@ -1174,7 +1192,13 @@ later extraction run cannot demote a recorded answer back to a question the bot
 would ask again, however confident the model is. `answered` outranks `skipped`
 so a participant who changes their mind is still recorded — that direction adds
 a fact instead of discarding one. A concurrent run that already advanced the
-same goal further simply leaves it alone.
+same goal further simply leaves it alone. `asked` is recorded only when the
+outbound that will be sent actually poses the question; a statement that still
+carries a `nextGoal` does not. A withdrawal — no accepted answers, no accepted
+notes, no question on the sent outbound, and a still-named `nextGoal` — settles
+every remaining open goal as `skipped` so the conversation can complete instead
+of being chased by reminders. A `nextGoal: null` statement with nothing to
+extract is left alone so side-question replies do not end the questionnaire.
 
 ### Extraction cursor, attention and capacity
 

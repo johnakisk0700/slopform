@@ -141,10 +141,17 @@ export function resolveOutbound(
     return undefined;
   }
 
+  // `nextGoal` is the model's private intent. A withdrawal that still names
+  // liked — «ΟΚ, το πιάνω — το bot αποσύρεται…» — must not mark liked asked:
+  // the next day's reminder_followup would restate a question nobody posed.
+  // Campaign re-asks go through `questionOutbound` and always ask; a forwarded
+  // reply only carries askedGoal when its own words pose a question.
   return {
     body: validated.reply,
     dedupeKey: createFeedbackReplyDedupeKey(conversation._id, testimonySeq),
-    ...(validated.nextGoal ? { askedGoal: validated.nextGoal } : {}),
+    ...(validated.nextGoal && replyPosesQuestion(validated.reply)
+      ? { askedGoal: validated.nextGoal }
+      : {}),
   };
 }
 
@@ -159,6 +166,39 @@ function questionOutbound(
     dedupeKey: createFeedbackReplyDedupeKey(conversationId, testimonySeq),
     askedGoal: goal,
   };
+}
+
+/**
+ * The imperative the bot asks in when it does not use a question mark:
+ * «πες μου έναν αριθμό από το 1 ως το 5.», «Πέτα μου μόνο έναν αριθμό», «στείλε
+ * μου έστω έναν αριθμό». Six of the eight punctuation-free questions in the
+ * last rehearsal were shaped like this, so reading them as statements is not a
+ * rare edge.
+ *
+ * No `\b`: JavaScript word boundaries are defined on `[A-Za-z0-9_]`, so `\bπες`
+ * never matches. The lookaround does the same job over letters of any script,
+ * and keeps «πέρασες» from reading as an ask.
+ */
+const ASKS_IN_THE_IMPERATIVE =
+  /(?:^|[^\p{L}])(?:πες|πεις|πεσ|στείλε|στειλε|γράψε|γραψε|πέτα|πετα|δώσε|δωσε|βάλε|βαλε|μοιράσου|ρίξε|ριξε)(?![\p{L}])/iu;
+
+/**
+ * Whether this reply's words are posing a question.
+ *
+ * Greek questions end with `;` (the Greek-keyboard question mark is ASCII
+ * semicolon); Latin `?` shows up in mixed replies. Neither is required — see
+ * above — and the doubt is deliberately spent towards "it asked". Both errors
+ * are real, but they are not the same size: reading an ask as a statement now
+ * also trips `isWithdrawal`, which settles every open goal and closes the
+ * conversation, while reading a statement as an ask costs one restated
+ * question in tomorrow's reminder.
+ */
+function replyPosesQuestion(body: string): boolean {
+  return (
+    body.includes("?") ||
+    body.includes(";") ||
+    ASKS_IN_THE_IMPERATIVE.test(body)
+  );
 }
 
 /**

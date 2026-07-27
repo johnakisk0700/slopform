@@ -592,6 +592,113 @@ describe("PostEventFeedbackExtractor", () => {
       ]);
     });
 
+    it("does not record liked as asked when the bot bows out without mentioning it", async () => {
+      // Μπάμπης Διπλογαμωσταυρίδης after sustained abuse: the model named
+      // nextGoal liked while writing a withdrawal. The next day's
+      // reminder_followup restated liked — a question his transcript never
+      // asked. Score was already behind him; liked was the open rung.
+      harness.conversations.setGoal(conversationId, "event_score", "answered");
+      harness.repository.answers.push({
+        id: randomUUID(),
+        conversationId,
+        questionKey: "event_score",
+        subjectParticipantId: null,
+        valueInt: 1,
+        noteType: null,
+        text: null,
+        extractionMeta: { model, confidence: 1, candidateIds: [] },
+      });
+      harness.generation.propose.mockResolvedValue(
+        generation({
+          nextGoal: "liked",
+          reply: "ΟΚ, το πιάνω — το bot αποσύρεται με σκυμμένο κεφάλι",
+        }),
+      );
+
+      const result = await harness.extractor.extract({
+        conversationId,
+        correlationId,
+      });
+
+      expect(result.outcome).toBe("completed");
+      expect(harness.repository.outbox).toEqual([
+        expect.objectContaining({
+          body: "ΟΚ, το πιάνω — το bot αποσύρεται με σκυμμένο κεφάλι",
+        }),
+      ]);
+      expect(harness.conversations.goalStatuses(conversationId)).toEqual({
+        event_score: "answered",
+        liked: "skipped",
+        meet_again: "skipped",
+        avoid: "skipped",
+      });
+      expect(harness.conversations.get(conversationId).lifecycle).toMatchObject(
+        {
+          state: "closed",
+          reason: "completed",
+        },
+      );
+    });
+
+    it("closes when the bot withdraws rather than leaving the ladder open for reminders", async () => {
+      // Πάνος Μούλαρος: «Εντάξει, το άξιζα 😅 Δεν θα σε ζαλίσω άλλο» — no
+      // answers, no notes, no question. Without settling, he stayed open and
+      // was chased by the reminder ladder after being told it was over.
+      harness.generation.propose.mockResolvedValue(
+        generation({
+          nextGoal: "event_score",
+          reply: "Εντάξει, το άξιζα 😅 Δεν θα σε ζαλίσω άλλο",
+        }),
+      );
+
+      const result = await harness.extractor.extract({
+        conversationId,
+        correlationId,
+      });
+
+      expect(result.outcome).toBe("completed");
+      expect(harness.repository.outbox[0]?.["body"]).toBe(
+        "Εντάξει, το άξιζα 😅 Δεν θα σε ζαλίσω άλλο",
+      );
+      expect(harness.conversations.get(conversationId).lifecycle.state).toBe(
+        "closed",
+      );
+    });
+
+    it("keeps the conversation open when nothing was extracted but the bot still asked", async () => {
+      // Ordinary empty turn: «ναι» yielded nothing, and the bot re-posed the
+      // score. That is still going — not a withdrawal — so the ladder stays
+      // open for the next answer (or a reminder of the question that was
+      // actually asked).
+      harness.generation.propose.mockResolvedValue(
+        generation({
+          nextGoal: "event_score",
+          reply: "Πώς σου φάνηκε συνολικά η βραδιά, από το 1 ως το 5;",
+        }),
+      );
+
+      const result = await harness.extractor.extract({
+        conversationId,
+        correlationId,
+      });
+
+      expect(result.outcome).toBe("extracted");
+      expect(harness.conversations.get(conversationId).lifecycle.state).toBe(
+        "open",
+      );
+      expect(
+        harness.conversations.goalStatuses(conversationId).event_score,
+      ).toBe("asked");
+      // Still open on the later rungs — settling them would mean we mistook a
+      // re-ask for a withdrawal.
+      expect(harness.conversations.goalStatuses(conversationId).liked).toBe(
+        "asked",
+      );
+      expect(harness.conversations.goalStatuses(conversationId).avoid).toBe(
+        "asked",
+      );
+    });
+
     it("prefers the campaign's launch copy snapshot over the constant", async () => {
       harness.repository.campaigns.set(campaignId, {
         id: campaignId,
