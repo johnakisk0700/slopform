@@ -84,7 +84,7 @@ async function main() {
   const adminBase = String(
     args["admin-base"] ??
       process.env.FEEDBACK_SIMULATOR_ADMIN_BASE ??
-      "http://localhost:5173",
+      "http://localhost:3000",
   ).replace(/\/+$/u, "");
   const token =
     String(args.token ?? process.env.CLERK_BEARER_TOKEN ?? "").trim() ||
@@ -1241,7 +1241,7 @@ Options:
   --confirm-paid-run     Required acknowledgement of model cost for eighteen conversations
   --correlation-id <id>  Optional stable log ID; generated when omitted
   --api-base <url>       Default: http://localhost:4000/api/v1
-  --admin-base <url>     Default: http://localhost:5173
+  --admin-base <url>     Default: http://localhost:3000
   --token <bearer>       Optional; defaults to CLERK_BEARER_TOKEN
   --timeout-ms <ms>      Settlement deadline; default: 900000 (15 minutes)
 
