@@ -507,13 +507,25 @@ async function upsertBurstParticipant(db, persona) {
     .limit(1);
   if (existing[0]) {
     const row = existing[0];
-    if (
-      row.preferredName !== persona.displayName ||
-      row.emailNormalized !== email
-    ) {
+    // The email is the seat; the name is whichever persona currently sits in
+    // it. Retiring a persona and seating a new one on the same phone is an
+    // ordinary catalogue change — it happened the first time a row was replaced
+    // — and refusing it left an orphan that blocked every later run with a
+    // message about a participant nobody could find. A *different* email on a
+    // reserved phone is the case this guard is really for, and still refuses.
+    if (row.emailNormalized !== email) {
       throw new Error(
         `Reserved phone ${persona.phoneE164} already belongs to a different participant (${row.id}); refuse to overwrite`,
       );
+    }
+    if (row.preferredName !== persona.displayName) {
+      console.error(
+        `  reseating ${persona.phoneE164}: "${row.preferredName}" → "${persona.displayName}"`,
+      );
+      await db
+        .update(participants)
+        .set({ preferredName: persona.displayName, updatedAt: new Date() })
+        .where(eq(participants.id, row.id));
     }
     if (!row.postEventFeedbackWhatsappOptIn) {
       // Column defaults to false; force opt-in on the reserved seed row.
