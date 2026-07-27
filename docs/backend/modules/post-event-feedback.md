@@ -448,8 +448,13 @@ answered`, derived from stored **and** newly written answers so a replay repairs
   them;
 - exactly one outbox row per run, chosen by the application rather than the
   model: the neutral handoff copy on an **explicit** handoff, else the closing
-  copy when every goal is terminal **and this run produced no safety
-  signals**, else the model's reply;
+  copy when every **recorded** goal is terminal **and this run produced no safety
+  signals**, else a campaign re-ask when validation refused an answer the
+  participant can still fix, when the model skipped ahead of an open goal, or
+  when it wrote a thank-you with `nextGoal: null` after proposing progress that
+  did not finish the ladder, else the model's reply when it agrees with the
+  recorded next goal (including side-question replies that name no next goal
+  and proposed nothing);
 - that row transcribed as an `actor: bot` message carrying its `outboxId`
   ([outbound transcript entries](#outbound-transcript-entries)), so the next run
   reads what the bot already asked;

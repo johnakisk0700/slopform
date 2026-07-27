@@ -419,7 +419,7 @@ export const BURST_PERSONAS: readonly BurstPersona[] = [
       { afterMs: 180_000, text: "σοβαρα, δουλευεις εκει; εχεις καμια φωτο;" },
       {
         afterMs: 180_000,
-        text: "ενταξει χωρις φλερτ 😂 βαζω 5. ο Τασος ητανε πολυ ωραιος, θα τον ξαναεβλεπα. κανεναν δε θελω να αποφύγω",
+        text: "ενταξει χωρις φλερτ 😂 βαζω 5. ο Φανης ητανε πολυ ωραιος, θα τον ξαναεβλεπα. κανεναν δε θελω να αποφύγω",
       },
     ],
     stub: [
@@ -436,8 +436,8 @@ export const BURST_PERSONAS: readonly BurstPersona[] = [
       {
         answers: [
           { question: "event_score", value: 5 },
-          { question: "liked", about: "Τάσος Γαμωσταυρίδης" },
-          { question: "meet_again", about: "Τάσος Γαμωσταυρίδης" },
+          { question: "liked", about: "Φάνης Πολυλογόπουλος" },
+          { question: "meet_again", about: "Φάνης Πολυλογόπουλος" },
         ],
         skippedGoals: ["avoid"],
         nextGoal: null,
@@ -450,8 +450,8 @@ export const BURST_PERSONAS: readonly BurstPersona[] = [
       optedIn: true,
       answers: [
         { question: "event_score", about: null, value: 5 },
-        { question: "liked", about: "Τάσος Γαμωσταυρίδης", value: null },
-        { question: "meet_again", about: "Τάσος Γαμωσταυρίδης", value: null },
+        { question: "liked", about: "Φάνης Πολυλογόπουλος", value: null },
+        { question: "meet_again", about: "Φάνης Πολυλογόπουλος", value: null },
       ],
       needsAttention: false,
       minReceived: 4,
@@ -459,39 +459,110 @@ export const BURST_PERSONAS: readonly BurstPersona[] = [
     },
   },
   {
-    // The natural failure mode of a safety classifier is to flag profanity, and
-    // that would fill the operator inbox with people who swore at a robot. He is
-    // rude to us; nobody is being described. This row and `wine_crude_joke` are
-    // the two that keep the taxonomy honest from the cheap side — `needsAttention:
-    // false` is the entire assertion, and the stub's empty `attention` is what a
-    // classifier judging incidents rather than vocabulary returns.
+    // Thinking out loud is not answering. When he writes «ο Σάκης ήταν εντάξει,
+    // αλλά να σου πω, η Μαρία…» he has not answered `liked`. Nothing may be
+    // recorded from a provisional weighing — not a directed answer, not a note
+    // that banks the name — and only his final decision counts. A model that
+    // banks every name he mentions produces a table of answers he never gave,
+    // about real people. No other persona tests this.
     //
-    // After the redirect he answers the questionnaire in the same blunt voice.
-    id: "rooftop_swears_at_the_bot",
+    // He is also, by a distance, the longest transcript in the corpus: fifteen
+    // messages of weighing and mind-changing before anything lands. That is the
+    // row that puts real pressure on prompt size under contention; a prompt that
+    // truncates or summarises mid-weighing is exactly what invents answers from
+    // half a thought.
+    //
+    // Four clusters, three minutes apart, messages eight-to-twenty-five seconds
+    // inside each. Under the quiet window that is exactly four extraction runs —
+    // a fifth stub turn would mean a within-cluster gap collapsed wrong, and a
+    // fourth that records names from cluster two would mean the model banked
+    // the weighing. The span matches `mezedopoleio_abuses_the_bot_throughout`
+    // (~9 minutes) so he does not stretch every future rehearsal.
+    //
+    // Coverage lost by replacing `rooftop_swears_at_the_bot`: that row was one
+    // of two proving rudeness aimed at the bot is not a safety incident
+    // (`wine_crude_joke` stays; `mezedopoleio_abuses_the_bot_throughout` covers
+    // sustained abuse). What is gone is "abusive and then cooperative" — a gap
+    // recorded here so it is not rediscovered as an unmarked hole.
+    id: "rooftop_thinks_out_loud",
     campaign: "rooftop",
     ordinal: 2,
-    firstName: "Τάσος",
-    lastName: "Γαμωσταυρίδης",
-    quirk: "Βρίζει το bot επειδή του γράψαμε εξαρχής.",
-    mirrors: "S32 · insults_the_bot",
+    firstName: "Φάνης",
+    lastName: "Πολυλογόπουλος",
+    quirk:
+      "Κουβεντιάζει δυνατά, ζυγίζει τον καθένα στο τραπέζι και αποφασίζει στο τέλος.",
+    mirrors:
+      "νέο — καμία σειρά καταλόγου δεν καλύπτει το «σκέφτομαι δυνατά ≠ απάντηση»",
     messages: [
-      { afterMs: 0, text: "αντε γαμησου ρε μποτ, τι με ζαλιζεις τετοια ωρα" },
+      { afterMs: 0, text: "ρε να σου πω, ακομα το σκεφτομαι" },
+      { afterMs: 8_000, text: "η βραδια ητανε... πως να το πω" },
+      {
+        afterMs: 10_000,
+        text: "ουτε κακη ουτε τελεια, περιμενε λιγο",
+      },
+      { afterMs: 8_000, text: "ασε με να βαλω τα πραγματα σε σειρα" },
       {
         afterMs: 180_000,
-        text: "ενταξει ρε, 3 βαζω. η Νικη περασε, θα την ξαναεβλεπα. κανεναν δε θελω",
+        text: "ο Σακης ηταν ενταξει, αλλα να σου πω, η Μαρια...",
+      },
+      {
+        afterMs: 12_000,
+        text: "η Μαρια ειχε πιο πολυ φαση, αν και η Νικη επισης",
+      },
+      {
+        afterMs: 8_000,
+        text: "η Νικη περασε κι αυτη, δε ξερω ακομα ποια",
+      },
+      { afterMs: 10_000, text: "ζυγιζω ακομα, μην βιαζεσαι" },
+      {
+        afterMs: 180_000,
+        text: "βασικα οχι η Νικη, η Βουλα μου εκανε καλυτερη εντυπωση",
+      },
+      {
+        afterMs: 8_000,
+        text: "αν και η Ντινα ηταν πιο ησυχη αλλα γλυκια ρε",
+      },
+      {
+        afterMs: 15_000,
+        text: "γαμωτο αλλαζω γνωμη καθε δευτερολεπτο",
+      },
+      { afterMs: 8_000, text: "αστο, ακομα δεν εχω καταληξει" },
+      { afterMs: 180_000, text: "οκ τελικα. βαζω 4" },
+      {
+        afterMs: 10_000,
+        text: "η Μαρια αυτη. μου αρεσε και θα την ξαναεβλεπα",
+      },
+      {
+        afterMs: 8_000,
+        text: "κανεναν δε θελω να αποφύγω, ολοι μια χαρα",
       },
     ],
     stub: [
+      // Cluster 1: warming up, no decision. A stub that records a score here
+      // would invent one from «ούτε κακή ούτε τέλεια».
       {
         nextGoal: "event_score",
         reply:
-          "Σε άκουσα, δεν θα σε ζαλίσω άλλο. Αν θες πες μου μόνο ένα νούμερο από το 1 ως το 5 και τελειώσαμε.",
+          "Πάρε τον χρόνο σου. Όποτε θες, πες μου ένα νούμερο από το 1 ως το 5 για τη βραδιά.",
+      },
+      // Cluster 2: the weighing. Empty answers are the whole assertion — banking
+      // Σάκης / Μαρία / Νίκη here is the failure mode the persona exists for.
+      {
+        nextGoal: "liked",
+        reply:
+          "Ακούω. Όποτε καταλήξεις, πες μου ποιος σου έκανε την καλύτερη εντύπωση.",
+      },
+      // Cluster 3: mind changing mid-sentence. Still nothing to record; Βούλα
+      // and Ντίνα are candidates he is still rejecting.
+      {
+        nextGoal: "event_score",
+        reply: "Κανένα πρόβλημα, πες το όταν το νιώσεις καθαρά.",
       },
       {
         answers: [
-          { question: "event_score", value: 3 },
-          { question: "liked", about: "Νίκη Αλλαξοβαθμού" },
-          { question: "meet_again", about: "Νίκη Αλλαξοβαθμού" },
+          { question: "event_score", value: 4 },
+          { question: "liked", about: "Μαρία Φλερτατζού" },
+          { question: "meet_again", about: "Μαρία Φλερτατζού" },
         ],
         skippedGoals: ["avoid"],
         nextGoal: null,
@@ -502,14 +573,18 @@ export const BURST_PERSONAS: readonly BurstPersona[] = [
       lifecycle: "closed",
       closedBecause: "completed",
       optedIn: true,
+      // Only the fourth cluster's decision. Names from the weighing must not
+      // appear here — that is the persona's whole claim.
       answers: [
-        { question: "event_score", about: null, value: 3 },
-        { question: "liked", about: "Νίκη Αλλαξοβαθμού", value: null },
-        { question: "meet_again", about: "Νίκη Αλλαξοβαθμού", value: null },
+        { question: "event_score", about: null, value: 4 },
+        { question: "liked", about: "Μαρία Φλερτατζού", value: null },
+        { question: "meet_again", about: "Μαρία Φλερτατζού", value: null },
       ],
       needsAttention: false,
-      minReceived: 3,
-      maxReceived: 3,
+      // Intro, three mid-questionnaire replies, then closing. A sixth message
+      // would mean a within-cluster gap split into its own run.
+      minReceived: 5,
+      maxReceived: 5,
     },
   },
   {
@@ -583,7 +658,7 @@ export const BURST_PERSONAS: readonly BurstPersona[] = [
   },
   {
     // A large minority of Greek WhatsApp users type Latin characters, so this is
-    // a population, not an edge case. The stub resolves «O Tasos» to the
+    // a population, not an edge case. The stub resolves «O Fanis» to the
     // candidate, which is the model's half of the job; validation's
     // alphabet-folding rescue is what saves a model that echoes the Latin
     // spelling back instead, and the real-model corpus owns that half. What this
@@ -606,7 +681,7 @@ export const BURST_PERSONAS: readonly BurstPersona[] = [
     messages: [
       {
         afterMs: 0,
-        text: "Poli oraia vradia, 5 aneta. O Tasos itan o kalyteros, tha ton ksanaevlepa",
+        text: "Poli oraia vradia, 5 aneta. O Fanis itan o kalyteros, tha ton ksanaevlepa",
       },
       { afterMs: 180_000, text: "stop na mou stelnete" },
     ],
@@ -614,8 +689,8 @@ export const BURST_PERSONAS: readonly BurstPersona[] = [
       {
         answers: [
           { question: "event_score", value: 5 },
-          { question: "liked", about: "Τάσος Γαμωσταυρίδης" },
-          { question: "meet_again", about: "Τάσος Γαμωσταυρίδης" },
+          { question: "liked", about: "Φάνης Πολυλογόπουλος" },
+          { question: "meet_again", about: "Φάνης Πολυλογόπουλος" },
         ],
         nextGoal: "avoid",
         reply:
@@ -629,8 +704,8 @@ export const BURST_PERSONAS: readonly BurstPersona[] = [
       // Recorded before he opted out, and an opt-out is not an erasure.
       answers: [
         { question: "event_score", about: null, value: 5 },
-        { question: "liked", about: "Τάσος Γαμωσταυρίδης", value: null },
-        { question: "meet_again", about: "Τάσος Γαμωσταυρίδης", value: null },
+        { question: "liked", about: "Φάνης Πολυλογόπουλος", value: null },
+        { question: "meet_again", about: "Φάνης Πολυλογόπουλος", value: null },
       ],
       // He answered, so this is an ordinary healthy ending rather than the
       // wrong-number shape the stop path flags.
@@ -1184,12 +1259,13 @@ export const BURST_PERSONAS: readonly BurstPersona[] = [
   {
     // Somebody who opted in and then spent the evening swearing at a robot.
     //
-    // `rooftop_swears_at_the_bot` swears once and then answers, which is the
-    // ordinary case and the one that keeps the safety taxonomy honest: an
-    // insult aimed at us is rudeness, not an incident, and must never reach the
-    // operator inbox. This row is the case that one does not cover — abuse that
-    // never turns into an answer, four clusters of it, with the questionnaire
-    // untouched at the end.
+    // `wine_crude_joke` is the cheap half that keeps the safety taxonomy honest
+    // from the other side — attraction and crudeness are not an incident —
+    // and together with this row they pin that swearing *at us* is also not one.
+    // What used to sit between them, `rooftop_swears_at_the_bot` (abusive once
+    // and then cooperative), is gone; this row is the case the cheap half does
+    // not cover — abuse that never turns into an answer, four clusters of it,
+    // with the questionnaire untouched at the end.
     //
     // **This row is an observation, not yet a contract.** The intended product
     // behaviour is two or three calm replies and then a closing «δεν μπορούμε

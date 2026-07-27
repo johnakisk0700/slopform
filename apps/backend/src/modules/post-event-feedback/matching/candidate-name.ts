@@ -157,6 +157,32 @@ function candidateNameKeys(displayName: string): readonly string[] {
 }
 
 /**
+ * Every skeleton a mention may be compared by: the whole string, and each word
+ * in it that is long enough to name somebody.
+ *
+ * Prompt rule 4β tells the model to echo a mentioned name exactly as the
+ * participant wrote it, so «η Μαρη μου αρεσε» arrives with the article
+ * attached. Folding the whole string glues article to name («imari») and
+ * resolves to nobody while «Μαρη» alone would have matched — the same failure
+ * mode as comparing only whole display names before first names were widened on
+ * the candidate side.
+ */
+function mentionedNameKeys(mentionedName: string): readonly string[] {
+  const keys = new Set<string>();
+  const whole = foldPostEventFeedbackName(mentionedName);
+  if (whole.length > 0) {
+    keys.add(whole);
+  }
+  for (const part of mentionedName.split(/\s+/u)) {
+    const folded = foldPostEventFeedbackName(part);
+    if (folded.length >= MIN_ADDRESSABLE_PART_LENGTH) {
+      keys.add(folded);
+    }
+  }
+  return [...keys];
+}
+
+/**
  * The single candidate a mentioned name resolves to, or `undefined`.
  *
  * `undefined` covers both "nobody" and "more than one", which the caller must
@@ -167,13 +193,14 @@ export function resolvePostEventFeedbackCandidateByName(
   mentionedName: string | null | undefined,
   candidates: readonly PostEventFeedbackNameCandidate[],
 ): PostEventFeedbackNameCandidate | undefined {
-  const folded = foldPostEventFeedbackName(mentionedName ?? "");
-  if (folded.length === 0) {
+  const mentionKeys = mentionedNameKeys(mentionedName ?? "");
+  if (mentionKeys.length === 0) {
     return undefined;
   }
 
-  const matches = candidates.filter((candidate) =>
-    candidateNameKeys(candidate.displayName).includes(folded),
-  );
+  const matches = candidates.filter((candidate) => {
+    const keys = candidateNameKeys(candidate.displayName);
+    return mentionKeys.some((mentionKey) => keys.includes(mentionKey));
+  });
   return matches.length === 1 ? matches[0] : undefined;
 }

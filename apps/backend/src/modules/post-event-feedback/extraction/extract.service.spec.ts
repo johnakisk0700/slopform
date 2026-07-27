@@ -244,6 +244,7 @@ describe("PostEventFeedbackExtractor", () => {
             },
           ],
           reply: "Το άλλαξα σε 2!",
+          nextGoal: "liked",
         }),
       );
 
@@ -262,7 +263,10 @@ describe("PostEventFeedbackExtractor", () => {
 
     it("enqueues exactly one reply keyed by conversation and cursor", async () => {
       harness.generation.propose.mockResolvedValue(
-        generation({ reply: "Ευχαριστούμε πολύ!" }),
+        generation({
+          nextGoal: "event_score",
+          reply: "Ευχαριστούμε πολύ!",
+        }),
       );
 
       await harness.extractor.extract({ conversationId, correlationId });
@@ -338,6 +342,97 @@ describe("PostEventFeedbackExtractor", () => {
       });
     });
 
+    it("re-asks the score when the model confirms an out-of-range value that was refused", async () => {
+      harness.generation.propose.mockResolvedValue(
+        generation({
+          answers: [
+            {
+              questionKey: "event_score",
+              valueInt: 10,
+              subjectParticipantId: null,
+              subjectMentionedName: null,
+              sourceMessageIds: ["p1"],
+              confidence: 0.9,
+            },
+          ],
+          nextGoal: "liked",
+          reply: "Τέλεια, χαίρομαι πολύ! 🙂",
+        }),
+      );
+
+      await harness.extractor.extract({ conversationId, correlationId });
+
+      expect(harness.repository.answers).toEqual([]);
+      expect(harness.repository.outbox).toEqual([
+        expect.objectContaining({
+          body: POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy.event_score,
+        }),
+      ]);
+      // The confirming lie must not reach the phone, and the ladder must stay on
+      // the refused score rather than advancing to the model's nextGoal.
+      expect(harness.repository.outbox[0]?.["body"]).not.toContain("Τέλεια");
+      expect(
+        harness.conversations.goalStatuses(conversationId).event_score,
+      ).toBe("asked");
+    });
+
+    it("asks the next open goal instead of sending a thank-you when directed answers were refused", async () => {
+      harness.conversations.setGoal(conversationId, "event_score", "answered");
+      harness.repository.answers.push({
+        id: randomUUID(),
+        conversationId,
+        questionKey: "event_score",
+        subjectParticipantId: null,
+        valueInt: 5,
+        noteType: null,
+        text: null,
+        extractionMeta: { model, confidence: 1, candidateIds: [] },
+      });
+      harness.generation.propose.mockResolvedValue(
+        generation({
+          answers: [
+            {
+              questionKey: "liked",
+              valueInt: null,
+              subjectParticipantId: null,
+              subjectMentionedName: "Μαρη",
+              sourceMessageIds: ["p1"],
+              confidence: 0.8,
+            },
+            {
+              questionKey: "meet_again",
+              valueInt: null,
+              subjectParticipantId: null,
+              subjectMentionedName: "Μαρη",
+              sourceMessageIds: ["p1"],
+              confidence: 0.8,
+            },
+          ],
+          skippedGoals: ["avoid"],
+          nextGoal: null,
+          reply: "Ευχαριστούμε για το feedback 🙂",
+        }),
+      );
+
+      const result = await harness.extractor.extract({
+        conversationId,
+        correlationId,
+      });
+
+      expect(result.outcome).toBe("extracted");
+      expect(harness.conversations.get(conversationId).lifecycle.state).toBe(
+        "open",
+      );
+      expect(harness.repository.outbox).toEqual([
+        expect.objectContaining({
+          body: POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy.liked,
+        }),
+      ]);
+      expect(harness.repository.outbox[0]?.["body"]).not.toBe(
+        POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy.closing,
+      );
+    });
+
     it("never sends when opt-in was withdrawn, but still keeps the answers", async () => {
       harness.participants.rows.set(respondentId, {
         id: respondentId,
@@ -359,6 +454,7 @@ describe("PostEventFeedbackExtractor", () => {
             },
           ],
           reply: "Ευχαριστούμε!",
+          nextGoal: "event_score",
         }),
       );
 
@@ -376,7 +472,10 @@ describe("PostEventFeedbackExtractor", () => {
      * opens; this is the remainder it cannot reach.
      */
     const typesDuringTheRun = (
-      overrides: Record<string, unknown> = { reply: "Ευχαριστούμε πολύ!" },
+      overrides: Record<string, unknown> = {
+        nextGoal: "event_score",
+        reply: "Ευχαριστούμε πολύ!",
+      },
     ): void => {
       harness.generation.propose.mockImplementation(async () => {
         await harness.conversations.appendMessage({
@@ -415,6 +514,7 @@ describe("PostEventFeedbackExtractor", () => {
             confidence: 0.9,
           },
         ],
+        nextGoal: "liked",
         reply: "Ευχαριστούμε πολύ!",
       });
 
@@ -721,6 +821,7 @@ describe("PostEventFeedbackExtractor", () => {
             },
           ],
           reply: "Ευχαριστούμε!",
+          nextGoal: "event_score",
         }),
       );
 
@@ -778,6 +879,7 @@ describe("PostEventFeedbackExtractor", () => {
             },
           ],
           reply: "Ευχαριστούμε!",
+          nextGoal: "event_score",
         }),
       );
 

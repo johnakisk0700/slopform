@@ -9,6 +9,10 @@ const NIKOS = { participantId: "p-nikos", displayName: "Νίκος" };
 const ELENI = { participantId: "p-eleni", displayName: "Ελένη" };
 const KOSTAS_P = { participantId: "p-kostas-p", displayName: "Κώστας Π." };
 const KOSTAS_G = { participantId: "p-kostas-g", displayName: "Κώστας Γ." };
+const MARI = {
+  participantId: "p-mari",
+  displayName: "Μάρη Μονοεμοτζούλα",
+};
 
 describe("foldPostEventFeedbackName", () => {
   it("lands both alphabets on the same skeleton", () => {
@@ -55,8 +59,26 @@ describe("resolvePostEventFeedbackCandidateByName", () => {
     expect(
       resolvePostEventFeedbackCandidateByName("nikos", [NIKOS, ELENI]),
     ).toMatchObject({ participantId: "p-nikos" });
+    // Rule 4β echoes names with the article the participant used; the article
+    // word folds too short to match anybody, so only «Nikos» carries the match.
     expect(
       resolvePostEventFeedbackCandidateByName("o Nikos", [NIKOS, ELENI]),
+    ).toMatchObject({ participantId: "p-nikos" });
+  });
+
+  it("resolves a mention that carries a Greek article before the name", () => {
+    expect(
+      resolvePostEventFeedbackCandidateByName("η Μαρη", [MARI, ELENI]),
+    ).toMatchObject({ participantId: "p-mari" });
+    expect(
+      resolvePostEventFeedbackCandidateByName("ο Νίκος", [NIKOS, ELENI]),
+    ).toMatchObject({ participantId: "p-nikos" });
+    // A bare article has no addressable word and must not stand for a person.
+    expect(
+      resolvePostEventFeedbackCandidateByName("η", [MARI, ELENI]),
+    ).toBeUndefined();
+    expect(
+      resolvePostEventFeedbackCandidateByName("ο", [NIKOS, ELENI]),
     ).toBeUndefined();
   });
 
@@ -123,6 +145,9 @@ describe("resolvePostEventFeedbackCandidateByName", () => {
     ).toBeUndefined();
     expect(
       resolvePostEventFeedbackCandidateByName("kostas", [MYTO, SVISTO]),
+    ).toBeUndefined();
+    expect(
+      resolvePostEventFeedbackCandidateByName("ο Κώστας", [MYTO, SVISTO]),
     ).toBeUndefined();
     // Each is still reachable by the half that is his alone.
     expect(

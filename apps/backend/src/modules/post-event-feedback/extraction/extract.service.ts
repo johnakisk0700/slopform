@@ -24,7 +24,9 @@ import { ParticipantsRepository } from "../../participants/participants.reposito
 import { latestParticipantMessage } from "../conversation-reader.js";
 import {
   isCompleting,
+  nextOpenGoal,
   resolveGoalStatuses,
+  withAskedGoal,
   type GoalStatusUpdate,
 } from "./goal-progress.js";
 import {
@@ -224,12 +226,17 @@ export class PostEventFeedbackExtractor {
       });
     }
 
-    const goalStatuses = resolveGoalStatuses(
+    // Statuses from what validation accepted — never from the model's nextGoal.
+    // `asked` is applied after resolveOutbound, from the question the outbound
+    // actually carries, so a replaced reply cannot advance the ladder past a
+    // refusal.
+    const recordedStatuses = resolveGoalStatuses(
       conversation.goals,
       context,
       validated,
     );
-    const completing = isCompleting(conversation.goals, goalStatuses);
+    const completing = isCompleting(conversation.goals, recordedStatuses);
+    const openGoal = nextOpenGoal(conversation.goals, recordedStatuses);
     // A disclosure that happens to finish the questionnaire is not a finish
     // line: closing copy and close() wait for a run that did not raise safety.
     // Results, attention and the alert still write; only the conversational
@@ -255,7 +262,9 @@ export class PostEventFeedbackExtractor {
       urgentSafety,
       latestParticipantMessage(conversation)?.seq ?? cursorSeq,
       copy,
+      openGoal,
     );
+    const goalStatuses = withAskedGoal(recordedStatuses, outbound?.askedGoal);
     const withheld = outbound
       ? await this.reviewBeforeSending({
           conversation,

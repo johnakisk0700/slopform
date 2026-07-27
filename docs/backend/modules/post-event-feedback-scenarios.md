@@ -303,10 +303,10 @@ re-asks within range. Under no circumstances is an out-of-range integer stored.
 **Stresses.** `isValidScore` against `intMin/intMax`; the `invalid_score`
 rejection.
 
-**Today.** ✅ Out-of-range values are rejected and the goal stays `asked`. ⚠️ But
-the rejection is invisible to the reply: if the model proposes `10` **and** a
-reply that says «Τέλεια, το σημείωσα!», the reply still sends. Same class of
-defect as S08 — the reply never learns what validation refused.
+**Today.** ✅ Out-of-range values are rejected, nothing outside 1–5 is stored,
+and `resolveOutbound` replaces the model's confirming reply with the campaign's
+`event_score` copy so the participant is asked again in range. The same seam
+refuses to send closing-shaped thank-yous while recorded goals are still open.
 
 ### S12 · `refuses_a_question`
 

@@ -1,0 +1,220 @@
+import { describe, expect, it } from "vitest";
+
+import type { FeedbackConversationDocument } from "../post-event-feedback-conversation.document.js";
+import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "../question-set.js";
+import type { FeedbackExtractionValidationResult } from "./validate-proposal.js";
+import { resolveOutbound } from "./outbound-reply.js";
+
+const copy = POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy;
+const conversation = { _id: "conv-1" } as FeedbackConversationDocument;
+
+function validated(
+  overrides: Partial<FeedbackExtractionValidationResult> = {},
+): FeedbackExtractionValidationResult {
+  return {
+    answers: [],
+    notes: [],
+    skippedGoals: [],
+    nextGoal: "liked",
+    reply: "Τέλεια, χαίρομαι πολύ! 🙂",
+    replySuppressedReason: null,
+    safetySignals: [],
+    handoff: false,
+    confidence: 0.9,
+    rejections: [],
+    conflictingAnswerRevision: false,
+    ...overrides,
+  };
+}
+
+describe("resolveOutbound", () => {
+  it("re-asks the score when validation refused an out-of-range value, instead of confirming it", () => {
+    const outbound = resolveOutbound(
+      conversation,
+      validated({
+        nextGoal: "liked",
+        reply: "Τέλεια, χαίρομαι πολύ! 🙂",
+        rejections: [
+          {
+            scope: "answer",
+            reason: "invalid_score",
+            questionKey: "event_score",
+          },
+        ],
+      }),
+      false,
+      false,
+      2,
+      copy,
+      "event_score",
+    );
+
+    expect(outbound).toEqual({
+      body: copy.event_score,
+      dedupeKey: "feedback-reply-conv-1-2",
+      askedGoal: "event_score",
+    });
+  });
+
+  it("asks the next recorded-open goal when the model thanks the participant as if the questionnaire were finished", () => {
+    // Directed answers were refused; the model still set nextGoal null and
+    // wrote a closing thank-you. The refusals are what make the thank-you a
+    // lie — without them, a nextGoal-null reply is how the bot answers a side
+    // question, and must not be overwritten.
+    const outbound = resolveOutbound(
+      conversation,
+      validated({
+        nextGoal: null,
+        reply: "Ευχαριστούμε για το feedback 🙂",
+        rejections: [
+          {
+            scope: "answer",
+            reason: "unresolved_subject",
+            questionKey: "liked",
+          },
+          {
+            scope: "answer",
+            reason: "unresolved_subject",
+            questionKey: "meet_again",
+          },
+        ],
+      }),
+      false,
+      false,
+      4,
+      copy,
+      "liked",
+    );
+
+    expect(outbound).toEqual({
+      body: copy.liked,
+      dedupeKey: "feedback-reply-conv-1-4",
+      askedGoal: "liked",
+    });
+  });
+
+  it("asks the recorded next goal when the model skipped ahead past an open one", () => {
+    const outbound = resolveOutbound(
+      conversation,
+      validated({
+        nextGoal: "avoid",
+        reply:
+          "Τέλεια, τα κράτησα! Υπάρχει κάποιος που θα προτιμούσες να μην ξαναπετύχεις;",
+      }),
+      false,
+      false,
+      3,
+      copy,
+      "liked",
+    );
+
+    expect(outbound).toEqual({
+      body: copy.liked,
+      dedupeKey: "feedback-reply-conv-1-3",
+      askedGoal: "liked",
+    });
+  });
+
+  it("re-asks a directed answer refused for an unresolvable name instead of advancing past it", () => {
+    const outbound = resolveOutbound(
+      conversation,
+      validated({
+        nextGoal: "avoid",
+        reply:
+          "Τέλεια, τα κράτησα! Υπάρχει κάποιος που θα προτιμούσες να μην ξαναπετύχεις;",
+        rejections: [
+          {
+            scope: "answer",
+            reason: "unresolved_subject",
+            questionKey: "liked",
+          },
+          {
+            scope: "answer",
+            reason: "unresolved_subject",
+            questionKey: "meet_again",
+          },
+        ],
+      }),
+      false,
+      false,
+      3,
+      copy,
+      "liked",
+    );
+
+    expect(outbound).toEqual({
+      body: copy.liked,
+      dedupeKey: "feedback-reply-conv-1-3",
+      askedGoal: "liked",
+    });
+  });
+
+  it("still sends the campaign closing copy when recorded goals are actually terminal", () => {
+    const outbound = resolveOutbound(
+      conversation,
+      validated({
+        nextGoal: null,
+        reply: "Ευχαριστούμε για το feedback 🙂",
+      }),
+      true,
+      false,
+      5,
+      copy,
+      null,
+    );
+
+    expect(outbound).toEqual({
+      body: copy.closing,
+      dedupeKey: "feedback-closing-conv-1",
+    });
+  });
+
+  it("forwards the model's reply when the recorded next goal agrees with it", () => {
+    const outbound = resolveOutbound(
+      conversation,
+      validated({
+        nextGoal: "liked",
+        reply: "Ποιος σου έκανε εντύπωση;",
+      }),
+      false,
+      false,
+      2,
+      copy,
+      "liked",
+    );
+
+    expect(outbound).toEqual({
+      body: "Ποιος σου έκανε εντύπωση;",
+      dedupeKey: "feedback-reply-conv-1-2",
+      askedGoal: "liked",
+    });
+  });
+
+  it("keeps the model's reply under a safety signal even when nextGoal is unset", () => {
+    const outbound = resolveOutbound(
+      conversation,
+      validated({
+        nextGoal: null,
+        reply: "Λυπάμαι που το ακούω, θες να μιλήσουμε;",
+        safetySignals: [
+          {
+            category: "other_safety",
+            recommendedAction: "human_follow_up",
+            sourceMessageIds: ["m1"],
+            confidence: 0.9,
+          },
+        ],
+      }),
+      false,
+      false,
+      2,
+      copy,
+      "event_score",
+    );
+
+    expect(outbound).toEqual({
+      body: "Λυπάμαι που το ακούω, θες να μιλήσουμε;",
+      dedupeKey: "feedback-reply-conv-1-2",
+    });
+  });
+});

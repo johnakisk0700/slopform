@@ -50,7 +50,13 @@ const { asc, eq, inArray } = require("drizzle-orm");
 
 const REQUEST_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 const STUB_MODEL_ID = "stub/burst-rehearsal";
-const PAID_MODELS = new Set(["qwen/qwen3.7-max", "openai/gpt-5.6-luna"]);
+// An allowlist rather than "any id the provider accepts": a typo here bills a
+// real account for twenty-four conversations before anybody reads the log.
+const PAID_MODELS = new Set([
+  "qwen/qwen3.7-max",
+  "openai/gpt-5.6-luna",
+  "openai/gpt-5.6-terra",
+]);
 const RESERVED_PHONE_PREFIX = "+3069000";
 const QUIET_WINDOW_MS = 45_000;
 const POLL_MS = 3_000;
