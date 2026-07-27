@@ -64,7 +64,14 @@ export function StartConversationAction({
         }
       }}
     >
-      <Button size="sm" variant="secondary" isDisabled={isDisabled}>
+      {/* Full width, so it reads as the second half of the list's control
+          cluster rather than a stray button under the filter. */}
+      <Button
+        size="sm"
+        variant="secondary"
+        isDisabled={isDisabled}
+        className="w-full"
+      >
         <UserPlus aria-hidden="true" className="size-4" />
         Start conversation
       </Button>

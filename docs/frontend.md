@@ -13,23 +13,24 @@ by the existing Next.js application at `legacy.example.com`; see
 
 ## Start here
 
-| Task                                  | Location                                      | First reference                                              |
-| ------------------------------------- | --------------------------------------------- | ------------------------------------------------------------ |
-| Add an admin route                    | `apps/admin/src/routes/`                      | `routes/OverviewPage.tsx` and the table in `App.tsx`         |
-| Extend the AI assistant               | `apps/admin/src/routes/AssistantPage.tsx`     | [Assistant screen contract](frontend/assistant.md)           |
-| Change the feedback inbox             | `apps/admin/src/routes/FeedbackInboxPage.tsx` | [Feedback conversations](frontend/feedback-conversations.md) |
-| Add a domain schema or pure helper    | `apps/admin/src/features/<domain>/`           | `features/event/schema.ts`                                   |
-| Add domain UI                         | `apps/admin/src/components/admin/`            | `components/admin/AdminNavigation.tsx`                       |
-| Reuse or add shared UI                | `apps/admin/src/components/ui/`               | [Component inventory](frontend/components/README.md)         |
-| Use a HeroUI primitive                | Owning route or component                     | Import from `@heroui/react`                                  |
-| Call a backend endpoint               | `apps/admin/src/api/generated/`               | [Generated client](backend/mechanisms/api-contract.md)       |
-| Change transport policy               | `apps/admin/src/lib/api.ts`                   | `apps/admin/src/lib/env.ts`                                  |
-| Regenerate the API client             | `pnpm api:generate` (root)                    | [API contract](backend/mechanisms/api-contract.md)           |
-| Read appearance / toggle dark mode    | `apps/admin/src/lib/useTheme.ts`              | Pre-paint script in `index.html`                             |
-| Change the token bridge / HeroUI look | `apps/admin/src/styles/globals.css`           | Named section in that file                                   |
-| Change a shared visual value          | `packages/design-tokens/src/tokens.css`       | Token ownership below                                        |
-| Change routing, redirect or 404       | `apps/admin/src/App.tsx`                      | `Routes` table                                               |
-| Change the dev proxy or build         | `apps/admin/vite.config.ts`                   | `/api` proxy and env contract below                          |
+| Task                                  | Location                                       | First reference                                              |
+| ------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------ |
+| Add an admin route                    | `apps/admin/src/routes/`                       | `routes/OverviewPage.tsx` and the table in `App.tsx`         |
+| Extend the AI assistant               | `apps/admin/src/routes/AssistantPage.tsx`      | [Assistant screen contract](frontend/assistant.md)           |
+| Change the feedback inbox             | `apps/admin/src/routes/FeedbackInboxPage.tsx`  | [Feedback conversations](frontend/feedback-conversations.md) |
+| Change the outbound queue screen      | `apps/admin/src/routes/FeedbackOutboxPage.tsx` | [Outbound queue](frontend/feedback-outbound-queue.md)        |
+| Add a domain schema or pure helper    | `apps/admin/src/features/<domain>/`            | `features/event/schema.ts`                                   |
+| Add domain UI                         | `apps/admin/src/components/admin/`             | `components/admin/AdminNavigation.tsx`                       |
+| Reuse or add shared UI                | `apps/admin/src/components/ui/`                | [Component inventory](frontend/components/README.md)         |
+| Use a HeroUI primitive                | Owning route or component                      | Import from `@heroui/react`                                  |
+| Call a backend endpoint               | `apps/admin/src/api/generated/`                | [Generated client](backend/mechanisms/api-contract.md)       |
+| Change transport policy               | `apps/admin/src/lib/api.ts`                    | `apps/admin/src/lib/env.ts`                                  |
+| Regenerate the API client             | `pnpm api:generate` (root)                     | [API contract](backend/mechanisms/api-contract.md)           |
+| Read appearance / toggle dark mode    | `apps/admin/src/lib/useTheme.ts`               | Pre-paint script in `index.html`                             |
+| Change the token bridge / HeroUI look | `apps/admin/src/styles/globals.css`            | Named section in that file                                   |
+| Change a shared visual value          | `packages/design-tokens/src/tokens.css`        | Token ownership below                                        |
+| Change routing, redirect or 404       | `apps/admin/src/App.tsx`                       | `Routes` table                                               |
+| Change the dev proxy or build         | `apps/admin/vite.config.ts`                    | `/api` proxy and env contract below                          |
 
 Components are imported explicitly — there is no filename-based discovery.
 Shared project components use the `Jts*` prefix. One component per file, named
@@ -52,6 +53,7 @@ consumer needs them.
 | `/admin/feedback`                     | Feedback campaign picker (open a campaign, or launch one)      | `noindex, nofollow`     |
 | `/admin/feedback/:campaignId`         | Three-pane post-event feedback conversation inbox              | `noindex, nofollow`     |
 | `/admin/feedback/:campaignId/results` | Campaign answers and notes                                     | `noindex, nofollow`     |
+| `/admin/outbound`                     | Outbound feedback messages still waiting, with their job state | `noindex, nofollow`     |
 | `*`                                   | Standalone 404 (`routes/ErrorPage.tsx`)                        | Inherits private policy |
 
 Do not add `/join`, `/register`, `/feedback`, marketing or public legal routes

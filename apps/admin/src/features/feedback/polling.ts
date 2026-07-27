@@ -18,6 +18,23 @@ export const CONVERSATION_LIST_POLL_INTERVAL_MS = 10_000;
 export const RESULTS_POLL_INTERVAL_MS = 15_000;
 
 /**
+ * The outbound queue list.
+ *
+ * Matched to the relay's own 5-second pass, because a faster poll cannot show
+ * anything new and a slower one lets an age drift further than the number it
+ * claims to be. It is also the resolution of every age on that screen: the
+ * server measures them, so the interval is how stale the oldest one can get.
+ */
+export const OUTBOX_QUEUE_POLL_INTERVAL_MS = 5_000;
+
+/**
+ * The one opened outbound message, which is also the only place this feature
+ * reads Redis. One row on screen means one job lookup per tick, whatever the
+ * queue's length.
+ */
+export const OUTBOX_MESSAGE_POLL_INTERVAL_MS = 5_000;
+
+/**
  * Stops polling a conversation that can no longer change. A closed thread
  * under bot control has no pending transition left to observe, so holding a
  * 3-second timer on it is pure noise.

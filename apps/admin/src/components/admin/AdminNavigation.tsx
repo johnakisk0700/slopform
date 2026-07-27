@@ -1,12 +1,14 @@
 import { clsx } from "clsx";
 import type { LucideIcon } from "lucide-react";
 import {
+  BookOpen,
   Bot,
   Calendar,
   CreditCard,
   LayoutGrid,
   Network,
   Send,
+  SendHorizontal,
   Shield,
   Ticket,
   Users,
@@ -35,6 +37,14 @@ const NAV_ITEMS: readonly NavItem[] = [
   { label: "Payments", Icon: CreditCard },
   { label: "Communications", Icon: Send },
   { label: "Feedback & safety", Icon: Shield, to: "/admin/feedback" },
+  // Its own top-level row rather than a route under `/admin/feedback`. The
+  // queue spans every campaign, and a nested path would also leave two rows
+  // `aria-current` at once: only `/admin` is `end`-matched here, so
+  // `/admin/feedback` stays active for anything below it.
+  { label: "Outbound queue", Icon: SendHorizontal, to: "/admin/outbound" },
+  // Last on purpose: it explains the areas above rather than being one of them,
+  // and appending it leaves every existing numeral where it was.
+  { label: "How feedback works", Icon: BookOpen, to: "/admin/docs/feedback" },
 ];
 
 interface NavVariantStyles {

@@ -114,10 +114,10 @@ export function ConversationList({
   return (
     <section
       aria-labelledby={headingId}
-      className="flex max-h-[78vh] min-h-0 flex-col overflow-hidden rounded-md border border-border bg-surface"
+      className="flex max-h-[66vh] min-h-0 flex-col overflow-hidden rounded-md border border-border bg-surface"
     >
       <div className="border-b border-border px-4 py-3">
-        <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="mb-2.5 flex items-center justify-between gap-2">
           <h2
             id={headingId}
             className="flex items-center gap-2 jts-overline text-ink-muted"
@@ -134,21 +134,26 @@ export function ConversationList({
             label="This list refreshes automatically."
           />
         </div>
-        <div className="relative">
-          <Search
-            aria-hidden="true"
-            className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-subtle"
-          />
-          <Input
-            id={filterId}
-            aria-label="Filter conversations by name or phone"
-            placeholder="Filter by name or phone"
-            value={query}
-            onChange={(change) => onQueryChange(change.target.value)}
-            className="w-full pl-9"
-          />
+        {/* Narrowing the list and adding to it are one cluster: two full-width
+            controls on a single gap, rather than a field with a small button
+            drifting under its left edge. */}
+        <div className="flex flex-col gap-2">
+          <div className="relative">
+            <Search
+              aria-hidden="true"
+              className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-subtle"
+            />
+            <Input
+              id={filterId}
+              aria-label="Filter conversations by name or phone"
+              placeholder="Filter by name or phone"
+              value={query}
+              onChange={(change) => onQueryChange(change.target.value)}
+              className="w-full pl-9"
+            />
+          </div>
+          {startAction}
         </div>
-        {startAction ? <div className="mt-2.5">{startAction}</div> : null}
       </div>
 
       {error ? (
@@ -268,7 +273,10 @@ export function ConversationList({
                             </span>
                           </span>
 
-                          <span className="mt-1 flex items-center gap-1.5 text-xs text-ink-muted">
+                          {/* One metadata line, chips included: a row that
+                              spent a third line on a single «Completed» pill
+                              made the list a third longer for no more fact. */}
+                          <span className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-ink-muted">
                             <span className="min-w-0 truncate tabular-nums">
                               {conversation.phoneAtLaunch}
                             </span>
@@ -276,14 +284,13 @@ export function ConversationList({
                             <span className="shrink-0 font-semibold tabular-nums">
                               {progress.settled}/{progress.total} done
                             </span>
+                            {badges.length > 0 ? (
+                              <FeedbackBadges
+                                badges={badges}
+                                className="flex flex-wrap items-center gap-1.5"
+                              />
+                            ) : null}
                           </span>
-
-                          {badges.length > 0 ? (
-                            <FeedbackBadges
-                              badges={badges}
-                              className="mt-1.5 flex flex-wrap items-center gap-1.5"
-                            />
-                          ) : null}
                         </button>
                       </li>
                     );

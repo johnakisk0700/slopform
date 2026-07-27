@@ -156,6 +156,14 @@
   --color-info: var(--jts-color-info);
   --color-info-soft: var(--jts-color-info-soft);
 
+  /* Status hairlines. HeroUI models each status as fill + soft fill + text and
+     stops there, so `border-warning-border` and its siblings emitted no rule at
+     all until these four existed — a tinted block simply lost its edge. */
+  --color-success-border: var(--jts-color-success-border);
+  --color-warning-border: var(--jts-color-warning-border);
+  --color-danger-border: var(--jts-color-danger-border);
+  --color-info-border: var(--jts-color-info-border);
+
   /* Sidebar family */
   --color-sidebar: var(--jts-color-sidebar-bg);
   --color-sidebar-fg: var(--jts-color-sidebar-text);

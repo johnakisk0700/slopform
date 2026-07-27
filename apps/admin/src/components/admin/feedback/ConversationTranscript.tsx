@@ -9,7 +9,14 @@ import {
   Send,
   UserRound,
 } from "lucide-react";
-import { useEffect, useId, useRef, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 
 import type { FeedbackConversationDetailDtoOutput } from "../../../api/generated/model/feedbackConversationDetailDtoOutput";
 import type { FeedbackConversationDetailDtoOutputMessagesItem } from "../../../api/generated/model/feedbackConversationDetailDtoOutputMessagesItem";
@@ -28,6 +35,7 @@ import {
 } from "../../../features/feedback/labels";
 import { SIMULATOR_MESSAGE_MAX_LENGTH } from "../../../features/feedback/simulator";
 import { JtsLiveIndicator } from "../../ui/JtsLiveIndicator";
+import { ReadingStatus } from "./ConversationDetails";
 import { FeedbackBadges } from "./FeedbackBadges";
 
 /**
@@ -164,6 +172,12 @@ interface ConversationTranscriptProps {
   actionError: string | null;
   /** True while the conversation query is refetching, for the live mark. */
   isRefreshing: boolean;
+  /**
+   * The capability-gated conversation actions. They live at the foot of this
+   * pane, on the line that says who may write here — see
+   * `ConversationActions`.
+   */
+  actions?: ReactNode;
 }
 
 /**
@@ -184,6 +198,7 @@ export function ConversationTranscript({
   simulatedReplyPending = false,
   actionError,
   isRefreshing,
+  actions,
 }: ConversationTranscriptProps) {
   const headingId = useId();
   const staffInputId = useId();
@@ -230,29 +245,35 @@ export function ConversationTranscript({
   return (
     <section
       aria-labelledby={headingId}
-      className="flex max-h-[78vh] min-h-0 flex-col overflow-hidden rounded-md border border-border bg-surface"
+      className="flex max-h-[66vh] min-h-0 flex-col overflow-hidden rounded-md border border-border bg-surface"
     >
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-3">
-        <div className="min-w-0">
-          <h2
-            id={headingId}
-            className={clsx(
-              "truncate text-[1.05rem] font-bold tracking-tight text-ink",
-              unresolved && "italic",
-            )}
-          >
-            {name}
-          </h2>
-          <p className="flex items-center gap-1.5 text-xs text-ink-muted">
-            <Phone
-              aria-hidden="true"
-              className="size-3.5 shrink-0 text-ink-subtle"
-            />
-            {conversation.phoneAtLaunch}
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <FeedbackBadges badges={conversationBadges(conversation)} />
+      {/* Who, on what number, in what state — then what may be done about it.
+          The badges sit on the identity line rather than off in the top-right
+          corner, where the live mark's reserved width left them floating with a
+          gap they did not explain. */}
+      <header className="border-b border-border px-5 py-3">
+        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+          <div className="min-w-0">
+            <h2
+              id={headingId}
+              className={clsx(
+                "truncate text-[1.05rem] font-bold tracking-tight text-ink",
+                unresolved && "italic",
+              )}
+            >
+              {name}
+            </h2>
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+              <span className="flex items-center gap-1.5 text-xs text-ink-muted tabular-nums">
+                <Phone
+                  aria-hidden="true"
+                  className="size-3.5 shrink-0 text-ink-subtle"
+                />
+                {conversation.phoneAtLaunch}
+              </span>
+              <FeedbackBadges badges={conversationBadges(conversation)} />
+            </div>
+          </div>
           <JtsLiveIndicator
             active={isRefreshing}
             label="This transcript refreshes automatically while the conversation is open."
@@ -285,8 +306,31 @@ export function ConversationTranscript({
       ) : null}
 
       <div className="border-t border-border">
+        {/* Who may write here, and how to change that, on one line. The
+            sentence explains the composer below it and the buttons beside it
+            are what alters it — the actions belong to this thread, so they sit
+            at the foot of it rather than off in a corner of its header. */}
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5 py-2.5">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+            {/* With a composer below, its own placeholder already says who is
+                writing; the sentence is only needed when there is none. */}
+            {canSendStaffMessage ? null : (
+              <p className="text-sm text-ink-muted">
+                {conversation.lifecycle.state === "closed"
+                  ? "Closed — no messages can be sent."
+                  : "The bot is replying."}
+              </p>
+            )}
+            <ReadingStatus conversation={conversation} />
+          </div>
+          {actions}
+        </div>
+
         {canSendStaffMessage ? (
-          <form onSubmit={handleStaffSubmit} className="flex gap-2 px-5 py-3">
+          <form
+            onSubmit={handleStaffSubmit}
+            className="flex gap-2 border-t border-border-subtle px-5 py-3"
+          >
             <label htmlFor={staffInputId} className="sr-only">
               Message to {name}, sent as staff
             </label>
@@ -307,13 +351,7 @@ export function ConversationTranscript({
               {staffSendPending ? "Sending…" : "Send"}
             </Button>
           </form>
-        ) : (
-          <p className="px-5 py-3 text-sm text-ink-muted">
-            {conversation.lifecycle.state === "closed"
-              ? "This conversation is closed. No messages can be sent."
-              : "Take over the conversation to reply as staff."}
-          </p>
-        )}
+        ) : null}
 
         {onSimulatedReply ? (
           <form

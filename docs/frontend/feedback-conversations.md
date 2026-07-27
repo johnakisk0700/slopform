@@ -1,12 +1,12 @@
 # Post-event feedback conversations screen
 
 Status: accepted, verified 2026-07-27 (WP9, design pass and staff notes in
-WP12, conversation-list pass, extraction status on the detail pane).
+WP12, conversation-list pass, extraction status, two-pane bento layout).
 
 The operator surface for the post-event feedback feature: one campaign's
-WhatsApp conversations in a three-pane inbox, the actions that move a
-conversation between bot and human control, and the campaign's collected
-results. It implements U1–U4 and D17/D18 of
+WhatsApp conversations in a two-pane inbox over a strip of detail cards, the
+actions that move a conversation between bot and human control, and the
+campaign's collected results. It implements U1–U4 and D17/D18 of
 [`POST_EVENT_FEEDBACK_PLAN_2026-07-25.md`](../history/post-event-feedback-plan-2026-07-25.md)
 and is the operator half of
 [`backend/modules/post-event-feedback.md`](../backend/modules/post-event-feedback.md).
@@ -26,11 +26,11 @@ conversation may reopen (it never does), question copy (backend constants), or
 any rule about who is a valid subject — including for a staff note, whose
 subject the backend re-checks against the live D16 candidate set.
 
-| Route                                 | View                    | Owns                                                  |
-| ------------------------------------- | ----------------------- | ----------------------------------------------------- |
-| `/admin/feedback`                     | `FeedbackCampaignsPage` | Choosing or launching a campaign                      |
-| `/admin/feedback/:campaignId`         | `FeedbackInboxPage`     | The three-pane inbox (U1), actions, dev composer (U2) |
-| `/admin/feedback/:campaignId/results` | `FeedbackResultsPage`   | The campaign's answers and notes (U4)                 |
+| Route                                 | View                    | Owns                                       |
+| ------------------------------------- | ----------------------- | ------------------------------------------ |
+| `/admin/feedback`                     | `FeedbackCampaignsPage` | Choosing or launching a campaign           |
+| `/admin/feedback/:campaignId`         | `FeedbackInboxPage`     | The inbox (U1), actions, dev composer (U2) |
+| `/admin/feedback/:campaignId/results` | `FeedbackResultsPage`   | The campaign's answers and notes (U4)      |
 
 The selected conversation lives in `?conversation=<id>` so a thread is
 linkable and survives reload, while the list beside it stays put.
@@ -48,16 +48,17 @@ Every product call goes through the generated hooks in
 `useListEventFeedbackCandidates` and the campaign
 launch/pause/resume/close/get hooks.
 
-| File                                        | Owns                                                                                       |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `src/features/feedback/labels.ts`           | Status vocabulary: tones, badges, delivery precedence, note origin, D18                    |
-| `src/features/feedback/conversationView.ts` | Progress, badge rows, search folding, ordering, grouping, selection                        |
-| `src/features/feedback/extractionStatus.ts` | Greek copy for the detail-pane extraction block (unread, due time, failure, model)         |
-| `src/features/feedback/polling.ts`          | The U3 intervals and the stop-when-closed rule                                             |
-| `src/features/feedback/simulator.ts`        | Zod schemas for the two dev-only simulator endpoints                                       |
-| `src/lib/feedbackSimulator.ts`              | The dev simulator facade over the shared `ofetch` client                                   |
-| `src/components/admin/feedback/`            | The three panes, the badge row, and the confirm/start/add-note dialogs                     |
-| `src/components/ui/JtsLiveIndicator.tsx`    | The shared polling mark both live panes use ([contract](components/jts-live-indicator.md)) |
+| File                                         | Owns                                                                                       |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `src/features/feedback/labels.ts`            | Status vocabulary: tones, badges, delivery precedence, note origin, D18                    |
+| `src/features/feedback/conversationView.ts`  | Progress, badge rows, search folding, ordering, grouping, selection                        |
+| `src/features/feedback/extractionStatus.ts`  | Greek copy for the detail-pane extraction block (unread, due time, failure, model)         |
+| `src/features/feedback/polling.ts`           | The U3 intervals and the stop-when-closed rule                                             |
+| `src/features/feedback/simulator.ts`         | Zod schemas for the two dev-only simulator endpoints                                       |
+| `src/lib/feedbackSimulator.ts`               | The dev simulator facade over the shared `ofetch` client                                   |
+| `src/components/admin/feedback/`             | The two panes, the detail cards, the badge row, and the confirm/start/add-note dialogs     |
+| `src/features/participants/profileFields.ts` | Participant storage codes as display text, shared with the WP11 profile route              |
+| `src/components/ui/JtsLiveIndicator.tsx`     | The shared polling mark both live panes use ([contract](components/jts-live-indicator.md)) |
 
 `features/feedback/` has no React imports and carries the screen's rules, so
 they are unit-tested directly in `apps/admin/test/feedback-inbox.spec.ts`.
@@ -68,8 +69,9 @@ they are unit-tested directly in `apps/admin/test/feedback-inbox.spec.ts`.
 flowchart LR
   picker["Campaign picker\nlistFeedbackCampaigns"] -->|open| list["Conversation list\nlistFeedbackCampaignConversations"]
   list -->|select| detail["Transcript\ngetFeedbackConversation"]
-  detail --> details["Details pane\nlistFeedbackConversationResults"]
-  details -->|"capability flags"| actions["Take over / Resume bot / Close / Staff send"]
+  detail -->|"capability flags"| actions["Take over / Resume bot / Close / Staff send"]
+  detail --> details["Detail cards\nlistFeedbackConversationResults"]
+  details --> profile["Respondent card\ngetParticipant"]
   details --> note["Add note\naddFeedbackConversationNote"]
   note -->|invalidate| details
   actions -->|"updated read model"| detail
@@ -93,6 +95,13 @@ flowchart LR
 - **Status is text plus tone.** Every badge carries its own label; colour is
   reinforcement. The transcript distinguishes actors by label, alignment and
   fill together.
+- **A pill is the colour of what it says.** `FeedbackBadges` owns one pale
+  pairing per tone — fill, hairline and text from the same status token — so a
+  column of rows can be triaged by colour before a word of it is read. It is
+  not a HeroUI `Chip`: that palette has no `info` slot, so every slate status
+  fell back to the same grey as `neutral` and «Open» was indistinguishable from
+  «Cancelled». The four `--color-*-border` bridge tokens exist for this; before
+  them `border-warning-border` and its siblings emitted no rule at all.
 - **A row never repeats its own heading.** The grouping answers "is anything
   waiting for me", so the heading carries that weight and
   `conversationRowBadges` strips whatever the heading already said: no «Needs
@@ -108,7 +117,20 @@ flowchart LR
   cannot express more precisely. `GoalProgress` publishes `settled` — the count
   the row shows — and no `percent`, which existed only to size that bar. The
   wording is `done` rather than `answered` because a skipped goal is settled
-  without being answered; the details pane still breaks the two apart.
+  without being answered. The same `settled/total` sits in the PROGRESS &
+  ANSWERS card's own header rather than as a sentence above the goal rows,
+  which restated in prose exactly what the labelled rows already said.
+- **An answer replaces the badge.** PROGRESS & ANSWERS is one row per goal, and
+  a goal that has answers shows them instead of a status chip: an answer is the
+  strongest possible statement that a goal is answered, so «Score · Answered»
+  above «SCORE · 5 / 5» below said the same thing twice. The badge is left to
+  say the only things an answer cannot — not asked, awaiting a reply, skipped.
+  A question can hold several answers (D16 subjects), so the row is a list.
+- **Only the exception is badged.** An outbound message handed to the transport
+  with nothing reported back is the ordinary end of every message, so
+  `deliveryBadge` returns `null` for a bare `sent`. Queued, sending, held,
+  cancelled, failed, delivered and read all keep their pill. A chip under
+  almost every bubble is how a chip stops being read.
 - **Attention is emphasised, not merely coloured.** `needsAttention` renders as
   a **solid** warning pill on inbox rows and in the conversation header, while
   every other badge stays tinted. It is still a labelled badge — the emphasis is
@@ -166,9 +188,18 @@ not a live region — a three-second poll that announced itself would be unusabl
 
 ## Layout
 
-Three columns from `2xl`, two from `lg` (details below the transcript), and a
-single stack below that. Each pane is its own scroll container capped at `78vh`,
-so switching conversations never costs an operator their place in the list.
+Two panes over a strip of cards. From `lg` the list sits beside the transcript;
+under both, spanning the full width, the conversation's detail runs as three
+small cards (three columns from `xl`, two from `md`, one below that). Each pane
+is its own scroll container — `66vh` for the two panes, `44vh` for a card — so
+switching conversations never costs an operator their place in the list.
+
+It was one tall right-hand column of six stacked sections. Everything about a
+conversation shared a single scrollbar, which meant the notes an operator had
+just written sat below four screens of reference data, and the pane an operator
+looked at most was the one they had to scroll furthest into. Splitting it puts
+the three questions side by side — what the conversation produced, what staff
+wrote about it, who it is with — and none of them is behind the others.
 
 The screen deliberately does **not** take over the viewport the way the
 assistant route does. The reason is the height budget, not a shell limitation:
@@ -194,13 +225,13 @@ me_, _who is it_, _how far did they get_. The first is answered by the
 grouping, so the heading is the loudest thing in the column and the rows are
 deliberately quiet.
 
-| Part            | Treatment                                                                                                                                                  |
-| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Heading         | Sticky micro-caps strip: own fill, `border-border-strong` hairline top and bottom, a 14px glyph, the bucket count right-aligned                            |
-| NEEDS ATTENTION | `bg-warning-soft` / `text-warning` plus the signature 3px marker (`TriangleAlert`) — the only group that means "stop and read this"                        |
-| OPEN            | `bg-surface-sunken` / `text-ink` (`MessageCircleMore`), the working set at full contrast                                                                   |
-| CLOSED          | `bg-surface-sunken` / `text-ink-muted` (`Archive`), the quiet archive                                                                                      |
-| Row             | Name (two lines, `break-words`, never one truncated line), time, then one metadata line: phone `·` `N/M done`. Chips only when the heading has not said it |
+| Part            | Treatment                                                                                                                                                               |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Heading         | Sticky micro-caps strip: own fill, `border-border-strong` hairline top and bottom, a 14px glyph, the bucket count right-aligned                                         |
+| NEEDS ATTENTION | `bg-warning-soft` / `text-warning` plus the signature 3px marker (`TriangleAlert`) — the only group that means "stop and read this"                                     |
+| OPEN            | `bg-surface-sunken` / `text-ink` (`MessageCircleMore`), the working set at full contrast                                                                                |
+| CLOSED          | `bg-surface-sunken` / `text-ink-muted` (`Archive`), the quiet archive                                                                                                   |
+| Row             | Name (two lines, `break-words`, never one truncated line), time, then one metadata line: phone `·` `N/M done` `·` any chip. Chips only when the heading has not said it |
 
 The glyphs are the campaign tallies' own — an operator reads «2 need attention»
 in the summary row and meets the same triangle over the group. The other two
@@ -224,9 +255,9 @@ Placement is the screen's answer to "what does this act on?".
 | «All campaigns»                | Above the page header    | Leaves the campaign — a back affordance (left arrow, link style)      |
 | Results                        | Campaign header actions  | Reads this campaign's output                                          |
 | Pause / Resume / Close         | Campaign header actions  | Changes this campaign's state; a hairline separates them from Results |
-| «Start conversation» (D17)     | Conversation list header | It creates a row in that list                                         |
-| Take over / Resume bot / Close | Details → ACTIONS        | Acts on the open conversation                                         |
-| «Add note»                     | Details → NOTES          | Writes into the list it sits above                                    |
+| «Start conversation» (D17)     | Conversation list header | It creates a row in that list, directly under the filter over it      |
+| Take over / Resume bot / Close | Transcript, foot         | On the line that says who may write here — the question they answer   |
+| «Add note»                     | NOTES card header        | Writes into the list it sits above                                    |
 
 Every one of them carries a 16px muted stroke icon; the accent stays reserved
 for interactive emphasis. Icons are for orientation, never decoration — which
@@ -235,27 +266,52 @@ is also why an empty state never reuses the glyph of the section it sits in
 the `Inbox`-marked list). An icon that repeats inside its own section has
 stopped carrying information.
 
-### Details pane sections
+### The detail cards
 
-The right column repeats the participant profile's section grammar (WP11): a
-tracked micro-caps label with a muted icon, sections separated by a hairline
-rather than stacked as identical grey boxes.
+Each card repeats the two panes' own shell — hairline border, its own header,
+its own scroll container — so the screen reads as one set of panels rather than
+two panes plus some boxes. Inside, the participant profile's section grammar
+(WP11) still applies: a tracked micro-caps label with a muted icon.
 
-| Section       | Icon                 | Contains                                                                                 |
-| ------------- | -------------------- | ---------------------------------------------------------------------------------------- |
-| RESPONDENT    | `UserRound`          | Monogram, the display name linked to `/admin/participants/:id`, phone                    |
-| ΑΝΑΓΝΩΣΗ      | `ScanText`           | How far behind the extract job is, when the next run is due, in-flight / failure / model |
-| GOAL PROGRESS | `ListChecks`         | Answered / skipped / outstanding, then one row per goal with a badge                     |
-| ANSWERS       | `MessageSquareQuote` | One sunken card per extracted answer                                                     |
-| NOTES         | `StickyNote`         | Note cards with origin and review badges, plus «Add note»                                |
-| ACTIONS       | `SlidersHorizontal`  | Only the capability-gated actions the server publishes                                   |
+| Card               | Icon         | Contains                                                                              |
+| ------------------ | ------------ | ------------------------------------------------------------------------------------- |
+| PROGRESS & ANSWERS | `ListChecks` | `settled/total` in the header, then one row per goal carrying its answer or its badge |
+| NOTES              | `StickyNote` | Note cards with origin and review badges, plus «Add note»                             |
+| RESPONDENT         | `UserRound`  | Monogram and profile link, then the participant's own record (see below)              |
+
+Two things that used to live here now belong to the transcript, because both
+are about the messages rather than about the conversation as a record: the
+capability-gated actions, and the ΑΝΑΓΝΩΣΗ reading status.
+
+### The respondent card
+
+It reads the stored participant through the same `getParticipant` endpoint the
+WP11 profile route uses — email, the phone on file, neighbourhood, age band and
+the feedback opt-in — and formats the storage codes with the shared
+`features/participants/profileFields.ts`, so `55_plus` cannot end up displayed
+two different ways. Before, the card knew only the display name and the number
+the campaign launched against, which was the least useful thing on screen at
+the moment an operator is deciding whether a disclosure needs a phone call.
+
+The number the campaign launched against is frozen on the conversation. When
+the profile's number has since changed, the card says so rather than quietly
+showing two different numbers for one person. An unresolved id (D18) has no
+record to fetch, so the query never runs for one and the card says why.
 
 ### Extraction status
 
-A feedback conversation is read by a delayed background job, not on arrival.
-The details pane is the only place that says so. `getFeedbackConversation`
-publishes an `extraction` object; the list endpoint never touches Redis for
-this — anything shown on a row would have to come from data already loaded.
+A feedback conversation is read by a delayed background job, not on arrival,
+and `ReadingStatus` is the only place that says so. It renders at the foot of
+the transcript, on the same line as the actions: «why has that answer not
+appeared yet» is a question about these messages, and it is answered under
+them. `getFeedbackConversation` publishes an `extraction` object; the list
+endpoint never touches Redis for this — anything shown on a row would have to
+come from data already loaded.
+
+It gets one line. Current reading is the normal case and the transcript is what
+the pane is for, so the normal case costs a single row of muted text and only a
+backlog or a failure takes a tinted block. The model id shows only when the
+reading is behind or has failed — that is when it explains something.
 
 | Field                       | Source                                                                       | What the screen may say                                            |
 | --------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------ |
@@ -271,7 +327,7 @@ testimony exists but no job is retained, the schedule line is «Ώρα επόμ�
 ανάγνωσης άγνωστη» — retention removal, a lost enqueue and "already ran" are
 indistinguishable once the Redis row is gone, and inventing «έτοιμο» would lie.
 
-The block is a polite live region (`role="status"` / `aria-live="polite"`).
+The line is a polite live region (`role="status"` / `aria-live="polite"`).
 Unread count and due time change under the reader as the quiet window runs;
 identical text across a three-second poll does not re-announce. The polling
 indicator beside the transcript stays deliberately silent — that is a fetch
@@ -280,8 +336,15 @@ mark, not operator-actionable state.
 Greek copy lives in `src/features/feedback/extractionStatus.ts`; every colour
 is a token (`warning-soft` for backlog, `danger-soft` for failure).
 
-The respondent link is the join to the WP11 profile. An unresolved id (D18) has
-no profile to open, so it stays plain italic text rather than a link to nothing.
+### The campaign line
+
+Above the panes the campaign states itself in one quiet line — status pill,
+`N conversations · N open`, and the attention count only when there is one, on
+the same triangle the list's NEEDS ATTENTION heading uses. It was a bordered
+summary bar under a paragraph of instructions. The list beside it already
+groups and counts the same conversations, and an operator does not re-read a
+description of the screen they are working in, so both were spending vertical
+space the transcript needed.
 
 ## Staff notes
 
@@ -340,8 +403,9 @@ never be used merely to navigate. Event detail carries a nullable
   unnamed interactive nodes (verified 2026-07-26 over the DevTools Protocol).
   The «Add note» dialog joins that set with a labelled text area and two
   labelled selects.
-- Details-pane sections are labelled `section`s with their own `h3`; every
-  section icon is `aria-hidden` and the label carries the meaning.
+- Each detail card is a labelled `section` with its own `h2`, and a subsection
+  inside one keeps its `h3`; every section icon is `aria-hidden` and the label
+  carries the meaning.
 - Both composers have visually hidden labels naming the recipient and the
   channel; the simulator composer is additionally captioned as development-only.
   The «Add note» dialog labels its text area and both selects, and shows its
@@ -358,9 +422,10 @@ never be used merely to navigate. Event detail carries a nullable
   `bg-surface` at 10 px). **`--jts-color-accent` is not safe for small text on
   surface in the light theme** — worth a token-level decision rather than more
   per-call-site patches.
-- The solid attention pill uses HeroUI's `primary` chip variant, which the token
-  bridge resolves to `--jts-color-canvas` on `--jts-color-warning`: **5.53:1 in
-  light and 8.95:1 in dark**, both clear of AA. `theme-tokens.spec.ts` asserts
+- The solid attention pill is `--jts-color-canvas` on `--jts-color-warning`:
+  **5.53:1 in light and 8.95:1 in dark**, both clear of AA. Every `strong` tone
+  uses the same pairing shape, which is what makes the emphasis a hierarchy
+  decision rather than a contrast risk. `theme-tokens.spec.ts` asserts
   that pairing from `tokens.css` directly, so the emphasis cannot drift below AA
   unnoticed. No `attention` semantic token was added — `warning` already carries
   this meaning, and the admin contract prefers the nearest AA-safe existing
@@ -384,8 +449,9 @@ never be used merely to navigate. Event detail carries a nullable
 precedence, lifecycle badges, goal progress, accent-insensitive Greek filtering,
 attention-first ordering, group pruning, selection stability under polling, the
 polling policy, the campaign picker consuming `useListFeedbackCampaigns`, the
-attention pill's emphasis (only that badge is `strong`, the variant mapping, and
-that both the list row and the conversation header render the badge row), and
+attention pill's emphasis (only that badge is `strong`, the tinted/solid tables,
+and that both the list row and the conversation header render the badge row),
+the pale pairing every tone owns, the four status-hairline bridge tokens, and
 the API-boundary invariants (generated hooks on the screen, capability-gated
 actions, exactly two hand-written transport callers).
 
@@ -407,11 +473,15 @@ function it should. It also pins the one title table both the headings and that
 filter read, and asserts `GoalProgress` publishes `settled` and no `percent`
 now that nothing draws a bar.
 
+The bento pass adds that PROGRESS & ANSWERS resolves a goal's answers by
+`questionKey` and keeps no second answers list, and that the respondent card
+reads the participant record through the generated `useGetParticipant`.
+
 The extraction-status pass adds `extractionStatusLines`: Greek unread wording,
 a due-time line rather than a spinner, failure named as failure with the
-fallback, «άγνωστο» when unread testimony has no retained job, and that the
-details pane mounts the block as a polite live region without an indefinite
-spinner.
+fallback, «άγνωστο» when unread testimony has no retained job, that the block is
+a polite live region without an indefinite spinner, and that the transcript —
+not the page or a detail card — is what mounts it.
 
 `apps/admin/test/theme-tokens.spec.ts` asserts the solid attention pill, the
 NEEDS ATTENTION heading on its tint, the sunken card pairings (which the OPEN
@@ -422,8 +492,11 @@ and CLOSED headings share), the respondent link and the soft accent chip from
 
 - [ADR 0008](../decisions/0008-post-event-feedback-conversations.md) — feedback
   conversations, directed results and human control
+- [Outbound queue](feedback-outbound-queue.md) — the sibling screen for messages
+  that have not reached the participant yet, and the same «άγνωστο» rule applied
+  to the delivery job
 - [ADR 0009](../decisions/0009-generated-api-client.md) — generated admin API client
 - [`frontend.md`](../frontend.md) — admin conventions; [`theming.md`](theming.md) — tokens
 - [`backend/modules/post-event-feedback.md`](../backend/modules/post-event-feedback.md) — the campaign and conversation contracts
 - [TanStack Query `refetchInterval`](https://tanstack.com/query/latest/docs/framework/react/reference/useQuery) (v5.101.4, verified 2026-07-25)
-- [HeroUI v3](https://v3.heroui.com/docs/introduction) (3.2.2) — `Chip`, `Modal`, `Select`, `Input`, `Button`
+- [HeroUI v3](https://v3.heroui.com/docs/introduction) (3.2.2) — `Modal`, `Select`, `Input`, `Button`, `Avatar`

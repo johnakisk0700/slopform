@@ -22,6 +22,7 @@ import {
   type FeedbackConversationGoal,
   type FeedbackConversationLifecycleReason,
   type FeedbackConversationMessage,
+  type FeedbackConversationRespondent,
   type FeedbackConversationSummary,
   assertMessageIdentity,
   buildFeedbackConversationGoals,
@@ -29,6 +30,7 @@ import {
   exceedsCapacity,
   feedbackConversationDocumentSchema,
   feedbackConversationFilter,
+  feedbackConversationRespondentSchema,
   feedbackConversationStoredMessageSchema,
   feedbackConversationSummarySchema,
   goalStatusRank,
@@ -229,6 +231,46 @@ export class FeedbackConversationRepository {
     return document
       ? feedbackConversationDocumentSchema.parse(document)
       : undefined;
+  }
+
+  /**
+   * Who a batch of conversations is with, and nothing else.
+   *
+   * The outbound-queue screen starts from `message_outbox` rows, which know a
+   * `conversation_id` and no human being. One `$in` read resolves the whole
+   * page — the alternative is a `findById` per row, which is the same load
+   * amplifier as a per-row Redis lookup wearing a different hat. Conversations
+   * whose document is missing are simply absent from the result; the caller
+   * renders the D18 fallback rather than being handed a fabricated name.
+   */
+  async listRespondentsByIds(
+    conversationIds: readonly string[],
+  ): Promise<FeedbackConversationRespondent[]> {
+    const unique = [...new Set(conversationIds)];
+    if (unique.length === 0) {
+      return [];
+    }
+    const collection = await this.collection();
+    const documents = await collection
+      .find(
+        {
+          schemaVersion: FEEDBACK_CONVERSATION_SCHEMA_VERSION,
+          purpose: FEEDBACK_CONVERSATION_PURPOSE,
+          _id: { $in: unique },
+        } as Filter<FeedbackConversationDocument>,
+        {
+          projection: {
+            _id: 1,
+            respondentParticipantId: 1,
+            phoneAtLaunch: 1,
+          },
+        },
+      )
+      .toArray();
+
+    return documents.map((document) =>
+      feedbackConversationRespondentSchema.parse(document),
+    );
   }
 
   /**

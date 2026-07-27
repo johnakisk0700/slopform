@@ -28,7 +28,12 @@ import { useUpdateFeedbackNoteReviewStatus } from "../api/generated/feedback-not
 import type { AddFeedbackConversationNoteDtoNoteType } from "../api/generated/model/addFeedbackConversationNoteDtoNoteType";
 import type { FeedbackConversationDetailDtoOutput } from "../api/generated/model/feedbackConversationDetailDtoOutput";
 import { CampaignHeader } from "../components/admin/feedback/CampaignHeader";
-import { ConversationDetails } from "../components/admin/feedback/ConversationDetails";
+import {
+  ConversationActions,
+  NotesPanel,
+  ProgressPanel,
+  RespondentPanel,
+} from "../components/admin/feedback/ConversationDetails";
 import { ConversationList } from "../components/admin/feedback/ConversationList";
 import {
   ConversationTranscript,
@@ -377,11 +382,13 @@ export function FeedbackInboxPage() {
         }
       />
 
-      {/* Each pane is its own scroll container capped to the viewport, so
-          switching conversations never costs an operator their place in the
-          list — and the shell's ordinary page scroll keeps working. */}
-      <div className="grid items-start gap-4 lg:grid-cols-[minmax(15rem,19rem)_minmax(0,1fr)] 2xl:grid-cols-[minmax(15rem,19rem)_minmax(0,1fr)_minmax(17rem,21rem)]">
-        <div className="min-h-0 lg:row-span-2 2xl:row-span-1">
+      {/* Two panes on top — triage beside the thread — and the conversation's
+          detail broken into a strip of small cards under them. Each pane is
+          its own scroll container capped to the viewport, so switching
+          conversations never costs an operator their place in the list, and no
+          single column has to carry every fact about the conversation. */}
+      <div className="grid items-start gap-4 lg:grid-cols-[minmax(15rem,19rem)_minmax(0,1fr)]">
+        <div className="min-h-0">
           <ConversationList
             conversations={visible}
             selectedId={selectedId}
@@ -422,6 +429,45 @@ export function FeedbackInboxPage() {
                 : {})}
               actionError={actionError}
               isRefreshing={detailQuery.isFetching}
+              actions={
+                <ConversationActions
+                  conversation={conversation}
+                  pendingAction={pendingAction}
+                  onTakeOver={() =>
+                    runConversationAction(
+                      "take-over",
+                      () =>
+                        takeOver.mutateAsync({
+                          campaignId,
+                          conversationId: conversation.id,
+                        }),
+                      "The conversation could not be taken over.",
+                    )
+                  }
+                  onResumeBot={() =>
+                    runConversationAction(
+                      "resume-bot",
+                      () =>
+                        resumeBot.mutateAsync({
+                          campaignId,
+                          conversationId: conversation.id,
+                        }),
+                      "The bot could not be resumed.",
+                    )
+                  }
+                  onClose={() =>
+                    runConversationAction(
+                      "close",
+                      () =>
+                        closeConversation.mutateAsync({
+                          campaignId,
+                          conversationId: conversation.id,
+                        }),
+                      "The conversation could not be closed.",
+                    )
+                  }
+                />
+              }
             />
           ) : detailQuery.isError ? (
             <p role="alert" className="text-sm text-danger">
@@ -439,11 +485,14 @@ export function FeedbackInboxPage() {
           )}
         </div>
 
-        <div className="min-h-0">
-          {conversation ? (
-            <ConversationDetails
+        {/* The detail strip: what the conversation produced, what staff wrote
+            about it, and who it is with — three short cards side by side
+            instead of one column an operator has to scroll to reach the
+            notes. */}
+        {conversation ? (
+          <div className="grid gap-4 md:grid-cols-2 lg:col-span-2 xl:grid-cols-3">
+            <ProgressPanel
               conversation={conversation}
-              eventId={campaign?.eventId ?? ""}
               results={resultsQuery.data}
               resultsLoading={resultsQuery.isPending}
               resultsError={
@@ -454,47 +503,19 @@ export function FeedbackInboxPage() {
                     )
                   : null
               }
-              onTakeOver={() =>
-                runConversationAction(
-                  "take-over",
-                  () =>
-                    takeOver.mutateAsync({
-                      campaignId,
-                      conversationId: conversation.id,
-                    }),
-                  "The conversation could not be taken over.",
-                )
-              }
-              onResumeBot={() =>
-                runConversationAction(
-                  "resume-bot",
-                  () =>
-                    resumeBot.mutateAsync({
-                      campaignId,
-                      conversationId: conversation.id,
-                    }),
-                  "The bot could not be resumed.",
-                )
-              }
-              onClose={() =>
-                runConversationAction(
-                  "close",
-                  () =>
-                    closeConversation.mutateAsync({
-                      campaignId,
-                      conversationId: conversation.id,
-                    }),
-                  "The conversation could not be closed.",
-                )
-              }
+            />
+            <NotesPanel
+              conversation={conversation}
+              eventId={campaign?.eventId ?? ""}
+              results={resultsQuery.data}
               onNoteReviewChange={handleNoteReviewChange}
               onAddNote={(input) => handleAddNote(conversation.id, input)}
-              pendingAction={pendingAction}
               noteUpdatePending={updateNoteReviewStatus.isPending}
               addNotePending={addNote.isPending}
             />
-          ) : null}
-        </div>
+            <RespondentPanel conversation={conversation} />
+          </div>
+        ) : null}
       </div>
     </div>
   );

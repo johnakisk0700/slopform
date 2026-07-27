@@ -293,6 +293,15 @@ not alerting or authorization. Production still requires TLS plus private
 networking/SSO, and job payloads must exclude secrets and unnecessary personal
 data.
 
+Bull Board is not the operator surface for outbound feedback delivery. It speaks
+in job ids, and a job id cannot say which participant is waiting; the admin's
+[outbound queue](../../frontend/feedback-outbound-queue.md) answers that from
+`message_outbox` instead, spending one `getJob` on the row an operator opened and
+none on the polled list. It also documents what these retention settings cost
+observability: with `OUTBOX_RELAY_JOB_OPTIONS` a deliver job leaves no trace once
+it terminates, so the only durable evidence of an attempt is the provider id the
+consumer wrote, and **no attempt history exists** in either store.
+
 During an incident, fix the dependency/data before retrying; retry only when the
 side effect is independently idempotent. Treat stalls as possible duplication.
 The bounded failed set is the current quarantine; add a replay/dead-letter flow

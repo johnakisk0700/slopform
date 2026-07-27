@@ -13,6 +13,8 @@ import {
   PostEventFeedbackNoteController,
 } from "./inbox/conversation.controller.js";
 import { PostEventFeedbackConversationService } from "./inbox/conversation.service.js";
+import { PostEventFeedbackOutboxController } from "./outbox/queue-view.controller.js";
+import { FeedbackOutboxQueueViewService } from "./outbox/queue-view.service.js";
 import { PostEventFeedbackCoreModule } from "./core.module.js";
 
 @Module({
@@ -30,9 +32,11 @@ import { PostEventFeedbackCoreModule } from "./core.module.js";
     PostEventFeedbackCampaignController,
     PostEventFeedbackConversationController,
     PostEventFeedbackNoteController,
+    PostEventFeedbackOutboxController,
   ],
   providers: [
     FeedbackOutboundTranscriptService,
+    FeedbackOutboxQueueViewService,
     PostEventFeedbackCampaignService,
     PostEventFeedbackConversationService,
   ],

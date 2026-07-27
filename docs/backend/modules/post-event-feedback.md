@@ -309,6 +309,16 @@ Feedback received is not participant-visible by default. Avoidance, negative
 notes and source identities require explicit authorization and product/privacy
 review.
 
+The outbound queue is a third, read-only view over the same data:
+`listFeedbackOutboxQueue` publishes every `message_outbox` row still `pending`,
+`sending` or `held` with its age, conversation, campaign and kind, and
+`getFeedbackOutboxMessage` adds the live BullMQ state of that one row's
+`feedback.deliver.v1` job. Both are `GET` and change nothing. The list is
+PostgreSQL plus one batched respondent read and never touches Redis; the queue
+lookup happens only for a row an operator opened. Its honesty limits — the
+absent attempt history and why `unknown` is the ordinary job state — are owned by
+[the screen contract](../../frontend/feedback-outbound-queue.md).
+
 ## WP5 extraction and reply loop (implemented)
 
 [`PostEventFeedbackExtractor`](../../../apps/backend/src/modules/post-event-feedback/extraction/extract.service.ts)

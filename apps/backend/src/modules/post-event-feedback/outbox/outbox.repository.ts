@@ -1,13 +1,16 @@
 import { Injectable } from "@nestjs/common";
 import {
+  events,
+  feedbackCampaigns,
   messageOutbox,
   type AppTransaction,
+  type FeedbackCampaignStatus,
   type MessageOutboxDeliveryStatus,
   type MessageOutboxKind,
   type MessageOutboxRow,
   type MessageOutboxStatus,
 } from "@join-the-six/database";
-import { and, asc, eq, inArray, isNull, lte, or } from "drizzle-orm";
+import { and, asc, count, eq, inArray, isNull, lte, or } from "drizzle-orm";
 
 import { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
@@ -15,6 +18,39 @@ import { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
 /** Stale `sending` rows older than this are reclaimed for re-enqueue / reconcile. */
 export const FEEDBACK_OUTBOX_RECOVERY_MS = 5 * 60_000;
 export const FEEDBACK_OUTBOX_BATCH_SIZE = 50;
+
+/**
+ * The statuses that mean "written down, but the participant does not have it".
+ *
+ * `sent`, `failed` and `cancelled` are all terminal — nobody is waiting on
+ * them any more — so the observability read model is exactly these three.
+ * `held` and `pending` are both parked rather than moving; only `sending` has
+ * been handed to the relay.
+ */
+export const FEEDBACK_OUTBOX_UNDELIVERED_STATUSES = [
+  "pending",
+  "sending",
+  "held",
+] as const satisfies readonly MessageOutboxStatus[];
+
+export type FeedbackUndeliveredOutboxStatus =
+  (typeof FEEDBACK_OUTBOX_UNDELIVERED_STATUSES)[number];
+
+/**
+ * One undelivered outbox row with the campaign context that decides whether it
+ * is stuck or deliberately parked: the relay skips any row whose campaign is
+ * not `launched`, so `campaignStatus` is what separates "the system is behind"
+ * from "an operator pressed pause".
+ */
+export interface FeedbackUndeliveredOutboxRow {
+  readonly row: MessageOutboxRow;
+  readonly campaignStatus: FeedbackCampaignStatus;
+  readonly eventId: string;
+  readonly eventTitle: string;
+}
+
+/** Upper bound on one page of the undelivered list. */
+export const FEEDBACK_OUTBOX_QUEUE_VIEW_LIMIT = 200;
 
 type DatabaseExecutor = AppTransaction | DatabaseService["db"];
 
@@ -240,6 +276,83 @@ export class FeedbackOutboxRepository {
       .returning({ id: messageOutbox.id });
 
     return cancelled.length;
+  }
+
+  /**
+   * The undelivered queue, oldest first, for the operator observability screen.
+   *
+   * Oldest first because age is the question the screen exists to answer, and
+   * `message_outbox_status_created_idx` is `(status, created_at)`, so the order
+   * is the index's own. One statement, no Redis and no per-row work: the
+   * campaign and its event title come along on the join rather than through a
+   * lookup the caller would repeat 200 times.
+   */
+  async listUndeliveredOutbox(
+    limit = FEEDBACK_OUTBOX_QUEUE_VIEW_LIMIT,
+    executor: DatabaseExecutor = this.database.db,
+  ): Promise<FeedbackUndeliveredOutboxRow[]> {
+    const boundedLimit = Math.min(
+      Math.max(1, limit),
+      FEEDBACK_OUTBOX_QUEUE_VIEW_LIMIT,
+    );
+    const rows = await executor
+      .select({
+        row: messageOutbox,
+        campaignStatus: feedbackCampaigns.status,
+        eventId: feedbackCampaigns.eventId,
+        eventTitle: events.title,
+      })
+      .from(messageOutbox)
+      .innerJoin(
+        feedbackCampaigns,
+        eq(feedbackCampaigns.id, messageOutbox.campaignId),
+      )
+      .innerJoin(events, eq(events.id, feedbackCampaigns.eventId))
+      .where(
+        inArray(messageOutbox.status, [
+          ...FEEDBACK_OUTBOX_UNDELIVERED_STATUSES,
+        ]),
+      )
+      .orderBy(asc(messageOutbox.createdAt), asc(messageOutbox.id))
+      .limit(boundedLimit);
+
+    return rows.map((entry) => ({
+      row: entry.row,
+      campaignStatus: entry.campaignStatus as FeedbackCampaignStatus,
+      eventId: entry.eventId,
+      eventTitle: entry.eventTitle,
+    }));
+  }
+
+  /**
+   * Undelivered totals per status, so a capped list never implies the cap is
+   * the whole backlog.
+   */
+  async countUndeliveredOutboxByStatus(
+    executor: DatabaseExecutor = this.database.db,
+  ): Promise<Map<FeedbackUndeliveredOutboxStatus, number>> {
+    const rows = await executor
+      .select({ status: messageOutbox.status, total: count() })
+      .from(messageOutbox)
+      .where(
+        inArray(messageOutbox.status, [
+          ...FEEDBACK_OUTBOX_UNDELIVERED_STATUSES,
+        ]),
+      )
+      .groupBy(messageOutbox.status);
+
+    const totals = new Map<FeedbackUndeliveredOutboxStatus, number>(
+      FEEDBACK_OUTBOX_UNDELIVERED_STATUSES.map((status) => [status, 0]),
+    );
+    for (const row of rows) {
+      const status = FEEDBACK_OUTBOX_UNDELIVERED_STATUSES.find(
+        (candidate) => candidate === row.status,
+      );
+      if (status) {
+        totals.set(status, Number(row.total));
+      }
+    }
+    return totals;
   }
 
   /** Lists due outbox rows without locking. Prefer `claimOutboxBatch` for relay. */

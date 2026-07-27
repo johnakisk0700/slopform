@@ -31,21 +31,13 @@ import type { ParticipantEventHistoryDtoOutputItemsItem } from "../api/generated
 import type { ParticipantEventHistoryDtoOutputItemsItemStatus } from "../api/generated/model/participantEventHistoryDtoOutputItemsItemStatus";
 import type { ParticipantListDtoOutput } from "../api/generated/model/participantListDtoOutput";
 import { JtsDataTable } from "../components/ui/JtsDataTable";
+import {
+  formatAgeBand,
+  formatNeighborhood,
+} from "../features/participants/profileFields";
 import { apiErrorMessage } from "../lib/api";
 import { formatDateTime } from "../lib/dateTime";
 import { usePageMeta } from "../lib/usePageMeta";
-
-const backToParticipantsLinkClassName =
-  "inline-flex items-center gap-1.5 self-start text-sm font-semibold text-primary";
-
-function BackToParticipantsLink() {
-  return (
-    <Link to="/admin/participants" className={backToParticipantsLinkClassName}>
-      <ChevronLeft aria-hidden="true" className="size-4 shrink-0" />
-      Back to participants
-    </Link>
-  );
-}
 
 /** Quiet em dash for missing profile fields (subtle ink, never empty-looking). */
 function MissingValue() {
@@ -59,30 +51,16 @@ function displayText(value: string | number | null | undefined): ReactNode {
   return String(value);
 }
 
-/** Display-only: `45_54` → `45–54`, `55_plus` → `55+`. */
-function formatAgeBand(value: string | null): ReactNode {
-  if (value === null || value === "") {
-    return <MissingValue />;
-  }
-  if (value === "55_plus") {
-    return "55+";
-  }
-  const match = /^(\d+)_(\d+)$/.exec(value);
-  if (match) {
-    return `${match[1]}–${match[2]}`;
-  }
-  return value;
-}
+const backToParticipantsLinkClassName =
+  "inline-flex items-center gap-1.5 self-start text-sm font-semibold text-primary";
 
-/** Display-only: `nea_smyrni` → `Nea Smyrni`. */
-function formatNeighborhood(value: string | null): ReactNode {
-  if (value === null || value === "") {
-    return <MissingValue />;
-  }
-  return value
-    .split("_")
-    .map((part) => part.charAt(0).toLocaleUpperCase() + part.slice(1))
-    .join(" ");
+function BackToParticipantsLink() {
+  return (
+    <Link to="/admin/participants" className={backToParticipantsLinkClassName}>
+      <ChevronLeft aria-hidden="true" className="size-4 shrink-0" />
+      Back to participants
+    </Link>
+  );
 }
 
 const EVENT_STATUS_LABEL: Record<
@@ -389,11 +367,7 @@ export function ParticipantProfilePage() {
                     aria-hidden="true"
                     className="size-3.5 shrink-0 text-ink-subtle"
                   />
-                  {participant.phoneE164 ? (
-                    participant.phoneE164
-                  ) : (
-                    <MissingValue />
-                  )}
+                  {displayText(participant.phoneE164)}
                 </span>
               </p>
             </div>
@@ -427,10 +401,10 @@ export function ParticipantProfilePage() {
             {displayText(participant.preferredName)}
           </FieldRow>
           <FieldRow icon={Cake} label="Age band">
-            {formatAgeBand(participant.ageBand)}
+            {displayText(formatAgeBand(participant.ageBand))}
           </FieldRow>
           <FieldRow icon={MapPin} label="Neighborhood">
-            {formatNeighborhood(participant.preferredNeighborhood)}
+            {displayText(formatNeighborhood(participant.preferredNeighborhood))}
           </FieldRow>
           <FieldRow icon={MessageCircle} label="Conversation style">
             <ConversationStyleMeter value={participant.conversationStyle} />

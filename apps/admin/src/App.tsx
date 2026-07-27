@@ -60,6 +60,16 @@ const FeedbackResultsPage = lazy(async () => {
   return { default: module.FeedbackResultsPage };
 });
 
+const FeedbackOutboxPage = lazy(async () => {
+  const module = await import("./routes/FeedbackOutboxPage");
+  return { default: module.FeedbackOutboxPage };
+});
+
+const FeedbackMechanismPage = lazy(async () => {
+  const module = await import("./routes/FeedbackMechanismPage");
+  return { default: module.FeedbackMechanismPage };
+});
+
 function LazyAdminRoute({ children }: { children: ReactNode }) {
   return (
     <Suspense
@@ -173,6 +183,28 @@ function AppRoutes() {
             element={
               <LazyAdminRoute>
                 <FeedbackResultsPage />
+              </LazyAdminRoute>
+            }
+          />
+          {/* Deliberately not under `feedback/` — the outbound queue spans
+              every campaign, and a nested path would leave both it and
+              «Feedback & safety» `aria-current` in the navigation. */}
+          <Route
+            path="outbound"
+            element={
+              <LazyAdminRoute>
+                <FeedbackOutboxPage />
+              </LazyAdminRoute>
+            }
+          />
+          {/* Static explanation of the feedback mechanism. Its own `docs/`
+              segment for the same reason as `outbound`: it is not a campaign,
+              and `feedback/:campaignId` would swallow anything nested there. */}
+          <Route
+            path="docs/feedback"
+            element={
+              <LazyAdminRoute>
+                <FeedbackMechanismPage />
               </LazyAdminRoute>
             }
           />

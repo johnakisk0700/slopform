@@ -107,8 +107,12 @@ points those variables at the tokens. Four mechanisms do it:
 2. **`@theme inline` — the Tailwind utility vocabulary.** HeroUI already maps its
    tokens to utilities (`bg-surface`, `bg-accent`, …); `globals.css` adds the jts
    vocabulary (`canvas`, `ink`/`ink-muted`, `primary`, `copper`, `info`,
-   `sidebar-*`) and overrides the type/radius/shadow/tracking scales, each mapped
-   to a `var(--jts-*)`. Because it is `@theme inline`, the utilities emit the
+   `*-border`, `sidebar-*`) and overrides the type/radius/shadow/tracking
+   scales, each mapped to a `var(--jts-*)`. The status hairlines are ours
+   because HeroUI models a status as fill + soft fill + text and stops there:
+   until `--color-{success,warning,danger,info}-border` existed,
+   `border-warning-border` was a name Tailwind had never heard of and emitted
+   no rule at all, so a tinted block silently lost its edge. Because it is `@theme inline`, the utilities emit the
    `var()` reference itself (rather than baking a colour at build time), so
    `bg-canvas` and friends resolve at runtime and flip with the tokens too.
 3. **`@custom-variant dark (&:is(.dark *))`.** This makes Tailwind's `dark:`

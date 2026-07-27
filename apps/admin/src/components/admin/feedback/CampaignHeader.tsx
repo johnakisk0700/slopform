@@ -1,10 +1,7 @@
-import type { LucideIcon } from "lucide-react";
 import {
   BarChart3,
   ChevronLeft,
   FlaskConical,
-  MessageCircleMore,
-  MessagesSquare,
   PauseCircle,
   PlayCircle,
   SquareX,
@@ -29,22 +26,19 @@ interface CampaignHeaderProps {
   onClose: () => Promise<void>;
 }
 
-/** One campaign tally: a muted stroke icon, the number, then what it counts. */
+/** One campaign tally: the number, then what it counts. */
 function CampaignCount({
-  icon: Icon,
   value,
   children,
 }: {
-  icon: LucideIcon;
   value: number;
   children: string;
 }) {
   return (
-    <p className="flex items-center gap-1.5 text-sm text-ink-muted">
-      <Icon aria-hidden="true" className="size-4 shrink-0 text-ink-subtle" />
-      <strong className="font-bold text-ink tabular-nums">{value}</strong>
+    <span>
+      <strong className="font-bold text-ink tabular-nums">{value}</strong>{" "}
       {children}
-    </p>
+    </span>
   );
 }
 
@@ -76,7 +70,6 @@ export function CampaignHeader({
       <JtsPageHeader
         eyebrow="Post-event feedback"
         title={campaign?.eventTitle ?? "Feedback conversations"}
-        description="Read every conversation for this campaign, take one over when it needs a person, and hand it back when it does not."
         actions={
           <>
             {campaign ? (
@@ -141,24 +134,40 @@ export function CampaignHeader({
         }
       />
 
+      {/* One quiet line, not a bordered summary bar: the list beside it already
+          groups and counts the same conversations, so this only has to say
+          which campaign state they sit in. The triangle appears only when
+          something is actually waiting — the same glyph the list's NEEDS
+          ATTENTION heading uses. */}
       {campaign ? (
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-md border border-border bg-surface px-4 py-3">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-ink-muted">
           <FeedbackBadges badges={[campaignStatusBadge(campaign.status)]} />
-          <CampaignCount
-            icon={MessagesSquare}
-            value={campaign.conversationCount}
-          >
-            conversations
-          </CampaignCount>
-          <CampaignCount icon={MessageCircleMore} value={campaign.openCount}>
-            open
-          </CampaignCount>
-          <CampaignCount
-            icon={TriangleAlert}
-            value={campaign.needsAttentionCount}
-          >
-            need attention
-          </CampaignCount>
+          <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+            <CampaignCount value={campaign.conversationCount}>
+              conversations
+            </CampaignCount>
+            <span aria-hidden="true" className="text-ink-subtle">
+              ·
+            </span>
+            <CampaignCount value={campaign.openCount}>open</CampaignCount>
+            {campaign.needsAttentionCount > 0 ? (
+              <>
+                <span aria-hidden="true" className="text-ink-subtle">
+                  ·
+                </span>
+                <span className="flex items-center gap-1.5 font-semibold text-warning">
+                  <TriangleAlert
+                    aria-hidden="true"
+                    className="size-4 shrink-0"
+                  />
+                  <span className="tabular-nums">
+                    {campaign.needsAttentionCount}
+                  </span>
+                  need attention
+                </span>
+              </>
+            ) : null}
+          </p>
           {simulatorAvailable ? (
             <p className="flex items-center gap-1.5 jts-overline text-warning">
               <FlaskConical aria-hidden="true" className="size-3.5 shrink-0" />

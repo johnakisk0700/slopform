@@ -1,4 +1,3 @@
-import { Chip } from "@heroui/react";
 import { Rocket } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
@@ -9,9 +8,10 @@ import {
   useListFeedbackCampaigns,
 } from "../api/generated/feedback-campaigns";
 import { ConfirmAction } from "../components/admin/feedback/ConfirmAction";
+import { FeedbackBadges } from "../components/admin/feedback/FeedbackBadges";
 import { JtsPageHeader } from "../components/ui/JtsPageHeader";
 import { formatTimestamp } from "../features/feedback/conversationView";
-import { campaignStatusBadge, chipColor } from "../features/feedback/labels";
+import { campaignStatusBadge } from "../features/feedback/labels";
 import { apiErrorMessage } from "../lib/api";
 import { usePageMeta } from "../lib/usePageMeta";
 
@@ -106,9 +106,7 @@ export function FeedbackCampaignsPage() {
                       <span className="block min-w-0 truncate text-sm font-bold text-ink">
                         {entry.eventTitle ?? "Untitled event"}
                       </span>
-                      <Chip size="sm" color={chipColor(status.tone)}>
-                        {status.label}
-                      </Chip>
+                      <FeedbackBadges badges={[status]} />
                     </span>
                     <span className="mt-1 block text-xs text-ink-muted">
                       Launched {formatTimestamp(entry.launchedAt)}

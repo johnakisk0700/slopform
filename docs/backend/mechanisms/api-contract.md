@@ -116,9 +116,19 @@ Adding or changing an endpoint:
 
 Queue-derived fields on a read model are allowed only when the endpoint is not
 polled as a collection. `getFeedbackConversation` may inspect BullMQ for the
-selected conversation's extract job; `listFeedbackCampaignConversations` must
-not — a Redis lookup per row on a ten-second poll is a load amplifier, and any
-list signal has to come from data already loaded for the row.
+selected conversation's extract job, and `getFeedbackOutboxMessage` for the one
+opened outbox row's deliver job; `listFeedbackCampaignConversations` and
+`listFeedbackOutboxQueue` must not — a Redis lookup per row on a five- or
+ten-second poll is a load amplifier, and any list signal has to come from data
+already loaded for the row. The rule extends past Redis: a collection endpoint
+must not do a per-row MongoDB read either, which is why
+`listFeedbackOutboxQueue` resolves a whole page of respondents through one
+batched `listRespondentsByIds`.
+
+An observability endpoint publishes absence as absence. Where a queue lookup
+cannot distinguish retention removal from a job that never existed, the field
+stays `null` or `unknown` and the screen owns the wording; see
+[the outbound queue](../../frontend/feedback-outbound-queue.md).
 
 The generated Zod schemas exist for values that leave the typed path — a form
 draft, something persisted in the browser, a payload echoed back into a request.

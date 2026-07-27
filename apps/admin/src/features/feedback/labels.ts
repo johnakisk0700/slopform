@@ -14,14 +14,11 @@ import type { FeedbackConversationResultsDtoOutputNotesItemStatus } from "../../
 /**
  * The screen's status vocabulary. Every badge pairs a `tone` with its own text,
  * so status is never carried by colour alone (admin accessibility invariant).
- * `chipColor` maps a tone onto the HeroUI `Chip` palette, which has no `info`
- * slot — slate statuses fall back to `default` and stay legible by their label.
+ * `FeedbackBadges` owns how each tone paints — one pale pairing per tone,
+ * including the slate `info` that HeroUI's chip palette cannot express.
  */
 export type FeedbackTone =
   "neutral" | "info" | "success" | "warning" | "danger" | "accent";
-
-export type FeedbackChipColor =
-  "default" | "success" | "warning" | "danger" | "accent";
 
 /**
  * How hard a badge should pull the eye.
@@ -41,33 +38,6 @@ export interface FeedbackBadge {
   tone: FeedbackTone;
   /** Defaults to `normal` when omitted. */
   emphasis?: FeedbackEmphasis;
-}
-
-/**
- * HeroUI's `primary` chip variant is the solid fill: it pairs `--warning` with
- * `--warning-foreground`, which the token bridge maps to
- * `--jts-color-warning` on `--jts-color-canvas` — 5.53:1 in light and 8.95:1 in
- * dark, both clear of AA. `soft` keeps the tinted pairing used everywhere else.
- */
-export function chipVariant(
-  emphasis: FeedbackEmphasis | undefined,
-): "primary" | "soft" {
-  return emphasis === "strong" ? "primary" : "soft";
-}
-
-export function chipColor(tone: FeedbackTone): FeedbackChipColor {
-  switch (tone) {
-    case "success":
-      return "success";
-    case "warning":
-      return "warning";
-    case "danger":
-      return "danger";
-    case "accent":
-      return "accent";
-    default:
-      return "default";
-  }
 }
 
 /**
@@ -395,8 +365,12 @@ export function deliveryBadge(
       return { key: "delivery", label: "Delivery failed", tone: "danger" };
     case "cancelled":
       return { key: "delivery", label: "Cancelled", tone: "neutral" };
+    // Handed to the transport with nothing reported back: the ordinary end of
+    // every outbound message. Badging it put a chip under almost every bubble
+    // in the transcript, which is exactly how a badge stops being read — the
+    // exceptions above and below are what an operator needs to see.
     case "sent":
-      return { key: "delivery", label: "Sent", tone: "info" };
+      return null;
     case "sending":
       return { key: "delivery", label: "Sending", tone: "info" };
     case "held":

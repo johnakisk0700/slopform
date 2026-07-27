@@ -415,6 +415,26 @@ export type FeedbackConversationSummary = z.infer<
   typeof feedbackConversationSummarySchema
 >;
 
+/**
+ * The narrowest projection that answers "who is this conversation with".
+ *
+ * Deliberately not `feedbackConversationSummarySchema`: the outbound-queue
+ * screen resolves a page of conversation ids to people, and the summary's
+ * goals, transcript counts and lifecycle would all be read and parsed for
+ * nothing.
+ */
+export const feedbackConversationRespondentSchema = z
+  .object({
+    _id: z.uuid(),
+    respondentParticipantId: z.uuid(),
+    phoneAtLaunch: z.string().trim().min(1),
+  })
+  .strict();
+
+export type FeedbackConversationRespondent = z.infer<
+  typeof feedbackConversationRespondentSchema
+>;
+
 export function feedbackConversationFilter(
   id: string,
 ): Filter<FeedbackConversationDocument> {

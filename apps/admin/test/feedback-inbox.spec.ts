@@ -30,8 +30,6 @@ interface LabelsModule {
   participantLabel: (displayName: string | null) => string;
   isUnresolvedParticipant: (displayName: string | null) => boolean;
   UNKNOWN_PARTICIPANT_LABEL: string;
-  chipColor: (tone: string) => string;
-  chipVariant: (emphasis: string | undefined) => string;
   deliveryBadge: (delivery: unknown) => { label: string; tone: string } | null;
   isAwaitingDelivery: (delivery: unknown) => boolean;
   awaitingDeliveryReason: (delivery: unknown) => string | null;
@@ -204,6 +202,26 @@ describe("outbound delivery state", () => {
     ).toBe("danger");
   });
 
+  it("leaves the ordinary sent message unbadged", () => {
+    // Handed to the transport with nothing reported back is how every outbound
+    // message ends. Badging it put a chip under almost every bubble, which is
+    // how a chip stops being read; the exceptions still carry one.
+    expect(
+      labels.deliveryBadge({
+        outboxId: "a",
+        outboxStatus: "sent",
+        deliveryStatus: null,
+      }),
+    ).toBeNull();
+    expect(
+      labels.deliveryBadge({
+        outboxId: "a",
+        outboxStatus: "sending",
+        deliveryStatus: null,
+      })?.label,
+    ).toBe("Sending");
+  });
+
   it("reports a queued outbox row as queued, not as sent", () => {
     expect(
       labels.deliveryBadge({
@@ -276,17 +294,38 @@ describe("lifecycle badges", () => {
     ).toEqual(expect.objectContaining({ label: "Completed", tone: "success" }));
   });
 
-  it("maps every tone onto a colour the HeroUI chip actually has", () => {
-    for (const tone of [
-      "neutral",
-      "info",
-      "success",
-      "warning",
-      "danger",
-      "accent",
+  it("gives every tone its own pale pairing, tinted and solid", () => {
+    const badges = readSource(
+      "src/components/admin/feedback/FeedbackBadges.tsx",
+    );
+
+    // The whole point of leaving HeroUI's `Chip` behind: it has no `info`
+    // slot, so slate statuses fell back to the same grey as `neutral` and
+    // «Open» was indistinguishable from «Cancelled» in a column of rows.
+    for (const [tone, fill] of [
+      ["neutral", "bg-surface-sunken"],
+      ["info", "bg-info-soft"],
+      ["success", "bg-success-soft"],
+      ["warning", "bg-warning-soft"],
+      ["danger", "bg-danger-soft"],
+      ["accent", "bg-copper-soft"],
     ]) {
-      expect(["default", "success", "warning", "danger", "accent"]).toContain(
-        labels.chipColor(tone),
+      expect(badges).toMatch(new RegExp(`${tone}: "[^"]*${fill}[^"]*"`, "u"));
+    }
+    expect(badges).toContain("STRONG_TONE_STYLES");
+  });
+
+  it("keeps every status hairline in the token bridge", () => {
+    const bridge = readFileSync(
+      fileURLToPath(new URL("../src/styles/globals.css", import.meta.url)),
+      "utf8",
+    );
+
+    // HeroUI models each status as fill + soft fill + text and stops there, so
+    // `border-warning-border` emitted no rule at all until these existed.
+    for (const status of ["success", "warning", "danger", "info"]) {
+      expect(bridge).toContain(
+        `--color-${status}-border: var(--jts-color-${status}-border);`,
       );
     }
   });
@@ -562,23 +601,19 @@ describe("needs-attention emphasis", () => {
     expect(badges.some((badge) => badge.key === "attention")).toBe(false);
   });
 
-  it("maps emphasis onto the solid HeroUI chip variant", () => {
-    // `primary` is HeroUI's solid fill; `soft` is the tinted default every
-    // other badge keeps.
-    expect(labels.chipVariant("strong")).toBe("primary");
-    expect(labels.chipVariant("normal")).toBe("soft");
-    expect(labels.chipVariant(undefined)).toBe("soft");
-  });
-
   it("renders the emphasis through the shared badge component", () => {
     const badges = readSource(
       "src/components/admin/feedback/FeedbackBadges.tsx",
     );
 
-    // Guards against the variant being hardcoded back to "soft", which would
-    // silently drop the emphasis while every other assertion still passed.
-    expect(badges).toContain("variant={chipVariant(badge.emphasis)}");
-    expect(badges).not.toContain('variant="soft"');
+    // Guards against the emphasis being dropped back to the tinted table,
+    // which would silently flatten it while every other assertion passed.
+    expect(badges).toContain('badge.emphasis === "strong"');
+    expect(badges).toContain("STRONG_TONE_STYLES[badge.tone]");
+    expect(badges).toContain("TONE_STYLES[badge.tone]");
+    // The solid pairing is the status fill on canvas, which is what makes it
+    // AA-safe in both themes.
+    expect(badges).toContain("bg-warning text-canvas");
   });
 
   it("shows the badge row on inbox rows and in the conversation header", () => {
@@ -696,9 +731,44 @@ describe("extraction status (operator visibility)", () => {
     expect(details).toContain("extractionStatusLines");
     expect(details).toContain('role="status"');
     expect(details).toContain('aria-live="polite"');
-    expect(details).toContain("Ανάγνωση");
     expect(details).not.toContain("animate-spin");
     expect(details).not.toContain("Loader");
+  });
+
+  it("lets a goal's answer stand in for its status badge", () => {
+    const details = readSource(
+      "src/components/admin/feedback/ConversationDetails.tsx",
+    );
+
+    // One row per goal, resolved against the answers by question key. A second
+    // list below it made every answered goal state itself twice.
+    expect(details).toContain("answer.questionKey === goal.key");
+    expect(details).toContain("goalStatusBadge(goal.status)");
+    expect(details).not.toContain('title="Answers"');
+  });
+
+  it("reads the respondent's own record through the generated hook", () => {
+    const details = readSource(
+      "src/components/admin/feedback/ConversationDetails.tsx",
+    );
+
+    expect(details).toContain("useGetParticipant(");
+    // D18: an unresolved id has no record to fetch, so the query never runs.
+    expect(details).toContain("query: { enabled: !unresolved }");
+  });
+
+  it("reads the messages it is about, at the foot of the transcript", () => {
+    const transcript = readSource(
+      "src/components/admin/feedback/ConversationTranscript.tsx",
+    );
+
+    // «Why has that answer not appeared yet» is a question about these
+    // messages, so it is answered under them rather than in a reference card
+    // three columns away.
+    expect(transcript).toContain("<ReadingStatus conversation={conversation}");
+    expect(readSource("src/routes/FeedbackInboxPage.tsx")).not.toContain(
+      "ReadingStatus",
+    );
   });
 });
 
