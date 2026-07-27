@@ -311,6 +311,61 @@ export function campaignStatusBadge(
 }
 
 /**
+ * True while an outbound message is in the transcript but not yet with the
+ * participant.
+ *
+ * The transcript records what the bot decided to say the moment the outbox row
+ * is committed, which is deliberate — an operator needs to see the decision —
+ * but a recorded message is not a received one. On 2026-07-27 those two were
+ * indistinguishable on screen while delivery sat behind model calls for up to
+ * 147 seconds, so a reply the participant had never seen read exactly like one
+ * they had already answered.
+ */
+export function isAwaitingDelivery(
+  delivery: FeedbackConversationDetailDtoOutputMessagesItemDelivery,
+): boolean {
+  if (delivery === null) {
+    return false;
+  }
+  // The transport has reported back, so this is no longer ours to wait on —
+  // `error` included, which the badge shows as a failure rather than a wait.
+  if (
+    delivery.deliveryStatus === "delivered" ||
+    delivery.deliveryStatus === "read" ||
+    delivery.deliveryStatus === "played" ||
+    delivery.deliveryStatus === "error"
+  ) {
+    return false;
+  }
+  return (
+    delivery.outboxStatus === "pending" ||
+    delivery.outboxStatus === "sending" ||
+    delivery.outboxStatus === "held"
+  );
+}
+
+/**
+ * Why an outbound message is still waiting, in one line.
+ *
+ * Deliberately does not say the send is being held back to see whether the
+ * participant writes again. It is not: `superseded_by_newer_testimony` is
+ * checked before the outbox row is written and never again, and a queued row is
+ * withdrawn only by STOP, a human takeover or expiry. A newer message from the
+ * participant will not stop this one going out, and the screen should not
+ * suggest otherwise.
+ */
+export function awaitingDeliveryReason(
+  delivery: FeedbackConversationDetailDtoOutputMessagesItemDelivery,
+): string | null {
+  if (delivery === null || !isAwaitingDelivery(delivery)) {
+    return null;
+  }
+  return delivery.outboxStatus === "held"
+    ? "Held while the campaign is paused — not seen by the participant."
+    : "Waiting to be sent — not seen by the participant yet.";
+}
+
+/**
  * Outbound delivery state, read from the outbox correlation the backend
  * attaches to bot and staff messages. Provider delivery (`deliveryStatus`)
  * outranks the outbox row's own status once the transport reports back.

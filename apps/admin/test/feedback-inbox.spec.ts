@@ -33,6 +33,8 @@ interface LabelsModule {
   chipColor: (tone: string) => string;
   chipVariant: (emphasis: string | undefined) => string;
   deliveryBadge: (delivery: unknown) => { label: string; tone: string } | null;
+  isAwaitingDelivery: (delivery: unknown) => boolean;
+  awaitingDeliveryReason: (delivery: unknown) => string | null;
   lifecycleBadge: (lifecycle: {
     state: "open" | "closed";
     reason: string | null;
@@ -210,6 +212,57 @@ describe("outbound delivery state", () => {
         deliveryStatus: null,
       })?.label,
     ).toBe("Queued");
+  });
+
+  // A recorded message and a received one looked identical while delivery sat
+  // behind model calls for up to 147 seconds, so a reply nobody had seen read
+  // like one already answered.
+  it.each([["pending"], ["sending"], ["held"]])(
+    "treats an outbox row in %s as not yet with the participant",
+    (outboxStatus) => {
+      const delivery = { outboxId: "a", outboxStatus, deliveryStatus: null };
+
+      expect(labels.isAwaitingDelivery(delivery)).toBe(true);
+      expect(labels.awaitingDeliveryReason(delivery)).toContain(
+        "not seen by the participant",
+      );
+    },
+  );
+
+  it.each([
+    ["sent", null],
+    ["sent", "delivered"],
+    ["sent", "read"],
+    ["failed", null],
+    ["cancelled", null],
+    ["sent", "error"],
+  ])(
+    "stops waiting once %s / %s settles it",
+    (outboxStatus, deliveryStatus) => {
+      const delivery = { outboxId: "a", outboxStatus, deliveryStatus };
+
+      expect(labels.isAwaitingDelivery(delivery)).toBe(false);
+      expect(labels.awaitingDeliveryReason(delivery)).toBeNull();
+    },
+  );
+
+  it("has nothing to say about an inbound message", () => {
+    expect(labels.isAwaitingDelivery(null)).toBe(false);
+    expect(labels.awaitingDeliveryReason(null)).toBeNull();
+  });
+
+  // The line must not claim the send is being held to see whether the
+  // participant writes again. `superseded_by_newer_testimony` is checked before
+  // the outbox row is written and never after it, so a follow-up does not
+  // withdraw a queued reply.
+  it("never promises that a follow-up would stop the send", () => {
+    const reason = labels.awaitingDeliveryReason({
+      outboxId: "a",
+      outboxStatus: "pending",
+      deliveryStatus: null,
+    });
+
+    expect(reason).not.toMatch(/follow.?up|confirm|reply|waiting for/iu);
   });
 });
 

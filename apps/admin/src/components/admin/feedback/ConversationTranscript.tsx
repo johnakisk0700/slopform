@@ -19,6 +19,7 @@ import {
 } from "../../../features/feedback/conversationView";
 import {
   actorLabel,
+  awaitingDeliveryReason,
   deliveryBadge,
   isUnresolvedParticipant,
   messageAttentionActionLabel,
@@ -71,6 +72,7 @@ interface TranscriptMessageProps {
 function TranscriptMessage({ message }: TranscriptMessageProps) {
   const styles = ACTOR_STYLES[message.actor];
   const delivery = deliveryBadge(message.delivery);
+  const awaiting = awaitingDeliveryReason(message.delivery);
   const attention = message.attention;
   const ActionIcon = attention?.recommendedAction === "review" ? Eye : BellRing;
 
@@ -91,6 +93,10 @@ function TranscriptMessage({ message }: TranscriptMessageProps) {
           attention
             ? "rounded-bl-sm border border-warning-border bg-warning-soft text-ink"
             : styles.bubble,
+          // Dimmed until it reaches the participant. The line below carries the
+          // same fact in words, so the opacity is a second reading of it rather
+          // than the only one.
+          awaiting && "opacity-60",
         )}
       >
         <p className="whitespace-pre-wrap">{message.text}</p>
@@ -134,6 +140,11 @@ function TranscriptMessage({ message }: TranscriptMessageProps) {
           badges={[delivery]}
           className="flex items-center gap-1.5 px-1"
         />
+      ) : null}
+      {awaiting ? (
+        <p className="max-w-[min(42rem,85%)] px-1 text-xs text-ink-subtle">
+          {awaiting}
+        </p>
       ) : null}
     </li>
   );
