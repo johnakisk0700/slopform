@@ -60,6 +60,7 @@ function buildSystemPrompt(): string {
     "5. Αν ένα όνομα δεν ταιριάζει σε κανέναν υποψήφιο, μην προτείνεις απάντηση. Πρότεινε σημείωση τύπου general με subjectParticipantId κενό και subjectMentionedName το όνομα όπως γράφτηκε.",
     `6. Επιτρεπτά note types: ${noteTypes}. Το κείμενο της σημείωσης είναι σύντομη περίληψη στα ελληνικά, το πολύ ${FEEDBACK_EXTRACTION_NOTE_MAX_LENGTH} χαρακτήρες, και μένει πιστό στα λόγια του συμμετέχοντα.`,
     "7. Στο goals απαντάς για ΚΑΘΕ στόχο, πάντα, με ένα από τέσσερα status. Δεν παραλείπεις στόχο: αν δεν τον άγγιξε το μήνυμα, το λες με not_addressed. answered = τα νέα μηνύματα τον απαντούν, και στο answers βάζεις ΟΛΕΣ τις απαντήσεις αυτού του στόχου (π.χ. «μου άρεσαν ο Νίκος και η Ελένη» είναι δύο απαντήσεις στο liked). declined = ο συμμετέχων αρνήθηκε ρητά ή είπε ότι δεν έχει κάτι να πει (π.χ. «κανέναν», «όλοι καλοί ήταν»). already_settled = ήταν ήδη απαντημένος ή προσπερασμένος πριν από αυτή την κλήση.",
+    "7β. Δουλεύεις στόχο-προς-στόχο, όχι φράση-προς-φράση: για κάθε στόχο ξεχωριστά διάβασε ΟΛΟΚΛΗΡΟ το μήνυμα και μετά αποφάσισε το status του. Οι στόχοι δεν αποκλείουν ο ένας τον άλλον και ο ίδιος άνθρωπος μπορεί να είναι απάντηση σε πολλούς — το ότι τον έγραψες σε έναν στόχο δεν τον «ξοδεύει» για τους υπόλοιπους. Μια φράση συχνά απαντά σε δύο στόχους μαζί: «η Μαρία μου άρεσε, θα ξαναέβγαινα μαζί της» είναι απάντηση ΚΑΙ στο liked ΚΑΙ στο meet_again για το ίδιο πρόσωπο, και γράφεις και τις δύο. Το ίδιο ισχύει για το declined: «κανέναν να αποφύγω» κλείνει το avoid ακόμα κι όταν η ίδια φράση απάντησε και άλλον στόχο.",
     "8. Μην προτείνεις ξανά αποτέλεσμα που υπάρχει ήδη στα ΚΑΤΑΓΕΓΡΑΜΜΕΝΑ ΑΠΟΤΕΛΕΣΜΑΤΑ, και μην ξανανοίγεις στόχο που έχει ήδη απαντηθεί — αυτός είναι already_settled.",
     "9. Για κάθε νέο participant μήνυμα απάντησε πρώτα στον τρέχοντα asked στόχο και μετά πρόσθεσε τυχόν ordinary note. Δεν καταπίνεις answer ή note επειδή το περιεχόμενο είναι άβολο ή επειδή προτείνεις handoff.",
     "9β. Answer γράφεις ΜΟΝΟ για γνώμη που είναι του ίδιου του συμμετέχοντα. Αν το κείμενο αποδίδει ρητά τη γνώμη σε άλλον («ο άντρας μου λέει…», «η φίλη μου βρήκε…»), δεν γίνεται answer — γίνεται note που λέει καθαρά ποιανού είναι η γνώμη. Ένα WhatsApp μπορεί να το μοιράζονται δύο άνθρωποι· η συνομιλία ανήκει σε έναν, και μια ξένη γνώμη καταγεγραμμένη σαν δική του είναι λάθος για αληθινό πρόσωπο.",
@@ -106,9 +107,21 @@ function formatQuestions(copy: PostEventFeedbackQuestionSetCopy): string {
     .join("\n");
 }
 
+/**
+ * Each goal carries the question it stands for, not just its key.
+ *
+ * The campaign wording lives in its own block above, so a model deciding
+ * `liked` had to join two lists to recall that the question asks for a
+ * *particularly good* impression rather than any mention of a person. The
+ * verdict is written here, so the wording belongs here — and it is the launch
+ * snapshot's wording, which is what the participant was actually asked.
+ */
 function formatGoals(context: FeedbackExtractionContext): string {
   return context.goals
-    .map((goal) => `- ${goal.ordinal}. ${goal.key}: ${goal.status}`)
+    .map(
+      (goal) =>
+        `- ${goal.ordinal}. ${goal.key}: ${goal.status} — ρωτήθηκε ως «${goal.prompt}»`,
+    )
     .join("\n");
 }
 
