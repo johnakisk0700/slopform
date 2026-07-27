@@ -79,6 +79,12 @@ export class FeedbackExtractionGenerationError extends Error {
     readonly code: FeedbackExtractionFailureCode,
     readonly retryable: boolean,
     readonly failureCause: FeedbackExtractionFailureCause = "unknown",
+    /**
+     * Bounded description of the underlying error when `failureCause` could not
+     * name it. Empty for every classified cause, because there the cause is the
+     * description. Never carries participant text.
+     */
+    readonly failureDetail: string = "",
   ) {
     super(`Feedback extraction failed: ${code}`);
     this.name = FeedbackExtractionGenerationError.name;
@@ -439,5 +445,23 @@ export function toGenerationError(
     "extraction_failed",
     true,
     "unknown",
+    describeUnclassifiedError(error),
   );
+}
+
+/**
+ * A bounded description of an error none of the branches above recognised.
+ *
+ * `unknown` on its own is a dead end for an operator, and it is not rare: every
+ * permanent extraction failure in the 2026-07-27 rehearsal reported it, which
+ * left the cause a matter of opinion — a provider content filter, a schema that
+ * never validated and a 120-second abort are three different problems with
+ * three different fixes, and all three land here. The constructor name and a
+ * short message are enough to tell them apart and carry no participant text:
+ * the message comes from the SDK or the runtime, not from the transcript.
+ */
+function describeUnclassifiedError(error: unknown): string {
+  const name = error instanceof Error ? error.constructor.name : typeof error;
+  const message = error instanceof Error ? error.message : String(error);
+  return `${name}: ${message}`.slice(0, 200);
 }

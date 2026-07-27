@@ -273,8 +273,15 @@ export class PostEventFeedbackProcessor extends WorkerHost {
       });
     }
 
+    // The detail rides in the message because that is what BullMQ keeps in
+    // `failedReason`, which is where an operator looks first. `unknown` alone
+    // sent the 2026-07-27 rehearsal into guesswork twice.
+    const detail =
+      error instanceof FeedbackExtractionGenerationError && error.failureDetail
+        ? ` (${error.failureDetail})`
+        : "";
     return new UnrecoverableError(
-      `Feedback extraction failed permanently: ${cause}`,
+      `Feedback extraction failed permanently: ${cause}${detail}`,
     );
   }
 
@@ -295,7 +302,15 @@ export class PostEventFeedbackProcessor extends WorkerHost {
         !!job &&
         !(error instanceof UnrecoverableError) &&
         attemptsMade < attempts,
-      error: { name: error.name },
+      error: {
+        name: error.name,
+        // Only for the errors this processor constructs itself. Any other
+        // error's message may quote whatever it was handed, and job data is
+        // never log-safe by assumption.
+        ...(error instanceof UnrecoverableError
+          ? { message: error.message.slice(0, 300) }
+          : {}),
+      },
     });
   }
 
