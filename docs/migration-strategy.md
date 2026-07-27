@@ -11,7 +11,7 @@ legacy system.
 Add runtime configuration only with an adapter that validates and consumes it;
 dormant secrets are not an integration strategy.
 
-The factual source inventory is [`../WP_AUDIT_2026-07-22.md`](../WP_AUDIT_2026-07-22.md).
+The factual source inventory is [`../evidence/wordpress-audit-2026-07-22.md`](evidence/wordpress-audit-2026-07-22.md).
 
 ## Sequence
 

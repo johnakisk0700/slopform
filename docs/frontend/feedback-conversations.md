@@ -7,7 +7,7 @@ The operator surface for the post-event feedback feature: one campaign's
 WhatsApp conversations in a three-pane inbox, the actions that move a
 conversation between bot and human control, and the campaign's collected
 results. It implements U1–U4 and D17/D18 of
-[`POST_EVENT_FEEDBACK_PLAN_2026-07-25.md`](../../POST_EVENT_FEEDBACK_PLAN_2026-07-25.md)
+[`POST_EVENT_FEEDBACK_PLAN_2026-07-25.md`](../history/post-event-feedback-plan-2026-07-25.md)
 and is the operator half of
 [`backend/modules/post-event-feedback.md`](../backend/modules/post-event-feedback.md).
 

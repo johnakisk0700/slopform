@@ -1,7 +1,9 @@
 # Post-event feedback — conversation loop remediation plan
 
+> **History. Delivered — do not build from this.** The 30 conversation-loop defects listed here were closed. Kept for the reasoning behind each fix, not as work to do.
+
 Date: **2026-07-26**. Follow-up to
-[`POST_EVENT_FEEDBACK_PLAN_2026-07-25.md`](POST_EVENT_FEEDBACK_PLAN_2026-07-25.md),
+[`POST_EVENT_FEEDBACK_PLAN_2026-07-25.md`](post-event-feedback-plan-2026-07-25.md),
 which this does not supersede: the architecture there stands, and everything
 below is a correction to how the conversation loop behaves once real people are
 typing into it.

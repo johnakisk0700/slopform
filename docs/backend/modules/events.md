@@ -127,7 +127,7 @@ status transition graph, opt-in audit (participants module).
 
 - [ADR 0008](../../decisions/0008-post-event-feedback-conversations.md)
 - [Post-event feedback module](post-event-feedback.md)
-- [Plan WP1](../../../POST_EVENT_FEEDBACK_PLAN_2026-07-25.md)
+- [Plan WP1](../../history/post-event-feedback-plan-2026-07-25.md)
 - Source: `apps/backend/src/modules/events/`,
   `packages/database/src/schema/events.ts`,
   migration `packages/database/drizzle/20260725180038_stub_events_and_feedback_opt_in.sql`

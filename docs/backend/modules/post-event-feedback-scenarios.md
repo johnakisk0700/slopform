@@ -1,7 +1,7 @@
 # Post-event feedback — end-to-end scenario suite
 
 The acceptance gate named in
-[`POST_EVENT_FEEDBACK_LOOP_PLAN_2026-07-26.md`](../../../POST_EVENT_FEEDBACK_LOOP_PLAN_2026-07-26.md)
+[`POST_EVENT_FEEDBACK_LOOP_PLAN_2026-07-26.md`](../../history/post-event-feedback-loop-plan-2026-07-26.md)
 §6. It is a catalogue of **kinds of person the loop might serve badly**, not a
 catalogue of code paths, and it is deliberately written before the tests exist so
 the tests are graded against the humans rather than against the implementation
@@ -2099,7 +2099,7 @@ an _ordering_ the step list cannot show.
 - [`post-event-feedback.md`](post-event-feedback.md) — module contract, D13 as amended, the fallback,
   schema v2, capacity, close-reason precedence
 - [`conversations.md`](conversations.md) — schema-v1/v2 co-tenancy in `conversation_threads`
-- [`POST_EVENT_FEEDBACK_LOOP_PLAN_2026-07-26.md`](../../../POST_EVENT_FEEDBACK_LOOP_PLAN_2026-07-26.md) — F1–F7 and WP1–WP6, which this suite is the acceptance gate for
+- [`POST_EVENT_FEEDBACK_LOOP_PLAN_2026-07-26.md`](../../history/post-event-feedback-loop-plan-2026-07-26.md) — F1–F7 and WP1–WP6, which this suite is the acceptance gate for
 - Source: `apps/backend/src/modules/post-event-feedback/`,
   `apps/backend/src/modules/post-event-feedback/post-event-feedback-conversation.repository.ts`
 - Precedent harness: `simulator/simulator.service.integration.spec.ts`

@@ -112,4 +112,4 @@ read. No test requires a live MongoDB.
   [post-event feedback contract](post-event-feedback.md)
 - [ADR 0007](../../decisions/0007-mongodb-conversation-authority.md),
   [ADR 0008](../../decisions/0008-post-event-feedback-conversations.md) and
-  [implementation plan §6](../../../POST_EVENT_FEEDBACK_PLAN_2026-07-25.md)
+  [implementation plan §6](../../history/post-event-feedback-plan-2026-07-25.md)

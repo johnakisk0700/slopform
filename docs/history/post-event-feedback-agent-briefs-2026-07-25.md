@@ -1,5 +1,7 @@
 # Post-event feedback — agent briefs (2026-07-25)
 
+> **History. Spent dispatch prompts.** These briefed the agents that built the feedback module. Kept as an example of how work was packaged, not as instructions to follow.
+
 Copy-paste prompts for dispatching one agent per work package. Source of
 truth: `POST_EVENT_FEEDBACK_PLAN_2026-07-25.md` (referenced below as "the
 plan"). Suggested routing: **WP9 → Opus 5** (frontend/visual); **WP0–WP8 →

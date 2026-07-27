@@ -38,12 +38,13 @@ Area-specific memory:
 - [`backend/modules/events.md`](backend/modules/events.md) — stub events, attendance and feedback-candidate helper
 - [`backend/modules/post-event-feedback.md`](backend/modules/post-event-feedback.md) — accepted campaign, directed feedback, PostgreSQL persistence and human-takeover contract
 - [`backend/modules/participants.md`](backend/modules/participants.md) — participant profile schema, feedback opt-in and WordPress import runbook
-- [`post-event-feedback-handover.md`](post-event-feedback-handover.md) — portable 2026-07-25 snapshot of the feedback design, assumptions and implementation plan
+- [`evidence/README.md`](evidence/README.md) — audits and scope reviews, each fixed to the date it was taken
+- [`history/README.md`](history/README.md) — plans that have been carried out; read for _why_, never as instruction
 - [`documentation-standard.md`](documentation-standard.md) — required shape for new component/mechanism documentation
 
 ## Evidence, decisions and implementation
 
-- Evidence records what exists and must remain factual. See [`../WP_AUDIT_2026-07-22.md`](../WP_AUDIT_2026-07-22.md).
+- Evidence records what was observed, at a date, and must remain factual. See [`evidence/README.md`](evidence/README.md).
 - Architecture Decision Records explain decisions and their consequences.
 - Frontend/backend handbooks define current implementation conventions.
 - Code is not allowed to quietly contradict any of the above. If reality changes, update the document in the same pull request.

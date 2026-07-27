@@ -11,7 +11,7 @@ conversations UI it serves
 ([`docs/frontend/feedback-conversations.md`](../../frontend/feedback-conversations.md)),
 whose WP12 design pass added the staff-written note endpoint documented below.
 Plan amendments in
-[`POST_EVENT_FEEDBACK_PLAN_2026-07-25.md`](../../../POST_EVENT_FEEDBACK_PLAN_2026-07-25.md)
+[`POST_EVENT_FEEDBACK_PLAN_2026-07-25.md`](../../history/post-event-feedback-plan-2026-07-25.md)
 §9 supersede frozen candidate snapshots with live D16 selection, and
 [D13](#d13-safety-content-travels-the-ordinary-pipeline) is amended: safety
 content now travels the ordinary pipeline as visible notes.
@@ -1367,4 +1367,4 @@ conversation is accepted; and both model and deterministic-fallback rows report
 - [Wasender transport](../mechanisms/wasender.md)
 - [Queues and outbox](../mechanisms/queues.md)
 - [Database lifecycle](../mechanisms/database.md)
-- [Implementation plan](../../../POST_EVENT_FEEDBACK_PLAN_2026-07-25.md)
+- [Implementation plan](../../history/post-event-feedback-plan-2026-07-25.md)

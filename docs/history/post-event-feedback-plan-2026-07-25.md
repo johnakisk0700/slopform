@@ -1,11 +1,13 @@
 # Post-event feedback MVP — implementation plan (v2, simplified)
 
+> **History. Delivered — do not build from this.** The post-event feedback module described here was built and has since been reorganised. For what the code does now read [the module doc](../backend/modules/post-event-feedback.md); this file explains why it was shaped that way.
+
 Date: **2026-07-25** — v2, same-day revision after a deliberate simplification
 pass. Supersedes the earlier v1 of this file entirely.
 
-Derived from [`docs/post-event-feedback-handover.md`](docs/post-event-feedback-handover.md),
-[ADR 0008](docs/decisions/0008-post-event-feedback-conversations.md), the
-[module contract](docs/backend/modules/post-event-feedback.md) and the Notion
+Derived from [`docs/post-event-feedback-handover.md`](post-event-feedback-handover-2026-07-25.md),
+[ADR 0008](../decisions/0008-post-event-feedback-conversations.md), the
+[module contract](../backend/modules/post-event-feedback.md) and the Notion
 pages «7. Επικοινωνίες», «Βάση feedback», «Πεδία και ερωτήσεις». The
 simplification pass amends parts of ADR 0008 (§9 lists every delta); the
 implementing agents must fold those amendments into the maintained docs in the
@@ -99,7 +101,7 @@ general`). All questions skippable (goal `skipped`, no answer row). Greek
   A permanently failed extraction falls back to one ordinary note plus one
   acknowledgement so a dead run never leaves a turn unmarked. The restricted
   `safety_reports` table stays deferred to the pre-real-humans gate. See
-  [the module doc](docs/backend/modules/post-event-feedback.md#d13-safety-content-travels-the-ordinary-pipeline).
+  [the module doc](../backend/modules/post-event-feedback.md#d13-safety-content-travels-the-ordinary-pipeline).
 - **D14 — STOP.** Case-, whitespace- and accent-insensitive: `STOP`,
   `STOP ALL`, `UNSUBSCRIBE`, `ΔΙΑΚΟΠΗ`, `ΣΤΟΠ`. Checked deterministically at
   materialization, before any AI call, effective in both control modes:

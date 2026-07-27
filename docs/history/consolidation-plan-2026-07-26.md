@@ -1,5 +1,7 @@
 # Repo consolidation plan
 
+> **History. Executed — do not build from this.** All 45 packets landed; the file records twelve corrections made during execution, several of which contradict the plan as first written. For the resulting layout read the code.
+
 ## What is actually wrong
 
 Three things, in order of cost.

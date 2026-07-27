@@ -1,13 +1,15 @@
 # Handover: WhatsApp post-event feedback
 
+> **History. A snapshot taken mid-design.** Superseded by the shipped module and its documentation.
+
 Snapshot date: **2026-07-25**
 
 This is a self-contained handover for continuing the design or implementation
 in another chat. The canonical repository decisions are
-[ADR 0008](decisions/0008-post-event-feedback-conversations.md), the
-[post-event feedback module contract](backend/modules/post-event-feedback.md),
-the [conversation aggregate](backend/modules/conversations.md) and the
-[Wasender boundary](backend/mechanisms/wasender.md). If this snapshot later
+[ADR 0008](../decisions/0008-post-event-feedback-conversations.md), the
+[post-event feedback module contract](../backend/modules/post-event-feedback.md),
+the [conversation aggregate](../backend/modules/conversations.md) and the
+[Wasender boundary](../backend/mechanisms/wasender.md). If this snapshot later
 disagrees with code or those maintained documents, reconcile the discrepancy
 instead of preserving this handover as historical fiction.
 

@@ -72,6 +72,6 @@ deliberately not wired until the VPS target and rollback policy are known.
 
 ## Documentation
 
-Start at [`docs/README.md`](docs/README.md). The existing read-only WordPress evidence is in [`WP_AUDIT_2026-07-22.md`](WP_AUDIT_2026-07-22.md).
+Start at [`docs/README.md`](docs/README.md). The existing read-only WordPress evidence is in [`WP_AUDIT_2026-07-22.md`](docs/evidence/wordpress-audit-2026-07-22.md).
 
 Do not add business entities or WordPress mappings from memory. Update the relevant contract or migration map first, then implement a vertical slice.

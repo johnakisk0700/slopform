@@ -27,6 +27,12 @@ const scannedFiles = [
 const problems = [];
 const linkedDocs = new Set();
 const markdownLink = /(?<!!)\[[^\]]*\]\(([^)]+)\)/g;
+const recordRoots = {
+  decisions: path.join(docsRoot, "decisions"),
+  history: path.join(docsRoot, "history"),
+};
+const sourceReference =
+  /(?<![\w./-])((?:apps|packages|scripts)\/[\w./-]+\.(?:ts|tsx|mjs|json|css))(?![\w/-])/g;
 
 for (const file of scannedFiles) {
   if (!existsSync(file)) {
@@ -91,6 +97,27 @@ for (const file of scannedFiles) {
     if (resolved.startsWith(docsRoot) && resolved.endsWith(".md")) {
       linkedDocs.add(resolved);
     }
+  }
+
+  // A markdown link to a moved file fails above, but most source references in
+  // prose are inline code, not links, and those rotted silently through a
+  // refactor that moved 372 files: 23 of 160 pointed at nothing.
+  //
+  // Decisions and history are records of the past and must be able to name a
+  // file they removed or replaced, so they are exempt.
+  if (
+    file.startsWith(recordRoots.decisions) ||
+    file.startsWith(recordRoots.history)
+  ) {
+    continue;
+  }
+
+  for (const match of contents.matchAll(sourceReference)) {
+    const referenced = match[1];
+    if (existsSync(path.join(repositoryRoot, referenced))) continue;
+    problems.push(
+      `${path.relative(repositoryRoot, file)} names ${referenced}, which does not exist`,
+    );
   }
 }
 

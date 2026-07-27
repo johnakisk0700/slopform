@@ -166,7 +166,7 @@ processing.
 
 **2026-07-25, conversation persistence (WP3).** The simplification pass
 recorded in the
-[implementation plan](../../POST_EVENT_FEEDBACK_PLAN_2026-07-25.md) narrowed
+[implementation plan](../history/post-event-feedback-plan-2026-07-25.md) narrowed
 three points of this decision. The original text above stands as the accepted
 architecture; these are its current consequences:
 

@@ -21,7 +21,7 @@ replaces the Nuxt/Vue/PrimeVue admin (`apps/web`) with `apps/admin`.
   owns sorting, pagination and column state.
 - **Routing:** React Router 7 in SPA (library) mode. There is no server runtime;
   business writes still cross the Nest API.
-- **Design tokens:** `packages/design-tokens/tokens.css` is unchanged and remains
+- **Design tokens:** `packages/design-tokens/src/tokens.css` is unchanged and remains
   the single source of truth. `apps/admin/src/styles/globals.css` is the bridge
   that feeds `--jts-*` into HeroUI base tokens and the Tailwind `@theme` layer.
 - **Dark mode:** the `dark` class on `<html>`, applied pre-paint by a script in
