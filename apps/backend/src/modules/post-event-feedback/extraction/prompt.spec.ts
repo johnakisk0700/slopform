@@ -108,4 +108,38 @@ describe("buildFeedbackExtractionPrompt", () => {
     expect(prompt.system).toContain("δεν αποκλείουν ο ένας τον άλλον");
     expect(prompt.system).toContain("liked ΚΑΙ στο meet_again");
   });
+
+  it("hands the alphabet decision to the code instead of asking the participant", () => {
+    const prompt = buildFeedbackExtractionPrompt({
+      context: context(),
+      copy: COPY,
+    });
+
+    // «O Tasos itan o kalyteros» cost two directed answers: the rule read as a
+    // blanket ban on transliteration, so the model asked who «Tasos» was
+    // instead of proposing anything — and validate-proposal's alphabet folding,
+    // which resolves exactly this when one candidate fits, had nothing to fold.
+    // The model now echoes the name and the fold stays in one place.
+    expect(prompt.system).toContain("4β.");
+    expect(prompt.system).toContain("ΜΗΝ ρωτήσεις ποιον εννοεί");
+    expect(prompt.system).toContain("ΑΚΡΙΒΩΣ όπως το έγραψε");
+    expect(prompt.system).not.toContain("λατινική μεταγραφή ίση με");
+    // Asking is still right for a name that genuinely fits two candidates.
+    expect(prompt.system).toContain("ΠΕΡΙΣΣΟΤΕΡΟΥΣ ΑΠΟ ΕΝΑΝ υποψήφιο");
+  });
+
+  it("treats an explicit change of mind as answerable, not as settled", () => {
+    const prompt = buildFeedbackExtractionPrompt({
+      context: context(),
+      copy: COPY,
+    });
+
+    // validate-proposal already keeps the newer value and raises
+    // `conflictingAnswerRevision` so an operator reconciles it. The revision
+    // never arrived: a recorded score read as a closed goal, so «βασικά όχι, 2»
+    // was returned as already_settled and the 4 stood.
+    expect(prompt.system).toContain("8β.");
+    expect(prompt.system).toContain("ΔΕΝ είναι already_settled");
+    expect(prompt.system).toContain("την ΙΔΙΑ τιμή");
+  });
 });
