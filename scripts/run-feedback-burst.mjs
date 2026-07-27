@@ -1105,11 +1105,26 @@ async function findFailedJobs(snapshot) {
     path.join(repositoryRoot, "apps/backend/package.json"),
   );
   const { Queue } = backendRequire("bullmq");
-  const queue = new Queue("feedback", {
-    connection: redisConnectionFromUrl(redisUrl),
-  });
+  // Both values come from the backend so this cannot drift again. Naming the
+  // queue without its prefix read `bull:feedback:*` — a key space the app never
+  // writes — so every run before 2026-07-27 reported zero failed jobs because
+  // it was looking somewhere empty, not because none had failed.
+  const { FEEDBACK_INGRESS_QUEUE, FEEDBACK_QUEUE, QUEUE_PREFIX } =
+    await import("../apps/backend/dist/infrastructure/queue/queue.constants.js");
+  // Both queues, because the loop spans both: a message that never reached the
+  // transcript fails on `feedback-ingress`, and reading only `feedback` would
+  // report the run as clean while its inbound messages were being buried.
+  const queues = [FEEDBACK_QUEUE, FEEDBACK_INGRESS_QUEUE].map(
+    (name) =>
+      new Queue(name, {
+        connection: redisConnectionFromUrl(redisUrl),
+        prefix: QUEUE_PREFIX,
+      }),
+  );
   try {
-    const failed = await queue.getFailed(0, 200);
+    const failed = (
+      await Promise.all(queues.map((queue) => queue.getFailed(0, 200)))
+    ).flat();
     const conversationIds = new Set(
       snapshot.conversations.map((row) => row.conversationId),
     );
@@ -1151,7 +1166,9 @@ async function findFailedJobs(snapshot) {
     }
     return findings;
   } finally {
-    await queue.close().catch(() => undefined);
+    await Promise.all(
+      queues.map((queue) => queue.close().catch(() => undefined)),
+    );
   }
 }
 
