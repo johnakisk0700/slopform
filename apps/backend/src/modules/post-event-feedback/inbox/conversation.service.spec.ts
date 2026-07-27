@@ -28,6 +28,14 @@ import type { FeedbackResultsRepository } from "../extraction/results.repository
 import type { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
 import { conversationCapabilities } from "./conversation.view.js";
 import {
+  feedbackConversationMessageSchema,
+  sendFeedbackStaffMessageSchema,
+} from "./conversation.schemas.js";
+import {
+  FEEDBACK_CONVERSATION_MESSAGE_MAX_STORED_TEXT_LENGTH,
+  FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH,
+} from "../post-event-feedback-conversation.document.js";
+import {
   FeedbackAttentionReasonNotFoundError,
   FeedbackConversationActionNotAllowedError,
   PostEventFeedbackConversationService,
@@ -64,6 +72,51 @@ const eventRow: EventRow = {
   createdAt: new Date("2026-07-01T00:00:00.000Z"),
   updatedAt: new Date("2026-07-01T00:00:00.000Z"),
 };
+
+describe("feedbackConversationMessageSchema", () => {
+  it("renders a message longer than we are allowed to send", () => {
+    // A 4,476-character message made the whole conversation unopenable: the
+    // read model bounded transcript text by the *send* limit, so the detail
+    // endpoint 500'd and an operator could not read any of the thread. The
+    // stored limit is deliberately far above the send limit precisely because
+    // people write their way up to the hard thing, and the tail this refused
+    // to render is where a disclosure lives.
+    const message = {
+      id: "6f0f2f8a-2b73-5a02-9d0a-3f0b8f5b1c21",
+      seq: 1,
+      actor: "participant" as const,
+      text: "α".repeat(FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH + 380),
+      providerMessageId: null,
+      ingressId: null,
+      outboxId: null,
+      attention: null,
+      at: "2026-07-27T10:00:00.000Z",
+      delivery: null,
+    };
+
+    expect(feedbackConversationMessageSchema.parse(message).text).toHaveLength(
+      FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH + 380,
+    );
+    expect(
+      feedbackConversationMessageSchema.safeParse({
+        ...message,
+        text: "α".repeat(
+          FEEDBACK_CONVERSATION_MESSAGE_MAX_STORED_TEXT_LENGTH + 1,
+        ),
+      }).success,
+    ).toBe(false);
+  });
+
+  it("still holds a staff-written message to what WhatsApp will accept", () => {
+    // The other half of the same distinction: reading is bounded by what was
+    // stored, writing by what can actually leave the building.
+    expect(
+      sendFeedbackStaffMessageSchema.safeParse({
+        text: "α".repeat(FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH + 1),
+      }).success,
+    ).toBe(false);
+  });
+});
 
 describe("conversationCapabilities", () => {
   it("exposes take-over only while open under bot control", () => {

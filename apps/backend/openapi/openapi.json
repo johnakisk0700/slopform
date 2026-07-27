@@ -2062,7 +2062,7 @@
                   "type": "integer"
                 },
                 "text": {
-                  "maxLength": 4096,
+                  "maxLength": 64000,
                   "minLength": 1,
                   "type": "string"
                 }

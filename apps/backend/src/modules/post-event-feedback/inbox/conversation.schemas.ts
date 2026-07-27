@@ -15,6 +15,7 @@ import {
 } from "../../../infrastructure/auth/auth.schemas.js";
 import {
   FEEDBACK_CONVERSATION_MAX_ATTENTION_REASONS,
+  FEEDBACK_CONVERSATION_MESSAGE_MAX_STORED_TEXT_LENGTH,
   FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH,
 } from "../post-event-feedback-conversation.document.js";
 import {
@@ -112,7 +113,17 @@ export const feedbackConversationMessageSchema = z
     id: z.uuid(),
     seq: z.number().int().positive(),
     actor: z.enum(["bot", "participant", "staff", "system"]),
-    text: z.string().min(1).max(FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH),
+    // The *stored* limit, not the send limit. These are the words somebody
+    // actually wrote, replayed for an operator to read; what we are allowed to
+    // say back is a different question and a different constant. Bounded by the
+    // send limit, one 4,476-character message made the whole conversation
+    // unopenable — a 500 on the detail endpoint — and people write their way up
+    // to the hard thing, so the tail this refused to render is exactly where a
+    // disclosure lives.
+    text: z
+      .string()
+      .min(1)
+      .max(FEEDBACK_CONVERSATION_MESSAGE_MAX_STORED_TEXT_LENGTH),
     providerMessageId: z.string().min(1).max(200).nullable(),
     ingressId: z.uuid().nullable(),
     outboxId: z.uuid().nullable(),
