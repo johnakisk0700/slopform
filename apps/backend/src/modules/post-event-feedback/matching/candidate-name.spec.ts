@@ -75,6 +75,72 @@ describe("resolvePostEventFeedbackCandidateByName", () => {
     ).toBeUndefined();
   });
 
+  it("resolves a first name against a candidate carrying a surname", () => {
+    // A display name is normally the participant's preferred name — one word —
+    // which is why comparing whole names worked. Where it carries a surname,
+    // «O Tasos itan o kalyteros» resolved nobody and the directed answer was
+    // dropped for a person named plainly and unambiguously.
+    const TASOS = {
+      participantId: "p-tasos",
+      displayName: "Τάσος Γαμωσταυρίδης",
+    };
+    const MARIA = { participantId: "p-maria", displayName: "Μαρία Φλερτατζού" };
+
+    expect(
+      resolvePostEventFeedbackCandidateByName("Τάσος", [TASOS, MARIA]),
+    ).toMatchObject({ participantId: "p-tasos" });
+    expect(
+      resolvePostEventFeedbackCandidateByName("Tasos", [TASOS, MARIA]),
+    ).toMatchObject({ participantId: "p-tasos" });
+    // The surname alone still names exactly one person.
+    expect(
+      resolvePostEventFeedbackCandidateByName("Γαμωσταυρίδης", [TASOS, MARIA]),
+    ).toMatchObject({ participantId: "p-tasos" });
+    // And the full name keeps working in either alphabet.
+    expect(
+      resolvePostEventFeedbackCandidateByName("Tasos Gamostavridis", [
+        TASOS,
+        MARIA,
+      ]),
+    ).toMatchObject({ participantId: "p-tasos" });
+  });
+
+  it("still refuses two people who share a first name but not a surname", () => {
+    // The wine table really has two Κώστας. Recognising first names must not
+    // become choosing between them — that attributes an opinion to the wrong
+    // real person, which is worse than recording nothing.
+    const MYTO = {
+      participantId: "p-myto",
+      displayName: "Κώστας Μυτοχωνάκιας",
+    };
+    const SVISTO = {
+      participantId: "p-svisto",
+      displayName: "Κώστας Σβηστομετανιώτης",
+    };
+
+    expect(
+      resolvePostEventFeedbackCandidateByName("Κώστας", [MYTO, SVISTO]),
+    ).toBeUndefined();
+    expect(
+      resolvePostEventFeedbackCandidateByName("kostas", [MYTO, SVISTO]),
+    ).toBeUndefined();
+    // Each is still reachable by the half that is his alone.
+    expect(
+      resolvePostEventFeedbackCandidateByName("Μυτοχωνάκιας", [MYTO, SVISTO]),
+    ).toMatchObject({ participantId: "p-myto" });
+  });
+
+  it("does not let an initial or an article stand for a person", () => {
+    // «Κώστας Π.» has one addressable word, not two, or every candidate with a
+    // «Π.» would answer to it.
+    expect(
+      resolvePostEventFeedbackCandidateByName("Π.", [KOSTAS_P, NIKOS]),
+    ).toBeUndefined();
+    expect(
+      resolvePostEventFeedbackCandidateByName("Κώστας", [KOSTAS_P, NIKOS]),
+    ).toMatchObject({ participantId: "p-kostas-p" });
+  });
+
   it("resolves nothing for an unknown name or an empty mention", () => {
     expect(
       resolvePostEventFeedbackCandidateByName("Ρούλα", [NIKOS, ELENI]),

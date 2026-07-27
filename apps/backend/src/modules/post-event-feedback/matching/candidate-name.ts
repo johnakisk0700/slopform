@@ -119,6 +119,44 @@ export interface PostEventFeedbackNameCandidate {
 }
 
 /**
+ * Shortest word that may stand in for a whole person.
+ *
+ * Keeps initials and the articles Greek names arrive with — «ο», «η», `o`, `i`,
+ * «Κώστας Π.» — from being addressable on their own.
+ */
+const MIN_ADDRESSABLE_PART_LENGTH = 3;
+
+/**
+ * Every skeleton a candidate may be addressed by: the whole display name, and
+ * each word in it.
+ *
+ * A display name is usually one word, because it is the participant's preferred
+ * name — and there the whole name *is* the first name, which is why comparing
+ * whole names worked for so long. When it holds more than one word, «μου άρεσε ο
+ * Τάσος» compared a first name against «Τάσος Γαμωσταυρίδης» and resolved
+ * nobody, so a directed answer was dropped for a person who was named plainly
+ * and unambiguously.
+ *
+ * This widens who we recognise, never who we choose between: the caller still
+ * requires exactly one matching candidate, so two Κώστας at one table go on
+ * resolving to nobody.
+ */
+function candidateNameKeys(displayName: string): readonly string[] {
+  const keys = new Set<string>();
+  const whole = foldPostEventFeedbackName(displayName);
+  if (whole.length > 0) {
+    keys.add(whole);
+  }
+  for (const part of displayName.split(/\s+/u)) {
+    const folded = foldPostEventFeedbackName(part);
+    if (folded.length >= MIN_ADDRESSABLE_PART_LENGTH) {
+      keys.add(folded);
+    }
+  }
+  return [...keys];
+}
+
+/**
  * The single candidate a mentioned name resolves to, or `undefined`.
  *
  * `undefined` covers both "nobody" and "more than one", which the caller must
@@ -134,8 +172,8 @@ export function resolvePostEventFeedbackCandidateByName(
     return undefined;
   }
 
-  const matches = candidates.filter(
-    (candidate) => foldPostEventFeedbackName(candidate.displayName) === folded,
+  const matches = candidates.filter((candidate) =>
+    candidateNameKeys(candidate.displayName).includes(folded),
   );
   return matches.length === 1 ? matches[0] : undefined;
 }
