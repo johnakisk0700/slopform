@@ -1,4 +1,4 @@
-import { Avatar, Button } from "@heroui/react";
+import { Avatar, Button, ListBox, Select, TextArea } from "@heroui/react";
 import { clsx } from "clsx";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -16,7 +16,7 @@ import {
   UserRound,
   UserRoundX,
 } from "lucide-react";
-import { useId, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 
 import { useGetParticipant } from "../../../api/generated/participants";
@@ -35,6 +35,13 @@ import {
   staffOriginBadge,
   type FeedbackBadge,
 } from "../../../features/feedback/labels";
+import {
+  STAFF_CLOSE_NOTE_MAX_LENGTH,
+  STAFF_CLOSE_REASONS,
+  staffCloseReasonLabel,
+  type StaffCloseInput,
+  type StaffCloseReason,
+} from "../../../features/feedback/staffClose";
 import {
   formatAgeBand,
   formatNeighborhood,
@@ -135,7 +142,7 @@ interface ConversationActionsProps {
   conversation: FeedbackConversationDetailDtoOutput;
   onTakeOver: () => Promise<void>;
   onResumeBot: () => Promise<void>;
-  onClose: () => Promise<void>;
+  onClose: (input: StaffCloseInput) => Promise<void>;
   pendingAction: ConversationPendingAction;
 }
 
@@ -151,6 +158,9 @@ export function ConversationActions({
   onClose,
   pendingAction,
 }: ConversationActionsProps) {
+  const noteId = useId();
+  const [closeReason, setCloseReason] = useState<StaffCloseReason | null>(null);
+  const [closeNote, setCloseNote] = useState("");
   const capabilities = conversation.capabilities;
   const hasAnyAction =
     capabilities.canTakeOver ||
@@ -211,14 +221,78 @@ export function ConversationActions({
             <>
               Closes {name}&rsquo;s conversation as cancelled and cancels
               anything still queued for them. It cannot be reopened, and no
-              other conversation is affected.
+              other conversation is affected. Say why — a month later the
+              lifecycle only remembers that a human closed it.
             </>
           }
           confirmLabel="Close conversation"
           isPending={pendingAction === "close"}
           isDisabled={pendingAction !== null}
-          onConfirm={onClose}
-        />
+          isConfirmDisabled={closeReason === null}
+          onConfirm={async () => {
+            if (closeReason === null) {
+              return;
+            }
+            const trimmed = closeNote.trim();
+            await onClose({
+              reason: closeReason,
+              ...(trimmed === "" ? {} : { note: trimmed }),
+            });
+            setCloseReason(null);
+            setCloseNote("");
+          }}
+        >
+          <div className="grid gap-1.5">
+            <span className="jts-overline text-ink-muted">Reason</span>
+            <Select
+              aria-label="Why this conversation is closing"
+              placeholder="Choose a reason"
+              selectedKey={closeReason}
+              onSelectionChange={(key) => {
+                const value = key == null ? null : String(key);
+                setCloseReason(
+                  value !== null &&
+                    (STAFF_CLOSE_REASONS as readonly string[]).includes(value)
+                    ? (value as StaffCloseReason)
+                    : null,
+                );
+              }}
+            >
+              <Select.Trigger className="w-full">
+                <Select.Value />
+                <Select.Indicator />
+              </Select.Trigger>
+              <Select.Popover>
+                <ListBox>
+                  {STAFF_CLOSE_REASONS.map((reason) => (
+                    <ListBox.Item
+                      key={reason}
+                      id={reason}
+                      textValue={staffCloseReasonLabel(reason)}
+                    >
+                      {staffCloseReasonLabel(reason)}
+                    </ListBox.Item>
+                  ))}
+                </ListBox>
+              </Select.Popover>
+            </Select>
+          </div>
+          <div className="grid gap-1.5">
+            <label htmlFor={noteId} className="jts-overline text-ink-muted">
+              Note (optional)
+            </label>
+            <TextArea
+              id={noteId}
+              value={closeNote}
+              onChange={(change) => setCloseNote(change.target.value)}
+              maxLength={STAFF_CLOSE_NOTE_MAX_LENGTH}
+              rows={2}
+              disabled={pendingAction === "close"}
+              placeholder="Anything a later reader should know…"
+              className="w-full"
+            />
+          </div>
+        </ConfirmAction>
       ) : null}
     </div>
   );

@@ -272,6 +272,8 @@ function feedbackConversation(
     remindedAt: null,
     reminderCount: 0,
     awaitingHuman: false,
+    extractionFallbackAckSent: false,
+    staffClose: null,
     createdAt,
     updatedAt,
   };

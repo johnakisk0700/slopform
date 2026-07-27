@@ -547,13 +547,14 @@ export function FeedbackInboxPage() {
                       "The bot could not be resumed.",
                     )
                   }
-                  onClose={() =>
+                  onClose={(input) =>
                     runConversationAction(
                       "close",
                       () =>
                         closeConversation.mutateAsync({
                           campaignId,
                           conversationId: conversation.id,
+                          data: input,
                         }),
                       "The conversation could not be closed.",
                     )

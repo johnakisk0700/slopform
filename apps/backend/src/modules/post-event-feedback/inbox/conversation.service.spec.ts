@@ -28,6 +28,7 @@ import type { FeedbackResultsRepository } from "../extraction/results.repository
 import type { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
 import { conversationCapabilities } from "./conversation.view.js";
 import {
+  closeFeedbackConversationSchema,
   feedbackConversationMessageSchema,
   sendFeedbackStaffMessageSchema,
 } from "./conversation.schemas.js";
@@ -429,6 +430,10 @@ describe("PostEventFeedbackConversationService", () => {
         reason: "cancelled" as const,
         closedAt: new Date("2026-07-25T02:00:00.000Z"),
       },
+      staffClose: {
+        reason: "handled_offline" as const,
+        note: "Called them back",
+      },
     };
     conversations.findById
       .mockResolvedValueOnce(open)
@@ -441,6 +446,7 @@ describe("PostEventFeedbackConversationService", () => {
     const first = await service.close(
       campaignId,
       conversationId,
+      { reason: "handled_offline", note: "Called them back" },
       "admin-1",
       "req-1",
     );
@@ -449,21 +455,106 @@ describe("PostEventFeedbackConversationService", () => {
       reason: "cancelled",
       closedAt: "2026-07-25T02:00:00.000Z",
     });
+    expect(first.staffClose).toEqual({
+      reason: "handled_offline",
+      note: "Called them back",
+    });
     expect(first.capabilities.canClose).toBe(false);
+    expect(conversations.close).toHaveBeenCalledWith({
+      conversationId,
+      reason: "cancelled",
+      at: expect.any(Date),
+      staffClose: {
+        reason: "handled_offline",
+        note: "Called them back",
+      },
+    });
     expect(repository.cancelQueuedOutboxForConversation).toHaveBeenCalled();
     expect(auditAppend).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ action: "feedback_conversation.closed" }),
+      expect.objectContaining({
+        action: "feedback_conversation.closed",
+        context: {
+          campaignId,
+          reason: "cancelled",
+          staffReason: "handled_offline",
+          staffNote: "Called them back",
+        },
+      }),
     );
 
     const second = await service.close(
       campaignId,
       conversationId,
+      { reason: "abusive" },
       "admin-1",
       "req-2",
     );
     expect(second.lifecycle.reason).toBe("cancelled");
+    expect(second.staffClose).toEqual({
+      reason: "handled_offline",
+      note: "Called them back",
+    });
     expect(conversations.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("records a staff close without a note and publishes null on the read model", async () => {
+    const { service, conversations, auditAppend } = createService();
+    const open = openConversation();
+    const closed = {
+      ...open,
+      lifecycle: {
+        state: "closed" as const,
+        reason: "cancelled" as const,
+        closedAt: new Date("2026-07-25T02:00:00.000Z"),
+      },
+      staffClose: { reason: "abusive" as const, note: null },
+    };
+    conversations.findById.mockResolvedValue(open);
+    conversations.close.mockResolvedValue({
+      changed: true,
+      conversation: closed,
+    });
+
+    const result = await service.close(
+      campaignId,
+      conversationId,
+      { reason: "abusive" },
+      "admin-1",
+      "req-1",
+    );
+
+    expect(result.staffClose).toEqual({ reason: "abusive", note: null });
+    expect(auditAppend).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        context: {
+          campaignId,
+          reason: "cancelled",
+          staffReason: "abusive",
+        },
+      }),
+    );
+  });
+
+  it("rejects a staff close body with a missing or unknown reason", () => {
+    // The controller never reaches the service with a bare close: Zod refuses
+    // the request first. A close with no why is exactly the month-later
+    // confusion this body exists to stop.
+    expect(closeFeedbackConversationSchema.safeParse({}).success).toBe(false);
+    expect(
+      closeFeedbackConversationSchema.safeParse({ reason: "cancelled" })
+        .success,
+    ).toBe(false);
+    expect(
+      closeFeedbackConversationSchema.safeParse({ reason: "abusive" }).success,
+    ).toBe(true);
+    expect(
+      closeFeedbackConversationSchema.parse({
+        reason: "other",
+        note: "  followed up by phone  ",
+      }),
+    ).toEqual({ reason: "other", note: "followed up by phone" });
   });
 
   it("rejects staff close on a STOP-closed conversation", async () => {
@@ -478,7 +569,13 @@ describe("PostEventFeedbackConversationService", () => {
     });
 
     await expect(
-      service.close(campaignId, conversationId, "admin-1", "req-1"),
+      service.close(
+        campaignId,
+        conversationId,
+        { reason: "other" },
+        "admin-1",
+        "req-1",
+      ),
     ).rejects.toBeInstanceOf(FeedbackConversationActionNotAllowedError);
     expect(conversations.close).not.toHaveBeenCalled();
   });
@@ -1162,6 +1259,7 @@ function openConversation(
     remindedAt: null,
     reminderCount: 0,
     awaitingHuman: false,
+    extractionFallbackAckSent: false,
     createdAt: now,
     updatedAt: now,
     ...overrides,

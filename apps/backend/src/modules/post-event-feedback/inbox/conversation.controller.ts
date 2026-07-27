@@ -26,6 +26,7 @@ import { FeedbackConversationNotFoundError } from "../post-event-feedback-conver
 import { FeedbackCampaignNotFoundError } from "../campaign/campaign.service.js";
 import {
   AddFeedbackConversationNoteDto,
+  CloseFeedbackConversationDto,
   CorrectFeedbackConversationAnswerDto,
   FeedbackAnswerIdParamDto,
   FeedbackAnswerViewDto,
@@ -163,6 +164,7 @@ export class PostEventFeedbackConversationController {
   @ZodResponse({ status: 200, type: FeedbackConversationDetailDto })
   close(
     @Param() parameters: FeedbackConversationIdParamDto,
+    @Body() input: CloseFeedbackConversationDto,
     @CurrentUserId() userId: PrincipalDto,
     @RequestCorrelationId() correlationId: CorrelationIdDto,
   ): Promise<FeedbackConversationDetailDto> {
@@ -170,6 +172,7 @@ export class PostEventFeedbackConversationController {
       this.conversations.close(
         parameters.campaignId,
         parameters.conversationId,
+        input,
         String(userId),
         String(correlationId),
       ),

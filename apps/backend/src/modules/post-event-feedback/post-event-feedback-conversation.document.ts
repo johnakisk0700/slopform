@@ -85,6 +85,43 @@ export const feedbackConversationLifecycleSchema = z
     }
   });
 
+/**
+ * Why a human closed a conversation — operator intent, not lifecycle state.
+ *
+ * Deliberately **not** folded into `lifecycle.reason`. That enum answers a
+ * state-machine question (may anything still act on this thread); every staff
+ * close answers it the same way (`cancelled`). Putting abusive / unresponsive /
+ * handled offline into that enum would drag the STOP-override guard, the
+ * idempotency checks and the admin badge vocabulary into a taxonomy that
+ * expresses why somebody clicked Close, not what kind of ending this is.
+ *
+ * Bounded and optional on the document so a month-later read can tell an
+ * abusive thread from one handled by phone without opening `audit_events`.
+ * Null on every non-staff close, and cleared when STOP overrides a softer
+ * reason.
+ */
+export const FEEDBACK_STAFF_CLOSE_REASONS = [
+  "abusive",
+  "unresponsive",
+  "handled_offline",
+  "duplicate",
+  "other",
+] as const;
+
+export const FEEDBACK_STAFF_CLOSE_NOTE_MAX_LENGTH = 500;
+
+export const feedbackConversationStaffCloseSchema = z
+  .object({
+    reason: z.enum(FEEDBACK_STAFF_CLOSE_REASONS),
+    note: z
+      .string()
+      .trim()
+      .min(1)
+      .max(FEEDBACK_STAFF_CLOSE_NOTE_MAX_LENGTH)
+      .nullable(),
+  })
+  .strict();
+
 export const feedbackConversationControlSchema = z
   .object({
     mode: z.enum(["bot", "human"]),
@@ -252,6 +289,40 @@ export const feedbackConversationDocumentSchema = z
      * Cleared when a person engages — takes over, or hands back to the bot.
      */
     awaitingHuman: z.boolean().default(false),
+    /**
+     * The participant has already received the deterministic extraction-fallback
+     * acknowledgement for this conversation.
+     *
+     * Provider outages can outlast several participant messages; each dead run
+     * used to enqueue the same canned apology plus the current goal question,
+     * which read as a machine looping at somebody who was still trying to
+     * answer. After the first one goes out, later permanent failures still file
+     * notes and raise attention, but the thread stays quiet until extraction
+     * works again or a person takes over.
+     *
+     * Deliberately **not** cleared when extraction next succeeds: the
+     * participant was already told once, and sending the same line again after
+     * a brief recovery adds nothing — it only re-opens the "broken bot"
+     * impression. A second outage late in the questionnaire is rarer than
+     * sounding like a stuck recording.
+     *
+     * Defaulted rather than required so conversations written before the ledger
+     * existed parse as "not yet acknowledged" instead of failing validation.
+     */
+    extractionFallbackAckSent: z.boolean().default(false),
+    /**
+     * Why a human closed this conversation, when they did.
+     *
+     * Null for every bot close (`completed` / `stopped` / `expired`) and for
+     * conversations written before staff closes carried a reason. Cleared when
+     * STOP overrides a softer close, so an abusive label cannot survive a
+     * consent withdrawal that superseded it.
+     *
+     * Optional rather than defaulted: callers outside this inbox (extraction
+     * fixtures, older documents) omit it, and the read model treats absence as
+     * null. Writing always sets it explicitly on close.
+     */
+    staffClose: feedbackConversationStaffCloseSchema.nullable().optional(),
     createdAt: z.date(),
     updatedAt: z.date(),
   })
@@ -334,6 +405,11 @@ export type FeedbackConversationGoal = z.infer<
 export type FeedbackConversationLifecycleReason = NonNullable<
   FeedbackConversationDocument["lifecycle"]["reason"]
 >;
+export type FeedbackConversationStaffClose = NonNullable<
+  NonNullable<FeedbackConversationDocument["staffClose"]>
+>;
+export type FeedbackConversationStaffCloseReason =
+  FeedbackConversationStaffClose["reason"];
 export type FeedbackConversationControlSource =
   FeedbackConversationDocument["control"]["source"];
 export type FeedbackConversationActor = FeedbackConversationMessage["actor"];

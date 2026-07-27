@@ -8,12 +8,20 @@ interface ConfirmActionProps {
   heading: string;
   /** What pressing confirm will actually do, in plain words. */
   description: ReactNode;
+  /**
+   * Extra controls the operator must fill before confirming — a reason select
+   * on close, for example. Rendered under the description so the consequence
+   * still leads.
+   */
+  children?: ReactNode;
   /** Label on the confirming button. */
   confirmLabel: string;
   /** `danger` for anything that closes, cancels or messages a participant. */
   tone?: "default" | "danger";
   isDisabled?: boolean;
   isPending?: boolean;
+  /** Blocks confirm until a required field in `children` is filled. */
+  isConfirmDisabled?: boolean;
   icon?: ReactNode;
   size?: "sm" | "md";
   onConfirm: () => Promise<void>;
@@ -33,10 +41,12 @@ export function ConfirmAction({
   label,
   heading,
   description,
+  children,
   confirmLabel,
   tone = "default",
   isDisabled = false,
   isPending = false,
+  isConfirmDisabled = false,
   icon,
   size = "sm",
   onConfirm,
@@ -75,8 +85,9 @@ export function ConfirmAction({
               </Modal.Heading>
               <Modal.CloseTrigger />
             </Modal.Header>
-            <Modal.Body>
+            <Modal.Body className="grid gap-4">
               <div className="text-sm text-ink-muted">{description}</div>
+              {children}
             </Modal.Body>
             <Modal.Footer className="flex justify-end gap-3">
               <Button
@@ -88,7 +99,7 @@ export function ConfirmAction({
               </Button>
               <Button
                 variant={tone === "danger" ? "danger" : "primary"}
-                isDisabled={isPending}
+                isDisabled={isPending || isConfirmDisabled}
                 onPress={() => {
                   void handleConfirm();
                 }}

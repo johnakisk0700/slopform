@@ -49,6 +49,7 @@ import {
 import { FeedbackCampaignNotFoundError } from "../campaign/campaign.service.js";
 import type {
   AddFeedbackConversationNoteInput,
+  CloseFeedbackConversationInput,
   CorrectFeedbackConversationAnswerInput,
   FeedbackAnswerView,
   FeedbackAnswerWithdrawalView,
@@ -327,13 +328,20 @@ export class PostEventFeedbackConversationService {
   }
 
   /**
-   * Staff close with reason `cancelled` (D17). Idempotent: a second close on an
-   * already-closed conversation returns the current read model without error.
-   * A STOP-closed conversation exposes no close capability and is rejected.
+   * Staff close with lifecycle reason `cancelled` (D17). The operator's why —
+   * abusive, handled offline, and the rest — is recorded beside that, not
+   * instead of it: every human close answers the state-machine question the
+   * same way, and splitting the lifecycle enum would drag STOP-override and
+   * the badge vocabulary into an intent taxonomy.
+   *
+   * Idempotent: a second close on an already-closed conversation returns the
+   * current read model without error. A STOP-closed conversation exposes no
+   * close capability and is rejected.
    */
   async close(
     campaignId: string,
     conversationId: string,
+    input: CloseFeedbackConversationInput,
     actorId: FeedbackConversationPrincipal,
     requestId: FeedbackConversationCorrelationId,
   ): Promise<FeedbackConversationDetailView> {
@@ -364,10 +372,15 @@ export class PostEventFeedbackConversationService {
     }
 
     const at = new Date();
+    const staffClose = {
+      reason: input.reason,
+      note: input.note ?? null,
+    };
     const transition = await this.conversations.close({
       conversationId: conversation._id,
       reason: "cancelled",
       at,
+      staffClose,
     });
 
     if (transition.changed) {
@@ -383,7 +396,12 @@ export class PostEventFeedbackConversationService {
           entityType: "feedback_conversation",
           entityId: conversation._id,
           requestId,
-          context: { campaignId, reason: "cancelled" },
+          context: {
+            campaignId,
+            reason: "cancelled",
+            staffReason: staffClose.reason,
+            ...(staffClose.note ? { staffNote: staffClose.note } : {}),
+          },
         });
       });
     }
@@ -914,6 +932,12 @@ export class PostEventFeedbackConversationService {
       remindedAt: conversation.remindedAt?.toISOString() ?? null,
       createdAt: conversation.createdAt.toISOString(),
       updatedAt: conversation.updatedAt.toISOString(),
+      staffClose: conversation.staffClose
+        ? {
+            reason: conversation.staffClose.reason,
+            note: conversation.staffClose.note,
+          }
+        : null,
       capabilities: conversationCapabilities(conversation),
     };
   }

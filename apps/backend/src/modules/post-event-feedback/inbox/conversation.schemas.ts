@@ -17,6 +17,8 @@ import {
   FEEDBACK_CONVERSATION_MAX_ATTENTION_REASONS,
   FEEDBACK_CONVERSATION_MESSAGE_MAX_STORED_TEXT_LENGTH,
   FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH,
+  FEEDBACK_STAFF_CLOSE_NOTE_MAX_LENGTH,
+  FEEDBACK_STAFF_CLOSE_REASONS,
 } from "../post-event-feedback-conversation.document.js";
 import {
   feedbackConversationMessageAttentionSchema,
@@ -224,6 +226,23 @@ export const feedbackConversationDetailSchema = z
     remindedAt: z.iso.datetime().nullable(),
     createdAt: z.iso.datetime(),
     updatedAt: z.iso.datetime(),
+    /**
+     * Why a human closed this conversation. Null when the close was not a
+     * staff action, or when the conversation predates staff close reasons.
+     * The lifecycle reason stays `cancelled` either way — this is the operator
+     * intent, not a state-machine value.
+     */
+    staffClose: z
+      .object({
+        reason: z.enum(FEEDBACK_STAFF_CLOSE_REASONS),
+        note: z
+          .string()
+          .min(1)
+          .max(FEEDBACK_STAFF_CLOSE_NOTE_MAX_LENGTH)
+          .nullable(),
+      })
+      .strict()
+      .nullable(),
     capabilities: feedbackConversationCapabilitiesSchema,
   })
   .strict();
@@ -357,6 +376,27 @@ export const sendFeedbackStaffMessageSchema = z
   })
   .strict();
 
+/**
+ * Why the operator is ending this thread.
+ *
+ * Required: a close with no stated reason is the thing we are trying to stop —
+ * a month later nobody could tell an abusive thread from one handled by phone,
+ * because every human close landed as lifecycle `cancelled` with an empty
+ * audit context. The note is free text for the operator's own record and is
+ * optional; it never reaches the participant.
+ */
+export const closeFeedbackConversationSchema = z
+  .object({
+    reason: z.enum(FEEDBACK_STAFF_CLOSE_REASONS),
+    note: z
+      .string()
+      .trim()
+      .min(1)
+      .max(FEEDBACK_STAFF_CLOSE_NOTE_MAX_LENGTH)
+      .optional(),
+  })
+  .strict();
+
 export const updateFeedbackNoteReviewStatusSchema = z
   .object({
     status: z.enum(FEEDBACK_NOTE_STATUSES),
@@ -456,6 +496,9 @@ export class FeedbackAnswerWithdrawalDto extends createZodDto(
 export class SendFeedbackStaffMessageDto extends createZodDto(
   sendFeedbackStaffMessageSchema,
 ) {}
+export class CloseFeedbackConversationDto extends createZodDto(
+  closeFeedbackConversationSchema,
+) {}
 export class UpdateFeedbackNoteReviewStatusDto extends createZodDto(
   updateFeedbackNoteReviewStatusSchema,
 ) {}
@@ -487,6 +530,9 @@ export type FeedbackCampaignResultsQuery = z.infer<
 >;
 export type SendFeedbackStaffMessageInput = z.infer<
   typeof sendFeedbackStaffMessageSchema
+>;
+export type CloseFeedbackConversationInput = z.infer<
+  typeof closeFeedbackConversationSchema
 >;
 export type UpdateFeedbackNoteReviewStatusInput = z.infer<
   typeof updateFeedbackNoteReviewStatusSchema
