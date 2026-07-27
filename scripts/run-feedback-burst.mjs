@@ -62,6 +62,20 @@ const QUIET_WINDOW_MS = 45_000;
 const POLL_MS = 3_000;
 const INTRO_WAIT_MS = 120_000;
 const DEFAULT_DEADLINE_MS = 15 * 60 * 1_000;
+// Settlement can still flip after the quiet window with no new messages — the
+// settle rule itself waits `QUIET_WINDOW_MS + 5s` after the last inject. Count
+// stalls only once every unsettled row is past that, then give up after a few
+// unchanged polls. Without this a single stuck conversation burns the full
+// fifteen-minute deadline; a shorter blind timer would cut off a slow but
+// healthy extraction that is still producing replies.
+// Sixty seconds, not fifteen. The fingerprint covers every conversation, so a
+// stall means nothing moved anywhere — but at the tail of a run only one or two
+// are left, and both may be inside a single extraction call. A paid model call
+// can take half a minute, and calling those two stuck would report a phantom
+// exactly like the one this early exit was added to stop chasing. Sixty seconds
+// of complete stillness across the whole corpus is a dead system, and it still
+// returns fourteen of the fifteen minutes.
+const STALL_POLLS = 20;
 
 const repositoryRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -314,6 +328,9 @@ async function main() {
 
     const deadlineAt = Date.now() + deadlineMs;
     let timedOut = false;
+    let gaveUpEarly = false;
+    let previousProgressKey = null;
+    let unchangedPolls = 0;
     while (true) {
       const snapshot = await collectSnapshot({
         apiBase,
@@ -342,6 +359,33 @@ async function main() {
         console.error("Deadline reached with unsettled conversations.");
         break;
       }
+      // Fingerprint settled membership and every conversation's message count.
+      // Lifecycle-only thrash without a new message or a newly settled row is
+      // exactly the stuck case this exit is for.
+      const progressKey = snapshot.conversations
+        .map(
+          (row) =>
+            `${row.personaId}:${row.settled ? "1" : "0"}:${row.messageCount}`,
+        )
+        .sort()
+        .join("|");
+      const waitingOnQuiet = unsettled.some((row) => !row.quietElapsed);
+      if (!waitingOnQuiet && progressKey === previousProgressKey) {
+        unchangedPolls += 1;
+        if (unchangedPolls >= STALL_POLLS) {
+          gaveUpEarly = true;
+          console.error(
+            `Gave up early: no settlement progress for ${STALL_POLLS} polls (~${(STALL_POLLS * POLL_MS) / 1_000}s) with nothing in flight.`,
+          );
+          console.error(
+            `Unsettled personas: ${unsettled.map((row) => row.personaId).join(", ")}`,
+          );
+          break;
+        }
+      } else {
+        unchangedPolls = 0;
+        previousProgressKey = progressKey;
+      }
       await sleep(POLL_MS);
     }
 
@@ -359,8 +403,12 @@ async function main() {
       ...findDuplicateOutbound(finalSnapshot),
       ...findCrossConversationCitations(finalSnapshot),
       ...findLostParticipantText(finalSnapshot, byPersonaId),
-      ...(timedOut
-        ? findCampaignsNotTerminal(finalSnapshot, byCampaignSlug)
+      ...(timedOut || gaveUpEarly
+        ? findCampaignsNotTerminal(finalSnapshot, byCampaignSlug, {
+            when: gaveUpEarly
+              ? "when settlement gave up early"
+              : "at the deadline",
+          })
         : []),
       ...(await findFailedJobs(finalSnapshot)),
     ];
@@ -895,6 +943,8 @@ async function collectSnapshot({
         answerRows,
         noteRows,
         observedModel,
+        messageCount: detail.messages.length,
+        quietElapsed,
         settled,
         adminBase,
       });
@@ -1133,7 +1183,11 @@ function findLostParticipantText(snapshot, byPersonaId) {
   return findings;
 }
 
-function findCampaignsNotTerminal(snapshot, byCampaignSlug) {
+function findCampaignsNotTerminal(
+  snapshot,
+  byCampaignSlug,
+  { when = "at the deadline" } = {},
+) {
   const findings = [];
   for (const campaign of byCampaignSlug.values()) {
     const open = snapshot.conversations.filter(
@@ -1145,7 +1199,7 @@ function findCampaignsNotTerminal(snapshot, byCampaignSlug) {
     if (open.length > 0) {
       findings.push({
         kind: "campaign_not_terminal",
-        detail: `Campaign ${campaign.slug} still had ${open.length} unsettled open conversation(s) at the deadline`,
+        detail: `Campaign ${campaign.slug} still had ${open.length} unsettled open conversation(s) ${when}`,
         conversationIds: open.map((row) => row.conversationId),
       });
     }
