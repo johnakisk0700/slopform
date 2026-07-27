@@ -60,6 +60,7 @@ export const OPENAPI_EMIT_ENVIRONMENT: Readonly<Record<string, string>> = {
   WASENDER_WEBHOOK_ENABLED: "false",
   WASENDER_WEBHOOK_SECRET: "",
   FEEDBACK_SIMULATOR_ENABLED: "false",
+  FEEDBACK_EXTRACTION_STUB: "false",
   WEB_ORIGIN: "http://localhost:3000",
 };
 

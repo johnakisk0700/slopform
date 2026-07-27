@@ -88,6 +88,10 @@ hooks before the application loads those libraries.
   evaluator; production ignores the flag and cannot mount either route set.
   Real-model runs still use the worker-wide `FEEDBACK_EXTRACTION_MODEL` and
   require `--confirm-paid-run`.
+  `FEEDBACK_EXTRACTION_STUB=true` replaces the worker extraction model with the
+  deterministic burst script for multi-campaign rehearsal. It requires the
+  simulator gate and is refused in production — a scripted model outside the
+  simulator would silently lie about what the system is running.
   `WASENDER_WEBHOOK_ENABLED=true` separately requires a 32-character minimum
   `WASENDER_WEBHOOK_SECRET` and mounts the public provider callback only in the
   HTTP graph. See [Wasender integration](wasender.md); leave the webhook off

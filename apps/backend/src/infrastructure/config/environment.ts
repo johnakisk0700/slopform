@@ -207,6 +207,13 @@ export const environmentSchema = observabilityEnvironmentSchema
      */
     FEEDBACK_SIMULATOR_ENABLED: booleanFromEnvironment,
     /**
+     * Rehearsal-only: replace the real extraction model with the deterministic
+     * burst stub. Requires `FEEDBACK_SIMULATOR_ENABLED` and a non-production
+     * `NODE_ENV` — a scripted model outside the simulator is a silent lie
+     * about what the system is running.
+     */
+    FEEDBACK_EXTRACTION_STUB: booleanFromEnvironment,
+    /**
      * D11/D-b: hours of participant silence between nudges.
      *
      * It is the rung spacing of a ladder, not a one-off delay: nudge N is due
@@ -329,6 +336,13 @@ export const environmentSchema = observabilityEnvironmentSchema
           path: ["FEEDBACK_SIMULATOR_ENABLED"],
         });
       }
+      if (environment.FEEDBACK_EXTRACTION_STUB) {
+        context.addIssue({
+          code: "custom",
+          message: "FEEDBACK_EXTRACTION_STUB cannot be enabled in production",
+          path: ["FEEDBACK_EXTRACTION_STUB"],
+        });
+      }
     }
 
     if (
@@ -339,6 +353,18 @@ export const environmentSchema = observabilityEnvironmentSchema
         code: "custom",
         message: "FEEDBACK_SIMULATOR_ENABLED requires TRANSPORT_MODE=simulated",
         path: ["FEEDBACK_SIMULATOR_ENABLED"],
+      });
+    }
+
+    if (
+      environment.FEEDBACK_EXTRACTION_STUB &&
+      !environment.FEEDBACK_SIMULATOR_ENABLED
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "FEEDBACK_EXTRACTION_STUB requires FEEDBACK_SIMULATOR_ENABLED=true",
+        path: ["FEEDBACK_EXTRACTION_STUB"],
       });
     }
 

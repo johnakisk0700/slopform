@@ -882,6 +882,21 @@ When `FEEDBACK_SIMULATOR_ENABLED=true`, `NODE_ENV` is not `production`, and
 | `POST /dev/feedback/simulator/runs`      | Explicitly confirmed paid run. Repairs a missing intro transcript idempotently, then writes scenario messages through normal ingress; it never supplies a per-run model override.                                              |
 | `GET /dev/feedback/simulator/runs/:id`   | Poll ordinary ingress, Mongo cursor/model, results, run-created outbox rows and their simulated sink rows.                                                                                                                     |
 
+The same gate also mounts
+[`PostEventFeedbackBurstHttpModule`](../../../apps/backend/src/modules/post-event-feedback/burst/http.module.ts):
+
+| Operation                         | Purpose                                                                                                                                                |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GET /dev/feedback/burst/catalog` | Read the three rehearsal campaigns and the eighteen personas (id, campaign, ordinal, display name, phone, quirk, mirrors, messages, expected outcome). |
+
+`FEEDBACK_EXTRACTION_STUB=true` (requires the simulator gate, refused in
+production) swaps the worker's `PostEventFeedbackExtractionModel` for
+[`ScriptedBurstExtractionModel`](../../../apps/backend/src/modules/post-event-feedback/burst/scripted-extraction-model.service.ts)
+at module construction and logs one unmistakable warning. The stub answers from
+the persona catalogue by parsing the rendered Greek prompt so a concurrent
+rehearsal isolates mechanism defects from model defects. Usage token counts are
+always `null` so nothing later reads them as billing.
+
 The published `openapi.json` keeps `FEEDBACK_SIMULATOR_ENABLED=false`, so these
 routes stay out of the generated admin client. The admin product screen is not
 an eval runner; it retains only the existing manual inject/thread composer.
@@ -945,7 +960,8 @@ read-only preflight, paid confirmation, live candidate rendering, cumulative
 leading-edge eligibility, production rejection, failed extraction precedence
 and completion only after the run-created outbox reaches the simulated sink.
 They use fakes and never call a provider. Composition tests assert production
-cannot enable the HTTP simulator.
+cannot enable the HTTP simulator or the extraction stub, and that the worker
+factory returns the real model when `FEEDBACK_EXTRACTION_STUB` is off.
 
 ## WP3 conversation persistence (implemented)
 

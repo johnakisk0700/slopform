@@ -41,6 +41,7 @@ describe("validateEnvironment", () => {
     expect(environment.WASENDER_WEBHOOK_SECRET).toBeUndefined();
     expect(environment.TRANSPORT_MODE).toBe("simulated");
     expect(environment.FEEDBACK_SIMULATOR_ENABLED).toBe(false);
+    expect(environment.FEEDBACK_EXTRACTION_STUB).toBe(false);
     expect(environment.FEEDBACK_REMINDER_AFTER_HOURS).toBe(24);
     expect(environment.FEEDBACK_EXPIRE_AFTER_HOURS).toBe(72);
     expect(environment.FEEDBACK_INGRESS_PENDING_RECOVERY_MINUTES).toBe(5);
@@ -141,6 +142,12 @@ describe("validateEnvironment", () => {
         FEEDBACK_SIMULATOR_ENABLED: "true",
       }),
     ).toThrow(/FEEDBACK_SIMULATOR_ENABLED cannot be enabled in production/);
+    expect(() =>
+      validateEnvironment({
+        ...productionEnvironment,
+        FEEDBACK_EXTRACTION_STUB: "true",
+      }),
+    ).toThrow(/FEEDBACK_EXTRACTION_STUB cannot be enabled in production/);
   });
 
   it("requires simulated transport when the HTTP simulator is enabled", () => {
@@ -152,6 +159,18 @@ describe("validateEnvironment", () => {
         WASENDER_SESSION_API_KEY: "session-key",
       }),
     ).toThrow(/FEEDBACK_SIMULATOR_ENABLED requires TRANSPORT_MODE=simulated/);
+  });
+
+  it("requires the HTTP simulator when the extraction stub is enabled", () => {
+    expect(() =>
+      validateEnvironment({
+        ...requiredEnvironment,
+        FEEDBACK_EXTRACTION_STUB: "true",
+        FEEDBACK_SIMULATOR_ENABLED: "false",
+      }),
+    ).toThrow(
+      /FEEDBACK_EXTRACTION_STUB requires FEEDBACK_SIMULATOR_ENABLED=true/,
+    );
   });
 
   it("rejects paths and empty entries in WEB_ORIGIN", () => {

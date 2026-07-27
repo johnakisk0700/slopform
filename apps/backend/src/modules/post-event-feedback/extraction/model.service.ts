@@ -91,17 +91,58 @@ export interface FeedbackExtractionUsage {
   readonly totalTokens: number | null;
 }
 
+/**
+ * What the deterministic rehearsal stub reports as its model id.
+ *
+ * Deliberately not a registered `AssistantModel`: the id is written verbatim
+ * into `extraction.model` on the conversation and onto every result row, and a
+ * rehearsal that stamped a real provider id onto rows no provider produced
+ * would leave that fiction in the database for whoever reads it next. It is
+ * also unresolvable by `resolveProviderModel`, which is what guarantees the
+ * marker can never be used to reach OpenRouter.
+ */
+export const FEEDBACK_EXTRACTION_STUB_MODEL_ID = "stub/burst-rehearsal";
+
+/**
+ * The model id an extraction run reports having used.
+ *
+ * Wider than `AssistantModel` because a run is not always a provider call. The
+ * provider boundary below stays narrow on purpose.
+ */
+export type FeedbackExtractionModelId =
+  AssistantModel | typeof FEEDBACK_EXTRACTION_STUB_MODEL_ID;
+
 export interface FeedbackExtractionGenerationResult {
-  readonly model: AssistantModel;
+  readonly model: FeedbackExtractionModelId;
   readonly proposal: FeedbackExtractionProposal;
   readonly usage: FeedbackExtractionUsage;
 }
 
 export interface FeedbackAttentionClassificationGenerationResult {
-  readonly model: AssistantModel;
+  readonly model: FeedbackExtractionModelId;
   readonly signals: readonly FeedbackExtractionSafetySignalProposal[];
   readonly usage: FeedbackExtractionUsage;
   readonly estimatedPromptTokens: number;
+}
+
+/**
+ * Everything the extractor depends on, named so a substitute can be checked.
+ *
+ * The worker swaps in a deterministic stub for the burst rehearsal, and Nest
+ * resolves that at runtime — nothing would otherwise notice if the two drifted
+ * apart until a rehearsal died mid-run. Both the real model and the stub
+ * `implements` this, so a method added to one and missed by the other is a
+ * build error.
+ */
+export interface FeedbackExtractionModelPort {
+  readonly model: FeedbackExtractionModelId;
+  propose(
+    prompt: FeedbackExtractionPrompt,
+  ): Promise<FeedbackExtractionGenerationResult>;
+  classifyAttention(
+    messages: readonly FeedbackExtractionMessageView[],
+    targetMessageIds: readonly string[],
+  ): Promise<FeedbackAttentionClassificationGenerationResult>;
 }
 
 export function feedbackAttentionClassificationProviderOptions(
@@ -155,7 +196,7 @@ export function resolveFeedbackExtractionModel(
  * what may be written.
  */
 @Injectable()
-export class PostEventFeedbackExtractionModel {
+export class PostEventFeedbackExtractionModel implements FeedbackExtractionModelPort {
   private readonly openAiProvider: ReturnType<typeof createOpenAI> | undefined;
   private readonly openRouterProvider:
     ReturnType<typeof createOpenRouter> | undefined;

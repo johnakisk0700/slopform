@@ -19,6 +19,8 @@ import { FEEDBACK_TRANSPORT } from "./outbox/transport.js";
 import { MessageOutboxDeliveryService } from "./outbox/deliver.service.js";
 import { MessageOutboxRelayService } from "./outbox/relay.service.js";
 import { PostEventFeedbackCoreModule } from "./core.module.js";
+import { createFeedbackExtractionModel } from "./burst/create-feedback-extraction-model.js";
+import { BURST_PERSONAS } from "./burst/burst-personas.js";
 import { PostEventFeedbackExtractionFallback } from "./extraction/fallback.service.js";
 import { PostEventFeedbackExtractionModel } from "./extraction/model.service.js";
 import { PostEventFeedbackExtractor } from "./extraction/extract.service.js";
@@ -66,7 +68,12 @@ import { WasenderFeedbackTransport } from "./outbox/wasender-transport.service.j
       useClass: LoggingFeedbackOperatorAlert,
     },
     PostEventFeedbackExtractionFallback,
-    PostEventFeedbackExtractionModel,
+    {
+      provide: PostEventFeedbackExtractionModel,
+      inject: [ConfigService],
+      useFactory: (config: ConfigService<Environment, true>) =>
+        createFeedbackExtractionModel(config, BURST_PERSONAS),
+    },
     PostEventFeedbackExtractor,
     PostEventFeedbackMaterializer,
     PostEventFeedbackMetrics,

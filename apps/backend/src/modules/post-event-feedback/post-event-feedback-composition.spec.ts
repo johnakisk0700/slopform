@@ -22,6 +22,17 @@ import { PostEventFeedbackSweepService } from "./sweeps/sweep.service.js";
 import { PostEventFeedbackWorkerModule } from "./worker.module.js";
 import { PostEventFeedbackProcessor } from "./processor.js";
 
+function providerToken(provider: unknown): unknown {
+  if (
+    typeof provider === "object" &&
+    provider !== null &&
+    "provide" in provider
+  ) {
+    return (provider as { provide: unknown }).provide;
+  }
+  return provider;
+}
+
 describe("post-event feedback process composition", () => {
   it("keeps the durable consumer in the worker graph only", async () => {
     process.env.DATABASE_URL ??=
@@ -138,10 +149,14 @@ describe("post-event feedback process composition", () => {
     ) as readonly unknown[];
 
     expect(workerProviders).toContain(PostEventFeedbackExtractor);
-    expect(workerProviders).toContain(PostEventFeedbackExtractionModel);
+    expect(workerProviders.map(providerToken)).toContain(
+      PostEventFeedbackExtractionModel,
+    );
     // The HTTP process must never hold a model provider client for this
     // feature; the webhook edge only inserts a row and enqueues.
-    expect(ingressProviders).not.toContain(PostEventFeedbackExtractionModel);
+    expect(ingressProviders.map(providerToken)).not.toContain(
+      PostEventFeedbackExtractionModel,
+    );
   });
 
   it("reaches candidates only through the shared D16 events helper", () => {

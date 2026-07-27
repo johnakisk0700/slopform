@@ -23,6 +23,7 @@ import { ParticipantsHttpModule } from "./modules/participants/participants-http
 import { PostEventFeedbackCoreModule } from "./modules/post-event-feedback/core.module.js";
 import { PostEventFeedbackHttpModule } from "./modules/post-event-feedback/http.module.js";
 import { WasenderWebhookModule } from "./modules/post-event-feedback/ingress/wasender-webhook.module.js";
+import { PostEventFeedbackBurstHttpModule } from "./modules/post-event-feedback/burst/http.module.js";
 import { PostEventFeedbackSimulatorHttpModule } from "./modules/post-event-feedback/simulator/http.module.js";
 import { ReferenceHttpModule } from "./modules/reference/reference-http.module.js";
 
@@ -55,6 +56,10 @@ const StrictZodValidationPipe = createZodValidationPipe({
     ),
     ConditionalModule.registerWhen(
       PostEventFeedbackSimulatorHttpModule,
+      isFeedbackSimulatorHttpEnabled,
+    ),
+    ConditionalModule.registerWhen(
+      PostEventFeedbackBurstHttpModule,
       isFeedbackSimulatorHttpEnabled,
     ),
   ],
