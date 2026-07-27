@@ -19,18 +19,33 @@ import {
   redisWorkerConnectionFromUrl,
 } from "./redis-connection.js";
 
+/**
+ * Retry, backoff and retention for every job this deployment enqueues.
+ *
+ * Both registrations share it because both produce work. The worker is the
+ * producer of `feedback.extract.v1` and `feedback.deliver.v1` — the two jobs
+ * that call a paid provider and an external API, and therefore the two most
+ * likely to fail transiently. When only the API-side registration carried a
+ * policy, those two were enqueued with no `attempts` at all, and a single
+ * timeout or 503 was terminal on the first try.
+ *
+ * A per-`add` option still wins, which is how the outbox relay keeps its
+ * deliberate `attempts: 1` (`OUTBOX_RELAY_JOB_OPTIONS`).
+ */
+const DEFAULT_JOB_OPTIONS = {
+  attempts: 5,
+  backoff: { type: "exponential", delay: 1_000, jitter: 0.5 },
+  removeOnComplete: { age: 86_400, count: 1_000 },
+  removeOnFail: { age: 604_800, count: 5_000 },
+  stackTraceLimit: 10,
+} as const satisfies BullRootModuleOptions["defaultJobOptions"];
+
 export function createQueueProducerOptions(
   redisUrl: string,
 ): BullRootModuleOptions {
   return {
     connection: redisProducerConnectionFromUrl(redisUrl),
-    defaultJobOptions: {
-      attempts: 5,
-      backoff: { type: "exponential", delay: 1_000, jitter: 0.5 },
-      removeOnComplete: { age: 86_400, count: 1_000 },
-      removeOnFail: { age: 604_800, count: 5_000 },
-      stackTraceLimit: 10,
-    },
+    defaultJobOptions: { ...DEFAULT_JOB_OPTIONS },
     prefix: QUEUE_PREFIX,
   };
 }
@@ -40,6 +55,7 @@ export function createQueueWorkerOptions(
 ): BullRootModuleOptions {
   return {
     connection: redisWorkerConnectionFromUrl(redisUrl),
+    defaultJobOptions: { ...DEFAULT_JOB_OPTIONS },
     prefix: QUEUE_PREFIX,
   };
 }
