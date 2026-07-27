@@ -6,7 +6,31 @@ import type { FeedbackExtractionValidationResult } from "./validate-proposal.js"
 import { resolveOutbound } from "./outbound-reply.js";
 
 const copy = POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy;
-const conversation = { _id: "conv-1" } as FeedbackConversationDocument;
+const conversation = {
+  _id: "conv-1",
+  // The closing copy thanks somebody for what they told us, so whether anything
+  // was ever recorded is part of choosing it.
+  goals: [
+    {
+      key: "event_score",
+      ordinal: 1,
+      prompt: copy.event_score,
+      status: "answered",
+    },
+    { key: "liked", ordinal: 2, prompt: copy.liked, status: "asked" },
+    {
+      key: "meet_again",
+      ordinal: 3,
+      prompt: copy.meet_again,
+      status: "pending",
+    },
+    { key: "avoid", ordinal: 4, prompt: copy.avoid, status: "pending" },
+  ],
+} as FeedbackConversationDocument;
+const conversationWithNothingRecorded = {
+  ...conversation,
+  goals: conversation.goals.map((goal) => ({ ...goal, status: "skipped" })),
+} as FeedbackConversationDocument;
 
 function validated(
   overrides: Partial<FeedbackExtractionValidationResult> = {},
@@ -166,6 +190,30 @@ describe("resolveOutbound", () => {
     expect(outbound).toEqual({
       body: copy.closing,
       dedupeKey: "feedback-closing-conv-1",
+    });
+  });
+
+  it("sends the bot's own goodbye, not a thank-you, when nothing was ever recorded", () => {
+    // Μπάμπης Διπλογαμωσταυρίδης wrote «άντε γαμήσου ρε μαλακισμένο μποτ» and
+    // got «Τέλεια, ευχαριστούμε πολύ! Ό,τι άλλο θες να μας πεις, είμαστε εδώ.
+    // 🙌» — the model had declined every goal on that first message, completion
+    // swapped in the campaign copy, and the line the model actually wrote for
+    // him never left the building. There is nothing to thank him for.
+    const outbound = resolveOutbound(
+      conversationWithNothingRecorded,
+      validated({
+        nextGoal: null,
+        reply: "Δίκαιο — το ερωτηματολόγιο μόλις έφαγε πόρτα 😅",
+      }),
+      true,
+      false,
+      5,
+      copy,
+      null,
+    );
+
+    expect(outbound).toMatchObject({
+      body: "Δίκαιο — το ερωτηματολόγιο μόλις έφαγε πόρτα 😅",
     });
   });
 

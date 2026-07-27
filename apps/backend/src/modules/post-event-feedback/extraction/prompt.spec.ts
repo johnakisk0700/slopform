@@ -213,11 +213,14 @@ describe("buildFeedbackExtractionPrompt", () => {
     });
 
     // Χαρά Παραπεντού said «να αποφύγω κανέναν βασικά» and then described
-    // being grabbed at the bar. The model recorded the man as her `avoid`. It
-    // reads as protective, but it is an answer she declined to give, and an
-    // avoid changes future tables for two real people — so the bot asks.
+    // being grabbed at the bar. The model recorded the man as her `avoid` — an
+    // answer she had just declined to give, and one that changes future tables
+    // for two real people. Narrow on purpose: the first draft of this rule read
+    // as "never infer an avoid from a description" and cost Ειρήνη Καταγγελού
+    // hers, when «τον Κώστα δεν θέλω να τον ξαναδώ» was the answer itself.
     expect(prompt.system).toContain("9δ.");
-    expect(prompt.system).toContain("ΜΗΝ το μετατρέπεις μόνος σου");
+    expect(prompt.system).toContain("ΕΙΝΑΙ η απάντησή του στο avoid");
+    expect(prompt.system).toContain("ΗΔΗ πει «κανέναν να αποφύγω»");
   });
 
   it("keeps a score the participant gave on behalf of two people", () => {

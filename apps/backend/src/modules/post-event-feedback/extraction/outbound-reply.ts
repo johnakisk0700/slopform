@@ -96,7 +96,14 @@ export function resolveOutbound(
       dedupeKey: createFeedbackHandoffDedupeKey(conversation._id, testimonySeq),
     };
   }
-  if (closingNow) {
+  // «Τέλεια, ευχαριστούμε πολύ!» thanks somebody for what they told us. When
+  // the ladder finished without a single answer in it, there is nothing to
+  // thank them for, and Μπάμπης Διπλογαμωσταυρίδης got exactly that line back
+  // for «άντε γαμήσου ρε μαλακισμένο μποτ» — the model had declined every goal
+  // on his first message, completion swapped in the campaign copy, and the one
+  // thing the model actually wrote for him was thrown away. Where nothing was
+  // recorded, the bot's own words are the honest ending.
+  if (closingNow && answeredAnything(conversation, validated)) {
     return {
       body: copy.closing,
       dedupeKey: createFeedbackClosingDedupeKey(conversation._id),
@@ -153,6 +160,20 @@ export function resolveOutbound(
       ? { askedGoal: validated.nextGoal }
       : {}),
   };
+}
+
+/**
+ * Whether this conversation ever got an answer out of the participant —
+ * previously recorded, or accepted in this run.
+ */
+function answeredAnything(
+  conversation: FeedbackConversationDocument,
+  validated: FeedbackExtractionValidationResult,
+): boolean {
+  return (
+    validated.answers.length > 0 ||
+    conversation.goals.some((goal) => goal.status === "answered")
+  );
 }
 
 function questionOutbound(

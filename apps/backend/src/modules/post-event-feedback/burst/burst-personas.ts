@@ -1333,10 +1333,12 @@ export const BURST_PERSONAS: readonly BurstPersona[] = [
       // would be us deciding on his behalf.
       optedIn: true,
       answers: [],
-      // False today, and that is the finding rather than the goal: swearing at
-      // us is correctly not an incident, so nothing raises the badge and the
-      // conversation would sit open being nudged tomorrow.
-      needsAttention: false,
+      // Swearing at us is correctly not a safety incident. It is still not a
+      // conversation to keep nudging: somebody who opted in and then spent four
+      // messages on this is for a person to look at and close by hand. Nothing
+      // raises the badge for hostility on its own yet, so this is the gap
+      // named, not the behaviour claimed.
+      needsAttention: true,
       // Intro plus however many replies he draws. Wide on purpose — see above.
       minReceived: 1,
       maxReceived: 5,
