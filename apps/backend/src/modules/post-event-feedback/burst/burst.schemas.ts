@@ -4,6 +4,7 @@ import { z } from "zod";
 import { FEEDBACK_ANSWER_QUESTION_KEYS } from "@join-the-six/database";
 
 import { FEEDBACK_OBSERVED_TEXT_HARD_LIMIT } from "../jobs.schemas.js";
+import { BURST_PERSONAS } from "./burst-personas.js";
 import {
   BURST_CAMPAIGNS,
   BURST_CAMPAIGN_SLUGS,
@@ -67,10 +68,27 @@ export const feedbackBurstPersonaCatalogEntrySchema = z
       .regex(/^\+[1-9]\d{7,14}$/u, "Expected an E.164 phone number"),
     quirk: z.string().trim().min(1).max(500),
     mirrors: z.string().trim().min(1).max(100),
-    messages: z.array(burstPersonaMessageSchema).min(1),
+    messages: z.array(burstPersonaMessageSchema),
+    /** The model that improvises this guest's replies, for a live guest only. */
+    liveModel: z.string().trim().min(1).max(100).optional(),
     expect: burstExpectedOutcomeSchema,
   })
-  .strict();
+  .strict()
+  .superRefine((persona, context) => {
+    // A scripted persona with no messages sends nothing and would sit in the
+    // rehearsal as a silent seat nobody notices — which is why this used to be
+    // `min(1)`. A live guest genuinely has no script: its messages do not exist
+    // until the bot has spoken. So the bound moves from "at least one message"
+    // to "at least one message unless somebody is writing them at run time",
+    // which is the invariant that was actually meant.
+    if (persona.messages.length === 0 && !persona.liveModel) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "A persona with no messages must name the model improvising it",
+      });
+    }
+  });
 
 export const feedbackBurstCatalogResponseSchema = z
   .object({
@@ -93,10 +111,14 @@ export const feedbackBurstCatalogResponseSchema = z
      * endpoint before it does anything, so the failure surfaced as the
      * rehearsal refusing to start.
      */
+    // The catalogue's own length, not campaigns times table size. Those two
+    // agreed only while every dinner was full: the live-guest table seats two,
+    // and computing the bound from a table size that no longer describes every
+    // campaign is how a correct catalogue starts failing its own schema.
     personas: z
       .array(feedbackBurstPersonaCatalogEntrySchema)
       .min(1)
-      .max(BURST_CAMPAIGNS.length * BURST_PERSONAS_PER_CAMPAIGN),
+      .max(BURST_PERSONAS.length),
   })
   .strict();
 

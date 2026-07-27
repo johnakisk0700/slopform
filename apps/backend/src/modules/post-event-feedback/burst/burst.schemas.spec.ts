@@ -6,7 +6,7 @@ import { BURST_PERSONAS } from "./burst-personas.js";
 import {
   BURST_CAMPAIGNS,
   BURST_PERSONAS_PER_CAMPAIGN,
-  burstPersonaDisplayName,
+  burstPersonaCatalogEntry,
   burstPersonaPhoneE164,
 } from "./burst-scenario.js";
 import { feedbackBurstCatalogResponseSchema } from "./burst.schemas.js";
@@ -30,20 +30,9 @@ describe("feedbackBurstCatalogResponseSchema", () => {
         ordinal: campaign.ordinal,
         title: campaign.title,
       })),
-      personas: BURST_PERSONAS.map((persona) => ({
-        id: persona.id,
-        campaign: persona.campaign,
-        ordinal: persona.ordinal,
-        displayName: burstPersonaDisplayName(persona),
-        phoneE164: burstPersonaPhoneE164(persona),
-        quirk: persona.quirk,
-        mirrors: persona.mirrors,
-        messages: persona.messages.map((message) => ({
-          afterMs: message.afterMs,
-          text: message.text,
-        })),
-        expect: persona.expect,
-      })),
+      // The endpoint's own mapping, not a copy of it — see
+      // `burstPersonaCatalogEntry`.
+      personas: BURST_PERSONAS.map(burstPersonaCatalogEntry),
     };
 
     expect(() =>
@@ -72,11 +61,16 @@ describe("BURST_PERSONAS", () => {
         .map((persona) => persona.ordinal)
         .sort((left, right) => left - right);
 
-      // A gap is a missing seat, and a table that is not a Six changes every
-      // remaining persona's candidate list — which is the input the extraction
-      // is measured on.
+      // A gap is a missing seat, and the seating is the input the extraction is
+      // measured on: every persona's candidate list is whoever else sat down.
+      // So the assertion is contiguity from one, and a full table everywhere
+      // except the live-guest dinner — which seats two on purpose, so that each
+      // guest is the other's entire candidate list and a directed answer has one
+      // name it could resolve to.
+      const seats =
+        campaign.slug === "zontanoi" ? 2 : BURST_PERSONAS_PER_CAMPAIGN;
       expect(ordinals).toEqual(
-        Array.from({ length: BURST_PERSONAS_PER_CAMPAIGN }, (_, i) => i + 1),
+        Array.from({ length: seats }, (_, index) => index + 1),
       );
     }
   });

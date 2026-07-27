@@ -17,13 +17,18 @@
  * any closed conversation) is refused rather than silently continued.
  */
 
+import { execFile } from "node:child_process";
 import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { promisify } from "node:util";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 
 import { renderBurstReport } from "./burst-report.mjs";
+
+const execFileAsync = promisify(execFile);
 
 const require = createRequire(
   path.join(
@@ -766,8 +771,143 @@ async function waitForIntros({ db, catalog, timeoutMs }) {
   }
 }
 
+/**
+ * How long a live guest waits for the bot to say something before giving up on
+ * the turn.
+ *
+ * Generous against the 45 s quiet window plus a model call: the guest must not
+ * answer before the bot has spoken, or it is talking to itself and the whole
+ * point — reacting to what was actually said — is lost.
+ */
+const LIVE_GUEST_TURN_TIMEOUT_MS = 180_000;
+const LIVE_GUEST_POLL_MS = 3_000;
+
+/**
+ * Ask a model for one WhatsApp message, in character, given the transcript.
+ *
+ * Run with `cwd` outside the repository and told to use no tools: this is a
+ * one-shot generation, and an agent that starts exploring a codebase turns a
+ * two-second call into a two-minute one. If that happens, the prompt is wrong
+ * rather than the model.
+ */
+async function askLiveGuest({ persona, transcript }) {
+  const { live } = persona;
+  const prompt = [
+    live.character,
+    "",
+    "Η συνομιλία μέχρι τώρα:",
+    transcript,
+    "",
+    "Γράψε ΜΟΝΟ το επόμενο μήνυμα που στέλνεις εσύ, ως κείμενο, τίποτα άλλο.",
+    "Χωρίς εισαγωγικά, χωρίς εξηγήσεις, χωρίς όνομα αποστολέα, χωρίς εργαλεία.",
+    "Ένα μήνυμα WhatsApp, όπως θα το έγραφες στο κινητό.",
+  ].join("\n");
+
+  const { stdout } = await execFileAsync(
+    "cursor-agent",
+    ["--model", live.model, "--force", "--print", prompt],
+    {
+      cwd: tmpdir(),
+      maxBuffer: 1_000_000,
+      timeout: LIVE_GUEST_TURN_TIMEOUT_MS,
+    },
+  );
+  // Models like to wrap a line in quotes or prefix it with the character's
+  // name however plainly they are asked not to; strip both rather than inject
+  // «Μάκης: "…"» as though a participant had typed it.
+  return stdout
+    .trim()
+    .replace(/^(?:[^\s:]{1,20}:\s*)/u, "")
+    .replace(/^["«'`]+|["»'`]+$/gu, "")
+    .trim();
+}
+
+/**
+ * Drive a guest whose messages nobody wrote: wait for the bot, read what it
+ * said, ask the model for a reply, inject it, repeat.
+ *
+ * The turn cap is what makes the run terminate. A live guest will chat happily
+ * past the end of the questionnaire, and a conversation that never goes quiet
+ * fails settlement for its whole campaign.
+ */
+async function driveLiveGuest({ apiBase, headers, entry, correlationId }) {
+  const { persona } = entry;
+  let lastSeenBotCount = 0;
+
+  for (let turn = 0; turn < persona.live.maxTurns; turn += 1) {
+    const waitUntil = Date.now() + LIVE_GUEST_TURN_TIMEOUT_MS;
+    let messages = [];
+    let botCount = 0;
+    // Wait for a bot turn we have not answered yet.
+    for (;;) {
+      const thread = await requestJson(
+        `${apiBase}/dev/feedback/simulator/thread?phoneE164=${encodeURIComponent(persona.phoneE164)}`,
+        { headers },
+      );
+      messages = thread.messages ?? [];
+      botCount = messages.filter(
+        (message) => message.direction === "outbound",
+      ).length;
+      if (botCount > lastSeenBotCount) {
+        break;
+      }
+      if (Date.now() >= waitUntil) {
+        console.error(
+          `${persona.id}: no new bot message for ${Math.round(LIVE_GUEST_TURN_TIMEOUT_MS / 1000)}s — the guest stops here.`,
+        );
+        return;
+      }
+      await sleep(LIVE_GUEST_POLL_MS);
+    }
+    lastSeenBotCount = botCount;
+
+    const transcript = messages
+      .map(
+        (message) =>
+          `${message.direction === "outbound" ? "BOT" : "ΕΣΥ"}: ${message.text ?? "(χωρίς κείμενο)"}`,
+      )
+      .join("\n");
+
+    let text;
+    try {
+      text = await askLiveGuest({ persona, transcript });
+    } catch (error) {
+      console.error(
+        `${persona.id}: the model did not answer (${error.message}) — the guest stops here.`,
+      );
+      return;
+    }
+    if (!text) {
+      console.error(`${persona.id}: empty reply — the guest stops here.`);
+      return;
+    }
+
+    await requestJson(`${apiBase}/dev/feedback/simulator/inject`, {
+      method: "POST",
+      headers: {
+        ...headers,
+        "x-request-id": `${correlationId}-${persona.id}-${randomUUID().slice(0, 8)}`,
+      },
+      body: JSON.stringify({
+        phoneE164: persona.phoneE164,
+        text,
+        fromMe: false,
+      }),
+    });
+    entry.injected.push({ text, at: new Date().toISOString() });
+    console.error(`${persona.id} (${liveGuestModel(persona)}): ${text}`);
+  }
+}
+
+function liveGuestModel(persona) {
+  return persona.live?.model ?? "scripted";
+}
+
 async function drivePersona({ apiBase, headers, entry, correlationId }) {
   const { persona } = entry;
+  if (persona.live) {
+    return driveLiveGuest({ apiBase, headers, entry, correlationId });
+  }
   for (const message of persona.messages) {
     if (message.afterMs > 0) {
       await sleep(message.afterMs);

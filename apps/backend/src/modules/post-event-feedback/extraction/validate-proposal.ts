@@ -6,6 +6,7 @@ import {
 } from "../matching/fold-text.js";
 import {
   POST_EVENT_FEEDBACK_QUESTION_SET_V1,
+  isAgreeingDirectedPostEventFeedbackQuestion,
   isPostEventFeedbackAnswerQuestionKey,
   isPostEventFeedbackNoteType,
   noteSignature,
@@ -110,6 +111,12 @@ export function validateFeedbackExtractionProposal(
     verdicts.declined,
     context,
     answeredKeys,
+    // The model's own answered verdicts, not the ones that survived validation.
+    // A replay proposes the same reading and has its answers refused as
+    // `already_recorded`, so accepted answers would make the same proposal skip
+    // a goal the first run kept open — and the participant would be asked a
+    // question and then have it closed underneath them.
+    verdicts.answers,
     rejections,
   );
 
@@ -501,11 +508,36 @@ function validateNotes(
 /**
  * D3 locks every question as skippable. D16 forbids reopening an answered goal,
  * and the same reasoning forbids retroactively skipping one.
+ *
+ * The third rule is the one that costs a message rather than saving one, and it
+ * is here because the alternative costs an answer. `liked` and `meet_again` are
+ * one decision said twice, so a single sentence routinely answers both — and the
+ * model that has just written the person down under one of them is exactly the
+ * model that reports the other as having nothing in it. Prompt rule 7β says so
+ * in as many words and the collapse still happens on one run in three: «ο
+ * Σωτήρης ήταν οκ, θα τον ξαναέβλεπα άνετα» came back as `meet_again` alone,
+ * and «η Μαρία μου άρεσε, μαζί της θα ξαναέβγαινα» closed `liked` as declined
+ * and then thanked her for finishing.
+ *
+ * So a decline of one of those two is refused when both of these hold: the bot
+ * has **never asked** that question (`pending`), and this same testimony
+ * produced an answer to some other goal. The first half is what bounds the cost
+ * — the refusal makes the run ask the question, after which the goal is `asked`
+ * and any later decline stands, cited or not, so nobody is asked twice. The
+ * second half is what keeps a genuine refusal cheap: somebody who declines the
+ * whole questionnaire («δε λέω τίποτα») produces no answers, and every goal they
+ * decline is settled on the spot.
+ *
+ * `avoid` is deliberately outside this: it is the opposite decision to the other
+ * two, «κανέναν να αποφύγω» is the commonest honest answer in the questionnaire,
+ * and refusing that decline would ask an extra question of nearly everybody who
+ * finishes.
  */
 function validateSkippedGoals(
   proposals: readonly FeedbackAnswerQuestionKey[],
   context: FeedbackExtractionContext,
   answeredKeys: ReadonlySet<FeedbackAnswerQuestionKey>,
+  proposedAnswers: readonly FeedbackExtractionAnswerProposal[],
   rejections: FeedbackExtractionRejection[],
 ): FeedbackAnswerQuestionKey[] {
   const goalKeys = new Set(context.goals.map((goal) => goal.key));
@@ -516,6 +548,18 @@ function validateSkippedGoals(
       rejections.push({
         scope: "goal",
         reason: goalKeys.has(key) ? "already_recorded" : "unknown_goal",
+        questionKey: key,
+      });
+      continue;
+    }
+    if (
+      proposedAnswers.length > 0 &&
+      isAgreeingDirectedPostEventFeedbackQuestion(key) &&
+      context.goals.find((goal) => goal.key === key)?.status === "pending"
+    ) {
+      rejections.push({
+        scope: "goal",
+        reason: "declined_before_asked",
         questionKey: key,
       });
       continue;

@@ -403,23 +403,26 @@ changes.
 The `declined` verdict is a deliberate addition to the plan's §7 sketch: D3
 locks every question as skippable with no answer row, and without a producer for
 it a participant whose remaining answer is «κανένας» could never reach
-`completed`, so the closing copy would never send. It carries provenance for the
-same reason an answer does — without it, "they did not want to say" is
-indistinguishable from the model not having looked.
+`completed`, so the closing copy would never send. The words that declined it
+travel with the verdict in `declinedSourceMessageIds`, because "they did not want
+to say" is otherwise indistinguishable from the model not having looked —
+**validation does not yet gate on that citation**; what it gates on is
+[the collapse rule](#one-sentence-two-questions) below.
 
 ### Validation before any persistence or send
 
-| Rule                                                | Effect on a violating proposal                                  |
-| --------------------------------------------------- | --------------------------------------------------------------- |
-| Source message exists in **this** conversation      | Rejected (`unknown_source_message`)                             |
-| Source message is `actor: participant`              | Rejected (`non_participant_source`) — staff/bot text is context |
-| Question key / note type is in the versioned set    | Rejected at the Zod boundary and again in the rules             |
-| `event_score` is subjectless, integer 1–5           | Rejected (`subject_on_subjectless_question`, `invalid_score`)   |
-| Subject is a **current** candidate and ≠ respondent | Answer dropped; note degrades subjectless + flagged (D18)       |
-| Nothing already recorded is written twice           | Skipped (`already_recorded` / `duplicate_in_run`)               |
-| Lifecycle ∧ control ∧ opt-in permit a reply         | Reply suppressed, results still persisted                       |
-| Classifier incident result                          | Nothing suppressed; annotate target message + attention + audit |
-| Explicit `handoff`                                  | Neutral handoff copy replaces the reply; notes still recorded   |
+| Rule                                                               | Effect on a violating proposal                                     |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------ |
+| Source message exists in **this** conversation                     | Rejected (`unknown_source_message`)                                |
+| Source message is `actor: participant`                             | Rejected (`non_participant_source`) — staff/bot text is context    |
+| Question key / note type is in the versioned set                   | Rejected at the Zod boundary and again in the rules                |
+| `event_score` is subjectless, integer 1–5                          | Rejected (`subject_on_subjectless_question`, `invalid_score`)      |
+| Subject is a **current** candidate and ≠ respondent                | Answer dropped; note degrades subjectless + flagged (D18)          |
+| Nothing already recorded is written twice                          | Skipped (`already_recorded` / `duplicate_in_run`)                  |
+| An unasked `liked` / `meet_again` is not declined beside an answer | Skip refused (`declined_before_asked`); the run asks that question |
+| Lifecycle ∧ control ∧ opt-in permit a reply                        | Reply suppressed, results still persisted                          |
+| Classifier incident result                                         | Nothing suppressed; annotate target message + attention + audit    |
+| Explicit `handoff`                                                 | Neutral handoff copy replaces the reply; notes still recorded      |
 
 D18's degradation is asymmetric on purpose. A **note** carries the
 participant's own words, so an unresolvable mention keeps the note, drops the
@@ -492,11 +495,11 @@ answered`, derived from stored **and** newly written answers so a replay repairs
   model: the neutral handoff copy on an **explicit** handoff, else the closing
   copy when every **recorded** goal is terminal **and this run produced no safety
   signals**, else a campaign re-ask when validation refused an answer the
-  participant can still fix, when the model skipped ahead of an open goal, or
-  when it wrote a thank-you with `nextGoal: null` after proposing progress that
-  did not finish the ladder, else the model's reply when it agrees with the
-  recorded next goal (including side-question replies that name no next goal
-  and proposed nothing);
+  participant can still fix or refused a skip (`declined_before_asked`), when the
+  model skipped ahead of an open goal, or when it wrote a thank-you with
+  `nextGoal: null` after proposing progress that did not finish the ladder, else
+  the model's reply when it agrees with the recorded next goal (including
+  side-question replies that name no next goal and proposed nothing);
 - that row transcribed as an `actor: bot` message carrying its `outboxId`
   ([outbound transcript entries](#outbound-transcript-entries)), so the next run
   reads what the bot already asked;
@@ -679,7 +682,15 @@ rejection, or the last attempt spent. It leaves three things behind:
    possible offensive reference about text nothing had read.
 3. **One bot acknowledgement** so the participant is not left on read: a short
    acknowledgement plus the current goal's prompt from the campaign copy
-   snapshot. No new copy is authored.
+   snapshot. No new copy is authored. **At most one per conversation** — a
+   provider outage that outlasts several messages must not enqueue the same
+   apology on every dead run. The conversation document's
+   `extractionFallbackAckSent` ledger records that the line was already sent;
+   later permanent failures still file notes and raise attention, but stay quiet
+   on WhatsApp until extraction works again or a person takes over. The flag is
+   **not** cleared when extraction next succeeds: the participant was already
+   told once, and a second identical apology after a brief recovery adds
+   nothing.
 
 Provenance is honest by omission. `source_message_ids` is the failing
 participant message; `extraction_meta` records
@@ -693,10 +704,17 @@ Two candidates called «Κώστας» cannot be separated by application code, 
 note degrades to subjectless and `flaggedForReview` under D18 rather than
 asserting something about a real person.
 
-Idempotency uses one fence for the whole effect: the outbox `dedupe_key`
-`feedback-fallback-<conversationId>-<lastParticipantSeq>` is inserted first
-inside the run's transaction, and a replay that finds it already present writes
-no note, no audit event and raises no alert.
+Idempotency uses two fences:
+
+- The outbox `dedupe_key`
+  `feedback-fallback-<conversationId>-<testimonySeq>` inserts a cancelled
+  `system` row first inside the run's transaction. It is never delivered; it
+  absorbs replays of the same dead run so the note, audit event and operator
+  alert are not duplicated.
+- The participant-facing acknowledgement uses
+  `feedback-fallback-<conversationId>-ack`, inserted only while
+  `extractionFallbackAckSent` is false. A second failing run on a later message
+  still files operator evidence, but does not enqueue a second apology.
 
 ### Operator alert seam
 
@@ -1166,6 +1184,10 @@ phoneAtLaunch            E.164 number captured at launch
 lifecycle                { state: open|closed,
                            reason: completed|stopped|expired|cancelled|null,
                            closedAt }
+staffClose               { reason: abusive|unresponsive|handled_offline|
+                                    duplicate|other,
+                           note } | null
+                         (staff closes only; lifecycle.reason stays cancelled)
 control                  { mode: bot|human,
                            source: launch|staff_action|external_outbound,
                            changedAt }
@@ -1296,6 +1318,44 @@ every remaining open goal as `skipped` so reminders stop chasing it, and freezes
 the conversation for a person (`awaitingHuman` + `needsAttention`) rather than
 closing it as completed. A `nextGoal: null` statement with nothing to extract is
 left alone so side-question replies do not end the questionnaire.
+
+#### One sentence, two questions
+
+`liked` and `meet_again` are one decision said twice, so a single sentence
+routinely answers both: «η Μαρία μου άρεσε, μαζί της θα ξαναέβγαινα», «ο Σωτήρης
+ήταν οκ, θα τον ξαναέβλεπα άνετα». The model writes one of them down and reports
+the other as having nothing in it, on roughly one run in three with the same
+prompt and the same message. Prompt rule 7β says exactly the right thing about
+this and does not stop it, so the ladder carries the net.
+
+**A `declined` verdict for `liked` or `meet_again` is refused when that goal is
+still `pending` and the same proposal answered some other goal.** The skip is
+dropped, `declined_before_asked` is recorded, and the run asks that question in
+the campaign's own words — the same route a refused answer takes. The two
+conditions are what keep the cost at one message:
+
+- `pending` means the bot has **never** put that question to this person, so
+  there is no answer of theirs being second-guessed. Once the refusal has caused
+  the question to be asked, the goal is `asked` and any later decline stands, so
+  nobody is asked twice.
+- an answer in the same proposal is what says this testimony carried something
+  keepable. Somebody who declines the whole questionnaire («δε λέω τίποτα»)
+  produces no answers, so every goal they decline is settled in that one run and
+  they are never asked again.
+
+The condition reads the model's own verdicts rather than the answers that
+survived validation, so a replay — whose answers come back `already_recorded` —
+refuses the same skip instead of closing a goal the first run kept open.
+
+`avoid` is deliberately outside the rule. It is the opposite decision to the
+other two ([`contradictedQuestionKeys`](#effects-of-a-run) is that half), and
+«κανέναν να αποφύγω» is the commonest honest answer in the questionnaire:
+refusing it would ask an extra question of nearly everybody who finishes, and
+would cost the participant who answers all four in one message a third and fourth
+outbound. What the rule does **not** repair is the same collapse expressed as
+`not_addressed` — there the goal correctly stays open and is re-asked, and the
+answer that sentence carried is lost inside the model with nothing on our side to
+recover it from.
 
 ### Extraction cursor, attention and capacity
 
@@ -1481,16 +1541,26 @@ flowchart LR
 
 ### Actions
 
-| Action             | Gate                                                    | Effect                                                                           |
-| ------------------ | ------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| Take over          | open ∧ control=bot                                      | `takeOver(staff_action)` + audit                                                 |
-| Resume bot         | open ∧ control=human                                    | `resumeBot` + audit                                                              |
-| Close              | open (STOP-closed rejected; other closed is idempotent) | `close(cancelled)`, cancel queued outbox, audit (D17)                            |
-| Staff send         | open ∧ control=human                                    | Insert `kind=staff` outbox (WP6 sends), append transcript with `outboxId`, audit |
-| Add note           | conversation exists; subject ∈ live D16 candidates      | Insert `feedback_notes` with staff provenance + audit                            |
-| Note review status | note exists                                             | `new` ↔ `dismissed` + audit                                                      |
-| Correct an answer  | answer ∈ this conversation ∧ scored question            | Edit `value_int` in place, append `extraction_meta.corrections`, audit           |
-| Withdraw an answer | answer ∈ this conversation                              | Delete the row, audit carrying the whole row                                     |
+| Action             | Gate                                                    | Effect                                                                                           |
+| ------------------ | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Take over          | open ∧ control=bot                                      | `takeOver(staff_action)` + audit                                                                 |
+| Resume bot         | open ∧ control=human                                    | `resumeBot` + audit                                                                              |
+| Close              | open (STOP-closed rejected; other closed is idempotent) | `close(cancelled)` with required staff reason + optional note, cancel queued outbox, audit (D17) |
+| Staff send         | open ∧ control=human                                    | Insert `kind=staff` outbox (WP6 sends), append transcript with `outboxId`, audit                 |
+| Add note           | conversation exists; subject ∈ live D16 candidates      | Insert `feedback_notes` with staff provenance + audit                                            |
+| Note review status | note exists                                             | `new` ↔ `dismissed` + audit                                                                      |
+| Correct an answer  | answer ∈ this conversation ∧ scored question            | Edit `value_int` in place, append `extraction_meta.corrections`, audit                           |
+| Withdraw an answer | answer ∈ this conversation                              | Delete the row, audit carrying the whole row                                                     |
+
+Staff close keeps the lifecycle reason as `cancelled`. The operator's why —
+`abusive | unresponsive | handled_offline | duplicate | other`, plus an optional
+trimmed note ≤ 500 — is a separate fact: it is stored on the conversation as
+`staffClose`, published on the detail read model, and recorded in the
+`feedback_conversation.closed` audit context as `staffReason` / `staffNote`
+beside `reason: "cancelled"`. Splitting the lifecycle enum would drag the
+STOP-override guard, the idempotency checks and the admin badge vocabulary into
+an operator-intent taxonomy; every human close answers the state-machine
+question identically.
 
 ### Staff-written notes (WP12)
 

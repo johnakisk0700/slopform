@@ -1,4 +1,5 @@
 import type { BurstPersona } from "./burst-scenario.js";
+import { BURST_LIVE_GUESTS } from "./live-guests.js";
 
 /**
  * The people the burst rehearsal puts on the phone at once.
@@ -143,7 +144,7 @@ const OUZERI_WALL_OF_TEXT = [
   "να αποφυγω καποιον δεν θελω κανεναν, ολοι μια χαρα ηταν με τον τροπο τους",
 ].join(" ");
 
-export const BURST_PERSONAS: readonly BurstPersona[] = [
+const BURST_SCRIPTED_PERSONAS: readonly BurstPersona[] = [
   // ── taverna ───────────────────────────────────────────────────────────────
   {
     // Twenty-five seconds between sentences is how a considered person types,
@@ -1659,7 +1660,12 @@ export const BURST_PERSONAS: readonly BurstPersona[] = [
       closedBecause: "completed",
       optedIn: true,
       answers: [],
-      needsAttention: false,
+      // True since every raise gained a name. He declined all four questions,
+      // so the withdrawal path raises `unfinished_questionnaire` — a
+      // questionnaire that recorded nothing is worth a person's glance, and it
+      // is now a badge somebody can read and dismiss rather than a wordless
+      // warning. The flag is the change, not a regression in his conversation.
+      needsAttention: true,
       // Intro and closing. A third message would mean he was asked again after
       // declining everything.
       minReceived: 2,
@@ -2129,4 +2135,14 @@ export const BURST_PERSONAS: readonly BurstPersona[] = [
       maxReceived: 3,
     },
   },
+];
+
+/**
+ * The scripted corpus plus the improvised table. The guests are appended
+ * rather than written in above because their messages do not exist until the
+ * bot has spoken — see `live-guests.ts`.
+ */
+export const BURST_PERSONAS: readonly BurstPersona[] = [
+  ...BURST_SCRIPTED_PERSONAS,
+  ...BURST_LIVE_GUESTS,
 ];

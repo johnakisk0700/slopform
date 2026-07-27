@@ -224,6 +224,23 @@ export function isScoredPostEventFeedbackQuestion(value: string): boolean {
   );
 }
 
+/**
+ * Whether this question's answer agrees with the other directed questions'.
+ *
+ * `liked` and `meet_again` are one decision said twice: «η Μαρία μου άρεσε,
+ * μαζί της θα ξαναέβγαινα» answers both, about one person, in one breath — so
+ * these two are exactly where a model that has already written the person down
+ * once reports the other goal as unanswered. `avoid` is the opposite decision
+ * (`contradictedQuestionKeys` in the extractor is that half) and «κανέναν να
+ * αποφύγω» is the commonest honest answer in the questionnaire, so a decline of
+ * it is ordinary and must stay cheap. `event_score` is not directed at anybody.
+ */
+export function isAgreeingDirectedPostEventFeedbackQuestion(
+  value: string,
+): boolean {
+  return value === "liked" || value === "meet_again";
+}
+
 export function isPostEventFeedbackNoteType(
   value: string,
 ): value is FeedbackNoteType {

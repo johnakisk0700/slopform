@@ -10,7 +10,7 @@ import { FEEDBACK_QUEUE } from "../../../infrastructure/queue/queue.constants.js
 import { BURST_PERSONAS } from "./burst-personas.js";
 import {
   BURST_CAMPAIGNS,
-  burstPersonaDisplayName,
+  burstPersonaCatalogEntry,
   burstPersonaPhoneE164,
 } from "./burst-scenario.js";
 import {
@@ -54,20 +54,7 @@ export class FeedbackBurstController {
         ordinal: campaign.ordinal,
         title: campaign.title,
       })),
-      personas: BURST_PERSONAS.map((persona) => ({
-        id: persona.id,
-        campaign: persona.campaign,
-        ordinal: persona.ordinal,
-        displayName: burstPersonaDisplayName(persona),
-        phoneE164: burstPersonaPhoneE164(persona),
-        quirk: persona.quirk,
-        mirrors: persona.mirrors,
-        messages: persona.messages.map((message) => ({
-          afterMs: message.afterMs,
-          text: message.text,
-        })),
-        expect: persona.expect,
-      })),
+      personas: BURST_PERSONAS.map(burstPersonaCatalogEntry),
     });
   }
 

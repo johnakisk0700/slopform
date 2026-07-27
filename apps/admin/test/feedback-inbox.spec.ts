@@ -127,11 +127,21 @@ interface AnswerCorrectionsModule {
   ) => string;
 }
 
+interface StaffCloseModule {
+  STAFF_CLOSE_REASONS: readonly string[];
+  staffCloseReasonLabel: (reason: string) => string;
+  staffCloseSummary: (staffClose: {
+    reason: string;
+    note: string | null;
+  }) => string;
+}
+
 let labels: LabelsModule;
 let view: ConversationViewModule;
 let polling: PollingModule;
 let extractionStatus: ExtractionStatusModule;
 let answerCorrections: AnswerCorrectionsModule;
+let staffClose: StaffCloseModule;
 
 async function loadFeatureModule<T>(relativePath: string): Promise<T> {
   const moduleUrl = new URL(`../${relativePath}`, import.meta.url).href;
@@ -153,6 +163,9 @@ beforeAll(async () => {
   );
   answerCorrections = await loadFeatureModule<AnswerCorrectionsModule>(
     "src/features/feedback/answerCorrections.ts",
+  );
+  staffClose = await loadFeatureModule<StaffCloseModule>(
+    "src/features/feedback/staffClose.ts",
   );
 });
 
@@ -1073,6 +1086,56 @@ describe("operator corrections to recorded answers", () => {
     // Both readers of an answer are refreshed: this conversation's results and
     // the campaign-wide Results tab.
     expect(page).toContain("invalidateResults");
+  });
+});
+
+describe("staff close reason", () => {
+  it("names every reason the backend accepts, and none it does not", () => {
+    // The dialog's select and the summary line share this list, so inventing a
+    // sixth reason here would either fail the close request or silently drop
+    // from the UI.
+    expect([...staffClose.STAFF_CLOSE_REASONS]).toStrictEqual([
+      "abusive",
+      "unresponsive",
+      "handled_offline",
+      "duplicate",
+      "other",
+    ]);
+    expect(staffClose.staffCloseReasonLabel("handled_offline")).toBe(
+      "Handled offline",
+    );
+  });
+
+  it("says why a staff-cancelled conversation closed, with or without a note", () => {
+    // Without this line every human close still reads as the bare «Cancelled»
+    // the lifecycle enum can say, and a month later nobody can tell them apart.
+    expect(
+      staffClose.staffCloseSummary({ reason: "abusive", note: null }),
+    ).toBe("Closed as abusive");
+    expect(
+      staffClose.staffCloseSummary({
+        reason: "handled_offline",
+        note: "Called them back",
+      }),
+    ).toBe("Closed as handled offline — Called them back");
+  });
+
+  it("asks for the reason inside the existing close confirm, not a new screen", () => {
+    const details = readSource(
+      "src/components/admin/feedback/ConversationDetails.tsx",
+    );
+    const page = readSource("src/routes/FeedbackInboxPage.tsx");
+    const transcript = readSource(
+      "src/components/admin/feedback/ConversationTranscript.tsx",
+    );
+
+    expect(details).toContain("STAFF_CLOSE_REASONS");
+    expect(details).toContain("isConfirmDisabled");
+    expect(details).toContain("onClose({");
+    // The body travels with the generated close hook once OpenAPI regenerates.
+    expect(page).toContain("data: input");
+    expect(transcript).toContain("staffCloseSummary");
+    expect(transcript).toContain("conversation.staffClose");
   });
 });
 

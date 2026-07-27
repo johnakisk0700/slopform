@@ -104,6 +104,49 @@ describe("goal progress from recorded results", () => {
     expect(nextOpenGoal(goals, updates)).toBe("liked");
   });
 
+  it("keeps the ladder open when the collapse's skip was refused, and marks the re-ask", () => {
+    // «η Μαρία μου άρεσε, μαζί της θα ξαναέβγαινα»: `meet_again` recorded,
+    // `liked` declined and refused, `avoid` declined and accepted. The
+    // questionnaire must not read as finished — the closing copy keys off
+    // exactly this — and the goal the run re-asks is the one it refused to
+    // close.
+    const afterTheScore: FeedbackConversationGoal[] = goals.map((goal) =>
+      goal.key === "event_score" ? { ...goal, status: "answered" } : goal,
+    );
+    const recorded = resolveGoalStatuses(
+      afterTheScore,
+      context({ goals: afterTheScore }),
+      validated({
+        answers: [
+          {
+            questionKey: "meet_again",
+            valueInt: null,
+            subjectParticipantId: "p-maria",
+            sourceMessageIds: ["m2"],
+            confidence: 0.9,
+          },
+        ],
+        skippedGoals: ["avoid"],
+        nextGoal: null,
+        reply: "Τέλεια, ευχαριστούμε πολύ! 🙌",
+        rejections: [
+          {
+            scope: "goal",
+            reason: "declined_before_asked",
+            questionKey: "liked",
+          },
+        ],
+      }),
+    );
+
+    expect(isCompleting(afterTheScore, recorded)).toBe(false);
+    expect(nextOpenGoal(afterTheScore, recorded)).toBe("liked");
+    expect(withAskedGoal(recorded, "liked")).toContainEqual({
+      key: "liked",
+      status: "asked",
+    });
+  });
+
   it("records asked from the outbound's goal, not from the model's proposal", () => {
     const recorded = resolveGoalStatuses(
       goals,

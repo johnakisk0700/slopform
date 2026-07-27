@@ -1377,6 +1377,7 @@ interface FakeConversation {
     resolvedAt: Date | null;
   }[];
   awaitingHuman: boolean;
+  extractionFallbackAckSent?: boolean;
 }
 
 interface FakeResultRow {
@@ -1864,6 +1865,7 @@ function createHarness(): Harness {
     needsAttention: false,
     attentionReasons: [],
     awaitingHuman: false,
+    extractionFallbackAckSent: false,
   });
 
   const database = new FakeDatabase();

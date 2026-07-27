@@ -56,6 +56,7 @@ launch/pause/resume/close/get hooks.
 | `src/features/feedback/conversationView.ts`  | Progress, badge rows, search folding, ordering, grouping, selection, message anchor ids    |
 | `src/features/feedback/extractionStatus.ts`  | Greek copy for the detail-pane extraction block (unread, due time, failure, model)         |
 | `src/features/feedback/answerCorrections.ts` | Which control a recorded answer gets, the «corrected by» line, the withdrawal wording      |
+| `src/features/feedback/staffClose.ts`        | Staff close reason vocabulary, confirm-dialog labels, the «Closed as …» summary line       |
 | `src/features/feedback/polling.ts`           | The U3 intervals and the stop-when-closed rule                                             |
 | `src/features/feedback/simulator.ts`         | Zod schemas for the two dev-only simulator endpoints                                       |
 | `src/lib/feedbackSimulator.ts`               | The dev simulator facade over the shared `ofetch` client                                   |
@@ -283,6 +284,16 @@ Placement is the screen's answer to "what does this act on?".
 | Take over / Resume bot / Close | Transcript, foot         | On the line that says who may write here — the question they answer   |
 | «Add note»                     | NOTES card header        | Writes into the list it sits above                                    |
 | Correct / withdraw an answer   | On the answer's own row  | Acts on that one recorded answer, beside the value it disagrees with  |
+
+## Closing a conversation
+
+Close still lands as lifecycle `cancelled` — that is the state-machine answer
+— and the confirm dialog asks **why**. The operator picks from
+`abusive | unresponsive | handled_offline | duplicate | other` and may add an
+optional note (≤ 500). Both travel on `closeFeedbackConversation`'s body and
+come back on the detail read model as `staffClose`, rendered under the
+transcript header as «Closed as …». Without that line every human close still
+read as the bare «Cancelled» badge a month later.
 
 Every one of them carries a 16px muted stroke icon; the accent stays reserved
 for interactive emphasis. Icons are for orientation, never decoration — which

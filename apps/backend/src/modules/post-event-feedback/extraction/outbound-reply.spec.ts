@@ -174,6 +174,107 @@ describe("resolveOutbound", () => {
     });
   });
 
+  it("asks the question whose skip was refused, even though the model wrote a closing thank-you", () => {
+    // The collapse, from the outbound side. «η Μαρία μου άρεσε, μαζί της θα
+    // ξαναέβγαινα» came back as `meet_again` answered, `liked` declined and
+    // `nextGoal: null` with a thank-you. Validation keeps `liked` open, and it
+    // has to be *asked* here or nobody asks it: the branch below that catches a
+    // model skipping ahead needs a question-shaped reply, and this proposal has
+    // none.
+    const outbound = resolveOutbound(
+      conversation,
+      validated({
+        nextGoal: null,
+        reply: "Τέλεια, ευχαριστούμε πολύ! 🙌",
+        rejections: [
+          {
+            scope: "goal",
+            reason: "declined_before_asked",
+            questionKey: "liked",
+          },
+        ],
+      }),
+      false,
+      false,
+      6,
+      copy,
+      "liked",
+    );
+
+    expect(outbound).toEqual({
+      body: copy.liked,
+      dedupeKey: "feedback-reply-conv-1-6",
+      askedGoal: "liked",
+    });
+  });
+
+  it("asks the earliest refused question when a skip and an answer are both refused", () => {
+    const outbound = resolveOutbound(
+      conversation,
+      validated({
+        nextGoal: null,
+        reply: null,
+        rejections: [
+          {
+            scope: "goal",
+            reason: "declined_before_asked",
+            questionKey: "meet_again",
+          },
+          {
+            scope: "answer",
+            reason: "invalid_score",
+            questionKey: "event_score",
+          },
+        ],
+      }),
+      false,
+      false,
+      7,
+      copy,
+      "event_score",
+    );
+
+    expect(outbound).toMatchObject({
+      body: copy.event_score,
+      askedGoal: "event_score",
+    });
+  });
+
+  it("says nothing about a refused skip when the run carries an urgent safety signal", () => {
+    // There is no approved copy for somebody who has just said they do not want
+    // to be here, and a questionnaire prompt is the worst of the options. A lost
+    // `liked` row does not outrank that.
+    const outbound = resolveOutbound(
+      conversation,
+      validated({
+        nextGoal: null,
+        reply: "Λυπάμαι πολύ που το ακούω.",
+        safetySignals: [
+          {
+            category: "self_harm",
+            recommendedAction: "urgent_human_follow_up",
+            sourceMessageIds: ["m1"],
+            confidence: 0.9,
+          },
+        ],
+        rejections: [
+          {
+            scope: "goal",
+            reason: "declined_before_asked",
+            questionKey: "liked",
+          },
+        ],
+      }),
+      false,
+      true,
+      8,
+      copy,
+      "liked",
+    );
+
+    expect(outbound).toBeUndefined();
+  });
+
   it("still sends the campaign closing copy when recorded goals are actually terminal", () => {
     const outbound = resolveOutbound(
       conversation,

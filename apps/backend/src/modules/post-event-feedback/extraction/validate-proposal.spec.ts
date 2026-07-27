@@ -605,6 +605,167 @@ describe("validateFeedbackExtractionProposal", () => {
       expect(result.skippedGoals).toEqual([]);
     });
 
+    // ── the collapse ──────────────────────────────────────────────────────
+    // One sentence answers two questions and the model keeps one of them.
+    // Prompt rule 7β is written for exactly this and it still happens on about
+    // one run in three, so the refusal below is the net under it.
+    it("refuses to close liked, unasked, in the run that recorded the person under meet_again", () => {
+      const result = validateFeedbackExtractionProposal(
+        proposal({
+          answers: [answer({ questionKey: "meet_again" })],
+          skippedGoals: ["liked"],
+        }),
+        context(),
+      );
+
+      expect(result.skippedGoals).toEqual([]);
+      expect(
+        result.rejections.filter(
+          (rejection) => rejection.reason === "declined_before_asked",
+        ),
+      ).toEqual([
+        {
+          scope: "goal",
+          reason: "declined_before_asked",
+          questionKey: "liked",
+        },
+      ]);
+    });
+
+    it("refuses the same collapse the other way round, from a liked answer", () => {
+      const result = validateFeedbackExtractionProposal(
+        proposal({
+          answers: [answer({ questionKey: "liked" })],
+          skippedGoals: ["meet_again"],
+        }),
+        context(),
+      );
+
+      expect(result.skippedGoals).toEqual([]);
+      expect(result.rejections[0]?.questionKey).toBe("meet_again");
+    });
+
+    // The bound on what the refusal costs. Once the bot has actually put the
+    // question to somebody, their «κανέναν» is an answer to a question they
+    // heard, and a second re-ask would be the bot not listening.
+    it("accepts the decline once the bot has asked that question", () => {
+      const result = validateFeedbackExtractionProposal(
+        proposal({
+          answers: [answer({ questionKey: "meet_again" })],
+          skippedGoals: ["liked"],
+        }),
+        context({
+          goals: [
+            {
+              key: "event_score",
+              ordinal: 1,
+              prompt: "score;",
+              status: "answered",
+            },
+            { key: "liked", ordinal: 2, prompt: "liked;", status: "asked" },
+            {
+              key: "meet_again",
+              ordinal: 3,
+              prompt: "meet;",
+              status: "pending",
+            },
+            { key: "avoid", ordinal: 4, prompt: "avoid;", status: "pending" },
+          ],
+        }),
+      );
+
+      expect(result.skippedGoals).toEqual(["liked"]);
+    });
+
+    // `taverna_answers_everything_at_once` and `rooftop_thinks_out_loud`: every
+    // goal answered in one breath except «να αποφύγω κανέναν». This is why the
+    // refusal names `liked` and `meet_again` rather than "a directed goal that
+    // is still pending" — that wider rule would ask both of them a question
+    // they had already answered, and cost the run that must finish in one.
+    it("leaves an avoid decline alone in the run that answered everything else", () => {
+      const result = validateFeedbackExtractionProposal(
+        proposal({
+          answers: [
+            answer({
+              questionKey: "event_score",
+              valueInt: 5,
+              subjectParticipantId: null,
+            }),
+            answer({ questionKey: "liked" }),
+            answer({ questionKey: "meet_again" }),
+          ],
+          skippedGoals: ["avoid"],
+        }),
+        context(),
+      );
+
+      expect(result.skippedGoals).toEqual(["avoid"]);
+      expect(result.rejections).toEqual([]);
+    });
+
+    // `mezedopoleio_declines_every_goal`: «δε λέω τίποτα», three times. Nothing
+    // was recorded, so there is no answer that could have been the other half of
+    // a sentence, and all four goals settle in the run that reads him.
+    it("settles every goal for a participant who declines the whole questionnaire", () => {
+      const result = validateFeedbackExtractionProposal(
+        proposal({
+          skippedGoals: ["event_score", "liked", "meet_again", "avoid"],
+        }),
+        context(),
+      );
+
+      expect(result.skippedGoals).toEqual([
+        "event_score",
+        "liked",
+        "meet_again",
+        "avoid",
+      ]);
+      expect(result.rejections).toEqual([]);
+    });
+
+    // A decline that stands on its own testimony. Nothing in this run was
+    // recorded, so nothing suggests the model spent a person once and reported
+    // the rest empty.
+    it("accepts a bare decline of an unasked goal when the run recorded no answer", () => {
+      const result = validateFeedbackExtractionProposal(
+        proposal({ skippedGoals: ["liked"] }),
+        context(),
+      );
+
+      expect(result.skippedGoals).toEqual(["liked"]);
+    });
+
+    // Replay safety. The answers come back refused as `already_recorded`, so a
+    // rule reading *accepted* answers would let the replay close a goal the
+    // first run deliberately kept open — after the participant had been asked
+    // it. The verdicts the model wrote are the same on both runs.
+    it("refuses the skip again on a replay whose answers are already recorded", () => {
+      const result = validateFeedbackExtractionProposal(
+        proposal({
+          answers: [answer({ questionKey: "meet_again" })],
+          skippedGoals: ["liked"],
+        }),
+        context({
+          acceptedAnswers: [
+            {
+              questionKey: "meet_again",
+              subjectParticipantId: nikos,
+              valueInt: null,
+              correctedByOperator: false,
+            },
+          ],
+        }),
+      );
+
+      expect(result.answers).toEqual([]);
+      expect(result.skippedGoals).toEqual([]);
+      expect(
+        result.rejections.some(
+          (rejection) => rejection.reason === "declined_before_asked",
+        ),
+      ).toBe(true);
+    });
+
     it("drops a next goal that is already terminal", () => {
       const result = validateFeedbackExtractionProposal(
         proposal({ nextGoal: "event_score", reply: "Και κάτι ακόμη;" }),

@@ -35,6 +35,7 @@ import {
   participantLabel,
 } from "../../../features/feedback/labels";
 import { SIMULATOR_MESSAGE_MAX_LENGTH } from "../../../features/feedback/simulator";
+import { staffCloseSummary } from "../../../features/feedback/staffClose";
 import { JtsLiveIndicator } from "../../ui/JtsLiveIndicator";
 import { ReadingStatus } from "./ConversationDetails";
 import { FeedbackBadges } from "./FeedbackBadges";
@@ -297,6 +298,11 @@ export function ConversationTranscript({
               </span>
               <FeedbackBadges badges={conversationBadges(conversation)} />
             </div>
+            {conversation.staffClose ? (
+              <p className="mt-1.5 text-xs text-ink-muted">
+                {staffCloseSummary(conversation.staffClose)}
+              </p>
+            ) : null}
           </div>
           <JtsLiveIndicator
             active={isRefreshing}

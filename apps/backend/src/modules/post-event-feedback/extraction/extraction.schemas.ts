@@ -419,6 +419,14 @@ export const FEEDBACK_EXTRACTION_REJECTION_REASONS = [
    * so the combination is checked here instead of being trusted.
    */
   "empty_answered_verdict",
+  /**
+   * `liked` or `meet_again` declined while the bot has never asked it, in a run
+   * that recorded an answer from the same testimony. The participant said
+   * something we could keep and the model closed a question nobody put to them
+   * — which is what «ο Σωτήρης ήταν οκ, θα τον ξαναέβλεπα άνετα» looks like
+   * when only `meet_again` survives it.
+   */
+  "declined_before_asked",
 ] as const;
 
 export type FeedbackExtractionRejectionReason =
@@ -573,10 +581,21 @@ export function createFeedbackHandoffDedupeKey(
 }
 
 /**
- * The fallback's key, on the same testimony anchor — and it is the fence for
- * the whole fallback effect, not just the send. The note, the audit event and
- * the operator alert are all written in the transaction that inserts this row,
- * so if the unique key absorbs a replay, none of them happen twice either.
+ * At most one fallback acknowledgement per conversation. The per-testimony fence
+ * (`createFeedbackFallbackDedupeKey`) still absorbs replays of the same dead run;
+ * this key is what stops a second participant message during an outage from
+ * enqueueing the same apology again.
+ */
+export function createFeedbackFallbackAckDedupeKey(
+  conversationId: string,
+): string {
+  return `${FEEDBACK_FALLBACK_DEDUPE_PREFIX}-${conversationId}-ack`;
+}
+
+/**
+ * Per-testimony fence for a dead run's operator effects. The cancelled `system`
+ * row is never delivered; it exists so a replayed job does not file a second
+ * note or audit event for the same testimony.
  */
 export function createFeedbackFallbackDedupeKey(
   conversationId: string,
@@ -584,3 +603,6 @@ export function createFeedbackFallbackDedupeKey(
 ): string {
   return `${FEEDBACK_FALLBACK_DEDUPE_PREFIX}-${conversationId}-${testimonySeq}`;
 }
+
+/** Placeholder body for the per-testimony fence row — never relayed. */
+export const POST_EVENT_FEEDBACK_FALLBACK_FENCE_BODY = "·";

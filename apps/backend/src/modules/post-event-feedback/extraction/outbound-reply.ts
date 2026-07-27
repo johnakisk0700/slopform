@@ -44,6 +44,20 @@ const ACTIONABLE_ANSWER_REFUSALS: ReadonlySet<FeedbackExtractionRejectionReason>
   ]);
 
 /**
+ * The same idea one scope up: a refused *skip* leaves a goal open that the model
+ * believed it had closed, so the reply it wrote has moved on and this run has to
+ * ask the question itself.
+ *
+ * It cannot be left to the ordinary "model skipped ahead" branch below, because
+ * that branch needs the model to have written a question-shaped reply. The
+ * proposal that declines `liked` while recording `meet_again` is usually the one
+ * that also says `nextGoal: null` with a thank-you or nothing at all, and then
+ * the goal stays open with nobody asking it until tomorrow's reminder.
+ */
+const ACTIONABLE_GOAL_REFUSALS: ReadonlySet<FeedbackExtractionRejectionReason> =
+  new Set(["declined_before_asked"]);
+
+/**
  * At most one outbound per run, chosen deterministically rather than by the
  * model. Completion, safety and "what actually survived validation" are
  * application decisions with their own copy; only the ordinary case where the
@@ -163,8 +177,9 @@ function chooseOutbound(
   // untruth: nothing was recorded, the participant believes the question is
   // behind them, and the score is lost with nobody aware. Ask the question
   // again instead — in the campaign's own words, which are the only ones here
-  // guaranteed to still be true.
-  const refused = refusedAnswerQuestionKey(validated);
+  // guaranteed to still be true. A refused *skip* is the same lie told about a
+  // question the bot never asked, so it takes the same route.
+  const refused = refusedQuestionKey(validated);
   if (refused) {
     return questionOutbound(conversation._id, testimonySeq, copy, refused);
   }
@@ -271,21 +286,24 @@ function replyPosesQuestion(body: string): boolean {
 }
 
 /**
- * The question whose answer this run refused for being unusable, if any.
+ * The question this run refused to settle, if any — an answer it could not use,
+ * or a skip it would not accept.
  *
  * Only refusals the participant can act on count, and when several land in one
  * run the earliest questionnaire goal wins — re-asking `avoid` while `liked`
  * is still open is how a refused name quietly advances the ladder.
  */
-function refusedAnswerQuestionKey(
+function refusedQuestionKey(
   validated: FeedbackExtractionValidationResult,
 ): FeedbackAnswerQuestionKey | undefined {
   const refused = new Set<FeedbackAnswerQuestionKey>();
   for (const rejection of validated.rejections) {
-    if (
-      rejection.scope !== "answer" ||
-      !ACTIONABLE_ANSWER_REFUSALS.has(rejection.reason)
-    ) {
+    const actionable =
+      rejection.scope === "answer"
+        ? ACTIONABLE_ANSWER_REFUSALS.has(rejection.reason)
+        : rejection.scope === "goal" &&
+          ACTIONABLE_GOAL_REFUSALS.has(rejection.reason);
+    if (!actionable) {
       continue;
     }
     const key = rejection.questionKey;

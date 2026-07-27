@@ -45,6 +45,7 @@ export const BURST_CAMPAIGN_SLUGS = [
   "wine",
   "mezedopoleio",
   "ouzeri",
+  "zontanoi",
 ] as const;
 
 export type BurstCampaignSlug = (typeof BURST_CAMPAIGN_SLUGS)[number];
@@ -67,9 +68,23 @@ export const BURST_CAMPAIGNS: readonly BurstCampaignDefinition[] = [
     title: "Δοκιμαστικό δείπνο — Μεζεδοπωλείο",
   },
   { slug: "ouzeri", ordinal: 5, title: "Δοκιμαστικό δείπνο — Ουζερί" },
+  {
+    slug: "zontanoi",
+    ordinal: 6,
+    title: "Δοκιμαστικό δείπνο — Ζωντανοί καλεσμένοι",
+  },
 ];
 
-/** Six personas per campaign when the catalogue is full. */
+/**
+ * Six personas per campaign when the catalogue is full — the product is called
+ * Join The Six and a table is six people.
+ *
+ * `zontanoi` is deliberately two. Its guests are written live by a model rather
+ * than by a script, and seating only the two of them makes each the other's
+ * entire candidate list: they talk about each other, and a directed answer has
+ * exactly one name it could resolve to. That removes name resolution from what
+ * the table is testing, which is the bot against somebody who reacts.
+ */
 export const BURST_PERSONAS_PER_CAMPAIGN = 6;
 
 /**
@@ -202,10 +217,78 @@ export interface BurstPersona {
   readonly messages: readonly BurstPersonaMessage[];
   readonly stub: readonly BurstStubTurn[];
   readonly expect: BurstExpectedOutcome;
+  /**
+   * Present only for a guest whose replies are written by a model at run time
+   * instead of being scripted. `messages` stays empty for those: there is no
+   * script to send.
+   *
+   * Every other persona is a recording. It sends its third message whatever the
+   * bot actually said — even if the bot asked something else, even if it said it
+   * was stopping. So no amount of them can test the bot against somebody who
+   * *reacts*, and two rules we rely on are unverifiable by a script for exactly
+   * that reason: 11δ says never re-ask in the same words, and 11ζ says match the
+   * register of the person writing. A script has no register to match and never
+   * notices being repeated at.
+   */
+  readonly live?: BurstLiveGuest;
+}
+
+/**
+ * A guest the harness improvises, by handing a character sheet and the running
+ * transcript to a cheap model and injecting whatever it writes back.
+ *
+ * This is a one-shot generation, not an agent: no tools, no repository, one
+ * short message. That is why `model` points at a Cursor `-fast` tier — the cost
+ * is process startup, not thinking.
+ */
+export interface BurstLiveGuest {
+  /** A `cursor-agent` model id. `cursor-agent models` is the source of truth. */
+  readonly model: string;
+  /** Who this person is, in Greek, as the character sheet the model is given. */
+  readonly character: string;
+  /**
+   * How many times this guest will answer before going quiet.
+   *
+   * A live guest cannot be trusted to end a conversation — it will happily
+   * chat past the questionnaire — and a rehearsal that never settles reports
+   * failure for the whole campaign. The cap is what makes the run terminate.
+   */
+  readonly maxTurns: number;
 }
 
 export function burstPersonaDisplayName(persona: BurstPersona): string {
   return `${persona.firstName} ${persona.lastName}`;
+}
+
+/**
+ * One persona as the catalogue endpoint publishes it.
+ *
+ * Lives here rather than inline in the controller because the schema spec used
+ * to build its own copy of this mapping while calling itself "the catalogue the
+ * controller builds". The two drifted the moment a persona gained a field, and
+ * the test that existed to catch exactly that kind of drift passed anyway. One
+ * function means the spec parses what the endpoint actually returns.
+ *
+ * The character sheet of a live guest is deliberately not published — only the
+ * model id. It is the harness's own instruction, and in a report it would read
+ * like something a participant said.
+ */
+export function burstPersonaCatalogEntry(persona: BurstPersona) {
+  return {
+    id: persona.id,
+    campaign: persona.campaign,
+    ordinal: persona.ordinal,
+    displayName: burstPersonaDisplayName(persona),
+    phoneE164: burstPersonaPhoneE164(persona),
+    quirk: persona.quirk,
+    mirrors: persona.mirrors,
+    messages: persona.messages.map((message) => ({
+      afterMs: message.afterMs,
+      text: message.text,
+    })),
+    ...(persona.live ? { liveModel: persona.live.model } : {}),
+    expect: persona.expect,
+  };
 }
 
 export function burstPersonaPhoneE164(persona: BurstPersona): string {
