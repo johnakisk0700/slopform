@@ -5,7 +5,10 @@ import type {
   FeedbackExtractionProposal,
   FeedbackExtractionSafetySignalProposal,
 } from "../extraction/extraction.schemas.js";
-import { feedbackExtractionProposalSchema } from "../extraction/extraction.schemas.js";
+import {
+  feedbackExtractionGoalVerdicts,
+  feedbackExtractionProposalSchema,
+} from "../extraction/extraction.schemas.js";
 import {
   FEEDBACK_ATTENTION_CLASSIFICATION_BATCH_SIZE,
   FeedbackAttentionClassificationValidationError,
@@ -179,22 +182,30 @@ function buildProposal(
   const confidence = turn.confidence ?? 0.9;
   const byName = candidateIndex(parsed.candidates);
 
+  const declineCite = resolveCite("all-new", parsed.newMessageIds);
+
   return {
-    answers: (turn.answers ?? []).map((answer) => {
-      const subject = resolveSubject(answer.about, undefined, byName, {
-        required: answer.question !== "event_score",
-      });
-      return {
-        questionKey: answer.question,
-        valueInt: answer.value ?? null,
-        subjectParticipantId: subject.participantId,
-        subjectMentionedName: subject.mentionedName,
-        sourceMessageIds: resolveCite(
-          answer.cite ?? "all-new",
-          parsed.newMessageIds,
-        ),
-        confidence,
-      };
+    goals: feedbackExtractionGoalVerdicts({
+      answered: (turn.answers ?? []).map((answer) => {
+        const subject = resolveSubject(answer.about, undefined, byName, {
+          required: answer.question !== "event_score",
+        });
+        return {
+          questionKey: answer.question,
+          valueInt: answer.value ?? null,
+          subjectParticipantId: subject.participantId,
+          subjectMentionedName: subject.mentionedName,
+          sourceMessageIds: resolveCite(
+            answer.cite ?? "all-new",
+            parsed.newMessageIds,
+          ),
+          confidence,
+        };
+      }),
+      declined: (turn.skippedGoals ?? []).map((questionKey) => ({
+        questionKey,
+        sourceMessageIds: declineCite,
+      })),
     }),
     notes: (turn.notes ?? []).map((note) => {
       const subject = resolveSubject(note.about, note.mentionedName, byName, {
@@ -212,7 +223,6 @@ function buildProposal(
         confidence,
       };
     }),
-    skippedGoals: [...(turn.skippedGoals ?? [])],
     nextGoal: turn.nextGoal === undefined ? null : turn.nextGoal,
     reply: turn.reply === undefined ? null : turn.reply,
     handoff: turn.handoff ?? false,

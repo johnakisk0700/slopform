@@ -1,3 +1,4 @@
+import type { FeedbackAnswerQuestionKey } from "@join-the-six/database";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -8,7 +9,9 @@ import {
 import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "./question-set.js";
 import { validateFeedbackExtractionProposal } from "./extraction/validate-proposal.js";
 import {
+  feedbackExtractionGoalVerdicts,
   feedbackExtractionProposalSchema,
+  type FeedbackExtractionAnswerProposal,
   type FeedbackExtractionContext,
   type FeedbackExtractionProposal,
   type FeedbackExtractionSafetySignalProposal,
@@ -36,18 +39,32 @@ import { matchesPostEventFeedbackStopCommand } from "./matching/stop-command.js"
  * must contain: those are the two-Κώστας ambiguity and the unknown-name case.
  */
 
-type EvalProposal = Partial<FeedbackExtractionProposal>;
+/**
+ * The fixtures are written as "the model proposed these answers", which is what
+ * the eval is about. The wire shape is one verdict per goal; translating here
+ * keeps the fixtures readable as claims about extraction.
+ */
+type EvalProposal = Partial<Omit<FeedbackExtractionProposal, "goals">> & {
+  readonly answers?: readonly FeedbackExtractionAnswerProposal[];
+  readonly skippedGoals?: readonly FeedbackAnswerQuestionKey[];
+};
 
 function proposal(overrides: EvalProposal): FeedbackExtractionProposal {
+  const { answers, skippedGoals, ...rest } = overrides;
   return feedbackExtractionProposalSchema.parse({
-    answers: [],
+    goals: feedbackExtractionGoalVerdicts({
+      ...(answers ? { answered: answers } : {}),
+      declined: (skippedGoals ?? []).map((questionKey) => ({
+        questionKey,
+        sourceMessageIds: ["m2"],
+      })),
+    }),
     notes: [],
-    skippedGoals: [],
     nextGoal: null,
     reply: null,
     handoff: false,
     confidence: 0.9,
-    ...overrides,
+    ...rest,
   });
 }
 

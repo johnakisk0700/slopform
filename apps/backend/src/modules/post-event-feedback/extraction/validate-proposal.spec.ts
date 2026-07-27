@@ -1,8 +1,11 @@
+import type { FeedbackAnswerQuestionKey } from "@join-the-six/database";
 import { describe, expect, it } from "vitest";
 
 import { validateFeedbackExtractionProposal } from "./validate-proposal.js";
 import {
+  feedbackExtractionGoalVerdicts,
   feedbackExtractionProposalSchema,
+  type FeedbackExtractionAnswerProposal,
   type FeedbackExtractionContext,
   type FeedbackExtractionProposal,
 } from "./extraction.schemas.js";
@@ -58,24 +61,40 @@ function context(
   };
 }
 
+/**
+ * Still described as answers and skipped goals, because that is what these
+ * cases are about. The wire shape is one verdict per goal; translating here
+ * keeps every case below testing a rule rather than a serialization.
+ */
 function proposal(
-  overrides: Partial<FeedbackExtractionProposal> = {},
+  overrides: Partial<Omit<FeedbackExtractionProposal, "goals">> & {
+    readonly answers?: readonly FeedbackExtractionAnswerProposal[];
+    readonly skippedGoals?: readonly FeedbackAnswerQuestionKey[];
+    readonly alreadySettled?: readonly FeedbackAnswerQuestionKey[];
+  } = {},
 ): FeedbackExtractionProposal {
+  const { answers, skippedGoals, alreadySettled, ...rest } = overrides;
   return feedbackExtractionProposalSchema.parse({
-    answers: [],
+    goals: feedbackExtractionGoalVerdicts({
+      ...(answers ? { answered: answers } : {}),
+      declined: (skippedGoals ?? []).map((questionKey) => ({
+        questionKey,
+        sourceMessageIds: ["m2"],
+      })),
+      ...(alreadySettled ? { alreadySettled } : {}),
+    }),
     notes: [],
-    skippedGoals: [],
     nextGoal: null,
     reply: null,
     handoff: false,
     confidence: 0.9,
-    ...overrides,
+    ...rest,
   });
 }
 
 function answer(
-  overrides: Partial<FeedbackExtractionProposal["answers"][number]> = {},
-): FeedbackExtractionProposal["answers"][number] {
+  overrides: Partial<FeedbackExtractionAnswerProposal> = {},
+): FeedbackExtractionAnswerProposal {
   return {
     questionKey: "liked",
     valueInt: null,
@@ -479,18 +498,23 @@ describe("validateFeedbackExtractionProposal", () => {
       expect(result.skippedGoals).toEqual(["avoid"]);
     });
 
-    it("refuses to skip a goal answered in this run", () => {
+    // This used to arrive as a rejection, because answers and skips were two
+    // independent lists and a goal could appear in both. One verdict per goal
+    // makes that inexpressible, so the conflict is resolved before the rules see
+    // it — and resolved towards the answer, because discarding what somebody
+    // actually said would be the worse reading. The validator keeps its
+    // `already_recorded` check for the path that is still reachable: a goal
+    // answered in an earlier run, covered by the case below.
+    it("keeps the answer when the same goal is also proposed as skipped", () => {
       const result = validateFeedbackExtractionProposal(
         proposal({ answers: [answer()], skippedGoals: ["liked"] }),
         context(),
       );
 
+      expect(result.answers.map((entry) => entry.questionKey)).toEqual([
+        "liked",
+      ]);
       expect(result.skippedGoals).toEqual([]);
-      expect(result.rejections).toContainEqual({
-        scope: "goal",
-        reason: "already_recorded",
-        questionKey: "liked",
-      });
     });
 
     it("refuses to skip a goal answered in an earlier run (D16)", () => {

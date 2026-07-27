@@ -73,8 +73,9 @@ export function validateFeedbackExtractionProposal(
   );
   const newParticipantMessageIds = new Set(context.newParticipantMessageIds);
 
+  const verdicts = splitGoalVerdicts(proposal.goals, rejections);
   const answersResult = validateAnswers(
-    proposal.answers,
+    verdicts.answers,
     context,
     messagesById,
     newParticipantMessageIds,
@@ -101,7 +102,7 @@ export function validateFeedbackExtractionProposal(
     ...answersResult.answers.map((answer) => answer.questionKey),
   ]);
   const skippedGoals = validateSkippedGoals(
-    proposal.skippedGoals,
+    verdicts.declined,
     context,
     answeredKeys,
     rejections,
@@ -128,6 +129,55 @@ export function validateFeedbackExtractionProposal(
     rejections,
     conflictingAnswerRevision: answersResult.conflictingAnswerRevision,
   };
+}
+
+/**
+ * Turns the per-goal verdicts back into the two lists the rules below already
+ * know how to judge.
+ *
+ * The wire shape changed to stop the model omitting goals; the rules did not
+ * need to change with it, because an `answered` verdict carries exactly the
+ * fields an answer proposal always carried. `not_addressed` and
+ * `already_settled` produce nothing at all — they are the model saying it
+ * looked, which is worth requiring and nothing to record.
+ */
+function splitGoalVerdicts(
+  goals: FeedbackExtractionProposal["goals"],
+  rejections: FeedbackExtractionRejection[],
+): {
+  readonly answers: FeedbackExtractionAnswerProposal[];
+  readonly declined: FeedbackAnswerQuestionKey[];
+} {
+  const answers: FeedbackExtractionAnswerProposal[] = [];
+  const declined: FeedbackAnswerQuestionKey[] = [];
+
+  for (const [key, verdict] of Object.entries(goals) as [
+    FeedbackAnswerQuestionKey,
+    FeedbackExtractionProposal["goals"][FeedbackAnswerQuestionKey],
+  ][]) {
+    if (verdict.status === "answered") {
+      // The check the union would have made unnecessary. Claiming a goal is
+      // answered and attaching nothing is not an answer, and saying so is the
+      // difference between a visible fault and a goal that quietly stays open.
+      if (verdict.answers.length === 0) {
+        rejections.push({
+          scope: "goal",
+          reason: "empty_answered_verdict",
+          questionKey: key,
+        });
+        continue;
+      }
+      for (const answer of verdict.answers) {
+        answers.push({ questionKey: key, ...answer });
+      }
+      continue;
+    }
+    if (verdict.status === "declined") {
+      declined.push(key);
+    }
+  }
+
+  return { answers, declined };
 }
 
 function validateSafetySignals(

@@ -352,9 +352,28 @@ Both prompts are Greek-first (the conversation is Greek) with English field
 names (they are the persisted contract). Every transcript entry includes its
 durable UTC ISO-8601 timestamp, so elapsed time and staff/participant ordering
 remain visible to both extraction and attention classification. The extraction
-proposal is `answers[]`, `notes[]`, `skippedGoals[]`, `nextGoal`, `reply`,
-`handoff`, `confidence`; its full transcript also carries the campaign's
-question copy snapshot, **live** D16 candidates and already-accepted results.
+proposal is `goals`, `notes[]`, `nextGoal`, `reply`, `handoff`, `confidence`;
+its full transcript also carries the campaign's question copy snapshot, **live**
+D16 candidates and already-accepted results.
+
+`goals` carries one **required** verdict per questionnaire goal — `answered`
+with a list of that goal's answers, `declined` with the words that declined it,
+`not_addressed`, or `already_settled`. It replaced a free `answers[]` array and
+a separate `skippedGoals[]` on 2026-07-27, because an array of one is valid
+output: a message that answered three goals could come back holding one, with
+nothing on the wire looking empty, since there was no slot to be empty. The only
+thing asking for exhaustiveness was prose in the field description, and Luna
+read «βαζω 3. η Λιτσα περασε, θα την ξαναεβλεπα. κανεναν οχι», returned the
+score alone, and then asked about the person it had just been told about. A
+required key per goal removes the option instead of arguing against it. It
+forces consideration, not correctness — a wrong `not_addressed` is still
+possible, but a wrong field is visible and assertable where a missing array
+element is neither.
+
+The verdict is per goal and its answers are a list, because one goal
+legitimately holds several directed answers: «ο Νίκος, η Ελένη και η Άννα μου
+άρεσαν» is three `liked` edges from one sentence, and the questionnaire exists
+to build that graph.
 
 The independent attention proposal is `results[]`, exactly one per supplied new
 participant message: `messageId`, `incident`, nullable `category`, nullable
@@ -364,10 +383,12 @@ reasoning is disabled for this bounded classification task; held-out acceptance
 must prove the direct structured answer remains reliable before that setting
 changes.
 
-`skippedGoals` is a deliberate addition to the plan's §7 sketch: D3 locks every
-question as skippable with no answer row, and without a producer for it a
-participant whose remaining answer is «κανένας» could never reach `completed`,
-so the closing copy would never send.
+The `declined` verdict is a deliberate addition to the plan's §7 sketch: D3
+locks every question as skippable with no answer row, and without a producer for
+it a participant whose remaining answer is «κανένας» could never reach
+`completed`, so the closing copy would never send. It carries provenance for the
+same reason an answer does — without it, "they did not want to say" is
+indistinguishable from the model not having looked.
 
 ### Validation before any persistence or send
 

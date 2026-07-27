@@ -35,15 +35,20 @@ describe("feedback extraction model selection", () => {
     );
   });
 
+  // Asserted across the whole registry rather than on one id, because the
+  // registry is what decides this: the function keys off the adapter's provider,
+  // and every entry now routes through OpenRouter. The `undefined` branch is
+  // still correct code for a future non-OpenRouter provider but is no longer
+  // reachable through any registered model, so no model id can stand for it.
   it("disables OpenRouter reasoning for the bounded classifier task", () => {
-    expect(
-      feedbackAttentionClassificationProviderOptions("qwen/qwen3.7-max"),
-    ).toEqual({
-      openrouter: { reasoning: { effort: "none" } },
-    });
-    expect(
-      feedbackAttentionClassificationProviderOptions("openai/gpt-5.6-terra"),
-    ).toBeUndefined();
+    for (const id of Object.keys(ASSISTANT_MODEL_ADAPTERS)) {
+      expect(
+        feedbackAttentionClassificationProviderOptions(
+          id as keyof typeof ASSISTANT_MODEL_ADAPTERS,
+        ),
+        id,
+      ).toEqual({ openrouter: { reasoning: { effort: "none" } } });
+    }
   });
 });
 

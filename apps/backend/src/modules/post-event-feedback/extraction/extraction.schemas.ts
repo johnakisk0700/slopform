@@ -89,6 +89,96 @@ export const feedbackExtractionAnswerProposalSchema = z
     "One questionnaire answer extracted from a new participant message. Safety content never replaces this answer.",
   );
 
+/**
+ * One verdict per questionnaire goal — the shape that stopped the model
+ * omitting things.
+ *
+ * The answers used to be a free array: "give me the answers you found". An
+ * array of one is valid JSON, so a message that plainly answered three goals
+ * could come back with one and nothing in the output looked empty, because
+ * there was no slot to be empty. The only thing asking for exhaustiveness was
+ * English inside a `.describe()`, and on 2026-07-27 Luna read «βαζω 3. η Λιτσα
+ * περασε, θα την ξαναεβλεπα. κανεναν οχι», returned the score alone, and then
+ * asked about the person it had just been told about.
+ *
+ * A required key per goal removes the option rather than arguing against it: no
+ * conforming response exists that has not said something about `liked`. This
+ * forces consideration, not correctness — `not_addressed` can still be wrong —
+ * but a wrong field is visible and assertable, where a missing array element is
+ * neither.
+ */
+const goalAnswerSchema = z
+  .object({
+    /** Only `event_score` carries a value; the rest are directed edges. */
+    valueInt: z.number().int().nullable(),
+    /** A candidate id the model believes it resolved. Never trusted as given. */
+    subjectParticipantId: messageReferenceSchema.nullable(),
+    /** The raw name as written, when it could not be resolved. */
+    subjectMentionedName: subjectMentionSchema,
+    sourceMessageIds: sourceMessageIdsSchema,
+    confidence: confidenceSchema,
+  })
+  .strict();
+
+export const FEEDBACK_EXTRACTION_GOAL_STATUSES = [
+  "answered",
+  "declined",
+  "not_addressed",
+  "already_settled",
+] as const;
+
+/**
+ * Flat on purpose, not a discriminated union.
+ *
+ * A union is the natural way to say this and the provider will not take it: a
+ * strict `response_format` rejects the schema outright with «In
+ * context=('properties','goals','properties','event_score'), 'oneOf' is not
+ * permitted», which is how the first attempt at this shape failed every call on
+ * 2026-07-27. So the discriminator is an enum and the payloads are always-present
+ * collections that stay empty when they do not apply. `validate-proposal` checks
+ * the combination the union would have made unrepresentable.
+ */
+const goalVerdictSchema = z
+  .object({
+    status: z.enum(FEEDBACK_EXTRACTION_GOAL_STATUSES),
+    /**
+     * A list, because one goal legitimately holds several directed answers:
+     * «ο Νίκος, η Ελένη και η Άννα μου άρεσαν» is three `liked` edges from one
+     * sentence, and the questionnaire exists to build that graph. Empty unless
+     * `status` is `answered`.
+     */
+    answers: z.array(goalAnswerSchema).max(FEEDBACK_EXTRACTION_MAX_ANSWERS),
+    /**
+     * The words that declined it, and empty unless `status` is `declined`. D3
+     * makes every question skippable, which is exactly why a skip needs
+     * provenance: without it, "they didn't want to say" is indistinguishable
+     * from the model not having looked.
+     */
+    declinedSourceMessageIds: z
+      .array(messageReferenceSchema)
+      .max(FEEDBACK_EXTRACTION_MAX_SOURCE_MESSAGES),
+  })
+  .strict()
+  .describe(
+    "What the new messages did to this goal. Fill `answers` only for `answered` and `declinedSourceMessageIds` only for `declined`; `already_settled` is a goal that was already answered or skipped before this run.",
+  );
+
+/**
+ * Every goal, always. The `satisfies` is the guard: adding a questionnaire goal
+ * without adding it here stops compiling, rather than silently reintroducing a
+ * goal the model is never asked about.
+ */
+const goalVerdictShape = {
+  event_score: goalVerdictSchema,
+  liked: goalVerdictSchema,
+  meet_again: goalVerdictSchema,
+  avoid: goalVerdictSchema,
+} satisfies Record<FeedbackAnswerQuestionKey, typeof goalVerdictSchema>;
+
+const feedbackExtractionGoalVerdictsSchema = z
+  .object(goalVerdictShape)
+  .strict();
+
 export const feedbackExtractionNoteProposalSchema = z
   .object({
     noteType: z.enum(FEEDBACK_NOTE_TYPES),
@@ -117,26 +207,15 @@ export const feedbackExtractionSafetySignalProposalSchema = z
 
 export const feedbackExtractionProposalSchema = z
   .object({
-    answers: z
-      .array(feedbackExtractionAnswerProposalSchema)
-      .max(FEEDBACK_EXTRACTION_MAX_ANSWERS)
-      .describe(
-        "All new directed questionnaire answers. If the current asked goal is answered, this array must include it even when the same message describes an incident or requests handoff.",
-      ),
+    goals: feedbackExtractionGoalVerdictsSchema.describe(
+      "Every questionnaire goal, each with its own verdict. A goal answered in the new messages is `answered` even when the same message also describes an incident or asks for a human.",
+    ),
     notes: z
       .array(feedbackExtractionNoteProposalSchema)
       .max(FEEDBACK_EXTRACTION_MAX_NOTES)
       .describe(
         "All new ordinary feedback notes. Safety-flavoured testimony remains an ordinary note.",
       ),
-    /**
-     * Goals the participant explicitly declined. D3 locks every question as
-     * skippable with no answer row, and without a producer for it a
-     * conversation whose remaining answer is «κανένας» could never complete.
-     */
-    skippedGoals: z
-      .array(z.enum(FEEDBACK_ANSWER_QUESTION_KEYS))
-      .max(FEEDBACK_ANSWER_QUESTION_KEYS.length),
     nextGoal: z
       .enum(FEEDBACK_ANSWER_QUESTION_KEYS)
       .nullable()
@@ -169,6 +248,81 @@ export type FeedbackExtractionSafetySignalProposal = z.infer<
 export type FeedbackExtractionProposal = z.infer<
   typeof feedbackExtractionProposalSchema
 >;
+
+export type FeedbackExtractionGoalVerdicts =
+  FeedbackExtractionProposal["goals"];
+
+/**
+ * Builds a complete verdict set from the goals a caller has something to say
+ * about, defaulting the rest to `not_addressed`.
+ *
+ * Every producer that is not a real model — the scripted burst stub, the loop
+ * harness, the fixtures — describes a turn as "these goals were answered". They
+ * should not each have to spell out the goals that were not, and a hand-written
+ * literal is exactly where a missing key would creep back in.
+ */
+export function feedbackExtractionGoalVerdicts(input: {
+  readonly answered?: readonly FeedbackExtractionAnswerProposal[];
+  readonly declined?: readonly {
+    readonly questionKey: FeedbackAnswerQuestionKey;
+    readonly sourceMessageIds: readonly string[];
+  }[];
+  readonly alreadySettled?: readonly FeedbackAnswerQuestionKey[];
+}): FeedbackExtractionGoalVerdicts {
+  const verdicts = Object.fromEntries(
+    FEEDBACK_ANSWER_QUESTION_KEYS.map((key) => [
+      key,
+      {
+        status: "not_addressed",
+        answers: [],
+        declinedSourceMessageIds: [],
+      } satisfies FeedbackExtractionGoalVerdict,
+    ]),
+  ) as unknown as Record<
+    FeedbackAnswerQuestionKey,
+    FeedbackExtractionGoalVerdict
+  >;
+
+  for (const key of input.alreadySettled ?? []) {
+    verdicts[key] = {
+      status: "already_settled",
+      answers: [],
+      declinedSourceMessageIds: [],
+    };
+  }
+  for (const decline of input.declined ?? []) {
+    verdicts[decline.questionKey] = {
+      status: "declined",
+      answers: [],
+      declinedSourceMessageIds: [...decline.sourceMessageIds],
+    };
+  }
+  // Answers last, and grouped: a goal that is both answered and declined is
+  // answered, which is the reading that keeps testimony rather than discarding
+  // it, and several answers to one goal accumulate rather than overwrite.
+  for (const answer of input.answered ?? []) {
+    const existing = verdicts[answer.questionKey];
+    verdicts[answer.questionKey] = {
+      status: "answered",
+      answers: [
+        ...(existing.status === "answered" ? existing.answers : []),
+        {
+          valueInt: answer.valueInt,
+          subjectParticipantId: answer.subjectParticipantId,
+          subjectMentionedName: answer.subjectMentionedName,
+          sourceMessageIds: [...answer.sourceMessageIds],
+          confidence: answer.confidence,
+        },
+      ],
+      declinedSourceMessageIds: [],
+    };
+  }
+
+  return verdicts;
+}
+
+type FeedbackExtractionGoalVerdict =
+  FeedbackExtractionGoalVerdicts[FeedbackAnswerQuestionKey];
 
 export type FeedbackExtractionActor =
   "bot" | "participant" | "staff" | "system";
@@ -246,6 +400,12 @@ export const FEEDBACK_EXTRACTION_REJECTION_REASONS = [
   "duplicate_in_run",
   "already_recorded",
   "unknown_goal",
+  /**
+   * `status: "answered"` with nothing in `answers`. A discriminated union would
+   * have made this unrepresentable; a strict `response_format` refuses unions,
+   * so the combination is checked here instead of being trusted.
+   */
+  "empty_answered_verdict",
 ] as const;
 
 export type FeedbackExtractionRejectionReason =

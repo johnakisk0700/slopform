@@ -271,24 +271,46 @@ describe("ScriptedBurstExtractionModel", () => {
       outputTokens: null,
       totalTokens: null,
     });
-    expect(result.proposal.answers).toEqual([
-      {
-        questionKey: "event_score",
-        valueInt: 5,
-        subjectParticipantId: null,
-        subjectMentionedName: null,
-        sourceMessageIds: ["msg-p-1", "msg-p-2"],
-        confidence: 0.9,
+    expect(result.proposal.goals).toEqual({
+      event_score: {
+        status: "answered",
+        answers: [
+          {
+            valueInt: 5,
+            subjectParticipantId: null,
+            subjectMentionedName: null,
+            sourceMessageIds: ["msg-p-1", "msg-p-2"],
+            confidence: 0.9,
+          },
+        ],
+        declinedSourceMessageIds: [],
       },
-      {
-        questionKey: "liked",
-        valueInt: null,
-        subjectParticipantId: "cand-nikos",
-        subjectMentionedName: null,
-        sourceMessageIds: ["msg-p-2"],
-        confidence: 0.9,
+      liked: {
+        status: "answered",
+        answers: [
+          {
+            valueInt: null,
+            subjectParticipantId: "cand-nikos",
+            subjectMentionedName: null,
+            sourceMessageIds: ["msg-p-2"],
+            confidence: 0.9,
+          },
+        ],
+        declinedSourceMessageIds: [],
       },
-    ]);
+      // Stated, not absent. The two goals this turn said nothing about are the
+      // whole reason the shape is a verdict per goal rather than a list.
+      meet_again: {
+        status: "not_addressed",
+        answers: [],
+        declinedSourceMessageIds: [],
+      },
+      avoid: {
+        status: "not_addressed",
+        answers: [],
+        declinedSourceMessageIds: [],
+      },
+    });
   });
 
   it("reuses the same claimed turn for concurrent attention classification", async () => {
@@ -307,7 +329,11 @@ describe("ScriptedBurstExtractionModel", () => {
       ),
     ]);
 
-    expect(proposed.proposal.answers).toHaveLength(2);
+    expect(
+      Object.values(proposed.proposal.goals).filter(
+        (verdict) => verdict.status === "answered",
+      ),
+    ).toHaveLength(2);
     expect(attention.signals).toEqual([]);
     expect(attention.usage.inputTokens).toBeNull();
     expect(attention.estimatedPromptTokens).toBe(0);

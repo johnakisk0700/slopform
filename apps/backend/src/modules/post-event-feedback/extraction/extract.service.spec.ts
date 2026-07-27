@@ -20,7 +20,12 @@ import { PostEventFeedbackExtractor } from "./extract.service.js";
 import type { PostEventFeedbackExtractionModel } from "./model.service.js";
 import { PostEventFeedbackMetrics } from "../metrics.service.js";
 import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "../question-set.js";
-import { POST_EVENT_FEEDBACK_HANDOFF_REPLY } from "./extraction.schemas.js";
+import type { FeedbackAnswerQuestionKey } from "@join-the-six/database";
+import {
+  POST_EVENT_FEEDBACK_HANDOFF_REPLY,
+  feedbackExtractionGoalVerdicts,
+  type FeedbackExtractionAnswerProposal,
+} from "./extraction.schemas.js";
 import type { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
 import type { FeedbackResultsRepository } from "./results.repository.js";
 import type { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
@@ -1226,21 +1231,36 @@ interface Harness {
   alert: { raised: FeedbackOperatorAlertInput[] };
 }
 
+/**
+ * Cases here are written as "the model proposed these answers", which is what
+ * they are about. The wire shape is one verdict per goal; translating in the
+ * factory keeps each case a claim about the extractor rather than about
+ * serialization.
+ */
 function generation(
-  overrides: Record<string, unknown>,
+  overrides: Record<string, unknown> & {
+    readonly answers?: readonly FeedbackExtractionAnswerProposal[];
+    readonly skippedGoals?: readonly FeedbackAnswerQuestionKey[];
+  },
 ): Record<string, unknown> {
+  const { answers, skippedGoals, ...rest } = overrides;
   return {
     model,
     usage: { inputTokens: 800, outputTokens: 110, totalTokens: 910 },
     proposal: {
-      answers: [],
+      goals: feedbackExtractionGoalVerdicts({
+        ...(answers ? { answered: answers } : {}),
+        declined: (skippedGoals ?? []).map((questionKey) => ({
+          questionKey,
+          sourceMessageIds: ["m2"],
+        })),
+      }),
       notes: [],
-      skippedGoals: [],
       nextGoal: null,
       reply: null,
       handoff: false,
       confidence: 0.9,
-      ...overrides,
+      ...rest,
     },
   };
 }

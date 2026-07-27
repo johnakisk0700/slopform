@@ -7,6 +7,7 @@ import {
 } from "./extraction/model.service.js";
 import {
   FEEDBACK_EXTRACTION_MAX_SOURCE_MESSAGES,
+  feedbackExtractionGoalVerdicts,
   feedbackExtractionProposalSchema,
   type FeedbackExtractionMessageView,
   type FeedbackExtractionProposal,
@@ -279,16 +280,22 @@ function buildProposal(
   };
 
   return {
-    answers: (turn.answers ?? []).map((answer) => {
-      const resolved = subject(answer.about);
-      return {
-        questionKey: answer.question,
-        valueInt: answer.value ?? null,
-        subjectParticipantId: resolved.id,
-        subjectMentionedName: resolved.mentioned,
-        sourceMessageIds: resolveCite(answer.cite ?? "all-new", conversation),
-        confidence: answer.confidence ?? 0.9,
-      };
+    goals: feedbackExtractionGoalVerdicts({
+      answered: (turn.answers ?? []).map((answer) => {
+        const resolved = subject(answer.about);
+        return {
+          questionKey: answer.question,
+          valueInt: answer.value ?? null,
+          subjectParticipantId: resolved.id,
+          subjectMentionedName: resolved.mentioned,
+          sourceMessageIds: resolveCite(answer.cite ?? "all-new", conversation),
+          confidence: answer.confidence ?? 0.9,
+        };
+      }),
+      declined: [...(turn.skip ?? [])].map((questionKey) => ({
+        questionKey,
+        sourceMessageIds: resolveCite("all-new", conversation),
+      })),
     }),
     notes: (turn.notes ?? []).map((note) => {
       const resolved = subject(note.about);
@@ -301,7 +308,6 @@ function buildProposal(
         confidence: note.confidence ?? 0.7,
       };
     }),
-    skippedGoals: [...(turn.skip ?? [])],
     nextGoal: turn.next ?? null,
     reply: turn.reply ?? null,
     handoff: turn.handoff ?? false,
