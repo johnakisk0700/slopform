@@ -732,6 +732,7 @@ export class FakeFeedbackConversations {
       messages: [],
       extraction: { cursorSeq: 0, lastRunAt: null, model: null },
       needsAttention: false,
+      attentionReasons: [],
       remindedAt: null,
       reminderCount: 0,
       awaitingHuman: false,

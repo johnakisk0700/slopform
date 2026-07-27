@@ -43,6 +43,7 @@ import {
   POST_EVENT_FEEDBACK_SAFETY_CATEGORIES,
   feedbackConversationMessageAttentionSchema,
   strongerRecommendedAction,
+  type PostEventFeedbackAttentionReason,
   type PostEventFeedbackRecommendedAction,
   type PostEventFeedbackSafetyCategory,
 } from "./attention.js";
@@ -759,6 +760,120 @@ export class FeedbackConversationRepository {
 
     const current = await this.requireConversation(input.conversationId);
     return { changed: false, conversation: current };
+  }
+
+  /**
+   * Raises the badge and records why, in one write.
+   *
+   * Idempotent on the pair that identifies the situation: re-reading the same
+   * hostile message, or a retried job, must not stack three identical rows an
+   * operator then has to dismiss three times. A *new* message of the same kind
+   * is a new row, because it is a new thing to look at.
+   */
+  async raiseAttention(input: {
+    readonly conversationId: string;
+    readonly kind: PostEventFeedbackAttentionReason;
+    readonly messageId: string | null;
+    readonly at: Date;
+  }): Promise<FeedbackConversationTransitionResult> {
+    const at = z.date().parse(input.at);
+    const collection = await this.collection();
+    const updated = await collection.findOneAndUpdate(
+      {
+        ...feedbackConversationFilter(input.conversationId),
+        attentionReasons: {
+          $not: {
+            $elemMatch: {
+              kind: input.kind,
+              messageId: input.messageId,
+              resolvedAt: null,
+            },
+          },
+        },
+      },
+      {
+        $set: { needsAttention: true },
+        $push: {
+          attentionReasons: {
+            id: randomUUID(),
+            kind: input.kind,
+            messageId: input.messageId,
+            at,
+            resolvedAt: null,
+            resolvedBy: null,
+          },
+        },
+        $max: { updatedAt: at },
+      } as UpdateFilter<FeedbackConversationDocument>,
+      { returnDocument: "after" },
+    );
+
+    if (updated) {
+      return {
+        changed: true,
+        conversation: feedbackConversationDocumentSchema.parse(updated),
+      };
+    }
+    const current = await this.requireConversation(input.conversationId);
+    return { changed: false, conversation: current };
+  }
+
+  /**
+   * Dismisses one reason, and lowers the badge only when it was the last one.
+   *
+   * Recomputing `needsAttention` here is what keeps the count honest. It stays
+   * stored rather than derived because the inbox filters and counts on it, but
+   * nothing else may write it once a conversation carries reasons — otherwise
+   * the badge and the list disagree and the operator believes the badge.
+   */
+  async resolveAttentionReason(input: {
+    readonly conversationId: string;
+    readonly reasonId: string;
+    readonly resolvedBy: string;
+    readonly at: Date;
+  }): Promise<FeedbackConversationTransitionResult> {
+    const at = z.date().parse(input.at);
+    const collection = await this.collection();
+    const updated = await collection.findOneAndUpdate(
+      {
+        ...feedbackConversationFilter(input.conversationId),
+        attentionReasons: {
+          $elemMatch: { id: input.reasonId, resolvedAt: null },
+        },
+      },
+      {
+        $set: {
+          "attentionReasons.$[reason].resolvedAt": at,
+          "attentionReasons.$[reason].resolvedBy": input.resolvedBy,
+        },
+        $max: { updatedAt: at },
+      } as UpdateFilter<FeedbackConversationDocument>,
+      {
+        arrayFilters: [
+          { "reason.id": input.reasonId, "reason.resolvedAt": null },
+        ],
+        returnDocument: "after",
+      },
+    );
+
+    if (!updated) {
+      const current = await this.requireConversation(input.conversationId);
+      return { changed: false, conversation: current };
+    }
+
+    const resolved = feedbackConversationDocumentSchema.parse(updated);
+    if (
+      resolved.attentionReasons.some((reason) => reason.resolvedAt === null)
+    ) {
+      return { changed: true, conversation: resolved };
+    }
+    const lowered = await this.transition(
+      input.conversationId,
+      { needsAttention: true },
+      { needsAttention: false },
+      at,
+    );
+    return { changed: true, conversation: lowered ?? resolved };
   }
 
   /**

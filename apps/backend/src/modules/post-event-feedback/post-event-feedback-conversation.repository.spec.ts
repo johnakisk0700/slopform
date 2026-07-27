@@ -56,6 +56,7 @@ describe("FeedbackConversationRepository", () => {
         control: { mode: "bot", source: "launch", changedAt: launchedAt },
         extraction: { cursorSeq: 0, lastRunAt: null, model: null },
         needsAttention: false,
+        attentionReasons: [],
       }),
     });
     expect(result.conversation.goals.map((goal) => goal.key)).toEqual([
@@ -751,6 +752,7 @@ function feedbackConversation(
     messages: [],
     extraction: { cursorSeq: 0, lastRunAt: null, model: null },
     needsAttention: false,
+    attentionReasons: [],
     remindedAt: null,
     reminderCount: 0,
     awaitingHuman: false,

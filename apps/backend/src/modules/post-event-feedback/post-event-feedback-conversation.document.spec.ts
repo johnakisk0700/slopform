@@ -94,6 +94,38 @@ describe("feedbackConversationDocumentSchema", () => {
     );
   });
 
+  it("reads a conversation written before attention reasons existed", () => {
+    // Those documents are flagged with nothing to show, which is exactly what
+    // they are. Failing to parse them would take the whole inbox down for a
+    // field that only ever explains a flag.
+    const { attentionReasons: _omitted, ...legacy } = feedbackConversation([]);
+
+    expect(
+      feedbackConversationDocumentSchema.parse(legacy).attentionReasons,
+    ).toEqual([]);
+  });
+
+  it("refuses an attention reason resolved by nobody", () => {
+    // `resolvedAt` is what stops it counting toward `needsAttention`, so a
+    // half-written resolution silently dismisses a disclosure and leaves no
+    // record of who did it.
+    expect(() =>
+      feedbackConversationDocumentSchema.parse({
+        ...feedbackConversation([]),
+        attentionReasons: [
+          {
+            id: "22222222-2222-4222-8222-222222222222",
+            kind: "safety",
+            messageId: "11111111-1111-4111-8111-111111111111",
+            at: new Date("2026-07-27T10:00:00.000Z"),
+            resolvedAt: new Date("2026-07-27T11:00:00.000Z"),
+            resolvedBy: null,
+          },
+        ],
+      }),
+    ).toThrow();
+  });
+
   it("stays disjoint from the schema-v1 assistant aggregate", () => {
     expect(() =>
       conversationThreadDocumentSchema.parse(feedbackConversation([])),
@@ -236,6 +268,7 @@ function feedbackConversation(
     messages,
     extraction: { cursorSeq: 0, lastRunAt: null, model: null },
     needsAttention: false,
+    attentionReasons: [],
     remindedAt: null,
     reminderCount: 0,
     awaitingHuman: false,

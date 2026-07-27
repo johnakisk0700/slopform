@@ -12,31 +12,41 @@ import type {
  * The shared contract for the multi-campaign burst rehearsal.
  *
  * The question the rehearsal answers is **not** throughput. It is whether the
- * loop stays correct when eighteen people answer at once: no duplicate message
+ * loop stays correct when many people answer at once: no duplicate message
  * reaches a phone, no answer is written against the wrong conversation, and
  * every campaign reaches a terminal state without a human touching it.
  *
- * Three campaigns run concurrently, six personas each. A persona is named after
- * the thing that makes it hard — `Κώστας Αργοπληκτρολογάκιας` types slowly,
- * `Μαρία Φλερτατζού` flirts — so the admin conversation list reads as the
- * scenario catalogue and a failure is identifiable without cross-referencing a
- * table. That naming is load-bearing, not decoration: the display name is the
- * only scenario label that survives into MongoDB, the outbox and the report.
+ * Four campaigns run concurrently, six personas each when the catalogue is
+ * complete. A persona is named after the thing that makes it hard — `Κώστας
+ * Αργοπληκτρολογάκιας` types slowly, `Μαρία Φλερτατζού` flirts — so the admin
+ * conversation list reads as the scenario catalogue and a failure is
+ * identifiable without cross-referencing a table. That naming is load-bearing,
+ * not decoration: the display name is the only scenario label that survives
+ * into MongoDB, the outbox and the report.
  *
- * This file holds types and identifiers only. The eighteen personas live in
+ * A fourth campaign exists so the table stays a Six: growing any existing
+ * dinner would rewrite every persona's candidate list. `mezedopoleio` is that
+ * campaign.
+ *
+ * This file holds types and identifiers only. The personas live in
  * `burst-personas.ts`, the deterministic model in
  * `scripted-extraction-model.service.ts`, and the runner in
  * `scripts/run-feedback-burst.mjs`.
  */
 
 /** One campaign per dinner. The slug is the seed identity, not a display name. */
-export const BURST_CAMPAIGN_SLUGS = ["taverna", "rooftop", "wine"] as const;
+export const BURST_CAMPAIGN_SLUGS = [
+  "taverna",
+  "rooftop",
+  "wine",
+  "mezedopoleio",
+] as const;
 
 export type BurstCampaignSlug = (typeof BURST_CAMPAIGN_SLUGS)[number];
 
 export interface BurstCampaignDefinition {
   readonly slug: BurstCampaignSlug;
-  /** Ordinal 1-3. Fixes the phone block and the seeding order. */
+  /** Ordinal 1-4. Fixes the phone block and the seeding order. */
   readonly ordinal: number;
   /** Event title as it appears in the admin. */
   readonly title: string;
@@ -46,9 +56,14 @@ export const BURST_CAMPAIGNS: readonly BurstCampaignDefinition[] = [
   { slug: "taverna", ordinal: 1, title: "Δοκιμαστικό δείπνο — Ταβέρνα" },
   { slug: "rooftop", ordinal: 2, title: "Δοκιμαστικό δείπνο — Rooftop" },
   { slug: "wine", ordinal: 3, title: "Δοκιμαστικό δείπνο — Οινοποιείο" },
+  {
+    slug: "mezedopoleio",
+    ordinal: 4,
+    title: "Δοκιμαστικό δείπνο — Μεζεδοπωλείο",
+  },
 ];
 
-/** Six personas per campaign, eighteen conversations in flight. */
+/** Six personas per campaign when the catalogue is full. */
 export const BURST_PERSONAS_PER_CAMPAIGN = 6;
 
 /**
@@ -153,7 +168,7 @@ export interface BurstExpectedOutcome {
 }
 
 export interface BurstPersona {
-  /** Stable slug, lower snake case, unique across all three campaigns. */
+  /** Stable slug, lower snake case, unique across all campaigns. */
   readonly id: string;
   readonly campaign: BurstCampaignSlug;
   /** Ordinal 1-6 within its campaign. Fixes the phone and the seeding order. */

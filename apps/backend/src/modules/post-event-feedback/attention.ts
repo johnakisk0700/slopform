@@ -55,6 +55,73 @@ export type FeedbackConversationMessageAttention = z.infer<
   typeof feedbackConversationMessageAttentionSchema
 >;
 
+/**
+ * Why a conversation is asking for a person.
+ *
+ * `needsAttention` was a bare boolean, so five different situations arrived in
+ * the inbox looking identical and the admin could not say what the problem was.
+ * Naming the reason is what lets the operator read one and dismiss it — and
+ * dismissing is per reason, so clearing a score somebody revised can never take
+ * a disclosure down with it.
+ *
+ * Distinct from the safety taxonomy above, which classifies harm to a person.
+ * `hostile_to_bot` is deliberately not a safety category: somebody swearing at
+ * us is rude, not an incident, and folding it into the categories would start
+ * flagging every participant who told the bot to get lost.
+ */
+export const POST_EVENT_FEEDBACK_ATTENTION_REASONS = [
+  "safety",
+  "handoff",
+  "unattributed_note",
+  "answer_revision",
+  "hostile_to_bot",
+] as const;
+
+export const postEventFeedbackAttentionReasonSchema = z.enum(
+  POST_EVENT_FEEDBACK_ATTENTION_REASONS,
+);
+
+export type PostEventFeedbackAttentionReason = z.infer<
+  typeof postEventFeedbackAttentionReasonSchema
+>;
+
+/**
+ * One reason, and the message an operator should be looking at.
+ *
+ * `messageId` is the anchor the admin links to. It is nullable because not
+ * every reason has one: a safety signal and a hostile turn both name the
+ * message that carried them, but a note flagged for review points at a note,
+ * and a reason raised by a sweep points at nothing a participant sent.
+ */
+export const feedbackConversationAttentionReasonSchema = z
+  .object({
+    /**
+     * Stable handle, so dismissing addresses one entry rather than a shape.
+     * Two revisions of the same answer, or two hostile turns, are separate
+     * things an operator may want to clear separately.
+     */
+    id: z.uuid(),
+    kind: postEventFeedbackAttentionReasonSchema,
+    messageId: z.uuid().nullable(),
+    at: z.date(),
+    /** Set when an operator dismisses it. Unresolved reasons are what count. */
+    resolvedAt: z.date().nullable().default(null),
+    resolvedBy: z.string().trim().min(1).max(200).nullable().default(null),
+  })
+  .strict()
+  .superRefine((reason, context) => {
+    if ((reason.resolvedAt === null) !== (reason.resolvedBy === null)) {
+      context.addIssue({
+        code: "custom",
+        message: "A resolved attention reason records both when and by whom",
+      });
+    }
+  });
+
+export type FeedbackConversationAttentionReason = z.infer<
+  typeof feedbackConversationAttentionReasonSchema
+>;
+
 const RECOMMENDED_ACTION_RANK: Record<
   PostEventFeedbackRecommendedAction,
   number

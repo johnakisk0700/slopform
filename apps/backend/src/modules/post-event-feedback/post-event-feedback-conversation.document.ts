@@ -9,7 +9,10 @@ import {
   POST_EVENT_FEEDBACK_QUESTION_SET_V1,
   type PostEventFeedbackQuestionSetCopy,
 } from "./question-set.js";
-import { feedbackConversationMessageAttentionSchema } from "./attention.js";
+import {
+  feedbackConversationAttentionReasonSchema,
+  feedbackConversationMessageAttentionSchema,
+} from "./attention.js";
 import { ConversationPersistenceError } from "../conversations/conversation-persistence.errors.js";
 
 // Schema v2 is the purpose-specific post-event feedback document. It shares the
@@ -44,6 +47,10 @@ export const FEEDBACK_CONVERSATION_MESSAGE_MAX_STORED_TEXT_LENGTH = 64_000;
 // and stays far below MongoDB's 16 MiB BSON document limit.
 export const FEEDBACK_CONVERSATION_MAX_MESSAGES = 150;
 export const FEEDBACK_CONVERSATION_MAX_DOCUMENT_BYTES = 4_194_304;
+// Generous against the message cap: a conversation raising a reason on every
+// second message is already pathological, and the bound exists so a repeated
+// raise cannot grow the document without limit, not to ration honest reasons.
+export const FEEDBACK_CONVERSATION_MAX_ATTENTION_REASONS = 50;
 
 export const feedbackConversationPhoneSchema = z
   .string()
@@ -195,6 +202,24 @@ export const feedbackConversationDocumentSchema = z
       .max(FEEDBACK_CONVERSATION_MAX_MESSAGES),
     extraction: feedbackConversationExtractionSchema,
     needsAttention: z.boolean(),
+    /**
+     * Why it is asking for a person, newest last, resolved entries kept.
+     *
+     * `needsAttention` stays because the inbox counts and filters on it, but it
+     * is now a summary of this list rather than the only record: it is true
+     * exactly while some entry is unresolved. The list is what lets the admin
+     * say *what* the problem is and link to the message that caused it, and
+     * what lets an operator dismiss one reason without dismissing the rest.
+     *
+     * Defaulted rather than required so conversations written before the list
+     * existed parse as "flagged, reason unknown" instead of failing validation.
+     * Those are readable in the admin as a flag with nothing to show, which is
+     * exactly what they are.
+     */
+    attentionReasons: z
+      .array(feedbackConversationAttentionReasonSchema)
+      .max(FEEDBACK_CONVERSATION_MAX_ATTENTION_REASONS)
+      .default([]),
     /** When the most recent nudge was queued. `null` until the first one. */
     remindedAt: z.date().nullable(),
     /**

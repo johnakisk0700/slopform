@@ -1,14 +1,15 @@
 import type { BurstPersona } from "./burst-scenario.js";
 
 /**
- * The eighteen people the burst rehearsal puts on the phone at once.
+ * The people the burst rehearsal puts on the phone at once.
  *
  * Each persona is a concurrent rendition of a scenario that already has a
  * single-conversation contract in
  * `docs/backend/modules/post-event-feedback-scenarios.md`; `mirrors` names it,
  * so a failure here points at a row somebody already argued about rather than
  * at a new opinion. What the rehearsal adds is contention: the same rules under
- * eighteen conversations, three campaigns and one queue.
+ * many conversations, four campaigns and one queue. Where no catalogue row
+ * covers the hazard, the persona comment says so rather than inventing an id.
  *
  * ## How to read one entry
  *
@@ -32,11 +33,12 @@ import type { BurstPersona } from "./burst-scenario.js";
  * boundary, so the run count is a property of the script rather than of how busy
  * the queue was.
  *
- * Thirteen personas answer or skip every goal and close as `completed`. Five
+ * Sixteen personas answer or skip every goal and close as `completed`. Seven
  * stay unfinished on purpose: silence mid-questionnaire, STOP, a Greeklish
- * opt-out, an explicit human handoff, and an erasure handoff. Handoff sets
- * `awaitingHuman`, so later messages exit `skipped_awaiting_human` and never
- * reach the stub — those two rows declare exactly one turn for the handoff run.
+ * opt-out, an explicit human handoff, an erasure handoff, STOP followed by
+ * chatter, and emoji-only non-answers. Handoff sets `awaitingHuman`, so later
+ * messages exit `skipped_awaiting_human` and never reach the stub — those two
+ * rows declare exactly one turn for the handoff run.
  *
  * ## Naming a fellow attendee
  *
@@ -47,7 +49,9 @@ import type { BurstPersona } from "./burst-scenario.js";
  * candidate. A mention that resolves to nobody has nowhere to go on an answer
  * and travels as a note's `mentionedName` instead, which is D18's degradation
  * written as data: `taverna_praises_a_ghost` and `wine_only_a_first_name` are
- * the two rows that use it.
+ * the two rows that use it. `mezedopoleio` ordinal 1 is reserved elsewhere in
+ * this change set; until that row lands the table has five names, and these
+ * five only name each other.
  *
  * ## Two entries whose catalogue verdict is stale
  *
@@ -1171,6 +1175,259 @@ export const BURST_PERSONAS: readonly BurstPersona[] = [
       needsAttention: true,
       minReceived: 4,
       maxReceived: 4,
+    },
+  },
+
+  // ── mezedopoleio ──────────────────────────────────────────────────────────
+  // Ordinal 1 is reserved — another change lands it. These five only name each
+  // other until that sixth seat is filled.
+  {
+    // The scale tops out at five and he writes ten. No existing burst row
+    // proposes an out-of-range integer, so `invalid_score` is unrehearsed under
+    // contention: a concurrent run that stores 10 while the bot re-asks, or
+    // confirms a value it refused, is invisible until somebody opens the admin.
+    // The stub is the honest half — a model that hears «10 από το 10» proposes
+    // 10 and says it noted it — and the mechanism's half is the refusal plus
+    // the replaced reply. After the re-ask he answers inside the scale and
+    // finishes; the first value must not be the one that survives.
+    id: "mezedopoleio_out_of_range_score",
+    campaign: "mezedopoleio",
+    ordinal: 2,
+    firstName: "Γιώργος",
+    lastName: "Δεκαβαθμούλας",
+    quirk: "Βάζει 10 από το 10, έξω από την κλίμακα 1–5.",
+    mirrors: "S11 · non_numeric_score",
+    messages: [
+      { afterMs: 0, text: "βαζω 10 απο το 10 ρε παιδια" },
+      {
+        afterMs: 180_000,
+        text: "ενταξει 5 τοτε. η Μαρη μου αρεσε, μαζι της θα ξαναεβγαινα. κανεναν οχι",
+      },
+    ],
+    stub: [
+      {
+        answers: [{ question: "event_score", value: 10 }],
+        // The lie the model would tell if it believed its own proposal. The
+        // application must replace this with the campaign's event_score copy.
+        reply: "Τέλεια, το σημείωσα!",
+      },
+      {
+        answers: [
+          { question: "event_score", value: 5 },
+          { question: "liked", about: "Μάρη Μονοεμοτζούλα" },
+          { question: "meet_again", about: "Μάρη Μονοεμοτζούλα" },
+        ],
+        skippedGoals: ["avoid"],
+        nextGoal: null,
+        reply: null,
+      },
+    ],
+    expect: {
+      lifecycle: "closed",
+      closedBecause: "completed",
+      optedIn: true,
+      answers: [
+        { question: "event_score", about: null, value: 5 },
+        { question: "liked", about: "Μάρη Μονοεμοτζούλα", value: null },
+        { question: "meet_again", about: "Μάρη Μονοεμοτζούλα", value: null },
+      ],
+      needsAttention: false,
+      // Intro, the re-ask that replaced the false confirmation, then closing.
+      minReceived: 3,
+      maxReceived: 3,
+    },
+  },
+  {
+    // He names himself as the person he liked. `subject_is_respondent` exists
+    // so a directed row never lands on the person writing it, and no burst row
+    // proposes that shape today — under contention the failure mode is an
+    // answer stored against the respondent while seventeen other conversations
+    // keep the validator busy. The stub proposes the answer with him as
+    // subject (and keeps the joke as a note); the mechanism drops the answer.
+    // The note uses `mentionedName` rather than `about` because the respondent
+    // is never in ΥΠΟΨΗΦΙΟΙ — the scripted model can only resolve candidate
+    // display names there — and a self-referential note must stay unflagged.
+    // After the refusal he answers about somebody else and finishes.
+    id: "mezedopoleio_names_themselves",
+    campaign: "mezedopoleio",
+    ordinal: 3,
+    firstName: "Νίκος",
+    lastName: "Αυτοθαυμαστάκιας",
+    quirk: "Λέει ότι του άρεσε ο ίδιος — ο καλύτερος ήταν αυτός.",
+    mirrors: "S14 · names_themselves",
+    messages: [
+      {
+        afterMs: 0,
+        text: "εμενα μου αρεσα, ο καλυτερος ημουν εγω χαχα",
+      },
+      {
+        afterMs: 180_000,
+        text: "βαζω 4. η Μαρη για να σοβαρευτω, μαζι της θα ξαναεβγαινα. κανεναν οχι",
+      },
+    ],
+    stub: [
+      {
+        answers: [
+          {
+            question: "liked",
+            // His own display name: validation must refuse subject_is_respondent.
+            // The scripted burst model resolves `about` against ΥΠΟΨΗΦΙΟΙ only,
+            // so this turn needs the stub to recognise the respondent — they are
+            // never a candidate — or the rehearsal fails before the mechanism
+            // is tested. That gap is intentional surface area, not a workaround.
+            about: "Νίκος Αυτοθαυμαστάκιας",
+          },
+        ],
+        notes: [
+          {
+            type: "general",
+            text: "Λέει χαριτολογώντας ότι του άρεσε ο ίδιος, ότι ήταν ο καλύτερος στο τραπέζι.",
+            mentionedName: "Νίκος Αυτοθαυμαστάκιας",
+          },
+        ],
+        nextGoal: "event_score",
+        reply: "Χαχα! Και συνολικά η βραδιά, από το 1 ως το 5, πώς σου φάνηκε;",
+      },
+      {
+        answers: [
+          { question: "event_score", value: 4 },
+          { question: "liked", about: "Μάρη Μονοεμοτζούλα" },
+          { question: "meet_again", about: "Μάρη Μονοεμοτζούλα" },
+        ],
+        skippedGoals: ["avoid"],
+        nextGoal: null,
+        reply: null,
+      },
+    ],
+    expect: {
+      lifecycle: "closed",
+      closedBecause: "completed",
+      optedIn: true,
+      // Nothing directed about him. The second cluster's answers only.
+      answers: [
+        { question: "event_score", about: null, value: 4 },
+        { question: "liked", about: "Μάρη Μονοεμοτζούλα", value: null },
+        { question: "meet_again", about: "Μάρη Μονοεμοτζούλα", value: null },
+      ],
+      needsAttention: false,
+      minReceived: 3,
+      maxReceived: 3,
+    },
+  },
+  {
+    // ΣΤΟΠ, then more chat. S15 covers the command itself; nothing in the
+    // catalogue sends a second message after it. The product claim is stronger
+    // than "close on STOP": a closed-stopped conversation must not extract, must
+    // not reply, and — because STOP opted them out — must not even retain the
+    // words that arrived afterwards. Under contention the hazard is a late
+    // extract job that still fires and records «η βραδιά ήταν 4» against a
+    // conversation that already said leave me alone. No stub turn: neither
+    // message may reach the provider.
+    id: "mezedopoleio_stop_then_keeps_chatting",
+    campaign: "mezedopoleio",
+    ordinal: 4,
+    firstName: "Άκης",
+    lastName: "Στοποπερίεργος",
+    quirk: "Γράφει ΣΤΟΠ και μετά συνεχίζει σαν να μη συνέβη τίποτα.",
+    mirrors:
+      "S15 · stop_uppercase_greek — no catalogue row for chatter after STOP",
+    messages: [
+      { afterMs: 0, text: "ΣΤΟΠ" },
+      {
+        afterMs: 180_000,
+        text: "α και κατι ακομα, η βραδια ηταν 4",
+      },
+    ],
+    stub: [],
+    expect: {
+      lifecycle: "closed",
+      closedBecause: "stopped",
+      optedIn: false,
+      answers: [],
+      // Opt-out with nothing answered, plus post-closure traffic on a stopped
+      // thread — both raise attention. A silent bot after the ack is the claim.
+      needsAttention: true,
+      minReceived: 2,
+      maxReceived: 2,
+    },
+  },
+  {
+    // She answers, just not in words the questionnaire can hold. S30 pins the
+    // single-conversation half; under contention the cheap misread is to treat
+    // her like `taverna_goes_silent_mid_questionnaire` — a non-responder — or
+    // to invent a score from the thumbs-up. Two clusters, two empty proposals,
+    // the goal still asked, the conversation still open: she spoke, and nothing
+    // was extracted. A third outbound that thanks her, or a stored answer, is
+    // the failure.
+    id: "mezedopoleio_emoji_only",
+    campaign: "mezedopoleio",
+    ordinal: 5,
+    firstName: "Μάρη",
+    lastName: "Μονοεμοτζούλα",
+    quirk: "Απαντάει μόνο με emoji — 👍 και 😍 — χωρίς καμία λέξη.",
+    mirrors: "S30 · emoji_only",
+    messages: [
+      { afterMs: 0, text: "👍👍🔥" },
+      { afterMs: 180_000, text: "😍😍" },
+    ],
+    stub: [
+      {
+        nextGoal: "event_score",
+        reply: "Χαχα! Βάλε μας κι έναν βαθμό από το 1 ως το 5 😄",
+      },
+      {
+        nextGoal: "event_score",
+        reply: "Ένα νούμερο 1 ως 5 φτάνει, και τελειώσαμε 🙂",
+      },
+    ],
+    expect: {
+      lifecycle: "open",
+      closedBecause: null,
+      optedIn: true,
+      answers: [],
+      needsAttention: false,
+      // Intro and two re-asks. A closing would mean emoji completed something.
+      minReceived: 3,
+      maxReceived: 3,
+    },
+  },
+  {
+    // He declines every goal, not only avoid. S12 is the avoid-only half and
+    // every other burst finisher skips avoid after answering the rest; nobody
+    // rehearses a participant who refuses the whole questionnaire. Without
+    // `skippedGoals` for all four the conversation never completes and a man
+    // who said «δε λέω τίποτα» three times is still being asked at expiry. The
+    // stub is the honest reading of a total refusal; the mechanism must close
+    // with no answer rows and the closing copy once.
+    id: "mezedopoleio_declines_every_goal",
+    campaign: "mezedopoleio",
+    ordinal: 6,
+    firstName: "Πάνος",
+    lastName: "Μούλαρος",
+    quirk: "Αρνείται να απαντήσει σε κάθε ερώτηση, όχι μόνο στο avoid.",
+    mirrors: "S12 · refuses_a_question — no catalogue row declines every goal",
+    messages: [
+      { afterMs: 0, text: "δε λεω τιποτα" },
+      { afterMs: 8_000, text: "ασε με ρε φιλε" },
+      { afterMs: 8_000, text: "ειπα δε λεω" },
+    ],
+    stub: [
+      {
+        skippedGoals: ["event_score", "liked", "meet_again", "avoid"],
+        nextGoal: null,
+        reply: null,
+      },
+    ],
+    expect: {
+      lifecycle: "closed",
+      closedBecause: "completed",
+      optedIn: true,
+      answers: [],
+      needsAttention: false,
+      // Intro and closing. A third message would mean he was asked again after
+      // declining everything.
+      minReceived: 2,
+      maxReceived: 2,
     },
   },
 ];

@@ -3,8 +3,9 @@
 /**
  * Multi-campaign burst rehearsal runner.
  *
- * Seeds three finished events with six opted-in WhatsApp participants each,
- * launches the campaigns, drives all eighteen personas concurrently through the
+ * Seeds one finished event per burst campaign (BURST_CAMPAIGNS) with opted-in
+ * WhatsApp participants each, launches the campaigns, drives every burst persona
+ * (BURST_PERSONAS) concurrently through the
  * simulated inject path, then asserts per-persona expectations and the
  * cross-cutting correctness checks. Writes an HTML report via renderBurstReport.
  *
@@ -39,6 +40,12 @@ const {
   feedbackCampaigns,
   events,
 } = await import("../packages/database/dist/index.js");
+const { BURST_CAMPAIGNS } =
+  await import("../apps/backend/dist/modules/post-event-feedback/burst/burst-scenario.js");
+const { BURST_PERSONAS } =
+  await import("../apps/backend/dist/modules/post-event-feedback/burst/burst-personas.js");
+const burstConversationCount = BURST_PERSONAS.length;
+const burstCampaignCount = BURST_CAMPAIGNS.length;
 const { asc, eq, inArray } = require("drizzle-orm");
 
 const REQUEST_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
@@ -149,9 +156,9 @@ async function main() {
   if (paidModel && !args["confirm-paid-run"]) {
     console.error("Paid real-model burst rehearsal not confirmed.");
     console.error(`  model:          ${paidModel}`);
-    console.error(`  conversations:  18`);
+    console.error(`  conversations:  ${burstConversationCount}`);
     console.error(
-      "Each of the eighteen conversations makes at least two provider calls (extraction plus attention classification), permanently consumes the seeded campaigns, and leaves all normal persisted outputs in place.",
+      `Each of the ${burstConversationCount} conversations makes at least two provider calls (extraction plus attention classification), permanently consumes the seeded campaigns, and leaves all normal persisted outputs in place.`,
     );
     console.error("Re-run with --confirm-paid-run to proceed.");
     process.exitCode = 2;
@@ -176,7 +183,7 @@ async function main() {
       : "Starting confirmed paid burst rehearsal:",
   );
   console.error(`  model:          ${modelLabel}`);
-  console.error(`  conversations:  18`);
+  console.error(`  conversations:  ${burstConversationCount}`);
   console.error(`  correlation ID: ${correlationId}`);
   console.error(`  deadline:       ${deadlineMs}ms`);
 
@@ -185,7 +192,12 @@ async function main() {
       event: "feedback_burst.started",
       model: modelLabel,
       correlationId,
-      conversationCount: 18,
+      // The catalogue the running API serves, not the constants this script
+      // imported. They are the same source compiled twice, and today they
+      // disagreed: the API was still serving a `dist` from before a rebuild.
+      // Reporting the server's numbers is what makes that visible in the log
+      // instead of leaving the run quietly measuring code nobody is running.
+      conversationCount: catalog.personas.length,
       campaignCount: catalog.campaigns.length,
       startedAt: startedAt.toISOString(),
     }),
@@ -226,7 +238,7 @@ async function main() {
       }
     }
 
-    console.error("Launching three campaigns…");
+    console.error(`Launching ${burstCampaignCount} campaigns…`);
     for (const campaign of seeded.campaigns) {
       const launched = await requestJson(
         `${apiBase}/feedback/campaigns/launch`,
@@ -278,7 +290,7 @@ async function main() {
       }
     }
 
-    console.error("Driving eighteen personas concurrently…");
+    console.error(`Driving ${burstConversationCount} personas concurrently…`);
     const driveStarted = Date.now();
     await Promise.all(
       [...byPersonaId.values()].map((entry) =>
@@ -1255,7 +1267,7 @@ function printUsage() {
 Options:
   --model <id>           Paid provider mode (qwen/qwen3.7-max | openai/gpt-5.6-luna).
                          Default is deterministic stub mode (FEEDBACK_EXTRACTION_STUB).
-  --confirm-paid-run     Required acknowledgement of model cost for eighteen conversations
+  --confirm-paid-run     Required acknowledgement of model cost for ${burstConversationCount} conversations
   --correlation-id <id>  Optional stable log ID; generated when omitted
   --api-base <url>       Default: http://localhost:4000/api/v1
   --admin-base <url>     Default: http://localhost:3000
