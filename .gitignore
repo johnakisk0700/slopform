@@ -33,3 +33,13 @@ secrets/
 
 # Local database tooling
 .drizzle/
+
+# Claude Code. `launch.json` is committed on purpose — it is what lets the
+# preview tooling start the admin dev server, so it belongs to the project
+# rather than to one machine. The other two do not: `settings.local.json` is a
+# personal permission list, and `worktrees/` holds full checkouts an isolated
+# agent run left behind (hundreds of megabytes each). Prune those with
+# `git worktree list` and `git worktree remove`, not by deleting the directory —
+# they are registered worktrees and one may still hold uncommitted work.
+.claude/settings.local.json
+.claude/worktrees/
