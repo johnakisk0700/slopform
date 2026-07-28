@@ -97,6 +97,53 @@ const repositoryRoot = path.resolve(
   "..",
 );
 
+/**
+ * How long a live guest waits for the bot to say something before giving up on
+ * the turn.
+ *
+ * Generous against the 45 s quiet window plus a model call: the guest must not
+ * answer before the bot has spoken, or it is talking to itself and the whole
+ * point — reacting to what was actually said — is lost.
+ *
+ * It is also the tail of the run. A guest with turns left over waits this long
+ * for a bot that has already closed the conversation and will never speak
+ * again, so every unused turn past the end costs the whole timeout once.
+ */
+const LIVE_GUEST_TURN_TIMEOUT_MS = 120_000;
+const LIVE_GUEST_POLL_MS = 3_000;
+
+/**
+ * The character sheets, by persona id.
+ *
+ * `seedWorld` walks `catalog.personas` — the HTTP response — so the persona
+ * objects the run carries are the *published* shape. That shape names the model
+ * improvising a guest and deliberately withholds the sheet, because a character
+ * sheet in an API response reads like something a participant said. The sheet
+ * therefore has to come from the module, and the id is what joins them.
+ *
+ * Getting this wrong is silent, which is why it is a lookup and not a field
+ * read: `persona.live` was simply `undefined` on the published object, the guest
+ * iterated an empty `messages` array, and both of them "finished" instantly
+ * having said nothing. No error, no CLI call, no clue in the log.
+ */
+const liveGuestsById = new Map(
+  BURST_PERSONAS.filter((persona) => persona.live).map((persona) => [
+    persona.id,
+    persona.live,
+  ]),
+);
+
+/**
+ * Everything this module binds with `const` must be declared ABOVE this line.
+ *
+ * A top-level `await` suspends module evaluation, so every statement below it
+ * runs only once `main()` has settled — which means any `const` down there sits
+ * in the temporal dead zone for the entire run, and the first function to touch
+ * it throws «Cannot access '…' before initialization» after the campaigns are
+ * already launched. Function declarations hoist and are safe; bindings are not.
+ * Three live-guest constants were declared beside the code that used them and
+ * killed a paid run this way. Constants live here; functions live below.
+ */
 await main().catch((error) => {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
@@ -782,21 +829,6 @@ async function waitForIntros({ db, catalog, timeoutMs }) {
 }
 
 /**
- * How long a live guest waits for the bot to say something before giving up on
- * the turn.
- *
- * Generous against the 45 s quiet window plus a model call: the guest must not
- * answer before the bot has spoken, or it is talking to itself and the whole
- * point — reacting to what was actually said — is lost.
- *
- * It is also the tail of the run. A guest with turns left over waits this long
- * for a bot that has already closed the conversation and will never speak
- * again, so every unused turn past the end costs the whole timeout once.
- */
-const LIVE_GUEST_TURN_TIMEOUT_MS = 120_000;
-const LIVE_GUEST_POLL_MS = 3_000;
-
-/**
  * Ask a model for one WhatsApp message, in character, given the transcript.
  *
  * Run with `cwd` outside the repository and told to use no tools: this is a
@@ -917,27 +949,6 @@ async function driveLiveGuest({
     console.error(`${persona.id} (${live.model}): ${text}`);
   }
 }
-
-/**
- * The character sheets, by persona id.
- *
- * `seedWorld` walks `catalog.personas` — the HTTP response — so the persona
- * objects the run carries are the *published* shape. That shape names the model
- * improvising a guest and deliberately withholds the sheet, because a character
- * sheet in an API response reads like something a participant said. The sheet
- * therefore has to come from the module, and the id is what joins them.
- *
- * Getting this wrong is silent, which is why it is a lookup and not a field
- * read: `persona.live` was simply `undefined` on the published object, the guest
- * iterated an empty `messages` array, and both of them "finished" instantly
- * having said nothing. No error, no CLI call, no clue in the log.
- */
-const liveGuestsById = new Map(
-  BURST_PERSONAS.filter((persona) => persona.live).map((persona) => [
-    persona.id,
-    persona.live,
-  ]),
-);
 
 async function drivePersona({ apiBase, headers, entry, correlationId }) {
   const { persona } = entry;
