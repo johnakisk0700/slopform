@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   feedbackAnswers,
+  feedbackAnswerWithdrawals,
   feedbackCampaigns,
   feedbackNotes,
   messageOutbox,
@@ -60,6 +61,46 @@ describe("post-event feedback database constraints", () => {
     ]);
     expect(
       config.foreignKeys.some((fk) => fk.getName().includes("event_attendee")),
+    ).toBe(false);
+  });
+
+  it("defaults matching_hold to false so no existing answer arrives held", () => {
+    const column = getTableConfig(feedbackAnswers).columns.find(
+      (candidate) => candidate.name === "matching_hold",
+    );
+
+    // A hold says «a consumer turning answers into seating must skip this row».
+    // Nullable would give that a third state nobody can act on, and no default
+    // would make every row written before the column mean nothing in particular.
+    expect(column?.notNull).toBe(true);
+    expect(column?.default).toBe(false);
+  });
+
+  it("tombstones a withdrawn answer on the same slot key the answer used", () => {
+    const config = getTableConfig(feedbackAnswerWithdrawals);
+    const unique = config.uniqueConstraints.find(
+      (constraint) =>
+        constraint.name ===
+        "feedback_answer_withdrawals_conversation_question_subject_uidx",
+    );
+
+    // The same `NULLS NOT DISTINCT (conversation, question, subject)` the answers
+    // table enforces, because the tombstone has to occupy exactly the space the
+    // row it replaces did — that is what makes it consultable before a write.
+    expect(unique?.nullsNotDistinct).toBe(true);
+    expect(unique?.columns.map((column) => column.name)).toEqual([
+      "conversation_id",
+      "question_key",
+      "subject_participant_id",
+    ]);
+    expect(config.foreignKeys.every((fk) => fk.onDelete === "restrict")).toBe(
+      true,
+    );
+    // And no foreign key on `answer_id`: the row it names was deleted on
+    // purpose. The whole of it lives in the `feedback_answer.withdrawn` audit
+    // event under that id.
+    expect(
+      config.foreignKeys.some((fk) => fk.getName().includes("answer_id")),
     ).toBe(false);
   });
 
@@ -181,6 +222,30 @@ describe("post-event feedback database constraints", () => {
     expect(migration).toContain("ON DELETE restrict");
     expect(migration).not.toContain("event_attendees");
     expect(migration).not.toContain("message_deliveries");
+  });
+
+  it("adds the matching hold and the withdrawal tombstones in one migration", () => {
+    const migration = readFileSync(
+      new URL(
+        "../../drizzle/20260728004900_feedback_answer_matching_hold_and_withdrawals.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+
+    // One migration on one table's neighbourhood, because two would have been
+    // two locks and two reviews for one release.
+    expect(migration).toContain(
+      'ALTER TABLE "feedback_answers" ADD COLUMN "matching_hold" boolean DEFAULT false NOT NULL',
+    );
+    expect(migration).toContain('CREATE TABLE "feedback_answer_withdrawals"');
+    expect(migration).toContain("NULLS NOT DISTINCT");
+    expect(migration).toContain("ON DELETE restrict");
+    // Backfill-free by construction: an existing answer is not held, and no
+    // answer withdrawn before today can be reconstructed as a tombstone —
+    // `audit_events` has those, and inventing rows from them would be guessing
+    // that nobody has re-answered since.
+    expect(migration).not.toMatch(/^UPDATE /mu);
   });
 
   it("persists the dev-only simulated outbound sink without business FKs", () => {

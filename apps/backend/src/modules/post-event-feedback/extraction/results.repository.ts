@@ -1,16 +1,18 @@
 import { Injectable } from "@nestjs/common";
 import {
   feedbackAnswers,
+  feedbackAnswerWithdrawals,
   feedbackNotes,
   type AppTransaction,
   type FeedbackAnswerQuestionKey,
   type FeedbackAnswerRow,
+  type FeedbackAnswerWithdrawalRow,
   type FeedbackExtractionMeta,
   type FeedbackNoteRow,
   type FeedbackNoteStatus,
   type FeedbackNoteType,
 } from "@join-the-six/database";
-import { and, asc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 
 import { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import { FEEDBACK_ANSWER_CORRECTIONS_KEY } from "./answer-corrections.js";
@@ -29,6 +31,31 @@ const CORRECTIONS_KEY = sql.raw(`'${FEEDBACK_ANSWER_CORRECTIONS_KEY}'`);
 /** Rows no operator has corrected — the freeze predicate, in SQL. */
 function notCorrected(): SQL {
   return sql`not (${feedbackAnswers.extractionMeta} ? ${CORRECTIONS_KEY})`;
+}
+
+/** The answer slot a row or a tombstone occupies. */
+interface FeedbackAnswerSlot {
+  readonly conversationId: string;
+  readonly questionKey: string;
+  readonly subjectParticipantId: string | null;
+}
+
+/**
+ * The tombstone's half of the uniqueness key, with the `NULLS NOT DISTINCT`
+ * behaviour written out: a subjectless question has one slot per conversation,
+ * and `= null` would match nothing.
+ */
+function withdrawalSlot(slot: FeedbackAnswerSlot): SQL {
+  return and(
+    eq(feedbackAnswerWithdrawals.conversationId, slot.conversationId),
+    eq(feedbackAnswerWithdrawals.questionKey, slot.questionKey),
+    slot.subjectParticipantId === null
+      ? isNull(feedbackAnswerWithdrawals.subjectParticipantId)
+      : eq(
+          feedbackAnswerWithdrawals.subjectParticipantId,
+          slot.subjectParticipantId,
+        ),
+  )!;
 }
 
 @Injectable()
@@ -87,8 +114,26 @@ export class FeedbackResultsRepository {
       readonly valueInt?: number | null;
       readonly sourceMessageIds: readonly string[];
       readonly extractionMeta: FeedbackExtractionMeta;
+      readonly matchingHold?: boolean;
     },
   ): Promise<FeedbackAnswerRow | undefined> {
+    // The second half of the withdrawal freeze, and the reason the tombstone
+    // table exists. A withdrawal is a hard delete, so without this a later run
+    // citing new testimony about the same question and subject inserts the
+    // answer straight back and the operator's decision is undone with nothing
+    // anywhere saying it happened. Read here rather than guarded in SQL because
+    // the row being frozen does not exist to carry a predicate; safe against a
+    // withdrawal landing mid-run because both paths hold the conversation
+    // advisory lock for the whole transaction.
+    const withdrawn = await this.findAnswerWithdrawal(transaction, {
+      conversationId: input.conversationId,
+      questionKey: input.questionKey,
+      subjectParticipantId: input.subjectParticipantId ?? null,
+    });
+    if (withdrawn) {
+      return undefined;
+    }
+
     const [record] = await transaction
       .insert(feedbackAnswers)
       .values({
@@ -100,6 +145,7 @@ export class FeedbackResultsRepository {
         valueInt: input.valueInt ?? null,
         sourceMessageIds: [...input.sourceMessageIds],
         extractionMeta: input.extractionMeta,
+        matchingHold: input.matchingHold ?? false,
       })
       // People change their minds — «βασικά 2, το ξανασκέφτηκα» — and an answer
       // that cannot be revised turned that into silence: the second value was
@@ -131,6 +177,12 @@ export class FeedbackResultsRepository {
           valueInt: input.valueInt ?? null,
           sourceMessageIds: [...input.sourceMessageIds],
           extractionMeta: sql`${sql.raw(`excluded.${feedbackAnswers.extractionMeta.name}`)} || case when ${feedbackAnswers.extractionMeta} ? ${CORRECTIONS_KEY} then jsonb_build_object(${CORRECTIONS_KEY}, ${feedbackAnswers.extractionMeta} -> ${CORRECTIONS_KEY}) else '{}'::jsonb end`,
+          // Sticky, in the direction that cannot lose the hold: once a run has
+          // found the respondent abusing the person an answer is about, a later
+          // burst restating the same answer in polite words does not make it
+          // honourable. `false or true` and `true or false` both stay held, and
+          // only a migration could ever clear one.
+          matchingHold: sql`${feedbackAnswers.matchingHold} or ${sql.raw(`excluded.${feedbackAnswers.matchingHold.name}`)}`,
         },
       })
       .returning();
@@ -197,11 +249,14 @@ export class FeedbackResultsRepository {
    * Withdraws one answer entirely.
    *
    * A hard delete, as `deleteContradictedAnswers` already is: a soft-deleted row
-   * still occupies the `NULLS NOT DISTINCT` uniqueness key, so a later run
-   * proposing the same question and subject would upsert onto the withdrawn row
-   * and resurrect it with a fresh value while the withdrawal flag silently
-   * persisted. The whole row goes into the audit context before it goes, which
-   * is where a withdrawal is answerable.
+   * would still occupy the `NULLS NOT DISTINCT` uniqueness key and would have to
+   * be filtered out of every read of this table, where one omission puts a claim
+   * an operator retracted back in front of staff. The whole row goes into the
+   * audit context before it goes, which is where a withdrawal is answerable.
+   *
+   * The caller records a tombstone in the same transaction
+   * (`recordAnswerWithdrawal`). Without it the delete says nothing about being
+   * deliberate and a later run simply writes the answer back.
    */
   async deleteAnswer(
     transaction: AppTransaction,
@@ -211,6 +266,61 @@ export class FeedbackResultsRepository {
       .delete(feedbackAnswers)
       .where(eq(feedbackAnswers.id, id))
       .returning();
+
+    return record;
+  }
+
+  /**
+   * Marks one answer slot as decided-empty by a human.
+   *
+   * `onConflictDoNothing` on the slot key rather than an error: two operators
+   * withdrawing the same answer a second apart are one decision, and the second
+   * request has nothing to add. The first tombstone is the one that names who
+   * decided, and re-withdrawing is impossible anyway once the row is gone.
+   */
+  async recordAnswerWithdrawal(
+    transaction: AppTransaction,
+    input: {
+      readonly campaignId: string;
+      readonly conversationId: string;
+      readonly questionKey: string;
+      readonly subjectParticipantId: string | null;
+      readonly answerId: string;
+      readonly withdrawnBy: string;
+    },
+  ): Promise<FeedbackAnswerWithdrawalRow | undefined> {
+    const [record] = await transaction
+      .insert(feedbackAnswerWithdrawals)
+      .values({
+        campaignId: input.campaignId,
+        conversationId: input.conversationId,
+        questionKey: input.questionKey,
+        subjectParticipantId: input.subjectParticipantId,
+        answerId: input.answerId,
+        withdrawnBy: input.withdrawnBy,
+      })
+      .onConflictDoNothing({
+        target: [
+          feedbackAnswerWithdrawals.conversationId,
+          feedbackAnswerWithdrawals.questionKey,
+          feedbackAnswerWithdrawals.subjectParticipantId,
+        ],
+      })
+      .returning();
+
+    return record;
+  }
+
+  /** The tombstone on one answer slot, if a human has emptied it. */
+  async findAnswerWithdrawal(
+    executor: DatabaseExecutor,
+    slot: FeedbackAnswerSlot,
+  ): Promise<FeedbackAnswerWithdrawalRow | undefined> {
+    const [record] = await executor
+      .select()
+      .from(feedbackAnswerWithdrawals)
+      .where(withdrawalSlot(slot))
+      .limit(1);
 
     return record;
   }

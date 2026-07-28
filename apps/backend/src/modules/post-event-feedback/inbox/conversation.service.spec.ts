@@ -993,10 +993,25 @@ describe("PostEventFeedbackConversationService", () => {
       answerId,
     );
     expect(repository.lockConversation).toHaveBeenCalled();
+    // The tombstone on the slot the row occupied, in the same transaction as the
+    // delete. Without it the withdrawal is indistinguishable from an answer
+    // nobody ever gave, and the next run that reads the participant's words
+    // records it again over the operator's decision.
+    expect(repository.recordAnswerWithdrawal).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        campaignId,
+        conversationId,
+        questionKey: "avoid",
+        subjectParticipantId: subjectId,
+        answerId,
+        withdrawnBy: "admin-1",
+      },
+    );
     // A hard delete, as the contradiction path already is, because a
-    // soft-deleted row still occupies the NULLS NOT DISTINCT uniqueness key and
-    // a later run would upsert onto it. So the audit context is the only place
-    // the withdrawn assertion survives, and it carries the whole row.
+    // soft-deleted row would have to be filtered out of every read of the table.
+    // So the audit context is the only place the withdrawn assertion itself
+    // survives, and it carries the whole row.
     expect(auditAppend).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
@@ -1016,6 +1031,7 @@ describe("PostEventFeedbackConversationService", () => {
             valueInt: null,
             sourceMessageIds: ["ffffffff-ffff-4fff-8fff-ffffffffffff"],
             extractionMeta: { candidateIds: [subjectId] },
+            matchingHold: false,
             createdAt: "2026-07-25T00:40:00.000Z",
             updatedAt: "2026-07-25T00:40:00.000Z",
           },
@@ -1366,6 +1382,7 @@ function answerRow(
     valueInt: null,
     sourceMessageIds: ["ffffffff-ffff-4fff-8fff-ffffffffffff"],
     extractionMeta: { candidateIds: [subjectId] },
+    matchingHold: false,
     createdAt: new Date("2026-07-25T00:40:00.000Z"),
     updatedAt: new Date("2026-07-25T00:40:00.000Z"),
     ...overrides,
@@ -1433,6 +1450,7 @@ function createService(): {
     findAnswerById: ReturnType<typeof vi.fn>;
     updateAnswerValue: ReturnType<typeof vi.fn>;
     deleteAnswer: ReturnType<typeof vi.fn>;
+    recordAnswerWithdrawal: ReturnType<typeof vi.fn>;
     lockConversation: ReturnType<typeof vi.fn>;
   };
   eventsService: {
@@ -1469,6 +1487,7 @@ function createService(): {
     findAnswerById: vi.fn(),
     updateAnswerValue: vi.fn(),
     deleteAnswer: vi.fn(),
+    recordAnswerWithdrawal: vi.fn(),
     lockConversation: vi.fn().mockResolvedValue(undefined),
   };
   const conversations = {

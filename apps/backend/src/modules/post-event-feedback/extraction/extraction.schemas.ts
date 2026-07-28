@@ -427,13 +427,43 @@ export const FEEDBACK_EXTRACTION_REJECTION_REASONS = [
    * when only `meet_again` survives it.
    */
   "declined_before_asked",
+  /**
+   * `handoff: true` from a run that recorded nothing at all, over testimony that
+   * still visibly held an answer the questionnaire was asking for.
+   *
+   * Every other thing the model proposes is checked against the transcript
+   * before the application acts on it; the handoff was a bare boolean that went
+   * straight through to `markAwaitingHuman`. Μαρία Φλερτατζού wrote «βαζω 5. ο
+   * Τάσος ήτανε πολύ ωραίος, θα τον ξαναέβλεπα. κανέναν δε θέλω να αποφύγω» —
+   * four goals answered in one sentence — and the run came back with no answers,
+   * no notes, no safety signal and a request for a human. Her testimony was lost
+   * and an operator was queued to read a flirt.
+   *
+   * A handoff that has extracted nothing and raised nothing, from words that
+   * plainly carried a score or named somebody at the table, is the model giving
+   * up rather than duty of care. Naming it here makes the run fail, which is
+   * what buys the retry that can still read her answers — and, if no attempt
+   * ever does, the deterministic fallback that files a note and points a person
+   * at the conversation without promising her a phone call nobody ordered.
+   *
+   * It deliberately does **not** fire on a handoff that carries an answer, a
+   * note or a safety signal, nor on one whose testimony held nothing to extract:
+   * «μπορώ να μιλήσω με κάποιον από την ομάδα;» is a request for a person and
+   * nothing else, and it must go on working exactly as it does today.
+   */
+  "handoff_discards_testimony",
 ] as const;
 
 export type FeedbackExtractionRejectionReason =
   (typeof FEEDBACK_EXTRACTION_REJECTION_REASONS)[number];
 
 export interface FeedbackExtractionRejection {
-  readonly scope: "answer" | "note" | "safety_signal" | "goal";
+  /**
+   * `handoff` is the one scope that is not a row the run wanted to write. It is
+   * a property of the whole proposal, so a rejection in that scope condemns the
+   * run rather than one of its results.
+   */
+  readonly scope: "answer" | "note" | "safety_signal" | "goal" | "handoff";
   readonly reason: FeedbackExtractionRejectionReason;
   readonly questionKey?: FeedbackAnswerQuestionKey;
   readonly noteType?: FeedbackNoteType;

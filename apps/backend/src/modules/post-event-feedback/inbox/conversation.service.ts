@@ -787,6 +787,16 @@ export class PostEventFeedbackConversationService {
    * then invisible in the product, and for a false assertion about somebody who
    * was never named, that is the point.
    *
+   * A tombstone is written in the same transaction, and it is what makes the
+   * withdrawal a decision rather than a gap. Extraction is a loop: the
+   * participant's own words are still in the transcript, so a later run reading
+   * new testimony about the same question and the same person recorded the
+   * answer again, and the operator who had already ruled on it was never told.
+   * A correction is frozen against exactly that (`extraction_meta.corrections`)
+   * and a withdrawal was not, so the promise «a human decided this» held for one
+   * of the two operations. The tombstone cannot live on the row — the row is
+   * gone, deliberately — so it lives on the slot the row occupied.
+   *
    * Re-aiming the answer at the right person is deliberately not offered here:
    * the subject moves across the `NULLS NOT DISTINCT` uniqueness key and can
    * collide with an existing answer, and the new subject would have to be
@@ -814,6 +824,15 @@ export class PostEventFeedbackConversationService {
         throw new FeedbackAnswerNotFoundError(answerId);
       }
 
+      await this.results.recordAnswerWithdrawal(transaction, {
+        campaignId: removed.campaignId,
+        conversationId: removed.conversationId,
+        questionKey: removed.questionKey,
+        subjectParticipantId: removed.subjectParticipantId,
+        answerId: removed.id,
+        withdrawnBy: actorId,
+      });
+
       await this.audit.append(transaction, {
         actorType: "admin",
         actorId,
@@ -837,6 +856,7 @@ export class PostEventFeedbackConversationService {
             valueInt: removed.valueInt,
             sourceMessageIds: removed.sourceMessageIds,
             extractionMeta: removed.extractionMeta,
+            matchingHold: removed.matchingHold,
             createdAt: removed.createdAt.toISOString(),
             updatedAt: removed.updatedAt.toISOString(),
           },

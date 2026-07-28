@@ -133,6 +133,7 @@ export interface FakeAnswerRow {
   valueInt: number | null;
   sourceMessageIds: string[];
   extractionMeta: Record<string, unknown>;
+  matchingHold: boolean;
   createdAt: Date;
 }
 
@@ -268,6 +269,7 @@ export class FakeFeedbackRepository {
       valueInt?: number | null;
       sourceMessageIds: readonly string[];
       extractionMeta: Record<string, unknown>;
+      matchingHold?: boolean;
     },
   ): Promise<FakeAnswerRow | undefined> {
     const subject = input.subjectParticipantId ?? null;
@@ -285,6 +287,10 @@ export class FakeFeedbackRepository {
       }
       existing.valueInt = input.valueInt ?? null;
       existing.sourceMessageIds = [...input.sourceMessageIds];
+      // `matching_hold = feedback_answers.matching_hold or excluded.matching_hold`
+      // — a later burst restating the answer politely does not lift the hold.
+      existing.matchingHold =
+        existing.matchingHold || input.matchingHold === true;
       // The update merges provenance over the old blob and carries
       // `corrections` across rather than replacing it wholesale.
       const carried = existing.extractionMeta[FEEDBACK_ANSWER_CORRECTIONS_KEY];
@@ -306,6 +312,7 @@ export class FakeFeedbackRepository {
       valueInt: input.valueInt ?? null,
       sourceMessageIds: [...input.sourceMessageIds],
       extractionMeta: input.extractionMeta,
+      matchingHold: input.matchingHold === true,
       createdAt: this.now(),
     };
     this.answers.push(row);

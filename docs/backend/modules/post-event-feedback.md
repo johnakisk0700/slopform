@@ -49,14 +49,15 @@ Typed repository methods live per table under
 `FeedbackCampaignRepository.findCampaignById` on the same transaction.
 There is no `message_deliveries` table and nothing references `event_attendees`.
 
-| Table                      | Authority rules                                                                                                                                                                                                                         |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `feedback_campaigns`       | `event_id` **UNIQUE** (one campaign per event); `question_set_version` + `questions` jsonb copy at launch; status `launched\|paused\|closed`; event FK `ON DELETE RESTRICT`                                                             |
-| `feedback_answers`         | Directed edge; optional `subject_participant_id`; `value_int` for scores; `source_message_ids uuid[]`; `extraction_meta` jsonb (model, confidence, **candidate IDs of the run** per D12)                                                |
-| Answer uniqueness          | `UNIQUE NULLS NOT DISTINCT (conversation_id, question_key, subject_participant_id)` so subjectless scores cannot duplicate on replay                                                                                                    |
-| `feedback_notes`           | Same directionality; `note_type` `activity_interest\|general`; text ≤ 500 chars; subject **NULLABLE** (D18 unknown-name degradation); status `new\|dismissed`; `source_message_ids` non-empty unless `extraction_meta.origin = 'staff'` |
-| `provider_message_ingress` | Durable webhook ack + dedupe; `UNIQUE(chat_jid, provider_message_id)`; `text` nullable (metadata-only when `ignored_unmatched`, D10); statuses `pending\|materialized\|ignored_unmatched\|failed`                                       |
-| `message_outbox`           | Reply/intro/reminder/staff/system; status includes `held`; `dedupe_key` **UNIQUE**; delivery columns folded in (`delivery_status`, provider ids, sent/delivered/read/played timestamps) — no separate deliveries                        |
+| Table                         | Authority rules                                                                                                                                                                                                                                                                                                               |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `feedback_campaigns`          | `event_id` **UNIQUE** (one campaign per event); `question_set_version` + `questions` jsonb copy at launch; status `launched\|paused\|closed`; event FK `ON DELETE RESTRICT`                                                                                                                                                   |
+| `feedback_answers`            | Directed edge; optional `subject_participant_id`; `value_int` for scores; `source_message_ids uuid[]`; `extraction_meta` jsonb (model, confidence, **candidate IDs of the run** per D12); `matching_hold boolean not null default false` — [a statement, not an instruction](#an-avoid-row-is-a-statement-not-an-instruction) |
+| Answer uniqueness             | `UNIQUE NULLS NOT DISTINCT (conversation_id, question_key, subject_participant_id)` so subjectless scores cannot duplicate on replay                                                                                                                                                                                          |
+| `feedback_answer_withdrawals` | One tombstone per answer slot an operator emptied, on the **same** `UNIQUE NULLS NOT DISTINCT (conversation_id, question_key, subject_participant_id)` key; `answer_id` with no FK (the row it names is deleted on purpose); never updated, so no `updated_at`                                                                |
+| `feedback_notes`              | Same directionality; `note_type` `activity_interest\|general`; text ≤ 500 chars; subject **NULLABLE** (D18 unknown-name degradation); status `new\|dismissed`; `source_message_ids` non-empty unless `extraction_meta.origin = 'staff'`                                                                                       |
+| `provider_message_ingress`    | Durable webhook ack + dedupe; `UNIQUE(chat_jid, provider_message_id)`; `text` nullable (metadata-only when `ignored_unmatched`, D10); statuses `pending\|materialized\|ignored_unmatched\|failed`                                                                                                                             |
+| `message_outbox`              | Reply/intro/reminder/staff/system; status includes `held`; `dedupe_key` **UNIQUE**; delivery columns folded in (`delivery_status`, provider ids, sent/delivered/read/played timestamps) — no separate deliveries                                                                                                              |
 
 All participant and campaign foreign keys use `ON DELETE RESTRICT` (D18).
 `conversation_id` / `matched_conversation_id` are Mongo conversation UUIDs with
@@ -65,12 +66,16 @@ no PostgreSQL FK. Repository helpers:
 - `insertIngressIfAbsent` / `insertOutboxIfAbsent` — `ON CONFLICT DO NOTHING`
   for webhook and reply replay;
 - `insertAnswerIfAbsent` — `ON CONFLICT DO UPDATE` on the answer uniqueness key,
-  so a participant's revision lands. The update is skipped entirely on a row an
-  operator corrected (`setWhere: not (extraction_meta ? 'corrections')`), and
-  otherwise merges the new provenance over the old blob carrying `corrections`
-  across rather than replacing `extraction_meta` wholesale;
-- `findAnswerById` / `updateAnswerValue` / `deleteAnswer` — the operator
-  correction and withdrawal paths;
+  so a participant's revision lands. It writes nothing at all on a slot with a
+  withdrawal tombstone; the update is skipped entirely on a row an operator
+  corrected (`setWhere: not (extraction_meta ? 'corrections')`), and otherwise
+  merges the new provenance over the old blob carrying `corrections` across
+  rather than replacing `extraction_meta` wholesale, and accumulates
+  `matching_hold` rather than overwriting it;
+- `findAnswerById` / `updateAnswerValue` / `deleteAnswer` /
+  `recordAnswerWithdrawal` / `findAnswerWithdrawal` — the operator correction and
+  withdrawal paths, and the tombstone that makes a withdrawal survive the next
+  run;
 - `findIngressByIdForUpdate` — the row lock that fences materialization;
 - `findUnlinkedOutboxByConversationAndBody` — observed-outbound correlation when
   the provider message id is not known yet;
@@ -411,18 +416,19 @@ to say" is otherwise indistinguishable from the model not having looked —
 
 ### Validation before any persistence or send
 
-| Rule                                                               | Effect on a violating proposal                                     |
-| ------------------------------------------------------------------ | ------------------------------------------------------------------ |
-| Source message exists in **this** conversation                     | Rejected (`unknown_source_message`)                                |
-| Source message is `actor: participant`                             | Rejected (`non_participant_source`) — staff/bot text is context    |
-| Question key / note type is in the versioned set                   | Rejected at the Zod boundary and again in the rules                |
-| `event_score` is subjectless, integer 1–5                          | Rejected (`subject_on_subjectless_question`, `invalid_score`)      |
-| Subject is a **current** candidate and ≠ respondent                | Answer dropped; note degrades subjectless + flagged (D18)          |
-| Nothing already recorded is written twice                          | Skipped (`already_recorded` / `duplicate_in_run`)                  |
-| An unasked `liked` / `meet_again` is not declined beside an answer | Skip refused (`declined_before_asked`); the run asks that question |
-| Lifecycle ∧ control ∧ opt-in permit a reply                        | Reply suppressed, results still persisted                          |
-| Classifier incident result                                         | Nothing suppressed; annotate target message + attention + audit    |
-| Explicit `handoff`                                                 | Neutral handoff copy replaces the reply; notes still recorded      |
+| Rule                                                                     | Effect on a violating proposal                                     |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------------ |
+| Source message exists in **this** conversation                           | Rejected (`unknown_source_message`)                                |
+| Source message is `actor: participant`                                   | Rejected (`non_participant_source`) — staff/bot text is context    |
+| Question key / note type is in the versioned set                         | Rejected at the Zod boundary and again in the rules                |
+| `event_score` is subjectless, integer 1–5                                | Rejected (`subject_on_subjectless_question`, `invalid_score`)      |
+| Subject is a **current** candidate and ≠ respondent                      | Answer dropped; note degrades subjectless + flagged (D18)          |
+| Nothing already recorded is written twice                                | Skipped (`already_recorded` / `duplicate_in_run`)                  |
+| An unasked `liked` / `meet_again` is not declined beside an answer       | Skip refused (`declined_before_asked`); the run asks that question |
+| Lifecycle ∧ control ∧ opt-in permit a reply                              | Reply suppressed, results still persisted                          |
+| Classifier incident result                                               | Nothing suppressed; annotate target message + attention + audit    |
+| Explicit `handoff`                                                       | Neutral handoff copy replaces the reply; notes still recorded      |
+| A `handoff` that recorded nothing over testimony still holding an answer | The **whole run** is failed (`handoff_discards_testimony`)         |
 
 D18's degradation is asymmetric on purpose. A **note** carries the
 participant's own words, so an unresolvable mention keeps the note, drops the
@@ -457,6 +463,40 @@ application code — both ids are valid, so a correct pick and a lucky guess are
 indistinguishable. That case is handled in the prompt, which requires a
 clarifying question instead of a guess, and the eval asserts the prompt supplies
 both display names and the no-guessing rule.
+
+**The handoff is checked like everything else now.** It used to be the one field
+the application obeyed on the model's word: answers are checked against the
+transcript, notes are checked, a named subject must be somebody who was actually
+at the table — and `handoff` was a boolean that went straight through to
+`markAwaitingHuman`, which stops the questionnaire and queues an operator. On
+2026-07-27 both paid runs on Μαρία Φλερτατζού set it for «βαζω 5. ο Τάσος ήτανε
+πολύ ωραίος, θα τον ξαναέβλεπα. κανέναν δε θέλω να αποφύγω» — four plain answers
+— with nothing extracted and no safety signal raised. Her testimony was lost and
+an operator was queued to read a flirt.
+
+So a handoff that accepted **no answer, no note and no safety signal**, over new
+testimony that visibly still held an answer the questionnaire was asking for (a
+score inside the question set's range while `event_score` is open, or a current
+candidate named while a directed goal is open and nothing is recorded about that
+person), is rejected as `handoff_discards_testimony` and the run is failed with
+cause `validation_failed`. Failing is the point: nothing is written, the cursor
+stays where it is, and the retry that follows is the only thing that can still
+read those answers. If every attempt repeats it, the last one lands in the
+[deterministic fallback](#deterministic-fallback-for-a-dead-run), which files a
+note and flags the conversation for a person instead of promising a phone call
+nobody ordered.
+
+Every condition in that test is load-bearing. A safety signal means the promise
+is duty of care; an answer or a note means the run did its job and is _also_
+asking for a human, which is what prompt rules 9 and 10 ask for; an
+`already_recorded` refusal means this is a replay whose results are already
+durable. And the last
+condition is what keeps S34 working: «μπορώ να μιλήσω με κάποιον από την ομάδα;»
+is a handoff that correctly records nothing, because there is nothing in it to
+record. The "still held an answer" test is deliberately shallow — anything
+deeper would be a second extractor with a second opinion — so a give-up over
+words with no score and no name in them is still honoured, which costs an
+operator one look rather than a lost answer.
 
 Every persisted row records the model, its confidence and the exact candidate
 ids of that run in `extraction_meta` (D12). Under live selection that set is the
@@ -736,11 +776,71 @@ a personality mismatch and then agreed with it in the platform's voice. Rule 11�
 now says explicitly that it applies when the person writing to us is the one
 behaving badly, because every example in it reads as a victim disclosing.
 
+### An avoid row is a statement, not an instruction
+
+**The invariant.** A `feedback_answers` row records something a participant said.
+It is not an instruction to the platform. A row with `matching_hold = true` must
+be **excluded** by any consumer that turns answers into seating, pairing or table
+assignment — and there is no such consumer today, which is the point at which to
+write this down rather than after one exists.
+
+Γεωργία answered `avoid` about an attendee she named, giving as her reason that
+the woman is not from here, does not speak Greek, and that she does not sit with
+foreigners. The row is stored, deliberately: a silent discard would be us
+deciding on somebody's behalf with nothing on file to say that we did, staff need
+the row to act on **her**, and a discard branch would make the model the arbiter
+of which avoids count. But an `avoid` is defined by its effect, and its effect
+lands on the person she abused — she is the one who would be kept away from
+tables, on the strength of somebody else's racism. Storing that row under the
+same `question_key` as an honourable avoid, with nothing marking it, is the lie
+of omission the column exists to close.
+
+| Marker                                                                                                                                           | What it is for                                                                                                                                                                                               |
+| ------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [`feedback-answers-consumer-boundary.spec.ts`](../../../apps/backend/src/modules/post-event-feedback/feedback-answers-consumer-boundary.spec.ts) | Fails the suite when `feedback_answers` is referenced outside this module, the schema package or its migrations, and prints the decision. The only marker that speaks to somebody who was not looking for it |
+| `matching_hold boolean not null default false`                                                                                                   | What the data itself carries. The marker's content; the spec is what makes anybody read it                                                                                                                   |
+| This section                                                                                                                                     | Why. Docs are how the person stopped by the spec finds out what to do instead                                                                                                                                |
+
+**Why a boolean and not a reason string.** The column is named for what the
+consumer must do, not for what she said: `is_racist` would store a category
+judgement as a durable fact on a row that outlives the run that made it, and a
+free-text reason invites a consumer to parse prose and decide for itself which
+holds count. The judgement lives where a human can revisit and dismiss it — the
+`abuse_of_a_participant` category on the cited message and the
+`respondent_conduct` attention reason on the conversation. What a consumer needs
+here is binary, and it defaults to the safe value for every row written before
+the column existed.
+
+**When it is set.** On write, by the extraction run, when a message the answer
+cites was classified respondent-source in that same run
+(`respondentSourceMessageIds` in
+[`extraction/operator-attention.ts`](../../../apps/backend/src/modules/post-event-feedback/extraction/operator-attention.ts)).
+The citation is the only link between a safety signal and an answer row, and the
+run is the only place both are in hand. The upsert makes it sticky —
+`matching_hold or excluded.matching_hold` — so a later burst restating the same
+answer in polite words cannot lift it.
+
+**The limit, stated rather than hidden.** Abuse arriving in a _later_ burst than
+the answer it explains leaves the earlier row unheld: no run knows which stored
+answers a new message was about, and holding every answer in the conversation
+would hold answers about people the abuse had nothing to do with. There is also
+no operator control that sets or clears a hold, and the read model does not
+publish it. What the operator gets in that case is the `respondent_conduct`
+reason anchored on the message, and withdrawing the row is the action available.
+
+**Not in `matching/`.** That directory holds `candidate-name.ts` and
+`stop-command.ts` — resolving a mentioned name to an attendee, and recognising a
+STOP. It has nothing to do with matching people to tables, and the one directory
+a future engineer greps for "matching" is the wrong place for this.
+
 ### Deterministic fallback for a dead run
 
 [`PostEventFeedbackExtractionFallback`](../../../apps/backend/src/modules/post-event-feedback/extraction/fallback.service.ts)
 runs when `feedback.extract.v1` fails permanently — a non-retryable provider
-rejection, or the last attempt spent. It leaves three things behind:
+rejection, or the last attempt spent. A run whose handoff was refused as
+[`handoff_discards_testimony`](#validation-before-any-persistence-or-send)
+arrives the same way: it is retryable on purpose, so the fallback applies only
+once no attempt has managed to read the testimony. It leaves three things behind:
 
 1. `needsAttention` plus one audit event carrying a bounded cause class
    (`provider_refusal | provider_error | validation_failed | unknown`). The same
@@ -819,7 +919,11 @@ runs the real prompt builder and the real rules over every WP0 fixture with a
 recorded proposal in place of a live model call, and asserts each fixture's
 expected outcome. The two-Κώστας and unknown-name fixtures additionally carry
 adversarial proposals — a guessed subject and an invented candidate id — that
-the rules must contain. Focused specs cover the rule set in isolation, the
+the rules must contain. Focused specs cover the rule set in isolation —
+including the refused handoff and each near miss that must still be honoured: a
+handoff carrying a safety signal, one carrying an answer, one carrying the words
+it is handing over, a replay whose results are already stored, and the plain
+request for a person that had nothing in it to keep — the
 orchestration (cheap exits, live candidate selection, completion, safety,
 opt-in), the reply and closing copy appearing as `actor: bot` turns correlated
 by `outboxId`, replay (same job twice, and a crash between the PostgreSQL commit
@@ -836,6 +940,18 @@ writing exactly one note + one acknowledgement + one audit event and nothing on
 replay, unique-name subject resolution versus two-name ambiguity, the alert
 firing once per `false → true` transition, and the processor surfacing each
 bounded cause class in `failedReason`.
+
+Two guards on what a run may write to an answer row have their own tests: a run
+that classifies respondent-source abuse writes `matching_hold` on the answers
+citing that message and on no others, and the upsert accumulates the hold rather
+than overwriting it; and a run proposing an answer on a slot an operator withdrew
+writes nothing at all. The boundary
+([`feedback-answers-consumer-boundary.spec.ts`](../../../apps/backend/src/modules/post-event-feedback/feedback-answers-consumer-boundary.spec.ts))
+reads the repository's own TypeScript and fails on the first reference to
+`feedback_answers` from outside this module, the schema package or its
+migrations — the first source-reading guard in `apps/backend`, on the precedent of
+the admin's `theme-tokens` and `assistant-contract` specs. Its second assertion is
+that the section its failure message sends people to still exists.
 
 ## Failure and recovery
 
@@ -1756,12 +1872,41 @@ score.
 `audit_events` carries the same before and after, and is the durable copy:
 `feedback_answer.corrected` and `feedback_answer.withdrawn`, `entityType:
 "feedback_answer"`. A withdrawal's context carries the **whole** row — value,
-subject, provenance, timestamps — because the delete is hard and nothing else
-will hold it. The delete is hard rather than a `withdrawn_at` column for the same
-reason `deleteContradictedAnswers` already hard-deletes: a soft-deleted row still
-occupies the uniqueness key, so a later run proposing the same question and
-subject would upsert onto it and resurrect it with a fresh value while the flag
-silently persisted.
+subject, provenance, hold, timestamps — because the delete is hard and nothing
+else will hold it.
+
+**How a withdrawal is represented.** The row is deleted, and a tombstone is
+written on the slot it occupied in the same transaction:
+`feedback_answer_withdrawals`, keyed on the same
+`NULLS NOT DISTINCT (conversation, question, subject)` triple the answers table
+enforces. `insertAnswerIfAbsent` consults it before it inserts and writes nothing
+when it is there.
+
+That is the withdrawal's half of the freeze, and until 2026-07-28 it did not
+exist: a correction was frozen against later runs and a withdrawal was not, so
+«a human decided this» held for one of the two operations. The transcript still
+holds the participant's words after a withdrawal, so a later run citing them
+recorded the same question and subject again and the operator was never told
+their decision had been reversed.
+
+The tombstone cannot reuse the correction's mechanism, and this is the one place
+the two diverge. A correction lives in `extraction_meta` **on the row it
+describes**; a withdrawal has no row to carry a marker, deliberately — the module
+declined a soft delete twice, because a soft-deleted row must be filtered out of
+every read of the table (`listAnswersByConversation`, `listAnswersByCampaign`, the
+run's `acceptedAnswers`, the given/received profile lists, the simulator) and one
+forgotten filter puts a claim an operator retracted back in front of staff. So
+the marker moves off the row and onto the slot; the _enforcement_ is reused
+exactly, as a guard the only writer of answers applies.
+
+Two consequences worth knowing. A tombstone is permanent: nothing reinstates a
+withdrawn answer, in the same sense that nothing lets the model overrule a
+correction. And the refused write raises **no** `answer_revision` — unlike the
+corrected-row case, which `validate-proposal` catches from the run's context
+before persistence. Matching that would mean carrying withdrawals in
+`FeedbackExtractionContext`; the freeze holds without it, and the run's reply may
+tell the participant their answer was noted when the tombstone silently kept it
+out, exactly as it already may on a corrected row.
 
 **Freezing, and what enforces it** (see also
 [validation](#validation-before-any-persistence-or-send)):
@@ -1779,7 +1924,12 @@ silently persisted.
   them;
 - corrections are appended to `extraction_meta` and the extraction upsert
   therefore **merges** rather than replaces that column, so an ordinary revision
-  on an uncorrected row cannot erase the array either.
+  on an uncorrected row cannot erase the array either;
+- `insertAnswerIfAbsent` reads `feedback_answer_withdrawals` before it inserts and
+  returns nothing when the slot carries a tombstone. A read rather than a
+  predicate because the frozen row does not exist to carry one, and race-free for
+  the same reason the correction guard is: the withdrawal and the persist both
+  hold the conversation advisory lock for their whole transaction.
 
 The read model publishes a derived `correction: { at, by } | null` on each answer
 — the same discipline a note's `origin` follows. The before/after and the
@@ -1803,10 +1953,10 @@ out loud, that re-affirming the model's own value is not a way to freeze it.
   knows the right person cannot record it: there is no operator-authored answer
   path, and `cardinality(source_message_ids) >= 1` forbids one without a
   migration mirroring `20260726001227_staff_authored_feedback_notes`.
-- **Freeze a withdrawal.** A withdrawn row leaves no tombstone, so a later run
-  citing new testimony can record the same question and subject again. Nothing
-  short of a column or a table can hold "this was withdrawn on purpose", and this
-  slice writes no migration.
+- **Reinstate a withdrawal.** Closed in the following slice by
+  `feedback_answer_withdrawals`, whose one open edge is the other direction: the
+  tombstone is permanent and no route lifts it. Reinstating a withdrawn answer is
+  a reviewed database operation, from the whole row in `audit_events`.
 - **Move the two monotonic snapshots.** Mongo `goals[].status` never demotes, so
   withdrawing an answer leaves a goal badged «answered» with no answer row under
   it in the admin's progress panel, and the reminder copy in
@@ -1899,6 +2049,10 @@ model or confidence; an empty `source_message_ids`; a subject outside the live
 D16 candidates is refused before anything is inserted; a note on a closed
 conversation is accepted; and both model and deterministic-fallback rows report
 `origin: conversation`.
+
+For a withdrawal: the whole row reaches the audit context, and the tombstone is
+recorded on the slot the row occupied — same transaction, same key, the acting
+operator on it.
 
 ## Decisions and references
 

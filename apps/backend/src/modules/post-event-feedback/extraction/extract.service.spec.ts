@@ -21,7 +21,10 @@ import {
   isCorrectedAnswer,
 } from "./answer-corrections.js";
 import { PostEventFeedbackExtractor } from "./extract.service.js";
-import type { PostEventFeedbackExtractionModel } from "./model.service.js";
+import {
+  FeedbackExtractionGenerationError,
+  type PostEventFeedbackExtractionModel,
+} from "./model.service.js";
 import { PostEventFeedbackMetrics } from "../metrics.service.js";
 import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "../question-set.js";
 import type { FeedbackAnswerQuestionKey } from "@join-the-six/database";
@@ -43,6 +46,25 @@ const nikos = "1b0a2f1c-2d3e-4f50-8a91-0b2c3d4e5f60";
 const eleni = "2c1b3a2d-3e4f-5061-9b02-1c3d4e5f6071";
 const correlationId = "correlation-1";
 const model = "google/gemini-3.6-flash";
+
+/**
+ * What a handoff run leaves behind for the person it is promising.
+ *
+ * Prompt rules 9 and 10 ask for exactly this — a run does not swallow a note
+ * because it is also asking for a human — and validation now refuses a handoff
+ * that recorded nothing at all over testimony that still held an answer. The
+ * fixture testimony below is «5! Ο Νίκος ήταν φοβερός», so every handoff case
+ * here has to be as complete as the proposal it stands in for; without the note
+ * these cases would be asserting the behaviour of a run that fails.
+ */
+const handoffNote = {
+  noteType: "general",
+  text: "Ζήτησε να μιλήσει με άνθρωπο της ομάδας.",
+  subjectParticipantId: null,
+  subjectMentionedName: null,
+  sourceMessageIds: ["p1"],
+  confidence: 0.9,
+} as const;
 
 describe("PostEventFeedbackExtractor", () => {
   let harness: Harness;
@@ -555,7 +577,11 @@ describe("PostEventFeedbackExtractor", () => {
     });
 
     it("still sends the handoff copy, because it promises a human", async () => {
-      typesDuringTheRun({ handoff: true, reply: "Ευχαριστούμε πολύ!" });
+      typesDuringTheRun({
+        handoff: true,
+        notes: [handoffNote],
+        reply: "Ευχαριστούμε πολύ!",
+      });
 
       const result = await harness.extractor.extract({
         conversationId,
@@ -608,6 +634,7 @@ describe("PostEventFeedbackExtractor", () => {
       harness.generation.propose.mockResolvedValue(
         generation({
           handoff: true,
+          notes: [handoffNote],
           skippedGoals: ["avoid"],
           reply: "Ας συνεχίσουμε.",
         }),
@@ -914,7 +941,11 @@ describe("PostEventFeedbackExtractor", () => {
 
     it("still swaps in the neutral handoff copy on an explicit handoff", async () => {
       harness.generation.propose.mockResolvedValue(
-        generation({ handoff: true, reply: "Ας συνεχίσουμε." }),
+        generation({
+          handoff: true,
+          notes: [handoffNote],
+          reply: "Ας συνεχίσουμε.",
+        }),
       );
 
       const result = await harness.extractor.extract({
@@ -929,9 +960,85 @@ describe("PostEventFeedbackExtractor", () => {
       });
     });
 
+    it("keeps the answers a handoff run did extract", async () => {
+      // A warranted handoff records what the participant said and *then* asks for
+      // a person: the two are independent, and the colleague who picks the
+      // conversation up wants the score in front of them rather than a transcript
+      // to re-read. Asserted here because it is easy to assume the opposite —
+      // the handoff replaces the model's reply, and only the reply.
+      harness.generation.propose.mockResolvedValue(
+        generation({
+          handoff: true,
+          answers: [
+            {
+              questionKey: "event_score",
+              valueInt: 5,
+              subjectParticipantId: null,
+              subjectMentionedName: null,
+              sourceMessageIds: ["p1"],
+              confidence: 0.9,
+            },
+          ],
+          reply: "Ευχαριστούμε!",
+        }),
+      );
+
+      const result = await harness.extractor.extract({
+        conversationId,
+        correlationId,
+      });
+
+      expect(result).toMatchObject({ outcome: "handoff", answersWritten: 1 });
+      expect(harness.repository.answers).toMatchObject([
+        { questionKey: "event_score", valueInt: 5 },
+      ]);
+      expect(harness.conversations.get(conversationId).awaitingHuman).toBe(
+        true,
+      );
+      expect(harness.repository.outbox[0]).toMatchObject({
+        body: POST_EVENT_FEEDBACK_HANDOFF_REPLY,
+      });
+    });
+
+    it("fails the run rather than obey a handoff that read nothing", async () => {
+      // Μαρία Φλερτατζού, twice on 2026-07-27: «βαζω 5. ο Τάσος ήτανε πολύ
+      // ωραίος, θα τον ξαναέβλεπα. κανέναν δε θέλω να αποφύγω» came back as a
+      // request for a human with nothing extracted and no safety signal. The
+      // fixture testimony here is the same shape — a score and a name the run
+      // walked past.
+      //
+      // Nothing may be written, and above all the cursor may not move: the
+      // window has to stay open for the retry, which is the only thing that can
+      // still read her answers. The failure is retryable for that reason, and if
+      // every attempt repeats it BullMQ's last one hands the conversation to the
+      // deterministic fallback.
+      harness.generation.propose.mockResolvedValue(
+        generation({ handoff: true, reply: "Κάποιος θα σου μιλήσει." }),
+      );
+
+      const failure = await harness.extractor
+        .extract({ conversationId, correlationId })
+        .catch((error: unknown) => error);
+
+      expect(failure).toBeInstanceOf(FeedbackExtractionGenerationError);
+      expect(failure).toMatchObject({
+        retryable: true,
+        failureCause: "validation_failed",
+      });
+      const conversation = harness.conversations.get(conversationId);
+      expect(harness.repository.answers).toEqual([]);
+      expect(harness.repository.notes).toEqual([]);
+      expect(harness.repository.outbox).toEqual([]);
+      expect(conversation.extraction.cursorSeq).toBe(0);
+      expect(conversation.awaitingHuman).toBe(false);
+      expect(conversation.needsAttention).toBe(false);
+      expect(harness.alert.raised).toEqual([]);
+      expect(harness.audit.events).toEqual([]);
+    });
+
     it("does not seize control; a takeover stays an explicit human action (D17)", async () => {
       harness.generation.propose.mockResolvedValue(
-        generation({ handoff: true }),
+        generation({ handoff: true, notes: [handoffNote] }),
       );
 
       await harness.extractor.extract({ conversationId, correlationId });
@@ -1003,6 +1110,108 @@ describe("PostEventFeedbackExtractor", () => {
       expect(harness.repository.outbox[0]?.body).not.toContain(
         POST_EVENT_FEEDBACK_SAFETY_ASSURANCE,
       );
+    });
+
+    /**
+     * The badge tells a person. This tells the code, and it has to, because the
+     * two readers are on different clocks: the operator sees the conversation
+     * tonight, and whatever turns avoids into seating reads the row months later
+     * with the conversation long closed.
+     */
+    it("holds an avoid the abuse was the reason for, and leaves the rest alone", async () => {
+      // Two things she said in the same burst: the abusive one, and an ordinary
+      // compliment. The hold follows the citation, so it lands on the answer the
+      // abuse was the reason for and on nothing else.
+      harness.conversations.get(conversationId).messages.push({
+        id: "p2",
+        seq: 3,
+        actor: "participant",
+        text: "Ο Νίκος πάντως ήταν γλυκύτατος.",
+        at: new Date("2026-07-25T10:03:00.000Z"),
+        outboxId: null,
+      });
+      harness.generation.propose.mockResolvedValue(
+        generation({
+          answers: [
+            {
+              questionKey: "avoid",
+              valueInt: null,
+              subjectParticipantId: eleni,
+              subjectMentionedName: null,
+              sourceMessageIds: ["p1"],
+              confidence: 0.9,
+            },
+            {
+              questionKey: "liked",
+              valueInt: null,
+              subjectParticipantId: nikos,
+              subjectMentionedName: null,
+              sourceMessageIds: ["p2"],
+              confidence: 0.9,
+            },
+          ],
+          reply: "Το σημείωσα.",
+        }),
+      );
+      harness.generation.classifyAttention.mockResolvedValue(
+        attentionGeneration([
+          {
+            category: "abuse_of_a_participant",
+            recommendedAction: "human_follow_up",
+            sourceMessageIds: ["p1"],
+            confidence: 0.9,
+          },
+        ]),
+      );
+
+      await harness.extractor.extract({ conversationId, correlationId });
+
+      // The row is recorded — a silent discard would be us deciding on her
+      // behalf with nothing on file to say we did — and it is recorded held.
+      expect(
+        harness.repository.answers.map((row) => [
+          row.questionKey,
+          row.matchingHold,
+        ]),
+      ).toStrictEqual([
+        ["liked", false],
+        ["avoid", true],
+      ]);
+    });
+
+    it("will not record an answer on a slot an operator withdrew", async () => {
+      // The operator read the transcript and removed this row. The participant's
+      // words are still in the transcript, so the model proposes it again; the
+      // tombstone is what keeps a human's decision from being quietly reversed by
+      // the next run, exactly as `extraction_meta.corrections` does for a value.
+      harness.repository.answerWithdrawals.push({
+        conversationId,
+        questionKey: "avoid",
+        subjectParticipantId: eleni,
+      });
+      harness.generation.propose.mockResolvedValue(
+        generation({
+          answers: [
+            {
+              questionKey: "avoid",
+              valueInt: null,
+              subjectParticipantId: eleni,
+              subjectMentionedName: null,
+              sourceMessageIds: ["p1"],
+              confidence: 0.9,
+            },
+          ],
+          reply: "Το σημείωσα.",
+        }),
+      );
+
+      const result = await harness.extractor.extract({
+        conversationId,
+        correlationId,
+      });
+
+      expect(harness.repository.answers).toEqual([]);
+      expect(result.answersWritten).toBe(0);
     });
 
     it("names an unattributed note against the message the name was typed in", async () => {
@@ -1125,7 +1334,7 @@ describe("PostEventFeedbackExtractor", () => {
 
     it("names a handoff, so the badge and the promise say the same thing", async () => {
       harness.generation.propose.mockResolvedValue(
-        generation({ handoff: true }),
+        generation({ handoff: true, notes: [handoffNote] }),
       );
 
       await harness.extractor.extract({ conversationId, correlationId });
@@ -1420,6 +1629,14 @@ interface FakeResultRow {
   valueInt: number | null;
   subjectParticipantId: string | null;
   extractionMeta: Record<string, unknown>;
+  matchingHold?: boolean;
+}
+
+/** One answer slot an operator emptied on purpose. */
+interface FakeWithdrawalRow {
+  conversationId: string;
+  questionKey: string;
+  subjectParticipantId: string | null;
 }
 
 /** Mirrors the WP2 repository contract the extractor actually depends on. */
@@ -1434,6 +1651,7 @@ class FakeFeedbackRepository {
     }
   >();
   readonly answers: FakeResultRow[] = [];
+  readonly answerWithdrawals: FakeWithdrawalRow[] = [];
   readonly notes: FakeResultRow[] = [];
   readonly outbox: Record<string, unknown>[] = [];
   locked = 0;
@@ -1491,9 +1709,22 @@ class FakeFeedbackRepository {
       subjectParticipantId?: string | null;
       valueInt?: number | null;
       extractionMeta: Record<string, unknown>;
+      matchingHold?: boolean;
     },
   ): Promise<FakeResultRow | undefined> {
     const subject = input.subjectParticipantId ?? null;
+    // The withdrawal freeze: an operator emptied this slot on purpose, and the
+    // row they deleted is gone, so the tombstone is what says so.
+    if (
+      this.answerWithdrawals.some(
+        (tombstone) =>
+          tombstone.conversationId === input.conversationId &&
+          tombstone.questionKey === input.questionKey &&
+          tombstone.subjectParticipantId === subject,
+      )
+    ) {
+      return undefined;
+    }
     const existing = this.answers.find(
       (row) =>
         row.conversationId === input.conversationId &&
@@ -1508,6 +1739,9 @@ class FakeFeedbackRepository {
       }
       const carried = existing.extractionMeta[FEEDBACK_ANSWER_CORRECTIONS_KEY];
       existing.valueInt = input.valueInt ?? null;
+      // `matching_hold or excluded.matching_hold`: a hold only accumulates.
+      existing.matchingHold =
+        existing.matchingHold === true || input.matchingHold === true;
       existing.extractionMeta = {
         ...input.extractionMeta,
         ...(carried === undefined
@@ -1525,6 +1759,7 @@ class FakeFeedbackRepository {
       valueInt: input.valueInt ?? null,
       subjectParticipantId: subject,
       extractionMeta: input.extractionMeta,
+      matchingHold: input.matchingHold === true,
     };
     this.answers.push(row);
     return row;

@@ -36,6 +36,7 @@ import {
   groupSafetySignalsByMessage,
   isSafetyOrHandoffAttention,
   operatorAttentionRaises,
+  respondentSourceMessageIds,
 } from "./operator-attention.js";
 import { resolveOutbound, type OutboundReply } from "./outbound-reply.js";
 import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
@@ -48,7 +49,10 @@ import {
   validateFeedbackExtractionProposal,
   type FeedbackExtractionValidationResult,
 } from "./validate-proposal.js";
-import { PostEventFeedbackExtractionModel } from "./model.service.js";
+import {
+  FeedbackExtractionGenerationError,
+  PostEventFeedbackExtractionModel,
+} from "./model.service.js";
 import { FEEDBACK_EXTRACT_QUIET_WINDOW_MS } from "../jobs.schemas.js";
 import type { FeedbackExtractionContext } from "./extraction.schemas.js";
 import {
@@ -227,6 +231,33 @@ export class PostEventFeedbackExtractor {
         conversationId: conversation._id,
         rejections: validated.rejections,
       });
+    }
+
+    // Every other rejection costs one row and lets the rest of the run stand.
+    // This one condemns the whole run, because there is nothing left of it worth
+    // keeping: the model asked for a human instead of reading a message that
+    // still held an answer, and obeying that would freeze the questionnaire on
+    // `awaitingHuman`, queue an operator, and advance the cursor past the
+    // testimony — which is how Μαρία Φλερτατζού's «βαζω 5. ο Τάσος ήτανε πολύ
+    // ωραίος…» was lost twice in one night.
+    //
+    // Failing here is what buys the retry, and the retry is the only thing that
+    // can still read her answers; a run that continued with `handoff: false`
+    // would close the window on testimony nobody extracted. Retryable and
+    // `validation_failed` for the same reason a malformed object is: the fault is
+    // this generation, another attempt may not repeat it, and if every attempt
+    // does then BullMQ's last one lands in the deterministic fallback, which
+    // files a note and flags the conversation for a person.
+    if (
+      validated.rejections.some(
+        (rejection) => rejection.reason === "handoff_discards_testimony",
+      )
+    ) {
+      throw new FeedbackExtractionGenerationError(
+        "extraction_failed",
+        true,
+        "validation_failed",
+      );
     }
 
     // Statuses from what validation accepted — never from the model's nextGoal.
@@ -593,6 +624,15 @@ export class PostEventFeedbackExtractor {
     const candidateIds = input.context.candidates.map(
       (candidate) => candidate.participantId,
     );
+    // An `avoid` given for an abusive reason is still recorded — deciding for
+    // somebody with no trace that we did is worse — but it is a statement, not
+    // an instruction, and it must never reach a seating decision. The hold rides
+    // on the row from the moment it is written, because this run is the only
+    // place that has both the answer and the classification of the message it
+    // cites in hand.
+    const heldMessageIds = respondentSourceMessageIds(
+      input.validated.safetySignals,
+    );
 
     return this.database.transaction(async (transaction) => {
       await this.results.lockConversation(transaction, input.conversation._id);
@@ -622,6 +662,9 @@ export class PostEventFeedbackExtractor {
             confidence: answer.confidence,
             candidateIds,
           }),
+          matchingHold: answer.sourceMessageIds.some((messageId) =>
+            heldMessageIds.has(messageId),
+          ),
         });
         if (inserted) {
           answersWritten += 1;

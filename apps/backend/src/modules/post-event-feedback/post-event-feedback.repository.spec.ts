@@ -4,6 +4,7 @@ import type { SQL } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 import {
   feedbackAnswers,
+  feedbackAnswerWithdrawals,
   messageOutbox,
   providerMessageIngress,
 } from "@join-the-six/database";
@@ -30,6 +31,19 @@ function createInsertChain(returningValue: unknown[]) {
     onConflictDoUpdate,
     returning,
   };
+}
+
+/**
+ * The tombstone lookup every answer write now makes. `rows` is what the slot
+ * holds: empty for a slot no operator has emptied.
+ */
+function createWithdrawalSelectChain(rows: unknown[]) {
+  const limit = vi.fn().mockResolvedValue(rows);
+  const where = vi.fn().mockReturnValue({ limit });
+  const from = vi.fn().mockReturnValue({ where });
+  const select = vi.fn().mockReturnValue({ from });
+
+  return { select, from, where, limit };
 }
 
 describe("feedback repository conflict targets", () => {
@@ -96,7 +110,8 @@ describe("feedback repository conflict targets", () => {
 
   it("overwrites an answer on the NULLS NOT DISTINCT uniqueness key so a revision lands", async () => {
     const chain = createInsertChain([]);
-    const transaction = { insert: chain.insert };
+    const withdrawals = createWithdrawalSelectChain([]);
+    const transaction = { insert: chain.insert, select: withdrawals.select };
     const repository = new FeedbackResultsRepository({
       db: {},
     } as DatabaseService);
@@ -122,7 +137,11 @@ describe("feedback repository conflict targets", () => {
       {
         target: unknown[];
         setWhere: SQL;
-        set: { valueInt: number | null; extractionMeta: SQL };
+        set: {
+          valueInt: number | null;
+          extractionMeta: SQL;
+          matchingHold: SQL;
+        };
       },
     ];
     expect(config.target).toStrictEqual([
@@ -145,6 +164,55 @@ describe("feedback repository conflict targets", () => {
     // replacing the whole blob, so the row keeps saying a human touched it.
     expect(dialect.sqlToQuery(config.set.extractionMeta).sql).toBe(
       "excluded.extraction_meta || case when \"feedback_answers\".\"extraction_meta\" ? 'corrections' then jsonb_build_object('corrections', \"feedback_answers\".\"extraction_meta\" -> 'corrections') else '{}'::jsonb end",
+    );
+    // A hold only ever accumulates. The run that found the respondent abusing
+    // the person this answer is about has already happened; a later burst
+    // restating the answer in polite words does not make it honourable, and an
+    // `excluded`-wins update would quietly lift the hold.
+    expect(dialect.sqlToQuery(config.set.matchingHold).sql).toBe(
+      '"feedback_answers"."matching_hold" or excluded.matching_hold',
+    );
+  });
+
+  it("refuses to record an answer on a slot an operator withdrew", async () => {
+    const chain = createInsertChain([]);
+    const withdrawals = createWithdrawalSelectChain([
+      {
+        id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        answerId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        withdrawnBy: "admin-1",
+      },
+    ]);
+    const transaction = { insert: chain.insert, select: withdrawals.select };
+    const repository = new FeedbackResultsRepository({
+      db: {},
+    } as DatabaseService);
+
+    const result = await repository.insertAnswerIfAbsent(transaction as never, {
+      campaignId: "55555555-5555-4555-8555-555555555555",
+      conversationId: "66666666-6666-4666-8666-666666666666",
+      respondentParticipantId: "77777777-7777-4777-8777-777777777777",
+      subjectParticipantId: null,
+      questionKey: "event_score",
+      valueInt: 5,
+      sourceMessageIds: ["88888888-8888-4888-8888-888888888888"],
+      extractionMeta: { candidateIds: [] },
+    });
+
+    // The withdrawal freeze, and the one guard that cannot be a predicate on the
+    // row: the row an operator withdrew was deleted for good, so the tombstone on
+    // the slot is what is left to consult. Without this, a later run reading the
+    // participant's words writes the answer straight back and the operator is
+    // never told their decision was undone.
+    expect(withdrawals.from).toHaveBeenCalledWith(feedbackAnswerWithdrawals);
+    expect(chain.insert).not.toHaveBeenCalled();
+    expect(result).toBeUndefined();
+
+    // `NULLS NOT DISTINCT`, spelled out: a subjectless question has one slot per
+    // conversation, and `subject_participant_id = null` would match nothing.
+    const [slot] = withdrawals.where.mock.calls[0] as [SQL];
+    expect(new PgDialect().sqlToQuery(slot).sql).toContain(
+      '"subject_participant_id" is null',
     );
   });
 

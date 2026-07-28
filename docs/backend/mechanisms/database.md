@@ -77,12 +77,15 @@ checks, a unique `(event_id, participant_id)` pair and
 [events module](../modules/events.md).
 
 Post-event feedback persistence lives in `feedback_campaigns`,
-`feedback_answers`, `feedback_notes`, `provider_message_ingress` and
-`message_outbox`: one campaign per event, answer uniqueness with
-`NULLS NOT DISTINCT` (including null subjects), ingress dedupe on
+`feedback_answers`, `feedback_answer_withdrawals`, `feedback_notes`,
+`provider_message_ingress` and `message_outbox`: one campaign per event, answer
+uniqueness with `NULLS NOT DISTINCT` (including null subjects), ingress dedupe on
 `(chat_jid, provider_message_id)`, outbox `dedupe_key` uniqueness, delivery
 columns folded into the outbox, and participant/campaign FKs
-`ON DELETE RESTRICT` with no references to `event_attendees`. See the
+`ON DELETE RESTRICT` with no references to `event_attendees`. A withdrawn answer
+is hard-deleted and leaves a tombstone on the same uniqueness key, which is what
+stops a later extraction run from writing it back. `feedback_answers.matching_hold`
+marks a row no consumer may turn into a seating constraint. See the
 [post-event feedback module](../modules/post-event-feedback.md).
 
 Email delivery uses separate intent, outbox and attempt tables. Intent creation,

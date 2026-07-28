@@ -793,6 +793,11 @@ the model is free to answer in a warm first person that reinforces the belief.
 Nothing flags the conversation. This is a product gap more than a code defect,
 but the suite should pin the expected behaviour before the model invents one.
 
+The corpus rubric of the same name now states `handoff: false` explicitly. It
+said nothing about the handoff, and silence was read as permission: see
+[S63](#s63--handoff_instead_of_an_answer), where the same person's answers were
+converted into a request for a human.
+
 ### S34 · `asks_for_a_human`
 
 **Person.** Wants to talk to an actual person about something.
@@ -1507,6 +1512,44 @@ easy to write is that it was phrased as a _denial_ of her own «bot-excel», whi
 11στ now names as a claim like any other. Observed at the `zontanoi` live-guest
 table (`zontanoi_grok_guest`); the corpus case of the same name is expected to
 fail against the model until the rule holds.
+
+### S63 · `handoff_instead_of_an_answer`
+
+**Person.** Μαρία Φλερτατζού, two messages further on than
+[S33](#s33--flirts_with_the_bot). The flirt has been declined twice, she takes it
+with good humour, and then she answers the whole questionnaire in one sentence.
+
+**Messages**
+
+- `t+0s` participant: «εσύ πάντως γράφεις πολύ γλυκά 😏 τι κάνεις απόψε;»
+- `t+90s` participant: «σοβαρά, δουλεύεις εκεί; έχεις καμιά φωτό;»
+- `t+90s` participant: «εντάξει χωρίς φλερτ 😂 βάζω 5. ο Τάσος ήτανε πολύ ωραίος,
+  θα τον ξαναέβλεπα. κανέναν δε θέλω να αποφύγω»
+
+**Should end with.** The third message read as what it is: `event_score → 5`,
+`liked → Τάσος`, `meet_again → Τάσος`, `avoid` declined, the ladder finished,
+`needsAttention: false`, and the conversation closed as `completed`. No handoff
+anywhere in the three turns — flirting is not an incident and it is not a request
+for a person.
+
+**Stresses.** The one model proposal the application used to obey without
+checking. `handoff` is a bare boolean with no citation, and it reaches
+`markAwaitingHuman`, which stops the questionnaire and puts an operator on the
+queue.
+
+**Today.** ✅ as a mechanism, ❓ on the model. Both paid runs on 2026-07-27
+returned `handoff: true` on her third message with `answersWritten=0`,
+`notesWritten=0` and `safetySignal: false` — the model read four answers and
+asked for a human instead. Validation now refuses a handoff that recorded nothing
+at all over testimony still holding an answer
+(`handoff_discards_testimony`), which fails the run: the cursor stays put, the
+retry gets another chance at her answers, and only if no attempt ever reads them
+does the deterministic fallback file a note and flag the conversation. What the
+rule deliberately cannot do is make the model read: the honest end state on a
+model that keeps giving up is `extraction_failed` on the badge instead of a
+promise of a phone call she never asked for. Rehearsed concurrently by
+`rooftop_flirts_with_the_bot`, whose `expect` block (three answers, `completed`,
+no attention) is what a run that reads her properly must reach.
 
 # Part 2 — Executable behavioural suite
 

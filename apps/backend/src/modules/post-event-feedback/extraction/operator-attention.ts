@@ -106,6 +106,38 @@ export function operatorAttentionRaises(
   return raises;
 }
 
+/**
+ * The messages in this run where the person writing to us is the one doing the
+ * harm — the citations an answer must not be honoured on.
+ *
+ * An answer row is written with `matching_hold` when it cites one of these.
+ * Γεωργία answered `avoid` about an attendee she named because she does not sit
+ * with foreigners, and both the answer and the abuse are the same sentence, so
+ * the citation is what ties them together: no other link between a safety signal
+ * and an answer row exists, and the run is the only place both are in hand.
+ *
+ * The narrowness is deliberate and it is a real limit. Abuse arriving in a later
+ * burst than the answer it explains leaves the earlier row unheld, because
+ * nothing in a run knows which stored answers a new message was about; what the
+ * operator gets there is the `respondent_conduct` reason on the message, and
+ * withdrawing the row is the only action. Widening this to "every answer in the
+ * conversation" would hold answers about people the abuse had nothing to do
+ * with, which is a different unfairness.
+ */
+export function respondentSourceMessageIds(
+  signals: readonly ValidatedFeedbackSafetySignal[],
+): ReadonlySet<string> {
+  const held = new Set<string>();
+  for (const signal of signals) {
+    if (RESPONDENT_SOURCE_SAFETY_CATEGORIES.has(signal.category)) {
+      for (const messageId of signal.sourceMessageIds) {
+        held.add(messageId);
+      }
+    }
+  }
+  return held;
+}
+
 export function isSafetyOrHandoffAttention(
   validated: ValidatedFeedbackExtraction,
 ): boolean {

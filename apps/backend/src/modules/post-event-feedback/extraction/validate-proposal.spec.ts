@@ -859,6 +859,29 @@ describe("validateFeedbackExtractionProposal", () => {
       ]);
     });
 
+    it("records answers on an explicit handoff too", () => {
+      // Rule 9 in as many words: a run does not swallow what the participant
+      // told us because it is also asking for a human. The two are independent,
+      // and the person who picks the conversation up wants both.
+      const result = validateFeedbackExtractionProposal(
+        proposal({
+          answers: [
+            answer({
+              questionKey: "event_score",
+              valueInt: 5,
+              subjectParticipantId: null,
+            }),
+          ],
+          handoff: true,
+        }),
+        context(),
+      );
+
+      expect(result.answers).toHaveLength(1);
+      expect(result.handoff).toBe(true);
+      expect(result.rejections).toEqual([]);
+    });
+
     it("records notes on an explicit handoff too", () => {
       const result = validateFeedbackExtractionProposal(
         proposal({ notes: [note()], handoff: true }),
@@ -868,6 +891,158 @@ describe("validateFeedbackExtractionProposal", () => {
       expect(result.notes).toHaveLength(1);
       expect(result.handoff).toBe(true);
       expect(result.rejections).toEqual([]);
+    });
+  });
+
+  /**
+   * The handoff was the only field the application obeyed without checking, and
+   * `markAwaitingHuman` is not a cheap thing to obey: it stops the questionnaire
+   * and puts a person on the queue. Μαρία Φλερτατζού flirted for two messages and
+   * then answered four goals in one sentence; both paid runs on 2026-07-27 came
+   * back with `handoff: true`, nothing extracted and no safety signal, so her
+   * testimony was lost and an operator was queued to read a flirt.
+   *
+   * The near misses below matter as much as the rejection: somebody who genuinely
+   * asks for a person must still get one.
+   */
+  describe("a handoff that gives up", () => {
+    const testimony = (text: string): FeedbackExtractionContext =>
+      context({
+        messages: [
+          {
+            id: "m2",
+            seq: 1,
+            actor: "participant",
+            occurredAt: "2026-07-27T18:00:00.000Z",
+            text,
+          },
+        ],
+        newParticipantMessageIds: ["m2"],
+      });
+
+    it("refuses a handoff that recorded nothing from testimony still holding an answer", () => {
+      const result = validateFeedbackExtractionProposal(
+        proposal({ handoff: true }),
+        testimony(
+          "βαζω 5. ο Νικος ητανε πολυ ωραιος, θα τον ξαναεβλεπα. κανεναν δε θελω να αποφύγω",
+        ),
+      );
+
+      expect(result.rejections).toEqual([
+        { scope: "handoff", reason: "handoff_discards_testimony" },
+      ]);
+      // Reported false so the result does not contradict its own rejection. The
+      // run is failed by the caller either way; nothing downstream may act on it.
+      expect(result.handoff).toBe(false);
+    });
+
+    it("refuses it on a named person alone, with no score in the message", () => {
+      const result = validateFeedbackExtractionProposal(
+        proposal({ handoff: true }),
+        testimony("ο Νικος ητανε πολυ ωραιος, θα τον ξαναεβλεπα ανετα"),
+      );
+
+      expect(result.rejections).toEqual([
+        { scope: "handoff", reason: "handoff_discards_testimony" },
+      ]);
+    });
+
+    it("honours a request for a person that had nothing in it to keep (S34)", () => {
+      // The regression that matters. There is no score and nobody is named, so
+      // the empty run is the correct reading of the message rather than a run
+      // that walked past one — and the promise of a human stands.
+      const result = validateFeedbackExtractionProposal(
+        proposal({ handoff: true }),
+        testimony(
+          "μπορω να μιλησω με καποιον απο την ομαδα; προτιμω να το πω σε ανθρωπο",
+        ),
+      );
+
+      expect(result.rejections).toEqual([]);
+      expect(result.handoff).toBe(true);
+    });
+
+    it("honours a handoff that raised a safety signal instead", () => {
+      // Duty of care needs no questionnaire row to justify it: the signal is the
+      // reason a person is being asked for.
+      const result = validateFeedbackExtractionProposal(
+        proposal({ handoff: true }),
+        testimony("βαζω 5 αλλα θελω να το πω σε ανθρωπο, με ακουμπησε ο Νικος"),
+        [
+          {
+            category: "sexual_misconduct",
+            recommendedAction: "urgent_human_follow_up",
+            sourceMessageIds: ["m2"],
+            confidence: 0.9,
+          },
+        ],
+      );
+
+      expect(result.rejections).toEqual([]);
+      expect(result.handoff).toBe(true);
+    });
+
+    it("honours a handoff that keeps the words it is handing over (S36)", () => {
+      // «σβήστε ό,τι σας είπα» is prompt rule 10's second case: the request goes
+      // to a person and the words are kept as a note. A run that did that has
+      // read the message, which is all this rule asks of it.
+      const result = validateFeedbackExtractionProposal(
+        proposal({
+          notes: [
+            note({
+              text: "Ζητά να σβηστούν όσα είπε για τον Νίκο.",
+              sourceMessageIds: ["m2"],
+            }),
+          ],
+          handoff: true,
+        }),
+        testimony("σβηστε ο,τι σας ειπα για τον Νικο, δε θελω να μεινει"),
+      );
+
+      expect(result.notes).toHaveLength(1);
+      expect(result.rejections).toEqual([]);
+      expect(result.handoff).toBe(true);
+    });
+
+    it("honours a replayed handoff whose results are already stored", () => {
+      // A replay of a run that already wrote its note has empty accepted lists
+      // for the best possible reason. Failing it would fire the deterministic
+      // fallback over results that are sitting in the database.
+      const result = validateFeedbackExtractionProposal(
+        proposal({
+          notes: [note({ text: "Ωραία βραδιά.", sourceMessageIds: ["m2"] })],
+          handoff: true,
+        }),
+        {
+          ...testimony("ο Νικος ητανε ωραιος, θελω ανθρωπο"),
+          acceptedNotes: [
+            {
+              noteType: "general",
+              text: "Ωραία βραδιά.",
+              subjectParticipantId: null,
+            },
+          ],
+        },
+      );
+
+      expect(result.notes).toEqual([]);
+      expect(result.rejections).toEqual([
+        { scope: "note", reason: "already_recorded", noteType: "general" },
+      ]);
+      expect(result.handoff).toBe(true);
+    });
+
+    it("leaves an ordinary run alone when nothing was extracted and no handoff was asked for", () => {
+      // The rule is about the handoff, not about an empty run. A model that reads
+      // a message and finds nothing in it is a separate concern — the reply and
+      // the withdrawal rules own that — and it must not be failed here.
+      const result = validateFeedbackExtractionProposal(
+        proposal({ reply: "Πες μου έναν αριθμό από το 1 ως το 5." }),
+        testimony("βαζω 5. ο Νικος ητανε πολυ ωραιος"),
+      );
+
+      expect(result.rejections).toEqual([]);
+      expect(result.handoff).toBe(false);
     });
   });
 

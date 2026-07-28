@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  boolean,
   check,
   foreignKey,
   index,
@@ -177,6 +178,24 @@ export const feedbackAnswers = pgTable(
     extractionMeta: jsonb("extraction_meta")
       .$type<FeedbackExtractionMeta>()
       .notNull(),
+    /**
+     * This row records something a participant said and **no consumer turning
+     * answers into seating may honour it**.
+     *
+     * Set when the extraction run that wrote the row also classified a message
+     * the row cites as respondent-source abuse (`abuse_of_a_participant`): a
+     * participant answered `avoid` about somebody she named and gave a racist
+     * reason for it. The row is kept because discarding it would be us deciding
+     * on her behalf with nothing on file to say we did, but an `avoid` is a
+     * statement, not an instruction, and this one must never become a seating
+     * constraint.
+     *
+     * Named for what the consumer has to do, not for what she said. `is_racist`
+     * would store a category judgement as a fact on a row that outlives the run
+     * that made it; the judgement itself lives on the cited message, in the
+     * conversation's attention reasons, where a human can dismiss it.
+     */
+    matchingHold: boolean("matching_hold").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
       .defaultNow()
       .notNull(),
@@ -228,6 +247,76 @@ export const feedbackAnswers = pgTable(
       table.subjectParticipantId,
     ),
     index("feedback_answers_conversation_idx").on(table.conversationId),
+  ],
+);
+
+/**
+ * The record that a human decided one answer slot has no answer.
+ *
+ * Withdrawing an answer deletes the row for good — a soft delete would leave a
+ * claim about a third party in a table every reader would then have to filter,
+ * and one forgotten filter puts a withdrawn `avoid` about somebody back in front
+ * of staff. What that hard delete could not say is that the deletion was
+ * deliberate: a later extraction run citing new testimony re-recorded the same
+ * question and subject and the operator's decision was quietly undone. This
+ * table says it. One row per answer slot, checked by the only writer of answers
+ * before it inserts.
+ *
+ * The slot, not the answer, is the identity: the same
+ * `(conversation, question, subject)` key the answers table enforces with
+ * `NULLS NOT DISTINCT`, so a tombstone occupies exactly the space the row it
+ * replaces did. `answer_id` carries no foreign key on purpose — the row it names
+ * is gone, and the whole of it is in the `feedback_answer.withdrawn` audit event
+ * under that id, which is where a withdrawal is answerable.
+ *
+ * A tombstone is never updated and never deleted, so it has no `updated_at`:
+ * `withdrawn_at` is the only time it has. Reinstating a withdrawn answer is
+ * deliberately not offered anywhere — the freeze means the model may stop
+ * agreeing with a human, not that it may overrule one.
+ */
+export const feedbackAnswerWithdrawals = pgTable(
+  "feedback_answer_withdrawals",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    campaignId: uuid("campaign_id").notNull(),
+    conversationId: uuid("conversation_id").notNull(),
+    questionKey: text("question_key").notNull(),
+    subjectParticipantId: uuid("subject_participant_id"),
+    answerId: uuid("answer_id").notNull(),
+    withdrawnAt: timestamp("withdrawn_at", {
+      withTimezone: true,
+      mode: "date",
+    })
+      .defaultNow()
+      .notNull(),
+    withdrawnBy: text("withdrawn_by").notNull(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.campaignId],
+      foreignColumns: [feedbackCampaigns.id],
+      name: "feedback_answer_withdrawals_campaign_id_feedback_campaigns_id_fk",
+    }).onDelete("restrict"),
+    foreignKey({
+      columns: [table.subjectParticipantId],
+      foreignColumns: [participants.id],
+      name: "feedback_answer_withdrawals_subject_participant_id_participants_id_fk",
+    }).onDelete("restrict"),
+    check(
+      "feedback_answer_withdrawals_question_key_check",
+      sql`${table.questionKey} in ('event_score', 'liked', 'meet_again', 'avoid')`,
+    ),
+    check(
+      "feedback_answer_withdrawals_withdrawn_by_length_check",
+      sql`char_length(btrim(${table.withdrawnBy})) between 1 and 200`,
+    ),
+    unique("feedback_answer_withdrawals_conversation_question_subject_uidx")
+      .on(table.conversationId, table.questionKey, table.subjectParticipantId)
+      .nullsNotDistinct(),
+    index("feedback_answer_withdrawals_campaign_withdrawn_at_idx").on(
+      table.campaignId,
+      table.withdrawnAt,
+    ),
   ],
 );
 
@@ -466,6 +555,8 @@ export const messageOutbox = pgTable(
 
 export type FeedbackCampaignRow = typeof feedbackCampaigns.$inferSelect;
 export type FeedbackAnswerRow = typeof feedbackAnswers.$inferSelect;
+export type FeedbackAnswerWithdrawalRow =
+  typeof feedbackAnswerWithdrawals.$inferSelect;
 export type FeedbackNoteRow = typeof feedbackNotes.$inferSelect;
 export type ProviderMessageIngressRow =
   typeof providerMessageIngress.$inferSelect;

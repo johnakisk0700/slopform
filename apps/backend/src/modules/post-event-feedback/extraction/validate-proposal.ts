@@ -42,7 +42,9 @@ import type {
  * 4. a subject must be in the **current** candidate set and must not be the
  *    respondent — an unresolvable mention degrades (D18), never guesses;
  * 5. nothing already recorded is written twice;
- * 6. lifecycle, control and opt-in decide whether a reply may be produced.
+ * 6. lifecycle, control and opt-in decide whether a reply may be produced;
+ * 7. a handoff that extracted nothing from testimony that plainly held an answer
+ *    is refused, because it is the model giving up rather than duty of care.
  *
  * Note what is *not* a rule any more. D13 as amended routes safety-flavoured
  * content through this same path: a disclosure becomes an ordinary, visible
@@ -125,6 +127,18 @@ export function validateFeedbackExtractionProposal(
   const reply =
     context.replyAllowed && trimmedReply.length > 0 ? trimmedReply : null;
 
+  const abandonedHandoff = discardsTestimony({
+    handoff: proposal.handoff,
+    answers: answersResult.answers,
+    notes,
+    safetySignals,
+    rejections,
+    context,
+  });
+  if (abandonedHandoff) {
+    rejections.push({ scope: "handoff", reason: "handoff_discards_testimony" });
+  }
+
   return {
     answers: answersResult.answers,
     notes,
@@ -136,7 +150,12 @@ export function validateFeedbackExtractionProposal(
       trimmedReply,
     ),
     safetySignals,
-    handoff: proposal.handoff,
+    // The caller fails the run on the rejection above, so nothing should reach a
+    // conversation state with this field either way. It is still reported as
+    // false, because a `true` alongside its own rejection is a result that
+    // contradicts itself, and the next reader of this shape should not have to
+    // work out which half of it won.
+    handoff: proposal.handoff && !abandonedHandoff,
     confidence: proposal.confidence,
     rejections,
     conflictingAnswerRevision: answersResult.conflictingAnswerRevision,
@@ -570,6 +589,155 @@ function validateSkippedGoals(
   }
 
   return skipped;
+}
+
+/**
+ * The one rule about the handoff itself: a run may promise a person, but not
+ * instead of reading what it was given.
+ *
+ * `handoff` used to be the only field the application obeyed without checking.
+ * Answers are checked against the transcript, notes are checked, a named subject
+ * must be somebody who was actually at the table — and a boolean went straight
+ * through to `markAwaitingHuman`, which stops the questionnaire and queues an
+ * operator. Twice on 2026-07-27 the model set it on Μαρία Φλερτατζού's «βαζω 5.
+ * ο Τάσος ήτανε πολύ ωραίος, θα τον ξαναέβλεπα. κανέναν δε θέλω να αποφύγω»,
+ * with nothing extracted and no safety signal raised. Flirting earlier in the
+ * conversation is not an incident, that message is four plain answers, and both
+ * runs converted it into a lost testimony plus a queued human.
+ *
+ * The rule is structural rather than a judgement about the message: a handoff
+ * that recorded **nothing** — no answer, no note, no safety signal — over
+ * testimony that visibly still held an answer we were asking for is the model
+ * giving up. Each condition earns its place:
+ *
+ * - a safety signal means the promise is duty of care and belongs to a person;
+ * - an answer or a note means the run did its job and *also* asks for a human,
+ *   which is exactly what prompt rules 9 and 10 ask for;
+ * - `already_recorded` means this is a replay of a run whose results are already
+ *   durable, so the empty accepted lists are the replay guard working, not a
+ *   model that read nothing;
+ * - and without the last condition the rule would fail the ordinary explicit
+ *   request. «Μπορώ να μιλήσω με κάποιον από την ομάδα;» is a handoff that
+ *   *correctly* records nothing, because there is nothing in it to record, and
+ *   S34 is a documented product contract that must keep working.
+ */
+function discardsTestimony(input: {
+  readonly handoff: boolean;
+  readonly answers: readonly ValidatedFeedbackAnswer[];
+  readonly notes: readonly ValidatedFeedbackNote[];
+  readonly safetySignals: readonly ValidatedFeedbackSafetySignal[];
+  readonly rejections: readonly FeedbackExtractionRejection[];
+  readonly context: FeedbackExtractionContext;
+}): boolean {
+  return (
+    input.handoff &&
+    input.answers.length === 0 &&
+    input.notes.length === 0 &&
+    input.safetySignals.length === 0 &&
+    !input.rejections.some(
+      (rejection) => rejection.reason === "already_recorded",
+    ) &&
+    holdsUnrecordedAnswer(input.context)
+  );
+}
+
+/**
+ * Whether the new testimony plainly carries an answer to a goal that is still
+ * open — a score, or the name of somebody at the table.
+ *
+ * This is the deliberately shallow half of the rule, and it is shallow because
+ * anything deeper would be a second extractor with a second opinion. It answers
+ * one narrow question: *was there something here that this run should not have
+ * walked away from?* A false negative — a give-up over words with no number and
+ * no name in them — leaves the handoff standing, which costs an operator one
+ * look at a conversation. A false positive costs the run, and the retry it earns
+ * is the only thing that can still read the testimony properly, so both errors
+ * are survivable and the cheaper one is on the safe side.
+ *
+ * Both halves are gated on the goal still being open, which is also what makes a
+ * replayed handoff harmless: once a score is recorded, the same digit in the same
+ * message no longer counts as unspent.
+ */
+function holdsUnrecordedAnswer(context: FeedbackExtractionContext): boolean {
+  const newTestimony = context.messages
+    .filter((message) => context.newParticipantMessageIds.includes(message.id))
+    .map((message) => message.text)
+    .join(" ");
+  if (newTestimony.trim().length === 0) {
+    return false;
+  }
+
+  const answeredKeys = new Set<FeedbackAnswerQuestionKey>(
+    context.acceptedAnswers.map((answer) => answer.questionKey),
+  );
+  const isOpen = (key: FeedbackAnswerQuestionKey): boolean => {
+    if (answeredKeys.has(key)) {
+      return false;
+    }
+    const goal = context.goals.find((entry) => entry.key === key);
+    return (
+      goal !== undefined &&
+      goal.status !== "answered" &&
+      goal.status !== "skipped"
+    );
+  };
+
+  if (isOpen("event_score") && mentionsScore(newTestimony)) {
+    return true;
+  }
+  // A name is only unspent while some directed goal can still take it, and only
+  // when nothing has been recorded about that person yet — «τον Νίκο» in a
+  // conversation that already has Νίκος under `liked` is somebody we have
+  // already listened to.
+  const directedOpen = (["liked", "meet_again", "avoid"] as const).some(isOpen);
+  return directedOpen && mentionsUnrecordedCandidate(newTestimony, context);
+}
+
+/**
+ * A standalone digit inside the questionnaire's own range, folded so «5!» and
+ * «βάζω 5.» read the same.
+ *
+ * Bounds come from the question set rather than from a literal here, so a
+ * questionnaire that one day scores out of ten does not leave this rule quietly
+ * measuring the old range.
+ */
+function mentionsScore(text: string): boolean {
+  const definition = answerDefinition("event_score");
+  const minimum = definition.intMin ?? Number.NEGATIVE_INFINITY;
+  const maximum = definition.intMax ?? Number.POSITIVE_INFINITY;
+  return foldPostEventFeedbackText(text)
+    .split(" ")
+    .some((token) => {
+      const value = Number(token);
+      return /^\d+$/u.test(token) && value >= minimum && value <= maximum;
+    });
+}
+
+/**
+ * Whether the testimony names a current candidate nobody has recorded an answer
+ * about yet.
+ *
+ * The whole message is offered to the same resolver a single mention goes
+ * through, so the alphabet the participant wrote in does not decide it and «ο
+ * Τασος» still finds Τάσος Γαμωσταυρίδης. The resolver's "exactly one candidate
+ * or nobody" rule is left exactly as it stands: two Κώστας at the table resolve
+ * to nobody, this rule stays quiet, and the handoff is honoured — which is the
+ * direction every other doubt in this file is spent.
+ */
+function mentionsUnrecordedCandidate(
+  newTestimony: string,
+  context: FeedbackExtractionContext,
+): boolean {
+  const named = resolvePostEventFeedbackCandidateByName(
+    newTestimony,
+    context.candidates,
+  );
+  if (!named) {
+    return false;
+  }
+  return !context.acceptedAnswers.some(
+    (answer) => answer.subjectParticipantId === named.participantId,
+  );
 }
 
 function resolveNextGoal(

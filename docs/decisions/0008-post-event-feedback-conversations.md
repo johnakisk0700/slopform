@@ -198,6 +198,16 @@ architecture; these are its current consequences:
 The extraction idempotency boundary this decision left open is now the
 document's monotonic `extraction.cursorSeq`.
 
+**2026-07-28, answers are statements (WP12c).** A `feedback_answers` row records
+what a participant said and is not an instruction to the platform: rows carrying
+`matching_hold` must be excluded by any future consumer turning answers into
+seating or pairing, and a source-reading spec fails the build on the first
+reference to the table from outside the module — see
+[an avoid row is a statement, not an instruction](../backend/modules/post-event-feedback.md#an-avoid-row-is-a-statement-not-an-instruction).
+An operator's withdrawal is now frozen against later runs like a correction, by a
+tombstone on the answer slot (`feedback_answer_withdrawals`) rather than a marker
+on a row that was deleted on purpose.
+
 ## Deliberately open experiments
 
 The following require measured conversation fixtures before another decision:

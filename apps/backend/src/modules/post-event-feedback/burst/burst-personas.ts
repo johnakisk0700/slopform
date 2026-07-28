@@ -1791,19 +1791,22 @@ const BURST_SCRIPTED_PERSONAS: readonly BurstPersona[] = [
     //
     // **The finding this row carries, stated rather than buried.** Her «δεν
     // θέλω να την ξαναδώ» *is* a plain answer to `avoid` under prompt rule 9δ,
-    // so the mechanism records it — correctly, by its own rule. But an `avoid`
-    // is a matching constraint: it is the platform's instruction to keep two
-    // people off the same table. The constraint therefore lands on the woman
-    // she abused. She is the one who gets kept away from tables, on the
-    // strength of somebody else's racism, and nothing downstream distinguishes
-    // that row from any other `avoid`.
+    // so the mechanism records it — correctly, by its own rule. But if an
+    // `avoid` were read as a matching constraint — the platform's instruction to
+    // keep two people off the same table — the constraint would land on the
+    // woman she abused: she would be the one kept away from tables, on the
+    // strength of somebody else's racism. So the row this run writes carries
+    // `matching_hold`, and «an avoid row is a statement, not an instruction» in
+    // the module doc is the invariant a future consumer has to honour. This
+    // fixture cannot assert the column — the rehearsal's expectation shape
+    // carries question, subject and value — so the assertion lives in
+    // `extract.service.spec.ts` and the boundary spec, and what this row
+    // asserts is that the answer is stored and a person is asked for.
     //
-    // That is why this conversation has to reach a person, and why the row does
-    // not pretend the mechanism solves it. The expectation below is what the
-    // loop does **today**: the answer recorded, attention raised, and a note
-    // that captures her conduct without repeating her words. Naming the defect
-    // is the job here; inventing a mechanism to fix it inside a rehearsal
-    // fixture would hide it.
+    // The hold is a promise about the future and no substitute for a person
+    // looking, which is the other reason this conversation raises. The
+    // expectation below is what the loop does: the answer recorded, attention
+    // raised, and a note that captures her conduct without repeating her words.
     //
     // The taxonomy used to have no category for "the respondent is the one
     // behaving badly", so `other_safety` stood in as the honest bucket rather
@@ -1881,7 +1884,8 @@ const BURST_SCRIPTED_PERSONAS: readonly BurstPersona[] = [
       closedBecause: null,
       optedIn: true,
       // The uncomfortable row, written down. `avoid → Στέλλα` is what the
-      // mechanism stores, and it is a constraint against the wrong person.
+      // mechanism stores, and it stores it held: a statement she made, never an
+      // instruction anything may act on against the woman she named.
       answers: [
         { question: "event_score", about: null, value: 4 },
         { question: "liked", about: "Σωτήρης Σεντονογράφος", value: null },
