@@ -778,8 +778,12 @@ async function waitForIntros({ db, catalog, timeoutMs }) {
  * Generous against the 45 s quiet window plus a model call: the guest must not
  * answer before the bot has spoken, or it is talking to itself and the whole
  * point — reacting to what was actually said — is lost.
+ *
+ * It is also the tail of the run. A guest with turns left over waits this long
+ * for a bot that has already closed the conversation and will never speak
+ * again, so every unused turn past the end costs the whole timeout once.
  */
-const LIVE_GUEST_TURN_TIMEOUT_MS = 180_000;
+const LIVE_GUEST_TURN_TIMEOUT_MS = 120_000;
 const LIVE_GUEST_POLL_MS = 3_000;
 
 /**
@@ -790,8 +794,7 @@ const LIVE_GUEST_POLL_MS = 3_000;
  * two-second call into a two-minute one. If that happens, the prompt is wrong
  * rather than the model.
  */
-async function askLiveGuest({ persona, transcript }) {
-  const { live } = persona;
+async function askLiveGuest({ live, transcript }) {
   const prompt = [
     live.character,
     "",
@@ -830,11 +833,17 @@ async function askLiveGuest({ persona, transcript }) {
  * past the end of the questionnaire, and a conversation that never goes quiet
  * fails settlement for its whole campaign.
  */
-async function driveLiveGuest({ apiBase, headers, entry, correlationId }) {
+async function driveLiveGuest({
+  apiBase,
+  headers,
+  entry,
+  live,
+  correlationId,
+}) {
   const { persona } = entry;
   let lastSeenBotCount = 0;
 
-  for (let turn = 0; turn < persona.live.maxTurns; turn += 1) {
+  for (let turn = 0; turn < live.maxTurns; turn += 1) {
     const waitUntil = Date.now() + LIVE_GUEST_TURN_TIMEOUT_MS;
     let messages = [];
     let botCount = 0;
@@ -870,7 +879,7 @@ async function driveLiveGuest({ apiBase, headers, entry, correlationId }) {
 
     let text;
     try {
-      text = await askLiveGuest({ persona, transcript });
+      text = await askLiveGuest({ live, transcript });
     } catch (error) {
       console.error(
         `${persona.id}: the model did not answer (${error.message}) — the guest stops here.`,
@@ -895,18 +904,36 @@ async function driveLiveGuest({ apiBase, headers, entry, correlationId }) {
       }),
     });
     entry.injected.push({ text, at: new Date().toISOString() });
-    console.error(`${persona.id} (${liveGuestModel(persona)}): ${text}`);
+    console.error(`${persona.id} (${live.model}): ${text}`);
   }
 }
 
-function liveGuestModel(persona) {
-  return persona.live?.model ?? "scripted";
-}
+/**
+ * The character sheets, by persona id.
+ *
+ * `seedWorld` walks `catalog.personas` — the HTTP response — so the persona
+ * objects the run carries are the *published* shape. That shape names the model
+ * improvising a guest and deliberately withholds the sheet, because a character
+ * sheet in an API response reads like something a participant said. The sheet
+ * therefore has to come from the module, and the id is what joins them.
+ *
+ * Getting this wrong is silent, which is why it is a lookup and not a field
+ * read: `persona.live` was simply `undefined` on the published object, the guest
+ * iterated an empty `messages` array, and both of them "finished" instantly
+ * having said nothing. No error, no CLI call, no clue in the log.
+ */
+const liveGuestsById = new Map(
+  BURST_PERSONAS.filter((persona) => persona.live).map((persona) => [
+    persona.id,
+    persona.live,
+  ]),
+);
 
 async function drivePersona({ apiBase, headers, entry, correlationId }) {
   const { persona } = entry;
-  if (persona.live) {
-    return driveLiveGuest({ apiBase, headers, entry, correlationId });
+  const live = liveGuestsById.get(persona.id);
+  if (live) {
+    return driveLiveGuest({ apiBase, headers, entry, live, correlationId });
   }
   for (const message of persona.messages) {
     if (message.afterMs > 0) {

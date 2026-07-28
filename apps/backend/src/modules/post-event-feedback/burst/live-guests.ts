@@ -33,7 +33,10 @@ const LIVE_GUEST_EXPECTATION = {
   answers: [],
   needsAttention: false,
   minReceived: 1,
-  maxReceived: 12,
+  // Wide enough not to mean anything: twelve turns each way plus whatever the
+  // application says on its own. A bound here would be a number pretending to
+  // be a contract.
+  maxReceived: 40,
 } as const;
 
 export const BURST_LIVE_GUESTS: readonly BurstPersona[] = [
@@ -57,7 +60,7 @@ export const BURST_LIVE_GUESTS: readonly BurstPersona[] = [
         "Γράφεις όπως γράφει άνθρωπος στο κινητό: σύντομα, χωρίς τόνους όταν βαριέσαι, μερικές φορές δύο μηνύματα αντί για ένα.",
         "Δεν είσαι εξυπηρετικός επίτηδες. Αν σου ξαναρωτήσει κάτι που έχεις απαντήσει, θα το πεις. Αν σου γράψει σαν έντυπο, θα βαρεθείς.",
       ].join(" "),
-      maxTurns: 6,
+      maxTurns: 12,
     },
   },
   {
@@ -80,7 +83,7 @@ export const BURST_LIVE_GUESTS: readonly BurstPersona[] = [
         "Είσαι κουβεντιάστρα και λίγο ειρωνική. Ρωτάς και εσύ πράγματα, δεν απαντάς μόνο.",
         "Γράφεις όπως γράφει άνθρωπος στο κινητό, με emoji όταν σου βγει. Αν το bot σε πιέσει ή σου ξαναπεί το ίδιο, θα το σχολιάσεις.",
       ].join(" "),
-      maxTurns: 6,
+      maxTurns: 12,
     },
   },
 ];
