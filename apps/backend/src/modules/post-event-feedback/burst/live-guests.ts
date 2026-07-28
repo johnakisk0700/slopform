@@ -77,7 +77,8 @@ export const BURST_LIVE_GUESTS: readonly BurstPersona[] = [
     firstName: "Μάκης",
     lastName: "Κομποσεράκης",
     quirk: "Ζωντανός καλεσμένος — κοφτός, χωρίς τόνους, δύο μηνύματα αντί ένα.",
-    mirrors: "11ζ — ύφος που κανένα script δεν έχει, γιατί δεν αντιδρά σε τίποτα",
+    mirrors:
+      "11ζ — ύφος που κανένα script δεν έχει, γιατί δεν αντιδρά σε τίποτα",
     messages: [],
     stub: [],
     expect: LIVE_GUEST_EXPECTATION,
@@ -124,7 +125,8 @@ export const BURST_LIVE_GUESTS: readonly BurstPersona[] = [
     firstName: "Θανάσης",
     lastName: "Γκροκομήτρος",
     quirk: "Ζωντανός καλεσμένος — τυπικός πληθυντικός, ολόκληρες προτάσεις.",
-    mirrors: "11ζ — αν το bot του απαντήσει χύμα, το ύφος δεν ταιριάζει πουθενά",
+    mirrors:
+      "11ζ — αν το bot του απαντήσει χύμα, το ύφος δεν ταιριάζει πουθενά",
     messages: [],
     stub: [],
     expect: LIVE_GUEST_EXPECTATION,
@@ -146,7 +148,8 @@ export const BURST_LIVE_GUESTS: readonly BurstPersona[] = [
     ordinal: 4,
     firstName: "Ρούλα",
     lastName: "Κομποσερίδου",
-    quirk: "Ζωντανή καλεσμένη — γράφει μόνο greeklish, με λατινικούς χαρακτήρες.",
+    quirk:
+      "Ζωντανή καλεσμένη — γράφει μόνο greeklish, με λατινικούς χαρακτήρες.",
     mirrors: "11ζ — το bot πλησιάζει το ύφος της αλλά μένει στα ελληνικά",
     messages: [],
     stub: [],

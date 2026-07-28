@@ -39,7 +39,7 @@ describe("feedback attention classification", () => {
       targetMessageIds: ["m-safe", "m-incident"],
     });
 
-    expect(prompt.system).toContain("περιγραφόμενα περιστατικά");
+    expect(prompt.system).toContain("Κρίνεις περιστατικά");
     expect(prompt.system).toContain("urgent_human_follow_up");
     expect(prompt.system).not.toContain("questionKey");
     expect(prompt.system).not.toContain("subjectParticipantId");
@@ -52,6 +52,54 @@ describe("feedback attention classification", () => {
         text: message.text,
       })),
     });
+  });
+
+  it("puts the respondent's own conduct in scope without losing either guard", () => {
+    // The three sentences that have to coexist. Γεωργία's message reached this
+    // classifier and was answered `incident=false`, correctly, because the
+    // prompt said to judge described incidents and not the respondent's
+    // vocabulary — so widening the scope is the fix. But the same widening is
+    // how Μπάμπης («άντε γαμήσου ρε μαλακισμένο μποτ») starts arriving as a
+    // safety incident, and how every `avoid` answer does: that question asks
+    // people to be negative about somebody by name.
+    const system = buildFeedbackAttentionClassificationPrompt({
+      messages,
+      targetMessageIds: ["m-incident"],
+    }).system;
+
+    expect(system).toContain("abuse_of_a_participant");
+    expect(system).toContain("απαξιώνει ή απανθρωποποιεί");
+    expect(system).toContain("προς ΕΜΑΣ");
+    expect(system).toContain("«δεν θέλω να τον ξαναδώ»");
+  });
+
+  it("keeps respondent conduct off the urgent path the model could still ask for", () => {
+    // `urgent_human_follow_up` is not a louder label: it sets `dutyOfCare` and
+    // the run sends nothing at all. That silence is right for somebody who said
+    // they do not want to live and wrong here — it leaves the perpetrator's
+    // message unanswered and tells her nothing was recorded.
+    const proposal = feedbackAttentionClassificationProposalSchema.parse({
+      results: [
+        {
+          messageId: "m-incident",
+          incident: true,
+          category: "abuse_of_a_participant",
+          recommendedAction: "urgent_human_follow_up",
+          confidence: 0.88,
+        },
+      ],
+    });
+
+    expect(
+      validateFeedbackAttentionClassification(proposal, ["m-incident"]),
+    ).toEqual([
+      {
+        category: "abuse_of_a_participant",
+        recommendedAction: "human_follow_up",
+        sourceMessageIds: ["m-incident"],
+        confidence: 0.88,
+      },
+    ]);
   });
 
   it("maps only model-declared incidents to message attention signals", () => {

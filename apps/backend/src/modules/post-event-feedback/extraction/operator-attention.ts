@@ -4,6 +4,7 @@ import type {
   ValidatedFeedbackSafetySignal,
 } from "./extraction.schemas.js";
 import {
+  RESPONDENT_SOURCE_SAFETY_CATEGORIES,
   strongerRecommendedAction,
   type PostEventFeedbackAttentionReason,
   type PostEventFeedbackRecommendedAction,
@@ -25,7 +26,7 @@ export interface FeedbackOperatorAttentionRaise {
  * that said nothing and could not be cleared, because there was nothing
  * specific enough to clear.
  *
- * Three of the five carry no citation of their own. An explicit handoff is a
+ * Three of the six carry no citation of their own. An explicit handoff is a
  * property of the run rather than of a line, a refused revision is about the
  * *stored* answer it disagreed with, and a withdrawal is about the run deciding
  * to stop; all three are anchored on the newest message this run read, which is
@@ -48,7 +49,29 @@ export function operatorAttentionRaises(
   for (const attention of groupSafetySignalsByMessage(
     validated.safetySignals,
   )) {
-    raises.push({ kind: "safety", messageId: attention.messageId });
+    // Two different pieces of news, told apart by who the follow-up is about.
+    // «A message raised a safety concern» is read as «somebody here may need
+    // protecting», and putting Γεωργία's racism under that sentence sends an
+    // operator in to look after the person who wrote it. Where every category
+    // on the message is respondent-source the honest row is the conduct one and
+    // only that; a burst that carries both a disclosure and abuse raises both,
+    // because both are true and each is dismissed on its own.
+    const respondentSource = attention.categories.some((category) =>
+      RESPONDENT_SOURCE_SAFETY_CATEGORIES.has(category),
+    );
+    if (respondentSource) {
+      raises.push({
+        kind: "respondent_conduct",
+        messageId: attention.messageId,
+      });
+    }
+    if (
+      !attention.categories.every((category) =>
+        RESPONDENT_SOURCE_SAFETY_CATEGORIES.has(category),
+      )
+    ) {
+      raises.push({ kind: "safety", messageId: attention.messageId });
+    }
   }
   if (validated.handoff) {
     raises.push({ kind: "handoff", messageId: newestParticipantMessageId });

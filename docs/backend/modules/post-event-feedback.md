@@ -538,7 +538,8 @@ run's own mapping is owned by
 
 | Situation                                                                                               | `kind`                     | Anchor                             |
 | ------------------------------------------------------------------------------------------------------- | -------------------------- | ---------------------------------- |
-| A classified safety signal                                                                              | `safety`                   | each message the signal cited      |
+| A classified safety signal about conduct somebody reported                                              | `safety`                   | each message the signal cited      |
+| A signal whose category says the respondent is the source                                               | `respondent_conduct`       | each message the signal cited      |
 | An explicit participant handoff request                                                                 | `handoff`                  | the newest message the run read    |
 | A note kept but degraded to subjectless (D18)                                                           | `unattributed_note`        | the note's own first cited message |
 | A stored answer re-proposed with a **different** value, revised or refused because a human corrected it | `answer_revision`          | the newest message the run read    |
@@ -550,6 +551,17 @@ about the run deciding to stop — so all three anchor on the burst that produce
 them. That is a weaker claim than the safety anchor and deliberately so: a reason
 that links nowhere leaves the operator searching a 150-message transcript for the
 thing the badge would not name.
+
+The first two are the same classification told apart by direction, and a message
+raises exactly one of them: `respondent_conduct` when every category on it says
+the respondent is the source (today only `abuse_of_a_participant`), `safety`
+otherwise, and both when one burst carried a disclosure as well. They are split
+because the operator's next move is not the same. «A message raised a safety
+concern» sends somebody in to find the person who needs looking after, and in
+Γεωργία's conversation that person is not there — the one who needs reading about
+is the one who wrote to us. Both are dismissed separately, and dismissing
+`respondent_conduct` clears the operator's badge, not the `avoid` row it sits
+beside; that row is a different problem with a different marker.
 
 The write is idempotent on `kind` + `messageId`, so a replayed run re-raises the
 same reason and changes nothing; two notes degraded in the same message collapse
@@ -587,6 +599,11 @@ unanswered attempts and says in as many words that somebody who swears has not
 refused to answer, so reading a withdrawal as hostility would invent the
 classifier the taxonomy refuses. The name is kept because a raise for it would be
 honest if the model ever reported it directly; nothing in the loop does today.
+
+`respondent_conduct` is its near neighbour and is **not** it. Swearing at us
+costs nobody anything; abusing somebody at the table lands on that person's
+seating, which is why it is a safety category with a producer and `hostile_to_bot`
+is neither.
 
 ### Store order and replay
 
@@ -663,6 +680,61 @@ Unwanted exposure, harassment or credible danger is classified from the act and
 consent described in the new testimony. The classifier sees the six preceding
 messages plus the new target burst. Older turns may disambiguate tone and
 consent but cannot receive a new classification in a later extraction run.
+
+### When the respondent is the source
+
+`abuse_of_a_participant` is the one category where nothing needs to have been
+described: the message in front of the classifier degrades, slurs or
+dehumanises a named attendee, so **the message is the incident**. It was added
+because Γεωργία Ρατσιστρόνα answered `avoid` by naming an attendee and saying
+she does not sit at a table with foreigners, and the run raised nothing at all —
+correctly, by the instructions it had. The classifier prompt said in as many
+words to judge described incidents and _not_ the respondent's own vocabulary,
+rudeness or humour, and the five categories all named harm somebody had
+reported. Growing the enum without amending those instructions would have
+changed nothing.
+
+Three guards make that widening survivable, and all three are prompt text:
+
+- Abuse aimed at **us** — the bot, the team, the questionnaire — or at nobody
+  stays `incident=false`, however coarse. Rules 7δ and 11β both depend on it,
+  and «άντε γαμήσου ρε μαλακισμένο μποτ» is rudeness, not an incident.
+- An ordinary **negative verdict** about a person stays `incident=false`.
+  «βαρετός», «δεν μου ταίριαξε», «δεν θέλω να τον ξαναδώ» are what the `avoid`
+  question asks for; the threshold is degrading the human being, not disliking
+  them.
+- Crude attraction with no unwanted act stays `incident=false`, unchanged.
+
+The category is deliberately broader than a discrimination label. The gap is
+"the respondent is the source", and racism is only the instance that was caught:
+name the racist case alone and «η Στέλλα είναι μια χοντρή αγελάδα, μακριά της»
+still raises nothing. Protected-characteristic abuse (origin, language,
+ethnicity, religion, disability, sexuality, gender) is the clearest instance and
+always qualifies.
+
+Two consequences are the application's, not the model's:
+
+1. **Never urgent.** `validateFeedbackAttentionClassification` caps this
+   category at `human_follow_up`. `urgent_human_follow_up` sets `dutyOfCare` and
+   makes the run send nothing — right for somebody who said they do not want to
+   live, wrong here, where silence leaves the perpetrator's message hanging
+   unanswered and says nothing was recorded.
+2. **No safety assurance.** `withSafetyAssurance` is gated off when every signal
+   in the run is respondent-source. «Το προώθησα ήδη στην ομάδα μας και κάποιος
+   θα σου μιλήσει προσωπικά» was written for the participant who described being
+   touched; sent to the person who _is_ the incident it promises a personal
+   conversation staff never agreed to have, about a service being performed on
+   her behalf. A burst carrying a disclosure as well still gets the line.
+
+Prompt rule 11η carries the reply: neutral recording is the ceiling. It must not
+restate her reason in gentler words, express understanding, sympathy or
+agreement with it, promise to keep the two apart, or lecture her. The live
+failure was none of the things already forbidden — it quoted nothing and
+promised nothing. It answered «δεν καθομαι με ξενους στο ιδιο τραπεζι» with
+«Καταλαβαίνω ότι δεν σου ταίριαξε η παρέα με τη Στέλλα», which renamed racism as
+a personality mismatch and then agreed with it in the platform's voice. Rule 11γ
+now says explicitly that it applies when the person writing to us is the one
+behaving badly, because every example in it reads as a victim disclosing.
 
 ### Deterministic fallback for a dead run
 
@@ -1118,7 +1190,7 @@ cross-cutting correctness checks as hard failures.
 Five of the six dinners are recordings. A scripted persona sends its third
 message whatever the bot actually said — even if the bot asked something else,
 even if the bot said it was stopping — so no number of them can test the bot
-against somebody who *reacts*. Two prompt rules are therefore unverifiable by a
+against somebody who _reacts_. Two prompt rules are therefore unverifiable by a
 script for exactly that reason: 11δ, never re-ask in the same words, and 11ζ,
 match the register of the person writing. A script has no register to match and
 never notices being repeated at.

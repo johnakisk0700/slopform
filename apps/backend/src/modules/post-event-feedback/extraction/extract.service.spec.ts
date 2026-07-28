@@ -974,6 +974,37 @@ describe("PostEventFeedbackExtractor", () => {
       ).toMatchObject([{ kind: "safety", messageId: "p1", resolvedAt: null }]);
     });
 
+    it("says the respondent is the source instead of asking to protect them", async () => {
+      // «A message raised a safety concern» reads as «somebody here may need
+      // looking after», and under that sentence an operator opens Γεωργία's
+      // conversation to see who to support. The person to support is not in it.
+      harness.generation.propose.mockResolvedValue(
+        generation({ reply: "Το σημείωσα." }),
+      );
+      harness.generation.classifyAttention.mockResolvedValue(
+        attentionGeneration([
+          {
+            category: "abuse_of_a_participant",
+            recommendedAction: "human_follow_up",
+            sourceMessageIds: ["p1"],
+            confidence: 0.9,
+          },
+        ]),
+      );
+
+      await harness.extractor.extract({ conversationId, correlationId });
+
+      expect(
+        harness.conversations.get(conversationId).attentionReasons,
+      ).toMatchObject([
+        { kind: "respondent_conduct", messageId: "p1", resolvedAt: null },
+      ]);
+      // And she is not told that somebody will speak to her personally about it.
+      expect(harness.repository.outbox[0]?.body).not.toContain(
+        POST_EVENT_FEEDBACK_SAFETY_ASSURANCE,
+      );
+    });
+
     it("names an unattributed note against the message the name was typed in", async () => {
       harness.generation.propose.mockResolvedValue(
         generation({

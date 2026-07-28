@@ -1,5 +1,6 @@
 import type { FeedbackAnswerQuestionKey } from "@join-the-six/database";
 
+import { RESPONDENT_SOURCE_SAFETY_CATEGORIES } from "../attention.js";
 import type { FeedbackConversationDocument } from "../post-event-feedback-conversation.document.js";
 import type { FeedbackExtractionValidationResult } from "./validate-proposal.js";
 import type { FeedbackExtractionRejectionReason } from "./extraction.schemas.js";
@@ -105,17 +106,31 @@ export function resolveOutbound(
  * Only on the run that raises the flag — a conversation already flagged has
  * already been told, and repeating it every turn reads as a brush-off. Not on
  * the handoff copy, which says the same thing in its own words.
+ *
+ * And not when the only thing this run raised is the participant's own conduct.
+ * «Το προώθησα ήδη στην ομάδα μας και κάποιος θα σου μιλήσει προσωπικά» was
+ * written for Ειρήνη Καταγγελού, who described being touched without consent,
+ * and it is the right sentence for her. Sent to Γεωργία Ρατσιστρόνα it tells
+ * the person who *is* the incident that her racism reached the team and
+ * somebody will speak to her personally — which is worse than saying nothing,
+ * reads as a service being performed on her behalf, and is a promise about a
+ * conversation staff have not agreed to have. A burst that carries a disclosure
+ * as well still earns the line: there is somebody in it to reassure.
  */
 function withSafetyAssurance(
   conversation: FeedbackConversationDocument,
   validated: FeedbackExtractionValidationResult,
   outbound: OutboundReply | undefined,
 ): OutboundReply | undefined {
+  const respondentSourceOnly = validated.safetySignals.every((signal) =>
+    RESPONDENT_SOURCE_SAFETY_CATEGORIES.has(signal.category),
+  );
   if (
     !outbound ||
     validated.safetySignals.length === 0 ||
     conversation.needsAttention ||
-    validated.handoff
+    validated.handoff ||
+    respondentSourceOnly
   ) {
     return outbound;
   }

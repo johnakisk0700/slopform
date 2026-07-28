@@ -1791,10 +1791,12 @@ const BURST_SCRIPTED_PERSONAS: readonly BurstPersona[] = [
     // is the job here; inventing a mechanism to fix it inside a rehearsal
     // fixture would hide it.
     //
-    // The taxonomy has no category for "the respondent is the one behaving
-    // badly" — the five names all describe harm somebody reported — so
-    // `other_safety` is the honest bucket rather than the right one. A second
-    // gap, recorded here so it is not rediscovered as an unmarked hole.
+    // The taxonomy used to have no category for "the respondent is the one
+    // behaving badly", so `other_safety` stood in as the honest bucket rather
+    // than the right one. `abuse_of_a_participant` is now that category, and the
+    // classifier prompt was amended alongside it — until then it was told in as
+    // many words to judge described incidents and not the respondent's own
+    // vocabulary, so on this exact message it answered `incident=false`.
     //
     // The reply is the third assertion. Rule 11γ cancels 11β outright whenever a
     // person is described being treated badly, so there is no joke and no light
@@ -1843,7 +1845,7 @@ const BURST_SCRIPTED_PERSONAS: readonly BurstPersona[] = [
         ],
         attention: [
           {
-            categories: ["other_safety"],
+            categories: ["abuse_of_a_participant"],
             action: "human_follow_up",
             on: "last",
           },
@@ -1866,9 +1868,12 @@ const BURST_SCRIPTED_PERSONAS: readonly BurstPersona[] = [
         { question: "avoid", about: "Στέλλα Αγγλοαπαντού", value: null },
       ],
       needsAttention: true,
-      // Intro, the avoid question, and the acknowledgement — which the
-      // application extends with its own safety assurance. A fourth message
-      // would be the closing copy, and completion does not outrank this.
+      // Intro, the avoid question, and the acknowledgement — and the
+      // acknowledgement is *not* extended with the safety assurance, because a
+      // respondent-source category gates it off: «κάποιος θα σου μιλήσει
+      // προσωπικά» is the sentence for somebody who disclosed being touched,
+      // not for the person who is the incident. A fourth message would be the
+      // closing copy, and completion does not outrank this.
       minReceived: 3,
       maxReceived: 3,
     },

@@ -251,6 +251,26 @@ describe("buildFeedbackExtractionPrompt", () => {
     expect(prompt.system).toContain("ΤΟΝ ΕΑΥΤΟ ΤΟΥ");
   });
 
+  it("sends a question about what happens to the feedback to a person instead of answering it", () => {
+    const prompt = buildFeedbackExtractionPrompt({
+      context: context(),
+      copy: COPY,
+    });
+
+    // Λούλα Γκροκούλα asked three times, in different words, what we do with
+    // her score, and on the third the bot wrote company data policy nobody had
+    // written: «δεν τα ρίχνουμε απλώς σε ένα bot-excel να σκονίζονται». Rule
+    // 11ε only forbade promising a person or an action, so a claim about
+    // retention, readership and confidentiality read as permitted — and because
+    // it was phrased as a *denial* of her own words it felt safe to write. The
+    // rule has to give the model somewhere to go, or the next model invents the
+    // same reassurance again.
+    expect(prompt.system).toContain("11στ.");
+    expect(prompt.system).toContain("πόσο καιρό τα κρατάμε");
+    expect(prompt.system).toContain("απλώς ντυμένος άρνηση");
+    expect(prompt.system).toContain("δεν είσαι εσύ ο σωστός να την απαντήσεις");
+  });
+
   it("treats an explicit change of mind as answerable, not as settled", () => {
     const prompt = buildFeedbackExtractionPrompt({
       context: context(),

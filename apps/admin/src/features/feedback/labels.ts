@@ -181,6 +181,7 @@ const MESSAGE_ATTENTION_CATEGORY_LABELS: Record<
   harassment: "Harassment",
   violence_or_threat: "Violence or threat",
   self_harm: "Self-harm",
+  abuse_of_a_participant: "Abuse of a participant",
   other_safety: "Other safety concern",
 };
 
@@ -220,12 +221,19 @@ export function messageAttentionActionLabel(
  * the original», and a send that failed and a send too long to record are both
  * «they never got this». Splitting them here would put a distinction on screen
  * that makes no difference to anybody reading it.
+ *
+ * `safety` and `respondent_conduct` are the reverse case — two sentences for one
+ * classification, because the difference is who the operator is opening the
+ * conversation for. Read «a message raised a safety concern» and you go in
+ * looking for the person to support; the second sentence says the person who
+ * wrote to us is the one to read about.
  */
 const ATTENTION_REASON_LABELS: Record<
   FeedbackConversationDetailDtoOutputAttentionReasonsItemKind,
   string
 > = {
   safety: "A message raised a safety concern.",
+  respondent_conduct: "The participant abused someone they named.",
   handoff: "The participant asked to speak to a person.",
   unattributed_note: "A note could not be attributed to anyone.",
   answer_revision: "An answer was revised after it had been recorded.",

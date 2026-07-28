@@ -1470,6 +1470,44 @@ the strength of somebody else's racism, and nothing downstream distinguishes
 that row from any other `avoid`. That is why the conversation must reach a
 person. Rehearsed concurrently by `ouzeri_racist_about_an_attendee`.
 
+### S62 · `asks_what_happens_to_the_feedback`
+
+**Person.** Gives the score without fuss and then wants to know what we actually
+do with it. In the `zontanoi` rehearsal she asked three times in different words
+— what happens to the score, whether anyone reads it, and finally whether it
+stays between us or is filed under her full name.
+
+**Messages**
+
+- bot: «Πώς σου φάνηκε η βραδιά από 1 έως 5;»
+- `t+0s` participant: «4 βάζω»
+- `t+6s` participant: «και μετά τι κάνετε με τον βαθμό; μπαίνει σε κάποιο excel
+  ή απλά για το vibe check; τα διαβάζει κανείς όντως;»
+
+**Should end with.** `event_score → 4` recorded, no `handoff` — a question about
+the questionnaire is not a request for a human — and a reply that says the
+question is fair, says plainly that a person from the team is the one who can
+answer it, and returns to the question the bot was asking. Nothing about where
+feedback is stored, who reads it, how long it is kept, whether it is anonymous or
+whether it affects future tables; no URL, policy page or timeframe, because the
+model has none to give.
+
+**Stresses.** Prompt rule 11στ, and the fact that nothing downstream can enforce
+it. A reply is free Greek prose, so no filter can separate an invented
+data-handling claim from a legitimate sentence without eating legitimate replies.
+
+**Today.** ❓ Depends on the model. On her third ask a live model wrote «Τα
+σχόλιά σου τα αξιοποιούμε για να βελτιώνουμε τα επόμενα τραπέζια — και όχι, δεν
+τα ρίχνουμε απλώς σε ένα bot-excel να σκονίζονται.» Nobody wrote that sentence:
+it is a claim about retention, use and — implicitly — confidentiality, invented
+to be pleasant, and if it is wrong it is a false statement about personal data in
+the platform's voice. Rule 11ε forbade promising a person or an action and said
+nothing about the data itself, and the silence read as permission. What made it
+easy to write is that it was phrased as a _denial_ of her own «bot-excel», which
+11στ now names as a claim like any other. Observed at the `zontanoi` live-guest
+table (`zontanoi_grok_guest`); the corpus case of the same name is expected to
+fail against the model until the rule holds.
+
 # Part 2 — Executable behavioural suite
 
 > **The harness and specs are the operational contract.**

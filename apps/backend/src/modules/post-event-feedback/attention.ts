@@ -12,6 +12,26 @@ export const POST_EVENT_FEEDBACK_SAFETY_CATEGORIES = [
   "harassment",
   "violence_or_threat",
   "self_harm",
+  /**
+   * The message in front of you degrades, slurs or dehumanises a named
+   * attendee. No reported incident is required — the message is the incident.
+   *
+   * Every other name here classifies harm somebody told us about, which left
+   * the taxonomy with nothing to say when the harm was in the testimony itself.
+   * Γεωργία Ρατσιστρόνα answered `avoid` with «δεν καθομαι με ξενους στο ιδιο
+   * τραπεζι» about a woman she named, and the classifier answered no incident:
+   * nothing had been described. `other_safety` was the only bucket that would
+   * have taken it, and reaching it required overriding the prompt.
+   *
+   * Named for what the message does, not for who is doing it — `self_harm` and
+   * `violence_or_threat` name the harm too, never the speaker. Deliberately
+   * broader than a discrimination category, because the gap is "the respondent
+   * is the source": name only the racist case and «η Στέλλα είναι μια χοντρή
+   * αγελάδα, μακριά της» still raises nothing. Protected-characteristic abuse
+   * is the clearest instance and always qualifies; if it ever needs its own
+   * reporting line it can be split out then.
+   */
+  "abuse_of_a_participant",
   "other_safety",
 ] as const;
 
@@ -22,6 +42,17 @@ export const postEventFeedbackSafetyCategorySchema = z.enum(
 export type PostEventFeedbackSafetyCategory = z.infer<
   typeof postEventFeedbackSafetyCategorySchema
 >;
+
+/**
+ * The categories where the person we are talking to is the one causing the harm.
+ *
+ * A set rather than a comparison because two consumers have to agree about it —
+ * the reason an operator sees and the assurance line the participant is sent —
+ * and because the second of these categories is what will make the direction a
+ * field on the signal instead of a lookup. One value is not yet an axis.
+ */
+export const RESPONDENT_SOURCE_SAFETY_CATEGORIES: ReadonlySet<PostEventFeedbackSafetyCategory> =
+  new Set(["abuse_of_a_participant"]);
 
 export const POST_EVENT_FEEDBACK_RECOMMENDED_ACTIONS = [
   "review",
@@ -79,9 +110,18 @@ export type FeedbackConversationMessageAttention = z.infer<
  * two or three unanswered attempts and says in as many words that somebody who
  * swears has not refused, so reading a withdrawal as hostility would be
  * inventing exactly the classifier this comment refuses.
+ *
+ * `respondent_conduct` is the near neighbour that is *not* `hostile_to_bot` and
+ * not plain `safety`. Swearing at us costs nobody anything; abusing somebody at
+ * the table lands on that person's seating. And where `safety` means «protect
+ * the person who wrote to us», this one means «the person who wrote to us is
+ * the problem», which is a different next move for whoever opens the row — so
+ * it gets its own name rather than sharing one.
  */
 export const POST_EVENT_FEEDBACK_ATTENTION_REASONS = [
   "safety",
+  /** The person we are talking to is the source, so the follow-up is on them. */
+  "respondent_conduct",
   "handoff",
   "unattributed_note",
   "answer_revision",

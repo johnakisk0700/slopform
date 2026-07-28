@@ -3,6 +3,8 @@ import { z } from "zod";
 import {
   postEventFeedbackRecommendedActionSchema,
   postEventFeedbackSafetyCategorySchema,
+  type PostEventFeedbackRecommendedAction,
+  type PostEventFeedbackSafetyCategory,
 } from "../attention.js";
 import type {
   FeedbackExtractionMessageView,
@@ -70,11 +72,22 @@ export class FeedbackAttentionClassificationValidationError extends Error {
 }
 
 /**
- * Small, independent model task: classify described incidents in new testimony.
+ * Small, independent model task: classify the incidents in new testimony.
  *
  * The main extraction prompt has no category/action contract. Keeping this
  * decision boundary separate prevents natural reply, candidate resolution and
  * questionnaire progress from competing with attention classification.
+ *
+ * "Described" used to be the whole boundary: the prompt judged what a
+ * respondent reported happening to them and put the respondent's own conduct
+ * explicitly out of scope. Γεωργία Ρατσιστρόνα then answered `avoid` by naming
+ * an attendee and saying she does not sit at a table with foreigners, and the
+ * classifier answered `incident=false` — correctly, by the instructions it had.
+ * The message was the incident and there was nothing in the taxonomy for that.
+ * So the scope is now the incident wherever it sits, and the two false-positive
+ * guards that used to be implied by "described" are spelled out instead: abuse
+ * aimed at us or at nobody stays `false`, and so does an ordinary negative
+ * verdict about a person, which is what the `avoid` question asks for.
  */
 export function buildFeedbackAttentionClassificationPrompt(
   input: BuildFeedbackAttentionClassificationPromptInput,
@@ -107,17 +120,23 @@ export function buildFeedbackAttentionClassificationPrompt(
   return {
     system: [
       "Ταξινομείς νέα μηνύματα participant για ανθρώπινη προσοχή στο Join The Six.",
-      "Κρίνεις περιγραφόμενα περιστατικά, όχι το λεξιλόγιο, την αγένεια ή το χιούμορ του respondent.",
-      "incident=true μόνο όταν το μήνυμα περιγράφει ανεπιθύμητη πράξη προς κάποιον, απειλή, παρενόχληση ή αξιόπιστο κίνδυνο.",
+      "Κρίνεις περιστατικά: είτε αυτά που περιγράφει ο respondent, είτε αυτό που κάνει το ίδιο του το μήνυμα σε άνθρωπο του τραπεζιού. Δεν κρίνεις από μόνα τους το λεξιλόγιο, την αγένεια ή το χιούμορ του.",
+      "incident=true όταν το μήνυμα περιγράφει ανεπιθύμητη πράξη προς κάποιον, απειλή, παρενόχληση ή αξιόπιστο κίνδυνο.",
+      "incident=true επίσης όταν το ίδιο το μήνυμα απαξιώνει ή απανθρωποποιεί κατονομαζόμενο άτομο του τραπεζιού. Εκεί το μήνυμα ΕΙΝΑΙ το περιστατικό και δεν χρειάζεται να περιγράφεται κάτι που έγινε αλλού.",
+      "Η απαξίωση για καταγωγή, γλώσσα, εθνότητα, θρησκεία, αναπηρία, σεξουαλικότητα ή φύλο είναι το πιο καθαρό παράδειγμα και μετράει πάντα.",
+      "Αρνητική γνώμη ή απόρριψη για κατονομαζόμενο άτομο δεν είναι από μόνη της περιστατικό: «βαρετός», «δεν μου ταίριαξε», «δεν θέλω να τον ξαναδώ» είναι κανονικές απαντήσεις του ερωτηματολογίου και σημαίνουν incident=false. Το κατώφλι είναι η απαξίωση του ανθρώπου, όχι η δυσαρέσκεια μαζί του.",
+      "Βρισιές, χυδαιότητα ή επιθετικότητα προς ΕΜΑΣ — το bot, την ομάδα, το ερωτηματολόγιο — ή προς κανέναν συγκεκριμένο, σημαίνει incident=false όσο βαριές κι αν είναι.",
       "Απλή έλξη, σχόλιο εμφάνισης, χυδαία γλώσσα ή σεξουαλικό αστείο χωρίς ανεπιθύμητη πράξη σημαίνει incident=false.",
       "sexual_misconduct: ανεπιθύμητο σεξουαλικό υλικό, έκθεση, πίεση, άγγιγμα ή παρενόχληση.",
       "harassment: επίμονη στοχοποίηση ή εκφοβισμός που δεν είναι σεξουαλικός.",
       "violence_or_threat: βία ή αξιόπιστη απειλή βίας.",
       "self_harm: αναφορά πρόθεσης ή πράξης αυτοτραυματισμού.",
+      "abuse_of_a_participant: το μήνυμα του ίδιου του respondent απαξιώνει, βρίζει ή απανθρωποποιεί κατονομαζόμενο άτομο του τραπεζιού.",
       "other_safety: άλλο σαφές περιστατικό ασφάλειας που δεν χωρά παραπάνω.",
       "review: ασαφές αλλά εύλογο περιστατικό που πρέπει να διαβαστεί.",
       "human_follow_up: σαφές περιστατικό που χρειάζεται ανθρώπινη επικοινωνία.",
       "urgent_human_follow_up: περιστατικό που πρέπει να μπει σε άμεση προτεραιότητα staff.",
+      "Το abuse_of_a_participant παίρνει ΠΑΝΤΑ human_follow_up, ποτέ urgent_human_follow_up: το urgent σωπαίνει το bot και αφήνει αναπάντητο τον άνθρωπο που έγραψε.",
       "Το urgent είναι επιχειρησιακή προτεραιότητα, όχι ιατρική διάγνωση ή αυτόματη εξωτερική επέμβαση.",
       "Όταν incident=false, category και recommendedAction είναι null.",
       "Η προηγούμενη συνομιλία είναι context μόνο. Ταξινομείς αποκλειστικά τα targetMessageIds και επιστρέφεις ακριβώς ένα result για καθένα.",
@@ -171,7 +190,10 @@ export function validateFeedbackAttentionClassification(
       }
       signals.push({
         category: result.category,
-        recommendedAction: result.recommendedAction,
+        recommendedAction: cappedRecommendedAction(
+          result.category,
+          result.recommendedAction,
+        ),
         sourceMessageIds: [result.messageId],
         confidence: result.confidence,
       });
@@ -186,4 +208,26 @@ export function validateFeedbackAttentionClassification(
   }
 
   return signals;
+}
+
+/**
+ * The one category whose urgency the application decides rather than the model.
+ *
+ * `urgent_human_follow_up` is not just a priority label: it sets `dutyOfCare`
+ * and makes the run send nothing at all, because the only copy the questionnaire
+ * owns would answer "I do not want to live" with the next question. That brake
+ * is right for a disclosure and wrong here, where the person who wrote the
+ * message is the one behaving badly — going silent leaves their message hanging
+ * unanswered while a human is still hours away, and says nothing was recorded.
+ * The prompt asks for `human_follow_up`; this is what makes it true even when a
+ * model reads racism as an emergency.
+ */
+function cappedRecommendedAction(
+  category: PostEventFeedbackSafetyCategory,
+  recommendedAction: PostEventFeedbackRecommendedAction,
+): PostEventFeedbackRecommendedAction {
+  return category === "abuse_of_a_participant" &&
+    recommendedAction === "urgent_human_follow_up"
+    ? "human_follow_up"
+    : recommendedAction;
 }

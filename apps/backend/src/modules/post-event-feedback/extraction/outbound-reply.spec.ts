@@ -368,6 +368,65 @@ describe("resolveOutbound", () => {
     ).not.toContain(POST_EVENT_FEEDBACK_SAFETY_ASSURANCE);
   });
 
+  it("does not promise a personal call to the person who is the incident", () => {
+    // Γεωργία Ρατσιστρόνα answered `avoid` by naming an attendee and saying she
+    // does not sit at a table with foreigners. The line above is Ειρήνη's — she
+    // described being touched, and telling her it reached a person is the least
+    // we owe her. Sent here it tells the perpetrator that her racism was
+    // forwarded and somebody will speak to her personally: a service performed
+    // on her behalf, and a conversation staff never agreed to have.
+    const respondentSource = validated({
+      nextGoal: null,
+      reply: "Το σημείωσα.",
+      safetySignals: [
+        {
+          category: "abuse_of_a_participant",
+          recommendedAction: "human_follow_up",
+          sourceMessageIds: ["m2"],
+          confidence: 0.88,
+        },
+      ],
+    });
+
+    expect(
+      resolveOutbound(
+        conversation,
+        respondentSource,
+        false,
+        false,
+        6,
+        copy,
+        null,
+      )?.body,
+    ).toBe("Το σημείωσα.");
+
+    // A burst that carries both still earns the line: there is somebody in it
+    // to reassure, and the gate is about who the run is answering.
+    expect(
+      resolveOutbound(
+        conversation,
+        validated({
+          nextGoal: null,
+          reply: "Λυπάμαι που το ακούω.",
+          safetySignals: [
+            ...respondentSource.safetySignals,
+            {
+              category: "sexual_misconduct",
+              recommendedAction: "human_follow_up",
+              sourceMessageIds: ["m3"],
+              confidence: 0.9,
+            },
+          ],
+        }),
+        false,
+        false,
+        6,
+        copy,
+        null,
+      )?.body,
+    ).toContain(POST_EVENT_FEEDBACK_SAFETY_ASSURANCE);
+  });
+
   it("forwards the model's reply when the recorded next goal agrees with it", () => {
     const outbound = resolveOutbound(
       conversation,

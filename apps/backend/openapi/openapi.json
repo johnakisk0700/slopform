@@ -1833,6 +1833,7 @@
                 "kind": {
                   "enum": [
                     "safety",
+                    "respondent_conduct",
                     "handoff",
                     "unattributed_note",
                     "answer_revision",
@@ -2113,11 +2114,12 @@
                           "harassment",
                           "violence_or_threat",
                           "self_harm",
+                          "abuse_of_a_participant",
                           "other_safety"
                         ],
                         "type": "string"
                       },
-                      "maxItems": 5,
+                      "maxItems": 6,
                       "minItems": 1,
                       "type": "array"
                     },

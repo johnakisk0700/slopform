@@ -21,14 +21,25 @@ rewriting the historical decision below:
 
 The attention metadata uses closed enums: category
 (`sexual_misconduct | harassment | violence_or_threat | self_harm |
-other_safety`), recommended action (`review | human_follow_up |
-urgent_human_follow_up`) and model confidence. An independent structured model
-call classifies only new participant message IDs, using the six preceding
-messages plus the new burst as context. The main extraction call does not
-select attention categories or actions, and there is no keyword classifier.
-Frontend copy, icons and colour are fixed application mappings. A terminal
-provider failure raises generic conversation attention but does not invent a
-message category.
+abuse_of_a_participant | other_safety`), recommended action
+(`review | human_follow_up | urgent_human_follow_up`) and model confidence. An
+independent structured model call classifies only new participant message IDs,
+using the six preceding messages plus the new burst as context. The main
+extraction call does not select attention categories or actions, and there is no
+keyword classifier. Frontend copy, icons and colour are fixed application
+mappings. A terminal provider failure raises generic conversation attention but
+does not invent a message category.
+
+`abuse_of_a_participant` was added later and is the only category that does not
+require a described incident: it means the classified message itself degrades or
+dehumanises a named attendee, so the respondent is the source rather than the
+reporter. It is capped at `human_follow_up` by application code, never `urgent`,
+and it suppresses the safety-assurance line — see
+[when the respondent is the source](../backend/modules/post-event-feedback.md#when-the-respondent-is-the-source)
+for the guards that keep abuse aimed at us, and ordinary negative verdicts about
+a person, out of the classification. A `source: "reported" | "respondent"` axis
+on the signal was considered and rejected for one known case; the second
+respondent-source category is what would earn it.
 
 ## Decision
 
