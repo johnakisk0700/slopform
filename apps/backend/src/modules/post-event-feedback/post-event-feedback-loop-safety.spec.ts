@@ -2,6 +2,7 @@ import {
   runFeedbackScenarios,
   type FeedbackScenario,
 } from "./post-event-feedback-loop.harness.js";
+import { POST_EVENT_FEEDBACK_SAFETY_ASSURANCE } from "./extraction/extraction.schemas.js";
 
 /**
  * Sections **G (safety and disclosure)** and **H (identity, channel and staff)**
@@ -462,6 +463,72 @@ const SCENARIOS: readonly FeedbackScenario[] = [
           detail: ["sexual_misconduct:human_follow_up"],
         },
       ],
+    },
+  },
+  {
+    // S68. Νίτσα Κομποσερογιάννη, live at the rehearsal table on 2026-07-28.
+    // She answered the score, said the end of the evening had left her feeling
+    // bad, that she had told nobody, and offered to say what happened. The bot
+    // wrote «πες μου τι έγινε — σε ακούμε» and appended «Το προώθησα ήδη στην
+    // ομάδα μας και κάποιος θα σου μιλήσει προσωπικά». It had forwarded nothing.
+    // Then she described being pressed for a lift home after saying no twice —
+    // the turn an operator actually needs — and that one was answered with no
+    // assurance at all, because by then `needsAttention` was already true.
+    //
+    // Both halves are asserted by the exact text of what reached her phone,
+    // because the defect was entirely about which message carried one sentence.
+    // The first turn still raises a flag: somebody who says «κάτι έγινε» and
+    // then goes quiet must not vanish, which is why the announcement stays an
+    // incident and only the promise waits.
+    id: "announces_before_disclosing",
+    title:
+      "withholds the assurance from the announcement and sends it with the incident",
+    script: [
+      {
+        answers: [{ question: "event_score", value: 4 }],
+        next: "liked",
+        reply: "Σε ακούμε. Πες μου αν θέλεις τι έγινε στο τέλος.",
+      },
+      {
+        notes: [
+          {
+            type: "general",
+            text: "Ο Τάκης επέμενε να τη γυρίσει σπίτι με το αυτοκίνητό του αφού του είχε πει όχι δύο φορές.",
+            about: "Τάκης",
+          },
+        ],
+        next: "liked",
+        reply: "Λυπάμαι που το «όχι» σου δεν έγινε σεβαστό.",
+      },
+    ],
+    attention: [
+      [{ category: "other_safety", action: "review", announcedOnly: true }],
+      [{ category: "sexual_misconduct", action: "human_follow_up" }],
+    ],
+    steps: [
+      {
+        kind: "inbound",
+        text: "4. δεν βαζω 5 γιατι το τελος μου αφησε ασχημη αισθηση κ δεν το εχω πει σε κανεναν ακομα. αν θελετε μπορω να σας πω τι εγινε",
+      },
+      {
+        kind: "inbound",
+        after: "90s",
+        text: "οταν βγηκαμε εξω ο Τακης ειπε οτι θα με πηγαινε σπιτι. του ειπα οχι, το ειπα κ δευτερη φορα κ αυτος επεμενε",
+      },
+      { kind: "wait", after: "settles" },
+    ],
+    expect: {
+      received: [
+        {
+          kind: "reply",
+          text: "Σε ακούμε. Πες μου αν θέλεις τι έγινε στο τέλος.",
+        },
+        {
+          kind: "reply",
+          text: `Λυπάμαι που το «όχι» σου δεν έγινε σεβαστό.\n\n${POST_EVENT_FEEDBACK_SAFETY_ASSURANCE}`,
+        },
+      ],
+      needsAttention: true,
     },
   },
   {

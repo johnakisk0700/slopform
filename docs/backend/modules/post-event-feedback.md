@@ -838,6 +838,34 @@ Two consequences are the application's, not the model's:
    conversation staff never agreed to have, about a service being performed on
    her behalf. A burst carrying a disclosure as well still gets the line.
 
+### When the assurance is sent
+
+Three conditions, and the first two were the 2026-07-28 defect
+([S68](./post-event-feedback-scenarios.md#s68--announces_before_disclosing)).
+
+**Something has actually been described.** The classifier answers a third
+independent boolean per message, `incidentDescribed`, next to `incident` and
+`hostileToUs`. An announcement — «κάτι έγινε στο τέλος, αν θέλετε σας λέω» —
+stays `incident: true`, because somebody who says that and then goes quiet must
+still reach an operator, and is `incidentDescribed: false`, because nothing has
+been forwarded and there is nothing to forward. Only a signal that is not
+respondent-source **and** cites a described message earns the sentence.
+
+**It has not been said already.** Read off the transcript — has a bot message in
+this conversation ever contained the sentence — rather than off `needsAttention`,
+which was the proxy that caused the bug: a conversation flagged for an
+unattributable note, or for an announcement, would silence the assurance on the
+disclosure that followed. The transcript also answers correctly when a reply was
+withheld as superseded, where a flag written at compute time would have recorded
+a promise nobody received.
+
+**The run is not already promising a human.** The handoff copy says the same
+thing in its own words.
+
+Applied by `extract.service` rather than inside `resolveOutbound`, because it is
+not a choice between copies: whatever the run decided to say, the application is
+appending a commitment of its own on top of it.
+
 Prompt rule 11η carries the reply: neutral recording is the ceiling. It must not
 restate her reason in gentler words, express understanding, sympathy or
 agreement with it, promise to keep the two apart, or lecture her. The live

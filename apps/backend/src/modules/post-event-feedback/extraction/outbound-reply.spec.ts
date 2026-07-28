@@ -4,11 +4,14 @@ import type { FeedbackConversationDocument } from "../post-event-feedback-conver
 import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "../question-set.js";
 import type { FeedbackExtractionValidationResult } from "./validate-proposal.js";
 import { POST_EVENT_FEEDBACK_SAFETY_ASSURANCE } from "./extraction.schemas.js";
-import { resolveOutbound } from "./outbound-reply.js";
+import { resolveOutbound, withSafetyAssurance } from "./outbound-reply.js";
 
 const copy = POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy;
 const conversation = {
   _id: "conv-1",
+  // Whether the assurance has already been said is read off the transcript, so
+  // every fixture carries one.
+  messages: [],
   // The closing copy thanks somebody for what they told us, so whether anything
   // was ever recorded is part of choosing it.
   goals: [
@@ -27,7 +30,7 @@ const conversation = {
     },
     { key: "avoid", ordinal: 4, prompt: copy.avoid, status: "pending" },
   ],
-} as FeedbackConversationDocument;
+} as unknown as FeedbackConversationDocument;
 const conversationWithNothingRecorded = {
   ...conversation,
   goals: conversation.goals.map((goal) => ({ ...goal, status: "skipped" })),
@@ -319,114 +322,6 @@ describe("resolveOutbound", () => {
     });
   });
 
-  it("tells the participant their disclosure reached a person, once", () => {
-    // Ειρήνη Καταγγελού described being touched under the table. The flag went
-    // up, staff were alerted, and she was told none of it — from where she sat
-    // she had handed something hard to a questionnaire that moved on. Rule 11ε
-    // still forbids the model from promising a human; this sentence belongs to
-    // the code that actually raises the alert.
-    const disclosure = validated({
-      nextGoal: "event_score",
-      reply: "Λυπάμαι πολύ που το βίωσες αυτό — δεν είναι καθόλου οκ.",
-      safetySignals: [
-        {
-          category: "sexual_misconduct",
-          recommendedAction: "human_follow_up",
-          sourceMessageIds: ["m1"],
-          confidence: 0.9,
-        },
-      ],
-    });
-
-    expect(
-      resolveOutbound(
-        conversation,
-        disclosure,
-        false,
-        false,
-        4,
-        copy,
-        "event_score",
-      )?.body,
-    ).toContain(POST_EVENT_FEEDBACK_SAFETY_ASSURANCE);
-
-    // Already flagged: she has been told, and saying it every turn reads as a
-    // brush-off rather than an answer.
-    expect(
-      resolveOutbound(
-        {
-          ...conversation,
-          needsAttention: true,
-        } as FeedbackConversationDocument,
-        disclosure,
-        false,
-        false,
-        4,
-        copy,
-        "event_score",
-      )?.body,
-    ).not.toContain(POST_EVENT_FEEDBACK_SAFETY_ASSURANCE);
-  });
-
-  it("does not promise a personal call to the person who is the incident", () => {
-    // Γεωργία Ρατσιστρόνα answered `avoid` by naming an attendee and saying she
-    // does not sit at a table with foreigners. The line above is Ειρήνη's — she
-    // described being touched, and telling her it reached a person is the least
-    // we owe her. Sent here it tells the perpetrator that her racism was
-    // forwarded and somebody will speak to her personally: a service performed
-    // on her behalf, and a conversation staff never agreed to have.
-    const respondentSource = validated({
-      nextGoal: null,
-      reply: "Το σημείωσα.",
-      safetySignals: [
-        {
-          category: "abuse_of_a_participant",
-          recommendedAction: "human_follow_up",
-          sourceMessageIds: ["m2"],
-          confidence: 0.88,
-        },
-      ],
-    });
-
-    expect(
-      resolveOutbound(
-        conversation,
-        respondentSource,
-        false,
-        false,
-        6,
-        copy,
-        null,
-      )?.body,
-    ).toBe("Το σημείωσα.");
-
-    // A burst that carries both still earns the line: there is somebody in it
-    // to reassure, and the gate is about who the run is answering.
-    expect(
-      resolveOutbound(
-        conversation,
-        validated({
-          nextGoal: null,
-          reply: "Λυπάμαι που το ακούω.",
-          safetySignals: [
-            ...respondentSource.safetySignals,
-            {
-              category: "sexual_misconduct",
-              recommendedAction: "human_follow_up",
-              sourceMessageIds: ["m3"],
-              confidence: 0.9,
-            },
-          ],
-        }),
-        false,
-        false,
-        6,
-        copy,
-        null,
-      )?.body,
-    ).toContain(POST_EVENT_FEEDBACK_SAFETY_ASSURANCE);
-  });
-
   it("forwards the model's reply when the recorded next goal agrees with it", () => {
     const outbound = resolveOutbound(
       conversation,
@@ -519,9 +414,155 @@ describe("resolveOutbound", () => {
       "event_score",
     );
 
+    // The assurance is the caller's to add — see `withSafetyAssurance` below.
+    // What this case is about is that a `nextGoal: null` reply written under a
+    // disclosure is forwarded rather than replaced by the next question.
     expect(outbound).toEqual({
-      body: `Λυπάμαι που το ακούω, θες να μιλήσουμε;\n\n${POST_EVENT_FEEDBACK_SAFETY_ASSURANCE}`,
+      body: "Λυπάμαι που το ακούω, θες να μιλήσουμε;",
       dedupeKey: "feedback-reply-conv-1-2",
     });
+  });
+});
+
+describe("withSafetyAssurance", () => {
+  const reply = { body: "Λυπάμαι πολύ.", dedupeKey: "feedback-reply-conv-1-4" };
+  const disclosure = validated({
+    nextGoal: "event_score",
+    reply: reply.body,
+    safetySignals: [
+      {
+        category: "sexual_misconduct",
+        recommendedAction: "human_follow_up",
+        sourceMessageIds: ["m1"],
+        confidence: 0.9,
+      },
+    ],
+  });
+
+  it("tells the participant their disclosure reached a person, once", () => {
+    // Ειρήνη Καταγγελού described being touched under the table. The flag went
+    // up, staff were alerted, and she was told none of it — from where she sat
+    // she had handed something hard to a questionnaire that moved on. Rule 11ε
+    // still forbids the model from promising a human; this sentence belongs to
+    // the code that actually raises the alert.
+    expect(
+      withSafetyAssurance(conversation, disclosure, reply, new Set(["m1"]))
+        ?.body,
+    ).toContain(POST_EVENT_FEEDBACK_SAFETY_ASSURANCE);
+
+    // Said once. Not because the conversation is flagged — it may have been
+    // flagged for something we never promised anything about — but because this
+    // sentence is already on her phone.
+    expect(
+      withSafetyAssurance(
+        {
+          ...conversation,
+          messages: [
+            {
+              actor: "bot",
+              text: `Λυπάμαι πολύ.\n\n${POST_EVENT_FEEDBACK_SAFETY_ASSURANCE}`,
+            },
+          ],
+        } as unknown as FeedbackConversationDocument,
+        disclosure,
+        reply,
+        new Set(["m1"]),
+      )?.body,
+    ).not.toContain(POST_EVENT_FEEDBACK_SAFETY_ASSURANCE);
+  });
+
+  it("waits for the incident instead of promising on the announcement", () => {
+    // Νίτσα Κομποσερογιάννη said the end of the evening had left her feeling
+    // bad and offered to say what happened. Nothing had been forwarded, because
+    // nothing had been said.
+    const announcement = validated({
+      nextGoal: "event_score",
+      reply: "Πες μου αν θέλεις τι έγινε — σε ακούμε.",
+      safetySignals: [
+        {
+          category: "other_safety",
+          recommendedAction: "review",
+          sourceMessageIds: ["m1"],
+          confidence: 0.6,
+        },
+      ],
+    });
+
+    expect(
+      withSafetyAssurance(conversation, announcement, reply, new Set())?.body,
+    ).not.toContain(POST_EVENT_FEEDBACK_SAFETY_ASSURANCE);
+
+    // And the turn that does carry it earns the line, even though the
+    // announcement has already flagged the conversation. This is the half that
+    // was silent: she described being pressed for a lift home after saying no
+    // twice, and got nothing.
+    expect(
+      withSafetyAssurance(
+        {
+          ...conversation,
+          needsAttention: true,
+        } as FeedbackConversationDocument,
+        disclosure,
+        reply,
+        new Set(["m1"]),
+      )?.body,
+    ).toContain(POST_EVENT_FEEDBACK_SAFETY_ASSURANCE);
+  });
+
+  it("does not promise a personal call to the person who is the incident", () => {
+    // Γεωργία Ρατσιστρόνα answered `avoid` by naming an attendee and saying she
+    // does not sit at a table with foreigners. The line above is Ειρήνη's — she
+    // described being touched, and telling her it reached a person is the least
+    // we owe her. Sent here it tells the perpetrator that her racism was
+    // forwarded and somebody will speak to her personally: a service performed
+    // on her behalf, and a conversation staff never agreed to have.
+    const noted = {
+      body: "Το σημείωσα.",
+      dedupeKey: "feedback-reply-conv-1-6",
+    };
+    const respondentSource = validated({
+      nextGoal: null,
+      reply: noted.body,
+      safetySignals: [
+        {
+          category: "abuse_of_a_participant",
+          recommendedAction: "human_follow_up",
+          sourceMessageIds: ["m2"],
+          confidence: 0.88,
+        },
+      ],
+    });
+
+    expect(
+      withSafetyAssurance(
+        conversation,
+        respondentSource,
+        noted,
+        new Set(["m2"]),
+      )?.body,
+    ).toBe("Το σημείωσα.");
+
+    // A burst that carries both still earns the line: there is somebody in it
+    // to reassure, and the gate is about who the run is answering.
+    expect(
+      withSafetyAssurance(
+        conversation,
+        validated({
+          nextGoal: null,
+          reply: "Λυπάμαι που το ακούω.",
+          safetySignals: [
+            ...respondentSource.safetySignals,
+            {
+              category: "sexual_misconduct",
+              recommendedAction: "human_follow_up",
+              sourceMessageIds: ["m3"],
+              confidence: 0.9,
+            },
+          ],
+        }),
+        { body: "Λυπάμαι που το ακούω.", dedupeKey: "feedback-reply-conv-1-6" },
+        new Set(["m2", "m3"]),
+      )?.body,
+    ).toContain(POST_EVENT_FEEDBACK_SAFETY_ASSURANCE);
   });
 });

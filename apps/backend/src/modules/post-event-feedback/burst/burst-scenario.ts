@@ -153,6 +153,15 @@ export interface BurstStubAttentionSignal {
   readonly action: PostEventFeedbackRecommendedAction;
   /** Which of the run's new messages carries the signal. */
   readonly on: BurstCitation;
+  /**
+   * The message announces an incident without saying what it was.
+   *
+   * Default false, because every other persona in the catalogue describes what
+   * happened in the message that raises the signal, and a default of "announced"
+   * would quietly withhold the assurance from all of them. Set it only where the
+   * persona's own words stop at «θέλω να σας πω κάτι».
+   */
+  readonly announcedOnly?: boolean;
 }
 
 /**

@@ -86,6 +86,7 @@ describe("feedback attention classification", () => {
           category: "abuse_of_a_participant",
           recommendedAction: "urgent_human_follow_up",
           hostileToUs: false,
+          incidentDescribed: true,
           confidence: 0.88,
         },
       ],
@@ -103,6 +104,7 @@ describe("feedback attention classification", () => {
         },
       ],
       hostileMessageIds: [],
+      describedIncidentMessageIds: ["m-incident"],
     });
   });
 
@@ -115,6 +117,7 @@ describe("feedback attention classification", () => {
           category: null,
           recommendedAction: null,
           hostileToUs: false,
+          incidentDescribed: false,
           confidence: 0.94,
         },
         {
@@ -123,6 +126,7 @@ describe("feedback attention classification", () => {
           category: "sexual_misconduct",
           recommendedAction: "urgent_human_follow_up",
           hostileToUs: false,
+          incidentDescribed: true,
           confidence: 0.91,
         },
       ],
@@ -143,6 +147,7 @@ describe("feedback attention classification", () => {
         },
       ],
       hostileMessageIds: [],
+      describedIncidentMessageIds: ["m-incident"],
     });
   });
 
@@ -161,6 +166,7 @@ describe("feedback attention classification", () => {
           category: null,
           recommendedAction: null,
           hostileToUs: true,
+          incidentDescribed: false,
           confidence: 0.93,
         },
       ],
@@ -168,7 +174,11 @@ describe("feedback attention classification", () => {
 
     expect(
       validateFeedbackAttentionClassification(proposal, ["m-safe"]),
-    ).toEqual({ signals: [], hostileMessageIds: ["m-safe"] });
+    ).toEqual({
+      signals: [],
+      hostileMessageIds: ["m-safe"],
+      describedIncidentMessageIds: [],
+    });
   });
 
   it("keeps a disclosure's signal and its hostility on separate axes", () => {
@@ -184,6 +194,7 @@ describe("feedback attention classification", () => {
           category: "abuse_of_a_participant",
           recommendedAction: "human_follow_up",
           hostileToUs: true,
+          incidentDescribed: true,
           confidence: 0.9,
         },
       ],
@@ -201,6 +212,7 @@ describe("feedback attention classification", () => {
         },
       ],
       hostileMessageIds: ["m-incident"],
+      describedIncidentMessageIds: ["m-incident"],
     });
   });
 
@@ -215,6 +227,67 @@ describe("feedback attention classification", () => {
     // about somebody at the table is not an attack on us.
     expect(system).toContain("hostileToUs=false");
     expect(system).toContain("δεν είναι κατηγορία ασφάλειας");
+  });
+
+  it("separates announcing an incident from describing one", () => {
+    // Νίτσα Κομποσερογιάννη's «αν θέλετε, μπορώ να σας πω τι έγινε». It stays an
+    // incident — an operator has to see it even if she never writes again — and
+    // it is the described list, not the signal, that decides whether the
+    // application may say «Το προώθησα ήδη στην ομάδα μας».
+    const proposal = feedbackAttentionClassificationProposalSchema.parse({
+      results: [
+        {
+          messageId: "m-incident",
+          incident: true,
+          category: "other_safety",
+          recommendedAction: "review",
+          hostileToUs: false,
+          incidentDescribed: false,
+          confidence: 0.6,
+        },
+      ],
+    });
+
+    expect(
+      validateFeedbackAttentionClassification(proposal, ["m-incident"]),
+    ).toEqual({
+      signals: [
+        {
+          category: "other_safety",
+          recommendedAction: "review",
+          sourceMessageIds: ["m-incident"],
+          confidence: 0.6,
+        },
+      ],
+      hostileMessageIds: [],
+      describedIncidentMessageIds: [],
+    });
+
+    const system = buildFeedbackAttentionClassificationPrompt({
+      messages,
+      targetMessageIds: ["m-incident"],
+    }).system;
+    expect(system).toContain("incidentDescribed=true");
+    expect(system).toContain("μόνο προαναγγέλλει");
+    expect(system).toContain("Το incident μένει true και στην προαναγγελία");
+  });
+
+  it("refuses a description of an incident it just said was not one", () => {
+    expect(() =>
+      feedbackAttentionClassificationProposalSchema.parse({
+        results: [
+          {
+            messageId: "m-safe",
+            incident: false,
+            category: null,
+            recommendedAction: null,
+            hostileToUs: false,
+            incidentDescribed: true,
+            confidence: 0.9,
+          },
+        ],
+      }),
+    ).toThrow();
   });
 
   it("bounds historical context while keeping the target turn", () => {
@@ -254,6 +327,7 @@ describe("feedback attention classification", () => {
           category: null,
           recommendedAction: null,
           hostileToUs: false,
+          incidentDescribed: false,
           confidence: 0.94,
         },
       ],
@@ -279,6 +353,7 @@ describe("feedback attention classification", () => {
             // Supplied, so the rejection below is the contradiction between
             // `incident: false` and a category — not an incidentally missing key.
             hostileToUs: false,
+            incidentDescribed: false,
             confidence: 0.6,
           },
         ],

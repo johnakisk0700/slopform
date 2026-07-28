@@ -2044,9 +2044,20 @@ function generation(
   };
 }
 
+/**
+ * `describedIncidentMessageIds` defaults to every message the signals cite,
+ * which is what "an incident was classified" meant before the classifier could
+ * tell a description from an announcement. A case about the announcement passes
+ * an explicit empty list.
+ */
 function attentionGeneration(
   signals: readonly Record<string, unknown>[],
   hostileMessageIds: readonly string[] = [],
+  describedIncidentMessageIds: readonly string[] = [
+    ...new Set(
+      signals.flatMap((signal) => (signal.sourceMessageIds ?? []) as string[]),
+    ),
+  ],
 ): Record<string, unknown> {
   return {
     model,
@@ -2054,6 +2065,7 @@ function attentionGeneration(
     estimatedPromptTokens: 200,
     signals,
     hostileMessageIds,
+    describedIncidentMessageIds,
   };
 }
 

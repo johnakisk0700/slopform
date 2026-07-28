@@ -119,6 +119,7 @@ export class ScriptedBurstExtractionModel implements FeedbackExtractionModelPort
           model: FEEDBACK_EXTRACTION_STUB_MODEL_ID,
           signals: [],
           hostileMessageIds: [],
+          describedIncidentMessageIds: [],
           usage: SCRIPTED_USAGE,
           estimatedPromptTokens: 0,
         };
@@ -137,10 +138,20 @@ export class ScriptedBurstExtractionModel implements FeedbackExtractionModelPort
       const signals = (turn.attention ?? []).flatMap((signal) =>
         expandAttentionSignal(signal, targetMessageIds, batches),
       );
+      const describedIncidentMessageIds = [
+        ...new Set(
+          (turn.attention ?? [])
+            .filter((signal) => !signal.announcedOnly)
+            .flatMap((signal) =>
+              scopedAttentionCite(signal, targetMessageIds, batches),
+            ),
+        ),
+      ];
 
       return {
         model: FEEDBACK_EXTRACTION_STUB_MODEL_ID,
         signals,
+        describedIncidentMessageIds,
         // Every new message in the run, because a persona declares hostility per
         // turn rather than per message: the ladder counts runs, so which of the
         // burst's messages carried the insult changes nothing it decides.
@@ -297,6 +308,28 @@ function expandAttentionSignal(
   targetMessageIds: readonly string[],
   batches: readonly (readonly string[])[],
 ): FeedbackExtractionSafetySignalProposal[] {
+  const scoped = scopedAttentionCite(signal, targetMessageIds, batches);
+  return signal.categories.map((category) => ({
+    category,
+    recommendedAction: signal.action,
+    sourceMessageIds: scoped,
+    confidence: 0.9,
+  }));
+}
+
+/**
+ * The messages one scripted signal actually cites, after batch scoping.
+ *
+ * Shared with the described-incident list so the two can never disagree about
+ * which message a signal is on — a signal that cites the last message of a burst
+ * and a description recorded against the first would send the assurance for a
+ * disclosure that arrived somewhere else.
+ */
+function scopedAttentionCite(
+  signal: BurstStubAttentionSignal,
+  targetMessageIds: readonly string[],
+  batches: readonly (readonly string[])[],
+): string[] {
   const cited = resolveCite(signal.on, targetMessageIds);
   const firstBatch = cited[0]
     ? batches.find((batch) => batch.includes(cited[0]!))
@@ -310,12 +343,7 @@ function expandAttentionSignal(
       "Scripted attention cite resolved outside the classification batches",
     );
   }
-  return signal.categories.map((category) => ({
-    category,
-    recommendedAction: signal.action,
-    sourceMessageIds: scoped,
-    confidence: 0.9,
-  }));
+  return scoped;
 }
 
 function textsForIds(

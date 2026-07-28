@@ -1683,6 +1683,40 @@ writing nothing, the notice firing once at the threshold, the ceiling, and the
 `provider_refusal` path unchanged — rather than by a loop scenario, because the
 outage is three hours long and the interesting facts are all absences.
 
+### S68 · `announces_before_disclosing`
+
+**Person.** Νίτσα Κομποσερογιάννη, a live-model guest at the 2026-07-28
+rehearsal table. She is warm and complimentary about the evening, gives it a 4,
+and then says the reason it is not a 5 is the end of the night — something she
+has told nobody yet, and offers to tell us.
+
+**Messages**
+
+- `t+0s` participant: «4. δεν βάζω 5 γιατί το τέλος μου άφησε άσχημη αίσθηση κ δεν
+  το έχω πει σε κανέναν ακόμα. αν θέλετε μπορώ να σας πω τι έγινε»
+- `t+90s` participant: «όταν βγήκαμε έξω ο Τάκης είπε ότι θα με πήγαινε σπίτι. του
+  είπα όχι, το είπα κ δεύτερη φορά κ αυτός επέμενε»
+
+**Should end with.** Two replies. The first invites her to say what happened and
+carries **no** assurance. The second — the turn that holds the incident — carries
+«Το προώθησα ήδη στην ομάδα μας και κάποιος θα σου μιλήσει προσωπικά.» Both turns
+raise attention; the conversation stays open.
+
+**Stresses.** That the application does not claim to have forwarded something
+nobody has said yet. Run 9 sent «πες μου τι έγινε — σε ακούμε. Το προώθησα ήδη
+στην ομάδα μας…» on the announcement, and then answered the actual disclosure
+with nothing, because `needsAttention` was already true and was standing in for
+«we have already promised her something». Two independent changes are what this
+row measures: the classifier's `incidentDescribed`, which keeps the announcement
+an incident — she must not vanish if she never writes again — while withholding
+the promise; and the assurance's own dedupe, read off the transcript rather than
+off the flag, so the sentence is said once because it was _said_, not because
+something unrelated flagged the thread.
+
+**Today.** ✅ Fixed and pinned here. The live-guest half is unscripted by
+construction and will differ every run; this scenario is the deterministic
+version of it.
+
 # Part 2 — Executable behavioural suite
 
 > **The harness and specs are the operational contract.**

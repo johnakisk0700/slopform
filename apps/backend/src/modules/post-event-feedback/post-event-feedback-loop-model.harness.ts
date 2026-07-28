@@ -188,6 +188,21 @@ export class ScriptedExtractionModel {
         ),
         confidence: signal.confidence ?? 0.9,
       })),
+      // The same cite resolution as the signal above, so a scenario cannot end
+      // up with a signal on one message and its description on another.
+      describedIncidentMessageIds: [
+        ...new Set(
+          (turn.signals ?? [])
+            .filter((signal) => !signal.announcedOnly)
+            .flatMap((signal) =>
+              resolveAttentionCite(
+                signal.on ?? "all-new",
+                messages,
+                targetMessageIds,
+              ),
+            ),
+        ),
+      ],
       // Every target message, because the ladder counts runs rather than
       // messages: a scenario says whether this turn was hostile, not which
       // fragment of a burst carried the insult.

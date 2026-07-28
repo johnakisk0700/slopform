@@ -149,6 +149,15 @@ export interface ScriptedAttention {
   readonly action: PostEventFeedbackRecommendedAction;
   readonly on?: Cite;
   readonly confidence?: number;
+  /**
+   * The cited message only announces the incident — «θέλω να σας πω κάτι» —
+   * without saying what it was.
+   *
+   * Default false: every other scenario's signal is raised by a message that
+   * describes what happened, and the safety assurance depends on that being the
+   * default rather than on each scenario remembering to declare it.
+   */
+  readonly announcedOnly?: boolean;
 }
 
 /**

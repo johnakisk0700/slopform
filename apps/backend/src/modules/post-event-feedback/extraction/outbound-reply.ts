@@ -102,7 +102,7 @@ export function resolveOutbound(
       dedupeKey: createFeedbackHostilityStopDedupeKey(conversation._id),
     };
   }
-  const outbound = chooseOutbound(
+  return chooseOutbound(
     conversation,
     validated,
     closingNow,
@@ -111,40 +111,62 @@ export function resolveOutbound(
     copy,
     nextOpenGoal,
   );
-  return withSafetyAssurance(conversation, validated, outbound);
 }
 
 /**
  * Tell somebody who has just disclosed something that it reached a person.
  *
- * Only on the run that raises the flag — a conversation already flagged has
- * already been told, and repeating it every turn reads as a brush-off. Not on
- * the handoff copy, which says the same thing in its own words.
+ * Applied by the caller rather than inside `resolveOutbound`, because it is not
+ * a choice between copies: whatever this run decided to say, the application is
+ * adding a promise of its own on top of it.
  *
- * And not when the only thing this run raised is the participant's own conduct.
- * «Το προώθησα ήδη στην ομάδα μας και κάποιος θα σου μιλήσει προσωπικά» was
- * written for Ειρήνη Καταγγελού, who described being touched without consent,
- * and it is the right sentence for her. Sent to Γεωργία Ρατσιστρόνα it tells
- * the person who *is* the incident that her racism reached the team and
- * somebody will speak to her personally — which is worse than saying nothing,
- * reads as a service being performed on her behalf, and is a promise about a
- * conversation staff have not agreed to have. A burst that carries a disclosure
- * as well still earns the line: there is somebody in it to reassure.
+ * Three things withhold the sentence.
+ *
+ * **Nothing was actually described yet.** Νίτσα Κομποσερογιάννη wrote that the
+ * end of the evening had left her feeling bad and «αν θέλετε, μπορώ να σας πω τι
+ * έγινε», and got «πες μου τι έγινε — σε ακούμε. Το προώθησα ήδη στην ομάδα
+ * μας.» We had forwarded nothing; there was nothing to forward. Then she
+ * described being pressed for a lift home after saying no twice — and that turn,
+ * the one an operator actually needs, was answered with no assurance at all,
+ * because the conversation was by then already flagged. So the gate is the
+ * classifier's `incidentDescribed`, and a run only earns the line if a signal
+ * that is *not* respondent-source cites a message which says what happened.
+ *
+ * **We have already said it.** Read off the transcript rather than off
+ * `needsAttention`, which was the proxy that produced the bug above: a
+ * conversation can be flagged for an unattributable note, or for an
+ * announcement, without anybody ever having been promised anything. The
+ * transcript answers the question actually being asked — did this sentence reach
+ * their phone — and it answers it correctly when a reply was withheld as
+ * superseded, where a flag set at compute time would have lied.
+ *
+ * **The run is answering the person who is the incident.** The line was written
+ * for Ειρήνη Καταγγελού, who described being touched without consent. Sent to
+ * Γεωργία Ρατσιστρόνα it tells the person who *is* the incident that her racism
+ * reached the team and somebody will speak to her personally — worse than saying
+ * nothing, and a promise about a conversation staff have not agreed to have. A
+ * burst carrying a disclosure as well still earns it: there is somebody in it to
+ * reassure. The handoff copy is left alone throughout; it says the same thing in
+ * its own words.
  */
-function withSafetyAssurance(
+export function withSafetyAssurance(
   conversation: FeedbackConversationDocument,
   validated: FeedbackExtractionValidationResult,
   outbound: OutboundReply | undefined,
+  describedIncidentMessageIds: ReadonlySet<string>,
 ): OutboundReply | undefined {
-  const respondentSourceOnly = validated.safetySignals.every((signal) =>
-    RESPONDENT_SOURCE_SAFETY_CATEGORIES.has(signal.category),
+  const describesSomethingToForward = validated.safetySignals.some(
+    (signal) =>
+      !RESPONDENT_SOURCE_SAFETY_CATEGORIES.has(signal.category) &&
+      signal.sourceMessageIds.some((messageId) =>
+        describedIncidentMessageIds.has(messageId),
+      ),
   );
   if (
     !outbound ||
-    validated.safetySignals.length === 0 ||
-    conversation.needsAttention ||
+    !describesSomethingToForward ||
     validated.handoff ||
-    respondentSourceOnly
+    alreadyAssured(conversation)
   ) {
     return outbound;
   }
@@ -152,6 +174,21 @@ function withSafetyAssurance(
     ...outbound,
     body: `${outbound.body}\n\n${POST_EVENT_FEEDBACK_SAFETY_ASSURANCE}`,
   };
+}
+
+/**
+ * Whether this sentence has already reached the participant's phone.
+ *
+ * Substring rather than equality because the assurance is appended to whatever
+ * the run was already saying. If the copy is ever reworded, a conversation
+ * mid-flight can hear the new wording once more; that is the right way round.
+ */
+function alreadyAssured(conversation: FeedbackConversationDocument): boolean {
+  return conversation.messages.some(
+    (message) =>
+      message.actor === "bot" &&
+      message.text.includes(POST_EVENT_FEEDBACK_SAFETY_ASSURANCE),
+  );
 }
 
 function chooseOutbound(

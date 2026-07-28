@@ -180,6 +180,11 @@ export interface FeedbackAttentionClassificationGenerationResult {
    * `FeedbackAttentionClassificationResult` for why the two travel apart.
    */
   readonly hostileMessageIds: readonly string[];
+  /**
+   * Incident messages that say what happened. Only the safety assurance reads
+   * this — see `FeedbackAttentionClassificationResult`.
+   */
+  readonly describedIncidentMessageIds: readonly string[];
   readonly usage: FeedbackExtractionUsage;
   readonly estimatedPromptTokens: number;
 }
@@ -325,6 +330,7 @@ export class PostEventFeedbackExtractionModel implements FeedbackExtractionModel
     );
     const signals: FeedbackExtractionSafetySignalProposal[] = [];
     const hostileMessageIds: string[] = [];
+    const describedIncidentMessageIds: string[] = [];
     const usages: FeedbackExtractionUsage[] = [];
     const providerOptions = feedbackAttentionClassificationProviderOptions(
       this.model,
@@ -362,6 +368,9 @@ export class PostEventFeedbackExtractionModel implements FeedbackExtractionModel
         );
         signals.push(...classified.signals);
         hostileMessageIds.push(...classified.hostileMessageIds);
+        describedIncidentMessageIds.push(
+          ...classified.describedIncidentMessageIds,
+        );
         usages.push({
           inputTokens: result.usage.inputTokens ?? null,
           outputTokens: result.usage.outputTokens ?? null,
@@ -376,6 +385,7 @@ export class PostEventFeedbackExtractionModel implements FeedbackExtractionModel
       model: this.model,
       signals,
       hostileMessageIds,
+      describedIncidentMessageIds,
       usage: combineUsage(usages),
       estimatedPromptTokens,
     };

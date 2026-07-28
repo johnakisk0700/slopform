@@ -201,6 +201,9 @@ export const feedbackSimulatorRubricSchema = z
     // Beside `attention` rather than inside it, mirroring the classifier: this is
     // not a safety category and must never be reachable as one from here either.
     hostileToUs: z.boolean().optional(),
+    // Also beside `attention`, and for the assurance rather than the taxonomy:
+    // whether the message says what happened or only that something did.
+    incidentDescribed: z.boolean().optional(),
     handoff: z.boolean().optional(),
     reply: z
       .object({

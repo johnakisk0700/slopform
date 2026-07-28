@@ -44,6 +44,7 @@ import {
 import {
   answeredAnything,
   resolveOutbound,
+  withSafetyAssurance,
   type OutboundReply,
 } from "./outbound-reply.js";
 import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
@@ -316,15 +317,20 @@ export class PostEventFeedbackExtractor {
     // transcript length, because this run appends its reply to that same
     // transcript: a length-based key would differ on a replay that already sees
     // the reply, and a different `dedupe_key` is a second WhatsApp message.
-    const outbound = resolveOutbound(
+    const outbound = withSafetyAssurance(
       conversation,
       validated,
-      progressClosing,
-      urgentSafety,
-      latestParticipantMessage(conversation)?.seq ?? cursorSeq,
-      copy,
-      openGoal,
-      stoppingForHostility,
+      resolveOutbound(
+        conversation,
+        validated,
+        progressClosing,
+        urgentSafety,
+        latestParticipantMessage(conversation)?.seq ?? cursorSeq,
+        copy,
+        openGoal,
+        stoppingForHostility,
+      ),
+      new Set(attention.describedIncidentMessageIds),
     );
     const withheld = outbound
       ? await this.reviewBeforeSending({
