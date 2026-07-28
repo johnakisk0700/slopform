@@ -270,6 +270,7 @@ const LIFECYCLE_REASON_LABELS: Record<
   string
 > = {
   completed: "Completed",
+  declined: "Declined",
   stopped: "Stopped",
   expired: "Expired",
   cancelled: "Cancelled",
@@ -280,6 +281,9 @@ const LIFECYCLE_REASON_TONES: Record<
   FeedbackTone
 > = {
   completed: "success",
+  // Neutral, not danger. He answered the questions — the answer was no — and an
+  // operator opening this list is looking for rows to act on, which this is not.
+  declined: "neutral",
   stopped: "danger",
   expired: "neutral",
   cancelled: "neutral",

@@ -7,7 +7,10 @@ import {
 } from "@join-the-six/database";
 
 import { latestAnswerCorrection } from "../extraction/answer-corrections.js";
-import type { FeedbackConversationSummary } from "../post-event-feedback-conversation.document.js";
+import type {
+  FeedbackConversationLifecycleReason,
+  FeedbackConversationSummary,
+} from "../post-event-feedback-conversation.document.js";
 import type {
   FeedbackAnswerView,
   FeedbackCampaignConversationsView,
@@ -22,7 +25,7 @@ import type {
 export function conversationCapabilities(conversation: {
   readonly lifecycle: {
     readonly state: "open" | "closed";
-    readonly reason?: "completed" | "stopped" | "expired" | "cancelled" | null;
+    readonly reason?: FeedbackConversationLifecycleReason | null;
   };
   readonly control: {
     readonly mode: "bot" | "human";

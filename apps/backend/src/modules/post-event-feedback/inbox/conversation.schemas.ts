@@ -19,6 +19,7 @@ import {
   FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH,
   FEEDBACK_STAFF_CLOSE_NOTE_MAX_LENGTH,
   FEEDBACK_STAFF_CLOSE_REASONS,
+  FEEDBACK_CONVERSATION_LIFECYCLE_REASONS,
 } from "../post-event-feedback-conversation.document.js";
 import {
   feedbackConversationMessageAttentionSchema,
@@ -52,9 +53,7 @@ export const feedbackConversationListItemSchema = z
     lifecycle: z
       .object({
         state: z.enum(["open", "closed"]),
-        reason: z
-          .enum(["completed", "stopped", "expired", "cancelled"])
-          .nullable(),
+        reason: z.enum(FEEDBACK_CONVERSATION_LIFECYCLE_REASONS).nullable(),
       })
       .strict(),
     control: z
@@ -214,9 +213,7 @@ export const feedbackConversationDetailSchema = z
     lifecycle: z
       .object({
         state: z.enum(["open", "closed"]),
-        reason: z
-          .enum(["completed", "stopped", "expired", "cancelled"])
-          .nullable(),
+        reason: z.enum(FEEDBACK_CONVERSATION_LIFECYCLE_REASONS).nullable(),
         closedAt: z.iso.datetime().nullable(),
       })
       .strict(),

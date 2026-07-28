@@ -28,11 +28,18 @@ describe("post-event feedback question set v1", () => {
       "meet_again",
       "avoid",
       "closing",
+      "declined",
       "stop_ack",
       "reminder",
       "reminder_followup",
       "cannot_read_media",
     ]);
+    // Three things it must not be, and each was a real option. Not a thank-you:
+    // there is nothing to thank a refusal for. Not a question: he has answered
+    // that one four times. Not an apology: he did nothing wrong.
+    expect(POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy.declined).toBe(
+      "Κανένα πρόβλημα, δεν θα σε ξαναρωτήσουμε. Καλή συνέχεια! 🙂",
+    );
     expect(POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy.intro).toContain(
       "Join The Six",
     );

@@ -2,7 +2,10 @@ import type {
   FeedbackAnswerQuestionKey,
   FeedbackNoteType,
 } from "@join-the-six/database";
-import type { FeedbackConversationGoal } from "./post-event-feedback-conversation.document.js";
+import type {
+  FeedbackConversationGoal,
+  FeedbackConversationLifecycleReason,
+} from "./post-event-feedback-conversation.document.js";
 import type {
   PostEventFeedbackRecommendedAction,
   PostEventFeedbackSafetyCategory,
@@ -266,7 +269,7 @@ export interface FeedbackSeedOptions {
   readonly campaign?: "launched" | "paused" | "closed";
   readonly control?: "bot" | "human";
   /** Start from an already-closed conversation. */
-  readonly closed?: "completed" | "stopped" | "expired" | "cancelled";
+  readonly closed?: FeedbackConversationLifecycleReason;
   readonly goals?: Partial<
     Record<FeedbackAnswerQuestionKey, FeedbackConversationGoal["status"]>
   >;
@@ -285,6 +288,8 @@ export const FEEDBACK_RECEIVED_KINDS = [
   "reminder",
   "reply",
   "closing",
+  /** «Κανένα πρόβλημα, δεν θα σε ξαναρωτήσουμε» — the ending for a refusal. */
+  "declined",
   "handoff",
   "fallback",
   /** «Δεν μπορούμε να συνεχίσουμε κουβέντα έτσι, εγώ σταματάω 🍌» */
@@ -322,8 +327,7 @@ export interface FeedbackTranscriptEntry {
  */
 export interface FeedbackLoopOutcome {
   readonly lifecycle: "open" | "closed";
-  readonly closedBecause:
-    "completed" | "stopped" | "expired" | "cancelled" | null;
+  readonly closedBecause: FeedbackConversationLifecycleReason | null;
   readonly control: "bot" | "human";
   /** The participant's standing consent to be messaged again. */
   readonly optedIn: boolean;

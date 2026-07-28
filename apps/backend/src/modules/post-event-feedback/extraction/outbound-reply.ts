@@ -274,7 +274,26 @@ function chooseOutbound(
   }
 
   if (!validated.reply) {
-    return undefined;
+    // The other half of the empty-ladder ending, and only where there would
+    // otherwise be nothing at all. Withholding the thank-you above was right and
+    // left a hole behind it: Πάνος Μούλαρος wrote «δε λεω τιποτα» three times,
+    // the model declined all four goals and wrote no reply, and the only message
+    // he ever received was the intro — while the conversation closed in the same
+    // breath, so whatever he wrote next would reach nobody.
+    //
+    // Below the model's own words on purpose. Μπάμπης's «Δίκαιο — το
+    // ερωτηματολόγιο μόλις έφαγε πόρτα 😅» is a better goodbye than any fixed
+    // sentence, and it is exactly the line an earlier version of this function
+    // threw away. Our copy fills a silence; it does not replace a reply.
+    //
+    // The closing dedupe key, because this is the conversation's one ending
+    // message and the two endings are mutually exclusive by construction.
+    return closingNow
+      ? {
+          body: copy.declined,
+          dedupeKey: createFeedbackClosingDedupeKey(conversation._id),
+        }
+      : undefined;
   }
 
   // `nextGoal` is the model's private intent. A withdrawal that still names

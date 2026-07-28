@@ -331,7 +331,8 @@ still-named `nextGoal` is now treated as a withdrawal: remaining open goals are
 settled, and the conversation freezes for a person instead of closing — the
 participant declining every question is a completion, the bot giving up is not.
 A `nextGoal: null` goodbye without `skippedGoals` is still the model's to finish
-via rule 7δ.
+via rule 7δ. The whole-questionnaire version of this is
+[S69](#s69--declines_every_question), which does **not** end in `completed`.
 
 ### S13 · `answers_only_yes`
 
@@ -1716,6 +1717,39 @@ something unrelated flagged the thread.
 **Today.** ✅ Fixed and pinned here. The live-guest half is unscripted by
 construction and will differ every run; this scenario is the deterministic
 version of it.
+
+### S69 · `declines_every_question`
+
+**Person.** Πάνος Μούλαρος does not refuse the last question, he refuses all
+four, civilly and without ever writing ΣΤΟΠ. The whole-questionnaire half of
+[S12](#s12--refuses_a_question), and the polite twin of
+[S64](#s64--abuses_the_bot_throughout).
+
+**Messages**
+
+- `t+0s` participant: «δε λεω τιποτα»
+- `t+8s` participant: «ασε με ρε φιλε»
+- `t+16s` participant: «ειπα δε λεω»
+
+**Should end with.** All four goals `skipped`, no answers, no notes. Exactly one
+message — «Κανένα πρόβλημα, δεν θα σε ξαναρωτήσουμε. Καλή συνέχεια! 🙂» — and no
+closing copy. `lifecycle: closed` with `closedBecause: declined`, `optedIn:
+true`, `needsAttention: false`.
+
+**Stresses.** That the word stored and the sentence sent agree. At the
+2026-07-28 rehearsal he received **nothing** after the intro and was filed as
+`completed`: the thank-you was correctly withheld from an empty ladder by
+`answeredAnything`, but the lifecycle word was guarded by `hostileTurn &&
+!answeredAnything`, so only a rude refusal escaped `completed` and a civil one
+was counted in the campaign's response rate. Also that the new copy stays
+_below_ the model's own words — Μπάμπης's «Δίκαιο — το ερωτηματολόγιο μόλις
+έφαγε πόρτα 😅» is the better goodbye and must survive — and that nobody is
+flagged for exercising a choice.
+
+**Today.** ✅ Fixed and pinned. Rehearsed concurrently by
+`mezedopoleio_declines_every_goal`, whose `needsAttention: true` was a stale
+expectation from the run-7 theory that this path was a withdrawal. It is not: the
+bot did not give up, he refused.
 
 # Part 2 — Executable behavioural suite
 

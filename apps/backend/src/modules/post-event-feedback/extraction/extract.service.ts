@@ -436,6 +436,24 @@ export class PostEventFeedbackExtractor {
       !withdrew &&
       !stoppingForHostility &&
       !hostileWithoutAnswers;
+    // Which ending this is, decided by the same judgement that chooses the copy.
+    //
+    // Πάνος Μούλαρος declined all four questions in three civil messages and was
+    // stored as `completed` — the word for a finished questionnaire, in the
+    // column a campaign's response rate is read from. The thank-you was already
+    // withheld from him by `answeredAnything`, so the sentence he read and the
+    // word we recorded had drifted apart; the only thing that stopped `completed`
+    // was hostility, which makes a polite refusal the one that goes unnoticed.
+    //
+    // The three other endings of an empty ladder stay where they are and are not
+    // this: a withdrawal keeps the conversation open because the bot gave up
+    // rather than the participant, hostility keeps it open for an operator, and
+    // a STOP is a consent decision rather than an answer to these questions.
+    const closingReason: "completed" | "declined" | null = closingNow
+      ? answeredAnything(conversation, validated)
+        ? "completed"
+        : "declined"
+      : null;
 
     const written = await this.persist({
       conversation,
@@ -464,7 +482,7 @@ export class PostEventFeedbackExtractor {
       conversation,
       validated,
       goalStatuses,
-      closingNow,
+      closingReason,
       dutyOfCare,
       withdrew,
       hostility,
@@ -483,11 +501,7 @@ export class PostEventFeedbackExtractor {
         // normally and the flag is what an operator acts on. Only an explicit
         // handoff changes what the conversation did. Closing is deferred when
         // this run produced safety signals even if every goal is terminal.
-        outcome: closingNow
-          ? "completed"
-          : validated.handoff
-            ? "handoff"
-            : "extracted",
+        outcome: closingReason ?? (validated.handoff ? "handoff" : "extracted"),
         conversationId: conversation._id,
         cursorSeq,
         answersWritten: written.answersWritten,
@@ -848,7 +862,7 @@ export class PostEventFeedbackExtractor {
     readonly conversation: FeedbackConversationDocument;
     readonly validated: FeedbackExtractionValidationResult;
     readonly goalStatuses: readonly GoalStatusUpdate[];
-    readonly closingNow: boolean;
+    readonly closingReason: "completed" | "declined" | null;
     readonly dutyOfCare: boolean;
     readonly withdrew: boolean;
     readonly hostility: FeedbackHostilityRaise;
@@ -977,10 +991,10 @@ export class PostEventFeedbackExtractor {
       });
     }
 
-    if (input.closingNow) {
+    if (input.closingReason) {
       await this.conversations.close({
         conversationId: input.conversation._id,
-        reason: "completed",
+        reason: input.closingReason,
         at,
       });
     }

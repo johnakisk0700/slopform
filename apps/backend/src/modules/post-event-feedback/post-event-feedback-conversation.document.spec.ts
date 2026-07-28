@@ -71,6 +71,7 @@ describe("buildFeedbackConversationGoals", () => {
       meet_again: "Again?",
       avoid: "Avoid?",
       closing: "closing",
+      declined: "declined",
       stop_ack: "stop",
       reminder: "reminder",
       reminder_followup: "followup {question}",

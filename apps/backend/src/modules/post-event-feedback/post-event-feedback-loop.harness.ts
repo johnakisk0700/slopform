@@ -877,7 +877,7 @@ export async function createFeedbackLoopHarness(
       repository.outbox.map((row) => [row.id, row] as const),
     );
     const kindOf = (row: FakeOutboxRow | undefined): FeedbackReceivedKind =>
-      row ? classifyOutbound(row, copy.closing) : "reply";
+      row ? classifyOutbound(row, copy.closing, copy.declined) : "reply";
 
     const received = transport.sent.map((sent) => ({
       kind: kindOf(outboxById.get(sent.outboxId)),
@@ -1004,6 +1004,7 @@ function questionOrdinal(key: FeedbackAnswerQuestionKey): number {
 function classifyOutbound(
   row: FakeOutboxRow,
   closing: string,
+  declined: string,
 ): FeedbackReceivedKind {
   if (row.kind === "intro") {
     return "intro";
@@ -1024,6 +1025,12 @@ function classifyOutbound(
   const body = row.body.trim();
   if (body === closing.trim()) {
     return "closing";
+  }
+  // Shares the closing dedupe key, so the key cannot tell these apart and the
+  // copy is the only thing that can — the same reason this function reads copy
+  // rather than keys everywhere else.
+  if (body === declined.trim()) {
+    return "declined";
   }
   if (body === POST_EVENT_FEEDBACK_HANDOFF_REPLY) {
     return "handoff";

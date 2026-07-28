@@ -134,6 +134,7 @@ const LIFECYCLE_LABELS = {
 
 const CLOSED_BECAUSE_LABELS = {
   completed: "Ολοκληρώθηκε",
+  declined: "Αρνήθηκε",
   stopped: "Διακόπηκε",
   expired: "Έληξε",
   cancelled: "Ακυρώθηκε",

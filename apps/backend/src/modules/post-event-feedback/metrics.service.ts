@@ -24,6 +24,13 @@ export const FEEDBACK_EXTRACT_OUTCOMES = [
   "skipped_no_new_testimony",
   "extracted",
   "completed",
+  /**
+   * The ladder settled with nothing in it: every question was declined and no
+   * answer was ever recorded. Counted apart from `completed` for the same reason
+   * `lifecycle.reason` distinguishes them — a response rate that cannot tell the
+   * two apart reads a refusal as a reply.
+   */
+  "declined",
   "handoff",
 ] as const;
 

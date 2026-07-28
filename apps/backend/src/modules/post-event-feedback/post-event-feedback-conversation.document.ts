@@ -57,10 +57,39 @@ export const feedbackConversationPhoneSchema = z
   .trim()
   .regex(/^\+[1-9]\d{7,14}$/u, "Expected an E.164 phone number");
 
+/**
+ * What kind of ending this was. Five words, and each is a different fact about
+ * the person, which is why they are not collapsible.
+ *
+ * `completed` — the questionnaire finished with something in it.
+ * `declined` — they answered the questions by refusing them, and nothing was
+ * recorded. Πάνος Μούλαρος wrote «δε λεω τιποτα» three times and was filed as
+ * `completed`, in the column a campaign's response rate is read from; the
+ * closing copy was already withheld from him by `answeredAnything`, so the
+ * sentence he read and the word we stored disagreed. Not `stopped`: he never
+ * withdrew consent, and losing the difference between «leave me alone about
+ * this dinner» and «never message me again» would be losing the more important
+ * one.
+ * `stopped` — they opted out.
+ * `expired` — the sweep closed it; nobody ended anything.
+ * `cancelled` — a human closed it.
+ *
+ * Exported so the read models, the harness vocabularies and the HTTP boundary
+ * stop hand-copying the list. A sixth ending would otherwise typecheck in five
+ * files and be missing from three.
+ */
+export const FEEDBACK_CONVERSATION_LIFECYCLE_REASONS = [
+  "completed",
+  "declined",
+  "stopped",
+  "expired",
+  "cancelled",
+] as const;
+
 export const feedbackConversationLifecycleSchema = z
   .object({
     state: z.enum(["open", "closed"]),
-    reason: z.enum(["completed", "stopped", "expired", "cancelled"]).nullable(),
+    reason: z.enum(FEEDBACK_CONVERSATION_LIFECYCLE_REASONS).nullable(),
     closedAt: z.date().nullable(),
   })
   .strict()
@@ -545,9 +574,7 @@ export const feedbackConversationSummarySchema = z
     lifecycle: z
       .object({
         state: z.enum(["open", "closed"]),
-        reason: z
-          .enum(["completed", "stopped", "expired", "cancelled"])
-          .nullable(),
+        reason: z.enum(FEEDBACK_CONVERSATION_LIFECYCLE_REASONS).nullable(),
       })
       .strict(),
     control: z

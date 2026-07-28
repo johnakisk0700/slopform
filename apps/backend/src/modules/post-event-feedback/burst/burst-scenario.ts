@@ -7,6 +7,7 @@ import type {
   PostEventFeedbackRecommendedAction,
   PostEventFeedbackSafetyCategory,
 } from "../attention.js";
+import type { FeedbackConversationLifecycleReason } from "../post-event-feedback-conversation.document.js";
 
 /**
  * The shared contract for the multi-campaign burst rehearsal.
@@ -210,8 +211,7 @@ export interface BurstExpectedAnswer {
  */
 export interface BurstExpectedOutcome {
   readonly lifecycle: "open" | "closed";
-  readonly closedBecause:
-    "completed" | "stopped" | "expired" | "cancelled" | null;
+  readonly closedBecause: FeedbackConversationLifecycleReason | null;
   readonly optedIn: boolean;
   readonly answers: readonly BurstExpectedAnswer[];
   readonly needsAttention: boolean;

@@ -1686,17 +1686,23 @@ const BURST_SCRIPTED_PERSONAS: readonly BurstPersona[] = [
     ],
     expect: {
       lifecycle: "closed",
-      closedBecause: "completed",
+      // Not `completed`. He declined all four questions in three civil messages
+      // and nothing was recorded; the word for that is the ending, not the
+      // finish line, and `completed` is the column a campaign's response rate is
+      // read from.
+      closedBecause: "declined",
+      // He asked us to stop asking, never to stop messaging.
       optedIn: true,
       answers: [],
-      // True since every raise gained a name. He declined all four questions,
-      // so the withdrawal path raises `unfinished_questionnaire` — a
-      // questionnaire that recorded nothing is worth a person's glance, and it
-      // is now a badge somebody can read and dismiss rather than a wordless
-      // warning. The flag is the change, not a regression in his conversation.
-      needsAttention: true,
-      // Intro and closing. A third message would mean he was asked again after
-      // declining everything.
+      // False, and this is a correction rather than a regression. The
+      // expectation said `true` on the theory that the withdrawal path would
+      // raise `unfinished_questionnaire` — but this is not a withdrawal: the bot
+      // did not give up, he refused, four times over. There is nothing for an
+      // operator to do about somebody exercising a choice, and a flag on every
+      // refusal is how an inbox fills with rows nobody can action.
+      needsAttention: false,
+      // Intro and the one-line ending. A third message would mean he was asked
+      // again after declining everything.
       minReceived: 2,
       maxReceived: 2,
     },

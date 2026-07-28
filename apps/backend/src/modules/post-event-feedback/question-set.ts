@@ -18,6 +18,7 @@ export const POST_EVENT_FEEDBACK_COPY_KEYS = [
   "meet_again",
   "avoid",
   "closing",
+  "declined",
   "stop_ack",
   "reminder",
   "reminder_followup",
@@ -68,6 +69,17 @@ const POST_EVENT_FEEDBACK_QUESTION_SET_V1_COPY = {
     "Υπάρχει κάποιος ή κάποια που θα προτιμούσες να μην πετύχεις ξανά; Μένει αυστηρά μεταξύ μας.",
   closing:
     "Τέλεια, ευχαριστούμε πολύ! Ό,τι άλλο θες να μας πεις, είμαστε εδώ. 🙌",
+  // The ending for somebody who declined every question. Πάνος Μούλαρος wrote
+  // «δε λεω τιποτα» three times and received nothing at all after the intro —
+  // the thank-you is correctly withheld from an empty ladder, and there was
+  // nothing behind it. Silence obeys him, but it also leaves him unsure anybody
+  // read it, and a closed conversation cannot answer whatever he writes next.
+  //
+  // No thanks, because there is nothing to thank him for. No question, because
+  // he has answered that four times. No apology, because he did nothing wrong.
+  // The promise is one we actually keep: the conversation closes, and the
+  // reminder sweep does not wake a closed one.
+  declined: "Κανένα πρόβλημα, δεν θα σε ξαναρωτήσουμε. Καλή συνέχεια! 🙂",
   stop_ack: "Έγινε, δεν θα ξαναλάβεις μηνύματα από εμάς σε αυτό το νούμερο.",
   reminder:
     "Καλημέρα {name}! Αν έχεις 2 λεπτά, θα χαρούμε πολύ να μάθουμε πώς σου φάνηκε η βραδιά 🙂 (Γράψε ΣΤΟΠ αν δεν θες μηνύματα.)",

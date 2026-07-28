@@ -717,6 +717,41 @@ Where the close is withheld the badge goes up instead, so the conversation canno
 go quiet with nobody watching — but the bot keeps its remaining rungs, because the
 ladder has not run out yet.
 
+### A refusal is an ending of its own
+
+Πάνος Μούλαρος wrote «δε λεω τιποτα», «ασε με ρε φιλε» and «ειπα δε λεω». The
+model declined all four goals and wrote no reply. The intro was the only message
+he ever received, and the conversation was stored as `completed`.
+
+Half of that was already deliberate: the thank-you is withheld from an empty
+ladder by `answeredAnything`, correctly. What was not deliberate is that the
+_word_ had a different guard — `hostileTurn && !answeredAnything` — so only a
+**rude** refusal escaped `completed` and a civil one did not. The sentence he
+read and the word we stored disagreed, in the column a campaign's response rate
+is read from.
+
+Both now key off the same judgement.
+
+- `lifecycle.reason` is `declined` when the ladder settles with nothing
+  recorded, `completed` when something was. Not `stopped`: he never withdrew
+  consent, and «leave me alone about this dinner» is not «never message me
+  again». Not `expired`: he answered, the answer was no.
+- The reply is `copy.declined` — «Κανένα πρόβλημα, δεν θα σε ξαναρωτήσουμε.
+  Καλή συνέχεια! 🙂» No thanks, because there is nothing to thank him for; no
+  question, because he has answered that one four times; no apology, because he
+  did nothing wrong. It fires **only where there would otherwise be silence**,
+  below the model's own words: Μπάμπης's «Δίκαιο — το ερωτηματολόγιο μόλις έφαγε
+  πόρτα 😅» is a better goodbye than any fixed sentence, and an earlier draft of
+  this change threw it away.
+- Nothing is flagged. He made a clear decision three times over and there is no
+  operator action; a flag on every refusal is how the inbox fills with rows
+  nobody can clear.
+
+The three other endings of an empty ladder are unchanged and are deliberately
+not this: a withdrawal keeps the conversation open because the _bot_ gave up,
+hostility keeps it open for an operator, and a STOP is a consent decision rather
+than an answer to these questions.
+
 ### Store order and replay
 
 PostgreSQL first, the outbound transcript entry, the MongoDB cursor last. The
@@ -1736,7 +1771,8 @@ campaignId               campaign UUID
 respondentParticipantId  participant UUID
 phoneAtLaunch            E.164 number captured at launch
 lifecycle                { state: open|closed,
-                           reason: completed|stopped|expired|cancelled|null,
+                           reason: completed|declined|stopped|
+                                   expired|cancelled|null,
                            closedAt }
 staffClose               { reason: abusive|unresponsive|handled_offline|
                                     duplicate|other,

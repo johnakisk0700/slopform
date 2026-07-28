@@ -1557,6 +1557,7 @@
                     "reason": {
                       "enum": [
                         "completed",
+                        "declined",
                         "stopped",
                         "expired",
                         "cancelled",
@@ -2068,6 +2069,7 @@
               "reason": {
                 "enum": [
                   "completed",
+                  "declined",
                   "stopped",
                   "expired",
                   "cancelled",

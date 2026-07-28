@@ -21,6 +21,7 @@ import {
   type FeedbackConversationDocument,
   type FeedbackConversationGoal,
   type FeedbackConversationMessage,
+  type FeedbackConversationLifecycleReason,
 } from "./post-event-feedback-conversation.document.js";
 import type { FeedbackOperatorAlertInput } from "./operator-alert.js";
 import type {
@@ -1050,7 +1051,7 @@ export class FakeFeedbackConversations {
    */
   async close(input: {
     conversationId: string;
-    reason: "completed" | "stopped" | "expired" | "cancelled";
+    reason: FeedbackConversationLifecycleReason;
     at: Date;
   }): Promise<FakeConversationTransition> {
     const conversation = this.require(input.conversationId);

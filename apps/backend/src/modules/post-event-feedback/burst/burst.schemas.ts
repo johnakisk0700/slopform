@@ -4,6 +4,7 @@ import { z } from "zod";
 import { FEEDBACK_ANSWER_QUESTION_KEYS } from "@join-the-six/database";
 
 import { FEEDBACK_OBSERVED_TEXT_HARD_LIMIT } from "../jobs.schemas.js";
+import { FEEDBACK_CONVERSATION_LIFECYCLE_REASONS } from "../post-event-feedback-conversation.document.js";
 import { BURST_PERSONAS } from "./burst-personas.js";
 import {
   BURST_CAMPAIGNS,
@@ -24,9 +25,7 @@ const burstExpectedAnswerSchema = z
 const burstExpectedOutcomeSchema = z
   .object({
     lifecycle: z.enum(["open", "closed"]),
-    closedBecause: z
-      .enum(["completed", "stopped", "expired", "cancelled"])
-      .nullable(),
+    closedBecause: z.enum(FEEDBACK_CONVERSATION_LIFECYCLE_REASONS).nullable(),
     optedIn: z.boolean(),
     answers: z.array(burstExpectedAnswerSchema),
     needsAttention: z.boolean(),

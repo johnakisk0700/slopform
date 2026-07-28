@@ -599,6 +599,50 @@ const SCENARIOS: readonly FeedbackScenario[] = [
     },
   },
   {
+    // S69. S12's other half, and the one nobody had written: he does not
+    // decline the last question, he declines all four.
+    //
+    // Πάνος Μούλαρος wrote «δε λεω τιποτα» three times at the 2026-07-28
+    // rehearsal. The model declined every goal and wrote nothing, so the only
+    // message he ever received was the intro — the thank-you is correctly
+    // withheld from an empty ladder, and there was nothing behind it. And the
+    // conversation was stored as `completed`, in the column a campaign's
+    // response rate is read from, because the only thing that stopped that word
+    // was hostility and he was perfectly civil.
+    //
+    // Not flagged. He made a clear decision three times over and there is
+    // nothing for an operator to do about it; a flag on every refusal is how the
+    // inbox fills with people who exercised a choice.
+    id: "declines_every_question",
+    title: "records a refusal as declined, answers it once, and calls nobody",
+    script: [{ skip: ["event_score", "liked", "meet_again", "avoid"] }],
+    steps: [
+      { kind: "inbound", text: "δε λεω τιποτα" },
+      { kind: "inbound", after: "8s", text: "ασε με ρε φιλε" },
+      { kind: "inbound", after: "8s", text: "ειπα δε λεω" },
+      { kind: "wait", after: "settles" },
+    ],
+    // Civil, so no hostility ladder and no operator: the whole point of the row
+    // is the difference between this and Μπάμπης.
+    attention: [{ hostileToUs: false }],
+    expect: {
+      answers: [],
+      notes: [],
+      lifecycle: "closed",
+      closedBecause: "declined",
+      // He never asked us to stop messaging him, only to stop asking this.
+      optedIn: true,
+      needsAttention: false,
+      received: [
+        {
+          kind: "declined",
+          text: "Κανένα πρόβλημα, δεν θα σε ξαναρωτήσουμε. Καλή συνέχεια! 🙂",
+        },
+      ],
+      receivedCount: { closing: 0 },
+    },
+  },
+  {
     // S13. Engaged and content-free. Nothing may be invented from «ναι»: no
     // answer, no note, and no completion off the back of an empty run.
     id: "answers_only_yes",
