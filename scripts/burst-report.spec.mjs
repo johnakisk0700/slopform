@@ -252,6 +252,32 @@ describe("renderBurstReport", () => {
     assert.ok(html.includes('class="conv is-fail" id="syn-bad" open>'));
   });
 
+  it("leaves a live guest open even when it passed, and names its model", () => {
+    // Collapsing on pass assumes passing means "the contract held, nothing to
+    // see". A live guest asserts almost nothing — only that it was replied to —
+    // so passing tells a reader nothing and its transcript is the whole reason
+    // it was seated. Hiding that behind a click hides the finding.
+    const html = renderBurstReport(
+      run({
+        passed: true,
+        campaigns: [
+          campaign({
+            conversations: [
+              conversation({
+                conversationId: "live",
+                passed: true,
+                liveModel: "composer-2.5-fast",
+              }),
+            ],
+          }),
+        ],
+      }),
+    );
+
+    assert.ok(html.includes('class="conv is-pass" id="syn-live" open>'));
+    assert.ok(html.includes("composer-2.5-fast"));
+  });
+
   it("renders an empty result rather than throwing", () => {
     const html = renderBurstReport({});
 

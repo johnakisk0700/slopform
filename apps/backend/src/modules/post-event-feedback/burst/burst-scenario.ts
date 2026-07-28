@@ -79,11 +79,14 @@ export const BURST_CAMPAIGNS: readonly BurstCampaignDefinition[] = [
  * Six personas per campaign when the catalogue is full — the product is called
  * Join The Six and a table is six people.
  *
- * `zontanoi` is deliberately two. Its guests are written live by a model rather
- * than by a script, and seating only the two of them makes each the other's
- * entire candidate list: they talk about each other, and a directed answer has
- * exactly one name it could resolve to. That removes name resolution from what
- * the table is testing, which is the bot against somebody who reacts.
+ * `zontanoi` is six like the rest, but its guests are written live by a model
+ * rather than by a script. It started as two, so that each guest was the other's
+ * entire candidate list and a directed answer had exactly one name it could
+ * possibly resolve to — name resolution deliberately out of scope while we found
+ * out whether improvised guests worked at all. They do, so the table is a full
+ * Six and resolution is back in scope on purpose: two of its first names are one
+ * letter from another guest's, which no scripted table has, because a script
+ * cannot mention somebody it was not written to mention.
  */
 export const BURST_PERSONAS_PER_CAMPAIGN = 6;
 

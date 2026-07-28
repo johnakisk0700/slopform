@@ -63,14 +63,13 @@ describe("BURST_PERSONAS", () => {
 
       // A gap is a missing seat, and the seating is the input the extraction is
       // measured on: every persona's candidate list is whoever else sat down.
-      // So the assertion is contiguity from one, and a full table everywhere
-      // except the live-guest dinner — which seats two on purpose, so that each
-      // guest is the other's entire candidate list and a directed answer has one
-      // name it could resolve to.
-      const seats =
-        campaign.slug === "zontanoi" ? 2 : BURST_PERSONAS_PER_CAMPAIGN;
+      // So the assertion is contiguity from one, at a full table, everywhere —
+      // the live-guest dinner included, now that it seats six like the rest.
       expect(ordinals).toEqual(
-        Array.from({ length: seats }, (_, index) => index + 1),
+        Array.from(
+          { length: BURST_PERSONAS_PER_CAMPAIGN },
+          (_, index) => index + 1,
+        ),
       );
     }
   });

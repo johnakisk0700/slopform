@@ -58,6 +58,7 @@
  * @property {string} phoneE164
  * @property {string} conversationId
  * @property {string} adminUrl
+ * @property {string|null} liveModel
  * @property {boolean} passed
  * @property {BurstExpectation[]} expectations
  * @property {string[]} received
@@ -272,6 +273,7 @@ function readConversation(conversation) {
     phoneE164: text(source.phoneE164),
     conversationId: text(source.conversationId),
     adminUrl: text(source.adminUrl),
+    liveModel: source.liveModel == null ? null : text(source.liveModel),
     passed: source.passed === true,
     expectations: list(source.expectations).map((expectation) => {
       const row = isObject(expectation) ? expectation : {};
@@ -634,6 +636,12 @@ ${adminLink(campaign.adminUrl, "Άνοιγμα καμπάνιας στο admin")
  * One conversation. Failed ones are open on arrival; passed ones collapse to a
  * scannable row. `<details>` is native, so the collapse survives JavaScript
  * being off — nothing here needs the script to be readable.
+ *
+ * A live guest is open too, whether or not it passed. Collapsing is the right
+ * default when passing means "the contract held and there is nothing to see",
+ * but a live guest asserts almost nothing, so passing tells you only that the
+ * application replied to it. Its transcript is the entire reason it was seated,
+ * and hiding it behind a click would hide the finding.
  */
 function renderConversation(conversation) {
   const failedExpectations = conversation.expectations.filter(
@@ -650,11 +658,18 @@ function renderConversation(conversation) {
       ? `<span class="chip is-danger">${escapeHtml(count(failedExpectations, "έλεγχος έπεσε", "έλεγχοι έπεσαν"))}</span>`
       : `<span class="chip">${escapeHtml(count(conversation.expectations.length, "έλεγχος", "έλεγχοι"))}</span>`;
 
-  return `<details class="conv ${conversation.passed ? "is-pass" : "is-fail"}" id="${escapeHtml(anchor)}"${conversation.passed ? "" : " open"}>
+  const collapsed = conversation.passed && conversation.liveModel === null;
+  const liveChip =
+    conversation.liveModel === null
+      ? ""
+      : `<span class="chip is-mono" title="Τις απαντήσεις αυτού του καλεσμένου τις έγραψε μοντέλο στη διάρκεια της εκτέλεσης">${escapeHtml(conversation.liveModel)}</span>`;
+
+  return `<details class="conv ${conversation.passed ? "is-pass" : "is-fail"}" id="${escapeHtml(anchor)}"${collapsed ? "" : " open"}>
 <summary class="conv-summary">
 <span class="badge is-${conversation.passed ? "success" : "danger"}${conversation.passed ? "" : " is-strong"}">${icon(conversation.passed ? "check" : "cross")}${conversation.passed ? "Πέρασε" : "Απέτυχε"}</span>
 <h3 class="conv-name">${escapeHtml(name)}</h3>
 <span class="conv-chips">
+${liveChip}
 ${conversation.mirrors === "" ? "" : `<span class="chip is-mono" title="Αντιστοιχεί στο σενάριο ${escapeHtml(conversation.mirrors)}">${escapeHtml(conversation.mirrors)}</span>`}
 <span class="chip is-mono">${icon("phone")}<span class="visually-hidden">Τηλέφωνο </span>${escapeHtml(conversation.phoneE164 === "" ? EMPTY : conversation.phoneE164)}</span>
 <span class="chip" title="Μηνύματα που έφτασαν στο τηλέφωνο">${icon("outbound")}<span class="visually-hidden">Μηνύματα που έφτασαν: </span>${escapeHtml(String(conversation.received.length))}</span>

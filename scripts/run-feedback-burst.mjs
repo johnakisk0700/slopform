@@ -66,7 +66,17 @@ const RESERVED_PHONE_PREFIX = "+3069000";
 const QUIET_WINDOW_MS = 45_000;
 const POLL_MS = 3_000;
 const INTRO_WAIT_MS = 120_000;
-const DEFAULT_DEADLINE_MS = 15 * 60 * 1_000;
+// Thirty minutes, because the live-guest table now sets the floor rather than
+// the scripted ones. A script sends its whole conversation as fast as the quiet
+// window allows; a live guest waits for the bot, calls a model, waits again, and
+// does that up to twelve times. Two of them already took a run from nine minutes
+// to fourteen and a half — inside the old fifteen, but only just, and six of them
+// will not be.
+//
+// Raising it is safe because the deadline was never the real backstop: a run
+// where genuinely nothing moves anywhere for sixty seconds is caught by the
+// stall detector below and gives back most of the clock.
+const DEFAULT_DEADLINE_MS = 30 * 60 * 1_000;
 // Settlement can still flip after the quiet window with no new messages — the
 // settle rule itself waits `QUIET_WINDOW_MS + 5s` after the last inject. Count
 // stalls only once every unsettled row is past that, then give up after a few
@@ -1059,7 +1069,7 @@ async function collectSnapshot({
         modelCalls: countModelCalls(answerRows, noteRows),
       };
 
-      const expectations = buildExpectations(persona.expect, actual, received);
+      const expectations = buildExpectations(persona, actual, received);
       // Text sent after a STOP is deliberately not retained — the campaign
       // keeps metadata only once somebody has opted out, because not storing is
       // reversible and storing is not. Requiring it in the transcript therefore
@@ -1093,10 +1103,18 @@ async function collectSnapshot({
       const quietElapsed =
         !lastInjectAt ||
         Date.now() - Date.parse(lastInjectAt) >= QUIET_WINDOW_MS + 5_000;
+      // A live guest has no expected lifecycle to reach. One may finish the
+      // questionnaire and be closed as completed, another may still be mid
+      // conversation when its turns run out — both are correct, and neither can
+      // be predicted before the run. Waiting for a match would hold the whole
+      // campaign open until the deadline and then report the campaign as
+      // unsettled, so a live guest settles as soon as its messages have landed
+      // and it has gone quiet.
       const lifecycleMatches =
-        actual.lifecycle === persona.expect.lifecycle &&
-        (persona.expect.lifecycle === "open" ||
-          actual.closedBecause === persona.expect.closedBecause);
+        Boolean(persona.liveModel) ||
+        (actual.lifecycle === persona.expect.lifecycle &&
+          (persona.expect.lifecycle === "open" ||
+            actual.closedBecause === persona.expect.closedBecause));
       const settled = injectCaughtUp && quietElapsed && lifecycleMatches;
 
       conversations.push({
@@ -1105,6 +1123,12 @@ async function collectSnapshot({
         quirk: persona.quirk,
         mirrors: persona.mirrors,
         phoneE164: persona.phoneE164,
+        // Which model improvised this guest, or null for a scripted persona.
+        // The report needs it for two reasons: a live conversation is graded on
+        // almost nothing, so it would otherwise collapse shut exactly when it is
+        // the thing worth reading; and when six guests read alike, the first
+        // question is whether they were written by the same model.
+        liveModel: persona.liveModel ?? null,
         conversationId: entry.conversationId,
         campaignSlug: campaign.slug,
         campaignId: campaign.campaignId,
@@ -1142,7 +1166,40 @@ function countModelCalls(answerRows, noteRows) {
   return keys.size * 2;
 }
 
-function buildExpectations(expect, actual, received) {
+/**
+ * The graded rows for one conversation.
+ *
+ * A live guest is graded on almost nothing, and that is the point. Its replies
+ * are written by a model at run time, so its lifecycle, its consent, whether it
+ * raised the attention flag and every answer it gave are things it decided —
+ * not things the application promised. Asserting them makes the report lie in
+ * both directions: `unexpected answers` failed for the two guests in run 8
+ * purely because they answered the questionnaire, which is what a guest is
+ * supposed to do, while `needsAttention: false` would have passed for a guest
+ * who disclosed nothing and failed for one who disclosed something real.
+ *
+ * Six of them would put a dozen such rows in a report whose whole job is to be
+ * readable in one screenful, and a reader who learns that red rows are normal
+ * stops reading the red rows. So a live guest keeps the one assertion that is
+ * genuinely the application's promise — it said something, and it did not flood
+ * anybody — and everything else moves to the conversation panel, which already
+ * renders the lifecycle, the consent, the attention badge and every recorded
+ * answer as observation rather than verdict.
+ */
+function buildExpectations(persona, actual, received) {
+  const { expect } = persona;
+  const deliveredRow = {
+    label: "μηνύματα που έφτασαν",
+    expected: `${expect.minReceived}–${expect.maxReceived}`,
+    actual: String(received.length),
+    passed:
+      received.length >= expect.minReceived &&
+      received.length <= expect.maxReceived,
+  };
+  if (persona.liveModel) {
+    return [deliveredRow];
+  }
+
   const expectations = [
     {
       label: "lifecycle",
@@ -1168,14 +1225,7 @@ function buildExpectations(expect, actual, received) {
       actual: String(actual.needsAttention),
       passed: actual.needsAttention === expect.needsAttention,
     },
-    {
-      label: "μηνύματα που έφτασαν",
-      expected: `${expect.minReceived}–${expect.maxReceived}`,
-      actual: String(received.length),
-      passed:
-        received.length >= expect.minReceived &&
-        received.length <= expect.maxReceived,
-    },
+    deliveredRow,
   ];
 
   for (const wanted of expect.answers) {
@@ -1550,7 +1600,7 @@ Options:
   --api-base <url>       Default: http://localhost:4000/api/v1
   --admin-base <url>     Default: http://localhost:3000
   --token <bearer>       Optional; defaults to CLERK_BEARER_TOKEN
-  --timeout-ms <ms>      Settlement deadline; default: 900000 (15 minutes)
+  --timeout-ms <ms>      Settlement deadline; default: 1800000 (30 minutes)
 
 The API and worker must already be running with:
   NODE_ENV=development

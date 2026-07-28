@@ -1084,9 +1084,9 @@ pnpm feedback:simulate \
 ```
 
 The multi-campaign burst rehearsal drives every persona at once — currently
-thirty, six each across `taverna`, `rooftop`, `wine`, `mezedopoleio` and
-`ouzeri`. A dinner is added rather than grown so each table stays a Six, because
-the candidate list is the input extraction is measured on:
+thirty-six, six each across `taverna`, `rooftop`, `wine`, `mezedopoleio`,
+`ouzeri` and `zontanoi`. A dinner is added rather than grown so each table stays
+a Six, because the candidate list is the input extraction is measured on:
 
 ```sh
 # Free deterministic stub (default). Requires FEEDBACK_EXTRACTION_STUB=true on
@@ -1112,6 +1112,51 @@ Stub mode refuses to start unless the burst catalogue
 reports `extractionStub: true` and a feedback worker is registered; paid mode
 treats per-persona semantic expectations as observations and keeps the
 cross-cutting correctness checks as hard failures.
+
+### The live-guest table
+
+Five of the six dinners are recordings. A scripted persona sends its third
+message whatever the bot actually said — even if the bot asked something else,
+even if the bot said it was stopping — so no number of them can test the bot
+against somebody who *reacts*. Two prompt rules are therefore unverifiable by a
+script for exactly that reason: 11δ, never re-ask in the same words, and 11ζ,
+match the register of the person writing. A script has no register to match and
+never notices being repeated at.
+
+`zontanoi` is the sixth dinner, and its six guests are improvised. Each is handed
+a character sheet and the transcript so far, and a cheap `cursor-agent` model is
+asked for one WhatsApp message back (`burst/live-guests.ts`, driven by
+`driveLiveGuest` in `scripts/run-feedback-burst.mjs`). Three things follow from
+that, and all three are deliberate:
+
+- **The character sheet is never published.** The catalogue endpoint carries only
+  `liveModel`; in a report or an admin screen the sheet would read like something
+  a participant said. The runner joins the sheet to the published persona by id
+  (`liveGuestsById`), which is also the bug that cost a paid run: reading
+  `persona.live` off the HTTP shape yielded `undefined`, so both guests iterated
+  an empty message list and "finished" instantly with no error and no log line.
+- **A live guest is graded on almost nothing.** Its lifecycle, its consent,
+  whether it raised the attention flag and every answer it gave are things it
+  decided at run time, not promises the application made, so `buildExpectations`
+  keeps only one assertion for it: the bot said something, and did not flood
+  anybody. Everything else appears in the conversation panel as observation. The
+  same reason makes a live conversation settle on quiet alone — waiting for it to
+  reach an expected lifecycle would hold its campaign open to the deadline and
+  then report the campaign as unsettled.
+- **The registers are mutually incompatible.** Terse and accentless, chatty and
+  ironic, formal plural, greeklish, monosyllabic, warm and over-sharing. One
+  reply cannot suit all six, so a bot that sends essentially the same message to
+  everybody shows up as six conversations that read alike — visible to a reader
+  who was not told what to look for. Two first names are one letter from another
+  guest's (Μάκης/Τάκης, Λούλα/Ρούλα), which also puts candidate resolution back
+  in scope: a resolver leaning on a prefix or an edit distance hands the answer
+  to the wrong person, silently.
+
+The cost is wall-clock. A live guest waits for the bot, calls a model, waits
+again, up to twelve times, so the live table sets the run's duration rather than
+the scripted ones — which is why the default settlement deadline is thirty
+minutes. Every turn a guest has left over once the bot has stopped speaking costs
+one whole per-turn timeout, so the caps are what make the run terminate at all.
 
 The preflight never repairs or injects. The paid command requires the literal
 confirmation flag, sends a stable `x-request-id`, and prints run, scenario,
