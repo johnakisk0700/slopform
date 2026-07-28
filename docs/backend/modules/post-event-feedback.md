@@ -1601,6 +1601,76 @@ contain provider token usage, but usage is not durably stored; no authoritative
 price card exists, so the CLI reports token/cost fields as unavailable rather
 than manufacturing accounting.
 
+### Running a paid rehearsal
+
+`pnpm feedback:burst --model … --confirm-paid-run` is the last step, not the
+first. Four things have to be true before it, and three of them fail _silently_
+— the run starts, finishes, and reports numbers about something other than what
+you meant to measure. Every one of these has cost a real run.
+
+**1. `dist` must be rebuilt, and this is the expensive trap.** The API, the
+workers and the runner all load `apps/backend/dist`, not the TypeScript. A stack
+that has been up since before your last commit serves the old code, and nothing
+says so: the catalogue answers, the campaigns launch, the personas run. On
+2026-07-28 a stack six hours old still published two live guests instead of six,
+and the run would have measured the previous day's extraction while reporting on
+today's. So: stop the stack, `pnpm --filter @join-the-six/database build`, then
+`pnpm --filter @join-the-six/backend build` — the backend's own `build` deletes
+`dist` first, which is why the processes must be down. Do **not** reach for
+`pnpm check` or `pnpm build` at the root: they regenerate the admin API client
+and will break a running admin dev server.
+
+**2. The previous rehearsal's campaigns must be gone.** The runner refuses to
+reuse a campaign whose conversations have moved past the clean intro-only
+baseline, and it never cleans up after itself. `scripts/reset-burst-data.mjs` is
+that step. It prints its plan and does nothing without `--yes`, every statement
+is scoped to the reserved phone block, and it clears the Redis failed **and**
+completed sets — without that, the previous run's failures are reported as this
+one's. It deliberately keeps `participants`, `events` and `audit_events`.
+
+**3. Start the stack, and count the workers.** One `main-http.js` and several
+`main-worker.js`. Concurrency is the point of the exercise: a rehearsal with one
+worker is not the system under test, because nothing contends. Keep the replica
+count you have been running and do not trim it for a tidier log.
+
+**4. Assert the preflight rather than reading it.** `GET
+/dev/feedback/burst/catalog` must report `extractionStub: false` for a paid run,
+`workerRegistered: true`, the campaign and persona counts you expect, and the
+live-guest models you expect. Reading those numbers off a screen is how a stale
+`dist` survives; comparing them to what the source says is what catches it.
+
+Then the run. The paid flag is per invocation on purpose, and one logical run is
+more than one invoice line — an extraction call plus one or more classification
+calls per conversation.
+
+Afterwards, the analysis is the point, and it is tooling rather than memory:
+
+| Command                                 | Answers                                                   |
+| --------------------------------------- | --------------------------------------------------------- |
+| `pnpm feedback:burst:answers`           | recorded answers versus what each fixture declares        |
+| `pnpm feedback:burst:transcript <name>` | what the bot actually said, by participant-name fragment  |
+| `pnpm feedback:burst:attention`         | which conversations were flagged, with reason and counter |
+| `pnpm feedback:burst:ledger`            | the run history, generated from tracked artefacts         |
+
+Two properties of these matter more than what they print. All four are
+**read-only** and structurally scoped to the reserved `+3069000` block, so they
+are safe to run against a rehearsal in progress and cannot read a real
+participant — cleanup remains `scripts/reset-burst-data.mjs --yes` and nothing
+else. And `feedback:burst:answers` treats a live guest as an **observation, not
+an assertion**: its fixture declares no answers because nobody can predict an
+improvised person, so a live guest reported as `extra` is a defect in the tool
+rather than a finding about the product.
+
+The run also writes `report/feedback-burst-<stamp>.json` beside the HTML.
+**The JSON is tracked and the HTML is not** — sixteen runs of HTML is 5.6 MB and
+read once, while each summary is a few kilobytes and is the only thing a later
+run can be compared against. It records the commit the run measured and whether
+the working tree was dirty, which is what makes **committing before a paid run
+part of the procedure rather than tidiness**: a run from a dirty tree is recorded
+as `dirty` and is evidence about nothing anybody can reproduce.
+[The rehearsal history](post-event-feedback-rehearsal-history.md) explains what
+learning that cost.
+
 ### WP8 tests
 
 Integration coverage runs intro delivery → inject reply → materialize →

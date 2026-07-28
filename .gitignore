@@ -9,8 +9,18 @@ node_modules/
 dist/
 coverage/
 **/coverage/coverage-final.json
-report/
 *.tsbuildinfo
+
+# `report/` holds two unrelated kinds of thing. The burst rehearsal's HTML
+# reports are read once and are large — 5.6 MB for sixteen runs — and other
+# tools drop their own output here too. The runner's JSON summaries are the
+# opposite: each is a few kilobytes and is the only record of which model ran
+# against which commit, and sixteen runs of them existed on exactly one laptop
+# for as long as this directory was ignored wholesale. Hence ignoring the
+# contents and re-including just the runner's own summaries; the directory
+# itself must stay unignored or git would never look inside it to find them.
+report/*
+!report/feedback-burst-*.json
 
 # Deterministic orval output from apps/backend/openapi/openapi.json
 apps/admin/src/api/generated/

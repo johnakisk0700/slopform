@@ -10,3 +10,7 @@ scripts/wordpress/export-jts-profiles.php
 WP_AUDIT_2026-07-22.md
 # Emitted by `pnpm openapi:emit`; its serializer owns the formatting.
 apps/backend/openapi/openapi.json
+# Emitted by `pnpm feedback:burst`. The run summaries here are tracked, so
+# without this line every rehearsal would leave `pnpm format:check` failing on
+# its own artefact — and reformatting one would rewrite a record of a past run.
+report

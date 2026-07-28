@@ -26,6 +26,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 
+import {
+  buildFinishedEvent,
+  readGitRevision,
+  writeRunSummary,
+} from "./burst-artefacts.mjs";
 import { renderBurstReport } from "./burst-report.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -537,25 +542,25 @@ async function main() {
     );
     await writeFile(reportPath, renderBurstReport(result), "utf8");
 
-    console.log(
-      JSON.stringify({
-        event: "feedback_burst.finished",
-        passed: result.passed,
-        model: result.model,
-        durationMs: result.durationMs,
-        findings: result.findings,
-        reportPath,
-        conversations: campaignResults.flatMap((campaign) =>
-          campaign.conversations.map((conversation) => ({
-            personaId: conversation.personaId,
-            displayName: conversation.displayName,
-            passed: conversation.passed,
-            lifecycle: conversation.actual.lifecycle,
-            closedBecause: conversation.actual.closedBecause,
-          })),
-        ),
-      }),
-    );
+    // The same event that goes to stdout also goes to disk beside the HTML, and
+    // that copy is tracked in git. The HTML is the thing an operator reads once;
+    // the JSON is what the next run is compared against, and `report/` was
+    // ignored wholesale until sixteen runs of evidence turned out to exist on
+    // exactly one laptop. `burst-artefacts.mjs` owns the shape so that the last
+    // step of a paid run is covered by tests rather than by hope.
+    const finishedEvent = buildFinishedEvent({
+      result,
+      stamp,
+      reportPath: path.relative(repositoryRoot, reportPath),
+      revision: await readGitRevision(repositoryRoot),
+    });
+    await writeRunSummary({
+      directory: reportDirectory,
+      stamp,
+      event: finishedEvent,
+    });
+
+    console.log(JSON.stringify(finishedEvent));
     console.error(reportPath);
     process.exitCode = result.passed ? 0 : 1;
   } finally {
@@ -874,6 +879,18 @@ async function askLiveGuest({ live, transcript }) {
  * The turn cap is what makes the run terminate. A live guest will chat happily
  * past the end of the questionnaire, and a conversation that never goes quiet
  * fails settlement for its whole campaign.
+ *
+ * The cap is not the only exit, and it used to be. The bot's closing message is
+ * itself a new bot turn, so a guest that only watches for one answers it — into
+ * a conversation the application has already closed. In run 9 that raised
+ * `post_closure_message` against five of the six guests: correct product
+ * behaviour, reacting to a message the rehearsal had no business sending. Worse,
+ * whatever turns were left over then waited out the full per-turn timeout each,
+ * which is what made the live table the longest part of the run.
+ *
+ * So the lifecycle is read once per turn, after a new bot message appears and
+ * before it is answered. That is the only point where the check can prevent the
+ * message rather than merely regret it.
  */
 async function driveLiveGuest({
   apiBase,
@@ -911,6 +928,21 @@ async function driveLiveGuest({
       await sleep(LIVE_GUEST_POLL_MS);
     }
     lastSeenBotCount = botCount;
+
+    // The message we just saw may be the one that closed the conversation.
+    // Answering it would be the rehearsal manufacturing a `post_closure_message`
+    // out of nothing, so the guest leaves the same way a person does when the
+    // other side has said goodbye.
+    const detail = await requestJson(
+      `${apiBase}/feedback/campaigns/${entry.campaignId}/conversations/${entry.conversationId}`,
+      { headers },
+    );
+    if (detail.lifecycle.state !== "open") {
+      console.error(
+        `${persona.id}: the conversation closed (${detail.lifecycle.reason ?? "no reason"}) — the guest stops here with ${live.maxTurns - turn} turn(s) unused.`,
+      );
+      return;
+    }
 
     const transcript = messages
       .map(
