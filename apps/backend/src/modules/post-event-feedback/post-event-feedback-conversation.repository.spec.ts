@@ -57,7 +57,14 @@ describe("FeedbackConversationRepository", () => {
         channel: "whatsapp",
         lifecycle: { state: "open", reason: null, closedAt: null },
         control: { mode: "bot", source: "launch", changedAt: launchedAt },
-        extraction: { cursorSeq: 0, lastRunAt: null, model: null },
+        extraction: {
+          cursorSeq: 0,
+          lastRunAt: null,
+          model: null,
+          parkedSince: null,
+          parkedRuns: 0,
+          parkedNoticeSentAt: null,
+        },
         needsAttention: false,
         attentionReasons: [],
       }),
@@ -573,7 +580,14 @@ describe("FeedbackConversationRepository", () => {
   it("advances the extraction cursor only forward and only inside the transcript", async () => {
     const conversation = feedbackConversation({
       messages: [botMessage(1), participantMessage(2)],
-      extraction: { cursorSeq: 2, lastRunAt: repliedAt, model: null },
+      extraction: {
+        cursorSeq: 2,
+        lastRunAt: repliedAt,
+        model: null,
+        parkedSince: null,
+        parkedRuns: 0,
+        parkedNoticeSentAt: null,
+      },
     });
     const collection = collectionMock({
       findOneAndUpdate: vi.fn().mockResolvedValue(null),
@@ -599,6 +613,11 @@ describe("FeedbackConversationRepository", () => {
           "extraction.cursorSeq": 2,
           "extraction.lastRunAt": repliedAt,
           "extraction.model": "google/gemini-3.6-flash",
+          // A run that moved the cursor reached the provider, so the same write
+          // ends any park. The notice ledger is deliberately absent from the
+          // set: it records that a person was already apologised to once.
+          "extraction.parkedSince": null,
+          "extraction.parkedRuns": 0,
         },
       }),
       { returnDocument: "after" },
@@ -607,6 +626,86 @@ describe("FeedbackConversationRepository", () => {
     await expect(
       repository.advanceCursor({ conversationId, toSeq: 3, at: repliedAt }),
     ).rejects.toBeInstanceOf(FeedbackConversationTransitionError);
+  });
+
+  it("keeps the first park's start time while counting every parked run", async () => {
+    const parked = feedbackConversation({
+      extraction: {
+        cursorSeq: 0,
+        lastRunAt: null,
+        model: null,
+        parkedSince: repliedAt,
+        parkedRuns: 4,
+        parkedNoticeSentAt: null,
+      },
+    });
+    const collection = collectionMock({
+      findOneAndUpdate: vi.fn().mockResolvedValue(parked),
+    });
+    const repository = createRepository(collection);
+
+    await expect(
+      repository.parkExtraction({ conversationId, at: repliedAt }),
+    ).resolves.toEqual(expect.objectContaining({ changed: true }));
+    // One atomic statement, because the two halves disagree: the start is kept
+    // and the counter moves. Recomputing the start on every failing run would
+    // push the half-hour notice away exactly as fast as the outage lasted.
+    expect(collection.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ _id: conversationId }),
+      [
+        {
+          $set: {
+            "extraction.parkedSince": {
+              $ifNull: ["$extraction.parkedSince", repliedAt],
+            },
+            "extraction.parkedRuns": {
+              $add: [{ $ifNull: ["$extraction.parkedRuns", 0] }, 1],
+            },
+            updatedAt: { $max: ["$updatedAt", repliedAt] },
+          },
+        },
+      ],
+      { returnDocument: "after" },
+    );
+  });
+
+  it("records the parked notice once and reports the second attempt unchanged", async () => {
+    const alreadyTold = feedbackConversation({
+      extraction: {
+        cursorSeq: 0,
+        lastRunAt: null,
+        model: null,
+        parkedSince: repliedAt,
+        parkedRuns: 7,
+        parkedNoticeSentAt: repliedAt,
+      },
+    });
+    const collection = collectionMock({
+      findOneAndUpdate: vi.fn().mockResolvedValue(null),
+      findOne: vi.fn().mockResolvedValue(alreadyTold),
+    });
+    const repository = createRepository(collection);
+
+    await expect(
+      repository.markExtractionParkedNoticeSent({
+        conversationId,
+        at: repliedAt,
+      }),
+    ).resolves.toEqual(expect.objectContaining({ changed: false }));
+    // The guard is what makes "once" true across hours of wake-ups, and it
+    // accepts a document written before the field existed.
+    expect(collection.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        $or: [
+          { "extraction.parkedNoticeSentAt": null },
+          { "extraction.parkedNoticeSentAt": { $exists: false } },
+        ],
+      }),
+      expect.objectContaining({
+        $set: { "extraction.parkedNoticeSentAt": repliedAt },
+      }),
+      { returnDocument: "after" },
+    );
   });
 
   it("advances goal statuses monotonically and never reopens an answer", async () => {
@@ -753,6 +852,7 @@ describe("FeedbackConversationRepository", () => {
           lastMessageActor: "participant",
           cursorSeq: 1,
           needsAttention: false,
+          extractionParked: false,
           createdAt: launchedAt,
           updatedAt: repliedAt,
         },
@@ -984,12 +1084,20 @@ function feedbackConversation(
     control: { mode: "bot", source: "launch", changedAt: launchedAt },
     goals: buildFeedbackConversationGoals(),
     messages: [],
-    extraction: { cursorSeq: 0, lastRunAt: null, model: null },
+    extraction: {
+      cursorSeq: 0,
+      lastRunAt: null,
+      model: null,
+      parkedSince: null,
+      parkedRuns: 0,
+      parkedNoticeSentAt: null,
+    },
     needsAttention: false,
     attentionReasons: [],
     remindedAt: null,
     reminderCount: 0,
     awaitingHuman: false,
+    hostileTurns: 0,
     extractionFallbackAckSent: false,
     createdAt: launchedAt,
     updatedAt: repliedAt,

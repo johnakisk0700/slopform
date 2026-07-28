@@ -757,12 +757,20 @@ export class FakeFeedbackConversations {
       control: { mode: "bot", source: "launch", changedAt: input.launchedAt },
       goals: [...(input.goals ?? [])],
       messages: [],
-      extraction: { cursorSeq: 0, lastRunAt: null, model: null },
+      extraction: {
+        cursorSeq: 0,
+        lastRunAt: null,
+        model: null,
+        parkedSince: null,
+        parkedRuns: 0,
+        parkedNoticeSentAt: null,
+      },
       needsAttention: false,
       attentionReasons: [],
       remindedAt: null,
       reminderCount: 0,
       awaitingHuman: false,
+      hostileTurns: 0,
       extractionFallbackAckSent: false,
       createdAt: input.launchedAt,
       updatedAt: input.launchedAt,
@@ -972,6 +980,29 @@ export class FakeFeedbackConversations {
     return { changed: true, conversation: structuredClone(conversation) };
   }
 
+  /**
+   * Advances the hostility ladder by one rung, compare-and-set.
+   *
+   * The guard is the real repository's, not a simplification: it is what makes a
+   * replayed extraction run leave the rung where it is, and a fake that
+   * incremented unconditionally would let the suite pass over a double count
+   * production would suffer.
+   */
+  async recordHostileTurn(input: {
+    conversationId: string;
+    at: Date;
+    expectedCount: number;
+  }): Promise<FakeConversationTransition> {
+    const conversation = this.require(input.conversationId);
+    if (conversation.hostileTurns !== input.expectedCount) {
+      return { changed: false, conversation: structuredClone(conversation) };
+    }
+    conversation.hostileTurns = input.expectedCount + 1;
+    this.touch(conversation, input.at);
+    this.revalidate(conversation);
+    return { changed: true, conversation: structuredClone(conversation) };
+  }
+
   async markExtractionFallbackAckSent(input: {
     conversationId: string;
     at: Date;
@@ -1067,6 +1098,44 @@ export class FakeFeedbackConversations {
       cursorSeq: input.toSeq,
       lastRunAt: input.at,
       model: input.model ?? null,
+      // A run that moved the cursor reached the provider, so it ends the park —
+      // but not the record that this person has already been apologised to once.
+      parkedSince: null,
+      parkedRuns: 0,
+      parkedNoticeSentAt: conversation.extraction.parkedNoticeSentAt,
+    };
+    this.touch(conversation, input.at);
+    this.revalidate(conversation);
+    return { changed: true, conversation: structuredClone(conversation) };
+  }
+
+  /** Keeps the first park's start time and counts every run, as the pipeline does. */
+  async parkExtraction(input: {
+    conversationId: string;
+    at: Date;
+  }): Promise<FakeConversationTransition> {
+    const conversation = this.require(input.conversationId);
+    conversation.extraction = {
+      ...conversation.extraction,
+      parkedSince: conversation.extraction.parkedSince ?? input.at,
+      parkedRuns: conversation.extraction.parkedRuns + 1,
+    };
+    this.touch(conversation, input.at);
+    this.revalidate(conversation);
+    return { changed: true, conversation: structuredClone(conversation) };
+  }
+
+  async markExtractionParkedNoticeSent(input: {
+    conversationId: string;
+    at: Date;
+  }): Promise<FakeConversationTransition> {
+    const conversation = this.require(input.conversationId);
+    if (conversation.extraction.parkedNoticeSentAt !== null) {
+      return { changed: false, conversation: structuredClone(conversation) };
+    }
+    conversation.extraction = {
+      ...conversation.extraction,
+      parkedNoticeSentAt: input.at,
     };
     this.touch(conversation, input.at);
     this.revalidate(conversation);

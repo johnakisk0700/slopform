@@ -1,6 +1,7 @@
 import {
   APICallError,
   NoObjectGeneratedError,
+  RetryError,
   type LanguageModelUsage,
 } from "ai";
 import { describe, expect, it } from "vitest";
@@ -11,6 +12,7 @@ import {
   FEEDBACK_EXTRACTION_DEFAULT_MODEL,
   FeedbackExtractionGenerationError,
   feedbackAttentionClassificationProviderOptions,
+  isFeedbackProviderIncident,
   resolveFeedbackExtractionModel,
   toGenerationError,
 } from "./model.service.js";
@@ -187,6 +189,94 @@ describe("feedback extraction failure mapping", () => {
         expect(error.failureCause).toBe(cause);
       },
     );
+
+    // The 2026-07-27 incident, as a classification question. Each of these is
+    // non-retryable, so before the status was read every one of them arrived as
+    // `provider_refusal` — the class that speaks to the participant and queues an
+    // operator. None of them is about the message.
+    it.each([401, 402, 403, 404] as const)(
+      "reads a non-retryable %s as the provider's fault, not the conversation's",
+      (statusCode) => {
+        const error = toGenerationError(
+          new APICallError({
+            message: "provider said no",
+            url: "https://openrouter.ai",
+            requestBodyValues: {},
+            statusCode,
+            isRetryable: false,
+          }),
+        );
+
+        expect(error).toMatchObject({
+          code: "provider_rejected",
+          retryable: false,
+          failureCause: "provider_error",
+        });
+        expect(isFeedbackProviderIncident(error)).toBe(true);
+      },
+    );
+
+    // The other half of the same test: a rejection of *this* request keeps
+    // today's treatment, and the park must not swallow it.
+    it.each([400, 422] as const)(
+      "keeps a non-retryable %s a refusal about this request",
+      (statusCode) => {
+        const error = toGenerationError(
+          new APICallError({
+            message: "provider said no",
+            url: "https://openrouter.ai",
+            requestBodyValues: {},
+            statusCode,
+            isRetryable: false,
+          }),
+        );
+
+        expect(error.failureCause).toBe("provider_refusal");
+        expect(isFeedbackProviderIncident(error)).toBe(false);
+      },
+    );
+
+    it("reads the status through a RetryError wrapper", () => {
+      // The SDK wraps the last attempt, and the wrapper carries no status of its
+      // own. Unwrapping is what keeps an empty balance classified the same way
+      // whether or not the provider layer retried it first.
+      const error = toGenerationError(
+        new RetryError({
+          message: "failed after 3 attempts",
+          reason: "maxRetriesExceeded",
+          errors: [
+            new APICallError({
+              message: "insufficient credits",
+              url: "https://openrouter.ai",
+              requestBodyValues: {},
+              statusCode: 402,
+              isRetryable: false,
+            }),
+          ],
+        }),
+      );
+
+      expect(error.failureCause).toBe("provider_error");
+    });
+
+    it("does not treat a refusal or a schema failure as a provider incident", () => {
+      for (const error of [
+        new FeedbackExtractionGenerationError(
+          "provider_rejected",
+          false,
+          "provider_refusal",
+        ),
+        new FeedbackExtractionGenerationError(
+          "extraction_failed",
+          true,
+          "validation_failed",
+        ),
+        new FeedbackExtractionGenerationError("extraction_failed", true),
+        new Error("mongo went away"),
+      ]) {
+        expect(isFeedbackProviderIncident(error)).toBe(false);
+      }
+    });
 
     it("falls back to unknown for anything unrecognised", () => {
       expect(toGenerationError(new Error("socket hang up")).failureCause).toBe(

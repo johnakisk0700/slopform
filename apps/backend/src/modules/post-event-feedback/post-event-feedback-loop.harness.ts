@@ -26,6 +26,7 @@ import type { PostEventFeedbackExtractionModel } from "./extraction/model.servic
 import {
   POST_EVENT_FEEDBACK_FALLBACK_ACK,
   POST_EVENT_FEEDBACK_HANDOFF_REPLY,
+  POST_EVENT_FEEDBACK_HOSTILITY_STOP_REPLY,
 } from "./extraction/extraction.schemas.js";
 import { PostEventFeedbackExtractor } from "./extraction/extract.service.js";
 import { PostEventFeedbackIngressService } from "./ingress/ingress.service.js";
@@ -427,12 +428,20 @@ export async function createFeedbackLoopHarness(
       status: goalStatuses[goal.key] ?? goal.status,
     })),
     messages: [],
-    extraction: { cursorSeq: 0, lastRunAt: null, model: null },
+    extraction: {
+      cursorSeq: 0,
+      lastRunAt: null,
+      model: null,
+      parkedSince: null,
+      parkedRuns: 0,
+      parkedNoticeSentAt: null,
+    },
     needsAttention: false,
     attentionReasons: [],
     remindedAt: null,
     reminderCount: 0,
     awaitingHuman: false,
+    hostileTurns: 0,
     extractionFallbackAckSent: false,
     createdAt: FEEDBACK_LOOP_START,
     updatedAt: FEEDBACK_LOOP_START,
@@ -576,6 +585,7 @@ export async function createFeedbackLoopHarness(
       outboundTranscript,
     ),
     new PostEventFeedbackExtractionFallback(
+      queuePort,
       database as unknown as DatabaseService,
       repository as unknown as FeedbackCampaignRepository,
       repository as unknown as FeedbackResultsRepository,
@@ -1017,6 +1027,9 @@ function classifyOutbound(
   }
   if (body === POST_EVENT_FEEDBACK_HANDOFF_REPLY) {
     return "handoff";
+  }
+  if (body === POST_EVENT_FEEDBACK_HOSTILITY_STOP_REPLY) {
+    return "hostility_stop";
   }
   if (body.startsWith(POST_EVENT_FEEDBACK_FALLBACK_ACK)) {
     return "fallback";

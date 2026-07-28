@@ -70,6 +70,33 @@ export const FEEDBACK_EXTRACTION_FAILURE_CAUSES = [
 export type FeedbackExtractionFailureCause =
   (typeof FEEDBACK_EXTRACTION_FAILURE_CAUSES)[number];
 
+/**
+ * HTTP statuses that mean «our side of the arrangement with the provider is
+ * broken», not «this conversation defeated the model».
+ *
+ * They are all *non-retryable*, which is exactly why they need naming. The
+ * retryable half of a provider fault (a timeout, a 429, a 503) already reaches
+ * `provider_error` through `isRetryable`; these do not, and until this list
+ * existed every one of them was classified `provider_refusal` — the class that
+ * means a human should read the transcript. An exhausted OpenRouter balance
+ * therefore looked identical to a content filter stopping on a disclosure, and
+ * on 2026-07-27 thirty-six participants were told the analysis of their evening
+ * had failed because of our billing.
+ *
+ * 401 is a wrong or missing key, 402 is out of credit, 403 is a forbidden route
+ * or region, 404 is a model id the provider does not serve. Every one of them is
+ * identical for every conversation in the campaign and none of them is repaired
+ * by reading a message — they are repaired by somebody topping up, fixing a key
+ * or correcting a model id, after which the very same request succeeds.
+ *
+ * 400 and 422 are deliberately absent. Those say the provider rejected *this
+ * request*, which is the bucket that keeps today's behaviour: fall back once,
+ * file a note and ask for a person.
+ */
+export const FEEDBACK_PROVIDER_ACCOUNT_FAULT_STATUS_CODES: readonly number[] = [
+  401, 402, 403, 404,
+];
+
 /** Matches the assistant's two-minute total bound on a single provider call. */
 export const FEEDBACK_EXTRACTION_TIMEOUT_MILLISECONDS = 120_000;
 
@@ -89,6 +116,27 @@ export class FeedbackExtractionGenerationError extends Error {
     super(`Feedback extraction failed: ${code}`);
     this.name = FeedbackExtractionGenerationError.name;
   }
+}
+
+/**
+ * Whether this failure is the provider's, and therefore everybody's.
+ *
+ * The single structural question the terminal failure path asks. `provider_error`
+ * is not a guess: it is set only where the code can point at the provider — a
+ * missing client for the configured route, an `APICallError` the provider marked
+ * retryable, or one of the account-fault statuses above. Nothing here reads an
+ * error message.
+ *
+ * Everything else — a content filter, a schema the model never satisfied, a
+ * validation refusal, an unrecognised throw — is treated as a fault of *this*
+ * conversation's run, because that is the only assumption that keeps a
+ * disclosure in front of a person.
+ */
+export function isFeedbackProviderIncident(error: unknown): boolean {
+  return (
+    error instanceof FeedbackExtractionGenerationError &&
+    error.failureCause === "provider_error"
+  );
 }
 
 export interface FeedbackExtractionUsage {
@@ -127,6 +175,11 @@ export interface FeedbackExtractionGenerationResult {
 export interface FeedbackAttentionClassificationGenerationResult {
   readonly model: FeedbackExtractionModelId;
   readonly signals: readonly FeedbackExtractionSafetySignalProposal[];
+  /**
+   * Messages in this run aimed abusively at us. Never a safety signal — see
+   * `FeedbackAttentionClassificationResult` for why the two travel apart.
+   */
+  readonly hostileMessageIds: readonly string[];
   readonly usage: FeedbackExtractionUsage;
   readonly estimatedPromptTokens: number;
 }
@@ -271,6 +324,7 @@ export class PostEventFeedbackExtractionModel implements FeedbackExtractionModel
       FEEDBACK_ATTENTION_CLASSIFICATION_BATCH_SIZE,
     );
     const signals: FeedbackExtractionSafetySignalProposal[] = [];
+    const hostileMessageIds: string[] = [];
     const usages: FeedbackExtractionUsage[] = [];
     const providerOptions = feedbackAttentionClassificationProviderOptions(
       this.model,
@@ -302,9 +356,12 @@ export class PostEventFeedbackExtractionModel implements FeedbackExtractionModel
         const proposal = feedbackAttentionClassificationProposalSchema.parse(
           result.object,
         );
-        signals.push(
-          ...validateFeedbackAttentionClassification(proposal, batch),
+        const classified = validateFeedbackAttentionClassification(
+          proposal,
+          batch,
         );
+        signals.push(...classified.signals);
+        hostileMessageIds.push(...classified.hostileMessageIds);
         usages.push({
           inputTokens: result.usage.inputTokens ?? null,
           outputTokens: result.usage.outputTokens ?? null,
@@ -318,6 +375,7 @@ export class PostEventFeedbackExtractionModel implements FeedbackExtractionModel
     return {
       model: this.model,
       signals,
+      hostileMessageIds,
       usage: combineUsage(usages),
       estimatedPromptTokens,
     };
@@ -399,14 +457,13 @@ export function toGenerationError(
     return error;
   }
   if (APICallError.isInstance(error)) {
-    return new FeedbackExtractionGenerationError(
-      error.isRetryable ? "extraction_failed" : "provider_rejected",
-      error.isRetryable,
-      error.isRetryable ? "provider_error" : "provider_refusal",
-    );
+    return fromApiCallError(error);
   }
   if (RetryError.isInstance(error)) {
     const lastError = error.lastError;
+    if (APICallError.isInstance(lastError)) {
+      return fromApiCallError(lastError);
+    }
     const retryable = isRetryableProviderError(lastError);
     return new FeedbackExtractionGenerationError(
       retryable ? "extraction_failed" : "provider_rejected",
@@ -446,6 +503,31 @@ export function toGenerationError(
     true,
     "unknown",
     describeUnclassifiedError(error),
+  );
+}
+
+/**
+ * One provider HTTP failure, classified by what would repair it.
+ *
+ * Retryability decides the *code* (may BullMQ try again), and the status decides
+ * the *cause* (who has to do something about it). Those two questions used to
+ * share one answer, which is how a 402 became a refusal: not retryable,
+ * therefore assumed to be about the message.
+ *
+ * The status is read from the error the provider actually produced, never from
+ * its message text. A string match would be a guess, and the strings differ per
+ * provider and change without notice.
+ */
+function fromApiCallError(
+  error: APICallError,
+): FeedbackExtractionGenerationError {
+  const accountFault =
+    error.statusCode !== undefined &&
+    FEEDBACK_PROVIDER_ACCOUNT_FAULT_STATUS_CODES.includes(error.statusCode);
+  return new FeedbackExtractionGenerationError(
+    error.isRetryable ? "extraction_failed" : "provider_rejected",
+    error.isRetryable,
+    error.isRetryable || accountFault ? "provider_error" : "provider_refusal",
   );
 }
 

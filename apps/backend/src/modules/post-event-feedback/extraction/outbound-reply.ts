@@ -6,9 +6,11 @@ import type { FeedbackExtractionValidationResult } from "./validate-proposal.js"
 import type { FeedbackExtractionRejectionReason } from "./extraction.schemas.js";
 import {
   POST_EVENT_FEEDBACK_HANDOFF_REPLY,
+  POST_EVENT_FEEDBACK_HOSTILITY_STOP_REPLY,
   POST_EVENT_FEEDBACK_SAFETY_ASSURANCE,
   createFeedbackClosingDedupeKey,
   createFeedbackHandoffDedupeKey,
+  createFeedbackHostilityStopDedupeKey,
   createFeedbackReplyDedupeKey,
 } from "./extraction.schemas.js";
 import {
@@ -87,7 +89,19 @@ export function resolveOutbound(
   testimonySeq: number,
   copy: PostEventFeedbackQuestionSetCopy,
   nextOpenGoal: FeedbackAnswerQuestionKey | null,
+  stoppingForHostility = false,
 ): OutboundReply | undefined {
+  // Ahead of every other branch, including the urgent-safety silence, because
+  // this run has already established that no safety signal exists — that is a
+  // precondition of `stoppingForHostility` and not a coincidence. Below this
+  // point every branch is about continuing the questionnaire in some form, and
+  // the one thing this run must not do is continue it.
+  if (stoppingForHostility) {
+    return {
+      body: POST_EVENT_FEEDBACK_HOSTILITY_STOP_REPLY,
+      dedupeKey: createFeedbackHostilityStopDedupeKey(conversation._id),
+    };
+  }
   const outbound = chooseOutbound(
     conversation,
     validated,
@@ -243,8 +257,14 @@ function chooseOutbound(
 /**
  * Whether this conversation ever got an answer out of the participant —
  * previously recorded, or accepted in this run.
+ *
+ * Exported because the close decision needs the same judgement the closing copy
+ * needs, and for the same reason: «Τέλεια, ευχαριστούμε πολύ!» has nothing to
+ * thank an empty ladder for, and `lifecycle.reason: "completed"` has no
+ * questionnaire to call finished. One definition, so the sentence the
+ * participant reads and the word the database records can never disagree.
  */
-function answeredAnything(
+export function answeredAnything(
   conversation: FeedbackConversationDocument,
   validated: FeedbackExtractionValidationResult,
 ): boolean {

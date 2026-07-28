@@ -20,6 +20,23 @@ const feedbackAttentionClassificationResultSchema = z
     incident: z.boolean(),
     category: postEventFeedbackSafetyCategorySchema.nullable(),
     recommendedAction: postEventFeedbackRecommendedActionSchema.nullable(),
+    /**
+     * This message is aimed at us — the bot, the team, the questionnaire — and
+     * is abusive about it.
+     *
+     * A field of its own, on the same axis as nothing else here, because the one
+     * thing it must never become is a safety category. The prompt already spends
+     * a paragraph teaching that abuse aimed at us stays `incident=false` however
+     * heavy it is, and the whole point of that paragraph is that flagging it
+     * would bury the operator under `avoid` answers and crude jokes. Counting it
+     * is a different question from classifying it: we want to know when to stop
+     * replying, and that is not news about somebody's safety.
+     *
+     * So `incident` and this are independent by construction. A message can be
+     * both — somebody who degrades an attendee *and* swears at us in one breath
+     * — and reading either from the other is what the separation prevents.
+     */
+    hostileToUs: z.boolean(),
     confidence: z.number().min(0).max(1),
   })
   .strict()
@@ -57,6 +74,23 @@ export type FeedbackAttentionClassificationProposal = z.infer<
 export interface FeedbackAttentionClassificationPrompt {
   readonly system: string;
   readonly user: string;
+}
+
+/**
+ * What one classification batch found: incidents, and hostility toward us.
+ *
+ * Two lists rather than one enriched list, because the consumers are different
+ * and must stay that way. `signals` continue through proposal validation into
+ * `feedback_notes`, message attention, the operator alert and the answer hold;
+ * `hostileMessageIds` reach none of those — they only tell the run how many
+ * times this person has now sworn at us. Returning them in the same array would
+ * have meant every existing safety consumer growing a filter, and the first one
+ * that forgot would turn a crude joke into an incident.
+ */
+export interface FeedbackAttentionClassificationResult {
+  readonly signals: readonly FeedbackExtractionSafetySignalProposal[];
+  /** Participant messages in this batch aimed abusively at us. */
+  readonly hostileMessageIds: readonly string[];
 }
 
 export interface BuildFeedbackAttentionClassificationPromptInput {
@@ -126,6 +160,8 @@ export function buildFeedbackAttentionClassificationPrompt(
       "Η απαξίωση για καταγωγή, γλώσσα, εθνότητα, θρησκεία, αναπηρία, σεξουαλικότητα ή φύλο είναι το πιο καθαρό παράδειγμα και μετράει πάντα.",
       "Αρνητική γνώμη ή απόρριψη για κατονομαζόμενο άτομο δεν είναι από μόνη της περιστατικό: «βαρετός», «δεν μου ταίριαξε», «δεν θέλω να τον ξαναδώ» είναι κανονικές απαντήσεις του ερωτηματολογίου και σημαίνουν incident=false. Το κατώφλι είναι η απαξίωση του ανθρώπου, όχι η δυσαρέσκεια μαζί του.",
       "Βρισιές, χυδαιότητα ή επιθετικότητα προς ΕΜΑΣ — το bot, την ομάδα, το ερωτηματολόγιο — ή προς κανέναν συγκεκριμένο, σημαίνει incident=false όσο βαριές κι αν είναι.",
+      "hostileToUs=true ΜΟΝΟ για αυτή την περίπτωση: το μήνυμα βρίζει ή επιτίθεται σε ΕΜΑΣ. Είναι ξεχωριστό πεδίο, ανεξάρτητο από το incident, και δεν είναι κατηγορία ασφάλειας — δεν αλλάζει ποτέ το incident, το category ή το recommendedAction.",
+      "hostileToUs=false όταν η χυδαιότητα ή η απαξίωση αφορά άνθρωπο του τραπεζιού και όχι εμάς: ένα χοντρό αστείο για κάποια που του άρεσε δεν είναι επίθεση σε εμάς. Επίσης false για απλή δυσαρέσκεια, εκνευρισμό ή άρνηση να απαντήσει χωρίς βρισιά.",
       "Απλή έλξη, σχόλιο εμφάνισης, χυδαία γλώσσα ή σεξουαλικό αστείο χωρίς ανεπιθύμητη πράξη σημαίνει incident=false.",
       "sexual_misconduct: ανεπιθύμητο σεξουαλικό υλικό, έκθεση, πίεση, άγγιγμα ή παρενόχληση.",
       "harassment: επίμονη στοχοποίηση ή εκφοβισμός που δεν είναι σεξουαλικός.",
@@ -164,10 +200,11 @@ export function buildFeedbackAttentionClassificationPrompt(
 export function validateFeedbackAttentionClassification(
   proposal: FeedbackAttentionClassificationProposal,
   targetMessageIds: readonly string[],
-): FeedbackExtractionSafetySignalProposal[] {
+): FeedbackAttentionClassificationResult {
   const expectedIds = new Set(targetMessageIds);
   const seen = new Set<string>();
   const signals: FeedbackExtractionSafetySignalProposal[] = [];
+  const hostileMessageIds: string[] = [];
 
   for (const result of proposal.results) {
     if (!expectedIds.has(result.messageId)) {
@@ -181,6 +218,13 @@ export function validateFeedbackAttentionClassification(
       );
     }
     seen.add(result.messageId);
+
+    // Read before and independently of `incident`, so the two never gate each
+    // other: a message that is both a disclosure and abusive about us appears in
+    // both lists, and one that is only rude appears in neither signal.
+    if (result.hostileToUs) {
+      hostileMessageIds.push(result.messageId);
+    }
 
     if (result.incident) {
       if (!result.category || !result.recommendedAction) {
@@ -207,7 +251,7 @@ export function validateFeedbackAttentionClassification(
     );
   }
 
-  return signals;
+  return { signals, hostileMessageIds };
 }
 
 /**

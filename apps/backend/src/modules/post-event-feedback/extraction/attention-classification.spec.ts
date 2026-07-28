@@ -85,6 +85,7 @@ describe("feedback attention classification", () => {
           incident: true,
           category: "abuse_of_a_participant",
           recommendedAction: "urgent_human_follow_up",
+          hostileToUs: false,
           confidence: 0.88,
         },
       ],
@@ -92,14 +93,17 @@ describe("feedback attention classification", () => {
 
     expect(
       validateFeedbackAttentionClassification(proposal, ["m-incident"]),
-    ).toEqual([
-      {
-        category: "abuse_of_a_participant",
-        recommendedAction: "human_follow_up",
-        sourceMessageIds: ["m-incident"],
-        confidence: 0.88,
-      },
-    ]);
+    ).toEqual({
+      signals: [
+        {
+          category: "abuse_of_a_participant",
+          recommendedAction: "human_follow_up",
+          sourceMessageIds: ["m-incident"],
+          confidence: 0.88,
+        },
+      ],
+      hostileMessageIds: [],
+    });
   });
 
   it("maps only model-declared incidents to message attention signals", () => {
@@ -110,6 +114,7 @@ describe("feedback attention classification", () => {
           incident: false,
           category: null,
           recommendedAction: null,
+          hostileToUs: false,
           confidence: 0.94,
         },
         {
@@ -117,6 +122,7 @@ describe("feedback attention classification", () => {
           incident: true,
           category: "sexual_misconduct",
           recommendedAction: "urgent_human_follow_up",
+          hostileToUs: false,
           confidence: 0.91,
         },
       ],
@@ -127,14 +133,88 @@ describe("feedback attention classification", () => {
         "m-safe",
         "m-incident",
       ]),
-    ).toEqual([
-      {
-        category: "sexual_misconduct",
-        recommendedAction: "urgent_human_follow_up",
-        sourceMessageIds: ["m-incident"],
-        confidence: 0.91,
-      },
-    ]);
+    ).toEqual({
+      signals: [
+        {
+          category: "sexual_misconduct",
+          recommendedAction: "urgent_human_follow_up",
+          sourceMessageIds: ["m-incident"],
+          confidence: 0.91,
+        },
+      ],
+      hostileMessageIds: [],
+    });
+  });
+
+  it("reports hostility toward us without ever making it a safety signal", () => {
+    // Μπάμπης Διπλογαμωσταυρίδης's «άντε γαμήσου ρε μαλακισμένο μποτ». The whole
+    // point of the field is that this message produces a counter tick and
+    // nothing else: no category, no recommendedAction, no signal, so nothing
+    // downstream can read it as an incident. The schema's own refinement
+    // guarantees the two null fields, which is why `incident: false` and a
+    // category cannot coexist even if a model tried.
+    const proposal = feedbackAttentionClassificationProposalSchema.parse({
+      results: [
+        {
+          messageId: "m-safe",
+          incident: false,
+          category: null,
+          recommendedAction: null,
+          hostileToUs: true,
+          confidence: 0.93,
+        },
+      ],
+    });
+
+    expect(
+      validateFeedbackAttentionClassification(proposal, ["m-safe"]),
+    ).toEqual({ signals: [], hostileMessageIds: ["m-safe"] });
+  });
+
+  it("keeps a disclosure's signal and its hostility on separate axes", () => {
+    // One message that degrades an attendee *and* swears at us. Both are true and
+    // the two lists are what let both be said; folding hostility into the
+    // categories would have forced a choice between them, and the category is the
+    // one an operator acts on.
+    const proposal = feedbackAttentionClassificationProposalSchema.parse({
+      results: [
+        {
+          messageId: "m-incident",
+          incident: true,
+          category: "abuse_of_a_participant",
+          recommendedAction: "human_follow_up",
+          hostileToUs: true,
+          confidence: 0.9,
+        },
+      ],
+    });
+
+    expect(
+      validateFeedbackAttentionClassification(proposal, ["m-incident"]),
+    ).toEqual({
+      signals: [
+        {
+          category: "abuse_of_a_participant",
+          recommendedAction: "human_follow_up",
+          sourceMessageIds: ["m-incident"],
+          confidence: 0.9,
+        },
+      ],
+      hostileMessageIds: ["m-incident"],
+    });
+  });
+
+  it("names hostility toward us in the prompt without offering it a category", () => {
+    const system = buildFeedbackAttentionClassificationPrompt({
+      messages,
+      targetMessageIds: ["m-safe"],
+    }).system;
+
+    expect(system).toContain("hostileToUs=true");
+    // The instruction that keeps `wine_crude_joke` out of the count: crudeness
+    // about somebody at the table is not an attack on us.
+    expect(system).toContain("hostileToUs=false");
+    expect(system).toContain("δεν είναι κατηγορία ασφάλειας");
   });
 
   it("bounds historical context while keeping the target turn", () => {
@@ -173,6 +253,7 @@ describe("feedback attention classification", () => {
           incident: false,
           category: null,
           recommendedAction: null,
+          hostileToUs: false,
           confidence: 0.94,
         },
       ],
@@ -195,6 +276,9 @@ describe("feedback attention classification", () => {
             incident: false,
             category: "sexual_misconduct",
             recommendedAction: "review",
+            // Supplied, so the rejection below is the contradiction between
+            // `incident: false` and a category — not an incidentally missing key.
+            hostileToUs: false,
             confidence: 0.6,
           },
         ],

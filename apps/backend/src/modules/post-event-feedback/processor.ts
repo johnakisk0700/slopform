@@ -16,6 +16,7 @@ import { MessageOutboxRelayService } from "./outbox/relay.service.js";
 import { PostEventFeedbackExtractionFallback } from "./extraction/fallback.service.js";
 import {
   FeedbackExtractionGenerationError,
+  isFeedbackProviderIncident,
   type FeedbackExtractionFailureCause,
 } from "./extraction/model.service.js";
 import {
@@ -224,8 +225,20 @@ export class PostEventFeedbackProcessor extends WorkerHost {
    *
    * A run is terminal when the provider rejected it permanently or when BullMQ
    * has no attempt left. Either way the model will not speak for this
-   * conversation, so the deterministic fallback records what it can — attention,
-   * one ordinary note, one acknowledgement — before the job is buried.
+   * conversation — but *why* decides what happens next, and the two answers are
+   * opposites.
+   *
+   * A failure this conversation caused (a content filter, a schema nothing
+   * satisfied, a refused proposal) gets the deterministic fallback: attention,
+   * one ordinary note, one acknowledgement. Somebody has to read what the model
+   * could not.
+   *
+   * A provider incident gets parked instead. It is one fault, shared by every
+   * conversation in flight, and repeating the first treatment for each of them is
+   * what turned thirty-six provider errors on 2026-07-27 into thirty-six rows
+   * each demanding a human and thirty-six people told the analysis of their
+   * evening had failed. Parking says nothing, asks for nobody, and queues the
+   * next attempt.
    *
    * Returns the error to throw. It is an `UnrecoverableError` whose message
    * carries the bounded cause class, so the class an operator needs is visible
@@ -255,12 +268,25 @@ export class PostEventFeedbackProcessor extends WorkerHost {
     }
 
     const cause = resolveExtractionFailureCause(error);
+    // The structural test, and the only place the two treatments diverge. It
+    // reads the failure's own classification — never a message string — so a
+    // provider that renames its errors cannot silently move a conversation from
+    // one path to the other.
+    const providerIncident = isFeedbackProviderIncident(error);
     try {
-      await this.fallback.apply({
-        conversationId: data.conversationId,
-        correlationId: data.correlationId,
-        cause,
-      });
+      if (providerIncident) {
+        await this.fallback.park({
+          conversationId: data.conversationId,
+          correlationId: data.correlationId,
+          cause,
+        });
+      } else {
+        await this.fallback.apply({
+          conversationId: data.conversationId,
+          correlationId: data.correlationId,
+          cause,
+        });
+      }
     } catch (fallbackError) {
       // The run is already lost; a failing fallback must not replace the
       // original diagnosis with its own.
@@ -286,8 +312,18 @@ export class PostEventFeedbackProcessor extends WorkerHost {
       error instanceof FeedbackExtractionGenerationError && error.failureDetail
         ? ` (${error.failureDetail})`
         : "";
+    // «Parked» rather than «failed permanently», because the two are different
+    // news and this is where an operator reads them. A parked job has a
+    // successor already queued; calling that permanent would be the same
+    // over-statement in `failedReason` that the inbox stopped making.
+    //
+    // Unrecoverable either way: this attempt must not be retried by BullMQ. For a
+    // provider incident the ladder that matters is the parked retry, which is a
+    // job of its own and outlives this one.
     return new UnrecoverableError(
-      `Feedback extraction failed permanently: ${cause}${detail}`,
+      providerIncident
+        ? `Feedback extraction parked on the provider: ${cause}${detail}`
+        : `Feedback extraction failed permanently: ${cause}${detail}`,
     );
   }
 

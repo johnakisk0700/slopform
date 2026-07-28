@@ -17,6 +17,7 @@ import type {
   Cite,
   ModelFailure,
   ModelTurn,
+  ScriptedAttentionTurn,
 } from "./post-event-feedback-loop-scenario.js";
 
 // ── The scripted model ──────────────────────────────────────────────────────
@@ -168,13 +169,16 @@ export class ScriptedExtractionModel {
     targetMessageIds: readonly string[],
   ): Promise<FeedbackAttentionClassificationGenerationResult> {
     await this.waitAtPause("attention");
-    const turn = this.attentionTurns[this.attentionIndex] ?? [];
+    const scripted = this.attentionTurns[this.attentionIndex] ?? [];
     this.attentionIndex += 1;
+    const turn = Array.isArray(scripted)
+      ? { signals: scripted, hostileToUs: false }
+      : (scripted as ScriptedAttentionTurn);
     return {
       model: SCRIPT_MODEL,
       usage: { inputTokens: 180, outputTokens: 40, totalTokens: 220 },
       estimatedPromptTokens: 200,
-      signals: turn.map((signal) => ({
+      signals: (turn.signals ?? []).map((signal) => ({
         category: signal.category,
         recommendedAction: signal.action,
         sourceMessageIds: resolveAttentionCite(
@@ -184,6 +188,10 @@ export class ScriptedExtractionModel {
         ),
         confidence: signal.confidence ?? 0.9,
       })),
+      // Every target message, because the ladder counts runs rather than
+      // messages: a scenario says whether this turn was hostile, not which
+      // fragment of a burst carried the insult.
+      hostileMessageIds: turn.hostileToUs ? [...targetMessageIds] : [],
     };
   }
 

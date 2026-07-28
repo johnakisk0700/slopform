@@ -312,6 +312,112 @@ describe("PostEventFeedbackProcessor", () => {
       expect(fallback.apply).not.toHaveBeenCalled();
     });
 
+    it("parks a provider incident instead of speaking and flagging", async () => {
+      // The regression that matters in the other direction: an exhausted balance
+      // is not retryable, so before this it reached the fallback on attempt one
+      // and every affected conversation apologised to its participant and queued
+      // an operator for a fault none of them had caused.
+      const extractor = {
+        extract: vi
+          .fn()
+          .mockRejectedValue(
+            new FeedbackExtractionGenerationError(
+              "provider_rejected",
+              false,
+              "provider_error",
+            ),
+          ),
+      };
+      const fallback = {
+        apply: vi.fn(),
+        park: vi.fn().mockResolvedValue({ parked: true }),
+      };
+      const processor = createProcessor(
+        { materialize: vi.fn() },
+        extractor,
+        fallback,
+      );
+
+      // «Parked», not «failed permanently»: a successor job is already queued, so
+      // the queue's own `failedReason` must not read as a dead end.
+      await expect(processor.process(createExtractJob())).rejects.toThrow(
+        "Feedback extraction parked on the provider: provider_error",
+      );
+      expect(fallback.park).toHaveBeenCalledWith({
+        conversationId,
+        correlationId: "correlation-1",
+        cause: "provider_error",
+      });
+      expect(fallback.apply).not.toHaveBeenCalled();
+    });
+
+    it("parks a retryable provider incident only once its attempts are spent", async () => {
+      const extractor = {
+        extract: vi
+          .fn()
+          .mockRejectedValue(
+            new FeedbackExtractionGenerationError(
+              "extraction_failed",
+              true,
+              "provider_error",
+            ),
+          ),
+      };
+      const fallback = {
+        apply: vi.fn(),
+        park: vi.fn().mockResolvedValue({ parked: true }),
+      };
+      const processor = createProcessor(
+        { materialize: vi.fn() },
+        extractor,
+        fallback,
+      );
+
+      await expect(
+        processor.process(createExtractJob({ attemptsMade: 4, attempts: 5 })),
+      ).rejects.toThrow("Feedback extraction parked on the provider");
+      expect(fallback.park).toHaveBeenCalledTimes(1);
+      expect(fallback.apply).not.toHaveBeenCalled();
+    });
+
+    it("still falls back and flags for a refusal, exactly as before", async () => {
+      // The load-bearing regression. A provider refusal is something about this
+      // conversation, so the participant is answered and a person is queued —
+      // unchanged by the park path existing.
+      const extractor = {
+        extract: vi
+          .fn()
+          .mockRejectedValue(
+            new FeedbackExtractionGenerationError(
+              "extraction_failed",
+              true,
+              "provider_refusal",
+            ),
+          ),
+      };
+      const fallback = {
+        apply: vi.fn().mockResolvedValue({ applied: true }),
+        park: vi.fn(),
+      };
+      const processor = createProcessor(
+        { materialize: vi.fn() },
+        extractor,
+        fallback,
+      );
+
+      await expect(
+        processor.process(createExtractJob({ attemptsMade: 4, attempts: 5 })),
+      ).rejects.toThrow(
+        "Feedback extraction failed permanently: provider_refusal",
+      );
+      expect(fallback.apply).toHaveBeenCalledWith({
+        conversationId,
+        correlationId: "correlation-1",
+        cause: "provider_refusal",
+      });
+      expect(fallback.park).not.toHaveBeenCalled();
+    });
+
     it("keeps the original diagnosis when the fallback itself fails", async () => {
       const extractor = {
         extract: vi
@@ -343,8 +449,12 @@ describe("PostEventFeedbackProcessor", () => {
 function createProcessor(
   materializer: { materialize: ReturnType<typeof vi.fn> },
   extractor: { extract: ReturnType<typeof vi.fn> } = { extract: vi.fn() },
-  fallback: { apply: ReturnType<typeof vi.fn> } = {
+  fallback: {
+    apply: ReturnType<typeof vi.fn>;
+    park?: ReturnType<typeof vi.fn>;
+  } = {
     apply: vi.fn().mockResolvedValue({ applied: true }),
+    park: vi.fn().mockResolvedValue({ parked: true }),
   },
 ): PostEventFeedbackProcessor {
   return new PostEventFeedbackProcessor(

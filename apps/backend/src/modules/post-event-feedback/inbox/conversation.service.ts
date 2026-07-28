@@ -64,6 +64,7 @@ import type {
 } from "./conversation.schemas.js";
 import {
   createFeedbackExtractJobId,
+  createFeedbackExtractParkedJobId,
   FEEDBACK_EXTRACT_QUIET_WINDOW_MS,
   FEEDBACK_JOB_NAMES,
   FEEDBACK_JOB_SCHEMA_VERSION,
@@ -150,6 +151,14 @@ export class PostEventFeedbackConversationService {
         ).length,
         needsAttentionCount: summaries.filter(
           (summary) => summary.needsAttention,
+        ).length,
+        // The provider incident, reported once for the campaign it is happening
+        // to. It sits beside `needsAttentionCount` and not inside it on purpose:
+        // that number means «this many conversations want a person», and a
+        // parked conversation wants a working provider. Rolling them together is
+        // how one outage became thirty-six things to read.
+        extractionParkedCount: summaries.filter(
+          (summary) => summary.extractionParked,
         ).length,
       },
       conversations: summaries.map((summary) =>
@@ -971,13 +980,27 @@ export class PostEventFeedbackConversationService {
    * `origin: deterministic_fallback`. The fallback does not advance the
    * cursor, so unread testimony plus that note is still the unrepaired
    * failure; inventing "idle" because the queue row is gone would hide it.
+   *
+   * A conversation parked on a provider incident is the one case where a retained
+   * failed job is *not* the news. Its positional job did fail, and a retry is
+   * queued five minutes out with nothing for a human to do in between, so
+   * reporting failure here would render «η ανάγνωση απέτυχε · απάντησε η
+   * εναλλακτική διαδικασία» about a run where no fallback answered anybody. The
+   * park is reported through the fields that already say it honestly — the queued
+   * retry and its due time.
    */
   private async toExtractionView(
     conversation: FeedbackConversationDocument,
   ): Promise<FeedbackConversationExtractionView> {
     const unreadSeqs = unreadParticipantSeqs(conversation);
+    const parked = conversation.extraction.parkedSince !== null;
     const [jobs, notes] = await Promise.all([
-      inspectFeedbackExtractJobs(this.queue, conversation._id, unreadSeqs),
+      inspectFeedbackExtractJobs(
+        this.queue,
+        conversation._id,
+        unreadSeqs,
+        this.parkedRetryJobIds(conversation, unreadSeqs),
+      ),
       unreadSeqs.length > 0
         ? this.results.listNotesByConversation(conversation._id)
         : Promise.resolve([]),
@@ -985,7 +1008,8 @@ export class PostEventFeedbackConversationService {
     const fallbackRecorded = notes.some(
       (note) => note.extractionMeta.origin === "deterministic_fallback",
     );
-    const lastRunFailed = jobs.failedReason !== null || fallbackRecorded;
+    const lastRunFailed =
+      !parked && (jobs.failedReason !== null || fallbackRecorded);
 
     return {
       unreadParticipantMessages: unreadSeqs.length,
@@ -995,8 +1019,36 @@ export class PostEventFeedbackConversationService {
       runInFlight: jobs.active,
       runQueued: jobs.pending,
       lastRunFailed,
-      failedReason: jobs.failedReason,
+      failedReason: lastRunFailed ? jobs.failedReason : null,
     };
+  }
+
+  /**
+   * The id of the retry a parked conversation is currently waiting on.
+   *
+   * Derived, not searched: the park counter is on the document and the newest
+   * unread participant seq is the position the parked run was reading, which is
+   * exactly the pair the fallback used to enqueue it. An empty list for every
+   * conversation that is not parked keeps the Redis lookup the same size it was.
+   */
+  private parkedRetryJobIds(
+    conversation: FeedbackConversationDocument,
+    unreadSeqs: readonly number[],
+  ): readonly string[] {
+    const latestUnread = unreadSeqs.at(-1);
+    if (
+      conversation.extraction.parkedSince === null ||
+      latestUnread === undefined
+    ) {
+      return [];
+    }
+    return [
+      createFeedbackExtractParkedJobId(
+        conversation._id,
+        latestUnread,
+        conversation.extraction.parkedRuns,
+      ),
+    ];
   }
 
   private async toResultsView(

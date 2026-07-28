@@ -40,9 +40,19 @@ export async function inspectFeedbackExtractJobs(
   queue: Pick<Queue, "getJob">,
   conversationId: string,
   participantSeqs: readonly number[],
+  /**
+   * Extra job ids to inspect alongside the positional ones.
+   *
+   * A conversation parked on a provider incident carries its next attempt under
+   * its own id — the positional job for that seq has already failed — so without
+   * this the pane would report a conversation that failed and stopped, when in
+   * fact a retry is queued and due. The caller derives them from the document's
+   * park counter; nothing here guesses an id.
+   */
+  extraJobIds: readonly string[] = [],
 ): Promise<FeedbackExtractJobsInspection> {
   const uniqueSeqs = [...new Set(participantSeqs)].sort((a, b) => a - b);
-  if (uniqueSeqs.length === 0) {
+  if (uniqueSeqs.length === 0 && extraJobIds.length === 0) {
     return {
       active: false,
       pending: false,
@@ -52,9 +62,10 @@ export async function inspectFeedbackExtractJobs(
     };
   }
 
-  const jobIds = uniqueSeqs.map((seq) =>
-    createFeedbackExtractJobId(conversationId, seq),
-  );
+  const jobIds = [
+    ...uniqueSeqs.map((seq) => createFeedbackExtractJobId(conversationId, seq)),
+    ...extraJobIds,
+  ];
   const jobs = await Promise.all(jobIds.map((jobId) => queue.getJob(jobId)));
   const states = await Promise.all(
     jobs.map((job) => (job ? job.getState() : Promise.resolve("unknown"))),

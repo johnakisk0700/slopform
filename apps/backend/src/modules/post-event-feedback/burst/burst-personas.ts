@@ -1361,14 +1361,13 @@ const BURST_SCRIPTED_PERSONAS: readonly BurstPersona[] = [
     // not cover — abuse that never turns into an answer, four clusters of it,
     // with the questionnaire untouched at the end.
     //
-    // **This row is an observation, not yet a contract.** The intended product
-    // behaviour is two or three calm replies and then a closing «δεν μπορούμε
-    // να συνεχίσουμε κουβέντα έτσι», after which the bot goes quiet and the
-    // conversation is frozen for a person to look at. None of that mechanism
-    // exists yet, so the expectation below states what the loop does *today*
-    // and the bound on `received` is deliberately wide: the rehearsal is here
-    // to tell us how many times the bot actually answers him, which is the
-    // number the freeze has to change. Narrow it when the freeze lands.
+    // **This row is now a contract.** It used to be an observation with a
+    // deliberately wide `received` bound, because the mechanism did not exist and
+    // the rehearsal was there to count how many times the bot actually answered
+    // him. It exists now: three hostile turns draw a calm reply each, the fourth
+    // draws the exit line, and `awaitingHuman` means a fifth message would reach
+    // no provider. So the bound is exact — intro, three replies, the line — and a
+    // fifth send is a regression rather than a curiosity.
     //
     // The four clusters are ninety seconds apart on purpose. Under the quiet
     // window four messages sent together would be one run and one reply, and
@@ -1391,27 +1390,43 @@ const BURST_SCRIPTED_PERSONAS: readonly BurstPersona[] = [
       { afterMs: 90_000, text: "ακομα εδω εισαι ρε ηλιθιε; γαμω" },
     ],
     stub: [
-      // No answers, no notes, and no attention signal on any turn — nobody is
-      // being described, so there is nothing to record and nothing to flag. The
-      // replies are what a calm bot says; whether it should still be saying
-      // them by the fourth one is the open question.
+      // No answers and no notes on any turn — nobody is being described, so there
+      // is nothing to record. `hostileToUs` is set on every turn and no safety
+      // category ever is: that pairing is the row's second claim, because a
+      // rehearsal that reached the exit line by way of a safety signal would be
+      // proving the opposite of what this persona is for.
       {
         nextGoal: "event_score",
+        hostileToUs: true,
         reply:
           "Σε άκουσα. Αν θες, πες μου μόνο ένα νούμερο από το 1 ως το 5 για τη βραδιά.",
       },
       {
         nextGoal: "event_score",
+        hostileToUs: true,
         reply:
           "Εντάξει. Είμαι εδώ αν θελήσεις να μου πεις δυο πράγματα για το τραπέζι.",
       },
+      // Phrased as an offer of the question rather than as «δεν χρειάζεται να
+      // απαντήσεις», which poses nothing and therefore reads as a withdrawal: the
+      // run would settle every open goal, mark `awaitingHuman` and raise
+      // `unfinished_questionnaire` on turn three, and the fourth turn would never
+      // reach a provider — so the rehearsal would stop one rung short and never
+      // exercise the exit line it exists to measure.
       {
         nextGoal: "event_score",
-        reply: "Κανένα πρόβλημα, δεν χρειάζεται να απαντήσεις.",
+        hostileToUs: true,
+        reply:
+          "Κανένα πρόβλημα. Πες μου όποτε θέλεις ένα νούμερο από το 1 ως το 5.",
       },
+      // The fourth proposal is an ordinary reply, and the application replaces it
+      // with the exit line. It used to be `reply: null` — the stub pretending the
+      // model would fall silent on its own, which is the one thing a model cannot
+      // be relied on to do.
       {
         nextGoal: "event_score",
-        reply: null,
+        hostileToUs: true,
+        reply: "Είμαι εδώ αν θέλεις να μου πεις για τη βραδιά.",
       },
     ],
     expect: {
@@ -1421,14 +1436,14 @@ const BURST_SCRIPTED_PERSONAS: readonly BurstPersona[] = [
       // would be us deciding on his behalf.
       optedIn: true,
       answers: [],
-      // Swearing at us is correctly not a safety incident. It is still not a
-      // conversation to keep nudging: somebody who opted in and then spent four
-      // messages on this is for a person to look at and close by hand. Nothing
-      // raises the badge for hostility on its own yet, so this is the gap
-      // named, not the behaviour claimed.
+      // Swearing at us is correctly not a safety incident, and it is still not a
+      // conversation to keep nudging: `hostile_to_bot` is the reason on the badge,
+      // and closing it by hand with `staffClose.reason: "abusive"` is the
+      // operator's move. This is now the behaviour claimed rather than a gap named.
       needsAttention: true,
-      // Intro plus however many replies he draws. Wide on purpose — see above.
-      minReceived: 1,
+      // Intro, three calm replies, the exit line. Exact: a sixth send would mean
+      // the freeze did not hold.
+      minReceived: 5,
       maxReceived: 5,
     },
   },

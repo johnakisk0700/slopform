@@ -173,6 +173,16 @@ export interface BurstStubTurn {
   readonly confidence?: number;
   /** Signals the attention classifier returns for this run's new messages. */
   readonly attention?: readonly BurstStubAttentionSignal[];
+  /**
+   * The classifier found this run's messages abusive toward us.
+   *
+   * Separate from `attention` above, and not expressible through it, because a
+   * safety signal is what `attention` scripts and hostility toward us is
+   * explicitly not one. A persona that could only say "hostile" by naming a
+   * category would be scripting the false positive the classifier prompt exists
+   * to prevent.
+   */
+  readonly hostileToUs?: boolean;
 }
 
 export interface BurstExpectedAnswer {

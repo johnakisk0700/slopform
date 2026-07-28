@@ -134,6 +134,30 @@ describe("PostEventFeedbackSweepService", () => {
     expect(repository.insertOutboxIfAbsent).not.toHaveBeenCalled();
   });
 
+  it("does not nudge a conversation whose extraction is parked", async () => {
+    const { service, conversations, repository, participants } =
+      createService();
+    const stuck = openConversation();
+    stuck.extraction.parkedSince = CONVERSATION_CREATED_AT;
+    conversations.listOpenDueForReminder.mockResolvedValue([stuck]);
+    conversations.findById.mockResolvedValue(stuck);
+    repository.findCampaignById.mockResolvedValue(launchedCampaign());
+    participants.findById.mockResolvedValue({
+      id: participantId,
+      preferredName: "Roula",
+      emailNormalized: "roula@example.com",
+      postEventFeedbackWhatsappOptIn: true,
+    });
+
+    const result = await service.sweepReminders("corr-1", ONE_DAY_LATER);
+
+    // Their message is sitting unread behind the cursor, quite possibly with our
+    // own «δεν έχουμε δει ακόμα το μήνυμά σου» already sent. «Πες μας πώς σου
+    // φάνηκε η βραδιά» a day later reads as a machine that lost what they wrote.
+    expect(result).toEqual({ examined: 1, reminded: 0, skipped: 1 });
+    expect(repository.insertOutboxIfAbsent).not.toHaveBeenCalled();
+  });
+
   it("expires an open bot conversation and cancels queued sends", async () => {
     const { service, conversations, repository, auditAppend } = createService();
     const open = openConversation();
@@ -242,6 +266,14 @@ function openConversation() {
     },
     goals: buildFeedbackConversationGoals(),
     messages: [],
+    extraction: {
+      cursorSeq: 0,
+      lastRunAt: null as Date | null,
+      model: null as string | null,
+      parkedSince: null as Date | null,
+      parkedRuns: 0,
+      parkedNoticeSentAt: null as Date | null,
+    },
     remindedAt: null,
     reminderCount: 0,
     createdAt: CONVERSATION_CREATED_AT,

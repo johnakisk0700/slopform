@@ -144,6 +144,7 @@ export class FeedbackConversationRepository {
       remindedAt: null,
       reminderCount: 0,
       awaitingHuman: false,
+      hostileTurns: 0,
       extractionFallbackAckSent: false,
       createdAt: input.launchedAt,
       updatedAt: input.launchedAt,
@@ -314,6 +315,12 @@ export class FeedbackConversationRepository {
             lastMessageActor: { $last: "$messages.actor" },
             cursorSeq: "$extraction.cursorSeq",
             needsAttention: 1,
+            // Projected as a boolean rather than the timestamp: the campaign
+            // summary counts parked conversations, and a list row has nothing to
+            // say about when one particular provider incident started.
+            extractionParked: {
+              $ne: [{ $ifNull: ["$extraction.parkedSince", null] }, null],
+            },
             remindedAt: 1,
             createdAt: 1,
             updatedAt: 1,
@@ -578,6 +585,47 @@ export class FeedbackConversationRepository {
   }
 
   /**
+   * Counts one more run that read abuse aimed at us.
+   *
+   * `expectedCount` is a compare-and-set for the same reason `markReminded`'s is,
+   * and it is what makes a replay safe without a second field. The extractor
+   * decides the rung from its own snapshot, so a replayed run reads the same
+   * `hostileTurns` it read the first time, tries to write the same successor, and
+   * finds the value already there — one increment per run, however many times the
+   * job is retried. Two concurrent runs on one conversation resolve the same way:
+   * one writes, the loser leaves the ladder where it is rather than spending a
+   * rung twice on a single message.
+   *
+   * A conversation written before the counter existed has no field at all; it has
+   * been hostile zero times, so it is allowed onto the first rung.
+   */
+  async recordHostileTurn(input: {
+    readonly conversationId: string;
+    readonly at: Date;
+    readonly expectedCount: number;
+  }): Promise<FeedbackConversationTransitionResult> {
+    const at = z.date().parse(input.at);
+    const expectedCount = z.number().int().min(0).parse(input.expectedCount);
+    const updated = await this.transition(
+      input.conversationId,
+      {
+        $or:
+          expectedCount === 0
+            ? [{ hostileTurns: 0 }, { hostileTurns: { $exists: false } }]
+            : [{ hostileTurns: expectedCount }],
+      } as Filter<FeedbackConversationDocument>,
+      { hostileTurns: expectedCount + 1 },
+      at,
+    );
+    if (updated) {
+      return { changed: true, conversation: updated };
+    }
+
+    const current = await this.requireConversation(input.conversationId);
+    return { changed: false, conversation: current };
+  }
+
+  /**
    * Records that the deterministic fallback acknowledgement was queued. Later
    * permanent failures in the same conversation still file notes, but must not
    * speak the same apology again.
@@ -599,6 +647,90 @@ export class FeedbackConversationRepository {
         ],
       } as Filter<FeedbackConversationDocument>,
       { extractionFallbackAckSent: true },
+      at,
+    );
+    if (updated) {
+      return { changed: true, conversation: updated };
+    }
+
+    const current = await this.requireConversation(input.conversationId);
+    return { changed: false, conversation: current };
+  }
+
+  /**
+   * Parks extraction on a provider incident, and counts this run.
+   *
+   * `parkedSince` is set by the first park and then left alone, because it is
+   * what «stuck for half an hour» is measured against — recomputing it on every
+   * failing run would push the threshold away exactly as fast as the outage
+   * lasted, and the participant would never be told anything. `parkedRuns` counts
+   * regardless, so the caller can derive a fresh retry job id and know when to
+   * stop re-queueing.
+   *
+   * Written as an aggregation-pipeline update because that is what makes
+   * «keep the old value, increment the other» one atomic statement. Two runs
+   * parking the same conversation concurrently therefore agree on the start and
+   * both get counted, instead of one of them resetting the clock.
+   *
+   * No lifecycle guard: a conversation that closed under a parked run is still
+   * parked, and hiding that would make the campaign's count disagree with what
+   * actually happened. Nothing downstream speaks to a closed conversation — the
+   * notice and the retry check lifecycle for themselves.
+   */
+  async parkExtraction(input: {
+    readonly conversationId: string;
+    readonly at: Date;
+  }): Promise<FeedbackConversationTransitionResult> {
+    const at = z.date().parse(input.at);
+    const collection = await this.collection();
+    const updated = await collection.findOneAndUpdate(
+      feedbackConversationFilter(input.conversationId),
+      [
+        {
+          $set: {
+            "extraction.parkedSince": {
+              $ifNull: ["$extraction.parkedSince", at],
+            },
+            "extraction.parkedRuns": {
+              $add: [{ $ifNull: ["$extraction.parkedRuns", 0] }, 1],
+            },
+            updatedAt: { $max: ["$updatedAt", at] },
+          },
+        },
+      ],
+      { returnDocument: "after" },
+    );
+    if (!updated) {
+      throw new FeedbackConversationNotFoundError(input.conversationId);
+    }
+    return {
+      changed: true,
+      conversation: feedbackConversationDocumentSchema.parse(updated),
+    };
+  }
+
+  /**
+   * Records that the participant has been told, once, that extraction is stuck.
+   *
+   * The same shape as `markExtractionFallbackAckSent` and for the same reason:
+   * the outbox `dedupe_key` is what makes the send happen once, and this is what
+   * makes the *decision* to send happen once, so a parked conversation that wakes
+   * up every few minutes for hours does not re-derive an apology it already made.
+   */
+  async markExtractionParkedNoticeSent(input: {
+    readonly conversationId: string;
+    readonly at: Date;
+  }): Promise<FeedbackConversationTransitionResult> {
+    const at = z.date().parse(input.at);
+    const updated = await this.transition(
+      input.conversationId,
+      {
+        $or: [
+          { "extraction.parkedNoticeSentAt": null },
+          { "extraction.parkedNoticeSentAt": { $exists: false } },
+        ],
+      } as Filter<FeedbackConversationDocument>,
+      { "extraction.parkedNoticeSentAt": at },
       at,
     );
     if (updated) {
@@ -755,6 +887,18 @@ export class FeedbackConversationRepository {
         "extraction.cursorSeq": toSeq,
         "extraction.lastRunAt": lastRunAt,
         "extraction.model": input.model ?? null,
+        // A run that moved the cursor is a run that reached the provider, so the
+        // incident this conversation was parked on is over for it. Clearing here
+        // rather than in a recovery path of its own keeps «parked» defined by one
+        // fact — the last run could not read this conversation — and takes the
+        // campaign's count down on its own as the backlog drains.
+        //
+        // `parkedNoticeSentAt` deliberately survives. It is not part of the park;
+        // it is the record that a machine has already apologised to this person
+        // once, and re-arming it would let a second brief outage send the same
+        // sentence again.
+        "extraction.parkedSince": null,
+        "extraction.parkedRuns": 0,
       },
       lastRunAt,
     );

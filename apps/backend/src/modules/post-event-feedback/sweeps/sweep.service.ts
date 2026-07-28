@@ -246,6 +246,16 @@ export class PostEventFeedbackSweepService {
       return false;
     }
 
+    // Nor a conversation parked on a provider incident. Their message is sitting
+    // unread behind the extraction cursor — quite possibly with our own «δεν
+    // έχουμε δει ακόμα το μήνυμά σου» already sent — and «θα χαρούμε να μάθουμε
+    // πώς σου φάνηκε η βραδιά» a day later reads as a machine that lost what they
+    // wrote and is asking again from the top. The park usually clears long before
+    // the first rung is due; this is for the outage that never got repaired.
+    if (conversation.extraction.parkedSince !== null) {
+      return false;
+    }
+
     // Which rung this conversation is on, and whether it has been silent long
     // enough to earn it. Nudge N is due after N spacings of silence, so the
     // ladder needs no separate per-rung timestamps.

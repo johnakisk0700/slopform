@@ -633,17 +633,89 @@ A kind with no anchor stands **once** until it is dismissed. Six voice notes in 
 row are one piece of news — «there is something here you cannot see» — and six
 identical rows is how a list stops being read.
 
-`hostile_to_bot` remains in the enum with **no producer**, and the withdrawal
-path is deliberately not it: prompt rule 7δ withdraws after two or three
-unanswered attempts and says in as many words that somebody who swears has not
-refused to answer, so reading a withdrawal as hostility would invent the
-classifier the taxonomy refuses. The name is kept because a raise for it would be
-honest if the model ever reported it directly; nothing in the loop does today.
+`hostile_to_bot` now has a producer, and it is the classifier reporting hostility
+directly — which is the one thing the taxonomy always said would be honest. The
+withdrawal path is still deliberately not it: prompt rule 7δ withdraws after two
+or three unanswered attempts and says in as many words that somebody who swears
+has not refused to answer, so reading a withdrawal as hostility would still be
+inventing a classifier from silence. See
+[The hostility ladder](#the-hostility-ladder).
 
 `respondent_conduct` is its near neighbour and is **not** it. Swearing at us
 costs nobody anything; abusing somebody at the table lands on that person's
-seating, which is why it is a safety category with a producer and `hostile_to_bot`
-is neither.
+seating, which is why that one is a safety category and this one is not.
+
+### The hostility ladder
+
+Somebody who opts in and then only swears at the bot gets **three calm replies**
+and then one line — «Δεν μπορούμε να συνεχίσουμε κουβέντα έτσι, εγώ σταματάω 🍌» —
+after which the bot goes quiet. Every piece of it is existing mechanism:
+
+| Piece                  | Where it lives                                                     |
+| ---------------------- | ------------------------------------------------------------------ |
+| The signal             | `hostileToUs` on the attention classifier result                   |
+| The counter            | `hostileTurns` on the conversation document                        |
+| The threshold          | `FEEDBACK_CALM_REPLIES_BEFORE_HOSTILITY_STOP` = 3                  |
+| The line               | `POST_EVENT_FEEDBACK_HOSTILITY_STOP_REPLY`, keyed per conversation |
+| The silence afterwards | `awaitingHuman` → later runs exit `skipped_awaiting_human`         |
+| The badge              | `hostile_to_bot`, anchored on the newest participant message       |
+
+**`hostileToUs` is not a safety category and never becomes one.** It is a
+separate boolean on the classifier result, returned in its own list
+(`hostileMessageIds`) rather than alongside the signals, so it reaches neither
+`feedback_notes`, nor message attention, nor the operator alert, nor the answer
+`matching_hold`. That separation is the point: the classifier prompt spends a
+paragraph teaching that abuse aimed at us stays `incident=false` however heavy,
+because the alternative is `avoid` answers and crude jokes arriving as safety
+incidents until operators stop reading flags. Folding hostility into the
+categories would have undone that in one field. A message can be both — abusive
+about an attendee _and_ about us — and it then appears in both lists, because both
+are true.
+
+**The counter is per run, not per message.** What is being rationed is our
+replies, and a burst of five insults draws one reply, so counting messages would
+spend the whole allowance on somebody who types fast. It is stored rather than
+derived from the `hostile_to_bot` reasons, because an operator dismissing one of
+those must not hand the bot its voice back. The write is a compare-and-set on the
+value the run read (`recordHostileTurn`), exactly as `markReminded` is: the run
+decides its rung from its own snapshot, so a replay recomputes the same rung,
+tries to write the same successor, finds it already there, and spends nothing.
+
+**Three, not two.** Three is the top of the stated range, and the doubt belongs
+with the participant: the commonest hostile opening is somebody annoyed at being
+messaged at all, and people who start badly do go on to answer. It also lands
+`mezedopoleio_abuses_the_bot_throughout`'s four clusters exactly on the exit line,
+so the rehearsal measures the stop rather than the threshold.
+
+**The guard: a run carrying any safety signal can neither stop the conversation
+nor tick the counter.** Ειρήνη Καταγγελού describes being touched at the table
+without her consent, in the plain heavy words people use for that, and those words
+score as hostile on any measure a classifier has. If hostility alone drove the
+ladder she would reach the exit line on her fourth disclosure — the module would
+answer a woman describing an assault by refusing to speak to her and freezing her
+conversation. The two halves are separate on purpose: the counter check protects
+future runs, the stop check protects this one.
+[S65](post-event-feedback-scenarios.md#s65--hostility_stop_never_reaches_a_disclosure)
+is that assertion, with four hostile-scoring disclosure turns and zero exit lines.
+
+**Nothing closes.** The conversation stays `open` and `optedIn`: he never asked us
+to stop, we did, and writing `stopped` would record a consent withdrawal he never
+made. `awaitingHuman` already ends the bot's side, and the operator's own close
+already has the right vocabulary for the ending — `staffClose.reason: "abusive"`.
+The nudge ladder skips anything flagged, so the badge is also what stops the
+reminders.
+
+**A hostile run that recorded nothing never closes as `completed`.** This was the
+open end: a model that declines every remaining goal on «άντε γαμήσου» makes
+`isCompleting` true, and the conversation closed as `completed` — a finished
+questionnaire that never happened, in the column response rate is read from. The
+line is `answeredAnything`, shared with the closing copy for the same reason:
+«Τέλεια, ευχαριστούμε πολύ!» has nothing to thank an empty ladder for and
+`completed` has no questionnaire to call finished. Somebody who gives a score and
+two names and _then_ swears has genuinely completed it and still closes normally.
+Where the close is withheld the badge goes up instead, so the conversation cannot
+go quiet with nobody watching — but the bot keeps its remaining rungs, because the
+ladder has not run out yet.
 
 ### Store order and replay
 
@@ -705,14 +777,14 @@ read was the one thing the system refused to write down.
 
 What holds now:
 
-| Concern              | Rule                                                                                                                                              |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Notes                | Safety-flavoured statements become **ordinary** `feedback_notes` rows, same table, status and admin view as any other note. Nothing is suppressed |
-| Handoff              | Attention does **not** imply a participant-requested handoff. Only an explicit request to speak with a human swaps in the neutral copy            |
-| Operator signal      | `needsAttention`, an audit event and bounded metadata on each cited participant message; there is no separate incident record                     |
-| Classification owner | Only the independent contextual model call selects a category and recommended action for a new target message; there is no keyword classifier     |
-| Provider failure     | The terminal fallback raises generic conversation attention and writes a neutral note, but does not classify a message                            |
-| Restricted reporting | The `safety_reports` table remains deferred to the pre-real-humans gate pack; nothing in this module writes one                                   |
+| Concern              | Rule                                                                                                                                                                                 |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Notes                | Safety-flavoured statements become **ordinary** `feedback_notes` rows, same table, status and admin view as any other note. Nothing is suppressed                                    |
+| Handoff              | Attention does **not** imply a participant-requested handoff. Only an explicit request to speak with a human swaps in the neutral copy                                               |
+| Operator signal      | `needsAttention`, an audit event and bounded metadata on each cited participant message; there is no separate incident record                                                        |
+| Classification owner | Only the independent contextual model call selects a category and recommended action for a new target message; there is no keyword classifier                                        |
+| Provider failure     | The terminal fallback raises generic conversation attention and writes a neutral note, but does not classify a message. A **provider incident** raises neither: it is parked instead |
+| Restricted reporting | The `safety_reports` table remains deferred to the pre-real-humans gate pack; nothing in this module writes one                                                                      |
 
 Classification is contextual rather than lexical. Crude or sexual banter alone
 is not a safety signal and may receive a light, non-encouraging redirection.
@@ -833,19 +905,54 @@ reason anchored on the message, and withdrawing the row is the action available.
 STOP. It has nothing to do with matching people to tables, and the one directory
 a future engineer greps for "matching" is the wrong place for this.
 
+### Two kinds of dead run
+
+A terminal extraction failure asks one question before anything else: was this
+about **this conversation**, or about **the provider**? The two answers get
+opposite treatment, and conflating them is a defect with a body count.
+
+A content filter, a schema nothing satisfied, a refused proposal — those are
+about the conversation. Nothing read the testimony, so somebody has to: the
+[deterministic fallback](#deterministic-fallback-for-a-dead-run) files a note,
+answers the participant and raises `extraction_failed`.
+
+An unreachable provider, an exhausted balance, a model id nobody serves — those
+are one incident shared by every conversation in flight. On 2026-07-27 a
+rehearsal pointed extraction at `openai/gpt-5.6-luna` and all thirty-six extract
+jobs died on `provider_error`. Every row in the inbox demanded a human for a
+fault none of them had caused, and all thirty-six participants were told the
+analysis of their evening had failed — effectively because of our billing. Those
+runs are now [parked](#parking-a-provider-incident) instead.
+
+**The test is structural.** `FeedbackExtractionGenerationError.failureCause` is
+`provider_error` only where the code can point at the provider: no client for the
+configured route, an `APICallError` the provider itself marked retryable, or one
+of `FEEDBACK_PROVIDER_ACCOUNT_FAULT_STATUS_CODES` — `401` (key), `402` (credit),
+`403` (route or region), `404` (unknown model). No error message is ever read;
+provider strings differ and change without notice.
+
+`400` and `422` are deliberately **not** in that list. They say the provider
+rejected _this request_, which keeps the fallback treatment. The status class is
+what separates the two, because retryability cannot: all of `401`–`404` are
+non-retryable, and before the status was read every one of them was classified
+`provider_refusal` — the class that speaks to the participant and queues an
+operator.
+
 ### Deterministic fallback for a dead run
 
-[`PostEventFeedbackExtractionFallback`](../../../apps/backend/src/modules/post-event-feedback/extraction/fallback.service.ts)
-runs when `feedback.extract.v1` fails permanently — a non-retryable provider
-rejection, or the last attempt spent. A run whose handoff was refused as
+[`PostEventFeedbackExtractionFallback.apply`](../../../apps/backend/src/modules/post-event-feedback/extraction/fallback.service.ts)
+runs when `feedback.extract.v1` fails permanently for a reason that is **not** a
+provider incident — a rejection of this request, or the last attempt spent. A run
+whose handoff was refused as
 [`handoff_discards_testimony`](#validation-before-any-persistence-or-send)
 arrives the same way: it is retryable on purpose, so the fallback applies only
 once no attempt has managed to read the testimony. It leaves three things behind:
 
 1. `needsAttention` plus one audit event carrying a bounded cause class
-   (`provider_refusal | provider_error | validation_failed | unknown`). The same
-   class is thrown as the `UnrecoverableError` message, so it is visible in
-   BullMQ's `failedReason` and not only in the audit table.
+   (`provider_refusal | validation_failed | unknown` — `provider_error` reaches
+   `park` instead, and `apply` stays cause-agnostic so the routing lives in one
+   place). The same class is thrown as the `UnrecoverableError` message, so it is
+   visible in BullMQ's `failedReason` and not only in the audit table.
 2. **One ordinary note** (`note_type: general`, `status: new`) with bounded
    generic text — «Η αυτόματη ανάλυση δεν ολοκληρώθηκε — δείτε τη συζήτηση.».
    Nothing was extracted, so nothing may be characterised. The text names the
@@ -887,6 +994,109 @@ Idempotency uses two fences:
   `feedback-fallback-<conversationId>-ack`, inserted only while
   `extractionFallbackAckSent` is false. A second failing run on a later message
   still files operator evidence, but does not enqueue a second apology.
+
+### Parking a provider incident
+
+[`PostEventFeedbackExtractionFallback.park`](../../../apps/backend/src/modules/post-event-feedback/extraction/fallback.service.ts)
+is what a terminal `provider_error` gets instead. It writes **no note, no
+outbound, no attention reason and no operator alert**. It records three fields on
+the conversation's `extraction` sub-document and queues the next attempt:
+
+| Field                | Meaning                                                                    |
+| -------------------- | -------------------------------------------------------------------------- |
+| `parkedSince`        | when the **first** park happened; the clock the notice is measured against |
+| `parkedRuns`         | how many runs have parked since; also what keeps retry job ids distinct    |
+| `parkedNoticeSentAt` | when the participant was told, once                                        |
+
+`parkExtraction` is an aggregation-pipeline update, so «keep the old start,
+increment the counter» is one atomic statement: two runs parking the same
+conversation concurrently agree on the start and both get counted. Recomputing
+the start per failing run would push the half-hour threshold away exactly as fast
+as the outage lasted, and the participant would never be told anything.
+
+**The retry ladder.** The queue's own ladder is five attempts of exponential
+backoff from one second — spent inside twenty seconds, which is a blip, not an
+outage. Worse, a non-retryable provider fault (a `402`, a wrong key, an unknown
+model) never gets even that. So each park queues one `feedback.extract.v1` of its
+own, `FEEDBACK_EXTRACTION_PARK_RETRY_MS` (5 minutes) out, under
+`feedback-extract-v1-<conversationId>-<latestSeq>-parked-<parkedRuns>` with
+`attempts: 1` and `removeOnFail: true`. A distinct id per run is required, not
+cosmetic: BullMQ refuses a second `add` for an id it still holds, and while a
+parked run is executing it holds its own. When the provider recovers, the next
+wake-up reads the testimony properly and `advanceCursor` clears the park in the
+same write that moves the cursor — so the park is defined by exactly one fact,
+«the last run could not read this conversation».
+
+`FEEDBACK_EXTRACTION_PARK_MAX_MS` (6 hours) is the ceiling on re-queueing, so a
+fault nobody is repairing stops billing a request every five minutes. Reaching it
+changes nothing the participant sees: the conversation stays parked and stays
+counted. A closed conversation is not re-queued either — the run would exit on
+`skipped_closed`, and queueing certain no-ops makes the queue lie about what is
+outstanding.
+
+**The half-hour notice.** After
+`FEEDBACK_EXTRACTION_PARK_NOTICE_AFTER_MS` (30 minutes) of being parked, the next
+wake-up sends `POST_EVENT_FEEDBACK_EXTRACTION_PARKED_NOTICE` — one message, once,
+ever:
+
+> Συγγνώμη, κάτι κόλλησε από τη δική μας πλευρά και δεν έχουμε δει ακόμα το
+> μήνυμά σου. Θα σου απαντήσουμε.
+
+Thirty minutes was chosen over two hours and over never: long enough that any
+ordinary retry ladder has had its chance, short enough that somebody who answered
+at midnight is not left until morning believing they were ignored. Application
+copy, keyed like the handoff and safety-assurance lines and for the same reason —
+no model composes it. Every clause is a constraint:
+
+- **No cause.** No billing, no credit, no quota, no provider, and nothing that
+  reads as the participant's fault. The incident is ours; the sentence says only
+  that something stuck on our side.
+- **Unread, not lost.** «δεν το έχουμε δει ακόμα» is the truth — the message is in
+  the transcript behind the cursor — and it is the version that does not make
+  somebody re-type a disclosure they worked up to.
+- **No person and no time.** Prompt rule 11ε forbids the model from promising
+  contact; the application would still be making a promise nobody has to keep,
+  because a parked conversation deliberately raises no attention.
+  «Θα σου απαντήσουμε» is a promise the system itself keeps — the retry that
+  answers is already queued.
+- **Nothing about their data.** Rule 11στ, so no sentence here can become an
+  accidental data-handling commitment.
+
+Three fences make «once» true: `parkedNoticeSentAt` on the document, the outbox
+`dedupe_key` `feedback-parked-<conversationId>-notice`, and the send yielding to
+`extractionFallbackAckSent` — two machine apologies for one silence is one too
+many. The reverse is deliberately not guarded: the fallback's line carries the
+open question and is what keeps the questionnaire moving. Like
+`extractionFallbackAckSent`, `parkedNoticeSentAt` is **not** cleared when
+extraction recovers. The notice is also withheld while the conversation is closed,
+under human control or `awaitingHuman` — the bot has no floor in any of those, and
+none of the three is left worse off by our silence.
+
+**The reminder sweep stands down** for a parked conversation. Their message is
+sitting unread, quite possibly with our own «δεν έχουμε δει ακόμα το μήνυμά σου»
+already sent, and «πες μας πώς σου φάνηκε η βραδιά» a day later reads as a machine
+that lost what they wrote and is asking again from the top. The park normally
+clears long before the first rung is due; the guard is for the outage that never
+got repaired.
+
+**What an operator sees.** One number:
+`campaign.extractionParkedCount` on the inbox campaign summary, beside
+`needsAttentionCount` and deliberately not inside it — that count means «this many
+conversations want a person», and a parked conversation wants a working provider.
+Non-zero and rising means somebody should look at the deployment; it falls on its
+own as the retries land. Per conversation there is no new concept: the detail
+pane's [extraction block](#staff-http-contract-inbox) reports the
+queued retry and its due time, and `lastRunFailed` is suppressed while parked
+because the admin renders it as «απάντησε η εναλλακτική διαδικασία» and for a
+parked conversation no fallback answered anybody. The per-run record lives in
+`audit_events` as `feedback_conversation.extraction_parked` and in the
+`feedback.extract.parked` log line; neither pages, because paging once per
+affected conversation is the fan-out this path exists to stop.
+
+Adding `extractionParkedCount` changed the published contract, so
+`apps/backend/openapi/openapi.json` was hand-edited to match (verified by
+`openapi-document.spec.ts`, which regenerates the document and compares).
+`apps/admin` has **not** been regenerated and does not render the count yet.
 
 ### Operator alert seam
 
@@ -940,6 +1150,19 @@ writing exactly one note + one acknowledgement + one audit event and nothing on
 replay, unique-name subject resolution versus two-name ambiguity, the alert
 firing once per `false → true` transition, and the processor surfacing each
 bounded cause class in `failedReason`.
+
+The two treatments of a dead run are tested as a pair, because the value is in
+the split. On the park side: each of `401`–`404` classified as the provider's
+fault and `400` / `422` still as a refusal, the status read through a `RetryError`
+wrapper, a park writing no note, no outbound, no attention reason and no alert,
+each successive park getting its own retry job id while `parkedSince` stays put,
+the half-hour notice firing once and never twice, never before the threshold,
+never while a person holds the conversation and never when the deterministic
+fallback has already spoken, the six-hour ceiling stopping the re-queue while the
+conversation stays parked, and the reminder sweep standing down. On the unchanged
+side: a `provider_refusal` still reaching `apply` with the same
+`failedReason`, and the processor never parking a refusal, a validation failure or
+an unrecognised throw.
 
 Two guards on what a run may write to an answer row have their own tests: a run
 that classifies respondent-source abuse writes `matching_hold` on the answers
@@ -1991,6 +2214,20 @@ for this** — the polled conversation list must not look up a job per row. A
 missing job with no fallback note is reported as null/false fields, never as a
 confident "idle": retention removal, a lost enqueue and "already ran" remain
 indistinguishable once both signals are gone.
+
+A conversation [parked on a provider incident](#parking-a-provider-incident) is
+the one case where a retained failed job is not the news. Its positional job did
+fail, and its successor is queued under
+`feedback-extract-v1-<conversationId>-<latestSeq>-parked-<parkedRuns>` — derived
+from the document, never searched for — so `runQueued` and `nextRunAt` report the
+retry and `lastRunFailed` / `failedReason` are suppressed. There is nothing for a
+human to do in the meantime, and «η ανάγνωση απέτυχε · απάντησε η εναλλακτική
+διαδικασία» would be false: no fallback answered anybody.
+
+`listFeedbackConversations` reports `campaign.extractionParkedCount` beside
+`needsAttentionCount` — the one campaign-level report of a provider incident.
+Cheap: it counts a boolean already projected into the list read, and touches no
+queue.
 
 ### Clearing attention
 

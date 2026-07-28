@@ -1,8 +1,11 @@
+import { InjectQueue } from "@nestjs/bullmq";
 import { Inject, Injectable, Logger } from "@nestjs/common";
+import type { Queue } from "bullmq";
 import type { FeedbackExtractionMeta } from "@join-the-six/database";
 
 import { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
 import { DatabaseService } from "../../../infrastructure/database/database.service.js";
+import { FEEDBACK_QUEUE } from "../../../infrastructure/queue/queue.constants.js";
 import { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
 import { FeedbackResultsRepository } from "./results.repository.js";
 import { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
@@ -20,12 +23,25 @@ import {
 import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
 import type { FeedbackExtractionFailureCause } from "./model.service.js";
 import {
+  FEEDBACK_EXTRACTION_PARK_NOTICE_AFTER_MS,
+  POST_EVENT_FEEDBACK_EXTRACTION_PARKED_NOTICE,
   POST_EVENT_FEEDBACK_FALLBACK_ACK,
   POST_EVENT_FEEDBACK_FALLBACK_FENCE_BODY,
   POST_EVENT_FEEDBACK_FALLBACK_NOTE_TEXT,
+  createFeedbackExtractionParkedNoticeDedupeKey,
   createFeedbackFallbackAckDedupeKey,
   createFeedbackFallbackDedupeKey,
 } from "./extraction.schemas.js";
+import {
+  FEEDBACK_EXTRACTION_PARK_MAX_MS,
+  FEEDBACK_EXTRACTION_PARK_RETRY_MS,
+  FEEDBACK_JOB_NAMES,
+  FEEDBACK_JOB_SCHEMA_VERSION,
+  createFeedbackExtractParkedJobId,
+  feedbackExtractJobDataSchema,
+  type FeedbackJobData,
+  type FeedbackJobName,
+} from "../jobs.schemas.js";
 import {
   foldPostEventFeedbackText,
   foldedTextContainsAtWordStart,
@@ -42,6 +58,14 @@ export interface FeedbackExtractionFallbackResult {
   readonly noteId?: string;
   readonly outboxId?: string;
   readonly subjectParticipantId?: string | null;
+}
+
+export interface FeedbackExtractionParkResult {
+  readonly parked: boolean;
+  /** The retry this park queued, or absent when the ceiling is reached. */
+  readonly retryJobId?: string;
+  /** The one participant-facing notice, on the run that decided to send it. */
+  readonly noticeOutboxId?: string;
 }
 
 /**
@@ -67,6 +91,14 @@ export interface FeedbackExtractionFallbackResult {
  * `origin: deterministic_fallback` with no model or confidence, and the note is
  * directed at a person only when exactly one current candidate name appears in
  * the message — otherwise it stays subjectless under D18.
+ *
+ * **`apply` is not for every dead run.** It answers the question «what did this
+ * conversation defeat us with», and that question only makes sense when the
+ * answer is about this conversation: a content filter, a schema nothing
+ * satisfied, a validation refusal. A provider incident is not that — it is one
+ * fault shared by every open conversation at once — and it goes to `park`
+ * instead, which speaks to nobody and asks for nobody. The processor decides
+ * which, from the failure's own structure.
  */
 @Injectable()
 export class PostEventFeedbackExtractionFallback {
@@ -75,6 +107,10 @@ export class PostEventFeedbackExtractionFallback {
   );
 
   constructor(
+    // The park path queues its own next attempt, because the queue's five-attempt
+    // ladder is spent in twenty seconds and an outage is not.
+    @InjectQueue(FEEDBACK_QUEUE)
+    private readonly queue: Queue<FeedbackJobData, void, FeedbackJobName>,
     private readonly database: DatabaseService,
     private readonly campaigns: FeedbackCampaignRepository,
     private readonly results: FeedbackResultsRepository,
@@ -249,6 +285,223 @@ export class PostEventFeedbackExtractionFallback {
       ...(written.ackOutbox ? { outboxId: written.ackOutbox.id } : {}),
       subjectParticipantId,
     };
+  }
+
+  /**
+   * What happens instead when the provider, not the conversation, is the problem.
+   *
+   * Nothing is said to the participant, nothing is filed, and no attention is
+   * raised. A provider incident is one event: an exhausted balance, an
+   * unreachable route, a model id nobody serves. Treating each affected
+   * conversation as its own failure produced the 2026-07-27 inbox, where all
+   * thirty-six rows demanded a human for a fault none of them had caused and all
+   * thirty-six participants were told the analysis of their evening had failed.
+   *
+   * What it does instead is keep trying and keep count. The conversation is
+   * parked — a durable state the campaign summary counts once and the detail
+   * pane reads as «waiting on the model» — and the next attempt is queued five
+   * minutes out, because the queue's own ladder is twenty seconds long and this
+   * class of fault is repaired in minutes. When somebody tops the account up, the
+   * next wake-up reads the testimony properly and the park clears itself.
+   *
+   * The one thing it will say is the half-hour notice, and only once. See
+   * `POST_EVENT_FEEDBACK_EXTRACTION_PARKED_NOTICE` for every constraint on that
+   * sentence; the decision to send it is the owner's, over two hours and over
+   * never.
+   */
+  async park(
+    input: FeedbackExtractionFallbackInput,
+  ): Promise<FeedbackExtractionParkResult> {
+    const existing = await this.conversations.findById(input.conversationId);
+    if (!existing) {
+      // The job is already failing and there is nothing left to park.
+      this.logger.warn({
+        event: "feedback.extract.park_conversation_missing",
+        correlationId: input.correlationId,
+        conversationId: input.conversationId,
+      });
+      return { parked: false };
+    }
+
+    const at = new Date();
+    const parked = await this.conversations.parkExtraction({
+      conversationId: input.conversationId,
+      at,
+    });
+    const conversation = parked.conversation;
+    const since = conversation.extraction.parkedSince ?? at;
+
+    // The audit row is the durable per-conversation record of the incident, and
+    // it is the only per-conversation effect: an operator alert here would page
+    // once per affected conversation, which is the fan-out this whole path
+    // exists to stop.
+    await this.database.transaction(async (transaction) => {
+      await this.audit.append(transaction, {
+        actorType: "system",
+        actorId: "feedback_extraction",
+        action: "feedback_conversation.extraction_parked",
+        entityType: "feedback_conversation",
+        entityId: conversation._id,
+        requestId: input.correlationId,
+        context: {
+          campaignId: conversation.campaignId,
+          cause: input.cause,
+          parkedRuns: conversation.extraction.parkedRuns,
+          parkedSince: since.toISOString(),
+        },
+      });
+    });
+
+    const notice = await this.sendParkedNotice(conversation, input, since, at);
+    const retryJobId = await this.queueParkedRetry(
+      conversation,
+      input,
+      since,
+      at,
+    );
+
+    this.logger.warn({
+      event: "feedback.extract.parked",
+      correlationId: input.correlationId,
+      conversationId: conversation._id,
+      campaignId: conversation.campaignId,
+      cause: input.cause,
+      parkedRuns: conversation.extraction.parkedRuns,
+      parkedSince: since.toISOString(),
+      ...(retryJobId ? { retryJobId } : { retriesExhausted: true }),
+      ...(notice ? { noticeOutboxId: notice } : {}),
+    });
+
+    return {
+      parked: true,
+      ...(retryJobId ? { retryJobId } : {}),
+      ...(notice ? { noticeOutboxId: notice } : {}),
+    };
+  }
+
+  /**
+   * The half-hour sentence, sent at most once and only while the bot still has
+   * the floor.
+   *
+   * The threshold is measured from `parkedSince` rather than from the
+   * participant's last message on purpose: a second message during the same
+   * outage must not postpone the apology for the first one, which is exactly what
+   * measuring silence would do.
+   *
+   * It yields to `extractionFallbackAckSent`. That flag means a deterministic
+   * fallback has already spoken in this conversation, and two machine apologies
+   * for the same silence is one too many. The reverse is not guarded, because the
+   * fallback's line carries the open question and is what keeps the
+   * questionnaire moving.
+   */
+  private async sendParkedNotice(
+    conversation: FeedbackConversationDocument,
+    input: FeedbackExtractionFallbackInput,
+    since: Date,
+    at: Date,
+  ): Promise<string | undefined> {
+    if (
+      conversation.extraction.parkedNoticeSentAt !== null ||
+      conversation.extractionFallbackAckSent ||
+      at.getTime() - since.getTime() < FEEDBACK_EXTRACTION_PARK_NOTICE_AFTER_MS
+    ) {
+      return undefined;
+    }
+    // A closed conversation, one a person is holding, and one waiting for a
+    // person are all conversations the bot must not speak in. The park does not
+    // change that, and none of the three is left worse off by our silence: two
+    // have a human, and the third has ended.
+    if (
+      conversation.lifecycle.state !== "open" ||
+      conversation.control.mode !== "bot" ||
+      conversation.awaitingHuman
+    ) {
+      return undefined;
+    }
+    // Nothing to apologise for not reading.
+    if (!latestParticipantMessage(conversation)) {
+      return undefined;
+    }
+
+    const enqueued = await this.database.transaction((transaction) =>
+      this.outbox.insertOutboxIfAbsent(transaction, {
+        conversationId: conversation._id,
+        campaignId: conversation.campaignId,
+        kind: "system",
+        body: POST_EVENT_FEEDBACK_EXTRACTION_PARKED_NOTICE,
+        dedupeKey: createFeedbackExtractionParkedNoticeDedupeKey(
+          conversation._id,
+        ),
+      }),
+    );
+    // Marked whether or not this run inserted the row: if a concurrent parked run
+    // got there first, the send has happened and the ledger should say so.
+    await this.conversations.markExtractionParkedNoticeSent({
+      conversationId: conversation._id,
+      at,
+    });
+    if (!enqueued.inserted) {
+      return undefined;
+    }
+    // Same forward-repair contract as every other outbound: PostgreSQL is
+    // durable first, and the transcript entry is idempotent by `outboxId`.
+    await this.outboundTranscript.record(enqueued.row, at, input.correlationId);
+    return enqueued.row.id;
+  }
+
+  /**
+   * Queues the next attempt, which is the whole of «the retry ladder still runs».
+   *
+   * Bounded by `FEEDBACK_EXTRACTION_PARK_MAX_MS` so a fault nobody is repairing
+   * — a model id that does not exist, a key that will never be replaced — stops
+   * billing a request every five minutes. Reaching the ceiling changes nothing
+   * the participant sees; the conversation stays parked and stays counted.
+   *
+   * A closed conversation is not re-queued: the run would exit on
+   * `skipped_closed` anyway, and enqueueing work that is certain to do nothing
+   * makes the queue lie about what is outstanding. Human control is deliberately
+   * *not* excluded — the person may hand back, and the resume path re-queues from
+   * the cursor exactly as it does today.
+   */
+  private async queueParkedRetry(
+    conversation: FeedbackConversationDocument,
+    input: FeedbackExtractionFallbackInput,
+    since: Date,
+    at: Date,
+  ): Promise<string | undefined> {
+    if (conversation.lifecycle.state !== "open") {
+      return undefined;
+    }
+    if (at.getTime() - since.getTime() >= FEEDBACK_EXTRACTION_PARK_MAX_MS) {
+      return undefined;
+    }
+    const latestSeq = latestParticipantMessage(conversation)?.seq;
+    if (latestSeq === undefined) {
+      return undefined;
+    }
+
+    const data = feedbackExtractJobDataSchema.parse({
+      schemaVersion: FEEDBACK_JOB_SCHEMA_VERSION,
+      conversationId: conversation._id,
+      correlationId: input.correlationId,
+    });
+    const jobId = createFeedbackExtractParkedJobId(
+      conversation._id,
+      latestSeq,
+      conversation.extraction.parkedRuns,
+    );
+    // One attempt, because this *is* the retry and the next one is queued by the
+    // next park. `removeOnFail` keeps a long outage from leaving one retained
+    // failed job per five minutes per conversation in Redis.
+    await this.queue.add(FEEDBACK_JOB_NAMES.extractV1, data, {
+      jobId,
+      delay: FEEDBACK_EXTRACTION_PARK_RETRY_MS,
+      attempts: 1,
+      removeOnComplete: true,
+      removeOnFail: true,
+      stackTraceLimit: 10,
+    });
+    return jobId;
   }
 
   /**

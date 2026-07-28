@@ -33,12 +33,19 @@ import {
   type GoalStatusUpdate,
 } from "./goal-progress.js";
 import {
+  countsAsHostileTurn,
   groupSafetySignalsByMessage,
   isSafetyOrHandoffAttention,
   operatorAttentionRaises,
   respondentSourceMessageIds,
+  stopsForHostility,
+  type FeedbackHostilityRaise,
 } from "./operator-attention.js";
-import { resolveOutbound, type OutboundReply } from "./outbound-reply.js";
+import {
+  answeredAnything,
+  resolveOutbound,
+  type OutboundReply,
+} from "./outbound-reply.js";
 import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
 import {
   PostEventFeedbackMetrics,
@@ -286,6 +293,25 @@ export class PostEventFeedbackExtractor {
       (signal) => signal.recommendedAction === "urgent_human_follow_up",
     );
     const dutyOfCare = validated.handoff || urgentSafety;
+    // The hostility ladder, decided from the stored count plus this run rather
+    // than from a re-read of the document.
+    //
+    // Deriving it here — before anything is written — is what makes a replay
+    // agree with the original: the cursor has not moved, so a replayed run reads
+    // the same snapshot, classifies the same messages, computes the same rung and
+    // resolves the same dedupe key. Reading the counter back after incrementing
+    // it would make the decision depend on how many times the job had already
+    // run, which is exactly the fact a replay must not be able to observe.
+    const hostileTurn = countsAsHostileTurn({
+      hostileMessageIds: attention.hostileMessageIds,
+      safetySignalCount: validated.safetySignals.length,
+    });
+    const hostileTurns = conversation.hostileTurns + (hostileTurn ? 1 : 0);
+    const stoppingForHostility = stopsForHostility({
+      hostileTurn,
+      hostileTurns,
+      safetySignalCount: validated.safetySignals.length,
+    });
     // Anchored on the participant's own latest message rather than on the
     // transcript length, because this run appends its reply to that same
     // transcript: a length-based key would differ on a replay that already sees
@@ -298,6 +324,7 @@ export class PostEventFeedbackExtractor {
       latestParticipantMessage(conversation)?.seq ?? cursorSeq,
       copy,
       openGoal,
+      stoppingForHostility,
     );
     const withheld = outbound
       ? await this.reviewBeforeSending({
@@ -309,7 +336,13 @@ export class PostEventFeedbackExtractor {
           // later run can speak at all, and the second promises a human.
           // Swallowing either leaves the participant waiting for a message that
           // is never coming.
-          ordinaryReply: !progressClosing && !validated.handoff,
+          //
+          // The hostility exit line is the third such commitment, and the worst
+          // one to lose: `awaitingHuman` silences every run after this, so a line
+          // dropped for being superseded would leave somebody abusive answered by
+          // nothing at all and no explanation of why the bot went quiet.
+          ordinaryReply:
+            !progressClosing && !validated.handoff && !stoppingForHostility,
         })
       : undefined;
     if (withheld) {
@@ -332,8 +365,15 @@ export class PostEventFeedbackExtractor {
     // side-question answer and must not settle. Safety and handoff keep the
     // ladder open for a human — closing on a disclosure that produced no
     // structured rows would slam the door.
+    // Not a withdrawal, even though it looks exactly like one from here: the bot
+    // did not run out of things it was willing to say, it decided to stop. The
+    // difference matters downstream — a withdrawal settles every open goal as
+    // skipped, which would record this person as having declined a questionnaire
+    // nobody managed to ask him, and it raises `unfinished_questionnaire` instead
+    // of the reason that says what actually happened.
     const withdrew =
       !dutyOfCare &&
+      !stoppingForHostility &&
       validated.safetySignals.length === 0 &&
       isWithdrawal({
         answers: validated.answers,
@@ -364,11 +404,32 @@ export class PostEventFeedbackExtractor {
     // The handoff is the third: `awaitingHuman` says the bot is waiting for a
     // person, and closing the thread underneath that promise is how «σβήστε
     // ό,τι σας είπα» was answered with a human's name and then filed as done.
+    //
+    // And the fourth is the one this feature closes. A hostile turn where nothing
+    // was ever answered must not close as `completed`, because that is the word
+    // for a questionnaire somebody finished. Μπάμπης answered nothing; a model
+    // that declines his four open goals on «άντε γαμήσου» has not been told the
+    // questionnaire is over, it has tidied up after somebody who never started
+    // it, and `completed` then records a finished questionnaire that never
+    // happened — in the same column the campaign's response rate is read from.
+    //
+    // `answeredAnything` is the line, not hostility on its own: somebody who
+    // gives us a score and two names and then swears has genuinely completed the
+    // thing, and there is no reason to withhold the word from that.
+    const hostileWithoutAnswers =
+      hostileTurn && !answeredAnything(conversation, validated);
+    const hostility: FeedbackHostilityRaise = stoppingForHostility
+      ? "stopped"
+      : hostileWithoutAnswers && isCompleting(conversation.goals, goalStatuses)
+        ? "unanswerable"
+        : "none";
     const closingNow =
       isCompleting(conversation.goals, goalStatuses) &&
       validated.safetySignals.length === 0 &&
       !dutyOfCare &&
-      !withdrew;
+      !withdrew &&
+      !stoppingForHostility &&
+      !hostileWithoutAnswers;
 
     const written = await this.persist({
       conversation,
@@ -400,6 +461,9 @@ export class PostEventFeedbackExtractor {
       closingNow,
       dutyOfCare,
       withdrew,
+      hostility,
+      hostileTurn,
+      priorHostileTurns: conversation.hostileTurns,
       newestParticipantMessageId:
         context.newParticipantMessageIds.at(-1) ?? null,
       cursorSeq,
@@ -781,6 +845,11 @@ export class PostEventFeedbackExtractor {
     readonly closingNow: boolean;
     readonly dutyOfCare: boolean;
     readonly withdrew: boolean;
+    readonly hostility: FeedbackHostilityRaise;
+    /** Whether this run advances the hostility ladder by one rung. */
+    readonly hostileTurn: boolean;
+    /** The count this run decided from — the compare-and-set's expected value. */
+    readonly priorHostileTurns: number;
     /** The anchor for a reason this run raised that cites no message itself. */
     readonly newestParticipantMessageId: string | null;
     readonly cursorSeq: number;
@@ -810,10 +879,24 @@ export class PostEventFeedbackExtractor {
       });
     }
 
+    // Before the raise and before the cursor: the ladder is what the next run
+    // reads to decide whether it may still speak, so a crash between here and the
+    // cursor advance has to leave the rung spent rather than free. The
+    // compare-and-set is what stops the replay of that same run spending a second
+    // one.
+    if (input.hostileTurn) {
+      await this.conversations.recordHostileTurn({
+        conversationId: input.conversation._id,
+        at,
+        expectedCount: input.priorHostileTurns,
+      });
+    }
+
     const raises = operatorAttentionRaises(
       input.validated,
       input.newestParticipantMessageId,
       input.withdrew,
+      input.hostility,
     );
     let raisedIncident = false;
     for (const raise of raises) {
@@ -872,7 +955,16 @@ export class PostEventFeedbackExtractor {
     // it under bot control with the ladder settled and nothing flagged means
     // nobody ever looks — the conversation just goes quiet with no answers in
     // it. Waiting for a person is the honest description of where it is.
-    if (input.dutyOfCare || input.withdrew) {
+    //
+    // The hostility stop is the third, and it is the only one of the three the
+    // participant was not promised anything by. That is the point: he never asked
+    // us to stop and we are not pretending he did, so the conversation stays open
+    // and his consent stays exactly as he left it — but the bot has said its last
+    // line, and `awaitingHuman` is what makes that true of the next message
+    // instead of only of this one. `unanswerable` deliberately does **not** land
+    // here: the ladder still has rungs left, so the bot keeps its voice and only
+    // the badge goes up.
+    if (input.dutyOfCare || input.withdrew || input.hostility === "stopped") {
       await this.conversations.markAwaitingHuman({
         conversationId: input.conversation._id,
         at,

@@ -212,6 +212,91 @@ describe("PostEventFeedbackConversationService", () => {
     });
   });
 
+  it("reports a provider incident once for the campaign, not once per row", async () => {
+    const { service, conversations, participants } = createService();
+    conversations.listForCampaign.mockResolvedValue([
+      listSummary({ extractionParked: true }),
+      listSummary({ extractionParked: true }),
+      listSummary({ needsAttention: true }),
+    ]);
+    participants.findByIds.mockResolvedValue([participantRow()]);
+
+    const result = await service.listForCampaign(campaignId);
+
+    // Two conversations waiting on the model and one wanting a person. The
+    // counts stay apart: a parked conversation wants a working provider, and
+    // rolling it into the attention count is how one outage became thirty-six
+    // things for somebody to read.
+    expect(result.campaign).toMatchObject({
+      conversationCount: 3,
+      extractionParkedCount: 2,
+      needsAttentionCount: 1,
+    });
+  });
+
+  it("reports a parked conversation as waiting on the model, not as a failed run", async () => {
+    const { service, conversations, queue, repository } = createService();
+    const at = new Date("2026-07-27T10:00:00.000Z");
+    conversations.findById.mockResolvedValue(
+      openConversation({
+        messages: [
+          {
+            id: "11111111-1111-4111-8111-111111111102",
+            seq: 1,
+            actor: "participant",
+            text: "Καλά, θα έβαζα 4",
+            providerMessageId: "p-1",
+            ingressId: "22222222-2222-4222-8222-222222222201",
+            outboxId: null,
+            attention: null,
+            at,
+          },
+        ],
+        extraction: {
+          cursorSeq: 0,
+          lastRunAt: null,
+          model: null,
+          parkedSince: at,
+          parkedRuns: 3,
+          parkedNoticeSentAt: null,
+        },
+      }),
+    );
+    repository.listNotesByConversation.mockResolvedValue([]);
+    // The positional job is the one that died; the parked retry is the one that
+    // matters, and it is delayed under its own id.
+    queue.getJob.mockImplementation(async (jobId: string) =>
+      jobId.endsWith("-parked-3")
+        ? {
+            timestamp: Date.parse("2026-07-27T10:05:00.000Z"),
+            opts: { delay: 300_000 },
+            getState: vi.fn().mockResolvedValue("delayed"),
+            failedReason: undefined,
+          }
+        : {
+            timestamp: Date.parse("2026-07-27T10:00:00.000Z"),
+            opts: { delay: 0 },
+            getState: vi.fn().mockResolvedValue("failed"),
+            failedReason: "Feedback extraction parked on the provider",
+          },
+    );
+
+    const result = await service.get(campaignId, conversationId);
+
+    // Not `lastRunFailed`: the admin renders that as «απάντησε η εναλλακτική
+    // διαδικασία», and for a parked conversation no fallback answered anybody.
+    expect(result.extraction).toMatchObject({
+      unreadParticipantMessages: 1,
+      nextRunAt: "2026-07-27T10:10:00.000Z",
+      runQueued: true,
+      lastRunFailed: false,
+      failedReason: null,
+    });
+    expect(queue.getJob).toHaveBeenCalledWith(
+      `feedback-extract-v1-${conversationId}-1-parked-3`,
+    );
+  });
+
   it("rejects staff send while the conversation is under bot control", async () => {
     const { service, conversations, repository } = createService();
     conversations.findById.mockResolvedValue(openConversation());
@@ -272,6 +357,9 @@ describe("PostEventFeedbackConversationService", () => {
           cursorSeq: 1,
           lastRunAt: null,
           model: null,
+          parkedSince: null,
+          parkedRuns: 0,
+          parkedNoticeSentAt: null,
         },
       }),
     );
@@ -1269,12 +1357,20 @@ function openConversation(
       },
     ],
     messages: [],
-    extraction: { cursorSeq: 0, lastRunAt: null, model: null },
+    extraction: {
+      cursorSeq: 0,
+      lastRunAt: null,
+      model: null,
+      parkedSince: null,
+      parkedRuns: 0,
+      parkedNoticeSentAt: null,
+    },
     needsAttention: false,
     attentionReasons: [],
     remindedAt: null,
     reminderCount: 0,
     awaitingHuman: false,
+    hostileTurns: 0,
     extractionFallbackAckSent: false,
     createdAt: now,
     updatedAt: now,
@@ -1302,6 +1398,7 @@ function listSummary(
   overrides: {
     control?: { mode: "bot" | "human"; source: "launch" | "staff_action" };
     needsAttention?: boolean;
+    extractionParked?: boolean;
     lifecycle?: { state: "open" | "closed"; reason: null | "stopped" };
   } = {},
 ) {
@@ -1322,6 +1419,7 @@ function listSummary(
     lastMessageActor: null,
     cursorSeq: 0,
     needsAttention: overrides.needsAttention ?? false,
+    extractionParked: overrides.extractionParked ?? false,
     remindedAt: null,
     createdAt: now,
     updatedAt: now,

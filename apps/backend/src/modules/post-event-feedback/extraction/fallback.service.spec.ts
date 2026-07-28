@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { Logger } from "@nestjs/common";
 import type { AppTransaction } from "@join-the-six/database";
+import type { Queue } from "bullmq";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import type { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
@@ -16,10 +17,21 @@ import {
 } from "../post-event-feedback-doubles.harness.js";
 import { PostEventFeedbackExtractionFallback } from "./fallback.service.js";
 import {
+  FEEDBACK_EXTRACTION_PARK_NOTICE_AFTER_MS,
+  POST_EVENT_FEEDBACK_EXTRACTION_PARKED_NOTICE,
   POST_EVENT_FEEDBACK_FALLBACK_ACK,
   POST_EVENT_FEEDBACK_FALLBACK_NOTE_TEXT,
+  createFeedbackExtractionParkedNoticeDedupeKey,
   createFeedbackFallbackAckDedupeKey,
 } from "./extraction.schemas.js";
+import {
+  FEEDBACK_EXTRACTION_PARK_MAX_MS,
+  FEEDBACK_EXTRACTION_PARK_RETRY_MS,
+  FEEDBACK_JOB_NAMES,
+  createFeedbackExtractParkedJobId,
+  type FeedbackJobData,
+  type FeedbackJobName,
+} from "../jobs.schemas.js";
 import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "../question-set.js";
 import type { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
 import type { FeedbackResultsRepository } from "./results.repository.js";
@@ -354,6 +366,228 @@ describe("PostEventFeedbackExtractionFallback", () => {
     ).toHaveLength(0);
   });
 
+  describe("parking a provider incident", () => {
+    it("says nothing, files nothing and asks for nobody", async () => {
+      const result = await harness.fallback.park({
+        conversationId,
+        correlationId,
+        cause: "provider_error",
+      });
+
+      expect(result.parked).toBe(true);
+      // The whole point, against the 2026-07-27 inbox: no note, no message, no
+      // badge, no page. One number at campaign level is what an operator gets.
+      expect(harness.repository.notes).toHaveLength(0);
+      expect(harness.repository.outbox).toHaveLength(0);
+      expect(harness.conversations.transcript(conversationId)).toHaveLength(1);
+      expect(harness.conversations.get(conversationId).needsAttention).toBe(
+        false,
+      );
+      expect(
+        harness.conversations.get(conversationId).attentionReasons,
+      ).toHaveLength(0);
+      expect(harness.alert.raised).toHaveLength(0);
+      // But it is on the record, once per run, with the class and the start.
+      expect(harness.audit.events).toHaveLength(1);
+      expect(harness.audit.events[0]).toMatchObject({
+        action: "feedback_conversation.extraction_parked",
+        entityId: conversationId,
+        context: { cause: "provider_error", parkedRuns: 1 },
+      });
+    });
+
+    it("queues the next attempt, which is the ladder that outlives the job", async () => {
+      const result = await harness.fallback.park({
+        conversationId,
+        correlationId,
+        cause: "provider_error",
+      });
+
+      const expectedId = createFeedbackExtractParkedJobId(conversationId, 1, 1);
+      expect(result.retryJobId).toBe(expectedId);
+      expect(harness.queue.added).toHaveLength(1);
+      expect(harness.queue.added[0]).toMatchObject({
+        name: FEEDBACK_JOB_NAMES.extractV1,
+        options: {
+          jobId: expectedId,
+          delay: FEEDBACK_EXTRACTION_PARK_RETRY_MS,
+          // This *is* the retry; the next one is queued by the next park.
+          attempts: 1,
+        },
+      });
+    });
+
+    it("gives each successive park its own job id and keeps the start time", async () => {
+      await harness.fallback.park({
+        conversationId,
+        correlationId,
+        cause: "provider_error",
+      });
+      const first =
+        harness.conversations.get(conversationId).extraction.parkedSince;
+
+      const second = await harness.fallback.park({
+        conversationId,
+        correlationId,
+        cause: "provider_error",
+      });
+
+      // A stable id would be refused by BullMQ while the parked run still holds
+      // it, so the counter is what keeps the ladder moving.
+      expect(second.retryJobId).toBe(
+        createFeedbackExtractParkedJobId(conversationId, 1, 2),
+      );
+      expect(harness.queue.added).toHaveLength(2);
+      // And the clock the notice is measured against does not restart.
+      expect(
+        harness.conversations.get(conversationId).extraction.parkedSince,
+      ).toBe(first);
+    });
+
+    it("says nothing to the participant before the half-hour mark", async () => {
+      harness.conversations.get(conversationId).extraction.parkedSince =
+        new Date(
+          Date.now() - FEEDBACK_EXTRACTION_PARK_NOTICE_AFTER_MS + 60_000,
+        );
+
+      const result = await harness.fallback.park({
+        conversationId,
+        correlationId,
+        cause: "provider_error",
+      });
+
+      expect(result.noticeOutboxId).toBeUndefined();
+      expect(harness.repository.outbox).toHaveLength(0);
+    });
+
+    it("sends one apology once the half hour is up, and only one", async () => {
+      harness.conversations.get(conversationId).extraction.parkedSince =
+        new Date(Date.now() - FEEDBACK_EXTRACTION_PARK_NOTICE_AFTER_MS - 1_000);
+
+      const first = await harness.fallback.park({
+        conversationId,
+        correlationId,
+        cause: "provider_error",
+      });
+
+      expect(first.noticeOutboxId).toBeDefined();
+      expect(harness.repository.outbox).toHaveLength(1);
+      expect(harness.repository.outbox[0]).toMatchObject({
+        kind: "system",
+        body: POST_EVENT_FEEDBACK_EXTRACTION_PARKED_NOTICE,
+        dedupeKey:
+          createFeedbackExtractionParkedNoticeDedupeKey(conversationId),
+      });
+      // It reaches the transcript as a bot turn, like every other outbound.
+      expect(
+        harness.conversations.transcript(conversationId).at(-1),
+      ).toMatchObject({
+        actor: "bot",
+        text: POST_EVENT_FEEDBACK_EXTRACTION_PARKED_NOTICE,
+      });
+      expect(
+        harness.conversations.get(conversationId).extraction.parkedNoticeSentAt,
+      ).not.toBeNull();
+
+      // Six hours parked is not six apologies.
+      const second = await harness.fallback.park({
+        conversationId,
+        correlationId,
+        cause: "provider_error",
+      });
+      expect(second.noticeOutboxId).toBeUndefined();
+      expect(harness.repository.outbox).toHaveLength(1);
+      expect(harness.conversations.transcript(conversationId)).toHaveLength(2);
+    });
+
+    it("stays quiet when the deterministic fallback has already spoken", async () => {
+      harness.conversations.get(conversationId).extractionFallbackAckSent =
+        true;
+      harness.conversations.get(conversationId).extraction.parkedSince =
+        new Date(Date.now() - FEEDBACK_EXTRACTION_PARK_NOTICE_AFTER_MS - 1_000);
+
+      await harness.fallback.park({
+        conversationId,
+        correlationId,
+        cause: "provider_error",
+      });
+
+      // Two machine apologies for one silence is one too many.
+      expect(harness.repository.outbox).toHaveLength(0);
+    });
+
+    it("stays quiet while a person holds the conversation", async () => {
+      harness.conversations.get(conversationId).control.mode = "human";
+      harness.conversations.get(conversationId).extraction.parkedSince =
+        new Date(Date.now() - FEEDBACK_EXTRACTION_PARK_NOTICE_AFTER_MS - 1_000);
+
+      await harness.fallback.park({
+        conversationId,
+        correlationId,
+        cause: "provider_error",
+      });
+
+      expect(harness.repository.outbox).toHaveLength(0);
+      // The park itself is still recorded: the incident happened either way.
+      expect(
+        harness.conversations.get(conversationId).extraction.parkedRuns,
+      ).toBe(1);
+    });
+
+    it("stops re-queueing once the ceiling is reached, and stays parked", async () => {
+      harness.conversations.get(conversationId).extraction.parkedSince =
+        new Date(Date.now() - FEEDBACK_EXTRACTION_PARK_MAX_MS - 1_000);
+      harness.conversations.get(conversationId).extraction.parkedNoticeSentAt =
+        new Date();
+
+      const result = await harness.fallback.park({
+        conversationId,
+        correlationId,
+        cause: "provider_error",
+      });
+
+      expect(result.retryJobId).toBeUndefined();
+      expect(harness.queue.added).toHaveLength(0);
+      // Still parked, still counted at campaign level, still nobody's inbox row.
+      expect(
+        harness.conversations.get(conversationId).extraction.parkedSince,
+      ).not.toBeNull();
+      expect(harness.conversations.get(conversationId).needsAttention).toBe(
+        false,
+      );
+    });
+
+    it("does not queue a retry for a closed conversation", async () => {
+      harness.conversations.get(conversationId).lifecycle.state = "closed";
+
+      const result = await harness.fallback.park({
+        conversationId,
+        correlationId,
+        cause: "provider_error",
+      });
+
+      // The run would exit on `skipped_closed`; queueing it would make the queue
+      // lie about what is outstanding.
+      expect(result.parked).toBe(true);
+      expect(result.retryJobId).toBeUndefined();
+      expect(harness.queue.added).toHaveLength(0);
+    });
+
+    it("parks nothing when the conversation is gone", async () => {
+      harness.conversations.documents.clear();
+
+      const result = await harness.fallback.park({
+        conversationId,
+        correlationId,
+        cause: "provider_error",
+      });
+
+      expect(result.parked).toBe(false);
+      expect(harness.queue.added).toHaveLength(0);
+      expect(harness.audit.events).toHaveLength(0);
+    });
+  });
+
   it("does nothing at all when the conversation is gone", async () => {
     harness.conversations.documents.clear();
 
@@ -384,8 +618,17 @@ interface FakeConversation {
   respondentParticipantId: string;
   goals: { key: string; ordinal: number; prompt: string; status: string }[];
   messages: FakeMessage[];
+  lifecycle: { state: "open" | "closed" };
+  control: { mode: "bot" | "human" };
+  awaitingHuman: boolean;
   needsAttention: boolean;
   extractionFallbackAckSent: boolean;
+  extraction: {
+    cursorSeq: number;
+    parkedSince: Date | null;
+    parkedRuns: number;
+    parkedNoticeSentAt: Date | null;
+  };
   attentionReasons: {
     kind: string;
     messageId: string | null;
@@ -582,6 +825,52 @@ class FakeConversations {
     conversation.extractionFallbackAckSent = true;
     return { changed: true, conversation };
   }
+
+  /** Keeps the first park's start and counts the run, as the pipeline update does. */
+  async parkExtraction(input: {
+    conversationId: string;
+    at: Date;
+  }): Promise<{ changed: boolean; conversation: FakeConversation }> {
+    const conversation = this.get(input.conversationId);
+    conversation.extraction.parkedSince ??= input.at;
+    conversation.extraction.parkedRuns += 1;
+    return { changed: true, conversation };
+  }
+
+  async markExtractionParkedNoticeSent(input: {
+    conversationId: string;
+    at: Date;
+  }): Promise<{ changed: boolean; conversation: FakeConversation }> {
+    const conversation = this.get(input.conversationId);
+    if (conversation.extraction.parkedNoticeSentAt !== null) {
+      return { changed: false, conversation };
+    }
+    conversation.extraction.parkedNoticeSentAt = input.at;
+    return { changed: true, conversation };
+  }
+}
+
+/**
+ * Enough of BullMQ to see what the park queued: an `add` for an id already held
+ * is a no-op, exactly as the real queue treats one.
+ */
+class FakeQueue {
+  readonly added: {
+    name: string;
+    data: unknown;
+    options: { jobId?: string; delay?: number; attempts?: number };
+  }[] = [];
+
+  async add(
+    name: string,
+    data: unknown,
+    options: { jobId?: string; delay?: number; attempts?: number } = {},
+  ): Promise<{ id: string | undefined }> {
+    if (!this.added.some((job) => job.options.jobId === options.jobId)) {
+      this.added.push({ name, data, options });
+    }
+    return { id: options.jobId };
+  }
 }
 
 interface Harness {
@@ -591,6 +880,7 @@ interface Harness {
   events: FakeEvents;
   audit: FakeAudit;
   alert: { raised: FeedbackOperatorAlertInput[] };
+  queue: FakeQueue;
 }
 
 function createHarness(): Harness {
@@ -649,13 +939,24 @@ function createHarness(): Harness {
         at: new Date("2026-07-26T12:00:00.000Z"),
       },
     ],
+    lifecycle: { state: "open" },
+    control: { mode: "bot" },
+    awaitingHuman: false,
     needsAttention: false,
     extractionFallbackAckSent: false,
+    extraction: {
+      cursorSeq: 0,
+      parkedSince: null,
+      parkedRuns: 0,
+      parkedNoticeSentAt: null,
+    },
     attentionReasons: [],
   });
 
   const database = new FakeDatabase();
+  const queue = new FakeQueue();
   const fallback = new PostEventFeedbackExtractionFallback(
+    queue as unknown as Queue<FeedbackJobData, void, FeedbackJobName>,
     database as unknown as DatabaseService,
     repository as unknown as FeedbackCampaignRepository,
     repository as unknown as FeedbackResultsRepository,
@@ -671,5 +972,5 @@ function createHarness(): Harness {
     alert,
   );
 
-  return { fallback, repository, conversations, events, audit, alert };
+  return { fallback, repository, conversations, events, audit, alert, queue };
 }

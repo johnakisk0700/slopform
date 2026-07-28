@@ -151,8 +151,29 @@ export interface ScriptedAttention {
   readonly confidence?: number;
 }
 
-/** One classification call's worth of signals. Empty means "nothing to flag". */
-export type AttentionTurn = readonly ScriptedAttention[];
+/**
+ * One classification call's worth of output, when it says more than "these are
+ * the signals".
+ *
+ * `hostileToUs` is a field of its own rather than a category in `signals`,
+ * mirroring the classifier: a scenario able to express «he swore at us» only by
+ * naming `other_safety` would be asserting the exact false positive the prompt
+ * exists to prevent, and the suite would then pass while the product flagged
+ * every crude joke as an incident.
+ */
+export interface ScriptedAttentionTurn {
+  readonly signals?: readonly ScriptedAttention[];
+  readonly hostileToUs?: boolean;
+}
+
+/**
+ * One classification call's worth of signals. Empty means "nothing to flag".
+ *
+ * The bare-array form is the common case and stays the shorthand; the object
+ * form is for a run that also has something to say about hostility.
+ */
+export type AttentionTurn =
+  readonly ScriptedAttention[] | ScriptedAttentionTurn;
 
 /** What the model does the next time it is asked to read the transcript. */
 export interface ModelTurn {
@@ -257,6 +278,8 @@ export const FEEDBACK_RECEIVED_KINDS = [
   "closing",
   "handoff",
   "fallback",
+  /** «Δεν μπορούμε να συνεχίσουμε κουβέντα έτσι, εγώ σταματάω 🍌» */
+  "hostility_stop",
   "stop_ack",
   /** «δεν μπορούμε να ακούσουμε φωνητικά» — one per conversation, not per note. */
   "media_notice",

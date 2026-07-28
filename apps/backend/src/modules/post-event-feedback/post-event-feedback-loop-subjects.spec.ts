@@ -324,7 +324,12 @@ const SCENARIOS: readonly FeedbackScenario[] = [
     // not the respondent's vocabulary.
     id: "insults_the_bot",
     title: "does not call an operator because somebody swore at the bot",
-    attention: [[]],
+    // The classifier now says out loud what this message is — hostile toward us —
+    // and the expectation below is unchanged, which is the assertion. One hostile
+    // turn is rung one of three: it is counted, it is answered calmly, and it
+    // raises nothing. The row that ends at the exit line is
+    // `abuses_the_bot_throughout` in the safety suite.
+    attention: [{ hostileToUs: true }],
     script: [{ reply: "Σε καταλαβαίνουμε, δεν θα σε ζαλίσουμε άλλο 🙂" }],
     steps: [
       { kind: "inbound", text: "αντε γαμησου ρε μποτ μας πρηξες" },

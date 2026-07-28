@@ -2046,12 +2046,14 @@ function generation(
 
 function attentionGeneration(
   signals: readonly Record<string, unknown>[],
+  hostileMessageIds: readonly string[] = [],
 ): Record<string, unknown> {
   return {
     model,
     usage: { inputTokens: 180, outputTokens: 40, totalTokens: 220 },
     estimatedPromptTokens: 200,
     signals,
+    hostileMessageIds,
   };
 }
 

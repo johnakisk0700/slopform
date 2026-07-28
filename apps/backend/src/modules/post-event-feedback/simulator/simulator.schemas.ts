@@ -198,6 +198,9 @@ export const feedbackSimulatorRubricSchema = z
       .strict()
       .nullable()
       .optional(),
+    // Beside `attention` rather than inside it, mirroring the classifier: this is
+    // not a safety category and must never be reachable as one from here either.
+    hostileToUs: z.boolean().optional(),
     handoff: z.boolean().optional(),
     reply: z
       .object({

@@ -118,6 +118,7 @@ export class ScriptedBurstExtractionModel implements FeedbackExtractionModelPort
         return {
           model: FEEDBACK_EXTRACTION_STUB_MODEL_ID,
           signals: [],
+          hostileMessageIds: [],
           usage: SCRIPTED_USAGE,
           estimatedPromptTokens: 0,
         };
@@ -140,6 +141,10 @@ export class ScriptedBurstExtractionModel implements FeedbackExtractionModelPort
       return {
         model: FEEDBACK_EXTRACTION_STUB_MODEL_ID,
         signals,
+        // Every new message in the run, because a persona declares hostility per
+        // turn rather than per message: the ladder counts runs, so which of the
+        // burst's messages carried the insult changes nothing it decides.
+        hostileMessageIds: turn.hostileToUs ? [...targetMessageIds] : [],
         usage: SCRIPTED_USAGE,
         estimatedPromptTokens: 0,
       };

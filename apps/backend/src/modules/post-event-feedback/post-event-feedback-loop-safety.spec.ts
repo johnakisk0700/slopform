@@ -93,6 +93,308 @@ const SCENARIOS: readonly FeedbackScenario[] = [
     },
   },
   {
+    // S64. The ladder. Μπάμπης Διπλογαμωσταυρίδης opted in and then spent the
+    // evening swearing at a robot, and until now the robot answered every time:
+    // nothing in the loop could count, so his fourth insult was as fresh as his
+    // first. Three calm replies, then one line, then silence.
+    //
+    // The fifth message is the assertion that matters most and it is asserted by
+    // absence. `awaitingHuman` is set by the fourth run, so the fifth reaches no
+    // provider at all — which is why the script holds four turns and not five,
+    // and why the runner's "every scripted call consumed exactly" rule is doing
+    // real work here: a fifth provider call would have to come from somewhere,
+    // and there is nowhere for it to come from.
+    //
+    // He is not opted out and the conversation is not closed. He never asked us
+    // to stop; we did, and recording that as his decision would be us deciding
+    // on his behalf.
+    id: "abuses_the_bot_throughout",
+    title:
+      "answers three hostile turns calmly, says one line, and then stops reaching the provider",
+    script: [
+      {
+        next: "event_score",
+        reply:
+          "Σε άκουσα. Αν θες, πες μου μόνο ένα νούμερο από το 1 ως το 5 για τη βραδιά.",
+      },
+      {
+        next: "event_score",
+        reply:
+          "Εντάξει. Είμαι εδώ αν θελήσεις να μου πεις δυο πράγματα για το τραπέζι.",
+      },
+      {
+        next: "event_score",
+        reply:
+          "Κανένα πρόβλημα. Πες μου όποτε θέλεις ένα νούμερο από το 1 ως το 5.",
+      },
+      // The fourth proposal is ordinary — the model has no idea the ladder has
+      // run out, and it must not need to. The application replaces this reply
+      // with its own exit line, which is the point: the decision to stop is ours
+      // and is not delegated to a generation.
+      {
+        next: "event_score",
+        reply: "Είμαι εδώ αν θέλεις να μου πεις για τη βραδιά.",
+      },
+    ],
+    // Hostility toward us on every turn, and never a safety signal. That pairing
+    // is the whole shape of the row: an operator is called at the end for a
+    // conversation in which nobody was ever unsafe.
+    attention: [
+      { hostileToUs: true },
+      { hostileToUs: true },
+      { hostileToUs: true },
+      { hostileToUs: true },
+    ],
+    steps: [
+      { kind: "inbound", text: "αντε γαμησου ρε μαλακισμενο μποτ" },
+      {
+        kind: "inbound",
+        after: "90s",
+        text: "σοβαρα ποιος σχεδιασε αυτη τη μαλακια, γαμω το κερατο μου",
+      },
+      { kind: "inbound", after: "90s", text: "δε σου απανταω τιποτα, ασχετε" },
+      {
+        kind: "inbound",
+        after: "90s",
+        text: "ακομα εδω εισαι ρε ηλιθιε; γαμω",
+      },
+      { kind: "inbound", after: "90s", text: "χαχα εφαγες τη γλωσσα σου ρε" },
+      { kind: "wait", after: "settles" },
+    ],
+    expect: {
+      lifecycle: "open",
+      closedBecause: null,
+      optedIn: true,
+      answers: [],
+      needsAttention: true,
+      // Not a safety incident on any message, however heavy the language. This
+      // is the guard `cb5d0dc` spent its prompt budget on, asserted from the
+      // hostility side.
+      flaggedMessages: [],
+      // Three replies and one exit line — and no fourth reply, no closing copy.
+      receivedCount: {
+        reply: 3,
+        hostility_stop: 1,
+        closing: 0,
+        handoff: 0,
+        fallback: 0,
+      },
+      // The intro was delivered before the tape started rolling, so `received`
+      // holds only what his five messages caused: three replies, then the line.
+      received: [
+        { kind: "reply" },
+        { kind: "reply" },
+        { kind: "reply" },
+        {
+          kind: "hostility_stop",
+          text: "Δεν μπορούμε να συνεχίσουμε κουβέντα έτσι, εγώ σταματάω 🍌",
+        },
+      ],
+    },
+  },
+  {
+    // S66. The counter is durable and never falls, which is a trap on the far
+    // side of a human intervention. An operator takes the frozen thread over,
+    // calms him down and hands it back; his next message is civil and answers the
+    // score. If the exit line keyed off the stored total alone, that civil message
+    // would trip the stop again — the counter is still four — and the bot would
+    // freeze the conversation the operator had just repaired.
+    //
+    // So the stop needs hostility in *this* run, not only a total. His answer is
+    // recorded and answered normally, and no second exit line goes out.
+    id: "cooperates_after_a_takeover",
+    title:
+      "answers normally after a takeover and hand-back, without re-sending the hostility line",
+    script: [
+      // All three calm replies pose the question. A statement-shaped reply with a
+      // `nextGoal` and nothing extracted is a withdrawal, which would settle the
+      // ladder and freeze the thread a rung early — before the exit line this row
+      // needs on the far side of the takeover.
+      {
+        next: "event_score",
+        reply: "Σε άκουσα. Πες μου ένα νούμερο από το 1 ως το 5.",
+      },
+      {
+        next: "event_score",
+        reply: "Εντάξει. Πες μου όποτε θέλεις πώς σου φάνηκε η βραδιά.",
+      },
+      {
+        next: "event_score",
+        reply: "Κανένα πρόβλημα. Πες μου ένα νούμερο όποτε θέλεις.",
+      },
+      { next: "event_score", reply: "Είμαι εδώ αν θέλεις να μου πεις." },
+      // After the hand-back. He answers the score like anybody else.
+      {
+        answers: [{ question: "event_score", value: 4 }],
+        next: "liked",
+        reply: "Το κράτησα! Ποιος σου έκανε καλή εντύπωση;",
+      },
+    ],
+    attention: [
+      { hostileToUs: true },
+      { hostileToUs: true },
+      { hostileToUs: true },
+      { hostileToUs: true },
+      // The civil turn. The stored total is still four; this run is not hostile.
+      { hostileToUs: false },
+    ],
+    steps: [
+      { kind: "inbound", text: "αντε γαμησου ρε μαλακισμενο μποτ" },
+      { kind: "inbound", after: "90s", text: "γαμω το κερατο μου, τι μαλακια" },
+      { kind: "inbound", after: "90s", text: "δε σου απανταω τιποτα, ασχετε" },
+      {
+        kind: "inbound",
+        after: "90s",
+        text: "ακομα εδω εισαι ρε ηλιθιε; γαμω",
+      },
+      // Let the fourth run finish and say the line before a person arrives; a
+      // takeover inside the quiet window would exit `skipped_human_control` and
+      // this row would be rehearsing a stop that never happened.
+      { kind: "wait", after: "settles" },
+      // A person arrives, speaks to him off-thread, and hands the bot back.
+      { kind: "staff", action: "take_over", after: "5m" },
+      { kind: "staff", action: "resume", after: "10m" },
+      { kind: "inbound", after: "1m", text: "οκ συγγνωμη ρε. βαζω 4" },
+      { kind: "wait", after: "settles" },
+    ],
+    expect: {
+      // The assertion: his answer lands, and the line was said once, before the
+      // takeover — not again afterwards.
+      answers: [{ question: "event_score", about: null, value: 4 }],
+      receivedCount: { hostility_stop: 1 },
+      lifecycle: "open",
+      control: "bot",
+    },
+  },
+  {
+    // S65. The guard, from the side that would hurt somebody.
+    //
+    // Ειρήνη Καταγγελού describes being touched at the table without her
+    // consent, four times, in the plain and heavy words people actually use for
+    // it. Every one of those messages scores as hostile on any measure of
+    // language a classifier has, and the classifier here says so: `hostileToUs`
+    // is true on all four turns. If hostility alone drove the ladder she would
+    // reach the exit line on her fourth disclosure — the module would answer a
+    // woman describing an assault by refusing to talk to her and freezing her
+    // conversation, which is the worst single message this system could send.
+    //
+    // She never gets it, and the reason is structural rather than a last check:
+    // a run carrying a safety signal does not tick the counter, so after four
+    // disclosures the ladder is still on zero and there is nothing to trip.
+    //
+    // `human_follow_up` rather than urgent, so the bot keeps speaking across all
+    // four runs; urgent would set dutyOfCare and silence it after the first,
+    // which would hide the very thing this row is testing.
+    id: "hostility_stop_never_reaches_a_disclosure",
+    title:
+      "never sends the hostility line to somebody describing an incident, however heavy their words",
+    script: [
+      {
+        notes: [
+          {
+            type: "general",
+            text: "Ο Κώστας Γ. την ακούμπησε κάτω από το τραπέζι.",
+            about: "Κώστας Γ.",
+          },
+        ],
+        next: "event_score",
+        // Deliberately not opening with «Σε ευχαριστούμε που μας το είπες», which
+        // is the application's own fallback acknowledgement: the harness
+        // classifies outbound by our copy, so a scripted reply starting with it
+        // would be counted as a fallback and this row would silently stop
+        // measuring replies at all.
+        reply: "Το κρατάω και το προωθώ. Πώς σου φάνηκε η βραδιά συνολικά;",
+      },
+      {
+        notes: [
+          {
+            type: "general",
+            text: "Συνέχισε να την αγγίζει αφού του είπε να σταματήσει.",
+            about: "Κώστας Γ.",
+          },
+        ],
+        next: "event_score",
+        reply: "Το κρατάω κι αυτό. Είμαι εδώ.",
+      },
+      {
+        notes: [
+          {
+            type: "general",
+            text: "Δεν κατάφερε να φύγει από το τραπέζι για ώρα.",
+            about: "Κώστας Γ.",
+          },
+        ],
+        next: "event_score",
+        reply: "Σε ακούω. Πες μου ό,τι θέλεις.",
+      },
+      {
+        notes: [
+          {
+            type: "general",
+            text: "Φοβήθηκε να μιλήσει μπροστά στους άλλους.",
+            about: "Κώστας Γ.",
+          },
+        ],
+        next: "event_score",
+        reply: "Σε ευχαριστώ που μου το είπες κι αυτό.",
+      },
+    ],
+    attention: [
+      {
+        signals: [{ category: "sexual_misconduct", action: "human_follow_up" }],
+        hostileToUs: true,
+      },
+      {
+        signals: [{ category: "sexual_misconduct", action: "human_follow_up" }],
+        hostileToUs: true,
+      },
+      {
+        signals: [{ category: "sexual_misconduct", action: "human_follow_up" }],
+        hostileToUs: true,
+      },
+      {
+        signals: [{ category: "sexual_misconduct", action: "human_follow_up" }],
+        hostileToUs: true,
+      },
+    ],
+    steps: [
+      {
+        kind: "inbound",
+        text: "ο Κωστας Γ. μου εβαλε το χερι στο ποδι κατω απ το τραπεζι, γαμωτο",
+      },
+      {
+        kind: "inbound",
+        after: "90s",
+        text: "του ειπα σταματα κ συνεχιζε ο μαλακας",
+      },
+      {
+        kind: "inbound",
+        after: "90s",
+        text: "δεν μπορουσα να σηκωθω απ το τραπεζι, σκατα βραδια",
+      },
+      {
+        kind: "inbound",
+        after: "90s",
+        text: "ντραπηκα να πω κατι μπροστα στους αλλους, γαμω την τυχη μου",
+      },
+      { kind: "wait", after: "settles" },
+    ],
+    expect: {
+      // The assertion. Four hostile-scoring turns and the line never goes out.
+      receivedCount: { hostility_stop: 0, reply: 4 },
+      // She was heard rather than cut off: the conversation is open, the bot is
+      // still speaking, and her words are recorded and flagged for a person.
+      lifecycle: "open",
+      needsAttention: true,
+      flaggedMessages: [
+        { categories: ["sexual_misconduct"], action: "human_follow_up" },
+        { categories: ["sexual_misconduct"], action: "human_follow_up" },
+        { categories: ["sexual_misconduct"], action: "human_follow_up" },
+        { categories: ["sexual_misconduct"], action: "human_follow_up" },
+      ],
+    },
+  },
+  {
     // S40. D13 as amended, working. The disclosure is recorded as an ordinary,
     // visible note in the participant's own words and directed at the person it
     // is about; the answer she also gave is not swallowed by it; and an operator

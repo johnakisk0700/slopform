@@ -88,6 +88,17 @@ export const feedbackCampaignInboxSummarySchema = z
     conversationCount: z.number().int().nonnegative(),
     openCount: z.number().int().nonnegative(),
     needsAttentionCount: z.number().int().nonnegative(),
+    /**
+     * How many conversations are waiting on the model rather than on a person.
+     *
+     * The campaign-level report of a provider incident, and deliberately the
+     * *only* place one is reported. A failed provider is one event — an exhausted
+     * balance, an unreachable route, a model id nobody serves — so it belongs in
+     * the campaign header beside the other counts, not as a badge on every row it
+     * touched. Non-zero and rising means somebody should look at the deployment;
+     * it falls on its own as the retries land.
+     */
+    extractionParkedCount: z.number().int().nonnegative(),
   })
   .strict();
 

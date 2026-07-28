@@ -219,6 +219,41 @@ export const feedbackConversationExtractionSchema = z
     cursorSeq: z.number().int().min(0),
     lastRunAt: z.date().nullable(),
     model: z.string().trim().min(1).max(200).nullable(),
+    /**
+     * When this conversation was first parked on a provider incident, or null.
+     *
+     * Parking is what a terminal `provider_error` does instead of speaking to
+     * the participant and asking for a person. The distinction it encodes is the
+     * whole point: a content filter or a schema failure is something about *this*
+     * conversation, while an unreachable provider or an exhausted balance is one
+     * incident affecting every conversation at once. On 2026-07-27 the second
+     * kind was handled as the first, and thirty-six rows each demanded a human
+     * for a fault none of them caused.
+     *
+     * It is deliberately **not** `needsAttention` and **not** `awaitingHuman`:
+     * nobody has to read a parked conversation, and the bot has promised nothing.
+     * The operator surface is the campaign's parked count — one number for one
+     * incident — and the detail pane's existing extraction block, which reports
+     * the queued retry through `runQueued` / `nextRunAt`.
+     *
+     * Timestamped rather than boolean because two decisions are measured from
+     * it: when the participant is owed a word, and when re-queueing gives up.
+     */
+    parkedSince: z.date().nullable().default(null),
+    /**
+     * How many runs have parked since `parkedSince`. Each one queues the next
+     * retry, so this is also the counter that keeps those job ids distinct.
+     */
+    parkedRuns: z.number().int().min(0).default(0),
+    /**
+     * When the participant was told, once, that something stuck on our side.
+     *
+     * Kept beside the park rather than inside it because it outlives it: like
+     * `extractionFallbackAckSent`, it is **not** cleared when extraction
+     * recovers. Somebody who has already had one apology from a machine does not
+     * need a second one the next time the provider hiccups.
+     */
+    parkedNoticeSentAt: z.date().nullable().default(null),
   })
   .strict();
 
@@ -289,6 +324,37 @@ export const feedbackConversationDocumentSchema = z
      * Cleared when a person engages — takes over, or hands back to the bot.
      */
     awaitingHuman: z.boolean().default(false),
+    /**
+     * How many extraction runs have now read a message abusive toward us.
+     *
+     * On the document because hostility accumulates across runs and a run holds
+     * no memory of the last one: Μπάμπης Διπλογαμωσταυρίδης sent his four
+     * clusters ninety seconds apart, which is four separate extractions, and
+     * anything short of a stored number makes each of them the first.
+     *
+     * Counted per **run**, not per message. The thing being rationed is our
+     * replies, and one burst of five insults draws one reply — so counting
+     * messages would spend the whole allowance on somebody who typed fast, and
+     * «two or three calm replies» would stop being true of what he experienced.
+     *
+     * A run that also produced safety signals never counts here, however heavy
+     * its language: Ειρήνη Καταγγελού described being touched at the table, and
+     * a counter that ticked on her wording would carry her to the exit line
+     * three disclosures later. See `FEEDBACK_CALM_REPLIES_BEFORE_HOSTILITY_STOP`.
+     *
+     * Deliberately not derived from the `hostile_to_bot` attention reasons: an
+     * operator dismissing one of those would silently return the bot's voice to
+     * a conversation it had already given up on.
+     *
+     * Defaulted rather than required so conversations written before the counter
+     * existed parse as "never hostile" instead of failing validation.
+     */
+    hostileTurns: z
+      .number()
+      .int()
+      .min(0)
+      .max(FEEDBACK_CONVERSATION_MAX_MESSAGES)
+      .default(0),
     /**
      * The participant has already received the deterministic extraction-fallback
      * acknowledgement for this conversation.
@@ -506,6 +572,14 @@ export const feedbackConversationSummarySchema = z
       .nullable(),
     cursorSeq: z.number().int().min(0),
     needsAttention: z.boolean(),
+    /**
+     * Extraction is parked on a provider incident for this conversation.
+     *
+     * Projected into the list read for one reason: the campaign summary counts
+     * it. A provider outage is one incident, so the operator gets one number for
+     * the campaign rather than a badge on every row it touched.
+     */
+    extractionParked: z.boolean(),
     remindedAt: z.date().nullable(),
     createdAt: z.date(),
     updatedAt: z.date(),

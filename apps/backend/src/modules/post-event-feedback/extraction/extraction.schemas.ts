@@ -545,6 +545,31 @@ export const POST_EVENT_FEEDBACK_SAFETY_ASSURANCE =
   "Το προώθησα ήδη στην ομάδα μας και κάποιος θα σου μιλήσει προσωπικά.";
 
 /**
+ * The last thing the bot says to somebody who has only ever sworn at it.
+ *
+ * Sent once, on the run where the hostility counter passes
+ * `FEEDBACK_CALM_REPLIES_BEFORE_HOSTILITY_STOP`, and it is the bot's own exit
+ * line rather than an answer to anything. Μπάμπης Διπλογαμωσταυρίδης opted in
+ * and then spent four clusters on «άντε γαμήσου ρε μαλακισμένο μποτ»; the loop
+ * kept answering him calmly because nothing in it could count, and a machine
+ * that absorbs a fourth round of abuse and asks for a score again is not being
+ * patient, it is being a machine.
+ *
+ * It says «we» cannot continue and «I» am stopping, in that order, on purpose:
+ * the first half is about the conversation and not about him, so it is not a
+ * verdict on a person we would then have to defend, and the second half is the
+ * bot owning the decision instead of implying he asked for it. He did not ask —
+ * that is why `optedIn` and the open lifecycle both stay untouched, and why this
+ * is not the STOP acknowledgement.
+ *
+ * The 🍌 is the owner's and is deliberate. It is the same register as the
+ * campaign's own copy (`closing` ends on 🙌, `cannot_read_media` on 🙈) and it
+ * is what keeps the line from reading as a formal sanction.
+ */
+export const POST_EVENT_FEEDBACK_HOSTILITY_STOP_REPLY =
+  "Δεν μπορούμε να συνεχίσουμε κουβέντα έτσι, εγώ σταματάω 🍌";
+
+/**
  * The acknowledgement half of the deterministic fallback reply.
  *
  * It is the first sentence of the handoff copy above, reused verbatim rather
@@ -575,10 +600,56 @@ export const POST_EVENT_FEEDBACK_FALLBACK_ACK =
 export const POST_EVENT_FEEDBACK_FALLBACK_NOTE_TEXT =
   "Η αυτόματη ανάλυση δεν ολοκληρώθηκε — δείτε τη συζήτηση.";
 
+/**
+ * How long a conversation may sit parked on a provider incident before the
+ * participant is told something.
+ *
+ * Thirty minutes, decided by the owner over two hours and over never. Long
+ * enough that any ordinary retry ladder has had its chance and the sentence is
+ * not sent about a blip; short enough that somebody who answered at midnight is
+ * not left until morning believing they were ignored.
+ */
+export const FEEDBACK_EXTRACTION_PARK_NOTICE_AFTER_MS = 30 * 60_000;
+
+/**
+ * The one sentence a parked conversation says, half an hour in.
+ *
+ * Application copy, like the handoff and safety-assurance lines above and for
+ * the same reason: no model composed it, so it cannot drift, and it is sent by
+ * the code that knows the run is stuck rather than by one that is guessing.
+ *
+ * Every clause is a constraint rather than a flourish:
+ *
+ * - It names no cause. The incident it covers is usually ours — an exhausted
+ *   balance, a wrong model id, a provider outage — and on 2026-07-27 thirty-six
+ *   people were effectively sent a message about our accounting. «κάτι κόλλησε
+ *   από τη δική μας πλευρά» puts the fault on us and stops there. No billing, no
+ *   credit, no quota, no provider, and nothing that reads as the participant's
+ *   fault.
+ * - It says their message is unread, not lost. «δεν το έχουμε δει ακόμα» is the
+ *   truth — it is sitting in the transcript behind a cursor — and it is also the
+ *   version that does not make somebody re-type a disclosure they worked up to.
+ * - It promises no person and no time. Rule 11ε forbids the model from saying
+ *   somebody will make contact; this is the application speaking, but the
+ *   promise would still be one nobody has to keep, because a parked conversation
+ *   deliberately raises no attention. «Θα σου απαντήσουμε» is a promise the
+ *   system itself keeps: the retry that answers is already queued.
+ * - It says nothing about what we do with what they told us — rule 11στ — so no
+ *   sentence here can become an accidental data-handling commitment.
+ *
+ * Sent at most once per conversation, ever. A parked conversation wakes up every
+ * few minutes and a second identical apology six hours later is not care, it is
+ * a stuck recording.
+ */
+export const POST_EVENT_FEEDBACK_EXTRACTION_PARKED_NOTICE =
+  "Συγγνώμη, κάτι κόλλησε από τη δική μας πλευρά και δεν έχουμε δει ακόμα το μήνυμά σου. Θα σου απαντήσουμε.";
+
 export const FEEDBACK_REPLY_DEDUPE_PREFIX = "feedback-reply";
 export const FEEDBACK_CLOSING_DEDUPE_PREFIX = "feedback-closing";
 export const FEEDBACK_HANDOFF_DEDUPE_PREFIX = "feedback-handoff";
 export const FEEDBACK_FALLBACK_DEDUPE_PREFIX = "feedback-fallback";
+export const FEEDBACK_HOSTILITY_STOP_DEDUPE_PREFIX = "feedback-hostility-stop";
+export const FEEDBACK_PARKED_DEDUPE_PREFIX = "feedback-parked";
 
 /**
  * One outbound per conversation per answered testimony position. A replayed run
@@ -611,6 +682,22 @@ export function createFeedbackHandoffDedupeKey(
 }
 
 /**
+ * Per conversation, not per testimony — unlike the reply and handoff keys above.
+ *
+ * The bot bows out of a conversation exactly once, so this is closing copy in
+ * shape even though it is not a completion. `awaitingHuman` already stops the
+ * next run before it reaches a provider, which means the second send this fences
+ * against is not a later turn but a replay of the same run: the counter's
+ * compare-and-set has by then already been applied, so a replay recomputes the
+ * same decision from the same snapshot and must land on the same key.
+ */
+export function createFeedbackHostilityStopDedupeKey(
+  conversationId: string,
+): string {
+  return `${FEEDBACK_HOSTILITY_STOP_DEDUPE_PREFIX}-${conversationId}`;
+}
+
+/**
  * At most one fallback acknowledgement per conversation. The per-testimony fence
  * (`createFeedbackFallbackDedupeKey`) still absorbs replays of the same dead run;
  * this key is what stops a second participant message during an outage from
@@ -632,6 +719,21 @@ export function createFeedbackFallbackDedupeKey(
   testimonySeq: number,
 ): string {
   return `${FEEDBACK_FALLBACK_DEDUPE_PREFIX}-${conversationId}-${testimonySeq}`;
+}
+
+/**
+ * One parked-conversation notice, ever, per conversation.
+ *
+ * Keyed on the conversation alone and deliberately not on a testimony position:
+ * the sentence is about our silence, not about one message, and somebody who
+ * writes twice during the same outage has not earned a second apology. The
+ * document's `extraction.parkedNoticeSentAt` makes the decision once; this makes
+ * the send once even if that write is lost between the two.
+ */
+export function createFeedbackExtractionParkedNoticeDedupeKey(
+  conversationId: string,
+): string {
+  return `${FEEDBACK_PARKED_DEDUPE_PREFIX}-${conversationId}-notice`;
 }
 
 /** Placeholder body for the per-testimony fence row — never relayed. */

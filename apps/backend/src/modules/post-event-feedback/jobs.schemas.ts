@@ -132,6 +132,59 @@ export function createFeedbackExtractJobId(
   return `feedback-extract-v1-${conversationId}-${latestSeq}`;
 }
 
+/**
+ * How long a run parked on a provider incident waits before trying again.
+ *
+ * The queue's own ladder is five attempts of exponential backoff from one
+ * second, so it is spent inside twenty seconds — long enough for a blip,
+ * nowhere near long enough for an outage, a rate-limit ceiling or an empty
+ * balance. Once those attempts are gone nothing re-reads the conversation, and
+ * on 2026-07-27 that is why thirty-six conversations needed a person: not
+ * because the testimony was hard, but because the only ladder we had was
+ * twenty seconds long.
+ *
+ * Five minutes is chosen against what actually ends an incident: somebody
+ * topping up an account, a provider recovering, a model id corrected on a
+ * deploy. All of those are minutes, so retrying faster only bills failures. It
+ * also has to be comfortably shorter than
+ * `FEEDBACK_EXTRACTION_PARK_NOTICE_AFTER_MS`, because a parked run waking up is
+ * what notices that the participant is owed a word.
+ */
+export const FEEDBACK_EXTRACTION_PARK_RETRY_MS = 5 * 60_000;
+
+/**
+ * How long a conversation keeps re-queueing before it stops asking.
+ *
+ * A ceiling, not a diagnosis. Six hours of five-minute retries is roughly
+ * seventy attempts, which is long enough to cover any outage somebody is
+ * actually working on and short enough that a misconfigured model id does not
+ * bill a request every five minutes for a week. It is well inside
+ * `FEEDBACK_EXPIRE_AFTER_HOURS`, so the expiry sweep is not racing it.
+ *
+ * Reaching it changes nothing the participant can see: the conversation stays
+ * parked and stays in the campaign's parked count, which is the number an
+ * operator reads. It stops only the re-queueing.
+ */
+export const FEEDBACK_EXTRACTION_PARK_MAX_MS = 6 * 3_600_000;
+
+/**
+ * The retry a parked run queues for itself.
+ *
+ * A separate id from the run that parked, because that one is *this* job: BullMQ
+ * refuses a second `add` for an id it still holds, and it holds this one until
+ * the failure that is about to be thrown. The park counter is what keeps
+ * successive retries distinct, and it is stored on the conversation, so the
+ * inbox can derive the id of the retry currently outstanding and report its due
+ * time honestly instead of showing a conversation that failed and stopped.
+ */
+export function createFeedbackExtractParkedJobId(
+  conversationId: string,
+  latestSeq: number,
+  parkedRun: number,
+): string {
+  return `feedback-extract-v1-${conversationId}-${latestSeq}-parked-${parkedRun}`;
+}
+
 /** Stable deliver job key: the outbox row id is the durable idempotency token. */
 export function createFeedbackDeliverJobId(outboxId: string): string {
   return `feedback-deliver-v1-${outboxId}`;

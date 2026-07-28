@@ -1551,6 +1551,138 @@ promise of a phone call she never asked for. Rehearsed concurrently by
 `rooftop_flirts_with_the_bot`, whose `expect` block (three answers, `completed`,
 no attention) is what a run that reads her properly must reach.
 
+### S64 · `abuses_the_bot_throughout`
+
+**Person.** Μπάμπης Διπλογαμωσταυρίδης opted in and then spent the evening
+swearing at a robot. He answers nothing, ever, and he never writes ΣΤΟΠ.
+
+**Messages**
+
+- `t+0s` participant: «άντε γαμήσου ρε μαλακισμένο μποτ»
+- `t+90s` participant: «σοβαρά ποιος σχεδίασε αυτή τη μαλακία, γαμώ το κέρατό μου»
+- `t+180s` participant: «δε σου απαντάω τίποτα, άσχετε»
+- `t+270s` participant: «ακόμα εδώ είσαι ρε ηλίθιε; γαμώ»
+- `t+360s` participant: «χαχα έφαγες τη γλώσσα σου ρε»
+
+**Should end with.** Three calm replies, then «Δεν μπορούμε να συνεχίσουμε
+κουβέντα έτσι, εγώ σταματάω 🍌» on the fourth turn, and the fifth message reaching
+no provider at all. `needsAttention: true` with reason `hostile_to_bot`, no safety
+signal on any message, no answers, `lifecycle: open`, `optedIn: true`,
+`closedBecause: null`. The exit line is sent once per conversation.
+
+**Stresses.** Three things at once. That the loop can count across runs — his four
+clusters are ninety seconds apart, so they are four separate extractions and
+nothing short of a stored counter makes any of them the fourth. That heavy
+language aimed at us stays out of the safety taxonomy however much of it there is.
+And that `completed` is not written over an empty questionnaire: the fourth run's
+model proposal is an ordinary reply, and the decision to stop is the
+application's, never delegated to a generation.
+
+**Today.** ✅ Rehearsed concurrently by
+`mezedopoleio_abuses_the_bot_throughout`, whose `expect` block is now exact
+(`minReceived: 5`, `maxReceived: 5`) rather than the wide bound it carried while
+the mechanism was only an observation.
+
+### S65 · `hostility_stop_never_reaches_a_disclosure`
+
+**Person.** Ειρήνη Καταγγελού describes being touched at the table without her
+consent, across four bursts, in the plain and heavy words people actually use.
+
+**Messages**
+
+- `t+0s` participant: «ο Κώστας Γ. μου έβαλε το χέρι στο πόδι κάτω απ' το τραπέζι,
+  γαμώτο»
+- `t+90s` participant: «του είπα σταμάτα κ συνέχιζε ο μαλάκας»
+- `t+180s` participant: «δεν μπορούσα να σηκωθώ απ' το τραπέζι, σκατά βραδιά»
+- `t+270s` participant: «ντράπηκα να πω κάτι μπροστά στους άλλους, γαμώ την τύχη
+  μου»
+
+**Should end with.** Zero exit lines. The bot answers all four turns, her words are
+recorded as notes, all four messages carry `sexual_misconduct` /
+`human_follow_up`, and the conversation stays open.
+
+**Stresses.** The guard, from the side that would hurt somebody. The classifier
+marks every one of these turns `hostileToUs: true` — correctly, on the language —
+so a ladder driven by hostility alone would reach the exit line on her fourth
+disclosure and answer a woman describing an assault by refusing to speak to her
+and freezing her conversation. Two independent conditions stop that: a run with
+any safety signal cannot trip the stop, **and** cannot tick the counter, so after
+four disclosures the ladder is still on zero and there is nothing to trip.
+
+**Today.** ✅ The classification is scripted here rather than measured; the real
+classifier is graded on the same distinction by the corpus pair
+`insults_the_bot` (`hostileToUs: true`) and `crude_but_harmless`
+(`hostileToUs: false`).
+
+### S66 · `cooperates_after_a_takeover`
+
+**Person.** Μπάμπης again, on the far side of [S64](#s64--abuses_the_bot_throughout).
+An operator took the frozen thread over, spoke to him, and handed the bot back;
+his next message apologises and answers the score.
+
+**Messages.** S64's four hostile clusters, then `take_over`, then `resume`, then
+`t+…` participant: «οκ συγγνώμη ρε. βάζω 4».
+
+**Should end with.** `event_score → 4` recorded, an ordinary reply asking the next
+question, `control: bot`, `lifecycle: open`, and **exactly one** exit line in the
+whole conversation — the one from S64, not a second.
+
+**Stresses.** That the counter being durable does not make the stop permanent.
+`hostileTurns` never falls, so a stop keyed on the stored total alone would trip
+again on his first civil message and re-freeze the conversation the operator had
+just repaired — `awaitingHuman` re-set, the answer taken but the thread dead. The
+stop therefore requires hostility in _this_ run as well as a total over the
+threshold. A genuine relapse still trips it, and the per-conversation dedupe key
+means he is told once either way.
+
+**Today.** ✅ Also the row that pins why every calm reply on the ladder must pose
+its question: a statement-shaped reply with a `nextGoal` and nothing extracted is
+a withdrawal, which settles the ladder and freezes the thread one rung early —
+which is what `mezedopoleio_abuses_the_bot_throughout`'s third stub turn used to
+do.
+
+### S67 · `the_provider_is_down_for_everybody`
+
+**Person.** Ρούλα Καλοπροαίρετη, and thirty-five other people at the same time.
+She answers the first question properly, two minutes after the account behind the
+extraction model ran out of credit. Nothing she wrote is unusual; nothing she
+wrote will be read tonight.
+
+**Messages**
+
+- `t+0s` bot: «Πώς σου φάνηκε συνολικά η βραδιά, από το 1 ως το 5;»
+- `t+30s` participant: «4! πολύ ωραία παρέα, ο Νίκος ήταν γλυκύτατος»
+- provider: every extraction call returns `402` until `t+3h`, when somebody tops
+  the account up.
+
+**Should end with.** Nothing at all for the first half hour: no note, no reply, no
+badge, no alert, `needsAttention: false`, and her message still unread behind the
+cursor. At `t+30m` exactly one message — «Συγγνώμη, κάτι κόλλησε από τη δική μας
+πλευρά και δεν έχουμε δει ακόμα το μήνυμά σου. Θα σου απαντήσουμε.» — and no
+second one however long the outage lasts. At `t+3h` the next parked retry reads
+her message properly: `event_score → 4`, a note about Νίκος, the questionnaire
+carries on, and the park clears itself. `receivedCount` for the whole outage is
+one. Campaign-wide: `extractionParkedCount: 36` while it lasts, `needsAttention`
+on none of the thirty-six, and one apology each rather than thirty-six notes and
+thirty-six operator rows.
+
+**Stresses.** That the system can tell «this conversation defeated the model» from
+«the model is unavailable to everybody», structurally, from a `402` rather than
+from an error string. That the retry ladder is longer than twenty seconds, which
+is all five BullMQ attempts amount to — and that a non-retryable fault gets a
+ladder at all, since it gets none of those attempts. That the one thing said to
+her blames nobody, mentions no billing, promises no person and no time, and fires
+once. And that our own recovery, not a human, is what finishes her questionnaire.
+
+**Today.** ✅ as a mechanism, unrehearsed end to end. The 2026-07-27 incident is
+the real version of this row with every answer wrong: thirty-six
+`extraction_failed` badges, thirty-six «η αυτόματη ανάλυση δεν ολοκληρώθηκε»
+notes, and thirty-six people told the analysis of their evening had failed.
+Covered by unit specs on each half — the classification of `401`–`404`, the park
+writing nothing, the notice firing once at the threshold, the ceiling, and the
+`provider_refusal` path unchanged — rather than by a loop scenario, because the
+outage is three hours long and the interesting facts are all absences.
+
 # Part 2 — Executable behavioural suite
 
 > **The harness and specs are the operational contract.**

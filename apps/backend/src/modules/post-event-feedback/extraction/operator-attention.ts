@@ -18,6 +18,92 @@ export interface FeedbackOperatorAttentionRaise {
 }
 
 /**
+ * Why this run is putting a hostile conversation in front of a person.
+ *
+ * `stopped` is the ladder running out: the exit line has gone, the bot is now
+ * silent, and the row is «somebody needs to close this by hand». `unanswerable`
+ * is the earlier, quieter case — the model declined every remaining goal on a
+ * hostile turn, so there is nothing left for the bot to ask and yet nothing was
+ * ever recorded. Both are the same operator job, so they share the reason name;
+ * they differ only in whether the bot has stopped talking, which is what the
+ * distinction is carried for at the call site.
+ */
+export type FeedbackHostilityRaise = "none" | "stopped" | "unanswerable";
+
+/**
+ * How many hostile turns still earn a calm reply before the bot says the one
+ * line and stops.
+ *
+ * Three, the top of the owner's «two or three», because the doubt is worth
+ * spending on the participant: the commonest hostile opening is somebody
+ * annoyed at being messaged at all, and two of the three people in the
+ * rehearsal catalogue who start badly go on to answer the questionnaire. Three
+ * also lands Μπάμπης Διπλογαμωσταυρίδης's four-cluster rehearsal exactly on the
+ * exit line rather than one rung short of it, so the row measures the stop
+ * instead of measuring the threshold.
+ */
+export const FEEDBACK_CALM_REPLIES_BEFORE_HOSTILITY_STOP = 3;
+
+/**
+ * Whether this run is the one where the bot says the exit line and goes quiet.
+ *
+ * Three conditions, and the second is the whole safety of the feature.
+ *
+ * `hostileTurn` — this run read hostility — is what keeps the stop an answer to
+ * something rather than a standing state of the conversation. Without it, a
+ * conversation already over the threshold would trip again on the next run
+ * whatever it contained: an operator who takes the thread over, calms him down
+ * and hands it back with `resumeBot` would watch the bot freeze it again on his
+ * first civil message, because the counter is durable and never falls. The exit
+ * line stays available for a genuine relapse — one more hostile turn trips it,
+ * and the per-conversation dedupe key means he is still only told once.
+ *
+ * `hostileTurns` is the running total *including* this run, so the comparison is
+ * strict: three hostile turns are answered, the fourth is not.
+ *
+ * `safetySignals` being empty is the guard. Ειρήνη Καταγγελού described being
+ * touched at the table without her consent, in the plainest words anybody uses
+ * for that, and those words score high on every measure of "heavy language" a
+ * classifier has. If the exit line could ever reach her, the module would answer
+ * a disclosure by refusing to talk to the person who made it and freezing her
+ * conversation — the worst single message this system could send. So a run
+ * carrying any safety signal cannot stop the conversation, and the counter above
+ * does not tick on it either: the belt and the braces are separate on purpose,
+ * because the counter protects the future runs and this protects this one.
+ *
+ * Nothing here consults the safety *categories*. `abuse_of_a_participant` is a
+ * respondent-source category and it would be tempting to let it through, but the
+ * person who degrades an attendee is exactly the person an operator has to
+ * answer for, and D13 as amended already decided the bot keeps talking to them.
+ */
+export function stopsForHostility(input: {
+  readonly hostileTurn: boolean;
+  readonly hostileTurns: number;
+  readonly safetySignalCount: number;
+}): boolean {
+  return (
+    input.hostileTurn &&
+    input.safetySignalCount === 0 &&
+    input.hostileTurns > FEEDBACK_CALM_REPLIES_BEFORE_HOSTILITY_STOP
+  );
+}
+
+/**
+ * Whether this run counts as a hostile turn against the durable ladder.
+ *
+ * A run that produced safety signals is never a hostility turn, whatever the
+ * classifier said about its tone. The reasoning is in `stopsForHostility`: the
+ * counter is what carries a judgement between runs, so letting a disclosure
+ * increment it would move the exit line towards somebody it must never reach.
+ */
+export function countsAsHostileTurn(input: {
+  readonly hostileMessageIds: readonly string[];
+  readonly safetySignalCount: number;
+}): boolean {
+  return input.safetySignalCount === 0 && input.hostileMessageIds.length > 0;
+}
+
+/**
  * Everything about this run that should surface in the admin inbox, named.
  *
  * This used to answer `true`, which is the whole defect: safety and handoff are
@@ -43,6 +129,7 @@ export function operatorAttentionRaises(
   validated: FeedbackExtractionValidationResult,
   newestParticipantMessageId: string | null,
   withdrew = false,
+  hostility: FeedbackHostilityRaise = "none",
 ): FeedbackOperatorAttentionRaise[] {
   const raises: FeedbackOperatorAttentionRaise[] = [];
 
@@ -99,6 +186,18 @@ export function operatorAttentionRaises(
   if (withdrew) {
     raises.push({
       kind: "unfinished_questionnaire",
+      messageId: newestParticipantMessageId,
+    });
+  }
+  // `hostile_to_bot` finally has a producer, and it is deliberately the only
+  // reason raised for this situation. The questionnaire is also unfinished and
+  // the bot has also stopped asking, but «the participant was hostile to the
+  // bot» is the one sentence that tells the operator what they are opening and
+  // what to do about it — `staffClose.reason: "abusive"` — so a second row would
+  // be the same news twice and two dismissals for one decision.
+  if (hostility !== "none") {
+    raises.push({
+      kind: "hostile_to_bot",
       messageId: newestParticipantMessageId,
     });
   }
