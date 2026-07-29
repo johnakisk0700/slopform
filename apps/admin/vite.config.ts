@@ -42,7 +42,12 @@ export default defineConfig({
     },
   },
   server: {
-    port: 3000,
+    // 3000 by default, because `WEB_ORIGIN` and the docs assume it. `PORT`
+    // overrides it for the times something else already holds 3000 — the
+    // browser talks to this server and this server proxies `/api`, so the
+    // origin the backend sees is unchanged and nothing about CORS depends on
+    // which port the tab is on.
+    port: Number(process.env["PORT"] ?? 3000),
     proxy: {
       "/api": {
         target: apiProxyTarget,

@@ -4,8 +4,11 @@
     {
       "name": "admin",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["dev:admin"],
-      "port": 3000
+      "runtimeArgs": [
+        "dev:admin"
+      ],
+      "port": 3000,
+      "autoPort": true
     }
   ]
 }

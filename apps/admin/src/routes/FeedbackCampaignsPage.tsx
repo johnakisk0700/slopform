@@ -1,4 +1,4 @@
-import { Rocket } from "lucide-react";
+import { Rocket, Unplug } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
 
@@ -117,6 +117,19 @@ export function FeedbackCampaignsPage() {
                         ? ` · ${entry.needsAttentionCount} need attention`
                         : ""}
                     </span>
+                    {/* Its own line and its own colour, because it is the one
+                        thing on this page nobody can act on by opening the
+                        campaign — the model is unreachable and the only cure is
+                        waiting or topping up. Rendered only above zero. */}
+                    {entry.extractionParkedCount > 0 ? (
+                      <span className="mt-0.5 flex items-center gap-1.5 text-xs font-semibold text-info tabular-nums">
+                        <Unplug
+                          aria-hidden="true"
+                          className="size-3.5 shrink-0"
+                        />
+                        {entry.extractionParkedCount} waiting on the model
+                      </span>
+                    ) : null}
                   </Link>
                 </li>
               );

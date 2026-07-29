@@ -52,6 +52,16 @@ export const feedbackCampaignListItemSchema = z
     conversationCount: z.number().int().nonnegative(),
     openCount: z.number().int().nonnegative(),
     needsAttentionCount: z.number().int().nonnegative(),
+    /**
+     * Conversations whose extraction is parked behind a provider outage.
+     *
+     * Beside `needsAttentionCount` rather than folded into it, exactly as on the
+     * campaign detail: that number means «this many want a person», and a parked
+     * conversation wants a working provider. The list is also where an outage
+     * shows first — it hits every campaign at once — and a screen that can only
+     * report it one campaign at a time reports it too late.
+     */
+    extractionParkedCount: z.number().int().nonnegative(),
   })
   .strict();
 

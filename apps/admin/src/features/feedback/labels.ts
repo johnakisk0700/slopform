@@ -376,6 +376,10 @@ export function isAwaitingDelivery(
 /**
  * Why an outbound message is still waiting, in one line.
  *
+ * No longer a paragraph under the bubble — the inline status carries the short
+ * version («Queued · not sent yet») and this is its title, for an operator who
+ * wants the whole sentence. Same words, one fewer line of screen.
+ *
  * Deliberately does not say the send is being held back to see whether the
  * participant writes again. It is not: `superseded_by_newer_testimony` is
  * checked before the outbox row is written and never again, and a queued row is
@@ -395,46 +399,133 @@ export function awaitingDeliveryReason(
 }
 
 /**
+ * Which glyph a delivery state gets, named by meaning so this file stays free
+ * of icon imports. The transcript resolves these against `lucide-react`.
+ */
+export type FeedbackDeliveryIcon =
+  "queued" | "sending" | "held" | "delivered" | "read" | "failed" | "cancelled";
+
+/**
+ * Where a delivery state belongs on screen.
+ *
+ * `inline` sits in the meta row the message already has — «Bot · 06:26:02 ·
+ * Queued» — and costs no vertical space at all. `badge` is a chip under the
+ * bubble, which pulls the eye and is therefore reserved for the two states an
+ * operator has to act on.
+ *
+ * The split replaces a stack of three renderings of one fact: a dimmed bubble,
+ * a chip, and a full sentence underneath it. Queued is the commonest state in a
+ * live campaign, so it was also the commonest chip — and a chip under most
+ * bubbles is how chips stop being read, which is the same reasoning that already
+ * left an ordinary `sent` message unbadged.
+ */
+export type FeedbackDeliveryPlacement = "inline" | "badge";
+
+export interface FeedbackDeliveryStatus extends FeedbackBadge {
+  placement: FeedbackDeliveryPlacement;
+  icon: FeedbackDeliveryIcon;
+  /**
+   * The half an operator actually needs, in two or three words: whether the
+   * participant has seen this. Rendered after the label, quieter than it.
+   */
+  detail?: string;
+}
+
+/**
  * Outbound delivery state, read from the outbox correlation the backend
  * attaches to bot and staff messages. Provider delivery (`deliveryStatus`)
  * outranks the outbox row's own status once the transport reports back.
+ *
+ * The vocabulary is WhatsApp's, because that is the app the operator is looking
+ * at a transcript of: queued, sent, delivered, read. Nothing here invents a
+ * word for a state the participant's own screen already has a glyph for.
  */
 export function deliveryBadge(
   delivery: FeedbackConversationDetailDtoOutputMessagesItemDelivery,
-): FeedbackBadge | null {
+): FeedbackDeliveryStatus | null {
   if (delivery === null) {
     return null;
   }
 
+  // The two that stop the message ever arriving. These keep the chip: they are
+  // not a stage of an ordinary send, they are an outcome somebody has to see.
   if (delivery.deliveryStatus === "error") {
-    return { key: "delivery", label: "Delivery failed", tone: "danger" };
+    return {
+      key: "delivery",
+      label: "Delivery failed",
+      tone: "danger",
+      placement: "badge",
+      icon: "failed",
+    };
   }
   if (
     delivery.deliveryStatus === "read" ||
     delivery.deliveryStatus === "played"
   ) {
-    return { key: "delivery", label: "Read", tone: "success" };
+    return {
+      key: "delivery",
+      label: "Read",
+      tone: "success",
+      placement: "inline",
+      icon: "read",
+    };
   }
   if (delivery.deliveryStatus === "delivered") {
-    return { key: "delivery", label: "Delivered", tone: "success" };
+    return {
+      key: "delivery",
+      label: "Delivered",
+      tone: "success",
+      placement: "inline",
+      icon: "delivered",
+    };
   }
 
   switch (delivery.outboxStatus) {
     case "failed":
-      return { key: "delivery", label: "Delivery failed", tone: "danger" };
+      return {
+        key: "delivery",
+        label: "Delivery failed",
+        tone: "danger",
+        placement: "badge",
+        icon: "failed",
+      };
     case "cancelled":
-      return { key: "delivery", label: "Cancelled", tone: "neutral" };
+      return {
+        key: "delivery",
+        label: "Cancelled",
+        tone: "neutral",
+        placement: "badge",
+        icon: "cancelled",
+      };
     // Handed to the transport with nothing reported back: the ordinary end of
-    // every outbound message. Badging it put a chip under almost every bubble
-    // in the transcript, which is exactly how a badge stops being read — the
-    // exceptions above and below are what an operator needs to see.
+    // every outbound message, and the one state that says nothing at all.
     case "sent":
       return null;
     case "sending":
-      return { key: "delivery", label: "Sending", tone: "info" };
+      return {
+        key: "delivery",
+        label: "Sending",
+        tone: "info",
+        placement: "inline",
+        icon: "sending",
+      };
     case "held":
-      return { key: "delivery", label: "Held", tone: "warning" };
+      return {
+        key: "delivery",
+        label: "Held",
+        tone: "warning",
+        placement: "inline",
+        icon: "held",
+        detail: "campaign paused",
+      };
     default:
-      return { key: "delivery", label: "Queued", tone: "neutral" };
+      return {
+        key: "delivery",
+        label: "Queued",
+        tone: "neutral",
+        placement: "inline",
+        icon: "queued",
+        detail: "not sent yet",
+      };
   }
 }

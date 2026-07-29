@@ -6,6 +6,7 @@ import {
   PlayCircle,
   SquareX,
   TriangleAlert,
+  Unplug,
 } from "lucide-react";
 import { Link } from "react-router";
 
@@ -164,6 +165,30 @@ export function CampaignHeader({
                     {campaign.needsAttentionCount}
                   </span>
                   need attention
+                </span>
+              </>
+            ) : null}
+            {/* Beside the triangle and deliberately not inside it. «Needs
+                attention» means these conversations want a person; a parked one
+                wants a working provider, and no operator can do anything for it
+                but wait. Rolling the two together is how one outage became
+                thirty-six things to read on 2026-07-27.
+
+                Its own glyph for the same reason: an unplugged cable says «the
+                model is unreachable» in a way a second warning triangle would
+                not. It renders only above zero, so the ordinary campaign line is
+                unchanged and this appears exactly when there is an incident. */}
+            {campaign.extractionParkedCount > 0 ? (
+              <>
+                <span aria-hidden="true" className="text-ink-subtle">
+                  ·
+                </span>
+                <span className="flex items-center gap-1.5 font-semibold text-info">
+                  <Unplug aria-hidden="true" className="size-4 shrink-0" />
+                  <span className="tabular-nums">
+                    {campaign.extractionParkedCount}
+                  </span>
+                  waiting on the model
                 </span>
               </>
             ) : null}

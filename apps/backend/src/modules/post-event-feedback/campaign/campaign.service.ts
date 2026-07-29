@@ -117,6 +117,9 @@ export class PostEventFeedbackCampaignService {
           needsAttentionCount: summaries.filter(
             (summary) => summary.needsAttention,
           ).length,
+          extractionParkedCount: summaries.filter(
+            (summary) => summary.extractionParked,
+          ).length,
         };
       }),
     );

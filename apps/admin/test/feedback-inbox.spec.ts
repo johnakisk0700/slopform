@@ -30,7 +30,13 @@ interface LabelsModule {
   participantLabel: (displayName: string | null) => string;
   isUnresolvedParticipant: (displayName: string | null) => boolean;
   UNKNOWN_PARTICIPANT_LABEL: string;
-  deliveryBadge: (delivery: unknown) => { label: string; tone: string } | null;
+  deliveryBadge: (delivery: unknown) => {
+    label: string;
+    tone: string;
+    placement: "inline" | "badge";
+    icon: string;
+    detail?: string;
+  } | null;
   isAwaitingDelivery: (delivery: unknown) => boolean;
   awaitingDeliveryReason: (delivery: unknown) => string | null;
   lifecycleBadge: (lifecycle: {
@@ -304,6 +310,57 @@ describe("outbound delivery state", () => {
   it("has nothing to say about an inbound message", () => {
     expect(labels.isAwaitingDelivery(null)).toBe(false);
     expect(labels.awaitingDeliveryReason(null)).toBeNull();
+  });
+
+  // Queued is the commonest state in a live campaign, so it was also the
+  // commonest chip — a chip under most bubbles, plus a dimmed bubble, plus a
+  // sentence underneath, for one fact. The ordinary spectrum now sits in the
+  // meta line the message already has; only the two states that never reach
+  // anybody keep a chip.
+  it.each([
+    ["pending", null, "queued"],
+    ["sending", null, "sending"],
+    ["held", null, "held"],
+    ["sent", "delivered", "delivered"],
+    ["sent", "read", "read"],
+  ])(
+    "keeps %s / %s in the meta line rather than under the bubble",
+    (outboxStatus, deliveryStatus, icon) => {
+      const status = labels.deliveryBadge({
+        outboxId: "a",
+        outboxStatus,
+        deliveryStatus,
+      });
+
+      expect(status?.placement).toBe("inline");
+      expect(status?.icon).toBe(icon);
+    },
+  );
+
+  it.each([
+    ["failed", null],
+    ["sent", "error"],
+    ["cancelled", null],
+  ])("gives %s / %s a chip, because it never arrives", (o, d) => {
+    expect(
+      labels.deliveryBadge({
+        outboxId: "a",
+        outboxStatus: o,
+        deliveryStatus: d,
+      })?.placement,
+    ).toBe("badge");
+  });
+
+  // The point of the inline line, in three words. The full sentence survives as
+  // its title; this is what an operator reads without hovering anything.
+  it("says in the line itself that a queued message has not been sent", () => {
+    expect(
+      labels.deliveryBadge({
+        outboxId: "a",
+        outboxStatus: "pending",
+        deliveryStatus: null,
+      })?.detail,
+    ).toBe("not sent yet");
   });
 
   // The line must not claim the send is being held to see whether the

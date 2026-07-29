@@ -335,6 +335,9 @@ describe("PostEventFeedbackCampaignService", () => {
         conversationCount: 3,
         openCount: 2,
         needsAttentionCount: 1,
+        // Counted apart from the row above: a parked conversation wants a
+        // working provider, not a person.
+        extractionParkedCount: 0,
       },
       {
         id: olderCampaignId,
@@ -345,6 +348,7 @@ describe("PostEventFeedbackCampaignService", () => {
         conversationCount: 1,
         openCount: 0,
         needsAttentionCount: 0,
+        extractionParkedCount: 0,
       },
     ]);
     expect(conversations.listForCampaign).toHaveBeenNthCalledWith(

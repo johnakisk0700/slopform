@@ -3,11 +3,18 @@ import { clsx } from "clsx";
 import {
   BellRing,
   Bot,
+  Check,
+  CheckCheck,
+  Clock,
   Eye,
   FlaskConical,
+  PauseCircle,
   Phone,
   Send,
+  TriangleAlert,
   UserRound,
+  X,
+  type LucideIcon,
 } from "lucide-react";
 import {
   useEffect,
@@ -33,6 +40,8 @@ import {
   messageAttentionActionLabel,
   messageAttentionCategoryLabel,
   participantLabel,
+  type FeedbackDeliveryIcon,
+  type FeedbackDeliveryStatus,
 } from "../../../features/feedback/labels";
 import { SIMULATOR_MESSAGE_MAX_LENGTH } from "../../../features/feedback/simulator";
 import { staffCloseSummary } from "../../../features/feedback/staffClose";
@@ -75,6 +84,77 @@ const ACTOR_STYLES: Record<
   },
 };
 
+/**
+ * WhatsApp's own glyphs, because that is the app whose transcript this is. An
+ * operator reading a clock, one tick or two already knows what they mean, and
+ * nothing here has to teach a vocabulary the participant's screen has taught
+ * them first.
+ */
+const DELIVERY_ICONS: Record<FeedbackDeliveryIcon, LucideIcon> = {
+  queued: Clock,
+  sending: Check,
+  held: PauseCircle,
+  delivered: CheckCheck,
+  read: CheckCheck,
+  failed: TriangleAlert,
+  cancelled: X,
+};
+
+/**
+ * How loudly an inline state paints. Deliberately quiet everywhere except
+ * `held`, which is the one inline state that means somebody paused something
+ * and the message is going nowhere until they unpause it. `read` gets the
+ * accent the way a second blue tick does — it is the only state that says the
+ * participant has actually looked.
+ */
+const DELIVERY_INLINE_TONES: Record<FeedbackDeliveryIcon, string> = {
+  queued: "text-ink-subtle",
+  sending: "text-ink-subtle",
+  held: "text-warning",
+  delivered: "text-ink-subtle",
+  read: "text-primary",
+  failed: "text-danger",
+  cancelled: "text-ink-subtle",
+};
+
+/**
+ * The delivery state as part of the line the message already has, rather than
+ * as furniture beneath it.
+ *
+ * `title` carries the whole sentence for a waiting message; the visible detail
+ * carries its point in three words. The dimmed bubble is the third reading and
+ * the only one visible from across the room.
+ */
+function InlineDeliveryStatus({
+  status,
+  title,
+}: {
+  status: FeedbackDeliveryStatus;
+  title: string | null;
+}) {
+  const Icon = DELIVERY_ICONS[status.icon];
+  return (
+    <>
+      <span aria-hidden="true" className="text-ink-subtle">
+        ·
+      </span>
+      <span
+        className={clsx(
+          "flex items-center gap-1 font-semibold tracking-normal normal-case",
+          DELIVERY_INLINE_TONES[status.icon],
+        )}
+        {...(title ? { title } : {})}
+      >
+        <Icon aria-hidden="true" className="size-3.5 shrink-0" />
+        {status.label}
+        {status.detail ? (
+          <span className="font-normal text-ink-subtle">{status.detail}</span>
+        ) : null}
+      </span>
+    </>
+  );
+}
+
 interface TranscriptMessageProps {
   message: FeedbackConversationDetailDtoOutputMessagesItem;
 }
@@ -95,7 +175,7 @@ function TranscriptMessage({ message }: TranscriptMessageProps) {
       tabIndex={-1}
       className={clsx("flex scroll-my-4 flex-col gap-1", styles.row)}
     >
-      <p className="flex items-center gap-2 px-1 jts-overline">
+      <p className="flex flex-wrap items-center gap-x-2 gap-y-1 px-1 jts-overline">
         <span className={styles.label}>{actorLabel(message.actor)}</span>
         <time
           dateTime={message.at}
@@ -103,6 +183,9 @@ function TranscriptMessage({ message }: TranscriptMessageProps) {
         >
           {formatTimestamp(message.at)}
         </time>
+        {delivery?.placement === "inline" ? (
+          <InlineDeliveryStatus status={delivery} title={awaiting} />
+        ) : null}
       </p>
       <div
         className={clsx(
@@ -161,16 +244,14 @@ function TranscriptMessage({ message }: TranscriptMessageProps) {
           </ul>
         ) : null}
       </div>
-      {delivery ? (
+      {/* Only the two states that never reach the participant keep a chip. The
+          rest sit in the meta line above, where they cost no vertical space and
+          cannot crowd out the message itself. */}
+      {delivery?.placement === "badge" ? (
         <FeedbackBadges
           badges={[delivery]}
           className="flex items-center gap-1.5 px-1"
         />
-      ) : null}
-      {awaiting ? (
-        <p className="max-w-[min(42rem,85%)] px-1 text-xs text-ink-subtle">
-          {awaiting}
-        </p>
       ) : null}
     </li>
   );
