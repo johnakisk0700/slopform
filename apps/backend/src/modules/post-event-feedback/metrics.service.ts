@@ -142,13 +142,4 @@ export class PostEventFeedbackMetrics {
       ]),
     ) as Record<FeedbackMaterializeOutcome, number>;
   }
-
-  extractSnapshot(): Record<FeedbackExtractOutcome, number> {
-    return Object.fromEntries(
-      FEEDBACK_EXTRACT_OUTCOMES.map((outcome) => [
-        outcome,
-        this.countExtract(outcome),
-      ]),
-    ) as Record<FeedbackExtractOutcome, number>;
-  }
 }

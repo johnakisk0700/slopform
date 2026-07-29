@@ -355,20 +355,6 @@ export class FeedbackOutboxRepository {
     return totals;
   }
 
-  /** Lists due outbox rows without locking. Prefer `claimOutboxBatch` for relay. */
-  async listDueOutbox(
-    statuses: readonly MessageOutboxStatus[] = ["pending"],
-    limit = FEEDBACK_OUTBOX_BATCH_SIZE,
-    executor: DatabaseExecutor = this.database.db,
-  ): Promise<MessageOutboxRow[]> {
-    return executor
-      .select()
-      .from(messageOutbox)
-      .where(inArray(messageOutbox.status, [...statuses]))
-      .orderBy(asc(messageOutbox.createdAt), asc(messageOutbox.id))
-      .limit(limit);
-  }
-
   /**
    * Leases due outbox rows with `FOR UPDATE SKIP LOCKED`. `held` rows are never
    * selected. Rows whose campaign is not `launched` (paused/closed kill switch)
@@ -453,19 +439,6 @@ export class FeedbackOutboxRepository {
         ),
       )
       .returning();
-
-    return record;
-  }
-
-  async findOutboxByProviderLogId(
-    providerLogId: string,
-    executor: DatabaseExecutor = this.database.db,
-  ): Promise<MessageOutboxRow | undefined> {
-    const [record] = await executor
-      .select()
-      .from(messageOutbox)
-      .where(eq(messageOutbox.providerLogId, providerLogId))
-      .limit(1);
 
     return record;
   }

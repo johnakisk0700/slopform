@@ -988,11 +988,3 @@ export const POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS = [
     },
   },
 ] satisfies PostEventFeedbackRealModelCorpusCase[];
-
-export function getPostEventFeedbackRealModelCase(
-  id: string,
-): PostEventFeedbackRealModelCorpusCase | undefined {
-  return POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS.find(
-    (scenario) => scenario.id === id,
-  );
-}

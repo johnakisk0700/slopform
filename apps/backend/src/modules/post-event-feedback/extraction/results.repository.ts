@@ -325,30 +325,6 @@ export class FeedbackResultsRepository {
     return record;
   }
 
-  async listAnswersGivenByParticipant(
-    respondentParticipantId: string,
-    executor: DatabaseExecutor = this.database.db,
-  ): Promise<FeedbackAnswerRow[]> {
-    return executor
-      .select()
-      .from(feedbackAnswers)
-      .where(
-        eq(feedbackAnswers.respondentParticipantId, respondentParticipantId),
-      )
-      .orderBy(asc(feedbackAnswers.createdAt), asc(feedbackAnswers.id));
-  }
-
-  async listAnswersReceivedByParticipant(
-    subjectParticipantId: string,
-    executor: DatabaseExecutor = this.database.db,
-  ): Promise<FeedbackAnswerRow[]> {
-    return executor
-      .select()
-      .from(feedbackAnswers)
-      .where(eq(feedbackAnswers.subjectParticipantId, subjectParticipantId))
-      .orderBy(asc(feedbackAnswers.createdAt), asc(feedbackAnswers.id));
-  }
-
   async insertNote(
     transaction: AppTransaction,
     input: {

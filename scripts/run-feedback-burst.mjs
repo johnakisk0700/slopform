@@ -67,7 +67,6 @@ const PAID_MODELS = new Set([
   "openai/gpt-5.6-luna",
   "openai/gpt-5.6-terra",
 ]);
-const RESERVED_PHONE_PREFIX = "+3069000";
 const QUIET_WINDOW_MS = 45_000;
 const POLL_MS = 3_000;
 const INTRO_WAIT_MS = 120_000;
