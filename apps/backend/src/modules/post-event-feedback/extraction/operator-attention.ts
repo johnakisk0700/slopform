@@ -112,12 +112,13 @@ export function countsAsHostileTurn(input: {
  * that said nothing and could not be cleared, because there was nothing
  * specific enough to clear.
  *
- * Three of the six carry no citation of their own. An explicit handoff is a
+ * Four of the seven carry no citation of their own. An explicit handoff is a
  * property of the run rather than of a line, a refused revision is about the
- * *stored* answer it disagreed with, and a withdrawal is about the run deciding
- * to stop; all three are anchored on the newest message this run read, which is
- * the burst an operator wants open. That is a weaker claim than the safety
- * anchor and deliberately so — the alternative is a reason that links nowhere.
+ * *stored* answer it disagreed with, a withdrawal is about the run deciding to
+ * stop, and the hostility raise is about a ladder rather than a sentence; all
+ * four are anchored on the newest message this run read, which is the burst an
+ * operator wants open. That is a weaker claim than the safety anchor and
+ * deliberately so — the alternative is a reason that links nowhere.
  *
  * `withdrew` is passed in rather than derived here because it depends on what
  * actually reached the phone, which only the run knows. It belongs in this list

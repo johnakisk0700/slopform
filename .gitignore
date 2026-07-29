@@ -4,11 +4,8 @@ node_modules/
 
 # Build output and caches
 .turbo/
-.nuxt/
-.output/
 dist/
 coverage/
-**/coverage/coverage-final.json
 *.tsbuildinfo
 
 # `report/` holds two unrelated kinds of thing. The burst rehearsal's HTML

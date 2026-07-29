@@ -1,5 +1,4 @@
 .claude
-.output
 .turbo
 coverage
 dist
@@ -7,7 +6,6 @@ node_modules
 pnpm-lock.yaml
 reference
 scripts/wordpress/export-jts-profiles.php
-WP_AUDIT_2026-07-22.md
 # Emitted by `pnpm openapi:emit`; its serializer owns the formatting.
 apps/backend/openapi/openapi.json
 # Emitted by `pnpm feedback:burst`. The run summaries here are tracked, so

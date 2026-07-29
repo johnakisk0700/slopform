@@ -281,7 +281,9 @@ export class PostEventFeedbackExtractor {
     // Closing copy is only earned by answers/skips that already finished the
     // ladder. A withdrawal settles open goals *after* the outbound is chosen,
     // so the participant still gets the model's goodbye rather than the
-    // campaign thank-you — then `closingNow` below closes on the settled state.
+    // campaign thank-you. `closingNow` below then decides from the settled
+    // state, and excludes a withdrawal: settling the goals stops the reminders,
+    // it does not end the conversation.
     const progressClosing =
       isCompleting(conversation.goals, recordedStatuses) &&
       validated.safetySignals.length === 0;
@@ -514,7 +516,7 @@ export class PostEventFeedbackExtractor {
   }
 
   /**
-   * The three cheap exits from §7. Each one is reloaded state rather than a
+   * The five cheap exits from §7. Each one is reloaded state rather than a
    * queue assumption, because the job may have waited behind a STOP, a staff
    * takeover or a newer run for the same conversation.
    */
@@ -639,7 +641,7 @@ export class PostEventFeedbackExtractor {
    * The snapshot cannot see any of that, which is what made these three races
    * real: the guards at the top of the run were correct and simply too early.
    *
-   * The first three reasons silence **every** kind of outbound, closing copy and
+   * Every reason but the last silences **every** kind of outbound, closing copy and
    * handoff included. A thank-you sent into a conversation a colleague has taken
    * over, or a promise of a human sent to somebody who just asked us to stop
    * writing, is worse than saying nothing. Only the last reason — the

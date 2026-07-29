@@ -105,11 +105,11 @@ export type FeedbackConversationMessageAttention = z.infer<
  * Distinct from the safety taxonomy above, which classifies harm to a person.
  * `hostile_to_bot` is deliberately not a safety category: somebody swearing at
  * us is rude, not an incident, and folding it into the categories would start
- * flagging every participant who told the bot to get lost. It also still has no
- * producer, and the withdrawal path is not it — prompt rule 7δ withdraws after
- * two or three unanswered attempts and says in as many words that somebody who
- * swears has not refused, so reading a withdrawal as hostility would be
- * inventing exactly the classifier this comment refuses.
+ * flagging every participant who told the bot to get lost. It is raised by the
+ * hostility ladder and by nothing else — never by the withdrawal path, because
+ * prompt rule 7δ withdraws after two or three unanswered attempts and says in as
+ * many words that somebody who swears has not refused, so reading a withdrawal
+ * as hostility would be inventing exactly the classifier this comment refuses.
  *
  * `respondent_conduct` is the near neighbour that is *not* `hostile_to_bot` and
  * not plain `safety`. Swearing at us costs nobody anything; abusing somebody at

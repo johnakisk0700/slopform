@@ -21,3 +21,12 @@ docker-bake.hcl
 Caddyfile
 *.log
 .DS_Store
+
+# Agent worktrees, rehearsal artefacts and scratch reference material. `.claude`
+# alone is ~950 MB of full checkouts an isolated agent run left behind, and
+# `COPY . .` was shipping all of it into the build context on every image build.
+# `.gitignore` has said so about `.claude/worktrees/` for a while; this file
+# never got the matching entry.
+.claude
+report
+reference

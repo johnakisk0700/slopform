@@ -40,7 +40,8 @@ import { BURST_LIVE_GUESTS } from "./live-guests.js";
  * queue is. Shrink it under 45 s and consecutive clusters collapse into one
  * extraction run, and every stub that assumed two turns is suddenly short.
  *
- * Nineteen personas answer or skip every goal and close as `completed`. Eleven
+ * Eighteen personas answer or skip every goal and close as `completed`, and one
+ * declines every goal and closes as `declined`. Eleven
  * stay unfinished on purpose: silence mid-questionnaire, STOP, a Greeklish
  * opt-out, an explicit human handoff, an erasure handoff, STOP followed by
  * chatter, emoji-only non-answers, somebody who only ever swears at us,

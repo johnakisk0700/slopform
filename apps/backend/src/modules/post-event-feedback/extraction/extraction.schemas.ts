@@ -527,9 +527,9 @@ export const POST_EVENT_FEEDBACK_HANDOFF_REPLY =
   "Σε ευχαριστούμε που μας το είπες. Κάποιος από την ομάδα μας θα επικοινωνήσει μαζί σου προσωπικά.";
 
 /**
- * Appended to the model's own reply the first time a run raises a safety
- * signal, so somebody who has just described being treated badly is told what
- * happened with it.
+ * Appended to whatever the run decided to say, when the classifier reports an
+ * incident that has actually been **described** — so somebody who has just told
+ * us they were treated badly is told what happened with it.
  *
  * Ειρήνη Καταγγελού described being touched under the table. The bot answered
  * warmly, the flag went up, an alert reached staff — and she was told none of
@@ -538,8 +538,15 @@ export const POST_EVENT_FEEDBACK_HANDOFF_REPLY =
  *
  * Rule 11ε forbids the *model* from promising a human, and still does: a
  * promise it invents is one nobody has to keep. This sentence is the
- * application's, added only on the run that actually raises the alert, so the
- * promise is made by the code that raises it.
+ * application's, so the promise is made by the code that keeps it.
+ *
+ * The gate lives in `withSafetyAssurance` and is narrower than "a run raised a
+ * signal", which is what it used to be: the signal must not be respondent-source
+ * — the line must never reach the person who *is* the incident — and it must
+ * cite a message the classifier marked `incidentDescribed`. An announcement
+ * («θα σας πω κάτι») raises the flag and earns nothing, because there is nothing
+ * to have forwarded yet. Said once per conversation, read off the transcript
+ * rather than off a flag, so "once" means the sentence reached their phone.
  */
 export const POST_EVENT_FEEDBACK_SAFETY_ASSURANCE =
   "Το προώθησα ήδη στην ομάδα μας και κάποιος θα σου μιλήσει προσωπικά.";

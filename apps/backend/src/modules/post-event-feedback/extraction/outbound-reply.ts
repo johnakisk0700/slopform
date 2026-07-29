@@ -69,10 +69,17 @@ const ACTIONABLE_GOAL_REFUSALS: ReadonlySet<FeedbackExtractionRejectionReason> =
  * `testimonySeq` is the last participant message's `seq` — the replay-stable
  * anchor for the dedupe key.
  *
- * `closingNow` is already the decision to send the closing copy — the caller
- * withholds it when this run produced safety signals, even if every goal is
- * terminal. Ranking completion above a disclosure thanked someone who had
- * just described being grabbed and closed the door on them.
+ * `closingNow` is the decision that the ladder has finished, not yet the choice
+ * of ending copy — the caller withholds it when this run produced safety
+ * signals, even if every goal is terminal, because ranking completion above a
+ * disclosure thanked someone who had just described being grabbed and closed
+ * the door on them. Which ending it earns is decided here: `copy.closing` when
+ * something was recorded, `copy.declined` when nothing was **and** the model
+ * wrote no goodbye of its own, and the model's own words whenever it did write
+ * one.
+ *
+ * `stoppingForHostility` outranks everything, including the urgent-safety
+ * silence — see the first branch for why that ordering is safe.
  *
  * `nextOpenGoal` is the earliest goal still open after this run's *recorded*
  * updates. The model writes `nextGoal: null` and a thank-you when it believes

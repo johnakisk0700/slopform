@@ -336,10 +336,16 @@ export const feedbackConversationDocumentSchema = z
      */
     reminderCount: z.number().int().min(0).max(10).default(0),
     /**
-     * The bot has promised a human, or read something it must not answer, and
-     * is waiting for a person to arrive.
+     * The bot has stopped talking and is waiting for a person to arrive.
      *
-     * This is the state between a handoff and somebody pressing "take over".
+     * Four things set it: an explicit handoff, an urgent safety signal the bot
+     * must not answer, a withdrawal, and the hostility exit line. They differ in
+     * what was promised — only the first two promise anybody anything — and
+     * agree on the one fact this flag carries, which is that the next message
+     * must not restart the questionnaire.
+     *
+     * This is the state between the bot's last word and somebody pressing "take
+     * over".
      * It had no representation, so control was still `bot`, every guard passed,
      * and the questionnaire resumed on the very next message — the participant
      * was told a human would be in touch and then asked again who they liked.
@@ -408,7 +414,8 @@ export const feedbackConversationDocumentSchema = z
     /**
      * Why a human closed this conversation, when they did.
      *
-     * Null for every bot close (`completed` / `stopped` / `expired`) and for
+     * Null for every bot close (`completed` / `declined` / `stopped` / `expired`)
+     * and for
      * conversations written before staff closes carried a reason. Cleared when
      * STOP overrides a softer close, so an abusive label cannot survive a
      * consent withdrawal that superseded it.

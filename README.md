@@ -37,7 +37,7 @@ pnpm feedback:simulate --list
 pnpm feedback:burst
 ```
 
-`pnpm feedback:burst` seeds three finished events, launches eighteen concurrent
+`pnpm feedback:burst` seeds six finished events, launches thirty-six concurrent
 post-event feedback conversations, and writes
 `report/feedback-burst-<timestamp>.html`. Default mode is the free deterministic
 stub (`FEEDBACK_EXTRACTION_STUB=true`); paid provider mode needs `--model` and

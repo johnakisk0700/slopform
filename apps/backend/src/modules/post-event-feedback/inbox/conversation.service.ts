@@ -371,7 +371,7 @@ export class PostEventFeedbackConversationService {
       conversation.lifecycle.state === "closed" &&
       conversation.lifecycle.reason !== "stopped"
     ) {
-      // Idempotent staff close: already cancelled / completed / expired.
+      // Idempotent staff close: already cancelled / completed / declined / expired.
       return this.toDetailView(conversation);
     }
     if (!capabilities.canClose) {

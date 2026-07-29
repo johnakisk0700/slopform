@@ -28,6 +28,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "feedback:burst": "dotenv -e .env -- node scripts/run-feedback-burst.mjs",
+    "feedback:burst:reset": "dotenv -e .env -- node scripts/reset-burst-data.mjs",
     "feedback:burst:answers": "dotenv -e .env -- node scripts/burst-answer-diff.mjs",
     "feedback:burst:attention": "dotenv -e .env -- node scripts/burst-attention.mjs",
     "feedback:burst:ledger": "node scripts/burst-ledger.mjs",

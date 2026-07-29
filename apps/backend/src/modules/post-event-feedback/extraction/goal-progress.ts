@@ -98,8 +98,11 @@ export function withAskedGoal(
  * A run that wrote nothing and asked nothing is a withdrawal: the bot decided
  * to stop. Without this, remaining goals stay pending/asked, the reminder
  * ladder keeps chasing, and the conversation only dies at expiry — days after
- * the participant was told the bot was backing off. `isCompleting` already
- * closes once every goal is terminal; this is what feeds it.
+ * the participant was told the bot was backing off. Settled goals stop the
+ * reminder ladder chasing a questionnaire the bot has abandoned; they
+ * deliberately do **not** close it — `closingNow` excludes a withdrawal on
+ * purpose, because here the bot gave up rather than the participant, and the
+ * conversation goes to a person instead.
  *
  * Answered wins; an already-skipped goal stays skipped. Only open goals
  * (pending or asked, including ones not yet in the update list) become skipped.

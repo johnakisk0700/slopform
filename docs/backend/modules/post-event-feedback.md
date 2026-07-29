@@ -1688,7 +1688,7 @@ and will break a running admin dev server.
 
 **2. The previous rehearsal's campaigns must be gone.** The runner refuses to
 reuse a campaign whose conversations have moved past the clean intro-only
-baseline, and it never cleans up after itself. `scripts/reset-burst-data.mjs` is
+baseline, and it never cleans up after itself. `pnpm feedback:burst:reset --yes` is
 that step. It prints its plan and does nothing without `--yes`, every statement
 is scoped to the reserved phone block, and it clears the Redis failed **and**
 completed sets — without that, the previous run's failures are reported as this
@@ -1721,8 +1721,11 @@ Afterwards, the analysis is the point, and it is tooling rather than memory:
 Two properties of these matter more than what they print. All four are
 **read-only** and structurally scoped to the reserved `+3069000` block, so they
 are safe to run against a rehearsal in progress and cannot read a real
-participant — cleanup remains `scripts/reset-burst-data.mjs --yes` and nothing
-else. And `feedback:burst:answers` treats a live guest as an **observation, not
+participant — cleanup remains `pnpm feedback:burst:reset --yes` and nothing
+else. Run it through the package script rather than the file directly: it reads
+`REDIS_URL` from the environment, and invoked bare it finds none, prints no Redis
+line and clears no queues — the previous run's failures are then reported as the
+next run's, which is the exact thing this step exists to prevent. And `feedback:burst:answers` treats a live guest as an **observation, not
 an assertion**: its fixture declares no answers because nobody can predict an
 improvised person, so a live guest reported as `extra` is a defect in the tool
 rather than a finding about the product.
