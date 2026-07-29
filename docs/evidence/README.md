@@ -12,6 +12,7 @@ than editing the old — an amended observation is no longer an observation.
 | [WordPress audit](wordpress-audit-2026-07-22.md)                         | The live WordPress install and its plugins, read-only, 2026-07-22                      |
 | [Notion MVP review](notion-mvp-review-2026-07-24.md)                     | The Notion scope: 12 epics, 96 tasks, reviewed against what the repo had already built |
 | [architecture recommendation](architecture-recommendation-2026-07-24.md) | WordPress versus custom versus hybrid, argued from the two records above               |
+| [feedback open issues](post-event-feedback-open-issues-2026-07-29.md)    | What was open, unproven or undecided in the post-event feedback loop when work stopped |
 
 What was decided in response lives in
 [`../decisions/`](../decisions/0001-platform.md).
