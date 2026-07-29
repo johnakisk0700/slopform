@@ -77,7 +77,11 @@ with the counts it acted on:
 
 Feedback conversations are one-to-one chats, so group, newsletter and
 unrecognized chat kinds are dropped at the edge rather than written and later
-discarded. Text is trimmed and bounded to WhatsApp's 4096-character body limit
+discarded. Text is trimmed and bounded to `FEEDBACK_OBSERVED_TEXT_HARD_LIMIT`
+(64,000 characters) — deliberately far above WhatsApp's 4096-character _send_
+limit, because the two are different constraints and sharing one value cut an
+inbound message at the webhook edge. People write their way up to the hard thing,
+so the tail is where a disclosure lives
 before it reaches the durable row. A message the endpoint could not queue is
 answered with 503 so the provider may redeliver; the committed row stays
 `pending`. Delivery status never moves backwards.
@@ -128,8 +132,13 @@ outbox through the transport port. Extraction and sending stay separated by
   bodies, provider response bodies, credentials and `sessionId`. Keep Wasender
   `log_messages=false` unless retention and provider exposure are explicitly
   approved. Traffic that matches no open conversation keeps provider metadata
-  only: the body is dropped when the row becomes `ignored_unmatched`, and group
-  or newsletter chats are never written at all.
+  only for group or newsletter chats, which are never written at all. Inbound
+  text that matches no open conversation is **kept**, not dropped: the row
+  becomes `ignored_unmatched` and `feedback.materialize.unmatched_inbound_retained`
+  is logged so somebody knows it is there. That was a deliberate reversal — a
+  participant writing from a second number is somebody we failed to match, not
+  somebody to erase — and it means unmatched WhatsApp traffic does hold message
+  content. Say so to a reviewer or a DPO.
 - Wasender is transport, not the system of record. MongoDB must own durable
   conversation/feedback state; PostgreSQL must own business audit, outbox and
   delivery state.

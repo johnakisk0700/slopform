@@ -55,7 +55,7 @@ Usage:
 
 Examples:
   pnpm db:query postgres 'select id, preferred_name from participants limit 5'
-  pnpm db:query mongo 'db.feedback_conversations.findOne({}, {messages: 1})'
+  pnpm db:query mongo 'db.conversation_threads.findOne({}, {messages: 1})'
   pnpm db:query redis HGETALL feedback:extract:job-id
   pnpm db:query --write postgres "update feedback_campaigns set status='closed' where id='...'"
 

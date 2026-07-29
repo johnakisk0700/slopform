@@ -85,7 +85,10 @@ hooks before the application loads those libraries.
   `FEEDBACK_SIMULATOR_ENABLED=true` mounts the non-production dev simulator
   surface only when the transport is `simulated`. It enables the existing
   manual composer and the explicitly invoked `pnpm feedback:simulate` headless
-  evaluator; production ignores the flag and cannot mount either route set.
+  evaluator. Production does not ignore the flag — `validateEnvironment` raises
+  an issue for it and the process exits non-zero at boot, exactly as it does for
+  `FEEDBACK_EXTRACTION_STUB`. Leaving it in a production env file is a failed
+  start, not a no-op.
   Real-model runs still use the worker-wide `FEEDBACK_EXTRACTION_MODEL` and
   require `--confirm-paid-run`.
   `FEEDBACK_EXTRACTION_STUB=true` replaces the worker extraction model with the

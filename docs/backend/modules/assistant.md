@@ -24,8 +24,8 @@ The public/persisted model id maps to exactly one provider id:
 
 | Public model id           | Provider   | Provider model id         |
 | ------------------------- | ---------- | ------------------------- |
-| `openai/gpt-5.6-luna`     | OpenAI     | `gpt-5.6-luna`            |
-| `openai/gpt-5.6-terra`    | OpenAI     | `gpt-5.6-terra`           |
+| `openai/gpt-5.6-luna`     | OpenRouter | `gpt-5.6-luna`            |
+| `openai/gpt-5.6-terra`    | OpenRouter | `gpt-5.6-terra`           |
 | `google/gemini-3.6-flash` | OpenRouter | `google/gemini-3.6-flash` |
 | `qwen/qwen3.7-max`        | OpenRouter | `qwen/qwen3.7-max`        |
 
@@ -212,8 +212,12 @@ separate authenticated command boundary.
 
 ## Configuration, observability and tests
 
-`OPENROUTER_API_KEY` enables Gemini 3.6 Flash and Qwen3.7 Max.
-`OPENAI_API_KEY` enables Luna and Terra. Calls have a two-minute total bound and
+`OPENROUTER_API_KEY` enables all four public models — Gemini 3.6 Flash, Qwen3.7
+Max, Luna and Terra alike. Every one is routed through OpenRouter
+(`assistant-models.ts`), whatever its id looks like: `openai/gpt-5.6-luna` names
+the model, not the provider. `OPENAI_API_KEY` provisions nothing on its own, and
+an operator who sets only that gets a 503 from every request. Calls have a
+two-minute total bound and
 AI SDK retries disabled so BullMQ owns visible retries. Worker concurrency is
 two per process.
 

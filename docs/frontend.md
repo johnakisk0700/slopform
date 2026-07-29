@@ -197,7 +197,9 @@ const session = useGetAuthSession({ query: { enabled: isSignedIn } });
 
 - `src/api/generated/` is orval output: TanStack Query hooks per tag,
   request/response types under `model/`, and matching Zod schemas under `zod/`.
-  It is committed, typechecked, excluded from ESLint and **never edited by
+  It is **not** committed — ADR 0010 made it local output, so a fresh clone has
+  no `src/api/generated/` until `pnpm api:generate` runs. It is typechecked,
+  excluded from ESLint and **never edited by
   hand**.
 - Hook names come from the backend `operationId`: `getAuthSession` produces
   `useGetAuthSession`, `getGetAuthSessionQueryKey` and the

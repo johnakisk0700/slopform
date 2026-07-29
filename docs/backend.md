@@ -108,7 +108,7 @@ a forward migration. Do not turn it into a generic CRUD shrine.
    `WorkerAppModule`; test the composition boundary.
 7. Name every operation with `@ApiOperation({ operationId })` in lower camel
    case, then run `pnpm api:generate` from the repository root and commit the
-   regenerated `apps/backend/openapi/openapi.json` and admin client with the
+   regenerated `apps/backend/openapi/openapi.json` with the
    change. `pnpm api:check` fails the repository check on drift.
 
 Introduce an interface only for a real external/multi-adapter port. TypeScript

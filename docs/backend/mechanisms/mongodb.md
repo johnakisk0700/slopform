@@ -101,7 +101,8 @@ inside its locked PostgreSQL sequence allocation, closing concurrent append
 races. Introduce tested rollover/archival before raising it.
 
 Schema-v2 feedback conversations cap the transcript at 150 messages of at most
-4096 characters, with a 4 MiB document backstop measured before each append.
+64,000 characters — the stored cap, not the 4096 we are allowed to _send_ —
+with a 4 MiB document backstop measured before each append.
 Sequence allocation is fenced by the current array size, so a concurrent append
 retries instead of producing a gap. Reaching either bound flags the
 conversation for human attention and fails the append loudly; the durable

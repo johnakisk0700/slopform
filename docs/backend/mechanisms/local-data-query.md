@@ -27,7 +27,7 @@ pnpm db:query postgres \
   'select id, preferred_name from participants order by created_at desc limit 10'
 
 pnpm db:query mongo \
-  'db.feedback_conversations.findOne({_id: "..."}, {messages: 1, needsAttention: 1})'
+  'db.conversation_threads.findOne({_id: "..."}, {messages: 1, needsAttention: 1})'
 
 pnpm db:query redis HGETALL feedback:extract:job-id
 ```

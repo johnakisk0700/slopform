@@ -72,6 +72,32 @@ fixtures were corrected in `395b957`; what does not exist is a real-model corpus
 case pinning the judgement, so nothing would catch a model that starts banking
 tepid praise as praise.
 
+### A long message between two limits cannot be stored at all
+
+Found by inspection on the last day, not by a run, and unfixed.
+
+The webhook edge bounds inbound text at `FEEDBACK_OBSERVED_TEXT_HARD_LIMIT =
+64_000` (`apps/backend/src/modules/post-event-feedback/jobs.schemas.ts`). The
+column it is written to caps at 10,000:
+`provider_message_ingress_text_length_check` in
+`packages/database/drizzle/20260725181557_post_event_feedback_persistence.sql`
+allows `char_length(text) between 1 and 10000`.
+
+So a message of 10,001–64,000 characters passes validation and **fails the
+insert**. Nobody has sent one — the longest rehearsal fixture is a few thousand
+characters — which is why no run has caught it.
+
+It matters more than its rarity suggests. The 64,000 limit was chosen
+deliberately, with a comment saying so, because a shared 4096 value had already
+cut an inbound message at the edge and «people write their way up to the hard
+thing, so the tail is where a disclosure lives». The essay-length disclosure is
+exactly the shape that would hit this, and it would fail at the database rather
+than degrade.
+
+Whoever picks this up: decide which limit is the real one and make the other
+agree with it. Do not simply raise the column — 64,000 characters of WhatsApp
+text is worth a conscious decision about retention.
+
 ## Known limits that are not defects
 
 Written down because each looks like a bug to somebody meeting it cold.
