@@ -1123,7 +1123,10 @@ no model composes it. Every clause is a constraint:
   «Θα σου απαντήσουμε» is a promise the system itself keeps — the retry that
   answers is already queued.
 - **Nothing about their data.** Rule 11στ, so no sentence here can become an
-  accidental data-handling commitment.
+  accidental data-handling commitment. That rule is a hole rather than an answer,
+  and closing it is a decision about what the platform is willing to promise —
+  drafted, unapproved and unwired, in
+  [what we are allowed to say](post-event-feedback-policy-answers.md).
 
 Three fences make «once» true: `parkedNoticeSentAt` on the document, the outbox
 `dedupe_key` `feedback-parked-<conversationId>-notice`, and the send yielding to
