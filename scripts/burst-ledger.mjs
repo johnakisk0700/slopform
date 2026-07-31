@@ -44,6 +44,7 @@ const COLUMNS = [
   { key: "passedRows", label: "pass", align: "right" },
   { key: "failedRows", label: "fail", align: "right" },
   { key: "duration", label: "duration", align: "right" },
+  { key: "cost", label: "cost", align: "right" },
   { key: "findings", label: "findings" },
 ];
 
@@ -172,8 +173,19 @@ function toRow(run) {
     passedRows: String(passedRows),
     failedRows: String(conversations.length - passedRows),
     duration: formatDuration(run.durationMs),
+    // Older summaries never recorded a cost; "?" is the same claim as an
+    // unknown duration — not "$0.00".
+    cost: formatCost(run.costUsd),
     findings: formatFindings(run.findings),
   };
+}
+
+/** `$X.XX` when the artefact has a finite cost; "?" when it does not. */
+function formatCost(costUsd) {
+  if (typeof costUsd !== "number" || !Number.isFinite(costUsd)) {
+    return "?";
+  }
+  return `$${costUsd.toFixed(2)}`;
 }
 
 /**

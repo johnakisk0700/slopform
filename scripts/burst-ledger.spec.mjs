@@ -101,6 +101,18 @@ describe("formatLedger", () => {
     assert.match(rowFor(run({ durationMs: undefined })), /\s\?\s/u);
   });
 
+  it("shows a dollar amount when the summary recorded a cost", () => {
+    assert.match(rowFor(run({ costUsd: 0.33 })), /\s\$0\.33\s/u);
+  });
+
+  it("shows ? for older summaries that never recorded a cost", () => {
+    // Pre-usage artefacts omit costUsd entirely; that must keep parsing and
+    // render as unknown, not as a free run.
+    const summary = run({ findings: [] });
+    assert.equal("costUsd" in summary, false);
+    assert.match(rowFor(summary), /\s14m39s\s+\?\s+none$/u);
+  });
+
   it("keeps columns aligned when model ids differ wildly in length", () => {
     const lines = formatLedger([
       run({ stamp: "2026-07-27T07-49-13Z", model: "stub/burst-rehearsal" }),

@@ -46,6 +46,9 @@ export function buildFinishedEvent({ result, stamp, reportPath, revision }) {
     dirty: revision.dirty,
     findings: result.findings,
     reportPath,
+    // Absent on every pre-usage artefact; null means "unavailable", never 0.
+    tokenUsage: result.tokenUsage ?? null,
+    costUsd: result.costUsd ?? null,
     conversations: campaigns.flatMap((campaign) =>
       (campaign.conversations ?? []).map((conversation) => ({
         personaId: conversation.personaId,

@@ -31,6 +31,8 @@ import {
   readGitRevision,
   writeRunSummary,
 } from "./burst-artefacts.mjs";
+import { openBurstInspection } from "./burst-inspect.mjs";
+import { costUsd } from "./model-prices.mjs";
 import { renderBurstReport } from "./burst-report.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -519,6 +521,13 @@ async function main() {
     const anyConversationFailed = campaignResults.some((campaign) =>
       campaign.conversations.some((conversation) => !conversation.passed),
     );
+    const campaignIds = [...byCampaignSlug.values()].map(
+      (campaign) => campaign.campaignId,
+    );
+    // Token/cost come from Mongo conversation documents. Usage fields may be
+    // absent on older data — report null ("unavailable"), never invent 0.
+    const { tokenUsage, costUsd: runCostUsd } =
+      await readRunTokenCost(campaignIds);
     const result = {
       startedAt: startedAt.toISOString(),
       finishedAt: finishedAt.toISOString(),
@@ -527,6 +536,8 @@ async function main() {
       passed: !anyConversationFailed && findings.length === 0,
       campaigns: campaignResults,
       findings,
+      tokenUsage,
+      costUsd: runCostUsd,
     };
 
     const reportDirectory = path.join(repositoryRoot, "report");
@@ -560,6 +571,7 @@ async function main() {
     });
 
     console.log(JSON.stringify(finishedEvent));
+    console.error(formatCostLine(tokenUsage, runCostUsd));
     console.error(reportPath);
     process.exitCode = result.passed ? 0 : 1;
   } finally {
@@ -1624,6 +1636,115 @@ async function requestJson(url, init) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Sum token usage and USD cost across this run's Mongo conversations.
+ *
+ * If any conversation lacks `extraction.usage`, both fields are null — never 0.
+ * When every conversation has usage but one uses an unpriced model, tokenUsage
+ * is still summed and costUsd is null.
+ *
+ * Soft-fails on Mongo errors: a paid run must not die at the final accounting
+ * step the way `readGitRevision` soft-fails on a missing git.
+ */
+async function readRunTokenCost(campaignIds) {
+  const ids = campaignIds.filter((id) => typeof id === "string" && id.length > 0);
+  if (ids.length === 0) {
+    return { tokenUsage: null, costUsd: null };
+  }
+
+  let inspection;
+  try {
+    inspection = await openBurstInspection({
+      applicationName: "feedback-burst-cost",
+    });
+  } catch (error) {
+    console.error(
+      `cost accounting skipped: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return { tokenUsage: null, costUsd: null };
+  }
+
+  try {
+    const threads = await inspection.findThreads({
+      campaignId: { $in: ids },
+    });
+    return summarizeThreadsCost(threads);
+  } finally {
+    await inspection.close();
+  }
+}
+
+/** Pure aggregation over conversation documents — see `readRunTokenCost`. */
+function summarizeThreadsCost(threads) {
+  if (!Array.isArray(threads) || threads.length === 0) {
+    return { tokenUsage: null, costUsd: null };
+  }
+
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let costTotal = 0;
+  let costKnown = true;
+
+  for (const thread of threads) {
+    const usage = thread?.extraction?.usage;
+    const inTokens = usage?.inputTokens;
+    const outTokens = usage?.outputTokens;
+    if (
+      usage == null ||
+      typeof inTokens !== "number" ||
+      typeof outTokens !== "number" ||
+      !Number.isFinite(inTokens) ||
+      !Number.isFinite(outTokens)
+    ) {
+      return { tokenUsage: null, costUsd: null };
+    }
+
+    inputTokens += inTokens;
+    outputTokens += outTokens;
+
+    const part = costUsd({
+      model: thread.extraction?.model,
+      serviceTier: thread.extraction?.serviceTier,
+      inputTokens: inTokens,
+      outputTokens: outTokens,
+    });
+    if (part === null) {
+      costKnown = false;
+    } else {
+      costTotal += part;
+    }
+  }
+
+  return {
+    tokenUsage: { inputTokens, outputTokens },
+    costUsd: costKnown ? costTotal : null,
+  };
+}
+
+/** Human line printed beside the report path. */
+function formatCostLine(tokenUsage, runCostUsd) {
+  if (
+    tokenUsage == null ||
+    typeof tokenUsage.inputTokens !== "number" ||
+    typeof tokenUsage.outputTokens !== "number"
+  ) {
+    return "cost: unavailable (usage not recorded)";
+  }
+  const tokens = `${formatTokenCount(tokenUsage.inputTokens)} in / ${formatTokenCount(tokenUsage.outputTokens)} out`;
+  if (typeof runCostUsd !== "number" || !Number.isFinite(runCostUsd)) {
+    return `cost: unavailable (${tokens})`;
+  }
+  return `cost: $${runCostUsd.toFixed(2)} (${tokens})`;
+}
+
+/** Compact token counts for the cost line (`766k`, or the raw number under 1k). */
+function formatTokenCount(tokens) {
+  if (tokens >= 1_000) {
+    return `${Math.round(tokens / 1_000)}k`;
+  }
+  return String(tokens);
 }
 
 function printUsage() {
