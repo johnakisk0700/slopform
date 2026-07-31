@@ -44,6 +44,7 @@ import {
 import {
   answeredAnything,
   resolveOutbound,
+  withCampaignReaskCap,
   withSafetyAssurance,
   type OutboundReply,
 } from "./outbound-reply.js";
@@ -377,9 +378,15 @@ export class PostEventFeedbackExtractor {
     // transcript length, because this run appends its reply to that same
     // transcript: a length-based key would differ on a replay that already sees
     // the reply, and a different `dedupe_key` is a second WhatsApp message.
-    const outbound = withSafetyAssurance(
+    //
+    // The cap sits between the choice and the assurance, so a question this run
+    // is no longer allowed to ask takes nothing else out with it: there is no
+    // outbound left for the assurance to append to, and a run that also carried
+    // a disclosure still raises its own safety reason and its own alert from the
+    // paths below. Saying the same sentence an eleventh time is not a way to
+    // reassure anybody.
+    const capped = withCampaignReaskCap(
       conversation,
-      validated,
       resolveOutbound(
         conversation,
         validated,
@@ -390,6 +397,12 @@ export class PostEventFeedbackExtractor {
         openGoal,
         stoppingForHostility,
       ),
+      copy,
+    );
+    const outbound = withSafetyAssurance(
+      conversation,
+      validated,
+      capped.outbound,
       new Set(attention.describedIncidentMessageIds),
     );
     const withheld = outbound
@@ -553,6 +566,7 @@ export class PostEventFeedbackExtractor {
       priorHostileTurns: conversation.hostileTurns,
       newestParticipantMessageId:
         context.newParticipantMessageIds.at(-1) ?? null,
+      stalledOnMessageId: capped.stalledOnMessageId,
       cursorSeq,
       model: generated.model,
       usage: runUsage,
@@ -937,6 +951,12 @@ export class PostEventFeedbackExtractor {
     readonly priorHostileTurns: number;
     /** The anchor for a reason this run raised that cites no message itself. */
     readonly newestParticipantMessageId: string | null;
+    /**
+     * The bot message whose campaign copy the re-ask cap refused to repeat, or
+     * null. Its own anchor, so the raise is filed once rather than once per
+     * message the participant sends afterwards.
+     */
+    readonly stalledOnMessageId: string | null;
     readonly cursorSeq: number;
     readonly model: string;
     /** What this run's two model calls cost, added to the conversation's total. */
@@ -986,6 +1006,7 @@ export class PostEventFeedbackExtractor {
       input.newestParticipantMessageId,
       input.withdrew,
       input.hostility,
+      input.stalledOnMessageId,
     );
     let raisedIncident = false;
     for (const raise of raises) {

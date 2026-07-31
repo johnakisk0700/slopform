@@ -125,12 +125,18 @@ export function countsAsHostileTurn(input: {
  * all the same: a withdrawal used to raise the bare flag, so the one situation
  * where the bot gave up on a questionnaire was also the one an operator could
  * not read or dismiss.
+ *
+ * `stalledOnMessageId` arrives the same way and for the same reason, and it is
+ * the one raise here anchored on something the *bot* said. It is not one of the
+ * four above: the message it cites is the whole of the news — this exact
+ * sentence, already sent as often as it may be.
  */
 export function operatorAttentionRaises(
   validated: FeedbackExtractionValidationResult,
   newestParticipantMessageId: string | null,
   withdrew = false,
   hostility: FeedbackHostilityRaise = "none",
+  stalledOnMessageId: string | null = null,
 ): FeedbackOperatorAttentionRaise[] {
   const raises: FeedbackOperatorAttentionRaise[] = [];
 
@@ -200,6 +206,27 @@ export function operatorAttentionRaises(
     raises.push({
       kind: "hostile_to_bot",
       messageId: newestParticipantMessageId,
+    });
+  }
+  // The re-ask cap has just refused to send this goal's campaign copy a third
+  // time, so the bot has stopped asking a question nobody has answered — which
+  // is `unfinished_questionnaire`'s documented meaning, word for word, and the
+  // reason an operator would want here whatever the code path that noticed. The
+  // near neighbours all describe something else: `undelivered_message` is about
+  // a message that failed on its way out rather than one we chose not to write,
+  // `hostile_to_bot` is about how the participant behaved, and `handoff` is a
+  // promise we have not made. A new enum value would name the mechanism rather
+  // than the operator's job — read the vocabulary's own rule — and the job here
+  // is identical to a withdrawal's: read it, and either answer them yourself or
+  // close it.
+  //
+  // Anchored on the bot message that already carried the copy, not on the
+  // newest testimony, so the reason is recorded once rather than once per
+  // message the participant goes on to send. See `CappedOutbound`.
+  if (stalledOnMessageId) {
+    raises.push({
+      kind: "unfinished_questionnaire",
+      messageId: stalledOnMessageId,
     });
   }
 

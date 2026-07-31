@@ -1,10 +1,17 @@
 import { describe, expect, it } from "vitest";
 
 import type { FeedbackConversationDocument } from "../post-event-feedback-conversation.document.js";
-import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "../question-set.js";
+import {
+  POST_EVENT_FEEDBACK_QUESTION_SET_V1,
+  renderPostEventFeedbackCopy,
+} from "../question-set.js";
 import type { FeedbackExtractionValidationResult } from "./validate-proposal.js";
 import { POST_EVENT_FEEDBACK_SAFETY_ASSURANCE } from "./extraction.schemas.js";
-import { resolveOutbound, withSafetyAssurance } from "./outbound-reply.js";
+import {
+  resolveOutbound,
+  withCampaignReaskCap,
+  withSafetyAssurance,
+} from "./outbound-reply.js";
 
 const copy = POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy;
 const conversation = {
@@ -421,6 +428,173 @@ describe("resolveOutbound", () => {
       body: "Λυπάμαι που το ακούω, θες να μιλήσουμε;",
       dedupeKey: "feedback-reply-conv-1-2",
     });
+  });
+});
+
+describe("withCampaignReaskCap", () => {
+  /**
+   * What `questionOutbound` produces: the campaign's own words for the goal,
+   * keyed on the testimony seq — which is the half of the mechanism that let
+   * the loop run, because every new participant message mints a fresh key and
+   * the outbox fence never sees a duplicate.
+   */
+  const campaignQuestion = {
+    body: copy.liked,
+    dedupeKey: "feedback-reply-conv-1-9",
+    askedGoal: "liked",
+  } as const;
+
+  function botSaid(...texts: readonly string[]): FeedbackConversationDocument {
+    return {
+      ...conversation,
+      messages: texts.map((text, index) => ({
+        id: `m-bot-${index + 1}`,
+        actor: "bot",
+        text,
+      })),
+    } as unknown as FeedbackConversationDocument;
+  }
+
+  it("lets the campaign's own words ask the same question a second time", () => {
+    // The legitimate re-ask, and the one the cap must not touch: an answer was
+    // refused, the goal is still open, and «you may not have seen this» is a
+    // reasonable thing to say once.
+    expect(
+      withCampaignReaskCap(botSaid(copy.liked), campaignQuestion, copy),
+    ).toEqual({ outbound: campaignQuestion, stalledOnMessageId: null });
+  });
+
+  it("refuses to send the identical campaign question a third time, and names the message to open", () => {
+    // Paid rehearsal runs 13 and 14 (2026-07-31): «Υπήρχε κάποιος ή κάποια από
+    // την παρέα που σου έκανε ιδιαίτερα καλή εντύπωση;» eleven times to one
+    // guest and eight to another, one of whom answered «re eipa idi 3 fores, i
+    // loyla!». The third send is where it stops being a question.
+    expect(
+      withCampaignReaskCap(
+        botSaid(copy.liked, copy.liked),
+        campaignQuestion,
+        copy,
+      ),
+    ).toEqual({ outbound: undefined, stalledOnMessageId: "m-bot-2" });
+  });
+
+  it("anchors the stall on the bot's own message, so it is filed once rather than once per turn", () => {
+    // The anchor is what makes the raise idempotent: `raiseAttention` dedupes
+    // on kind plus message, and a bot message that has already been sent does
+    // not move, however many more messages the participant writes. Anchoring on
+    // the newest testimony instead would file one identical reason per turn.
+    const stuck = botSaid(copy.liked, "κάτι άλλο εντελώς", copy.liked);
+
+    expect(
+      withCampaignReaskCap(stuck, campaignQuestion, copy).stalledOnMessageId,
+    ).toBe("m-bot-3");
+    // Same transcript, a later run, a later testimony seq: same anchor.
+    expect(
+      withCampaignReaskCap(
+        stuck,
+        { ...campaignQuestion, dedupeKey: "feedback-reply-conv-1-14" },
+        copy,
+      ).stalledOnMessageId,
+    ).toBe("m-bot-3");
+  });
+
+  it("leaves a differently worded re-ask of the same goal alone", () => {
+    // Rule 11δ forbids the model from repeating a question in the same words,
+    // and the personas that get two differently worded re-asks are working as
+    // intended. The cap counts identical bodies, not "this goal was asked
+    // twice" — capping the model's own wording would break the one kind of
+    // re-ask that still reads as somebody asking.
+    const inItsOwnWords = {
+      body: "Συγγνώμη που επιμένω 🙂 ποια Λούλα εννοείς, την Λούλα Γ.;",
+      dedupeKey: "feedback-reply-conv-1-9",
+      askedGoal: "liked",
+    } as const;
+
+    expect(
+      withCampaignReaskCap(
+        botSaid(copy.liked, copy.liked),
+        inItsOwnWords,
+        copy,
+      ),
+    ).toEqual({ outbound: inItsOwnWords, stalledOnMessageId: null });
+  });
+
+  it("does not count the reminder sweep's nudge, which quotes the question inside its own copy", () => {
+    // `reminder_followup` restates the open question inside a wrapper, so the
+    // campaign copy is a substring of it and never equal to it. Counting by
+    // substring would spend a rung of the cap on a message that is not this
+    // path's and reads nothing like a repeat.
+    const nudge = renderPostEventFeedbackCopy(
+      copy.reminder_followup,
+      "Μαρία",
+    ).replace("{question}", copy.liked);
+
+    expect(
+      withCampaignReaskCap(botSaid(copy.liked, nudge), campaignQuestion, copy),
+    ).toEqual({ outbound: campaignQuestion, stalledOnMessageId: null });
+  });
+
+  it("leaves everything that is not a campaign question untouched", () => {
+    // Closing copy, the handoff line and the exit line all carry no askedGoal;
+    // the assurance-bearing reply carries none either. None of them is a
+    // question this path could ask a third time.
+    const closing = {
+      body: copy.closing,
+      dedupeKey: "feedback-closing-conv-1",
+    };
+
+    expect(
+      withCampaignReaskCap(botSaid(copy.closing, copy.closing), closing, copy),
+    ).toEqual({ outbound: closing, stalledOnMessageId: null });
+    expect(withCampaignReaskCap(botSaid(copy.liked), undefined, copy)).toEqual({
+      outbound: undefined,
+      stalledOnMessageId: null,
+    });
+  });
+
+  it("reproduces the run-13 shape when the cap is not consulted", () => {
+    // The falsification. `resolveOutbound` on its own — the code path as it
+    // stood — hands back the identical body however many times it has already
+    // gone out, and the dedupe key moves with the testimony seq, so nothing
+    // downstream would have stopped it either. Remove the cap and this is what
+    // the participant receives.
+    const uncapped = [9, 11, 13].map((seq) =>
+      resolveOutbound(
+        conversation,
+        validated({
+          nextGoal: "meet_again",
+          reply: "Τέλεια, το σημείωσα!",
+          rejections: [
+            {
+              scope: "answer",
+              reason: "unresolved_subject",
+              questionKey: "liked",
+            },
+          ],
+        }),
+        false,
+        false,
+        seq,
+        copy,
+        "liked",
+      )!,
+    );
+
+    expect(uncapped.map((outbound) => outbound.body)).toEqual([
+      copy.liked,
+      copy.liked,
+      copy.liked,
+    ]);
+    expect(new Set(uncapped.map((outbound) => outbound.dedupeKey)).size).toBe(
+      3,
+    );
+
+    // And the cap is the whole of what stops it: the third of those three, with
+    // the first two on the transcript, is withheld.
+    expect(
+      withCampaignReaskCap(botSaid(copy.liked, copy.liked), uncapped[2], copy)
+        .outbound,
+    ).toBeUndefined();
   });
 });
 

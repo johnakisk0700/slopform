@@ -78,6 +78,18 @@ const LATIN_EQUIVALENTS: readonly (readonly [RegExp, string])[] = [
   [/nt/gu, "d"],
   [/gk/gu, "g"],
   [/ou/gu, "u"],
+  // The same «ου», typed by somebody mapping υ to its shape rather than to its
+  // sound. It is the ordinary Greek-keyboard-in-Latin-letters habit, not a
+  // typo: `y` *looks* like υ, so «Λούλα» comes out «loyla» as often as «loula».
+  // Two live guests in one day's paid rehearsals wrote it that way, neither
+  // resolved to the Λούλα sitting at their table, and both were asked the same
+  // question again and again because of it.
+  //
+  // Above `y` → `i` on purpose, and that is the whole of the fix rather than a
+  // tidiness. `y` → `i` is for the *other* υ, the one standing on its own; let
+  // it run first and «loyla» becomes «loila», past the `oi` rule that would
+  // have rescued it, and no longer the same skeleton as «loula» or «Λούλα».
+  [/oy/gu, "u"],
   [/ai/gu, "e"],
   [/ei/gu, "i"],
   [/oi/gu, "i"],

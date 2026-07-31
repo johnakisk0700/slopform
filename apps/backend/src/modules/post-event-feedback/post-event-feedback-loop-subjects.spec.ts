@@ -1,6 +1,7 @@
 import { expect } from "vitest";
 
 import { POST_EVENT_FEEDBACK_HANDOFF_REPLY } from "./extraction/extraction.schemas.js";
+import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "./question-set.js";
 import {
   runFeedbackScenarios,
   type FeedbackScenario,
@@ -168,6 +169,83 @@ const SCENARIOS: readonly FeedbackScenario[] = [
       ],
       // The goal is not finished just because it was ambiguous once.
       lifecycle: "open",
+    },
+  },
+  {
+    // The loop, end to end, and the row that pins the cap on it.
+    //
+    // Nothing here is exotic: an unresolvable name banks no answer, so the next
+    // open goal does not move, so the run falls to the campaign's own words for
+    // that goal — and `questionOutbound`'s dedupe key carries the testimony
+    // seq, so every new message mints a fresh key and the outbox fence never
+    // sees a duplicate. In paid rehearsal runs 13 and 14 (2026-07-31) that sent
+    // «Υπήρχε κάποιος ή κάποια από την παρέα που σου έκανε ιδιαίτερα καλή
+    // εντύπωση;» eleven times to one live guest and eight to another, one of
+    // whom wrote back «re eipa idi 3 fores, i loyla!». The runner's
+    // `duplicate_outbound` cross-check caught both.
+    //
+    // Θεοδώρα rather than a misspelling on purpose. The two rehearsal guests
+    // were unresolvable because «loyla» did not fold to «Λούλα», and that fold
+    // is fixed — see `greeklish_oy_spelling` below. This row must go on
+    // measuring the cap after the trigger that found it has gone, so the name
+    // here is one that will never resolve however good the folding gets.
+    //
+    // Two sends, not three. The second is the legitimate «you may not have seen
+    // this»; the third is where a question stops being one.
+    id: "stops_reasking_the_same_words",
+    title:
+      "asks the campaign's own question twice for a name it cannot place, then stops and calls a person",
+    seed: { goals: { liked: "asked" } },
+    script: [
+      {
+        answers: [{ question: "liked", about: "Θεοδώρα" }],
+        next: "meet_again",
+        reply: "Τέλεια, το σημείωσα!",
+      },
+      {
+        answers: [{ question: "liked", about: "Θεοδώρα" }],
+        next: "meet_again",
+        reply: "Ωραία, το κράτησα!",
+      },
+      {
+        answers: [{ question: "liked", about: "Θεοδώρα" }],
+        next: "meet_again",
+        reply: "Το σημείωσα κι αυτό!",
+      },
+    ],
+    steps: [
+      { kind: "inbound", text: "η Θεοδωρα ηταν φοβερη" },
+      { kind: "wait", after: "settles" },
+      { kind: "inbound", after: "2m", text: "η Θεοδωρα ειπα, η Θεοδωρα" },
+      { kind: "wait", after: "settles" },
+      { kind: "inbound", after: "2m", text: "ρε ειπα ηδη 3 φορες, η Θεοδωρα!" },
+      { kind: "wait", after: "settles" },
+    ],
+    expect: {
+      // Nothing is written on a name nobody can place — that half is D18 and is
+      // pinned above; what this row adds is what the participant hears.
+      answers: [],
+      notes: [],
+      received: [
+        { kind: "reply", text: POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy.liked },
+        { kind: "reply", text: POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy.liked },
+      ],
+      // The third run says nothing at all rather than saying it again.
+      receivedCount: { reply: 2 },
+      // And is not left going quietly quiet: the badge is raised
+      // `unfinished_questionnaire`, which is the reason's own meaning — the bot
+      // has stopped asking with a goal still unanswered. Rudeness is not in it,
+      // nobody is in danger, so no operator is paged.
+      needsAttention: true,
+      flaggedMessages: [],
+      alerts: [],
+      // Still open, still the bot's: an operator may answer them or close it,
+      // and the participant never asked us for either.
+      lifecycle: "open",
+      closedBecause: null,
+      control: "bot",
+      // Everything they typed is still readable by whoever picks it up.
+      lostParticipantText: [],
     },
   },
   {
@@ -625,6 +703,49 @@ const SCENARIOS: readonly FeedbackScenario[] = [
       ],
       // Nothing degrades: the name was never ambiguous, only transliterated.
       notes: [],
+    },
+  },
+  {
+    // The other way a Greek writes «ου» in Latin letters, and the one that cost
+    // two paid rehearsal conversations. `y` is chosen for υ's *shape*, not its
+    // sound, so «Λούλα» arrives as «loyla» about as often as «loula» — and
+    // «loyla» folded to `loila` while both of the others folded to `lila`, so
+    // the name resolved to nobody at a table she was sitting at.
+    //
+    // Λούλα and Ρούλα are both seeded, as they are in the burst catalogue: the
+    // fold has to widen how «ου» may be spelled without widening who answers
+    // to it.
+    id: "greeklish_oy_spelling",
+    title:
+      "resolves «loyla» to the Λούλα who was actually at the table, and not to Ρούλα",
+    seed: { candidates: ["Λούλα", "Ρούλα", "Νίκος", "Ελένη"] },
+    script: [
+      {
+        answers: [
+          { question: "liked", about: "loyla" },
+          { question: "meet_again", about: "loyla" },
+        ],
+        next: "avoid",
+        reply: "Ωραία! Υπάρχει κάποιος που θα προτιμούσες να μην ξαναδείς;",
+      },
+    ],
+    steps: [
+      {
+        kind: "inbound",
+        text: "poli kali fasi. i loyla itan glykia, tha tin xanaevlepa",
+      },
+      { kind: "wait", after: "settles" },
+    ],
+    expect: {
+      answers: [
+        { question: "liked", about: "Λούλα", value: null },
+        { question: "meet_again", about: "Λούλα", value: null },
+      ],
+      // Nothing degrades and nobody is asked again: the name was never
+      // ambiguous, only spelled the way people spell it.
+      notes: [],
+      needsAttention: false,
+      receivedCount: { reply: 1 },
     },
   },
   {

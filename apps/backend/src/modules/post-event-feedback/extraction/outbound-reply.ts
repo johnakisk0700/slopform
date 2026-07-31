@@ -184,6 +184,90 @@ export function withSafetyAssurance(
 }
 
 /**
+ * How many times one goal's fixed campaign copy may reach one conversation.
+ *
+ * Two, because the second one is a legitimate re-ask and the third is a loop.
+ * The first time is the question; the second is «you may not have seen this»,
+ * which is exactly what a refused answer earns. By the third the wording has
+ * demonstrably not worked and repeating it is no longer asking anybody
+ * anything.
+ */
+export const FEEDBACK_CAMPAIGN_REASK_LIMIT = 2;
+
+/** A run's outbound after the re-ask cap has had its say. */
+export interface CappedOutbound {
+  readonly outbound: OutboundReply | undefined;
+  /**
+   * The bot message an operator should open when the cap withheld this run's
+   * question: the last time this exact copy went out. `null` whenever nothing
+   * was withheld.
+   *
+   * A *bot* message rather than the participant's newest one, and that is
+   * load-bearing rather than cosmetic. The anchor is what makes the raise
+   * idempotent across runs — `raiseAttention` dedupes on kind plus message —
+   * and every new participant message mints a new id, so anchoring on the
+   * newest testimony would file one identical reason per turn for as long as
+   * the person kept typing. The message that already carried the copy does not
+   * move, and it is also the one that shows the operator what happened.
+   */
+  readonly stalledOnMessageId: string | null;
+}
+
+/**
+ * Stop sending the same fixed question a third time.
+ *
+ * The model's own re-asks vary — rule 11δ forbids repeating a question in the
+ * same words, and the personas that get two differently worded re-asks are
+ * fine. `questionOutbound` cannot vary: the campaign copy is the one wording
+ * this path is guaranteed not to be lying with, which is exactly why it is used
+ * and exactly why it cannot be reworded on the fly. So it is capped instead.
+ *
+ * The loop it closes is a real one, and it does not need a broken model to
+ * happen. An unresolved mention banks no answer, the next open goal therefore
+ * does not move, and `questionOutbound` re-sends the same sentence — while the
+ * dedupe key carries the testimony `seq`, so every new participant message
+ * mints a fresh key and the outbox fence never fires. In paid rehearsal runs 13
+ * and 14 (2026-07-31) two guests were sent «Υπήρχε κάποιος ή κάποια από την
+ * παρέα που σου έκανε ιδιαίτερα καλή εντύπωση;» eleven and eight times, one of
+ * them answering «re eipa idi 3 fores, i loyla!».
+ *
+ * Applied by the caller rather than inside `resolveOutbound`, for the same
+ * reason `withSafetyAssurance` is: it is not a choice between copies. Whatever
+ * this run decided to say, the application is refusing to say it again — and
+ * the refusal owes an operator an explanation, which is what the returned
+ * anchor is for. A conversation that is out of ways to ask its next question is
+ * not one to leave going quietly quiet.
+ *
+ * The count is over *identical bodies*, not over "this goal was asked twice".
+ * A differently worded re-ask is the behaviour we want and must survive
+ * untouched, and the reminder sweep's nudge is its own copy — neither is equal
+ * to `copy[goal]`, so neither is counted and neither is capped.
+ */
+export function withCampaignReaskCap(
+  conversation: FeedbackConversationDocument,
+  outbound: OutboundReply | undefined,
+  copy: PostEventFeedbackQuestionSetCopy,
+): CappedOutbound {
+  const goal = outbound?.askedGoal;
+  // Only the campaign-copy path. A forwarded model reply carries `askedGoal`
+  // too, and its words are its own — reading it as a repeat would cap the one
+  // kind of re-ask that is working.
+  if (!outbound || !goal || outbound.body !== copy[goal]) {
+    return { outbound, stalledOnMessageId: null };
+  }
+  const alreadySent = conversation.messages.filter(
+    (message) => message.actor === "bot" && message.text === outbound.body,
+  );
+  if (alreadySent.length < FEEDBACK_CAMPAIGN_REASK_LIMIT) {
+    return { outbound, stalledOnMessageId: null };
+  }
+  return {
+    outbound: undefined,
+    stalledOnMessageId: alreadySent.at(-1)?.id ?? null,
+  };
+}
+
+/**
  * Whether this sentence has already reached the participant's phone.
  *
  * Substring rather than equality because the assurance is appended to whatever

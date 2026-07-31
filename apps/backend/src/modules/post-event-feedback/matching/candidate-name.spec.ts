@@ -44,6 +44,35 @@ describe("foldPostEventFeedbackName", () => {
     );
   });
 
+  it("folds «ου» whether it is typed `ou` or `oy`", () => {
+    // `y` is how a Greek typing Latin letters writes υ — it is the shape, not
+    // the sound — so «ου» arrives as `oy` about as often as `ou`. Until this
+    // fold existed, «loyla» folded to `loila` and matched neither «loula» nor
+    // «Λούλα»: the name resolved to nobody, the answer was never banked, and
+    // the goal stayed open. Two live guests wrote it this way in one day's paid
+    // rehearsals and were each asked the same question again and again.
+    expect(foldPostEventFeedbackName("loyla")).toBe(
+      foldPostEventFeedbackName("loula"),
+    );
+    expect(foldPostEventFeedbackName("loyla")).toBe(
+      foldPostEventFeedbackName("Λούλα"),
+    );
+    expect(foldPostEventFeedbackName("Royla")).toBe(
+      foldPostEventFeedbackName("Roula"),
+    );
+    expect(foldPostEventFeedbackName("Royla")).toBe(
+      foldPostEventFeedbackName("Ρούλα"),
+    );
+    expect(foldPostEventFeedbackName("koyla")).toBe(
+      foldPostEventFeedbackName("koula"),
+    );
+    // The two names the burst table deliberately collides still stay apart:
+    // widening how «ου» is spelled must not widen who answers to it.
+    expect(foldPostEventFeedbackName("loyla")).not.toBe(
+      foldPostEventFeedbackName("Ρούλα"),
+    );
+  });
+
   it("keeps different names apart", () => {
     expect(foldPostEventFeedbackName("Νίκος")).not.toBe(
       foldPostEventFeedbackName("Ελένη"),
@@ -164,6 +193,26 @@ describe("resolvePostEventFeedbackCandidateByName", () => {
     expect(
       resolvePostEventFeedbackCandidateByName("Κώστας", [KOSTAS_P, NIKOS]),
     ).toMatchObject({ participantId: "p-kostas-p" });
+  });
+
+  it("resolves the greeklish `oy` spelling to the person who was actually there", () => {
+    // Verbatim from paid rehearsal runs 13 and 14 (2026-07-31), where two
+    // different guests improvised by composer-2.5-fast spelled her «loyla» and
+    // one of them ended up writing «re eipa idi 3 fores, i loyla!».
+    const LOULA = { participantId: "p-loula", displayName: "Λούλα" };
+    const ROULA = { participantId: "p-roula", displayName: "Ρούλα" };
+
+    expect(
+      resolvePostEventFeedbackCandidateByName("loyla", [LOULA, ROULA, NIKOS]),
+    ).toMatchObject({ participantId: "p-loula" });
+    expect(
+      resolvePostEventFeedbackCandidateByName("i loyla", [LOULA, ROULA]),
+    ).toMatchObject({ participantId: "p-loula" });
+    // Λούλα and Ρούλα sit at the same table on purpose, and the fold must not
+    // make one of them answer for the other.
+    expect(
+      resolvePostEventFeedbackCandidateByName("royla", [LOULA, ROULA, NIKOS]),
+    ).toMatchObject({ participantId: "p-roula" });
   });
 
   it("resolves nothing for an unknown name or an empty mention", () => {

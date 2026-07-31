@@ -355,8 +355,19 @@ conversation is going nowhere" counter.
 **Today.** ⚠️ While the bot keeps posing a question, three model calls, no data,
 no `needsAttention`, and the participant stays open — that is still going, not
 a withdrawal. If a later turn writes a goodbye with no question, the withdrawal
-net settles the ladder and hands it to a person. WP4's nudge counter remains the
-intended fix for the "keeps re-asking the same way" half.
+net settles the ladder and hands it to a person.
+
+The "keeps re-asking the same way" half is now half-answered, and only that half.
+A goal's **fixed campaign copy** may reach one conversation twice; the third
+identical body is withheld and the conversation is raised
+`unfinished_questionnaire` against the bot message that already carried it — the
+`stops_reasking_the_same_words` row in
+`post-event-feedback-loop-subjects.spec.ts` is the rehearsal of it, taken from
+paid runs 13 and 14 (2026-07-31), where the same sentence went out eleven and
+eight times to two different live guests. Where the
+model writes its **own** wording each turn — which rule 11δ requires and which is
+what S13 actually produces — nothing counts it, and WP4's nudge counter remains
+the intended fix for that.
 
 ### S14 · `names_themselves`
 
@@ -885,11 +896,20 @@ candidate when it is unambiguous. Message 2 is an opt-out.
 λατινική μεταγραφή ίση με διαφορετικά γραμμένο ελληνικό όνομα.» And the STOP
 matcher, which requires whole-string equality.
 
-**Today.** 🔴 on both counts. The prompt explicitly forbids matching «Nikos» to
-«Νίκος», so a Greeklish typist's directed answers all degrade to flagged
-subjectless notes — an entire population's data quality collapses. And «stop na
-mou stelnete» is not a STOP command. Greeklish is not mentioned in any document
-in the repository.
+**Today.** ✅ on both counts, and neither is the prompt's doing. The prompt still
+forbids the model from matching «Nikos» to «Νίκος»; validation folds both
+alphabets to one lossy skeleton and accepts the match only when exactly one
+candidate fits, so the resolution happens where a lucky guess cannot — see
+`greeklish` in `post-event-feedback-loop-subjects.spec.ts`. «stop na mou
+stelnete» is matched as an opt-out by the same folding.
+
+One spelling was missing until 2026-07-31 and cost two paid rehearsal
+conversations: «ου» written `oy` rather than `ou`, which is the ordinary habit of
+somebody choosing `y` for υ's shape instead of its sound. «loyla» folded to
+`loila` while «loula» and «Λούλα» both folded to `lila`, so a woman sitting at
+the table resolved to nobody — and the goal stayed open, which is what produced
+the re-ask loop [S13](#s13--answers_only_yes)'s Today line now describes.
+`greeklish_oy_spelling` pins it.
 
 ### S38 · `replies_in_english`
 

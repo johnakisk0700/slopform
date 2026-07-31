@@ -539,7 +539,9 @@ answered`, derived from stored **and** newly written answers so a replay repairs
   model skipped ahead of an open goal, or when it wrote a thank-you with
   `nextGoal: null` after proposing progress that did not finish the ladder, else
   the model's reply when it agrees with the recorded next goal (including
-  side-question replies that name no next goal and proposed nothing);
+  side-question replies that name no next goal and proposed nothing). A campaign
+  re-ask is capped: the same goal's identical copy is never sent a third time —
+  see [the same question twice](#the-same-question-twice-and-no-more);
 - that row transcribed as an `actor: bot` message carrying its `outboxId`
   ([outbound transcript entries](#outbound-transcript-entries)), so the next run
   reads what the bot already asked;
@@ -566,6 +568,48 @@ Control is **not** seized on a handoff. `control.source` is `staff_action` or
 human button. The bot stops asking, flags attention and lets an operator take
 over explicitly.
 
+### The same question twice, and no more
+
+A goal's **fixed campaign copy** may reach one conversation twice. The third
+identical body is not sent, and the conversation is raised
+`unfinished_questionnaire` instead — `withCampaignReaskCap` in
+[`outbound-reply.ts`](../../../apps/backend/src/modules/post-event-feedback/extraction/outbound-reply.ts),
+applied by `extract.service` between the choice of copy and the safety
+assurance.
+
+The loop it closes needs no misbehaving model. An unresolvable mention banks no
+answer, so the next open goal does not move, so the run falls to the campaign
+re-ask for that goal — and `questionOutbound`'s dedupe key carries the testimony
+`seq`, so every new participant message mints a fresh key and the outbox fence
+never sees a duplicate. In paid rehearsal runs 13 and 14 (2026-07-31) two live
+guests were sent «Υπήρχε κάποιος ή κάποια από την παρέα που σου έκανε ιδιαίτερα
+καλή εντύπωση;» eleven and eight times; one of them answered «re eipa idi 3
+fores, i loyla!». Prompt rule 11δ forbids re-asking in the same words, and this
+path is the one place the rule cannot reach: the campaign copy is used precisely
+because it is the wording guaranteed still to be true, which is the same reason
+it cannot be varied. So it is counted instead.
+
+Two, not one, because the second send is a legitimate «you may not have seen
+this» — exactly what a refused answer earns. Three is where a question stops
+being one.
+
+The count is over **identical bodies**, not over "this goal was asked twice", and
+that distinction is the whole safety of it:
+
+- a re-ask the **model** worded differently is the behaviour 11δ asks for and is
+  never counted — the personas that get two differently phrased re-asks and stay
+  open are untouched;
+- the reminder sweep's nudge restates the open question **inside**
+  `reminder_followup`'s own wrapper, so it is never equal to the campaign copy
+  and never spends a rung;
+- the assurance-bearing and ending copies carry no `askedGoal` at all, so none of
+  them is a question this path could repeat.
+
+When the cap trips the run sends nothing on that path. It does not close the
+conversation, does not settle the ladder and does not take control: the
+participant asked us for none of those. It raises the badge, and a person decides
+what the bot has run out of ways to ask.
+
 ### Naming the raise
 
 Nothing sets `needsAttention` directly — there is no bare setter left on the
@@ -576,14 +620,15 @@ badge is that list's summary
 run's own mapping is owned by
 [`operator-attention.ts`](../../../apps/backend/src/modules/post-event-feedback/extraction/operator-attention.ts):
 
-| Situation                                                                                               | `kind`                     | Anchor                             |
-| ------------------------------------------------------------------------------------------------------- | -------------------------- | ---------------------------------- |
-| A classified safety signal about conduct somebody reported                                              | `safety`                   | each message the signal cited      |
-| A signal whose category says the respondent is the source                                               | `respondent_conduct`       | each message the signal cited      |
-| An explicit participant handoff request                                                                 | `handoff`                  | the newest message the run read    |
-| A note kept but degraded to subjectless (D18)                                                           | `unattributed_note`        | the note's own first cited message |
-| A stored answer re-proposed with a **different** value, revised or refused because a human corrected it | `answer_revision`          | the newest message the run read    |
-| The bot withdrew, leaving goals unanswered                                                              | `unfinished_questionnaire` | the newest message the run read    |
+| Situation                                                                                               | `kind`                     | Anchor                                         |
+| ------------------------------------------------------------------------------------------------------- | -------------------------- | ---------------------------------------------- |
+| A classified safety signal about conduct somebody reported                                              | `safety`                   | each message the signal cited                  |
+| A signal whose category says the respondent is the source                                               | `respondent_conduct`       | each message the signal cited                  |
+| An explicit participant handoff request                                                                 | `handoff`                  | the newest message the run read                |
+| A note kept but degraded to subjectless (D18)                                                           | `unattributed_note`        | the note's own first cited message             |
+| A stored answer re-proposed with a **different** value, revised or refused because a human corrected it | `answer_revision`          | the newest message the run read                |
+| The bot withdrew, leaving goals unanswered                                                              | `unfinished_questionnaire` | the newest message the run read                |
+| The [re-ask cap](#the-same-question-twice-and-no-more) withheld a goal's campaign copy                  | `unfinished_questionnaire` | the bot message that already carried that copy |
 
 Three of them have no citation of their own — a handoff is a property of the run,
 a refused revision is about the stored row it disagreed with, and a withdrawal is
@@ -591,6 +636,14 @@ about the run deciding to stop — so all three anchor on the burst that produce
 them. That is a weaker claim than the safety anchor and deliberately so: a reason
 that links nowhere leaves the operator searching a 150-message transcript for the
 thing the badge would not name.
+
+The last row is the only raise anchored on something the **bot** said, and that
+is load-bearing rather than tidy. The anchor is what makes the write idempotent,
+and a participant stuck in a loop keeps typing: anchoring on the newest testimony
+would file one identical reason per turn. The bot message that already carried
+the copy does not move, and it is also the thing an operator needs to see. It
+shares the withdrawal's name because it is the withdrawal's job — the bot has
+stopped asking with a goal still unanswered — reached by a different route.
 
 The first two are the same classification told apart by direction, and a message
 raises exactly one of them: `respondent_conduct` when every category on it says
