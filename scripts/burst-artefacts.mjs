@@ -60,6 +60,10 @@ export function buildFinishedEvent({ result, stamp, reportPath, revision }) {
         passed: conversation.passed,
         lifecycle: conversation.actual?.lifecycle,
         closedBecause: conversation.actual?.closedBecause,
+        // Observation, not verdict: where the fixture expected this to end and
+        // whether the run agreed. Absent on pre-audit artefacts.
+        expected: conversation.expected ?? null,
+        lifecycleDiverged: conversation.lifecycleDiverged ?? null,
       })),
     ),
   };

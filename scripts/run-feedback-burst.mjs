@@ -1166,19 +1166,30 @@ async function collectSnapshot({
       const quietElapsed =
         !lastInjectAt ||
         Date.now() - Date.parse(lastInjectAt) >= QUIET_WINDOW_MS + 5_000;
-      // A live guest has no expected lifecycle to reach. One may finish the
-      // questionnaire and be closed as completed, another may still be mid
-      // conversation when its turns run out — both are correct, and neither can
-      // be predicted before the run. Waiting for a match would hold the whole
-      // campaign open until the deadline and then report the campaign as
-      // unsettled, so a live guest settles as soon as its messages have landed
-      // and it has gone quiet.
-      const lifecycleMatches =
-        Boolean(persona.liveModel) ||
-        (actual.lifecycle === persona.expect.lifecycle &&
+      // Settlement is «the system finished digesting what we sent», nothing
+      // more: every inject landed and the quiet window has passed. It used to
+      // additionally require the conversation to REACH the fixture's expected
+      // lifecycle, which quietly redefined every expectation mismatch as a
+      // stall: a model that legally ended somewhere else — Χαρά asked the
+      // 9δ-mandated question her script could not answer, Πάνος took the S70
+      // hostile fork instead of S69 — could never settle, burned the stall
+      // detector, and surfaced as `campaign_not_terminal`, the exact finding
+      // shape of a dead system. Ten of the first fourteen ledgered runs
+      // "FAILED" that way, and the 2026-07-31 corpus audit traced every one of
+      // runs 10–12's instances to a fixture, not a stall.
+      //
+      // The fixture's view survives as `lifecycleDiverged` on the row — an
+      // observation to read, exactly like the paid-mode expectation rows —
+      // while `campaign_not_terminal` now means what it says: messages or jobs
+      // genuinely still in flight when the run gave up.
+      const lifecycleDiverged =
+        !persona.liveModel &&
+        !(
+          actual.lifecycle === persona.expect.lifecycle &&
           (persona.expect.lifecycle === "open" ||
-            actual.closedBecause === persona.expect.closedBecause));
-      const settled = injectCaughtUp && quietElapsed && lifecycleMatches;
+            actual.closedBecause === persona.expect.closedBecause)
+        );
+      const settled = injectCaughtUp && quietElapsed;
 
       conversations.push({
         personaId: persona.id,
@@ -1208,6 +1219,7 @@ async function collectSnapshot({
         messageCount: detail.messages.length,
         quietElapsed,
         settled,
+        lifecycleDiverged,
         adminBase,
       });
     }
@@ -1367,6 +1379,15 @@ function toConversationResult(row, { stubMode, adminBase, campaignId }) {
     received: row.received,
     transcript: row.transcript,
     actual: row.actual,
+    // The fixture's view of where this conversation should have ended, and
+    // whether the run agreed — an observation like every paid-mode expectation
+    // row. Settlement no longer waits for this match, so the artefact is the
+    // only place the divergence survives.
+    expected: {
+      lifecycle: row.expect?.lifecycle ?? null,
+      closedBecause: row.expect?.closedBecause ?? null,
+    },
+    lifecycleDiverged: row.lifecycleDiverged ?? false,
   };
 }
 
