@@ -268,6 +268,68 @@ const SCENARIOS: readonly FeedbackScenario[] = [
     },
   },
   {
+    // S70. [S69](`declines_every_question`) with one word read differently, and
+    // the row exists because that one word used to change the sentence and the
+    // stored state in opposite directions.
+    //
+    // Πάνος Μούλαρος refuses the same three times in the same words. This time
+    // the classifier judges «ασε με ρε φιλε» hostile — which is a defensible
+    // reading of it, and precisely the reading paid rehearsal run 11
+    // (2026-07-31, openai/gpt-5.6-luna) returned. One hostile turn is nowhere
+    // near the exit line, so there is no `hostility_stop` here; what there is,
+    // is a hostile turn with nothing recorded behind it, which is the case an
+    // operator has to read rather than a questionnaire anybody finished.
+    //
+    // The lifecycle already knew that: `open`, `closedBecause: null`. The copy
+    // did not, and he was sent «Κανένα πρόβλημα, δεν θα σε ξαναρωτήσουμε» —
+    // promising in writing never to ask again, out of a conversation left in the
+    // one state that permits asking again. The two gates were separate
+    // expressions computed either side of the outbound; they are now one const,
+    // and this row is what holds them together.
+    //
+    // So the whole assertion is an absence: `received: []`. He gets nothing —
+    // not the declined copy, not the thank-you, not the exit line — because the
+    // model wrote no goodbye of its own and the application's two endings are
+    // both untrue here. Silence is the only honest outbound while a person is
+    // being asked to look.
+    id: "declines_every_question_read_as_hostile",
+    title:
+      "sends nothing at all when a refusal reads as hostile, and leaves it open for a person",
+    script: [{ skip: ["event_score", "liked", "meet_again", "avoid"] }],
+    steps: [
+      { kind: "inbound", text: "δε λεω τιποτα" },
+      { kind: "inbound", after: "8s", text: "ασε με ρε φιλε" },
+      { kind: "inbound", after: "8s", text: "ειπα δε λεω" },
+      { kind: "wait", after: "settles" },
+    ],
+    // The one difference from S69, and the only one.
+    attention: [{ hostileToUs: true }],
+    expect: {
+      answers: [],
+      notes: [],
+      // Not «he finished» and not «he declined». A person decides which of those
+      // it was, and until then the conversation can still be spoken to.
+      lifecycle: "open",
+      closedBecause: null,
+      // Flagged `hostile_to_bot`, which is what puts it in front of somebody.
+      // Rudeness is still not a safety incident, however it was classified, and
+      // an operator is not paged for one — the badge is the whole raise.
+      needsAttention: true,
+      flaggedMessages: [],
+      alerts: [],
+      // He never asked us to stop messaging him, and we did not decide it for
+      // him: this run said nothing rather than saying something final.
+      optedIn: true,
+      received: [],
+      receivedCount: {
+        declined: 0,
+        closing: 0,
+        hostility_stop: 0,
+        reply: 0,
+      },
+    },
+  },
+  {
     // S65. The guard, from the side that would hurt somebody.
     //
     // Ειρήνη Καταγγελού describes being touched at the table without her

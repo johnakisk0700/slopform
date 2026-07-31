@@ -278,15 +278,6 @@ export class PostEventFeedbackExtractor {
       validated,
     );
     const openGoal = nextOpenGoal(conversation.goals, recordedStatuses);
-    // Closing copy is only earned by answers/skips that already finished the
-    // ladder. A withdrawal settles open goals *after* the outbound is chosen,
-    // so the participant still gets the model's goodbye rather than the
-    // campaign thank-you. `closingNow` below then decides from the settled
-    // state, and excludes a withdrawal: settling the goals stops the reminders,
-    // it does not end the conversation.
-    const progressClosing =
-      isCompleting(conversation.goals, recordedStatuses) &&
-      validated.safetySignals.length === 0;
     // The two signals that end the questionnaire outright, as opposed to
     // flagging it. Both mean the same thing — from here a person is answering,
     // not the bot — so both hand control over, which is the existing brake:
@@ -315,6 +306,55 @@ export class PostEventFeedbackExtractor {
       hostileTurns,
       safetySignalCount: validated.safetySignals.length,
     });
+    // A hostile turn that never got a single answer out of anybody.
+    //
+    // Computed here, above the outbound, because the ending *sentence* and the
+    // ending *word* are one judgement rather than two. Everything it needs is
+    // already known at this point and none of it moves afterwards: `hostileTurn`
+    // three lines up, and `answeredAnything` over the stored goals plus this
+    // run's accepted answers — neither of which the goal settling further down
+    // can change.
+    //
+    // It used to be computed after the outbound had already been chosen, and the
+    // two halves duly disagreed. In paid rehearsal run 11 (2026-07-31,
+    // openai/gpt-5.6-luna) Πάνος Μούλαρος refused three times and civilly — «δε
+    // λεω τιποτα», «ασε με ρε φιλε», «ειπα δε λεω» — and the classifier judged
+    // the middle one hostile. The lifecycle then did the right thing and stayed
+    // `open` with `reason: null`, because a hostile turn with nothing behind it
+    // is for an operator to read, not for us to file as finished. He was
+    // nonetheless sent «Κανένα πρόβλημα, δεν θα σε ξαναρωτήσουμε. Καλή συνέχεια!
+    // 🙂» — a written promise never to ask again, out of a conversation left in
+    // precisely the state that permits asking again. Whichever way the operator
+    // went next, one of those two was a lie.
+    //
+    // So it is one const, read by `progressClosing` immediately below and by
+    // `closingNow` further down, and the sentence and the stored word cannot
+    // drift apart again.
+    const hostileWithoutAnswers =
+      hostileTurn && !answeredAnything(conversation, validated);
+    // Closing copy is only earned by answers/skips that already finished the
+    // ladder. A withdrawal settles open goals *after* the outbound is chosen,
+    // so the participant still gets the model's goodbye rather than the
+    // campaign thank-you. `closingNow` below then decides from the settled
+    // state, and excludes a withdrawal: settling the goals stops the reminders,
+    // it does not end the conversation.
+    //
+    // `hostileWithoutAnswers` is excluded here and not only there, which is what
+    // withholds Πάνος's «Κανένα πρόβλημα». Where the model wrote no goodbye of
+    // its own the run then says nothing at all, and the silence is the honest
+    // outbound: the conversation stays open, flagged `hostile_to_bot`, and a
+    // person picks it up knowing exactly as much as we have promised. Where the
+    // model did write something, that still goes out untouched — only the two
+    // pieces of ending copy are ever withheld, never the bot's own words.
+    //
+    // The same const reaches `ordinaryReply` below, and that is right rather
+    // than incidental: what survives this gate is now either nothing or an
+    // ordinary conversational reply, and an ordinary reply is exactly the kind
+    // that may be dropped for having been superseded while the model thought.
+    const progressClosing =
+      isCompleting(conversation.goals, recordedStatuses) &&
+      validated.safetySignals.length === 0 &&
+      !hostileWithoutAnswers;
     // Anchored on the participant's own latest message rather than on the
     // transcript length, because this run appends its reply to that same
     // transcript: a length-based key would differ on a replay that already sees
@@ -424,8 +464,11 @@ export class PostEventFeedbackExtractor {
     // `answeredAnything` is the line, not hostility on its own: somebody who
     // gives us a score and two names and then swears has genuinely completed the
     // thing, and there is no reason to withhold the word from that.
-    const hostileWithoutAnswers =
-      hostileTurn && !answeredAnything(conversation, validated);
+    //
+    // `hostileWithoutAnswers` is the one computed above the outbound, not a
+    // second opinion formed down here. That is the whole of the fix for Πάνος:
+    // the copy gate and this word gate now read the same const, so there is no
+    // longer a state in which we say one and store the other.
     const hostility: FeedbackHostilityRaise = stoppingForHostility
       ? "stopped"
       : hostileWithoutAnswers && isCompleting(conversation.goals, goalStatuses)
@@ -984,8 +1027,9 @@ export class PostEventFeedbackExtractor {
     // and his consent stays exactly as he left it — but the bot has said its last
     // line, and `awaitingHuman` is what makes that true of the next message
     // instead of only of this one. `unanswerable` deliberately does **not** land
-    // here: the ladder still has rungs left, so the bot keeps its voice and only
-    // the badge goes up.
+    // here: the hostility ladder still has rungs left — the questionnaire is
+    // finished, but the counter has not reached the exit line — so the bot keeps
+    // its voice and only the badge goes up.
     if (input.dutyOfCare || input.withdrew || input.hostility === "stopped") {
       await this.conversations.markAwaitingHuman({
         conversationId: input.conversation._id,

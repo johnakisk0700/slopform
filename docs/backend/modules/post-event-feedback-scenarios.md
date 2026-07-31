@@ -1736,6 +1736,12 @@ message — «Κανένα πρόβλημα, δεν θα σε ξαναρωτήσ
 closing copy. `lifecycle: closed` with `closedBecause: declined`, `optedIn:
 true`, `needsAttention: false`.
 
+This row is the **civil** reading of those three messages, and it depends on it:
+the declined copy is now gated on the same `hostileWithoutAnswers` as the
+lifecycle word, so a classifier that judges any of these turns hostile takes
+[S70](#s70--declines_every_question_read_as_hostile) instead and he is sent
+nothing at all.
+
 **Stresses.** That the word stored and the sentence sent agree. At the
 2026-07-28 rehearsal he received **nothing** after the intro and was filed as
 `completed`: the thank-you was correctly withheld from an empty ladder by
@@ -1750,6 +1756,47 @@ flagged for exercising a choice.
 `mezedopoleio_declines_every_goal`, whose `needsAttention: true` was a stale
 expectation from the run-7 theory that this path was a withdrawal. It is not: the
 bot did not give up, he refused.
+
+The gate moved once more after that. Run 11 (2026-07-31) showed the copy and the
+word could still disagree in the other direction — see S70 — so
+`hostileWithoutAnswers` is now computed **above** the outbound and read by both,
+rather than being two expressions either side of it.
+
+### S70 · `declines_every_question_read_as_hostile`
+
+**Person.** Πάνος again, refusing in exactly the same words, on a run where the
+classifier reads «ασε με ρε φιλε» as hostile. The hostile reading of
+[S69](#s69--declines_every_question), and nowhere near
+[S64](#s64--abuses_the_bot_throughout)'s exit line — one hostile turn, not four.
+
+**Messages**
+
+- `t+0s` participant: «δε λεω τιποτα»
+- `t+8s` participant: «ασε με ρε φιλε» — classified `hostileToUs: true`
+- `t+16s` participant: «ειπα δε λεω»
+
+**Should end with.** **Nothing sent.** No declined copy, no closing copy, no exit
+line: the model wrote no goodbye of its own, and both of the application's endings
+are untrue here. All four goals `skipped`, no answers, no notes, `lifecycle: open`
+with `closedBecause: null`, `needsAttention: true` for `hostile_to_bot`, no safety
+signal on any message, no operator alert, `optedIn: true`.
+
+**Stresses.** That one hostile turn cannot make the sentence and the stored state
+contradict each other. In paid rehearsal run 11 (2026-07-31,
+`openai/gpt-5.6-luna`) this is precisely what happened: `hostileTurns=1` correctly
+held the conversation `open` / `reason: null` so an operator would read it, and he
+was nonetheless sent «Κανένα πρόβλημα, δεν θα σε ξαναρωτήσουμε» — a written
+promise never to ask again, out of the one state that permits asking again. The
+copy gate and the word gate were separate expressions computed either side of
+`resolveOutbound`, with `hostileWithoutAnswers` only reachable by the second.
+They are one const now, above both.
+
+Also that withholding is limited to the two pieces of application copy. A model
+that does write a goodbye on a hostile turn still has it delivered — the fix
+silences our sentences, never the bot's own words.
+
+**Today.** ✅ Fixed and pinned, alongside S69: the two rows differ by the single
+`hostileToUs` flag and by nothing else, which is what keeps either from drifting.
 
 # Part 2 — Executable behavioural suite
 
