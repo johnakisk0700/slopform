@@ -13,16 +13,20 @@ import {
 import type { AssistantModel } from "../../assistant/assistant.schemas.js";
 import { FeedbackAttentionClassificationValidationError } from "./attention-classification.js";
 import {
+  FEEDBACK_ATTENTION_CLASSIFICATION_MAX_OUTPUT_TOKENS,
+  FEEDBACK_ATTENTION_CLASSIFICATION_THINKING_MAX_OUTPUT_TOKENS,
   FEEDBACK_EXTRACTION_DEFAULT_MODEL,
   FEEDBACK_EXTRACTION_MAX_OUTPUT_TOKENS,
   FEEDBACK_EXTRACTION_THINKING_MAX_OUTPUT_TOKENS,
   FeedbackExtractionGenerationError,
-  feedbackAttentionClassificationProviderOptions,
+  feedbackAttentionClassificationMaxOutputTokens,
   feedbackExtractionMaxOutputTokens,
   feedbackExtractionProviderOptions,
   isFeedbackProviderIncident,
+  resolveFeedbackAttentionReasoningEffort,
   resolveFeedbackExtractionModel,
   resolveFeedbackExtractionReasoningEffort,
+  resolveFeedbackExtractionServiceTier,
   toGenerationError,
 } from "./model.service.js";
 
@@ -54,7 +58,11 @@ describe("feedback extraction model selection", () => {
   // branch returned `undefined`, meaning «no reasoning field», meaning the
   // provider's own default effort against a 1,024-token ceiling. Silent, billed
   // per message, and visible only as a truncated classification.
-  it("disables reasoning for the bounded classifier task, in each provider's own spelling", () => {
+  //
+  // The classifier is no longer pinned there — `FEEDBACK_ATTENTION_REASONING_EFFORT`
+  // can raise it — so what this now guards is the *default*: unconfigured, the
+  // call still sends an explicit `none` in whichever spelling the route needs.
+  it("defaults the bounded classifier task to no reasoning, in each provider's own spelling", () => {
     for (const id of Object.keys(
       ASSISTANT_MODEL_ADAPTERS,
     ) as AssistantModel[]) {
@@ -62,9 +70,13 @@ describe("feedback extraction model selection", () => {
         assistantModelAdapter(id).provider === "openai"
           ? { openai: { reasoningEffort: "none" } }
           : { openrouter: { reasoning: { effort: "none" } } };
-      expect(feedbackAttentionClassificationProviderOptions(id), id).toEqual(
-        expected,
-      );
+      expect(
+        feedbackExtractionProviderOptions(
+          id,
+          resolveFeedbackAttentionReasoningEffort(undefined),
+        ),
+        id,
+      ).toEqual(expected);
     }
   });
 
@@ -77,6 +89,143 @@ describe("feedback extraction model selection", () => {
     expect(() => resolveFeedbackExtractionReasoningEffort("maximum")).toThrow(
       /FEEDBACK_EXTRACTION_REASONING_EFFORT/u,
     );
+  });
+
+  // Probed against the responses API on 2026-07-31: `max` answered 200 where an
+  // invented effort answers 400. `maximum` above is the near-miss that must
+  // still be refused, which is why both live in this file.
+  it("accepts the max effort OpenAI added above xhigh", () => {
+    expect(resolveFeedbackExtractionReasoningEffort("max")).toBe("max");
+    expect(resolveFeedbackAttentionReasoningEffort("max")).toBe("max");
+    expect(
+      feedbackExtractionProviderOptions("openai/gpt-5.6-luna", "max"),
+    ).toEqual({ openai: { reasoningEffort: "max" } });
+    expect(feedbackExtractionMaxOutputTokens("max")).toBe(
+      FEEDBACK_EXTRACTION_THINKING_MAX_OUTPUT_TOKENS,
+    );
+  });
+
+  // The two settings share a vocabulary and disagree about the empty case on
+  // purpose. Extraction unset means «omit the field»; the classifier has always
+  // sent an explicit `none`, and unset must keep doing exactly that rather than
+  // handing a 1,024-token ceiling to whatever the provider defaults to.
+  it("defaults the classifier effort to an explicit none, not to an omitted field", () => {
+    expect(resolveFeedbackAttentionReasoningEffort(undefined)).toBe("none");
+    expect(resolveFeedbackAttentionReasoningEffort("")).toBe("none");
+    expect(() => resolveFeedbackAttentionReasoningEffort("maximum")).toThrow(
+      /FEEDBACK_ATTENTION_REASONING_EFFORT/u,
+    );
+  });
+
+  it("spells a configured classifier effort for the provider that receives it", () => {
+    expect(
+      feedbackExtractionProviderOptions(
+        "openai/gpt-5.6-luna",
+        resolveFeedbackAttentionReasoningEffort("high"),
+      ),
+    ).toEqual({ openai: { reasoningEffort: "high" } });
+    expect(
+      feedbackExtractionProviderOptions(
+        "google/gemini-3.6-flash",
+        resolveFeedbackAttentionReasoningEffort("low"),
+      ),
+    ).toEqual({ openrouter: { reasoning: { effort: "low" } } });
+  });
+
+  // 1,024 is a batch of verdicts and nothing else. A thinking classifier spends
+  // that on reasoning before it writes a character — the same failure the
+  // extraction call hit at 2,048 — so the ceiling has to move with the effort.
+  it("raises the classifier ceiling whenever the classifier is allowed to think", () => {
+    expect(feedbackAttentionClassificationMaxOutputTokens("none")).toBe(
+      FEEDBACK_ATTENTION_CLASSIFICATION_MAX_OUTPUT_TOKENS,
+    );
+    expect(feedbackAttentionClassificationMaxOutputTokens(undefined)).toBe(
+      FEEDBACK_ATTENTION_CLASSIFICATION_MAX_OUTPUT_TOKENS,
+    );
+    for (const effort of ["low", "medium", "high", "xhigh", "max"] as const) {
+      expect(
+        feedbackAttentionClassificationMaxOutputTokens(effort),
+        effort,
+      ).toBe(FEEDBACK_ATTENTION_CLASSIFICATION_THINKING_MAX_OUTPUT_TOKENS);
+    }
+    expect(FEEDBACK_ATTENTION_CLASSIFICATION_THINKING_MAX_OUTPUT_TOKENS).toBe(
+      FEEDBACK_EXTRACTION_THINKING_MAX_OUTPUT_TOKENS,
+    );
+  });
+
+  it("omits the service tier until one is configured, and refuses an unknown one", () => {
+    expect(resolveFeedbackExtractionServiceTier(undefined)).toBeUndefined();
+    expect(resolveFeedbackExtractionServiceTier("")).toBeUndefined();
+    for (const tier of ["default", "flex", "priority"] as const) {
+      expect(resolveFeedbackExtractionServiceTier(tier)).toBe(tier);
+    }
+    // `auto` is a real SDK value this module deliberately does not offer: it
+    // means the same as leaving the setting empty, and two spellings of one
+    // behaviour is how a config comes to say one thing and mean another.
+    for (const junk of ["auto", "fast", "Priority"]) {
+      expect(() => resolveFeedbackExtractionServiceTier(junk), junk).toThrow(
+        /FEEDBACK_EXTRACTION_SERVICE_TIER/u,
+      );
+    }
+  });
+
+  // OpenRouter routes between upstreams itself, so a `serviceTier` sent there is
+  // not rejected — it is ignored, and the campaign reads as though it had bought
+  // the fast lane it is not getting. This function is the only place that builds
+  // the block, so it is the only place the drop can be guaranteed.
+  it("sends the service tier only to models routed direct to OpenAI", () => {
+    expect(
+      feedbackExtractionProviderOptions(
+        "openai/gpt-5.6-luna",
+        "max",
+        "priority",
+      ),
+    ).toEqual({ openai: { reasoningEffort: "max", serviceTier: "priority" } });
+    expect(
+      feedbackExtractionProviderOptions("openai/gpt-5.6-luna", "none", "flex"),
+    ).toEqual({ openai: { reasoningEffort: "none", serviceTier: "flex" } });
+    // No effort at all, but a tier: the block still has to exist.
+    expect(
+      feedbackExtractionProviderOptions(
+        "openai/gpt-5.6-luna",
+        undefined,
+        "default",
+      ),
+    ).toEqual({ openai: { serviceTier: "default" } });
+    expect(
+      feedbackExtractionProviderOptions(
+        "google/gemini-3.6-flash",
+        "high",
+        "priority",
+      ),
+    ).toEqual({ openrouter: { reasoning: { effort: "high" } } });
+    expect(
+      feedbackExtractionProviderOptions(
+        "google/gemini-3.6-flash",
+        undefined,
+        "priority",
+      ),
+    ).toBeUndefined();
+  });
+
+  // `serviceTier: undefined` is still an own property and would be serialised
+  // into the request body, so an unset tier must be absent from the object, not
+  // present-and-undefined.
+  it("omits the service tier key entirely when it is unset", () => {
+    const options = feedbackExtractionProviderOptions(
+      "openai/gpt-5.6-luna",
+      "high",
+    );
+
+    expect(options).toEqual({ openai: { reasoningEffort: "high" } });
+    expect(Object.keys(options?.openai ?? {})).toEqual(["reasoningEffort"]);
+    expect(
+      feedbackExtractionProviderOptions(
+        "openai/gpt-5.6-luna",
+        undefined,
+        undefined,
+      ),
+    ).toBeUndefined();
   });
 
   it("spells the configured effort for the provider that receives it", () => {
@@ -98,7 +247,7 @@ describe("feedback extraction model selection", () => {
     expect(feedbackExtractionMaxOutputTokens("none")).toBe(
       FEEDBACK_EXTRACTION_MAX_OUTPUT_TOKENS,
     );
-    for (const effort of ["low", "medium", "high", "xhigh"] as const) {
+    for (const effort of ["low", "medium", "high", "xhigh", "max"] as const) {
       expect(feedbackExtractionMaxOutputTokens(effort), effort).toBe(
         FEEDBACK_EXTRACTION_THINKING_MAX_OUTPUT_TOKENS,
       );

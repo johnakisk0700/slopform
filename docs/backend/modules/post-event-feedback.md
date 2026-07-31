@@ -780,11 +780,13 @@ missing. `FEEDBACK_EXTRACTION_MODEL` selects the model and defaults to
 than quietly using the default. Provider clients live in the worker module only.
 
 `FEEDBACK_EXTRACTION_REASONING_EFFORT` sets the thinking budget for the
-extraction call — `none`, `low`, `medium`, `high` or `xhigh`, spelled for
+extraction call — `none`, `low`, `medium`, `high`, `xhigh` or `max`, spelled for
 whichever provider the registry chose. **Unset is not `none`.** Unset sends no
 reasoning field at all and leaves the provider on its own default; `none`
 overrides it. The default is unset, so a campaign that never asked for thinking
-behaves exactly as it did before the setting existed.
+behaves exactly as it did before the setting existed. `xhigh` and `max` exist
+only on a model routed direct to OpenAI; `max` was accepted by the responses API
+on `gpt-5.6-luna` when probed on 2026-07-31 and is listed on that evidence.
 
 Anything above `none` also raises `maxOutputTokens` from 2,048 to 16,384,
 because **reasoning tokens are spent from the same output budget as the answer**.
@@ -795,10 +797,28 @@ at all**. That surfaces as `NoObjectGeneratedError`, which this module treats as
 retryable — so the run pays for the same silence on every attempt. A ceiling is
 not a charge; it only has to leave room for the answer after the thinking.
 
-The attention classifier is pinned at `none` regardless, in its provider's own
-spelling. It answers a bounded per-message question, is billed on every message
-in the campaign, and its batch reply is capped at 1,024 tokens — which `xhigh`
-alone would exceed before writing a character.
+The attention classifier has **its own budget, `FEEDBACK_ATTENTION_REASONING_EFFORT`,
+over the same vocabulary, defaulting to `none`.** It was pinned there until
+2026-07-31, when a product decision reopened it: the judgement the classifier
+actually got wrong in run 11 is hostility — whether a message is aimed abusively
+at us or is a participant describing what happened to them — and that is exactly
+the kind of reading a thinking budget helps with. Unset still means `none`, sent
+explicitly in the provider's own spelling, so leaving it alone changes nothing.
+Setting it moves that call's ceiling from 1,024 to 16,384 on the same reasoning
+as above — at 1,024 a thinking classifier would return nothing at all. **Cost is
+why the default did not move:** the classifier is billed per message batch across
+every conversation in the campaign, so thinking there multiplies with participant
+volume rather than with extraction runs.
+
+`FEEDBACK_EXTRACTION_SERVICE_TIER` — `default`, `flex` or `priority` — sets
+OpenAI's scheduling tier on **both** calls, extraction and classifier alike. It
+is applied **only when the registry routes the configured model direct to
+OpenAI**; an OpenRouter-routed model never receives it, because OpenRouter does
+its own upstream routing and the key would ride along ignored while the config
+claimed the fast lane had been bought. Unset omits the field and leaves the
+account's own tier in force. `flex` trades latency for a lower rate; `priority`
+is OpenAI's paid fast mode at roughly **twice the standard token price**, charged
+per token on every call rather than as a flat fee.
 
 Extraction additionally sends **permissive safety thresholds** on its own call
 path ([`permissive-safety-settings.ts`](../../../apps/backend/src/modules/post-event-feedback/extraction/permissive-safety-settings.ts)).

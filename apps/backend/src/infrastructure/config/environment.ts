@@ -199,6 +199,28 @@ export const environmentSchema = observabilityEnvironmentSchema
       emptyStringToUndefined,
       z.string().trim().min(1).max(20).optional(),
     ),
+    /**
+     * Thinking budget for the attention classifier. Same vocabulary as the
+     * extraction call, different default: unset means `none`, sent explicitly,
+     * which is what the classifier has always done. The classifier is billed per
+     * message batch across the whole campaign, so a thinking budget here is
+     * multiplied by participant volume rather than by extraction runs.
+     */
+    FEEDBACK_ATTENTION_REASONING_EFFORT: z.preprocess(
+      emptyStringToUndefined,
+      z.string().trim().min(1).max(20).optional(),
+    ),
+    /**
+     * OpenAI scheduling tier for both extraction calls, applied only when the
+     * registry routes the configured model direct to OpenAI. Unset omits the
+     * field. `priority` is the paid fast lane at roughly twice the standard
+     * token price. The permitted vocabulary is the feedback module's, checked
+     * there for the same reason as the model id above.
+     */
+    FEEDBACK_EXTRACTION_SERVICE_TIER: z.preprocess(
+      emptyStringToUndefined,
+      z.string().trim().min(1).max(20).optional(),
+    ),
     WASENDER_SESSION_API_KEY: optionalCredential,
     WASENDER_WEBHOOK_ENABLED: booleanFromEnvironment,
     WASENDER_WEBHOOK_SECRET: optionalWebhookSecret,

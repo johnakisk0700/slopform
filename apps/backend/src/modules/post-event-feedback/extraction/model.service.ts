@@ -215,9 +215,16 @@ export interface FeedbackExtractionModelPort {
  *
  * Deliberately not the assistant's `low | medium | high`. That enum is persisted
  * on every turn behind the `assistant_turns_effort_check` constraint; this one
- * is persisted nowhere, so widening it costs no migration. `xhigh` is offered by
- * OpenAI on Luna and is not reachable through OpenRouter, which is the whole
- * reason the Luna route moved — see `ASSISTANT_MODEL_ADAPTERS`.
+ * is persisted nowhere, so widening it costs no migration. `xhigh` and `max` are
+ * offered by OpenAI on Luna and are not reachable through OpenRouter, which is
+ * the whole reason the Luna route moved — see `ASSISTANT_MODEL_ADAPTERS`.
+ *
+ * `max` was added on 2026-07-31 after probing the responses API directly:
+ * `reasoning: { effort: "max" }` on `gpt-5.6-luna` answered 200 rather than the
+ * 400 an unknown effort earns. It is listed here on that evidence alone — the
+ * table below was never re-measured at `max`, and there is no reason to expect it
+ * to spend *less* than `xhigh` did, so it takes the raised ceiling with every
+ * other thinking budget.
  */
 export const FEEDBACK_EXTRACTION_REASONING_EFFORTS = [
   "none",
@@ -225,6 +232,7 @@ export const FEEDBACK_EXTRACTION_REASONING_EFFORTS = [
   "medium",
   "high",
   "xhigh",
+  "max",
 ] as const;
 
 export type FeedbackExtractionReasoningEffort =
@@ -260,24 +268,87 @@ export function resolveFeedbackExtractionReasoningEffort(
 }
 
 /**
- * One thinking budget, spelled for whichever provider the registry chose.
+ * How hard OpenAI is asked to hurry, on the routes where asking is possible.
+ *
+ * `default` is standard scheduling, `flex` trades latency for a lower rate on
+ * work nobody is waiting for, and **`priority` is OpenAI's paid fast lane at
+ * roughly twice the standard token price** — a per-token multiplier on both
+ * calls, not a flat fee, so it is left unset unless a rehearsal is being timed.
+ *
+ * The vocabulary is deliberately narrower than the SDK's, which also accepts
+ * `auto`. `auto` means «let the account default decide», which is exactly what
+ * leaving this unset already does, and having two spellings of the same thing
+ * only invites a config that says one and means the other.
+ */
+export const FEEDBACK_EXTRACTION_SERVICE_TIERS = [
+  "default",
+  "flex",
+  "priority",
+] as const;
+
+export type FeedbackExtractionServiceTier =
+  (typeof FEEDBACK_EXTRACTION_SERVICE_TIERS)[number];
+
+/**
+ * Unset omits the field, which is not the same as sending `default`: omitting it
+ * leaves the account's own tier in force, while `default` overrides whatever
+ * that is. An unrecognised value throws at worker start for the reason every
+ * other setting in this file does — a typo that silently degraded to «whatever
+ * OpenAI felt like» would be discovered on the invoice.
+ */
+export function resolveFeedbackExtractionServiceTier(
+  configured: string | undefined,
+): FeedbackExtractionServiceTier | undefined {
+  if (!configured) {
+    return undefined;
+  }
+  const tier = FEEDBACK_EXTRACTION_SERVICE_TIERS.find(
+    (candidate) => candidate === configured,
+  );
+  if (!tier) {
+    throw new Error(
+      `FEEDBACK_EXTRACTION_SERVICE_TIER must be one of ${FEEDBACK_EXTRACTION_SERVICE_TIERS.join(", ")}, received "${configured}"`,
+    );
+  }
+  return tier;
+}
+
+/**
+ * One thinking budget and one service tier, spelled for whichever provider the
+ * registry chose.
  *
  * The two SDKs disagree on the shape, and a body sent in the wrong one is not an
  * error — it is ignored, and the call quietly runs at the provider's default
  * effort while the log claims otherwise.
+ *
+ * The service tier is **OpenAI-only, by construction rather than by convention**.
+ * There is no `serviceTier` on the OpenRouter provider options: OpenRouter does
+ * its own routing between upstreams, so the key would ride along as an ignored
+ * extra and every OpenRouter campaign would read as though it had bought the
+ * fast lane. Dropping it here is the only place that can be guaranteed, because
+ * this is the only function that builds the block.
+ *
+ * Both keys are conditional spreads rather than `key: undefined`, because
+ * `exactOptionalPropertyTypes` is on and, more to the point, an explicit
+ * `undefined` is still an own property and would be serialised into the request.
+ * When neither applies the whole block is omitted, which is how a call that
+ * configures nothing keeps sending no provider options at all.
  */
 export function feedbackExtractionProviderOptions(
   model: AssistantModel,
   effort: FeedbackExtractionReasoningEffort | undefined,
+  serviceTier: FeedbackExtractionServiceTier | undefined = undefined,
 ):
   | NonNullable<Parameters<typeof generateObject>[0]["providerOptions"]>
   | undefined {
-  if (!effort) {
-    return undefined;
+  if (assistantModelAdapter(model).provider === "openai") {
+    const openai = {
+      ...(effort ? { reasoningEffort: effort } : {}),
+      ...(serviceTier ? { serviceTier } : {}),
+    };
+    return Object.keys(openai).length > 0 ? { openai } : undefined;
   }
-  return assistantModelAdapter(model).provider === "openai"
-    ? { openai: { reasoningEffort: effort } }
-    : { openrouter: { reasoning: { effort } } };
+  return effort ? { openrouter: { reasoning: { effort } } } : undefined;
 }
 
 /** What a run with no thinking budget needs to emit one proposal. */
@@ -321,24 +392,70 @@ export function feedbackExtractionMaxOutputTokens(
 export const FEEDBACK_ATTENTION_CLASSIFICATION_MAX_OUTPUT_TOKENS = 1_024;
 
 /**
- * The classifier stays at zero thinking whatever the extraction call is doing.
+ * The same ceiling the extraction call takes once it is allowed to think, and
+ * for the same reason: reasoning tokens come out of this budget.
  *
- * It answers a bounded per-message yes/no and is billed once per batch, so
- * reasoning buys little and costs on every message in the campaign. The bound
- * has teeth here: the batch reply is capped at 1,024 output tokens, and on the
- * table above `xhigh` alone would eat twice that before writing a character.
- *
- * Returning `undefined` for a non-OpenRouter provider — which is what this did
- * until Luna moved — is exactly that failure. It does not mean «no reasoning»;
- * it means «whatever the provider defaults to», silently, against a 1,024
- * ceiling.
+ * It is an alias rather than a second number because there is no separate
+ * measurement behind it. The one on record says a 2,048 budget vanished entirely
+ * into `xhigh` thinking; a 1,024 budget would vanish sooner, and the classifier
+ * would return nothing at all.
  */
-export function feedbackAttentionClassificationProviderOptions(
-  model: AssistantModel,
-):
-  | NonNullable<Parameters<typeof generateObject>[0]["providerOptions"]>
-  | undefined {
-  return feedbackExtractionProviderOptions(model, "none");
+export const FEEDBACK_ATTENTION_CLASSIFICATION_THINKING_MAX_OUTPUT_TOKENS =
+  FEEDBACK_EXTRACTION_THINKING_MAX_OUTPUT_TOKENS;
+
+export function feedbackAttentionClassificationMaxOutputTokens(
+  effort: FeedbackExtractionReasoningEffort | undefined,
+): number {
+  return effort && effort !== "none"
+    ? FEEDBACK_ATTENTION_CLASSIFICATION_THINKING_MAX_OUTPUT_TOKENS
+    : FEEDBACK_ATTENTION_CLASSIFICATION_MAX_OUTPUT_TOKENS;
+}
+
+/**
+ * The thinking budget for the attention classifier, which **defaults to `none`
+ * and is now configurable** through `FEEDBACK_ATTENTION_REASONING_EFFORT`.
+ *
+ * Until 2026-07-31 this was pinned: the classifier answers a bounded per-message
+ * question, so reasoning looked like it bought nothing. Run 11 said otherwise.
+ * The judgement the classifier actually gets wrong is *hostility* — whether a
+ * message is aimed abusively at us or is a participant describing something that
+ * happened to them — and that is not a lookup, it is exactly the kind of reading
+ * a thinking budget helps with. The product decision that day was to make it
+ * reachable, not to turn it on.
+ *
+ * **The cost warning stands, and it is the reason the default did not move.**
+ * The extraction call runs once per extraction; the classifier runs once per
+ * batch of messages, across every conversation in the campaign. Thinking here is
+ * multiplied by the whole campaign's message volume, and it is charged whether
+ * or not any message in the batch turned out to be interesting. Raise it for a
+ * rehearsal you are reading afterwards, not for a live campaign, and expect the
+ * bill to scale with participants rather than with runs.
+ *
+ * Note what the default `none` is *not*: it is not the extraction call's unset,
+ * which sends no reasoning field and inherits the provider's own default. `none`
+ * is sent explicitly, in the provider's own spelling, because leaving a 1,024
+ * ceiling to a provider's undeclared default is how a batch reply gets truncated
+ * with nobody able to say why. Setting the variable replaces that `none`; it
+ * never returns the call to «field omitted».
+ */
+export const FEEDBACK_ATTENTION_DEFAULT_REASONING_EFFORT: FeedbackExtractionReasoningEffort =
+  "none";
+
+export function resolveFeedbackAttentionReasoningEffort(
+  configured: string | undefined,
+): FeedbackExtractionReasoningEffort {
+  if (!configured) {
+    return FEEDBACK_ATTENTION_DEFAULT_REASONING_EFFORT;
+  }
+  const effort = FEEDBACK_EXTRACTION_REASONING_EFFORTS.find(
+    (candidate) => candidate === configured,
+  );
+  if (!effort) {
+    throw new Error(
+      `FEEDBACK_ATTENTION_REASONING_EFFORT must be one of ${FEEDBACK_EXTRACTION_REASONING_EFFORTS.join(", ")}, received "${configured}"`,
+    );
+  }
+  return effort;
 }
 
 /**
@@ -388,6 +505,8 @@ export class PostEventFeedbackExtractionModel implements FeedbackExtractionModel
     ReturnType<typeof createOpenRouter> | undefined;
   readonly model: AssistantModel;
   readonly reasoningEffort: FeedbackExtractionReasoningEffort | undefined;
+  readonly attentionReasoningEffort: FeedbackExtractionReasoningEffort;
+  readonly serviceTier: FeedbackExtractionServiceTier | undefined;
 
   constructor(private readonly config: ConfigService<Environment, true>) {
     const openAiKey = this.config.get("OPENAI_API_KEY", { infer: true });
@@ -407,6 +526,12 @@ export class PostEventFeedbackExtractionModel implements FeedbackExtractionModel
     this.reasoningEffort = resolveFeedbackExtractionReasoningEffort(
       this.config.get("FEEDBACK_EXTRACTION_REASONING_EFFORT", { infer: true }),
     );
+    this.attentionReasoningEffort = resolveFeedbackAttentionReasoningEffort(
+      this.config.get("FEEDBACK_ATTENTION_REASONING_EFFORT", { infer: true }),
+    );
+    this.serviceTier = resolveFeedbackExtractionServiceTier(
+      this.config.get("FEEDBACK_EXTRACTION_SERVICE_TIER", { infer: true }),
+    );
   }
 
   async propose(
@@ -416,6 +541,7 @@ export class PostEventFeedbackExtractionModel implements FeedbackExtractionModel
     const providerOptions = feedbackExtractionProviderOptions(
       this.model,
       this.reasoningEffort,
+      this.serviceTier,
     );
 
     try {
@@ -465,8 +591,13 @@ export class PostEventFeedbackExtractionModel implements FeedbackExtractionModel
     const hostileMessageIds: string[] = [];
     const describedIncidentMessageIds: string[] = [];
     const usages: FeedbackExtractionUsage[] = [];
-    const providerOptions = feedbackAttentionClassificationProviderOptions(
+    const providerOptions = feedbackExtractionProviderOptions(
       this.model,
+      this.attentionReasoningEffort,
+      this.serviceTier,
+    );
+    const maxOutputTokens = feedbackAttentionClassificationMaxOutputTokens(
+      this.attentionReasoningEffort,
     );
     let estimatedPromptTokens = 0;
 
@@ -485,7 +616,7 @@ export class PostEventFeedbackExtractionModel implements FeedbackExtractionModel
             "One contextual incident classification for every supplied participant message.",
           system: prompt.system,
           prompt: prompt.user,
-          maxOutputTokens: FEEDBACK_ATTENTION_CLASSIFICATION_MAX_OUTPUT_TOKENS,
+          maxOutputTokens,
           maxRetries: 0,
           ...(providerOptions ? { providerOptions } : {}),
           abortSignal: AbortSignal.timeout(
