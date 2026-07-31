@@ -32,7 +32,7 @@ import {
   writeRunSummary,
 } from "./burst-artefacts.mjs";
 import { openBurstInspection } from "./burst-inspect.mjs";
-import { costUsd } from "./model-prices.mjs";
+import { summarizeThreadsCost } from "./model-prices.mjs";
 import { renderBurstReport } from "./burst-report.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -1641,12 +1641,10 @@ function sleep(ms) {
 /**
  * Sum token usage and USD cost across this run's Mongo conversations.
  *
- * If any conversation lacks `extraction.usage`, both fields are null — never 0.
- * When every conversation has usage but one uses an unpriced model, tokenUsage
- * is still summed and costUsd is null.
- *
- * Soft-fails on Mongo errors: a paid run must not die at the final accounting
- * step the way `readGitRevision` soft-fails on a missing git.
+ * The rules live in `summarizeThreadsCost` (model-prices.mjs), where they are
+ * testable — this wrapper only owns the Mongo round trip. Soft-fails on Mongo
+ * errors: a paid run must not die at the final accounting step the way
+ * `readGitRevision` soft-fails on a missing git.
  */
 async function readRunTokenCost(campaignIds) {
   const ids = campaignIds.filter(
@@ -1676,53 +1674,6 @@ async function readRunTokenCost(campaignIds) {
   } finally {
     await inspection.close();
   }
-}
-
-/** Pure aggregation over conversation documents — see `readRunTokenCost`. */
-function summarizeThreadsCost(threads) {
-  if (!Array.isArray(threads) || threads.length === 0) {
-    return { tokenUsage: null, costUsd: null };
-  }
-
-  let inputTokens = 0;
-  let outputTokens = 0;
-  let costTotal = 0;
-  let costKnown = true;
-
-  for (const thread of threads) {
-    const usage = thread?.extraction?.usage;
-    const inTokens = usage?.inputTokens;
-    const outTokens = usage?.outputTokens;
-    if (
-      usage == null ||
-      typeof inTokens !== "number" ||
-      typeof outTokens !== "number" ||
-      !Number.isFinite(inTokens) ||
-      !Number.isFinite(outTokens)
-    ) {
-      return { tokenUsage: null, costUsd: null };
-    }
-
-    inputTokens += inTokens;
-    outputTokens += outTokens;
-
-    const part = costUsd({
-      model: thread.extraction?.model,
-      serviceTier: thread.extraction?.serviceTier,
-      inputTokens: inTokens,
-      outputTokens: outTokens,
-    });
-    if (part === null) {
-      costKnown = false;
-    } else {
-      costTotal += part;
-    }
-  }
-
-  return {
-    tokenUsage: { inputTokens, outputTokens },
-    costUsd: costKnown ? costTotal : null,
-  };
 }
 
 /** Human line printed beside the report path. */
