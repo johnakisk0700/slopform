@@ -200,6 +200,16 @@ export interface FeedbackAttentionClassificationGenerationResult {
  */
 export interface FeedbackExtractionModelPort {
   readonly model: FeedbackExtractionModelId;
+  /**
+   * The tier these calls buy, `undefined` when they buy none.
+   *
+   * On the port rather than on the result because it is a property of how this
+   * model is configured, not of any one generation — and because the run that
+   * persists it needs it even when a call returned no usage at all. It is priced
+   * downstream: `priority` is OpenAI's fast lane and costs more per token, so a
+   * conversation that omitted it would be costed at the wrong table.
+   */
+  readonly serviceTier: FeedbackExtractionServiceTier | undefined;
   propose(
     prompt: FeedbackExtractionPrompt,
   ): Promise<FeedbackExtractionGenerationResult>;
@@ -650,7 +660,7 @@ export class PostEventFeedbackExtractionModel implements FeedbackExtractionModel
       signals,
       hostileMessageIds,
       describedIncidentMessageIds,
-      usage: combineUsage(usages),
+      usage: combineFeedbackExtractionUsage(usages),
       estimatedPromptTokens,
     };
   }
@@ -695,7 +705,15 @@ function chunk<T>(items: readonly T[], size: number): readonly T[][] {
   return batches;
 }
 
-function combineUsage(
+/**
+ * Adds usages component by component, with null absorbing.
+ *
+ * Exported because the extractor combines the same way across its two phases:
+ * one run is an extraction call plus an attention call, and what gets persisted
+ * is what the run as a whole cost. A component nobody reported must not read as
+ * the sum of the parts that were.
+ */
+export function combineFeedbackExtractionUsage(
   usages: readonly FeedbackExtractionUsage[],
 ): FeedbackExtractionUsage {
   return {

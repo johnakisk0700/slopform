@@ -10,6 +10,7 @@ import {
   FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH,
   type FeedbackConversationDocument,
   type FeedbackConversationMessage,
+  accumulateFeedbackExtractionUsage,
   buildFeedbackConversationGoals,
   deriveFeedbackConversationId,
   feedbackConversationDocumentSchema,
@@ -250,6 +251,100 @@ describe("feedbackConversationDocumentSchema", () => {
       16 * 1_024 * 1_024,
     );
   });
+
+  it("defaults the token ledger on a conversation written before it existed", () => {
+    const { extraction, ...rest } = feedbackConversation([]);
+    const {
+      usage: _usage,
+      serviceTier: _serviceTier,
+      ...beforeTheLedger
+    } = extraction;
+
+    const parsed = feedbackConversationDocumentSchema.parse({
+      ...rest,
+      extraction: beforeTheLedger,
+    });
+
+    // Every conversation on disk before 2026-07-31 lacks both fields, and a
+    // document that will not parse is a conversation the inbox cannot show.
+    expect(parsed.extraction.usage).toBeNull();
+    expect(parsed.extraction.serviceTier).toBeNull();
+  });
+
+  it("stores a usage component the provider never reported as null rather than zero", () => {
+    const document = feedbackConversation([]);
+
+    const parsed = feedbackConversationDocumentSchema.parse({
+      ...document,
+      extraction: {
+        ...document.extraction,
+        usage: { inputTokens: 1_200, outputTokens: null, totalTokens: null },
+        serviceTier: "priority",
+      },
+    });
+
+    expect(parsed.extraction.usage).toEqual({
+      inputTokens: 1_200,
+      outputTokens: null,
+      totalTokens: null,
+    });
+    expect(parsed.extraction.serviceTier).toBe("priority");
+  });
+});
+
+describe("accumulateFeedbackExtractionUsage", () => {
+  const reported = (
+    inputTokens: number | null,
+    outputTokens: number | null,
+    totalTokens: number | null,
+  ) => ({ inputTokens, outputTokens, totalTokens });
+
+  it("begins the sums from a conversation that has never reported", () => {
+    expect(
+      accumulateFeedbackExtractionUsage(null, reported(900, 120, 1_020)),
+    ).toEqual(reported(900, 120, 1_020));
+  });
+
+  it("adds each component run over run", () => {
+    const afterFirst = accumulateFeedbackExtractionUsage(
+      null,
+      reported(900, 120, 1_020),
+    );
+
+    expect(
+      accumulateFeedbackExtractionUsage(afterFirst, reported(300, 80, 380)),
+    ).toEqual(reported(1_200, 200, 1_400));
+  });
+
+  it("poisons only the component the provider left out, and permanently", () => {
+    const afterFirst = accumulateFeedbackExtractionUsage(
+      null,
+      reported(900, 120, 1_020),
+    );
+
+    // The second run reported input but no output. The output total is now a
+    // number missing a piece, which is not a smaller bill — it is a wrong one.
+    const afterSilentRun = accumulateFeedbackExtractionUsage(
+      afterFirst,
+      reported(300, null, null),
+    );
+    expect(afterSilentRun).toEqual(reported(1_200, null, null));
+
+    // A third, fully-reported run cannot recover tokens nobody counted. Input
+    // keeps summing; the poisoned components stay null for the rest of the
+    // conversation's life, which is what the cost script reads as unavailable.
+    expect(
+      accumulateFeedbackExtractionUsage(afterSilentRun, reported(100, 50, 150)),
+    ).toEqual(reported(1_300, null, null));
+  });
+
+  it("carries a first report's own nulls into the total verbatim", () => {
+    // The rehearsal stub reports nothing at all. The conversation's very first
+    // run must not be recorded as a free one.
+    expect(
+      accumulateFeedbackExtractionUsage(null, reported(null, null, null)),
+    ).toEqual(reported(null, null, null));
+  });
 });
 
 function feedbackConversation(
@@ -271,6 +366,8 @@ function feedbackConversation(
       cursorSeq: 0,
       lastRunAt: null,
       model: null,
+      usage: null,
+      serviceTier: null,
       parkedSince: null,
       parkedRuns: 0,
       parkedNoticeSentAt: null,

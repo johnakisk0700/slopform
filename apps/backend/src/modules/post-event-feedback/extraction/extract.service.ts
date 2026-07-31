@@ -60,6 +60,8 @@ import {
 import {
   FeedbackExtractionGenerationError,
   PostEventFeedbackExtractionModel,
+  combineFeedbackExtractionUsage,
+  type FeedbackExtractionUsage,
 } from "./model.service.js";
 import { FEEDBACK_EXTRACT_QUIET_WINDOW_MS } from "../jobs.schemas.js";
 import type { FeedbackExtractionContext } from "./extraction.schemas.js";
@@ -172,6 +174,11 @@ export class PostEventFeedbackExtractor {
         toSeq: cursorSeq,
         at: new Date(),
         model: conversation.extraction.model,
+        // Both carried over rather than re-derived: this run called no model, so
+        // it has no model id and no tier of its own, and it must not touch the
+        // token totals the runs that *did* call one paid for. `usage` is left
+        // out entirely — passing null would erase them.
+        serviceTier: conversation.extraction.serviceTier,
       });
       return this.complete(
         {
@@ -226,6 +233,17 @@ export class PostEventFeedbackExtractor {
       },
       input.correlationId,
     );
+
+    // What this run cost, both phases together. The metrics above are the same
+    // numbers going to a log that a restart forgets; this one goes to the
+    // conversation, which is where a paid rehearsal is costed from hours later.
+    // Computed here, beside the two calls, rather than deeper in — every path
+    // below this point either persists it or throws, and no path that skipped
+    // the model can reach it.
+    const runUsage = combineFeedbackExtractionUsage([
+      generated.usage,
+      attention.usage,
+    ]);
 
     const validated = validateFeedbackExtractionProposal(
       generated.proposal,
@@ -537,6 +555,8 @@ export class PostEventFeedbackExtractor {
         context.newParticipantMessageIds.at(-1) ?? null,
       cursorSeq,
       model: generated.model,
+      usage: runUsage,
+      serviceTier: this.generation.serviceTier ?? null,
       correlationId: input.correlationId,
     });
 
@@ -919,6 +939,10 @@ export class PostEventFeedbackExtractor {
     readonly newestParticipantMessageId: string | null;
     readonly cursorSeq: number;
     readonly model: string;
+    /** What this run's two model calls cost, added to the conversation's total. */
+    readonly usage: FeedbackExtractionUsage;
+    /** The tier this run bought, or null. Overwrites — it is not a quantity. */
+    readonly serviceTier: string | null;
     readonly correlationId: string;
   }): Promise<void> {
     const at = new Date();
@@ -1003,6 +1027,8 @@ export class PostEventFeedbackExtractor {
       toSeq: input.cursorSeq,
       at,
       model: input.model,
+      serviceTier: input.serviceTier,
+      usage: input.usage,
     });
 
     // After the cursor, so this run's window is closed before the bot goes

@@ -79,6 +79,13 @@ export class ScriptedBurstExtractionModel implements FeedbackExtractionModelPort
    */
   readonly model = FEEDBACK_EXTRACTION_STUB_MODEL_ID;
 
+  /**
+   * A stub never bought a fast lane. `undefined` rather than `"default"` for the
+   * same reason the real model leaves it unset when nothing is configured: the
+   * two are not the same claim, and only one of them is true here.
+   */
+  readonly serviceTier = undefined;
+
   constructor(private readonly personas: readonly BurstPersona[]) {}
 
   async propose(

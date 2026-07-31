@@ -7,6 +7,10 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
 import type { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import type { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
+import {
+  accumulateFeedbackExtractionUsage,
+  type FeedbackConversationExtractionUsage,
+} from "../post-event-feedback-conversation.document.js";
 import type { EventsService } from "../../events/events.service.js";
 import type { ParticipantsRepository } from "../../participants/participants.repository.js";
 import type { FeedbackOperatorAlertInput } from "../operator-alert.js";
@@ -201,6 +205,89 @@ describe("PostEventFeedbackExtractor", () => {
         confidence: 0.6,
         candidateIds: [nikos, eleni],
       });
+    });
+
+    it("persists both phases' tokens together, and the tier that bought them", async () => {
+      harness.generation.serviceTier = "priority";
+
+      await harness.extractor.extract({ conversationId, correlationId });
+
+      // The proposal call and the attention call are one run and one bill.
+      // 800 + 180 in, 110 + 40 out, 910 + 220 total.
+      const { extraction } = harness.conversations.get(conversationId);
+      expect(extraction.usage).toEqual({
+        inputTokens: 980,
+        outputTokens: 150,
+        totalTokens: 1_130,
+      });
+      // Durable where `recordExtractTokens` is not: a restart takes the log
+      // with it, and a paid rehearsal is costed off this document hours later.
+      expect(extraction.serviceTier).toBe("priority");
+    });
+
+    it("adds the next run's tokens to what the conversation already spent", async () => {
+      await harness.extractor.extract({ conversationId, correlationId });
+
+      const conversation = harness.conversations.get(conversationId);
+      conversation.messages.push({
+        id: "p2",
+        seq: conversation.messages.length + 1,
+        actor: "participant",
+        text: "Α, και το φαγητό ήταν πολύ καλό.",
+        at: new Date("2026-07-25T10:06:00.000Z"),
+      });
+
+      await harness.extractor.extract({ conversationId, correlationId });
+
+      expect(harness.generation.propose).toHaveBeenCalledTimes(2);
+      expect(conversation.extraction.usage).toEqual({
+        inputTokens: 1_960,
+        outputTokens: 300,
+        totalTokens: 2_260,
+      });
+    });
+
+    it("poisons the total when either phase reports no tokens at all", async () => {
+      // The rehearsal stub reports nulls, and so does a provider that answered
+      // without a usage block. Either way the run's tokens went uncounted.
+      harness.generation.classifyAttention.mockResolvedValue({
+        ...attentionGeneration([]),
+        usage: { inputTokens: null, outputTokens: null, totalTokens: null },
+      });
+
+      await harness.extractor.extract({ conversationId, correlationId });
+
+      // Not 800/110/910. The extraction phase's numbers are real, but they are
+      // not this run's cost, and a total that presents them as one is wrong in
+      // the direction that flatters us.
+      expect(
+        harness.conversations.get(conversationId).extraction.usage,
+      ).toEqual({ inputTokens: null, outputTokens: null, totalTokens: null });
+    });
+
+    it("never bills a run that advanced the cursor without calling the model", async () => {
+      await harness.extractor.extract({ conversationId, correlationId });
+      const conversation = harness.conversations.get(conversationId);
+      const afterFirstRun = { ...conversation.extraction.usage };
+
+      // Only the bot spoke since. The cursor still moves — those messages are
+      // read and settled — but no provider was reached, so nothing was bought.
+      conversation.messages.push({
+        id: "b2",
+        seq: conversation.messages.length + 1,
+        actor: "bot",
+        text: "Ευχαριστούμε!",
+        at: new Date("2026-07-25T10:07:00.000Z"),
+      });
+
+      const replay = await harness.extractor.extract({
+        conversationId,
+        correlationId,
+      });
+
+      expect(replay.outcome).toBe("skipped_no_new_testimony");
+      expect(harness.generation.propose).toHaveBeenCalledTimes(1);
+      expect(conversation.extraction.usage).toEqual(afterFirstRun);
     });
 
     it("selects candidates live for every run rather than from the document", async () => {
@@ -1608,6 +1695,8 @@ interface FakeConversation {
     cursorSeq: number;
     lastRunAt: Date | null;
     model: string | null;
+    usage?: FeedbackConversationExtractionUsage | null;
+    serviceTier?: string | null;
   };
   needsAttention: boolean;
   attentionReasons: {
@@ -1898,6 +1987,8 @@ class FakeConversations {
     toSeq: number;
     at: Date;
     model?: string | null;
+    serviceTier?: string | null;
+    usage?: FeedbackConversationExtractionUsage;
   }): Promise<{ changed: boolean; conversation: FakeConversation }> {
     const conversation = this.get(input.conversationId);
     if (input.toSeq <= conversation.extraction.cursorSeq) {
@@ -1907,6 +1998,16 @@ class FakeConversations {
       cursorSeq: input.toSeq,
       lastRunAt: input.at,
       model: input.model ?? null,
+      // Accumulated by the shared rule, so a case here cannot pass on a total
+      // the database would never produce. An absent usage is a run that called
+      // no model, and it leaves the earlier runs' tokens alone.
+      usage: input.usage
+        ? accumulateFeedbackExtractionUsage(
+            conversation.extraction.usage ?? null,
+            input.usage,
+          )
+        : (conversation.extraction.usage ?? null),
+      serviceTier: input.serviceTier ?? null,
     };
     return { changed: true, conversation };
   }
@@ -2002,6 +2103,7 @@ interface Harness {
   participants: FakeParticipants;
   events: { listFeedbackCandidatesForRespondent: ReturnType<typeof vi.fn> };
   generation: {
+    serviceTier: string | undefined;
     propose: ReturnType<typeof vi.fn>;
     classifyAttention: ReturnType<typeof vi.fn>;
   };
@@ -2084,6 +2186,9 @@ function createHarness(): Harness {
     }),
   };
   const generationService = {
+    // Mutable so a case can put the model on OpenAI's fast lane, which is the
+    // only thing that makes the persisted tier anything but null.
+    serviceTier: undefined as string | undefined,
     propose: vi.fn().mockResolvedValue(generation({})),
     classifyAttention: vi.fn().mockResolvedValue(attentionGeneration([])),
   };
@@ -2141,7 +2246,13 @@ function createHarness(): Harness {
         at: new Date("2026-07-25T10:02:00.000Z"),
       },
     ],
-    extraction: { cursorSeq: 0, lastRunAt: null, model: null },
+    extraction: {
+      cursorSeq: 0,
+      lastRunAt: null,
+      model: null,
+      usage: null,
+      serviceTier: null,
+    },
     needsAttention: false,
     attentionReasons: [],
     awaitingHuman: false,

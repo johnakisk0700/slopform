@@ -16,9 +16,11 @@ import {
 import {
   FEEDBACK_CONVERSATION_MAX_DOCUMENT_BYTES,
   FEEDBACK_CONVERSATION_MAX_MESSAGES,
+  accumulateFeedbackExtractionUsage,
   feedbackConversationDocumentSchema,
   feedbackConversationStoredMessageSchema,
   type FeedbackConversationDocument,
+  type FeedbackConversationExtractionUsage,
   type FeedbackConversationGoal,
   type FeedbackConversationMessage,
   type FeedbackConversationLifecycleReason,
@@ -762,6 +764,8 @@ export class FakeFeedbackConversations {
         cursorSeq: 0,
         lastRunAt: null,
         model: null,
+        usage: null,
+        serviceTier: null,
         parkedSince: null,
         parkedRuns: 0,
         parkedNoticeSentAt: null,
@@ -1085,6 +1089,8 @@ export class FakeFeedbackConversations {
     toSeq: number;
     at: Date;
     model?: string | null;
+    serviceTier?: string | null;
+    usage?: FeedbackConversationExtractionUsage;
   }): Promise<FakeConversationTransition> {
     const conversation = this.require(input.conversationId);
     if (input.toSeq > conversation.messages.length) {
@@ -1099,6 +1105,17 @@ export class FakeFeedbackConversations {
       cursorSeq: input.toSeq,
       lastRunAt: input.at,
       model: input.model ?? null,
+      // Accumulated exactly as the aggregation pipeline accumulates it, null
+      // included: a double that quietly summed through a missing component
+      // would let a test pass on a total the database would never produce.
+      // An absent usage is a run that called no model and leaves the total be.
+      usage: input.usage
+        ? accumulateFeedbackExtractionUsage(
+            conversation.extraction.usage,
+            input.usage,
+          )
+        : conversation.extraction.usage,
+      serviceTier: input.serviceTier ?? null,
       // A run that moved the cursor reached the provider, so it ends the park —
       // but not the record that this person has already been apologised to once.
       parkedSince: null,

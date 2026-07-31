@@ -61,6 +61,10 @@ describe("FeedbackConversationRepository", () => {
           cursorSeq: 0,
           lastRunAt: null,
           model: null,
+          // A launched conversation has bought nothing yet, and the defaults
+          // say so rather than leaving the fields off the document.
+          usage: null,
+          serviceTier: null,
           parkedSince: null,
           parkedRuns: 0,
           parkedNoticeSentAt: null,
@@ -584,6 +588,8 @@ describe("FeedbackConversationRepository", () => {
         cursorSeq: 2,
         lastRunAt: repliedAt,
         model: null,
+        usage: null,
+        serviceTier: null,
         parkedSince: null,
         parkedRuns: 0,
         parkedNoticeSentAt: null,
@@ -608,24 +614,144 @@ describe("FeedbackConversationRepository", () => {
         "extraction.cursorSeq": { $lt: 2 },
         $expr: { $lte: [2, { $size: "$messages" }] },
       }),
-      expect.objectContaining({
-        $set: {
-          "extraction.cursorSeq": 2,
-          "extraction.lastRunAt": repliedAt,
-          "extraction.model": "google/gemini-3.6-flash",
-          // A run that moved the cursor reached the provider, so the same write
-          // ends any park. The notice ledger is deliberately absent from the
-          // set: it records that a person was already apologised to once.
-          "extraction.parkedSince": null,
-          "extraction.parkedRuns": 0,
+      [
+        {
+          $set: expect.objectContaining({
+            "extraction.cursorSeq": 2,
+            "extraction.lastRunAt": repliedAt,
+            "extraction.model": "google/gemini-3.6-flash",
+            "extraction.serviceTier": null,
+            // A run that moved the cursor reached the provider, so the same
+            // write ends any park. The notice ledger is deliberately absent
+            // from the set: it records that a person was already apologised to
+            // once.
+            "extraction.parkedSince": null,
+            "extraction.parkedRuns": 0,
+          }),
         },
-      }),
+      ],
       { returnDocument: "after" },
     );
+    // A run that passed no usage must not touch the accumulator at all — a
+    // literal null here is what would have wiped the totals of every earlier run.
+    const [, update] = collection.findOneAndUpdate.mock.calls[0] as [
+      unknown,
+      [{ $set: Record<string, unknown> }],
+    ];
+    expect(update[0].$set).not.toHaveProperty("extraction.usage");
 
     await expect(
       repository.advanceCursor({ conversationId, toSeq: 3, at: repliedAt }),
     ).rejects.toBeInstanceOf(FeedbackConversationTransitionError);
+  });
+
+  it("adds a reported component to whatever is already stored", async () => {
+    const advanced = feedbackConversation({
+      messages: [botMessage(1), participantMessage(2)],
+      extraction: {
+        cursorSeq: 2,
+        lastRunAt: repliedAt,
+        model: "google/gemini-3.6-flash",
+        usage: { inputTokens: 1_200, outputTokens: 200, totalTokens: 1_400 },
+        serviceTier: null,
+        parkedSince: null,
+        parkedRuns: 0,
+        parkedNoticeSentAt: null,
+      },
+    });
+    const collection = collectionMock({
+      findOneAndUpdate: vi.fn().mockResolvedValue(advanced),
+    });
+    const repository = createRepository(collection);
+
+    await repository.advanceCursor({
+      conversationId,
+      toSeq: 2,
+      at: repliedAt,
+      model: "google/gemini-3.6-flash",
+      usage: { inputTokens: 300, outputTokens: 80, totalTokens: 380 },
+    });
+
+    // The increment is a pipeline expression rather than a literal, because a
+    // read-then-write would let two runs of the same conversation each add to a
+    // total the other had not written yet.
+    const [, update] = collection.findOneAndUpdate.mock.calls[0] as [
+      unknown,
+      [{ $set: Record<string, unknown> }],
+    ];
+    expect(update[0].$set["extraction.usage"]).toEqual({
+      inputTokens: usageIncrement("inputTokens", 300),
+      outputTokens: usageIncrement("outputTokens", 80),
+      totalTokens: usageIncrement("totalTokens", 380),
+    });
+  });
+
+  it("writes an unreported component as a literal null the sums can never leave", async () => {
+    const collection = collectionMock({
+      findOneAndUpdate: vi.fn().mockResolvedValue(null),
+      findOne: vi.fn().mockResolvedValue(
+        feedbackConversation({
+          messages: [botMessage(1), participantMessage(2)],
+        }),
+      ),
+    });
+    const repository = createRepository(collection);
+
+    await repository.advanceCursor({
+      conversationId,
+      toSeq: 2,
+      at: repliedAt,
+      model: "google/gemini-3.6-flash",
+      usage: { inputTokens: 300, outputTokens: null, totalTokens: null },
+    });
+
+    const [, update] = collection.findOneAndUpdate.mock.calls[0] as [
+      unknown,
+      [{ $set: Record<string, unknown> }],
+    ];
+    // Input still accumulates. The two the provider stayed silent about are set
+    // to null outright — nothing to compute, and nothing a later run undoes.
+    expect(update[0].$set["extraction.usage"]).toEqual({
+      inputTokens: usageIncrement("inputTokens", 300),
+      outputTokens: null,
+      totalTokens: null,
+    });
+  });
+
+  it("overwrites the service tier on every run, including back to none", async () => {
+    const collection = collectionMock({
+      findOneAndUpdate: vi.fn().mockResolvedValue(null),
+      findOne: vi.fn().mockResolvedValue(
+        feedbackConversation({
+          messages: [botMessage(1), participantMessage(2)],
+        }),
+      ),
+    });
+    const repository = createRepository(collection);
+
+    await repository.advanceCursor({
+      conversationId,
+      toSeq: 2,
+      at: repliedAt,
+      serviceTier: "priority",
+    });
+    // The fast lane was turned off between runs. The tier is a property of the
+    // call that just happened, not a ledger, so it goes back to null rather
+    // than leaving the conversation costed at OpenAI's priority rates forever.
+    await repository.advanceCursor({
+      conversationId,
+      toSeq: 2,
+      at: repliedAt,
+      serviceTier: null,
+    });
+
+    const tiers = collection.findOneAndUpdate.mock.calls.map(
+      (call) =>
+        (call as [unknown, [{ $set: Record<string, unknown> }]])[1][0].$set[
+          "extraction.serviceTier"
+        ],
+    );
+    expect(tiers).toEqual(["priority", null]);
   });
 
   it("keeps the first park's start time while counting every parked run", async () => {
@@ -634,6 +760,8 @@ describe("FeedbackConversationRepository", () => {
         cursorSeq: 0,
         lastRunAt: null,
         model: null,
+        usage: null,
+        serviceTier: null,
         parkedSince: repliedAt,
         parkedRuns: 4,
         parkedNoticeSentAt: null,
@@ -675,6 +803,8 @@ describe("FeedbackConversationRepository", () => {
         cursorSeq: 0,
         lastRunAt: null,
         model: null,
+        usage: null,
+        serviceTier: null,
         parkedSince: repliedAt,
         parkedRuns: 7,
         parkedNoticeSentAt: repliedAt,
@@ -1037,6 +1167,38 @@ function createRepository(
   return new FeedbackConversationRepository(mongo);
 }
 
+/**
+ * The pipeline expression one reported component compiles to.
+ *
+ * Spelled out here rather than imported so that a change to the accumulation
+ * statement has to be made twice, deliberately. What it says: start from zero
+ * when this conversation has no usage document yet, from the stored component
+ * when it does — and if that component is already null, stay null, because the
+ * tokens it stands for were never counted and adding to them would invent a bill.
+ */
+function usageIncrement(component: string, reported: number): unknown {
+  return {
+    $let: {
+      vars: {
+        prior: {
+          $cond: [
+            { $eq: [{ $type: "$extraction.usage" }, "object"] },
+            { $ifNull: [`$extraction.usage.${component}`, null] },
+            0,
+          ],
+        },
+      },
+      in: {
+        $cond: [
+          { $eq: ["$$prior", null] },
+          null,
+          { $add: ["$$prior", reported] },
+        ],
+      },
+    },
+  };
+}
+
 function collectionMock(
   overrides: Partial<Collection<FeedbackConversationDocument>>,
 ): Collection<FeedbackConversationDocument> & {
@@ -1088,6 +1250,8 @@ function feedbackConversation(
       cursorSeq: 0,
       lastRunAt: null,
       model: null,
+      usage: null,
+      serviceTier: null,
       parkedSince: null,
       parkedRuns: 0,
       parkedNoticeSentAt: null,

@@ -432,6 +432,8 @@ export async function createFeedbackLoopHarness(
       cursorSeq: 0,
       lastRunAt: null,
       model: null,
+      usage: null,
+      serviceTier: null,
       parkedSince: null,
       parkedRuns: 0,
       parkedNoticeSentAt: null,

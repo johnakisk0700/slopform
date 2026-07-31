@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { validateEnvironment } from "../../../infrastructure/config/environment.js";
-import { PostEventFeedbackExtractionModel } from "../extraction/model.service.js";
+import {
+  FEEDBACK_EXTRACTION_STUB_MODEL_ID,
+  PostEventFeedbackExtractionModel,
+  type FeedbackExtractionModelPort,
+} from "../extraction/model.service.js";
 import { createFeedbackExtractionModel } from "./create-feedback-extraction-model.js";
 import { ScriptedBurstExtractionModel } from "./scripted-extraction-model.service.js";
 
@@ -39,5 +43,20 @@ describe("feedback extraction stub composition", () => {
     const model = createFeedbackExtractionModel(config as never);
     expect(model).toBeInstanceOf(PostEventFeedbackExtractionModel);
     expect(model).not.toBeInstanceOf(ScriptedBurstExtractionModel);
+  });
+
+  it("keeps the stub answering the whole port, tier included", () => {
+    // The `satisfies` is the real assertion and it is a compile-time one: this
+    // is the seam Nest swaps at runtime, and a method or field added to the
+    // real model and missed here would otherwise surface as a rehearsal dying
+    // mid-run rather than as a build error.
+    const stub = new ScriptedBurstExtractionModel(
+      [],
+    ) satisfies FeedbackExtractionModelPort;
+
+    // A stub never reached OpenAI, so it never bought the fast lane. `undefined`
+    // rather than `"default"`: the two are different claims and only one is true.
+    expect(stub.serviceTier).toBeUndefined();
+    expect(stub.model).toBe(FEEDBACK_EXTRACTION_STUB_MODEL_ID);
   });
 });

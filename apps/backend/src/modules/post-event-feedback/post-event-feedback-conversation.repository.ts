@@ -19,6 +19,7 @@ import {
   type FeedbackConversationActor,
   type FeedbackConversationControlSource,
   type FeedbackConversationDocument,
+  type FeedbackConversationExtractionUsage,
   type FeedbackConversationGoal,
   type FeedbackConversationLifecycleReason,
   type FeedbackConversationMessage,
@@ -866,44 +867,73 @@ export class FeedbackConversationRepository {
   }
 
   /**
-   * Advances the extraction cursor monotonically. A replayed or late run that
-   * does not move the cursor is an idempotent no-op.
+   * Advances the extraction cursor monotonically, and adds this run's tokens to
+   * the conversation's running total. A replayed or late run that does not move
+   * the cursor is an idempotent no-op — and therefore bills nothing twice.
+   *
+   * Written as an aggregation-pipeline update for the reason `parkExtraction`
+   * is: «add to what is already there» cannot be said with a literal `$set`, and
+   * splitting it into a read and a write would let two runs of the same
+   * conversation each add to a total the other had not yet written.
+   *
+   * `usage` is **absent** — not null — on a run that called no model, and an
+   * absent usage leaves the accumulator untouched. That distinction is the whole
+   * safeguard: `skipped_no_new_testimony` advances the cursor without a provider
+   * call, and a null passed as «nothing this run» would have erased every token
+   * the earlier runs paid for. `serviceTier` follows `model` instead: it is
+   * always written, so callers that want the old one preserved pass it back.
    */
   async advanceCursor(input: {
     readonly conversationId: string;
     readonly toSeq: number;
     readonly at: Date;
     readonly model?: string | null;
+    readonly serviceTier?: string | null;
+    readonly usage?: FeedbackConversationExtractionUsage;
   }): Promise<FeedbackConversationTransitionResult> {
     const toSeq = z.number().int().positive().parse(input.toSeq);
     const lastRunAt = z.date().parse(input.at);
-    const updated = await this.transition(
-      input.conversationId,
+    const collection = await this.collection();
+    const updated = await collection.findOneAndUpdate(
       {
+        ...feedbackConversationFilter(input.conversationId),
         "extraction.cursorSeq": { $lt: toSeq },
         $expr: { $lte: [toSeq, { $size: "$messages" }] },
       } as Filter<FeedbackConversationDocument>,
-      {
-        "extraction.cursorSeq": toSeq,
-        "extraction.lastRunAt": lastRunAt,
-        "extraction.model": input.model ?? null,
-        // A run that moved the cursor is a run that reached the provider, so the
-        // incident this conversation was parked on is over for it. Clearing here
-        // rather than in a recovery path of its own keeps «parked» defined by one
-        // fact — the last run could not read this conversation — and takes the
-        // campaign's count down on its own as the backlog drains.
-        //
-        // `parkedNoticeSentAt` deliberately survives. It is not part of the park;
-        // it is the record that a machine has already apologised to this person
-        // once, and re-arming it would let a second brief outage send the same
-        // sentence again.
-        "extraction.parkedSince": null,
-        "extraction.parkedRuns": 0,
-      },
-      lastRunAt,
+      [
+        {
+          $set: {
+            "extraction.cursorSeq": toSeq,
+            "extraction.lastRunAt": lastRunAt,
+            "extraction.model": input.model ?? null,
+            "extraction.serviceTier": input.serviceTier ?? null,
+            ...(input.usage
+              ? { "extraction.usage": accumulatedUsage(input.usage) }
+              : {}),
+            // A run that moved the cursor is a run that reached the provider, so
+            // the incident this conversation was parked on is over for it.
+            // Clearing here rather than in a recovery path of its own keeps
+            // «parked» defined by one fact — the last run could not read this
+            // conversation — and takes the campaign's count down on its own as
+            // the backlog drains.
+            //
+            // `parkedNoticeSentAt` deliberately survives. It is not part of the
+            // park; it is the record that a machine has already apologised to
+            // this person once, and re-arming it would let a second brief outage
+            // send the same sentence again.
+            "extraction.parkedSince": null,
+            "extraction.parkedRuns": 0,
+            updatedAt: { $max: ["$updatedAt", lastRunAt] },
+          },
+        },
+      ],
+      { returnDocument: "after" },
     );
     if (updated) {
-      return { changed: true, conversation: updated };
+      return {
+        changed: true,
+        conversation: feedbackConversationDocumentSchema.parse(updated),
+      };
     }
 
     const current = await this.requireConversation(input.conversationId);
@@ -1295,4 +1325,70 @@ export class FeedbackConversationRepository {
 
 function isDuplicateKeyError(error: unknown): boolean {
   return error instanceof MongoServerError && error.code === 11_000;
+}
+
+/**
+ * The `$set` expression that adds one run's tokens to the stored totals.
+ *
+ * Per component, because providers report per component, and the three are not
+ * derivable from one another once any of them is missing.
+ *
+ * This is the aggregation-pipeline spelling of
+ * `accumulateFeedbackExtractionUsage`, which states the rule and is what the
+ * in-memory double runs. The rule lives there; this builds the statement that
+ * lets the database apply it in one atomic write.
+ */
+function accumulatedUsage(
+  usage: FeedbackConversationExtractionUsage,
+): Record<string, unknown> {
+  return {
+    inputTokens: accumulatedUsageComponent("inputTokens", usage.inputTokens),
+    outputTokens: accumulatedUsageComponent("outputTokens", usage.outputTokens),
+    totalTokens: accumulatedUsageComponent("totalTokens", usage.totalTokens),
+  };
+}
+
+/**
+ * One component of the running total, with the null-poisoning rule.
+ *
+ * Null is absorbing in both directions. A run that did not report this component
+ * makes the total null and there is nothing to compute — the literal short
+ * circuit below. A total that is *already* null stays null however many
+ * fully-reported runs follow, because the tokens that were never counted are not
+ * recoverable and a sum that silently omits them is a smaller number presented as
+ * the same kind of fact. The CLI reads null as «cost unavailable», which is what
+ * we actually know.
+ *
+ * The starting point distinguishes «no usage recorded yet» from «this component
+ * was never reported». An absent or null `extraction.usage` is a conversation
+ * whose first run is landing now, so the prior is zero and the sums begin;
+ * inside a stored usage object, a null component is the poison and stays.
+ */
+function accumulatedUsageComponent(
+  component: keyof FeedbackConversationExtractionUsage,
+  reported: number | null,
+): unknown {
+  if (reported === null) {
+    return null;
+  }
+  return {
+    $let: {
+      vars: {
+        prior: {
+          $cond: [
+            { $eq: [{ $type: "$extraction.usage" }, "object"] },
+            { $ifNull: [`$extraction.usage.${component}`, null] },
+            0,
+          ],
+        },
+      },
+      in: {
+        $cond: [
+          { $eq: ["$$prior", null] },
+          null,
+          { $add: ["$$prior", reported] },
+        ],
+      },
+    },
+  };
 }

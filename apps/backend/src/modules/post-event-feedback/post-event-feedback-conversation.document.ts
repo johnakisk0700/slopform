@@ -243,11 +243,59 @@ export const feedbackConversationStoredMessageSchema = z
     }
   });
 
+/**
+ * What every extraction run of one conversation has cost so far, per component.
+ *
+ * Each component is nullable on its own because a provider reports what it feels
+ * like reporting: OpenRouter has returned an input count with no output count,
+ * and the deterministic rehearsal stub reports nothing at all. A component that
+ * was never reported by some run is `null` for the accumulated total too — see
+ * the accumulation rule on `advanceCursor`. A number that quietly omitted one
+ * run's share would be read as a bill, and it would be wrong; `null` is read by
+ * `scripts/run-feedback-burst.mjs` as «cost unavailable», which is the honest
+ * claim.
+ */
+export const feedbackConversationExtractionUsageSchema = z
+  .object({
+    inputTokens: z.number().int().min(0).nullable(),
+    outputTokens: z.number().int().min(0).nullable(),
+    totalTokens: z.number().int().min(0).nullable(),
+  })
+  .strict();
+
 export const feedbackConversationExtractionSchema = z
   .object({
     cursorSeq: z.number().int().min(0),
     lastRunAt: z.date().nullable(),
     model: z.string().trim().min(1).max(200).nullable(),
+    /**
+     * Tokens accumulated across every run of this conversation, or null before
+     * the first run that reached a model.
+     *
+     * Durable where `PostEventFeedbackMetrics.recordExtractTokens` is not: that
+     * one logs, process-local, and a restart takes the rehearsal's bill with it.
+     * A paid burst is read back off these documents hours later, so the number
+     * has to survive the worker that produced it.
+     *
+     * Defaulted rather than required for the same reason `reminderCount` is —
+     * every conversation written before today lacks the field, and a document
+     * that will not parse is a conversation the inbox cannot show.
+     */
+    usage: feedbackConversationExtractionUsageSchema.nullable().default(null),
+    /**
+     * The service tier the **last** run bought, or null.
+     *
+     * Last-write-wins rather than accumulated: it is a property of a call, not a
+     * quantity, and the only reader — the cost script — needs it to pick a price
+     * table (`priority` selects OpenAI's fast-lane rates). Null covers both «no
+     * tier configured» and «this model does not route through OpenAI», which are
+     * the same fact as far as a price is concerned: the standard rate applies.
+     *
+     * Stored as a plain string rather than the `FeedbackExtractionServiceTier`
+     * enum so that a document keeps parsing when that enum next changes. What is
+     * on disk is a record of what was sent, not a promise about what is offered.
+     */
+    serviceTier: z.string().trim().min(1).max(50).nullable().default(null),
     /**
      * When this conversation was first parked on a provider incident, or null.
      *
@@ -514,6 +562,47 @@ export type FeedbackConversationStaffCloseReason =
   FeedbackConversationStaffClose["reason"];
 export type FeedbackConversationControlSource =
   FeedbackConversationDocument["control"]["source"];
+export type FeedbackConversationExtractionUsage = z.infer<
+  typeof feedbackConversationExtractionUsageSchema
+>;
+
+/**
+ * The accumulation rule for `extraction.usage`, stated once.
+ *
+ * `advanceCursor` performs this inside an aggregation pipeline — the increment
+ * has to be one atomic statement, so it cannot call a function — but this is the
+ * normative spelling, and it is what the in-memory double runs. Anything reading
+ * either one should read this comment.
+ *
+ * A `null` stored total means no run has reported yet, so the first report
+ * becomes the total verbatim, nulls included. From then on **null is absorbing
+ * in both directions**: a component that either side left unreported makes the
+ * accumulated component null, and no later fully-reported run brings it back.
+ * That permanence is the point. The tokens behind the gap were spent and never
+ * counted; a sum that skipped them is not a smaller bill, it is a wrong one, and
+ * `scripts/run-feedback-burst.mjs` reads null as «cost unavailable» — which is
+ * the only thing we actually know.
+ */
+export function accumulateFeedbackExtractionUsage(
+  stored: FeedbackConversationExtractionUsage | null,
+  reported: FeedbackConversationExtractionUsage,
+): FeedbackConversationExtractionUsage {
+  if (!stored) {
+    return { ...reported };
+  }
+  return {
+    inputTokens: addReportedTokens(stored.inputTokens, reported.inputTokens),
+    outputTokens: addReportedTokens(stored.outputTokens, reported.outputTokens),
+    totalTokens: addReportedTokens(stored.totalTokens, reported.totalTokens),
+  };
+}
+
+function addReportedTokens(
+  prior: number | null,
+  reported: number | null,
+): number | null {
+  return prior === null || reported === null ? null : prior + reported;
+}
 export type FeedbackConversationActor = FeedbackConversationMessage["actor"];
 
 /**
