@@ -10,6 +10,7 @@ import type {
   PostEventFeedbackRecommendedAction,
   PostEventFeedbackSafetyCategory,
 } from "./attention.js";
+import type { PostEventFeedbackPolicyQuestion } from "./extraction/policy-answers.js";
 import {
   FEEDBACK_EXTRACT_QUIET_WINDOW_MS,
   type FeedbackJobName,
@@ -176,6 +177,11 @@ export interface ScriptedAttention {
 export interface ScriptedAttentionTurn {
   readonly signals?: readonly ScriptedAttention[];
   readonly hostileToUs?: boolean;
+  /**
+   * Data-handling questions the classifier recognises in this run, attached to
+   * the newest new message — the one that asked. See `policy-answers.ts`.
+   */
+  readonly policyQuestions?: readonly PostEventFeedbackPolicyQuestion[];
 }
 
 /**

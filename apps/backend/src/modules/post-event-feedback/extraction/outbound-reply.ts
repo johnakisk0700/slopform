@@ -18,6 +18,10 @@ import {
   isPostEventFeedbackAnswerQuestionKey,
   type PostEventFeedbackQuestionSetCopy,
 } from "../question-set.js";
+import {
+  POST_EVENT_FEEDBACK_POLICY_QUESTION_DEFINITIONS,
+  type FeedbackPolicyQuestionMatch,
+} from "./policy-answers.js";
 
 export interface OutboundReply {
   readonly body: string;
@@ -184,6 +188,63 @@ export function withSafetyAssurance(
 }
 
 /**
+ * Answer a recognised data-handling question with the sentence we approved.
+ *
+ * The other half of rule 11στ. The rule is right that the model must never say
+ * what we do with somebody's answers — but it left every such question with a
+ * deferral, and Νίτσα Κομποσερογιάννη's «δεν θέλω να "κανονίζεται" κάτι χωρίς
+ * να το ξέρω, ούτε να το μάθουν οι υπόλοιποι» was answered with the campaign's
+ * cheerful thank-you. The classifier now names the question, and this appends
+ * the approved sentence from `policy-answers.ts` — application copy, same text
+ * every time, the same shape as `withSafetyAssurance` above and applied for the
+ * same reason: it is not a choice between copies, it is a sentence of our own
+ * added to whatever the run decided to say.
+ *
+ * The model's own deferral («μπορεί να σου απαντήσει άνθρωπος από την ομάδα»)
+ * may precede the appended sentence in one message. That juxtaposition is
+ * accepted, not accidental: the appended sentence *is* the team's pre-approved
+ * answer, and rewording the model's reply to smooth the seam would mean
+ * touching model text, which nothing in this module does.
+ *
+ * Three things withhold a sentence. **The question has no approved answer** —
+ * retention and anonymity are recognised and deliberately unanswered; those earn
+ * the deferral plus an `unanswered_data_question` reason so a person sees them.
+ * **We have already said it** — read off the transcript by substring, exactly
+ * like `alreadyAssured`, so asking twice gets the answer once. **There is no
+ * outbound to append to** — a silenced run stays silent; the question is still
+ * in the transcript and the conversation is still flagged where it matters.
+ */
+export function withPolicyAnswers(
+  conversation: FeedbackConversationDocument,
+  outbound: OutboundReply | undefined,
+  policyQuestions: readonly FeedbackPolicyQuestionMatch[],
+): OutboundReply | undefined {
+  if (!outbound || policyQuestions.length === 0) {
+    return outbound;
+  }
+  const additions: string[] = [];
+  const appended = new Set<string>();
+  for (const { question } of policyQuestions) {
+    const answer =
+      POST_EVENT_FEEDBACK_POLICY_QUESTION_DEFINITIONS[question].answer;
+    if (answer === null || appended.has(question)) {
+      continue;
+    }
+    appended.add(question);
+    if (!alreadySaid(conversation, answer)) {
+      additions.push(answer);
+    }
+  }
+  if (additions.length === 0) {
+    return outbound;
+  }
+  return {
+    ...outbound,
+    body: [outbound.body, ...additions].join("\n\n"),
+  };
+}
+
+/**
  * How many times one goal's fixed campaign copy may reach one conversation.
  *
  * Two, because the second one is a legitimate re-ask and the third is a loop.
@@ -275,10 +336,21 @@ export function withCampaignReaskCap(
  * mid-flight can hear the new wording once more; that is the right way round.
  */
 function alreadyAssured(conversation: FeedbackConversationDocument): boolean {
+  return alreadySaid(conversation, POST_EVENT_FEEDBACK_SAFETY_ASSURANCE);
+}
+
+/**
+ * Whether one of our appended sentences has already reached this phone — the
+ * safety assurance and the policy answers share the judgement, and both dedupe
+ * by substring for the reason `alreadyAssured` documents: the sentence rides on
+ * whatever the run was already saying.
+ */
+function alreadySaid(
+  conversation: FeedbackConversationDocument,
+  sentence: string,
+): boolean {
   return conversation.messages.some(
-    (message) =>
-      message.actor === "bot" &&
-      message.text.includes(POST_EVENT_FEEDBACK_SAFETY_ASSURANCE),
+    (message) => message.actor === "bot" && message.text.includes(sentence),
   );
 }
 
@@ -323,8 +395,22 @@ function chooseOutbound(
   // thing the model actually wrote for him was thrown away. Where nothing was
   // recorded, the bot's own words are the honest ending.
   if (closingNow && answeredAnything(conversation, validated)) {
+    // «Τέλεια! 🙌» is the right ending for an ordinary questionnaire and the
+    // wrong one for a conversation that carries an open safety flag. Νίτσα
+    // Κομποσερογιάννη disclosed being pressed for a lift home, asked three
+    // serious questions about what happens next — and the last thing we sent
+    // her was the cheerful thank-you, because `closingNow` only withholds the
+    // ending from the run that *raises* a signal, not from the runs after it.
+    // The flag itself is the memory: while a safety reason is unresolved, the
+    // conversation closes in the register it was actually held in. Only the
+    // `safety` kind — a `respondent_conduct` flag marks the person we are
+    // thanking as the problem, and neither ending fits them; the ordinary one
+    // at least promises nothing.
+    const carriesOpenSafetyFlag = conversation.attentionReasons.some(
+      (reason) => reason.kind === "safety" && reason.resolvedAt === null,
+    );
     return {
-      body: copy.closing,
+      body: carriesOpenSafetyFlag ? copy.closing_after_safety : copy.closing,
       dedupeKey: createFeedbackClosingDedupeKey(conversation._id),
     };
   }

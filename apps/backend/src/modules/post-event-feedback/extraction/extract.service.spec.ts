@@ -38,6 +38,7 @@ import {
   feedbackExtractionGoalVerdicts,
   type FeedbackExtractionAnswerProposal,
 } from "./extraction.schemas.js";
+import { POST_EVENT_FEEDBACK_POLICY_QUESTION_DEFINITIONS } from "./policy-answers.js";
 import type { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
 import type { FeedbackResultsRepository } from "./results.repository.js";
 import type { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
@@ -1168,6 +1169,44 @@ describe("PostEventFeedbackExtractor", () => {
       ).toMatchObject([{ kind: "safety", messageId: "p1", resolvedAt: null }]);
     });
 
+    it("answers a recognised data question and files the one nobody has decided", async () => {
+      // One message that asks two things: who reads this, and how long it is
+      // kept. The first has an approved sentence and it rides out appended to
+      // the model's reply; the second is deliberately unanswered, so it earns
+      // an `unanswered_data_question` reason a person will read — quiet inbox
+      // work, not a page-worthy alert.
+      harness.generation.propose.mockResolvedValue(
+        generation({ reply: "Καλή ερώτηση! Πάμε στο επόμενο;" }),
+      );
+      harness.generation.classifyAttention.mockResolvedValue(
+        attentionGeneration(
+          [],
+          [],
+          [],
+          [
+            { messageId: "p1", question: "who_sees_it" },
+            { messageId: "p1", question: "how_long_kept" },
+          ],
+        ),
+      );
+
+      await harness.extractor.extract({ conversationId, correlationId });
+
+      expect(harness.repository.outbox[0]?.body).toBe(
+        `Καλή ερώτηση! Πάμε στο επόμενο;\n\n${POST_EVENT_FEEDBACK_POLICY_QUESTION_DEFINITIONS.who_sees_it.answer}`,
+      );
+      expect(
+        harness.conversations.get(conversationId).attentionReasons,
+      ).toMatchObject([
+        {
+          kind: "unanswered_data_question",
+          messageId: "p1",
+          resolvedAt: null,
+        },
+      ]);
+      expect(harness.alert.raised).toHaveLength(0);
+    });
+
     it("says the respondent is the source instead of asking to protect them", async () => {
       // «A message raised a safety concern» reads as «somebody here may need
       // looking after», and under that sentence an operator opens Γεωργία's
@@ -2160,6 +2199,7 @@ function attentionGeneration(
       signals.flatMap((signal) => (signal.sourceMessageIds ?? []) as string[]),
     ),
   ],
+  policyQuestions: readonly Record<string, unknown>[] = [],
 ): Record<string, unknown> {
   return {
     model,
@@ -2168,6 +2208,7 @@ function attentionGeneration(
     signals,
     hostileMessageIds,
     describedIncidentMessageIds,
+    policyQuestions,
   };
 }
 

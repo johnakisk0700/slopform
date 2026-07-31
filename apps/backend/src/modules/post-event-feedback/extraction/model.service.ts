@@ -31,6 +31,7 @@ import {
   feedbackAttentionClassificationProposalSchema,
   validateFeedbackAttentionClassification,
 } from "./attention-classification.js";
+import type { FeedbackPolicyQuestionMatch } from "./policy-answers.js";
 import { resolveFeedbackExtractionProviderSettings } from "./permissive-safety-settings.js";
 import {
   feedbackExtractionProposalSchema,
@@ -185,6 +186,11 @@ export interface FeedbackAttentionClassificationGenerationResult {
    * this — see `FeedbackAttentionClassificationResult`.
    */
   readonly describedIncidentMessageIds: readonly string[];
+  /**
+   * Data-handling questions the batch asked. Read by the policy-answer append
+   * and the unanswered-question raise — see `FeedbackAttentionClassificationResult`.
+   */
+  readonly policyQuestions: readonly FeedbackPolicyQuestionMatch[];
   readonly usage: FeedbackExtractionUsage;
   readonly estimatedPromptTokens: number;
 }
@@ -600,6 +606,7 @@ export class PostEventFeedbackExtractionModel implements FeedbackExtractionModel
     const signals: FeedbackExtractionSafetySignalProposal[] = [];
     const hostileMessageIds: string[] = [];
     const describedIncidentMessageIds: string[] = [];
+    const policyQuestions: FeedbackPolicyQuestionMatch[] = [];
     const usages: FeedbackExtractionUsage[] = [];
     const providerOptions = feedbackExtractionProviderOptions(
       this.model,
@@ -645,6 +652,7 @@ export class PostEventFeedbackExtractionModel implements FeedbackExtractionModel
         describedIncidentMessageIds.push(
           ...classified.describedIncidentMessageIds,
         );
+        policyQuestions.push(...classified.policyQuestions);
         usages.push({
           inputTokens: result.usage.inputTokens ?? null,
           outputTokens: result.usage.outputTokens ?? null,
@@ -660,6 +668,7 @@ export class PostEventFeedbackExtractionModel implements FeedbackExtractionModel
       signals,
       hostileMessageIds,
       describedIncidentMessageIds,
+      policyQuestions,
       usage: combineFeedbackExtractionUsage(usages),
       estimatedPromptTokens,
     };

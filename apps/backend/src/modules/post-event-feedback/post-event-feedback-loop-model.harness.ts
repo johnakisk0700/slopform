@@ -171,7 +171,7 @@ export class ScriptedExtractionModel {
     await this.waitAtPause("attention");
     const scripted = this.attentionTurns[this.attentionIndex] ?? [];
     this.attentionIndex += 1;
-    const turn = Array.isArray(scripted)
+    const turn: ScriptedAttentionTurn = Array.isArray(scripted)
       ? { signals: scripted, hostileToUs: false }
       : (scripted as ScriptedAttentionTurn);
     return {
@@ -207,6 +207,16 @@ export class ScriptedExtractionModel {
       // messages: a scenario says whether this turn was hostile, not which
       // fragment of a burst carried the insult.
       hostileMessageIds: turn.hostileToUs ? [...targetMessageIds] : [],
+      // Attached to the newest new message — the one that asked. A scenario
+      // scripting a question on a run with no new messages is a script error
+      // surfaced by the empty list, not silently reattributed.
+      policyQuestions:
+        targetMessageIds.length > 0
+          ? (turn.policyQuestions ?? []).map((question) => ({
+              messageId: targetMessageIds.at(-1) as string,
+              question,
+            }))
+          : [],
     };
   }
 

@@ -251,6 +251,8 @@ const ATTENTION_REASON_LABELS: Record<
     "The participant wrote after the conversation had closed.",
   stopped_without_answers:
     "The participant stopped without having answered anything.",
+  unanswered_data_question:
+    "They asked what happens to their data — nobody has decided the answer.",
 };
 
 export function attentionReasonLabel(

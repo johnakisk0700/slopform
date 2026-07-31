@@ -137,6 +137,7 @@ export function operatorAttentionRaises(
   withdrew = false,
   hostility: FeedbackHostilityRaise = "none",
   stalledOnMessageId: string | null = null,
+  unansweredDataQuestionMessageIds: readonly string[] = [],
 ): FeedbackOperatorAttentionRaise[] {
   const raises: FeedbackOperatorAttentionRaise[] = [];
 
@@ -228,6 +229,16 @@ export function operatorAttentionRaises(
       kind: "unfinished_questionnaire",
       messageId: stalledOnMessageId,
     });
+  }
+  // A data-handling question we recognised and have decided not to answer yet
+  // — retention, anonymity, or one that matched no entry. The participant got
+  // the model's deferral; this row is what stops the question dying there.
+  // Anchored on the message that asked it, which makes the raise idempotent
+  // across replays the same way the safety anchor is, and one row per asking
+  // message rather than one per question: the operator reads the message, not
+  // the taxonomy.
+  for (const messageId of unansweredDataQuestionMessageIds) {
+    raises.push({ kind: "unanswered_data_question", messageId });
   }
 
   return raises;

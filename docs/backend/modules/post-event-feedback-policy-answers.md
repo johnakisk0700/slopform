@@ -1,8 +1,11 @@
 # Post-event feedback: what we are allowed to say
 
-**Status: draft. Nothing here is wired up yet, and no sentence below has been
-approved.** This file is a proposal for the owner to edit — the answers are the
-decision, and they are not an engineering decision.
+**Status: adopted. The owner approved the seven proposed sentences verbatim on
+2026-08-01, and the mechanism below is wired.** The answers remain the owner's
+decision, not an engineering one: editing a sentence here without changing
+`apps/backend/src/modules/post-event-feedback/extraction/policy-answers.ts` in
+the same commit fails `policy-answers.spec.ts`, which is what keeps this file
+the source of record rather than a stale intention.
 
 ## Why this file exists
 
@@ -48,8 +51,8 @@ split.
 
 ## Status legend
 
-- **Approved** — the bot says this. _(none yet; that is what this draft is for)_
-- **Proposed** — drafted here, awaiting the owner.
+- **Approved** — the application appends this, word for word.
+- **Proposed** — drafted here, awaiting the owner. _(none left)_
 - **Deliberately unanswered** — we know the question and have decided the bot
   does not answer it. Deferral plus a note.
 - **Needs a decision outside engineering** — likely legal, not a wording choice.
@@ -70,21 +73,21 @@ one that reached people first.
 
 **They ask:** why are you asking me all this, what do you do with it.
 
-**Proposed:** «Τα χρησιμοποιούμε για να φτιάχνουμε καλύτερες παρέες στα επόμενα
+**Approved:** «Τα χρησιμοποιούμε για να φτιάχνουμε καλύτερες παρέες στα επόμενα
 τραπέζια — ποιος ταιριάζει με ποιον. Τίποτα άλλο.»
 
 ### `who_sees_it`
 
 **They ask:** who reads what I write.
 
-**Proposed:** «Τα διαβάζει μόνο η ομάδα του Join The Six. Κανείς από την παρέα
+**Approved:** «Τα διαβάζει μόνο η ομάδα του Join The Six. Κανείς από την παρέα
 σου δεν βλέπει τι έγραψες.»
 
 ### `will_they_find_out`
 
 **They ask:** will X find out I said that / that I avoided them.
 
-**Proposed:** «Όχι. Ό,τι μου λες για την παρέα δεν φτάνει ποτέ σε αυτούς — ούτε
+**Approved:** «Όχι. Ό,τι μου λες για την παρέα δεν φτάνει ποτέ σε αυτούς — ούτε
 ότι το είπες.»
 
 This one is load-bearing. It is the question people ask before they tell the
@@ -94,17 +97,18 @@ truth about somebody, and it is the promise the `avoid` copy already makes.
 
 **They ask:** does this change who I get seated with.
 
-**Proposed:** «Ναι, αυτό ακριβώς είναι — το λαμβάνουμε υπόψη όταν φτιάχνουμε τα
+**Approved:** «Ναι, αυτό ακριβώς είναι — το λαμβάνουμε υπόψη όταν φτιάχνουμε τα
 επόμενα τραπέζια. Δεν είναι αυτόματο, το βλέπει άνθρωπος.»
 
-Only approve the second sentence if it is true. If seating is ever automated,
-this entry has to change on the same day.
+The second sentence is a claim of fact the owner confirmed on 2026-08-01: a
+person reviews feedback before the next tables are seated. If seating is ever
+automated, this entry has to change on the same day.
 
 ### `show_me_what_others_said`
 
 **They ask:** show me what X wrote about me.
 
-**Proposed:** «Δεν μπορώ να σου δείξω τι έγραψε άλλος άνθρωπος — όπως δεν
+**Approved:** «Δεν μπορώ να σου δείξω τι έγραψε άλλος άνθρωπος — όπως δεν
 δείχνω σε κανέναν τι έγραψες εσύ.»
 
 Already handled correctly today by rule 11ε, and it worked at the last
@@ -116,14 +120,14 @@ visibly the same promise.
 
 **They ask:** how do you have my number.
 
-**Proposed:** «Από την εγγραφή σου στο Join The Six, για το δείπνο στο οποίο
+**Approved:** «Από την εγγραφή σου στο Join The Six, για το δείπνο στο οποίο
 ήσουν.»
 
 ### `are_you_a_bot`
 
 **They ask:** are you a person or a machine.
 
-**Proposed:** «Είμαι αυτοματοποιημένο μήνυμα από την ομάδα του Join The Six —
+**Approved:** «Είμαι αυτοματοποιημένο μήνυμα από την ομάδα του Join The Six —
 όχι άνθρωπος. Ό,τι μου γράψεις το διαβάζει άνθρωπος.»
 
 Worth noticing while writing this list: **the prompt has no rule about this at
@@ -157,8 +161,9 @@ sentence here would be the bot answering a request it cannot carry out.
 
 **They ask:** how long do you keep this.
 
-**Needs a decision outside engineering.** I do not know the answer and should not
-draft one. Until it exists: deferral plus a note.
+**Needs a decision outside engineering — deliberately unanswered for now**
+(owner, 2026-08-01). Until an answer exists: deferral once, plus an
+`unanswered_data_question` attention reason so a person sees it was asked.
 
 ### `is_it_anonymous`
 
@@ -167,7 +172,8 @@ draft one. Until it exists: deferral plus a note.
 **Needs a decision outside engineering.** The honest answer is probably «no, it
 is tied to you, because it has to be for seating» — but that sentence is worth
 saying carefully rather than quickly, and it sits close to the retention
-question. Until decided: deferral plus a note.
+question. Deliberately unanswered for now (owner, 2026-08-01): deferral once,
+plus an `unanswered_data_question` attention reason.
 
 ## The link
 
@@ -177,14 +183,28 @@ it is one line in this file and it appears in every relevant answer at once. Tha
 is a reason to keep the answers here rather than in the prompt, not a reason to
 wait for the page.
 
-## What to do with this draft
+## How it is wired (since 2026-08-01)
 
-Edit the sentences. They are proposals, and the three marked as needing a
-decision are genuinely open — a wrong answer about retention is worse than a
-deferral. When the wording is settled, the wiring is small: one classifier field,
-one lookup table sourced from this file, one append, and a spec that fails if the
-two drift apart.
+- The classifier result carries `policyQuestion` — one id per message, nullable,
+  independent of every safety field (`attention-classification.ts`). The prompt
+  lists the ids with what each one asks; `attention-classification.spec.ts`
+  asserts no approved sentence ever appears in it.
+- `withPolicyAnswers` in `extraction/outbound-reply.ts` appends the approved
+  sentence to whatever the run was already sending — same shape as the safety
+  assurance, deduped against the transcript per sentence, so asking twice gets
+  the answer once.
+- A recognised question with no approved answer — retention, anonymity,
+  `other_data_handling` — earns the model's deferral plus an
+  `unanswered_data_question` attention reason anchored on the asking message.
+  `delete_my_data` is the exception: the handoff path already owns it.
+- The same change gave the closing copy a quiet variant
+  (`closing_after_safety`): a conversation carrying an unresolved `safety`
+  reason no longer closes with «Τέλεια! 🙌».
 
-The list does not have to be complete. Every unmatched question leaves a note, so
-after a rehearsal or two the notes say what people actually ask and the list
-grows from evidence instead of from guessing.
+The list does not have to be complete. Every unmatched question leaves an
+attention reason, so after a rehearsal or two the reasons say what people
+actually ask and the list grows from evidence instead of from guessing.
+
+Still open, deliberately: `how_long_kept` and `is_it_anonymous` wait on a
+decision that is not a wording choice, and the `/policy/` page does not exist —
+when it does, it is one line here and one in the table.

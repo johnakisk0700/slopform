@@ -1858,7 +1858,8 @@
                     "transcript_full",
                     "undelivered_message",
                     "post_closure_message",
-                    "stopped_without_answers"
+                    "stopped_without_answers",
+                    "unanswered_data_question"
                   ],
                   "type": "string"
                 },

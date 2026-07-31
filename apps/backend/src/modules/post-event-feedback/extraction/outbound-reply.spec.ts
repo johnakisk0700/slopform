@@ -10,8 +10,10 @@ import { POST_EVENT_FEEDBACK_SAFETY_ASSURANCE } from "./extraction.schemas.js";
 import {
   resolveOutbound,
   withCampaignReaskCap,
+  withPolicyAnswers,
   withSafetyAssurance,
 } from "./outbound-reply.js";
+import { POST_EVENT_FEEDBACK_POLICY_QUESTION_DEFINITIONS } from "./policy-answers.js";
 
 const copy = POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy;
 const conversation = {
@@ -19,6 +21,9 @@ const conversation = {
   // Whether the assurance has already been said is read off the transcript, so
   // every fixture carries one.
   messages: [],
+  // The closing copy's register is chosen by whether a safety reason is still
+  // unresolved, so every fixture carries the list too.
+  attentionReasons: [],
   // The closing copy thanks somebody for what they told us, so whether anything
   // was ever recorded is part of choosing it.
   goals: [
@@ -303,6 +308,88 @@ describe("resolveOutbound", () => {
       body: copy.closing,
       dedupeKey: "feedback-closing-conv-1",
     });
+  });
+
+  it("closes quietly while a safety reason is still unresolved", () => {
+    // Νίτσα Κομποσερογιάννη disclosed being pressed for a lift home, asked what
+    // happens next — and the last thing we sent her was «Τέλεια! 🙌», because
+    // her closing run raised no *new* signal and the cheerful ending is
+    // application copy no register rule governs. The unresolved flag is the
+    // conversation's memory of the register it was held in.
+    const flagged = {
+      ...conversation,
+      attentionReasons: [
+        {
+          id: "reason-1",
+          kind: "safety",
+          messageId: "m-disclosure",
+          at: new Date(),
+          resolvedAt: null,
+          resolvedBy: null,
+        },
+      ],
+    } as FeedbackConversationDocument;
+
+    const outbound = resolveOutbound(
+      flagged,
+      validated({ nextGoal: null, reply: "Ευχαριστούμε 🙂" }),
+      true,
+      false,
+      5,
+      copy,
+      null,
+    );
+
+    expect(outbound).toEqual({
+      body: copy.closing_after_safety,
+      dedupeKey: "feedback-closing-conv-1",
+    });
+  });
+
+  it("keeps the ordinary ending once the safety reason is resolved, and for respondent conduct", () => {
+    // A resolved flag means a person has read it and moved on — the ordinary
+    // ending is honest again. And a `respondent_conduct` flag marks the person
+    // we are thanking as the problem: «θα το χειριστούμε με προσοχή» to them
+    // would be a promise about their own report, so they keep the plain copy.
+    const closedOut = (
+      reasons: readonly Record<string, unknown>[],
+    ): string | undefined =>
+      resolveOutbound(
+        { ...conversation, attentionReasons: reasons } as unknown as Parameters<
+          typeof resolveOutbound
+        >[0],
+        validated({ nextGoal: null, reply: "Ευχαριστούμε 🙂" }),
+        true,
+        false,
+        5,
+        copy,
+        null,
+      )?.body;
+
+    expect(
+      closedOut([
+        {
+          id: "reason-1",
+          kind: "safety",
+          messageId: "m-disclosure",
+          at: new Date(),
+          resolvedAt: new Date(),
+          resolvedBy: "operator",
+        },
+      ]),
+    ).toBe(copy.closing);
+    expect(
+      closedOut([
+        {
+          id: "reason-2",
+          kind: "respondent_conduct",
+          messageId: "m-abuse",
+          at: new Date(),
+          resolvedAt: null,
+          resolvedBy: null,
+        },
+      ]),
+    ).toBe(copy.closing);
   });
 
   it("sends the bot's own goodbye, not a thank-you, when nothing was ever recorded", () => {
@@ -738,5 +825,83 @@ describe("withSafetyAssurance", () => {
         new Set(["m2", "m3"]),
       )?.body,
     ).toContain(POST_EVENT_FEEDBACK_SAFETY_ASSURANCE);
+  });
+});
+
+describe("withPolicyAnswers", () => {
+  const base = {
+    body: "Καλή ερώτηση! Μπορεί να σου απαντήσει άνθρωπος από την ομάδα. Πάμε στο επόμενο;",
+    dedupeKey: "feedback-reply-conv-1-5",
+  };
+  const answers = POST_EVENT_FEEDBACK_POLICY_QUESTION_DEFINITIONS;
+
+  it("appends the approved sentence for a recognised question", () => {
+    const outbound = withPolicyAnswers(conversation, base, [
+      { messageId: "m1", question: "who_sees_it" },
+    ]);
+
+    expect(outbound?.body).toBe(
+      `${base.body}\n\n${answers.who_sees_it.answer}`,
+    );
+    expect(outbound?.dedupeKey).toBe(base.dedupeKey);
+  });
+
+  it("answers each question once however many messages asked it", () => {
+    const outbound = withPolicyAnswers(conversation, base, [
+      { messageId: "m1", question: "will_they_find_out" },
+      { messageId: "m2", question: "will_they_find_out" },
+      { messageId: "m2", question: "what_is_it_for" },
+    ]);
+
+    expect(outbound?.body).toBe(
+      [
+        base.body,
+        answers.will_they_find_out.answer,
+        answers.what_is_it_for.answer,
+      ].join("\n\n"),
+    );
+  });
+
+  it("does not repeat a sentence the transcript already carries", () => {
+    // Λούλα Γκροκούλα asked what happens to what she says four times and got
+    // the same deferral four times. The answer goes out once; the transcript is
+    // the memory, exactly as it is for the safety assurance.
+    const alreadyAnswered = {
+      ...conversation,
+      messages: [
+        {
+          id: "m-bot",
+          actor: "bot",
+          text: `Καλή ερώτηση!\n\n${answers.who_sees_it.answer}`,
+        },
+      ],
+    } as unknown as FeedbackConversationDocument;
+
+    expect(
+      withPolicyAnswers(alreadyAnswered, base, [
+        { messageId: "m1", question: "who_sees_it" },
+      ]),
+    ).toEqual(base);
+  });
+
+  it("appends nothing for a question we have deliberately not answered", () => {
+    for (const question of [
+      "how_long_kept",
+      "is_it_anonymous",
+      "delete_my_data",
+      "other_data_handling",
+    ] as const) {
+      expect(
+        withPolicyAnswers(conversation, base, [{ messageId: "m1", question }]),
+      ).toEqual(base);
+    }
+  });
+
+  it("stays silent when the run decided to send nothing", () => {
+    expect(
+      withPolicyAnswers(conversation, undefined, [
+        { messageId: "m1", question: "who_sees_it" },
+      ]),
+    ).toBeUndefined();
   });
 });

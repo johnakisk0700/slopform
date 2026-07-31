@@ -28,6 +28,7 @@ describe("post-event feedback question set v1", () => {
       "meet_again",
       "avoid",
       "closing",
+      "closing_after_safety",
       "declined",
       "stop_ack",
       "reminder",

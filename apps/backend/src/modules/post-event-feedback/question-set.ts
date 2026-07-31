@@ -18,6 +18,7 @@ export const POST_EVENT_FEEDBACK_COPY_KEYS = [
   "meet_again",
   "avoid",
   "closing",
+  "closing_after_safety",
   "declined",
   "stop_ack",
   "reminder",
@@ -69,6 +70,16 @@ const POST_EVENT_FEEDBACK_QUESTION_SET_V1_COPY = {
     "Υπάρχει κάποιος ή κάποια που θα προτιμούσες να μην πετύχεις ξανά; Μένει αυστηρά μεταξύ μας.",
   closing:
     "Τέλεια, ευχαριστούμε πολύ! Ό,τι άλλο θες να μας πεις, είμαστε εδώ. 🙌",
+  // The same ending in the register the conversation was actually held in.
+  // Sent instead of `closing` while an unresolved safety reason stands: Νίτσα
+  // Κομποσερογιάννη described being pressed for a lift home after saying no
+  // twice, asked what happens next — and got «Τέλεια! 🙌», because the cheerful
+  // ending is application copy and no register rule governs application copy.
+  // No exclamation marks, no emoji, and one commitment the flag mechanism
+  // actually keeps: the reason is already in an operator's inbox and stays
+  // there until a person resolves it.
+  closing_after_safety:
+    "Ευχαριστούμε πολύ. Ό,τι μας είπες το έχουμε δει και θα το χειριστούμε με προσοχή. Ό,τι άλλο θες να μας πεις, είμαστε εδώ.",
   // The ending for somebody who declined every question. Πάνος Μούλαρος wrote
   // «δε λεω τιποτα» three times and received nothing at all after the intro —
   // the thank-you is correctly withheld from an empty ladder, and there was

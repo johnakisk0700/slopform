@@ -45,9 +45,11 @@ import {
   answeredAnything,
   resolveOutbound,
   withCampaignReaskCap,
+  withPolicyAnswers,
   withSafetyAssurance,
   type OutboundReply,
 } from "./outbound-reply.js";
+import { isUnansweredPolicyQuestion } from "./policy-answers.js";
 import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
 import {
   PostEventFeedbackMetrics,
@@ -399,12 +401,31 @@ export class PostEventFeedbackExtractor {
       ),
       copy,
     );
+    // Policy answers ride between the cap and the assurance: the cap decides
+    // whether anything goes out at all, and the assurance stays the message's
+    // last word — a promise about a disclosure outranks a sentence about
+    // paperwork. Both appends survive each other by construction; each dedupes
+    // against the transcript on its own sentence.
     const outbound = withSafetyAssurance(
       conversation,
       validated,
-      capped.outbound,
+      withPolicyAnswers(
+        conversation,
+        capped.outbound,
+        attention.policyQuestions,
+      ),
       new Set(attention.describedIncidentMessageIds),
     );
+    // The questions this run recognised and nobody has decided how to answer —
+    // retention, anonymity, or no match at all. The participant got the model's
+    // deferral; the raise below is what keeps the question alive for a person.
+    const unansweredDataQuestionMessageIds = [
+      ...new Set(
+        attention.policyQuestions
+          .filter((match) => isUnansweredPolicyQuestion(match.question))
+          .map((match) => match.messageId),
+      ),
+    ];
     const withheld = outbound
       ? await this.reviewBeforeSending({
           conversation,
@@ -567,6 +588,7 @@ export class PostEventFeedbackExtractor {
       newestParticipantMessageId:
         context.newParticipantMessageIds.at(-1) ?? null,
       stalledOnMessageId: capped.stalledOnMessageId,
+      unansweredDataQuestionMessageIds,
       cursorSeq,
       model: generated.model,
       usage: runUsage,
@@ -957,6 +979,11 @@ export class PostEventFeedbackExtractor {
      * message the participant sends afterwards.
      */
     readonly stalledOnMessageId: string | null;
+    /**
+     * Messages that asked a data-handling question we have deliberately not
+     * answered. Each earns an `unanswered_data_question` reason on its anchor.
+     */
+    readonly unansweredDataQuestionMessageIds: readonly string[];
     readonly cursorSeq: number;
     readonly model: string;
     /** What this run's two model calls cost, added to the conversation's total. */
@@ -1007,6 +1034,7 @@ export class PostEventFeedbackExtractor {
       input.withdrew,
       input.hostility,
       input.stalledOnMessageId,
+      input.unansweredDataQuestionMessageIds,
     );
     let raisedIncident = false;
     for (const raise of raises) {

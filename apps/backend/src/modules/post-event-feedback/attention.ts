@@ -142,6 +142,19 @@ export const POST_EVENT_FEEDBACK_ATTENTION_REASONS = [
   "post_closure_message",
   /** A STOP from somebody who had answered nothing at all. */
   "stopped_without_answers",
+  /**
+   * The participant asked what we do with their data, and nobody has decided
+   * the answer yet.
+   *
+   * Raised by the policy-question classifier for the questions
+   * `policy-answers.ts` recognises but deliberately leaves unanswered —
+   * retention, anonymity, and anything that matches no entry. The operator's
+   * job is its own: answer the person yourself, and the question feeds the
+   * approved-answers list so the next asker gets a sentence instead of a
+   * deferral. Not `handoff` — no human was requested and none promised — and
+   * not `unattributed_note`: nothing here is a note.
+   */
+  "unanswered_data_question",
 ] as const;
 
 export const postEventFeedbackAttentionReasonSchema = z.enum(

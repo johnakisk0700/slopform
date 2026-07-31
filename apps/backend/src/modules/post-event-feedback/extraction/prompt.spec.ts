@@ -271,6 +271,21 @@ describe("buildFeedbackExtractionPrompt", () => {
     expect(prompt.system).toContain("δεν είσαι εσύ ο σωστός να την απαντήσεις");
   });
 
+  it("forbids the model ever claiming to be human", () => {
+    const prompt = buildFeedbackExtractionPrompt({
+      context: context(),
+      copy: COPY,
+    });
+
+    // The corpus grades identity from both sides — `disclose_bot_identity`
+    // required, `claim_human_identity` forbidden — but until now nothing in
+    // the instructions said so; the model behaved correctly on its own. The
+    // official «είμαι αυτοματοποιημένο μήνυμα» sentence is application copy
+    // appended by the policy-answer path; this rule only closes the lie.
+    expect(prompt.system).toContain("11θ.");
+    expect(prompt.system).toContain("μην ισχυριστείς ότι είσαι άνθρωπος");
+  });
+
   it("treats an explicit change of mind as answerable, not as settled", () => {
     const prompt = buildFeedbackExtractionPrompt({
       context: context(),

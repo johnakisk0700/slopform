@@ -127,6 +127,7 @@ export class ScriptedBurstExtractionModel implements FeedbackExtractionModelPort
           signals: [],
           hostileMessageIds: [],
           describedIncidentMessageIds: [],
+          policyQuestions: [],
           usage: SCRIPTED_USAGE,
           estimatedPromptTokens: 0,
         };
@@ -163,6 +164,11 @@ export class ScriptedBurstExtractionModel implements FeedbackExtractionModelPort
         // turn rather than per message: the ladder counts runs, so which of the
         // burst's messages carried the insult changes nothing it decides.
         hostileMessageIds: turn.hostileToUs ? [...targetMessageIds] : [],
+        // No scripted persona asks a data-handling question — the two guests who
+        // do (Νίτσα, Λούλα) are live-model guests, and the paid rehearsal runs
+        // the real classifier. A scriptable field nobody scripts would be dead
+        // weight; add it beside the first persona that needs it.
+        policyQuestions: [],
         usage: SCRIPTED_USAGE,
         estimatedPromptTokens: 0,
       };

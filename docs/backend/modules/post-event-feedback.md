@@ -399,11 +399,23 @@ to build that graph.
 
 The independent attention proposal is `results[]`, exactly one per supplied new
 participant message: `messageId`, `incident`, nullable `category`, nullable
-`recommendedAction`, `confidence`. It is not given questionnaire or candidate
+`recommendedAction`, `hostileToUs`, `incidentDescribed`, nullable
+`policyQuestion`, `confidence`. It is not given questionnaire or candidate
 data. The model has no tools and no store access in either call. OpenRouter
 reasoning is disabled for this bounded classification task; held-out acceptance
 must prove the direct structured answer remains reliable before that setting
 changes.
+
+`policyQuestion` is the classifier's half of
+[what we are allowed to say](post-event-feedback-policy-answers.md): it names
+which recognised data-handling question a message asks, from a prompt that lists
+what each id _asks_ and never what we answer. A recognised question with an
+approved sentence gets it appended to the run's outbound by `withPolicyAnswers`
+— application copy, deduped against the transcript like the safety assurance —
+and one without an approved answer earns the model's 11στ deferral plus an
+`unanswered_data_question` attention reason. The same adoption gave the closing
+copy its quiet variant: while a `safety` reason is unresolved, the conversation
+closes with `closing_after_safety` instead of «Τέλεια! 🙌».
 
 The `declined` verdict is a deliberate addition to the plan's §7 sketch: D3
 locks every question as skippable with no answer row, and without a producer for
@@ -629,6 +641,7 @@ run's own mapping is owned by
 | A stored answer re-proposed with a **different** value, revised or refused because a human corrected it | `answer_revision`          | the newest message the run read                |
 | The bot withdrew, leaving goals unanswered                                                              | `unfinished_questionnaire` | the newest message the run read                |
 | The [re-ask cap](#the-same-question-twice-and-no-more) withheld a goal's campaign copy                  | `unfinished_questionnaire` | the bot message that already carried that copy |
+| A data-handling question nobody has decided how to answer (retention, anonymity, no match)              | `unanswered_data_question` | the message that asked it                      |
 
 Three of them have no citation of their own — a handoff is a property of the run,
 a refused revision is about the stored row it disagreed with, and a withdrawal is
@@ -1217,10 +1230,10 @@ no model composes it. Every clause is a constraint:
   «Θα σου απαντήσουμε» is a promise the system itself keeps — the retry that
   answers is already queued.
 - **Nothing about their data.** Rule 11στ, so no sentence here can become an
-  accidental data-handling commitment. That rule is a hole rather than an answer,
-  and closing it is a decision about what the platform is willing to promise —
-  drafted, unapproved and unwired, in
-  [what we are allowed to say](post-event-feedback-policy-answers.md).
+  accidental data-handling commitment. The rule stopped being a hole on
+  2026-08-01: the questions the platform is willing to answer now have approved
+  sentences the application appends itself — the model still says nothing of its
+  own — in [what we are allowed to say](post-event-feedback-policy-answers.md).
 
 Three fences make «once» true: `parkedNoticeSentAt` on the document, the outbox
 `dedupe_key` `feedback-parked-<conversationId>-notice`, and the send yielding to

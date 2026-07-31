@@ -75,4 +75,27 @@ describe("operatorAttentionRaises", () => {
   it("raises nothing about the questionnaire on an ordinary run", () => {
     expect(operatorAttentionRaises(validated(), "m-participant-7")).toEqual([]);
   });
+
+  it("names a data question nobody has decided how to answer, on the message that asked it", () => {
+    // Retention, anonymity, or a question matching no entry: the participant
+    // got the model's deferral, and this row is what stops the question dying
+    // there — an operator answers the person, and the asked-and-unanswered list
+    // is how `policy-answers.ts` grows from evidence. Anchored on the asking
+    // message, not the newest one, for the same idempotency the safety anchor
+    // has: a replay re-raises the same kind against the same message and the
+    // repository absorbs it.
+    const raises = operatorAttentionRaises(
+      validated(),
+      "m-participant-9",
+      false,
+      "none",
+      null,
+      ["m-participant-7", "m-participant-8"],
+    );
+
+    expect(raises).toEqual([
+      { kind: "unanswered_data_question", messageId: "m-participant-7" },
+      { kind: "unanswered_data_question", messageId: "m-participant-8" },
+    ]);
+  });
 });
