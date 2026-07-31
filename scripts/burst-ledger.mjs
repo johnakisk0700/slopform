@@ -44,6 +44,7 @@ const COLUMNS = [
   { key: "passedRows", label: "pass", align: "right" },
   { key: "failedRows", label: "fail", align: "right" },
   { key: "duration", label: "duration", align: "right" },
+  { key: "knobs", label: "knobs", align: "right" },
   { key: "cost", label: "cost", align: "right" },
   { key: "findings", label: "findings" },
 ];
@@ -172,12 +173,38 @@ function toRow(run) {
     conversations: String(conversations.length),
     passedRows: String(passedRows),
     failedRows: String(conversations.length - passedRows),
+    knobs: formatKnobs(run.config),
     duration: formatDuration(run.durationMs),
     // Older summaries never recorded a cost; "?" is the same claim as an
     // unknown duration — not "$0.00".
     cost: formatCost(run.costUsd),
     findings: formatFindings(run.findings),
   };
+}
+
+/**
+ * `effort/tier` in shorthand — `max/prio`, `xhigh/std` — or "?" when the
+ * artefact predates the field. The attention effort only appears when it
+ * differs from "none" (`max+xh/prio`), because "none" is what it has always
+ * been and the column exists to surface departures.
+ */
+function formatKnobs(config) {
+  if (!config || typeof config !== "object") {
+    return "?";
+  }
+  const effort = config.reasoningEffort ?? "none";
+  const attention =
+    config.attentionReasoningEffort &&
+    config.attentionReasoningEffort !== "none"
+      ? `+${shortEffort(config.attentionReasoningEffort)}`
+      : "";
+  const tier = config.serviceTier === "priority" ? "prio" : "std";
+  return `${shortEffort(effort)}${attention}/${tier}`;
+}
+
+/** xhigh → xh; everything else is already short. */
+function shortEffort(effort) {
+  return effort === "xhigh" ? "xh" : String(effort);
 }
 
 /** `$X.XX` when the artefact has a finite cost; "?" when it does not. */

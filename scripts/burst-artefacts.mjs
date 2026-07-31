@@ -49,6 +49,10 @@ export function buildFinishedEvent({ result, stamp, reportPath, revision }) {
     // Absent on every pre-usage artefact; null means "unavailable", never 0.
     tokenUsage: result.tokenUsage ?? null,
     costUsd: result.costUsd ?? null,
+    // The knobs that shaped the run (reasoning efforts, service tier), resolved
+    // from the same dist the workers load. Null on stub runs and on every
+    // artefact written before the field existed — the ledger renders "?".
+    config: result.config ?? null,
     conversations: campaigns.flatMap((campaign) =>
       (campaign.conversations ?? []).map((conversation) => ({
         personaId: conversation.personaId,

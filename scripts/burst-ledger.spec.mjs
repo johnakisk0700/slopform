@@ -110,7 +110,39 @@ describe("formatLedger", () => {
     // render as unknown, not as a free run.
     const summary = run({ findings: [] });
     assert.equal("costUsd" in summary, false);
-    assert.match(rowFor(summary), /\s14m39s\s+\?\s+none$/u);
+    assert.match(rowFor(summary), /\s14m39s\s+\?\s+\?\s+none$/u);
+  });
+
+  it("renders the knobs that shaped a run, in shorthand", () => {
+    assert.match(
+      rowFor(
+        run({
+          config: {
+            reasoningEffort: "max",
+            attentionReasoningEffort: "xhigh",
+            serviceTier: "priority",
+          },
+        }),
+      ),
+      /\smax\+xh\/prio\s/u,
+    );
+    // The classifier's "none" is what it has always been — not worth a cell.
+    assert.match(
+      rowFor(
+        run({
+          config: {
+            reasoningEffort: "xhigh",
+            attentionReasoningEffort: "none",
+            serviceTier: null,
+          },
+        }),
+      ),
+      /\sxh\/std\s/u,
+    );
+  });
+
+  it("shows ? for artefacts that predate the config stamp", () => {
+    assert.match(rowFor(run({ config: null })), /\s\?\s+\?\s+none$/u);
   });
 
   it("keeps columns aligned when model ids differ wildly in length", () => {

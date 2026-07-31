@@ -264,6 +264,14 @@ async function main() {
 
   const startedAt = new Date();
   const modelLabel = stubMode ? "stub" : paidModel;
+  // The knobs that shaped this run, resolved through the SAME dist module the
+  // workers load and from the same environment dotenv gave both of us — not
+  // copied from anybody's intention. A ledger row without these is anonymous:
+  // run 11 (xhigh/standard) and run 12 (max/priority) differ in nothing the
+  // summary used to record. Soft-fails to null: a run must not die because its
+  // description could not be assembled, and null in the artefact is the honest
+  // "we do not know" the ledger already renders as "?".
+  const runConfig = stubMode ? null : await resolveRunConfig();
 
   console.error(
     stubMode
@@ -533,6 +541,7 @@ async function main() {
       finishedAt: finishedAt.toISOString(),
       durationMs: finishedAt.getTime() - startedAt.getTime(),
       model: modelLabel,
+      config: runConfig,
       passed: !anyConversationFailed && findings.length === 0,
       campaigns: campaignResults,
       findings,
@@ -1636,6 +1645,40 @@ async function requestJson(url, init) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Resolve the run's model knobs exactly as a worker would.
+ *
+ * Imports the built model service from `dist` — the very code the workers are
+ * executing — and feeds it this process's environment, which dotenv loaded from
+ * the same `.env`. If the two disagree the workers would not have started, so
+ * this is as close to "what the workers actually did" as the runner can get
+ * without a config-introspection endpoint.
+ */
+async function resolveRunConfig() {
+  try {
+    const m =
+      await import("../apps/backend/dist/modules/post-event-feedback/extraction/model.service.js");
+    return {
+      reasoningEffort:
+        m.resolveFeedbackExtractionReasoningEffort(
+          process.env.FEEDBACK_EXTRACTION_REASONING_EFFORT,
+        ) ?? null,
+      attentionReasoningEffort: m.resolveFeedbackAttentionReasoningEffort(
+        process.env.FEEDBACK_ATTENTION_REASONING_EFFORT,
+      ),
+      serviceTier:
+        m.resolveFeedbackExtractionServiceTier(
+          process.env.FEEDBACK_EXTRACTION_SERVICE_TIER,
+        ) ?? null,
+    };
+  } catch (error) {
+    console.error(
+      `run config not recorded: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return null;
+  }
 }
 
 /**
