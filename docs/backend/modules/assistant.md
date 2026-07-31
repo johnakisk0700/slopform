@@ -24,10 +24,21 @@ The public/persisted model id maps to exactly one provider id:
 
 | Public model id           | Provider   | Provider model id         |
 | ------------------------- | ---------- | ------------------------- |
-| `openai/gpt-5.6-luna`     | OpenRouter | `gpt-5.6-luna`            |
-| `openai/gpt-5.6-terra`    | OpenRouter | `gpt-5.6-terra`           |
+| `openai/gpt-5.6-luna`     | OpenAI     | `gpt-5.6-luna`            |
+| `openai/gpt-5.6-terra`    | OpenRouter | `openai/gpt-5.6-terra`    |
 | `google/gemini-3.6-flash` | OpenRouter | `google/gemini-3.6-flash` |
 | `qwen/qwen3.7-max`        | OpenRouter | `qwen/qwen3.7-max`        |
+
+The id shapes differ per provider and the difference is load-bearing: OpenRouter
+addresses models as `vendor/model` and resolves a bare name to nothing, while
+OpenAI wants the bare name. Either mistake is a 404 on every call, so a contract
+test asserts the shape matches the provider rather than only the table.
+
+The route is chosen by **which account is funded**. The whole table sat on
+OpenRouter from 2026-07-27, after a rehearsal pointed extraction at Luna while
+the OpenAI account was empty and all thirty-six extract jobs died on
+`provider_error`. Luna moved back on 2026-07-31 once that account was funded,
+which also buys the `xhigh` reasoning effort OpenRouter does not expose on it.
 
 The mapping lives in `assistant-models.ts` and has an exact contract test. The
 default is `google/gemini-3.6-flash`. Post-event feedback extraction reuses this
@@ -40,8 +51,10 @@ JoinTheSix registry keeps the provider boundary explicit.
 
 Every turn also persists reasoning effort: `low`, `medium` or `high`, defaulting
 to `low`. The worker maps it exactly to
-`{ openai: { reasoningEffort } }` for Luna/Terra or
-`{ openrouter: { reasoning: { effort } } }` for Gemini and Qwen3.7 Max. The
+`{ openai: { reasoningEffort } }` for Luna or
+`{ openrouter: { reasoning: { effort } } }` for Terra, Gemini and Qwen3.7 Max —
+keyed off the adapter's provider, not off the model id, so a route change moves
+the spelling with it. The
 Qwen entry is the current text-only flagship copied from the `notes_ai`
 selector, with `low`, `medium` and `high` as its exact offered efforts. Retry
 and resume reuse the persisted model and effort; neither is inferred again.

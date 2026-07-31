@@ -188,6 +188,17 @@ export const environmentSchema = observabilityEnvironmentSchema
       emptyStringToUndefined,
       z.string().trim().min(1).max(200).optional(),
     ),
+    /**
+     * Thinking budget for the extraction call. Unset — the default — sends no
+     * reasoning field at all, which is not the same as sending `none`: it leaves
+     * each provider on its own default rather than overriding it. The permitted
+     * vocabulary is the feedback module's, checked there for the same reason as
+     * the model id above.
+     */
+    FEEDBACK_EXTRACTION_REASONING_EFFORT: z.preprocess(
+      emptyStringToUndefined,
+      z.string().trim().min(1).max(20).optional(),
+    ),
     WASENDER_SESSION_API_KEY: optionalCredential,
     WASENDER_WEBHOOK_ENABLED: booleanFromEnvironment,
     WASENDER_WEBHOOK_SECRET: optionalWebhookSecret,

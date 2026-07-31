@@ -35,8 +35,8 @@ describe("assistant schemas", () => {
   it("maps every public model id to the exact provider model id", () => {
     expect(ASSISTANT_MODEL_ADAPTERS).toEqual({
       "openai/gpt-5.6-luna": {
-        provider: "openrouter",
-        providerModelId: "openai/gpt-5.6-luna",
+        provider: "openai",
+        providerModelId: "gpt-5.6-luna",
       },
       "openai/gpt-5.6-terra": {
         provider: "openrouter",
@@ -56,12 +56,20 @@ describe("assistant schemas", () => {
   // The failure this guards against is silent: an entry naming a provider this
   // deployment holds no credit with still typechecks, still reads like a
   // deliberate route, and only shows up as `provider_error` on every call.
-  it("routes every model through the one provider this deployment funds", () => {
+  //
+  // Two providers are funded as of 2026-07-31, so this can no longer assert a
+  // single route. What it can still assert is the half that was silently wrong
+  // for free: the id shape has to match the provider that receives it, and the
+  // two vocabularies are incompatible. OpenRouter addresses models as
+  // `vendor/model` and resolves a bare name to nothing; OpenAI wants the bare
+  // name and rejects the prefixed one. Either mistake is a 404 on every call.
+  it("routes every model through a funded provider, addressed the way that provider expects", () => {
+    const funded = new Set(["openrouter", "openai"]);
     for (const [model, adapter] of Object.entries(ASSISTANT_MODEL_ADAPTERS)) {
-      expect(adapter.provider, model).toBe("openrouter");
-      // OpenRouter addresses models as `vendor/model`, so a bare provider id
-      // here would resolve to nothing.
-      expect(adapter.providerModelId, model).toContain("/");
+      expect(funded.has(adapter.provider), model).toBe(true);
+      expect(adapter.providerModelId.includes("/"), model).toBe(
+        adapter.provider === "openrouter",
+      );
     }
   });
 

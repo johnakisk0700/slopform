@@ -14,18 +14,22 @@ export interface AssistantModelAdapter {
  * table is the complete adapter boundary: changing providers never rewrites a
  * saved turn, and no model may silently substitute another model.
  *
- * Every entry is reached through OpenRouter, which is the only provider this
- * deployment holds credit with. The two OpenAI models used to name `openai`
- * here and it read as a routing choice; it was really an unfunded one. A 2026-07-27
- * rehearsal pointed extraction at `openai/gpt-5.6-luna` and every one of the
+ * The route is chosen per entry by **which account is funded**, never by which
+ * name reads better. A 2026-07-27 rehearsal pointed extraction at
+ * `openai/gpt-5.6-luna` while the OpenAI account was empty, and every one of the
  * thirty-six extract jobs died on `provider_error` before a single token was
- * billed. OpenRouter serves the same two model ids verbatim, so the public ids
- * did not have to move — only the route under them.
+ * billed; the whole table moved to OpenRouter that day. On 2026-07-31 the OpenAI
+ * account was funded, so Luna goes direct — which also buys the `xhigh`
+ * reasoning effort OpenRouter does not expose on this model.
+ *
+ * Note the id shapes differ per provider and are not cosmetic: OpenRouter
+ * addresses models as `vendor/model`, OpenAI wants the bare name. The public id
+ * stays `openai/gpt-5.6-luna` either way, so nothing already persisted moves.
  */
 export const ASSISTANT_MODEL_ADAPTERS = {
   "openai/gpt-5.6-luna": {
-    provider: "openrouter",
-    providerModelId: "openai/gpt-5.6-luna",
+    provider: "openai",
+    providerModelId: "gpt-5.6-luna",
   },
   "openai/gpt-5.6-terra": {
     provider: "openrouter",

@@ -6,14 +6,23 @@ import {
 } from "ai";
 import { describe, expect, it } from "vitest";
 
-import { ASSISTANT_MODEL_ADAPTERS } from "../../assistant/assistant-models.js";
+import {
+  ASSISTANT_MODEL_ADAPTERS,
+  assistantModelAdapter,
+} from "../../assistant/assistant-models.js";
+import type { AssistantModel } from "../../assistant/assistant.schemas.js";
 import { FeedbackAttentionClassificationValidationError } from "./attention-classification.js";
 import {
   FEEDBACK_EXTRACTION_DEFAULT_MODEL,
+  FEEDBACK_EXTRACTION_MAX_OUTPUT_TOKENS,
+  FEEDBACK_EXTRACTION_THINKING_MAX_OUTPUT_TOKENS,
   FeedbackExtractionGenerationError,
   feedbackAttentionClassificationProviderOptions,
+  feedbackExtractionMaxOutputTokens,
+  feedbackExtractionProviderOptions,
   isFeedbackProviderIncident,
   resolveFeedbackExtractionModel,
+  resolveFeedbackExtractionReasoningEffort,
   toGenerationError,
 } from "./model.service.js";
 
@@ -38,19 +47,65 @@ describe("feedback extraction model selection", () => {
   });
 
   // Asserted across the whole registry rather than on one id, because the
-  // registry is what decides this: the function keys off the adapter's provider,
-  // and every entry now routes through OpenRouter. The `undefined` branch is
-  // still correct code for a future non-OpenRouter provider but is no longer
-  // reachable through any registered model, so no model id can stand for it.
-  it("disables OpenRouter reasoning for the bounded classifier task", () => {
-    for (const id of Object.keys(ASSISTANT_MODEL_ADAPTERS)) {
-      expect(
-        feedbackAttentionClassificationProviderOptions(
-          id as keyof typeof ASSISTANT_MODEL_ADAPTERS,
-        ),
-        id,
-      ).toEqual({ openrouter: { reasoning: { effort: "none" } } });
+  // registry is what decides this: the function keys off the adapter's provider.
+  // An earlier version of this test asserted the OpenRouter shape for every
+  // entry and noted that the other branch was unreachable — which held only
+  // while every model routed through OpenRouter. When Luna moved to OpenAI that
+  // branch returned `undefined`, meaning «no reasoning field», meaning the
+  // provider's own default effort against a 1,024-token ceiling. Silent, billed
+  // per message, and visible only as a truncated classification.
+  it("disables reasoning for the bounded classifier task, in each provider's own spelling", () => {
+    for (const id of Object.keys(
+      ASSISTANT_MODEL_ADAPTERS,
+    ) as AssistantModel[]) {
+      const expected =
+        assistantModelAdapter(id).provider === "openai"
+          ? { openai: { reasoningEffort: "none" } }
+          : { openrouter: { reasoning: { effort: "none" } } };
+      expect(feedbackAttentionClassificationProviderOptions(id), id).toEqual(
+        expected,
+      );
     }
+  });
+
+  it("sends no reasoning field until one is configured", () => {
+    expect(resolveFeedbackExtractionReasoningEffort(undefined)).toBeUndefined();
+    expect(resolveFeedbackExtractionReasoningEffort("")).toBeUndefined();
+    expect(
+      feedbackExtractionProviderOptions("openai/gpt-5.6-luna", undefined),
+    ).toBeUndefined();
+    expect(() => resolveFeedbackExtractionReasoningEffort("maximum")).toThrow(
+      /FEEDBACK_EXTRACTION_REASONING_EFFORT/u,
+    );
+  });
+
+  it("spells the configured effort for the provider that receives it", () => {
+    expect(
+      feedbackExtractionProviderOptions("openai/gpt-5.6-luna", "xhigh"),
+    ).toEqual({ openai: { reasoningEffort: "xhigh" } });
+    expect(
+      feedbackExtractionProviderOptions("google/gemini-3.6-flash", "high"),
+    ).toEqual({ openrouter: { reasoning: { effort: "high" } } });
+  });
+
+  // The measured failure this guards: at `xhigh` Luna spent the entire 2,048
+  // budget thinking and emitted no object at all, which this module maps to a
+  // retryable error — so the run pays for the same silence on every attempt.
+  it("raises the output ceiling whenever the model is allowed to think", () => {
+    expect(feedbackExtractionMaxOutputTokens(undefined)).toBe(
+      FEEDBACK_EXTRACTION_MAX_OUTPUT_TOKENS,
+    );
+    expect(feedbackExtractionMaxOutputTokens("none")).toBe(
+      FEEDBACK_EXTRACTION_MAX_OUTPUT_TOKENS,
+    );
+    for (const effort of ["low", "medium", "high", "xhigh"] as const) {
+      expect(feedbackExtractionMaxOutputTokens(effort), effort).toBe(
+        FEEDBACK_EXTRACTION_THINKING_MAX_OUTPUT_TOKENS,
+      );
+    }
+    expect(FEEDBACK_EXTRACTION_THINKING_MAX_OUTPUT_TOKENS).toBeGreaterThan(
+      FEEDBACK_EXTRACTION_MAX_OUTPUT_TOKENS,
+    );
   });
 });
 

@@ -779,6 +779,27 @@ missing. `FEEDBACK_EXTRACTION_MODEL` selects the model and defaults to
 `google/gemini-3.6-flash` (D12); an unregistered id fails at worker start rather
 than quietly using the default. Provider clients live in the worker module only.
 
+`FEEDBACK_EXTRACTION_REASONING_EFFORT` sets the thinking budget for the
+extraction call — `none`, `low`, `medium`, `high` or `xhigh`, spelled for
+whichever provider the registry chose. **Unset is not `none`.** Unset sends no
+reasoning field at all and leaves the provider on its own default; `none`
+overrides it. The default is unset, so a campaign that never asked for thinking
+behaves exactly as it did before the setting existed.
+
+Anything above `none` also raises `maxOutputTokens` from 2,048 to 16,384,
+because **reasoning tokens are spent from the same output budget as the answer**.
+Measured on `gpt-5.6-luna`, 2026-07-31, with a transcript far shorter than a real
+one: `high` produced 1,466 reasoning tokens and cleared the old 2,048 ceiling by
+ninety-two, and `xhigh` spent the entire 2,048 thinking and **emitted no object
+at all**. That surfaces as `NoObjectGeneratedError`, which this module treats as
+retryable — so the run pays for the same silence on every attempt. A ceiling is
+not a charge; it only has to leave room for the answer after the thinking.
+
+The attention classifier is pinned at `none` regardless, in its provider's own
+spelling. It answers a bounded per-message question, is billed on every message
+in the campaign, and its batch reply is capped at 1,024 tokens — which `xhigh`
+alone would exceed before writing a character.
+
 Extraction additionally sends **permissive safety thresholds** on its own call
 path ([`permissive-safety-settings.ts`](../../../apps/backend/src/modules/post-event-feedback/extraction/permissive-safety-settings.ts)).
 The registry routes `google/*` through OpenRouter, so the settings ride the

@@ -209,14 +209,136 @@ export interface FeedbackExtractionModelPort {
   ): Promise<FeedbackAttentionClassificationGenerationResult>;
 }
 
+/**
+ * The thinking budget the extraction call may ask for, in both providers'
+ * spellings.
+ *
+ * Deliberately not the assistant's `low | medium | high`. That enum is persisted
+ * on every turn behind the `assistant_turns_effort_check` constraint; this one
+ * is persisted nowhere, so widening it costs no migration. `xhigh` is offered by
+ * OpenAI on Luna and is not reachable through OpenRouter, which is the whole
+ * reason the Luna route moved — see `ASSISTANT_MODEL_ADAPTERS`.
+ */
+export const FEEDBACK_EXTRACTION_REASONING_EFFORTS = [
+  "none",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+] as const;
+
+export type FeedbackExtractionReasoningEffort =
+  (typeof FEEDBACK_EXTRACTION_REASONING_EFFORTS)[number];
+
+/**
+ * `undefined` — the default — means *send no reasoning field at all*, which is
+ * what this call did before the setting existed.
+ *
+ * That distinction is not pedantry. Omitting the field leaves each provider on
+ * its own default; sending `none` overrides it. Defaulting the new setting to
+ * `none` would therefore have silently changed how the default extraction model
+ * (`google/gemini-3.6-flash`, through OpenRouter) behaves on every campaign, to
+ * pay for a Luna experiment. An unrecognised value throws at worker start for
+ * the same reason `resolveFeedbackExtractionModel` does: the alternative is
+ * billing a whole rehearsal under a setting nobody chose.
+ */
+export function resolveFeedbackExtractionReasoningEffort(
+  configured: string | undefined,
+): FeedbackExtractionReasoningEffort | undefined {
+  if (!configured) {
+    return undefined;
+  }
+  const effort = FEEDBACK_EXTRACTION_REASONING_EFFORTS.find(
+    (candidate) => candidate === configured,
+  );
+  if (!effort) {
+    throw new Error(
+      `FEEDBACK_EXTRACTION_REASONING_EFFORT must be one of ${FEEDBACK_EXTRACTION_REASONING_EFFORTS.join(", ")}, received "${configured}"`,
+    );
+  }
+  return effort;
+}
+
+/**
+ * One thinking budget, spelled for whichever provider the registry chose.
+ *
+ * The two SDKs disagree on the shape, and a body sent in the wrong one is not an
+ * error — it is ignored, and the call quietly runs at the provider's default
+ * effort while the log claims otherwise.
+ */
+export function feedbackExtractionProviderOptions(
+  model: AssistantModel,
+  effort: FeedbackExtractionReasoningEffort | undefined,
+):
+  | NonNullable<Parameters<typeof generateObject>[0]["providerOptions"]>
+  | undefined {
+  if (!effort) {
+    return undefined;
+  }
+  return assistantModelAdapter(model).provider === "openai"
+    ? { openai: { reasoningEffort: effort } }
+    : { openrouter: { reasoning: { effort } } };
+}
+
+/** What a run with no thinking budget needs to emit one proposal. */
+export const FEEDBACK_EXTRACTION_MAX_OUTPUT_TOKENS = 2_048;
+
+/**
+ * The same ceiling once the model is allowed to think, because **reasoning
+ * tokens are spent from this budget**, not from a separate one.
+ *
+ * Measured against `gpt-5.6-luna` on 2026-07-31 with an eight-line transcript —
+ * far shorter than a real one — and a schema of this shape:
+ *
+ * | effort  | reasoning | total output | result                    |
+ * | ------- | --------- | ------------ | ------------------------- |
+ * | `none`  | 0         | 427          | completed                 |
+ * | `low`   | 90        | 654          | completed                 |
+ * | `high`  | 1,466     | 1,956        | completed, 92 to spare    |
+ * | `xhigh` | 2,048     | 2,048        | **incomplete, no output** |
+ *
+ * At `xhigh` the whole 2,048 went on thinking and the model never reached the
+ * object. That surfaces as `NoObjectGeneratedError`, which this module maps to a
+ * *retryable* failure — so BullMQ pays for the same silence again. `high` cleared
+ * it by ninety-two tokens on a transcript a fraction of the real size, which is
+ * not a margin.
+ *
+ * A ceiling is not a charge: a call that thinks for two thousand tokens bills
+ * two thousand whatever this says. It only has to be high enough that the answer
+ * still fits after the thinking.
+ */
+export const FEEDBACK_EXTRACTION_THINKING_MAX_OUTPUT_TOKENS = 16_384;
+
+export function feedbackExtractionMaxOutputTokens(
+  effort: FeedbackExtractionReasoningEffort | undefined,
+): number {
+  return effort && effort !== "none"
+    ? FEEDBACK_EXTRACTION_THINKING_MAX_OUTPUT_TOKENS
+    : FEEDBACK_EXTRACTION_MAX_OUTPUT_TOKENS;
+}
+
+/** One batch of per-message verdicts, and nothing else, fits in this. */
+export const FEEDBACK_ATTENTION_CLASSIFICATION_MAX_OUTPUT_TOKENS = 1_024;
+
+/**
+ * The classifier stays at zero thinking whatever the extraction call is doing.
+ *
+ * It answers a bounded per-message yes/no and is billed once per batch, so
+ * reasoning buys little and costs on every message in the campaign. The bound
+ * has teeth here: the batch reply is capped at 1,024 output tokens, and on the
+ * table above `xhigh` alone would eat twice that before writing a character.
+ *
+ * Returning `undefined` for a non-OpenRouter provider — which is what this did
+ * until Luna moved — is exactly that failure. It does not mean «no reasoning»;
+ * it means «whatever the provider defaults to», silently, against a 1,024
+ * ceiling.
+ */
 export function feedbackAttentionClassificationProviderOptions(
   model: AssistantModel,
 ):
   | NonNullable<Parameters<typeof generateObject>[0]["providerOptions"]>
   | undefined {
-  return assistantModelAdapter(model).provider === "openrouter"
-    ? { openrouter: { reasoning: { effort: "none" } } }
-    : undefined;
+  return feedbackExtractionProviderOptions(model, "none");
 }
 
 /**
@@ -265,6 +387,7 @@ export class PostEventFeedbackExtractionModel implements FeedbackExtractionModel
   private readonly openRouterProvider:
     ReturnType<typeof createOpenRouter> | undefined;
   readonly model: AssistantModel;
+  readonly reasoningEffort: FeedbackExtractionReasoningEffort | undefined;
 
   constructor(private readonly config: ConfigService<Environment, true>) {
     const openAiKey = this.config.get("OPENAI_API_KEY", { infer: true });
@@ -281,12 +404,19 @@ export class PostEventFeedbackExtractionModel implements FeedbackExtractionModel
     this.model = resolveFeedbackExtractionModel(
       this.config.get("FEEDBACK_EXTRACTION_MODEL", { infer: true }),
     );
+    this.reasoningEffort = resolveFeedbackExtractionReasoningEffort(
+      this.config.get("FEEDBACK_EXTRACTION_REASONING_EFFORT", { infer: true }),
+    );
   }
 
   async propose(
     prompt: FeedbackExtractionPrompt,
   ): Promise<FeedbackExtractionGenerationResult> {
     const model = this.resolveProviderModel(this.model);
+    const providerOptions = feedbackExtractionProviderOptions(
+      this.model,
+      this.reasoningEffort,
+    );
 
     try {
       const result = await generateObject({
@@ -297,7 +427,10 @@ export class PostEventFeedbackExtractionModel implements FeedbackExtractionModel
           "Structured post-event feedback extraction proposal validated by the application before persistence.",
         system: prompt.system,
         prompt: prompt.user,
-        maxOutputTokens: 2_048,
+        maxOutputTokens: feedbackExtractionMaxOutputTokens(
+          this.reasoningEffort,
+        ),
+        ...(providerOptions ? { providerOptions } : {}),
         // BullMQ owns visible retries, exactly as the assistant worker does.
         maxRetries: 0,
         abortSignal: AbortSignal.timeout(
@@ -352,7 +485,7 @@ export class PostEventFeedbackExtractionModel implements FeedbackExtractionModel
             "One contextual incident classification for every supplied participant message.",
           system: prompt.system,
           prompt: prompt.user,
-          maxOutputTokens: 1_024,
+          maxOutputTokens: FEEDBACK_ATTENTION_CLASSIFICATION_MAX_OUTPUT_TOKENS,
           maxRetries: 0,
           ...(providerOptions ? { providerOptions } : {}),
           abortSignal: AbortSignal.timeout(
