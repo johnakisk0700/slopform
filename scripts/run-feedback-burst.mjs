@@ -1649,7 +1649,9 @@ function sleep(ms) {
  * step the way `readGitRevision` soft-fails on a missing git.
  */
 async function readRunTokenCost(campaignIds) {
-  const ids = campaignIds.filter((id) => typeof id === "string" && id.length > 0);
+  const ids = campaignIds.filter(
+    (id) => typeof id === "string" && id.length > 0,
+  );
   if (ids.length === 0) {
     return { tokenUsage: null, costUsd: null };
   }
