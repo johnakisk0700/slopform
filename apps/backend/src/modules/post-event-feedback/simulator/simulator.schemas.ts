@@ -122,6 +122,7 @@ const feedbackSimulatorReplyIntentSchema = z.enum([
   "ask_liked",
   "ask_meet_again",
   "ask_avoid",
+  "ask_whether_to_mark_avoid",
   "clarify_subject",
   "reask_score_in_range",
   "disclose_bot_identity",

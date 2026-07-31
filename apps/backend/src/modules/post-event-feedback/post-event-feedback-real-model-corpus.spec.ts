@@ -3,10 +3,23 @@ import { describe, expect, it } from "vitest";
 import {
   POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS,
   POST_EVENT_FEEDBACK_CORPUS_CANDIDATE_SLOTS,
+  type PostEventFeedbackRealModelCorpusCase,
 } from "./post-event-feedback-real-model-corpus.js";
 import { feedbackSimulatorRubricSchema } from "./simulator/simulator.schemas.js";
 
 const CANDIDATE_PLACEHOLDER = /\{(candidate[1-7])\}/gu;
+
+function corpusCase(id: string): PostEventFeedbackRealModelCorpusCase {
+  const scenario = POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS.find(
+    (candidate) => candidate.id === id,
+  );
+
+  if (!scenario) {
+    throw new Error(`corpus case ${id} is missing`);
+  }
+
+  return scenario;
+}
 
 describe("post-event feedback real-model corpus", () => {
   it("keeps scenario ids unique", () => {
@@ -82,5 +95,56 @@ describe("post-event feedback real-model corpus", () => {
         );
       }
     }
+  });
+
+  // The two assertions below pin *content*, which nothing else here does — the
+  // rest of this file checks that a rubric is well-formed, not what it says.
+  // They exist because both values were wrong in ways that typecheck, parse and
+  // pass every structural test, and both cost paid runs to discover.
+  it("keeps the hostility band calibrated across the refusal register", () => {
+    // The S69/S70 fork reads one boolean, and the application's two endings hang
+    // off it: the same three messages either close as `declined` with the
+    // declined copy, or stay open with nothing sent at all. On 2026-07-31 three
+    // models split three ways on that judgement because no graded case sat
+    // between «άντε γαμήσου ρε μποτ» and crude-about-an-attendee. Flipping any
+    // row below re-opens the fork, so it should take a deliberate edit here.
+    expect(corpusCase("insults_the_bot").rubric.hostileToUs).toBe(true);
+
+    for (const id of ["annoyed_but_not_hostile", "declines_every_question"]) {
+      const scenario = corpusCase(id);
+
+      expect(
+        scenario.rubric.hostileToUs,
+        `${id} is the civil half of the fork and must not tick the ladder`,
+      ).toBe(false);
+      expect(
+        scenario.rubric.attention,
+        `${id} declines questions and describes no incident`,
+      ).toBeNull();
+      expect(
+        [...(scenario.rubric.skippedGoals ?? [])].sort(),
+        `${id} withdraws from the whole questionnaire, not the current goal`,
+      ).toEqual(["avoid", "event_score", "liked", "meet_again"]);
+    }
+  });
+
+  it("leaves the 9δ avoid undecided in both directions", () => {
+    // Prompt rule 9δ owns this shape — «κανέναν» first, an unpleasant
+    // description second — and says we decide neither way: the description is a
+    // note and the avoid goes back to her as a question. Banking it as
+    // skipped-confirmed is as much a decision as recording it, and the rubric
+    // did exactly that until the 2026-07-31 audit, failing every model that
+    // obeyed the prompt it was given.
+    const scenario = corpusCase("discloses_as_the_very_last_thing");
+
+    expect(scenario.rubric.skippedGoals ?? []).not.toContain("avoid");
+    expect(scenario.rubric.forbiddenAnswers).toContainEqual({
+      question: "avoid",
+      about: "candidate4",
+    });
+    expect(scenario.rubric.reply?.requiredIntent).toBe(
+      "ask_whether_to_mark_avoid",
+    );
+    expect(scenario.rubric.notes?.[0]?.about).toBe("candidate4");
   });
 });

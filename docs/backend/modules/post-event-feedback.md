@@ -1960,7 +1960,8 @@ left alone so side-question replies do not end the questionnaire.
 
 `liked` and `meet_again` are one decision said twice, so a single sentence
 routinely answers both: «η Μαρία μου άρεσε, μαζί της θα ξαναέβγαινα», «ο Σωτήρης
-ήταν οκ, θα τον ξαναέβλεπα άνετα». The model writes one of them down and reports
+ήταν καταπληκτικός, θα τον ξαναέβλεπα άνετα». The model writes one of them down
+and reports
 the other as having nothing in it, on roughly one run in three with the same
 prompt and the same message. Prompt rule 7β says exactly the right thing about
 this and does not stop it, so the ladder carries the net.

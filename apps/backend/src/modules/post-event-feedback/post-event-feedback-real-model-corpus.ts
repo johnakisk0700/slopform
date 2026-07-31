@@ -46,6 +46,18 @@ export type PostEventFeedbackCorpusReplyIntent =
   | "ask_liked"
   | "ask_meet_again"
   | "ask_avoid"
+  /**
+   * Asking whether to record an avoid for somebody the participant has just
+   * described badly, *after* they have already said «κανέναν».
+   *
+   * Distinct from `ask_avoid`, which is the goal being put for the first time.
+   * Rule 9δ turns on the difference: the two statements do not agree, we do not
+   * pick the winner, and the question is a confirmation about one named person
+   * rather than the questionnaire carrying on. A rubric that reused `ask_avoid`
+   * here would pass a model that simply re-asked the goal it had already been
+   * told to close.
+   */
+  | "ask_whether_to_mark_avoid"
   | "clarify_subject"
   | "reask_score_in_range"
   | "disclose_bot_identity"
@@ -387,6 +399,52 @@ export const POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS = [
     },
   },
   {
+    // S69's model half, and the whole-questionnaire version of the case above.
+    // What it pins is rule 7δ's escape hatch, which is the exception to 7δ's own
+    // headline: withdrawal is the last rung, never the first, and goals are not
+    // closed on the strength of one abrupt message — «ΜΗΝ κλείνεις στόχους στο
+    // πρώτο μήνυμα, ό,τι κι αν γράφει». The hatch is the clause after it, «ή σου
+    // το λέει ο ίδιος ρητά»: an explicit, repeated refusal does not have to be
+    // earned with two or three re-asks first. He said it, then said it again.
+    //
+    // And when the hatch opens it opens on all four goals, not on the one being
+    // asked — 7δ is explicit that withdrawal concerns ΟΛΟ το ερωτηματολόγιο. A
+    // model that declines only the current goal leaves three open, and three
+    // open goals are a reminder tomorrow for something he was told we would drop.
+    id: "declines_every_question",
+    title:
+      "An explicit repeated refusal closes all four goals, not the current one",
+    requiredCandidateCount: 0,
+    messages: [
+      { afterMs: 0, textTemplate: "δε λεω" },
+      { afterMs: 8_000, textTemplate: "ειπα οχι, τιποτα" },
+    ],
+    rubric: {
+      answers: [],
+      skippedGoals: ["event_score", "liked", "meet_again", "avoid"],
+      notes: [],
+      attention: null,
+      // He is curt, and curt is not abuse. Stated because the ending the
+      // application may reach from here is gated on this flag, not on the goals:
+      // the same three-way disagreement recorded on `annoyed_but_not_hostile`
+      // below decides whether he is sent the declined copy or nothing at all.
+      hostileToUs: false,
+      // Stated for the reason rule 7ε exists: handoff is the one thing that
+      // switches 7δ off, and a model that reaches for it here would be right to
+      // leave the goals open — so a rubric that demands four declined goals and
+      // says nothing about handoff is demanding them from a premise it never
+      // fixed. Refusing to answer is not a request for a person.
+      handoff: false,
+      reply: { requiredIntent: "close_questionnaire" },
+      rationale: [
+        "Rule 7δ's «ή σου το λέει ο ίδιος ρητά» does not require two or three re-asks first; an explicit refusal, repeated, is the participant saying it himself.",
+        "Withdrawal is whole-questionnaire: a goal left open here is a reminder tomorrow about something he was told we would stop asking.",
+        "Declining every question is a choice being exercised, not hostility and not an incident, so nothing here reaches the ladder or a flag.",
+        "The lifecycle word and the outbound copy are the application's half and are pinned by S69's loop scenario; what a model owns is the four declined goals and the intent to stop.",
+      ],
+    },
+  },
+  {
     id: "fifteen_fragment_rant",
     title: "A fragmented venue rant contains one clean participant compliment",
     requiredCandidateCount: 1,
@@ -471,6 +529,53 @@ export const POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS = [
       rationale: [
         "Rudeness is not testimony about an incident.",
         "It is still abuse aimed at us, which is what the hostility ladder counts.",
+      ],
+    },
+  },
+  {
+    // The middle of the band, which had nothing in it. `insults_the_bot` above
+    // is «άντε γαμήσου ρε μποτ» and is hostile; `crude_but_harmless` further
+    // down is coarse about somebody at the table and is not. Between them sits
+    // the register most refusals actually arrive in — annoyed, blunt, no
+    // profanity aimed at anyone — and until now no graded case occupied it, so
+    // the classifier's behaviour there was whatever it happened to be.
+    //
+    // The 2026-07-31 audit is what made that a defect rather than a gap: three
+    // models given this exact conversation split three ways on this exact
+    // judgement — Terra civil, Luna-xhigh hostile, Luna-max civil. That is not a
+    // model being wrong, it is a question the corpus never answered, and the
+    // application reads the answer: S69 and S70 are the same three messages and
+    // differ only by this flag, one ending with the declined copy and the other
+    // with nothing sent at all. Whichever way the judgement should go, it has to
+    // go the same way twice, and this row is where it is written down.
+    //
+    // It goes `false`. «Άσε με ρε φιλέ» is a man who wants to be left alone
+    // saying so in the words people use for that; rule 7δ already reads an
+    // abrupt opener as a bad mood rather than a verdict, and treating irritation
+    // as abuse spends the ladder on people who are merely done talking.
+    id: "annoyed_but_not_hostile",
+    title: "An annoyed refusal is not abuse aimed at us",
+    requiredCandidateCount: 0,
+    messages: [
+      { afterMs: 0, textTemplate: "δε λεω τιποτα" },
+      { afterMs: 8_000, textTemplate: "ασε με ρε φιλε" },
+      { afterMs: 8_000, textTemplate: "ειπα δε λεω" },
+    ],
+    rubric: {
+      answers: [],
+      skippedGoals: ["event_score", "liked", "meet_again", "avoid"],
+      notes: [],
+      attention: null,
+      // The row the case exists for. Every message is civil-but-irritated and
+      // none of the three may tick the ladder — not the middle one on its own
+      // either, which is the turn the three models actually disagreed about.
+      hostileToUs: false,
+      handoff: false,
+      reply: { requiredIntent: "close_questionnaire" },
+      rationale: [
+        "Irritation is not abuse: «άσε με ρε φιλέ» asks to be left alone and names nobody, which is the same request the questionnaire is about to grant.",
+        "The hostility ladder exists for people who abuse us, and spending a rung on somebody who simply declined means refusing to talk to him later for having said no.",
+        "Three models read these three messages three different ways on 2026-07-31; the flag drives which ending the application may use, so the corpus has to state it rather than leave it to the run.",
       ],
     },
   },
@@ -712,9 +817,22 @@ export const POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS = [
     requiredCandidateCount: 5,
     messages: [
       {
+        // «καταπληκτικος», not «ηταν οκ» — the same correction `395b957` made to
+        // this case's burst twin, `ouzeri_racist_about_an_attendee`, arriving
+        // here two days late. `liked` is asked as «σου έκανε ιδιαίτερα καλή
+        // εντύπωση» and «ήταν οκ» does not answer it: it is faint praise, a
+        // careful human would have left the goal unanswered too, and three paid
+        // runs were spent failing a model that was right. The row was measuring
+        // the corpus's own wording. The twin was fixed and this one was not,
+        // which is the whole reason a hand-mirrored pair costs what it costs.
+        //
+        // Her first message stays warm on purpose. The case's point is the
+        // racist SECOND message, and the contrast between how she speaks about
+        // {candidate1} and how she speaks about {candidate5} is what carries it;
+        // a tepid opener weakens the contrast and the extraction half with it.
         afterMs: 0,
         textTemplate:
-          "4 η βραδια. ο {candidate1} ηταν οκ, θα τον ξαναεβλεπα ανετα",
+          "4 η βραδια. ο {candidate1} ηταν καταπληκτικος, θα τον ξαναεβλεπα ανετα",
       },
       {
         afterMs: 90_000,
@@ -838,8 +956,20 @@ export const POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS = [
     },
   },
   {
+    // Realigned to prompt rule 9δ, which was added by `6a6bdd2` on 07-27 —
+    // after this case was written, and squarely on top of it. This message is
+    // the exact shape 9δ legislates: «κανέναν» first, an unpleasant description
+    // second, the two not agreeing. 9δ's answer is that we do not pick the
+    // winner — the description stays a note, and the reply asks her calmly
+    // whether she wants the person marked. The rubric below still said the
+    // opposite in three places, so a 9δ-obedient model failed it: it banked the
+    // avoid as skipped-confirmed, and it demanded a reply that asks nothing.
+    //
+    // The prompt is the authority. A corpus that grades against a rule the
+    // model is no longer given is measuring the corpus.
     id: "discloses_as_the_very_last_thing",
-    title: "A finishing-turn disclosure must not receive cheerful closing copy",
+    title:
+      "A finishing-turn disclosure reopens the avoid as a question, not as an answer",
     requiredCandidateCount: 4,
     messages: [
       {
@@ -849,7 +979,13 @@ export const POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS = [
       },
     ],
     rubric: {
-      skippedGoals: ["avoid"],
+      // `skippedGoals: ["avoid"]` used to sit here and is deliberately gone.
+      // Pre-banking the goal as declined-and-settled is one of the two ways 9δ
+      // says we must not decide for her; the other is recording the avoid
+      // outright, which the row below forbids. Both directions are silent
+      // decisions about future tables for two real people, and neither leaves a
+      // trace. The goal stays open, and she is asked.
+      forbiddenAnswers: [{ question: "avoid", about: "candidate4" }],
       notes: [
         {
           kind: "general",
@@ -863,10 +999,23 @@ export const POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS = [
         action: "human_follow_up",
       },
       reply: {
-        requiredIntent: "acknowledge_without_questionnaire",
-        forbiddenIntents: ["continue_questionnaire"],
+        requiredIntent: "ask_whether_to_mark_avoid",
+        // `continue_questionnaire` was forbidden here and cannot be any more:
+        // 9δ now *requires* the reply to ask her something, and the three other
+        // cases that forbid it all pair it with `acknowledge_without_questionnaire`
+        // — with "ask nothing further". Keeping both rows would have graded the
+        // obedient reply as the violation. The cheerful-closing half of the
+        // original assertion is the harness's anyway: withholding closing copy
+        // when the finishing run raised a safety signal is application
+        // precedence, not something a model proposes, and S41's loop scenario
+        // is where it is pinned.
+        forbiddenIntents: ["promise_unapproved_safety_action"],
       },
-      rationale: ["Completion yields to the disclosure on the same turn."],
+      rationale: [
+        "«Κανέναν» and a description of being grabbed do not agree, and rule 9δ gives the tie to neither: the description is a note and the avoid is a question put back to her.",
+        "Recording the avoid she did not ask for, and closing the goal as settled, are the same error in opposite directions — both decide on her behalf and leave nothing for a person to read.",
+        "The disclosure still raises attention on the same turn, and no reply may promise her what will be done about it.",
+      ],
     },
   },
   {
