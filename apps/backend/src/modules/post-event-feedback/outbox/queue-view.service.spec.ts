@@ -1,3 +1,4 @@
+import type { MessageOutboxLogRow } from "@join-the-six/database";
 import type { Queue } from "bullmq";
 import { describe, expect, it, vi } from "vitest";
 
@@ -5,6 +6,7 @@ import type { ParticipantsRepository } from "../../participants/participants.rep
 import type { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
 import type { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
 import type { FeedbackJobData, FeedbackJobName } from "../jobs.schemas.js";
+import type { FeedbackOutboundLogRepository } from "./outbound-log.repository.js";
 import type { FeedbackOutboxRepository } from "./outbox.repository.js";
 import {
   FeedbackOutboxMessageNotFoundError,
@@ -40,9 +42,40 @@ const outboxRow = {
   updatedAt: new Date("2026-07-27T11:41:00.000Z"),
 };
 
+const outboundLogRow = {
+  id: "a1b2c3d4-e5f6-4789-a012-3456789abcde",
+  outboxId: OUTBOX_ID,
+  conversationId: CONVERSATION_ID,
+  campaignId: CAMPAIGN_ID,
+  origin: "extraction_reply" as const,
+  correlationId: "correlation-extract-1",
+  decision: {
+    origin: "extraction_reply" as const,
+    model: "test-model",
+    confidence: 0.91,
+    closingReason: null,
+    askedGoal: "event_score",
+    goalStatuses: [{ key: "event_score", status: "asked" }],
+  },
+  conversationState: {
+    lifecycle: { state: "open" as const, reason: null },
+    control: { mode: "bot" as const, source: "launch" as const },
+    awaitingHuman: false,
+    needsAttention: false,
+    unresolvedAttentionCount: 0,
+    goals: [{ key: "event_score" as const, status: "asked" as const }],
+    messageCount: 2,
+    latestMessageSeq: 2,
+    extractionCursorSeq: 2,
+    reminderCount: 0,
+  },
+  createdAt: new Date("2026-07-27T11:41:00.500Z"),
+} satisfies MessageOutboxLogRow;
+
 function createService(overrides: {
   queue?: Partial<Queue>;
   outbox?: Partial<FeedbackOutboxRepository>;
+  outboundLogs?: Partial<FeedbackOutboundLogRepository>;
   campaigns?: Partial<FeedbackCampaignRepository>;
   conversations?: Partial<FeedbackConversationRepository>;
   participants?: Partial<ParticipantsRepository>;
@@ -59,6 +92,10 @@ function createService(overrides: {
       findOutboxById: vi.fn().mockResolvedValue(undefined),
       ...overrides.outbox,
     } as unknown as FeedbackOutboxRepository,
+    {
+      findLogByOutboxId: vi.fn().mockResolvedValue(undefined),
+      ...overrides.outboundLogs,
+    } as unknown as FeedbackOutboundLogRepository,
     {
       findCampaignById: vi.fn().mockResolvedValue({ status: "launched" }),
       ...overrides.campaigns,
@@ -270,6 +307,54 @@ describe("FeedbackOutboxQueueViewService.getMessageDelivery", () => {
       providerMessageId: "wa-123",
       sentAt: "2026-07-27T11:41:30.000Z",
     });
+  });
+
+  it("returns the decision log when one exists for the row", async () => {
+    const { service } = createService({
+      outbox: { findOutboxById: vi.fn().mockResolvedValue(outboxRow) },
+      outboundLogs: {
+        findLogByOutboxId: vi.fn().mockResolvedValue(outboundLogRow),
+      },
+    });
+
+    const view = await service.getMessageDelivery(OUTBOX_ID, NOW);
+
+    expect(view.log).toEqual({
+      origin: "extraction_reply",
+      correlationId: "correlation-extract-1",
+      decision: outboundLogRow.decision,
+      conversationState: outboundLogRow.conversationState,
+      createdAt: "2026-07-27T11:41:00.500Z",
+    });
+  });
+
+  it("returns log null when the row has no decision log", async () => {
+    const { service } = createService({
+      outbox: { findOutboxById: vi.fn().mockResolvedValue(outboxRow) },
+    });
+
+    await expect(
+      service.getMessageDelivery(OUTBOX_ID, NOW),
+    ).resolves.toMatchObject({ log: null });
+  });
+
+  it("returns log null when the stored decision no longer parses", async () => {
+    const { service } = createService({
+      outbox: { findOutboxById: vi.fn().mockResolvedValue(outboxRow) },
+      outboundLogs: {
+        findLogByOutboxId: vi.fn().mockResolvedValue({
+          ...outboundLogRow,
+          decision: {
+            origin: "extraction_reply",
+            // Missing every field the schema requires.
+          },
+        }),
+      },
+    });
+
+    await expect(
+      service.getMessageDelivery(OUTBOX_ID, NOW),
+    ).resolves.toMatchObject({ log: null });
   });
 
   it("rejects an unknown outbox id", async () => {

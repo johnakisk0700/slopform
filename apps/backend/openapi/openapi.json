@@ -2839,6 +2839,409 @@
             ],
             "type": "string"
           },
+          "log": {
+            "additionalProperties": false,
+            "nullable": true,
+            "properties": {
+              "conversationState": {
+                "additionalProperties": false,
+                "properties": {
+                  "awaitingHuman": {
+                    "type": "boolean"
+                  },
+                  "control": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "mode": {
+                        "enum": [
+                          "bot",
+                          "human"
+                        ],
+                        "type": "string"
+                      },
+                      "source": {
+                        "enum": [
+                          "launch",
+                          "staff_action",
+                          "external_outbound"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "mode",
+                      "source"
+                    ],
+                    "type": "object"
+                  },
+                  "extractionCursorSeq": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "goals": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "key": {
+                          "enum": [
+                            "event_score",
+                            "liked",
+                            "meet_again",
+                            "avoid"
+                          ],
+                          "type": "string"
+                        },
+                        "status": {
+                          "enum": [
+                            "pending",
+                            "asked",
+                            "answered",
+                            "skipped"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "key",
+                        "status"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "latestMessageSeq": {
+                    "maximum": 9007199254740991,
+                    "minimum": 1,
+                    "nullable": true,
+                    "type": "integer"
+                  },
+                  "lifecycle": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "reason": {
+                        "enum": [
+                          "completed",
+                          "declined",
+                          "stopped",
+                          "expired",
+                          "cancelled",
+                          null
+                        ],
+                        "nullable": true,
+                        "type": "string"
+                      },
+                      "state": {
+                        "enum": [
+                          "open",
+                          "closed"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "state",
+                      "reason"
+                    ],
+                    "type": "object"
+                  },
+                  "messageCount": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "needsAttention": {
+                    "type": "boolean"
+                  },
+                  "reminderCount": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "unresolvedAttentionCount": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "lifecycle",
+                  "control",
+                  "awaitingHuman",
+                  "needsAttention",
+                  "unresolvedAttentionCount",
+                  "goals",
+                  "messageCount",
+                  "latestMessageSeq",
+                  "extractionCursorSeq",
+                  "reminderCount"
+                ],
+                "type": "object"
+              },
+              "correlationId": {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              "createdAt": {
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                "type": "string"
+              },
+              "decision": {
+                "oneOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "askedGoal": {
+                        "nullable": true,
+                        "type": "string"
+                      },
+                      "closingReason": {
+                        "enum": [
+                          "completed",
+                          "declined",
+                          null
+                        ],
+                        "nullable": true,
+                        "type": "string"
+                      },
+                      "confidence": {
+                        "maximum": 1,
+                        "minimum": 0,
+                        "nullable": true,
+                        "type": "number"
+                      },
+                      "goalStatuses": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "key": {
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            "status": {
+                              "minLength": 1,
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "key",
+                            "status"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "model": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "origin": {
+                        "enum": [
+                          "extraction_reply"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "origin",
+                      "model",
+                      "confidence",
+                      "closingReason",
+                      "askedGoal",
+                      "goalStatuses"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "cause": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "origin": {
+                        "enum": [
+                          "extraction_fallback_fence"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "origin",
+                      "cause"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "cause": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "origin": {
+                        "enum": [
+                          "extraction_fallback_ack"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "origin",
+                      "cause"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "cause": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "origin": {
+                        "enum": [
+                          "extraction_parked_notice"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "origin",
+                      "cause"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "origin": {
+                        "enum": [
+                          "stop_ack"
+                        ],
+                        "type": "string"
+                      },
+                      "sourceIngressId": {
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "origin",
+                      "sourceIngressId"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "origin": {
+                        "enum": [
+                          "media_notice"
+                        ],
+                        "type": "string"
+                      },
+                      "sourceIngressId": {
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "origin",
+                      "sourceIngressId"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "origin": {
+                        "enum": [
+                          "staff_message"
+                        ],
+                        "type": "string"
+                      },
+                      "staffActorId": {
+                        "minLength": 1,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "origin",
+                      "staffActorId"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "conversationCreated": {
+                        "type": "boolean"
+                      },
+                      "origin": {
+                        "enum": [
+                          "campaign_intro"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "origin",
+                      "conversationCreated"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "origin": {
+                        "enum": [
+                          "reminder"
+                        ],
+                        "type": "string"
+                      },
+                      "rung": {
+                        "maximum": 9007199254740991,
+                        "minimum": 1,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "origin",
+                      "rung"
+                    ],
+                    "type": "object"
+                  }
+                ]
+              },
+              "origin": {
+                "enum": [
+                  "extraction_reply",
+                  "extraction_fallback_fence",
+                  "extraction_fallback_ack",
+                  "extraction_parked_notice",
+                  "stop_ack",
+                  "media_notice",
+                  "staff_message",
+                  "campaign_intro",
+                  "reminder"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "origin",
+              "correlationId",
+              "decision",
+              "conversationState",
+              "createdAt"
+            ],
+            "type": "object"
+          },
           "observedAt": {
             "format": "date-time",
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
@@ -2922,7 +3325,8 @@
           "providerLogId",
           "providerMessageId",
           "reclaimAt",
-          "job"
+          "job",
+          "log"
         ],
         "type": "object"
       },

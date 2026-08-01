@@ -1,7 +1,10 @@
 import { InjectQueue } from "@nestjs/bullmq";
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import type { Queue } from "bullmq";
-import type { FeedbackCampaignStatus } from "@join-the-six/database";
+import type {
+  FeedbackCampaignStatus,
+  MessageOutboxLogRow,
+} from "@join-the-six/database";
 
 import { FEEDBACK_QUEUE } from "../../../infrastructure/queue/queue.constants.js";
 import { ParticipantsRepository } from "../../participants/participants.repository.js";
@@ -10,15 +13,17 @@ import { FeedbackConversationRepository } from "../post-event-feedback-conversat
 import { displayNameFor } from "../inbox/conversation.view.js";
 import type { FeedbackJobData, FeedbackJobName } from "../jobs.schemas.js";
 import { inspectFeedbackDeliverJob } from "./inspect-deliver-job.js";
+import { FeedbackOutboundLogRepository } from "./outbound-log.repository.js";
 import {
   FEEDBACK_OUTBOX_QUEUE_VIEW_LIMIT,
   FEEDBACK_OUTBOX_RECOVERY_MS,
   FeedbackOutboxRepository,
 } from "./outbox.repository.js";
-import type {
-  FeedbackOutboxMessageDeliveryView,
-  FeedbackOutboxQueueItemView,
-  FeedbackOutboxQueueView,
+import {
+  feedbackOutboxMessageLogSchema,
+  type FeedbackOutboxMessageDeliveryView,
+  type FeedbackOutboxQueueItemView,
+  type FeedbackOutboxQueueView,
 } from "./queue-view.schemas.js";
 
 export class FeedbackOutboxMessageNotFoundError extends Error {
@@ -43,10 +48,13 @@ export class FeedbackOutboxMessageNotFoundError extends Error {
  */
 @Injectable()
 export class FeedbackOutboxQueueViewService {
+  private readonly logger = new Logger(FeedbackOutboxQueueViewService.name);
+
   constructor(
     @InjectQueue(FEEDBACK_QUEUE)
     private readonly queue: Queue<FeedbackJobData, void, FeedbackJobName>,
     private readonly outbox: FeedbackOutboxRepository,
+    private readonly outboundLogs: FeedbackOutboundLogRepository,
     private readonly campaigns: FeedbackCampaignRepository,
     private readonly conversations: FeedbackConversationRepository,
     private readonly participants: ParticipantsRepository,
@@ -111,8 +119,8 @@ export class FeedbackOutboxQueueViewService {
   }
 
   /**
-   * One opened row: its durable status and timestamps, plus the live state of
-   * its delivery job.
+   * One opened row: its durable status and timestamps, the live state of its
+   * delivery job, and the decision log that produced it when one exists.
    *
    * Any status is accepted, not only the undelivered three. A row that reached
    * the participant between two polls of the list should answer with what
@@ -127,9 +135,10 @@ export class FeedbackOutboxQueueViewService {
       throw new FeedbackOutboxMessageNotFoundError(outboxId);
     }
 
-    const [campaign, job] = await Promise.all([
+    const [campaign, job, logRow] = await Promise.all([
       this.campaigns.findCampaignById(row.campaignId),
       inspectFeedbackDeliverJob(this.queue, row.id),
+      this.outboundLogs.findLogByOutboxId(outboxId),
     ]);
 
     return {
@@ -175,7 +184,39 @@ export class FeedbackOutboxQueueViewService {
         finishedAt: job.finishedAt?.toISOString() ?? null,
         failedReason: job.failedReason,
       },
+      log: this.readOutboundLog(logRow),
     };
+  }
+
+  /**
+   * A drifted jsonb payload must not 500 the operator screen. Absence and
+   * unreadable history are both `null`; the warn is how we notice the latter.
+   */
+  private readOutboundLog(
+    row: MessageOutboxLogRow | undefined,
+  ): FeedbackOutboxMessageDeliveryView["log"] {
+    if (!row) {
+      return null;
+    }
+
+    const parsed = feedbackOutboxMessageLogSchema.safeParse({
+      origin: row.origin,
+      correlationId: row.correlationId,
+      decision: row.decision,
+      conversationState: row.conversationState,
+      createdAt: row.createdAt.toISOString(),
+    });
+
+    if (!parsed.success) {
+      this.logger.warn({
+        event: "feedback.outbox.log_unreadable",
+        outboxId: row.outboxId,
+        issues: parsed.error.issues.length,
+      });
+      return null;
+    }
+
+    return parsed.data;
   }
 }
 

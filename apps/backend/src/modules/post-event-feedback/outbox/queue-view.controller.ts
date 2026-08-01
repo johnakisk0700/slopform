@@ -48,6 +48,10 @@ export class PostEventFeedbackOutboxController {
     return this.queueView.listQueue();
   }
 
+  /**
+   * One opened row. Carries the decision log when `message_outbox_log` has a
+   * row for it; the list endpoint never joins that table.
+   */
   @Get(":outboxId")
   @ApiOperation({ operationId: "getFeedbackOutboxMessage" })
   @Header("Cache-Control", "no-store")

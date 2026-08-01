@@ -2,12 +2,15 @@ import {
   FEEDBACK_CAMPAIGN_STATUSES,
   MESSAGE_OUTBOX_DELIVERY_STATUSES,
   MESSAGE_OUTBOX_KINDS,
+  MESSAGE_OUTBOX_LOG_ORIGINS,
   MESSAGE_OUTBOX_STATUSES,
 } from "@join-the-six/database";
 import { createZodDto } from "nestjs-zod";
 import { z } from "zod";
 
 import { FEEDBACK_DELIVER_JOB_STATES } from "./inspect-deliver-job.js";
+import { feedbackOutboundDecisionSchema } from "./outbound-log.schemas.js";
+import { outboundConversationSnapshotSchema } from "./outbound-log.snapshot.js";
 import {
   FEEDBACK_OUTBOX_QUEUE_VIEW_LIMIT,
   FEEDBACK_OUTBOX_UNDELIVERED_STATUSES,
@@ -108,6 +111,21 @@ export const feedbackOutboxDeliverJobSchema = z
   .strict();
 
 /**
+ * The decision that produced this outbox row, plus the conversation summary
+ * captured beside it. Null when the row predates `message_outbox_log` or the
+ * stored jsonb no longer parses — the detail screen must still load.
+ */
+export const feedbackOutboxMessageLogSchema = z
+  .object({
+    origin: z.enum(MESSAGE_OUTBOX_LOG_ORIGINS),
+    correlationId: z.string().min(1).max(200),
+    decision: feedbackOutboundDecisionSchema,
+    conversationState: outboundConversationSnapshotSchema,
+    createdAt: z.iso.datetime(),
+  })
+  .strict();
+
+/**
  * Everything durable about one outbox row, plus the one Redis lookup an opened
  * row is allowed to cost.
  *
@@ -144,6 +162,7 @@ export const feedbackOutboxMessageDeliverySchema = z
      */
     reclaimAt: z.iso.datetime().nullable(),
     job: feedbackOutboxDeliverJobSchema,
+    log: feedbackOutboxMessageLogSchema.nullable(),
   })
   .strict();
 
