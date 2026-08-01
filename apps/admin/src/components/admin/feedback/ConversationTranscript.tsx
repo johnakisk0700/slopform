@@ -28,7 +28,7 @@ import {
 import type { FeedbackConversationDetailDtoOutput } from "../../../api/generated/model/feedbackConversationDetailDtoOutput";
 import type { FeedbackConversationDetailDtoOutputMessagesItem } from "../../../api/generated/model/feedbackConversationDetailDtoOutputMessagesItem";
 import {
-  conversationBadges,
+  closedConversationLine,
   formatTimestamp,
   transcriptMessageAnchorId,
 } from "../../../features/feedback/conversationView";
@@ -52,8 +52,9 @@ import { FeedbackBadges } from "./FeedbackBadges";
 /**
  * Per-actor treatment. Outbound sides (bot, staff) sit right against a filled
  * surface; the participant sits left on a plain card; system lines are
- * centred, quiet and full width. Every bubble also names its actor in text, so
- * the alignment and tone are redundant rather than load-bearing.
+ * centred, quiet and full width. A run of messages names its actor in text at
+ * its start (and `sr-only` on every bubble), so the alignment and tone are
+ * reinforcement rather than the only channel.
  */
 const ACTOR_STYLES: Record<
   FeedbackConversationDetailDtoOutputMessagesItem["actor"],
@@ -157,9 +158,17 @@ function InlineDeliveryStatus({
 
 interface TranscriptMessageProps {
   message: FeedbackConversationDetailDtoOutputMessagesItem;
+  /**
+   * True at the start of a run — the first message, or one whose actor differs
+   * from the message above it. The visible actor label renders only there:
+   * within a run the side and fill already carry the actor, and a caps label
+   * on every bubble was the most repeated text on the screen. Continuations
+   * keep an `sr-only` label, so a screen reader still hears every speaker.
+   */
+  startsRun: boolean;
 }
 
-function TranscriptMessage({ message }: TranscriptMessageProps) {
+function TranscriptMessage({ message, startsRun }: TranscriptMessageProps) {
   const styles = ACTOR_STYLES[message.actor];
   const delivery = deliveryBadge(message.delivery);
   const awaiting = awaitingDeliveryReason(message.delivery);
@@ -176,7 +185,11 @@ function TranscriptMessage({ message }: TranscriptMessageProps) {
       className={clsx("flex scroll-my-4 flex-col gap-1", styles.row)}
     >
       <p className="flex flex-wrap items-center gap-x-2 gap-y-1 px-1 jts-overline">
-        <span className={styles.label}>{actorLabel(message.actor)}</span>
+        {startsRun ? (
+          <span className={styles.label}>{actorLabel(message.actor)}</span>
+        ) : (
+          <span className="sr-only">{actorLabel(message.actor)}</span>
+        )}
         <time
           dateTime={message.at}
           className="font-semibold tracking-normal text-ink-subtle normal-case"
@@ -318,7 +331,19 @@ export function ConversationTranscript({
   const unresolved = isUnresolvedParticipant(
     conversation.respondentDisplayName,
   );
-  const canSendStaffMessage = conversation.capabilities.canSendStaffMessage;
+  const capabilities = conversation.capabilities;
+  const canSendStaffMessage = capabilities.canSendStaffMessage;
+  // Presence checks only — whether each action exists is still the server's
+  // capability flags, exactly as `ConversationActions` reads them. This just
+  // keeps an empty foot row from renting a hairline and padding on a thread
+  // where nothing can act any more.
+  const hasConversationActions =
+    capabilities.canTakeOver ||
+    capabilities.canResumeBot ||
+    capabilities.canClose;
+  const botReplying =
+    !canSendStaffMessage && conversation.lifecycle.state === "open";
+  const closedLine = closedConversationLine(conversation);
 
   const lastMessageId = conversation.messages.at(-1)?.id ?? null;
 
@@ -351,15 +376,22 @@ export function ConversationTranscript({
   return (
     <section
       aria-labelledby={headingId}
-      className="flex max-h-[66vh] min-h-0 flex-col overflow-hidden rounded-md border border-border bg-surface"
+      /* Viewport-anchored cap rather than the old 66vh: the compressed
+         campaign header above the panes costs about 9rem including the main
+         padding, so this hands the transcript everything under it instead of
+         two thirds of the screen. The list pane carries the same value so the
+         panes stay level. */
+      className="flex max-h-[calc(100dvh-10rem)] min-h-0 flex-col overflow-hidden rounded-md border border-border bg-surface"
     >
-      {/* Who, on what number, in what state — then what may be done about it.
-          The badges sit on the identity line rather than off in the top-right
-          corner, where the live mark's reserved width left them floating with a
-          gap they did not explain. */}
-      <header className="border-b border-border px-5 py-3">
-        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
-          <div className="min-w-0">
+      {/* Who, on what number — one line, and no badge row (density pass): the
+          pills restated what the pane already says once each. Attention is the
+          strip below with its reasons; who writes is the composer or the foot
+          line; the one fact nothing else stated — the named end of a closed
+          thread — sits quietly on the right, where an operator glances for
+          "can I still act here?". */}
+      <header className="border-b border-border px-5 py-2.5">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
             <h2
               id={headingId}
               className={clsx(
@@ -369,27 +401,29 @@ export function ConversationTranscript({
             >
               {name}
             </h2>
-            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1.5">
-              <span className="flex items-center gap-1.5 text-xs text-ink-muted tabular-nums">
-                <Phone
-                  aria-hidden="true"
-                  className="size-3.5 shrink-0 text-ink-subtle"
-                />
-                {conversation.phoneAtLaunch}
-              </span>
-              <FeedbackBadges badges={conversationBadges(conversation)} />
-            </div>
-            {conversation.staffClose ? (
-              <p className="mt-1.5 text-xs text-ink-muted">
-                {staffCloseSummary(conversation.staffClose)}
-              </p>
-            ) : null}
+            <span className="flex items-center gap-1.5 text-xs text-ink-muted tabular-nums">
+              <Phone
+                aria-hidden="true"
+                className="size-3.5 shrink-0 text-ink-subtle"
+              />
+              {conversation.phoneAtLaunch}
+            </span>
           </div>
-          <JtsLiveIndicator
-            active={isRefreshing}
-            label="This transcript refreshes automatically while the conversation is open."
-          />
+          <div className="flex shrink-0 items-center gap-3">
+            {closedLine ? (
+              <p className="text-xs text-ink-muted">{closedLine}</p>
+            ) : null}
+            <JtsLiveIndicator
+              active={isRefreshing}
+              label="This transcript refreshes automatically while the conversation is open."
+            />
+          </div>
         </div>
+        {conversation.staffClose ? (
+          <p className="mt-1 text-xs text-ink-muted">
+            {staffCloseSummary(conversation.staffClose)}
+          </p>
+        ) : null}
       </header>
 
       {attention}
@@ -400,11 +434,28 @@ export function ConversationTranscript({
             No messages yet. The intro is queued in the outbox.
           </p>
         ) : (
-          <ul className="flex flex-col gap-4">
-            {conversation.messages.map((message) => (
-              <TranscriptMessage key={message.id} message={message} />
-            ))}
-          </ul>
+          <>
+            <ul className="flex flex-col gap-4">
+              {conversation.messages.map((message, index) => (
+                <TranscriptMessage
+                  key={message.id}
+                  message={message}
+                  startsRun={
+                    conversation.messages[index - 1]?.actor !== message.actor
+                  }
+                />
+              ))}
+            </ul>
+            {/* The reading status ends the conversation the way a read receipt
+                does: it is about these messages, so it sits under the last of
+                them and scrolls with them, centred like the system lines. The
+                auto-scroll lands past it, so its tinted states are on screen
+                exactly when a reply has just arrived — the moment «why has the
+                answer not appeared yet» gets asked. */}
+            <div className="mt-4 flex justify-center">
+              <ReadingStatus conversation={conversation} />
+            </div>
+          </>
         )}
         <div ref={endRef} />
       </div>
@@ -418,26 +469,31 @@ export function ConversationTranscript({
         </p>
       ) : null}
 
-      <div className="border-t border-border">
+      <div
+        className={clsx(
+          (botReplying ||
+            hasConversationActions ||
+            canSendStaffMessage ||
+            onSimulatedReply !== undefined) &&
+            "border-t border-border",
+        )}
+      >
         {/* Who may write here, and how to change that, on one line. The
-            sentence explains the composer below it and the buttons beside it
+            sentence explains the missing composer and the buttons beside it
             are what alters it — the actions belong to this thread, so they sit
-            at the foot of it rather than off in a corner of its header. */}
-        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5 py-2.5">
-          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+            at the foot of it rather than off in a corner of its header. On a
+            closed thread nothing can act, the header already says so, and the
+            whole row disappears. */}
+        {botReplying || hasConversationActions ? (
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5 py-2.5">
             {/* With a composer below, its own placeholder already says who is
                 writing; the sentence is only needed when there is none. */}
-            {canSendStaffMessage ? null : (
-              <p className="text-sm text-ink-muted">
-                {conversation.lifecycle.state === "closed"
-                  ? "Closed — no messages can be sent."
-                  : "The bot is replying."}
-              </p>
-            )}
-            <ReadingStatus conversation={conversation} />
+            {botReplying ? (
+              <p className="text-sm text-ink-muted">The bot is replying.</p>
+            ) : null}
+            <div className="ml-auto">{actions}</div>
           </div>
-          {actions}
-        </div>
+        ) : null}
 
         {canSendStaffMessage ? (
           <form
@@ -467,32 +523,39 @@ export function ConversationTranscript({
         ) : null}
 
         {onSimulatedReply ? (
+          /* One compact row, not a captioned block: the dashed hairline, the
+             sunken fill and the flask already say "not the real transport",
+             and the full sentence lives on the label and the title. A dev
+             affordance must not out-size the staff composer above it. */
           <form
             onSubmit={handleSimulatedSubmit}
-            className="flex flex-wrap items-center gap-2 border-t border-dashed border-border bg-surface-sunken px-5 py-3"
+            title="Development simulator — not a real WhatsApp message"
+            className="flex items-center gap-2.5 border-t border-dashed border-border bg-surface-sunken px-5 py-2"
           >
-            <p className="flex w-full items-center gap-2 jts-overline text-ink-muted">
-              <FlaskConical aria-hidden="true" className="size-3.5" />
-              Development simulator — not a real WhatsApp message
+            <p className="flex shrink-0 items-center gap-1.5 jts-overline text-ink-muted">
+              <FlaskConical aria-hidden="true" className="size-3.5 shrink-0" />
+              Dev
             </p>
             <label htmlFor={simulatorInputId} className="sr-only">
-              Reply as {name} through the development simulator
+              Reply as {name} through the development simulator — not a real
+              WhatsApp message
             </label>
             <Input
               id={simulatorInputId}
               value={simulatedText}
               onChange={(change) => setSimulatedText(change.target.value)}
-              placeholder={`Reply as ${name}…`}
+              placeholder={`Reply as ${name} — simulated…`}
               maxLength={SIMULATOR_MESSAGE_MAX_LENGTH}
               disabled={simulatedReplyPending}
               className="min-w-0 flex-1"
             />
             <Button
               type="submit"
+              size="sm"
               variant="secondary"
               isDisabled={simulatedReplyPending || simulatedText.trim() === ""}
             >
-              {simulatedReplyPending ? "Injecting…" : `Reply as ${name}`}
+              {simulatedReplyPending ? "Injecting…" : "Inject"}
             </Button>
           </form>
         ) : null}

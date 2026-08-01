@@ -1,7 +1,8 @@
 # Post-event feedback conversations screen
 
 Status: accepted, verified 2026-07-27 (WP9, design pass and staff notes in
-WP12, conversation-list pass, extraction status, two-pane bento layout).
+WP12, conversation-list pass, extraction status, two-pane bento layout);
+transcript-density pass verified 2026-08-01.
 
 The operator surface for the post-event feedback feature: one campaign's
 WhatsApp conversations in a two-pane inbox over a strip of detail cards, the
@@ -101,8 +102,11 @@ flowchart LR
   operator's choice while it remains visible and only falls back to the first
   row when it disappears.
 - **Status is text plus tone.** Every badge carries its own label; colour is
-  reinforcement. The transcript distinguishes actors by label, alignment and
-  fill together.
+  reinforcement. The transcript names a run of same-actor messages once, at
+  the run's start, with alignment and fill carrying the actor through the
+  run — every bubble keeps an `sr-only` actor label, so a screen reader still
+  hears each speaker while the sighted operator is spared the same caps word
+  under every bubble.
 - **A pill is the colour of what it says.** `FeedbackBadges` owns one pale
   pairing per tone — fill, hairline and text from the same status token — so a
   column of rows can be triaged by colour before a word of it is read. It is
@@ -114,11 +118,20 @@ flowchart LR
   waiting for me", so the heading carries that weight and
   `conversationRowBadges` strips whatever the heading already said: no «Needs
   attention» chip under NEEDS ATTENTION, no «Open» under OPEN, no bare «Closed»
-  under CLOSED. A _named_ closing reason («Stopped», «Completed») and human
-  control survive anywhere, because no heading states them. An ordinary open
-  conversation therefore carries no chip at all, which is what makes a chip in
-  this list worth looking at. The transcript header keeps the full
-  `conversationBadges` set — it stands alone with no heading to inherit from.
+  under CLOSED — and a group's _expected_ state is not news either: «Open»
+  disappears under NEEDS ATTENTION (an attention row is ordinarily still open;
+  «Stopped» there is the exception that keeps its chip) and «Completed»
+  disappears under CLOSED (the ordinary end of a thread; a run of green chips
+  down the archive said nothing). A newsworthy closing reason («Stopped»,
+  «Declined», «Expired», «Cancelled») and human control survive anywhere,
+  because nothing else states them. An ordinary conversation therefore carries
+  no chip at all, which is what makes a chip in this list worth looking at. The transcript header renders **no badge row at
+  all** (density pass, 2026-08-01): every fact the pills carried is stated
+  once, in the place it acts — attention is the strip below with its reasons,
+  who writes is the composer or the «bot is replying» foot line, and the one
+  fact nothing else stated, the named end of a closed thread, is the quiet
+  `closedConversationLine` on the header's right («Completed — no messages can
+  be sent.»).
 - **Each fact appears once.** Goal progress is one number in words
   («3/4 done»), not a bar beside its own caption: the text is what a screen
   reader reads out of the row's name, and four goals give a bar five states it
@@ -140,9 +153,10 @@ flowchart LR
   cancelled, failed, delivered and read all keep their pill. A chip under
   almost every bubble is how a chip stops being read.
 - **Attention is emphasised, not merely coloured.** `needsAttention` renders as
-  a **solid** warning pill on inbox rows and in the conversation header, while
-  every other badge stays tinted. It is still a labelled badge — the emphasis is
-  hierarchy, not a second channel of meaning.
+  a **solid** warning pill on inbox rows, while every other badge stays tinted.
+  It is still a labelled badge — the emphasis is hierarchy, not a second
+  channel of meaning. In the transcript the same fact is the attention strip
+  itself, which names the reasons instead of repeating the pill.
 - **The badge says what, and can be cleared.** When the conversation carries
   unresolved `attentionReasons`, `ConversationAttention` renders one plain
   sentence per reason at the head of the transcript — the same tinted strip
@@ -216,8 +230,9 @@ not a live region — a three-second poll that announced itself would be unusabl
 Two panes over a strip of cards. From `lg` the list sits beside the transcript;
 under both, spanning the full width, the conversation's detail runs as three
 small cards (three columns from `xl`, two from `md`, one below that). Each pane
-is its own scroll container — `66vh` for the two panes, `44vh` for a card — so
-switching conversations never costs an operator their place in the list.
+is its own scroll container — `calc(100dvh - 10rem)` for the two panes, `44vh`
+for a card — so switching conversations never costs an operator their place in
+the list.
 
 It was one tall right-hand column of six stacked sections. Everything about a
 conversation shared a single scrollbar, which meant the notes an operator had
@@ -226,16 +241,73 @@ looked at most was the one they had to scroll furthest into. Splitting it puts
 the three questions side by side — what the conversation produced, what staff
 wrote about it, who it is with — and none of them is behind the others.
 
-The screen deliberately does **not** take over the viewport the way the
+### The height budget (density pass, 2026-08-01)
+
+The transcript is the screen's primary content and it was getting a third of
+the viewport. Two changes fixed that without a layout rework:
+
+- **The campaign header is two rows, not four.** It stacked the back link, an
+  eyebrow, the title with its own actions row, and the campaign line —
+  ~230 px before the first message. Now the back link and the campaign actions
+  share the top line, the title and the campaign line share the second, and
+  the eyebrow is gone (the sidebar item and «All campaigns» already place the
+  page). `CampaignHeader` renders its own compact `h1` with the signature
+  marker rather than `JtsPageHeader`, whose stacked eyebrow/description/actions
+  grammar is right for every other page and wrong for a working surface.
+- **The pane cap is viewport-anchored.** `66vh` gave the panes two thirds of
+  the screen regardless of what the header actually used; with the header
+  compressed to about 9 rem including the main padding, both panes now cap at
+  `calc(100dvh - 10rem)` and the transcript takes everything under the header.
+  Inside the pane the same pass cost every non-message row what it could spare:
+  the transcript header is one identity line (name · phone, the staff close
+  line only when there is one); the attention strip dropped its visible
+  caption for an `sr-only` heading, since the tint and the triangle every row
+  now carries already say "attention" (the accessible name is unchanged); and
+  the dev composer shrank from a captioned block to a single row — flask,
+  «Dev», the input (whose placeholder says «— simulated»), an «Inject» button —
+  because a dev affordance must not out-size the staff composer above it. Its
+  full development-only sentence moved to the `sr-only` label and the form's
+  `title`.
+
+A second round took the remaining always-on rows out of the pane's chrome:
+
+- **The header pills are gone.** See the badge invariant — the header states
+  only the named end of a closed thread, as one quiet line on its right, where
+  an operator glances for "can I still act here?".
+- **The reading status lives at the end of the messages,** inside the scroll,
+  not on a foot line — see «Extraction status».
+- **The foot row renders only while something can act.** «The bot is
+  replying.» plus the capability-gated actions when the thread is open; on a
+  closed thread the header already says why there is no composer, and the foot
+  disappears instead of renting a hairline and padding.
+- **CLOSED rows recede.** An archived row's name drops to the muted ink its
+  metadata already uses — a token swap, not opacity, because every muted
+  pairing is measured AA and a faded chip is not. The selected row keeps full
+  strength.
+
+A third round took colour and repetition off the normal case, everywhere the
+screen said something true of almost every row (the sleek pass):
+
+- **Expected lifecycle chips are gone** — see the row-badge invariant: no
+  «Open» under NEEDS ATTENTION, no «Completed» under CLOSED.
+- **The campaign line is exceptions only** — see «The campaign line»: no
+  «Launched» pill, no tallies, the simulator note muted.
+- **Actor labels name runs, not bubbles** — see the status invariant.
+- **The respondent card badges only «Not opted in»** (warning): everyone in a
+  campaign is ordinarily opted in, so consent appears exactly when its absence
+  is the compliance problem, and the card's badge row renders nothing at all
+  otherwise.
+
+The screen still deliberately does **not** take over the viewport the way the
 assistant route does. The reason is the height budget, not a shell limitation:
 `#root` at `min-height: 100dvh` plus `flex-1 min-h-0` on `AdminShell` and its
 content column already hand a route a definite height — that chain is exactly
 how `/admin/assistant` fills the shell, and the inbox could use it too. It was
-measured and rejected. At 1280×720 the page header and the campaign summary row
-leave roughly 320 px for the pane grid, which the `lg` two-column layout splits
-into two rows of about 150 px — less than one message bubble plus a composer.
-Capped panes with an ordinary document scroll keep the transcript readable at
-that size.
+measured and rejected when the header stack was ~400 px tall, and the argument
+survives the compressed header: a fixed-height grid would still split the
+remaining space with the detail strip, while capped panes with an ordinary
+document scroll let the transcript keep it all and the cards stay one scroll
+away.
 
 A blank band above displaced panes while the document is scrolled is an
 artifact of headless and automation Chromium screenshot surfaces, not a layout
@@ -277,9 +349,9 @@ Placement is the screen's answer to "what does this act on?".
 
 | Control                        | Home                     | Why                                                                   |
 | ------------------------------ | ------------------------ | --------------------------------------------------------------------- |
-| «All campaigns»                | Above the page header    | Leaves the campaign — a back affordance (left arrow, link style)      |
-| Results                        | Campaign header actions  | Reads this campaign's output                                          |
-| Pause / Resume / Close         | Campaign header actions  | Changes this campaign's state; a hairline separates them from Results |
+| «All campaigns»                | Header top line, left    | Leaves the campaign — a back affordance (left arrow, link style)      |
+| Results                        | Header top line, right   | Reads this campaign's output                                          |
+| Pause / Resume / Close         | Header top line, right   | Changes this campaign's state; a hairline separates them from Results |
 | «Start conversation» (D17)     | Conversation list header | It creates a row in that list, directly under the filter over it      |
 | Take over / Resume bot / Close | Transcript, foot         | On the line that says who may write here — the question they answer   |
 | «Add note»                     | NOTES card header        | Writes into the list it sits above                                    |
@@ -292,8 +364,8 @@ Close still lands as lifecycle `cancelled` — that is the state-machine answer
 `abusive | unresponsive | handled_offline | duplicate | other` and may add an
 optional note (≤ 500). Both travel on `closeFeedbackConversation`'s body and
 come back on the detail read model as `staffClose`, rendered under the
-transcript header as «Closed as …». Without that line every human close still
-read as the bare «Cancelled» badge a month later.
+transcript header as «Closed as …», beneath the header's own closed line.
+Without it every human close still read as a bare «Cancelled» a month later.
 
 Every one of them carries a 16px muted stroke icon; the accent stays reserved
 for interactive emphasis. Icons are for orientation, never decoration — which
@@ -337,12 +409,14 @@ record to fetch, so the query never runs for one and the card says why.
 ### Extraction status
 
 A feedback conversation is read by a delayed background job, not on arrival,
-and `ReadingStatus` is the only place that says so. It renders at the foot of
-the transcript, on the same line as the actions: «why has that answer not
-appeared yet» is a question about these messages, and it is answered under
-them. `getFeedbackConversation` publishes an `extraction` object; the list
-endpoint never touches Redis for this — anything shown on a row would have to
-come from data already loaded.
+and `ReadingStatus` is the only place that says so. It renders at the end of
+the messages, inside the transcript's scroll, centred the way a read receipt
+ends a thread: «why has that answer not appeared yet» is a question about
+these messages, and it is answered directly under the message the answer would
+come from — the auto-scroll lands past it, so its tinted states are on screen
+exactly when a reply has just arrived. `getFeedbackConversation` publishes an
+`extraction` object; the list endpoint never touches Redis for this — anything
+shown on a row would have to come from data already loaded.
 
 It gets one line. Current reading is the normal case and the transcript is what
 the pane is for, so the normal case costs a single row of muted text and only a
@@ -374,13 +448,15 @@ is a token (`warning-soft` for backlog, `danger-soft` for failure).
 
 ### The campaign line
 
-Above the panes the campaign states itself in one quiet line — status pill,
-`N conversations · N open`, and the attention count only when there is one, on
-the same triangle the list's NEEDS ATTENTION heading uses. It was a bordered
-summary bar under a paragraph of instructions. The list beside it already
-groups and counts the same conversations, and an operator does not re-read a
-description of the screen they are working in, so both were spending vertical
-space the transcript needed.
+The campaign states itself beside the title with exceptions only — a status
+pill when it is paused or closed (launched is the normal state of every
+working campaign and gets no pill), the attention count on the list's own
+triangle when it is above zero, the parked count when a provider is down, and
+the muted «Simulated transport» flask in development. A launched campaign with
+nothing waiting states itself with silence. The line has shed, in order: a
+bordered summary bar under a paragraph of instructions, its own row under the
+header, and finally the `N conversations · N open` tallies — the list's
+headings count exactly the same rows a hand's width away.
 
 ## Staff notes
 
@@ -447,7 +523,9 @@ never be used merely to navigate. Event detail carries a nullable
 
 ## Accessibility
 
-- One `h1` per route through `JtsPageHeader`; panes are labelled `section`s.
+- One `h1` per route — through `JtsPageHeader` everywhere except the inbox,
+  whose `CampaignHeader` renders its own compact `h1` (see the height budget);
+  panes are labelled `section`s.
 - **The grouping a screen reader hears is the grouping an operator sees.** Each
   bucket is a `section` whose `aria-labelledby` points at its own visible `h3`,
   so the region is named with the heading _and_ its count — Chrome reports the
@@ -519,7 +597,9 @@ precedence, lifecycle badges, goal progress, accent-insensitive Greek filtering,
 attention-first ordering, group pruning, selection stability under polling, the
 polling policy, the campaign picker consuming `useListFeedbackCampaigns`, the
 attention pill's emphasis (only that badge is `strong`, the tinted/solid tables,
-and that both the list row and the conversation header render the badge row),
+that the list rows render the badge row while the transcript keeps it for the
+delivery exception only, and `closedConversationLine` naming a closed thread's
+end — and only a closed one),
 the pale pairing every tone owns, the four status-hairline bridge tokens, and
 the API-boundary invariants (generated hooks on the screen, capability-gated
 actions, exactly two hand-written transport callers).
@@ -533,12 +613,12 @@ list, and the polling indicator being bound to `isFetching` in both panes with
 no live region.
 
 The list-column pass adds `conversationRowBadges`: that the attention chip is
-dropped under its own heading while the lifecycle survives there (open and
-stopped are a real distinction inside that bucket), that an ordinary open
-conversation ends up with no chips, that a named closing reason survives while
-the bare «Closed» does not, that human control is never dropped, that the
-transcript header still receives the full set, and that each reader calls the
-function it should. It also pins the one title table both the headings and that
+dropped under its own heading, that only the exceptional lifecycle keeps a
+chip there («Stopped» yes, the expected «Open» no), that an ordinary
+conversation ends up with no chips, that «Completed» is chipless under CLOSED
+but still named where it is news, that a newsworthy closing reason survives
+while the bare «Closed» does not, that human control is never dropped, and
+that each reader calls the function it should. It also pins the one title table both the headings and that
 filter read, and asserts `GoalProgress` publishes `settled` and no `percent`
 now that nothing draws a bar.
 

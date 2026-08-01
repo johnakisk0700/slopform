@@ -114,7 +114,9 @@ export function ConversationList({
   return (
     <section
       aria-labelledby={headingId}
-      className="flex max-h-[66vh] min-h-0 flex-col overflow-hidden rounded-md border border-border bg-surface"
+      /* Same viewport-anchored cap as the transcript pane, so the two stay
+         level — see the comment there for the 10rem. */
+      className="flex max-h-[calc(100dvh-10rem)] min-h-0 flex-col overflow-hidden rounded-md border border-border bg-surface"
     >
       <div className="border-b border-border px-4 py-3">
         <div className="mb-2.5 flex items-center justify-between gap-2">
@@ -223,6 +225,12 @@ export function ConversationList({
                 <ul>
                   {group.conversations.map((conversation) => {
                     const isSelected = conversation.id === selectedId;
+                    // The quiet archive recedes: a closed row's name drops to
+                    // the muted ink its metadata already uses, so the working
+                    // set is what pulls the eye. A token swap rather than
+                    // opacity, because every muted pairing is measured AA and
+                    // a faded chip is not.
+                    const isArchived = group.key === "closed" && !isSelected;
                     const progress = goalProgress(conversation.goals);
                     const name = participantLabel(
                       conversation.respondentDisplayName,
@@ -258,7 +266,11 @@ export function ConversationList({
                             <span
                               className={clsx(
                                 "line-clamp-2 min-w-0 flex-1 text-sm leading-snug font-bold break-words",
-                                isSelected ? "text-primary" : "text-ink",
+                                isSelected
+                                  ? "text-primary"
+                                  : isArchived
+                                    ? "text-ink-muted"
+                                    : "text-ink",
                                 unresolved && "italic",
                               )}
                             >

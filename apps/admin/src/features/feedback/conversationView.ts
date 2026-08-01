@@ -115,6 +115,31 @@ export function conversationBadges(
 }
 
 /**
+ * The transcript header's quiet closed line: the thread's named end in words —
+ * «Completed — no messages can be sent.» — where a row of pills used to sit.
+ *
+ * Null while the conversation is open, because an open thread already states
+ * itself through the pane: the composer or the «bot is replying» line says who
+ * writes, and the attention strip says what wants a person. The pills repeated
+ * all of that at the top of the pane; the one fact nothing else stated was the
+ * named closing reason, so that is what the header keeps.
+ */
+export function closedConversationLine(
+  conversation: ConversationStatusFields,
+): string | null {
+  if (conversation.lifecycle.state !== "closed") {
+    return null;
+  }
+  const { label } = lifecycleBadge({
+    state: conversation.lifecycle.state,
+    reason: conversation.lifecycle.reason as Parameters<
+      typeof lifecycleBadge
+    >[0]["reason"],
+  });
+  return `${label} — no messages can be sent.`;
+}
+
+/**
  * Free-text filter over the visible identity of a conversation: respondent
  * name and the phone it launched against. Accent- and case-insensitive so
  * "κωστας" finds «Κώστας», matching the STOP matcher's folding rule (D14).
@@ -228,8 +253,10 @@ export function groupConversations(
  * control. What is left is only ever the exceptional, which is what makes a
  * chip in this list worth looking at.
  *
- * The transcript header keeps the full `conversationBadges` set: it stands
- * alone, with no heading above it to inherit meaning from.
+ * The transcript header renders no badge row at all (density pass,
+ * 2026-08-01): every fact the pills carried is stated once, in the place it
+ * acts — see `closedConversationLine`. This filter's full-set starting point
+ * is `conversationBadges`, which the rows alone consume now.
  */
 export function conversationRowBadges(
   conversation: ConversationStatusFields,
@@ -240,7 +267,21 @@ export function conversationRowBadges(
       return group !== "attention";
     }
     if (badge.key === "lifecycle") {
-      return badge.label !== CONVERSATION_GROUP_TITLES[group];
+      if (badge.label === CONVERSATION_GROUP_TITLES[group]) {
+        return false;
+      }
+      // A group's expected state is not news either: an attention row is
+      // ordinarily still open, and «Completed» is the ordinary end of a
+      // closed thread. Absence states the normal case; the chip is left for
+      // the exception — a «Stopped» thread nobody can reply to any more, a
+      // decline, an expiry — which is what keeps a run of green «Completed»
+      // chips from wallpapering the archive.
+      if (group === "attention" && badge.label === "Open") {
+        return false;
+      }
+      if (group === "closed" && badge.label === "Completed") {
+        return false;
+      }
     }
     return true;
   });

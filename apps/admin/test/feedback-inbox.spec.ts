@@ -83,6 +83,7 @@ interface ConversationViewModule {
     conversation: TestConversation,
     group: "attention" | "open" | "closed",
   ) => { key: string; label: string; tone: string; emphasis?: string }[];
+  closedConversationLine: (conversation: TestConversation) => string | null;
   transcriptMessageAnchorId: (messageId: string) => string;
 }
 
@@ -574,9 +575,10 @@ describe("a row never repeats its own heading", () => {
     expect(badges.some((badge) => badge.key === "attention")).toBe(false);
   });
 
-  it("keeps the lifecycle in that group, because open and stopped differ there", () => {
-    // Both need a human; only one can still be replied to. That distinction is
-    // the reason the chip survives the heading.
+  it("chips only the exceptional lifecycle under NEEDS ATTENTION", () => {
+    // Both need a human; only one can still be replied to. The exception —
+    // «Stopped», nobody can answer any more — keeps the chip; an ordinarily
+    // open attention row states the normal case by absence.
     const open = view.conversationRowBadges(
       conversation({ id: "a", needsAttention: true }),
       "attention",
@@ -590,7 +592,7 @@ describe("a row never repeats its own heading", () => {
       "attention",
     );
 
-    expect(open.map((badge) => badge.label)).toStrictEqual(["Open"]);
+    expect(open).toStrictEqual([]);
     expect(stopped.map((badge) => badge.label)).toStrictEqual(["Stopped"]);
   });
 
@@ -600,7 +602,10 @@ describe("a row never repeats its own heading", () => {
     ).toStrictEqual([]);
   });
 
-  it("keeps the closing reason but not the bare word the heading already says", () => {
+  it("chips only the newsworthy closing reason under CLOSED", () => {
+    // «Completed» is the ordinary end of a closed thread — a run of green
+    // chips down the archive said nothing. «Stopped» is the exception that
+    // still earns one.
     const completed = view.conversationRowBadges(
       conversation({
         id: "a",
@@ -608,13 +613,34 @@ describe("a row never repeats its own heading", () => {
       }),
       "closed",
     );
+    const stopped = view.conversationRowBadges(
+      conversation({
+        id: "b",
+        lifecycle: { state: "closed", reason: "stopped" },
+      }),
+      "closed",
+    );
     const unexplained = view.conversationRowBadges(
-      conversation({ id: "b", lifecycle: { state: "closed", reason: null } }),
+      conversation({ id: "c", lifecycle: { state: "closed", reason: null } }),
       "closed",
     );
 
-    expect(completed.map((badge) => badge.label)).toStrictEqual(["Completed"]);
+    expect(completed).toStrictEqual([]);
+    expect(stopped.map((badge) => badge.label)).toStrictEqual(["Stopped"]);
     expect(unexplained).toStrictEqual([]);
+  });
+
+  it("still names «Completed» where it is news — outside its own group", () => {
+    const badges = view.conversationRowBadges(
+      conversation({
+        id: "a",
+        needsAttention: true,
+        lifecycle: { state: "closed", reason: "completed" },
+      }),
+      "attention",
+    );
+
+    expect(badges.map((badge) => badge.label)).toStrictEqual(["Completed"]);
   });
 
   it("never drops human control, which no heading states", () => {
@@ -635,7 +661,7 @@ describe("a row never repeats its own heading", () => {
     }
   });
 
-  it("leaves the transcript header the full set, having no heading above it", () => {
+  it("keeps the full badge set as the row filter's starting point", () => {
     const full = view.conversationBadges(
       conversation({ id: "a", needsAttention: true }),
     );
@@ -646,13 +672,52 @@ describe("a row never repeats its own heading", () => {
     ]);
   });
 
-  it("wires the two readers to the badge set each one needs", () => {
+  it("wires the rows to the badge filter and the header to the closed line", () => {
     expect(
       readSource("src/components/admin/feedback/ConversationList.tsx"),
     ).toContain("conversationRowBadges(");
+
+    // The transcript header renders no badge row (density pass, 2026-08-01):
+    // attention is the strip with its reasons, who-writes is the composer or
+    // the foot line, and the one fact nothing else states — the named end of
+    // a closed thread — is the quiet closed line on the header's right.
+    const transcript = readSource(
+      "src/components/admin/feedback/ConversationTranscript.tsx",
+    );
+    expect(transcript).toContain("closedConversationLine(");
+    expect(transcript).not.toContain("conversationBadges(");
+  });
+
+  it("names a closed thread's end in the header line, and only a closed one", () => {
     expect(
-      readSource("src/components/admin/feedback/ConversationTranscript.tsx"),
-    ).toContain("conversationBadges(");
+      view.closedConversationLine(
+        conversation({ id: "a", lifecycle: { state: "open", reason: null } }),
+      ),
+    ).toBeNull();
+    expect(
+      view.closedConversationLine(
+        conversation({
+          id: "a",
+          lifecycle: { state: "closed", reason: "completed" },
+        }),
+      ),
+    ).toBe("Completed — no messages can be sent.");
+    expect(
+      view.closedConversationLine(
+        conversation({
+          id: "a",
+          lifecycle: { state: "closed", reason: "stopped" },
+        }),
+      ),
+    ).toBe("Stopped — no messages can be sent.");
+    expect(
+      view.closedConversationLine(
+        conversation({
+          id: "a",
+          lifecycle: { state: "closed", reason: null },
+        }),
+      ),
+    ).toBe("Closed — no messages can be sent.");
   });
 });
 
@@ -710,13 +775,18 @@ describe("needs-attention emphasis", () => {
     expect(badges).toContain("bg-warning text-canvas");
   });
 
-  it("shows the badge row on inbox rows and in the conversation header", () => {
+  it("shows the badge row on inbox rows; the transcript keeps it for delivery only", () => {
     expect(
       readSource("src/components/admin/feedback/ConversationList.tsx"),
     ).toContain("<FeedbackBadges");
-    expect(
-      readSource("src/components/admin/feedback/ConversationTranscript.tsx"),
-    ).toContain("<FeedbackBadges");
+
+    // The transcript's one remaining badge row is the per-message delivery
+    // exception (held / cancelled); the header renders none.
+    const transcript = readSource(
+      "src/components/admin/feedback/ConversationTranscript.tsx",
+    );
+    expect(transcript).toContain("<FeedbackBadges");
+    expect(transcript).toContain("badges={[delivery]}");
   });
 
   it("uses fixed, readable labels for per-message attention metadata", () => {
@@ -1199,11 +1269,11 @@ describe("staff close reason", () => {
 describe("inbox toolbar and orientation", () => {
   it("reads «All campaigns» as a back affordance, not a campaign action", () => {
     const page = readSource("src/components/admin/feedback/CampaignHeader.tsx");
-    const header = page.slice(0, page.indexOf("<JtsPageHeader"));
+    const header = page.slice(0, page.indexOf("<h1"));
 
-    // It leaves the campaign, so it sits above the header with a left chevron
-    // rather than beside the actions that operate on the campaign — the same
-    // glyph the participant profile's back link uses.
+    // It leaves the campaign, so it renders before the title with a left
+    // chevron rather than among the ConfirmActions that operate on the
+    // campaign — the same glyph the participant profile's back link uses.
     expect(header).toContain("All campaigns");
     expect(header).toContain("ChevronLeft");
   });

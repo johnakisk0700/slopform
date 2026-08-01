@@ -68,16 +68,16 @@ export function ConversationAttention({
        that would push the transcript down the screen. */
     <section
       aria-labelledby={headingId}
-      className="border-b border-warning-border bg-warning-soft px-5 py-2.5"
+      className="border-b border-warning-border bg-warning-soft px-5 py-1.5"
     >
-      <h3
-        id={headingId}
-        className="flex items-center gap-1.5 jts-overline text-warning"
-      >
-        <TriangleAlert aria-hidden="true" className="size-3.5 shrink-0" />
+      {/* The heading is for the accessibility tree only. On screen, the tinted
+          strip and the triangle on every row already say "this needs
+          attention" — a visible caption restated them and cost the transcript
+          a row. */}
+      <h3 id={headingId} className="sr-only">
         Why this needs attention
       </h3>
-      <ul className="mt-1">
+      <ul>
         {unresolved.map((reason) => {
           const label = attentionReasonLabel(reason.kind);
           const anchor =
@@ -91,21 +91,27 @@ export function ConversationAttention({
               key={reason.id}
               className="flex flex-wrap items-center justify-between gap-x-3"
             >
-              {anchor === null ? (
-                <p className="min-w-0 text-sm text-ink">{label}</p>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => showMessage(anchor)}
-                  className="min-w-0 rounded-xs text-left text-sm text-ink underline decoration-warning-border decoration-1 underline-offset-2 hover:decoration-warning"
-                >
-                  {label}
-                  <span className="sr-only">
-                    {" "}
-                    Show the message that caused it.
-                  </span>
-                </button>
-              )}
+              <span className="flex min-w-0 items-center gap-1.5">
+                <TriangleAlert
+                  aria-hidden="true"
+                  className="size-3.5 shrink-0 text-warning"
+                />
+                {anchor === null ? (
+                  <p className="min-w-0 text-sm text-ink">{label}</p>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => showMessage(anchor)}
+                    className="min-w-0 rounded-xs text-left text-sm text-ink underline decoration-warning-border decoration-1 underline-offset-2 hover:decoration-warning"
+                  >
+                    {label}
+                    <span className="sr-only">
+                      {" "}
+                      Show the message that caused it.
+                    </span>
+                  </button>
+                )}
+              </span>
               <Button
                 size="sm"
                 variant="ghost"

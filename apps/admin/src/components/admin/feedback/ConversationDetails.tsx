@@ -64,7 +64,8 @@ export type ConversationPendingAction =
  * what the conversation produced (progress and answers), what staff wrote about
  * it (notes), and who it is with (the respondent's actual profile record).
  * `ConversationActions` and `ReadingStatus` belong to the transcript instead —
- * both are about the messages, so they render at the foot of them.
+ * both are about the messages: the actions render at the foot of them, the
+ * reading status at the end of them, inside the scroll.
  *
  * Every control that could reach a participant is gated on the capability flags
  * the backend publishes for this conversation — a STOP-closed thread simply
@@ -150,6 +151,8 @@ interface ConversationActionsProps {
  * Take over, hand back, close — rendered at the foot of the transcript, on the
  * line that says who may write there. That line is the question these buttons
  * answer, and it is where an operator already is when they decide to step in.
+ * The transcript renders the row only while something can act, so a closed
+ * thread's foot disappears instead of renting an empty strip.
  */
 export function ConversationActions({
   conversation,
@@ -645,32 +648,36 @@ export function RespondentPanel({ conversation }: RespondentPanelProps) {
                 value={formatAgeBand(participant.ageBand)}
               />
             </dl>
-            <div className="mt-3.5 flex flex-wrap items-center gap-2">
-              <FeedbackBadges
-                badges={[
-                  participant.postEventFeedbackWhatsappOptIn
-                    ? {
-                        key: "opt-in",
-                        label: "Feedback opted in",
-                        tone: "success",
-                      }
-                    : {
+            {/* Exceptions only: everyone in a feedback campaign is ordinarily
+                opted in, so only the absence of consent is news — a green
+                badge on the normal case was one more thing to read on every
+                thread. */}
+            {!participant.postEventFeedbackWhatsappOptIn ||
+            (participant.phoneE164 !== null &&
+              participant.phoneE164 !== conversation.phoneAtLaunch) ? (
+              <div className="mt-3.5 flex flex-wrap items-center gap-2">
+                {!participant.postEventFeedbackWhatsappOptIn ? (
+                  <FeedbackBadges
+                    badges={[
+                      {
                         key: "opt-in",
                         label: "Not opted in",
-                        tone: "neutral",
+                        tone: "warning",
                       },
-                ]}
-              />
-              {/* The number the campaign launched against is frozen on the
-                  conversation; a profile edited since would otherwise make the
-                  transcript's number look wrong. */}
-              {participant.phoneE164 !== null &&
-              participant.phoneE164 !== conversation.phoneAtLaunch ? (
-                <p className="text-xs text-ink-subtle">
-                  The profile number has changed since launch.
-                </p>
-              ) : null}
-            </div>
+                    ]}
+                  />
+                ) : null}
+                {/* The number the campaign launched against is frozen on the
+                    conversation; a profile edited since would otherwise make
+                    the transcript's number look wrong. */}
+                {participant.phoneE164 !== null &&
+                participant.phoneE164 !== conversation.phoneAtLaunch ? (
+                  <p className="text-xs text-ink-subtle">
+                    The profile number has changed since launch.
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
           </>
         )}
       </div>
@@ -686,11 +693,12 @@ interface ReadingStatusProps {
  * How far behind the reading of this conversation is (ΑΝΑΓΝΩΣΗ).
  *
  * A feedback conversation is read by a delayed background job, not on arrival,
- * and this line is the only place that says so. It belongs at the foot of the
- * transcript because it is about these messages: it answers «why has that
- * answer not appeared yet», right under the messages the answer would come
- * from. It stays quiet while the reading is current and takes a tinted block
- * only when it is behind or has failed.
+ * and this line is the only place that says so. It renders at the end of the
+ * messages, inside the transcript's scroll, the way a read receipt ends a
+ * thread: it is about these messages, and it answers «why has that answer not
+ * appeared yet» directly under the message the answer would come from. It
+ * stays quiet while the reading is current and takes a tinted block only when
+ * it is behind or has failed.
  */
 export function ReadingStatus({ conversation }: ReadingStatusProps) {
   const extractionLines = extractionStatusLines(conversation.extraction);
