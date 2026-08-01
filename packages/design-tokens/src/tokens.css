@@ -65,7 +65,13 @@
   --jts-clay-900: #1e131a;
   --jts-clay-950: #150c10;
 
-  /* Earthy status hues — tuned to sit beside the warm palette, not scream. */
+  /* Earthy status hues — tuned to sit beside the warm palette, not scream.
+     The wine brand already owns 348°, so the other warm meanings must keep
+     their distance to stay tellable at badge size: danger is a saturated
+     coral-red (~10°, vivid where the primary is pastel), copper a muted
+     bronze (~26°), warning a golden yellow (~41°). Hue alone is not enough
+     in the crowded warm quarter — saturation and lightness carry half the
+     separation, so hold all three when retuning a step. */
   --jts-forest-50: #edf4ef;
   --jts-forest-100: #d6e7db;
   --jts-forest-300: #74bd93;
@@ -74,16 +80,16 @@
   --jts-forest-700: #175639;
   --jts-forest-900: #0e3524;
 
-  --jts-amber-50: #f9f0df;
-  --jts-amber-100: #f4e2bf;
-  --jts-amber-300: #dfa74d;
-  --jts-amber-500: #b9781f;
-  --jts-amber-600: #8a5207;
-  --jts-amber-700: #6d4206;
+  --jts-amber-50: #faf0d9;
+  --jts-amber-100: #f5e3b4;
+  --jts-amber-300: #e3b652;
+  --jts-amber-500: #b9861f;
+  --jts-amber-600: #7f5c05;
+  --jts-amber-700: #665204;
 
   --jts-terracotta-50: #fbe9e5;
   --jts-terracotta-100: #f6d1c9;
-  --jts-terracotta-300: #e78979;
+  --jts-terracotta-300: #f0755c;
   --jts-terracotta-500: #c33f30;
   --jts-terracotta-600: #b42318;
   --jts-terracotta-700: #8f1c13;
@@ -95,10 +101,12 @@
   --jts-slate-600: #3b4f63;
   --jts-slate-700: #2f4050;
 
-  /* Copper — warm accent for occasional non-primary emphasis. */
+  /* Copper — warm accent for occasional non-primary emphasis. The 300 step is
+     the dark-mode accent ink: kept bronze (muted, darker) so it never reads as
+     a fifth pastel next to the pink primary and the coral danger. */
   --jts-copper-50: #f8ece3;
   --jts-copper-100: #f0d8c7;
-  --jts-copper-300: #dda283;
+  --jts-copper-300: #c9946b;
   --jts-copper-400: #cd7d59;
   --jts-copper-500: #bd6945;
   --jts-copper-600: #a1552f;
@@ -300,18 +308,22 @@
 :root.dark {
   color-scheme: dark;
 
-  /* Surfaces — warm wine-black, not flat pure black */
-  --jts-color-canvas: var(--jts-clay-950);
+  /* Surfaces — warm wine-black, not flat pure black. The ladder is opened
+     wider than in light: a canvas below clay-950 and a lifted raised step,
+     because without shadows the step itself is the only relief a dark card
+     gets, and the sidebar keeps a wine cast so the panel's structure survives
+     the theme flip instead of melting into the canvas. */
+  --jts-color-canvas: #100a0d;
   --jts-color-surface: var(--jts-clay-900);
-  --jts-color-surface-raised: #281922;
-  --jts-color-surface-sunken: #170e13;
-  --jts-color-surface-overlay: #281922;
-  --jts-color-surface-strong: #24101a;
+  --jts-color-surface-raised: #2d1d26;
+  --jts-color-surface-sunken: #150d11;
+  --jts-color-surface-overlay: #2d1d26;
+  --jts-color-surface-strong: #331523;
 
   /* Borders */
   --jts-color-border-subtle: color-mix(in srgb, #ffffff 6%, transparent);
-  --jts-color-border: #3f2a33;
-  --jts-color-border-strong: #573a46;
+  --jts-color-border: #453039;
+  --jts-color-border-strong: #614350;
 
   /* Text */
   --jts-color-text: #fbeef0;
