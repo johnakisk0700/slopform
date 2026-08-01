@@ -22,6 +22,8 @@ import type { EventsRepository } from "../../events/events.repository.js";
 import type { EventsService } from "../../events/events.service.js";
 import type { ParticipantsRepository } from "../../participants/participants.repository.js";
 import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
+import type { FeedbackOutboundLogRepository } from "../outbox/outbound-log.repository.js";
+import { FeedbackOutboundLogService } from "../outbox/outbound-log.service.js";
 import { buildPostEventFeedbackQuestionLaunchSnapshot } from "../question-set.js";
 import type { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
 import type { FeedbackResultsRepository } from "../extraction/results.repository.js";
@@ -474,6 +476,73 @@ describe("PostEventFeedbackConversationService", () => {
       outboxStatus: "pending",
     });
     expect(result.capabilities.canSendStaffMessage).toBe(true);
+  });
+
+  it("writes one staff_message log carrying the acting staff member", async () => {
+    const { service, conversations, repository } = createService();
+    const human = openConversation({
+      control: {
+        mode: "human",
+        source: "staff_action",
+        changedAt: new Date("2026-07-25T00:30:00.000Z"),
+      },
+    });
+    conversations.findById.mockResolvedValue(human);
+    repository.insertOutboxIfAbsent.mockResolvedValue({
+      row: outboxRow(),
+      inserted: true,
+    });
+    conversations.appendMessage.mockResolvedValue({
+      appended: true,
+      message: {
+        id: randomMessageId(),
+        seq: 1,
+        actor: "staff",
+        text: "Γεια σου",
+        providerMessageId: null,
+        ingressId: null,
+        outboxId,
+        at: new Date("2026-07-25T00:31:00.000Z"),
+      },
+      conversation: {
+        ...human,
+        messages: [
+          {
+            id: randomMessageId(),
+            seq: 1,
+            actor: "staff",
+            text: "Γεια σου",
+            providerMessageId: null,
+            ingressId: null,
+            outboxId,
+            at: new Date("2026-07-25T00:31:00.000Z"),
+          },
+        ],
+      },
+    });
+    repository.listOutboxByConversation.mockResolvedValue([outboxRow()]);
+
+    await service.sendStaffMessage(
+      campaignId,
+      conversationId,
+      "Γεια σου",
+      "admin-1",
+      "req-1",
+    );
+
+    expect(repository.insertOutboxLogIfAbsent).toHaveBeenCalledTimes(1);
+    expect(repository.insertOutboxLogIfAbsent).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        outboxId,
+        origin: "staff_message",
+        correlationId: "req-1",
+        decision: {
+          origin: "staff_message",
+          staffActorId: "admin-1",
+        },
+      }),
+    );
   });
 
   it("cancels the staff row and refuses the send when the transcript is full", async () => {
@@ -1541,6 +1610,7 @@ function createService(): {
   repository: {
     findCampaignById: ReturnType<typeof vi.fn>;
     insertOutboxIfAbsent: ReturnType<typeof vi.fn>;
+    insertOutboxLogIfAbsent: ReturnType<typeof vi.fn>;
     listOutboxByConversation: ReturnType<typeof vi.fn>;
     cancelQueuedOutboxForConversation: ReturnType<typeof vi.fn>;
     updateOutboxStatus: ReturnType<typeof vi.fn>;
@@ -1578,6 +1648,10 @@ function createService(): {
   const repository = {
     findCampaignById: vi.fn().mockResolvedValue(campaignRow),
     insertOutboxIfAbsent: vi.fn(),
+    insertOutboxLogIfAbsent: vi.fn().mockResolvedValue({
+      row: { id: "log-1" },
+      inserted: true,
+    }),
     listOutboxByConversation: vi.fn().mockResolvedValue([]),
     cancelQueuedOutboxForConversation: vi.fn().mockResolvedValue(0),
     updateOutboxStatus: vi.fn(),
@@ -1640,6 +1714,9 @@ function createService(): {
       database as unknown as DatabaseService,
       repository as unknown as FeedbackOutboxRepository,
       conversations as unknown as FeedbackConversationRepository,
+    ),
+    new FeedbackOutboundLogService(
+      repository as unknown as FeedbackOutboundLogRepository,
     ),
   );
 

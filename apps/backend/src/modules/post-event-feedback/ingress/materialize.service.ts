@@ -12,6 +12,7 @@ import { DatabaseService } from "../../../infrastructure/database/database.servi
 import { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
 import { FeedbackIngressRepository } from "./ingress.repository.js";
 import { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
+import { FeedbackOutboundLogService } from "../outbox/outbound-log.service.js";
 import { FEEDBACK_QUEUE } from "../../../infrastructure/queue/queue.constants.js";
 import {
   FeedbackConversationCapacityError,
@@ -94,6 +95,7 @@ export class PostEventFeedbackMaterializer {
     private readonly audit: AuditRepository,
     private readonly metrics: PostEventFeedbackMetrics,
     private readonly outboundTranscript: FeedbackOutboundTranscriptService,
+    private readonly outboundLog: FeedbackOutboundLogService,
   ) {}
 
   async materialize(
@@ -494,6 +496,15 @@ export class PostEventFeedbackMaterializer {
           ),
           dedupeKey: createFeedbackStopAckDedupeKey(conversation._id),
         });
+        await this.outboundLog.record(transaction, {
+          outbox: stopAck,
+          conversation,
+          decision: {
+            origin: "stop_ack",
+            sourceIngressId: ingress.id,
+          },
+          correlationId,
+        });
 
         const optInWithdrawn = await this.withdrawFeedbackOptIn(
           transaction,
@@ -812,8 +823,8 @@ export class PostEventFeedbackMaterializer {
       return { inserted: false };
     }
 
-    const notice = await this.database.transaction((transaction) =>
-      this.outbox.insertOutboxIfAbsent(transaction, {
+    const notice = await this.database.transaction(async (transaction) => {
+      const result = await this.outbox.insertOutboxIfAbsent(transaction, {
         conversationId: conversation._id,
         campaignId: conversation.campaignId,
         kind: "system",
@@ -822,8 +833,18 @@ export class PostEventFeedbackMaterializer {
           FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH,
         ),
         dedupeKey: createFeedbackMediaNoticeDedupeKey(conversation._id),
-      }),
-    );
+      });
+      await this.outboundLog.record(transaction, {
+        outbox: result,
+        conversation,
+        decision: {
+          origin: "media_notice",
+          sourceIngressId: ingress.id,
+        },
+        correlationId,
+      });
+      return result;
+    });
     if (notice.inserted) {
       await this.outboundTranscript.record(
         notice.row,

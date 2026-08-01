@@ -13,12 +13,15 @@ import {
 } from "../post-event-feedback-conversation.repository.js";
 import type { EventsRepository } from "../../events/events.repository.js";
 import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
+import type { FeedbackOutboundLogRepository } from "../outbox/outbound-log.repository.js";
+import { FeedbackOutboundLogService } from "../outbox/outbound-log.service.js";
 import {
   FeedbackCampaignLaunchNotAllowedError,
   PostEventFeedbackCampaignService,
 } from "./campaign.service.js";
 import type { FeedbackCampaignRepository } from "./campaign.repository.js";
 import type { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
+import { buildFeedbackConversationGoals } from "../post-event-feedback-conversation.document.js";
 import { buildPostEventFeedbackQuestionLaunchSnapshot } from "../question-set.js";
 
 const eventId = "7c57f3b8-2b13-48f5-8730-18ac71f490cd";
@@ -119,6 +122,37 @@ describe("PostEventFeedbackCampaignService", () => {
       at: expect.any(Date),
       outboxId: introOutboxId,
     });
+  });
+
+  it("writes one campaign_intro log when the intro is freshly enqueued", async () => {
+    const { service, repository, conversations } = createService();
+    repository.findCampaignByEventId.mockResolvedValue(undefined);
+    repository.createCampaign.mockResolvedValue(campaignRow);
+    repository.insertOutboxIfAbsent.mockResolvedValue({
+      row: introOutboxRow(),
+      inserted: true,
+    });
+    conversations.createFromLaunch.mockResolvedValue({
+      created: true,
+      conversation: openConversation(),
+    });
+    conversations.listForCampaign.mockResolvedValue([{ id: conversationId }]);
+
+    await service.launch(eventId, "admin-1", "req-1");
+
+    expect(repository.insertOutboxLogIfAbsent).toHaveBeenCalledTimes(1);
+    expect(repository.insertOutboxLogIfAbsent).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        outboxId: introOutboxId,
+        origin: "campaign_intro",
+        correlationId: "req-1",
+        decision: {
+          origin: "campaign_intro",
+          conversationCreated: true,
+        },
+      }),
+    );
   });
 
   it("skips an attendee whose phone is already in use and launches everyone else", async () => {
@@ -225,6 +259,24 @@ describe("PostEventFeedbackCampaignService", () => {
         dedupeKey: `feedback-intro-${conversationId}`,
       }),
     );
+  });
+
+  it("does not write a duplicate campaign_intro log on re-launch", async () => {
+    const { service, repository, conversations } = createService();
+    repository.findCampaignByEventId.mockResolvedValue(campaignRow);
+    conversations.createFromLaunch.mockResolvedValue({
+      created: false,
+      conversation: openConversation(),
+    });
+    repository.insertOutboxIfAbsent.mockResolvedValue({
+      row: introOutboxRow(),
+      inserted: false,
+    });
+    conversations.listForCampaign.mockResolvedValue([{ id: conversationId }]);
+
+    await service.launch(eventId, "admin-1", "req-replay");
+
+    expect(repository.insertOutboxLogIfAbsent).not.toHaveBeenCalled();
   });
 
   it("never recreates a STOP-closed conversation on startConversation", async () => {
@@ -369,8 +421,21 @@ function openConversation() {
     respondentParticipantId: participantId,
     lifecycle: { state: "open", reason: null, closedAt: null },
     control: { mode: "bot", source: "launch", changedAt: new Date() },
+    goals: buildFeedbackConversationGoals(),
     messages: [],
+    extraction: {
+      cursorSeq: 0,
+      lastRunAt: null,
+      model: null,
+      parkedSince: null,
+      parkedRuns: 0,
+      parkedNoticeSentAt: null,
+    },
+    needsAttention: false,
+    attentionReasons: [],
     remindedAt: null,
+    reminderCount: 0,
+    awaitingHuman: false,
   };
 }
 
@@ -395,6 +460,7 @@ function createService(): {
     updateCampaignStatus: ReturnType<typeof vi.fn>;
     listEligibleAttendeesForEvent: ReturnType<typeof vi.fn>;
     insertOutboxIfAbsent: ReturnType<typeof vi.fn>;
+    insertOutboxLogIfAbsent: ReturnType<typeof vi.fn>;
     cancelQueuedOutboxForCampaign: ReturnType<typeof vi.fn>;
   };
   conversations: {
@@ -416,6 +482,10 @@ function createService(): {
     updateCampaignStatus: vi.fn(),
     listEligibleAttendeesForEvent: vi.fn().mockResolvedValue([eligible]),
     insertOutboxIfAbsent: vi.fn(),
+    insertOutboxLogIfAbsent: vi.fn().mockResolvedValue({
+      row: { id: "log-1" },
+      inserted: true,
+    }),
     cancelQueuedOutboxForCampaign: vi.fn().mockResolvedValue(0),
   };
   const conversations = {
@@ -447,6 +517,9 @@ function createService(): {
         database as unknown as DatabaseService,
         repository as unknown as FeedbackOutboxRepository,
         conversations as unknown as FeedbackConversationRepository,
+      ),
+      new FeedbackOutboundLogService(
+        repository as unknown as FeedbackOutboundLogRepository,
       ),
     ),
     repository,

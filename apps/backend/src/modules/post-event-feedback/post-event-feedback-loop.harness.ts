@@ -529,6 +529,7 @@ export async function createFeedbackLoopHarness(
     participants as unknown as ParticipantsRepository,
     audit as unknown as AuditRepository,
     outboundTranscript,
+    outboundLog,
   );
   const ingress = new PostEventFeedbackIngressService(
     queuePort,
@@ -550,6 +551,7 @@ export async function createFeedbackLoopHarness(
     audit as unknown as AuditRepository,
     metrics,
     outboundTranscript,
+    outboundLog,
   );
   const ingressProcessor = new PostEventFeedbackIngressProcessor(materializer);
   const extractor = new PostEventFeedbackExtractor(
@@ -593,6 +595,7 @@ export async function createFeedbackLoopHarness(
       participants as unknown as ParticipantsRepository,
       audit as unknown as AuditRepository,
       outboundTranscript,
+      outboundLog,
     ),
     new PostEventFeedbackExtractionFallback(
       queuePort,

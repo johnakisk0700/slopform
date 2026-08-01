@@ -12,6 +12,7 @@ import {
   FeedbackIngressRepository,
 } from "../ingress/ingress.repository.js";
 import { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
+import { FeedbackOutboundLogService } from "../outbox/outbound-log.service.js";
 import { FEEDBACK_INGRESS_QUEUE } from "../../../infrastructure/queue/queue.constants.js";
 import { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
 import type { FeedbackConversationDocument } from "../post-event-feedback-conversation.document.js";
@@ -74,6 +75,7 @@ export class PostEventFeedbackSweepService {
     private readonly participants: ParticipantsRepository,
     private readonly audit: AuditRepository,
     private readonly outboundTranscript: FeedbackOutboundTranscriptService,
+    private readonly outboundLog: FeedbackOutboundLogService,
   ) {}
 
   async sweepReminders(
@@ -295,6 +297,15 @@ export class PostEventFeedbackSweepService {
         kind: "reminder",
         body: renderReminderBody(conversation, copy, displayName),
         dedupeKey: createFeedbackReminderDedupeKey(conversation._id, ordinal),
+      });
+      await this.outboundLog.record(transaction, {
+        outbox: enqueued,
+        conversation,
+        decision: {
+          origin: "reminder",
+          rung: ordinal,
+        },
+        correlationId,
       });
       if (enqueued.inserted) {
         await this.audit.append(transaction, {

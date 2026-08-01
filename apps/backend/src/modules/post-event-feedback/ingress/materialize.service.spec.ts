@@ -14,6 +14,10 @@ import {
 } from "../post-event-feedback-conversation.document.js";
 import type { ParticipantsRepository } from "../../participants/participants.repository.js";
 import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
+import type { FeedbackOutboundLogRepository } from "../outbox/outbound-log.repository.js";
+import { FeedbackOutboundLogService } from "../outbox/outbound-log.service.js";
+import type { FeedbackOutboundDecision } from "../outbox/outbound-log.schemas.js";
+import type { OutboundConversationSnapshot } from "../outbox/outbound-log.snapshot.js";
 import {
   FakeAudit,
   FakeDatabase,
@@ -214,9 +218,33 @@ describe("PostEventFeedbackMaterializer", () => {
     expect(harness.queue.added).toHaveLength(0);
   });
 
+  it("writes one stop_ack log for the STOP acknowledgement", async () => {
+    const ingressId = harness.repository.seedIngress({ text: "STOP" });
+
+    await harness.materializer.materialize({ ingressId, correlationId });
+
+    const stopAckOutboxId = harness.repository.outbox.find(
+      (row) => row.kind === "system",
+    )?.id;
+    expect(
+      harness.repository.outboxLogs.filter(
+        (row) => row.outboxId === stopAckOutboxId,
+      ),
+    ).toHaveLength(1);
+    expect(harness.repository.outboxLogs[0]).toMatchObject({
+      outboxId: stopAckOutboxId,
+      origin: "stop_ack",
+      decision: {
+        origin: "stop_ack",
+        sourceIngressId: ingressId,
+      },
+    });
+  });
+
   it("uses the campaign launch copy for the acknowledgement when present", async () => {
     harness.repository.campaigns.set(campaignId, {
       id: campaignId,
+      status: "launched",
       questions: { copy: { stop_ack: "Έγινε, σε διαγράψαμε." } },
     });
     const ingressId = harness.repository.seedIngress({ text: "ΔΙΑΚΟΠΗ" });
@@ -478,6 +506,27 @@ describe("PostEventFeedbackMaterializer", () => {
     expect(harness.queue.added).toHaveLength(0);
   });
 
+  it("writes one media_notice log carrying the ingress id", async () => {
+    const ingressId = harness.repository.seedIngress({ text: null });
+
+    await harness.materializer.materialize({ ingressId, correlationId });
+
+    expect(harness.repository.outbox).toHaveLength(1);
+    expect(harness.repository.outbox[0]).toMatchObject({
+      kind: "system",
+      dedupeKey: `feedback-media-notice-${conversationId}`,
+    });
+    expect(harness.repository.outboxLogs).toHaveLength(1);
+    expect(harness.repository.outboxLogs[0]).toMatchObject({
+      outboxId: harness.repository.outbox[0]?.id,
+      origin: "media_notice",
+      decision: {
+        origin: "media_notice",
+        sourceIngressId: ingressId,
+      },
+    });
+  });
+
   /**
    * Each of these used to raise the bare flag, so the inbox said «Needs
    * attention» and nothing else — no reason to read, no line to dismiss. Τούλα
@@ -672,6 +721,18 @@ interface FakeOutboxRow {
   sentAt: Date | null;
 }
 
+interface FakeOutboxLogRow {
+  id: string;
+  outboxId: string;
+  conversationId: string;
+  campaignId: string;
+  origin: string;
+  correlationId: string;
+  decision: FeedbackOutboundDecision;
+  conversationState: OutboundConversationSnapshot;
+  createdAt: Date;
+}
+
 interface FakeMessage {
   id: string;
   seq: number;
@@ -697,8 +758,18 @@ interface FakeConversation {
   control: { mode: string; source: string; changedAt: Date };
   goals: { key: string; ordinal: number; prompt: string; status: string }[];
   messages: FakeMessage[];
+  extraction: {
+    cursorSeq: number;
+    lastRunAt: Date | null;
+    model: string | null;
+    parkedSince: Date | null;
+    parkedRuns: number;
+    parkedNoticeSentAt: Date | null;
+  };
   needsAttention: boolean;
   attentionReasons: FakeAttentionReason[];
+  reminderCount: number;
+  awaitingHuman: boolean;
 }
 
 interface FakeAttentionReason {
@@ -710,9 +781,10 @@ interface FakeAttentionReason {
 class FakeFeedbackRepository {
   readonly ingress = new Map<string, FakeIngressRow>();
   readonly outbox: FakeOutboxRow[] = [];
+  readonly outboxLogs: FakeOutboxLogRow[] = [];
   readonly campaigns = new Map<
     string,
-    { id: string; questions: Record<string, unknown> }
+    { id: string; status: string; questions: Record<string, unknown> }
   >();
   private providerMessageSequence = 0;
 
@@ -805,7 +877,9 @@ class FakeFeedbackRepository {
 
   async findCampaignById(
     id: string,
-  ): Promise<{ id: string; questions: Record<string, unknown> } | undefined> {
+  ): Promise<
+    { id: string; status: string; questions: Record<string, unknown> } | undefined
+  > {
     return this.campaigns.get(id);
   }
 
@@ -834,6 +908,39 @@ class FakeFeedbackRepository {
       ...input,
     };
     this.outbox.push(row);
+    return { row: structuredCloneRow(row)!, inserted: true };
+  }
+
+  async insertOutboxLogIfAbsent(
+    _transaction: AppTransaction,
+    input: {
+      outboxId: string;
+      conversationId: string;
+      campaignId: string;
+      origin: string;
+      correlationId: string;
+      decision: FeedbackOutboundDecision;
+      conversationState: OutboundConversationSnapshot;
+    },
+  ): Promise<{ row: FakeOutboxLogRow; inserted: boolean }> {
+    const existing = this.outboxLogs.find(
+      (row) => row.outboxId === input.outboxId,
+    );
+    if (existing) {
+      return { row: structuredCloneRow(existing)!, inserted: false };
+    }
+    const row: FakeOutboxLogRow = {
+      id: randomUUID(),
+      outboxId: input.outboxId,
+      conversationId: input.conversationId,
+      campaignId: input.campaignId,
+      origin: input.origin,
+      correlationId: input.correlationId,
+      decision: input.decision,
+      conversationState: input.conversationState,
+      createdAt: new Date(),
+    };
+    this.outboxLogs.push(row);
     return { row: structuredCloneRow(row)!, inserted: true };
   }
 
@@ -1081,6 +1188,11 @@ function createHarness(): Harness {
   const queue = new FakeQueue();
   const metrics = new PostEventFeedbackMetrics();
 
+  repository.campaigns.set(campaignId, {
+    id: campaignId,
+    status: "launched",
+    questions: {},
+  });
   conversations.seed({
     _id: conversationId,
     campaignId,
@@ -1094,8 +1206,18 @@ function createHarness(): Harness {
     },
     goals: buildFeedbackConversationGoals(),
     messages: [],
+    extraction: {
+      cursorSeq: 0,
+      lastRunAt: null,
+      model: null,
+      parkedSince: null,
+      parkedRuns: 0,
+      parkedNoticeSentAt: null,
+    },
     needsAttention: false,
     attentionReasons: [],
+    reminderCount: 0,
+    awaitingHuman: false,
   });
   participants.rows.set(respondentParticipantId, {
     id: respondentParticipantId,
@@ -1120,6 +1242,9 @@ function createHarness(): Harness {
       database as unknown as DatabaseService,
       repository as unknown as FeedbackOutboxRepository,
       conversations as unknown as FeedbackConversationRepository,
+    ),
+    new FeedbackOutboundLogService(
+      repository as unknown as FeedbackOutboundLogRepository,
     ),
   );
 

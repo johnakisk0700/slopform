@@ -8,6 +8,7 @@ import {
   type FeedbackEligibleAttendee,
 } from "./campaign.repository.js";
 import { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
+import { FeedbackOutboundLogService } from "../outbox/outbound-log.service.js";
 import {
   FeedbackConversationPhoneConflictError,
   FeedbackConversationRepository,
@@ -84,6 +85,7 @@ export class PostEventFeedbackCampaignService {
     private readonly events: EventsRepository,
     private readonly audit: AuditRepository,
     private readonly outboundTranscript: FeedbackOutboundTranscriptService,
+    private readonly outboundLog: FeedbackOutboundLogService,
   ) {}
 
   async get(campaignId: string): Promise<FeedbackCampaignView> {
@@ -459,6 +461,15 @@ export class PostEventFeedbackCampaignService {
           kind: "intro",
           body: renderPostEventFeedbackCopy(input.copy.intro, displayName),
           dedupeKey: createFeedbackIntroDedupeKey(creation.conversation._id),
+        });
+        await this.outboundLog.record(transaction, {
+          outbox: enqueued,
+          conversation: creation.conversation,
+          decision: {
+            origin: "campaign_intro",
+            conversationCreated: creation.created,
+          },
+          correlationId: input.requestId,
         });
 
         if (creation.created && input.auditOnCreate) {

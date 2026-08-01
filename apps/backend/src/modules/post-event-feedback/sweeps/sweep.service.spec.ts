@@ -9,6 +9,8 @@ import type { FeedbackConversationRepository } from "../post-event-feedback-conv
 import { buildFeedbackConversationGoals } from "../post-event-feedback-conversation.document.js";
 import type { ParticipantsRepository } from "../../participants/participants.repository.js";
 import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
+import type { FeedbackOutboundLogRepository } from "../outbox/outbound-log.repository.js";
+import { FeedbackOutboundLogService } from "../outbox/outbound-log.service.js";
 import { buildPostEventFeedbackQuestionLaunchSnapshot } from "../question-set.js";
 import type { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
 import type { FeedbackIngressRepository } from "../ingress/ingress.repository.js";
@@ -36,6 +38,7 @@ describe("PostEventFeedbackSweepService", () => {
       row: {
         id: reminderOutboxId,
         conversationId,
+        campaignId,
         kind: "reminder",
         body: "Μια μικρή υπενθύμιση",
       },
@@ -66,6 +69,40 @@ describe("PostEventFeedbackSweepService", () => {
     });
   });
 
+  it("writes one reminder log with the due rung when a nudge is enqueued", async () => {
+    const { service, conversations, repository } = createService();
+    const open = openConversation();
+    conversations.listOpenDueForReminder.mockResolvedValue([open]);
+    conversations.findById.mockResolvedValue(open);
+    repository.findCampaignById.mockResolvedValue(launchedCampaign());
+    repository.insertOutboxIfAbsent.mockResolvedValue({
+      row: {
+        id: reminderOutboxId,
+        conversationId,
+        campaignId,
+        kind: "reminder",
+        body: "Μια μικρή υπενθύμιση",
+      },
+      inserted: true,
+    });
+
+    await service.sweepReminders("corr-1", ONE_DAY_LATER);
+
+    expect(repository.insertOutboxLogIfAbsent).toHaveBeenCalledTimes(1);
+    expect(repository.insertOutboxLogIfAbsent).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        outboxId: reminderOutboxId,
+        origin: "reminder",
+        correlationId: "corr-1",
+        decision: {
+          origin: "reminder",
+          rung: 1,
+        },
+      }),
+    );
+  });
+
   it("repairs a missing reminder transcript entry on the next sweep", async () => {
     const { service, conversations, repository } = createService();
     const open = openConversation();
@@ -78,6 +115,7 @@ describe("PostEventFeedbackSweepService", () => {
       row: {
         id: reminderOutboxId,
         conversationId,
+        campaignId,
         kind: "reminder",
         body: "Μια μικρή υπενθύμιση",
       },
@@ -91,6 +129,28 @@ describe("PostEventFeedbackSweepService", () => {
       expect.objectContaining({ actor: "bot", outboxId: reminderOutboxId }),
     );
     expect(conversations.markReminded).toHaveBeenCalled();
+  });
+
+  it("does not write a duplicate reminder log when the sweep finds the same row", async () => {
+    const { service, conversations, repository } = createService();
+    const open = openConversation();
+    conversations.listOpenDueForReminder.mockResolvedValue([open]);
+    conversations.findById.mockResolvedValue(open);
+    repository.findCampaignById.mockResolvedValue(launchedCampaign());
+    repository.insertOutboxIfAbsent.mockResolvedValue({
+      row: {
+        id: reminderOutboxId,
+        conversationId,
+        campaignId,
+        kind: "reminder",
+        body: "Μια μικρή υπενθύμιση",
+      },
+      inserted: false,
+    });
+
+    await service.sweepReminders("corr-repair", new Date());
+
+    expect(repository.insertOutboxLogIfAbsent).not.toHaveBeenCalled();
   });
 
   it("skips reminder for opted-out, human-controlled and already closed threads", async () => {
@@ -274,8 +334,11 @@ function openConversation() {
       parkedRuns: 0,
       parkedNoticeSentAt: null as Date | null,
     },
+    needsAttention: false,
+    attentionReasons: [],
     remindedAt: null,
     reminderCount: 0,
+    awaitingHuman: false,
     createdAt: CONVERSATION_CREATED_AT,
   };
 }
@@ -301,6 +364,7 @@ function createService(): {
   repository: {
     findCampaignById: ReturnType<typeof vi.fn>;
     insertOutboxIfAbsent: ReturnType<typeof vi.fn>;
+    insertOutboxLogIfAbsent: ReturnType<typeof vi.fn>;
     cancelQueuedOutboxForConversation: ReturnType<typeof vi.fn>;
     listPendingIngressOlderThan: ReturnType<typeof vi.fn>;
   };
@@ -325,6 +389,10 @@ function createService(): {
   const repository = {
     findCampaignById: vi.fn(),
     insertOutboxIfAbsent: vi.fn(),
+    insertOutboxLogIfAbsent: vi.fn().mockResolvedValue({
+      row: { id: "log-1" },
+      inserted: true,
+    }),
     cancelQueuedOutboxForConversation: vi.fn().mockResolvedValue(0),
     listPendingIngressOlderThan: vi.fn().mockResolvedValue([]),
   };
@@ -368,6 +436,9 @@ function createService(): {
         database as unknown as DatabaseService,
         repository as unknown as FeedbackOutboxRepository,
         conversations as unknown as FeedbackConversationRepository,
+      ),
+      new FeedbackOutboundLogService(
+        repository as unknown as FeedbackOutboundLogRepository,
       ),
     ),
     conversations,

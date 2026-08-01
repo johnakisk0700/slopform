@@ -22,6 +22,7 @@ import {
 import { FeedbackResultsRepository } from "../extraction/results.repository.js";
 import { isScoredPostEventFeedbackQuestion } from "../question-set.js";
 import { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
+import { FeedbackOutboundLogService } from "../outbox/outbound-log.service.js";
 import { FEEDBACK_QUEUE } from "../../../infrastructure/queue/queue.constants.js";
 import {
   FeedbackConversationCapacityError,
@@ -122,6 +123,7 @@ export class PostEventFeedbackConversationService {
     private readonly participants: ParticipantsRepository,
     private readonly audit: AuditRepository,
     private readonly outboundTranscript: FeedbackOutboundTranscriptService,
+    private readonly outboundLog: FeedbackOutboundLogService,
   ) {}
 
   async listForCampaign(
@@ -520,6 +522,15 @@ export class PostEventFeedbackConversationService {
         body: text,
         dedupeKey,
         createdByStaff: actorId,
+      });
+      await this.outboundLog.record(transaction, {
+        outbox: inserted,
+        conversation,
+        decision: {
+          origin: "staff_message",
+          staffActorId: actorId,
+        },
+        correlationId: requestId,
       });
       await this.audit.append(transaction, {
         actorType: "admin",

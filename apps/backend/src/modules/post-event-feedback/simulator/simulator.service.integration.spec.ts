@@ -8,6 +8,8 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import type { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
 import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
+import type { FeedbackOutboundLogRepository } from "../outbox/outbound-log.repository.js";
+import { FeedbackOutboundLogService } from "../outbox/outbound-log.service.js";
 import { FeedbackSimulatorService } from "./simulator.service.js";
 import { MessageOutboxDeliveryService } from "../outbox/deliver.service.js";
 import {
@@ -473,6 +475,9 @@ function createSimulatorHarness(): SimulatorHarness {
     repository as unknown as FeedbackOutboxRepository,
     conversations as unknown as FeedbackConversationRepository,
   );
+  const outboundLog = new FeedbackOutboundLogService(
+    repository as unknown as FeedbackOutboundLogRepository,
+  );
 
   return {
     repository,
@@ -521,6 +526,7 @@ function createSimulatorHarness(): SimulatorHarness {
       new FakeAudit() as never,
       new PostEventFeedbackMetrics(),
       outboundTranscript,
+      outboundLog,
     ),
   };
 }
