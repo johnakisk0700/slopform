@@ -264,11 +264,18 @@ describe("buildFeedbackExtractionPrompt", () => {
     // retention, readership and confidentiality read as permitted — and because
     // it was phrased as a *denial* of her own words it felt safe to write. The
     // rule has to give the model somewhere to go, or the next model invents the
-    // same reassurance again.
+    // same reassurance again. The full deferral itself then became the next
+    // failure mode: three data questions got the same skeleton three times —
+    // «Οκ ξαναείπες το ίδιο με τον "άνθρωπο από την ομάδα"» — so 11δ's ban on
+    // repeating a question has to cover the deferral pattern too.
     expect(prompt.system).toContain("11στ.");
     expect(prompt.system).toContain("πόσο καιρό τα κρατάμε");
     expect(prompt.system).toContain("απλώς ντυμένος άρνηση");
     expect(prompt.system).toContain("δεν είσαι εσύ ο σωστός να την απαντήσεις");
+    expect(prompt.system).toContain("μην ξαναχτίσεις την ίδια πρόταση");
+    expect(prompt.system).toContain("κι αυτό στην ομάδα");
+    expect(prompt.system).toContain("ισχύει το ίδιο κι εδώ");
+    expect(prompt.system).toContain("Δύο πανομοιότυπες αναβολές στη σειρά");
   });
 
   it("forbids the model ever claiming to be human", () => {
