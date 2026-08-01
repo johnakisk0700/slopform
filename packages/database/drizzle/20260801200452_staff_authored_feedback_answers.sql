@@ -1,0 +1,2 @@
+ALTER TABLE "feedback_answers" DROP CONSTRAINT "feedback_answers_source_message_ids_check";--> statement-breakpoint
+ALTER TABLE "feedback_answers" ADD CONSTRAINT "feedback_answers_source_message_ids_check" CHECK (cardinality("feedback_answers"."source_message_ids") >= 1 or "feedback_answers"."extraction_meta"->>'origin' = 'staff');

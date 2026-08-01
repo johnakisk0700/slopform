@@ -31,16 +31,23 @@ import {
 import {
   createFeedbackDeliverJobId,
   createFeedbackMaterializeJobId,
+  createFeedbackSummarizeCampaignJobId,
   FEEDBACK_JOB_NAMES,
   feedbackDeliverJobDataSchema,
   feedbackExtractJobDataSchema,
   feedbackMaterializeJobDataSchema,
   feedbackRelayJobDataSchema,
+  feedbackSummarizeCampaignJobDataSchema,
   feedbackSweepJobDataSchema,
+  parseFeedbackSummarizeCampaignAttempt,
   type FeedbackJobData,
   type FeedbackJobName,
 } from "./jobs.schemas.js";
 import { PostEventFeedbackSweepService } from "./sweeps/sweep.service.js";
+import {
+  FeedbackSummaryGenerationError,
+  PostEventFeedbackCampaignSummaryService,
+} from "./summary/summary.service.js";
 
 /**
  * Actual per-process feedback job concurrency.
@@ -83,6 +90,7 @@ export class PostEventFeedbackProcessor extends WorkerHost {
     private readonly extractor: PostEventFeedbackExtractor,
     private readonly sweeps: PostEventFeedbackSweepService,
     private readonly fallback: PostEventFeedbackExtractionFallback,
+    private readonly summaries: PostEventFeedbackCampaignSummaryService,
   ) {
     super();
   }
@@ -186,6 +194,55 @@ export class PostEventFeedbackProcessor extends WorkerHost {
         return;
       }
 
+      if (job.name === FEEDBACK_JOB_NAMES.summarizeCampaignV1) {
+        const data = feedbackSummarizeCampaignJobDataSchema.parse(job.data);
+        const attempt = parseFeedbackSummarizeCampaignAttempt(
+          job.id ?? "",
+          data.campaignId,
+        );
+        if (
+          attempt === undefined ||
+          job.id !==
+            createFeedbackSummarizeCampaignJobId(data.campaignId, attempt)
+        ) {
+          throw new UnrecoverableError("Invalid feedback summarize job id");
+        }
+
+        try {
+          await this.summaries.run(data, job.id);
+        } catch (error) {
+          const maxAttempts = job.opts.attempts ?? 1;
+          const isLastAttempt = job.attemptsMade + 1 >= maxAttempts;
+          if (
+            isLastAttempt &&
+            !(
+              error instanceof FeedbackSummaryGenerationError &&
+              !error.retryable
+            )
+          ) {
+            // Permanent failures already marked the row inside `run`. A
+            // retryable error that exhausted BullMQ still needs a durable
+            // `failed` so the admin can re-request.
+            await this.summaries.markTerminalFailure(
+              data.campaignId,
+              attempt,
+              error instanceof FeedbackSummaryGenerationError
+                ? error.detail || "generation_failed"
+                : "exhausted_retries",
+            );
+          }
+          throw error;
+        }
+        this.logger.log({
+          event: "feedback.summarize_campaign.completed",
+          jobId: job.id,
+          correlationId: data.correlationId,
+          campaignId: data.campaignId,
+          attempt,
+        });
+        return;
+      }
+
       throw new UnrecoverableError(
         `Unsupported feedback job: ${String(job.name)}`,
       );
@@ -204,6 +261,12 @@ export class PostEventFeedbackProcessor extends WorkerHost {
       // retry; a timeout, a rate limit or a provider 5xx does not.
       if (
         error instanceof FeedbackExtractionGenerationError &&
+        !error.retryable
+      ) {
+        throw new UnrecoverableError(error.message);
+      }
+      if (
+        error instanceof FeedbackSummaryGenerationError &&
         !error.retryable
       ) {
         throw new UnrecoverableError(error.message);

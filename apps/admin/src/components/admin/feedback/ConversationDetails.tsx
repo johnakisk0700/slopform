@@ -3,10 +3,13 @@ import { clsx } from "clsx";
 import type { LucideIcon } from "lucide-react";
 import {
   AtSign,
+  Ban,
   BotMessageSquare,
   Cake,
   Check,
   Hand,
+  Handshake,
+  Heart,
   ListChecks,
   MapPin,
   PencilLine,
@@ -25,7 +28,12 @@ import { useGetParticipant } from "../../../api/generated/participants";
 import type { AddFeedbackConversationNoteDtoNoteType } from "../../../api/generated/model/addFeedbackConversationNoteDtoNoteType";
 import type { FeedbackConversationDetailDtoOutput } from "../../../api/generated/model/feedbackConversationDetailDtoOutput";
 import type { FeedbackConversationResultsDtoOutput } from "../../../api/generated/model/feedbackConversationResultsDtoOutput";
+import { canCorrectAnswerValue } from "../../../features/feedback/answerCorrections";
 import { goalProgress } from "../../../features/feedback/conversationView";
+import {
+  isDirectedQuestion,
+  type DirectedQuestionKey,
+} from "../../../features/feedback/directedAnswers";
 import { extractionStatusLines } from "../../../features/feedback/extractionStatus";
 import {
   goalStatusBadge,
@@ -47,8 +55,9 @@ import {
   formatAgeBand,
   formatNeighborhood,
 } from "../../../features/participants/profileFields";
+import { AddAnswerAction } from "./AddAnswerAction";
 import { AddNoteAction } from "./AddNoteAction";
-import { AnswerValue } from "./AnswerCorrection";
+import { AnswerPerson, ScoreAnswer } from "./AnswerCorrection";
 import { ConfirmAction } from "./ConfirmAction";
 import { FeedbackBadges } from "./FeedbackBadges";
 import { ParticipantName } from "./ParticipantName";
@@ -304,14 +313,39 @@ export function ConversationActions({
 
 interface ProgressPanelProps {
   conversation: FeedbackConversationDetailDtoOutput;
+  /** The campaign's event, whose present attendees are the D16 candidates. */
+  eventId: string;
   results: FeedbackConversationResultsDtoOutput | undefined;
   resultsLoading: boolean;
   resultsError: string | null;
   /** Rejects on failure; the answer's own row reports the reason. */
   onCorrectAnswer: (answerId: string, valueInt: number) => Promise<void>;
   onWithdrawAnswer: (answerId: string) => Promise<void>;
+  onAddAnswer: (
+    questionKey: DirectedQuestionKey,
+    subjectParticipantId: string,
+  ) => Promise<void>;
   answerUpdatePending: boolean;
+  addAnswerPending: boolean;
 }
+
+/**
+ * One glyph per directed question, tinted with that question's own status
+ * colour.
+ *
+ * The three groups are the part of this card an operator reads fastest and the
+ * part they must not confuse — «Μαρία» under LIKED and under AVOID are opposite
+ * facts about the same evening. Glyph, heading and pill tint all say which is
+ * which, so no single channel is carrying it.
+ */
+const DIRECTED_QUESTION_GLYPHS: Record<
+  DirectedQuestionKey,
+  { icon: LucideIcon; className: string }
+> = {
+  liked: { icon: Heart, className: "text-success" },
+  meet_again: { icon: Handshake, className: "text-info" },
+  avoid: { icon: Ban, className: "text-danger" },
+};
 
 /**
  * What the questionnaire has got out of this conversation: one row per goal,
@@ -330,12 +364,15 @@ interface ProgressPanelProps {
  */
 export function ProgressPanel({
   conversation,
+  eventId,
   results,
   resultsLoading,
   resultsError,
   onCorrectAnswer,
   onWithdrawAnswer,
+  onAddAnswer,
   answerUpdatePending,
+  addAnswerPending,
 }: ProgressPanelProps) {
   const progress = goalProgress(conversation.goals);
   const answers = results?.answers ?? [];
@@ -358,21 +395,23 @@ export function ProgressPanel({
           <span className="text-xs font-semibold text-ink-muted tabular-nums">
             {progress.settled}/{progress.total} done
           </span>
-          {answers.length > 0 ? (
-            <Button
-              size="sm"
-              variant={isEditing ? "primary" : "ghost"}
-              aria-pressed={isEditing}
-              onPress={() => setEditing((current) => !current)}
-            >
-              {isEditing ? (
-                <Check aria-hidden="true" className="size-4" />
-              ) : (
-                <PencilLine aria-hidden="true" className="size-4" />
-              )}
-              {isEditing ? "Done" : "Edit"}
-            </Button>
-          ) : null}
+          {/* Always available now, where it used to appear only once something
+              had been recorded: edit mode is also how an answer gets added, and
+              a conversation whose questions all went unanswered is exactly the
+              one an operator has something to add to. */}
+          <Button
+            size="sm"
+            variant={isEditing ? "primary" : "ghost"}
+            aria-pressed={isEditing}
+            onPress={() => setEditing((current) => !current)}
+          >
+            {isEditing ? (
+              <Check aria-hidden="true" className="size-4" />
+            ) : (
+              <PencilLine aria-hidden="true" className="size-4" />
+            )}
+            {isEditing ? "Done" : "Edit"}
+          </Button>
         </span>
       }
     >
@@ -382,43 +421,91 @@ export function ProgressPanel({
         </p>
       ) : null}
 
-      <ul className="space-y-2">
+      <ul className="space-y-3.5">
         {conversation.goals.map((goal) => {
+          const key = goal.key;
           // A question can be answered with several people (D16 subjects), so
           // a goal's row is a list of its answers, not a single value.
-          const given = answers.filter(
-            (answer) => answer.questionKey === goal.key,
-          );
+          const given = answers.filter((answer) => answer.questionKey === key);
 
+          /* The score: its own line for the question and the number, and — in
+             edit mode — the whole width of the card for the slider under it. */
+          if (!isDirectedQuestion(key)) {
+            const score = given[0];
+            return (
+              <li key={key}>
+                {score ? (
+                  /* Keyed on the recorded value too, so a slider draft never
+                     survives a poll that changed the answer under it. */
+                  <ScoreAnswer
+                    key={`${score.id}:${score.valueInt ?? ""}`}
+                    label={questionLabel(key)}
+                    answer={score}
+                    onCorrect={onCorrectAnswer}
+                    isDisabled={answerUpdatePending}
+                    editable={isEditing && canCorrectAnswerValue(score)}
+                  />
+                ) : (
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm text-ink">
+                      {questionLabel(key)}
+                    </span>
+                    <FeedbackBadges badges={[goalStatusBadge(goal.status)]} />
+                  </div>
+                )}
+              </li>
+            );
+          }
+
+          /* A question answered with people: its own heading with the people
+             on the line under it, so the three groups read as three sets
+             rather than as one column of right-aligned names. */
+          const glyph = DIRECTED_QUESTION_GLYPHS[key];
           return (
-            <li
-              key={goal.key}
-              className="flex items-start justify-between gap-3"
-            >
-              <span className="shrink-0 text-sm text-ink">
-                {questionLabel(goal.key)}
-              </span>
+            <li key={key}>
+              <div className="flex min-h-7 items-center justify-between gap-2">
+                <h3 className="flex items-center gap-1.5 jts-overline text-ink-muted">
+                  <glyph.icon
+                    aria-hidden="true"
+                    className={clsx("size-3.5 shrink-0", glyph.className)}
+                  />
+                  {questionLabel(key)}
+                </h3>
+                <span className="flex items-center gap-2">
+                  {given.length === 0 ? (
+                    <FeedbackBadges badges={[goalStatusBadge(goal.status)]} />
+                  ) : null}
+                  {isEditing ? (
+                    <AddAnswerAction
+                      eventId={eventId}
+                      respondentParticipantId={
+                        conversation.respondentParticipantId
+                      }
+                      questionKey={key}
+                      answers={answers}
+                      isDisabled={eventId === "" || answerUpdatePending}
+                      isPending={addAnswerPending}
+                      onAdd={(subjectParticipantId) =>
+                        onAddAnswer(key, subjectParticipantId)
+                      }
+                    />
+                  ) : null}
+                </span>
+              </div>
               {given.length > 0 ? (
-                /* One block per answer rather than a run of inline values: each
-                   one now carries its own controls and, where a human decided
-                   it, the line saying who. */
-                <div className="flex min-w-0 flex-col items-end gap-1 text-right text-sm font-semibold break-words text-ink">
+                <ul className="mt-1 flex flex-wrap items-start gap-1.5">
                   {given.map((answer) => (
-                    /* Keyed on the recorded value too, so a slider draft never
-                       survives a poll that changed the answer under it. */
-                    <AnswerValue
-                      key={`${answer.id}:${answer.valueInt ?? ""}`}
+                    <AnswerPerson
+                      key={answer.id}
                       answer={answer}
-                      onCorrect={onCorrectAnswer}
+                      questionKey={key}
                       onWithdraw={onWithdrawAnswer}
                       isDisabled={answerUpdatePending}
                       editable={isEditing}
                     />
                   ))}
-                </div>
-              ) : (
-                <FeedbackBadges badges={[goalStatusBadge(goal.status)]} />
-              )}
+                </ul>
+              ) : null}
             </li>
           );
         })}

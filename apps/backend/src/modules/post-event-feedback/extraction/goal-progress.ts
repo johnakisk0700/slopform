@@ -69,6 +69,32 @@ export function nextOpenGoal(
 }
 
 /**
+ * The goals that owe nothing once this run's recorded updates apply — answered
+ * earlier, answered by an answer that survived validation just now, or skipped.
+ *
+ * The campaign re-ask reads this before repeating a question. A refused
+ * *surplus* mention on a goal that already holds its answer is not a question
+ * the participant still owes us anything on: in the 2026-08-01 paid rehearsal,
+ * Ρούλα Κομποσερίδου had `liked` answered (η Λούλα) and kept mentioning table
+ * neighbours who resolved to nobody, and every unresolved name re-sent the
+ * `liked` campaign copy to a question she had answered two turns earlier.
+ */
+export function settledGoalKeys(
+  goals: readonly FeedbackConversationGoal[],
+  updates: readonly GoalStatusUpdate[],
+): ReadonlySet<FeedbackAnswerQuestionKey> {
+  const byKey = new Map(updates.map((update) => [update.key, update.status]));
+  const settled = new Set<FeedbackAnswerQuestionKey>();
+  for (const goal of goals) {
+    const status = byKey.get(goal.key) ?? goal.status;
+    if (status === "answered" || status === "skipped") {
+      settled.add(goal.key);
+    }
+  }
+  return settled;
+}
+
+/**
  * Records that the outbound this run is about to send is asking a particular
  * goal.
  *

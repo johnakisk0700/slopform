@@ -13,6 +13,7 @@ import {
   withPolicyAnswers,
   withSafetyAssurance,
 } from "./outbound-reply.js";
+import { type GoalStatusUpdate } from "./goal-progress.js";
 import { POST_EVENT_FEEDBACK_POLICY_QUESTION_DEFINITIONS } from "./policy-answers.js";
 
 const copy = POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy;
@@ -67,10 +68,31 @@ function validated(
   };
 }
 
+const noRecordedUpdates: GoalStatusUpdate[] = [];
+
+function allSettledUpdates(
+  goals: FeedbackConversationDocument["goals"],
+): GoalStatusUpdate[] {
+  return goals.map((goal) => ({
+    key: goal.key,
+    status:
+      goal.status === "answered" || goal.status === "skipped"
+        ? goal.status
+        : ("skipped" as const),
+  }));
+}
+
+const conversationWithScoreOpen = {
+  ...conversation,
+  goals: conversation.goals.map((goal) =>
+    goal.key === "event_score" ? { ...goal, status: "asked" as const } : goal,
+  ),
+} as unknown as FeedbackConversationDocument;
+
 describe("resolveOutbound", () => {
   it("re-asks the score when validation refused an out-of-range value, instead of confirming it", () => {
     const outbound = resolveOutbound(
-      conversation,
+      conversationWithScoreOpen,
       validated({
         nextGoal: "liked",
         reply: "Τέλεια, χαίρομαι πολύ! 🙂",
@@ -86,7 +108,7 @@ describe("resolveOutbound", () => {
       false,
       2,
       copy,
-      "event_score",
+      noRecordedUpdates,
     );
 
     expect(outbound).toEqual({
@@ -123,7 +145,7 @@ describe("resolveOutbound", () => {
       false,
       4,
       copy,
-      "liked",
+      noRecordedUpdates,
     );
 
     expect(outbound).toEqual({
@@ -145,7 +167,7 @@ describe("resolveOutbound", () => {
       false,
       3,
       copy,
-      "liked",
+      noRecordedUpdates,
     );
 
     expect(outbound).toEqual({
@@ -179,7 +201,7 @@ describe("resolveOutbound", () => {
       false,
       3,
       copy,
-      "liked",
+      noRecordedUpdates,
     );
 
     expect(outbound).toEqual({
@@ -213,7 +235,7 @@ describe("resolveOutbound", () => {
       false,
       6,
       copy,
-      "liked",
+      noRecordedUpdates,
     );
 
     expect(outbound).toEqual({
@@ -225,7 +247,7 @@ describe("resolveOutbound", () => {
 
   it("asks the earliest refused question when a skip and an answer are both refused", () => {
     const outbound = resolveOutbound(
-      conversation,
+      conversationWithScoreOpen,
       validated({
         nextGoal: null,
         reply: null,
@@ -246,7 +268,7 @@ describe("resolveOutbound", () => {
       false,
       7,
       copy,
-      "event_score",
+      noRecordedUpdates,
     );
 
     expect(outbound).toMatchObject({
@@ -284,7 +306,7 @@ describe("resolveOutbound", () => {
       true,
       8,
       copy,
-      "liked",
+      noRecordedUpdates,
     );
 
     expect(outbound).toBeUndefined();
@@ -301,7 +323,7 @@ describe("resolveOutbound", () => {
       false,
       5,
       copy,
-      null,
+      allSettledUpdates(conversation.goals),
     );
 
     expect(outbound).toEqual({
@@ -337,7 +359,7 @@ describe("resolveOutbound", () => {
       false,
       5,
       copy,
-      null,
+      allSettledUpdates(conversation.goals),
     );
 
     expect(outbound).toEqual({
@@ -363,7 +385,7 @@ describe("resolveOutbound", () => {
         false,
         5,
         copy,
-        null,
+        allSettledUpdates(conversation.goals),
       )?.body;
 
     expect(
@@ -408,7 +430,7 @@ describe("resolveOutbound", () => {
       false,
       5,
       copy,
-      null,
+      allSettledUpdates(conversationWithNothingRecorded.goals),
     );
 
     expect(outbound).toMatchObject({
@@ -427,7 +449,7 @@ describe("resolveOutbound", () => {
       false,
       2,
       copy,
-      "liked",
+      noRecordedUpdates,
     );
 
     expect(outbound).toEqual({
@@ -451,7 +473,7 @@ describe("resolveOutbound", () => {
       false,
       4,
       copy,
-      "liked",
+      noRecordedUpdates,
     );
 
     expect(outbound).toEqual({
@@ -474,13 +496,13 @@ describe("resolveOutbound", () => {
     ]) {
       expect(
         resolveOutbound(
-          conversation,
+          conversationWithScoreOpen,
           validated({ nextGoal: "event_score", reply }),
           false,
           false,
           4,
           copy,
-          "event_score",
+          noRecordedUpdates,
         ),
       ).toHaveProperty("askedGoal", "event_score");
     }
@@ -505,7 +527,7 @@ describe("resolveOutbound", () => {
       false,
       2,
       copy,
-      "event_score",
+      noRecordedUpdates,
     );
 
     // The assurance is the caller's to add — see `withSafetyAssurance` below.
@@ -514,6 +536,89 @@ describe("resolveOutbound", () => {
     expect(outbound).toEqual({
       body: "Λυπάμαι που το ακούω, θες να μιλήσουμε;",
       dedupeKey: "feedback-reply-conv-1-2",
+    });
+  });
+
+  it("does not re-ask an answered goal for a refused surplus mention", () => {
+    // The 2026-08-01T17-06-11Z paid rehearsal, conversation c571bbf9. Ρούλα
+    // Κομποσερίδου had `liked` answered (η Λούλα) since her first message; she
+    // then kept naming table neighbours who resolved to nobody, and every
+    // `unresolved_subject` refusal re-sent her the identical `liked` campaign
+    // copy — twice, at extraction cursors 4 and 6, with the goal reading
+    // `answered` in both decisions' own snapshots. The re-ask cap stopped the
+    // third send; the first two were never legitimate, because a refused
+    // surplus on a banked answer leaves the participant owing nothing.
+    const roulasLadder = {
+      ...conversation,
+      goals: [
+        { key: "event_score", ordinal: 1, status: "answered" },
+        { key: "liked", ordinal: 2, status: "answered" },
+        { key: "meet_again", ordinal: 3, status: "asked" },
+        { key: "avoid", ordinal: 4, status: "pending" },
+      ],
+    } as unknown as FeedbackConversationDocument;
+
+    const outbound = resolveOutbound(
+      roulasLadder,
+      validated({
+        nextGoal: "avoid",
+        reply:
+          "Τέλεια, σημείωσα τη Λούλα! Υπάρχει κάποιος που θα προτιμούσες να μην πετύχεις ξανά;",
+        rejections: [
+          {
+            scope: "answer",
+            reason: "unresolved_subject",
+            questionKey: "liked",
+          },
+        ],
+      }),
+      false,
+      false,
+      8,
+      copy,
+      // This run banked the `meet_again` answer she gave in the same burst.
+      [{ key: "meet_again", status: "answered" }],
+    );
+
+    // The conversation moves on to the goal actually owed, in the model's own
+    // words — never back to the question she already answered.
+    expect(outbound).toEqual({
+      body: "Τέλεια, σημείωσα τη Λούλα! Υπάρχει κάποιος που θα προτιμούσες να μην πετύχεις ξανά;",
+      dedupeKey: "feedback-reply-conv-1-8",
+      askedGoal: "avoid",
+    });
+  });
+
+  it("does not let a surplus refusal undo an answer banked by the same run", () => {
+    // The same shape one turn earlier: the run that accepts «η Λούλα» for
+    // `liked` may reject a second, unresolvable name beside it. The goal is
+    // settled by this run's own recorded update — stored status still `asked` —
+    // and the refusal must read the settled view, not the stored one. The
+    // ladder advances to `meet_again` instead of restating `liked`.
+    const outbound = resolveOutbound(
+      conversation,
+      validated({
+        nextGoal: null,
+        reply: "Τέλεια, σημείωσα τη Λούλα!",
+        rejections: [
+          {
+            scope: "answer",
+            reason: "unresolved_subject",
+            questionKey: "liked",
+          },
+        ],
+      }),
+      false,
+      false,
+      6,
+      copy,
+      [{ key: "liked", status: "answered" }],
+    );
+
+    expect(outbound).toEqual({
+      body: copy.meet_again,
+      dedupeKey: "feedback-reply-conv-1-6",
+      askedGoal: "meet_again",
     });
   });
 });
@@ -663,7 +768,7 @@ describe("withCampaignReaskCap", () => {
         false,
         seq,
         copy,
-        "liked",
+        noRecordedUpdates,
       )!,
     );
 

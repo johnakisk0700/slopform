@@ -1534,3 +1534,10 @@ export class RecordingFeedbackTransport implements FeedbackTransport {
     };
   }
 }
+
+/** Test double for summary enqueue hooks — callers only need the close notifier. */
+export function noopSummaries(): import("./summary/summary.service.js").PostEventFeedbackCampaignSummaryService {
+  return {
+    notifyIfLastConversationClosed: async () => undefined,
+  } as unknown as import("./summary/summary.service.js").PostEventFeedbackCampaignSummaryService;
+}

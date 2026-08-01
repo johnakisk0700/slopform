@@ -24,6 +24,14 @@ interface ConfirmActionProps {
   isConfirmDisabled?: boolean;
   icon?: ReactNode;
   size?: "sm" | "md";
+  /**
+   * Renders the trigger as the icon alone, keeping `label` as its accessible
+   * name. For a control that sits *inside* the thing it acts on — the × on a
+   * person's pill — where a word would make the pill about its own button.
+   */
+  isIconOnly?: boolean;
+  /** Trigger styling for a control embedded in another surface. */
+  triggerClassName?: string;
   onConfirm: () => Promise<void>;
 }
 
@@ -49,6 +57,8 @@ export function ConfirmAction({
   isConfirmDisabled = false,
   icon,
   size = "sm",
+  isIconOnly = false,
+  triggerClassName,
   onConfirm,
 }: ConfirmActionProps) {
   const [isOpen, setOpen] = useState(false);
@@ -72,9 +82,11 @@ export function ConfirmAction({
         size={size}
         variant={tone === "danger" ? "danger-soft" : "secondary"}
         isDisabled={isDisabled}
+        {...(isIconOnly ? { isIconOnly: true, "aria-label": label } : {})}
+        {...(triggerClassName ? { className: triggerClassName } : {})}
       >
         {icon}
-        {label}
+        {isIconOnly ? null : label}
       </Button>
       <Modal.Backdrop>
         <Modal.Container size="sm" placement="center">

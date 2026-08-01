@@ -46,6 +46,7 @@ import {
   type FeedbackJobData,
   type FeedbackJobName,
 } from "../jobs.schemas.js";
+import { PostEventFeedbackCampaignSummaryService } from "../summary/summary.service.js";
 
 export class PostEventFeedbackIngressNotFoundError extends Error {
   constructor(ingressId: string) {
@@ -96,6 +97,7 @@ export class PostEventFeedbackMaterializer {
     private readonly metrics: PostEventFeedbackMetrics,
     private readonly outboundTranscript: FeedbackOutboundTranscriptService,
     private readonly outboundLog: FeedbackOutboundLogService,
+    private readonly summaries: PostEventFeedbackCampaignSummaryService,
   ) {}
 
   async materialize(
@@ -443,11 +445,17 @@ export class PostEventFeedbackMaterializer {
      */
     stopMessageId: string | null,
   ): Promise<MaterializeFeedbackIngressResult> {
-    await this.conversations.close({
+    const closed = await this.conversations.close({
       conversationId: conversation._id,
       reason: "stopped",
       at: ingress.observedAt,
     });
+
+    await this.summaries.notifyIfLastConversationClosed(
+      conversation.campaignId,
+      correlationId,
+      closed.changed,
+    );
 
     // Somebody who opts out without having answered a single question is the
     // shape of a number that changed hands: a stranger is being asked about a

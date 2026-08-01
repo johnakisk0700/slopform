@@ -221,6 +221,19 @@ export const environmentSchema = observabilityEnvironmentSchema
       emptyStringToUndefined,
       z.string().trim().min(1).max(20).optional(),
     ),
+    /** Campaign summary model. Unset defaults to `openai/gpt-5.6-terra` in-module. */
+    FEEDBACK_SUMMARY_MODEL: z.preprocess(
+      emptyStringToUndefined,
+      z.string().trim().min(1).max(200).optional(),
+    ),
+    /**
+     * Thinking budget for campaign summaries via OpenAI direct. Unset defaults
+     * to `xhigh` in-module; vocabulary is checked there like extraction effort.
+     */
+    FEEDBACK_SUMMARY_REASONING_EFFORT: z.preprocess(
+      emptyStringToUndefined,
+      z.string().trim().min(1).max(20).optional(),
+    ),
     WASENDER_SESSION_API_KEY: optionalCredential,
     WASENDER_WEBHOOK_ENABLED: booleanFromEnvironment,
     WASENDER_WEBHOOK_SECRET: optionalWebhookSecret,

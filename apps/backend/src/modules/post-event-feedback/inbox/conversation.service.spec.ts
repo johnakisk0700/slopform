@@ -24,12 +24,14 @@ import type { ParticipantsRepository } from "../../participants/participants.rep
 import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
 import type { FeedbackOutboundLogRepository } from "../outbox/outbound-log.repository.js";
 import { FeedbackOutboundLogService } from "../outbox/outbound-log.service.js";
+import { noopSummaries } from "../post-event-feedback-doubles.harness.js";
 import { buildPostEventFeedbackQuestionLaunchSnapshot } from "../question-set.js";
 import type { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
 import type { FeedbackResultsRepository } from "../extraction/results.repository.js";
 import type { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
 import { conversationCapabilities } from "./conversation.view.js";
 import {
+  addFeedbackConversationAnswerSchema,
   closeFeedbackConversationSchema,
   feedbackConversationMessageSchema,
   sendFeedbackStaffMessageSchema,
@@ -1201,6 +1203,221 @@ describe("PostEventFeedbackConversationService", () => {
     );
   });
 
+  it("records an operator's answer about a candidate with staff provenance", async () => {
+    const { service, repository, conversations, eventsService, auditAppend } =
+      createService();
+    conversations.findById.mockResolvedValue(openConversation());
+    eventsService.listFeedbackCandidatesForRespondent.mockResolvedValue({
+      items: [{ participantId: subjectId, displayName: "Kostas" }],
+    });
+    repository.insertStaffAnswer.mockResolvedValue(
+      answerRow({
+        questionKey: "avoid",
+        sourceMessageIds: [],
+        extractionMeta: {
+          origin: "staff",
+          staffUserId: "admin-1",
+          candidateIds: [subjectId],
+        },
+      }),
+    );
+
+    const answer = await service.addStaffAnswer(
+      campaignId,
+      conversationId,
+      { questionKey: "avoid", subjectParticipantId: subjectId },
+      "admin-1",
+      "req-40",
+    );
+
+    expect(repository.lockConversation).toHaveBeenCalled();
+    expect(repository.insertStaffAnswer).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        campaignId,
+        conversationId,
+        respondentParticipantId: participantId,
+        subjectParticipantId: subjectId,
+        questionKey: "avoid",
+        // Nothing was said and no model ran: neither is invented, and no
+        // message id is borrowed to make the row look like testimony.
+        extractionMeta: {
+          origin: "staff",
+          staffUserId: "admin-1",
+          candidateIds: [subjectId],
+        },
+      }),
+    );
+    expect(answer.origin).toBe("staff");
+    expect(answer.sourceMessageIds).toStrictEqual([]);
+    expect(auditAppend).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "feedback_answer.staff_recorded",
+        actorType: "admin",
+        actorId: "admin-1",
+        entityType: "feedback_answer",
+        context: expect.objectContaining({
+          campaignId,
+          conversationId,
+          questionKey: "avoid",
+          subjectParticipantId: subjectId,
+        }),
+      }),
+    );
+  });
+
+  it("refuses to record an answer about someone outside the D16 candidates", async () => {
+    const { service, repository, conversations, eventsService } =
+      createService();
+    conversations.findById.mockResolvedValue(openConversation());
+    eventsService.listFeedbackCandidatesForRespondent.mockResolvedValue({
+      items: [],
+    });
+
+    await expect(
+      service.addStaffAnswer(
+        campaignId,
+        conversationId,
+        { questionKey: "liked", subjectParticipantId: subjectId },
+        "admin-1",
+        "req-41",
+      ),
+    ).rejects.toBeInstanceOf(FeedbackConversationActionNotAllowedError);
+    expect(repository.insertStaffAnswer).not.toHaveBeenCalled();
+  });
+
+  it("moves a person rather than holding both positions at once", async () => {
+    const { service, repository, conversations, eventsService, auditAppend } =
+      createService();
+    conversations.findById.mockResolvedValue(openConversation());
+    eventsService.listFeedbackCandidatesForRespondent.mockResolvedValue({
+      items: [{ participantId: subjectId, displayName: "Kostas" }],
+    });
+    const liked = answerRow({ questionKey: "liked" });
+    repository.listAnswersByConversation.mockResolvedValue([liked]);
+    repository.deleteAnswer.mockResolvedValue(liked);
+    repository.insertStaffAnswer.mockResolvedValue(
+      answerRow({
+        id: "aaaaaaa9-aaaa-4aaa-8aaa-aaaaaaaaaaa9",
+        questionKey: "avoid",
+      }),
+    );
+
+    await service.addStaffAnswer(
+      campaignId,
+      conversationId,
+      { questionKey: "avoid", subjectParticipantId: subjectId },
+      "admin-1",
+      "req-42",
+    );
+
+    // The same rule an extraction run obeys when a participant changes their
+    // mind: liking somebody and asking never to meet them again cannot both be
+    // on file, and the newest position is the true one.
+    expect(repository.deleteAnswer).toHaveBeenCalledWith(
+      expect.anything(),
+      liked.id,
+    );
+    // Tombstoned like any other withdrawal, so the model does not put the
+    // superseded answer back the next time it reads the same words.
+    expect(repository.recordAnswerWithdrawal).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        questionKey: "liked",
+        subjectParticipantId: subjectId,
+        withdrawnBy: "admin-1",
+      }),
+    );
+    expect(auditAppend).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "feedback_answer.withdrawn",
+        context: expect.objectContaining({ supersededBy: "avoid" }),
+      }),
+    );
+  });
+
+  it("lifts the tombstone on the slot an operator fills", async () => {
+    const { service, repository, conversations, eventsService, auditAppend } =
+      createService();
+    conversations.findById.mockResolvedValue(openConversation());
+    eventsService.listFeedbackCandidatesForRespondent.mockResolvedValue({
+      items: [{ participantId: subjectId, displayName: "Kostas" }],
+    });
+    repository.deleteAnswerWithdrawal.mockResolvedValue({ id: "tombstone-1" });
+    repository.insertStaffAnswer.mockResolvedValue(answerRow());
+
+    await service.addStaffAnswer(
+      campaignId,
+      conversationId,
+      { questionKey: "liked", subjectParticipantId: subjectId },
+      "admin-1",
+      "req-43",
+    );
+
+    // The freeze stops the model from undoing a human decision. It was never
+    // meant to stop the human, so somebody removed by mistake can be put back —
+    // and the audit says the slot had been emptied first.
+    expect(repository.deleteAnswerWithdrawal).toHaveBeenCalledWith(
+      expect.anything(),
+      { conversationId, questionKey: "liked", subjectParticipantId: subjectId },
+    );
+    expect(auditAppend).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: "feedback_answer.staff_recorded",
+        context: expect.objectContaining({ reinstatedWithdrawnSlot: true }),
+      }),
+    );
+  });
+
+  it("returns the row already there rather than recording a second one", async () => {
+    const { service, repository, conversations, eventsService } =
+      createService();
+    conversations.findById.mockResolvedValue(openConversation());
+    eventsService.listFeedbackCandidatesForRespondent.mockResolvedValue({
+      items: [{ participantId: subjectId, displayName: "Kostas" }],
+    });
+    repository.listAnswersByConversation.mockResolvedValue([
+      answerRow({ questionKey: "liked" }),
+    ]);
+
+    const answer = await service.addStaffAnswer(
+      campaignId,
+      conversationId,
+      { questionKey: "liked", subjectParticipantId: subjectId },
+      "admin-1",
+      "req-44",
+    );
+
+    expect(answer.id).toBe(answerId);
+    expect(repository.insertStaffAnswer).not.toHaveBeenCalled();
+    expect(repository.deleteAnswerWithdrawal).not.toHaveBeenCalled();
+  });
+
+  it("accepts only a question whose answer is a person", () => {
+    // A score is the respondent's own number. An operator recording one would
+    // be putting a rating in their mouth, so the route cannot express it.
+    expect(
+      addFeedbackConversationAnswerSchema.safeParse({
+        questionKey: "event_score",
+        subjectParticipantId: subjectId,
+      }).success,
+    ).toBe(false);
+    expect(
+      addFeedbackConversationAnswerSchema.safeParse({
+        questionKey: "meet_again",
+        subjectParticipantId: subjectId,
+      }).success,
+    ).toBe(true);
+    // The subject is the answer, so there is no undirected form of this route.
+    expect(
+      addFeedbackConversationAnswerSchema.safeParse({ questionKey: "liked" })
+        .success,
+    ).toBe(false);
+  });
+
   it("publishes a correction on the answers read model, and nothing more", async () => {
     const { service, repository } = createService();
     repository.listAnswersByCampaign.mockResolvedValue([
@@ -1625,6 +1842,8 @@ function createService(): {
     updateAnswerValue: ReturnType<typeof vi.fn>;
     deleteAnswer: ReturnType<typeof vi.fn>;
     recordAnswerWithdrawal: ReturnType<typeof vi.fn>;
+    deleteAnswerWithdrawal: ReturnType<typeof vi.fn>;
+    insertStaffAnswer: ReturnType<typeof vi.fn>;
     lockConversation: ReturnType<typeof vi.fn>;
   };
   eventsService: {
@@ -1666,6 +1885,8 @@ function createService(): {
     updateAnswerValue: vi.fn(),
     deleteAnswer: vi.fn(),
     recordAnswerWithdrawal: vi.fn(),
+    deleteAnswerWithdrawal: vi.fn().mockResolvedValue(undefined),
+    insertStaffAnswer: vi.fn(),
     lockConversation: vi.fn().mockResolvedValue(undefined),
   };
   const conversations = {
@@ -1718,6 +1939,7 @@ function createService(): {
     new FeedbackOutboundLogService(
       repository as unknown as FeedbackOutboundLogRepository,
     ),
+    noopSummaries(),
   );
 
   return {

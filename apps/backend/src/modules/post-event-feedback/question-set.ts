@@ -264,6 +264,55 @@ export function isAgreeingDirectedPostEventFeedbackQuestion(
   return value === "liked" || value === "meet_again";
 }
 
+/**
+ * The questions whose answer is a person, in the order they are asked.
+ *
+ * The complement of `isScoredPostEventFeedbackQuestion`, named the other way
+ * round because two callers want the list rather than the predicate: the
+ * operator's «record an answer» route, which accepts exactly these, and the
+ * admin screen that groups people under them.
+ */
+export const FEEDBACK_DIRECTED_ANSWER_QUESTION_KEYS = [
+  "liked",
+  "meet_again",
+  "avoid",
+] as const satisfies readonly FeedbackAnswerQuestionKey[];
+
+export function isDirectedPostEventFeedbackQuestion(
+  value: string,
+): value is (typeof FEEDBACK_DIRECTED_ANSWER_QUESTION_KEYS)[number] {
+  return (FEEDBACK_DIRECTED_ANSWER_QUESTION_KEYS as readonly string[]).includes(
+    value,
+  );
+}
+
+/**
+ * The answers about one person that recording this one contradicts.
+ *
+ * «άκυρο, τον Κώστα Π. καλύτερα όχι ξανά» moves a person, it does not add a
+ * second opinion about them. `avoid` and the two agreeing questions are the same
+ * decision with opposite answers — somebody a participant now wants to steer
+ * clear of is not somebody who made a good impression — so recording one has to
+ * clear the other, and only the newest position stands. `liked` and `meet_again`
+ * do not contradict each other (one decision said twice) and `event_score` is
+ * directed at nobody, so neither has anything to clear.
+ *
+ * One rule with two callers, which is why it lives here rather than in either of
+ * them: an extraction run reading a change of heart, and an operator recording
+ * the same move by hand.
+ */
+export function contradictedPostEventFeedbackQuestionKeys(
+  questionKey: FeedbackAnswerQuestionKey,
+): readonly FeedbackAnswerQuestionKey[] {
+  if (questionKey === "avoid") {
+    return ["liked", "meet_again"];
+  }
+  if (questionKey === "liked" || questionKey === "meet_again") {
+    return ["avoid"];
+  }
+  return [];
+}
+
 export function isPostEventFeedbackNoteType(
   value: string,
 ): value is FeedbackNoteType {

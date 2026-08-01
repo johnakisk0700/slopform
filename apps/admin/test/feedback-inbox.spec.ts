@@ -136,6 +136,30 @@ interface AnswerCorrectionsModule {
   ) => string;
 }
 
+interface DirectedAnswersModule {
+  DIRECTED_QUESTION_KEYS: readonly string[];
+  isDirectedQuestion: (key: string) => boolean;
+  directedQuestionTone: (key: string) => string;
+  contradictedQuestionKeys: (key: string) => readonly string[];
+  answerCandidateChoices: (
+    candidates: readonly { participantId: string; displayName: string }[],
+    answers: readonly {
+      questionKey: string;
+      subjectParticipantId: string | null;
+    }[],
+    questionKey: string,
+  ) => readonly {
+    participantId: string;
+    displayName: string;
+    movesFrom: readonly string[];
+  }[];
+  recordAnswerDescription: (input: {
+    questionLabel: string;
+    subjectLabel: string;
+    movesFromLabels: readonly string[];
+  }) => string;
+}
+
 interface StaffCloseModule {
   STAFF_CLOSE_REASONS: readonly string[];
   staffCloseReasonLabel: (reason: string) => string;
@@ -145,12 +169,28 @@ interface StaffCloseModule {
   }) => string;
 }
 
+interface CampaignSummaryModule {
+  campaignSummaryStatusLabel: (summary: {
+    status: "none" | "pending" | "ready" | "failed";
+    isPartial: boolean;
+  }) => string;
+  campaignSummaryActionLabel: (
+    status: "none" | "pending" | "ready" | "failed",
+  ) => "Generate" | "Refresh";
+  campaignSummaryPartialWarning: (summary: {
+    isPartial: boolean;
+    openConversationCount: number | null;
+  }) => string | null;
+}
+
 let labels: LabelsModule;
 let view: ConversationViewModule;
 let polling: PollingModule;
 let extractionStatus: ExtractionStatusModule;
 let answerCorrections: AnswerCorrectionsModule;
+let directedAnswers: DirectedAnswersModule;
 let staffClose: StaffCloseModule;
+let campaignSummary: CampaignSummaryModule;
 
 async function loadFeatureModule<T>(relativePath: string): Promise<T> {
   const moduleUrl = new URL(`../${relativePath}`, import.meta.url).href;
@@ -173,8 +213,14 @@ beforeAll(async () => {
   answerCorrections = await loadFeatureModule<AnswerCorrectionsModule>(
     "src/features/feedback/answerCorrections.ts",
   );
+  directedAnswers = await loadFeatureModule<DirectedAnswersModule>(
+    "src/features/feedback/directedAnswers.ts",
+  );
   staffClose = await loadFeatureModule<StaffCloseModule>(
     "src/features/feedback/staffClose.ts",
+  );
+  campaignSummary = await loadFeatureModule<CampaignSummaryModule>(
+    "src/features/feedback/campaignSummary.ts",
   );
 });
 
@@ -1083,7 +1129,7 @@ describe("extraction status (operator visibility)", () => {
 
     // One row per goal, resolved against the answers by question key. A second
     // list below it made every answered goal state itself twice.
-    expect(details).toContain("answer.questionKey === goal.key");
+    expect(details).toContain("answer.questionKey === key");
     expect(details).toContain("goalStatusBadge(goal.status)");
     expect(details).not.toContain('title="Answers"');
   });
@@ -1232,7 +1278,8 @@ describe("operator corrections to recorded answers", () => {
       "src/components/admin/feedback/ConversationDetails.tsx",
     );
 
-    expect(details).toContain("<AnswerValue");
+    expect(details).toContain("<ScoreAnswer");
+    expect(details).toContain("<AnswerPerson");
     // Recording what is true is not steering the conversation, so unlike every
     // control that could send a message these survive a closed thread — which
     // is the case they exist for, since nothing will ever re-read it.
@@ -1251,6 +1298,144 @@ describe("operator corrections to recorded answers", () => {
     // Both readers of an answer are refreshed: this conversation's results and
     // the campaign-wide Results tab.
     expect(page).toContain("invalidateResults");
+  });
+});
+
+describe("the people under a directed question", () => {
+  const answers = [
+    { questionKey: "liked", subjectParticipantId: "p-maria" },
+    { questionKey: "meet_again", subjectParticipantId: "p-maria" },
+    { questionKey: "avoid", subjectParticipantId: "p-nikos" },
+    { questionKey: "event_score", subjectParticipantId: null },
+  ];
+  const candidates = [
+    { participantId: "p-maria", displayName: "Μαρία" },
+    { participantId: "p-nikos", displayName: "Νίκος" },
+    { participantId: "p-kostas", displayName: "Κώστας" },
+  ];
+
+  it("groups exactly the three questions whose answer is a person", () => {
+    expect(directedAnswers.DIRECTED_QUESTION_KEYS).toStrictEqual([
+      "liked",
+      "meet_again",
+      "avoid",
+    ]);
+    // The score is a number, so it keeps its own row with the slider rather
+    // than joining the groups of pills.
+    expect(directedAnswers.isDirectedQuestion("event_score")).toBe(false);
+    expect(directedAnswers.isDirectedQuestion("avoid")).toBe(true);
+  });
+
+  it("gives each question its own tone so the three groups separate", () => {
+    // Never the only signal — each group also keeps its heading and its glyph —
+    // but «Μαρία» under Liked and under Avoid are opposite facts about the same
+    // evening, and they must not look alike.
+    expect(directedAnswers.directedQuestionTone("liked")).toBe("success");
+    expect(directedAnswers.directedQuestionTone("meet_again")).toBe("info");
+    expect(directedAnswers.directedQuestionTone("avoid")).toBe("danger");
+  });
+
+  it("knows which answers cannot both be true of one person", () => {
+    // The same rule the backend performs the move with. Liking somebody and
+    // wanting to see them again agree; wanting to avoid them contradicts both.
+    expect(directedAnswers.contradictedQuestionKeys("avoid")).toStrictEqual([
+      "liked",
+      "meet_again",
+    ]);
+    expect(directedAnswers.contradictedQuestionKeys("liked")).toStrictEqual([
+      "avoid",
+    ]);
+    expect(
+      directedAnswers.contradictedQuestionKeys("meet_again"),
+    ).toStrictEqual(["avoid"]);
+  });
+
+  it("offers everyone still addable, and says what choosing them costs", () => {
+    const choices = directedAnswers.answerCandidateChoices(
+      candidates,
+      answers,
+      "avoid",
+    );
+
+    // Νίκος is already under Avoid, so he is not offered again.
+    expect(choices.map((choice) => choice.participantId)).toStrictEqual([
+      "p-maria",
+      "p-kostas",
+    ]);
+    // Μαρία is offered, but the option says she would leave both questions she
+    // is under: an «avoid» clears them together, and naming one would
+    // understate what confirming costs. Hiding her instead would leave an
+    // operator hunting for a name that is at the event with nothing saying why
+    // it is missing.
+    expect(choices[0]?.movesFrom).toStrictEqual(["liked", "meet_again"]);
+    expect(choices[1]?.movesFrom).toStrictEqual([]);
+  });
+
+  it("states the move before it happens, and stays quiet when nothing moves", () => {
+    const plain = directedAnswers.recordAnswerDescription({
+      questionLabel: "Liked",
+      subjectLabel: "Κώστας",
+      movesFromLabels: [],
+    });
+    expect(plain).toContain("Κώστας");
+    // Recorded as an operator's own answer, never as the participant's words.
+    expect(plain).toContain("staff-written");
+    expect(plain).not.toContain("withdrawn");
+
+    const moved = directedAnswers.recordAnswerDescription({
+      questionLabel: "Avoid",
+      subjectLabel: "Μαρία",
+      movesFromLabels: ["Liked", "Meet again"],
+    });
+    expect(moved).toContain("«Liked» and «Meet again»");
+    // Both go, so the sentence says so in the plural rather than naming one.
+    expect(moved).toContain("those answers are withdrawn");
+  });
+
+  it("gives the score the whole width and the people their own line", () => {
+    const row = readSource(
+      "src/components/admin/feedback/AnswerCorrection.tsx",
+    );
+    const details = readSource(
+      "src/components/admin/feedback/ConversationDetails.tsx",
+    );
+
+    // The slider is a line of its own under the question, not a third of a
+    // right-hand column: five steps in that width moved a few pixels a point.
+    expect(row).toContain('className="w-full"');
+    expect(row).not.toContain('className="w-36"');
+    // The people are pills on one wrapping line, tinted by their question.
+    expect(row).toContain("PILL_TONE_STYLES");
+    expect(details).toContain("flex flex-wrap items-start gap-1.5");
+    // One glyph per group, so the tone is never carrying it alone.
+    expect(details).toContain("DIRECTED_QUESTION_GLYPHS");
+  });
+
+  it("records a new answer through the generated hook, from the D16 list", () => {
+    const dialog = readSource(
+      "src/components/admin/feedback/AddAnswerAction.tsx",
+    );
+    const page = readSource("src/routes/FeedbackInboxPage.tsx");
+
+    // The same endpoint extraction resolves subjects with: present attendees of
+    // the event, minus the respondent.
+    expect(dialog).toContain("useListEventFeedbackCandidates");
+    // A confirmation, because recording an answer can move a person.
+    expect(dialog).toContain("recordAnswerDescription");
+    expect(page).toContain("useAddFeedbackConversationAnswer");
+    // Both readers of an answer are refreshed, as for every other change.
+    expect(page).toContain("invalidateResults");
+  });
+
+  it("marks an operator's own answer wherever it is read", () => {
+    const row = readSource(
+      "src/components/admin/feedback/AnswerCorrection.tsx",
+    );
+
+    // A month later nobody should have to guess whether the participant named
+    // this person or somebody wrote it down after a phone call.
+    expect(row).toContain('answer.origin === "staff"');
+    expect(row).toContain("Recorded by staff");
   });
 });
 
@@ -1379,6 +1564,79 @@ describe("polling policy (U3)", () => {
     expect(polling.conversationPollInterval(undefined)).toBe(
       polling.CONVERSATION_POLL_INTERVAL_MS,
     );
+  });
+});
+
+describe("campaign summary copy", () => {
+  it("names each status for the collapsed header", () => {
+    expect(
+      campaignSummary.campaignSummaryStatusLabel({
+        status: "none",
+        isPartial: false,
+      }),
+    ).toBe("Not generated");
+    expect(
+      campaignSummary.campaignSummaryStatusLabel({
+        status: "pending",
+        isPartial: false,
+      }),
+    ).toBe("Generating…");
+    expect(
+      campaignSummary.campaignSummaryStatusLabel({
+        status: "ready",
+        isPartial: false,
+      }),
+    ).toBe("Ready");
+    expect(
+      campaignSummary.campaignSummaryStatusLabel({
+        status: "ready",
+        isPartial: true,
+      }),
+    ).toBe("Partial");
+    expect(
+      campaignSummary.campaignSummaryStatusLabel({
+        status: "failed",
+        isPartial: false,
+      }),
+    ).toBe("Failed");
+  });
+
+  it("offers Generate for a missing or failed summary, Refresh otherwise", () => {
+    expect(campaignSummary.campaignSummaryActionLabel("none")).toBe("Generate");
+    expect(campaignSummary.campaignSummaryActionLabel("failed")).toBe(
+      "Generate",
+    );
+    expect(campaignSummary.campaignSummaryActionLabel("ready")).toBe("Refresh");
+    expect(campaignSummary.campaignSummaryActionLabel("pending")).toBe(
+      "Refresh",
+    );
+  });
+
+  it("warns only when the summary is partial", () => {
+    expect(
+      campaignSummary.campaignSummaryPartialWarning({
+        isPartial: false,
+        openConversationCount: 2,
+      }),
+    ).toBeNull();
+    expect(
+      campaignSummary.campaignSummaryPartialWarning({
+        isPartial: true,
+        openConversationCount: 1,
+      }),
+    ).toBe("Based on incomplete data — 1 conversation was still open.");
+    expect(
+      campaignSummary.campaignSummaryPartialWarning({
+        isPartial: true,
+        openConversationCount: 3,
+      }),
+    ).toBe("Based on incomplete data — 3 conversations were still open.");
+    expect(
+      campaignSummary.campaignSummaryPartialWarning({
+        isPartial: true,
+        openConversationCount: null,
+      }),
+    ).toBe("Based on incomplete data — some conversations were still open.");
   });
 });
 

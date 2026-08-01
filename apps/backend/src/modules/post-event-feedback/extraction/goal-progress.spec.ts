@@ -10,6 +10,7 @@ import {
   isWithdrawal,
   nextOpenGoal,
   resolveGoalStatuses,
+  settledGoalKeys,
   withAskedGoal,
   withSettledOpenGoals,
 } from "./goal-progress.js";
@@ -265,6 +266,26 @@ describe("goal progress from recorded results", () => {
         outboundSent: true,
       }),
     ).toBe(false);
+  });
+
+  it("reads settled goals from the stored ladder and this run's updates together", () => {
+    // The two sources must agree with `nextOpenGoal`: a goal is settled from
+    // the stored status (liked, answered two turns ago) or from an update this
+    // run recorded (meet_again, banked just now) — and an `asked` update
+    // reopening a stored skip un-settles it, exactly as it un-completes it.
+    const stored: FeedbackConversationGoal[] = [
+      { key: "event_score", ordinal: 1, prompt: "score", status: "answered" },
+      { key: "liked", ordinal: 2, prompt: "liked", status: "answered" },
+      { key: "meet_again", ordinal: 3, prompt: "meet", status: "asked" },
+      { key: "avoid", ordinal: 4, prompt: "avoid", status: "skipped" },
+    ];
+
+    expect(
+      settledGoalKeys(stored, [{ key: "meet_again", status: "answered" }]),
+    ).toEqual(new Set(["event_score", "liked", "meet_again", "avoid"]));
+    expect(
+      settledGoalKeys(stored, [{ key: "avoid", status: "asked" }]),
+    ).toEqual(new Set(["event_score", "liked"]));
   });
 
   it("does not treat a replay of already-stored results as a withdrawal", () => {

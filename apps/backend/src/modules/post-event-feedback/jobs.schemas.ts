@@ -18,6 +18,7 @@ export const FEEDBACK_JOB_NAMES = {
   sweepRemindersV1: "feedback.sweep-reminders.v1",
   sweepExpiryV1: "feedback.sweep-expiry.v1",
   sweepIngressV1: "feedback.sweep-ingress.v1",
+  summarizeCampaignV1: "feedback.summarize-campaign.v1",
 } as const;
 
 export const FEEDBACK_JOB_SCHEMA_VERSION = 1;
@@ -66,6 +67,14 @@ export const feedbackSweepJobDataSchema = z
   })
   .strict();
 
+export const feedbackSummarizeCampaignJobDataSchema = z
+  .object({
+    schemaVersion: z.literal(FEEDBACK_JOB_SCHEMA_VERSION),
+    campaignId: z.uuid(),
+    correlationId: correlationIdSchema,
+  })
+  .strict();
+
 export type FeedbackMaterializeJobData = z.infer<
   typeof feedbackMaterializeJobDataSchema
 >;
@@ -77,12 +86,16 @@ export type FeedbackDeliverJobData = z.infer<
   typeof feedbackDeliverJobDataSchema
 >;
 export type FeedbackSweepJobData = z.infer<typeof feedbackSweepJobDataSchema>;
+export type FeedbackSummarizeCampaignJobData = z.infer<
+  typeof feedbackSummarizeCampaignJobDataSchema
+>;
 export type FeedbackJobData =
   | FeedbackMaterializeJobData
   | FeedbackExtractJobData
   | FeedbackRelayJobData
   | FeedbackDeliverJobData
-  | FeedbackSweepJobData;
+  | FeedbackSweepJobData
+  | FeedbackSummarizeCampaignJobData;
 export type FeedbackJobName =
   (typeof FEEDBACK_JOB_NAMES)[keyof typeof FEEDBACK_JOB_NAMES];
 
@@ -188,6 +201,26 @@ export function createFeedbackExtractParkedJobId(
 /** Stable deliver job key: the outbox row id is the durable idempotency token. */
 export function createFeedbackDeliverJobId(outboxId: string): string {
   return `feedback-deliver-v1-${outboxId}`;
+}
+
+/** One summary attempt per campaign; stale jobs exit on attempt mismatch. */
+export function createFeedbackSummarizeCampaignJobId(
+  campaignId: string,
+  attempt: number,
+): string {
+  return `feedback-summarize-v1-${campaignId}-${attempt}`;
+}
+
+export function parseFeedbackSummarizeCampaignAttempt(
+  jobId: string,
+  campaignId: string,
+): number | undefined {
+  const prefix = `feedback-summarize-v1-${campaignId}-`;
+  if (!jobId.startsWith(prefix)) {
+    return undefined;
+  }
+  const attempt = Number.parseInt(jobId.slice(prefix.length), 10);
+  return Number.isFinite(attempt) && attempt >= 1 ? attempt : undefined;
 }
 
 /**

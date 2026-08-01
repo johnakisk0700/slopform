@@ -39,8 +39,8 @@ describe("assistant schemas", () => {
         providerModelId: "gpt-5.6-luna",
       },
       "openai/gpt-5.6-terra": {
-        provider: "openrouter",
-        providerModelId: "openai/gpt-5.6-terra",
+        provider: "openai",
+        providerModelId: "gpt-5.6-terra",
       },
       "google/gemini-3.6-flash": {
         provider: "openrouter",

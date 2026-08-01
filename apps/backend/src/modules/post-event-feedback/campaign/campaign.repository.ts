@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import {
   feedbackCampaigns,
+  feedbackCampaignSummaries,
   eventAttendees,
   events,
   participants,
@@ -8,6 +9,8 @@ import {
   type FeedbackCampaignQuestions,
   type FeedbackCampaignRow,
   type FeedbackCampaignStatus,
+  type FeedbackCampaignSummaryRow,
+  type FeedbackCampaignSummaryTrigger,
 } from "@join-the-six/database";
 import { and, asc, desc, eq, isNotNull } from "drizzle-orm";
 
@@ -173,5 +176,148 @@ export class FeedbackCampaignRepository {
         },
       ];
     });
+  }
+
+  async findSummaryByCampaignId(
+    campaignId: string,
+    executor: DatabaseExecutor = this.database.db,
+  ): Promise<FeedbackCampaignSummaryRow | undefined> {
+    const [record] = await executor
+      .select()
+      .from(feedbackCampaignSummaries)
+      .where(eq(feedbackCampaignSummaries.campaignId, campaignId))
+      .limit(1);
+
+    return record;
+  }
+
+  async upsertSummaryPending(
+    transaction: AppTransaction,
+    input: {
+      readonly campaignId: string;
+      readonly attempt: number;
+      readonly isPartial: boolean;
+      readonly trigger: FeedbackCampaignSummaryTrigger;
+      readonly openConversationCount: number;
+      readonly requestedAt: Date;
+    },
+  ): Promise<FeedbackCampaignSummaryRow> {
+    const existing = await this.findSummaryByCampaignId(
+      input.campaignId,
+      transaction,
+    );
+
+    if (existing) {
+      const [record] = await transaction
+        .update(feedbackCampaignSummaries)
+        .set({
+          status: "pending",
+          body: null,
+          model: null,
+          reasoningEffort: null,
+          error: null,
+          attempt: input.attempt,
+          isPartial: input.isPartial,
+          trigger: input.trigger,
+          openConversationCount: input.openConversationCount,
+          answerCount: 0,
+          noteCount: 0,
+          requestedAt: input.requestedAt,
+          generatedAt: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(feedbackCampaignSummaries.campaignId, input.campaignId))
+        .returning();
+
+      if (!record) {
+        throw new Error("Feedback campaign summary update returned no row");
+      }
+      return record;
+    }
+
+    const [record] = await transaction
+      .insert(feedbackCampaignSummaries)
+      .values({
+        campaignId: input.campaignId,
+        status: "pending",
+        attempt: input.attempt,
+        isPartial: input.isPartial,
+        trigger: input.trigger,
+        openConversationCount: input.openConversationCount,
+        requestedAt: input.requestedAt,
+      })
+      .returning();
+
+    if (!record) {
+      throw new Error("Feedback campaign summary insert returned no row");
+    }
+    return record;
+  }
+
+  async markSummaryReady(
+    transaction: AppTransaction,
+    input: {
+      readonly campaignId: string;
+      readonly attempt: number;
+      readonly body: string;
+      readonly model: string;
+      readonly reasoningEffort: string;
+      readonly answerCount: number;
+      readonly noteCount: number;
+      readonly generatedAt: Date;
+    },
+  ): Promise<FeedbackCampaignSummaryRow | undefined> {
+    const [record] = await transaction
+      .update(feedbackCampaignSummaries)
+      .set({
+        status: "ready",
+        body: input.body,
+        model: input.model,
+        reasoningEffort: input.reasoningEffort,
+        error: null,
+        answerCount: input.answerCount,
+        noteCount: input.noteCount,
+        generatedAt: input.generatedAt,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(feedbackCampaignSummaries.campaignId, input.campaignId),
+          eq(feedbackCampaignSummaries.attempt, input.attempt),
+          eq(feedbackCampaignSummaries.status, "pending"),
+        ),
+      )
+      .returning();
+
+    return record;
+  }
+
+  async markSummaryFailed(
+    transaction: AppTransaction,
+    input: {
+      readonly campaignId: string;
+      readonly attempt: number;
+      readonly error: string;
+      readonly generatedAt: Date;
+    },
+  ): Promise<FeedbackCampaignSummaryRow | undefined> {
+    const [record] = await transaction
+      .update(feedbackCampaignSummaries)
+      .set({
+        status: "failed",
+        error: input.error,
+        generatedAt: input.generatedAt,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(feedbackCampaignSummaries.campaignId, input.campaignId),
+          eq(feedbackCampaignSummaries.attempt, input.attempt),
+          eq(feedbackCampaignSummaries.status, "pending"),
+        ),
+      )
+      .returning();
+
+    return record;
   }
 }

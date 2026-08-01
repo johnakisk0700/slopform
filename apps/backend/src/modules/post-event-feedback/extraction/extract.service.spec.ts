@@ -21,6 +21,7 @@ import {
   FakeAudit,
   FakeDatabase,
   FakeParticipants,
+  noopSummaries,
 } from "../post-event-feedback-doubles.harness.js";
 import type { FeedbackOutboundDecision } from "../outbox/outbound-log.schemas.js";
 import type { OutboundConversationSnapshot } from "../outbox/outbound-log.snapshot.js";
@@ -2602,6 +2603,7 @@ function createHarness(): Harness {
       repository as unknown as FeedbackOutboundLogRepository,
     ),
     alert,
+    noopSummaries(),
   );
 
   return {

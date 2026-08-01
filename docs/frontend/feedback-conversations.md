@@ -47,23 +47,35 @@ Every product call goes through the generated hooks in
 `useSendFeedbackConversationStaffMessage`, `useUpdateFeedbackNoteReviewStatus`,
 `useResolveFeedbackConversationAttentionReason`,
 `useAddFeedbackConversationNote`, `useCorrectFeedbackConversationAnswer`,
-`useWithdrawFeedbackConversationAnswer`, `useStartFeedbackConversation`,
-`useListEventFeedbackCandidates` and the campaign
+`useWithdrawFeedbackConversationAnswer`, `useAddFeedbackConversationAnswer`,
+`useStartFeedbackConversation`,
+`useListEventFeedbackCandidates`, `useGetFeedbackCampaignSummary`,
+`useRequestFeedbackCampaignSummary`, and the campaign
 launch/pause/resume/close/get hooks.
 
-| File                                         | Owns                                                                                       |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `src/features/feedback/labels.ts`            | Status vocabulary: tones, badges, delivery precedence, note origin, D18                    |
-| `src/features/feedback/conversationView.ts`  | Progress, badge rows, search folding, ordering, grouping, selection, message anchor ids    |
-| `src/features/feedback/extractionStatus.ts`  | Greek copy for the detail-pane extraction block (unread, due time, failure, model)         |
-| `src/features/feedback/answerCorrections.ts` | Which control a recorded answer gets, the «corrected by» line, the withdrawal wording      |
-| `src/features/feedback/staffClose.ts`        | Staff close reason vocabulary, confirm-dialog labels, the «Closed as …» summary line       |
-| `src/features/feedback/polling.ts`           | The U3 intervals and the stop-when-closed rule                                             |
-| `src/features/feedback/simulator.ts`         | Zod schemas for the two dev-only simulator endpoints                                       |
-| `src/lib/feedbackSimulator.ts`               | The dev simulator facade over the shared `ofetch` client                                   |
-| `src/components/admin/feedback/`             | The two panes, the attention strip, the detail cards, the badge row, and the dialogs       |
-| `src/features/participants/profileFields.ts` | Participant storage codes as display text, shared with the WP11 profile route              |
-| `src/components/ui/JtsLiveIndicator.tsx`     | The shared polling mark both live panes use ([contract](components/jts-live-indicator.md)) |
+The inbox accordion (`CampaignSummary`, under `CampaignHeader`) loads the
+campaign summary through `GET /feedback/campaigns/:campaignId/summary` and
+refreshes it after `POST /feedback/campaigns/:campaignId/summary` when staff
+explicitly request regeneration. It polls only while status is `pending`,
+renders the markdown body with `react-markdown` + `remark-gfm` (not the
+assistant renderer), and surfaces Generate / Refresh from the same status
+helpers in `campaignSummary.ts`.
+
+| File                                         | Owns                                                                                                                                     |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/features/feedback/labels.ts`            | Status vocabulary: tones, badges, delivery precedence, note origin, D18                                                                  |
+| `src/features/feedback/conversationView.ts`  | Progress, badge rows, search folding, ordering, grouping, selection, message anchor ids                                                  |
+| `src/features/feedback/extractionStatus.ts`  | Greek copy for the detail-pane extraction block (unread, due time, failure, model)                                                       |
+| `src/features/feedback/answerCorrections.ts` | Which control a recorded answer gets, the «corrected by» line, the withdrawal wording                                                    |
+| `src/features/feedback/directedAnswers.ts`   | The three person-shaped questions as a group: tone per question, what contradicts what, who is left to add, and what recording will cost |
+| `src/features/feedback/campaignSummary.ts`   | Campaign summary status labels, Generate vs Refresh, partial-warning copy                                                                |
+| `src/features/feedback/staffClose.ts`        | Staff close reason vocabulary, confirm-dialog labels, the «Closed as …» summary line                                                     |
+| `src/features/feedback/polling.ts`           | The U3 intervals and the stop-when-closed rule                                                                                           |
+| `src/features/feedback/simulator.ts`         | Zod schemas for the two dev-only simulator endpoints                                                                                     |
+| `src/lib/feedbackSimulator.ts`               | The dev simulator facade over the shared `ofetch` client                                                                                 |
+| `src/components/admin/feedback/`             | The two panes, the attention strip, the detail cards, the badge row, and the dialogs                                                     |
+| `src/features/participants/profileFields.ts` | Participant storage codes as display text, shared with the WP11 profile route                                                            |
+| `src/components/ui/JtsLiveIndicator.tsx`     | The shared polling mark both live panes use ([contract](components/jts-live-indicator.md))                                               |
 
 `features/feedback/` has no React imports and carries the screen's rules, so
 they are unit-tested directly in `apps/admin/test/feedback-inbox.spec.ts`.
@@ -217,6 +229,7 @@ flowchart LR
 | Open conversation | 3 s      | Stops entirely once the list reports it closed |
 | Conversation list | 10 s     | Also refetches on window focus                 |
 | Answers and notes | 15 s     | Extraction lands after the message             |
+| Campaign summary  | 5 s      | Only while status is `pending`                 |
 
 TanStack Query's `refetchIntervalInBackground` stays at its default `false`, so
 every interval pauses while the browser tab is hidden. There is no visibility
@@ -313,12 +326,13 @@ them (2026-08-01, same day):
   forces the line — a paused message must not be quieter than a delivered
   one — and a collapsed message keeps an `sr-only` actor-and-time line.
 - **PROGRESS & ANSWERS has an edit mode.** At rest every answer is plain text
-  with no controls. One «Edit» press in the card header opens every row at
-  once: a score becomes a HeroUI 5-step `Slider` that saves on thumb release
-  through the same correction hook, and a directed answer grows its confirmed
-  withdrawal. «Done» closes them. There is deliberately no add path — the
-  backend has no operator-authored answer endpoint — so edit mode is exactly
-  correct-and-remove.
+  and pills with no controls. One «Edit» press in the card header opens the
+  whole card at once: a score becomes a HeroUI 5-step `Slider` that saves on
+  thumb release through the same correction hook, each person's pill grows the
+  `×` that withdraws it, and each question grows the `+` that records one.
+  «Done» closes them. (Edit mode was correct-and-remove only until the backend
+  grew an operator-authored answer route the same day; see
+  [changing what was recorded](#changing-what-was-recorded).)
 - **A note wears its review state.** A note waiting for review is a
   warning-tinted card; a handled one is plain. The «Needs review» pill that
   sat in the corner of every unhandled note is gone; the «Staff note» origin
@@ -419,11 +433,11 @@ its own scroll container — so the screen reads as one set of panels rather tha
 two panes plus some boxes. Inside, the participant profile's section grammar
 (WP11) still applies: a tracked micro-caps label with a muted icon.
 
-| Card               | Icon         | Contains                                                                                                                     |
-| ------------------ | ------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| PROGRESS & ANSWERS | `ListChecks` | `settled/total` in the header, then one row per goal carrying its answer (with its correct / withdraw controls) or its badge |
-| NOTES              | `StickyNote` | Note cards with origin and review badges, plus «Add note»                                                                    |
-| RESPONDENT         | `UserRound`  | Monogram and profile link, then the participant's own record (see below)                                                     |
+| Card               | Icon         | Contains                                                                                                               |
+| ------------------ | ------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| PROGRESS & ANSWERS | `ListChecks` | `settled/total` and «Edit» in the header, then the score with its slider and one group of people per directed question |
+| NOTES              | `StickyNote` | Note cards with origin and review badges, plus «Add note»                                                              |
+| RESPONDENT         | `UserRound`  | Monogram and profile link, then the participant's own record (see below)                                               |
 
 Two things that used to live here now belong to the transcript, because both
 are about the messages rather than about the conversation as a record: the
@@ -516,24 +530,60 @@ pane, Results tab and review queue as everything else.
 - On success both readers are invalidated: this conversation's results and the
   campaign-wide Results query.
 
-## Correcting an answer
+## Changing what was recorded
 
-An operator who reads a score the model got wrong can fix it from the row it is
-wrong on. Two controls, because they are two different statements — see
-[the backend module](../backend/modules/post-event-feedback.md#operator-corrections-to-recorded-answers-wp12b)
-for how each is recorded.
+An operator who reads a score the model got wrong, or a person under the wrong
+question, can fix it from the card the answers are on. Three controls, because
+they are three different statements — see the backend module for how each is
+recorded ([corrections and withdrawals](../backend/modules/post-event-feedback.md#operator-corrections-to-recorded-answers-wp12b),
+[recorded answers](../backend/modules/post-event-feedback.md#operator-recorded-answers-wp12c)).
 
-- **A score** is edited in the card's edit mode: «Edit» in the PROGRESS &
-  ANSWERS header opens every row at once, the value becomes a 5-step HeroUI
-  `Slider`, and releasing the thumb saves through
+All three live behind one «Edit» press in the PROGRESS & ANSWERS header, which
+opens the whole card at once. At rest the card is plain text and pills with no
+controls at all: reading it and changing it are two different visits, and a
+per-answer toolbar rented space all day for an action that happens once a
+campaign. «Edit» is offered even when nothing has been recorded yet — a
+conversation whose questions all went unanswered is exactly the one an operator
+has something to add to.
+
+- **A score** becomes a 5-step HeroUI `Slider` on **a line of its own**, at the
+  card's full width, with the question on the line above it and the value at the
+  end of that line. Releasing the thumb saves through
   `correctFeedbackConversationAnswer` — the updated answer comes back and both
-  answer readers are invalidated. Offered only where the answer is a number
-  (`event_score`); on `liked` / `meet_again` / `avoid` the subject _is_ the
-  answer, so there is no number to slide.
-- **A wrong person** is a withdrawal: the same `ConfirmAction` dialog every
-  consequential control on this screen uses, naming the person and the question
-  and saying that it cannot be undone here. `withdrawFeedbackConversationAnswer`
-  deletes the row; only the audit log remembers it.
+  answer readers are invalidated. Sharing one line with the label and the number,
+  the slider had about a third of a narrow card to express five steps: the thumb
+  moved a few pixels a point, for the one value on this screen that reaches a
+  seating plan. Offered only where the answer is a number (`event_score`); on
+  `liked` / `meet_again` / `avoid` the subject _is_ the answer, so there is no
+  number to slide.
+- **The people are pills, grouped under their own question.** Each of `liked`,
+  `meet_again` and `avoid` is a small heading with its own glyph
+  (`Heart` / `Handshake` / `Ban`) and its own status tone (success / info /
+  danger), and the people sit under it as tinted pills on one wrapping line.
+  They used to be right-aligned lines of text in a shared column, where «Μαρία»
+  under LIKED and under AVOID — opposite facts about the same evening — looked
+  identical. Tone is never the only signal: the heading, the glyph and each
+  pill's own name all carry it.
+- **A wrong person is a withdrawal**, and the control is the `×` **inside that
+  person's pill**, so no × can be about the wrong name. It opens the same
+  `ConfirmAction` dialog every consequential control on this screen uses, naming
+  the person and the question and saying that it cannot be undone here.
+  `withdrawFeedbackConversationAnswer` deletes the row; only the audit log
+  remembers it.
+- **The right person is a `+`** on the question's own heading row.
+  `AddAnswerAction` offers the event's D16 candidates — the same list a note's
+  subject comes from — minus anybody already under that question, and confirms
+  through `addFeedbackConversationAnswer`. Two things it says before it acts:
+  the row will be recorded as staff-written, and, when the person is currently
+  under a question this one contradicts, that those answers are withdrawn in the
+  same step. The option itself carries «· now under Liked and Meet again», so
+  the cost is visible while choosing rather than after. `directedAnswers.ts`
+  owns that rule, mirroring the backend's own, because a screen that does not
+  know it cannot state it.
+- **A staff answer says so where it is read**: a `UserPen` glyph on the pill with
+  an `sr-only` «Recorded by staff», from the `origin` the read model publishes on
+  every answer. A month later nobody should have to guess whether the participant
+  named this person or somebody wrote it down after a phone call.
 - Neither is **capability-gated**, and that is the point: a closed thread is the
   case they exist for, because nothing will ever re-read it and a wrong number
   would stay wrong for good. `src/features/feedback/answerCorrections.ts` owns
@@ -546,10 +596,14 @@ for how each is recorded.
   error line, because that is where the operator is looking and where the value
   they tried to save still is. It is not a workflow: nothing is assigned and
   nothing is approved.
-- One thing the screen cannot do: re-aim an answer at the right person. There is
-  no operator-authored answer path, so a withdrawal is the honest end of it.
-  A goal already badged «answered» also stays badged after its only answer is
-  withdrawn — that snapshot is monotonic in the conversation document.
+- Re-aiming an answer is still two statements rather than one control: withdraw
+  the wrong person, record the right one. That is what an operator actually
+  knows, and each half is separately auditable.
+- The goal badges do not follow any of this. A goal already badged «answered»
+  stays badged after its only answer is withdrawn (that snapshot is monotonic in
+  the conversation document), and a recorded answer can sit under a goal still
+  badged «awaiting reply» — the badges say what the bot asked and got, not what
+  an operator learned on the phone.
 
 ## Campaign picker
 
@@ -674,6 +728,16 @@ on a scored question and a withdrawal only on a directed one, that a corrected
 answer says who decided it while an untouched one stays silent, that the
 withdrawal dialog names the person, the question and the fact that it cannot be
 undone, and that both controls live on the answer row with no capability gate.
+
+The directed-answer pass adds `directedAnswers`: that exactly the three
+person-shaped questions are grouped and the score is not, that each carries its
+own tone, that the contradiction rule matches the backend's, that the picker
+drops whoever is already recorded and marks every question a choice would move
+somebody out of, and that the confirmation states the move in the plural when
+two answers go. It also pins the layout the pass exists for — the slider at full
+width rather than in a right-hand column, the people as tinted pills on one
+wrapping line, one glyph per group — the new answer going through the generated
+hook from the D16 list, and the staff mark on an operator's own answer.
 
 The extraction-status pass adds `extractionStatusLines`: Greek unread wording,
 a due-time line rather than a spinner, failure named as failure with the

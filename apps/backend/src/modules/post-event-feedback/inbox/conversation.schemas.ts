@@ -25,6 +25,7 @@ import {
   feedbackConversationMessageAttentionSchema,
   postEventFeedbackAttentionReasonSchema,
 } from "../attention.js";
+import { FEEDBACK_DIRECTED_ANSWER_QUESTION_KEYS } from "../question-set.js";
 
 export const feedbackConversationCapabilitiesSchema = z
   .object({
@@ -272,6 +273,19 @@ export const feedbackAnswerCorrectionSchema = z
   })
   .strict();
 
+/**
+ * Who authored a recorded result — an answer or a note — as a two-value fact the
+ * admin can render.
+ *
+ * `conversation` covers everything the pipeline produced from participant
+ * testimony: a model extraction and the deterministic fallback alike, since both
+ * quote a real message. `staff` is an operator writing in their own name. The
+ * distinction exists so what an operator asserted can never be read as something
+ * a participant said, and it is the same distinction on both tables because it
+ * is the same question.
+ */
+export const feedbackResultOriginSchema = z.enum(["conversation", "staff"]);
+
 export const feedbackAnswerViewSchema = z
   .object({
     id: z.uuid(),
@@ -283,7 +297,11 @@ export const feedbackAnswerViewSchema = z
     respondentDisplayName: z.string().min(1).max(200).nullable(),
     subjectParticipantId: z.uuid().nullable(),
     subjectDisplayName: z.string().min(1).max(200).nullable(),
-    sourceMessageIds: z.array(z.uuid()).min(1),
+    // An answer an operator recorded quotes no message, so the array is empty
+    // rather than carrying a borrowed id. Extraction output still cites at
+    // least one, and `origin` is what tells the two apart on the screen.
+    sourceMessageIds: z.array(z.uuid()),
+    origin: feedbackResultOriginSchema,
     correction: feedbackAnswerCorrectionSchema.nullable(),
     createdAt: z.iso.datetime(),
     updatedAt: z.iso.datetime(),
@@ -292,16 +310,7 @@ export const feedbackAnswerViewSchema = z
 
 export const FEEDBACK_NOTE_TEXT_MAX_LENGTH = 500;
 
-/**
- * Who authored a note, as a two-value fact the admin can render.
- *
- * `conversation` covers everything the pipeline produced from participant
- * testimony — a model extraction and the deterministic fallback alike, since
- * both quote a real message. `staff` is an operator writing in their own name.
- * The distinction exists so a staff note can never be read as something a
- * participant said.
- */
-export const feedbackNoteOriginSchema = z.enum(["conversation", "staff"]);
+export const feedbackNoteOriginSchema = feedbackResultOriginSchema;
 
 export const feedbackNoteViewSchema = z
   .object({
@@ -452,6 +461,26 @@ export const feedbackAnswerWithdrawalSchema = z
   .strict();
 
 /**
+ * An answer an operator records by hand about one person.
+ *
+ * Only a directed question: on `event_score` the answer is a number the
+ * respondent gave, and an operator inventing one would be putting a rating in
+ * their mouth. Here the assertion is «this person belongs under this question»,
+ * which an operator can know from a phone call the thread never saw.
+ *
+ * The subject is required, and must be a current D16 candidate of the campaign's
+ * event — the same rule extraction obeys and the same rule the staff note obeys,
+ * so a recorded answer cannot direct feedback at someone the respondent never
+ * sat with.
+ */
+export const addFeedbackConversationAnswerSchema = z
+  .object({
+    questionKey: z.enum(FEEDBACK_DIRECTED_ANSWER_QUESTION_KEYS),
+    subjectParticipantId: z.uuid(),
+  })
+  .strict();
+
+/**
  * A note an operator writes by hand. The subject is optional and, when given,
  * must be a current D16 candidate of the campaign's event — the same rule
  * extraction obeys, so a manual note cannot direct feedback at someone the
@@ -513,6 +542,9 @@ export class UpdateFeedbackNoteReviewStatusDto extends createZodDto(
 export class AddFeedbackConversationNoteDto extends createZodDto(
   addFeedbackConversationNoteSchema,
 ) {}
+export class AddFeedbackConversationAnswerDto extends createZodDto(
+  addFeedbackConversationAnswerSchema,
+) {}
 export class FeedbackNoteViewDto extends createZodDto(feedbackNoteViewSchema) {}
 
 export type FeedbackConversationCapabilities = z.infer<
@@ -547,6 +579,9 @@ export type UpdateFeedbackNoteReviewStatusInput = z.infer<
 >;
 export type AddFeedbackConversationNoteInput = z.infer<
   typeof addFeedbackConversationNoteSchema
+>;
+export type AddFeedbackConversationAnswerInput = z.infer<
+  typeof addFeedbackConversationAnswerSchema
 >;
 export type CorrectFeedbackConversationAnswerInput = z.infer<
   typeof correctFeedbackConversationAnswerSchema

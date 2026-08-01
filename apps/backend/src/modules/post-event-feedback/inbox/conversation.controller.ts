@@ -25,6 +25,7 @@ import {
 import { FeedbackConversationNotFoundError } from "../post-event-feedback-conversation.repository.js";
 import { FeedbackCampaignNotFoundError } from "../campaign/campaign.service.js";
 import {
+  AddFeedbackConversationAnswerDto,
   AddFeedbackConversationNoteDto,
   CloseFeedbackConversationDto,
   CorrectFeedbackConversationAnswerDto,
@@ -245,6 +246,35 @@ export class PostEventFeedbackConversationController {
         parameters.campaignId,
         parameters.conversationId,
         parameters.answerId,
+        input,
+        String(userId),
+        String(correlationId),
+      ),
+    );
+  }
+
+  /**
+   * Recording an answer about the right person, which until now had no verb at
+   * all: an operator could empty a wrong `avoid` and never say who it should
+   * have been about. `POST` on the collection, as the note route already is,
+   * because this creates a row rather than editing one.
+   *
+   * Not capability-gated, on the same reasoning as the two routes below it.
+   */
+  @Post(":campaignId/conversations/:conversationId/answers")
+  @ApiOperation({ operationId: "addFeedbackConversationAnswer" })
+  @Header("Cache-Control", "no-store")
+  @ZodResponse({ status: 201, type: FeedbackAnswerViewDto })
+  addAnswer(
+    @Param() parameters: FeedbackConversationIdParamDto,
+    @Body() input: AddFeedbackConversationAnswerDto,
+    @CurrentUserId() userId: PrincipalDto,
+    @RequestCorrelationId() correlationId: CorrelationIdDto,
+  ): Promise<FeedbackAnswerViewDto> {
+    return mapConversationErrors(
+      this.conversations.addStaffAnswer(
+        parameters.campaignId,
+        parameters.conversationId,
         input,
         String(userId),
         String(correlationId),

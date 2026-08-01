@@ -49,16 +49,17 @@ Typed repository methods live per table under
 `FeedbackCampaignRepository.findCampaignById` on the same transaction.
 There is no `message_deliveries` table and nothing references `event_attendees`.
 
-| Table                         | Authority rules                                                                                                                                                                                                                                                                                                                      |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `feedback_campaigns`          | `event_id` **UNIQUE** (one campaign per event); `question_set_version` + `questions` jsonb copy at launch; status `launched\|paused\|closed`; event FK `ON DELETE RESTRICT`                                                                                                                                                          |
-| `feedback_answers`            | Directed edge; optional `subject_participant_id`; `value_int` for scores; `source_message_ids uuid[]`; `extraction_meta` jsonb (model, confidence, **candidate IDs of the run** per D12); `matching_hold boolean not null default false` — [a statement, not an instruction](#an-avoid-row-is-a-statement-not-an-instruction)        |
-| Answer uniqueness             | `UNIQUE NULLS NOT DISTINCT (conversation_id, question_key, subject_participant_id)` so subjectless scores cannot duplicate on replay                                                                                                                                                                                                 |
-| `feedback_answer_withdrawals` | One tombstone per answer slot an operator emptied, on the **same** `UNIQUE NULLS NOT DISTINCT (conversation_id, question_key, subject_participant_id)` key; `answer_id` with no FK (the row it names is deleted on purpose); never updated, so no `updated_at`                                                                       |
-| `feedback_notes`              | Same directionality; `note_type` `activity_interest\|general`; text ≤ 500 chars; subject **NULLABLE** (D18 unknown-name degradation); status `new\|dismissed`; `source_message_ids` non-empty unless `extraction_meta.origin = 'staff'`                                                                                              |
-| `provider_message_ingress`    | Durable webhook ack + dedupe; `UNIQUE(chat_jid, provider_message_id)`; `text` nullable (metadata-only when `ignored_unmatched`, D10); statuses `pending\|materialized\|ignored_unmatched\|failed`                                                                                                                                    |
-| `message_outbox`              | Reply/intro/reminder/staff/system; status includes `held`; `dedupe_key` **UNIQUE**; delivery columns folded in (`delivery_status`, provider ids, sent/delivered/read/played timestamps) — no separate deliveries                                                                                                                     |
-| `message_outbox_log`          | Append-only decision log: exactly one row per **inserted** outbox row, written in the same transaction as the enqueue; `outbox_id` **UNIQUE**; `origin` bounded to the nine enqueue sites; `decision` and `conversation_state` jsonb capture what was decided and the conversation at that moment; never updated, so no `updated_at` |
+| Table                         | Authority rules                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `feedback_campaigns`          | `event_id` **UNIQUE** (one campaign per event); `question_set_version` + `questions` jsonb copy at launch; status `launched\|paused\|closed`; event FK `ON DELETE RESTRICT`                                                                                                                                                                                                                                                  |
+| `feedback_campaign_summaries` | One row per campaign (`campaign_id` **UNIQUE**); latest AI narrative with status `pending\|ready\|failed`, trigger `manual\|all_closed`, `attempt` incremented on each request; `is_partial` when open conversations remained at request time; body ≤ 50 000 chars markdown                                                                                                                                                  |
+| `feedback_answers`            | Directed edge; optional `subject_participant_id`; `value_int` for scores; `source_message_ids uuid[]`, non-empty unless `extraction_meta.origin = 'staff'` (an operator's own answer quotes nothing); `extraction_meta` jsonb (model, confidence, **candidate IDs of the run** per D12); `matching_hold boolean not null default false` — [a statement, not an instruction](#an-avoid-row-is-a-statement-not-an-instruction) |
+| Answer uniqueness             | `UNIQUE NULLS NOT DISTINCT (conversation_id, question_key, subject_participant_id)` so subjectless scores cannot duplicate on replay                                                                                                                                                                                                                                                                                         |
+| `feedback_answer_withdrawals` | One tombstone per answer slot an operator emptied, on the **same** `UNIQUE NULLS NOT DISTINCT (conversation_id, question_key, subject_participant_id)` key; `answer_id` with no FK (the row it names is deleted on purpose); never updated, so no `updated_at`, and deleted in exactly one case — an operator recording their own answer for the same slot                                                                   |
+| `feedback_notes`              | Same directionality; `note_type` `activity_interest\|general`; text ≤ 500 chars; subject **NULLABLE** (D18 unknown-name degradation); status `new\|dismissed`; `source_message_ids` non-empty unless `extraction_meta.origin = 'staff'`                                                                                                                                                                                      |
+| `provider_message_ingress`    | Durable webhook ack + dedupe; `UNIQUE(chat_jid, provider_message_id)`; `text` nullable (metadata-only when `ignored_unmatched`, D10); statuses `pending\|materialized\|ignored_unmatched\|failed`                                                                                                                                                                                                                            |
+| `message_outbox`              | Reply/intro/reminder/staff/system; status includes `held`; `dedupe_key` **UNIQUE**; delivery columns folded in (`delivery_status`, provider ids, sent/delivered/read/played timestamps) — no separate deliveries                                                                                                                                                                                                             |
+| `message_outbox_log`          | Append-only decision log: exactly one row per **inserted** outbox row, written in the same transaction as the enqueue; `outbox_id` **UNIQUE**; `origin` bounded to the nine enqueue sites; `decision` and `conversation_state` jsonb capture what was decided and the conversation at that moment; never updated, so no `updated_at`                                                                                         |
 
 All participant and campaign foreign keys use `ON DELETE RESTRICT` (D18).
 `conversation_id` / `matched_conversation_id` are Mongo conversation UUIDs with
@@ -77,6 +78,9 @@ no PostgreSQL FK. Repository helpers:
   `recordAnswerWithdrawal` / `findAnswerWithdrawal` — the operator correction and
   withdrawal paths, and the tombstone that makes a withdrawal survive the next
   run;
+- `insertStaffAnswer` / `deleteAnswerWithdrawal` — the operator's own answer: a
+  plain insert (the caller has read the slot behind the conversation lock and
+  refuses when it is taken) and the one lift of a tombstone in the module;
 - `findIngressByIdForUpdate` — the row lock that fences materialization;
 - `findUnlinkedOutboxByConversationAndBody` — observed-outbound correlation when
   the provider message id is not known yet;
@@ -2240,6 +2244,22 @@ runs as bounded BullMQ jobs every five minutes:
 | `POST` | `/feedback/campaigns/:campaignId/resume`              | `resumeFeedbackCampaign`    |
 | `POST` | `/feedback/campaigns/:campaignId/close`               | `closeFeedbackCampaign`     |
 | `POST` | `/feedback/campaigns/:campaignId/conversations/start` | `startFeedbackConversation` |
+| `GET`  | `/feedback/campaigns/:campaignId/summary`               | `getFeedbackCampaignSummary`    |
+| `POST` | `/feedback/campaigns/:campaignId/summary`               | `requestFeedbackCampaignSummary` |
+
+### Campaign summary
+
+When every conversation in a campaign is closed, or when staff explicitly
+requests one, [`PostEventFeedbackCampaignSummaryService`](../../../apps/backend/src/modules/post-event-feedback/summary/summary.service.ts)
+writes a narrative digest of the campaign's answers and notes to
+`feedback_campaign_summaries`. Generation runs on `feedback.summarize-campaign.v1`
+via OpenAI direct (`FEEDBACK_SUMMARY_MODEL`, default `openai/gpt-5.6-terra`).
+A partial summary is flagged when any conversation was still open at request
+time (`isPartial`, `openConversationCount`). Automatic enqueue happens from
+extraction close, staff close, STOP materialization and expiry sweep via
+`notifyIfLastConversationClosed`; manual POST uses trigger `manual`. Retryable
+provider failures leave the row at `pending` so BullMQ can retry; permanent
+failures mark `failed`.
 
 `listFeedbackCampaigns` is the read-only campaign picker: newest launch first,
 with event id + title, status, `launchedAt`, and conversation progress counts
@@ -2414,9 +2434,13 @@ forgotten filter puts a claim an operator retracted back in front of staff. So
 the marker moves off the row and onto the slot; the _enforcement_ is reused
 exactly, as a guard the only writer of answers applies.
 
-Two consequences worth knowing. A tombstone is permanent: nothing reinstates a
-withdrawn answer, in the same sense that nothing lets the model overrule a
-correction. And the refused write raises **no** `answer_revision` — unlike the
+Two consequences worth knowing. A tombstone stands against every extraction
+path: nothing in a run reinstates a withdrawn answer, in the same sense that
+nothing lets the model overrule a correction. The one thing that lifts it is an
+operator recording their own answer for that slot
+([below](#operator-recorded-answers-wp12c)) — the freeze was always about the
+model, not about the human changing their mind. And the refused write raises
+**no** `answer_revision` — unlike the
 corrected-row case, which `validate-proposal` catches from the run's context
 before persistence. Matching that would mean carrying withdrawals in
 `FeedbackExtractionContext`; the freeze holds without it, and the run's reply may
@@ -2459,23 +2483,89 @@ Correcting to the value already stored is a no-op with no audit row, so a retrie
 request cannot append a second identical correction — with the consequence, said
 out loud, that re-affirming the model's own value is not a way to freeze it.
 
-**What this slice deliberately does not do:**
+**What this slice deliberately does not do** (the first two are closed by
+[WP12c](#operator-recorded-answers-wp12c)):
 
-- **Re-aim an answer at a different person.** Moving `subject_participant_id`
-  crosses the uniqueness key and can collide with an existing answer for the new
-  subject (a 409 and a "correct that one instead" story), and the new subject
-  would need revalidating against the live D16 candidate set. So an operator who
-  knows the right person cannot record it: there is no operator-authored answer
-  path, and `cardinality(source_message_ids) >= 1` forbids one without a
-  migration mirroring `20260726001227_staff_authored_feedback_notes`.
-- **Reinstate a withdrawal.** Closed in the following slice by
-  `feedback_answer_withdrawals`, whose one open edge is the other direction: the
-  tombstone is permanent and no route lifts it. Reinstating a withdrawn answer is
-  a reviewed database operation, from the whole row in `audit_events`.
+- ~~**Re-aim an answer at a different person.**~~ Moving `subject_participant_id`
+  on the row is still not offered: it crosses the uniqueness key and can collide
+  with an existing answer for the new subject. WP12c does the same job as two
+  assertions instead — withdraw the wrong person, record the right one — which is
+  also what the operator actually knows.
+- ~~**Reinstate a withdrawal.**~~ A tombstone is no longer permanent against a
+  human: recording a staff answer for the slot deletes it, and both decisions
+  stay in `audit_events` in order. It is still permanent against every run.
 - **Move the two monotonic snapshots.** Mongo `goals[].status` never demotes, so
   withdrawing an answer leaves a goal badged «answered» with no answer row under
   it in the admin's progress panel, and the reminder copy in
   `sweeps/sweep.service.ts` branches on that same snapshot.
+
+### Operator-recorded answers (WP12c)
+
+WP12b gave an operator two ways to disagree with an answer and no way to state
+one. The gap was visible in the shape of the pair: a wrong `avoid` about Νίκος
+could be withdrawn, and the person the respondent actually wants to steer clear
+of could not be written down anywhere the seating would read. Operators learn
+that on the phone, in the room, from a colleague — and the module's own
+[WP12b note](#operator-corrections-to-recorded-answers-wp12b) said why it could
+not be recorded: `cardinality(source_message_ids) >= 1`.
+
+`POST …/conversations/:conversationId/answers` closes it, on the staff-note
+precedent in every respect.
+
+| Field                  | Rule                                                          |
+| ---------------------- | ------------------------------------------------------------- |
+| `questionKey`          | `liked` \| `meet_again` \| `avoid` — a directed question only |
+| `subjectParticipantId` | required, and a current D16 candidate of the campaign's event |
+
+`event_score` is refused **by the schema**, not by a service branch: the number
+is the respondent's own, and an operator inventing one would put a rating in
+their mouth. The subject is required for the same reason a note's is optional —
+here the person _is_ the answer.
+
+**Provenance.** `extraction_meta` is `{ origin: 'staff', staffUserId,
+candidateIds }` — no `model`, no `confidence`, because none ran — and
+`source_message_ids` is empty, because nothing was said. Migration
+[`20260801200452_staff_authored_feedback_answers`](../../../packages/database/drizzle/20260801200452_staff_authored_feedback_answers.sql)
+relaxes the citation check to `cardinality(...) >= 1 or extraction_meta->>'origin'
+= 'staff'`, exactly as `20260726001227_staff_authored_feedback_notes` did for
+notes. The alternative was to borrow a message id the answer does not come from,
+which is how an operator's assertion ends up quoted as a participant's words.
+The read model publishes a derived `origin` on every answer, the same two values
+a note carries, so the admin can mark a staff answer wherever it is read —
+`sourceMessageIds` on `feedbackAnswerViewSchema` drops its `.min(1)` to match.
+
+**Recording moves a person; it does not add a second opinion about them.** The
+service reads the conversation's answers behind the advisory lock and, for the
+questions this one contradicts
+(`contradictedPostEventFeedbackQuestionKeys` — `avoid` against `liked` and
+`meet_again`, and back), deletes them **and writes the ordinary withdrawal
+tombstone** for each, with `feedback_answer.withdrawn` carrying the whole row and
+`supersededBy: <questionKey>`. It is the same rule an extraction run obeys when a
+participant changes their mind, performed by the same repository calls, and the
+admin states it in the confirmation before an operator presses the button. One
+deliberate difference from the model's version: the operator's move is not
+filtered by `notCorrected()` — a human may supersede a human, which is the whole
+point of the route.
+
+**And it lifts the tombstone on the slot it fills.** `deleteAnswerWithdrawal` is
+the only lift in the module. Without it the person an operator had just removed
+by mistake could never be put back and nothing on screen would say why; with it,
+the freeze keeps meaning what it always meant — the model may stop agreeing with
+a human, it may not overrule one. `audit_events` keeps the order of the two
+decisions: `feedback_answer.withdrawn`, then
+`feedback_answer.staff_recorded` with `reinstatedWithdrawnSlot: true`.
+
+**Idempotent on the slot.** A retried or double-clicked request finds the row and
+returns it — no error, no second row, no second audit event. Not capability-gated,
+like the other two answer routes: a closed conversation is the case they exist
+for.
+
+**What it deliberately leaves alone.** Mongo `goals[].status`. Those say what the
+bot asked and got; a fact an operator learned on the phone is not the
+questionnaire making progress, and marking the goal answered would also silence
+the bot's next question on the strength of a call it never saw. So a recorded
+answer can sit under a goal still badged «awaiting reply», the mirror image of
+the «answered with no answer row» case a withdrawal already produces.
 
 ### Staff HTTP contract (inbox)
 
@@ -2490,6 +2580,7 @@ out loud, that re-affirming the model's own value is not a way to freeze it.
 | `POST`   | `/feedback/campaigns/:campaignId/conversations/:conversationId/close`                               | `closeFeedbackConversation`                  |
 | `POST`   | `/feedback/campaigns/:campaignId/conversations/:conversationId/messages`                            | `sendFeedbackConversationStaffMessage`       |
 | `POST`   | `/feedback/campaigns/:campaignId/conversations/:conversationId/notes`                               | `addFeedbackConversationNote`                |
+| `POST`   | `/feedback/campaigns/:campaignId/conversations/:conversationId/answers`                             | `addFeedbackConversationAnswer`              |
 | `POST`   | `/feedback/campaigns/:campaignId/conversations/:conversationId/attention-reasons/:reasonId/resolve` | `resolveFeedbackConversationAttentionReason` |
 | `PATCH`  | `/feedback/campaigns/:campaignId/conversations/:conversationId/answers/:answerId`                   | `correctFeedbackConversationAnswer`          |
 | `DELETE` | `/feedback/campaigns/:campaignId/conversations/:conversationId/answers/:answerId`                   | `withdrawFeedbackConversationAnswer`         |

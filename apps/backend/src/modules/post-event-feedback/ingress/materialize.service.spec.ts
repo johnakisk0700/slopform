@@ -23,6 +23,7 @@ import {
   FakeDatabase,
   FakeParticipants,
   FakeQueue,
+  noopSummaries,
 } from "../post-event-feedback-doubles.harness.js";
 import { PostEventFeedbackMaterializer } from "./materialize.service.js";
 import { PostEventFeedbackMetrics } from "../metrics.service.js";
@@ -1247,6 +1248,7 @@ function createHarness(): Harness {
     new FeedbackOutboundLogService(
       repository as unknown as FeedbackOutboundLogRepository,
     ),
+    noopSummaries(),
   );
 
   return {

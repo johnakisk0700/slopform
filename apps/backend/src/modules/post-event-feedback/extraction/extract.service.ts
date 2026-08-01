@@ -26,7 +26,6 @@ import { latestParticipantMessage } from "../conversation-reader.js";
 import {
   isCompleting,
   isWithdrawal,
-  nextOpenGoal,
   resolveGoalStatuses,
   withAskedGoal,
   withSettledOpenGoals,
@@ -56,7 +55,11 @@ import {
   PostEventFeedbackMetrics,
   type FeedbackExtractOutcome,
 } from "../metrics.service.js";
-import { noteSignature, resolveCampaignCopy } from "../question-set.js";
+import {
+  contradictedPostEventFeedbackQuestionKeys,
+  noteSignature,
+  resolveCampaignCopy,
+} from "../question-set.js";
 import {
   validateFeedbackExtractionProposal,
   type FeedbackExtractionValidationResult,
@@ -73,6 +76,7 @@ import {
   buildFeedbackExtractionPrompt,
   estimatePromptTokens,
 } from "./prompt.js";
+import { PostEventFeedbackCampaignSummaryService } from "../summary/summary.service.js";
 
 export class PostEventFeedbackConversationNotFoundError extends Error {
   constructor(conversationId: string) {
@@ -140,6 +144,7 @@ export class PostEventFeedbackExtractor {
     private readonly outboundLog: FeedbackOutboundLogService,
     @Inject(FEEDBACK_OPERATOR_ALERT)
     private readonly alert: FeedbackOperatorAlert,
+    private readonly summaries: PostEventFeedbackCampaignSummaryService,
   ) {}
 
   async extract(input: ExtractFeedbackInput): Promise<ExtractFeedbackResult> {
@@ -300,7 +305,6 @@ export class PostEventFeedbackExtractor {
       context,
       validated,
     );
-    const openGoal = nextOpenGoal(conversation.goals, recordedStatuses);
     // The two signals that end the questionnaire outright, as opposed to
     // flagging it. Both mean the same thing — from here a person is answering,
     // not the bot — so both hand control over, which is the existing brake:
@@ -398,7 +402,7 @@ export class PostEventFeedbackExtractor {
         urgentSafety,
         latestParticipantMessage(conversation)?.seq ?? cursorSeq,
         copy,
-        openGoal,
+        recordedStatuses,
         stoppingForHostility,
       ),
       copy,
@@ -579,7 +583,7 @@ export class PostEventFeedbackExtractor {
       );
     }
 
-    await this.applyConversationState({
+    const closed = await this.applyConversationState({
       conversation,
       validated,
       goalStatuses,
@@ -599,6 +603,12 @@ export class PostEventFeedbackExtractor {
       serviceTier: this.generation.serviceTier ?? null,
       correlationId: input.correlationId,
     });
+
+    await this.summaries.notifyIfLastConversationClosed(
+      conversation.campaignId,
+      input.correlationId,
+      closed,
+    );
 
     return this.complete(
       {
@@ -837,7 +847,9 @@ export class PostEventFeedbackExtractor {
           await this.results.deleteContradictedAnswers(transaction, {
             conversationId: input.conversation._id,
             subjectParticipantId: answer.subjectParticipantId,
-            questionKeys: contradictedQuestionKeys(answer.questionKey),
+            questionKeys: contradictedPostEventFeedbackQuestionKeys(
+              answer.questionKey,
+            ),
           });
         }
         const inserted = await this.results.insertAnswerIfAbsent(transaction, {
@@ -1013,8 +1025,9 @@ export class PostEventFeedbackExtractor {
     /** The tier this run bought, or null. Overwrites — it is not a quantity. */
     readonly serviceTier: string | null;
     readonly correlationId: string;
-  }): Promise<void> {
+  }): Promise<boolean> {
     const at = new Date();
+    let closed = false;
 
     if (input.goalStatuses.length > 0) {
       await this.conversations.updateGoalStatuses({
@@ -1135,12 +1148,15 @@ export class PostEventFeedbackExtractor {
     }
 
     if (input.closingReason) {
-      await this.conversations.close({
+      const transition = await this.conversations.close({
         conversationId: input.conversation._id,
         reason: input.closingReason,
         at,
       });
+      closed = transition.changed;
     }
+
+    return closed;
   }
 
   private complete(
@@ -1174,26 +1190,4 @@ function buildExtractionMeta(input: {
       ? { unresolvedSubjectName: input.unresolvedSubjectName }
       : {}),
   };
-}
-
-/**
- * Questions that cannot both be true about the same person at the same time.
- *
- * «Θα τον ξαναέβλεπα» and «καλύτερα όχι ξανά» are the same decision with
- * opposite answers, so recording one has to clear the other. `liked` counts as
- * incompatible with `avoid` for the same reason a participant does: somebody
- * they now want to steer clear of is not somebody who made a good impression.
- * Nothing else conflicts — a score says nothing about a person, and liking
- * somebody and wanting to see them again agree.
- */
-function contradictedQuestionKeys(
-  questionKey: FeedbackAnswerQuestionKey,
-): readonly FeedbackAnswerQuestionKey[] {
-  if (questionKey === "avoid") {
-    return ["liked", "meet_again"];
-  }
-  if (questionKey === "liked" || questionKey === "meet_again") {
-    return ["avoid"];
-  }
-  return [];
 }

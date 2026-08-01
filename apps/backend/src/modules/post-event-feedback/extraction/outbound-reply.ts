@@ -22,6 +22,11 @@ import {
   POST_EVENT_FEEDBACK_POLICY_QUESTION_DEFINITIONS,
   type FeedbackPolicyQuestionMatch,
 } from "./policy-answers.js";
+import {
+  nextOpenGoal,
+  settledGoalKeys,
+  type GoalStatusUpdate,
+} from "./goal-progress.js";
 
 export interface OutboundReply {
   readonly body: string;
@@ -85,9 +90,16 @@ const ACTIONABLE_GOAL_REFUSALS: ReadonlySet<FeedbackExtractionRejectionReason> =
  * `stoppingForHostility` outranks everything, including the urgent-safety
  * silence — see the first branch for why that ordering is safe.
  *
- * `nextOpenGoal` is the earliest goal still open after this run's *recorded*
- * updates. The model writes `nextGoal: null` and a thank-you when it believes
- * every answer landed; validation then drops the directed ones and the thank-you
+ * `recordedStatuses` are this run's recorded ladder updates — answers and skips
+ * that actually survived validation, never the model's private belief. The
+ * open-goal and settled-goal views both derive from them here, in one place,
+ * because the two judgements that read them must not drift: the branch that
+ * catches a model skipping ahead needs the earliest goal still owed, and the
+ * refused re-ask needs to know which goals owe nothing — asking one of those
+ * again is how Ρούλα Κομποσερίδου got the `liked` campaign copy twice over a
+ * question she had answered two turns earlier (2026-08-01 paid rehearsal).
+ * The model writes `nextGoal: null` and a thank-you when it believes every
+ * answer landed; validation then drops the directed ones and the thank-you
  * would otherwise go out into a conversation that is still mid-questionnaire.
  * Closing copy is reserved for `closingNow`; an open ladder gets the open
  * question instead.
@@ -99,7 +111,7 @@ export function resolveOutbound(
   urgentSafety: boolean,
   testimonySeq: number,
   copy: PostEventFeedbackQuestionSetCopy,
-  nextOpenGoal: FeedbackAnswerQuestionKey | null,
+  recordedStatuses: readonly GoalStatusUpdate[],
   stoppingForHostility = false,
 ): OutboundReply | undefined {
   // Ahead of every other branch, including the urgent-safety silence, because
@@ -120,7 +132,7 @@ export function resolveOutbound(
     urgentSafety,
     testimonySeq,
     copy,
-    nextOpenGoal,
+    recordedStatuses,
   );
 }
 
@@ -361,8 +373,10 @@ function chooseOutbound(
   urgentSafety: boolean,
   testimonySeq: number,
   copy: PostEventFeedbackQuestionSetCopy,
-  nextOpenGoal: FeedbackAnswerQuestionKey | null,
+  recordedStatuses: readonly GoalStatusUpdate[],
 ): OutboundReply | undefined {
+  const openGoal = nextOpenGoal(conversation.goals, recordedStatuses);
+  const settled = settledGoalKeys(conversation.goals, recordedStatuses);
   // Somebody has just said they do not want to live. There is no approved
   // copy for that, and every option the questionnaire owns is wrong: the next
   // question treats it as a lull in conversation, and the thank-you treats it
@@ -422,7 +436,7 @@ function chooseOutbound(
   // again instead — in the campaign's own words, which are the only ones here
   // guaranteed to still be true. A refused *skip* is the same lie told about a
   // question the bot never asked, so it takes the same route.
-  const refused = refusedQuestionKey(validated);
+  const refused = refusedQuestionKey(validated, settled);
   if (refused) {
     return questionOutbound(conversation._id, testimonySeq, copy, refused);
   }
@@ -442,12 +456,12 @@ function chooseOutbound(
     validated.skippedGoals.length > 0 ||
     validated.rejections.some((rejection) => rejection.scope === "answer");
   if (
-    nextOpenGoal &&
+    openGoal &&
     validated.safetySignals.length === 0 &&
-    ((validated.nextGoal !== null && validated.nextGoal !== nextOpenGoal) ||
+    ((validated.nextGoal !== null && validated.nextGoal !== openGoal) ||
       (validated.nextGoal === null && validated.reply && proposedProgress))
   ) {
-    return questionOutbound(conversation._id, testimonySeq, copy, nextOpenGoal);
+    return questionOutbound(conversation._id, testimonySeq, copy, openGoal);
   }
 
   if (!validated.reply) {
@@ -560,9 +574,22 @@ function replyPosesQuestion(body: string): boolean {
  * Only refusals the participant can act on count, and when several land in one
  * run the earliest questionnaire goal wins — re-asking `avoid` while `liked`
  * is still open is how a refused name quietly advances the ladder.
+ *
+ * A refusal on a goal that is already settled does not count at all. The lie
+ * this path exists to prevent — «το σημείωσα!» over an answer that was not
+ * recorded — is only a lie while the goal still owes an answer; once one is
+ * banked, a refused mention is a *surplus*, and the campaign copy would restate
+ * a question the participant has already answered. That is precisely what the
+ * 2026-08-01T17-06-11Z rehearsal sent Ρούλα Κομποσερίδου: `liked` answered (η
+ * Λούλα) since her first message, two more table neighbours resolving to
+ * nobody, and the identical `liked` question twice — the re-ask cap stopped the
+ * third, but the first two were never legitimate. The refused name still
+ * reaches an operator: validation files it as an unattributable note, in the
+ * place a person actually reads.
  */
 function refusedQuestionKey(
   validated: FeedbackExtractionValidationResult,
+  settled: ReadonlySet<FeedbackAnswerQuestionKey>,
 ): FeedbackAnswerQuestionKey | undefined {
   const refused = new Set<FeedbackAnswerQuestionKey>();
   for (const rejection of validated.rejections) {
@@ -575,7 +602,7 @@ function refusedQuestionKey(
       continue;
     }
     const key = rejection.questionKey;
-    if (key && isPostEventFeedbackAnswerQuestionKey(key)) {
+    if (key && isPostEventFeedbackAnswerQuestionKey(key) && !settled.has(key)) {
       refused.add(key);
     }
   }

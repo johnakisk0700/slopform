@@ -25,13 +25,16 @@ import {
   useResumeFeedbackConversationBot,
   useSendFeedbackConversationStaffMessage,
   useTakeOverFeedbackConversation,
+  useAddFeedbackConversationAnswer,
   useWithdrawFeedbackConversationAnswer,
 } from "../api/generated/feedback-conversations";
 import { useGetEvent } from "../api/generated/events";
 import { useUpdateFeedbackNoteReviewStatus } from "../api/generated/feedback-notes";
 import type { AddFeedbackConversationNoteDtoNoteType } from "../api/generated/model/addFeedbackConversationNoteDtoNoteType";
+import type { DirectedQuestionKey } from "../features/feedback/directedAnswers";
 import type { FeedbackConversationDetailDtoOutput } from "../api/generated/model/feedbackConversationDetailDtoOutput";
 import { CampaignHeader } from "../components/admin/feedback/CampaignHeader";
+import { CampaignSummary } from "../components/admin/feedback/CampaignSummary";
 import { ConversationAttention } from "../components/admin/feedback/ConversationAttention";
 import {
   ConversationActions,
@@ -171,6 +174,7 @@ export function FeedbackInboxPage() {
   const addNote = useAddFeedbackConversationNote();
   const correctAnswer = useCorrectFeedbackConversationAnswer();
   const withdrawAnswer = useWithdrawFeedbackConversationAnswer();
+  const addAnswer = useAddFeedbackConversationAnswer();
   const startConversation = useStartFeedbackConversation();
   const pauseCampaign = usePauseFeedbackCampaign();
   const resumeCampaign = useResumeFeedbackCampaign();
@@ -315,6 +319,30 @@ export function FeedbackInboxPage() {
     await invalidateResults(selectedId);
     toast.success("Answer corrected", {
       description: "The recorded value is yours now, and says so.",
+    });
+  }
+
+  /**
+   * Records an answer an operator knows and the thread never heard. It
+   * deliberately does not catch: the dialog keeps the operator's chosen person
+   * on screen and reports the reason there.
+   */
+  async function handleAddAnswer(
+    questionKey: DirectedQuestionKey,
+    subjectParticipantId: string,
+  ) {
+    setActionError(null);
+    if (selectedId === null) {
+      return;
+    }
+    await addAnswer.mutateAsync({
+      campaignId,
+      conversationId: selectedId,
+      data: { questionKey, subjectParticipantId },
+    });
+    await invalidateResults(selectedId);
+    toast.success("Answer recorded", {
+      description: "It is saved as your own answer and labelled as one.",
     });
   }
 
@@ -488,6 +516,8 @@ export function FeedbackInboxPage() {
         }
       />
 
+      <CampaignSummary campaignId={campaignId} />
+
       {/* Two panes on top — triage beside the thread — and the conversation's
           detail broken into a strip of small cards under them. Each pane is
           its own scroll container capped to the viewport, so switching
@@ -600,6 +630,7 @@ export function FeedbackInboxPage() {
           <div className="grid gap-4 md:grid-cols-2 lg:col-span-2 xl:grid-cols-3">
             <ProgressPanel
               conversation={conversation}
+              eventId={campaign?.eventId ?? ""}
               results={resultsQuery.data}
               resultsLoading={resultsQuery.isPending}
               resultsError={
@@ -612,9 +643,11 @@ export function FeedbackInboxPage() {
               }
               onCorrectAnswer={handleCorrectAnswer}
               onWithdrawAnswer={handleWithdrawAnswer}
+              onAddAnswer={handleAddAnswer}
               answerUpdatePending={
                 correctAnswer.isPending || withdrawAnswer.isPending
               }
+              addAnswerPending={addAnswer.isPending}
             />
             <NotesPanel
               conversation={conversation}

@@ -18,6 +18,12 @@ export const CONVERSATION_LIST_POLL_INTERVAL_MS = 10_000;
 export const RESULTS_POLL_INTERVAL_MS = 15_000;
 
 /**
+ * Campaign summary while generation is in flight. Matched to the outbox
+ * cadence: fast enough to notice ready/failed, slow enough not to thrash.
+ */
+export const CAMPAIGN_SUMMARY_POLL_INTERVAL_MS = 5_000;
+
+/**
  * The outbound queue list.
  *
  * Matched to the relay's own 5-second pass, because a faster poll cannot show

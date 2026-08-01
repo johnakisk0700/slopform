@@ -1,7 +1,11 @@
 import { createZodDto } from "nestjs-zod";
 import { z } from "zod";
 
-import { FEEDBACK_CAMPAIGN_STATUSES } from "@join-the-six/database";
+import {
+  FEEDBACK_CAMPAIGN_STATUSES,
+  FEEDBACK_CAMPAIGN_SUMMARY_STATUSES,
+  FEEDBACK_CAMPAIGN_SUMMARY_TRIGGERS,
+} from "@join-the-six/database";
 
 export const feedbackCampaignStatusSchema = z.enum(FEEDBACK_CAMPAIGN_STATUSES);
 
@@ -82,6 +86,29 @@ export const startFeedbackConversationResultSchema = z
   })
   .strict();
 
+export const feedbackCampaignSummaryStatusSchema = z.enum([
+  "none",
+  ...FEEDBACK_CAMPAIGN_SUMMARY_STATUSES,
+]);
+
+export const feedbackCampaignSummarySchema = z
+  .object({
+    status: feedbackCampaignSummaryStatusSchema,
+    body: z.string().nullable(),
+    model: z.string().nullable(),
+    reasoningEffort: z.string().nullable(),
+    isPartial: z.boolean(),
+    trigger: z.enum(FEEDBACK_CAMPAIGN_SUMMARY_TRIGGERS).nullable(),
+    error: z.string().nullable(),
+    attempt: z.number().int().min(1).nullable(),
+    openConversationCount: z.number().int().nonnegative().nullable(),
+    answerCount: z.number().int().nonnegative().nullable(),
+    noteCount: z.number().int().nonnegative().nullable(),
+    requestedAt: z.iso.datetime().nullable(),
+    generatedAt: z.iso.datetime().nullable(),
+  })
+  .strict();
+
 export class LaunchFeedbackCampaignDto extends createZodDto(
   launchFeedbackCampaignSchema,
 ) {}
@@ -97,6 +124,9 @@ export class FeedbackCampaignListDto extends createZodDto(
 ) {}
 export class StartFeedbackConversationResultDto extends createZodDto(
   startFeedbackConversationResultSchema,
+) {}
+export class FeedbackCampaignSummaryDto extends createZodDto(
+  feedbackCampaignSummarySchema,
 ) {}
 
 export type LaunchFeedbackCampaignInput = z.infer<
@@ -114,4 +144,7 @@ export type FeedbackCampaignListView = z.infer<
 >;
 export type StartFeedbackConversationResultView = z.infer<
   typeof startFeedbackConversationResultSchema
+>;
+export type FeedbackCampaignSummaryView = z.infer<
+  typeof feedbackCampaignSummarySchema
 >;

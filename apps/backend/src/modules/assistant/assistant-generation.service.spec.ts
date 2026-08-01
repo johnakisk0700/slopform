@@ -95,7 +95,7 @@ describe("AssistantGenerationService", () => {
         statusCode: 400,
       }),
     );
-    const service = createService({ openRouter: "openrouter-key" });
+    const service = createService({ openAi: "openai-key" });
 
     const error = await service
       .generate({
@@ -112,12 +112,11 @@ describe("AssistantGenerationService", () => {
       message: "Assistant generation failed",
     });
     expect(String(error)).not.toContain("credential detail");
-    // Effort still reaches the provider, in that provider's own shape. This
-    // model is routed through OpenRouter like every other registry entry, so the
-    // OpenAI `reasoningEffort` form is no longer what it is asked with.
+    // Terra rides OpenAI direct so the thinking-budget vocabulary (`xhigh`,
+    // `max`) is reachable — the same reason Luna moved off OpenRouter.
     expect(mockedGenerateText).toHaveBeenCalledWith(
       expect.objectContaining({
-        providerOptions: { openrouter: { reasoning: { effort: "medium" } } },
+        providerOptions: { openai: { reasoningEffort: "medium" } },
       }),
     );
   });

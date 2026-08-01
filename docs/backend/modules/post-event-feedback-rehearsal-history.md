@@ -82,10 +82,15 @@ accounts for eight of the eleven.
 That is not a bug, it is the paid-mode design working as documented: semantic
 expectations are observations there, so a conversation cannot fail on one. But it
 means the automated verdict of a paid run rests on settlement and job failures
-and nothing else, and settlement is frequently held open by
-`ouzeri_contradicts_within_one_message`, a persona whose own fixture comment
-declares it «an observation, not yet a contract». So a paid run currently reports
-`FAIL` mostly for a case we already agreed not to hold anybody to.
+and nothing else — and across these eleven runs, settlement was frequently held
+open by `ouzeri_contradicts_within_one_message`, whose script then stopped at
+the score and expected Τούλα banked in three lists out of a message where Τάκης
+says out loud he has not concluded. So those runs reported `FAIL` mostly for a
+case we had already agreed not to hold anybody to. The fixture was repaired on
+2026-07-31: Τάκης now resolves the contradiction himself in a third message
+(«οκ ασε, θα την εβλεπα ξανα τελικα…»), the stub banks nothing while he is
+still weighing, the `avoid|Τούλα` row is gone, and the row is a contract rather
+than an observation.
 
 Two consequences worth keeping in mind. A green paid run is a weak claim, and a
 red one usually is too — the value is in the rows and the transcripts, which is

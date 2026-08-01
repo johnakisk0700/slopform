@@ -16,6 +16,7 @@ import { PostEventFeedbackConversationService } from "./inbox/conversation.servi
 import { PostEventFeedbackOutboxController } from "./outbox/queue-view.controller.js";
 import { FeedbackOutboxQueueViewService } from "./outbox/queue-view.service.js";
 import { PostEventFeedbackCoreModule } from "./core.module.js";
+import { PostEventFeedbackCampaignSummaryService } from "./summary/summary.service.js";
 
 @Module({
   imports: [
@@ -39,10 +40,12 @@ import { PostEventFeedbackCoreModule } from "./core.module.js";
     FeedbackOutboxQueueViewService,
     PostEventFeedbackCampaignService,
     PostEventFeedbackConversationService,
+    PostEventFeedbackCampaignSummaryService,
   ],
   exports: [
     PostEventFeedbackCampaignService,
     PostEventFeedbackConversationService,
+    PostEventFeedbackCampaignSummaryService,
   ],
 })
 export class PostEventFeedbackHttpModule {}

@@ -107,12 +107,17 @@ The post-event feedback contracts are:
 - reminder sweep job `feedback.sweep-reminders.v1`;
 - expiry sweep job `feedback.sweep-expiry.v1`;
 - ingress recovery sweep job `feedback.sweep-ingress.v1`;
+- summarize job `feedback.summarize-campaign.v1`;
+- summarize payload `{ schemaVersion: 1, campaignId: UUID, correlationId: string }`;
+- summarize job ID `feedback-summarize-v1-<campaignId>-<attempt>`;
 - sweep payload `{ schemaVersion: 1, correlationId: string }`.
 
 The webhook edge is the producer of `feedback.materialize.v1`, onto
 `feedback-ingress`; the worker is the producer of `feedback.extract.v1` and
 `feedback.deliver.v1` onto `feedback`, using its own worker-side registration
-Queue exactly as the email relay does.
+Queue exactly as the email relay does. HTTP enqueues
+`feedback.summarize-campaign.v1` on manual request; the worker enqueues the same
+job when the last conversation closes.
 
 **Materialization has its own queue because it must not wait for a model call.**
 Writing an inbound message into the transcript is a Mongo append and a short

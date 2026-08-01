@@ -26,6 +26,23 @@ export const FEEDBACK_CAMPAIGN_STATUSES = [
 export type FeedbackCampaignStatus =
   (typeof FEEDBACK_CAMPAIGN_STATUSES)[number];
 
+export const FEEDBACK_CAMPAIGN_SUMMARY_STATUSES = [
+  "pending",
+  "ready",
+  "failed",
+] as const;
+
+export type FeedbackCampaignSummaryStatus =
+  (typeof FEEDBACK_CAMPAIGN_SUMMARY_STATUSES)[number];
+
+export const FEEDBACK_CAMPAIGN_SUMMARY_TRIGGERS = [
+  "manual",
+  "all_closed",
+] as const;
+
+export type FeedbackCampaignSummaryTrigger =
+  (typeof FEEDBACK_CAMPAIGN_SUMMARY_TRIGGERS)[number];
+
 export const FEEDBACK_ANSWER_QUESTION_KEYS = [
   "event_score",
   "liked",
@@ -179,6 +196,93 @@ export const feedbackCampaigns = pgTable(
   ],
 );
 
+/**
+ * Latest AI narrative for one campaign. One row per campaign; each request
+ * increments `attempt` and overwrites the prior body once the worker finishes.
+ */
+export const feedbackCampaignSummaries = pgTable(
+  "feedback_campaign_summaries",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    campaignId: uuid("campaign_id").notNull(),
+    status: text("status").notNull(),
+    body: text("body"),
+    model: text("model"),
+    reasoningEffort: text("reasoning_effort"),
+    isPartial: boolean("is_partial").notNull(),
+    trigger: text("trigger").notNull(),
+    error: text("error"),
+    attempt: integer("attempt").notNull(),
+    openConversationCount: integer("open_conversation_count").notNull(),
+    answerCount: integer("answer_count").notNull().default(0),
+    noteCount: integer("note_count").notNull().default(0),
+    requestedAt: timestamp("requested_at", {
+      withTimezone: true,
+      mode: "date",
+    }).notNull(),
+    generatedAt: timestamp("generated_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.campaignId],
+      foreignColumns: [feedbackCampaigns.id],
+      name: "feedback_campaign_summaries_campaign_id_feedback_campaigns_id_fk",
+    }).onDelete("restrict"),
+    check(
+      "feedback_campaign_summaries_status_check",
+      sql`${table.status} in ('pending', 'ready', 'failed')`,
+    ),
+    check(
+      "feedback_campaign_summaries_trigger_check",
+      sql`${table.trigger} in ('manual', 'all_closed')`,
+    ),
+    check(
+      "feedback_campaign_summaries_attempt_check",
+      sql`${table.attempt} >= 1`,
+    ),
+    check(
+      "feedback_campaign_summaries_open_conversation_count_check",
+      sql`${table.openConversationCount} >= 0`,
+    ),
+    check(
+      "feedback_campaign_summaries_answer_count_check",
+      sql`${table.answerCount} >= 0`,
+    ),
+    check(
+      "feedback_campaign_summaries_note_count_check",
+      sql`${table.noteCount} >= 0`,
+    ),
+    check(
+      "feedback_campaign_summaries_body_length_check",
+      sql`${table.body} is null or char_length(btrim(${table.body})) between 1 and 50000`,
+    ),
+    check(
+      "feedback_campaign_summaries_error_length_check",
+      sql`${table.error} is null or char_length(btrim(${table.error})) between 1 and 2000`,
+    ),
+    check(
+      "feedback_campaign_summaries_model_length_check",
+      sql`${table.model} is null or char_length(btrim(${table.model})) between 1 and 200`,
+    ),
+    check(
+      "feedback_campaign_summaries_reasoning_effort_length_check",
+      sql`${table.reasoningEffort} is null or char_length(btrim(${table.reasoningEffort})) between 1 and 20`,
+    ),
+    uniqueIndex("feedback_campaign_summaries_campaign_id_uidx").on(
+      table.campaignId,
+    ),
+  ],
+);
+
 export const feedbackAnswers = pgTable(
   "feedback_answers",
   {
@@ -242,9 +346,16 @@ export const feedbackAnswers = pgTable(
       "feedback_answers_value_int_check",
       sql`${table.valueInt} is null or ${table.valueInt} between 1 and 5`,
     ),
+    // An answer that claims conversation provenance must cite the message it
+    // came from. A staff answer cites nothing because nothing was said about
+    // this person in the thread: an operator knew it and recorded it, and
+    // `extraction_meta.origin` is what says so. The same exemption the notes
+    // table already grants, granted here for the same reason — the alternative
+    // was to borrow a message id the answer does not come from, which would put
+    // an operator's assertion in a participant's mouth.
     check(
       "feedback_answers_source_message_ids_check",
-      sql`cardinality(${table.sourceMessageIds}) >= 1`,
+      sql`cardinality(${table.sourceMessageIds}) >= 1 or ${table.extractionMeta}->>'origin' = 'staff'`,
     ),
     check(
       "feedback_answers_extraction_meta_object_check",
@@ -284,10 +395,12 @@ export const feedbackAnswers = pgTable(
  * is gone, and the whole of it is in the `feedback_answer.withdrawn` audit event
  * under that id, which is where a withdrawal is answerable.
  *
- * A tombstone is never updated and never deleted, so it has no `updated_at`:
- * `withdrawn_at` is the only time it has. Reinstating a withdrawn answer is
- * deliberately not offered anywhere — the freeze means the model may stop
- * agreeing with a human, not that it may overrule one.
+ * A tombstone is never updated, so it has no `updated_at`: `withdrawn_at` is the
+ * only time it has. It is deleted in exactly one case — an operator recording an
+ * answer of their own for the same slot — because the freeze means the model may
+ * stop agreeing with a human, not that a human may not change their mind. No
+ * extraction path deletes one, and the `feedback_answer.withdrawn` and
+ * `feedback_answer.staff_recorded` audit events hold both decisions in order.
  */
 export const feedbackAnswerWithdrawals = pgTable(
   "feedback_answer_withdrawals",
@@ -608,6 +721,8 @@ export const messageOutboxLog = pgTable(
 );
 
 export type FeedbackCampaignRow = typeof feedbackCampaigns.$inferSelect;
+export type FeedbackCampaignSummaryRow =
+  typeof feedbackCampaignSummaries.$inferSelect;
 export type FeedbackAnswerRow = typeof feedbackAnswers.$inferSelect;
 export type FeedbackAnswerWithdrawalRow =
   typeof feedbackAnswerWithdrawals.$inferSelect;

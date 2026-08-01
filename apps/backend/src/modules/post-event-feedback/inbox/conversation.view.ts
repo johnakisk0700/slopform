@@ -98,6 +98,7 @@ export function toAnswerView(
       ? displayNameFor(displayNames.get(answer.subjectParticipantId))
       : null,
     sourceMessageIds: answer.sourceMessageIds,
+    origin: resultOrigin(answer.extractionMeta),
     correction: answerCorrection(answer.extractionMeta),
     createdAt: answer.createdAt.toISOString(),
     updatedAt: answer.updatedAt.toISOString(),
@@ -121,12 +122,13 @@ function answerCorrection(
 /**
  * Two values, not the raw provenance blob. A model extraction and the
  * deterministic fallback both quote a participant message, so both read as
- * `conversation`; only a hand-written note reads as `staff`. Rows written
- * before `origin` existed are extraction output, which is what the default
- * says.
+ * `conversation`; only what an operator wrote by hand reads as `staff`. Rows
+ * written before `origin` existed are extraction output, which is what the
+ * default says. One function for answers and notes because the fact is the
+ * same one on both.
  */
-function noteOrigin(
-  extractionMeta: FeedbackNoteRow["extractionMeta"],
+function resultOrigin(
+  extractionMeta: FeedbackAnswerRow["extractionMeta"],
 ): FeedbackNoteOrigin {
   return extractionMeta.origin === FEEDBACK_EXTRACTION_ORIGIN_STAFF
     ? "staff"
@@ -144,7 +146,7 @@ export function toNoteView(
     noteType: note.noteType as FeedbackNoteView["noteType"],
     text: note.text,
     status: note.status as FeedbackNoteView["status"],
-    origin: noteOrigin(note.extractionMeta),
+    origin: resultOrigin(note.extractionMeta),
     respondentParticipantId: note.respondentParticipantId,
     respondentDisplayName: displayNameFor(
       displayNames.get(note.respondentParticipantId),

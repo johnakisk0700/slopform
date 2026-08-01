@@ -23,6 +23,7 @@ import {
   FeedbackCampaignDto,
   FeedbackCampaignIdDto,
   FeedbackCampaignListDto,
+  FeedbackCampaignSummaryDto,
   LaunchFeedbackCampaignDto,
   StartFeedbackConversationDto,
   StartFeedbackConversationResultDto,
@@ -35,6 +36,7 @@ import {
   FeedbackCampaignParticipantNotEligibleError,
   PostEventFeedbackCampaignService,
 } from "./campaign.service.js";
+import { PostEventFeedbackCampaignSummaryService } from "../summary/summary.service.js";
 
 type RequestWithId = Request & { id: string };
 const RequestCorrelationId = createParamDecorator(
@@ -45,7 +47,10 @@ const RequestCorrelationId = createParamDecorator(
 @ApiTags("feedback-campaigns")
 @Controller("feedback/campaigns")
 export class PostEventFeedbackCampaignController {
-  constructor(private readonly campaigns: PostEventFeedbackCampaignService) {}
+  constructor(
+    private readonly campaigns: PostEventFeedbackCampaignService,
+    private readonly summaries: PostEventFeedbackCampaignSummaryService,
+  ) {}
 
   @Get()
   @ApiOperation({ operationId: "listFeedbackCampaigns" })
@@ -84,6 +89,36 @@ export class PostEventFeedbackCampaignController {
     @CurrentUserId() _userId: PrincipalDto,
   ): Promise<FeedbackCampaignDto> {
     return mapCampaignErrors(this.campaigns.get(parameters.campaignId));
+  }
+
+  @Get(":campaignId/summary")
+  @ApiOperation({ operationId: "getFeedbackCampaignSummary" })
+  @Header("Cache-Control", "no-store")
+  @ZodResponse({ status: 200, type: FeedbackCampaignSummaryDto })
+  getSummary(
+    @Param() parameters: FeedbackCampaignIdDto,
+    @CurrentUserId() _userId: PrincipalDto,
+  ): Promise<FeedbackCampaignSummaryDto> {
+    return mapCampaignErrors(this.summaries.get(parameters.campaignId));
+  }
+
+  @Post(":campaignId/summary")
+  @ApiOperation({ operationId: "requestFeedbackCampaignSummary" })
+  @Header("Cache-Control", "no-store")
+  @ZodResponse({ status: 200, type: FeedbackCampaignSummaryDto })
+  requestSummary(
+    @Param() parameters: FeedbackCampaignIdDto,
+    @CurrentUserId() userId: PrincipalDto,
+    @RequestCorrelationId() correlationId: CorrelationIdDto,
+  ): Promise<FeedbackCampaignSummaryDto> {
+    return mapCampaignErrors(
+      this.summaries.request(
+        parameters.campaignId,
+        "manual",
+        String(correlationId),
+        String(userId),
+      ),
+    );
   }
 
   @Post(":campaignId/pause")

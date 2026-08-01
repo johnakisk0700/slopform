@@ -29,6 +29,7 @@ import { PostEventFeedbackMetrics } from "./metrics.service.js";
 import { PostEventFeedbackIngressProcessor } from "./ingress/ingress.processor.js";
 import { PostEventFeedbackProcessor } from "./processor.js";
 import { PostEventFeedbackSweepService } from "./sweeps/sweep.service.js";
+import { PostEventFeedbackCampaignSummaryService } from "./summary/summary.service.js";
 import { SimulatedFeedbackTransport } from "./outbox/simulated-transport.service.js";
 import { WasenderFeedbackTransport } from "./outbox/wasender-transport.service.js";
 
@@ -83,6 +84,7 @@ import { WasenderFeedbackTransport } from "./outbox/wasender-transport.service.j
     FeedbackOutboxSchedulerService,
     FeedbackSweepSchedulerService,
     PostEventFeedbackSweepService,
+    PostEventFeedbackCampaignSummaryService,
     SimulatedFeedbackTransport,
     {
       provide: FEEDBACK_TRANSPORT,

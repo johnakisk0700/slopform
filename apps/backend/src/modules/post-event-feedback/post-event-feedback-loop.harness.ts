@@ -43,6 +43,7 @@ import {
   FakeParticipants,
   FEEDBACK_TEST_DEFAULT_JOB_ATTEMPTS,
   RecordingFeedbackTransport,
+  noopSummaries,
   type FakeOutboxRow,
 } from "./post-event-feedback-doubles.harness.js";
 import { PostEventFeedbackMaterializer } from "./ingress/materialize.service.js";
@@ -517,6 +518,7 @@ export async function createFeedbackLoopHarness(
   const outboundLog = new FeedbackOutboundLogService(
     repository as unknown as FeedbackOutboundLogRepository,
   );
+  const summaries = noopSummaries();
   const staffConversations = new PostEventFeedbackConversationService(
     queuePort,
     database as unknown as DatabaseService,
@@ -530,6 +532,7 @@ export async function createFeedbackLoopHarness(
     audit as unknown as AuditRepository,
     outboundTranscript,
     outboundLog,
+    summaries as never,
   );
   const ingress = new PostEventFeedbackIngressService(
     queuePort,
@@ -552,6 +555,7 @@ export async function createFeedbackLoopHarness(
     metrics,
     outboundTranscript,
     outboundLog,
+    summaries as never,
   );
   const ingressProcessor = new PostEventFeedbackIngressProcessor(materializer);
   const extractor = new PostEventFeedbackExtractor(
@@ -568,6 +572,7 @@ export async function createFeedbackLoopHarness(
     outboundTranscript,
     outboundLog,
     alerts as FeedbackOperatorAlert,
+    summaries as never,
   );
   const processor = new PostEventFeedbackProcessor(
     materializer,
@@ -596,6 +601,7 @@ export async function createFeedbackLoopHarness(
       audit as unknown as AuditRepository,
       outboundTranscript,
       outboundLog,
+      summaries as never,
     ),
     new PostEventFeedbackExtractionFallback(
       queuePort,
@@ -610,6 +616,7 @@ export async function createFeedbackLoopHarness(
       outboundLog,
       alerts as FeedbackOperatorAlert,
     ),
+    summaries as never,
   );
 
   const sweepData = {

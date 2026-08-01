@@ -22,6 +22,7 @@ import {
 } from "./processor.js";
 import {
   createFeedbackMaterializeJobId,
+  createFeedbackSummarizeCampaignJobId,
   FEEDBACK_JOB_NAMES,
   type FeedbackJobData,
   type FeedbackJobName,
@@ -29,6 +30,7 @@ import {
 
 const ingressId = "b1c9e0a4-2c65-4a29-9a2e-2d0a3f2e1b77";
 const conversationId = "6f0f2f8a-2b73-5a02-9d0a-3f0b8f5b1c21";
+const campaignId = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
 const validData = {
   schemaVersion: 1,
   ingressId,
@@ -444,6 +446,36 @@ describe("PostEventFeedbackProcessor", () => {
       );
     });
   });
+
+  it("runs a valid summarize-campaign job through the summary service", async () => {
+    const summaries = { run: vi.fn().mockResolvedValue(undefined) };
+    const processor = new PostEventFeedbackProcessor(
+      { materialize: vi.fn() } as never,
+      { relay: vi.fn() } as never,
+      { deliver: vi.fn() } as never,
+      { extract: vi.fn() } as never,
+      {
+        sweepReminders: vi.fn(),
+        sweepExpiry: vi.fn(),
+        sweepIngress: vi.fn(),
+      } as never,
+      { apply: vi.fn(), park: vi.fn() } as never,
+      summaries as never,
+    );
+
+    const data = {
+      schemaVersion: 1,
+      campaignId,
+      correlationId: "correlation-summary",
+    };
+    const jobId = createFeedbackSummarizeCampaignJobId(campaignId, 1);
+
+    await processor.process(
+      createJob(data, FEEDBACK_JOB_NAMES.summarizeCampaignV1, jobId),
+    );
+
+    expect(summaries.run).toHaveBeenCalledWith(data, jobId);
+  });
 });
 
 function createProcessor(
@@ -468,6 +500,7 @@ function createProcessor(
       sweepIngress: vi.fn(),
     } as never,
     fallback as unknown as PostEventFeedbackExtractionFallback,
+    { run: vi.fn() } as never,
   );
 }
 

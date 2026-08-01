@@ -189,11 +189,11 @@ describe("AssistantService", () => {
     );
   });
 
-  // Both halves used to be reached by naming an OpenAI-routed model; every
-  // registry entry now goes through OpenRouter, so the unconfigured provider has
-  // to be the missing key rather than the wrong model. The rule under test is
-  // unchanged: default or explicit, the model's provider must be funded before a
-  // turn is created, and a missing key is never quietly worked around.
+  // Both halves used to be reached by naming an OpenAI-routed model; Terra now
+  // routes OpenAI direct like Luna, so the "wrong provider funded" case uses a
+  // Gemini turn instead. The rule under test is unchanged: the model's provider
+  // must be funded before a turn is created, and a missing key is never quietly
+  // worked around.
   it("never silently substitutes an unavailable default or explicit model", async () => {
     const noProviders = createService().service;
     await expect(
@@ -207,8 +207,8 @@ describe("AssistantService", () => {
     await expect(
       onlyOpenAi.createThread(
         {
-          requestId: turn.requestId,
-          model: "openai/gpt-5.6-terra",
+          requestId: "a8e94f93-9909-4cf2-b580-3b55c287a453",
+          model: "google/gemini-3.6-flash",
           content: "Hello",
         },
         "user_owner",

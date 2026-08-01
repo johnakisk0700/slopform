@@ -20,7 +20,10 @@ export interface AssistantModelAdapter {
  * thirty-six extract jobs died on `provider_error` before a single token was
  * billed; the whole table moved to OpenRouter that day. On 2026-07-31 the OpenAI
  * account was funded, so Luna goes direct — which also buys the `xhigh`
- * reasoning effort OpenRouter does not expose on this model.
+ * reasoning effort OpenRouter does not expose on this model. Terra follows the
+ * same direct route for the same reason: campaign summaries need the OpenAI
+ * thinking-budget vocabulary (`high` / `xhigh` / `max`), which OpenRouter does
+ * not offer on this model.
  *
  * Note the id shapes differ per provider and are not cosmetic: OpenRouter
  * addresses models as `vendor/model`, OpenAI wants the bare name. The public id
@@ -32,8 +35,8 @@ export const ASSISTANT_MODEL_ADAPTERS = {
     providerModelId: "gpt-5.6-luna",
   },
   "openai/gpt-5.6-terra": {
-    provider: "openrouter",
-    providerModelId: "openai/gpt-5.6-terra",
+    provider: "openai",
+    providerModelId: "gpt-5.6-terra",
   },
   "google/gemini-3.6-flash": {
     provider: "openrouter",

@@ -20,7 +20,10 @@ import {
   type FeedbackAnswerCorrection,
 } from "../extraction/answer-corrections.js";
 import { FeedbackResultsRepository } from "../extraction/results.repository.js";
-import { isScoredPostEventFeedbackQuestion } from "../question-set.js";
+import {
+  contradictedPostEventFeedbackQuestionKeys,
+  isScoredPostEventFeedbackQuestion,
+} from "../question-set.js";
 import { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
 import { FeedbackOutboundLogService } from "../outbox/outbound-log.service.js";
 import { FEEDBACK_QUEUE } from "../../../infrastructure/queue/queue.constants.js";
@@ -48,7 +51,9 @@ import {
   unreadParticipantSeqs,
 } from "./inspect-extract-jobs.js";
 import { FeedbackCampaignNotFoundError } from "../campaign/campaign.service.js";
+import { PostEventFeedbackCampaignSummaryService } from "../summary/summary.service.js";
 import type {
+  AddFeedbackConversationAnswerInput,
   AddFeedbackConversationNoteInput,
   CloseFeedbackConversationInput,
   CorrectFeedbackConversationAnswerInput,
@@ -124,6 +129,7 @@ export class PostEventFeedbackConversationService {
     private readonly audit: AuditRepository,
     private readonly outboundTranscript: FeedbackOutboundTranscriptService,
     private readonly outboundLog: FeedbackOutboundLogService,
+    private readonly summaries: PostEventFeedbackCampaignSummaryService,
   ) {}
 
   async listForCampaign(
@@ -415,6 +421,12 @@ export class PostEventFeedbackConversationService {
           },
         });
       });
+
+      await this.summaries.notifyIfLastConversationClosed(
+        campaignId,
+        requestId,
+        true,
+      );
     }
 
     return this.toDetailView(transition.conversation);
@@ -885,6 +897,194 @@ export class PostEventFeedbackConversationService {
     });
 
     return { id: existing.id };
+  }
+
+  /**
+   * An answer an operator records by hand about one person.
+   *
+   * The counterpart of the withdrawal above, and the half that was missing: a
+   * conversation could be emptied of a wrong `avoid` but never told who the
+   * right person was, so an operator who learned on the phone that Νίκος is the
+   * one the respondent wants to steer clear of had nowhere to put it and the
+   * seating never heard. Only a directed question — on `event_score` the number
+   * is the respondent's and an operator inventing one would be speaking for
+   * them.
+   *
+   * Three things it does beyond inserting, all under the conversation's advisory
+   * lock so an extraction run cannot interleave with any of them:
+   *
+   * - **It moves rather than duplicates.** Recording `avoid` about somebody
+   *   currently under `liked` withdraws the `liked` row, the same rule an
+   *   extraction run obeys when a participant changes their mind, and the same
+   *   tombstone so the model does not put it back. The admin states this before
+   *   the operator confirms.
+   * - **It lifts the tombstone on the slot it is filling.** Otherwise the person
+   *   an operator had just removed by mistake could never be added back, and
+   *   nothing on screen would say why.
+   * - **It records provenance honestly.** `origin: staff`, the acting user, and
+   *   an empty `source_message_ids`, because no message says this — the table
+   *   permits that for staff rows alone. Borrowing a message id would put the
+   *   operator's assertion in the participant's mouth.
+   *
+   * The conversation's own goal statuses are deliberately untouched. Those say
+   * what the bot asked and got, and a fact an operator learned elsewhere is not
+   * the questionnaire making progress; marking the goal answered here would also
+   * silence the bot's next question on the strength of a phone call.
+   *
+   * Idempotent on the slot: a retried or double-clicked request returns the row
+   * that is already there rather than failing or writing a second one.
+   */
+  async addStaffAnswer(
+    campaignId: string,
+    conversationId: string,
+    input: AddFeedbackConversationAnswerInput,
+    actorId: FeedbackConversationPrincipal,
+    requestId: FeedbackConversationCorrelationId,
+  ): Promise<FeedbackAnswerView> {
+    const conversation = await this.requireConversationInCampaign(
+      campaignId,
+      conversationId,
+    );
+    const campaign = await this.requireCampaign(campaignId);
+
+    const candidates =
+      await this.eventsService.listFeedbackCandidatesForRespondent(
+        campaign.eventId,
+        conversation.respondentParticipantId,
+      );
+    const candidateIds = candidates.items.map(
+      (candidate) => candidate.participantId,
+    );
+    if (!candidateIds.includes(input.subjectParticipantId)) {
+      throw new FeedbackConversationActionNotAllowedError(
+        "An answer can only be recorded about a current feedback candidate of this event",
+      );
+    }
+
+    const extractionMeta: FeedbackExtractionMeta = {
+      origin: FEEDBACK_EXTRACTION_ORIGIN_STAFF,
+      staffUserId: actorId,
+      candidateIds,
+    };
+
+    const recorded = await this.database.transaction(async (transaction) => {
+      await this.results.lockConversation(transaction, conversationId);
+      const answers = await this.results.listAnswersByConversation(
+        conversationId,
+        transaction,
+      );
+
+      const alreadyRecorded = answers.find(
+        (answer) =>
+          answer.questionKey === input.questionKey &&
+          answer.subjectParticipantId === input.subjectParticipantId,
+      );
+      if (alreadyRecorded) {
+        return alreadyRecorded;
+      }
+
+      // `question_key` is plain text on the row (the check constraint is the
+      // enum), so the comparison is against the rule's keys as strings.
+      const contradicted = contradictedPostEventFeedbackQuestionKeys(
+        input.questionKey,
+      ) as readonly string[];
+      const superseded = answers.filter(
+        (answer) =>
+          answer.subjectParticipantId === input.subjectParticipantId &&
+          contradicted.includes(answer.questionKey),
+      );
+      for (const answer of superseded) {
+        const removed = await this.results.deleteAnswer(transaction, answer.id);
+        if (!removed) {
+          continue;
+        }
+        // The same tombstone an ordinary withdrawal writes: this slot is empty
+        // because a human said so, and a later run must not refill it.
+        await this.results.recordAnswerWithdrawal(transaction, {
+          campaignId: removed.campaignId,
+          conversationId: removed.conversationId,
+          questionKey: removed.questionKey,
+          subjectParticipantId: removed.subjectParticipantId,
+          answerId: removed.id,
+          withdrawnBy: actorId,
+        });
+        await this.audit.append(transaction, {
+          actorType: "admin",
+          actorId,
+          action: "feedback_answer.withdrawn",
+          entityType: "feedback_answer",
+          entityId: removed.id,
+          requestId,
+          context: {
+            campaignId,
+            conversationId,
+            // Why this one went: it was not retracted on its own, it lost to
+            // the answer recorded in the same breath.
+            supersededBy: input.questionKey,
+            answer: {
+              id: removed.id,
+              campaignId: removed.campaignId,
+              conversationId: removed.conversationId,
+              respondentParticipantId: removed.respondentParticipantId,
+              subjectParticipantId: removed.subjectParticipantId,
+              questionKey: removed.questionKey,
+              valueInt: removed.valueInt,
+              sourceMessageIds: removed.sourceMessageIds,
+              extractionMeta: removed.extractionMeta,
+              matchingHold: removed.matchingHold,
+              createdAt: removed.createdAt.toISOString(),
+              updatedAt: removed.updatedAt.toISOString(),
+            },
+          },
+        });
+      }
+
+      const reinstated = await this.results.deleteAnswerWithdrawal(
+        transaction,
+        {
+          conversationId,
+          questionKey: input.questionKey,
+          subjectParticipantId: input.subjectParticipantId,
+        },
+      );
+
+      const row = await this.results.insertStaffAnswer(transaction, {
+        campaignId: campaign.id,
+        conversationId: conversation._id,
+        respondentParticipantId: conversation.respondentParticipantId,
+        subjectParticipantId: input.subjectParticipantId,
+        questionKey: input.questionKey,
+        extractionMeta,
+      });
+      if (!row) {
+        throw new FeedbackConversationActionNotAllowedError(
+          "The answer could not be recorded",
+        );
+      }
+
+      await this.audit.append(transaction, {
+        actorType: "admin",
+        actorId,
+        action: "feedback_answer.staff_recorded",
+        entityType: "feedback_answer",
+        entityId: row.id,
+        requestId,
+        context: {
+          campaignId,
+          conversationId,
+          questionKey: row.questionKey,
+          subjectParticipantId: row.subjectParticipantId,
+          supersededAnswerIds: superseded.map((answer) => answer.id),
+          // Whether this filled a slot a human had emptied, which is the one
+          // case where a tombstone is deleted rather than written.
+          reinstatedWithdrawnSlot: reinstated !== undefined,
+        },
+      });
+
+      return row;
+    });
+
+    return this.toAnswerViewWithNames(recorded);
   }
 
   private async requireAnswerInConversation(

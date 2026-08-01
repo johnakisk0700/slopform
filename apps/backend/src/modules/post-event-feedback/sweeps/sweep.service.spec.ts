@@ -16,6 +16,7 @@ import type { FeedbackCampaignRepository } from "../campaign/campaign.repository
 import type { FeedbackIngressRepository } from "../ingress/ingress.repository.js";
 import type { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
 import { PostEventFeedbackSweepService } from "./sweep.service.js";
+import { noopSummaries } from "../post-event-feedback-doubles.harness.js";
 import {
   createFeedbackMaterializeJobId,
   FEEDBACK_JOB_NAMES,
@@ -440,6 +441,7 @@ function createService(): {
       new FeedbackOutboundLogService(
         repository as unknown as FeedbackOutboundLogRepository,
       ),
+      noopSummaries(),
     ),
     conversations,
     repository,

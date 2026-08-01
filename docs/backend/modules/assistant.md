@@ -25,7 +25,11 @@ The public/persisted model id maps to exactly one provider id:
 | Public model id           | Provider   | Provider model id         |
 | ------------------------- | ---------- | ------------------------- |
 | `openai/gpt-5.6-luna`     | OpenAI     | `gpt-5.6-luna`            |
-| `openai/gpt-5.6-terra`    | OpenRouter | `openai/gpt-5.6-terra`    |
+| `openai/gpt-5.6-terra`    | OpenAI     | `gpt-5.6-terra`           |
+
+Terra routes OpenAI direct for the same reason as Luna: campaign summaries and
+other Terra call sites need the OpenAI thinking-budget vocabulary (`xhigh`,
+`max`), which OpenRouter does not expose on this model.
 | `google/gemini-3.6-flash` | OpenRouter | `google/gemini-3.6-flash` |
 | `qwen/qwen3.7-max`        | OpenRouter | `qwen/qwen3.7-max`        |
 
@@ -51,13 +55,13 @@ JoinTheSix registry keeps the provider boundary explicit.
 
 Every turn also persists reasoning effort: `low`, `medium` or `high`, defaulting
 to `low`. The worker maps it exactly to
-`{ openai: { reasoningEffort } }` for Luna or
-`{ openrouter: { reasoning: { effort } } }` for Terra, Gemini and Qwen3.7 Max —
-keyed off the adapter's provider, not off the model id, so a route change moves
-the spelling with it. The
-Qwen entry is the current text-only flagship copied from the `notes_ai`
-selector, with `low`, `medium` and `high` as its exact offered efforts. Retry
-and resume reuse the persisted model and effort; neither is inferred again.
+`{ openai: { reasoningEffort } }` for Luna and Terra or
+`{ openrouter: { reasoning: { effort } } }` for Gemini and Qwen3.7 Max — keyed
+off the adapter's provider, not off the model id, so a route change moves the
+spelling with it. The Qwen entry is the current text-only flagship copied from
+the `notes_ai` selector, with `low`, `medium` and `high` as its exact offered
+efforts. Retry and resume reuse the persisted model and effort; neither is
+inferred again.
 
 ## HTTP contract
 

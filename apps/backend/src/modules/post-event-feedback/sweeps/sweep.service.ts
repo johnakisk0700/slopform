@@ -33,6 +33,7 @@ import {
   type FeedbackJobData,
   type FeedbackJobName,
 } from "../jobs.schemas.js";
+import { PostEventFeedbackCampaignSummaryService } from "../summary/summary.service.js";
 
 export type FeedbackReminderSweepResult = {
   readonly examined: number;
@@ -76,6 +77,7 @@ export class PostEventFeedbackSweepService {
     private readonly audit: AuditRepository,
     private readonly outboundTranscript: FeedbackOutboundTranscriptService,
     private readonly outboundLog: FeedbackOutboundLogService,
+    private readonly summaries: PostEventFeedbackCampaignSummaryService,
   ) {}
 
   async sweepReminders(
@@ -406,6 +408,12 @@ export class PostEventFeedbackSweepService {
         },
       });
     });
+
+    await this.summaries.notifyIfLastConversationClosed(
+      conversation.campaignId,
+      correlationId,
+      true,
+    );
 
     return true;
   }

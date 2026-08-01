@@ -311,6 +311,74 @@ export class FeedbackResultsRepository {
     return record;
   }
 
+  /**
+   * Lifts the tombstone off one slot, for the one caller allowed to: an
+   * operator recording an answer of their own there.
+   *
+   * The freeze exists so a later extraction run cannot quietly undo a human
+   * decision. It was never meant to stop the human from changing their mind, and
+   * leaving the tombstone in place would do exactly that — the `+` on the slot
+   * somebody had just cleared would refuse forever, with the reason invisible.
+   * The withdrawal is still on file in `audit_events`, followed by the
+   * `feedback_answer.staff_recorded` event that replaced it, so the order of the
+   * two decisions is recoverable in the only place that keeps decisions.
+   */
+  async deleteAnswerWithdrawal(
+    transaction: AppTransaction,
+    slot: FeedbackAnswerSlot,
+  ): Promise<FeedbackAnswerWithdrawalRow | undefined> {
+    const [record] = await transaction
+      .delete(feedbackAnswerWithdrawals)
+      .where(withdrawalSlot(slot))
+      .returning();
+
+    return record;
+  }
+
+  /**
+   * An answer an operator recorded by hand.
+   *
+   * A plain insert, unlike `insertAnswerIfAbsent`: there is no conflict to
+   * resolve because the caller has already read the slot behind the conversation
+   * lock and refuses when it is taken, and no tombstone to consult because the
+   * caller lifts it. `sourceMessageIds` is empty — nothing was said, an operator
+   * knew it — and the table permits that for `origin: staff` alone.
+   *
+   * `matchingHold` is deliberately not a parameter. The hold means "an
+   * extraction run found the respondent abusing the person this row is about",
+   * which is a finding about testimony; a row with no testimony behind it cannot
+   * carry one.
+   */
+  async insertStaffAnswer(
+    transaction: AppTransaction,
+    input: {
+      readonly campaignId: string;
+      readonly conversationId: string;
+      readonly respondentParticipantId: string;
+      readonly subjectParticipantId: string | null;
+      readonly questionKey: FeedbackAnswerQuestionKey;
+      readonly valueInt?: number | null;
+      readonly extractionMeta: FeedbackExtractionMeta;
+    },
+  ): Promise<FeedbackAnswerRow | undefined> {
+    const [record] = await transaction
+      .insert(feedbackAnswers)
+      .values({
+        campaignId: input.campaignId,
+        conversationId: input.conversationId,
+        respondentParticipantId: input.respondentParticipantId,
+        subjectParticipantId: input.subjectParticipantId,
+        questionKey: input.questionKey,
+        valueInt: input.valueInt ?? null,
+        sourceMessageIds: [],
+        extractionMeta: input.extractionMeta,
+        matchingHold: false,
+      })
+      .returning();
+
+    return record;
+  }
+
   /** The tombstone on one answer slot, if a human has emptied it. */
   async findAnswerWithdrawal(
     executor: DatabaseExecutor,

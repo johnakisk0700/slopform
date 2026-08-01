@@ -1,6 +1,29 @@
 {
   "components": {
     "schemas": {
+      "AddFeedbackConversationAnswerDto": {
+        "additionalProperties": false,
+        "properties": {
+          "questionKey": {
+            "enum": [
+              "liked",
+              "meet_again",
+              "avoid"
+            ],
+            "type": "string"
+          },
+          "subjectParticipantId": {
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "questionKey",
+          "subjectParticipantId"
+        ],
+        "type": "object"
+      },
       "AddFeedbackConversationNoteDto": {
         "additionalProperties": false,
         "properties": {
@@ -1267,6 +1290,13 @@
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
             "type": "string"
           },
+          "origin": {
+            "enum": [
+              "conversation",
+              "staff"
+            ],
+            "type": "string"
+          },
           "questionKey": {
             "enum": [
               "event_score",
@@ -1293,7 +1323,6 @@
               "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
               "type": "string"
             },
-            "minItems": 1,
             "type": "array"
           },
           "subjectDisplayName": {
@@ -1331,6 +1360,7 @@
           "subjectParticipantId",
           "subjectDisplayName",
           "sourceMessageIds",
+          "origin",
           "correction",
           "createdAt",
           "updatedAt"
@@ -1791,6 +1821,100 @@
         },
         "required": [
           "items"
+        ],
+        "type": "object"
+      },
+      "FeedbackCampaignSummaryDto_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "answerCount": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "nullable": true,
+            "type": "integer"
+          },
+          "attempt": {
+            "maximum": 9007199254740991,
+            "minimum": 1,
+            "nullable": true,
+            "type": "integer"
+          },
+          "body": {
+            "nullable": true,
+            "type": "string"
+          },
+          "error": {
+            "nullable": true,
+            "type": "string"
+          },
+          "generatedAt": {
+            "format": "date-time",
+            "nullable": true,
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+            "type": "string"
+          },
+          "isPartial": {
+            "type": "boolean"
+          },
+          "model": {
+            "nullable": true,
+            "type": "string"
+          },
+          "noteCount": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "nullable": true,
+            "type": "integer"
+          },
+          "openConversationCount": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "nullable": true,
+            "type": "integer"
+          },
+          "reasoningEffort": {
+            "nullable": true,
+            "type": "string"
+          },
+          "requestedAt": {
+            "format": "date-time",
+            "nullable": true,
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "none",
+              "pending",
+              "ready",
+              "failed"
+            ],
+            "type": "string"
+          },
+          "trigger": {
+            "enum": [
+              "manual",
+              "all_closed",
+              null
+            ],
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "body",
+          "model",
+          "reasoningEffort",
+          "isPartial",
+          "trigger",
+          "error",
+          "attempt",
+          "openConversationCount",
+          "answerCount",
+          "noteCount",
+          "requestedAt",
+          "generatedAt"
         ],
         "type": "object"
       },
@@ -2406,6 +2530,13 @@
                   "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
                   "type": "string"
                 },
+                "origin": {
+                  "enum": [
+                    "conversation",
+                    "staff"
+                  ],
+                  "type": "string"
+                },
                 "questionKey": {
                   "enum": [
                     "event_score",
@@ -2432,7 +2563,6 @@
                     "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
                     "type": "string"
                   },
-                  "minItems": 1,
                   "type": "array"
                 },
                 "subjectDisplayName": {
@@ -2470,6 +2600,7 @@
                 "subjectParticipantId",
                 "subjectDisplayName",
                 "sourceMessageIds",
+                "origin",
                 "correction",
                 "createdAt",
                 "updatedAt"
@@ -5044,6 +5175,59 @@
         ]
       }
     },
+    "/api/v1/feedback/campaigns/{campaignId}/conversations/{conversationId}/answers": {
+      "post": {
+        "operationId": "addFeedbackConversationAnswer",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "conversationId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddFeedbackConversationAnswerDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackAnswerViewDto_Output"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "summary": "",
+        "tags": [
+          "feedback-conversations"
+        ]
+      }
+    },
     "/api/v1/feedback/campaigns/{campaignId}/conversations/{conversationId}/answers/{answerId}": {
       "delete": {
         "operationId": "withdrawFeedbackConversationAnswer",
@@ -5622,6 +5806,70 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/FeedbackCampaignDto_Output"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "summary": "",
+        "tags": [
+          "feedback-campaigns"
+        ]
+      }
+    },
+    "/api/v1/feedback/campaigns/{campaignId}/summary": {
+      "get": {
+        "operationId": "getFeedbackCampaignSummary",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackCampaignSummaryDto_Output"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "summary": "",
+        "tags": [
+          "feedback-campaigns"
+        ]
+      },
+      "post": {
+        "operationId": "requestFeedbackCampaignSummary",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackCampaignSummaryDto_Output"
                 }
               }
             },

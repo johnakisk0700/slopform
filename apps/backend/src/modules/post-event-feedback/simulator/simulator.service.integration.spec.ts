@@ -17,6 +17,7 @@ import {
   FakeDatabase,
   FakeParticipants,
   FakeQueue,
+  noopSummaries,
 } from "../post-event-feedback-doubles.harness.js";
 import { PostEventFeedbackIngressService } from "../ingress/ingress.service.js";
 import { PostEventFeedbackMaterializer } from "../ingress/materialize.service.js";
@@ -527,6 +528,7 @@ function createSimulatorHarness(): SimulatorHarness {
       new PostEventFeedbackMetrics(),
       outboundTranscript,
       outboundLog,
+      noopSummaries(),
     ),
   };
 }

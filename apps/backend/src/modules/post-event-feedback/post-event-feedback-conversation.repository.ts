@@ -339,6 +339,17 @@ export class FeedbackConversationRepository {
     );
   }
 
+  /** Open conversations still accepting feedback in one campaign. */
+  async countOpenForCampaign(campaignId: string): Promise<number> {
+    const collection = await this.collection();
+    return collection.countDocuments({
+      schemaVersion: FEEDBACK_CONVERSATION_SCHEMA_VERSION,
+      purpose: FEEDBACK_CONVERSATION_PURPOSE,
+      campaignId,
+      "lifecycle.state": "open",
+    });
+  }
+
   /**
    * Appends one transcript message. The append is idempotent by
    * `ingressId`/`outboxId` (or by the caller's stable id for system messages)
