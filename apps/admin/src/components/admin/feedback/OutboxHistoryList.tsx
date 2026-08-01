@@ -3,7 +3,7 @@ import { Inbox, ScrollText } from "lucide-react";
 import { useId } from "react";
 
 import type { FeedbackOutboxHistoryDtoOutputItemsItem } from "../../../api/generated/model/feedbackOutboxHistoryDtoOutputItemsItem";
-import { formatTimestamp } from "../../../features/feedback/conversationView";
+import { formatPreciseTimestamp } from "../../../features/feedback/conversationView";
 import {
   outboundOriginLabel,
   outboxHistoryStatusBadge,
@@ -129,8 +129,13 @@ export function OutboxHistoryList({
                           displayName={item.respondentDisplayName}
                         />
                       </span>
+                      {/* To the millisecond, because this list is where two
+                          decisions get compared: «67 seconds apart» is a
+                          different story from «the same minute», and the
+                          minute is what used to be printed here. No pill —
+                          fifty of them would be more chrome than list. */}
                       <span className="shrink-0 text-xs tabular-nums text-ink-muted">
-                        {formatTimestamp(item.createdAt)}
+                        {formatPreciseTimestamp(item.createdAt)}
                       </span>
                     </span>
 

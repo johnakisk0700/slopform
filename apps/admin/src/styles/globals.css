@@ -122,6 +122,11 @@
   /* Type */
   --font-sans: var(--jts-font-sans);
   --font-display: var(--jts-font-display);
+  /* Manrope is still the only family for prose and UI. `font-mono` exists for
+     the machine strings an operator copies — ids, model names — and points at
+     the jts stack so Tailwind's own default mono never becomes a second
+     source. */
+  --font-mono: var(--jts-font-mono);
   --tracking-tight: var(--jts-tracking-tight);
   --tracking-tighter: var(--jts-tracking-tighter);
   --tracking-wide: var(--jts-tracking-wide);

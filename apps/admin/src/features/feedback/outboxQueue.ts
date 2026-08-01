@@ -11,7 +11,7 @@ import type { FeedbackOutboxQueueDtoOutput } from "../../api/generated/model/fee
 import type { FeedbackOutboxQueueDtoOutputItemsItemCampaignStatus } from "../../api/generated/model/feedbackOutboxQueueDtoOutputItemsItemCampaignStatus";
 import type { FeedbackOutboxQueueDtoOutputItemsItemKind } from "../../api/generated/model/feedbackOutboxQueueDtoOutputItemsItemKind";
 import type { FeedbackOutboxQueueDtoOutputItemsItemStatus } from "../../api/generated/model/feedbackOutboxQueueDtoOutputItemsItemStatus";
-import { formatTimestamp } from "./conversationView";
+import { formatPreciseTimestamp } from "./conversationView";
 import {
   controlLabel,
   goalStatusBadge,
@@ -204,17 +204,21 @@ export function deliverJobLines(
       ? null
       : `Attempt ${job.attemptsMade + 1} of ${job.attemptsAllowed ?? 1}. BullMQ retries delivery no further; PostgreSQL owns recovery.`;
 
+  // One clock for the whole pane. The row's own times are read to the
+  // millisecond, and a job line an operator compares them against — «picked up
+  // at» against «row last changed» — cannot be a minute wide or the comparison
+  // is the formatting's, not the system's.
   let timing: string | null = null;
   if (job.dueAt !== null) {
-    timing = `Runs at ${formatTimestamp(job.dueAt, now)}.`;
+    timing = `Runs at ${formatPreciseTimestamp(job.dueAt, now)}.`;
   } else if (job.startedAt !== null) {
-    timing = `Picked up at ${formatTimestamp(job.startedAt, now)}.`;
+    timing = `Picked up at ${formatPreciseTimestamp(job.startedAt, now)}.`;
   } else if (job.enqueuedAt !== null) {
-    timing = `Queued at ${formatTimestamp(job.enqueuedAt, now)}.`;
+    timing = `Queued at ${formatPreciseTimestamp(job.enqueuedAt, now)}.`;
   } else if (message.reclaimAt !== null) {
     // No job and no times, but the row is leased: the relay's recovery horizon
     // is the only real time left to give, and it is better than a spinner.
-    timing = `The relay reclaims this row at ${formatTimestamp(message.reclaimAt, now)} if nothing reports back.`;
+    timing = `The relay reclaims this row at ${formatPreciseTimestamp(message.reclaimAt, now)} if nothing reports back.`;
   }
 
   return {
@@ -312,12 +316,49 @@ export type OutboundDecisionLog =
 export const OUTBOX_LOG_ABSENT_COPY =
   "This row was queued before the decision log existed, so nothing was recorded about why it was sent or what the conversation looked like at the time.";
 
-/** One labelled fact of the log, rendered in the pane's own detail rows. */
-export interface OutboundLogFact {
+/**
+ * Which mark belongs beside a model id.
+ *
+ * The log records whatever id the extractor asked for, and most of them arrive
+ * through OpenRouter — `qwen/…`, `google/…`, and `openai/…` ids that were
+ * routed too — so the prefix is the only provider fact the record carries.
+ * OpenAI is the one mark drawn beside a model here; everything else takes a
+ * neutral glyph, because a logo drawn on another company's behalf would be a
+ * claim about provenance this record cannot support.
+ */
+export type OutboundModelProvider = "openai" | "generic";
+
+export function outboundModelProvider(model: string): OutboundModelProvider {
+  return model.toLowerCase().startsWith("openai/") ? "openai" : "generic";
+}
+
+/**
+ * One labelled fact of the log, rendered in the pane's own detail rows.
+ *
+ * `kind` is the fact's own nature rather than a style: a correlation id is an
+ * id wherever it appears, and the pane alone decides what an id looks like.
+ * Naming it here is what lets this module stay React-free while the opened row
+ * still renders a model pill, a fill bar or a copyable id — and it keeps every
+ * one of those decisions assertable in a unit test.
+ *
+ * `value` is always the string an operator reads, so a fact whose kind the
+ * pane has no special treatment for still renders as the truth.
+ */
+export type OutboundLogFact = {
   /** Unique within its group, so it doubles as the React key. */
   label: string;
   value: string;
-}
+} & (
+  | { kind: "text" }
+  | { kind: "id" }
+  | { kind: "timestamp" }
+  | { kind: "model"; provider: OutboundModelProvider }
+  | {
+      kind: "confidence";
+      /** 0–1 exactly as the model reported it; null when it reported none. */
+      ratio: number | null;
+    }
+);
 
 const OUTBOUND_ORIGIN_LABELS: Record<
   FeedbackOutboxMessageDeliveryDtoOutputLogOrigin,
@@ -401,9 +442,16 @@ function decisionDetailFacts(
   switch (decision.origin) {
     case "extraction_reply": {
       const facts: OutboundLogFact[] = [
-        { label: "Model", value: decision.model },
+        {
+          label: "Model",
+          kind: "model",
+          value: decision.model,
+          provider: outboundModelProvider(decision.model),
+        },
         {
           label: "Confidence",
+          kind: "confidence",
+          ratio: decision.confidence,
           value:
             decision.confidence === null
               ? "not reported"
@@ -411,6 +459,7 @@ function decisionDetailFacts(
         },
         {
           label: "Asked",
+          kind: "text",
           value:
             decision.askedGoal === null
               ? "nothing — it asked no question"
@@ -420,6 +469,7 @@ function decisionDetailFacts(
       if (decision.closingReason !== null) {
         facts.push({
           label: "Closed the thread",
+          kind: "text",
           value: lifecycleBadge({
             state: "closed",
             reason: decision.closingReason,
@@ -428,6 +478,7 @@ function decisionDetailFacts(
       }
       facts.push({
         label: "Goals it recorded",
+        kind: "text",
         value: summarizeGoals(decision.goalStatuses),
       });
       return facts;
@@ -435,26 +486,55 @@ function decisionDetailFacts(
     case "extraction_fallback_fence":
     case "extraction_fallback_ack":
     case "extraction_parked_notice":
-      return [{ label: "Cause", value: extractionCauseText(decision.cause) }];
+      return [
+        {
+          label: "Cause",
+          kind: "text",
+          value: extractionCauseText(decision.cause),
+        },
+      ];
     case "stop_ack":
     case "media_notice":
       return [
-        { label: "From inbound message", value: decision.sourceIngressId },
+        {
+          label: "From inbound message",
+          kind: "id",
+          value: decision.sourceIngressId,
+        },
       ];
     case "staff_message":
-      return [{ label: "Written by", value: decision.staffActorId }];
+      return [staffActorFact(decision.staffActorId)];
     case "campaign_intro":
       return [
         {
           label: "Conversation",
+          kind: "text",
           value: decision.conversationCreated
             ? "created with this message"
             : "already existed",
         },
       ];
     case "reminder":
-      return [{ label: "Rung", value: String(decision.rung) }];
+      return [{ label: "Rung", kind: "text", value: String(decision.rung) }];
   }
+}
+
+/**
+ * Who wrote a staff message.
+ *
+ * The column holds whatever identified the actor at the time — a Clerk user id
+ * in production, but it is free text, and older rows carry a name. An id earns
+ * the copyable, truncated treatment; a name must not, because truncating
+ * «Μαρία Παπαδοπούλου» to its first eight characters would destroy the one
+ * thing that makes it readable.
+ */
+function staffActorFact(staffActorId: string): OutboundLogFact {
+  const looksLikeAnId = !/\s/u.test(staffActorId) && staffActorId.length > 12;
+  return {
+    label: "Written by",
+    kind: looksLikeAnId ? "id" : "text",
+    value: staffActorId,
+  };
 }
 
 /**
@@ -467,10 +547,14 @@ export function outboundDecisionFacts(
   now: Date = new Date(),
 ): OutboundLogFact[] {
   return [
-    { label: "Origin", value: outboundOriginLabel(log.origin) },
+    { label: "Origin", kind: "text", value: outboundOriginLabel(log.origin) },
     ...decisionDetailFacts(log.decision),
-    { label: "Recorded", value: formatTimestamp(log.createdAt, now) },
-    { label: "Correlation id", value: log.correlationId },
+    {
+      label: "Recorded",
+      kind: "timestamp",
+      value: formatPreciseTimestamp(log.createdAt, now),
+    },
+    { label: "Correlation id", kind: "id", value: log.correlationId },
   ];
 }
 
@@ -507,15 +591,21 @@ export function outboundConversationStateFacts(
   state: FeedbackOutboxMessageDeliveryDtoOutputLogConversationState,
 ): OutboundLogFact[] {
   return [
-    { label: "Lifecycle", value: lifecycleBadge(state.lifecycle).label },
+    {
+      label: "Lifecycle",
+      kind: "text",
+      value: lifecycleBadge(state.lifecycle).label,
+    },
     {
       label: "Control",
+      kind: "text",
       value: `${controlLabel(state.control.mode)} ${CONTROL_SOURCE_TEXT[state.control.source]}`,
     },
-    { label: "Goals", value: summarizeGoals(state.goals) },
-    { label: "Attention", value: attentionText(state) },
+    { label: "Goals", kind: "text", value: summarizeGoals(state.goals) },
+    { label: "Attention", kind: "text", value: attentionText(state) },
     {
       label: "Messages",
+      kind: "text",
       value:
         state.latestMessageSeq === null
           ? String(state.messageCount)
@@ -523,6 +613,7 @@ export function outboundConversationStateFacts(
     },
     {
       label: "Extraction cursor",
+      kind: "text",
       value:
         state.extractionCursorSeq === 0
           ? "nothing read yet"
@@ -530,6 +621,7 @@ export function outboundConversationStateFacts(
     },
     {
       label: "Reminders",
+      kind: "text",
       value:
         state.reminderCount === 0 ? "none sent" : `${state.reminderCount} sent`,
     },

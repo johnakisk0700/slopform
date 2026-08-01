@@ -14,7 +14,7 @@ import { useId, type ReactNode } from "react";
 import { Link } from "react-router";
 
 import type { FeedbackOutboxMessageDeliveryDtoOutput } from "../../../api/generated/model/feedbackOutboxMessageDeliveryDtoOutput";
-import { formatTimestamp } from "../../../features/feedback/conversationView";
+import { formatPreciseTimestamp } from "../../../features/feedback/conversationView";
 import {
   deliverJobLines,
   formatWaiting,
@@ -22,8 +22,11 @@ import {
   outboundDecisionFacts,
   outboxKindLabel,
   OUTBOX_LOG_ABSENT_COPY,
+  type OutboundLogFact,
 } from "../../../features/feedback/outboxQueue";
 import { JtsLiveIndicator } from "../../ui/JtsLiveIndicator";
+import { CopyableId } from "./CopyableId";
+import { ProviderMark } from "./ProviderMark";
 
 interface OutboxMessageDetailsProps {
   message: FeedbackOutboxMessageDeliveryDtoOutput;
@@ -59,18 +62,128 @@ function DetailSection({
 }
 
 /**
- * One labelled fact and its time. A missing time renders as an em dash, never
- * as a blank cell an operator has to interpret.
+ * One labelled fact. A missing value renders as an em dash, never as a blank
+ * cell an operator has to interpret.
+ *
+ * `lead` is for the one fact a section turns on — the origin, which every other
+ * fact in «Why this was sent» is a detail of. It is a half-step of weight, not
+ * a second emphasis device.
  */
-function FactRow({ label, value }: { label: string; value: string | null }) {
+function FactRow({
+  label,
+  lead = false,
+  children,
+}: {
+  label: string;
+  lead?: boolean;
+  children: ReactNode;
+}) {
   return (
     <div className="flex items-baseline justify-between gap-3 py-1">
       <dt className="m-0 shrink-0 text-xs text-ink-muted">{label}</dt>
-      <dd className="m-0 min-w-0 text-right text-sm text-ink tabular-nums">
-        {value ?? "—"}
+      <dd
+        className={clsx(
+          "m-0 min-w-0 text-right text-sm tabular-nums",
+          lead ? "font-bold text-ink" : "text-ink",
+        )}
+      >
+        {children}
       </dd>
     </div>
   );
+}
+
+/**
+ * The quiet inset every machine value in this pane sits in: a time, a model, an
+ * id. It is a hairline and a sunken fill and nothing more — enough for the eye
+ * to find the times in a stack of facts without reading them, not enough to
+ * outweigh the fact itself.
+ */
+const FACT_PILL =
+  "inline-flex items-center gap-1.5 rounded-sm border border-border-subtle bg-surface-sunken px-1.5 py-px font-mono text-xs text-ink";
+
+/** An already-formatted time, in the pane's own pill. */
+function TimestampPill({ text }: { text: string }) {
+  return <span className={clsx(FACT_PILL, "whitespace-nowrap")}>{text}</span>;
+}
+
+/**
+ * A row time, to the millisecond, or the em dash when there is none.
+ *
+ * Every timestamp in this pane is evidence rather than narration: a row written
+ * and leased inside the same second, a provider call that landed between two
+ * polls. The minute the rest of the admin shows would flatten exactly the
+ * differences an operator opened this row to measure.
+ */
+function factTime(iso: string | null): ReactNode {
+  return iso === null ? (
+    "—"
+  ) : (
+    <TimestampPill text={formatPreciseTimestamp(iso)} />
+  );
+}
+
+/**
+ * Confidence as a number the eye can compare at a glance.
+ *
+ * The bar is decoration — `aria-hidden`, no label of its own — because the
+ * percentage beside it is the fact and a reader should meet it once. A model
+ * that reported nothing keeps the words and gets no track: an empty bar would
+ * read as zero confidence, which is a different and much stronger claim.
+ */
+function ConfidenceValue({
+  text,
+  ratio,
+}: {
+  text: string;
+  ratio: number | null;
+}) {
+  if (ratio === null) {
+    return <>{text}</>;
+  }
+
+  return (
+    <span className="inline-flex items-center gap-2">
+      <span
+        aria-hidden="true"
+        className="h-1.5 w-14 shrink-0 overflow-hidden rounded-full bg-surface-sunken"
+      >
+        <span
+          className="block h-full rounded-full bg-primary"
+          style={{ width: `${Math.round(ratio * 100)}%` }}
+        />
+      </span>
+      {text}
+    </span>
+  );
+}
+
+/**
+ * How one decision-log fact paints, chosen by the kind the React-free builder
+ * gave it. The data says what a fact *is*; only this decides what it looks
+ * like.
+ */
+function FactValue({ fact }: { fact: OutboundLogFact }) {
+  switch (fact.kind) {
+    case "model":
+      return (
+        <span className={FACT_PILL}>
+          <ProviderMark
+            provider={fact.provider}
+            className="size-3.5 shrink-0 text-ink-muted"
+          />
+          <span className="min-w-0 break-all">{fact.value}</span>
+        </span>
+      );
+    case "timestamp":
+      return <TimestampPill text={fact.value} />;
+    case "id":
+      return <CopyableId value={fact.value} label={fact.label.toLowerCase()} />;
+    case "confidence":
+      return <ConfidenceValue text={fact.value} ratio={fact.ratio} />;
+    case "text":
+      return <>{fact.value}</>;
+  }
 }
 
 /**
@@ -120,47 +233,20 @@ export function OutboxMessageDetails({
       <div className="min-h-0 flex-1 overflow-y-auto">
         <DetailSection icon={FileClock} title="Outbox row">
           <dl className="m-0 divide-y divide-border-subtle">
-            <FactRow label="Row status" value={message.status} />
-            <FactRow
-              label="Delivery status"
-              value={message.deliveryStatus ?? "not reported"}
-            />
-            <FactRow
-              label="Created"
-              value={formatTimestamp(message.createdAt)}
-            />
-            <FactRow
-              label="Row last changed"
-              value={formatTimestamp(message.updatedAt)}
-            />
-            <FactRow
-              label="Delivery last changed"
-              value={
-                message.deliveryUpdatedAt === null
-                  ? null
-                  : formatTimestamp(message.deliveryUpdatedAt)
-              }
-            />
-            <FactRow
-              label="Sent"
-              value={
-                message.sentAt === null ? null : formatTimestamp(message.sentAt)
-              }
-            />
-            <FactRow
-              label="Delivered"
-              value={
-                message.deliveredAt === null
-                  ? null
-                  : formatTimestamp(message.deliveredAt)
-              }
-            />
-            <FactRow
-              label="Read"
-              value={
-                message.readAt === null ? null : formatTimestamp(message.readAt)
-              }
-            />
+            <FactRow label="Row status">{message.status}</FactRow>
+            <FactRow label="Delivery status">
+              {message.deliveryStatus ?? "not reported"}
+            </FactRow>
+            <FactRow label="Created">{factTime(message.createdAt)}</FactRow>
+            <FactRow label="Row last changed">
+              {factTime(message.updatedAt)}
+            </FactRow>
+            <FactRow label="Delivery last changed">
+              {factTime(message.deliveryUpdatedAt)}
+            </FactRow>
+            <FactRow label="Sent">{factTime(message.sentAt)}</FactRow>
+            <FactRow label="Delivered">{factTime(message.deliveredAt)}</FactRow>
+            <FactRow label="Read">{factTime(message.readAt)}</FactRow>
           </dl>
         </DetailSection>
 
@@ -172,12 +258,12 @@ export function OutboxMessageDetails({
             <p className="text-sm text-ink-muted">{OUTBOX_LOG_ABSENT_COPY}</p>
           ) : (
             <dl className="m-0 divide-y divide-border-subtle">
-              {outboundDecisionFacts(message.log).map((fact) => (
-                <FactRow
-                  key={fact.label}
-                  label={fact.label}
-                  value={fact.value}
-                />
+              {outboundDecisionFacts(message.log).map((fact, index) => (
+                // The origin leads: every other fact in this section is a
+                // detail of it, so it carries the weight and nothing else does.
+                <FactRow key={fact.label} label={fact.label} lead={index === 0}>
+                  <FactValue fact={fact} />
+                </FactRow>
               ))}
             </dl>
           )}
@@ -189,11 +275,9 @@ export function OutboxMessageDetails({
               {outboundConversationStateFacts(
                 message.log.conversationState,
               ).map((fact) => (
-                <FactRow
-                  key={fact.label}
-                  label={fact.label}
-                  value={fact.value}
-                />
+                <FactRow key={fact.label} label={fact.label}>
+                  <FactValue fact={fact} />
+                </FactRow>
               ))}
             </dl>
             <p className="mt-3 text-xs text-ink-subtle">
@@ -248,15 +332,29 @@ export function OutboxMessageDetails({
           </div>
 
           <dl className="m-0 mt-3 divide-y divide-border-subtle">
-            <FactRow label="Job id" value={message.job.id} />
-            <FactRow
-              label="Provider log id"
-              value={message.providerLogId ?? "no provider call recorded"}
-            />
-            <FactRow
-              label="Provider message id"
-              value={message.providerMessageId}
-            />
+            <FactRow label="Job id">
+              <CopyableId value={message.job.id} label="job id" />
+            </FactRow>
+            <FactRow label="Provider log id">
+              {message.providerLogId === null ? (
+                "no provider call recorded"
+              ) : (
+                <CopyableId
+                  value={message.providerLogId}
+                  label="provider log id"
+                />
+              )}
+            </FactRow>
+            <FactRow label="Provider message id">
+              {message.providerMessageId === null ? (
+                "—"
+              ) : (
+                <CopyableId
+                  value={message.providerMessageId}
+                  label="provider message id"
+                />
+              )}
+            </FactRow>
           </dl>
 
           {/* The honest limit of this pane, stated where an operator meets it

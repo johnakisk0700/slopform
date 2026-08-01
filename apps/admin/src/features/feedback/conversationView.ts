@@ -369,3 +369,37 @@ export function formatTimestamp(iso: string, now: Date = new Date()): string {
     ...(sameDay ? {} : { day: "2-digit", month: "short" }),
   });
 }
+
+/**
+ * The same clock as `formatTimestamp`, down to the millisecond —
+ * `17:03:59.472`.
+ *
+ * A transcript is read as a conversation, where the minute is the useful unit
+ * and seconds would be noise. A delivery record is read as evidence: two
+ * decisions 67 seconds apart, a row written and leased inside the same second,
+ * a provider call that landed between two polls. The minute flattens every one
+ * of those, so the forensic surfaces get their own formatter rather than
+ * changing what the whole admin means by a time.
+ */
+export function formatPreciseTimestamp(
+  iso: string,
+  now: Date = new Date(),
+): string {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) {
+    return "—";
+  }
+
+  const sameDay =
+    at.getFullYear() === now.getFullYear() &&
+    at.getMonth() === now.getMonth() &&
+    at.getDate() === now.getDate();
+
+  return at.toLocaleString("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    fractionalSecondDigits: 3,
+    ...(sameDay ? {} : { day: "2-digit", month: "short" }),
+  });
+}

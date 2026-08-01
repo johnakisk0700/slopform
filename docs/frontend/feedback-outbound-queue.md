@@ -166,6 +166,18 @@ the log is unreliable, when the record is simply older than the table.
 Vocabulary is reused from `labels.ts`, tolerant of values the log outlived:
 an unrecognised goal status or failure cause passes through verbatim.
 
+Machine values in the opened pane carry their own quiet treatment, decided by
+the React-free fact builder's `kind` and painted only in the component: model
+ids sit in a mono pill with a provider mark (OpenAI's own for `openai/*`
+direct models, a neutral glyph for OpenRouter-routed ones — no redrawn
+third-party logos), timestamps sit in the same pill at millisecond precision
+(they are evidence, and the minute would flatten exactly the differences the
+row was opened to measure), confidence renders as a small `aria-hidden` fill
+bar beside the percentage that remains the fact, and every id is truncated to
+eight characters with the full value on hover and one click to copy
+(`CopyableId` — glyph-swap confirmation, no layout shift, silent when the
+clipboard is unavailable).
+
 The queue's half is a live read, and it is honest about being thin:
 
 | Job state                 | Copy                                                  |

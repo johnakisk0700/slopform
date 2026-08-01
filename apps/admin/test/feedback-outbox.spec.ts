@@ -73,9 +73,16 @@ interface TestLog {
   conversationState: TestConversationState;
 }
 
+/**
+ * The pane renders each fact by its `kind`, so the kind is part of the module's
+ * contract and not a detail of the component that consumes it.
+ */
 interface TestFact {
   label: string;
+  kind: "text" | "id" | "timestamp" | "model" | "confidence";
   value: string;
+  provider?: "openai" | "generic";
+  ratio?: number | null;
 }
 
 interface OutboxQueueModule {
@@ -83,6 +90,7 @@ interface OutboxQueueModule {
   outboundOriginLabel: (origin: string) => string;
   outboundDecisionFacts: (log: TestLog, now?: Date) => TestFact[];
   outboundConversationStateFacts: (state: TestConversationState) => TestFact[];
+  outboundModelProvider: (model: string) => "openai" | "generic";
   OUTBOX_WAITING_SLOW_SECONDS: number;
   OUTBOX_WAITING_STALLED_SECONDS: number;
   outboxWaitingTone: (item: {
@@ -228,8 +236,12 @@ function log(overrides: Partial<TestLog> = {}): TestLog {
   };
 }
 
+function fact(facts: TestFact[], label: string): TestFact | undefined {
+  return facts.find((candidate) => candidate.label === label);
+}
+
 function factValue(facts: TestFact[], label: string): string | undefined {
-  return facts.find((fact) => fact.label === label)?.value;
+  return fact(facts, label)?.value;
 }
 
 describe("age is the number that matters", () => {
@@ -575,6 +587,148 @@ describe("why the row was written", () => {
     expect(factValue(facts, "Reminders")).toBe("1 sent");
   });
 
+  it("dates a decision to the millisecond, not to the minute", () => {
+    const facts = outbox.outboundDecisionFacts(
+      log({ createdAt: "2026-07-27T11:40:58.472Z" }),
+      new Date("2026-07-27T11:41:00.000Z"),
+    );
+    const recorded = fact(facts, "Recorded");
+
+    expect(recorded?.kind).toBe("timestamp");
+    // Two decisions 67 seconds apart is the comparison an operator opened this
+    // row to make, and the minute the rest of the admin shows hides it. The
+    // transcript's own clock is untouched — this is a second formatter, not a
+    // new meaning for time everywhere.
+    expect(recorded?.value).toMatch(/\d{2}:\d{2}:\d{2}\.\d{3}/u);
+  });
+
+  it("marks a model with the only provenance the record supports", () => {
+    expect(outbox.outboundModelProvider("openai/gpt-5.6-terra")).toBe("openai");
+    // Routed through OpenRouter, and not a logo this repo may redraw on
+    // somebody else's behalf: the neutral mark is the honest one.
+    expect(outbox.outboundModelProvider("qwen/qwen3.7-max")).toBe("generic");
+    expect(outbox.outboundModelProvider("google/gemini-2.5-flash")).toBe(
+      "generic",
+    );
+
+    const model = fact(outbox.outboundDecisionFacts(log()), "Model");
+    expect(model?.kind).toBe("model");
+    expect(model?.provider).toBe("generic");
+  });
+
+  it("hands over the confidence number itself, not only its words", () => {
+    const reported = fact(outbox.outboundDecisionFacts(log()), "Confidence");
+
+    expect(reported?.kind).toBe("confidence");
+    // The bar the pane draws is decoration; this number is the fact, and both
+    // read the same rounding so they can never disagree.
+    expect(reported?.ratio).toBe(0.84);
+    expect(reported?.value).toBe("84%");
+
+    const silent = fact(
+      outbox.outboundDecisionFacts(
+        log({
+          decision: {
+            origin: "extraction_reply",
+            model: "google/gemini-2.5-flash",
+            confidence: null,
+            closingReason: null,
+            askedGoal: null,
+            goalStatuses: [],
+          },
+        }),
+      ),
+      "Confidence",
+    );
+    // No ratio means no bar. An empty track would read as zero confidence,
+    // which is a far stronger claim than «the model reported none».
+    expect(silent?.ratio).toBeNull();
+    expect(silent?.value).toBe("not reported");
+  });
+
+  it("says which facts are ids, and which only look like one", () => {
+    expect(
+      fact(outbox.outboundDecisionFacts(log()), "Correlation id")?.kind,
+    ).toBe("id");
+    expect(
+      fact(
+        outbox.outboundDecisionFacts(
+          log({
+            origin: "stop_ack",
+            decision: {
+              origin: "stop_ack",
+              sourceIngressId: "0f2c6b1e-4a77-4f3e-9c11-8b2d5e6a1c30",
+            },
+          }),
+        ),
+        "From inbound message",
+      )?.kind,
+    ).toBe("id");
+
+    // A staff actor is an id in production and a name on older rows. Only the
+    // id may be truncated: eight characters of «Μαρία Παπαδοπούλου» is not a
+    // name any more.
+    expect(
+      fact(
+        outbox.outboundDecisionFacts(
+          log({
+            origin: "staff_message",
+            decision: {
+              origin: "staff_message",
+              staffActorId: "user_example_staff",
+            },
+          }),
+        ),
+        "Written by",
+      )?.kind,
+    ).toBe("id");
+    expect(
+      fact(
+        outbox.outboundDecisionFacts(
+          log({
+            origin: "staff_message",
+            decision: {
+              origin: "staff_message",
+              staffActorId: "Μαρία Παπαδοπούλου",
+            },
+          }),
+        ),
+        "Written by",
+      )?.kind,
+    ).toBe("text");
+  });
+
+  it("renders those kinds in the pane, and fetches nothing to do it", () => {
+    const details = readAdminFile(
+      "src/components/admin/feedback/OutboxMessageDetails.tsx",
+    );
+    const copyable = readAdminFile(
+      "src/components/admin/feedback/CopyableId.tsx",
+    );
+    const mark = readAdminFile(
+      "src/components/admin/feedback/ProviderMark.tsx",
+    );
+
+    expect(details).toContain("<CopyableId");
+    expect(details).toContain("<ProviderMark");
+    expect(details).toContain("formatPreciseTimestamp");
+    // Nullable confidence keeps its words and gets no track.
+    expect(details).toContain("ConfidenceValue");
+    expect(details).toContain("ratio === null");
+
+    // One click puts the whole id on the clipboard; the truncated form is only
+    // what is shown, and `title` keeps the full value one hover away.
+    expect(copyable).toContain("navigator.clipboard?.writeText");
+    expect(copyable).toContain("title={value}");
+    expect(copyable).toContain("aria-label={copied ?");
+
+    // The mark is inline: an incident surface must not wait on the network for
+    // an icon, and it stays decorative.
+    expect(mark).toContain("<svg");
+    expect(mark).toContain('aria-hidden="true"');
+    expect(mark).not.toContain("http");
+  });
+
   it("states that an old row predates the log instead of showing an empty section", () => {
     // Hiding the section would teach an operator that the decision log is
     // unreliable. The row is simply older than the table.
@@ -743,6 +897,8 @@ describe("route and navigation registration", () => {
       "src/routes/FeedbackOutboxPage.tsx",
       "src/components/admin/feedback/OutboxQueueList.tsx",
       "src/components/admin/feedback/OutboxMessageDetails.tsx",
+      "src/components/admin/feedback/CopyableId.tsx",
+      "src/components/admin/feedback/ProviderMark.tsx",
       "src/features/feedback/outboxQueue.ts",
     ]) {
       const source = readAdminFile(file);

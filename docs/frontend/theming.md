@@ -149,6 +149,11 @@ identical for the operator. Numbers that are scanned or compared use tabular
 figures (the `tabular-nums` utility, applied to stat values and table bodies).
 System sans is the fallback.
 
+`font-mono` is mapped to `--jts-font-mono` in `globals.css` so Tailwind's own
+default mono stack never becomes a second source. It is for machine strings an
+operator copies or compares — ids, model names, millisecond timestamps — never
+for prose.
+
 ## Motion
 
 `AdminShell` wraps each route in a 200ms opacity/8px-rise entrance
