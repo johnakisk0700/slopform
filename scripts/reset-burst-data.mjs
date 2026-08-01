@@ -58,6 +58,7 @@ async function main() {
     union all select 'feedback_answers', count(*)::int from feedback_answers where campaign_id in (${BURST_CAMPAIGN_IDS})
     union all select 'feedback_notes', count(*)::int from feedback_notes where campaign_id in (${BURST_CAMPAIGN_IDS})
     union all select 'message_outbox', count(*)::int from message_outbox where campaign_id in (${BURST_CAMPAIGN_IDS})
+    union all select 'message_outbox_log', count(*)::int from message_outbox_log where campaign_id in (${BURST_CAMPAIGN_IDS})
     union all select 'feedback_sim_outbound', count(*)::int from feedback_sim_outbound where phone_e164 like '${RESERVED_PHONE_PREFIX}%'
     union all select 'provider_message_ingress', count(*)::int from provider_message_ingress where phone_e164 like '${RESERVED_PHONE_PREFIX}%'
     order by 1`);
@@ -102,7 +103,9 @@ async function main() {
     delete from feedback_answers where campaign_id in (${BURST_CAMPAIGN_IDS});
     delete from feedback_notes where campaign_id in (${BURST_CAMPAIGN_IDS});
     delete from feedback_sim_outbound where phone_e164 like '${RESERVED_PHONE_PREFIX}%';
+    delete from message_outbox_log where campaign_id in (${BURST_CAMPAIGN_IDS});
     delete from message_outbox where campaign_id in (${BURST_CAMPAIGN_IDS});
+
     delete from feedback_campaigns where id in (${BURST_CAMPAIGN_IDS});
     delete from provider_message_ingress where phone_e164 like '${RESERVED_PHONE_PREFIX}%';
     commit;`);
