@@ -181,9 +181,7 @@ describe("outbound decision log from extraction", () => {
     const reply = harness.repository.outbox.find((row) => row.kind === "reply");
     expect(reply).toBeDefined();
     const logsForReply = () =>
-      harness.repository.outboxLogs.filter(
-        (row) => row.outboxId === reply?.id,
-      );
+      harness.repository.outboxLogs.filter((row) => row.outboxId === reply?.id);
     expect(logsForReply()).toHaveLength(1);
     expect(logsForReply()[0]).toMatchObject({
       origin: "extraction_reply",

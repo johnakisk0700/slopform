@@ -878,7 +878,8 @@ class FakeFeedbackRepository {
   async findCampaignById(
     id: string,
   ): Promise<
-    { id: string; status: string; questions: Record<string, unknown> } | undefined
+    | { id: string; status: string; questions: Record<string, unknown> }
+    | undefined
   > {
     return this.campaigns.get(id);
   }

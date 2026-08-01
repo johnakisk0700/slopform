@@ -1137,8 +1137,7 @@ describe("PostEventFeedbackExtractor", () => {
       expect(
         harness.repository.answers.some(
           (row) =>
-            row.questionKey === "avoid" &&
-            row.subjectParticipantId === kostas,
+            row.questionKey === "avoid" && row.subjectParticipantId === kostas,
         ),
       ).toBe(true);
       expect(conversation.lifecycle).toMatchObject({

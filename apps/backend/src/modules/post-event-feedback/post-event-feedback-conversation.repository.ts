@@ -974,8 +974,7 @@ export class FeedbackConversationRepository {
         (candidate) => candidate.key === entry.key,
       );
       return (
-        goal !== undefined &&
-        canTransitionGoalStatus(goal.status, entry.status)
+        goal !== undefined && canTransitionGoalStatus(goal.status, entry.status)
       );
     });
     if (statuses.length === 0) {

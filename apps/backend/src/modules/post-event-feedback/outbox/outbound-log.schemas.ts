@@ -78,7 +78,6 @@ export type FeedbackOutboundDecision = z.infer<
 
 type AssertOriginParity<T extends MessageOutboxLogOrigin> =
   MessageOutboxLogOrigin extends T ? true : never;
-const _originParity: AssertOriginParity<
-  FeedbackOutboundDecision["origin"]
-> = true;
+const _originParity: AssertOriginParity<FeedbackOutboundDecision["origin"]> =
+  true;
 void _originParity;

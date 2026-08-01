@@ -1,8 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import type {
-  AppTransaction,
-  MessageOutboxRow,
-} from "@join-the-six/database";
+import type { AppTransaction, MessageOutboxRow } from "@join-the-six/database";
 
 import type { FeedbackConversationDocument } from "../post-event-feedback-conversation.document.js";
 import { FeedbackOutboundLogRepository } from "./outbound-log.repository.js";
@@ -20,9 +17,7 @@ import { buildOutboundConversationSnapshot } from "./outbound-log.snapshot.js";
  */
 @Injectable()
 export class FeedbackOutboundLogService {
-  constructor(
-    private readonly repository: FeedbackOutboundLogRepository,
-  ) {}
+  constructor(private readonly repository: FeedbackOutboundLogRepository) {}
 
   async record(
     transaction: AppTransaction,

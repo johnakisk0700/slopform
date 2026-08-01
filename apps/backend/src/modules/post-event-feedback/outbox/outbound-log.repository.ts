@@ -32,7 +32,10 @@ export class FeedbackOutboundLogRepository {
       readonly decision: FeedbackOutboundDecision;
       readonly conversationState: OutboundConversationSnapshot;
     },
-  ): Promise<{ readonly row: MessageOutboxLogRow; readonly inserted: boolean }> {
+  ): Promise<{
+    readonly row: MessageOutboxLogRow;
+    readonly inserted: boolean;
+  }> {
     const [inserted] = await transaction
       .insert(messageOutboxLog)
       .values({
