@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import {
   Avatar,
   Button,
@@ -31,7 +31,6 @@ import {
   ChevronRight,
   CircleCheck,
   Component,
-  FlaskConical,
   type LucideIcon,
   MessagesSquare,
   Palette,
@@ -58,13 +57,7 @@ import { JtsDataTable } from "../components/ui/JtsDataTable";
 import { JtsLiveIndicator } from "../components/ui/JtsLiveIndicator";
 import { JtsPageHeader } from "../components/ui/JtsPageHeader";
 import { JtsStat } from "../components/ui/JtsStat";
-import {
-  PALETTE_CANDIDATES,
-  PALETTE_LAB_TOKENS,
-  paletteLabOverrides,
-} from "../features/cookbook/paletteLab";
 import { usePageMeta } from "../lib/usePageMeta";
-import { useTheme } from "../lib/useTheme";
 
 /* -----------------------------------------------------------------------------
    Section spine — the table of contents and the headings read from one list, so
@@ -708,89 +701,6 @@ const INVARIANTS: readonly string[] = [
    ============================================================================= */
 
 /**
- * The palette lab switcher: auditions a complete candidate palette by writing
- * its resolved hexes as inline custom properties on <html>, and removes every
- * one of them on unmount, so the experiment lives exactly as long as the
- * cookbook is open. The `dark` class stays the only theme signal — flipping
- * Appearance re-applies the matching half of the candidate, which is the
- * whole audit: same candidate, both themes, real components.
- */
-function PaletteLabControls() {
-  const { isDark } = useTheme();
-  const [candidateId, setCandidateId] = useState<string | null>(null);
-
-  useEffect(() => {
-    const root = document.documentElement;
-    const overrides = paletteLabOverrides(candidateId, isDark);
-    if (overrides) {
-      for (const [token, value] of Object.entries(overrides)) {
-        root.style.setProperty(token, value);
-      }
-    }
-    return () => {
-      for (const token of PALETTE_LAB_TOKENS) {
-        root.style.removeProperty(token);
-      }
-    };
-  }, [candidateId, isDark]);
-
-  const selected = PALETTE_CANDIDATES.find((c) => c.id === candidateId);
-
-  return (
-    <section
-      aria-label="Palette lab"
-      className="rounded-md border border-border bg-surface p-4"
-    >
-      <p className="mb-1 flex items-center gap-2 jts-overline text-ink-muted">
-        <FlaskConical aria-hidden="true" className="size-4 shrink-0" />
-        Palette lab
-      </p>
-      <p className="mb-3 max-w-[70ch] text-sm text-ink-muted">
-        Audition a proven palette over the live tokens — the whole shell
-        repaints, both themes, until you leave this page. Every candidate passes
-        the same AA pairs the real tokens are held to.
-      </p>
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          aria-pressed={candidateId === null}
-          onClick={() => setCandidateId(null)}
-          className={clsx(
-            "cursor-pointer rounded-sm border px-2 py-1 text-xs font-semibold transition-colors",
-            candidateId === null
-              ? "border-primary-border bg-primary-soft text-primary"
-              : "border-border bg-surface text-ink hover:border-primary-border hover:text-primary",
-          )}
-        >
-          Current tokens
-        </button>
-        {PALETTE_CANDIDATES.map((candidate) => (
-          <button
-            key={candidate.id}
-            type="button"
-            aria-pressed={candidateId === candidate.id}
-            onClick={() => setCandidateId(candidate.id)}
-            className={clsx(
-              "cursor-pointer rounded-sm border px-2 py-1 text-xs font-semibold transition-colors",
-              candidateId === candidate.id
-                ? "border-primary-border bg-primary-soft text-primary"
-                : "border-border bg-surface text-ink hover:border-primary-border hover:text-primary",
-            )}
-          >
-            {candidate.label}
-          </button>
-        ))}
-      </div>
-      {selected ? (
-        <p className="mt-2 max-w-[70ch] text-xs text-ink-subtle">
-          {selected.note}
-        </p>
-      ) : null}
-    </section>
-  );
-}
-
-/**
  * The cookbook: every visual building block the panel owns, on one screen.
  *
  * It exists so that a change to `tokens.css` or to the HeroUI bridge in
@@ -846,14 +756,15 @@ export function CookbookPage() {
         <span>
           To audit dark mode, flip{" "}
           <strong className="text-ink">Appearance</strong> in the operator menu
-          (sidebar footer) and read this page again. There is no side-by-side
+          (sidebar footer) and read this page again; to audit a palette, pick a{" "}
+          <strong className="text-ink">Theme</strong> in the same menu — every
+          specimen on this page repaints with it. There is no side-by-side
           preview on purpose: the <code>dark</code> class on{" "}
-          <code>&lt;html&gt;</code> is the only theme signal, and a faked second
-          theme would be the one thing on this page that cannot be trusted.
+          <code>&lt;html&gt;</code> is the only dark-mode signal, and a faked
+          second theme would be the one thing on this page that cannot be
+          trusted.
         </span>
       </div>
-
-      <PaletteLabControls />
 
       <nav aria-label="Cookbook sections">
         <ul className="flex flex-wrap gap-2">

@@ -26,6 +26,9 @@
 @import "@heroui/styles";
 @import "@fontsource-variable/manrope/wght.css";
 @import "@join-the-six/design-tokens/tokens.css";
+/* After tokens.css on purpose: a palette re-paints the semantic layer, and its
+   dark block must sit later in the cascade than `:root.dark`. */
+@import "@join-the-six/design-tokens/palettes.css";
 
 @custom-variant dark (&:is(.dark *));
 

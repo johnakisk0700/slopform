@@ -90,6 +90,36 @@ flowchart LR
   (Light / Dark / Auto) bound to `useTheme()`. The menu appears in both the
   sidebar footer and the small-screen top bar, so both stay in step.
 
+## Palettes: the second and last appearance axis
+
+The operator menu's **Theme** group selects one of six named palettes; the
+appearance system is a 6×2 grid (palette × light/dark), and the two axes never
+mix.
+
+- `packages/design-tokens/src/palettes.css` holds the five override palettes —
+  Ouzo, Inkwell (Flexoki), Linen (Radix sand), Rosewater (Rosé Pine) and
+  Cellar (the panel's original wine field) — keyed by `data-palette` on
+  `<html>`. Each block repaints the **semantic colour layer only**, as flat
+  resolved hexes; type, space, radius, shadows and the primitives stay shared.
+  **House Wine**, the default, is the absence of the attribute: `tokens.css`
+  itself.
+- The light blocks are scoped `:not(.dark)` because they tie with `:root.dark`
+  on specificity and `palettes.css` imports after `tokens.css` — without the
+  guard a palette's light values would win in dark mode. The `dark` class
+  remains the only dark-mode signal.
+- `apps/admin/src/lib/usePalette.ts` mirrors `useTheme`: a module store over
+  `localStorage` (`jts-palette`) that stamps the attribute; the pre-paint
+  script in `index.html` stamps it before first paint, so neither axis
+  flashes.
+- Every palette is held to the same AA floor as the shipped tokens:
+  `apps/admin/test/palettes.spec.ts` recomputes the twelve asserted pairs per
+  palette per theme, and pins the wiring — one id list across the CSS, the
+  store, the pre-paint script and the menu.
+
+To retune a palette, edit its block in `palettes.css` (flat hexes — a palette
+is a finished coat of paint, not a second token graph) and let the spec keep
+you honest. To retune **House Wine**, edit `tokens.css` as always.
+
 ## HeroUI + Tailwind bridge
 
 HeroUI v3 is CSS-first: there is no theme provider and no JS theme object.
@@ -202,6 +232,10 @@ continuity or state change and never carries status by itself.
   single-class wiring: the pre-paint script, `@custom-variant dark`, the
   `--accent: var(--jts-color-primary)` bridge, `:root.dark`, and the
   `useTheme`/`setThemeMode`/`THEME_STORAGE_KEY` exports.
+- `apps/admin/test/palettes.spec.ts` — every palette in `palettes.css`:
+  complete semantic cover, the `:not(.dark)` scoping, the same twelve AA pairs
+  in both themes, and the one-id-list wiring across CSS, store, pre-paint
+  script and operator menu.
 - `apps/admin/test/delivery-shell.spec.ts` — the `index.html` shell: pre-paint
   theme script, unindexed robots meta, and the focusable `#main-content`
   landmark fallback.

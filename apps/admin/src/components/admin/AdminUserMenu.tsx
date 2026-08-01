@@ -12,6 +12,7 @@ import type { LucideIcon } from "lucide-react";
 import { LogOut, Monitor, Moon, Sun } from "lucide-react";
 
 import { env } from "../../lib/env";
+import { PALETTES, usePalette } from "../../lib/usePalette";
 import { useTheme, type ThemeMode } from "../../lib/useTheme";
 
 /** The three appearance choices, in display order (Auto = the `system` mode). */
@@ -92,7 +93,9 @@ function AdminUserMenuContent({
   onSignOut,
 }: AdminUserMenuContentProps) {
   const { mode, setMode } = useTheme();
+  const { palette, setPalette } = usePalette();
   const themeLabelId = useId();
+  const paletteLabelId = useId();
   const [isSigningOut, setSigningOut] = useState(false);
   const [signOutError, setSignOutError] = useState(false);
   const avatarFallback =
@@ -178,6 +181,39 @@ function AdminUserMenuContent({
               {THEME_OPTIONS.map(({ value, label, Icon }) => (
                 <ToggleButton key={value} id={value} className="rounded-md">
                   <Icon aria-hidden="true" className="size-4" />
+                  {label}
+                </ToggleButton>
+              ))}
+            </ToggleButtonGroup>
+          </div>
+
+          <div className="grid gap-2">
+            <span
+              id={paletteLabelId}
+              className="text-xs font-bold tracking-caps text-ink-muted uppercase"
+            >
+              Theme
+            </span>
+            {/* A 2×3 grid rather than a row: six names in a 20rem popover
+                would wrap mid-word, and a select would hide five of the six.
+                The names are the whole affordance — each is a palette from
+                palettes.css, previewed by simply being applied. */}
+            <ToggleButtonGroup
+              aria-labelledby={paletteLabelId}
+              selectionMode="single"
+              disallowEmptySelection
+              isDetached
+              className="grid grid-cols-2 gap-1"
+              selectedKeys={[palette]}
+              onSelectionChange={(keys) => {
+                const [next] = keys;
+                if (typeof next === "string") {
+                  setPalette(next);
+                }
+              }}
+            >
+              {PALETTES.map(({ id, label }) => (
+                <ToggleButton key={id} id={id} className="rounded-md">
                   {label}
                 </ToggleButton>
               ))}

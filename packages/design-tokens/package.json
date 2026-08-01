@@ -8,7 +8,8 @@
     "src/*.css"
   ],
   "exports": {
-    "./tokens.css": "./src/tokens.css"
+    "./tokens.css": "./src/tokens.css",
+    "./palettes.css": "./src/palettes.css"
   },
   "scripts": {
     "build": "node scripts/verify-tokens.mjs",

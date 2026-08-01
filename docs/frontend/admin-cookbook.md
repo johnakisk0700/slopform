@@ -112,32 +112,16 @@ Contrast is verified separately and by machine —
 for the critical pairs in both themes. The cookbook is for the judgements a
 test cannot make: whether the tones still belong to each other.
 
-## The palette lab
+## Palettes
 
-At the top of the page, below the dark-mode note, sits a switcher of complete
-candidate palettes: the current tokens plus researched systems (Flexoki, Radix
-sand, Rosé Pine — each with the wine kept as the action colour) and a boosted
-variant of the current direction. Selecting one writes the candidate's resolved
-hexes as **inline custom properties on `<html>`**, so the whole shell repaints
-live; selecting «Current tokens» — or leaving the page — removes every one of
-them and `tokens.css` is back, untouched. Flipping Appearance re-applies the
-matching half of the candidate: same candidate, both themes, real components.
-
-The candidates live in `apps/admin/src/features/cookbook/paletteLab.ts`, a
-React-free data module and the one file besides `tokens.css` where literal
-colours are allowed — a candidate is a flat, fully-resolved map of every
-semantic colour token, per theme, no `var()` chains. Provenance for the
-researched values (official scales, fetched from each project's own sources) is
-noted per candidate. `apps/admin/test/palette-lab.spec.ts` holds every
-candidate to the same twelve AA pairs `theme-tokens.spec.ts` asserts against
-the shipped tokens, in both themes: the lab cannot audition an inaccessible
-panel, because whichever candidate wins becomes the real tokens.
-
-Promoting a winner is a `tokens.css` edit, not a mechanism: copy the
-candidate's values into the semantic layer (re-deriving the `color-mix`
-recipes where the file uses them), run the token tests, and delete or retune
-the candidate. The lab itself ships nowhere — it rides the cookbook chunk,
-which production never builds.
+The panel's six palettes (House Wine, Ouzo, Inkwell, Linen, Rosewater,
+Cellar — see [theming.md](theming.md)) are switched from the operator menu's
+**Theme** group, and the cookbook is where a palette is audited: every
+specimen on the page repaints with the selection, in both dark and light. The
+cookbook briefly carried its own dev-only palette switcher while the
+candidates were auditioned; the shipped Theme picker replaced it, and
+`apps/admin/test/palettes.spec.ts` now holds every shipped palette to the
+same AA floor the audition enforced.
 
 ## The rule for new vocabulary
 
@@ -161,8 +145,6 @@ specimen would quietly lie), and no colour value of its own.
 | `apps/admin/src/App.tsx`                              | The `import.meta.env.DEV` route gate                                                                            |
 | `apps/admin/src/components/admin/AdminNavigation.tsx` | `DEV_NAV_ITEMS` and the unnumbered development group                                                            |
 | `apps/admin/test/cookbook.spec.ts`                    | Both gates, the no-literal-colour rule, the token names, and that the specimens are imported rather than copied |
-| `apps/admin/src/features/cookbook/paletteLab.ts`      | The candidate palettes (flat, both themes) and the pure override lookup                                         |
-| `apps/admin/test/palette-lab.spec.ts`                 | Every candidate: complete token cover and the same twelve AA pairs, both themes                                 |
 
 ## References
 
