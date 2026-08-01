@@ -26,6 +26,8 @@ import {
   type FeedbackConversationLifecycleReason,
 } from "./post-event-feedback-conversation.document.js";
 import type { FeedbackOperatorAlertInput } from "./operator-alert.js";
+import type { FeedbackOutboundDecision } from "./outbox/outbound-log.schemas.js";
+import type { OutboundConversationSnapshot } from "./outbox/outbound-log.snapshot.js";
 import type {
   FeedbackTransport,
   FeedbackTransportSendInput,
@@ -112,6 +114,18 @@ export interface FakeOutboxRow {
   updatedAt: Date;
 }
 
+export interface FakeOutboxLogRow {
+  id: string;
+  outboxId: string;
+  conversationId: string;
+  campaignId: string;
+  origin: string;
+  correlationId: string;
+  decision: FeedbackOutboundDecision;
+  conversationState: OutboundConversationSnapshot;
+  createdAt: Date;
+}
+
 export interface FakeIngressRow {
   id: string;
   providerMessageId: string;
@@ -174,6 +188,7 @@ export class FakeFeedbackRepository {
   readonly answers: FakeAnswerRow[] = [];
   readonly notes: FakeNoteRow[] = [];
   readonly outbox: FakeOutboxRow[] = [];
+  readonly outboxLogs: FakeOutboxLogRow[] = [];
   readonly ingress: FakeIngressRow[] = [];
 
   constructor(private readonly now: () => Date) {}
@@ -380,6 +395,39 @@ export class FakeFeedbackRepository {
       status: input.status ?? "pending",
       createdByStaff: input.createdByStaff ?? null,
     });
+    return { row: { ...row }, inserted: true };
+  }
+
+  async insertOutboxLogIfAbsent(
+    _transaction: AppTransaction,
+    input: {
+      outboxId: string;
+      conversationId: string;
+      campaignId: string;
+      origin: string;
+      correlationId: string;
+      decision: FeedbackOutboundDecision;
+      conversationState: OutboundConversationSnapshot;
+    },
+  ): Promise<{ row: FakeOutboxLogRow; inserted: boolean }> {
+    const existing = this.outboxLogs.find(
+      (row) => row.outboxId === input.outboxId,
+    );
+    if (existing) {
+      return { row: { ...existing }, inserted: false };
+    }
+    const row: FakeOutboxLogRow = {
+      id: randomUUID(),
+      outboxId: input.outboxId,
+      conversationId: input.conversationId,
+      campaignId: input.campaignId,
+      origin: input.origin,
+      correlationId: input.correlationId,
+      decision: input.decision,
+      conversationState: input.conversationState,
+      createdAt: this.now(),
+    };
+    this.outboxLogs.push(row);
     return { row: { ...row }, inserted: true };
   }
 
