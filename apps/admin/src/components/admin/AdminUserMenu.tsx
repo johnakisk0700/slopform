@@ -8,12 +8,27 @@ import {
   ToggleButton,
   ToggleButtonGroup,
 } from "@heroui/react";
+import { clsx } from "clsx";
 import type { LucideIcon } from "lucide-react";
 import { LogOut, Monitor, Moon, Sun } from "lucide-react";
 
 import { env } from "../../lib/env";
 import { PALETTES, usePalette } from "../../lib/usePalette";
 import { useTheme, type ThemeMode } from "../../lib/useTheme";
+
+/**
+ * One choice chip in the menu — appearance or theme.
+ *
+ * HeroUI's default toggle paints its unselected state with the page's soft
+ * fill, which inside a floating white card read as a row of unfinished beige
+ * blocks. Unselected is therefore a hairline over nothing, and the tinted fill
+ * is spent only on the choice that is actually in force. The padding is `2`,
+ * not the component's own `4`: these live in a two-column grid roughly 8rem
+ * wide, where 16px a side left «House Wine» touching both edges.
+ */
+const CHOICE_CHIP =
+  "justify-center gap-1.5 rounded-md border border-border bg-transparent px-2 text-ink " +
+  "data-[selected]:border-primary-border data-[selected]:bg-primary-soft data-[selected]:text-primary";
 
 /** The three appearance choices, in display order (Auto = the `system` mode). */
 const THEME_OPTIONS: ReadonlyArray<{
@@ -179,8 +194,8 @@ function AdminUserMenuContent({
               }}
             >
               {THEME_OPTIONS.map(({ value, label, Icon }) => (
-                <ToggleButton key={value} id={value} className="rounded-md">
-                  <Icon aria-hidden="true" className="size-4" />
+                <ToggleButton key={value} id={value} className={CHOICE_CHIP}>
+                  <Icon aria-hidden="true" className="size-4 shrink-0" />
                   {label}
                 </ToggleButton>
               ))}
@@ -216,13 +231,13 @@ function AdminUserMenuContent({
               }}
             >
               {PALETTES.map(({ id, label }) => (
-                // `w-full` + centred label: the grid sizes the cells, so each
-                // button must fill its cell or the column edge goes ragged —
-                // the group's `fullWidth` only evens out a single flex row.
+                // `w-full`: the grid sizes the cells, so each button must fill
+                // its cell or the column edge goes ragged — the group's
+                // `fullWidth` only evens out a single flex row.
                 <ToggleButton
                   key={id}
                   id={id}
-                  className="w-full justify-center rounded-md"
+                  className={clsx(CHOICE_CHIP, "w-full")}
                 >
                   {label}
                 </ToggleButton>

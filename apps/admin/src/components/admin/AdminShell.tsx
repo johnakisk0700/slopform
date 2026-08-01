@@ -109,7 +109,13 @@ export function AdminShell() {
         <AdminNavigation variant="sidebar" />
 
         <div className="mt-4 border-t border-sidebar-border pt-4">
-          <AdminUserMenu className="w-full text-sidebar-fg" />
+          {/* Hover and open states come from the sidebar's own translucent
+              white, not the page palette: HeroUI's ghost button paints its
+              pressed state with the light-mode soft fill, which on this
+              inverse surface put warm beige under near-white text and the
+              operator's own name became unreadable the moment they opened
+              the menu. */}
+          <AdminUserMenu className="w-full text-sidebar-fg hover:bg-sidebar-hover data-[pressed]:bg-sidebar-active" />
         </div>
       </aside>
 

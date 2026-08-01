@@ -188,6 +188,14 @@
   --radius-md: var(--jts-radius-md);
   --radius-lg: var(--jts-radius-lg);
   --radius-xl: var(--jts-radius-xl);
+  /* HeroUI shapes every floating surface with `min(32px, var(--radius-3xl))`
+     — popover, modal, drawer. Left unmapped these fell back to Tailwind's own
+     3xl and the operator menu rounded at 28.8px while the squircle avatar and
+     the buttons inside it sat at 9.6px: one card, two shape languages. Both
+     steps land on `lg`, which is a hair softer than the elements it contains,
+     which is the correct nesting. */
+  --radius-2xl: var(--jts-radius-lg);
+  --radius-3xl: var(--jts-radius-lg);
   --shadow-xs: var(--jts-shadow-xs);
   --shadow-sm: var(--jts-shadow-sm);
   --shadow-md: var(--jts-shadow-md);
