@@ -14,12 +14,16 @@ import {
 import type { EventsService } from "../../events/events.service.js";
 import type { ParticipantsRepository } from "../../participants/participants.repository.js";
 import type { FeedbackOperatorAlertInput } from "../operator-alert.js";
+import type { FeedbackOutboundLogRepository } from "../outbox/outbound-log.repository.js";
+import { FeedbackOutboundLogService } from "../outbox/outbound-log.service.js";
 import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
 import {
   FakeAudit,
   FakeDatabase,
   FakeParticipants,
 } from "../post-event-feedback-doubles.harness.js";
+import type { FeedbackOutboundDecision } from "../outbox/outbound-log.schemas.js";
+import type { OutboundConversationSnapshot } from "../outbox/outbound-log.snapshot.js";
 import {
   FEEDBACK_ANSWER_CORRECTIONS_KEY,
   isCorrectedAnswer,
@@ -406,6 +410,23 @@ describe("PostEventFeedbackExtractor", () => {
         actor: "bot",
         text: "Ευχαριστούμε πολύ!",
         outboxId: harness.repository.outbox[0]?.["id"],
+      });
+      const replyOutboxId = harness.repository.outbox[0]?.["id"];
+      expect(
+        harness.repository.outboxLogs.filter(
+          (row) => row.outboxId === replyOutboxId,
+        ),
+      ).toHaveLength(1);
+      expect(harness.repository.outboxLogs[0]).toMatchObject({
+        outboxId: replyOutboxId,
+        origin: "extraction_reply",
+        decision: expect.objectContaining({
+          origin: "extraction_reply",
+          model,
+        }),
+        conversationState: expect.objectContaining({
+          lifecycle: expect.objectContaining({ state: "open" }),
+        }),
       });
     });
 
@@ -1851,6 +1872,11 @@ describe("PostEventFeedbackExtractor", () => {
           .get(conversationId)
           .messages.filter((message) => message.actor === "bot"),
       ).toHaveLength(2);
+      expect(harness.repository.outboxLogs).toHaveLength(1);
+      expect(harness.repository.outboxLogs[0]).toMatchObject({
+        outboxId: harness.repository.outbox[0]?.["id"],
+        origin: "extraction_reply",
+      });
     });
 
     it("repairs goal statuses from stored answers after such a replay", async () => {
@@ -1945,6 +1971,7 @@ interface FakeConversation {
     resolvedAt: Date | null;
   }[];
   awaitingHuman: boolean;
+  reminderCount: number;
   extractionFallbackAckSent?: boolean;
 }
 
@@ -1968,6 +1995,18 @@ interface FakeWithdrawalRow {
 }
 
 /** Mirrors the WP2 repository contract the extractor actually depends on. */
+interface FakeOutboxLogRow {
+  id: string;
+  outboxId: string;
+  conversationId: string;
+  campaignId: string;
+  origin: string;
+  correlationId: string;
+  decision: FeedbackOutboundDecision;
+  conversationState: OutboundConversationSnapshot;
+  createdAt: Date;
+}
+
 class FakeFeedbackRepository {
   readonly campaigns = new Map<
     string,
@@ -1982,6 +2021,7 @@ class FakeFeedbackRepository {
   readonly answerWithdrawals: FakeWithdrawalRow[] = [];
   readonly notes: FakeResultRow[] = [];
   readonly outbox: Record<string, unknown>[] = [];
+  readonly outboxLogs: FakeOutboxLogRow[] = [];
   locked = 0;
 
   async findCampaignById(id: string) {
@@ -2130,6 +2170,39 @@ class FakeFeedbackRepository {
     const row = { id: randomUUID(), status: "pending", ...input };
     this.outbox.push(row);
     return { row, inserted: true };
+  }
+
+  async insertOutboxLogIfAbsent(
+    _transaction: AppTransaction,
+    input: {
+      outboxId: string;
+      conversationId: string;
+      campaignId: string;
+      origin: string;
+      correlationId: string;
+      decision: FeedbackOutboundDecision;
+      conversationState: OutboundConversationSnapshot;
+    },
+  ): Promise<{ row: FakeOutboxLogRow; inserted: boolean }> {
+    const existing = this.outboxLogs.find(
+      (row) => row.outboxId === input.outboxId,
+    );
+    if (existing) {
+      return { row: { ...existing }, inserted: false };
+    }
+    const row: FakeOutboxLogRow = {
+      id: randomUUID(),
+      outboxId: input.outboxId,
+      conversationId: input.conversationId,
+      campaignId: input.campaignId,
+      origin: input.origin,
+      correlationId: input.correlationId,
+      decision: input.decision,
+      conversationState: input.conversationState,
+      createdAt: new Date(),
+    };
+    this.outboxLogs.push(row);
+    return { row: { ...row }, inserted: true };
   }
 }
 
@@ -2505,6 +2578,7 @@ function createHarness(): Harness {
     needsAttention: false,
     attentionReasons: [],
     awaitingHuman: false,
+    reminderCount: 0,
     extractionFallbackAckSent: false,
   });
 
@@ -2524,6 +2598,9 @@ function createHarness(): Harness {
       database as unknown as DatabaseService,
       repository as unknown as FeedbackOutboxRepository,
       conversations as unknown as FeedbackConversationRepository,
+    ),
+    new FeedbackOutboundLogService(
+      repository as unknown as FeedbackOutboundLogRepository,
     ),
     alert,
   );

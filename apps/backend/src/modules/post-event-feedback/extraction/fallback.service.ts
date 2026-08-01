@@ -20,6 +20,7 @@ import {
   FEEDBACK_OPERATOR_ALERT,
   type FeedbackOperatorAlert,
 } from "../operator-alert.js";
+import { FeedbackOutboundLogService } from "../outbox/outbound-log.service.js";
 import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
 import type { FeedbackExtractionFailureCause } from "./model.service.js";
 import {
@@ -119,6 +120,7 @@ export class PostEventFeedbackExtractionFallback {
     private readonly events: EventsService,
     private readonly audit: AuditRepository,
     private readonly outboundTranscript: FeedbackOutboundTranscriptService,
+    private readonly outboundLog: FeedbackOutboundLogService,
     @Inject(FEEDBACK_OPERATOR_ALERT)
     private readonly alert: FeedbackOperatorAlert,
   ) {}
@@ -183,6 +185,17 @@ export class PostEventFeedbackExtractionFallback {
           testimony.seq,
         ),
       });
+      // Before the early return: the log belongs in this transaction even when
+      // the fence was already present and the rest of the write path is skipped.
+      await this.outboundLog.record(transaction, {
+        outbox: fenced,
+        conversation,
+        decision: {
+          origin: "extraction_fallback_fence",
+          cause: input.cause,
+        },
+        correlationId: input.correlationId,
+      });
       if (!fenced.inserted) {
         return { replayed: true as const, ackOutbox: null, note: null };
       }
@@ -195,6 +208,15 @@ export class PostEventFeedbackExtractionFallback {
           kind: "reply",
           body: buildFallbackReply(conversation.goals),
           dedupeKey: createFeedbackFallbackAckDedupeKey(conversation._id),
+        });
+        await this.outboundLog.record(transaction, {
+          outbox: enqueued,
+          conversation,
+          decision: {
+            origin: "extraction_fallback_ack",
+            cause: input.cause,
+          },
+          correlationId: input.correlationId,
         });
         if (enqueued.inserted) {
           ackOutbox = enqueued.row;
@@ -423,8 +445,8 @@ export class PostEventFeedbackExtractionFallback {
       return undefined;
     }
 
-    const enqueued = await this.database.transaction((transaction) =>
-      this.outbox.insertOutboxIfAbsent(transaction, {
+    const enqueued = await this.database.transaction(async (transaction) => {
+      const result = await this.outbox.insertOutboxIfAbsent(transaction, {
         conversationId: conversation._id,
         campaignId: conversation.campaignId,
         kind: "system",
@@ -432,8 +454,18 @@ export class PostEventFeedbackExtractionFallback {
         dedupeKey: createFeedbackExtractionParkedNoticeDedupeKey(
           conversation._id,
         ),
-      }),
-    );
+      });
+      await this.outboundLog.record(transaction, {
+        outbox: result,
+        conversation,
+        decision: {
+          origin: "extraction_parked_notice",
+          cause: input.cause,
+        },
+        correlationId: input.correlationId,
+      });
+      return result;
+    });
     // Marked whether or not this run inserted the row: if a concurrent parked run
     // got there first, the send has happened and the ledger should say so.
     await this.conversations.markExtractionParkedNoticeSent({

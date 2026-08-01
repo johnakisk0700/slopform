@@ -50,6 +50,7 @@ import {
   type OutboundReply,
 } from "./outbound-reply.js";
 import { isUnansweredPolicyQuestion } from "./policy-answers.js";
+import { FeedbackOutboundLogService } from "../outbox/outbound-log.service.js";
 import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
 import {
   PostEventFeedbackMetrics,
@@ -136,6 +137,7 @@ export class PostEventFeedbackExtractor {
     private readonly audit: AuditRepository,
     private readonly metrics: PostEventFeedbackMetrics,
     private readonly outboundTranscript: FeedbackOutboundTranscriptService,
+    private readonly outboundLog: FeedbackOutboundLogService,
     @Inject(FEEDBACK_OPERATOR_ALERT)
     private readonly alert: FeedbackOperatorAlert,
   ) {}
@@ -560,6 +562,8 @@ export class PostEventFeedbackExtractor {
       outbound: sentOutbound,
       model: generated.model,
       correlationId: input.correlationId,
+      closingReason,
+      goalStatuses,
     });
 
     // Between the PostgreSQL commit and the cursor advance, so a crash replays
@@ -801,6 +805,8 @@ export class PostEventFeedbackExtractor {
     readonly outbound: OutboundReply | undefined;
     readonly model: string;
     readonly correlationId: string;
+    readonly closingReason: "completed" | "declined" | null;
+    readonly goalStatuses: readonly GoalStatusUpdate[];
   }): Promise<{
     answersWritten: number;
     notesWritten: number;
@@ -943,6 +949,22 @@ export class PostEventFeedbackExtractor {
           kind: "reply",
           body: input.outbound.body,
           dedupeKey: input.outbound.dedupeKey,
+        });
+        await this.outboundLog.record(transaction, {
+          outbox: enqueued,
+          conversation: input.conversation,
+          decision: {
+            origin: "extraction_reply",
+            model: input.model,
+            confidence: input.validated.confidence ?? null,
+            closingReason: input.closingReason,
+            askedGoal: input.outbound.askedGoal ?? null,
+            goalStatuses: input.goalStatuses.map(({ key, status }) => ({
+              key,
+              status,
+            })),
+          },
+          correlationId: input.correlationId,
         });
         outbox = enqueued.row;
       }

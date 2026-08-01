@@ -1,8 +1,12 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+
 import {
+  createFeedbackLoopHarness,
   DEFAULT_RESPONDENT,
   runFeedbackScenarios,
   type FeedbackScenario,
 } from "./post-event-feedback-loop.harness.js";
+import { SCRIPT_MODEL } from "./post-event-feedback-loop-model.harness.js";
 import {
   POST_EVENT_FEEDBACK_QUESTION_SET_V1,
   renderPostEventFeedbackCopy,
@@ -147,3 +151,58 @@ const SCENARIOS: readonly FeedbackScenario[] = [
 ];
 
 runFeedbackScenarios("post-event feedback loop", SCENARIOS);
+
+describe("outbound decision log from extraction", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("records one extraction_reply log for a sent bot reply and keeps it under replay", async () => {
+    const harness = await createFeedbackLoopHarness();
+    const turn = {
+      answers: [
+        { question: "event_score" as const, value: 5 },
+        { question: "liked" as const, about: "Νίκος" },
+        { question: "meet_again" as const, about: "Νίκος" },
+      ],
+      next: "avoid" as const,
+      reply: "Οκ, και υπάρχει κάποιος που δεν θα ήθελες να ξαναπετύχεις;",
+    };
+    harness.model.script([turn, turn]);
+    await harness.run([
+      { kind: "inbound", text: "ρε σεις" },
+      { kind: "inbound", text: "ωραια φαση χτες", after: "2s" },
+      { kind: "inbound", text: "5 ανετα", after: "2s" },
+      { kind: "inbound", text: "ο νικος πολυ καλος", after: "2s" },
+      { kind: "inbound", text: "ναι θα ξαναβγαινα μαζι του", after: "2s" },
+      { kind: "wait", after: "settles" },
+    ]);
+
+    const reply = harness.repository.outbox.find((row) => row.kind === "reply");
+    expect(reply).toBeDefined();
+    const logsForReply = () =>
+      harness.repository.outboxLogs.filter(
+        (row) => row.outboxId === reply?.id,
+      );
+    expect(logsForReply()).toHaveLength(1);
+    expect(logsForReply()[0]).toMatchObject({
+      origin: "extraction_reply",
+      decision: expect.objectContaining({
+        origin: "extraction_reply",
+        model: SCRIPT_MODEL,
+      }),
+      conversationState: expect.objectContaining({
+        lifecycle: expect.objectContaining({ state: "open" }),
+      }),
+    });
+
+    // Crash between the PostgreSQL commit and the cursor advance: the same
+    // testimony-anchored dedupe key must not produce a second log row.
+    harness.conversations.get(harness.conversationId).extraction.cursorSeq = 0;
+    await harness.extractor.extract({
+      conversationId: harness.conversationId,
+      correlationId: "replay-after-crash",
+    });
+    expect(logsForReply()).toHaveLength(1);
+  });
+});

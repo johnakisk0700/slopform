@@ -10,6 +10,10 @@ import type { DatabaseService } from "../../../infrastructure/database/database.
 import type { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
 import type { EventsService } from "../../events/events.service.js";
 import type { FeedbackOperatorAlertInput } from "../operator-alert.js";
+import type { FeedbackOutboundLogRepository } from "../outbox/outbound-log.repository.js";
+import { FeedbackOutboundLogService } from "../outbox/outbound-log.service.js";
+import type { FeedbackOutboundDecision } from "../outbox/outbound-log.schemas.js";
+import type { OutboundConversationSnapshot } from "../outbox/outbound-log.snapshot.js";
 import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
 import {
   FakeAudit,
@@ -87,6 +91,25 @@ describe("PostEventFeedbackExtractionFallback", () => {
       entityId: conversationId,
       context: { cause: "provider_refusal", sourceMessageId: "p1" },
     });
+    expect(harness.repository.outboxLogs).toHaveLength(2);
+    expect(harness.repository.outboxLogs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          origin: "extraction_fallback_fence",
+          decision: {
+            origin: "extraction_fallback_fence",
+            cause: "provider_refusal",
+          },
+        }),
+        expect.objectContaining({
+          origin: "extraction_fallback_ack",
+          decision: {
+            origin: "extraction_fallback_ack",
+            cause: "provider_refusal",
+          },
+        }),
+      ]),
+    );
   });
 
   it("fabricates no model or confidence in the note's provenance", async () => {
@@ -211,6 +234,7 @@ describe("PostEventFeedbackExtractionFallback", () => {
     expect(harness.audit.events).toHaveLength(1);
     expect(harness.alert.raised).toHaveLength(1);
     expect(harness.conversations.transcript(conversationId)).toHaveLength(2);
+    expect(harness.repository.outboxLogs).toHaveLength(2);
   });
 
   describe("subject resolution (D16 candidates, D18 degradation)", () => {
@@ -488,6 +512,16 @@ describe("PostEventFeedbackExtractionFallback", () => {
       expect(
         harness.conversations.get(conversationId).extraction.parkedNoticeSentAt,
       ).not.toBeNull();
+      expect(harness.repository.outboxLogs).toEqual([
+        expect.objectContaining({
+          outboxId: harness.repository.outbox[0]?.id,
+          origin: "extraction_parked_notice",
+          decision: {
+            origin: "extraction_parked_notice",
+            cause: "provider_error",
+          },
+        }),
+      ]);
 
       // Six hours parked is not six apologies.
       const second = await harness.fallback.park({
@@ -498,6 +532,7 @@ describe("PostEventFeedbackExtractionFallback", () => {
       expect(second.noticeOutboxId).toBeUndefined();
       expect(harness.repository.outbox).toHaveLength(1);
       expect(harness.conversations.transcript(conversationId)).toHaveLength(2);
+      expect(harness.repository.outboxLogs).toHaveLength(1);
     });
 
     it("stays quiet when the deterministic fallback has already spoken", async () => {
@@ -618,11 +653,12 @@ interface FakeConversation {
   respondentParticipantId: string;
   goals: { key: string; ordinal: number; prompt: string; status: string }[];
   messages: FakeMessage[];
-  lifecycle: { state: "open" | "closed" };
-  control: { mode: "bot" | "human" };
+  lifecycle: { state: "open" | "closed"; reason: string | null };
+  control: { mode: "bot" | "human"; source: string };
   awaitingHuman: boolean;
   needsAttention: boolean;
   extractionFallbackAckSent: boolean;
+  reminderCount: number;
   extraction: {
     cursorSeq: number;
     parkedSince: Date | null;
@@ -667,9 +703,22 @@ class FakeDatabase {
   }
 }
 
+interface FakeOutboxLogRow {
+  id: string;
+  outboxId: string;
+  conversationId: string;
+  campaignId: string;
+  origin: string;
+  correlationId: string;
+  decision: FeedbackOutboundDecision;
+  conversationState: OutboundConversationSnapshot;
+  createdAt: Date;
+}
+
 class FakeFeedbackRepository {
   readonly notes: FakeNoteRow[] = [];
   readonly outbox: FakeOutboxRow[] = [];
+  readonly outboxLogs: FakeOutboxLogRow[] = [];
   readonly campaigns = new Map<string, { id: string; eventId: string }>();
 
   async lockConversation(): Promise<void> {}
@@ -711,6 +760,39 @@ class FakeFeedbackRepository {
       status: "pending",
     };
     this.outbox.push(row);
+    return { row: { ...row }, inserted: true };
+  }
+
+  async insertOutboxLogIfAbsent(
+    _transaction: AppTransaction,
+    input: {
+      outboxId: string;
+      conversationId: string;
+      campaignId: string;
+      origin: string;
+      correlationId: string;
+      decision: FeedbackOutboundDecision;
+      conversationState: OutboundConversationSnapshot;
+    },
+  ): Promise<{ row: FakeOutboxLogRow; inserted: boolean }> {
+    const existing = this.outboxLogs.find(
+      (row) => row.outboxId === input.outboxId,
+    );
+    if (existing) {
+      return { row: { ...existing }, inserted: false };
+    }
+    const row: FakeOutboxLogRow = {
+      id: randomUUID(),
+      outboxId: input.outboxId,
+      conversationId: input.conversationId,
+      campaignId: input.campaignId,
+      origin: input.origin,
+      correlationId: input.correlationId,
+      decision: input.decision,
+      conversationState: input.conversationState,
+      createdAt: new Date(),
+    };
+    this.outboxLogs.push(row);
     return { row: { ...row }, inserted: true };
   }
 
@@ -939,11 +1021,12 @@ function createHarness(): Harness {
         at: new Date("2026-07-26T12:00:00.000Z"),
       },
     ],
-    lifecycle: { state: "open" },
-    control: { mode: "bot" },
+    lifecycle: { state: "open", reason: null },
+    control: { mode: "bot", source: "launch" },
     awaitingHuman: false,
     needsAttention: false,
     extractionFallbackAckSent: false,
+    reminderCount: 0,
     extraction: {
       cursorSeq: 0,
       parkedSince: null,
@@ -968,6 +1051,9 @@ function createHarness(): Harness {
       database as unknown as DatabaseService,
       repository as unknown as FeedbackOutboxRepository,
       conversations as unknown as FeedbackConversationRepository,
+    ),
+    new FeedbackOutboundLogService(
+      repository as unknown as FeedbackOutboundLogRepository,
     ),
     alert,
   );

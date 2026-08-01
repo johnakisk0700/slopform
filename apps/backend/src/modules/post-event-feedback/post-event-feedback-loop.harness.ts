@@ -17,6 +17,8 @@ import type { EventsService } from "../events/events.service.js";
 import type { ParticipantsRepository } from "../participants/participants.repository.js";
 import { phoneE164ToChatJid } from "../../integrations/wasender/wasender.jid.js";
 import type { FeedbackOperatorAlert } from "./operator-alert.js";
+import { FeedbackOutboundLogService } from "./outbox/outbound-log.service.js";
+import type { FeedbackOutboundLogRepository } from "./outbox/outbound-log.repository.js";
 import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
 import type { FeedbackTransport } from "./outbox/transport.js";
 import { MessageOutboxDeliveryService } from "./outbox/deliver.service.js";
@@ -301,6 +303,7 @@ export interface FeedbackLoopHarness {
   readonly events: FakeEvents;
   readonly alerts: FakeOperatorAlert;
   readonly audit: FakeAudit;
+  readonly extractor: PostEventFeedbackExtractor;
   /** Job failures, for debugging a surprising outcome. Not an assertion surface. */
   readonly failures: readonly {
     readonly job: string;
@@ -511,6 +514,9 @@ export async function createFeedbackLoopHarness(
     repository as unknown as FeedbackOutboxRepository,
     conversations as unknown as FeedbackConversationRepository,
   );
+  const outboundLog = new FeedbackOutboundLogService(
+    repository as unknown as FeedbackOutboundLogRepository,
+  );
   const staffConversations = new PostEventFeedbackConversationService(
     queuePort,
     database as unknown as DatabaseService,
@@ -546,6 +552,21 @@ export async function createFeedbackLoopHarness(
     outboundTranscript,
   );
   const ingressProcessor = new PostEventFeedbackIngressProcessor(materializer);
+  const extractor = new PostEventFeedbackExtractor(
+    database as unknown as DatabaseService,
+    repository as unknown as FeedbackCampaignRepository,
+    repository as unknown as FeedbackResultsRepository,
+    repository as unknown as FeedbackOutboxRepository,
+    conversations as unknown as FeedbackConversationRepository,
+    events as unknown as EventsService,
+    participants as unknown as ParticipantsRepository,
+    model as unknown as PostEventFeedbackExtractionModel,
+    audit as unknown as AuditRepository,
+    metrics,
+    outboundTranscript,
+    outboundLog,
+    alerts as FeedbackOperatorAlert,
+  );
   const processor = new PostEventFeedbackProcessor(
     materializer,
     new MessageOutboxRelayService(
@@ -560,20 +581,7 @@ export async function createFeedbackLoopHarness(
       outboundTranscript,
       transport as FeedbackTransport,
     ),
-    new PostEventFeedbackExtractor(
-      database as unknown as DatabaseService,
-      repository as unknown as FeedbackCampaignRepository,
-      repository as unknown as FeedbackResultsRepository,
-      repository as unknown as FeedbackOutboxRepository,
-      conversations as unknown as FeedbackConversationRepository,
-      events as unknown as EventsService,
-      participants as unknown as ParticipantsRepository,
-      model as unknown as PostEventFeedbackExtractionModel,
-      audit as unknown as AuditRepository,
-      metrics,
-      outboundTranscript,
-      alerts as FeedbackOperatorAlert,
-    ),
+    extractor,
     new PostEventFeedbackSweepService(
       queuePort,
       config,
@@ -596,6 +604,7 @@ export async function createFeedbackLoopHarness(
       events as unknown as EventsService,
       audit as unknown as AuditRepository,
       outboundTranscript,
+      outboundLog,
       alerts as FeedbackOperatorAlert,
     ),
   );
@@ -979,6 +988,7 @@ export async function createFeedbackLoopHarness(
     events,
     alerts,
     audit,
+    extractor,
     failures,
     now,
     advance,
