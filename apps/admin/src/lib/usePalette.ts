@@ -22,17 +22,21 @@ export interface PaletteOption {
   origin: string;
 }
 
-/** Display order. House Wine first because it is the default. */
+/** Display order. The house theme leads because it is the default. */
 export const PALETTES: readonly PaletteOption[] = [
-  { id: "house-wine", label: "House Wine", origin: "the default tokens" },
-  { id: "ouzo", label: "Ouzo", origin: "House Wine with more ink and lift" },
-  { id: "inkwell", label: "Inkwell", origin: "Flexoki, by Steph Ango" },
-  { id: "linen", label: "Linen", origin: "Radix Colors sand" },
-  { id: "rosewater", label: "Rosewater", origin: "Rosé Pine dawn/main" },
-  { id: "cellar", label: "Cellar", origin: "the panel's original wine field" },
+  { id: "join-the-six", label: "Join The Six", origin: "the house wine" },
+  { id: "graphite", label: "Graphite", origin: "cool neutral under steel" },
+  {
+    id: "noir",
+    label: "Noir",
+    origin: "one hue, spent only on what wants you",
+  },
+  { id: "amphora", label: "Amphora", origin: "Flexoki ink, Aegean glaze" },
+  { id: "linen", label: "Linen", origin: "Radix Colors sand under copper" },
+  { id: "iris", label: "Iris", origin: "Rosé Pine on its own iris" },
 ];
 
-const DEFAULT_PALETTE = "house-wine";
+const DEFAULT_PALETTE = "join-the-six";
 const PALETTE_ATTRIBUTE = "data-palette";
 
 function isKnownPalette(value: string | null): value is string {

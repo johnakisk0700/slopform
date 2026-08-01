@@ -1,167 +1,262 @@
 /* =============================================================================
-   Join The Six — Palettes
+   Join The Six — Themes
    -----------------------------------------------------------------------------
-   The selectable fields of the admin panel. `tokens.css` is the default
-   palette (House Wine); each block below repaints the SEMANTIC COLOUR LAYER
-   ONLY, keyed by `data-palette` on <html>. Everything else — type, space,
-   radius, shadows, motion, the primitives — is shared and lives in tokens.css.
+   The selectable fields of the admin panel. `tokens.css` is the default theme
+   (Join The Six, the house wine); each block below repaints the SEMANTIC
+   COLOUR LAYER ONLY, keyed by `data-palette` on <html>. Everything else — type,
+   space, radius, shadows, motion, the primitives — is shared and lives in
+   tokens.css.
 
    Two independent signals, never more:
      • .dark on <html>          — the only dark-mode signal (unchanged)
-     • data-palette on <html>   — which field is painted (absent = House Wine)
+     • data-palette on <html>   — which field is painted (absent = Join The Six)
    The light block is scoped :not(.dark) because it ties with `:root.dark` on
    specificity and this file imports after tokens.css — without the guard the
-   palette's light values would win in dark mode.
+   theme's light values would win in dark mode.
 
-   Values are flat resolved hexes on purpose: a palette is a finished coat of
-   paint, not a second token graph. Provenance: ouzo boosts the House Wine
-   direction; inkwell is Flexoki (Steph Ango); linen is Radix sand; rosewater
-   is Rosé Pine dawn/main; cellar is the panel's own pre-quiet-field wine
-   atmosphere, kept. External scales fetched from each project's official
-   sources; every palette passes the same AA pairs theme-tokens.spec.ts
-   asserts, enforced by apps/admin/test/palettes.spec.ts.
+   EVERY THEME OWNS ITS BRAND COLOUR. The first cut kept wine as the primary
+   in all of them, so whatever an operator picked, the buttons, the chat
+   bubbles and the progress bars stayed pink — the field changed and nothing
+   else did. A theme here states its own primary, accent, link, focus and
+   status tones, drawn from its own family.
+
+   Provenance: graphite is ours; noir is ours (one hue, spent only where a
+   human is wanted); amphora is Flexoki (Steph Ango) glazed with its own cyan;
+   linen is Radix Colors sand under copper; iris is Rosé Pine on its own iris.
+   External scales were taken from each project's official sources. Values are
+   flat resolved hexes on purpose: a theme is a finished coat of paint, not a
+   second token graph. apps/admin/test/palettes.spec.ts holds every one of them
+   to the AA pairs the shipped tokens answer to, and to being distinct.
    ============================================================================= */
 
-:root[data-palette="ouzo"]:not(.dark) {
-  --jts-color-canvas: #f2ebdd;
-  --jts-color-surface: #fffdf9;
+:root[data-palette="graphite"]:not(.dark) {
+  --jts-color-canvas: #eceff2;
+  --jts-color-surface: #fbfcfd;
   --jts-color-surface-raised: #ffffff;
-  --jts-color-surface-sunken: #e9dfcd;
+  --jts-color-surface-sunken: #e1e5ea;
   --jts-color-surface-overlay: #ffffff;
-  --jts-color-surface-strong: #2e2419;
-  --jts-color-border-subtle: #b7a68d73;
-  --jts-color-border: #d3c5ae;
-  --jts-color-border-strong: #b3a186;
-  --jts-color-text: #1c140e;
-  --jts-color-text-muted: #574c3e;
-  --jts-color-text-subtle: #6d6151;
-  --jts-color-text-on-strong: #f7efe2;
-  --jts-color-text-on-strong-muted: #f7efe29e;
-  --jts-color-sidebar-active-index: #f0a2b1;
-  --jts-color-primary: #86223b;
-  --jts-color-primary-hover: #6d1f33;
-  --jts-color-primary-active: #591d2e;
+  --jts-color-surface-strong: #232a31;
+  --jts-color-border-subtle: #d4dae073;
+  --jts-color-border: #d4dae0;
+  --jts-color-border-strong: #b3bcc5;
+  --jts-color-text: #12171c;
+  --jts-color-text-muted: #4e575f;
+  --jts-color-text-subtle: #646e77;
+  --jts-color-text-on-strong: #eef2f6;
+  --jts-color-text-on-strong-muted: #eef2f69e;
+  --jts-color-primary: #2c5f80;
+  --jts-color-primary-hover: #244e6a;
+  --jts-color-primary-active: #1c3d53;
   --jts-color-primary-contrast: #ffffff;
-  --jts-color-primary-soft: #fde7ea;
-  --jts-color-primary-soft-hover: #f9ccd4;
-  --jts-color-primary-border: #c19e92;
-  --jts-color-accent: #bd6945;
-  --jts-color-accent-soft: #f8ece3;
-  --jts-color-link: #86223b;
-  --jts-color-link-hover: #6d1f33;
-  --jts-color-focus: #c8455f;
-  --jts-color-success: #1f6b45;
-  --jts-color-success-soft: #edf4ef;
-  --jts-color-success-border: #1f6b4542;
-  --jts-color-warning: #7f5c05;
-  --jts-color-warning-soft: #faf0d9;
-  --jts-color-warning-border: #7f5c054d;
-  --jts-color-danger: #b42318;
-  --jts-color-danger-soft: #fbe9e5;
-  --jts-color-danger-border: #b4231847;
+  --jts-color-primary-soft: #e3eef6;
+  --jts-color-primary-soft-hover: #cbe0ee;
+  --jts-color-primary-border: #2c5f8052;
+  --jts-color-accent: #5c6b78;
+  --jts-color-accent-soft: #e8ecf0;
+  --jts-color-link: #2c5f80;
+  --jts-color-link-hover: #244e6a;
+  --jts-color-focus: #2c5f80;
+  --jts-color-success: #1f6b4a;
+  --jts-color-success-soft: #e7f3ed;
+  --jts-color-success-border: #1f6b4a52;
+  --jts-color-warning: #7a5a08;
+  --jts-color-warning-soft: #f8f0da;
+  --jts-color-warning-border: #7a5a0857;
+  --jts-color-danger: #a92e26;
+  --jts-color-danger-soft: #fae9e7;
+  --jts-color-danger-border: #a92e2652;
   --jts-color-info: #3b4f63;
-  --jts-color-info-soft: #ecf0f4;
-  --jts-color-info-border: #3b4f6342;
-  --jts-color-highlight: #fde7ea;
-  --jts-color-highlight-text: #6d1f33;
+  --jts-color-info-soft: #eaeef3;
+  --jts-color-info-border: #3b4f6352;
+  --jts-color-highlight: #e3eef6;
+  --jts-color-highlight-text: #1c3d53;
+  --jts-color-sidebar-active-index: #8dc0e0;
 }
 
-:root[data-palette="ouzo"].dark {
-  --jts-color-canvas: #0c0906;
-  --jts-color-surface: #221c13;
-  --jts-color-surface-raised: #352c1f;
-  --jts-color-surface-sunken: #120e09;
-  --jts-color-surface-overlay: #352c1f;
-  --jts-color-surface-strong: #241c13;
-  --jts-color-border-subtle: #ffffff12;
-  --jts-color-border: #493c2c;
-  --jts-color-border-strong: #6a5843;
-  --jts-color-text: #f7efe2;
-  --jts-color-text-muted: #d8cbb5;
-  --jts-color-text-subtle: #a99b86;
-  --jts-color-text-on-strong: #f7efe2;
-  --jts-color-text-on-strong-muted: #f7efe29e;
-  --jts-color-sidebar-active-index: #f0a2b1;
-  --jts-color-primary: #f0a2b1;
-  --jts-color-primary-hover: #f9ccd4;
-  --jts-color-primary-active: #fde7ea;
-  --jts-color-primary-contrast: #33101a;
-  --jts-color-primary-soft: #432422;
-  --jts-color-primary-soft-hover: #54282a;
-  --jts-color-primary-border: #f0a2b142;
-  --jts-color-accent: #c9946b;
-  --jts-color-accent-soft: #442d1e;
-  --jts-color-link: #f0a2b1;
-  --jts-color-link-hover: #f9ccd4;
-  --jts-color-focus: #f0a2b1;
-  --jts-color-success: #74bd93;
-  --jts-color-success-soft: #212f1f;
-  --jts-color-success-border: #74bd934d;
-  --jts-color-warning: #e3b652;
-  --jts-color-warning-soft: #3a2d0f;
-  --jts-color-warning-border: #e3b6524d;
-  --jts-color-danger: #f0755c;
-  --jts-color-danger-soft: #481e14;
-  --jts-color-danger-border: #f0755c4d;
-  --jts-color-info: #8fa3b7;
-  --jts-color-info-soft: #292928;
-  --jts-color-info-border: #8fa3b74d;
-  --jts-color-highlight: #de6f8442;
-  --jts-color-highlight-text: #fbeff0;
+:root[data-palette="graphite"].dark {
+  --jts-color-canvas: #0c0e10;
+  --jts-color-surface: #15181b;
+  --jts-color-surface-raised: #212529;
+  --jts-color-surface-sunken: #0f1214;
+  --jts-color-surface-overlay: #212529;
+  --jts-color-surface-strong: #1b2127;
+  --jts-color-border-subtle: #2e353b73;
+  --jts-color-border: #2e353b;
+  --jts-color-border-strong: #454e56;
+  --jts-color-text: #eef2f5;
+  --jts-color-text-muted: #b3bcc4;
+  --jts-color-text-subtle: #8a949d;
+  --jts-color-text-on-strong: #eef2f5;
+  --jts-color-text-on-strong-muted: #eef2f59e;
+  --jts-color-primary: #86b8d8;
+  --jts-color-primary-hover: #a8cee6;
+  --jts-color-primary-active: #c9e2f1;
+  --jts-color-primary-contrast: #0b1a24;
+  --jts-color-primary-soft: #1d303d;
+  --jts-color-primary-soft-hover: #1f3747;
+  --jts-color-primary-border: #86b8d852;
+  --jts-color-accent: #9aa8b4;
+  --jts-color-accent-soft: #2a3137;
+  --jts-color-link: #86b8d8;
+  --jts-color-link-hover: #a8cee6;
+  --jts-color-focus: #86b8d8;
+  --jts-color-success: #6dbd97;
+  --jts-color-success-soft: #182f28;
+  --jts-color-success-border: #6dbd9752;
+  --jts-color-warning: #dfb459;
+  --jts-color-warning-soft: #332c15;
+  --jts-color-warning-border: #dfb45957;
+  --jts-color-danger: #ee7a68;
+  --jts-color-danger-soft: #411f1e;
+  --jts-color-danger-border: #ee7a6852;
+  --jts-color-info: #93a7bb;
+  --jts-color-info-soft: #202931;
+  --jts-color-info-border: #93a7bb52;
+  --jts-color-highlight: #1d303d;
+  --jts-color-highlight-text: #c9e2f1;
+  --jts-color-sidebar-active-index: #86b8d8;
 }
 
-:root[data-palette="inkwell"]:not(.dark) {
+:root[data-palette="noir"]:not(.dark) {
+  --jts-color-canvas: #efefee;
+  --jts-color-surface: #fdfdfd;
+  --jts-color-surface-raised: #ffffff;
+  --jts-color-surface-sunken: #e5e5e4;
+  --jts-color-surface-overlay: #ffffff;
+  --jts-color-surface-strong: #1a1a19;
+  --jts-color-border-subtle: #d8d8d673;
+  --jts-color-border: #d8d8d6;
+  --jts-color-border-strong: #b6b6b3;
+  --jts-color-text: #0e0e0e;
+  --jts-color-text-muted: #4e4e4c;
+  --jts-color-text-subtle: #666664;
+  --jts-color-text-on-strong: #f2f2f0;
+  --jts-color-text-on-strong-muted: #f2f2f09e;
+  --jts-color-primary: #262624;
+  --jts-color-primary-hover: #141413;
+  --jts-color-primary-active: #0a0a09;
+  --jts-color-primary-contrast: #fdfdfd;
+  --jts-color-primary-soft: #e7e7e5;
+  --jts-color-primary-soft-hover: #d9d9d6;
+  --jts-color-primary-border: #26262452;
+  --jts-color-accent: #9a5b00;
+  --jts-color-accent-soft: #f7ecd9;
+  --jts-color-link: #262624;
+  --jts-color-link-hover: #141413;
+  --jts-color-focus: #262624;
+  --jts-color-success: #3f3f3d;
+  --jts-color-success-soft: #e9e9e7;
+  --jts-color-success-border: #3f3f3d52;
+  --jts-color-warning: #9a5b00;
+  --jts-color-warning-soft: #f7ecd9;
+  --jts-color-warning-border: #9a5b0057;
+  --jts-color-danger: #7a3200;
+  --jts-color-danger-soft: #f6e6da;
+  --jts-color-danger-border: #7a320052;
+  --jts-color-info: #595957;
+  --jts-color-info-soft: #ececea;
+  --jts-color-info-border: #59595752;
+  --jts-color-highlight: #e7e7e5;
+  --jts-color-highlight-text: #0a0a09;
+  --jts-color-sidebar-active-index: #e0a33f;
+}
+
+:root[data-palette="noir"].dark {
+  --jts-color-canvas: #0a0a0a;
+  --jts-color-surface: #141414;
+  --jts-color-surface-raised: #1f1f1e;
+  --jts-color-surface-sunken: #0e0e0e;
+  --jts-color-surface-overlay: #1f1f1e;
+  --jts-color-surface-strong: #171716;
+  --jts-color-border-subtle: #2c2c2b73;
+  --jts-color-border: #2c2c2b;
+  --jts-color-border-strong: #454543;
+  --jts-color-text: #f2f2f0;
+  --jts-color-text-muted: #b6b6b3;
+  --jts-color-text-subtle: #8b8b88;
+  --jts-color-text-on-strong: #f2f2f0;
+  --jts-color-text-on-strong-muted: #f2f2f09e;
+  --jts-color-primary: #e6e6e3;
+  --jts-color-primary-hover: #f2f2f0;
+  --jts-color-primary-active: #ffffff;
+  --jts-color-primary-contrast: #0f0f0f;
+  --jts-color-primary-soft: #353534;
+  --jts-color-primary-soft-hover: #414140;
+  --jts-color-primary-border: #e6e6e352;
+  --jts-color-accent: #e0a33f;
+  --jts-color-accent-soft: #3c290e;
+  --jts-color-link: #e6e6e3;
+  --jts-color-link-hover: #f2f2f0;
+  --jts-color-focus: #e6e6e3;
+  --jts-color-success: #b6b6b3;
+  --jts-color-success-soft: #282827;
+  --jts-color-success-border: #b6b6b352;
+  --jts-color-warning: #d9973a;
+  --jts-color-warning-soft: #37260d;
+  --jts-color-warning-border: #d9973a57;
+  --jts-color-danger: #f5b25c;
+  --jts-color-danger-soft: #3f2b0e;
+  --jts-color-danger-border: #f5b25c52;
+  --jts-color-info: #9a9a97;
+  --jts-color-info-soft: #252524;
+  --jts-color-info-border: #9a9a9752;
+  --jts-color-highlight: #353534;
+  --jts-color-highlight-text: #ffffff;
+  --jts-color-sidebar-active-index: #e0a33f;
+}
+
+:root[data-palette="amphora"]:not(.dark) {
   --jts-color-canvas: #f2f0e5;
   --jts-color-surface: #fffcf0;
   --jts-color-surface-raised: #fffcf0;
   --jts-color-surface-sunken: #e6e4d9;
   --jts-color-surface-overlay: #fffcf0;
   --jts-color-surface-strong: #1c1b1a;
-  --jts-color-border-subtle: #b7b5ac66;
+  --jts-color-border-subtle: #dad8ce73;
   --jts-color-border: #dad8ce;
-  --jts-color-border-strong: #cecdc3;
+  --jts-color-border-strong: #b7b5ac;
   --jts-color-text: #100f0f;
   --jts-color-text-muted: #575653;
   --jts-color-text-subtle: #6f6e69;
   --jts-color-text-on-strong: #cecdc3;
   --jts-color-text-on-strong-muted: #cecdc39e;
-  --jts-color-sidebar-active-index: #da702c;
-  --jts-color-primary: #86223b;
-  --jts-color-primary-hover: #6d1f33;
-  --jts-color-primary-active: #591d2e;
-  --jts-color-primary-contrast: #ffffff;
-  --jts-color-primary-soft: #fde7ea;
-  --jts-color-primary-soft-hover: #f9ccd4;
-  --jts-color-primary-border: #c6acab;
+  --jts-color-primary: #1c6c66;
+  --jts-color-primary-hover: #164f4a;
+  --jts-color-primary-active: #143f3c;
+  --jts-color-primary-contrast: #fffcf0;
+  --jts-color-primary-soft: #ddf1e4;
+  --jts-color-primary-soft-hover: #bfe8d9;
+  --jts-color-primary-border: #1c6c6652;
   --jts-color-accent: #bc5215;
   --jts-color-accent-soft: #ffe7ce;
-  --jts-color-link: #86223b;
-  --jts-color-link-hover: #6d1f33;
-  --jts-color-focus: #c8455f;
+  --jts-color-link: #1c6c66;
+  --jts-color-link-hover: #164f4a;
+  --jts-color-focus: #1c6c66;
   --jts-color-success: #536907;
   --jts-color-success-soft: #edeecf;
-  --jts-color-success-border: #5369074d;
-  --jts-color-warning: #765901;
+  --jts-color-success-border: #53690752;
+  --jts-color-warning: #7d5e01;
   --jts-color-warning-soft: #faeec6;
-  --jts-color-warning-border: #8e6b014d;
+  --jts-color-warning-border: #7d5e0157;
   --jts-color-danger: #af3029;
   --jts-color-danger-soft: #ffe1d5;
-  --jts-color-danger-border: #af30294d;
+  --jts-color-danger-border: #af302952;
   --jts-color-info: #205ea6;
   --jts-color-info-soft: #e1eceb;
-  --jts-color-info-border: #205ea64d;
-  --jts-color-highlight: #fde7ea;
-  --jts-color-highlight-text: #6d1f33;
+  --jts-color-info-border: #205ea652;
+  --jts-color-highlight: #ddf1e4;
+  --jts-color-highlight-text: #143f3c;
+  --jts-color-sidebar-active-index: #da702c;
 }
 
-:root[data-palette="inkwell"].dark {
+:root[data-palette="amphora"].dark {
   --jts-color-canvas: #100f0f;
   --jts-color-surface: #1c1b1a;
   --jts-color-surface-raised: #282726;
   --jts-color-surface-sunken: #100f0f;
   --jts-color-surface-overlay: #282726;
   --jts-color-surface-strong: #282726;
-  --jts-color-border-subtle: #ffffff0f;
+  --jts-color-border-subtle: #34333173;
   --jts-color-border: #343331;
   --jts-color-border-strong: #403e3c;
   --jts-color-text: #cecdc3;
@@ -169,33 +264,33 @@
   --jts-color-text-subtle: #878580;
   --jts-color-text-on-strong: #cecdc3;
   --jts-color-text-on-strong-muted: #cecdc39e;
-  --jts-color-sidebar-active-index: #ec8b49;
-  --jts-color-primary: #f0a2b1;
-  --jts-color-primary-hover: #f9ccd4;
-  --jts-color-primary-active: #fde7ea;
-  --jts-color-primary-contrast: #33101a;
-  --jts-color-primary-soft: #3e2328;
-  --jts-color-primary-soft-hover: #50282f;
-  --jts-color-primary-border: #f0a2b142;
+  --jts-color-primary: #5abdac;
+  --jts-color-primary-hover: #87d3c3;
+  --jts-color-primary-active: #a2decd;
+  --jts-color-primary-contrast: #101f1d;
+  --jts-color-primary-soft: #1e3a37;
+  --jts-color-primary-soft-hover: #1f4541;
+  --jts-color-primary-border: #5abdac52;
   --jts-color-accent: #da702c;
-  --jts-color-accent-soft: #3f2719;
-  --jts-color-link: #f0a2b1;
-  --jts-color-link-hover: #f9ccd4;
-  --jts-color-focus: #f0a2b1;
-  --jts-color-success: #879a39;
-  --jts-color-success-soft: #2e3316;
-  --jts-color-success-border: #879a394d;
+  --jts-color-accent-soft: #4c2c19;
+  --jts-color-link: #5abdac;
+  --jts-color-link-hover: #87d3c3;
+  --jts-color-focus: #5abdac;
+  --jts-color-success: #a0af54;
+  --jts-color-success-soft: #2c3117;
+  --jts-color-success-border: #a0af5452;
   --jts-color-warning: #d0a215;
-  --jts-color-warning-soft: #423614;
-  --jts-color-warning-border: #d0a2154d;
-  --jts-color-danger: #d14d41;
-  --jts-color-danger-soft: #42201e;
-  --jts-color-danger-border: #d14d414d;
-  --jts-color-info: #4385be;
-  --jts-color-info-soft: #1d2c3e;
-  --jts-color-info-border: #4385be4d;
-  --jts-color-highlight: #de6f8442;
-  --jts-color-highlight-text: #fbeff0;
+  --jts-color-warning-soft: #483a13;
+  --jts-color-warning-border: #d0a21557;
+  --jts-color-danger: #e8705f;
+  --jts-color-danger-soft: #3c201d;
+  --jts-color-danger-border: #e8705f52;
+  --jts-color-info: #66a0c8;
+  --jts-color-info-soft: #1d2b3c;
+  --jts-color-info-border: #66a0c852;
+  --jts-color-highlight: #1e3a37;
+  --jts-color-highlight-text: #a2decd;
+  --jts-color-sidebar-active-index: #ec8b49;
 }
 
 :root[data-palette="linen"]:not(.dark) {
@@ -205,41 +300,41 @@
   --jts-color-surface-sunken: #e9e8e6;
   --jts-color-surface-overlay: #ffffff;
   --jts-color-surface-strong: #21201c;
-  --jts-color-border-subtle: #cfceca80;
+  --jts-color-border-subtle: #dad9d673;
   --jts-color-border: #dad9d6;
   --jts-color-border-strong: #bcbbb5;
   --jts-color-text: #21201c;
   --jts-color-text-muted: #63635e;
-  --jts-color-text-subtle: #6f6f6a;
+  --jts-color-text-subtle: #75756f;
   --jts-color-text-on-strong: #eeeeec;
   --jts-color-text-on-strong-muted: #eeeeec9e;
-  --jts-color-sidebar-active-index: #c9946b;
-  --jts-color-primary: #86223b;
-  --jts-color-primary-hover: #6d1f33;
-  --jts-color-primary-active: #591d2e;
+  --jts-color-primary: #9c5230;
+  --jts-color-primary-hover: #834327;
+  --jts-color-primary-active: #6b361f;
   --jts-color-primary-contrast: #ffffff;
-  --jts-color-primary-soft: #fde7ea;
-  --jts-color-primary-soft-hover: #f9ccd4;
-  --jts-color-primary-border: #c6adb1;
-  --jts-color-accent: #bd6945;
-  --jts-color-accent-soft: #f8ece3;
-  --jts-color-link: #86223b;
-  --jts-color-link-hover: #6d1f33;
-  --jts-color-focus: #c8455f;
+  --jts-color-primary-soft: #f8ebe3;
+  --jts-color-primary-soft-hover: #f0d8c7;
+  --jts-color-primary-border: #9c523052;
+  --jts-color-accent: #7a6a2f;
+  --jts-color-accent-soft: #f2efdf;
+  --jts-color-link: #9c5230;
+  --jts-color-link-hover: #834327;
+  --jts-color-focus: #9c5230;
   --jts-color-success: #2a7e3b;
   --jts-color-success-soft: #e9f6e9;
-  --jts-color-success-border: #2a7e3b4d;
-  --jts-color-warning: #86510e;
+  --jts-color-success-border: #2a7e3b52;
+  --jts-color-warning: #7e4d00;
   --jts-color-warning-soft: #fff7c2;
-  --jts-color-warning-border: #ab640066;
+  --jts-color-warning-border: #7e4d0057;
   --jts-color-danger: #ca244d;
   --jts-color-danger-soft: #feeaed;
-  --jts-color-danger-border: #ca244d4d;
+  --jts-color-danger-border: #ca244d52;
   --jts-color-info: #60646c;
   --jts-color-info-soft: #f0f0f3;
-  --jts-color-info-border: #60646c4d;
-  --jts-color-highlight: #fde7ea;
-  --jts-color-highlight-text: #6d1f33;
+  --jts-color-info-border: #60646c52;
+  --jts-color-highlight: #f8ebe3;
+  --jts-color-highlight-text: #6b361f;
+  --jts-color-sidebar-active-index: #c9946b;
 }
 
 :root[data-palette="linen"].dark {
@@ -249,215 +344,127 @@
   --jts-color-surface-sunken: #141413;
   --jts-color-surface-overlay: #2a2a28;
   --jts-color-surface-strong: #222221;
-  --jts-color-border-subtle: #ffffff0f;
+  --jts-color-border-subtle: #3b3a3773;
   --jts-color-border: #3b3a37;
   --jts-color-border-strong: #62605b;
   --jts-color-text: #eeeeec;
   --jts-color-text-muted: #b5b3ad;
-  --jts-color-text-subtle: #9e9d96;
+  --jts-color-text-subtle: #93918b;
   --jts-color-text-on-strong: #eeeeec;
   --jts-color-text-on-strong-muted: #eeeeec9e;
-  --jts-color-sidebar-active-index: #c9946b;
-  --jts-color-primary: #f0a2b1;
-  --jts-color-primary-hover: #f9ccd4;
-  --jts-color-primary-active: #fde7ea;
-  --jts-color-primary-contrast: #33101a;
-  --jts-color-primary-soft: #3c2226;
-  --jts-color-primary-soft-hover: #4e262d;
-  --jts-color-primary-border: #f0a2b142;
-  --jts-color-accent: #c9946b;
-  --jts-color-accent-soft: #3d2b22;
-  --jts-color-link: #f0a2b1;
-  --jts-color-link-hover: #f9ccd4;
-  --jts-color-focus: #f0a2b1;
+  --jts-color-primary: #dda283;
+  --jts-color-primary-hover: #e8bda6;
+  --jts-color-primary-active: #f0d5c5;
+  --jts-color-primary-contrast: #2a1409;
+  --jts-color-primary-soft: #462c20;
+  --jts-color-primary-soft-hover: #533223;
+  --jts-color-primary-border: #dda28352;
+  --jts-color-accent: #c6b871;
+  --jts-color-accent-soft: #38331f;
+  --jts-color-link: #dda283;
+  --jts-color-link-hover: #e8bda6;
+  --jts-color-focus: #dda283;
   --jts-color-success: #71d083;
-  --jts-color-success-soft: #1b2a1e;
-  --jts-color-success-border: #71d0834d;
-  --jts-color-warning: #ffca16;
-  --jts-color-warning-soft: #302008;
-  --jts-color-warning-border: #ffca164d;
+  --jts-color-success-soft: #1e3723;
+  --jts-color-success-border: #71d08352;
+  --jts-color-warning: #e5bb4a;
+  --jts-color-warning-soft: #3b2b10;
+  --jts-color-warning-border: #e5bb4a57;
   --jts-color-danger: #ff949d;
-  --jts-color-danger-soft: #3a141e;
-  --jts-color-danger-border: #ff949d4d;
+  --jts-color-danger-soft: #4e1c28;
+  --jts-color-danger-border: #ff949d52;
   --jts-color-info: #b0b4ba;
-  --jts-color-info-soft: #212225;
-  --jts-color-info-border: #b0b4ba4d;
-  --jts-color-highlight: #de6f8442;
-  --jts-color-highlight-text: #fbeff0;
+  --jts-color-info-soft: #303133;
+  --jts-color-info-border: #b0b4ba52;
+  --jts-color-highlight: #462c20;
+  --jts-color-highlight-text: #f0d5c5;
+  --jts-color-sidebar-active-index: #dda283;
 }
 
-:root[data-palette="rosewater"]:not(.dark) {
+:root[data-palette="iris"]:not(.dark) {
   --jts-color-canvas: #faf4ed;
   --jts-color-surface: #fffaf3;
   --jts-color-surface-raised: #ffffff;
   --jts-color-surface-sunken: #f2e9e1;
   --jts-color-surface-overlay: #ffffff;
   --jts-color-surface-strong: #1f1d2e;
-  --jts-color-border-subtle: #dfdad999;
+  --jts-color-border-subtle: #dfdad973;
   --jts-color-border: #dfdad9;
   --jts-color-border-strong: #cecacd;
-  --jts-color-text: #575279;
-  --jts-color-text-muted: #656083;
-  --jts-color-text-subtle: #716c8d;
+  --jts-color-text: #4a4568;
+  --jts-color-text-muted: #5f5a80;
+  --jts-color-text-subtle: #6e6990;
   --jts-color-text-on-strong: #e0def4;
   --jts-color-text-on-strong-muted: #e0def49e;
-  --jts-color-sidebar-active-index: #ebbcba;
-  --jts-color-primary: #86223b;
-  --jts-color-primary-hover: #6d1f33;
-  --jts-color-primary-active: #591d2e;
+  --jts-color-primary: #7a5f96;
+  --jts-color-primary-hover: #654d7d;
+  --jts-color-primary-active: #523e65;
   --jts-color-primary-contrast: #ffffff;
-  --jts-color-primary-soft: #fde7ea;
-  --jts-color-primary-soft-hover: #f9ccd4;
-  --jts-color-primary-border: #caaeb3;
-  --jts-color-accent: #d7827e;
-  --jts-color-accent-soft: #f8e4de;
-  --jts-color-link: #86223b;
-  --jts-color-link-hover: #6d1f33;
-  --jts-color-focus: #c8455f;
+  --jts-color-primary-soft: #efe9f5;
+  --jts-color-primary-soft-hover: #e2d7ee;
+  --jts-color-primary-border: #7a5f9652;
+  --jts-color-accent: #9c4f4c;
+  --jts-color-accent-soft: #f8e9e6;
+  --jts-color-link: #7a5f96;
+  --jts-color-link-hover: #654d7d;
+  --jts-color-focus: #7a5f96;
   --jts-color-success: #286983;
-  --jts-color-success-soft: #e5e9e6;
-  --jts-color-success-border: #2869834d;
-  --jts-color-warning: #7e5a37;
-  --jts-color-warning-soft: #fcebd4;
-  --jts-color-warning-border: #ea9d3480;
-  --jts-color-danger: #b4637a;
-  --jts-color-danger-soft: #f5e5e2;
-  --jts-color-danger-border: #b4637a4d;
-  --jts-color-info: #488797;
-  --jts-color-info-soft: #e7ece7;
-  --jts-color-info-border: #56949f66;
-  --jts-color-highlight: #f4ede8;
-  --jts-color-highlight-text: #575279;
+  --jts-color-success-soft: #e4eef2;
+  --jts-color-success-border: #28698352;
+  --jts-color-warning: #7d5312;
+  --jts-color-warning-soft: #f8eeda;
+  --jts-color-warning-border: #7d531257;
+  --jts-color-danger: #9a4761;
+  --jts-color-danger-soft: #f8e8ec;
+  --jts-color-danger-border: #9a476152;
+  --jts-color-info: #3f6f78;
+  --jts-color-info-soft: #e6eff0;
+  --jts-color-info-border: #3f6f7852;
+  --jts-color-highlight: #efe9f5;
+  --jts-color-highlight-text: #523e65;
+  --jts-color-sidebar-active-index: #ebbcba;
 }
 
-:root[data-palette="rosewater"].dark {
+:root[data-palette="iris"].dark {
   --jts-color-canvas: #191724;
   --jts-color-surface: #1f1d2e;
   --jts-color-surface-raised: #26233a;
   --jts-color-surface-sunken: #16141f;
   --jts-color-surface-overlay: #26233a;
   --jts-color-surface-strong: #26233a;
-  --jts-color-border-subtle: #ffffff0f;
+  --jts-color-border-subtle: #403d5273;
   --jts-color-border: #403d52;
   --jts-color-border-strong: #524f67;
   --jts-color-text: #e0def4;
-  --jts-color-text-muted: #908caa;
-  --jts-color-text-subtle: #8d89a6;
+  --jts-color-text-muted: #a9a5c2;
+  --jts-color-text-subtle: #908caa;
   --jts-color-text-on-strong: #e0def4;
   --jts-color-text-on-strong-muted: #e0def49e;
-  --jts-color-sidebar-active-index: #ebbcba;
-  --jts-color-primary: #f0a2b1;
-  --jts-color-primary-hover: #f9ccd4;
-  --jts-color-primary-active: #fde7ea;
-  --jts-color-primary-contrast: #33101a;
-  --jts-color-primary-soft: #412538;
-  --jts-color-primary-soft-hover: #52293d;
-  --jts-color-primary-border: #f0a2b142;
+  --jts-color-primary: #c4a7e7;
+  --jts-color-primary-hover: #d5bff0;
+  --jts-color-primary-active: #e5d6f7;
+  --jts-color-primary-contrast: #1c1430;
+  --jts-color-primary-soft: #453d58;
+  --jts-color-primary-soft-hover: #514664;
+  --jts-color-primary-border: #c4a7e752;
   --jts-color-accent: #ebbcba;
-  --jts-color-accent-soft: #403644;
-  --jts-color-link: #f0a2b1;
-  --jts-color-link-hover: #f9ccd4;
-  --jts-color-focus: #f0a2b1;
+  --jts-color-accent-soft: #563b46;
+  --jts-color-link: #c4a7e7;
+  --jts-color-link-hover: #d5bff0;
+  --jts-color-focus: #c4a7e7;
   --jts-color-success: #9ccfd8;
-  --jts-color-success-soft: #313646;
-  --jts-color-success-border: #9ccfd84d;
+  --jts-color-success-soft: #22374b;
+  --jts-color-success-border: #9ccfd852;
   --jts-color-warning: #f6c177;
-  --jts-color-warning-soft: #3d3438;
-  --jts-color-warning-border: #f6c1774d;
+  --jts-color-warning-soft: #543e30;
+  --jts-color-warning-border: #f6c17757;
   --jts-color-danger: #eb6f92;
-  --jts-color-danger-soft: #402a3e;
-  --jts-color-danger-border: #eb6f924d;
-  --jts-color-info: #c4a7e7;
-  --jts-color-info-soft: #363048;
-  --jts-color-info-border: #c4a7e74d;
-  --jts-color-highlight: #403d52;
-  --jts-color-highlight-text: #e0def4;
-}
-
-:root[data-palette="cellar"]:not(.dark) {
-  --jts-color-canvas: #faece6;
-  --jts-color-surface: #fffdfb;
-  --jts-color-surface-raised: #ffffff;
-  --jts-color-surface-sunken: #f4e1da;
-  --jts-color-surface-overlay: #ffffff;
-  --jts-color-surface-strong: #591d2e;
-  --jts-color-border-subtle: #d5bbb266;
-  --jts-color-border: #e9d5cd;
-  --jts-color-border-strong: #d5bbb2;
-  --jts-color-text: #24161b;
-  --jts-color-text-muted: #6f5961;
-  --jts-color-text-subtle: #7f6a71;
-  --jts-color-text-on-strong: #fbeef0;
-  --jts-color-text-on-strong-muted: #fbeef09e;
-  --jts-color-sidebar-active-index: #f0a2b1;
-  --jts-color-primary: #86223b;
-  --jts-color-primary-hover: #6d1f33;
-  --jts-color-primary-active: #591d2e;
-  --jts-color-primary-contrast: #ffffff;
-  --jts-color-primary-soft: #fde7ea;
-  --jts-color-primary-soft-hover: #f9ccd4;
-  --jts-color-primary-border: #d1aaaa;
-  --jts-color-accent: #bd6945;
-  --jts-color-accent-soft: #f8ece3;
-  --jts-color-link: #86223b;
-  --jts-color-link-hover: #6d1f33;
-  --jts-color-focus: #c8455f;
-  --jts-color-success: #1f6b45;
-  --jts-color-success-soft: #edf4ef;
-  --jts-color-success-border: #1f6b4542;
-  --jts-color-warning: #7f5c05;
-  --jts-color-warning-soft: #faf0d9;
-  --jts-color-warning-border: #7f5c054d;
-  --jts-color-danger: #b42318;
-  --jts-color-danger-soft: #fbe9e5;
-  --jts-color-danger-border: #b4231847;
-  --jts-color-info: #3b4f63;
-  --jts-color-info-soft: #ecf0f4;
-  --jts-color-info-border: #3b4f6342;
-  --jts-color-highlight: #fde7ea;
-  --jts-color-highlight-text: #6d1f33;
-}
-
-:root[data-palette="cellar"].dark {
-  --jts-color-canvas: #100a0d;
-  --jts-color-surface: #1e131a;
-  --jts-color-surface-raised: #2d1d26;
-  --jts-color-surface-sunken: #150d11;
-  --jts-color-surface-overlay: #2d1d26;
-  --jts-color-surface-strong: #331523;
-  --jts-color-border-subtle: #ffffff0f;
-  --jts-color-border: #453039;
-  --jts-color-border-strong: #614350;
-  --jts-color-text: #fbeef0;
-  --jts-color-text-muted: #d2b9c1;
-  --jts-color-text-subtle: #a78c96;
-  --jts-color-text-on-strong: #fbeef0;
-  --jts-color-text-on-strong-muted: #fbeef09e;
-  --jts-color-sidebar-active-index: #f0a2b1;
-  --jts-color-primary: #f0a2b1;
-  --jts-color-primary-hover: #f9ccd4;
-  --jts-color-primary-active: #fde7ea;
-  --jts-color-primary-contrast: #33101a;
-  --jts-color-primary-soft: #401d28;
-  --jts-color-primary-soft-hover: #51222f;
-  --jts-color-primary-border: #f0a2b142;
-  --jts-color-accent: #c9946b;
-  --jts-color-accent-soft: #412623;
-  --jts-color-link: #f0a2b1;
-  --jts-color-link-hover: #f9ccd4;
-  --jts-color-focus: #f0a2b1;
-  --jts-color-success: #74bd93;
-  --jts-color-success-soft: #1e2824;
-  --jts-color-success-border: #74bd934d;
-  --jts-color-warning: #e3b652;
-  --jts-color-warning-soft: #372615;
-  --jts-color-warning-border: #e3b6524d;
-  --jts-color-danger: #f0755c;
-  --jts-color-danger-soft: #451719;
-  --jts-color-danger-border: #f0755c4d;
-  --jts-color-info: #8fa3b7;
-  --jts-color-info-soft: #26232d;
-  --jts-color-info-border: #8fa3b74d;
-  --jts-color-highlight: #de6f8442;
-  --jts-color-highlight-text: #fbeff0;
+  --jts-color-danger-soft: #342739;
+  --jts-color-danger-border: #eb6f9252;
+  --jts-color-info: #7fb3c9;
+  --jts-color-info-soft: #243447;
+  --jts-color-info-border: #7fb3c952;
+  --jts-color-highlight: #453d58;
+  --jts-color-highlight-text: #e5d6f7;
+  --jts-color-sidebar-active-index: #ebbcba;
 }

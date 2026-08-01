@@ -38,35 +38,36 @@
 
   /* Wine — the brand red, "various reds" from blush to deep burgundy. */
   --jts-wine-50: #fff4f6;
-  --jts-wine-100: #fde7ea;
-  --jts-wine-200: #f9ccd4;
+  --jts-wine-100: #fde8ec;
+  --jts-wine-200: #f9ccd6;
   --jts-wine-300: #f0a2b1;
   --jts-wine-400: #de6f84;
   --jts-wine-500: #c8455f;
   --jts-wine-600: #a92f49;
-  --jts-wine-700: #86223b;
-  --jts-wine-800: #6d1f33;
-  --jts-wine-900: #591d2e;
+  --jts-wine-700: #8f2440;
+  --jts-wine-800: #7a1e36;
+  --jts-wine-900: #64182c;
   --jts-wine-950: #33101a;
 
-  /* Clay — warm stone/oat neutral (~34°). Deliberately NOT wine-tinted: the
-     field the panel is painted on has to be quiet for the wine to read as
-     action rather than atmosphere. A rosewood cast here once put red into
-     every surface, border and muted word, and the whole panel felt tense. */
+  /* Clay — the house neutral: warm stone with a rosewood cast, because this
+     is the wine theme and its paper should belong to the wine. It is a cast,
+     not a wash — the steps stay low in chroma so the brand still reads as
+     action against them. The neutral-field themes (Graphite, Noir, Linen)
+     live in palettes.css and bring their own. */
   --jts-clay-0: #ffffff;
-  --jts-clay-50: #fefcf8;
+  --jts-clay-50: #fffdfc;
   --jts-clay-100: #fbf5ec;
-  --jts-clay-150: #f6efe4;
-  --jts-clay-200: #efe5d8;
-  --jts-clay-300: #e2d5c4;
-  --jts-clay-400: #ccbba6;
+  --jts-clay-150: #f7ebe8;
+  --jts-clay-200: #f2e0db;
+  --jts-clay-300: #e4d0ca;
+  --jts-clay-400: #c9aea7;
   --jts-clay-500: #a29383;
-  --jts-clay-600: #6b5f50;
+  --jts-clay-600: #5d4550;
   --jts-clay-700: #493f33;
   --jts-clay-800: #322a21;
   --jts-clay-850: #261f18;
-  --jts-clay-900: #1e1913;
-  --jts-clay-950: #16110c;
+  --jts-clay-900: #1f1218;
+  --jts-clay-950: #140a0e;
 
   /* Earthy status hues — tuned to sit beside the warm palette, not scream.
      The wine brand already owns 348°, so the other warm meanings must keep
@@ -123,12 +124,12 @@
   --jts-color-surface: var(--jts-clay-50);
   --jts-color-surface-raised: var(--jts-clay-0);
   --jts-color-surface-sunken: var(--jts-clay-200);
-  --jts-color-surface-overlay: var(--jts-clay-0);
-  /* Inverse / sidebar. Wine by blood but deep and desaturated (s≈32 against
-     wine-900's 51): a fifth of the screen is this colour all day, and at full
-     saturation it behaved like a permanent alarm the eye kept checking. The
-     active index numeral (wine-300) is where the sidebar's wine still sings. */
-  --jts-color-surface-strong: #46242f;
+  --jts-color-surface-overlay: var(--jts-clay-50);
+  /* Inverse / sidebar. Deep wine, held below full saturation: a fifth of the
+     screen is this colour all day, and at full strength it behaved like a
+     permanent alarm the eye kept checking. The lit index numeral (wine-300)
+     is where the sidebar's wine still sings. */
+  --jts-color-surface-strong: #4a1c2a;
 
   /* Borders */
   --jts-color-border-subtle: color-mix(
@@ -140,9 +141,9 @@
   --jts-color-border-strong: var(--jts-clay-400);
 
   /* Text */
-  --jts-color-text: #241b16;
+  --jts-color-text: #1f1116;
   --jts-color-text-muted: var(--jts-clay-600);
-  --jts-color-text-subtle: #776a5b; /* darkened to clear AA on light surfaces */
+  --jts-color-text-subtle: #745c66; /* darkened to clear AA on light surfaces */
   --jts-color-text-on-strong: #fbeef0;
   --jts-color-text-on-strong-muted: color-mix(
     in srgb,
@@ -162,7 +163,7 @@
     var(--jts-wine-700) 24%,
     var(--jts-clay-300)
   );
-  --jts-color-accent: var(--jts-copper-500);
+  --jts-color-accent: var(--jts-copper-600);
   --jts-color-accent-soft: var(--jts-copper-50);
   --jts-color-link: var(--jts-wine-700);
   --jts-color-link-hover: var(--jts-wine-800);
@@ -324,23 +325,23 @@
      step — because without shadows the step itself is the only relief a dark
      card gets. Only the sidebar keeps a wine cast, so the panel's structure
      survives the theme flip instead of melting into the canvas. */
-  --jts-color-canvas: #110d09;
+  --jts-color-canvas: var(--jts-clay-950);
   --jts-color-surface: var(--jts-clay-900);
-  --jts-color-surface-raised: #2c241b;
-  --jts-color-surface-sunken: var(--jts-clay-950);
-  --jts-color-surface-overlay: #2c241b;
-  --jts-color-surface-strong: #2e1c26;
+  --jts-color-surface-raised: #2c1b23;
+  --jts-color-surface-sunken: #180d12;
+  --jts-color-surface-overlay: #2c1b23;
+  --jts-color-surface-strong: #3a1826;
 
   /* Borders */
   --jts-color-border-subtle: color-mix(in srgb, #ffffff 6%, transparent);
-  --jts-color-border: #403428;
-  --jts-color-border-strong: #584a39;
+  --jts-color-border: #45303a;
+  --jts-color-border-strong: #5e4351;
 
   /* Text — warm whites on the espresso field; the pink-tinted set lives on
      in `-on-strong`, where the surface under it is still wine. */
-  --jts-color-text: #f8f1e6;
-  --jts-color-text-muted: #cfc3b2;
-  --jts-color-text-subtle: #a09484;
+  --jts-color-text: #fbeef0;
+  --jts-color-text-muted: #d9c1c9;
+  --jts-color-text-subtle: #ab8f99;
   --jts-color-text-on-strong: #fbeef0;
   --jts-color-text-on-strong-muted: color-mix(
     in srgb,

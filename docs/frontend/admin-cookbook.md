@@ -114,14 +114,14 @@ test cannot make: whether the tones still belong to each other.
 
 ## Palettes
 
-The panel's six palettes (House Wine, Ouzo, Inkwell, Linen, Rosewater,
-Cellar — see [theming.md](theming.md)) are switched from the operator menu's
+The panel's six themes (Join The Six, Graphite, Noir, Amphora, Linen,
+Iris — see [theming.md](theming.md)) are switched from the operator menu's
 **Theme** group, and the cookbook is where a palette is audited: every
 specimen on the page repaints with the selection, in both dark and light. The
 cookbook briefly carried its own dev-only palette switcher while the
 candidates were auditioned; the shipped Theme picker replaced it, and
-`apps/admin/test/palettes.spec.ts` now holds every shipped palette to the
-same AA floor the audition enforced.
+`apps/admin/test/palettes.spec.ts` now holds every shipped theme to the same
+AA floor the audition enforced, and to owning a brand colour of its own.
 
 ## The rule for new vocabulary
 

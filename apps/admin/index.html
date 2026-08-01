@@ -11,7 +11,7 @@
           var d = s === 'dark' || ((!s || s === 'system') && matchMedia('(prefers-color-scheme: dark)').matches);
           document.documentElement.classList.toggle('dark',d);
           var p = localStorage.getItem('jts-palette');
-          if (p && p !== 'house-wine' && ['ouzo','inkwell','linen','rosewater','cellar'].indexOf(p) >= 0) document.documentElement.setAttribute('data-palette', p);
+          if (p && p !== 'join-the-six' && ['graphite','noir','amphora','linen','iris'].indexOf(p) >= 0) document.documentElement.setAttribute('data-palette', p);
         } catch (e) {}
       })();
     </script>

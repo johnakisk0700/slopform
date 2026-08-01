@@ -76,7 +76,7 @@ const REQUIRED_TOKENS = [
   "--jts-color-sidebar-active-index",
 ];
 
-const OVERRIDE_PALETTES = ["ouzo", "inkwell", "linen", "rosewater", "cellar"];
+const OVERRIDE_PALETTES = ["graphite", "noir", "amphora", "linen", "iris"];
 
 function paletteBlock(
   id: string,
@@ -155,10 +155,59 @@ describe("palettes.css", () => {
       const slabs = OVERRIDE_PALETTES.map(
         (id) => paletteBlock(id, theme).get("--jts-color-surface-strong") ?? "",
       );
-      // House Wine's own slab is in tokens.css, so it joins the comparison
-      // from there rather than from a palette block.
-      const houseWine = theme === "light" ? "#46242f" : "#2e1c26";
-      const all = [...slabs, houseWine];
+      // The house theme's own slab is in tokens.css, so it joins the
+      // comparison from there rather than from a palette block.
+      const houseTheme = theme === "light" ? "#4a1c2a" : "#3a1826";
+      const all = [...slabs, houseTheme];
+      expect(new Set(all).size, `${theme}: ${all.join(" ")}`).toBe(all.length);
+    }
+  });
+
+  it("holds nothing but comments and well-formed rule blocks", () => {
+    // A generator once wrote its own success line onto the same stream as the
+    // CSS; prettier folded the stray words into the selector list of the first
+    // theme, and that theme silently stopped applying while every text-matching
+    // assertion still passed. Parse the shape, not just the strings.
+    const withoutComments = palettesCss.replace(/\/\*[\s\S]*?\*\//g, "");
+    const rules = withoutComments.match(/[^{}]*\{[^{}]*\}/g) ?? [];
+    expect(rules.length).toBe(OVERRIDE_PALETTES.length * 2);
+    for (const rule of rules) {
+      const selector = (rule.split("{")[0] ?? "").trim();
+      expect(selector, selector).toMatch(
+        /^:root\[data-palette="[\w-]+"\](:not\(\.dark\)|\.dark)$/,
+      );
+    }
+    // Nothing may survive outside a rule but whitespace.
+    expect(withoutComments.replace(/[^{}]*\{[^{}]*\}/g, "").trim()).toBe("");
+  });
+
+  it("keeps the meanings inside a theme tellable apart", () => {
+    // Noir shipped its single hue as both «the button you press» and «this
+    // wants a human», which made a primary action and a warning the same
+    // colour. One theme may be monochrome; it may not be ambiguous.
+    for (const id of OVERRIDE_PALETTES) {
+      for (const theme of ["light", "dark"] as const) {
+        const block = paletteBlock(id, theme);
+        const roles = ["primary", "success", "warning", "danger", "info"];
+        const values = roles.map((role) => block.get(`--jts-color-${role}`));
+        expect(
+          new Set(values).size,
+          `${id}/${theme}: ${roles.join("/")} = ${values.join(" ")}`,
+        ).toBe(roles.length);
+      }
+    }
+  });
+
+  it("gives every theme its own brand colour", () => {
+    // The whole reason this pass happened: the first cut kept wine as the
+    // primary in every theme, so the field changed and the buttons, the chat
+    // bubbles and the progress bars stayed pink whatever was picked.
+    for (const theme of ["light", "dark"] as const) {
+      const primaries = OVERRIDE_PALETTES.map(
+        (id) => paletteBlock(id, theme).get("--jts-color-primary") ?? "",
+      );
+      const houseTheme = theme === "light" ? "#8f2440" : "#f0a2b1";
+      const all = [...primaries, houseTheme];
       expect(new Set(all).size, `${theme}: ${all.join(" ")}`).toBe(all.length);
     }
   });
@@ -215,19 +264,19 @@ describe("palettes.css", () => {
 describe("palette wiring", () => {
   it("keeps the store, the CSS, the pre-paint script and the menu on one id list", () => {
     // The store leads with the default; the CSS carries only the overrides.
-    expect(storeSource).toContain('id: "house-wine"');
+    expect(storeSource).toContain('id: "join-the-six"');
     for (const id of OVERRIDE_PALETTES) {
       expect(storeSource, `store: ${id}`).toContain(`id: "${id}"`);
       expect(shellHtml, `pre-paint: ${id}`).toContain(`'${id}'`);
     }
     expect(shellHtml).toContain("jts-palette");
-    expect(shellHtml).toContain("'house-wine'");
+    expect(shellHtml).toContain("'join-the-six'");
     expect(menuSource).toContain("usePalette");
     expect(menuSource).toContain("PALETTES.map");
   });
 
   it("represents the default palette as the absence of the attribute", () => {
-    expect(palettesCss).not.toContain('data-palette="house-wine"');
+    expect(palettesCss).not.toContain('data-palette="join-the-six"');
     expect(storeSource).toContain("removeAttribute(PALETTE_ATTRIBUTE)");
   });
 

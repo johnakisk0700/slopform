@@ -90,35 +90,48 @@ flowchart LR
   (Light / Dark / Auto) bound to `useTheme()`. The menu appears in both the
   sidebar footer and the small-screen top bar, so both stay in step.
 
-## Palettes: the second and last appearance axis
+## Themes: the second and last appearance axis
 
-The operator menu's **Theme** group selects one of six named palettes; the
-appearance system is a 6×2 grid (palette × light/dark), and the two axes never
-mix.
+The operator menu's **Theme** group selects one of six themes; the appearance
+system is a 6×2 grid (theme × light/dark), and the two axes never mix.
 
-- `packages/design-tokens/src/palettes.css` holds the five override palettes —
-  Ouzo, Inkwell (Flexoki), Linen (Radix sand), Rosewater (Rosé Pine) and
-  Cellar (the panel's original wine field) — keyed by `data-palette` on
-  `<html>`. Each block repaints the **semantic colour layer only**, as flat
-  resolved hexes; type, space, radius, shadows and the primitives stay shared.
-  **House Wine**, the default, is the absence of the attribute: `tokens.css`
-  itself.
+| Theme        | Field                         | Brand colour   |
+| ------------ | ----------------------------- | -------------- |
+| Join The Six | warm rosewood paper (default) | wine           |
+| Graphite     | cool neutral                  | steel blue     |
+| Noir         | greyscale                     | ink, see below |
+| Amphora      | Flexoki ink on paper          | Aegean cyan    |
+| Linen        | Radix Colors sand             | copper         |
+| Iris         | Rosé Pine                     | iris           |
+
+- **Every theme owns its brand colour.** The first cut kept wine as the primary
+  in all of them, so whatever an operator picked, the buttons, the chat bubbles
+  and the progress bars stayed pink — the field changed and nothing else did. A
+  theme states its own primary, accent, link, focus and status tones.
+- **Noir** is the monochrome one: the field is grey, the primary is ink, and
+  the single amber is spent only on `warning` and `danger`. Colour there means
+  «a human is wanted», which is why the button pressed all day is not allowed
+  to wear it.
+- `packages/design-tokens/src/palettes.css` holds the five override themes,
+  keyed by `data-palette` on `<html>`, each repainting the **semantic colour
+  layer only** as flat resolved hexes; type, space, radius, shadows and the
+  primitives stay shared. **Join The Six**, the default, is the absence of the
+  attribute: `tokens.css` itself.
 - The light blocks are scoped `:not(.dark)` because they tie with `:root.dark`
-  on specificity and `palettes.css` imports after `tokens.css` — without the
-  guard a palette's light values would win in dark mode. The `dark` class
-  remains the only dark-mode signal.
+  on specificity and `palettes.css` imports after `tokens.css`. This mirrors
+  HeroUI v3's own mechanism for a palette variant, which scopes
+  `[data-vibrant-palette="true"]` exactly the same way — HeroUI is CSS-first
+  and has no theme object, so a theme is this and nothing more.
 - `apps/admin/src/lib/usePalette.ts` mirrors `useTheme`: a module store over
-  `localStorage` (`jts-palette`) that stamps the attribute; the pre-paint
-  script in `index.html` stamps it before first paint, so neither axis
-  flashes.
-- Every palette is held to the same AA floor as the shipped tokens:
-  `apps/admin/test/palettes.spec.ts` recomputes the twelve asserted pairs per
-  palette per theme, and pins the wiring — one id list across the CSS, the
-  store, the pre-paint script and the menu.
+  `localStorage` (`jts-palette`) that stamps the attribute; the pre-paint script
+  in `index.html` stamps it before first paint, so neither axis flashes.
 
-To retune a palette, edit its block in `palettes.css` (flat hexes — a palette
-is a finished coat of paint, not a second token graph) and let the spec keep
-you honest. To retune **House Wine**, edit `tokens.css` as always.
+To retune a theme, edit its block in `palettes.css` (flat hexes — a theme is a
+finished coat of paint, not a second token graph). To retune **Join The Six**,
+edit `tokens.css` as always. `apps/admin/test/palettes.spec.ts` is the gate:
+every theme must clear the same twelve AA pairs in both modes, own a distinct
+brand colour and sidebar, keep its five status meanings mutually distinct, and
+the file must parse as nothing but comments and well-formed rule blocks.
 
 ## HeroUI + Tailwind bridge
 
