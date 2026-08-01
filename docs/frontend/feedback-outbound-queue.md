@@ -139,7 +139,19 @@ instead of implying that the cap is the backlog.
 Two halves, kept visibly apart because their reliability differs.
 
 PostgreSQL's half is durable and complete: the row's own status and delivery
-status with every timestamp, and the provider ids.
+status with every timestamp, and the provider ids — followed by the outbound
+decision log, which sits on this side of the reliability line because it is
+written in the same transaction as the row itself. «Why this was sent» renders
+the log's origin and per-origin decision facts (model, confidence and goal
+statuses for a model reply; the failure cause for the fallback origins; the
+triggering ingress, staff actor, intro created-vs-relaunched or reminder rung
+for the rest), and «Conversation as it stood» renders the conversation snapshot
+the writer decided against, with one quiet line saying it is not the
+conversation now. A row that predates `message_outbox_log` states that plainly
+instead of hiding the section — an empty section would teach an operator that
+the log is unreliable, when the record is simply older than the table.
+Vocabulary is reused from `labels.ts`, tolerant of values the log outlived:
+an unrecognised goal status or failure cause passes through verbatim.
 
 The queue's half is a live read, and it is honest about being thin:
 
@@ -238,13 +250,18 @@ oldest age, every branch of the job copy (including all three «άγνωστο»
 the reclaim time instead of a spinner), the attempt answer, the polling policy,
 the absence of any live region, the generated-hook boundary, that the backend
 list path names no queue call, the route/navigation registration, and that the
-screen colours itself from tokens alone.
+screen colours itself from tokens alone. A «why the row was written» block
+covers the decision-log facts per origin, that no confidence is invented when
+the model reported none, the verbatim passthrough of an unrecognised failure
+cause, the conversation-state wording, the predates-the-log statement, and
+that both log sections render above «Delivery job».
 
 Backend: `inspect-deliver-job.spec.ts` covers the job read (state, due time,
 bounded failure reason, a missing job as `unknown`, and an unrecognised BullMQ
 state as `unknown`); `queue-view.service.spec.ts` covers the no-Redis list
 invariant, server-measured ages, the D18-shaped fallback, capped totals, the
-single opened-row lookup, the reclaim horizon and a already-sent row.
+single opened-row lookup, the reclaim horizon and a already-sent row, and the
+decision log on the opened row — present, absent, and unreadable-jsonb-as-null.
 
 ## Decisions and references
 

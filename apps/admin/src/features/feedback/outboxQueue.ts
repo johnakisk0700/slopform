@@ -1,11 +1,24 @@
+import type { FeedbackConversationDetailDtoOutputGoalsItemStatus } from "../../api/generated/model/feedbackConversationDetailDtoOutputGoalsItemStatus";
 import type { FeedbackOutboxMessageDeliveryDtoOutput } from "../../api/generated/model/feedbackOutboxMessageDeliveryDtoOutput";
 import type { FeedbackOutboxMessageDeliveryDtoOutputJobState } from "../../api/generated/model/feedbackOutboxMessageDeliveryDtoOutputJobState";
+import type { FeedbackOutboxMessageDeliveryDtoOutputLog } from "../../api/generated/model/feedbackOutboxMessageDeliveryDtoOutputLog";
+import type { FeedbackOutboxMessageDeliveryDtoOutputLogConversationState } from "../../api/generated/model/feedbackOutboxMessageDeliveryDtoOutputLogConversationState";
+import type { FeedbackOutboxMessageDeliveryDtoOutputLogConversationStateControlSource } from "../../api/generated/model/feedbackOutboxMessageDeliveryDtoOutputLogConversationStateControlSource";
+import type { FeedbackOutboxMessageDeliveryDtoOutputLogDecision } from "../../api/generated/model/feedbackOutboxMessageDeliveryDtoOutputLogDecision";
+import type { FeedbackOutboxMessageDeliveryDtoOutputLogOrigin } from "../../api/generated/model/feedbackOutboxMessageDeliveryDtoOutputLogOrigin";
 import type { FeedbackOutboxQueueDtoOutput } from "../../api/generated/model/feedbackOutboxQueueDtoOutput";
 import type { FeedbackOutboxQueueDtoOutputItemsItemCampaignStatus } from "../../api/generated/model/feedbackOutboxQueueDtoOutputItemsItemCampaignStatus";
 import type { FeedbackOutboxQueueDtoOutputItemsItemKind } from "../../api/generated/model/feedbackOutboxQueueDtoOutputItemsItemKind";
 import type { FeedbackOutboxQueueDtoOutputItemsItemStatus } from "../../api/generated/model/feedbackOutboxQueueDtoOutputItemsItemStatus";
 import { formatTimestamp } from "./conversationView";
-import type { FeedbackBadge } from "./labels";
+import {
+  controlLabel,
+  goalStatusBadge,
+  lifecycleBadge,
+  questionLabel,
+  QUESTION_KEYS,
+  type FeedbackBadge,
+} from "./labels";
 
 /**
  * How long a message has been waiting, as the one number this screen exists to
@@ -236,6 +249,253 @@ function jobExplanation(
     return "The row is leased but Redis holds no job for it. Retention removal, a finished job and a lost one look the same here.";
   }
   return "This row is finished, and its job was removed when it ended.";
+}
+
+/**
+ * The decision that produced this row, and the conversation the writer was
+ * looking at when it made it.
+ *
+ * The queue answers «has this arrived». The log answers the question an
+ * operator asks next and could not answer at all until now: «why was this
+ * written, and what did the system think was going on». It is durable
+ * PostgreSQL, written in the same transaction as the outbox row, so it sits
+ * beside the row's own facts rather than with the live job read.
+ */
+export type OutboundDecisionLog =
+  NonNullable<FeedbackOutboxMessageDeliveryDtoOutputLog>;
+
+/**
+ * What the pane says for a row enqueued before `message_outbox_log` existed.
+ *
+ * Stated rather than hidden. An empty section teaches an operator that the
+ * decision log is unreliable; this says the record is simply older than the
+ * table, which is a fact about the row and not about the system today.
+ */
+export const OUTBOX_LOG_ABSENT_COPY =
+  "This row was queued before the decision log existed, so nothing was recorded about why it was sent or what the conversation looked like at the time.";
+
+/** One labelled fact of the log, rendered in the pane's own detail rows. */
+export interface OutboundLogFact {
+  /** Unique within its group, so it doubles as the React key. */
+  label: string;
+  value: string;
+}
+
+const OUTBOUND_ORIGIN_LABELS: Record<
+  FeedbackOutboxMessageDeliveryDtoOutputLogOrigin,
+  string
+> = {
+  extraction_reply: "Model reply",
+  extraction_fallback_fence: "Fallback fence",
+  extraction_fallback_ack: "Fallback acknowledgement",
+  extraction_parked_notice: "Parked notice",
+  stop_ack: "STOP acknowledgement",
+  media_notice: "Media notice",
+  staff_message: "Staff message",
+  campaign_intro: "Campaign intro",
+  reminder: "Reminder",
+};
+
+export function outboundOriginLabel(
+  origin: FeedbackOutboxMessageDeliveryDtoOutputLogOrigin,
+): string {
+  return OUTBOUND_ORIGIN_LABELS[origin];
+}
+
+/**
+ * Why extraction gave up, in the operator's words.
+ *
+ * The cause is free text in the log on purpose — the record has to survive the
+ * extractor renaming its own classes — so an unrecognised cause is passed
+ * through verbatim instead of being flattened into «unknown». `unknown` itself
+ * is the extractor's own word for a failure that matched no class, which is the
+ * same «άγνωστο» this screen already uses for a fact nobody can recover.
+ */
+const EXTRACTION_CAUSE_TEXT: Record<string, string> = {
+  provider_refusal: "the provider declined to answer",
+  provider_error: "the provider was unreachable or erroring",
+  validation_failed: "no response satisfied the agreed schema",
+  unknown: "άγνωστο — the failure matched no known class",
+};
+
+function extractionCauseText(cause: string): string {
+  return EXTRACTION_CAUSE_TEXT[cause] ?? cause;
+}
+
+const GOAL_STATUSES: readonly FeedbackConversationDetailDtoOutputGoalsItemStatus[] =
+  ["pending", "asked", "answered", "skipped"];
+
+/** The inbox's own goal vocabulary, tolerant of a status the log outlived. */
+function goalStatusText(status: string): string {
+  const known = GOAL_STATUSES.find((candidate) => candidate === status);
+  return known === undefined
+    ? status
+    : goalStatusBadge(known).label.toLowerCase();
+}
+
+function goalKeyText(key: string): string {
+  const known = QUESTION_KEYS.find((candidate) => candidate === key);
+  return known === undefined ? key : questionLabel(known);
+}
+
+/**
+ * Goals as counts — «2 answered · 1 not asked» — rather than one row per goal.
+ *
+ * Four goals spelled out one per line would be the largest block in a pane
+ * whose subject is a delivery, for a fact the conversation screen owns in full.
+ * The counts are what say whether the questionnaire was under way.
+ */
+function summarizeGoals(goals: readonly { status: string }[]): string {
+  if (goals.length === 0) {
+    return "none";
+  }
+  const counts = new Map<string, number>();
+  for (const goal of goals) {
+    const text = goalStatusText(goal.status);
+    counts.set(text, (counts.get(text) ?? 0) + 1);
+  }
+  return [...counts].map(([text, count]) => `${count} ${text}`).join(" · ");
+}
+
+function decisionDetailFacts(
+  decision: FeedbackOutboxMessageDeliveryDtoOutputLogDecision,
+): OutboundLogFact[] {
+  switch (decision.origin) {
+    case "extraction_reply": {
+      const facts: OutboundLogFact[] = [
+        { label: "Model", value: decision.model },
+        {
+          label: "Confidence",
+          value:
+            decision.confidence === null
+              ? "not reported"
+              : `${Math.round(decision.confidence * 100)}%`,
+        },
+        {
+          label: "Asked",
+          value:
+            decision.askedGoal === null
+              ? "nothing — it asked no question"
+              : goalKeyText(decision.askedGoal),
+        },
+      ];
+      if (decision.closingReason !== null) {
+        facts.push({
+          label: "Closed the thread",
+          value: lifecycleBadge({
+            state: "closed",
+            reason: decision.closingReason,
+          }).label,
+        });
+      }
+      facts.push({
+        label: "Goals it recorded",
+        value: summarizeGoals(decision.goalStatuses),
+      });
+      return facts;
+    }
+    case "extraction_fallback_fence":
+    case "extraction_fallback_ack":
+    case "extraction_parked_notice":
+      return [{ label: "Cause", value: extractionCauseText(decision.cause) }];
+    case "stop_ack":
+    case "media_notice":
+      return [
+        { label: "From inbound message", value: decision.sourceIngressId },
+      ];
+    case "staff_message":
+      return [{ label: "Written by", value: decision.staffActorId }];
+    case "campaign_intro":
+      return [
+        {
+          label: "Conversation",
+          value: decision.conversationCreated
+            ? "created with this message"
+            : "already existed",
+        },
+      ];
+    case "reminder":
+      return [{ label: "Rung", value: String(decision.rung) }];
+  }
+}
+
+/**
+ * What was decided, in the order an operator reads it: what wrote this, what
+ * that decision turned on, when it was recorded and the id that ties it to the
+ * backend's own logs.
+ */
+export function outboundDecisionFacts(
+  log: OutboundDecisionLog,
+  now: Date = new Date(),
+): OutboundLogFact[] {
+  return [
+    { label: "Origin", value: outboundOriginLabel(log.origin) },
+    ...decisionDetailFacts(log.decision),
+    { label: "Recorded", value: formatTimestamp(log.createdAt, now) },
+    { label: "Correlation id", value: log.correlationId },
+  ];
+}
+
+const CONTROL_SOURCE_TEXT: Record<
+  FeedbackOutboxMessageDeliveryDtoOutputLogConversationStateControlSource,
+  string
+> = {
+  launch: "since launch",
+  staff_action: "after a staff action",
+  external_outbound: "after an outbound message from elsewhere",
+};
+
+function attentionText(
+  state: FeedbackOutboxMessageDeliveryDtoOutputLogConversationState,
+): string {
+  const flagged =
+    state.needsAttention || state.unresolvedAttentionCount > 0
+      ? `Flagged (${state.unresolvedAttentionCount} unresolved)`
+      : null;
+  if (flagged === null) {
+    return state.awaitingHuman ? "Waiting on a person" : "None";
+  }
+  return state.awaitingHuman ? `${flagged} · waiting on a person` : flagged;
+}
+
+/**
+ * The conversation as the writer saw it, which is not the same thing as the
+ * conversation now — the snapshot is taken from the document the decision was
+ * made against, before that run's own effects were applied. That is exactly
+ * what makes it worth keeping: it is the only record of what the system
+ * believed at the moment it chose to send this.
+ */
+export function outboundConversationStateFacts(
+  state: FeedbackOutboxMessageDeliveryDtoOutputLogConversationState,
+): OutboundLogFact[] {
+  return [
+    { label: "Lifecycle", value: lifecycleBadge(state.lifecycle).label },
+    {
+      label: "Control",
+      value: `${controlLabel(state.control.mode)} ${CONTROL_SOURCE_TEXT[state.control.source]}`,
+    },
+    { label: "Goals", value: summarizeGoals(state.goals) },
+    { label: "Attention", value: attentionText(state) },
+    {
+      label: "Messages",
+      value:
+        state.latestMessageSeq === null
+          ? String(state.messageCount)
+          : `${state.messageCount}, latest #${state.latestMessageSeq}`,
+    },
+    {
+      label: "Extraction cursor",
+      value:
+        state.extractionCursorSeq === 0
+          ? "nothing read yet"
+          : `#${state.extractionCursorSeq}`,
+    },
+    {
+      label: "Reminders",
+      value:
+        state.reminderCount === 0 ? "none sent" : `${state.reminderCount} sent`,
+    },
+  ];
 }
 
 export interface OutboxQueueSummary {

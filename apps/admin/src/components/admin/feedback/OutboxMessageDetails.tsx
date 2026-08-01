@@ -5,7 +5,9 @@ import {
   ExternalLink,
   FileClock,
   MessageSquareDashed,
+  MessagesSquare,
   Route,
+  ScrollText,
   ServerCog,
 } from "lucide-react";
 import { useId, type ReactNode } from "react";
@@ -16,7 +18,10 @@ import { formatTimestamp } from "../../../features/feedback/conversationView";
 import {
   deliverJobLines,
   formatWaiting,
+  outboundConversationStateFacts,
+  outboundDecisionFacts,
   outboxKindLabel,
+  OUTBOX_LOG_ABSENT_COPY,
 } from "../../../features/feedback/outboxQueue";
 import { JtsLiveIndicator } from "../../ui/JtsLiveIndicator";
 
@@ -72,9 +77,12 @@ function FactRow({ label, value }: { label: string; value: string | null }) {
  * What has happened to one outbound message.
  *
  * Two halves, kept visibly apart because their reliability is not the same.
- * PostgreSQL's half is durable and complete. The queue's half is a live read of
- * a job that exists only while it is queued or running — delivery jobs carry
- * `attempts: 1` with immediate `removeOnComplete` / `removeOnFail` — so it says
+ * PostgreSQL's half is durable and complete — the row's own facts, then the
+ * decision that wrote it and the conversation state that decision was made
+ * against, which is the only record of why this message exists at all. The
+ * queue's half is a live read of a job that exists only while it is queued or
+ * running — delivery jobs carry `attempts: 1` with immediate
+ * `removeOnComplete` / `removeOnFail` — so it says
  * «άγνωστο» whenever the job is gone and states which indistinguishable
  * situations produced that, instead of dressing absence up as a verdict.
  *
@@ -155,6 +163,45 @@ export function OutboxMessageDetails({
             />
           </dl>
         </DetailSection>
+
+        {/* Durable PostgreSQL, written in the same transaction as the row, so
+            it belongs on this side of the pane's reliability line — beside the
+            row's own facts and above the live queue read. */}
+        <DetailSection icon={ScrollText} title="Why this was sent">
+          {message.log === null ? (
+            <p className="text-sm text-ink-muted">{OUTBOX_LOG_ABSENT_COPY}</p>
+          ) : (
+            <dl className="m-0 divide-y divide-border-subtle">
+              {outboundDecisionFacts(message.log).map((fact) => (
+                <FactRow
+                  key={fact.label}
+                  label={fact.label}
+                  value={fact.value}
+                />
+              ))}
+            </dl>
+          )}
+        </DetailSection>
+
+        {message.log === null ? null : (
+          <DetailSection icon={MessagesSquare} title="Conversation as it stood">
+            <dl className="m-0 divide-y divide-border-subtle">
+              {outboundConversationStateFacts(
+                message.log.conversationState,
+              ).map((fact) => (
+                <FactRow
+                  key={fact.label}
+                  label={fact.label}
+                  value={fact.value}
+                />
+              ))}
+            </dl>
+            <p className="mt-3 text-xs text-ink-subtle">
+              What the writer saw when it queued this message — not what the
+              conversation looks like now.
+            </p>
+          </DetailSection>
+        )}
 
         <DetailSection icon={ServerCog} title="Delivery job">
           <div

@@ -52,7 +52,37 @@ interface TestMessage {
   };
 }
 
+interface TestConversationState {
+  lifecycle: { state: "open" | "closed"; reason: string | null };
+  control: { mode: "bot" | "human"; source: string };
+  awaitingHuman: boolean;
+  needsAttention: boolean;
+  unresolvedAttentionCount: number;
+  goals: { key: string; status: string }[];
+  messageCount: number;
+  latestMessageSeq: number | null;
+  extractionCursorSeq: number;
+  reminderCount: number;
+}
+
+interface TestLog {
+  origin: string;
+  correlationId: string;
+  createdAt: string;
+  decision: { origin: string } & Record<string, unknown>;
+  conversationState: TestConversationState;
+}
+
+interface TestFact {
+  label: string;
+  value: string;
+}
+
 interface OutboxQueueModule {
+  OUTBOX_LOG_ABSENT_COPY: string;
+  outboundOriginLabel: (origin: string) => string;
+  outboundDecisionFacts: (log: TestLog, now?: Date) => TestFact[];
+  outboundConversationStateFacts: (state: TestConversationState) => TestFact[];
   OUTBOX_WAITING_SLOW_SECONDS: number;
   OUTBOX_WAITING_STALLED_SECONDS: number;
   outboxWaitingTone: (item: {
@@ -148,6 +178,54 @@ function message(overrides: Partial<TestMessage> = {}): TestMessage {
     },
     ...overrides,
   };
+}
+
+function conversationState(
+  overrides: Partial<TestConversationState> = {},
+): TestConversationState {
+  return {
+    lifecycle: { state: "open", reason: null },
+    control: { mode: "bot", source: "launch" },
+    awaitingHuman: false,
+    needsAttention: false,
+    unresolvedAttentionCount: 0,
+    goals: [
+      { key: "event_score", status: "answered" },
+      { key: "liked", status: "asked" },
+      { key: "meet_again", status: "pending" },
+      { key: "avoid", status: "pending" },
+    ],
+    messageCount: 4,
+    latestMessageSeq: 6,
+    extractionCursorSeq: 5,
+    reminderCount: 0,
+    ...overrides,
+  };
+}
+
+function log(overrides: Partial<TestLog> = {}): TestLog {
+  return {
+    origin: "extraction_reply",
+    correlationId: "req-71c",
+    createdAt: "2026-07-27T11:40:58.000Z",
+    decision: {
+      origin: "extraction_reply",
+      model: "google/gemini-2.5-flash",
+      confidence: 0.84,
+      closingReason: null,
+      askedGoal: "liked",
+      goalStatuses: [
+        { key: "event_score", status: "answered" },
+        { key: "liked", status: "asked" },
+      ],
+    },
+    conversationState: conversationState(),
+    ...overrides,
+  };
+}
+
+function factValue(facts: TestFact[], label: string): string | undefined {
+  return facts.find((fact) => fact.label === label)?.value;
 }
 
 describe("age is the number that matters", () => {
@@ -353,6 +431,162 @@ describe("the delivery job, honestly", () => {
         message({ status: "sending", deliveryStatus: "error" }),
       ).tone,
     ).toBe("danger");
+  });
+});
+
+describe("why the row was written", () => {
+  it("names what wrote the row and the numbers the model itself reported", () => {
+    const facts = outbox.outboundDecisionFacts(
+      log(),
+      new Date("2026-07-27T11:41:00.000Z"),
+    );
+
+    expect(factValue(facts, "Origin")).toBe("Model reply");
+    expect(factValue(facts, "Model")).toBe("google/gemini-2.5-flash");
+    expect(factValue(facts, "Confidence")).toBe("84%");
+    // The goal key is spoken in the inbox's own question vocabulary.
+    expect(factValue(facts, "Asked")).toBe("Liked");
+    expect(factValue(facts, "Goals it recorded")).toBe(
+      "1 answered · 1 awaiting reply",
+    );
+    expect(factValue(facts, "Correlation id")).toBe("req-71c");
+    expect(factValue(facts, "Recorded")).not.toBe("—");
+  });
+
+  it("does not invent a confidence the model never reported", () => {
+    const facts = outbox.outboundDecisionFacts(
+      log({
+        decision: {
+          origin: "extraction_reply",
+          model: "google/gemini-2.5-flash",
+          confidence: null,
+          closingReason: "completed",
+          askedGoal: null,
+          goalStatuses: [],
+        },
+      }),
+    );
+
+    expect(factValue(facts, "Confidence")).toBe("not reported");
+    expect(factValue(facts, "Asked")).toContain("asked no question");
+    expect(factValue(facts, "Closed the thread")).toBe("Completed");
+    expect(factValue(facts, "Goals it recorded")).toBe("none");
+  });
+
+  it("names each origin an operator can meet, with what that origin turned on", () => {
+    expect(outbox.outboundOriginLabel("staff_message")).toBe("Staff message");
+    expect(outbox.outboundOriginLabel("extraction_parked_notice")).toBe(
+      "Parked notice",
+    );
+
+    expect(
+      factValue(
+        outbox.outboundDecisionFacts(
+          log({
+            origin: "reminder",
+            decision: { origin: "reminder", rung: 2 },
+          }),
+        ),
+        "Rung",
+      ),
+    ).toBe("2");
+    expect(
+      factValue(
+        outbox.outboundDecisionFacts(
+          log({
+            origin: "campaign_intro",
+            decision: { origin: "campaign_intro", conversationCreated: true },
+          }),
+        ),
+        "Conversation",
+      ),
+    ).toBe("created with this message");
+  });
+
+  it("passes an unrecognised failure cause through instead of flattening it", () => {
+    // The log stores the cause as free text so the audit record survives the
+    // extractor renaming its classes. A cause this screen has never heard of is
+    // still the truest thing it can print.
+    const known = outbox.outboundDecisionFacts(
+      log({
+        origin: "extraction_fallback_ack",
+        decision: {
+          origin: "extraction_fallback_ack",
+          cause: "provider_refusal",
+        },
+      }),
+    );
+    expect(factValue(known, "Cause")).toBe("the provider declined to answer");
+
+    const drifted = outbox.outboundDecisionFacts(
+      log({
+        origin: "extraction_fallback_fence",
+        decision: {
+          origin: "extraction_fallback_fence",
+          cause: "quota_exhausted",
+        },
+      }),
+    );
+    expect(factValue(drifted, "Cause")).toBe("quota_exhausted");
+  });
+
+  it("reports the conversation as the writer saw it, not as it is now", () => {
+    const facts = outbox.outboundConversationStateFacts(conversationState());
+
+    expect(factValue(facts, "Lifecycle")).toBe("Open");
+    expect(factValue(facts, "Control")).toBe("Bot control since launch");
+    expect(factValue(facts, "Goals")).toBe(
+      "1 answered · 1 awaiting reply · 2 not asked",
+    );
+    expect(factValue(facts, "Attention")).toBe("None");
+    expect(factValue(facts, "Messages")).toBe("4, latest #6");
+    expect(factValue(facts, "Extraction cursor")).toBe("#5");
+    expect(factValue(facts, "Reminders")).toBe("none sent");
+  });
+
+  it("says what was waiting on a person and how much of it was unresolved", () => {
+    const facts = outbox.outboundConversationStateFacts(
+      conversationState({
+        lifecycle: { state: "closed", reason: "stopped" },
+        control: { mode: "human", source: "staff_action" },
+        awaitingHuman: true,
+        needsAttention: true,
+        unresolvedAttentionCount: 2,
+        messageCount: 0,
+        latestMessageSeq: null,
+        extractionCursorSeq: 0,
+        reminderCount: 1,
+      }),
+    );
+
+    expect(factValue(facts, "Lifecycle")).toBe("Stopped");
+    expect(factValue(facts, "Control")).toBe(
+      "Human control after a staff action",
+    );
+    expect(factValue(facts, "Attention")).toBe(
+      "Flagged (2 unresolved) · waiting on a person",
+    );
+    expect(factValue(facts, "Messages")).toBe("0");
+    expect(factValue(facts, "Extraction cursor")).toBe("nothing read yet");
+    expect(factValue(facts, "Reminders")).toBe("1 sent");
+  });
+
+  it("states that an old row predates the log instead of showing an empty section", () => {
+    // Hiding the section would teach an operator that the decision log is
+    // unreliable. The row is simply older than the table.
+    expect(outbox.OUTBOX_LOG_ABSENT_COPY).toContain(
+      "before the decision log existed",
+    );
+
+    const details = readAdminFile(
+      "src/components/admin/feedback/OutboxMessageDetails.tsx",
+    );
+    expect(details).toContain("OUTBOX_LOG_ABSENT_COPY");
+    expect(details).toContain("message.log === null");
+    // The decision is durable PostgreSQL, so it sits above the live queue read.
+    expect(details.indexOf("Why this was sent")).toBeLessThan(
+      details.indexOf('title="Delivery job"'),
+    );
   });
 });
 
