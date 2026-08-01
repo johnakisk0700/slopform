@@ -39,22 +39,23 @@ consumer needs them.
 
 ## Product and route boundary
 
-| Route                                 | Behavior                                                       | Indexing                |
-| ------------------------------------- | -------------------------------------------------------------- | ----------------------- |
-| `/sign-in/*`                          | Clerk sign-in with explicit loading and service-failure states | `noindex, nofollow`     |
-| `/`                                   | Protected redirect to `/admin` (`<Navigate replace>`)          | Inherits private policy |
-| `/admin`                              | Clerk session plus backend admin check, then operations shell  | `noindex, nofollow`     |
-| `/admin/assistant`                    | Protected new AI conversation in the admin shell               | `noindex, nofollow`     |
-| `/admin/assistant/:threadId`          | Exact durable assistant thread resume                          | `noindex, nofollow`     |
-| `/admin/events`                       | Stub event list and create                                     | `noindex, nofollow`     |
-| `/admin/events/:eventId`              | Event edit, status transitions and attendance                  | `noindex, nofollow`     |
-| `/admin/participants`                 | Participant list and feedback WhatsApp opt-in                  | `noindex, nofollow`     |
-| `/admin/participants/:id`             | Participant profile, opt-in chip/toggle and dinner history     | `noindex, nofollow`     |
-| `/admin/feedback`                     | Feedback campaign picker (open a campaign, or launch one)      | `noindex, nofollow`     |
-| `/admin/feedback/:campaignId`         | Three-pane post-event feedback conversation inbox              | `noindex, nofollow`     |
-| `/admin/feedback/:campaignId/results` | Campaign answers and notes                                     | `noindex, nofollow`     |
-| `/admin/outbound`                     | Outbound feedback messages still waiting, with their job state | `noindex, nofollow`     |
-| `*`                                   | Standalone 404 (`routes/ErrorPage.tsx`)                        | Inherits private policy |
+| Route                                 | Behavior                                                                                                                                                              | Indexing                |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| `/sign-in/*`                          | Clerk sign-in with explicit loading and service-failure states                                                                                                        | `noindex, nofollow`     |
+| `/`                                   | Protected redirect to `/admin` (`<Navigate replace>`)                                                                                                                 | Inherits private policy |
+| `/admin`                              | Clerk session plus backend admin check, then operations shell                                                                                                         | `noindex, nofollow`     |
+| `/admin/assistant`                    | Protected new AI conversation in the admin shell                                                                                                                      | `noindex, nofollow`     |
+| `/admin/assistant/:threadId`          | Exact durable assistant thread resume                                                                                                                                 | `noindex, nofollow`     |
+| `/admin/events`                       | Stub event list and create                                                                                                                                            | `noindex, nofollow`     |
+| `/admin/events/:eventId`              | Event edit, status transitions and attendance                                                                                                                         | `noindex, nofollow`     |
+| `/admin/participants`                 | Participant list and feedback WhatsApp opt-in                                                                                                                         | `noindex, nofollow`     |
+| `/admin/participants/:id`             | Participant profile, opt-in chip/toggle and dinner history                                                                                                            | `noindex, nofollow`     |
+| `/admin/feedback`                     | Feedback campaign picker (open a campaign, or launch one)                                                                                                             | `noindex, nofollow`     |
+| `/admin/feedback/:campaignId`         | Three-pane post-event feedback conversation inbox                                                                                                                     | `noindex, nofollow`     |
+| `/admin/feedback/:campaignId/results` | Campaign answers and notes                                                                                                                                            | `noindex, nofollow`     |
+| `/admin/outbound`                     | Outbound feedback messages still waiting, with their job state                                                                                                        | `noindex, nofollow`     |
+| `/admin/cookbook`                     | **Development builds only** — the visual vocabulary gallery ([contract](frontend/admin-cookbook.md)); gated on `import.meta.env.DEV`, so production has no such route | `noindex, nofollow`     |
+| `*`                                   | Standalone 404 (`routes/ErrorPage.tsx`)                                                                                                                               | Inherits private policy |
 
 Do not add `/join`, `/register`, `/feedback`, marketing or public legal routes
 to this application. They belong in the existing Next.js public product. A

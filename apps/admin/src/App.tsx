@@ -70,6 +70,20 @@ const FeedbackMechanismPage = lazy(async () => {
   return { default: module.FeedbackMechanismPage };
 });
 
+/**
+ * The cookbook gallery — development only, and gated so production never ships
+ * it. `import.meta.env.DEV` is a literal Vite replaces with `false` when it
+ * builds, so the whole branch (and with it the only `import()` of the module)
+ * is dead code the bundler removes: no route, no nav row, no chunk. This is
+ * the gate, not a convention — do not reach for a runtime flag instead.
+ */
+const CookbookPage = import.meta.env.DEV
+  ? lazy(async () => {
+      const module = await import("./routes/CookbookPage");
+      return { default: module.CookbookPage };
+    })
+  : null;
+
 function LazyAdminRoute({ children }: { children: ReactNode }) {
   return (
     <Suspense
@@ -208,6 +222,18 @@ function AppRoutes() {
               </LazyAdminRoute>
             }
           />
+          {/* `createRoutesFromChildren` skips non-elements, so this collapses to
+              nothing in a production build rather than to a broken route. */}
+          {CookbookPage ? (
+            <Route
+              path="cookbook"
+              element={
+                <LazyAdminRoute>
+                  <CookbookPage />
+                </LazyAdminRoute>
+              }
+            />
+          ) : null}
         </Route>
       </Route>
       <Route path="*" element={<ErrorPage />} />

@@ -98,12 +98,18 @@ function FactRow({
  * id. It is a hairline and a sunken fill and nothing more — enough for the eye
  * to find the times in a stack of facts without reading them, not enough to
  * outweigh the fact itself.
+ *
+ * Exported because the dev-only cookbook page is its second consumer.
  */
-const FACT_PILL =
+export const FACT_PILL =
   "inline-flex items-center gap-1.5 rounded-sm border border-border-subtle bg-surface-sunken px-1.5 py-px font-mono text-xs text-ink";
 
-/** An already-formatted time, in the pane's own pill. */
-function TimestampPill({ text }: { text: string }) {
+/**
+ * An already-formatted time, in the pane's own pill.
+ *
+ * Exported because the dev-only cookbook page is its second consumer.
+ */
+export function TimestampPill({ text }: { text: string }) {
   return <span className={clsx(FACT_PILL, "whitespace-nowrap")}>{text}</span>;
 }
 
@@ -130,8 +136,10 @@ function factTime(iso: string | null): ReactNode {
  * percentage beside it is the fact and a reader should meet it once. A model
  * that reported nothing keeps the words and gets no track: an empty bar would
  * read as zero confidence, which is a different and much stronger claim.
+ *
+ * Exported because the dev-only cookbook page is its second consumer.
  */
-function ConfidenceValue({
+export function ConfidenceValue({
   text,
   ratio,
 }: {

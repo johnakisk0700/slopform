@@ -10,6 +10,7 @@ import {
   Send,
   SendHorizontal,
   Shield,
+  SwatchBook,
   Ticket,
   Users,
 } from "lucide-react";
@@ -47,6 +48,22 @@ const NAV_ITEMS: readonly NavItem[] = [
   { label: "How feedback works", Icon: BookOpen, to: "/admin/docs/feedback" },
 ];
 
+/**
+ * Development-only tools, below the product areas and outside their numbering.
+ *
+ * `import.meta.env.DEV` is a literal Vite replaces with `false` when it builds,
+ * so in production this is an empty array and the whole block below — row,
+ * icon, label and divider — is dead code the bundler removes. It matches the
+ * gate `App.tsx` puts on the route itself; a nav row that survived the route
+ * would be a link to the 404 screen.
+ *
+ * They are unnumbered on purpose: the numerals index the areas of the product,
+ * and an instrument for reading the design tokens is not one of them.
+ */
+const DEV_NAV_ITEMS: readonly NavItem[] = import.meta.env.DEV
+  ? [{ label: "Cookbook", Icon: SwatchBook, to: "/admin/cookbook" }]
+  : [];
+
 interface NavVariantStyles {
   /** Idle text tone + the enabled hover treatment. */
   link: string;
@@ -57,6 +74,8 @@ interface NavVariantStyles {
   activeIndex: string;
   iconIdle: string;
   soon: string;
+  /** Hairline above a trailing group, in this surface's own border tone. */
+  divider: string;
 }
 
 const VARIANTS: Record<NavVariant, NavVariantStyles> = {
@@ -68,6 +87,7 @@ const VARIANTS: Record<NavVariant, NavVariantStyles> = {
     activeIndex: "font-extrabold text-sidebar-active-index opacity-100",
     iconIdle: "opacity-75",
     soon: "text-sidebar-fg-muted",
+    divider: "border-sidebar-border",
   },
   drawer: {
     link: "text-ink-muted",
@@ -77,6 +97,7 @@ const VARIANTS: Record<NavVariant, NavVariantStyles> = {
     activeIndex: "font-extrabold text-primary opacity-100",
     iconIdle: "opacity-80",
     soon: "text-ink-muted",
+    divider: "border-border",
   },
 };
 
@@ -93,6 +114,79 @@ interface AdminNavigationProps {
   variant?: NavVariant;
   /** Fired after a link is followed — the drawer uses it to close itself. */
   onNavigate?: () => void;
+}
+
+/**
+ * One navigation row: a link to a shipped destination, or the inert "Soon"
+ * stamp for an area that has none. `numeral` is the row's index in the product
+ * order, or `null` for a row outside that order — which still holds the numeral
+ * column open, so every icon in the landmark stays on one vertical line.
+ */
+function NavRow({
+  item,
+  numeral,
+  styles,
+  onNavigate,
+}: {
+  item: NavItem;
+  numeral: string | null;
+  styles: NavVariantStyles;
+  onNavigate?: (() => void) | undefined;
+}) {
+  const { Icon } = item;
+
+  if (!item.to) {
+    return (
+      <span
+        aria-disabled="true"
+        className={clsx(
+          LINK_BASE,
+          styles.link,
+          "cursor-not-allowed opacity-60",
+        )}
+      >
+        <span aria-hidden="true" className={clsx(INDEX_BASE, styles.index)}>
+          {numeral}
+        </span>
+        <Icon aria-hidden="true" className={clsx(ICON_BASE, styles.iconIdle)} />
+        <span>{item.label}</span>
+        <small className={clsx(SOON_BASE, styles.soon)}>Soon</small>
+      </span>
+    );
+  }
+
+  return (
+    <NavLink
+      to={item.to}
+      end={item.to === "/admin"}
+      onClick={onNavigate}
+      className={({ isActive }) =>
+        clsx(LINK_BASE, styles.hover, isActive ? styles.active : styles.link)
+      }
+    >
+      {({ isActive }) => (
+        <>
+          <span
+            aria-hidden="true"
+            className={clsx(
+              INDEX_BASE,
+              isActive ? styles.activeIndex : styles.index,
+            )}
+          >
+            {numeral}
+          </span>
+          <Icon
+            aria-hidden="true"
+            className={clsx(
+              ICON_BASE,
+              isActive ? "opacity-100" : styles.iconIdle,
+            )}
+          />
+          <span>{item.label}</span>
+        </>
+      )}
+    </NavLink>
+  );
 }
 
 /**
@@ -116,74 +210,37 @@ export function AdminNavigation({
       )}
     >
       <ul className="flex flex-col gap-0.5">
-        {NAV_ITEMS.map((item, position) => {
-          const numeral = String(position + 1).padStart(2, "0");
-          const { Icon } = item;
-
-          return (
-            <li key={item.label}>
-              {item.to ? (
-                <NavLink
-                  to={item.to}
-                  end={item.to === "/admin"}
-                  onClick={onNavigate}
-                  className={({ isActive }) =>
-                    clsx(
-                      LINK_BASE,
-                      styles.hover,
-                      isActive ? styles.active : styles.link,
-                    )
-                  }
-                >
-                  {({ isActive }) => (
-                    <>
-                      <span
-                        aria-hidden="true"
-                        className={clsx(
-                          INDEX_BASE,
-                          isActive ? styles.activeIndex : styles.index,
-                        )}
-                      >
-                        {numeral}
-                      </span>
-                      <Icon
-                        aria-hidden="true"
-                        className={clsx(
-                          ICON_BASE,
-                          isActive ? "opacity-100" : styles.iconIdle,
-                        )}
-                      />
-                      <span>{item.label}</span>
-                    </>
-                  )}
-                </NavLink>
-              ) : (
-                <span
-                  aria-disabled="true"
-                  className={clsx(
-                    LINK_BASE,
-                    styles.link,
-                    "cursor-not-allowed opacity-60",
-                  )}
-                >
-                  <span
-                    aria-hidden="true"
-                    className={clsx(INDEX_BASE, styles.index)}
-                  >
-                    {numeral}
-                  </span>
-                  <Icon
-                    aria-hidden="true"
-                    className={clsx(ICON_BASE, styles.iconIdle)}
-                  />
-                  <span>{item.label}</span>
-                  <small className={clsx(SOON_BASE, styles.soon)}>Soon</small>
-                </span>
-              )}
-            </li>
-          );
-        })}
+        {NAV_ITEMS.map((item, position) => (
+          <li key={item.label}>
+            <NavRow
+              item={item}
+              numeral={String(position + 1).padStart(2, "0")}
+              styles={styles}
+              onNavigate={onNavigate}
+            />
+          </li>
+        ))}
       </ul>
+
+      {DEV_NAV_ITEMS.length > 0 ? (
+        <div className={clsx("mt-3 border-t pt-3", styles.divider)}>
+          <p className={clsx("mb-1 px-3 jts-overline", styles.soon)}>
+            Development
+          </p>
+          <ul className="flex flex-col gap-0.5">
+            {DEV_NAV_ITEMS.map((item) => (
+              <li key={item.label}>
+                <NavRow
+                  item={item}
+                  numeral={null}
+                  styles={styles}
+                  onNavigate={onNavigate}
+                />
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </nav>
   );
 }

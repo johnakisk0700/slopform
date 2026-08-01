@@ -141,6 +141,20 @@ default Tailwind palette classes (`bg-red-500`, `text-slate-600`, …), no inlin
 style colours. That is the "shenanigan" this base exists to prevent — if a needed
 semantic doesn't exist, add a token, don't hardcode.
 
+### Auditing changes
+
+Every claim above is checkable on one screen. `/admin/cookbook` renders the whole
+vocabulary — each swatch painted by the utility it names, each HeroUI and `Jts*`
+specimen the real component — so a token or bridge edit can be judged in one
+place instead of by touring the product and hoping the tour covered it. Make the
+change, read the page, then flip **Appearance** in the operator menu and read it
+again; there is no side-by-side dark preview, because the `dark` class is the
+only theme signal and a faked second theme would be the one thing there that
+cannot be trusted. The page is gated on `import.meta.env.DEV`, so production
+never ships it. New vocabulary — a token, a bridge utility, a badge tone, a
+`Jts*` component — is added to it in the same change. See
+[the cookbook contract](admin-cookbook.md).
+
 ## Typography
 
 Manrope (variable, `@fontsource-variable/manrope/wght.css`) is the only family:
@@ -191,6 +205,9 @@ continuity or state change and never carries status by itself.
 - `apps/admin/test/delivery-shell.spec.ts` — the `index.html` shell: pre-paint
   theme script, unindexed robots meta, and the focusable `#main-content`
   landmark fallback.
+- `apps/admin/test/cookbook.spec.ts` — the audit surface: both
+  `import.meta.env.DEV` gates, that the gallery names only tokens that exist in
+  `tokens.css`, and that it carries no literal colour of its own.
 
 ## References
 
