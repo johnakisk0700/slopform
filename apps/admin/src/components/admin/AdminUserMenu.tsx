@@ -203,7 +203,10 @@ function AdminUserMenuContent({
               selectionMode="single"
               disallowEmptySelection
               isDetached
-              className="grid grid-cols-2 gap-1"
+              // `w-full` on the group too: HeroUI's group wrapper is
+              // fit-content, so without it the grid packs to its own width
+              // and stops short of the dialog's right edge.
+              className="grid w-full grid-cols-2 gap-1"
               selectedKeys={[palette]}
               onSelectionChange={(keys) => {
                 const [next] = keys;
@@ -213,7 +216,14 @@ function AdminUserMenuContent({
               }}
             >
               {PALETTES.map(({ id, label }) => (
-                <ToggleButton key={id} id={id} className="rounded-md">
+                // `w-full` + centred label: the grid sizes the cells, so each
+                // button must fill its cell or the column edge goes ragged —
+                // the group's `fullWidth` only evens out a single flex row.
+                <ToggleButton
+                  key={id}
+                  id={id}
+                  className="w-full justify-center rounded-md"
+                >
                   {label}
                 </ToggleButton>
               ))}
