@@ -784,7 +784,7 @@ export function CookbookPage() {
         <div className="grid gap-3 lg:grid-cols-2">
           <Specimen
             label="Canvas & surfaces"
-            note="Warm paper in light, warm wine-black in dark. Cards lift by surface, not by shadow."
+            note="Warm oat paper in light, warm espresso in dark — a quiet field either way, so the wine reads as action. Cards lift by surface, not by shadow."
           >
             <SwatchGrid swatches={SURFACE_SWATCHES} />
           </Specimen>
