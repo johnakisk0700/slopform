@@ -70,9 +70,16 @@ export function nextOpenGoal(
 
 /**
  * Records that the outbound this run is about to send is asking a particular
- * goal. No-ops when that goal is already terminal in the update list — an
- * answered or skipped question is not "asked" again just because the model
- * named it.
+ * goal.
+ *
+ * An answered goal stays answered — re-asking something already recorded is
+ * the wrong behaviour, and D16 forbids demoting it. A skipped goal is
+ * different: prompt rule 9δ banks a skip and then poses a hold question about
+ * the same goal on purpose («θέλεις τελικά να σημειώσουμε τον Κώστα ή να
+ * μείνει το "κανέναν";»). Leaving it skipped makes `isCompleting` true under
+ * that live question, so the thanks-only turn that follows closes the
+ * conversation and the confirmation arrives as `post_closure_message`. The
+ * bot re-opened the decision; the ladder must show `asked` again.
  */
 export function withAskedGoal(
   updates: readonly GoalStatusUpdate[],
@@ -83,9 +90,7 @@ export function withAskedGoal(
   }
   if (
     updates.some(
-      (update) =>
-        update.key === askedGoal &&
-        (update.status === "answered" || update.status === "skipped"),
+      (update) => update.key === askedGoal && update.status === "answered",
     )
   ) {
     return [...updates];

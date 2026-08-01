@@ -838,7 +838,7 @@ describe("FeedbackConversationRepository", () => {
     );
   });
 
-  it("advances goal statuses monotonically and never reopens an answer", async () => {
+  it("advances goal statuses and never reopens an answered goal", async () => {
     const conversation = feedbackConversation({
       goals: [
         {
@@ -885,7 +885,72 @@ describe("FeedbackConversationRepository", () => {
       {
         returnDocument: "after",
         arrayFilters: [
-          { "goal0.key": "liked", "goal0.status": { $in: ["pending"] } },
+          {
+            "goal0.key": "liked",
+            // asked is reachable from pending, and from skipped when a hold
+            // question reopens a banked decline (WP-9δ).
+            "goal0.status": { $in: ["pending", "skipped"] },
+          },
+        ],
+      },
+    );
+  });
+
+  it("reopens a skipped goal to asked when the bot's hold question lands", async () => {
+    // Χαρά / rule 9δ: skip banked, then a question-shaped reply asks about the
+    // same goal. Without this demotion the ladder stays terminal under the
+    // live question and the thanks-only turn closes the conversation.
+    const conversation = feedbackConversation({
+      goals: [
+        {
+          key: "event_score",
+          ordinal: 1,
+          prompt: "score;",
+          status: "answered",
+        },
+        { key: "liked", ordinal: 2, prompt: "liked;", status: "answered" },
+        {
+          key: "meet_again",
+          ordinal: 3,
+          prompt: "meet;",
+          status: "answered",
+        },
+        { key: "avoid", ordinal: 4, prompt: "avoid;", status: "skipped" },
+      ],
+    });
+    const collection = collectionMock({
+      findOne: vi.fn().mockResolvedValue(conversation),
+      findOneAndUpdate: vi.fn().mockResolvedValue({
+        ...conversation,
+        goals: [
+          conversation.goals[0],
+          conversation.goals[1],
+          conversation.goals[2],
+          { ...conversation.goals[3], status: "asked" },
+        ],
+      }),
+    });
+    const repository = createRepository(collection);
+
+    const result = await repository.updateGoalStatuses({
+      conversationId,
+      statuses: [{ key: "avoid", status: "asked" }],
+      at: repliedAt,
+    });
+
+    expect(result.changed).toBe(true);
+    expect(collection.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ _id: conversationId }),
+      expect.objectContaining({
+        $set: { "goals.$[goal0].status": "asked" },
+      }),
+      {
+        returnDocument: "after",
+        arrayFilters: [
+          {
+            "goal0.key": "avoid",
+            "goal0.status": { $in: ["pending", "skipped"] },
+          },
         ],
       },
     );

@@ -34,7 +34,7 @@ import {
   feedbackConversationRespondentSchema,
   feedbackConversationStoredMessageSchema,
   feedbackConversationSummarySchema,
-  goalStatusRank,
+  canTransitionGoalStatus,
   lowerGoalStatuses,
   messageIdentityKeys,
   sortTranscript,
@@ -946,14 +946,16 @@ export class FeedbackConversationRepository {
   }
 
   /**
-   * Advances goal statuses monotonically along
-   * `pending < asked < skipped < answered`.
+   * Advances goal statuses along `pending < asked < skipped < answered`, with
+   * one deliberate demotion: `skipped → asked`.
    *
-   * The rank is the guard that implements D16's "an answered goal is never
-   * auto-reopened": a later run that wants to ask a question again cannot
-   * downgrade a recorded answer, however confident the model is. A goal that
-   * was skipped may still be answered if the participant changes their mind,
-   * because that direction adds a fact rather than discarding one.
+   * The rank still implements D16's "an answered goal is never auto-reopened":
+   * a later run cannot demote a recorded answer back to a question, however
+   * confident the model is. A skipped goal may still become answered when the
+   * participant changes their mind (that adds a fact). It may also become
+   * `asked` again when a *sent* question-shaped reply carries `askedGoal` for
+   * it — the bot re-opened the decision on purpose (WP-9δ / rule 9δ hold
+   * question); leaving it skipped closes the conversation under that question.
    */
   async updateGoalStatuses(input: {
     readonly conversationId: string;
@@ -973,7 +975,7 @@ export class FeedbackConversationRepository {
       );
       return (
         goal !== undefined &&
-        goalStatusRank(entry.status) > goalStatusRank(goal.status)
+        canTransitionGoalStatus(goal.status, entry.status)
       );
     });
     if (statuses.length === 0) {

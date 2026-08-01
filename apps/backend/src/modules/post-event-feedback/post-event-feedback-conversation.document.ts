@@ -744,9 +744,9 @@ export function feedbackConversationFilter(
 }
 
 /**
- * Goal progress is a monotonic ladder. `answered` outranks `skipped` so a
- * participant who changes their mind can still be recorded, while nothing
- * demotes a recorded answer back to a question the bot would ask again.
+ * Goal progress is mostly a monotonic ladder. `answered` outranks everything
+ * and never demotes — D16. `skipped → asked` is the one deliberate step down:
+ * a sent hold question re-opens a skip the bot itself just banked (WP-9δ).
  */
 const GOAL_STATUS_RANK: Record<FeedbackConversationGoal["status"], number> = {
   pending: 0,
@@ -778,13 +778,37 @@ export function goalStatusRank(
   return GOAL_STATUS_RANK[status];
 }
 
+/**
+ * Whether a goal may move from `from` to `to`.
+ *
+ * Rank-up is always allowed. The sole demotion is `skipped → asked`: the bot
+ * re-opened a decline with a question-shaped reply (`askedGoal` on a sent
+ * outbound). `answered → *` never succeeds — a recorded answer is not a
+ * question again.
+ */
+export function canTransitionGoalStatus(
+  from: FeedbackConversationGoal["status"],
+  to: FeedbackConversationGoal["status"],
+): boolean {
+  if (from === to) {
+    return false;
+  }
+  if (from === "skipped" && to === "asked") {
+    return true;
+  }
+  return goalStatusRank(to) > goalStatusRank(from);
+}
+
+/**
+ * Statuses the Mongo array filter accepts when writing `status` — every prior
+ * state `canTransitionGoalStatus` allows, including the skipped→asked reopen.
+ */
 export function lowerGoalStatuses(
   status: FeedbackConversationGoal["status"],
 ): FeedbackConversationGoal["status"][] {
-  const rank = goalStatusRank(status);
   return (
     Object.keys(GOAL_STATUS_RANK) as FeedbackConversationGoal["status"][]
-  ).filter((candidate) => goalStatusRank(candidate) < rank);
+  ).filter((candidate) => canTransitionGoalStatus(candidate, status));
 }
 
 export interface AppendFeedbackConversationMessageInput {

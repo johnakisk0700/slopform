@@ -49,6 +49,7 @@ const respondentId = "9f3c1a52-6e2b-4b4a-9a17-2cb2a6d13a55";
 const conversationId = "6f0f2f8a-2b73-5a02-9d0a-3f0b8f5b1c21";
 const nikos = "1b0a2f1c-2d3e-4f50-8a91-0b2c3d4e5f60";
 const eleni = "2c1b3a2d-3e4f-5061-9b02-1c3d4e5f6071";
+const kostas = "3d2c4b3e-4f50-6172-ac13-2d4e5f607182";
 const correlationId = "correlation-1";
 const model = "google/gemini-3.6-flash";
 
@@ -924,6 +925,205 @@ describe("PostEventFeedbackExtractor", () => {
         true,
       );
       expect(harness.alert.raised).toHaveLength(1);
+    });
+
+    it("keeps avoid open under the 9δ hold question so thanks-only cannot close", async () => {
+      // Χαρά Παραπεντού (wine_discloses_at_the_finish_line), paid rehearsal
+      // run 17: one message declines avoid and describes an incident; the model
+      // banks the skip, keeps the note, and asks whether to mark him. Her
+      // thanks-only reply then found every goal terminal (avoid still skipped),
+      // closed completed, and her «ναι, σημειώστε τον» arrived post-closure.
+      // The hold question must reopen avoid to asked so closingNow stays false.
+      const holdQuestion =
+        'θέλεις τελικά να σημειώσουμε τον Κώστα ή να μείνει το "κανέναν";';
+      harness.events.listFeedbackCandidatesForRespondent.mockResolvedValue({
+        items: [
+          { participantId: nikos, displayName: "Νίκος" },
+          { participantId: eleni, displayName: "Ελένη" },
+          { participantId: kostas, displayName: "Κώστας Μυτοχωνάκιας" },
+        ],
+      });
+      harness.conversations.setAllGoals(conversationId, "answered");
+      harness.conversations.setGoal(conversationId, "avoid", "asked");
+      for (const row of [
+        {
+          questionKey: "event_score",
+          subjectParticipantId: null as string | null,
+          valueInt: 4 as number | null,
+        },
+        {
+          questionKey: "liked",
+          subjectParticipantId: nikos,
+          valueInt: null,
+        },
+        {
+          questionKey: "meet_again",
+          subjectParticipantId: nikos,
+          valueInt: null,
+        },
+      ]) {
+        harness.repository.answers.push({
+          id: randomUUID(),
+          conversationId,
+          questionKey: row.questionKey,
+          subjectParticipantId: row.subjectParticipantId,
+          valueInt: row.valueInt,
+          noteType: null,
+          text: null,
+          extractionMeta: { model, confidence: 1, candidateIds: [] },
+        });
+      }
+      const conversation = harness.conversations.get(conversationId);
+      conversation.messages = [
+        {
+          id: "b1",
+          seq: 1,
+          actor: "bot",
+          text: "Υπάρχει κάποιος που θα προτιμούσες να μην ξαναπετύχεις;",
+          at: new Date("2026-07-25T10:01:00.000Z"),
+        },
+        {
+          id: "p1",
+          seq: 2,
+          actor: "participant",
+          text: "να αποφυγω κανεναν βασικα. αν κ ο Κωστας ο Μυτοχωνακιας με ειχε πιασει απ τη μεση…",
+          at: new Date("2026-07-25T10:02:00.000Z"),
+        },
+      ];
+      conversation.extraction.cursorSeq = 0;
+
+      harness.generation.propose.mockResolvedValueOnce(
+        generation({
+          skippedGoals: ["avoid"],
+          notes: [
+            {
+              noteType: "general",
+              text: "Ο Κώστας Μυτοχωνάκιας την έπιασε από τη μέση.",
+              subjectParticipantId: kostas,
+              subjectMentionedName: "Κώστας",
+              sourceMessageIds: ["p1"],
+              confidence: 0.9,
+            },
+          ],
+          nextGoal: "avoid",
+          reply: holdQuestion,
+        }),
+      );
+      harness.generation.classifyAttention.mockResolvedValueOnce(
+        attentionGeneration([
+          {
+            category: "sexual_misconduct",
+            recommendedAction: "human_follow_up",
+            sourceMessageIds: ["p1"],
+            confidence: 0.95,
+          },
+        ]),
+      );
+
+      const disclosure = await harness.extractor.extract({
+        conversationId,
+        correlationId,
+      });
+
+      expect(disclosure.outcome).toBe("extracted");
+      expect(harness.conversations.goalStatuses(conversationId).avoid).toBe(
+        "asked",
+      );
+      expect(conversation.lifecycle.state).toBe("open");
+      expect(harness.repository.outbox).toEqual([
+        expect.objectContaining({
+          body: expect.stringContaining(holdQuestion),
+        }),
+      ]);
+      expect(
+        harness.repository.outbox.some(
+          (row) => row["dedupeKey"] === `feedback-closing-${conversationId}`,
+        ),
+      ).toBe(false);
+      // Skip writes no answer row — confirmation later inserts cleanly.
+      expect(
+        harness.repository.answers.some((row) => row.questionKey === "avoid"),
+      ).toBe(false);
+
+      conversation.messages.push({
+        id: "p2",
+        seq: conversation.messages.length + 1,
+        actor: "participant",
+        text: "ευχαριστω που το ακουσατε",
+        at: new Date("2026-07-25T10:03:00.000Z"),
+      });
+      harness.generation.propose.mockResolvedValueOnce(
+        generation({
+          reply: "Ευχαριστούμε κι εμείς.",
+        }),
+      );
+      harness.generation.classifyAttention.mockResolvedValueOnce(
+        attentionGeneration([]),
+      );
+
+      const thanks = await harness.extractor.extract({
+        conversationId,
+        correlationId,
+      });
+
+      expect(thanks.outcome).toBe("extracted");
+      expect(conversation.lifecycle.state).toBe("open");
+      expect(harness.conversations.goalStatuses(conversationId).avoid).toBe(
+        "asked",
+      );
+      expect(
+        harness.repository.outbox.some(
+          (row) =>
+            row["dedupeKey"] === `feedback-closing-${conversationId}` ||
+            row["body"] === POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy.closing,
+        ),
+      ).toBe(false);
+
+      conversation.messages.push({
+        id: "p3",
+        seq: conversation.messages.length + 1,
+        actor: "participant",
+        text: "ναι, σημειωστε τον",
+        at: new Date("2026-07-25T10:04:00.000Z"),
+      });
+      harness.generation.propose.mockResolvedValueOnce(
+        generation({
+          answers: [
+            {
+              questionKey: "avoid",
+              valueInt: null,
+              subjectParticipantId: kostas,
+              subjectMentionedName: "Κώστας",
+              sourceMessageIds: ["p3"],
+              confidence: 0.95,
+            },
+          ],
+        }),
+      );
+      harness.generation.classifyAttention.mockResolvedValueOnce(
+        attentionGeneration([]),
+      );
+
+      const confirmation = await harness.extractor.extract({
+        conversationId,
+        correlationId,
+      });
+
+      expect(confirmation.outcome).toBe("completed");
+      expect(harness.conversations.goalStatuses(conversationId).avoid).toBe(
+        "answered",
+      );
+      expect(
+        harness.repository.answers.some(
+          (row) =>
+            row.questionKey === "avoid" &&
+            row.subjectParticipantId === kostas,
+        ),
+      ).toBe(true);
+      expect(conversation.lifecycle).toMatchObject({
+        state: "closed",
+        reason: "completed",
+      });
     });
   });
 
@@ -2003,7 +2203,10 @@ class FakeConversations {
     return { appended: true, message, conversation };
   }
 
-  /** Monotonic along pending < asked < skipped < answered. */
+  /**
+   * Rank-up along pending < asked < skipped < answered, plus WP-9δ
+   * skipped → asked. Mirrors `canTransitionGoalStatus`.
+   */
   async updateGoalStatuses(input: {
     conversationId: string;
     statuses: readonly { key: string; status: FakeGoal["status"] }[];
@@ -2013,7 +2216,12 @@ class FakeConversations {
     let changed = false;
     for (const entry of input.statuses) {
       const goal = conversation.goals.find((item) => item.key === entry.key);
-      if (goal && rank[entry.status] > rank[goal.status]) {
+      if (!goal || goal.status === entry.status) {
+        continue;
+      }
+      const reopensSkip = goal.status === "skipped" && entry.status === "asked";
+      const ranksUp = rank[entry.status] > rank[goal.status];
+      if (reopensSkip || ranksUp) {
         goal.status = entry.status;
         changed = true;
       }

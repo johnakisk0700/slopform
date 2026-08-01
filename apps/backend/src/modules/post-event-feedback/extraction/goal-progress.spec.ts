@@ -162,6 +162,53 @@ describe("goal progress from recorded results", () => {
     ]);
   });
 
+  it("reopens a skipped goal when the sent outbound asks it again", () => {
+    // Χαρά Παραπεντού / rule 9δ: same run banks avoid as skipped and sends the
+    // hold question with askedGoal. Leaving it skipped makes isCompleting true
+    // under that live question; the thanks-only turn then closes completed.
+    const recorded = resolveGoalStatuses(
+      goals,
+      context(),
+      validated({ skippedGoals: ["avoid"] }),
+    );
+
+    expect(recorded).toContainEqual({ key: "avoid", status: "skipped" });
+    const withHold = withAskedGoal(recorded, "avoid");
+    expect(withHold).toContainEqual({ key: "avoid", status: "asked" });
+    expect(isCompleting(goals, withHold)).toBe(false);
+  });
+
+  it("does not reopen an answered goal when askedGoal names it", () => {
+    const recorded = resolveGoalStatuses(
+      goals,
+      context({
+        acceptedAnswers: [
+          {
+            questionKey: "event_score",
+            subjectParticipantId: null,
+            valueInt: 5,
+            correctedByOperator: false,
+          },
+        ],
+      }),
+      validated(),
+    );
+
+    expect(withAskedGoal(recorded, "event_score")).toEqual([
+      { key: "event_score", status: "answered" },
+    ]);
+  });
+
+  it("leaves updates alone when the outbound carries no askedGoal", () => {
+    const recorded = resolveGoalStatuses(
+      goals,
+      context(),
+      validated({ skippedGoals: ["avoid"] }),
+    );
+
+    expect(withAskedGoal(recorded, undefined)).toEqual(recorded);
+  });
+
   it("settles every open goal when the bot withdraws without asking", () => {
     // Πάνος Μούλαρος: «Εντάξει, το άξιζα 😅 Δεν θα σε ζαλίσω άλλο» — no
     // answers, no notes, no question, yet nextGoal still named. Without

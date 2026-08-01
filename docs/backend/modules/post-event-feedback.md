@@ -2006,13 +2006,18 @@ a prior classification.
 
 ### Goal progress
 
-Goal statuses only move up the ladder `pending < asked < skipped < answered`,
+Goal statuses mostly move up the ladder `pending < asked < skipped < answered`,
 enforced by a MongoDB array filter rather than by a hopeful read-modify-write.
 That rank is what implements D16's "an answered goal is never auto-reopened": a
 later extraction run cannot demote a recorded answer back to a question the bot
 would ask again, however confident the model is. `answered` outranks `skipped`
 so a participant who changes their mind is still recorded — that direction adds
-a fact instead of discarding one. A concurrent run that already advanced the
+a fact instead of discarding one. The one deliberate demotion is
+`skipped → asked`: when a *sent* question-shaped reply carries `askedGoal` for a
+goal this run (or an earlier one) banked as skipped — prompt rule 9δ's hold
+question after «κανέναν» plus an incident description — `withAskedGoal` and the
+repository reopen it so `isCompleting` stays false under that live question. An
+`answered` goal never takes that path. A concurrent run that already advanced the
 same goal further simply leaves it alone. `asked` is recorded only when the
 outbound that will be sent actually poses the question; a statement that still
 carries a `nextGoal` does not. A withdrawal — no accepted answers, no accepted

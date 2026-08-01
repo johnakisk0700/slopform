@@ -1160,7 +1160,10 @@ export class FakeFeedbackConversations {
     return { changed: true, conversation: structuredClone(conversation) };
   }
 
-  /** Monotonic along `pending < asked < skipped < answered`. */
+  /**
+   * Rank-up along `pending < asked < skipped < answered`, plus the WP-9δ
+   * `skipped → asked` reopen. Mirrors `canTransitionGoalStatus`.
+   */
   async updateGoalStatuses(input: {
     conversationId: string;
     statuses: readonly {
@@ -1173,10 +1176,13 @@ export class FakeFeedbackConversations {
     let changed = false;
     for (const entry of input.statuses) {
       const goal = conversation.goals.find((item) => item.key === entry.key);
-      if (
-        goal &&
-        GOAL_STATUS_RANK[entry.status] > GOAL_STATUS_RANK[goal.status]
-      ) {
+      if (!goal || goal.status === entry.status) {
+        continue;
+      }
+      const reopensSkip = goal.status === "skipped" && entry.status === "asked";
+      const ranksUp =
+        GOAL_STATUS_RANK[entry.status] > GOAL_STATUS_RANK[goal.status];
+      if (reopensSkip || ranksUp) {
         goal.status = entry.status;
         changed = true;
       }
