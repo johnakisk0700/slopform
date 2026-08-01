@@ -92,6 +92,21 @@ export const MESSAGE_OUTBOX_DELIVERY_STATUSES = [
 export type MessageOutboxDeliveryStatus =
   (typeof MESSAGE_OUTBOX_DELIVERY_STATUSES)[number];
 
+export const MESSAGE_OUTBOX_LOG_ORIGINS = [
+  "extraction_reply",
+  "extraction_fallback_fence",
+  "extraction_fallback_ack",
+  "extraction_parked_notice",
+  "stop_ack",
+  "media_notice",
+  "staff_message",
+  "campaign_intro",
+  "reminder",
+] as const;
+
+export type MessageOutboxLogOrigin =
+  (typeof MESSAGE_OUTBOX_LOG_ORIGINS)[number];
+
 /** Launch-time question copy and structure stored on the campaign row. */
 export type FeedbackCampaignQuestions = Record<string, unknown>;
 
@@ -553,6 +568,45 @@ export const messageOutbox = pgTable(
   ],
 );
 
+export const messageOutboxLog = pgTable(
+  "message_outbox_log",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    outboxId: uuid("outbox_id").notNull(),
+    conversationId: uuid("conversation_id").notNull(),
+    campaignId: uuid("campaign_id").notNull(),
+    origin: text("origin").notNull(),
+    correlationId: text("correlation_id").notNull(),
+    decision: jsonb("decision").notNull(),
+    conversationState: jsonb("conversation_state").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.outboxId],
+      foreignColumns: [messageOutbox.id],
+      name: "message_outbox_log_outbox_id_message_outbox_id_fk",
+    }).onDelete("restrict"),
+    foreignKey({
+      columns: [table.campaignId],
+      foreignColumns: [feedbackCampaigns.id],
+      name: "message_outbox_log_campaign_id_feedback_campaigns_id_fk",
+    }).onDelete("restrict"),
+    check(
+      "message_outbox_log_origin_check",
+      sql`${table.origin} in ('extraction_reply', 'extraction_fallback_fence', 'extraction_fallback_ack', 'extraction_parked_notice', 'stop_ack', 'media_notice', 'staff_message', 'campaign_intro', 'reminder')`,
+    ),
+    check(
+      "message_outbox_log_correlation_id_length_check",
+      sql`char_length(btrim(${table.correlationId})) between 1 and 200`,
+    ),
+    uniqueIndex("message_outbox_log_outbox_id_uidx").on(table.outboxId),
+    index("message_outbox_log_conversation_id_idx").on(table.conversationId),
+  ],
+);
+
 export type FeedbackCampaignRow = typeof feedbackCampaigns.$inferSelect;
 export type FeedbackAnswerRow = typeof feedbackAnswers.$inferSelect;
 export type FeedbackAnswerWithdrawalRow =
@@ -561,3 +615,5 @@ export type FeedbackNoteRow = typeof feedbackNotes.$inferSelect;
 export type ProviderMessageIngressRow =
   typeof providerMessageIngress.$inferSelect;
 export type MessageOutboxRow = typeof messageOutbox.$inferSelect;
+export type MessageOutboxLogRow = typeof messageOutboxLog.$inferSelect;
+export type MessageOutboxLogInsert = typeof messageOutboxLog.$inferInsert;
