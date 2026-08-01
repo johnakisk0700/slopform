@@ -332,6 +332,42 @@ lookup happens only for a row an operator opened. Its honesty limits — the
 absent attempt history and why `unknown` is the ordinary job state — are owned by
 [the screen contract](../../frontend/feedback-outbound-queue.md).
 
+### The outbound decision log
+
+Every site that enqueues an outbound message also records **why** in
+`message_outbox_log`, in the same transaction as `insertOutboxIfAbsent`:
+exactly one row per inserted outbox row, nothing on a dedupe replay. The log
+answers, per message, what the system decided and what the conversation looked
+like at that moment — the delivery half of the story stays on `message_outbox`
+and joins by `outbox_id`.
+
+The write path is three components under
+[`outbox/`](../../../apps/backend/src/modules/post-event-feedback/outbox/):
+
+- [`outbound-log.snapshot.ts`](../../../apps/backend/src/modules/post-event-feedback/outbox/outbound-log.snapshot.ts)
+  — `buildOutboundConversationSnapshot`, a pure reduction of the Mongo document
+  to the bounded `conversation_state` (lifecycle, control, goals, attention
+  counts, transcript seq; deliberately no bodies, phone or participant ids);
+- [`outbound-log.schemas.ts`](../../../apps/backend/src/modules/post-event-feedback/outbox/outbound-log.schemas.ts)
+  — the `decision` contract, a discriminated union over the nine origins
+  (`extraction_reply` with model/confidence/closing reason/goal statuses, the
+  three fallback origins with their failure cause, `stop_ack` and
+  `media_notice` with their triggering ingress, `staff_message` with its actor,
+  `campaign_intro` with created-vs-relaunched, `reminder` with its ladder
+  rung). Goal keys and statuses are deliberately plain strings: the log is a
+  tolerant audit record and enum drift in extraction must not make old rows
+  unreadable;
+- [`outbound-log.service.ts`](../../../apps/backend/src/modules/post-event-feedback/outbox/outbound-log.service.ts)
+  — `FeedbackOutboundLogService.record`, called by every enqueue site with the
+  whole `{ row, inserted }` result; it no-ops on `inserted: false` and fails
+  the transaction loudly on a malformed decision.
+
+`getFeedbackOutboxMessage` returns the row's log as a nullable `log` field —
+null for rows that predate the table, and null with a
+`feedback.outbox.log_unreadable` warn when stored jsonb no longer parses; an
+unreadable audit row must not take the operator screen down. The list endpoint
+never joins the table.
+
 ## WP5 extraction and reply loop (implemented)
 
 [`PostEventFeedbackExtractor`](../../../apps/backend/src/modules/post-event-feedback/extraction/extract.service.ts)
