@@ -21,6 +21,8 @@ import {
 } from "./outbox.repository.js";
 import {
   feedbackOutboxMessageLogSchema,
+  type FeedbackOutboxHistoryItemView,
+  type FeedbackOutboxHistoryView,
   type FeedbackOutboxMessageDeliveryView,
   type FeedbackOutboxQueueItemView,
   type FeedbackOutboxQueueView,
@@ -66,18 +68,8 @@ export class FeedbackOutboxQueueViewService {
       this.outbox.countUndeliveredOutboxByStatus(),
     ]);
 
-    const respondents = await this.conversations.listRespondentsByIds(
-      rows.map((entry) => entry.row.conversationId),
-    );
-    const respondentByConversation = new Map(
-      respondents.map((respondent) => [respondent._id, respondent]),
-    );
-    const participantRows = await this.participants.findByIds(
-      respondents.map((respondent) => respondent.respondentParticipantId),
-    );
-    const participantById = new Map(
-      participantRows.map((participant) => [participant.id, participant]),
-    );
+    const { respondentByConversation, participantById } =
+      await this.respondentContext(rows);
 
     const pending = totals.get("pending") ?? 0;
     const sending = totals.get("sending") ?? 0;
@@ -116,6 +108,80 @@ export class FeedbackOutboxQueueViewService {
         };
       }),
     };
+  }
+
+  /**
+   * The history half: the newest rows of any status, each carrying the
+   * decision log's origin so the list already answers «why was this written».
+   * Still PostgreSQL-only — origins arrive in one batched read, and the live
+   * job state stays with the opened row.
+   */
+  async listHistory(now = new Date()): Promise<FeedbackOutboxHistoryView> {
+    const [rows, total] = await Promise.all([
+      this.outbox.listRecentOutbox(FEEDBACK_OUTBOX_QUEUE_VIEW_LIMIT),
+      this.outbox.countOutbox(),
+    ]);
+
+    const [{ respondentByConversation, participantById }, originByOutboxId] =
+      await Promise.all([
+        this.respondentContext(rows),
+        this.outboundLogs.findLogOriginsByOutboxIds(
+          rows.map((entry) => entry.row.id),
+        ),
+      ]);
+
+    return {
+      observedAt: now.toISOString(),
+      total,
+      truncated: total > rows.length,
+      items: rows.map((entry): FeedbackOutboxHistoryItemView => {
+        const respondent = respondentByConversation.get(
+          entry.row.conversationId,
+        );
+        const participant = respondent
+          ? participantById.get(respondent.respondentParticipantId)
+          : undefined;
+
+        return {
+          id: entry.row.id,
+          conversationId: entry.row.conversationId,
+          campaignId: entry.row.campaignId,
+          eventId: entry.eventId,
+          eventTitle: entry.eventTitle,
+          campaignStatus: entry.campaignStatus,
+          kind: entry.row.kind as FeedbackOutboxHistoryItemView["kind"],
+          status: entry.row.status as FeedbackOutboxHistoryItemView["status"],
+          deliveryStatus: entry.row
+            .deliveryStatus as FeedbackOutboxHistoryItemView["deliveryStatus"],
+          origin: originByOutboxId.get(entry.row.id) ?? null,
+          respondentParticipantId: respondent?.respondentParticipantId ?? null,
+          respondentDisplayName: displayNameFor(participant),
+          phoneAtLaunch: respondent?.phoneAtLaunch ?? null,
+          createdAt: entry.row.createdAt.toISOString(),
+          updatedAt: entry.row.updatedAt.toISOString(),
+        };
+      }),
+    };
+  }
+
+  /** One batched MongoDB + participant read for a page of outbox rows. */
+  private async respondentContext(
+    rows: readonly { readonly row: { readonly conversationId: string } }[],
+  ) {
+    const respondents = await this.conversations.listRespondentsByIds(
+      rows.map((entry) => entry.row.conversationId),
+    );
+    const respondentByConversation = new Map(
+      respondents.map((respondent) => [respondent._id, respondent]),
+    );
+    const participantRows = await this.participants.findByIds(
+      respondents.map((respondent) => respondent.respondentParticipantId),
+    );
+    const participantById = new Map(
+      participantRows.map((participant) => [participant.id, participant]),
+    );
+
+    return { respondentByConversation, participantById };
   }
 
   /**

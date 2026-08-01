@@ -11,6 +11,7 @@ import { ZodResponse } from "nestjs-zod";
 import { CurrentUserId } from "../../../infrastructure/auth/current-user-id.decorator.js";
 import { PrincipalDto } from "../../../infrastructure/auth/auth.schemas.js";
 import {
+  FeedbackOutboxHistoryDto,
   FeedbackOutboxIdParamDto,
   FeedbackOutboxMessageDeliveryDto,
   FeedbackOutboxQueueDto,
@@ -23,7 +24,7 @@ import {
 /**
  * Read-only observability for outbound feedback messages.
  *
- * Both operations are `GET`. Nothing here retries, cancels or re-enqueues
+ * Every operation is `GET`. Nothing here retries, cancels or re-enqueues
  * anything: the queue, the relay, the delivery service and the extractor are
  * untouched by this controller, which exists so an operator can see what they
  * are doing without a hand-written Redis script.
@@ -49,8 +50,24 @@ export class PostEventFeedbackOutboxController {
   }
 
   /**
+   * The history half: newest rows of any status with the decision log's
+   * origin, so delivered messages stay reachable after the queue drains.
+   * Declared before `:outboxId` on purpose — route order is match order.
+   */
+  @Get("history")
+  @ApiOperation({ operationId: "listFeedbackOutboxHistory" })
+  @Header("Cache-Control", "no-store")
+  @ZodResponse({ status: 200, type: FeedbackOutboxHistoryDto })
+  listHistory(
+    @CurrentUserId() _userId: PrincipalDto,
+  ): Promise<FeedbackOutboxHistoryDto> {
+    return this.queueView.listHistory();
+  }
+
+  /**
    * One opened row. Carries the decision log when `message_outbox_log` has a
-   * row for it; the list endpoint never joins that table.
+   * row for it; the queue list never joins that table, and the history list
+   * takes only its one-word origin.
    */
   @Get(":outboxId")
   @ApiOperation({ operationId: "getFeedbackOutboxMessage" })

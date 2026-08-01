@@ -365,8 +365,10 @@ The write path is three components under
 `getFeedbackOutboxMessage` returns the row's log as a nullable `log` field —
 null for rows that predate the table, and null with a
 `feedback.outbox.log_unreadable` warn when stored jsonb no longer parses; an
-unreadable audit row must not take the operator screen down. The list endpoint
-never joins the table.
+unreadable audit row must not take the operator screen down. The queue list
+never joins the table; `listFeedbackOutboxHistory` (the newest rows of any
+status, so delivered messages stay reachable after the queue drains) takes only
+the one-word `origin` per row, in a single batched read.
 
 ## WP5 extraction and reply loop (implemented)
 

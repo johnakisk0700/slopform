@@ -10,7 +10,17 @@ import {
   type MessageOutboxRow,
   type MessageOutboxStatus,
 } from "@join-the-six/database";
-import { and, asc, count, eq, inArray, isNull, lte, or } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  inArray,
+  isNull,
+  lte,
+  or,
+} from "drizzle-orm";
 
 import { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
@@ -322,6 +332,53 @@ export class FeedbackOutboxRepository {
       eventId: entry.eventId,
       eventTitle: entry.eventTitle,
     }));
+  }
+
+  /**
+   * The newest outbox rows regardless of status — the history half of the
+   * observability screen. Delivered, failed and cancelled rows are exactly the
+   * ones the queue list refuses to show, and the decision log makes them worth
+   * opening after the fact.
+   */
+  async listRecentOutbox(
+    limit = FEEDBACK_OUTBOX_QUEUE_VIEW_LIMIT,
+    executor: DatabaseExecutor = this.database.db,
+  ): Promise<FeedbackUndeliveredOutboxRow[]> {
+    const boundedLimit = Math.min(
+      Math.max(1, limit),
+      FEEDBACK_OUTBOX_QUEUE_VIEW_LIMIT,
+    );
+    const rows = await executor
+      .select({
+        row: messageOutbox,
+        campaignStatus: feedbackCampaigns.status,
+        eventId: feedbackCampaigns.eventId,
+        eventTitle: events.title,
+      })
+      .from(messageOutbox)
+      .innerJoin(
+        feedbackCampaigns,
+        eq(feedbackCampaigns.id, messageOutbox.campaignId),
+      )
+      .innerJoin(events, eq(events.id, feedbackCampaigns.eventId))
+      .orderBy(desc(messageOutbox.createdAt), desc(messageOutbox.id))
+      .limit(boundedLimit);
+
+    return rows.map((entry) => ({
+      row: entry.row,
+      campaignStatus: entry.campaignStatus as FeedbackCampaignStatus,
+      eventId: entry.eventId,
+      eventTitle: entry.eventTitle,
+    }));
+  }
+
+  /** Total rows ever written, so the capped history page cannot imply a total. */
+  async countOutbox(
+    executor: DatabaseExecutor = this.database.db,
+  ): Promise<number> {
+    const [row] = await executor.select({ total: count() }).from(messageOutbox);
+
+    return row?.total ?? 0;
   }
 
   /**

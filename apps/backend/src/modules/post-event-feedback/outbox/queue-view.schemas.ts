@@ -78,6 +78,36 @@ export const feedbackOutboxQueueSchema = z
   .strict();
 
 /**
+ * One row of the outbound history — any status, newest first.
+ *
+ * The queue item's shape minus the two queue-only readings: `waitingSeconds`
+ * measures a wait that is over for a terminal row, and the undelivered status
+ * enum widens to every status the table allows. `origin` is the decision log's
+ * one-word answer to «why does this row exist», batched from
+ * `message_outbox_log` in a single read; null marks a row older than the log.
+ */
+export const feedbackOutboxHistoryItemSchema = feedbackOutboxQueueItemSchema
+  .omit({ status: true, waitingSeconds: true })
+  .extend({
+    status: z.enum(MESSAGE_OUTBOX_STATUSES),
+    origin: z.enum(MESSAGE_OUTBOX_LOG_ORIGINS).nullable(),
+  })
+  .strict();
+
+export const feedbackOutboxHistorySchema = z
+  .object({
+    observedAt: z.iso.datetime(),
+    /** Rows ever written, so the capped page cannot imply a total. */
+    total: z.number().int().nonnegative(),
+    /** True when `total` exceeds what `items` could carry. */
+    truncated: z.boolean(),
+    items: z
+      .array(feedbackOutboxHistoryItemSchema)
+      .max(FEEDBACK_OUTBOX_QUEUE_VIEW_LIMIT),
+  })
+  .strict();
+
+/**
  * The live BullMQ state of one `feedback.deliver.v1` job.
  *
  * `unknown` is a first-class answer and the ordinary one: delivery jobs carry
@@ -175,6 +205,9 @@ export const feedbackOutboxIdParamSchema = z
 export class FeedbackOutboxQueueDto extends createZodDto(
   feedbackOutboxQueueSchema,
 ) {}
+export class FeedbackOutboxHistoryDto extends createZodDto(
+  feedbackOutboxHistorySchema,
+) {}
 export class FeedbackOutboxMessageDeliveryDto extends createZodDto(
   feedbackOutboxMessageDeliverySchema,
 ) {}
@@ -183,6 +216,12 @@ export class FeedbackOutboxIdParamDto extends createZodDto(
 ) {}
 
 export type FeedbackOutboxQueueView = z.infer<typeof feedbackOutboxQueueSchema>;
+export type FeedbackOutboxHistoryView = z.infer<
+  typeof feedbackOutboxHistorySchema
+>;
+export type FeedbackOutboxHistoryItemView = z.infer<
+  typeof feedbackOutboxHistoryItemSchema
+>;
 export type FeedbackOutboxQueueItemView = z.infer<
   typeof feedbackOutboxQueueItemSchema
 >;

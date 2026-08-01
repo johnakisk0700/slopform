@@ -89,11 +89,14 @@ function createService(overrides: {
     {
       listUndeliveredOutbox: vi.fn().mockResolvedValue([]),
       countUndeliveredOutboxByStatus: vi.fn().mockResolvedValue(new Map()),
+      listRecentOutbox: vi.fn().mockResolvedValue([]),
+      countOutbox: vi.fn().mockResolvedValue(0),
       findOutboxById: vi.fn().mockResolvedValue(undefined),
       ...overrides.outbox,
     } as unknown as FeedbackOutboxRepository,
     {
       findLogByOutboxId: vi.fn().mockResolvedValue(undefined),
+      findLogOriginsByOutboxIds: vi.fn().mockResolvedValue(new Map()),
       ...overrides.outboundLogs,
     } as unknown as FeedbackOutboundLogRepository,
     {
@@ -243,6 +246,81 @@ describe("FeedbackOutboxQueueViewService.listQueue", () => {
       held: 2,
       total: 306,
     });
+    expect(view.truncated).toBe(true);
+  });
+});
+
+describe("FeedbackOutboxQueueViewService.listHistory", () => {
+  it("lists terminal rows with the decision origin, without touching Redis", async () => {
+    const sentRow = {
+      row: { ...outboxRow, status: "sent" as const },
+      campaignStatus: "launched" as const,
+      eventId: EVENT_ID,
+      eventTitle: "Δείπνο Ιουλίου",
+    };
+    const { service, queue } = createService({
+      outbox: {
+        listRecentOutbox: vi.fn().mockResolvedValue([sentRow]),
+        countOutbox: vi.fn().mockResolvedValue(1),
+      },
+      outboundLogs: {
+        findLogOriginsByOutboxIds: vi
+          .fn()
+          .mockResolvedValue(new Map([[OUTBOX_ID, "extraction_reply"]])),
+      },
+    });
+
+    const view = await service.listHistory(NOW);
+
+    expect(view.items).toHaveLength(1);
+    expect(view.items[0]).toMatchObject({
+      id: OUTBOX_ID,
+      status: "sent",
+      origin: "extraction_reply",
+    });
+    expect(view.total).toBe(1);
+    expect(view.truncated).toBe(false);
+    expect(queue.getJob).not.toHaveBeenCalled();
+  });
+
+  it("marks a row older than the decision log with a null origin", async () => {
+    const { service } = createService({
+      outbox: {
+        listRecentOutbox: vi.fn().mockResolvedValue([
+          {
+            row: { ...outboxRow, status: "sent" as const },
+            campaignStatus: "closed" as const,
+            eventId: EVENT_ID,
+            eventTitle: "Δείπνο Ιουλίου",
+          },
+        ]),
+        countOutbox: vi.fn().mockResolvedValue(1),
+      },
+    });
+
+    const view = await service.listHistory(NOW);
+
+    expect(view.items[0]?.origin).toBeNull();
+  });
+
+  it("reports the real total when the page is capped", async () => {
+    const { service } = createService({
+      outbox: {
+        listRecentOutbox: vi.fn().mockResolvedValue([
+          {
+            row: outboxRow,
+            campaignStatus: "launched" as const,
+            eventId: EVENT_ID,
+            eventTitle: "Δείπνο Ιουλίου",
+          },
+        ]),
+        countOutbox: vi.fn().mockResolvedValue(407),
+      },
+    });
+
+    const view = await service.listHistory(NOW);
+
+    expect(view.total).toBe(407);
     expect(view.truncated).toBe(true);
   });
 });

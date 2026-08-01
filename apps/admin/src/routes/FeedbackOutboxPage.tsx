@@ -1,11 +1,14 @@
+import { clsx } from "clsx";
 import { ArrowLeft, Hourglass, Pause, SendHorizontal } from "lucide-react";
 import { useMemo } from "react";
 import { Link, useSearchParams } from "react-router";
 
 import {
   useGetFeedbackOutboxMessage,
+  useListFeedbackOutboxHistory,
   useListFeedbackOutboxQueue,
 } from "../api/generated/feedback-outbox";
+import { OutboxHistoryList } from "../components/admin/feedback/OutboxHistoryList";
 import {
   OutboxMessageDetails,
   OutboxMessageDetailsEmpty,
@@ -18,6 +21,7 @@ import {
   outboxQueueSummary,
 } from "../features/feedback/outboxQueue";
 import {
+  OUTBOX_HISTORY_POLL_INTERVAL_MS,
   OUTBOX_MESSAGE_POLL_INTERVAL_MS,
   OUTBOX_QUEUE_POLL_INTERVAL_MS,
 } from "../features/feedback/polling";
@@ -52,31 +56,60 @@ export function FeedbackOutboxPage() {
     "Outbound feedback messages that have not reached the participant, with their age and delivery job state.",
   );
 
+  // The two halves of the screen: the queue is «who is waiting right now» and
+  // the history is «everything ever written, and why». One is a wait, the
+  // other is the decision log's reading room.
+  const view = searchParams.get("view") === "history" ? "history" : "queue";
+
   const queueQuery = useListFeedbackOutboxQueue({
     query: {
+      enabled: view === "queue",
       refetchInterval: OUTBOX_QUEUE_POLL_INTERVAL_MS,
       refetchOnWindowFocus: true,
     },
   });
+  const historyQuery = useListFeedbackOutboxHistory({
+    query: {
+      enabled: view === "history",
+      refetchInterval: OUTBOX_HISTORY_POLL_INTERVAL_MS,
+      refetchOnWindowFocus: true,
+    },
+  });
 
-  const items = useMemo(
+  const queueItems = useMemo(
     () => queueQuery.data?.items ?? [],
     [queueQuery.data?.items],
+  );
+  const historyItems = useMemo(
+    () => historyQuery.data?.items ?? [],
+    [historyQuery.data?.items],
   );
   const summary = queueQuery.data ? outboxQueueSummary(queueQuery.data) : null;
 
   const requestedId = searchParams.get("message");
-  // Selection survives a poll while the row is still waiting, and falls away
-  // once it is not — a message that reached the participant should stop being
-  // the thing on screen.
+  // In the queue, selection survives a poll while the row is still waiting and
+  // falls away once it is not — a delivered message should stop being the
+  // thing on screen. In the history nothing falls away; that is the point.
+  const visibleItems = view === "queue" ? queueItems : historyItems;
   const selectedId =
-    requestedId !== null && items.some((item) => item.id === requestedId)
+    requestedId !== null && visibleItems.some((item) => item.id === requestedId)
       ? requestedId
       : null;
 
   function selectMessage(outboxId: string) {
     const next = new URLSearchParams(searchParams);
     next.set("message", outboxId);
+    setSearchParams(next, { replace: true });
+  }
+
+  function selectView(nextView: "queue" | "history") {
+    const next = new URLSearchParams(searchParams);
+    if (nextView === "history") {
+      next.set("view", "history");
+    } else {
+      next.delete("view");
+    }
+    // A row keeps meaning the same thing in both views, so the selection stays.
     setSearchParams(next, { replace: true });
   }
 
@@ -106,7 +139,35 @@ export function FeedbackOutboxPage() {
         description="Messages the bot or an operator has written that the participant does not have yet. Age is the number that matters: a few seconds is normal, minutes mean delivery is behind."
       />
 
-      {summary ? (
+      <div
+        role="group"
+        aria-label="Queue or history"
+        className="flex w-fit items-center gap-1 rounded-md border border-border bg-surface p-1"
+      >
+        {(
+          [
+            ["queue", "Queue"],
+            ["history", "History"],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            aria-pressed={view === value}
+            onClick={() => selectView(value)}
+            className={clsx(
+              "cursor-pointer rounded-sm px-3 py-1 text-sm font-semibold transition-colors",
+              view === value
+                ? "bg-primary-soft text-primary"
+                : "text-ink-muted hover:text-ink",
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {view === "queue" && summary ? (
         <dl className="m-0 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {/* No tone on the count. A backlog of six is not good or bad by
               itself — the age beside it is what says whether anything is
@@ -148,23 +209,43 @@ export function FeedbackOutboxPage() {
       ) : null}
 
       <div className="grid items-start gap-4 2xl:grid-cols-[minmax(0,1fr)_minmax(20rem,26rem)]">
-        <OutboxQueueList
-          items={items}
-          selectedId={selectedId}
-          onSelect={selectMessage}
-          loading={queueQuery.isPending}
-          error={
-            queueQuery.isError
-              ? apiErrorMessage(
-                  queueQuery.error,
-                  "Failed to load the outbound queue.",
-                )
-              : null
-          }
-          truncated={queueQuery.data?.truncated ?? false}
-          total={summary?.total ?? 0}
-          isRefreshing={queueQuery.isFetching}
-        />
+        {view === "queue" ? (
+          <OutboxQueueList
+            items={queueItems}
+            selectedId={selectedId}
+            onSelect={selectMessage}
+            loading={queueQuery.isPending}
+            error={
+              queueQuery.isError
+                ? apiErrorMessage(
+                    queueQuery.error,
+                    "Failed to load the outbound queue.",
+                  )
+                : null
+            }
+            truncated={queueQuery.data?.truncated ?? false}
+            total={summary?.total ?? 0}
+            isRefreshing={queueQuery.isFetching}
+          />
+        ) : (
+          <OutboxHistoryList
+            items={historyItems}
+            selectedId={selectedId}
+            onSelect={selectMessage}
+            loading={historyQuery.isPending}
+            error={
+              historyQuery.isError
+                ? apiErrorMessage(
+                    historyQuery.error,
+                    "Failed to load the outbound history.",
+                  )
+                : null
+            }
+            truncated={historyQuery.data?.truncated ?? false}
+            total={historyQuery.data?.total ?? 0}
+            isRefreshing={historyQuery.isFetching}
+          />
+        )}
 
         <div className="min-h-0">
           {messageQuery.data && selectedId !== null ? (

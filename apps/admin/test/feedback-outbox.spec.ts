@@ -93,6 +93,9 @@ interface OutboxQueueModule {
   formatWaiting: (seconds: number) => string;
   describeWaiting: (seconds: number) => string;
   outboxStatusBadge: (status: QueueStatus) => { label: string; tone: string };
+  outboxHistoryStatusBadge: (
+    status: QueueStatus | "sent" | "failed" | "cancelled",
+  ) => { label: string; tone: string };
   outboxKindLabel: (kind: TestQueueItem["kind"]) => string;
   deliverJobStateLabel: (state: JobState) => string;
   deliverJobLines: (
@@ -119,6 +122,7 @@ interface OutboxQueueModule {
 interface PollingModule {
   OUTBOX_QUEUE_POLL_INTERVAL_MS: number;
   OUTBOX_MESSAGE_POLL_INTERVAL_MS: number;
+  OUTBOX_HISTORY_POLL_INTERVAL_MS: number;
 }
 
 let outbox: OutboxQueueModule;
@@ -594,6 +598,58 @@ describe("polling policy", () => {
   it("matches the relay's own pass, on both the list and the opened row", () => {
     expect(polling.OUTBOX_QUEUE_POLL_INTERVAL_MS).toBe(5_000);
     expect(polling.OUTBOX_MESSAGE_POLL_INTERVAL_MS).toBe(5_000);
+  });
+
+  it("lets the history breathe slower — it is an archive, not a wait", () => {
+    expect(polling.OUTBOX_HISTORY_POLL_INTERVAL_MS).toBe(10_000);
+  });
+});
+
+describe("the history half", () => {
+  it("names every status a row can ever reach, reusing the queue's words", () => {
+    for (const [status, label] of [
+      ["pending", "Queued"],
+      ["sending", "Sending"],
+      ["held", "Held"],
+      ["sent", "Sent"],
+      ["failed", "Failed"],
+      ["cancelled", "Cancelled"],
+    ] as const) {
+      expect(outbox.outboxHistoryStatusBadge(status).label).toBe(label);
+    }
+    expect(outbox.outboxHistoryStatusBadge("sent").tone).toBe("success");
+    expect(outbox.outboxHistoryStatusBadge("failed").tone).toBe("danger");
+    // Identical colouring to the queue list for the shared statuses, so the
+    // same word never changes meaning between the two views.
+    expect(outbox.outboxHistoryStatusBadge("held").tone).toBe(
+      outbox.outboxStatusBadge("held").tone,
+    );
+  });
+
+  it("leads each row with the decision origin, kind only as the fallback", () => {
+    const list = readAdminFile(
+      "src/components/admin/feedback/OutboxHistoryList.tsx",
+    );
+
+    expect(list).toContain("outboundOriginLabel(item.origin)");
+    expect(list).toContain("outboxKindLabel(item.kind)");
+    expect(list.indexOf("outboxKindLabel")).toBeLessThan(
+      list.indexOf("outboundOriginLabel(item.origin)"),
+    );
+  });
+
+  it("is a second view of the same page, sharing the selection", () => {
+    const page = readAdminFile("src/routes/FeedbackOutboxPage.tsx");
+
+    expect(page).toContain("useListFeedbackOutboxHistory");
+    expect(page).toContain('searchParams.get("view") === "history"');
+    // Each list polls only while it is the one on screen.
+    expect(page).toContain('enabled: view === "queue"');
+    expect(page).toContain('enabled: view === "history"');
+    // The selection survives the toggle: a row means the same thing in both.
+    expect(page).toContain(
+      "visibleItems.some((item) => item.id === requestedId)",
+    );
   });
 });
 

@@ -134,6 +134,19 @@ The list is capped at 200 rows, oldest first, and the endpoint publishes the
 real per-status totals alongside it, so a capped page states what it is showing
 instead of implying that the cap is the backlog.
 
+## Queue and history are one page, two questions
+
+The screen carries a Queue/History toggle (`?view=history`). The queue is «who
+is waiting right now»: only `pending`/`sending`/`held` rows, ages measured on
+the server, and it empties itself the moment delivery is healthy — which is
+exactly why it cannot double as an archive. The history is «everything ever
+written, and why»: `listFeedbackOutboxHistory` returns the newest rows of any
+status, each leading with the decision log's one-word `origin` (kind is the
+fallback for rows older than the log), with `sent` in the quiet success tone
+and `failed` in the loud one. The selection survives the toggle because a row
+means the same thing in both views, and opening a row spends the same single
+Redis lookup either way.
+
 ## What an opened row shows
 
 Two halves, kept visibly apart because their reliability differs.

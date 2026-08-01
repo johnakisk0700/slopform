@@ -5,7 +5,7 @@ import {
   type MessageOutboxLogOrigin,
   type MessageOutboxLogRow,
 } from "@join-the-six/database";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
 import { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import type { FeedbackOutboundDecision } from "./outbound-log.schemas.js";
@@ -65,6 +65,31 @@ export class FeedbackOutboundLogRepository {
     }
 
     return { row: existing, inserted: false };
+  }
+
+  /**
+   * Origins for a page of outbox rows in one read, for the history list. Rows
+   * that predate the log table are simply absent from the map.
+   */
+  async findLogOriginsByOutboxIds(
+    outboxIds: readonly string[],
+    executor: DatabaseExecutor = this.database.db,
+  ): Promise<Map<string, MessageOutboxLogOrigin>> {
+    if (outboxIds.length === 0) {
+      return new Map();
+    }
+
+    const rows = await executor
+      .select({
+        outboxId: messageOutboxLog.outboxId,
+        origin: messageOutboxLog.origin,
+      })
+      .from(messageOutboxLog)
+      .where(inArray(messageOutboxLog.outboxId, [...outboxIds]));
+
+    return new Map(
+      rows.map((row) => [row.outboxId, row.origin as MessageOutboxLogOrigin]),
+    );
   }
 
   async findLogByOutboxId(

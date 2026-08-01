@@ -35,6 +35,13 @@ export const OUTBOX_QUEUE_POLL_INTERVAL_MS = 5_000;
 export const OUTBOX_MESSAGE_POLL_INTERVAL_MS = 5_000;
 
 /**
+ * The outbound history list. An archive, not a wait — new rows arrive at the
+ * pace conversations move, and nothing on the row ages, so half the queue's
+ * cadence loses nothing.
+ */
+export const OUTBOX_HISTORY_POLL_INTERVAL_MS = 10_000;
+
+/**
  * Stops polling a conversation that can no longer change. A closed thread
  * under bot control has no pending transition left to observe, so holding a
  * 3-second timer on it is pure noise.

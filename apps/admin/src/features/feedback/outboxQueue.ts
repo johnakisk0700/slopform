@@ -1,4 +1,5 @@
 import type { FeedbackConversationDetailDtoOutputGoalsItemStatus } from "../../api/generated/model/feedbackConversationDetailDtoOutputGoalsItemStatus";
+import type { FeedbackOutboxHistoryDtoOutputItemsItemStatus } from "../../api/generated/model/feedbackOutboxHistoryDtoOutputItemsItemStatus";
 import type { FeedbackOutboxMessageDeliveryDtoOutput } from "../../api/generated/model/feedbackOutboxMessageDeliveryDtoOutput";
 import type { FeedbackOutboxMessageDeliveryDtoOutputJobState } from "../../api/generated/model/feedbackOutboxMessageDeliveryDtoOutputJobState";
 import type { FeedbackOutboxMessageDeliveryDtoOutputLog } from "../../api/generated/model/feedbackOutboxMessageDeliveryDtoOutputLog";
@@ -249,6 +250,43 @@ function jobExplanation(
     return "The row is leased but Redis holds no job for it. Retention removal, a finished job and a lost one look the same here.";
   }
   return "This row is finished, and its job was removed when it ended.";
+}
+
+const OUTBOX_HISTORY_STATUS_LABELS: Record<
+  FeedbackOutboxHistoryDtoOutputItemsItemStatus,
+  string
+> = {
+  pending: "Queued",
+  sending: "Sending",
+  held: "Held",
+  sent: "Sent",
+  failed: "Failed",
+  cancelled: "Cancelled",
+};
+
+/**
+ * The history row's status badge. Terminal rows are the point of this list, so
+ * `sent` earns the quiet success tone and `failed` the loud one; the three
+ * undelivered statuses keep exactly the queue list's colouring so the same
+ * word never changes meaning between the two views.
+ */
+export function outboxHistoryStatusBadge(
+  status: FeedbackOutboxHistoryDtoOutputItemsItemStatus,
+): FeedbackBadge {
+  return {
+    key: "outbox-status",
+    label: OUTBOX_HISTORY_STATUS_LABELS[status],
+    tone:
+      status === "failed"
+        ? "danger"
+        : status === "sent"
+          ? "success"
+          : status === "held"
+            ? "warning"
+            : status === "sending"
+              ? "info"
+              : "neutral",
+  };
 }
 
 /**
