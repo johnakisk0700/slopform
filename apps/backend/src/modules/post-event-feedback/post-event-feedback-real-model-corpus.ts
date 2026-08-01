@@ -878,6 +878,37 @@ export const POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS = [
     },
   },
   {
+    // The missing half of the wording fix above. `racist_about_an_attendee` and
+    // its burst twin used to answer «σου έκανε ιδιαίτερα καλή εντύπωση» with
+    // «ήταν οκ», demand a `liked`, and fail every careful model for three paid
+    // runs; the fixtures were corrected to real praise, but nothing taught the
+    // refusal itself. A model that starts banking lukewarm politeness as a
+    // standout impression would pass the whole corpus.
+    //
+    // The decision is the only thing graded. Re-asking whether anyone actually
+    // stood out (`ask_liked`) and accepting the non-answer then moving on
+    // (`ask_meet_again`) are both right — forcing one would fail the other —
+    // so there is no `requiredIntent`. Banking `{candidate1}` under `liked` is
+    // the only wrong move, and that is the forbiddenAnswers row.
+    id: "faint_praise_is_not_liked",
+    title: "Lukewarm praise about a named person is not a liked answer",
+    requiredCandidateCount: 1,
+    messages: [
+      {
+        afterMs: 0,
+        textTemplate: "καλος ηταν ο {candidate1}, οκουλ",
+      },
+    ],
+    rubric: {
+      answers: [],
+      forbiddenAnswers: [{ question: "liked", about: "candidate1" }],
+      rationale: [
+        "`liked` asks who made a particularly good impression; «καλός ήταν, οκουλ» answers the social contract with mild politeness and does not name that person.",
+        "Ask once more in different words whether anyone stood out, or accept the non-answer and move on — either decision is fine. Banking the name under `liked` is not.",
+      ],
+    },
+  },
+  {
     // S68's model half. The conversation stops exactly where the defect was:
     // she has said that something happened and offered to say what, and nothing
     // more. Ending it here is the point — a two-turn version would let a model

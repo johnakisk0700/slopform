@@ -21,7 +21,7 @@ production defects** carry two explicit oracles: `knownCurrent` pins the exact
 observable failure and `expect` keeps the desired product outcome. All 88 tests
 therefore run green without pretending the 30 defects are correct.
 
-A separate **27-case real-model corpus** exercises semantic interpretation with
+A separate **33-case real-model corpus** exercises semantic interpretation with
 live candidate-name binding. It is for deliberate, paid Luna/Qwen checks through
 the dev simulator, not CI or a nightly schedule. The normal suite remains
 fake-backed and free. Scripted rows involving sarcasm, prompt injection or

@@ -147,4 +147,20 @@ describe("post-event feedback real-model corpus", () => {
     );
     expect(scenario.rubric.notes?.[0]?.about).toBe("candidate4");
   });
+
+  it("does not bank faint praise as a liked answer", () => {
+    // The wording fix on `racist_about_an_attendee` stopped the corpus from
+    // demanding a `liked` off «ήταν οκ», but left no case that fails a model
+    // for doing that on its own. This row is that case: the forbidden answer is
+    // the whole claim, and a requiredIntent would pick a winner between re-ask
+    // and move-on when both are right.
+    const scenario = corpusCase("faint_praise_is_not_liked");
+
+    expect(scenario.rubric.forbiddenAnswers).toContainEqual({
+      question: "liked",
+      about: "candidate1",
+    });
+    expect(scenario.rubric.answers ?? []).toEqual([]);
+    expect(scenario.rubric.reply?.requiredIntent).toBeUndefined();
+  });
 });
