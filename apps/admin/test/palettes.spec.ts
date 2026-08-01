@@ -71,6 +71,9 @@ const REQUIRED_TOKENS = [
   "--jts-color-info-border",
   "--jts-color-highlight",
   "--jts-color-highlight-text",
+  // The sidebar is the largest single colour surface on screen, so a palette
+  // that leaves it alone does not read as a palette at all.
+  "--jts-color-sidebar-active-index",
 ];
 
 const OVERRIDE_PALETTES = ["ouzo", "inkwell", "linen", "rosewater", "cellar"];
@@ -140,6 +143,40 @@ describe("palettes.css", () => {
             /^#[0-9a-fA-F]{6,8}$/,
           );
         }
+      }
+    }
+  });
+
+  it("gives every palette its own sidebar, in both themes", () => {
+    // The first cut of these palettes pinned the wine slab into all of them,
+    // and four of the six were indistinguishable where it mattered most: the
+    // menu did not change when the theme did. Distinctness is the contract.
+    for (const theme of ["light", "dark"] as const) {
+      const slabs = OVERRIDE_PALETTES.map(
+        (id) => paletteBlock(id, theme).get("--jts-color-surface-strong") ?? "",
+      );
+      // House Wine's own slab is in tokens.css, so it joins the comparison
+      // from there rather than from a palette block.
+      const houseWine = theme === "light" ? "#46242f" : "#2e1c26";
+      const all = [...slabs, houseWine];
+      expect(new Set(all).size, `${theme}: ${all.join(" ")}`).toBe(all.length);
+    }
+  });
+
+  it("relights the active numeral with the slab it sits on", () => {
+    for (const id of OVERRIDE_PALETTES) {
+      for (const theme of ["light", "dark"] as const) {
+        const block = paletteBlock(id, theme);
+        const numeral = block.get("--jts-color-sidebar-active-index");
+        const slab = block.get("--jts-color-surface-strong");
+        expect(numeral, `${id}/${theme}`).toBeDefined();
+        expect(slab, `${id}/${theme}`).toBeDefined();
+        if (!numeral || !slab) continue;
+        // Small text on the slab: AA large would not be enough.
+        expect(
+          contrast(numeral, slab),
+          `${id}/${theme}: active numeral on sidebar`,
+        ).toBeGreaterThanOrEqual(4.5);
       }
     }
   });

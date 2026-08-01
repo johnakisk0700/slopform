@@ -213,7 +213,10 @@
   --jts-color-sidebar-text-muted: var(--jts-color-text-on-strong-muted);
   --jts-color-sidebar-hover-bg: color-mix(in srgb, #ffffff 8%, transparent);
   --jts-color-sidebar-active-bg: color-mix(in srgb, #ffffff 12%, transparent);
-  --jts-color-sidebar-active-text: #fbeef0;
+  --jts-color-sidebar-active-text: var(--jts-color-text-on-strong);
+  /* The lit numeral is the sidebar's one spot of colour, so it is stated
+     rather than derived: a palette that repaints the slab must repaint this
+     with it, or House Wine's pink ends up glowing on somebody else's ink. */
   --jts-color-sidebar-active-index: var(--jts-wine-300);
   --jts-color-sidebar-border: color-mix(in srgb, #ffffff 12%, transparent);
 
