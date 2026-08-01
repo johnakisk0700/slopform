@@ -85,6 +85,8 @@ interface ConversationViewModule {
   ) => { key: string; label: string; tone: string; emphasis?: string }[];
   closedConversationLine: (conversation: TestConversation) => string | null;
   transcriptMessageAnchorId: (messageId: string) => string;
+  sameTranscriptMinute: (aIso: string, bIso: string) => boolean;
+  formatExactTimestamp: (iso: string) => string;
 }
 
 interface PollingModule {
@@ -721,6 +723,42 @@ describe("a row never repeats its own heading", () => {
   });
 });
 
+describe("transcript minute grouping", () => {
+  it("groups messages that share actor context by their display minute", () => {
+    expect(
+      view.sameTranscriptMinute(
+        "2026-07-20T10:15:02.000Z",
+        "2026-07-20T10:15:58.000Z",
+      ),
+    ).toBe(true);
+    expect(
+      view.sameTranscriptMinute(
+        "2026-07-20T10:15:59.000Z",
+        "2026-07-20T10:16:00.000Z",
+      ),
+    ).toBe(false);
+    // Same wall-minute on different days is not the same minute.
+    expect(
+      view.sameTranscriptMinute(
+        "2026-07-20T10:15:00.000Z",
+        "2026-07-21T10:15:00.000Z",
+      ),
+    ).toBe(false);
+    // Garbage never groups — a broken timestamp keeps its meta line.
+    expect(view.sameTranscriptMinute("not-a-date", "not-a-date")).toBe(false);
+  });
+
+  it("reveals a full date-and-seconds timestamp for a collapsed message", () => {
+    const exact = view.formatExactTimestamp("2026-07-20T10:15:42.000Z");
+
+    // Locale-rendered, so assert the parts rather than one exact string.
+    expect(exact).toContain("2026");
+    expect(exact).toContain("Jul");
+    expect(exact).toMatch(/\d{2}:\d{2}:\d{2}/);
+    expect(view.formatExactTimestamp("not-a-date")).toBe("—");
+  });
+});
+
 describe("needs-attention emphasis", () => {
   it("marks only the attention badge as strong", () => {
     const badges = view.conversationBadges(
@@ -1278,18 +1316,20 @@ describe("inbox toolbar and orientation", () => {
     expect(header).toContain("ChevronLeft");
   });
 
-  it("keeps «Start conversation» beside the list it adds a row to", () => {
+  it("starts a conversation from the candidate's own row in the list", () => {
     const page = readSource("src/routes/FeedbackInboxPage.tsx");
     const list = readSource(
       "src/components/admin/feedback/ConversationList.tsx",
     );
 
-    expect(page).toContain("startAction:");
-    expect(list).toContain("startAction");
-    // Not a page-level toolbar item any more.
-    expect(page.indexOf("<StartConversationAction")).toBeGreaterThan(
-      page.indexOf("<ConversationList"),
-    );
+    // D17 is a row in the NOT STARTED group, not a standalone button over a
+    // picker dialog: the page derives candidates (present, no conversation)
+    // and each row grows its confirmed «Start» on hover or keyboard focus.
+    expect(page).toContain("startCandidates");
+    expect(page).toContain("attendee.present");
+    expect(list).toContain("Not started");
+    expect(list).toContain("group-focus-within:opacity-100");
+    expect(list).toContain("<ConfirmAction");
   });
 
   it("shows the polling refresh in both live panes without a live region", () => {

@@ -27,6 +27,7 @@ import {
   useTakeOverFeedbackConversation,
   useWithdrawFeedbackConversationAnswer,
 } from "../api/generated/feedback-conversations";
+import { useGetEvent } from "../api/generated/events";
 import { useUpdateFeedbackNoteReviewStatus } from "../api/generated/feedback-notes";
 import type { AddFeedbackConversationNoteDtoNoteType } from "../api/generated/model/addFeedbackConversationNoteDtoNoteType";
 import type { FeedbackConversationDetailDtoOutput } from "../api/generated/model/feedbackConversationDetailDtoOutput";
@@ -43,7 +44,6 @@ import {
   ConversationTranscript,
   ConversationTranscriptEmpty,
 } from "../components/admin/feedback/ConversationTranscript";
-import { StartConversationAction } from "../components/admin/feedback/StartConversationAction";
 import {
   matchesConversationQuery,
   resolveSelectedConversationId,
@@ -424,6 +424,27 @@ export function FeedbackInboxPage() {
     [conversations],
   );
 
+  // D17 candidates for the list's NOT STARTED group: attendees marked present
+  // with no conversation yet. Read from the event's own attendee list — the
+  // backend re-checks eligibility on start, so this is display, not the rule.
+  const eventQuery = useGetEvent(campaign?.eventId ?? "", {
+    query: { enabled: campaign !== undefined },
+  });
+  const startCandidates = useMemo(() => {
+    const attendees = eventQuery.data?.attendees ?? [];
+    return attendees
+      .filter(
+        (attendee) =>
+          attendee.present &&
+          !existingParticipantIds.has(attendee.participantId),
+      )
+      .map((attendee) => ({
+        participantId: attendee.participantId,
+        label: attendee.preferredName ?? attendee.emailNormalized,
+      }))
+      .sort((left, right) => left.label.localeCompare(right.label, "el"));
+  }, [eventQuery.data?.attendees, existingParticipantIds]);
+
   const listError = listQuery.isError
     ? apiErrorMessage(listQuery.error, "Failed to load conversations.")
     : null;
@@ -484,19 +505,12 @@ export function FeedbackInboxPage() {
             error={listError}
             totalCount={conversations.length}
             isRefreshing={listQuery.isFetching}
-            {...(campaign
-              ? {
-                  startAction: (
-                    <StartConversationAction
-                      eventId={campaign.eventId}
-                      existingParticipantIds={existingParticipantIds}
-                      isDisabled={campaign.status === "closed"}
-                      isPending={startConversation.isPending}
-                      onStart={handleStartConversation}
-                    />
-                  ),
-                }
-              : {})}
+            startCandidates={startCandidates}
+            onStartConversation={handleStartConversation}
+            startPending={startConversation.isPending}
+            startDisabled={
+              campaign === undefined || campaign.status === "closed"
+            }
           />
         </div>
 

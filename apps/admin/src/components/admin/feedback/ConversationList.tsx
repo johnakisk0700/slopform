@@ -8,9 +8,10 @@ import {
   Search,
   SearchX,
   TriangleAlert,
+  UserRoundPlus,
   type LucideIcon,
 } from "lucide-react";
-import { useId, type ReactNode } from "react";
+import { useId } from "react";
 
 import {
   conversationRowBadges,
@@ -25,7 +26,14 @@ import {
   participantLabel,
 } from "../../../features/feedback/labels";
 import { JtsLiveIndicator } from "../../ui/JtsLiveIndicator";
+import { ConfirmAction } from "./ConfirmAction";
 import { FeedbackBadges } from "./FeedbackBadges";
+
+/** A present attendee with no conversation yet — a D17 start candidate. */
+export interface StartCandidate {
+  participantId: string;
+  label: string;
+}
 
 interface ConversationListProps {
   conversations: readonly ConversationListItem[];
@@ -40,10 +48,16 @@ interface ConversationListProps {
   /** True while the list query is refetching, for the live mark. */
   isRefreshing: boolean;
   /**
-   * The D17 «Start conversation» trigger. It belongs beside this list because
-   * that is where the conversation it creates appears.
+   * D17 candidates, rendered as their own quiet group at the list's foot: the
+   * people who are at the event but have no conversation yet. Each row grows
+   * its «Start» on hover or keyboard focus — the affordance lives on the
+   * person it would start, not on a standalone button describing them.
    */
-  startAction?: ReactNode;
+  startCandidates: readonly StartCandidate[];
+  onStartConversation: (participantId: string) => Promise<void>;
+  startPending: boolean;
+  /** True when the campaign can no longer start anything (closed). */
+  startDisabled: boolean;
 }
 
 /**
@@ -103,11 +117,15 @@ export function ConversationList({
   error,
   totalCount,
   isRefreshing,
-  startAction,
+  startCandidates,
+  onStartConversation,
+  startPending,
+  startDisabled,
 }: ConversationListProps) {
   const filterId = useId();
   const headingId = useId();
   const groupHeadingId = useId();
+  const notStartedId = useId();
 
   const groups = groupConversations(conversations);
 
@@ -136,25 +154,19 @@ export function ConversationList({
             label="This list refreshes automatically."
           />
         </div>
-        {/* Narrowing the list and adding to it are one cluster: two full-width
-            controls on a single gap, rather than a field with a small button
-            drifting under its left edge. */}
-        <div className="flex flex-col gap-2">
-          <div className="relative">
-            <Search
-              aria-hidden="true"
-              className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-subtle"
-            />
-            <Input
-              id={filterId}
-              aria-label="Filter conversations by name or phone"
-              placeholder="Filter by name or phone"
-              value={query}
-              onChange={(change) => onQueryChange(change.target.value)}
-              className="w-full pl-9"
-            />
-          </div>
-          {startAction}
+        <div className="relative">
+          <Search
+            aria-hidden="true"
+            className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-subtle"
+          />
+          <Input
+            id={filterId}
+            aria-label="Filter conversations by name or phone"
+            placeholder="Filter by name or phone"
+            value={query}
+            onChange={(change) => onQueryChange(change.target.value)}
+            className="w-full pl-9 text-ink-muted"
+          />
         </div>
       </div>
 
@@ -198,7 +210,7 @@ export function ConversationList({
         </div>
       ) : null}
 
-      {conversations.length > 0 ? (
+      {conversations.length > 0 || startCandidates.length > 0 ? (
         <div className="min-h-0 flex-1 overflow-y-auto">
           {groups.map((group) => {
             const style = GROUP_STYLES[group.key];
@@ -311,6 +323,66 @@ export function ConversationList({
               </section>
             );
           })}
+
+          {/* D17: the people who are at the event but have no conversation
+              yet, as quiet ghost rows at the list's foot rather than a
+              standalone «Start conversation» button over a picker dialog. The
+              row *is* the candidate, so «Start» appears where the conversation
+              would — on them, on hover or keyboard focus. The backend still
+              re-checks eligibility (opt-in, phone) and refuses if it does not
+              hold. */}
+          {startCandidates.length > 0 ? (
+            <section aria-labelledby={notStartedId}>
+              <h3
+                id={notStartedId}
+                className="sticky top-0 z-10 flex items-center gap-2 border-y border-l-[3px] border-border-strong border-l-transparent bg-surface-sunken py-2 pr-4 pl-3.5 jts-overline text-ink-muted"
+              >
+                <UserRoundPlus
+                  aria-hidden="true"
+                  className="size-3.5 shrink-0"
+                />
+                <span className="min-w-0 flex-1 truncate">Not started</span>
+                <span className="shrink-0 tabular-nums tracking-normal">
+                  {startCandidates.length}
+                </span>
+              </h3>
+              <ul>
+                {startCandidates.map((candidate) => (
+                  <li
+                    key={candidate.participantId}
+                    className="group border-b border-border-subtle last:border-b-0"
+                  >
+                    <div className="flex items-center justify-between gap-2 px-4 py-2">
+                      <p className="line-clamp-2 min-w-0 flex-1 text-sm leading-snug font-semibold break-words text-ink-muted">
+                        {candidate.label}
+                      </p>
+                      {/* Hidden until the row is hovered or holds focus. The
+                          button stays in the DOM throughout, so keyboard and
+                          screen-reader users reach it without a mouse. */}
+                      <div className="shrink-0 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
+                        <ConfirmAction
+                          label="Start"
+                          heading="Start a conversation"
+                          description={
+                            <>
+                              Opens a feedback conversation with{" "}
+                              {candidate.label} and queues their intro message.
+                            </>
+                          }
+                          confirmLabel="Start conversation"
+                          isPending={startPending}
+                          isDisabled={startDisabled || startPending}
+                          onConfirm={() =>
+                            onStartConversation(candidate.participantId)
+                          }
+                        />
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
         </div>
       ) : null}
     </section>

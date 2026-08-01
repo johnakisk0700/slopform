@@ -125,13 +125,16 @@ flowchart LR
   down the archive said nothing). A newsworthy closing reason («Stopped»,
   «Declined», «Expired», «Cancelled») and human control survive anywhere,
   because nothing else states them. An ordinary conversation therefore carries
-  no chip at all, which is what makes a chip in this list worth looking at. The transcript header renders **no badge row at
-  all** (density pass, 2026-08-01): every fact the pills carried is stated
-  once, in the place it acts — attention is the strip below with its reasons,
-  who writes is the composer or the «bot is replying» foot line, and the one
-  fact nothing else stated, the named end of a closed thread, is the quiet
-  `closedConversationLine` on the header's right («Completed — no messages can
-  be sent.»).
+  no chip at all, which is what makes a chip in this list worth looking at.
+  The transcript header renders **no status badge row** (density pass,
+  2026-08-01): every fact the pills carried is stated once, in the place it
+  acts — attention is the strip below with its reasons, who writes is the
+  composer or the «bot is replying» foot line. The one fact nothing else
+  states, the named end of a closed thread, is a single icon pill top-right —
+  `lifecycleBadge` plus a per-reason glyph (`CircleCheck` completed, `Ban`
+  stopped, `TimerOff` expired, `CircleSlash` declined, `SquareX` cancelled,
+  `Archive` bare) — with `closedConversationLine`'s full sentence as its
+  tooltip.
 - **Each fact appears once.** Goal progress is one number in words
   («3/4 done»), not a bar beside its own caption: the text is what a screen
   reader reads out of the row's name, and four goals give a bar five states it
@@ -259,8 +262,9 @@ the viewport. Two changes fixed that without a layout rework:
   compressed to about 9 rem including the main padding, both panes now cap at
   `calc(100dvh - 10rem)` and the transcript takes everything under the header.
   Inside the pane the same pass cost every non-message row what it could spare:
-  the transcript header is one identity line (name · phone, the staff close
-  line only when there is one); the attention strip dropped its visible
+  the transcript header is the two-line contact block every messaging app
+  taught — name over number, the staff close line only when there is one; the
+  attention strip dropped its visible
   caption for an `sr-only` heading, since the tint and the triangle every row
   now carries already say "attention" (the accessible name is unchanged); and
   the dev composer shrank from a captioned block to a single row — flask,
@@ -272,7 +276,7 @@ the viewport. Two changes fixed that without a layout rework:
 A second round took the remaining always-on rows out of the pane's chrome:
 
 - **The header pills are gone.** See the badge invariant — the header states
-  only the named end of a closed thread, as one quiet line on its right, where
+  only the named end of a closed thread, as one icon pill on its right, where
   an operator glances for "can I still act here?".
 - **The reading status lives at the end of the messages,** inside the scroll,
   not on a foot line — see «Extraction status».
@@ -297,6 +301,40 @@ screen said something true of almost every row (the sleek pass):
   campaign is ordinarily opted in, so consent appears exactly when its absence
   is the compliance problem, and the card's badge row renders nothing at all
   otherwise.
+
+A fourth round put the remaining interactions where a messaging app keeps
+them (2026-08-01, same day):
+
+- **Bubbles group by minute.** Within a run of one actor, a message in the
+  same display minute as the one above it drops its meta line
+  (`sameTranscriptMinute`); every bubble carries the exact date-and-seconds
+  timestamp as its hover `title` (`formatExactTimestamp`), and a press on the
+  message toggles the line back for touch. A held or failed delivery always
+  forces the line — a paused message must not be quieter than a delivered
+  one — and a collapsed message keeps an `sr-only` actor-and-time line.
+- **PROGRESS & ANSWERS has an edit mode.** At rest every answer is plain text
+  with no controls. One «Edit» press in the card header opens every row at
+  once: a score becomes a HeroUI 5-step `Slider` that saves on thumb release
+  through the same correction hook, and a directed answer grows its confirmed
+  withdrawal. «Done» closes them. There is deliberately no add path — the
+  backend has no operator-authored answer endpoint — so edit mode is exactly
+  correct-and-remove.
+- **A note wears its review state.** A note waiting for review is a
+  warning-tinted card; a handled one is plain. The «Needs review» pill that
+  sat in the corner of every unhandled note is gone; the «Staff note» origin
+  badge stays, because origin is identity, not state.
+- **D17 is a row, not a button.** The list's foot carries a NOT STARTED group:
+  present attendees with no conversation yet, as quiet muted rows whose
+  confirmed «Start» appears on hover or keyboard focus (the button stays in
+  the DOM throughout, so focus and screen readers always reach it). The
+  standalone «Start conversation» button and its picker dialog are gone.
+- **On tinted surfaces, Dismiss is `secondary`.** A ghost button on the
+  warning wash is the same colour as the card and reads as disabled; the
+  bordered secondary variant keeps its own fill. Ghost remains right on plain
+  cards.
+- **Input text is muted.** The filter and both composers render their text in
+  `text-ink-muted` — typed text is transient working material, not record,
+  and full-strength ink made the input row the darkest text on the pane.
 
 The screen still deliberately does **not** take over the viewport the way the
 assistant route does. The reason is the height budget, not a shell limitation:
@@ -347,15 +385,15 @@ Verified in both themes at 240 px and 304 px over the DevTools Protocol
 
 Placement is the screen's answer to "what does this act on?".
 
-| Control                        | Home                     | Why                                                                   |
-| ------------------------------ | ------------------------ | --------------------------------------------------------------------- |
-| «All campaigns»                | Header top line, left    | Leaves the campaign — a back affordance (left arrow, link style)      |
-| Results                        | Header top line, right   | Reads this campaign's output                                          |
-| Pause / Resume / Close         | Header top line, right   | Changes this campaign's state; a hairline separates them from Results |
-| «Start conversation» (D17)     | Conversation list header | It creates a row in that list, directly under the filter over it      |
-| Take over / Resume bot / Close | Transcript, foot         | On the line that says who may write here — the question they answer   |
-| «Add note»                     | NOTES card header        | Writes into the list it sits above                                    |
-| Correct / withdraw an answer   | On the answer's own row  | Acts on that one recorded answer, beside the value it disagrees with  |
+| Control                        | Home                    | Why                                                                     |
+| ------------------------------ | ----------------------- | ----------------------------------------------------------------------- |
+| «All campaigns»                | Header top line, left   | Leaves the campaign — a back affordance (left arrow, link style)        |
+| Results                        | Header top line, right  | Reads this campaign's output                                            |
+| Pause / Resume / Close         | Header top line, right  | Changes this campaign's state; a hairline separates them from Results   |
+| «Start» (D17)                  | NOT STARTED row, hover  | The affordance lives on the person it would start, in the list it joins |
+| Take over / Resume bot / Close | Transcript, foot        | On the line that says who may write here — the question they answer     |
+| «Add note»                     | NOTES card header       | Writes into the list it sits above                                      |
+| Correct / withdraw an answer   | On the answer's own row | Acts on that one recorded answer, beside the value it disagrees with    |
 
 ## Closing a conversation
 
@@ -485,11 +523,13 @@ wrong on. Two controls, because they are two different statements — see
 [the backend module](../backend/modules/post-event-feedback.md#operator-corrections-to-recorded-answers-wp12b)
 for how each is recorded.
 
-- **A score** is an inline edit: press the pencil beside the value, pick from
-  1–5, save. `correctFeedbackConversationAnswer` answers with the updated answer
-  and both answer readers are invalidated. Offered only where the answer is a
-  number (`event_score`); on `liked` / `meet_again` / `avoid` the subject _is_
-  the answer, so there is no number to pick.
+- **A score** is edited in the card's edit mode: «Edit» in the PROGRESS &
+  ANSWERS header opens every row at once, the value becomes a 5-step HeroUI
+  `Slider`, and releasing the thumb saves through
+  `correctFeedbackConversationAnswer` — the updated answer comes back and both
+  answer readers are invalidated. Offered only where the answer is a number
+  (`event_score`); on `liked` / `meet_again` / `avoid` the subject _is_ the
+  answer, so there is no number to slide.
 - **A wrong person** is a withdrawal: the same `ConfirmAction` dialog every
   consequential control on this screen uses, naming the person and the question
   and saying that it cannot be undone here. `withdrawFeedbackConversationAnswer`
@@ -607,10 +647,13 @@ actions, exactly two hand-written transport callers).
 The design pass adds: the staff-origin badge (present for `staff`, absent
 otherwise) and that both the details pane and the Results tab render it, the
 note write going through the generated hook and invalidating both readers, the
-subject picker consuming the D16 candidate endpoint, «All campaigns» sitting
-above the header as a back affordance, «Start conversation» living with the
-list, and the polling indicator being bound to `isFetching` in both panes with
-no live region.
+subject picker consuming the D16 candidate endpoint, «All campaigns» reading
+as a back affordance before the title, D17 starting from the candidate's own
+NOT STARTED row (derived from present attendees, confirmed «Start» on
+hover/focus), the polling indicator being bound to `isFetching` in both panes
+with no live region, and the transcript's minute grouping
+(`sameTranscriptMinute` by display minute and day, `formatExactTimestamp`
+carrying date and seconds for the hover/press reveal).
 
 The list-column pass adds `conversationRowBadges`: that the attention chip is
 dropped under its own heading, that only the exceptional lifecycle keeps a

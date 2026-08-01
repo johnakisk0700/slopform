@@ -1,16 +1,22 @@
 import { Button, Chip, Input } from "@heroui/react";
 import { clsx } from "clsx";
 import {
+  Archive,
+  Ban,
   BellRing,
   Bot,
   Check,
   CheckCheck,
+  CircleCheck,
+  CircleSlash,
   Clock,
   Eye,
   FlaskConical,
   PauseCircle,
   Phone,
   Send,
+  SquareX,
+  TimerOff,
   TriangleAlert,
   UserRound,
   X,
@@ -29,7 +35,9 @@ import type { FeedbackConversationDetailDtoOutput } from "../../../api/generated
 import type { FeedbackConversationDetailDtoOutputMessagesItem } from "../../../api/generated/model/feedbackConversationDetailDtoOutputMessagesItem";
 import {
   closedConversationLine,
+  formatExactTimestamp,
   formatTimestamp,
+  sameTranscriptMinute,
   transcriptMessageAnchorId,
 } from "../../../features/feedback/conversationView";
 import {
@@ -37,6 +45,7 @@ import {
   awaitingDeliveryReason,
   deliveryBadge,
   isUnresolvedParticipant,
+  lifecycleBadge,
   messageAttentionActionLabel,
   messageAttentionCategoryLabel,
   participantLabel,
@@ -83,6 +92,19 @@ const ACTOR_STYLES: Record<
       "bg-transparent border border-dashed border-border text-ink-muted text-center",
     label: "text-ink-subtle",
   },
+};
+
+/**
+ * The glyph beside a closed thread's state pill in the header. One per named
+ * end, so the pill reads at a glance before its word does — the same
+ * orientation duty icons carry everywhere else on this screen.
+ */
+const CLOSED_STATE_ICONS: Record<string, LucideIcon> = {
+  completed: CircleCheck,
+  declined: CircleSlash,
+  stopped: Ban,
+  expired: TimerOff,
+  cancelled: SquareX,
 };
 
 /**
@@ -166,41 +188,69 @@ interface TranscriptMessageProps {
    * keep an `sr-only` label, so a screen reader still hears every speaker.
    */
   startsRun: boolean;
+  /** True when this message's minute differs from the one above it. */
+  newMinute: boolean;
 }
 
-function TranscriptMessage({ message, startsRun }: TranscriptMessageProps) {
+function TranscriptMessage({
+  message,
+  startsRun,
+  newMinute,
+}: TranscriptMessageProps) {
   const styles = ACTOR_STYLES[message.actor];
   const delivery = deliveryBadge(message.delivery);
   const awaiting = awaitingDeliveryReason(message.delivery);
   const attention = message.attention;
   const ActionIcon = attention?.recommendedAction === "review" ? Eye : BellRing;
 
+  // Same actor, same minute → the meta line repeats everything the one above
+  // it said, so it collapses, the way every messaging app groups its bubbles.
+  // A press brings it back (the touch equivalent of the hover tooltip below),
+  // and a delivery state someone must act on — held, failed — always forces
+  // the line: a paused message must not be quieter than a delivered one.
+  const [revealed, setRevealed] = useState(false);
+  const deliveryDemandsMeta =
+    delivery?.placement === "inline" &&
+    (delivery.icon === "held" || delivery.icon === "failed");
+  const showsMeta = startsRun || newMinute || deliveryDemandsMeta || revealed;
+
   return (
     /* Anchored and focusable so an attention reason can send the operator to
        the exact message that caused it. `tabIndex={-1}` keeps it out of the
        tab order — it is a destination, not a stop. */
+    // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions -- The press is a touch-only convenience for revealing a grouped message's time: pointer users get the same fact from the bubble's `title` on hover, and assistive tech always has it in the meta line or its sr-only stand-in. A button role here would announce every message as a control.
     <li
       id={transcriptMessageAnchorId(message.id)}
       tabIndex={-1}
+      onClick={() => setRevealed((current) => !current)}
       className={clsx("flex scroll-my-4 flex-col gap-1", styles.row)}
     >
-      <p className="flex flex-wrap items-center gap-x-2 gap-y-1 px-1 jts-overline">
-        {startsRun ? (
-          <span className={styles.label}>{actorLabel(message.actor)}</span>
-        ) : (
-          <span className="sr-only">{actorLabel(message.actor)}</span>
-        )}
-        <time
-          dateTime={message.at}
-          className="font-semibold tracking-normal text-ink-subtle normal-case"
-        >
-          {formatTimestamp(message.at)}
-        </time>
-        {delivery?.placement === "inline" ? (
-          <InlineDeliveryStatus status={delivery} title={awaiting} />
-        ) : null}
-      </p>
+      {showsMeta ? (
+        <p className="flex flex-wrap items-center gap-x-2 gap-y-1 px-1 jts-overline">
+          {startsRun ? (
+            <span className={styles.label}>{actorLabel(message.actor)}</span>
+          ) : (
+            <span className="sr-only">{actorLabel(message.actor)}</span>
+          )}
+          <time
+            dateTime={message.at}
+            className="font-semibold tracking-normal text-ink-subtle normal-case"
+          >
+            {formatTimestamp(message.at)}
+          </time>
+          {delivery?.placement === "inline" ? (
+            <InlineDeliveryStatus status={delivery} title={awaiting} />
+          ) : null}
+        </p>
+      ) : (
+        /* The collapsed line still speaks: a screen reader hears every actor
+           and time in order, whatever the sighted grouping hides. */
+        <p className="sr-only">
+          {actorLabel(message.actor)} {formatTimestamp(message.at)}
+        </p>
+      )}
       <div
+        title={formatExactTimestamp(message.at)}
         className={clsx(
           "max-w-[min(42rem,85%)] rounded-lg px-3.5 py-2.5 text-sm",
           attention
@@ -383,35 +433,58 @@ export function ConversationTranscript({
          panes stay level. */
       className="flex max-h-[calc(100dvh-10rem)] min-h-0 flex-col overflow-hidden rounded-md border border-border bg-surface"
     >
-      {/* Who, on what number — one line, and no badge row (density pass): the
-          pills restated what the pane already says once each. Attention is the
-          strip below with its reasons; who writes is the composer or the foot
-          line; the one fact nothing else stated — the named end of a closed
-          thread — sits quietly on the right, where an operator glances for
-          "can I still act here?". */}
+      {/* The contact block every messaging app taught: name over number, two
+          short lines. No badge row (density pass) — attention is the strip
+          below with its reasons, who writes is the composer or the foot line.
+          The one fact nothing else states, the named end of a closed thread,
+          is an icon pill top-right where an operator glances for "can I still
+          act here?"; its tooltip keeps the full sentence. */}
       <header className="border-b border-border px-5 py-2.5">
-        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
+          <div className="min-w-0">
             <h2
               id={headingId}
               className={clsx(
-                "truncate text-[1.05rem] font-bold tracking-tight text-ink",
+                "truncate text-[1.05rem] leading-tight font-bold tracking-tight text-ink",
                 unresolved && "italic",
               )}
             >
               {name}
             </h2>
-            <span className="flex items-center gap-1.5 text-xs text-ink-muted tabular-nums">
+            <p className="mt-0.5 flex items-center gap-1.5 text-xs text-ink-muted tabular-nums">
               <Phone
                 aria-hidden="true"
                 className="size-3.5 shrink-0 text-ink-subtle"
               />
               {conversation.phoneAtLaunch}
-            </span>
+            </p>
+            {conversation.staffClose ? (
+              <p className="mt-1 text-xs text-ink-muted">
+                {staffCloseSummary(conversation.staffClose)}
+              </p>
+            ) : null}
           </div>
           <div className="flex shrink-0 items-center gap-3">
             {closedLine ? (
-              <p className="text-xs text-ink-muted">{closedLine}</p>
+              <div title={closedLine}>
+                <FeedbackBadges
+                  size="md"
+                  badges={[
+                    {
+                      ...lifecycleBadge({
+                        state: conversation.lifecycle.state,
+                        reason: conversation.lifecycle.reason as Parameters<
+                          typeof lifecycleBadge
+                        >[0]["reason"],
+                      }),
+                      glyph:
+                        CLOSED_STATE_ICONS[
+                          conversation.lifecycle.reason ?? ""
+                        ] ?? Archive,
+                    },
+                  ]}
+                />
+              </div>
             ) : null}
             <JtsLiveIndicator
               active={isRefreshing}
@@ -419,11 +492,6 @@ export function ConversationTranscript({
             />
           </div>
         </div>
-        {conversation.staffClose ? (
-          <p className="mt-1 text-xs text-ink-muted">
-            {staffCloseSummary(conversation.staffClose)}
-          </p>
-        ) : null}
       </header>
 
       {attention}
@@ -436,15 +504,20 @@ export function ConversationTranscript({
         ) : (
           <>
             <ul className="flex flex-col gap-4">
-              {conversation.messages.map((message, index) => (
-                <TranscriptMessage
-                  key={message.id}
-                  message={message}
-                  startsRun={
-                    conversation.messages[index - 1]?.actor !== message.actor
-                  }
-                />
-              ))}
+              {conversation.messages.map((message, index) => {
+                const previous = conversation.messages[index - 1];
+                return (
+                  <TranscriptMessage
+                    key={message.id}
+                    message={message}
+                    startsRun={previous?.actor !== message.actor}
+                    newMinute={
+                      previous === undefined ||
+                      !sameTranscriptMinute(previous.at, message.at)
+                    }
+                  />
+                );
+              })}
             </ul>
             {/* The reading status ends the conversation the way a read receipt
                 does: it is about these messages, so it sits under the last of
@@ -510,7 +583,7 @@ export function ConversationTranscript({
               placeholder={`Reply to ${name} as staff…`}
               maxLength={SIMULATOR_MESSAGE_MAX_LENGTH}
               disabled={staffSendPending}
-              className="flex-1"
+              className="flex-1 text-ink-muted"
             />
             <Button
               type="submit"
@@ -547,7 +620,7 @@ export function ConversationTranscript({
               placeholder={`Reply as ${name} — simulated…`}
               maxLength={SIMULATOR_MESSAGE_MAX_LENGTH}
               disabled={simulatedReplyPending}
-              className="min-w-0 flex-1"
+              className="min-w-0 flex-1 text-ink-muted"
             />
             <Button
               type="submit"

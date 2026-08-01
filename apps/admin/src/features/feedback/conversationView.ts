@@ -311,6 +311,46 @@ export function transcriptMessageAnchorId(messageId: string): string {
   return `transcript-message-${messageId}`;
 }
 
+/**
+ * Whether two transcript messages land in the same minute, which is the
+ * grouping the transcript collapses meta lines by: within a run of one actor,
+ * a second message in the same minute repeats everything its line would say.
+ */
+export function sameTranscriptMinute(aIso: string, bIso: string): boolean {
+  const a = new Date(aIso);
+  const b = new Date(bIso);
+  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) {
+    return false;
+  }
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate() &&
+    a.getHours() === b.getHours() &&
+    a.getMinutes() === b.getMinutes()
+  );
+}
+
+/**
+ * The full timestamp a collapsed message reveals on hover or press — date and
+ * seconds included, because it answers "when exactly", not "roughly where in
+ * the thread".
+ */
+export function formatExactTimestamp(iso: string): string {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) {
+    return "—";
+  }
+  return at.toLocaleString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
 /** Short absolute timestamp for transcript lines and list rows. */
 export function formatTimestamp(iso: string, now: Date = new Date()): string {
   const at = new Date(iso);

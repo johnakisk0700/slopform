@@ -5,9 +5,11 @@ import {
   AtSign,
   BotMessageSquare,
   Cake,
+  Check,
   Hand,
   ListChecks,
   MapPin,
+  PencilLine,
   PenOff,
   Phone,
   ScanText,
@@ -31,7 +33,6 @@ import {
   noteTypeLabel,
   participantLabel,
   questionLabel,
-  reviewStatusBadge,
   staffOriginBadge,
   type FeedbackBadge,
 } from "../../../features/feedback/labels";
@@ -338,6 +339,12 @@ export function ProgressPanel({
 }: ProgressPanelProps) {
   const progress = goalProgress(conversation.goals);
   const answers = results?.answers ?? [];
+  // Reading and changing are two different visits to this card. At rest every
+  // answer is plain text with no controls; one «Edit» press opens all the
+  // rows at once — sliders on scores, withdrawal on directed answers — and
+  // «Done» closes them. The per-answer pencil made each row carry its own
+  // tiny toolbar all day for an action that happens once a campaign.
+  const [isEditing, setEditing] = useState(false);
 
   return (
     /* The count is in the heading, not a sentence above the list: «2 answered,
@@ -347,8 +354,25 @@ export function ProgressPanel({
       icon={ListChecks}
       title="Progress & answers"
       action={
-        <span className="text-xs font-semibold text-ink-muted tabular-nums">
-          {progress.settled}/{progress.total} done
+        <span className="flex items-center gap-2">
+          <span className="text-xs font-semibold text-ink-muted tabular-nums">
+            {progress.settled}/{progress.total} done
+          </span>
+          {answers.length > 0 ? (
+            <Button
+              size="sm"
+              variant={isEditing ? "primary" : "ghost"}
+              aria-pressed={isEditing}
+              onPress={() => setEditing((current) => !current)}
+            >
+              {isEditing ? (
+                <Check aria-hidden="true" className="size-4" />
+              ) : (
+                <PencilLine aria-hidden="true" className="size-4" />
+              )}
+              {isEditing ? "Done" : "Edit"}
+            </Button>
+          ) : null}
         </span>
       }
     >
@@ -380,12 +404,15 @@ export function ProgressPanel({
                    it, the line saying who. */
                 <div className="flex min-w-0 flex-col items-end gap-1 text-right text-sm font-semibold break-words text-ink">
                   {given.map((answer) => (
+                    /* Keyed on the recorded value too, so a slider draft never
+                       survives a poll that changed the answer under it. */
                     <AnswerValue
-                      key={answer.id}
+                      key={`${answer.id}:${answer.valueInt ?? ""}`}
                       answer={answer}
                       onCorrect={onCorrectAnswer}
                       onWithdraw={onWithdrawAnswer}
                       isDisabled={answerUpdatePending}
+                      editable={isEditing}
                     />
                   ))}
                 </div>
@@ -463,14 +490,21 @@ export function NotesPanel({
         <ul className="space-y-2">
           {notes.map((note) => {
             const origin = staffOriginBadge(note.origin);
-            const badges: FeedbackBadge[] = [
-              ...(origin ? [origin] : []),
-              reviewStatusBadge(note.status),
-            ];
+            const badges: FeedbackBadge[] = origin ? [origin] : [];
+            // The card itself wears the review state: a note waiting for a
+            // person is a warning-tinted card, a handled one is plain. The
+            // «Needs review» pill this replaces sat in the corner of every
+            // unhandled note saying what the tint now says at a glance.
+            const needsReview = note.status !== "dismissed";
             return (
               <li
                 key={note.id}
-                className="rounded-md border border-border-subtle px-3 py-2"
+                className={clsx(
+                  "rounded-md border px-3 py-2",
+                  needsReview
+                    ? "border-warning-border bg-warning-soft"
+                    : "border-border-subtle",
+                )}
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="jts-overline text-ink-muted">
@@ -488,9 +522,13 @@ export function NotesPanel({
                     About {participantLabel(note.subjectDisplayName)}
                   </p>
                 )}
+                {/* Secondary on the tinted card, not ghost: a ghost button on
+                    the warning wash is the same colour as the card and reads
+                    as disabled. On the plain, already-handled card the quiet
+                    ghost is right. */}
                 <Button
                   size="sm"
-                  variant="ghost"
+                  variant={needsReview ? "secondary" : "ghost"}
                   isDisabled={noteUpdatePending}
                   className="mt-2"
                   onPress={() => {

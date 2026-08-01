@@ -112,9 +112,11 @@ export function ConversationAttention({
                   </button>
                 )}
               </span>
+              {/* Secondary, not ghost: on the strip's warning tint a ghost
+                  button is the same colour as the card and disappears. */}
               <Button
                 size="sm"
-                variant="ghost"
+                variant="secondary"
                 aria-label={`Dismiss: ${label}`}
                 isDisabled={dismissing}
                 onPress={() => {

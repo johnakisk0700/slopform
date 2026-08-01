@@ -1,12 +1,21 @@
 import { clsx } from "clsx";
+import type { LucideIcon } from "lucide-react";
 
 import type {
   FeedbackBadge,
   FeedbackTone,
 } from "../../../features/feedback/labels";
 
+/**
+ * A badge with an optional glyph. The icon lives on this component's type and
+ * not on `FeedbackBadge` itself, because `features/feedback/` is React-free
+ * and an icon is a rendering concern — the label still carries the meaning on
+ * its own, per the status invariant.
+ */
+export type FeedbackBadgeWithIcon = FeedbackBadge & { glyph?: LucideIcon };
+
 interface FeedbackBadgesProps {
-  badges: readonly FeedbackBadge[];
+  badges: readonly FeedbackBadgeWithIcon[];
   size?: "sm" | "md";
   className?: string;
 }
@@ -78,13 +87,16 @@ export function FeedbackBadges({
         <li key={badge.key}>
           <span
             className={clsx(
-              "inline-flex items-center rounded-sm border font-semibold whitespace-nowrap",
+              "inline-flex items-center gap-1 rounded-sm border font-semibold whitespace-nowrap",
               SIZE_STYLES[size],
               badge.emphasis === "strong"
                 ? STRONG_TONE_STYLES[badge.tone]
                 : TONE_STYLES[badge.tone],
             )}
           >
+            {badge.glyph ? (
+              <badge.glyph aria-hidden="true" className="size-3 shrink-0" />
+            ) : null}
             {badge.label}
           </span>
         </li>
