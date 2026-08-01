@@ -440,7 +440,7 @@ export function ConversationTranscript({
           is an icon pill top-right where an operator glances for "can I still
           act here?"; its tooltip keeps the full sentence. */}
       <header className="border-b border-border px-5 py-2.5">
-        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
           <div className="min-w-0">
             <h2
               id={headingId}
@@ -464,11 +464,19 @@ export function ConversationTranscript({
               </p>
             ) : null}
           </div>
-          <div className="flex shrink-0 items-center gap-3">
+          {/* Indicator first, pill last: the live mark reserves its width even
+              while idle, and with the pill inboard of it the pill hung half a
+              step in from the corner beside an invisible gap. This way the
+              pill sits flush in the corner, list-chip sized, and centred on
+              the contact block rather than hanging off its first line. */}
+          <div className="flex shrink-0 items-center gap-2">
+            <JtsLiveIndicator
+              active={isRefreshing}
+              label="This transcript refreshes automatically while the conversation is open."
+            />
             {closedLine ? (
               <div title={closedLine}>
                 <FeedbackBadges
-                  size="md"
                   badges={[
                     {
                       ...lifecycleBadge({
@@ -486,10 +494,6 @@ export function ConversationTranscript({
                 />
               </div>
             ) : null}
-            <JtsLiveIndicator
-              active={isRefreshing}
-              label="This transcript refreshes automatically while the conversation is open."
-            />
           </div>
         </div>
       </header>
