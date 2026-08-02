@@ -40,7 +40,7 @@ pnpm feedback:burst
 `pnpm feedback:burst` seeds six finished events, launches thirty-six concurrent
 post-event feedback conversations, and writes
 `report/feedback-burst-<timestamp>.html`. Default mode is the free deterministic
-stub (`FEEDBACK_EXTRACTION_STUB=true`); the frozen direct-OpenAI Luna treatment
+stub (`FEEDBACK_EXTRACTION_STUB=true`); the frozen direct-OpenAI Terra treatment
 needs `--profile prova --confirm-paid-run`. Qwen is a separately labelled
 `--comparison qwen` run; a free-form `--model` is rejected. It never cleans up.
 
@@ -90,5 +90,8 @@ before the migration gate has succeeded.
 ## Documentation
 
 Start at [`docs/README.md`](docs/README.md). The existing read-only WordPress evidence is in [`wordpress-audit-2026-07-22.md`](docs/evidence/wordpress-audit-2026-07-22.md).
+
+Unresolved engineering work is tracked in [`TODO.md`](TODO.md); dated evidence
+and completed plans are not active task lists.
 
 Do not add business entities or WordPress mappings from memory. Update the relevant contract or migration map first, then implement a vertical slice.
