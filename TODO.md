@@ -5,16 +5,16 @@ this file when their code, tests and owning documentation land together.
 
 ## P0 — before real WhatsApp traffic
 
-- [ ] **Serialize inbound materialization per conversation across worker
+- [x] **Serialize inbound materialization per conversation across worker
       replicas.** Replace the current per-process `feedback-ingress` concurrency
       assumption with a deployment-wide per-conversation lease or equivalent
       fence. Preserve parallelism between different conversations; global FIFO
       would let one participant block everybody. Acceptance: simultaneous
-      messages for one conversation materialize in deterministic
-      `(observedAt, ingressId)` order under two workers, while different
+      messages for one conversation materialize in durable PostgreSQL
+      `ingressOrder` (insert) order under two workers, while different
       conversations still progress concurrently.
 
-- [ ] **Recover a lost extraction intent from durable state.** Add startup and
+- [x] **Recover a lost extraction intent from durable state.** Add startup and
       periodic reconciliation for an open bot conversation whose latest
       participant sequence is beyond `extraction.cursorSeq` but has no viable
       extraction or parked-retry job. Re-enqueue with a stable recovery identity
@@ -50,7 +50,7 @@ this file when their code, tests and owning documentation land together.
   expensive test less reproducible, not more realistic.
 
 - [ ] **Measure a higher provider start rate before changing the production
-      default.** Compare the current `30 concurrent / 30 starts per minute`
+      default.** Compare the previous `30 concurrent / 30 starts per minute`
       treatment with `30 / 60` on the same seeded corpus and model controls.
       Raising the concurrency ceiling alone cannot help while the rolling start
       gate is saturated. The Terra production rehearsal peaked at 166,983

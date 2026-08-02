@@ -1,0 +1,2 @@
+ALTER TABLE "provider_message_ingress" ADD COLUMN "ingress_order" bigserial NOT NULL;--> statement-breakpoint
+CREATE INDEX "provider_message_ingress_processing_order_idx" ON "provider_message_ingress" USING btree ("processing_status","ingress_order");

@@ -1692,11 +1692,30 @@ collapse to a single audit event, a single cancellation and a single
 acknowledgement. Extraction is enqueued before the fence for the same reason:
 the reverse order would lose the run instead of repeating it.
 
-The known gap is a row committed by the edge whose enqueue never succeeded. It
-stays `pending` and is recovered by a provider redelivery **or** by the WP7
-ingress recovery sweep, which re-enqueues `feedback.materialize.v1` to
-`feedback-ingress` under the same stable job id for rows older than
-`FEEDBACK_INGRESS_PENDING_RECOVERY_MINUTES` (default 5).
+Before any of those steps, the worker takes a deployment-wide PostgreSQL session
+advisory lock on a digest of the row's phone (or `chatJid` fallback). It then drains durable pending
+rows for that identity in database-assigned `ingress_order`. This is insertion
+order; a delayed provider timestamp cannot jump the queue. The ingress worker
+can therefore run at concurrency 20 across different conversations without
+letting two replicas append the same participant concurrently. The lock has no
+TTL race; PostgreSQL releases it when the dedicated session finishes or dies.
+Same-route jobs queue locally before taking a session, and a separate five-slot
+lock pool cannot consume the normal repository pool. This is still a
+PostgreSQL/MongoDB forward-repair boundary, not a distributed transaction: an
+operation already in flight when only the lock connection fails relies on the
+Mongo append CAS and durable idempotency guards on replay.
+
+A row committed by the edge whose enqueue never succeeded stays `pending` and
+is recovered by a provider redelivery **or** by the WP7 ingress recovery sweep,
+which re-enqueues `feedback.materialize.v1` to `feedback-ingress` under the same
+stable job id for rows older than `FEEDBACK_INGRESS_PENDING_RECOVERY_MINUTES`
+(default 5). A second reconciliation closes the later failure window: on worker
+startup and every five minutes it scans MongoDB for open bot conversations with
+participant messages beyond `extraction.cursorSeq`, checks the positional and
+parked BullMQ jobs, and recreates the stable latest-sequence job only when no
+viable execution exists. Capped parks are excluded before the bounded scan, and
+a lost parked retry is recreated as the same single-attempt five-minute rung.
+Redis persistence is useful; the Mongo cursor is the business source of truth.
 
 ### Boundaries this package deliberately keeps
 
@@ -2477,9 +2496,12 @@ Two consumer expectations follow from this repository's contract rather than
 from the consumer's own code. A correlated outbound is not appended by the
 materializer — the outbox owns that message's transcript entry through
 `outboxId` provenance, so appending the same message again by `ingressId` would
-create a duplicate. And because appends allocate `seq` on arrival, the
-transcript records durable arrival order, not provider timestamps; the feedback
-worker runs at concurrency `1` so one participant's burst keeps its order.
+create a duplicate. Appends allocate the extraction `seq` during
+materialization, while the transcript array renders by provider observation
+time. The feedback ingress worker runs at concurrency `20`, but a
+deployment-wide per-phone/chat PostgreSQL session lock drains pending rows in
+database-assigned `ingress_order`, so different participants progress in parallel
+without two replicas racing one conversation.
 
 One consequence of outbound entries occupying sequence numbers: a participant's
 reply no longer lands at `seq 1`. The bot intro is `seq 1`, so the first reply
@@ -2519,7 +2541,7 @@ runs as bounded BullMQ jobs every five minutes:
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `feedback.sweep-reminders.v1` | A ladder of up to `FEEDBACK_MAX_REMINDERS` (default 2) nudges: nudge _N_ falls due after _N_ × `FEEDBACK_REMINDER_AFTER_HOURS` (default 24) of **participant silence**, so the defaults send at 24h and 48h. Silence runs from the participant's own newest message, or from launch if they never wrote; our outbound never resets it. `reminderCount` is the ladder state and `markReminded` advances it under a compare-and-set, so concurrent sweeps cannot double-nudge. Transcribed as `actor: bot` before `markReminded`, so a crash between the two repairs on the next sweep under the same per-ordinal `dedupe_key`. Skips closed / human / opted-out / inactive campaign, **and any conversation with `needsAttention`** — a conversation waiting for a person must not be chased by a machine. |
 | `feedback.sweep-expiry.v1`    | At `FEEDBACK_EXPIRE_AFTER_HOURS` (default 72) of the same **silence** measure → `close(expired)` + cancel queued outbox. Same skip set except attention: expiry sends nothing and releases the `phoneAtLaunch` unique index, so withholding it only strands the row.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `feedback.sweep-ingress.v1`   | Re-enqueues `feedback.materialize.v1` for `pending` ingress rows older than `FEEDBACK_INGRESS_PENDING_RECOVERY_MINUTES` (default 5) under the existing stable job id.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `feedback.sweep-ingress.v1`   | Re-enqueues `feedback.materialize.v1` for `pending` ingress rows older than `FEEDBACK_INGRESS_PENDING_RECOVERY_MINUTES` (default 5) under the existing stable job id. It then reconciles MongoDB conversations whose participant sequence is ahead of `extraction.cursorSeq`: viable waiting/delayed/active positional or parked jobs are kept; a missing/terminal identity is recreated at the latest unread sequence after the remaining quiet window. A lost parked retry stays on the single-attempt five-minute ladder. The same reconciliation attempts once at worker startup. Closed, human-controlled, awaiting-human and intentionally parked-beyond-six-hours rows are excluded before the bounded scan.                                                                                       |
 
 ### Staff HTTP contract
 
@@ -2575,7 +2597,9 @@ repaired on replay, start-conversation never recreates STOP-closed threads,
 pause/resume audit, `listFeedbackCampaigns` projection + progress counts
 (newest first), reminder/expiry edge cases (opted-out, human control,
 already closed) plus the reminder's transcript entry and its replay repair,
-ingress recovery (stuck row re-enqueued, fresh pending untouched), lease skip
+ingress recovery (stuck row re-enqueued, fresh pending untouched), extraction
+intent recovery (missing/terminal job recreated, viable and bounded-parked jobs
+left alone), coordinator retry without duplicate settled rows, cross-replica session locking, lease skip
 for paused campaigns, and process composition (HTTP module in the API graph,
 sweeps in the worker only).
 

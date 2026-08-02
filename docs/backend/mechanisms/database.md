@@ -6,18 +6,20 @@ ORM `0.45.2`, Drizzle Kit `0.31.10`, `pg` `8.22.0` and PostgreSQL `18.4`.
 ## Boundary
 
 `packages/database` owns schema, migrations and Drizzle client primitives. Each
-Nest HTTP/worker process owns one lazy node-postgres pool through
-`DatabaseService`. Services choose transaction scope; repositories issue
-explicit queries using the supplied transaction or service database handle.
-Conversation aggregates are outside this boundary; see
-[MongoDB lifecycle](mongodb.md).
+Nest HTTP/worker process owns one normal lazy node-postgres pool through
+`DatabaseService`. The feedback worker has one narrow exception: a separate
+five-connection pool holds session advisory locks and never executes repository
+queries. Services choose transaction scope; repositories issue explicit queries
+using the supplied transaction or service database handle. Conversation
+aggregates are outside this boundary; see [MongoDB lifecycle](mongodb.md).
 
 ```mermaid
 flowchart LR
   Service["Domain service"] -->|"opens transaction"| Database["DatabaseService"]
   Service -->|"passes transaction"| Repository["Domain repository"]
   Repository --> Database
-  Database -->|"one pool per process"| PostgreSQL[(PostgreSQL)]
+  Database -->|"normal pool per process"| PostgreSQL[(PostgreSQL)]
+  FeedbackLock["Feedback materialization lock pool"] -->|"session advisory locks only"| PostgreSQL
   Migrator["One-shot migrator"] -->|"reviewed forward SQL"| PostgreSQL
 ```
 
@@ -101,6 +103,19 @@ is hard-deleted and leaves a tombstone on the same uniqueness key, which is what
 stops a later extraction run from writing it back. `feedback_answers.matching_hold`
 marks a row no consumer may turn into a seating constraint. See the
 [post-event feedback module](../modules/post-event-feedback.md).
+
+`provider_message_ingress.ingress_order` is a database sequence assigned when
+the durable row is inserted. It is the cross-process FIFO authority for one
+conversation; `observed_at` remains provider/display time and may be backdated.
+All observations take the same transaction-scoped routing advisory lock before
+the sequence is allocated. Materialization then holds a dedicated
+session-scoped advisory lock across its PostgreSQL/MongoDB work; the session is
+not an idle transaction, and connection death releases the lock automatically.
+These locks use their own worker-only pool capped at five connections, so a
+waiting lock never steals the normal pool connection needed by the protected
+work. A lock-session network failure is not promoted into fictional cross-store
+atomicity; replay safety still comes from Mongo compare-and-set appends and the
+durable ingress/outbox idempotency keys.
 
 Email delivery uses separate intent, outbox and attempt tables. Intent creation,
 outbox publication intent and admin audit share one transaction. Leases and

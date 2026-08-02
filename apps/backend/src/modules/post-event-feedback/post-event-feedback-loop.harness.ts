@@ -47,6 +47,10 @@ import {
   type FakeOutboxRow,
 } from "./post-event-feedback-doubles.harness.js";
 import { PostEventFeedbackMaterializer } from "./ingress/materialize.service.js";
+import {
+  PostEventFeedbackMaterializationCoordinator,
+  type FeedbackMaterializationLimiter,
+} from "./ingress/materialization-coordinator.service.js";
 import { PostEventFeedbackMetrics } from "./metrics.service.js";
 import type {
   FeedbackAnswerQuestionKey,
@@ -572,7 +576,17 @@ export async function createFeedbackLoopHarness(
     outboundLog,
     summaries as never,
   );
-  const ingressProcessor = new PostEventFeedbackIngressProcessor(materializer);
+  const materializationCoordinator =
+    new PostEventFeedbackMaterializationCoordinator(
+      repository as unknown as FeedbackIngressRepository,
+      materializer,
+      {
+        run: (_key: unknown, work: () => Promise<unknown>) => work(),
+      } as unknown as FeedbackMaterializationLimiter,
+    );
+  const ingressProcessor = new PostEventFeedbackIngressProcessor(
+    materializationCoordinator,
+  );
   const extractor = new PostEventFeedbackExtractor(
     database as unknown as DatabaseService,
     repository as unknown as FeedbackCampaignRepository,
@@ -591,7 +605,7 @@ export async function createFeedbackLoopHarness(
     summaries as never,
   );
   const processor = new PostEventFeedbackProcessor(
-    materializer,
+    materializationCoordinator,
     new MessageOutboxRelayService(
       queuePort,
       repository as unknown as FeedbackOutboxRepository,
@@ -619,6 +633,7 @@ export async function createFeedbackLoopHarness(
       outboundLog,
       summaries as never,
     ),
+    { recover: async () => undefined } as never,
     new PostEventFeedbackExtractionFallback(
       queuePort,
       database as unknown as DatabaseService,

@@ -92,6 +92,59 @@ describe("feedback repository conflict targets", () => {
     expect(result.inserted).toBe(true);
   });
 
+  it("orders outbound observations under the same phone lock", async () => {
+    const chain = createInsertChain([{ id: "outbound-ingress" }]);
+    const execute = vi.fn().mockResolvedValue(undefined);
+    const repository = new FeedbackIngressRepository({
+      db: {},
+    } as DatabaseService);
+
+    await repository.insertIngressIfAbsent(
+      { execute, insert: chain.insert } as never,
+      {
+        providerMessageId: "wamid.outbound",
+        chatJid: "306900000001@s.whatsapp.net",
+        direction: "outbound",
+        phoneE164: "+306900000001",
+        observedAt: new Date("2026-07-25T18:00:00.000Z"),
+        text: "θα σε πάρει κάποιος",
+      },
+    );
+
+    const [lockStatement] = execute.mock.calls[0] as [SQL];
+    expect(new PgDialect().sqlToQuery(lockStatement).params).toEqual([
+      "feedback-ingress-phone:+306900000001",
+    ]);
+    expect(execute.mock.invocationCallOrder[0]).toBeLessThan(
+      chain.insert.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
+    );
+  });
+
+  it("orders observations without a phone under their chat routing lock", async () => {
+    const chain = createInsertChain([{ id: "unmatched-ingress" }]);
+    const execute = vi.fn().mockResolvedValue(undefined);
+    const repository = new FeedbackIngressRepository({
+      db: {},
+    } as DatabaseService);
+
+    await repository.insertIngressIfAbsent(
+      { execute, insert: chain.insert } as never,
+      {
+        providerMessageId: "wamid.unmatched",
+        chatJid: "shared-session@g.us",
+        direction: "inbound",
+        phoneE164: null,
+        observedAt: new Date("2026-07-25T18:00:00.000Z"),
+        text: "ποιος είναι;",
+      },
+    );
+
+    const [lockStatement] = execute.mock.calls[0] as [SQL];
+    expect(new PgDialect().sqlToQuery(lockStatement).params).toEqual([
+      "feedback-ingress-chat:shared-session@g.us",
+    ]);
+  });
+
   it("finds pending or newly materialized inbound beyond an extraction snapshot", async () => {
     const limit = vi.fn().mockResolvedValue([{ id: "new-ingress" }]);
     const where = vi.fn().mockReturnValue({ limit });

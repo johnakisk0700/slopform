@@ -15,30 +15,20 @@ import {
   type FeedbackJobData,
   type FeedbackJobName,
 } from "../jobs.schemas.js";
-import {
-  PostEventFeedbackIngressNotFoundError,
-  PostEventFeedbackMaterializer,
-} from "./materialize.service.js";
+import { PostEventFeedbackIngressNotFoundError } from "./materialize.service.js";
+import { PostEventFeedbackMaterializationCoordinator } from "./materialization-coordinator.service.js";
 
 /**
  * Per-process materialize concurrency.
  *
- * One at a time keeps a participant's burst in arrival order inside the
- * transcript without a per-conversation lock — the same reasoning that governs
- * `FEEDBACK_WORKER_CONCURRENCY`, and the reason this is not simply raised.
- *
- * It is not a throughput limit in any real sense: materializing one message is
- * a Mongo append and a short PostgreSQL transaction, so a single slot absorbs
- * far more than a campaign produces. What used to make this queue slow was
- * never the work; it was waiting behind model calls.
- *
- * Known residual: worker replicas multiply this, so two messages arriving in
- * the same millisecond can still append out of order. That window is now
- * milliseconds wide instead of the 296 seconds the 2026-07-27 rehearsal
- * measured, and closing it properly needs per-conversation serialization rather
- * than a smaller number here.
+ * The deployment-wide materialization coordinator now serializes one routing
+ * identity, so this worker can serve unrelated conversations concurrently.
+ * Twenty lets BullMQ accept a burst without involving the provider budget.
+ * Materialization itself holds at most five session locks from a separate pool;
+ * its repository work keeps the normal worker pool. Same-route jobs first queue
+ * behind one local promise, so a hot participant consumes one lock slot.
  */
-export const FEEDBACK_INGRESS_WORKER_CONCURRENCY = 1;
+export const FEEDBACK_INGRESS_WORKER_CONCURRENCY = 20;
 
 /**
  * The transcript writer, deliberately on its own queue.
@@ -65,7 +55,9 @@ export const FEEDBACK_INGRESS_WORKER_CONCURRENCY = 1;
 export class PostEventFeedbackIngressProcessor extends WorkerHost {
   private readonly logger = new Logger(PostEventFeedbackIngressProcessor.name);
 
-  constructor(private readonly materializer: PostEventFeedbackMaterializer) {
+  constructor(
+    private readonly materializer: PostEventFeedbackMaterializationCoordinator,
+  ) {
     super();
   }
 

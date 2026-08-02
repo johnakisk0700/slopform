@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  bigserial,
   boolean,
   check,
   foreignKey,
@@ -529,6 +530,13 @@ export const providerMessageIngress = pgTable(
   "provider_message_ingress",
   {
     id: uuid("id").defaultRandom().primaryKey(),
+    /**
+     * Database-assigned enqueue order. The per-phone advisory lock serializes
+     * inbound inserts, so this sequence is the durable FIFO tie-breaker across
+     * worker replicas and process restarts. Provider timestamps are display
+     * metadata and are deliberately not used as queue order.
+     */
+    ingressOrder: bigserial("ingress_order", { mode: "number" }).notNull(),
     providerMessageId: text("provider_message_id").notNull(),
     chatJid: text("chat_jid").notNull(),
     direction: text("direction").notNull(),
@@ -590,6 +598,10 @@ export const providerMessageIngress = pgTable(
     index("provider_message_ingress_processing_observed_idx").on(
       table.processingStatus,
       table.observedAt,
+    ),
+    index("provider_message_ingress_processing_order_idx").on(
+      table.processingStatus,
+      table.ingressOrder,
     ),
     index("provider_message_ingress_matched_conversation_idx").on(
       table.matchedConversationId,

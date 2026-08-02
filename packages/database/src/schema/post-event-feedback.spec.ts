@@ -143,6 +143,12 @@ describe("post-event feedback database constraints", () => {
     const uniqueIndex = indexes.get(
       "provider_message_ingress_chat_provider_uidx",
     );
+    const fifoIndex = indexes.get(
+      "provider_message_ingress_processing_order_idx",
+    );
+    const ingressOrder = config.columns.find(
+      (column) => column.name === "ingress_order",
+    );
     const checks = new Map(
       config.checks.map((check) => [
         check.name,
@@ -156,6 +162,13 @@ describe("post-event feedback database constraints", () => {
         "name" in column ? column.name : undefined,
       ),
     ).toEqual(["chat_jid", "provider_message_id"]);
+    expect(ingressOrder?.notNull).toBe(true);
+    expect(ingressOrder?.hasDefault).toBe(true);
+    expect(
+      fifoIndex?.config.columns.map((column) =>
+        "name" in column ? column.name : undefined,
+      ),
+    ).toEqual(["processing_status", "ingress_order"]);
     expect(
       checks.get("provider_message_ingress_unmatched_text_check"),
     ).toContain("ignored_unmatched");

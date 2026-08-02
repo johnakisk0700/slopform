@@ -119,7 +119,8 @@ export function unreadParticipantSeqs(conversation: {
         message.actor === "participant" &&
         message.seq > conversation.extraction.cursorSeq,
     )
-    .map((message) => message.seq);
+    .map((message) => message.seq)
+    .sort((left, right) => left - right);
 }
 
 function dueAt(job: Job): Date {

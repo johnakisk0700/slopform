@@ -30,10 +30,15 @@ import { FeedbackConversationExecutionLimiter } from "./extraction/execution-lim
 import { PostEventFeedbackExtractionModel } from "./extraction/model.service.js";
 import { PostEventFeedbackExtractor } from "./extraction/extract.service.js";
 import { PostEventFeedbackMaterializer } from "./ingress/materialize.service.js";
+import {
+  FeedbackMaterializationLimiter,
+  PostEventFeedbackMaterializationCoordinator,
+} from "./ingress/materialization-coordinator.service.js";
 import { PostEventFeedbackMetrics } from "./metrics.service.js";
 import { PostEventFeedbackIngressProcessor } from "./ingress/ingress.processor.js";
 import { PostEventFeedbackProcessor } from "./processor.js";
 import { PostEventFeedbackSweepService } from "./sweeps/sweep.service.js";
+import { FeedbackExtractionRecoveryService } from "./sweeps/extraction-recovery.service.js";
 import { PostEventFeedbackCampaignSummaryService } from "./summary/summary.service.js";
 import { DisabledFeedbackTransport } from "./outbox/disabled-transport.service.js";
 import { SimulatedFeedbackTransport } from "./outbox/simulated-transport.service.js";
@@ -105,12 +110,15 @@ export function createFeedbackTransport(
     },
     PostEventFeedbackExtractor,
     PostEventFeedbackMaterializer,
+    FeedbackMaterializationLimiter,
+    PostEventFeedbackMaterializationCoordinator,
     PostEventFeedbackMetrics,
     MessageOutboxRelayService,
     MessageOutboxDeliveryService,
     FeedbackOutboxSchedulerService,
     FeedbackSweepSchedulerService,
     PostEventFeedbackSweepService,
+    FeedbackExtractionRecoveryService,
     PostEventFeedbackCampaignSummaryService,
     DisabledFeedbackTransport,
     SimulatedFeedbackTransport,

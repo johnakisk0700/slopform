@@ -15,14 +15,13 @@ export const PROVIDER_CALL_CONCURRENCY_LIMIT = 30;
  * Maximum provider requests allowed to start in any rolling minute.
  *
  * Direct probes on 2026-08-03 measured this project's Terra allowance at 500
- * RPM / 500k TPM. Thirty is a deliberately conservative operating point below
- * that measured provider ceiling, with capacity left for the participant reply
- * writer, assistant traffic and summaries. It is not a derived TPM guarantee:
- * prompt sizes vary, so rehearsal logs remain the authority for raising it.
- * The separate semaphore still bounds calls that overlap for longer than a
- * minute.
+ * RPM / 500k TPM. The first production rehearsal peaked at 166,983 reported
+ * tokens in a rolling 60-second completion window while limited to 30 starts.
+ * Sixty is the next measured operating point: still guarded by the separate
+ * 30-call semaphore and expected to remain below the observed TPM allowance,
+ * but rehearsal logs — not this arithmetic — decide whether it stays.
  */
-export const PROVIDER_CALL_STARTS_PER_MINUTE_LIMIT = 30;
+export const PROVIDER_CALL_STARTS_PER_MINUTE_LIMIT = 60;
 export const PROVIDER_CALL_RATE_WINDOW_MS = 60_000;
 
 /** Longer than the longest provider timeout (campaign summaries: five min). */

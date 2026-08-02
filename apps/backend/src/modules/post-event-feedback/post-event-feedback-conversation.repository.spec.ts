@@ -37,6 +37,52 @@ const reasonId = "7a1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d";
 const secondReasonId = "8b2c3d4e-5f6a-4b7c-9d8e-1f2a3b4c5d6e";
 
 describe("FeedbackConversationRepository", () => {
+  it("selects only open bot conversations with unread participant testimony for recovery", async () => {
+    const parkedAfter = new Date("2026-08-03T06:00:00.000Z");
+    const unread = feedbackConversation({
+      messages: [botMessage(1), participantMessage(2)],
+      extraction: {
+        cursorSeq: 1,
+        lastRunAt: null,
+        model: null,
+        usage: null,
+        serviceTier: null,
+        parkedSince: null,
+        parkedRuns: 0,
+        parkedNoticeSentAt: null,
+      },
+    });
+    const toArray = vi.fn().mockResolvedValue([unread]);
+    const limit = vi.fn().mockReturnValue({ toArray });
+    const sort = vi.fn().mockReturnValue({ limit });
+    const find = vi.fn().mockReturnValue({ sort });
+    const repository = createRepository(collectionMock({ find }));
+
+    await expect(
+      repository.listOpenBotConversationsWithUnreadParticipantMessages({
+        limit: 50,
+        parkedAfter,
+      }),
+    ).resolves.toEqual([unread]);
+
+    expect(find).toHaveBeenCalledWith(
+      expect.objectContaining({
+        schemaVersion: 2,
+        purpose: "post_event_feedback",
+        "lifecycle.state": "open",
+        "control.mode": "bot",
+        awaitingHuman: false,
+        $or: [
+          { "extraction.parkedSince": null },
+          { "extraction.parkedSince": { $gt: parkedAfter } },
+        ],
+        $expr: expect.any(Object),
+      }),
+    );
+    expect(sort).toHaveBeenCalledWith({ updatedAt: 1, _id: 1 });
+    expect(limit).toHaveBeenCalledWith(50);
+  });
+
   it("projects durable extraction accounting for a campaign set in one read", async () => {
     const usage = {
       inputTokens: 1_200,

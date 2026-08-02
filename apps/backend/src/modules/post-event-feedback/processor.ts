@@ -25,10 +25,8 @@ import {
   PostEventFeedbackConversationNotFoundError,
   PostEventFeedbackExtractor,
 } from "./extraction/extract.service.js";
-import {
-  PostEventFeedbackIngressNotFoundError,
-  PostEventFeedbackMaterializer,
-} from "./ingress/materialize.service.js";
+import { PostEventFeedbackIngressNotFoundError } from "./ingress/materialize.service.js";
+import { PostEventFeedbackMaterializationCoordinator } from "./ingress/materialization-coordinator.service.js";
 import {
   createFeedbackDeliverJobId,
   createFeedbackMaterializeJobId,
@@ -45,6 +43,7 @@ import {
   type FeedbackJobName,
 } from "./jobs.schemas.js";
 import { PostEventFeedbackSweepService } from "./sweeps/sweep.service.js";
+import { FeedbackExtractionRecoveryService } from "./sweeps/extraction-recovery.service.js";
 import {
   FeedbackSummaryGenerationError,
   PostEventFeedbackCampaignSummaryService,
@@ -84,11 +83,12 @@ export class PostEventFeedbackProcessor extends WorkerHost {
   private readonly logger = new Logger(PostEventFeedbackProcessor.name);
 
   constructor(
-    private readonly materializer: PostEventFeedbackMaterializer,
+    private readonly materializer: PostEventFeedbackMaterializationCoordinator,
     private readonly relay: MessageOutboxRelayService,
     private readonly delivery: MessageOutboxDeliveryService,
     private readonly extractor: PostEventFeedbackExtractor,
     private readonly sweeps: PostEventFeedbackSweepService,
+    private readonly extractionRecovery: FeedbackExtractionRecoveryService,
     private readonly fallback: PostEventFeedbackExtractionFallback,
     private readonly summaries: PostEventFeedbackCampaignSummaryService,
     private readonly conversationExecutions: FeedbackConversationExecutionLimiter,
@@ -121,6 +121,7 @@ export class PostEventFeedbackProcessor extends WorkerHost {
       if (job.name === FEEDBACK_JOB_NAMES.sweepIngressV1) {
         const data = feedbackSweepJobDataSchema.parse(job.data);
         await this.sweeps.sweepIngress(data.correlationId);
+        await this.extractionRecovery.recover(data.correlationId);
         return;
       }
 

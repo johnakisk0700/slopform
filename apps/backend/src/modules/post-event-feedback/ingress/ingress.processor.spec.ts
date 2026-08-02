@@ -21,10 +21,8 @@ import {
   FEEDBACK_INGRESS_WORKER_CONCURRENCY,
   PostEventFeedbackIngressProcessor,
 } from "./ingress.processor.js";
-import {
-  PostEventFeedbackIngressNotFoundError,
-  type PostEventFeedbackMaterializer,
-} from "./materialize.service.js";
+import { PostEventFeedbackIngressNotFoundError } from "./materialize.service.js";
+import type { PostEventFeedbackMaterializationCoordinator } from "./materialization-coordinator.service.js";
 import { PostEventFeedbackIngressService } from "./ingress.service.js";
 
 const ingressId = "b1c9e0a4-2c65-4a29-9a2e-2d0a3f2e1b77";
@@ -68,8 +66,8 @@ describe("PostEventFeedbackIngressProcessor", () => {
     Logger.overrideLogger(false);
   });
 
-  it("keeps the documented per-process ordering limit explicit", () => {
-    expect(FEEDBACK_INGRESS_WORKER_CONCURRENCY).toBe(1);
+  it("keeps the documented cross-conversation concurrency explicit", () => {
+    expect(FEEDBACK_INGRESS_WORKER_CONCURRENCY).toBe(20);
   });
 
   it("materializes a valid job through the durable consumer", async () => {
@@ -144,7 +142,7 @@ function createProcessor(materializer: {
   materialize: unknown;
 }): PostEventFeedbackIngressProcessor {
   return new PostEventFeedbackIngressProcessor(
-    materializer as unknown as PostEventFeedbackMaterializer,
+    materializer as unknown as PostEventFeedbackMaterializationCoordinator,
   );
 }
 

@@ -274,10 +274,12 @@ still be sensitive operationally; use `config --quiet` for validation.
 CPU and memory limits are not guessed without the VPS size and a load profile.
 Before launch, measure steady-state and peak usage, then set service limits with
 headroom and verify that PostgreSQL is never the accidental OOM sacrifice.
-The default API and worker database pools are ten connections each. Budget the
-combined maximum against PostgreSQL capacity before scaling either process;
-raising one service's pool in isolation is not capacity planning. Each process
-also owns a MongoDB pool capped at ten connections.
+The default API and worker database pools are ten connections each. The feedback
+worker additionally owns a lazy, five-connection PostgreSQL advisory-lock pool;
+it is separate specifically so lock waiters cannot consume the repository pool.
+Budget the combined maximum of 25 PostgreSQL connections before scaling either
+process; raising one service's pool in isolation is not capacity planning. Each
+process also owns a MongoDB pool capped at ten connections.
 
 ## Build and deploy
 

@@ -152,6 +152,22 @@ itself. Reminder, expiry and ingress-recovery sweeps are also worker-owned
 schedulers: each job is identifier-only, bounded, and reloads durable state
 before acting.
 
+Materialization is deployment-wide per routing identity, not merely ordered by
+one process. `feedback-ingress` may run twenty jobs per worker, while a dedicated
+PostgreSQL session advisory lock serializes rows sharing a phone (or `chatJid`
+fallback). Same-route jobs first wait on one process-local tail. Up to five
+different routes then use a dedicated lock pool, so waiters cannot exhaust the
+normal pool needed by the protected repository work. The holder
+drains durable `pending` rows in database-assigned `ingress_order` before the job
+that woke it, so unrelated conversations progress together and two replicas
+cannot race one participant's transcript. The lock name contains a SHA-256
+digest, not the phone or chat id. It has no expiring lease: PostgreSQL releases
+the session lock when the holder finishes or its worker/connection dies.
+An isolated lock-connection loss is fail-closed for the job but is not a
+cross-store transaction: an already in-flight MongoDB operation may finish
+before the worker observes the loss. Mongo optimistic append and ingress/outbox
+idempotency remain the final replay guards.
+
 `latestSeq` is the transcript position the extraction run must cover, so a burst
 of inbound messages collapses onto one model run per position instead of one per
 message. `FEEDBACK_WORKER_CONCURRENCY` is the hardcoded, per-process truth and
@@ -172,13 +188,15 @@ lease semaphore. `PROVIDER_CALL_CONCURRENCY_LIMIT` is deliberately hardcoded to
 `30`: neither OpenAI nor OpenRouter publishes one stable concurrency quota
 across all models and accounts, so thirty is a product guard, not a claim about
 provider capacity. A second deployment-wide Redis window permits at most
-`PROVIDER_CALL_STARTS_PER_MINUTE_LIMIT` (30) starts in any rolling minute.
+`PROVIDER_CALL_STARTS_PER_MINUTE_LIMIT` (60) starts in any rolling minute.
 Releasing a fast call frees its concurrency lease but not its minute-window
 entry. This was added after the 2026-08-02 Luna rehearsal consumed the project's
 200k TPM allowance while its 500 RPM allowance was nearly untouched. A direct
-Terra probe on 2026-08-03 returned 500 RPM / 500k TPM for this project; thirty
-starts keeps measured headroom for the conditional reply call, assistant and
-summary traffic. Worker replicas therefore share both guards; a dead worker
+Terra probe on 2026-08-03 returned 500 RPM / 500k TPM for this project. The first
+production Terra rehearsal peaked at 166,983 reported tokens in a rolling
+60-second completion window under the old 30-start gate; 60 starts is the next
+measured operating point, still bounded by 30 overlapping calls. Worker replicas
+therefore share both guards; a dead worker
 loses concurrency until its six-minute lease expires but can never create an
 extra slot.
 
@@ -295,13 +313,13 @@ sequenceDiagram
 
 Concurrency is chosen per processor, and no two agree:
 
-| Processor        | Concurrency | Why                                       |
-| ---------------- | ----------- | ----------------------------------------- |
-| Reference        | 5           | Cheap local work, no provider on the path |
-| Assistant        | 2           | Provider-bound, two-minute deadline       |
-| Email            | 2           | Provider-bound, cheap                     |
-| Feedback         | 10          | Redis-serialized per conversation         |
-| Feedback ingress | 1           | Serialized per process; ordering matters  |
+| Processor        | Concurrency | Why                                        |
+| ---------------- | ----------- | ------------------------------------------ |
+| Reference        | 5           | Cheap local work, no provider on the path  |
+| Assistant        | 2           | Provider-bound, two-minute deadline        |
+| Email            | 2           | Provider-bound, cheap                      |
+| Feedback         | 10          | Redis-serialized per conversation          |
+| Feedback ingress | 20          | PostgreSQL-serialized per routing identity |
 
 Choose these values per provider rate limits, work cost and failure modes; none
 of them is sacred numerology. CPU-heavy work needs measured sandboxing
@@ -331,6 +349,19 @@ write is status-and-attempt conditional.
 A deterministic job ID suppresses duplicates only while the job remains in
 Redis. Retention removal permits the same ID again. External writes therefore
 need a durable idempotency key or database uniqueness constraint.
+
+The feedback worker also reconciles extraction intent from MongoDB on startup
+and through `feedback.sweep-ingress.v1` every five minutes. An open bot
+conversation with participant messages beyond `extraction.cursorSeq` must have
+a waiting, delayed or active positional/parked job. If none exists, recovery
+removes a retained terminal job at the stable latest-sequence identity and
+re-enqueues it after the remaining quiet window. Closed, human-controlled,
+awaiting-human and deliberately parked-beyond-six-hours conversations are left
+alone and excluded before the bounded oldest-first scan, so exhausted parks
+cannot starve newer lost work. A missing parked retry is recreated as the same
+single-attempt five-minute rung, not as an ordinary five-attempt job. Redis AOF
+reduces loss; MongoDB's unread cursor is the business proof that work is still
+owed.
 
 ## Readiness, observability and dashboard
 

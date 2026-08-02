@@ -6,11 +6,16 @@ import {
   type ProviderMessageIngressRow,
   type ProviderMessageProcessingStatus,
 } from "@join-the-six/database";
-import { and, asc, eq, lte, notInArray, or, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, lte, notInArray, or, sql } from "drizzle-orm";
 
 import { DatabaseService } from "../../../infrastructure/database/database.service.js";
 
 export const FEEDBACK_SWEEP_BATCH_SIZE = 50;
+
+export interface FeedbackIngressSerializationKey {
+  readonly phoneE164: string | null;
+  readonly chatJid: string;
+}
 
 /**
  * Stable advisory-lock namespace shared by inbound acknowledgement and the
@@ -18,6 +23,7 @@ export const FEEDBACK_SWEEP_BATCH_SIZE = 50;
  * two lock domains during a rolling deploy.
  */
 export const FEEDBACK_INGRESS_PHONE_LOCK_NAMESPACE = "feedback-ingress-phone";
+export const FEEDBACK_INGRESS_CHAT_LOCK_NAMESPACE = "feedback-ingress-chat";
 
 type DatabaseExecutor = AppTransaction | DatabaseService["db"];
 
@@ -45,13 +51,15 @@ export class FeedbackIngressRepository {
     readonly row: ProviderMessageIngressRow;
     readonly inserted: boolean;
   }> {
-    // Extraction takes the same transaction-scoped lock immediately before it
-    // decides whether an ordinary reply may enter the outbox. An inbound insert
-    // that commits first must therefore be visible to that decision; one that
-    // starts after extraction owns the lock waits until the older decision is
-    // durable. This is per phone, so unrelated conversations never serialize.
-    if (input.direction === "inbound" && input.phoneE164) {
+    // Every observation takes the same routing lock before PostgreSQL assigns
+    // `ingressOrder`. That makes the sequence commit-safe FIFO for this route,
+    // including outbound takeover evidence and null-phone shared-session rows.
+    // Extraction takes the phone lock before it decides whether an ordinary
+    // reply may enter the outbox, so a committed inbound cannot be missed.
+    if (input.phoneE164) {
       await this.lockInboundPhone(transaction, input.phoneE164);
+    } else {
+      await this.lockChatJid(transaction, input.chatJid);
     }
 
     const [inserted] = await transaction
@@ -99,6 +107,12 @@ export class FeedbackIngressRepository {
   ): Promise<unknown> {
     return transaction.execute(
       sql`select pg_advisory_xact_lock(hashtextextended(${`${FEEDBACK_INGRESS_PHONE_LOCK_NAMESPACE}:${phoneE164}`}, 0))`,
+    );
+  }
+
+  lockChatJid(transaction: AppTransaction, chatJid: string): Promise<unknown> {
+    return transaction.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`${FEEDBACK_INGRESS_CHAT_LOCK_NAMESPACE}:${chatJid}`}, 0))`,
     );
   }
 
@@ -246,6 +260,41 @@ export class FeedbackIngressRepository {
         asc(providerMessageIngress.createdAt),
         asc(providerMessageIngress.id),
       )
+      .limit(limit);
+  }
+
+  /**
+   * Pending rows sharing one conversation-routing identity, in the only order
+   * materialization is allowed to append them.
+   *
+   * Phone is authoritative when the provider supplied it: the partial MongoDB
+   * index also routes open conversations by phone. `chatJid` is the fallback
+   * for malformed/unmatched traffic so two replicas still cannot race the same
+   * shared-session thread. `ingressOrder` is assigned by PostgreSQL at insert;
+   * provider observation time is display metadata and may arrive backdated.
+   */
+  async listPendingIngressForSerializationKey(
+    key: FeedbackIngressSerializationKey,
+    throughIngressOrder: number,
+    limit = FEEDBACK_SWEEP_BATCH_SIZE,
+    executor: DatabaseExecutor = this.database.db,
+  ): Promise<ProviderMessageIngressRow[]> {
+    return executor
+      .select()
+      .from(providerMessageIngress)
+      .where(
+        and(
+          eq(providerMessageIngress.processingStatus, "pending"),
+          lte(providerMessageIngress.ingressOrder, throughIngressOrder),
+          key.phoneE164
+            ? eq(providerMessageIngress.phoneE164, key.phoneE164)
+            : and(
+                isNull(providerMessageIngress.phoneE164),
+                eq(providerMessageIngress.chatJid, key.chatJid),
+              ),
+        ),
+      )
+      .orderBy(asc(providerMessageIngress.ingressOrder))
       .limit(limit);
   }
 

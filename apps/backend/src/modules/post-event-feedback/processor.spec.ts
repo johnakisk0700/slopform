@@ -10,10 +10,8 @@ import {
   PostEventFeedbackConversationNotFoundError,
   type PostEventFeedbackExtractor,
 } from "./extraction/extract.service.js";
-import {
-  PostEventFeedbackIngressNotFoundError,
-  type PostEventFeedbackMaterializer,
-} from "./ingress/materialize.service.js";
+import { PostEventFeedbackIngressNotFoundError } from "./ingress/materialize.service.js";
+import type { PostEventFeedbackMaterializationCoordinator } from "./ingress/materialization-coordinator.service.js";
 import type { MessageOutboxDeliveryService } from "./outbox/deliver.service.js";
 import type { MessageOutboxRelayService } from "./outbox/relay.service.js";
 import {
@@ -459,6 +457,7 @@ describe("PostEventFeedbackProcessor", () => {
         sweepExpiry: vi.fn(),
         sweepIngress: vi.fn(),
       } as never,
+      { recover: vi.fn() } as never,
       { apply: vi.fn(), park: vi.fn() } as never,
       summaries as never,
       { run: vi.fn((_id, work) => work()) } as never,
@@ -491,7 +490,7 @@ function createProcessor(
   },
 ): PostEventFeedbackProcessor {
   return new PostEventFeedbackProcessor(
-    materializer as unknown as PostEventFeedbackMaterializer,
+    materializer as unknown as PostEventFeedbackMaterializationCoordinator,
     { relay: vi.fn() } as unknown as MessageOutboxRelayService,
     { deliver: vi.fn() } as unknown as MessageOutboxDeliveryService,
     extractor as unknown as PostEventFeedbackExtractor,
@@ -500,6 +499,7 @@ function createProcessor(
       sweepExpiry: vi.fn(),
       sweepIngress: vi.fn(),
     } as never,
+    { recover: vi.fn() } as never,
     fallback as unknown as PostEventFeedbackExtractionFallback,
     { run: vi.fn() } as never,
     { run: vi.fn((_id, work) => work()) } as never,

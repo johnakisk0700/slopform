@@ -20,6 +20,18 @@ describe("unreadParticipantSeqs", () => {
       }),
     ).toEqual([3, 5]);
   });
+
+  it("returns cursor positions in sequence order even when the transcript is rendered by time", () => {
+    expect(
+      unreadParticipantSeqs({
+        extraction: { cursorSeq: 1 },
+        messages: [
+          { seq: 3, actor: "participant" },
+          { seq: 2, actor: "participant" },
+        ],
+      }),
+    ).toEqual([2, 3]);
+  });
 });
 
 describe("inspectFeedbackExtractJobs", () => {

@@ -404,6 +404,67 @@ export class FeedbackConversationRepository {
   }
 
   /**
+   * Open bot conversations with participant testimony beyond the durable
+   * extraction cursor. This is the MongoDB side of extraction-job recovery:
+   * Redis may say whether work exists, but only this document can say whether
+   * work is still owed.
+   */
+  async listOpenBotConversationsWithUnreadParticipantMessages(input: {
+    readonly limit: number;
+    /** Excludes deliberately exhausted provider-incident ladders. */
+    readonly parkedAfter: Date;
+  }): Promise<FeedbackConversationDocument[]> {
+    const boundedLimit = z
+      .number()
+      .int()
+      .positive()
+      .max(500)
+      .parse(input.limit);
+    const parkedAfter = z.date().parse(input.parkedAfter);
+    const collection = await this.collection();
+    const documents = await collection
+      .find({
+        schemaVersion: FEEDBACK_CONVERSATION_SCHEMA_VERSION,
+        purpose: FEEDBACK_CONVERSATION_PURPOSE,
+        "lifecycle.state": "open",
+        "control.mode": "bot",
+        awaitingHuman: false,
+        $or: [
+          { "extraction.parkedSince": null },
+          { "extraction.parkedSince": { $gt: parkedAfter } },
+        ],
+        $expr: {
+          $gt: [
+            {
+              $size: {
+                $filter: {
+                  input: "$messages",
+                  as: "message",
+                  cond: {
+                    $and: [
+                      { $eq: ["$$message.actor", "participant"] },
+                      {
+                        $gt: ["$$message.seq", "$extraction.cursorSeq"],
+                      },
+                    ],
+                  },
+                },
+              },
+            },
+            0,
+          ],
+        },
+      } as Filter<FeedbackConversationDocument>)
+      .sort({ updatedAt: 1, _id: 1 })
+      .limit(boundedLimit)
+      .toArray();
+
+    return documents.map((document) =>
+      feedbackConversationDocumentSchema.parse(document),
+    );
+  }
+
+  /**
    * Appends one transcript message. The append is idempotent by
    * `ingressId`/`outboxId` (or by the caller's stable id for system messages)
    * and keeps `seq` contiguous through an optimistic size fence.

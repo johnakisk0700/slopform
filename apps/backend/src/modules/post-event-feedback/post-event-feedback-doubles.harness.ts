@@ -764,6 +764,27 @@ export class FakeFeedbackRepository {
       .slice(0, limit)
       .map((row) => ({ ...row }));
   }
+
+  async listPendingIngressForSerializationKey(
+    key: { phoneE164: string | null; chatJid: string },
+    limit = 50,
+  ): Promise<FakeIngressRow[]> {
+    return this.ingress
+      .filter(
+        (row) =>
+          row.processingStatus === "pending" &&
+          (key.phoneE164
+            ? row.phoneE164 === key.phoneE164
+            : row.phoneE164 === null && row.chatJid === key.chatJid),
+      )
+      .sort(
+        (left, right) =>
+          left.observedAt.getTime() - right.observedAt.getTime() ||
+          left.id.localeCompare(right.id),
+      )
+      .slice(0, limit)
+      .map((row) => ({ ...row }));
+  }
 }
 
 export interface FakeConversationTransition {
