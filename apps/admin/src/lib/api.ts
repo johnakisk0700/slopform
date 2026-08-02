@@ -40,7 +40,31 @@ function createApiHeaders(
 }
 
 export function apiErrorMessage(cause: unknown, fallback: string): string {
-  return cause instanceof Error && cause.message !== ""
-    ? cause.message
-    : fallback;
+  const responseMessage = isRecord(cause)
+    ? apiMessage(isRecord(cause.data) ? cause.data.message : undefined)
+    : undefined;
+
+  return (
+    responseMessage ??
+    (cause instanceof Error ? apiMessage(cause.message) : undefined) ??
+    fallback
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function apiMessage(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    return value.trim() || undefined;
+  }
+  if (Array.isArray(value)) {
+    const messages = value
+      .filter((message): message is string => typeof message === "string")
+      .map((message) => message.trim())
+      .filter((message) => message !== "");
+    return messages.length > 0 ? messages.join(" ") : undefined;
+  }
+  return undefined;
 }
