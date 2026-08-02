@@ -114,14 +114,17 @@ server-side user-ID allowlist remains the final authorization decision. Clerk
 Organizations add no useful boundary for three equal operators and are not part
 of this deployment.
 
-The Clerk Hobby plan does not provide an email allowlist, so shareholder
-onboarding remains invitation-based. After an operator completes Clerk account
-creation, copy the resulting `user_*` subject into the private production
-environment and run `pnpm prod deploy backend`. Do not put OAuth credentials,
-shareholder emails or production user IDs in committed files. Restricted mode
-must be on before and after onboarding; if an operator temporarily disables it
-to resolve an invitation/OAuth edge case, the API allowlist must remain deny-all
-for the new subject until restricted mode has been restored.
+The Clerk Hobby plan does not provide an email allowlist. Normal onboarding is
+invitation-based: after an operator completes account creation, copy the
+resulting `user_*` subject into the private production environment and run
+`pnpm prod deploy backend`. When access must be provisioned before invitation
+acceptance, an operator may instead create a passwordless Clerk user through
+the Backend API with the exact shareholder email. Clerk verifies email
+addresses created through that endpoint, and a later Google login with the same
+verified address links to the existing identity. Add the returned `user_*`
+subject to the same backend allowlist. Do not put OAuth credentials, shareholder
+emails or production user IDs in committed files, and keep restricted mode on
+throughout either onboarding path.
 
 Revocation happens in this order: remove the subject from
 `CLERK_ADMIN_USER_IDS` and roll the API, then ban the Clerk user and revoke its
@@ -154,6 +157,8 @@ and Google account-selection or redirect failures.
   [Express middleware](https://clerk.com/docs/reference/express/clerk-middleware)
   and [`getAuth()`](https://clerk.com/docs/reference/express/get-auth)
 - [Clerk restrictions](https://clerk.com/docs/authentication/allowlist),
+  [`createUser()`](https://clerk.com/docs/reference/backend/user/create-user),
+  [OAuth account linking](https://clerk.com/docs/guides/configure/auth-strategies/social-connections/account-linking),
   [allowlist/blocklist sign-in behavior change](https://clerk.com/changelog/2025-08-08-allowlist-blocklist-on-sign-in),
   [sign-in options and identifier changes](https://clerk.com/docs/guides/configure/auth-strategies/sign-up-sign-in-options),
   [Organization domain enrollment](https://clerk.com/docs/reference/backend/organization/create-organization-domain)
