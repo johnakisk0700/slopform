@@ -3,6 +3,15 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import {
+  AA,
+  BADGE_TONE_FLOOR,
+  BADGE_TONES,
+  contrastRatio,
+  deltaE,
+  PRIMARY_STATUS_FLOOR,
+} from "./colour-metrics";
+
 /**
  * The selectable palettes (`packages/design-tokens/src/palettes.css`).
  *
@@ -13,6 +22,13 @@ import { describe, expect, it } from "vitest";
  * pre-paint script and the operator menu, because a palette that exists in
  * only three of those four places is either unreachable or a flash of the
  * wrong field.
+ *
+ * Beyond contrast, this file holds a palette to being LEGIBLE AS A SYSTEM:
+ * that its five badge tones can be told apart from one another, that its
+ * primary is not mistakable for a status, and that its lit sidebar numeral is
+ * the theme's own brand rather than a colour invented for that one spot. Those
+ * three went unmeasured in the first cut, and all three were wrong in shipped
+ * palettes — see the individual tests.
  */
 
 function readRepoFile(relativePath: string): string {
@@ -101,20 +117,11 @@ function paletteBlock(
   return vars;
 }
 
-function luminance(hex: string): number {
-  const [r = 0, g = 0, b = 0] = (hex.slice(1, 7).match(/.{2}/g) ?? [])
-    .map((channel) => Number.parseInt(channel, 16) / 255)
-    .map((channel) =>
-      channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4,
-    );
-  return r * 0.2126 + g * 0.7152 + b * 0.0722;
-}
-
-function contrast(foreground: string, background: string): number {
-  const [high, low] = [luminance(foreground), luminance(background)].sort(
-    (a, b) => b - a,
-  );
-  return ((high ?? 0) + 0.05) / ((low ?? 0) + 0.05);
+/** Reads one semantic colour, failing loudly rather than measuring undefined. */
+function tone(block: Map<string, string>, role: string): string {
+  const value = block.get(`--jts-color-${role}`);
+  if (!value) throw new Error(`Missing --jts-color-${role}`);
+  return value;
 }
 
 // The same pairings theme-tokens.spec.ts asserts against tokens.css.
@@ -181,19 +188,49 @@ describe("palettes.css", () => {
     expect(withoutComments.replace(/[^{}]*\{[^{}]*\}/g, "").trim()).toBe("");
   });
 
-  it("keeps the meanings inside a theme tellable apart", () => {
-    // Noir shipped its single hue as both «the button you press» and «this
-    // wants a human», which made a primary action and a warning the same
-    // colour. One theme may be monochrome; it may not be ambiguous.
+  it("keeps the five badge tones tellable apart, perceptually", () => {
+    // These five paint the pills in `FeedbackBadges`, which an operator reads
+    // as a COLUMN — the amber and the red are found before a single word is.
+    //
+    // The previous version of this test compared hex strings, and everything
+    // below passed it: noir shipped `#9a5b00` as both its accent and its
+    // warning (byte-identical — caught only because `new Set` deduped them),
+    // and in dark mode its warning `#d9973a`, accent `#e0a33f` and danger
+    // `#f5b25c` sat within ΔE 5.4 of one another, so an error and a warning
+    // were the same amber smear. Graphite's dark info and accent were ΔE 3.3
+    // apart. Strings cannot see any of that.
     for (const id of OVERRIDE_PALETTES) {
       for (const theme of ["light", "dark"] as const) {
         const block = paletteBlock(id, theme);
-        const roles = ["primary", "success", "warning", "danger", "info"];
-        const values = roles.map((role) => block.get(`--jts-color-${role}`));
-        expect(
-          new Set(values).size,
-          `${id}/${theme}: ${roles.join("/")} = ${values.join(" ")}`,
-        ).toBe(roles.length);
+        for (let i = 0; i < BADGE_TONES.length; i += 1) {
+          for (let j = i + 1; j < BADGE_TONES.length; j += 1) {
+            const first = BADGE_TONES[i] ?? "";
+            const second = BADGE_TONES[j] ?? "";
+            const a = tone(block, first);
+            const b = tone(block, second);
+            expect(
+              deltaE(a, b),
+              `${id}/${theme}: ${first} ${a} vs ${second} ${b}`,
+            ).toBeGreaterThanOrEqual(BADGE_TONE_FLOOR);
+          }
+        }
+      }
+    }
+  });
+
+  it("keeps the primary from being read as a status", () => {
+    // Graphite's steel primary sat ΔE 7.8 from its own slate info, so a
+    // primary button and an informational chip were the same blue-grey.
+    for (const id of OVERRIDE_PALETTES) {
+      for (const theme of ["light", "dark"] as const) {
+        const block = paletteBlock(id, theme);
+        const primary = tone(block, "primary");
+        for (const status of ["info", "success", "warning", "danger"]) {
+          expect(
+            deltaE(primary, tone(block, status)),
+            `${id}/${theme}: primary ${primary} vs ${status}`,
+          ).toBeGreaterThanOrEqual(PRIMARY_STATUS_FLOOR);
+        }
       }
     }
   });
@@ -212,20 +249,76 @@ describe("palettes.css", () => {
     }
   });
 
-  it("relights the active numeral with the slab it sits on", () => {
+  it("lights the active numeral with the theme's own brand, not a spot colour", () => {
+    // The rule: the numeral is the theme's DARK primary, in BOTH modes.
+    //
+    // It cannot simply be `--jts-color-primary`, because the sidebar slab is
+    // dark in both modes and a light theme's primary is dark ink meant for
+    // paper — it would sink into the slab. The dark primary is by construction
+    // the same brand hue already tuned to sit on a dark surface, so it is the
+    // one value that is both legible there and recognisably the theme.
+    //
+    // Without this rule every palette invented its own tint and the numeral
+    // became the one colour on screen that belonged to nothing: graphite lit
+    // `#8dc0e0` over a `#2c5f80` primary and a `#5c6b78` accent, ΔE 28 from
+    // the nearest thing it shared a screen with. Half the palettes reached for
+    // primary and half for accent, so the motif meant nothing either way.
+    // `AdminNavigation`'s drawer variant paints this numeral `text-primary`;
+    // the sidebar should not disagree with it.
+    for (const id of OVERRIDE_PALETTES) {
+      const brand = tone(paletteBlock(id, "dark"), "primary");
+      for (const theme of ["light", "dark"] as const) {
+        const block = paletteBlock(id, theme);
+        expect(
+          tone(block, "sidebar-active-index"),
+          `${id}/${theme}: numeral must be the dark primary`,
+        ).toBe(brand);
+        // Small text on the slab, so AA large would not be enough.
+        expect(
+          contrastRatio(brand, tone(block, "surface-strong")),
+          `${id}/${theme}: active numeral on sidebar`,
+        ).toBeGreaterThanOrEqual(AA);
+      }
+    }
+  });
+
+  it("keeps the accent usable as label ink, not only as a fill", () => {
+    // `FeedbackBadges` once had to spend full-strength ink on its accent pill
+    // because copper measured 3.93:1 on surface, which made that one tone the
+    // exception in an otherwise uniform set. A tone that cannot carry its own
+    // label is not a tone; every palette now clears AA for it.
     for (const id of OVERRIDE_PALETTES) {
       for (const theme of ["light", "dark"] as const) {
         const block = paletteBlock(id, theme);
-        const numeral = block.get("--jts-color-sidebar-active-index");
-        const slab = block.get("--jts-color-surface-strong");
-        expect(numeral, `${id}/${theme}`).toBeDefined();
-        expect(slab, `${id}/${theme}`).toBeDefined();
-        if (!numeral || !slab) continue;
-        // Small text on the slab: AA large would not be enough.
         expect(
-          contrast(numeral, slab),
-          `${id}/${theme}: active numeral on sidebar`,
-        ).toBeGreaterThanOrEqual(4.5);
+          contrastRatio(tone(block, "accent"), tone(block, "surface")),
+          `${id}/${theme}: accent as label ink on surface`,
+        ).toBeGreaterThanOrEqual(AA);
+      }
+    }
+  });
+
+  it("keeps every tone readable both tinted and solid", () => {
+    // The two shapes `FeedbackBadges` renders: a tinted pill (`text-<tone>` on
+    // `bg-<tone>-soft`) and the solid one for the badge an operator must not
+    // skim past (`text-canvas` on `bg-<tone>`). tokens.css is held to both for
+    // warning alone; a palette repaints all of them, so it answers for all of
+    // them. Linen shipped a success fill at 4.45:1 against canvas.
+    for (const id of OVERRIDE_PALETTES) {
+      for (const theme of ["light", "dark"] as const) {
+        const block = paletteBlock(id, theme);
+        const canvas = tone(block, "canvas");
+        for (const role of BADGE_TONES) {
+          const ink = tone(block, role);
+          expect(
+            contrastRatio(ink, tone(block, `${role}-soft`)),
+            `${id}/${theme}: ${role} label on its own tint`,
+          ).toBeGreaterThanOrEqual(AA);
+          expect(
+            contrastRatio(canvas, ink),
+            `${id}/${theme}: canvas label on solid ${role}`,
+          ).toBeGreaterThanOrEqual(AA);
+        }
       }
     }
   });
@@ -252,9 +345,9 @@ describe("palettes.css", () => {
           ).toBe(true);
           if (!fg || !bg) continue;
           expect(
-            contrast(fg, bg),
+            contrastRatio(fg, bg),
             `${id}/${theme}: ${foreground} on ${background}`,
-          ).toBeGreaterThanOrEqual(4.5);
+          ).toBeGreaterThanOrEqual(AA);
         }
       }
     });

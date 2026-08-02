@@ -2,6 +2,7 @@ import { SignIn, useAuth } from "@clerk/react";
 import { Navigate } from "react-router";
 
 import { AuthStatusScreen } from "../components/admin/AuthStatusScreen";
+import { BrandLockup } from "../components/admin/BrandLockup";
 import { usePageMeta } from "../lib/usePageMeta";
 
 export function SignInPage() {
@@ -27,10 +28,7 @@ export function SignInPage() {
       className="grid min-h-screen bg-canvas lg:grid-cols-[minmax(0,0.9fr)_minmax(28rem,1.1fr)]"
     >
       <section className="hidden border-r border-sidebar-border bg-sidebar p-12 text-sidebar-fg lg:flex lg:flex-col lg:justify-between">
-        <div className="flex items-center gap-3 font-display text-xl font-extrabold tracking-tight">
-          <span className="brand-mark" aria-hidden="true" />
-          <span>Join The Six</span>
-        </div>
+        <BrandLockup surface="strong" wordmarkClassName="text-xl" />
         <div className="max-w-lg">
           <p className="text-xs font-extrabold uppercase tracking-caps text-sidebar-fg-muted">
             Private operations
@@ -53,12 +51,11 @@ export function SignInPage() {
         className="grid place-items-center p-6 sm:p-10"
       >
         <div className="grid w-full max-w-md justify-items-center gap-6">
-          <div className="flex items-center gap-3 lg:hidden">
-            <span className="brand-mark" aria-hidden="true" />
-            <span className="font-display text-xl font-extrabold tracking-tight text-ink">
-              Join The Six
-            </span>
-          </div>
+          <BrandLockup
+            surface="default"
+            className="lg:hidden"
+            wordmarkClassName="text-xl text-ink"
+          />
           <SignIn
             path="/sign-in"
             routing="path"

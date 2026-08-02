@@ -107,13 +107,22 @@
 
   /* Copper — warm accent for occasional non-primary emphasis. The 300 step is
      the dark-mode accent ink: kept bronze (muted, darker) so it never reads as
-     a fifth pastel next to the pink primary and the coral danger. */
+     a fifth pastel next to the pink primary and the coral danger.
+
+     The 600 step is the light-mode accent, and it is the most constrained
+     value in this file: it has to clear ΔE 12 from BOTH the amber warning
+     (~41°) and the coral danger (~10°) while staying above 4.5:1 on paper.
+     Hue alone cannot buy that — copper sits between them by definition — so
+     the separation is bought in lightness. At the old L*45 it measured ΔE 12.0
+     from danger, i.e. on the line; a step deeper puts it at 14.1 from danger
+     and 14.2 from warning, balanced, with the contrast improving rather than
+     suffering. Lighten this and the accent collides with danger again. */
   --jts-copper-50: #f8ece3;
   --jts-copper-100: #f0d8c7;
   --jts-copper-300: #c9946b;
   --jts-copper-400: #cd7d59;
   --jts-copper-500: #bd6945;
-  --jts-copper-600: #a1552f;
+  --jts-copper-600: #8a4a1f;
 
   /* ---------------------------------------------------------------------------
      2. SEMANTIC LAYER — LIGHT. This is what components consume.
@@ -215,9 +224,13 @@
   --jts-color-sidebar-hover-bg: color-mix(in srgb, #ffffff 8%, transparent);
   --jts-color-sidebar-active-bg: color-mix(in srgb, #ffffff 12%, transparent);
   --jts-color-sidebar-active-text: var(--jts-color-text-on-strong);
-  /* The lit numeral is the sidebar's one spot of colour, so it is stated
-     rather than derived: a palette that repaints the slab must repaint this
-     with it, or House Wine's pink ends up glowing on somebody else's ink. */
+  /* The lit numeral is the sidebar's one spot of colour. It is stated rather
+     than derived from `--jts-color-primary`, because the slab is dark in BOTH
+     themes and the light theme's primary is dark ink meant for paper — it
+     would sink into the slab. So the rule is: THE NUMERAL IS THE THEME'S DARK
+     PRIMARY, in both modes. Wine-300 is exactly that value here, which is why
+     this line needs no dark override. A palette that repaints the slab must
+     repaint this with it (see palettes.css); the spec measures it. */
   --jts-color-sidebar-active-index: var(--jts-wine-300);
   --jts-color-sidebar-border: color-mix(in srgb, #ffffff 12%, transparent);
 
@@ -225,11 +238,17 @@
      3. TYPOGRAPHY, SPACE, RADIUS, SHADOW, Z, MOTION — mode-independent.
      --------------------------------------------------------------------------- */
 
-  /* Families. Manrope carries Latin + Greek in one variable family. */
+  /* Families. Sans and display both carry Latin + Greek (see ADR 0011). */
   --jts-font-sans:
     "Manrope Variable", "Manrope", ui-sans-serif, system-ui, -apple-system,
     BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
-  --jts-font-display: var(--jts-font-sans);
+  --jts-font-display:
+    "Commissioner Variable", "Commissioner", var(--jts-font-sans);
+  /* The wordmark, and nothing else. It sets one fixed Latin string —
+     "Join The Six" — so unlike sans and display it carries no Greek
+     requirement, which is what let a geometric face be chosen to answer the
+     round product mark beside it. Never use it for UI copy. */
+  --jts-font-brand: "Sora Variable", "Sora", var(--jts-font-display);
   --jts-font-mono:
     ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   --jts-numeric-tabular: tabular-nums;

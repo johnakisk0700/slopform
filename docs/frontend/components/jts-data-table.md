@@ -24,7 +24,7 @@ Generic over the row type `T`.
 | `error`              | `string \| null`            | Blocking error (no rows) or a stale-data warning (rows present). |
 | `emptyTitle`         | `string`                    | Ready-but-empty heading. Default `"Nothing to show yet"`.        |
 | `emptyDescription`   | `string`                    | Ready-but-empty copy.                                            |
-| `emptyIcon`          | `ReactNode`                 | Optional empty-state mark; defaults to the six-dot brand mark.   |
+| `emptyIcon`          | `ReactNode`                 | Optional empty-state mark; defaults to the CSS six-dot motif.    |
 | `paginator`          | `boolean`                   | Enables client pagination, hidden while unnecessary.             |
 | `pageSize`           | `number`                    | Initial page size. Default `10`.                                 |
 | `rowsPerPageOptions` | `number[]`                  | Footer page-size choices. Default `[10, 25, 50]`.                |

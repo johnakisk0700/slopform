@@ -2,6 +2,8 @@
 
 - Status: Accepted
 - Date: 2026-07-22
+- Note: the “single family for display, UI and body” typeface clause is
+  superseded by [ADR 0011](0011-display-typeface.md); the rest stands.
 
 ## Decision
 
@@ -28,6 +30,8 @@ signal, and PrimeVue is a consumer of that system rather than a parallel one.
 - The typeface is **Manrope** (variable, self-hosted via Fontsource), the single
   family for display, UI and body. It carries Latin **and Greek** in one family
   because operators work in Greek; numbers use tabular figures.
+  _(Superseded for the single-family scope by ADR 0011: Manrope stays UI/body;
+  Commissioner is display.)_
 
 ## Why
 

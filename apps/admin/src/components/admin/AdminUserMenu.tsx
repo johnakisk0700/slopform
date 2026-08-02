@@ -125,9 +125,17 @@ function AdminUserMenuContent({
         // and it stays meaningful when the label is hidden on small screens.
         aria-label={`${displayName} — account and appearance`}
         // `h-auto` releases Button's fixed 2.5rem height so the hover surface
-        // covers the whole row; the padding and the 2rem avatar then size it to
-        // the 2.75rem rhythm of the navigation items.
-        className={`inline-flex h-auto min-h-[2.75rem] items-center justify-start gap-3 rounded-md px-3 py-1.5 text-left${
+        // covers the whole row.
+        //
+        // The vertical padding used to be `1.5` (0.375rem), which with the 2rem
+        // avatar came to exactly the 2.75rem of a navigation row — but a nav row
+        // spends that on a 1.1rem icon, while this one spends it on an avatar
+        // nearly twice as tall. Matching the number made the avatar sit hard
+        // against the hover surface's edge. This row is below the divider and
+        // outside that rhythm, so it takes the breathing room instead.
+        // Horizontal padding stays `3`: it keeps the avatar on the same
+        // vertical line as the navigation numerals directly above it.
+        className={`inline-flex h-auto min-h-[3.25rem] items-center justify-start gap-3 rounded-md px-3 py-2.5 text-left${
           className ? ` ${className}` : ""
         }`}
       >

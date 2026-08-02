@@ -15,7 +15,8 @@
       the type/radius/shadow/tracking scales with jts values.
    3. A small base layer carries the app-wide rules (focus, selection,
       headings, reduced motion) and the two sanctioned motif classes
-      (.brand-mark, .status-dot) plus .skip-link.
+      (.brand-mark decorative six-dot, .status-dot) plus .skip-link.
+      The product logo is BrandLockup / BrandMark (SVG, currentColor), not .brand-mark.
 
    Dark mode: the `dark` class on <html> (set pre-paint in index.html, owned
    by src/lib/useTheme.ts). Components must not hand-roll colors — see
@@ -25,6 +26,10 @@
 @import "tailwindcss";
 @import "@heroui/styles";
 @import "@fontsource-variable/manrope/wght.css";
+@import "@fontsource-variable/commissioner/wght.css";
+/* Latin only, and only ever the wordmark: the unicode-range on each face means
+   a page that renders "Join The Six" fetches the latin file and nothing else. */
+@import "@fontsource-variable/sora/wght.css";
 @import "@join-the-six/design-tokens/tokens.css";
 /* After tokens.css on purpose: a palette re-paints the semantic layer, and its
    dark block must sit later in the cascade than `:root.dark`. */
@@ -125,6 +130,9 @@
   /* Type */
   --font-sans: var(--jts-font-sans);
   --font-display: var(--jts-font-display);
+  /* `font-brand` belongs to BrandLockup alone — the wordmark, on every surface
+     it appears. Nothing else in the panel may claim it. */
+  --font-brand: var(--jts-font-brand);
   /* Manrope is still the only family for prose and UI. `font-mono` exists for
      the machine strings an operator copies — ids, model names — and points at
      the jts stack so Tailwind's own default mono never becomes a second
@@ -254,6 +262,26 @@
   ::selection {
     background: var(--jts-color-highlight);
     color: var(--jts-color-highlight-text);
+  }
+
+  /* Floating surfaces must separate from whatever they cover.
+     ------------------------------------------------------------------------
+     HeroUI gives a popover a fill and a shadow but no edge, which leaves the
+     separation resting entirely on the shadow. That fails at both ends of the
+     range: the operator menu opens over the dark sidebar slab, where a shadow
+     tinted for light paper is invisible, and in dark mode the overlay fill and
+     the slab are a few percent apart to begin with (graphite: #212529 over
+     #1b2127). A hairline in the theme's own border tone costs one pixel and
+     works on every field in both modes, which a hand-tuned shadow per theme
+     would not. `--overlay-shadow` still carries the elevation. */
+  .popover {
+    border: 1px solid var(--jts-color-border);
+  }
+
+  /* On a dark slab a dark hairline disappears into it, so the edge is lifted
+     off the overlay's own fill instead of borrowed from the page. */
+  :root.dark .popover {
+    border-color: var(--jts-color-border-strong);
   }
 
   /* Native elements get the jts focus ring; HeroUI components manage their

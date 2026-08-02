@@ -281,11 +281,15 @@ small base layer carries app-wide rules (focus ring, selection, headings,
 reduced motion) plus the three sanctioned classes `.skip-link`, `.brand-mark`
 and `.status-dot`.
 
-Manrope Variable 5.3.0 is self-hosted through Fontsource (OFL-1.1), imported in
-`globals.css`, as the single type family for display, UI and body; it carries
+Manrope Variable 5.3.0 (UI/body), Commissioner Variable 5.2.10 (display
+headings) and Sora Variable 5.3.0 (the wordmark alone) are self-hosted through
+Fontsource (OFL-1.1), imported in `globals.css`. Manrope and Commissioner carry
 **Latin and Greek** so operator Greek and English render identically, with
-system sans as the fallback. The build emits the Manrope subsets as separate
-`woff2` assets.
+system sans as the Manrope fallback; Sora sets one fixed Latin string and is
+never used for copy ([ADR 0011](decisions/0011-display-typeface.md)). The build
+emits the font subsets as separate `woff2` assets, and the `unicode-range` on
+each face keeps a page to the subsets it actually renders. The product logo is `BrandLockup` / `BrandMark` (inline SVG, `currentColor`);
+the CSS six-dot `.brand-mark` is a decorative motif only.
 
 Dark mode is the `dark` class on `<html>`, shared by the tokens, HeroUI and
 Tailwind. The pre-paint script in `index.html` applies it before first paint

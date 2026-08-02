@@ -1,5 +1,6 @@
 import { Link } from "react-router";
 
+import { BrandLockup } from "../components/admin/BrandLockup";
 import { usePageMeta } from "../lib/usePageMeta";
 
 /**
@@ -20,14 +21,11 @@ export function ErrorPage() {
       </a>
 
       <header className="mx-auto w-full max-w-content px-4 py-6">
-        <Link
+        <BrandLockup
           to="/admin"
-          aria-label="Join The Six admin home"
-          className="inline-flex items-center gap-3 font-display text-[1.3rem] font-extrabold tracking-tight text-ink no-underline hover:text-primary"
-        >
-          <span className="brand-mark" aria-hidden="true" />
-          <span>Join The Six</span>
-        </Link>
+          surface="default"
+          className="text-ink hover:text-primary"
+        />
       </header>
 
       <main

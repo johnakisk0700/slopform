@@ -1,8 +1,9 @@
 # Cookbook screen (development only)
 
-Status: accepted, verified 2026-08-01 (React 19.2.8, HeroUI `@heroui/react`
+Status: accepted, verified 2026-08-02 (React 19.2.8, HeroUI `@heroui/react`
 3.2.2, Tailwind CSS 4.3.3, Vite 8.1.5, lucide-react 1.25.0,
-`@fontsource-variable/manrope` 5.3.0).
+`@fontsource-variable/manrope` 5.3.0, `@fontsource-variable/commissioner` 5.2.10,
+`@fontsource-variable/sora` 5.3.0).
 
 One page that renders every visual building block the admin panel owns, so a
 change to the design tokens or to the HeroUI bridge can be judged in one place.
@@ -64,14 +65,14 @@ Six sections, in reading order, each with its own lucide glyph. A plain
 `id` and the heading `id` are all derived from one `SECTIONS` list, so a rename
 cannot leave the contents pointing at nothing.
 
-| #   | Section             | Shows                                                                                                                                                                                               |
-| --- | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 01  | Colour tokens       | Canvas/surface, borders, ink (as text), brand wine, copper/link/focus/selection, the sidebar family, and each of the four status tones as its fg / soft+border / solid triple                       |
-| 02  | Typography          | The `--jts-text-*` scale with Latin and Greek samples, the five weights, tracking, `jts-overline`, tabular vs proportional figures, `font-mono` machine strings                                     |
-| 03  | HeroUI components   | Button (every variant, size, disabled, icon-only), Chip, Input (+ invalid), TextArea, Select, Slider, ToggleButton, Popover, Modal, Drawer, Toast, Avatar, ListBox, ScrollShadow, Pagination, Table |
-| 04  | Jts components      | `JtsPageHeader` (as a specimen), `JtsStat` in all three tones, `JtsDataTable` with the paginator, `JtsLiveIndicator` with a toggle to spin it                                                       |
-| 05  | Feedback vocabulary | `FeedbackBadges` — six tones, soft and strong, both sizes, with and without glyphs — plus `CopyableId`, `ProviderMark` beside model pills, the timestamp pill and the confidence bar                |
-| 06  | Motifs & rules      | The 3px marker horizontal and vertical, `.brand-mark`, `.status-dot`, the radius and shadow scales, and the invariants written out                                                                  |
+| #   | Section             | Shows                                                                                                                                                                                                                                                 |
+| --- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 01  | Colour tokens       | Canvas/surface, borders, ink (as text), brand wine, copper/link/focus/selection, the sidebar family, and each of the four status tones as its fg / soft+border / solid triple                                                                         |
+| 02  | Typography          | Manrope (UI/body) + Commissioner (display) with Latin and Greek samples, the five weights, tracking, `jts-overline`, tabular vs proportional figures, `font-mono` machine strings. Sora is not shown here — it is the wordmark's alone, in section 06 |
+| 03  | HeroUI components   | Button (every variant, size, disabled, icon-only), Chip, Input (+ invalid), TextArea, Select, Slider, ToggleButton, Popover, Modal, Drawer, Toast, Avatar, ListBox, ScrollShadow, Pagination, Table                                                   |
+| 04  | Jts components      | `JtsPageHeader` (as a specimen), `JtsStat` in all three tones, `JtsDataTable` with the paginator, `JtsLiveIndicator` with a toggle to spin it                                                                                                         |
+| 05  | Feedback vocabulary | `FeedbackBadges` — six tones, soft and strong, both sizes, with and without glyphs — plus `CopyableId`, `ProviderMark` beside model pills, the timestamp pill and the confidence bar                                                                  |
+| 06  | Motifs & rules      | `BrandLockup` / `BrandMark` (SVG, currentColor), the 3px marker, CSS `.brand-mark` motif, `.status-dot`, radius/shadow scales, and the invariants                                                                                                     |
 
 Two conventions the page holds itself to:
 

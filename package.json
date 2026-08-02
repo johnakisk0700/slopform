@@ -24,6 +24,7 @@
     "dev:containers": "docker compose up --remove-orphans",
     "dev:containers:build": "docker compose build dev-image",
     "dev:worker": "dotenv -e .env -- pnpm --filter @join-the-six/backend dev:worker",
+    "design:image": "node scripts/openrouter-image.mjs",
     "docs:check": "node scripts/verify-docs.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

@@ -77,9 +77,10 @@ const ACTOR_STYLES: Record<
   staff: {
     row: "items-end",
     bubble: "bg-copper-soft text-ink rounded-br-sm",
-    // Not text-copper: the accent measures 3.93:1 on surface, under AA for a
-    // 10px label. The copper bubble already marks the actor.
-    label: "text-ink",
+    // Copper, to match `bot` naming its own tone above. This label was ink
+    // while the accent measured 3.93:1 on surface; every theme now clears AA
+    // for its accent, so the exception is gone.
+    label: "text-copper",
   },
   participant: {
     row: "items-start",

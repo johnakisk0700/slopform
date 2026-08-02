@@ -1,5 +1,7 @@
 import { Button } from "@heroui/react";
 
+import { BrandLockup } from "./BrandLockup";
+
 type AuthStatusKind = "checking" | "configuration" | "denied" | "failed";
 
 const COPY: Record<
@@ -56,12 +58,15 @@ export function AuthStatusScreen({
         aria-busy={kind === "checking" ? "true" : undefined}
         className="w-full max-w-lg border-l-[3px] border-primary bg-surface p-8 shadow-sm"
       >
-        <div className="mb-6 flex items-center gap-3">
-          <span className="brand-mark" aria-hidden="true" />
-          <span className="text-xs font-extrabold uppercase tracking-caps text-ink-muted">
-            Join The Six
-          </span>
-        </div>
+        <BrandLockup
+          surface="default"
+          className="mb-6"
+          wordmark={
+            <span className="text-xs font-extrabold uppercase tracking-caps text-ink-muted">
+              Join The Six
+            </span>
+          }
+        />
         <p className="text-xs font-extrabold uppercase tracking-caps text-primary">
           {copy.eyebrow}
         </p>

@@ -37,9 +37,12 @@ const TONE_STYLES: Record<FeedbackTone, string> = {
   success: "border-success-border bg-success-soft text-success",
   warning: "border-warning-border bg-warning-soft text-warning",
   danger: "border-danger-border bg-danger-soft text-danger",
-  // Copper measures 3.93:1 on surface — under AA at this size — so the accent
-  // stays in the fill and the hairline, and the label keeps full-contrast ink.
-  accent: "border-copper/40 bg-copper-soft text-ink",
+  // The accent used to be the one tone that could not carry its own label —
+  // copper measured 3.93:1 on surface — so it spent full-strength ink and read
+  // as a different kind of thing from the four beside it. Every theme now
+  // clears AA for its accent both on surface and on its own tint, asserted in
+  // `palettes.spec.ts` and `theme-tokens.spec.ts`, so the set is uniform.
+  accent: "border-copper/40 bg-copper-soft text-copper",
 };
 
 /**

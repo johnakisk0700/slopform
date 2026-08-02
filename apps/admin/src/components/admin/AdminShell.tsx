@@ -1,41 +1,51 @@
 import { useState } from "react";
 import { Button, Drawer } from "@heroui/react";
-import { Menu } from "lucide-react";
+import { clsx } from "clsx";
+import { Menu, Unlock } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
-import { Link, Outlet, useLocation } from "react-router";
+import { Outlet, useLocation } from "react-router";
 
 import { env } from "../../lib/env";
 import { AdminNavigation } from "./AdminNavigation";
 import { AdminUserMenu } from "./AdminUserMenu";
+import { BrandLockup } from "./BrandLockup";
 
 /**
- * The environment block under the brand mark: which deployment this is, and —
- * when it is on — that the local authentication bypass is answering for the
- * operator. It is the shell's only environment indicator, so it renders in
- * both places the brand mark does (wine sidebar, light drawer) with the tones
- * of each surface.
+ * The two facts about this deployment that are not a given: which environment
+ * the operator is looking at, and — when it is on — that the local
+ * authentication bypass is answering for them.
+ *
+ * They share one chip shape and one row. Stacked as plain lines they read as
+ * text appended under the brand; as matching chips they read as one status
+ * strip, and the bypass is a peer of the environment rather than a louder
+ * afterthought. The shell's only environment indicator, so it renders in both
+ * places the brand lockup does (wine sidebar, light drawer) with the tones of
+ * each surface.
  */
-function EnvironmentBlock({ variant }: { variant: "sidebar" | "drawer" }) {
-  const muted =
-    variant === "sidebar" ? "text-sidebar-fg-muted" : "text-ink-muted";
-  const strong = variant === "sidebar" ? "text-sidebar-fg" : "text-ink";
+function EnvironmentChips({ variant }: { variant: "sidebar" | "drawer" }) {
+  // Full-strength foreground rather than a warning tone for the bypass: both
+  // verified pairs (text on wine, text on surface) clear AA, and
+  // warning-on-surface is not one of the measured pairings.
+  const chip = clsx(
+    "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 jts-overline",
+    variant === "sidebar"
+      ? "border-sidebar-border bg-sidebar-hover text-sidebar-fg"
+      : "border-border bg-surface-sunken text-ink",
+  );
 
   return (
-    <>
-      <p className={`text-xs font-bold uppercase tracking-caps ${muted}`}>
-        Admin workspace
-      </p>
-      <p className={`flex items-center gap-2 text-xs font-semibold ${muted}`}>
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className={chip}>
         <span className="status-dot" aria-hidden="true" />
-        <span>Local environment</span>
-      </p>
+        Local
+      </span>
       {env.authDevBypass ? (
-        // Full-strength foreground rather than a warning tone: both verified
-        // pairs (text on wine, text on surface) clear AA, and warning-on-surface
-        // is not one of the measured pairings.
-        <p className={`jts-overline ${strong}`}>Authentication bypass active</p>
+        <span className={chip}>
+          <Unlock aria-hidden="true" className="size-3" />
+          Auth bypass
+        </span>
       ) : null}
-    </>
+    </div>
   );
 }
 
@@ -77,10 +87,11 @@ function AdminMain() {
  * The admin application shell.
  *
  * Desktop (>=64rem): a two-column grid over the warm canvas with a sticky,
- * full-height wine sidebar (brand, kicker, {@link EnvironmentBlock},
- * navigation, operator menu) and no top bar. Small screens hide the sidebar and
- * surface a top bar whose hamburger opens the same navigation in a left drawer.
- * The environment block, operator menu and navigation render in both places.
+ * full-height wine sidebar (the brand lockup with its "Admin workspace"
+ * tagline, {@link EnvironmentChips}, navigation, operator menu) and no top bar.
+ * Small screens hide the sidebar and surface a top bar whose hamburger opens
+ * the same navigation in a left drawer. The environment chips, operator menu
+ * and navigation render in both places.
  *
  * Nothing is stacked above this element: the shell is the whole viewport, so
  * every route's own scrolling starts from a full height rather than from the
@@ -94,16 +105,15 @@ export function AdminShell() {
       {/* pb-4 matches the operator row's own pt-4, so that row sits centred
           between its rule and the panel edge instead of riding 8px high. */}
       <aside className="hidden border-r border-sidebar-border bg-sidebar px-4 pt-6 pb-4 text-sidebar-fg lg:sticky lg:top-0 lg:flex lg:h-full lg:max-h-dvh lg:flex-col">
-        <Link
+        <BrandLockup
           to="/admin"
-          aria-label="Join The Six admin home"
-          className="flex items-center gap-3 px-3 font-display text-[1.3rem] font-extrabold tracking-tight text-sidebar-fg no-underline"
-        >
-          <span className="brand-mark" aria-hidden="true" />
-          <span>Join The Six</span>
-        </Link>
-        <div className="mt-2 mb-5 grid gap-1.5 border-b border-sidebar-border px-3 pb-6">
-          <EnvironmentBlock variant="sidebar" />
+          surface="strong"
+          className="px-3 text-sidebar-fg"
+          tagline="Admin workspace"
+          taglineClassName="text-sidebar-fg-muted"
+        />
+        <div className="mt-4 mb-5 border-b border-sidebar-border px-3 pb-5">
+          <EnvironmentChips variant="sidebar" />
         </div>
 
         <AdminNavigation variant="sidebar" />
@@ -131,18 +141,28 @@ export function AdminShell() {
               <Drawer.Backdrop>
                 <Drawer.Content placement="left">
                   <Drawer.Dialog>
-                    <Drawer.Header className="flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-3 text-ink">
-                        <span className="brand-mark" aria-hidden="true" />
-                        <Drawer.Heading className="font-display text-[1.3rem] font-extrabold tracking-tight">
-                          Join The Six
-                        </Drawer.Heading>
-                      </div>
+                    {/* flex-row explicitly: HeroUI's own header slot is a
+                        column, so `items-center` would centre the lockup
+                        horizontally and leave it out of line with everything
+                        below it. The close trigger is absolutely positioned,
+                        so the lockup is the only item in flow. */}
+                    <Drawer.Header className="flex flex-row items-center gap-3">
+                      <BrandLockup
+                        surface="default"
+                        className="text-ink"
+                        tagline="Admin workspace"
+                        taglineClassName="text-ink-muted"
+                        wordmark={
+                          <Drawer.Heading className="font-display text-[1.3rem] leading-none font-extrabold tracking-tight">
+                            Join The Six
+                          </Drawer.Heading>
+                        }
+                      />
                       <Drawer.CloseTrigger />
                     </Drawer.Header>
                     <Drawer.Body className="flex flex-col gap-4">
-                      <div className="grid gap-1.5 border-b border-border pb-4">
-                        <EnvironmentBlock variant="drawer" />
+                      <div className="border-b border-border pb-4">
+                        <EnvironmentChips variant="drawer" />
                       </div>
                       <AdminNavigation
                         variant="drawer"

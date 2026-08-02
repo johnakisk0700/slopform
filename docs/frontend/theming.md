@@ -1,7 +1,9 @@
 # Theming, design tokens and dark mode
 
-Status: accepted, verified 2026-07-23 (React 19.2.8, HeroUI `@heroui/react`
-3.2.2, Tailwind CSS 4.3.3, Vite 8.1.5, `@fontsource-variable/manrope` 5.3.0).
+Status: accepted, verified 2026-08-02 (React 19.2.8, HeroUI `@heroui/react`
+3.2.2, Tailwind CSS 4.3.3, Vite 8.1.5, `@fontsource-variable/manrope` 5.3.0,
+`@fontsource-variable/commissioner` 5.2.10,
+`@fontsource-variable/sora` 5.3.0).
 
 This is the base every admin screen is built on. Its promise: **to style a new
 screen you use a semantic token or a plain HeroUI component, and light + dark are
@@ -55,7 +57,7 @@ Tokens are layered. Consume the semantic layer; never hardcode primitives.
 Non-colour scales: `--jts-space-{1..24}`, `--jts-radius-{xs..xl,pill,circle}`,
 `--jts-shadow-{xs,sm,md,lg}`, `--jts-z-{base..max}`,
 `--jts-duration-*` / `--jts-ease-*`, and type
-(`--jts-font-{sans,display,mono}`, `--jts-text-{2xs..3xl}`,
+(`--jts-font-{sans,display,brand,mono}`, `--jts-text-{2xs..3xl}`,
 `--jts-weight-*`, `--jts-tracking-*`, `--jts-leading-*`,
 `--jts-numeric-tabular`).
 
@@ -95,23 +97,29 @@ flowchart LR
 The operator menu's **Theme** group selects one of six themes; the appearance
 system is a 6×2 grid (theme × light/dark), and the two axes never mix.
 
-| Theme        | Field                         | Brand colour   |
-| ------------ | ----------------------------- | -------------- |
-| Join The Six | warm rosewood paper (default) | wine           |
-| Graphite     | cool neutral                  | steel blue     |
-| Noir         | greyscale                     | ink, see below |
-| Amphora      | Flexoki ink on paper          | Aegean cyan    |
-| Linen        | Radix Colors sand             | copper         |
-| Iris         | Rosé Pine                     | iris           |
+| Theme        | Field                         | Brand colour |
+| ------------ | ----------------------------- | ------------ |
+| Theme        | Field                         | Brand        | Accent   |
+| ------------ | ----------------------------- | --------     | -------- |
+| Join The Six | warm rosewood paper (default) | wine         | copper   |
+| Graphite     | cool neutral                  | azure        | violet   |
+| Noir         | greyscale                     | ink          | violet   |
+| Amphora      | Flexoki ink on paper          | teal         | orange   |
+| Linen        | Radix Colors sand             | copper       | indigo   |
+| Iris         | Rosé Pine                     | iris         | foam     |
 
 - **Every theme owns its brand colour.** The first cut kept wine as the primary
   in all of them, so whatever an operator picked, the buttons, the chat bubbles
   and the progress bars stayed pink — the field changed and nothing else did. A
   theme states its own primary, accent, link, focus and status tones.
-- **Noir** is the monochrome one: the field is grey, the primary is ink, and
-  the single amber is spent only on `warning` and `danger`. Colour there means
-  «a human is wanted», which is why the button pressed all day is not allowed
-  to wear it.
+- **Every meaning keeps its distance**, measured in CIEDE2000 rather than by
+  comparing hex strings — see [Rules a theme must pass](#rules-a-theme-must-pass).
+- **Noir** is monochrome **in its brand only**: the field is grey and the
+  primary is ink, so the one thing on screen wearing colour is a meaning. Its
+  status tones are real hues. The first cut spent a single amber on the accent,
+  the warning _and_ the danger, which made «this needs a human», «careful» and
+  «this failed» the same pill — the character was costing the operator the
+  distinction the colour existed to carry.
 - `packages/design-tokens/src/palettes.css` holds the five override themes,
   keyed by `data-palette` on `<html>`, each repainting the **semantic colour
   layer only** as flat resolved hexes; type, space, radius, shadows and the
@@ -128,10 +136,40 @@ system is a 6×2 grid (theme × light/dark), and the two axes never mix.
 
 To retune a theme, edit its block in `palettes.css` (flat hexes — a theme is a
 finished coat of paint, not a second token graph). To retune **Join The Six**,
-edit `tokens.css` as always. `apps/admin/test/palettes.spec.ts` is the gate:
-every theme must clear the same twelve AA pairs in both modes, own a distinct
-brand colour and sidebar, keep its five status meanings mutually distinct, and
-the file must parse as nothing but comments and well-formed rule blocks.
+edit `tokens.css` as always.
+
+### Rules a theme must pass
+
+`apps/admin/test/palettes.spec.ts` gates the five selectable themes and
+`theme-tokens.spec.ts` gates the house theme; both measure with
+`apps/admin/test/colour-metrics.ts`, so the floors live in one place.
+
+| Rule                                                                         | Floor    |
+| ---------------------------------------------------------------------------- | -------- |
+| The twelve AA text/background pairs, both modes                              | 4.5:1    |
+| Each badge tone on its own `-soft` tint, and `canvas` on it solid            | 4.5:1    |
+| `accent` as label ink on `surface`                                           | 4.5:1    |
+| The five badge tones (`info` `success` `warning` `danger` `accent`) pairwise | ΔE 12    |
+| `primary` against each status tone                                           | ΔE 10    |
+| Brand colour and sidebar slab, across themes                                 | distinct |
+
+**Why ΔE and not `!==`.** Distinctness is a perceptual claim, and the previous
+gate made it by comparing hex strings. Everything below passed it: noir shipped
+one value as both its accent and its warning, and in dark mode its warning,
+accent and danger sat within ΔE 5.4 — an error looked like a warning. Graphite's
+dark info and accent were ΔE 3.3 apart. `accent` was not in the compared set at
+all. The floors are far above the ~2.3 just-noticeable difference because a
+badge is 10px of text, read in a column, by someone scanning rather than reading.
+
+**The lit sidebar numeral is the theme's dark primary, in both modes.** The slab
+is dark whichever mode you are in, so a light theme's primary — dark ink meant
+for paper — would sink into it; that is the whole reason
+`--jts-color-sidebar-active-index` exists as its own token. Left to taste, every
+theme invented a tint here and the numeral became the one colour on screen
+belonging to nothing (graphite lit a sky blue over a steel primary and a grey
+accent, ΔE 28 from its nearest neighbour), with half the themes reaching for
+primary and half for accent. `AdminNavigation`'s mobile drawer already paints
+this numeral `text-primary`; the sidebar now says the same thing.
 
 ## HeroUI + Tailwind bridge
 
@@ -200,11 +238,24 @@ never ships it. New vocabulary — a token, a bridge utility, a badge tone, a
 
 ## Typography
 
-Manrope (variable, `@fontsource-variable/manrope/wght.css`) is the only family:
-display, UI and body. It ships **Latin and Greek**, so Greek and English look
-identical for the operator. Numbers that are scanned or compared use tabular
-figures (the `tabular-nums` utility, applied to stat values and table bodies).
-System sans is the fallback.
+Three Fontsource variable families ([ADR 0011](../decisions/0011-display-typeface.md)):
+
+- **Manrope** (`@fontsource-variable/manrope/wght.css`) — UI and body
+  (`--jts-font-sans`).
+- **Commissioner** (`@fontsource-variable/commissioner/wght.css`) — display
+  headings (`--jts-font-display` / `font-display`).
+- **Sora** (`@fontsource-variable/sora/wght.css`) — the wordmark and nothing
+  else (`--jts-font-brand` / `font-brand`), used only by
+  [`BrandLockup`](../../apps/admin/src/components/admin/BrandLockup.tsx). Its
+  geometry answers the round product mark beside it.
+
+Manrope and Commissioner ship **Latin and Greek**, so Greek and English look
+identical for the operator. `font-brand` sets one fixed Latin string, so the
+Greek requirement does not reach it — and `font-brand` must never be used for
+UI copy, where that would show. Numbers that are scanned or compared use
+tabular figures (the
+`tabular-nums` utility, applied to stat values and table bodies). System sans is
+the fallback under Manrope.
 
 `font-mono` is mapped to `--jts-font-mono` in `globals.css` so Tailwind's own
 default mono stack never becomes a second source. It is for machine strings an
@@ -225,7 +276,10 @@ continuity or state change and never carries status by itself.
   primitives or literals.
 - `dark` on `<html>` is the only dark-mode signal.
 - No glows, blurred circles, gradient washes or pulsing dots. Flat accents
-  only, plus the six-dot `.brand-mark` logo and one static `.status-dot`.
+  only. The product logo is `BrandLockup` / `BrandMark`: SVG five-people + empty
+  chair, filled with `currentColor` (no green plate). The CSS six-dot
+  `.brand-mark` is a decorative motif only (empty states, cookbook). One static
+  `.status-dot` is the environment indicator.
 - The signature emphasis motif is **the 3px marker** (`--jts-color-primary` or
   a status tone): horizontal under the page title, vertical on the left edge of
   accented cards. It means "this matters / something happened" — never "you are
@@ -238,17 +292,24 @@ continuity or state change and never carries status by itself.
 
 ## Tests
 
-- `packages/design-tokens/scripts/verify-tokens.mjs` — required token names.
+- `packages/design-tokens/scripts/verify-tokens.mjs` — the package's own
+  build-time guard: required token names, and that every palette block parses,
+  covers the whole semantic layer in flat hexes, and lights its numeral with its
+  dark primary. Presence and shape only; the colour maths lives in the specs so
+  the floors are not stated twice.
+- `apps/admin/test/colour-metrics.ts` — the shared measurements (WCAG contrast,
+  CIEDE2000) and the floors both token specs hold every theme to.
 - `apps/admin/test/theme-tokens.spec.ts` — AA contrast for critical text/
-  background pairs, light and dark, resolved from `tokens.css`.
+  background pairs, light and dark, resolved from `tokens.css`, plus the house
+  theme's own tone separation and lit numeral.
 - `apps/admin/test/theme-switch.spec.ts` — the `resolveTheme` logic and the
   single-class wiring: the pre-paint script, `@custom-variant dark`, the
   `--accent: var(--jts-color-primary)` bridge, `:root.dark`, and the
   `useTheme`/`setThemeMode`/`THEME_STORAGE_KEY` exports.
 - `apps/admin/test/palettes.spec.ts` — every palette in `palettes.css`:
   complete semantic cover, the `:not(.dark)` scoping, the same twelve AA pairs
-  in both themes, and the one-id-list wiring across CSS, store, pre-paint
-  script and operator menu.
+  in both themes, the ΔE floors and numeral rule above, and the one-id-list
+  wiring across CSS, store, pre-paint script and operator menu.
 - `apps/admin/test/delivery-shell.spec.ts` — the `index.html` shell: pre-paint
   theme script, unindexed robots meta, and the focusable `#main-content`
   landmark fallback.
@@ -259,7 +320,8 @@ continuity or state change and never carries status by itself.
 ## References
 
 - [ADR 0005](../decisions/0005-theming-and-dark-mode.md),
-  [ADR 0006](../decisions/0006-react-admin-runtime.md)
+  [ADR 0006](../decisions/0006-react-admin-runtime.md),
+  [ADR 0011](../decisions/0011-display-typeface.md)
 - HeroUI v3 theming — <https://heroui.com/en/docs/react/getting-started/theming>
   (2026-07-23)
 - Tailwind CSS v4 theme (`@theme`) — <https://tailwindcss.com/docs/theme>
@@ -267,3 +329,6 @@ continuity or state change and never carries status by itself.
 - Tailwind CSS v4 dark mode (`@custom-variant`) —
   <https://tailwindcss.com/docs/dark-mode> (2026-07-23)
 - Fontsource Manrope — <https://fontsource.org/fonts/manrope>
+- Fontsource Commissioner — <https://fontsource.org/fonts/commissioner>
+- Fontsource Sora — <https://fontsource.org/fonts/sora>
+- [ADR 0011](../decisions/0011-display-typeface.md) — display face split

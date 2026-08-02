@@ -23,8 +23,14 @@ importers:
       '@clerk/react':
         specifier: 6.12.6
         version: 6.12.6(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@fontsource-variable/commissioner':
+        specifier: 5.2.10
+        version: 5.2.10
       '@fontsource-variable/manrope':
         specifier: 5.3.0
+        version: 5.3.0
+      '@fontsource-variable/sora':
+        specifier: ^5.3.0
         version: 5.3.0
       '@heroui/react':
         specifier: 3.2.2
@@ -991,8 +997,14 @@ packages:
     resolution: {integrity: sha512-+CNAzxglkrpNf/kKywqQfk74QjtceuOE7Qm+AF8miRvPF/wmmK5+OJOgVh3AVTT3RP2mH3+FOaxlE5v72owk0A==}
     engines: {node: ^20.19.0 || ^22.13.0 || >=24}
 
+  '@fontsource-variable/commissioner@5.2.10':
+    resolution: {integrity: sha512-I2OzXSgj2rQdhdysZEvcH2zmyO/dmMviSR6tWCMTwFXimtKJctadlmfoF1Pm9w/kSAe3fo9MhTZwppJE0/Xnmw==}
+
   '@fontsource-variable/manrope@5.3.0':
     resolution: {integrity: sha512-6D5dgokHsWDDMtmXHznKa0hK229NN+1a4BLPmUCLqcO1Pw5EEhWY5RFt0AcXnVRAljFFPfRtLkJePQj6LSsV6g==}
+
+  '@fontsource-variable/sora@5.3.0':
+    resolution: {integrity: sha512-h8kHta4Z8SkfUGeI82TUy1n3rbrKpBRGwuk4t4qCwto5oEHxlbOFD2yGP+Df5fbmTXwKGn+o667vYp0E4K8Whw==}
 
   '@formatjs/ecma402-abstract@2.3.6':
     resolution: {integrity: sha512-HJnTFeRM2kVFVr5gr5kH1XP6K0JcJtE7Lzvtr3FS/so5f1kpsqqqxy5JF+FRaO6H2qmcMfAUIox7AJteieRtVw==}
@@ -6360,7 +6372,11 @@ snapshots:
       '@eslint/core': 1.2.1
       levn: 0.4.1
 
+  '@fontsource-variable/commissioner@5.2.10': {}
+
   '@fontsource-variable/manrope@5.3.0': {}
+
+  '@fontsource-variable/sora@5.3.0': {}
 
   '@formatjs/ecma402-abstract@2.3.6':
     dependencies:

@@ -18,8 +18,9 @@ This directory is the maintained project memory. Markdown is deliberate: GitHub 
 12. [`decisions/0008-post-event-feedback-conversations.md`](decisions/0008-post-event-feedback-conversations.md) — event-bound WhatsApp feedback, directed results and human control
 13. [`decisions/0009-generated-api-client.md`](decisions/0009-generated-api-client.md) — generated admin API client (supersedes hand-written response schemas)
 14. [`decisions/0010-generated-client-not-committed.md`](decisions/0010-generated-client-not-committed.md) — generated admin client is local output, not a committed artifact (supersedes that consequence of ADR 0009)
-15. [`deployment.md`](deployment.md) — development containers and production VPS topology
-16. [`agent-readiness.md`](agent-readiness.md) — repeatable extension benchmark and current evidence gaps
+15. [`decisions/0011-display-typeface.md`](decisions/0011-display-typeface.md) — Commissioner display face beside Manrope UI/body (supersedes the single-family clause of ADR 0005)
+16. [`deployment.md`](deployment.md) — development containers and production VPS topology
+17. [`agent-readiness.md`](agent-readiness.md) — repeatable extension benchmark and current evidence gaps
 
 Area-specific memory:
 

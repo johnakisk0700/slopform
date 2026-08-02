@@ -42,6 +42,7 @@ import {
   Users,
 } from "lucide-react";
 
+import { BrandLockup } from "../components/admin/BrandLockup";
 import { CopyableId } from "../components/admin/feedback/CopyableId";
 import {
   FeedbackBadges,
@@ -83,7 +84,7 @@ const TYPE_SECTION: SectionSpec = {
   id: "type",
   title: "Typography",
   Icon: Type,
-  lede: "One family, Latin and Greek, and the scale, weights and numerals built on it.",
+  lede: "Manrope for UI/body, Commissioner for display — both Latin and Greek — plus the scale, weights and numerals built on them.",
 };
 
 const HEROUI_SECTION: SectionSpec = {
@@ -830,7 +831,7 @@ export function CookbookPage() {
 
           <Specimen
             label="Accent, link, focus, selection"
-            note="Copper is the one warm secondary accent. It stays in fills and hairlines — at label size it measures under AA on surface."
+            note="Copper is the one warm secondary accent, and it carries its own label: every theme clears AA for its accent on surface and on its own tint. It sits at least ΔE 12 from each status tone, so an accent pill is never mistaken for a warning."
           >
             <SwatchGrid swatches={ACCENT_SWATCHES} />
           </Specimen>
@@ -904,7 +905,7 @@ export function CookbookPage() {
       <Section spec={TYPE_SECTION}>
         <Specimen
           label="Scale"
-          note="Manrope carries Latin and Greek in one variable family, which is why an operator reading either sees the same page."
+          note="Display samples use Commissioner; UI/body stays Manrope. Both carry Latin and Greek so either language reads as the same page."
           className="grid gap-3"
         >
           {TYPE_STEPS.map((step) => (
@@ -1588,8 +1589,23 @@ export function CookbookPage() {
           </Specimen>
 
           <Specimen
-            label="Brand mark & status dot"
-            note="Six dots, six at a table — the only decorative motif. The dot is the one environment indicator: static, never pulsing, never glowing."
+            label="Brand lockup"
+            note="SVG mark (five people + empty chair) via currentColor + the Sora wordmark (`font-brand`, the wordmark's own face — never UI copy). With a tagline the mark steps up to 40px and both lines set solid, so the three parts read as one block."
+            className="grid gap-4"
+          >
+            <div className="rounded-md bg-sidebar px-4 py-3 text-sidebar-fg">
+              <BrandLockup
+                surface="strong"
+                tagline="Admin workspace"
+                taglineClassName="text-sidebar-fg-muted"
+              />
+            </div>
+            <BrandLockup surface="default" className="text-ink" />
+          </Specimen>
+
+          <Specimen
+            label="Six-dot motif & status dot"
+            note="The CSS six-dot `.brand-mark` is a decorative motif only (empty states) — not the product logo. The status dot is the one environment indicator: static, never pulsing, never glowing."
           >
             <span aria-hidden="true" className="brand-mark text-primary" />
             <span aria-hidden="true" className="brand-mark text-copper" />

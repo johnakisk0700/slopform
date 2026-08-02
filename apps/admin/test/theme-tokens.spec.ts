@@ -3,12 +3,26 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import {
+  AA,
+  BADGE_TONE_FLOOR,
+  BADGE_TONES,
+  contrastRatio,
+  deltaE,
+  PRIMARY_STATUS_FLOOR,
+} from "./colour-metrics";
+
 /**
  * Resolves the real design tokens (`packages/design-tokens/src/tokens.css`) for
  * both themes and asserts that the critical text/background pairs clear WCAG AA
  * contrast. Because the tokens are the single source of truth that HeroUI, the
  * Tailwind bridge and hand-written CSS all consume, passing here means the whole
  * admin panel meets AA in light and dark.
+ *
+ * The house theme also answers to the legibility rules `palettes.spec.ts` holds
+ * the five selectable themes to — tone separation and the lit numeral. Those
+ * rules describe what makes a set of colours readable as a system, and the
+ * default theme is not exempt from being readable.
  */
 const tokensCss = readFileSync(
   fileURLToPath(
@@ -99,25 +113,20 @@ function resolveHex(
   throw new Error(`Cannot resolve "${value}" to a plain hex colour`);
 }
 
-function relativeLuminance(hex: string): number {
-  const [r = 0, g = 0, b = 0] = (hex.slice(1).match(/.{2}/g) ?? [])
-    .map((channel) => Number.parseInt(channel, 16) / 255)
-    .map((channel) =>
-      channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4,
-    );
-  return r * 0.2126 + g * 0.7152 + b * 0.0722;
-}
-
-function contrastRatio(
+function contrastOf(
   vars: Map<string, string>,
   foreground: string,
   background: string,
 ): number {
-  const [high, low] = [
-    relativeLuminance(resolveHex(vars, `var(${foreground})`)),
-    relativeLuminance(resolveHex(vars, `var(${background})`)),
-  ].sort((a, b) => b - a);
-  return ((high ?? 0) + 0.05) / ((low ?? 0) + 0.05);
+  return contrastRatio(
+    resolveHex(vars, `var(${foreground})`),
+    resolveHex(vars, `var(${background})`),
+  );
+}
+
+/** The house theme's own resolved value for one semantic colour. */
+function colour(vars: Map<string, string>, role: string): string {
+  return resolveHex(vars, `var(--jts-color-${role})`);
 }
 
 // [foreground token, background token, human label]
@@ -187,10 +196,82 @@ describe("design tokens contrast", () => {
         "keeps %s / %s (%s) at or above AA 4.5:1",
         (foreground, background) => {
           expect(
-            contrastRatio(vars, foreground, background),
-          ).toBeGreaterThanOrEqual(4.5);
+            contrastOf(vars, foreground, background),
+          ).toBeGreaterThanOrEqual(AA);
         },
       );
+    });
+  }
+});
+
+describe("house theme legibility", () => {
+  for (const [theme, vars] of [
+    ["light", lightVars],
+    ["dark", darkVars],
+  ] as const) {
+    describe(theme, () => {
+      it("keeps the five badge tones tellable apart", () => {
+        // Copper is the tightest value in the file: it sits between the amber
+        // warning and the coral danger by definition, so it buys its distance
+        // in lightness rather than hue. At its old L*45 it measured ΔE 12.0
+        // from danger — on the line. See the primitive's comment.
+        for (let i = 0; i < BADGE_TONES.length; i += 1) {
+          for (let j = i + 1; j < BADGE_TONES.length; j += 1) {
+            const first = BADGE_TONES[i] ?? "";
+            const second = BADGE_TONES[j] ?? "";
+            const a = colour(vars, first);
+            const b = colour(vars, second);
+            expect(
+              deltaE(a, b),
+              `${first} ${a} vs ${second} ${b}`,
+            ).toBeGreaterThanOrEqual(BADGE_TONE_FLOOR);
+          }
+        }
+      });
+
+      it("keeps the primary from being read as a status", () => {
+        const primary = colour(vars, "primary");
+        for (const status of ["info", "success", "warning", "danger"]) {
+          expect(
+            deltaE(primary, colour(vars, status)),
+            `primary ${primary} vs ${status}`,
+          ).toBeGreaterThanOrEqual(PRIMARY_STATUS_FLOOR);
+        }
+      });
+
+      it("keeps every tone readable both tinted and solid", () => {
+        const canvas = colour(vars, "canvas");
+        for (const role of BADGE_TONES) {
+          const ink = colour(vars, role);
+          expect(
+            contrastRatio(ink, colour(vars, `${role}-soft`)),
+            `${role} label on its own tint`,
+          ).toBeGreaterThanOrEqual(AA);
+          expect(
+            contrastRatio(canvas, ink),
+            `canvas label on solid ${role}`,
+          ).toBeGreaterThanOrEqual(AA);
+        }
+      });
+
+      it("keeps the accent usable as label ink", () => {
+        expect(
+          contrastRatio(colour(vars, "accent"), colour(vars, "surface")),
+          "accent as label ink on surface",
+        ).toBeGreaterThanOrEqual(AA);
+      });
+
+      it("lights the sidebar numeral with the theme's dark primary", () => {
+        // The slab is wine in both modes, so the numeral is the dark primary
+        // in both modes — the same rule every palette answers to. Here that
+        // value is wine-300, which is why this token needs no dark override.
+        const brand = colour(darkVars, "primary");
+        expect(colour(vars, "sidebar-active-index")).toBe(brand);
+        expect(
+          contrastRatio(brand, colour(vars, "surface-strong")),
+          "active numeral on the sidebar slab",
+        ).toBeGreaterThanOrEqual(AA);
+      });
     });
   }
 });
