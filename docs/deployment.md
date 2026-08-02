@@ -171,8 +171,16 @@ scp -i "$HOME/.ssh/id_ed25519" \
 
 ssh -i "$HOME/.ssh/id_ed25519" -o IdentitiesOnly=yes \
   root@203.0.113.10 \
-  'chmod 600 /opt/slopform/shared/.env.production /opt/slopform/shared/secrets/*'
+  'chmod 600 /opt/slopform/shared/.env.production; chmod 644 /opt/slopform/shared/secrets/*'
 ```
+
+The apparently broader `0644` secret-file mode on the VPS is deliberate.
+Compose implements local-file secrets as bind mounts and the MongoDB and Node
+containers run as non-root users, so `0600 root:root` makes the files unreadable
+inside those containers. Both `/opt/slopform/shared` and its `secrets`
+directory are `0700 root:root`, which prevents other host users from traversing
+to the files; the mounts remain read-only in the containers. Keep the local
+copies at `0600`.
 
 Set `DOMAIN=slopform.example.com`,
 `WEB_ORIGIN=https://slopform.example.com`, database names and enabled
