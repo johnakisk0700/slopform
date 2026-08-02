@@ -5,7 +5,10 @@ import { FEEDBACK_ANSWER_QUESTION_KEYS } from "@join-the-six/database";
 
 import { eventVenueInputSchema } from "../../events/events.schemas.js";
 import { FEEDBACK_OBSERVED_TEXT_HARD_LIMIT } from "../jobs.schemas.js";
-import { FEEDBACK_CONVERSATION_LIFECYCLE_REASONS } from "../post-event-feedback-conversation.document.js";
+import {
+  FEEDBACK_CONVERSATION_LIFECYCLE_REASONS,
+  feedbackConversationExtractionUsageSchema,
+} from "../post-event-feedback-conversation.document.js";
 import { BURST_PERSONAS } from "./burst-personas.js";
 import {
   BURST_CAMPAIGNS,
@@ -123,6 +126,38 @@ export const feedbackBurstCatalogResponseSchema = z
   })
   .strict();
 
+export const feedbackBurstAccountingQuerySchema = z
+  .object({
+    campaignId: z.preprocess(
+      (value) => (Array.isArray(value) ? value : [value]),
+      z.array(z.uuid()).min(1).max(BURST_CAMPAIGNS.length),
+    ),
+  })
+  .strict();
+
+export const feedbackBurstAccountingResponseSchema = z.array(
+  z
+    .object({
+      conversationId: z.uuid(),
+      extraction: z
+        .object({
+          model: z.string().trim().min(1).max(200).nullable(),
+          usage: feedbackConversationExtractionUsageSchema.nullable(),
+          serviceTier: z.string().trim().min(1).max(50).nullable(),
+        })
+        .strict(),
+    })
+    .strict(),
+);
+
 export class FeedbackBurstCatalogResponseDto extends createZodDto(
   feedbackBurstCatalogResponseSchema,
+) {}
+
+export class FeedbackBurstAccountingQueryDto extends createZodDto(
+  feedbackBurstAccountingQuerySchema,
+) {}
+
+export class FeedbackBurstAccountingResponseDto extends createZodDto(
+  feedbackBurstAccountingResponseSchema,
 ) {}

@@ -1820,9 +1820,10 @@ the HTTP process mounts
 The same gate also mounts
 [`PostEventFeedbackBurstHttpModule`](../../../apps/backend/src/modules/post-event-feedback/burst/http.module.ts):
 
-| Operation                         | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /dev/feedback/burst/catalog` | Read whether the extraction stub is on, whether every registered feedback worker attests the API's same control profile, and the rehearsal campaigns (including their canonical Google venue snapshots) and personas (messages, expected outcome, reserved phones). Counts are never restated by a caller: the runner reports what this endpoint serves, so a stale `dist` shows up in the log instead of quietly measuring code nobody is running. |
+| Operation                            | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /dev/feedback/burst/catalog`    | Read whether the extraction stub is on, whether every registered feedback worker attests the API's same control profile, and the rehearsal campaigns (including their canonical Google venue snapshots) and personas (messages, expected outcome, reserved phones). Counts are never restated by a caller: the runner reports what this endpoint serves, so a stale `dist` shows up in the log instead of quietly measuring code nobody is running. |
+| `GET /dev/feedback/burst/accounting` | Read the projected model, service tier and accumulated token usage for the requested rehearsal campaigns. The runner uses the API's own MongoDB ledger, so a production run cannot accidentally report the operator laptop's empty local database as `$0`.                                                                                                                                                                                          |
 
 `FEEDBACK_EXTRACTION_STUB=true` (requires the simulator gate, refused in
 production) swaps the worker's `PostEventFeedbackExtractionModel` for
@@ -2062,11 +2063,13 @@ so compare the printed inputs rather than calling the baselines magically
 identical.
 
 Run status is process-local and disappears on an API restart. The conversation,
-observed extraction model, answers, notes, outbox and simulated sends are normal
-durable records and remain inspectable in the existing admin views. Worker logs
-contain provider token usage, but usage is not durably stored; no authoritative
-price card exists, so the CLI reports token/cost fields as unavailable rather
-than manufacturing accounting.
+observed extraction model, accumulated provider usage, answers, notes, outbox
+and simulated sends are normal durable records and remain inspectable after a
+restart. The burst accounting route projects only model, service tier and usage
+for the requested campaign ids; the runner prices known OpenAI models from its
+dated price card and treats every input token as uncached, so the USD figure is
+an upper bound. Missing usage or an unknown price card stays unavailable rather
+than becoming a fictional zero.
 
 ### Running a paid rehearsal
 

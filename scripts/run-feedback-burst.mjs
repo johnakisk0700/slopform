@@ -36,7 +36,6 @@ import {
   createFeedbackBurstIdempotencyKey,
   requestFeedbackBurstJson as requestJson,
 } from "./feedback-burst-http.mjs";
-import { openBurstInspection } from "./burst-inspect.mjs";
 import {
   assertFeedbackBurstLiveGuestCallAllowed,
   assertFeedbackBurstLiveGuestTreatment,
@@ -655,10 +654,14 @@ async function main() {
     const campaignIds = [...byCampaignSlug.values()].map(
       (campaign) => campaign.campaignId,
     );
-    // Token/cost come from Mongo conversation documents. Usage fields may be
-    // absent on older data — report null ("unavailable"), never invent 0.
-    const { tokenUsage, costUsd: runCostUsd } =
-      await readRunTokenCost(campaignIds);
+    // Token/cost come from the API process's MongoDB, not whichever database
+    // happens to be in the runner's local .env. Usage may be absent on older
+    // data — report null ("unavailable"), never invent 0.
+    const { tokenUsage, costUsd: runCostUsd } = await readRunTokenCost({
+      apiBase,
+      headers,
+      campaignIds,
+    });
     const result = {
       startedAt: startedAt.toISOString(),
       finishedAt: finishedAt.toISOString(),
@@ -1928,11 +1931,12 @@ async function resolveTreatmentConfig(treatment) {
  * Sum token usage and USD cost across this run's Mongo conversations.
  *
  * The rules live in `summarizeThreadsCost` (model-prices.mjs), where they are
- * testable — this wrapper only owns the Mongo round trip. Soft-fails on Mongo
- * errors: a paid run must not die at the final accounting step the way
+ * testable — this wrapper only owns the guarded HTTP round trip to the API's
+ * own MongoDB. Soft-fails on accounting errors: a paid run must not die at the
+ * final accounting step the way
  * `readGitRevision` soft-fails on a missing git.
  */
-async function readRunTokenCost(campaignIds) {
+async function readRunTokenCost({ apiBase, headers, campaignIds }) {
   const ids = campaignIds.filter(
     (id) => typeof id === "string" && id.length > 0,
   );
@@ -1940,25 +1944,21 @@ async function readRunTokenCost(campaignIds) {
     return { tokenUsage: null, costUsd: null };
   }
 
-  let inspection;
   try {
-    inspection = await openBurstInspection({
-      applicationName: "feedback-burst-cost",
-    });
+    const query = new URLSearchParams();
+    for (const campaignId of ids) {
+      query.append("campaignId", campaignId);
+    }
+    const rows = await requestJson(
+      `${apiBase}/dev/feedback/burst/accounting?${query.toString()}`,
+      { headers },
+    );
+    return summarizeThreadsCost(rows);
   } catch (error) {
     console.error(
       `cost accounting skipped: ${error instanceof Error ? error.message : String(error)}`,
     );
     return { tokenUsage: null, costUsd: null };
-  }
-
-  try {
-    const threads = await inspection.findThreads({
-      campaignId: { $in: ids },
-    });
-    return summarizeThreadsCost(threads);
-  } finally {
-    await inspection.close();
   }
 }
 

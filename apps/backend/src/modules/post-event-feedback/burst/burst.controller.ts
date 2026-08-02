@@ -1,5 +1,5 @@
 import { InjectQueue } from "@nestjs/bullmq";
-import { ConflictException, Controller, Get } from "@nestjs/common";
+import { ConflictException, Controller, Get, Query } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { ApiOperation, ApiTags } from "@nestjs/swagger";
 import { ZodResponse } from "nestjs-zod";
@@ -8,6 +8,11 @@ import type { Queue } from "bullmq";
 import type { Environment } from "../../../infrastructure/config/environment.js";
 import { isFeedbackSimulatorEnabled } from "../../../infrastructure/config/enabled-modules.js";
 import { FEEDBACK_QUEUE } from "../../../infrastructure/queue/queue.constants.js";
+import { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
+import {
+  attestFeedbackWorkers,
+  resolveFeedbackWorkerControlProfile,
+} from "../worker-attestation.js";
 import { BURST_PERSONAS } from "./burst-personas.js";
 import {
   BURST_CAMPAIGNS,
@@ -15,13 +20,12 @@ import {
   burstPersonaPhoneE164,
 } from "./burst-scenario.js";
 import {
+  FeedbackBurstAccountingQueryDto,
+  FeedbackBurstAccountingResponseDto,
   FeedbackBurstCatalogResponseDto,
+  feedbackBurstAccountingResponseSchema,
   feedbackBurstCatalogResponseSchema,
 } from "./burst.schemas.js";
-import {
-  attestFeedbackWorkers,
-  resolveFeedbackWorkerControlProfile,
-} from "../worker-attestation.js";
 
 /**
  * Clerk-protected catalogue for the multi-campaign burst rehearsal runner.
@@ -41,6 +45,7 @@ export class FeedbackBurstController {
   constructor(
     private readonly config: ConfigService<Environment, true>,
     @InjectQueue(FEEDBACK_QUEUE) private readonly queue: Queue,
+    private readonly conversations: FeedbackConversationRepository,
   ) {}
 
   @Get("catalog")
@@ -85,6 +90,19 @@ export class FeedbackBurstController {
       })),
       personas: BURST_PERSONAS.map(burstPersonaCatalogEntry),
     });
+  }
+
+  @Get("accounting")
+  @ApiOperation({ operationId: "getFeedbackBurstAccounting" })
+  @ZodResponse({ status: 200, type: FeedbackBurstAccountingResponseDto })
+  async getAccounting(
+    @Query() query: FeedbackBurstAccountingQueryDto,
+  ): Promise<FeedbackBurstAccountingResponseDto> {
+    this.assertEnabled();
+    const rows = await this.conversations.listExtractionAccountingForCampaigns(
+      query.campaignId,
+    );
+    return feedbackBurstAccountingResponseSchema.parse(rows);
   }
 
   private assertEnabled(): void {

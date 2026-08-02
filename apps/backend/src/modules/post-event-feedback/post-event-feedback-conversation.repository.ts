@@ -76,6 +76,15 @@ export interface FeedbackConversationAppendResult {
   readonly conversation: FeedbackConversationDocument;
 }
 
+export interface FeedbackConversationExtractionAccounting {
+  readonly conversationId: string;
+  readonly extraction: {
+    readonly model: string | null;
+    readonly usage: FeedbackConversationExtractionUsage | null;
+    readonly serviceTier: string | null;
+  };
+}
+
 export class FeedbackConversationNotFoundError extends ConversationPersistenceError {
   constructor(id: string) {
     super(`Feedback conversation ${id} was not found`);
@@ -275,6 +284,50 @@ export class FeedbackConversationRepository {
     return documents.map((document) =>
       feedbackConversationRespondentSchema.parse(document),
     );
+  }
+
+  /**
+   * One batched, projection-only read for rehearsal token accounting.
+   *
+   * The production burst runner cannot inspect the operator laptop's MongoDB:
+   * that is a different database. Keeping this read in the repository lets the
+   * guarded dev HTTP surface return the durable ledger without exposing a
+   * MongoDB credential to the runner or loading full transcripts.
+   */
+  async listExtractionAccountingForCampaigns(
+    campaignIds: readonly string[],
+  ): Promise<FeedbackConversationExtractionAccounting[]> {
+    const unique = [...new Set(campaignIds)];
+    if (unique.length === 0) {
+      return [];
+    }
+    const collection = await this.collection();
+    const documents = await collection
+      .find(
+        {
+          schemaVersion: FEEDBACK_CONVERSATION_SCHEMA_VERSION,
+          purpose: FEEDBACK_CONVERSATION_PURPOSE,
+          campaignId: { $in: unique },
+        } as Filter<FeedbackConversationDocument>,
+        {
+          projection: {
+            _id: 1,
+            "extraction.model": 1,
+            "extraction.usage": 1,
+            "extraction.serviceTier": 1,
+          },
+        },
+      )
+      .toArray();
+
+    return documents.map((document) => ({
+      conversationId: document._id,
+      extraction: {
+        model: document.extraction.model ?? null,
+        usage: document.extraction.usage ?? null,
+        serviceTier: document.extraction.serviceTier ?? null,
+      },
+    }));
   }
 
   /**

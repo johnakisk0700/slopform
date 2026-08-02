@@ -37,6 +37,73 @@ const reasonId = "7a1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d";
 const secondReasonId = "8b2c3d4e-5f6a-4b7c-9d8e-1f2a3b4c5d6e";
 
 describe("FeedbackConversationRepository", () => {
+  it("projects durable extraction accounting for a campaign set in one read", async () => {
+    const usage = {
+      inputTokens: 1_200,
+      outputTokens: 200,
+      totalTokens: 1_400,
+    };
+    const toArray = vi.fn().mockResolvedValue([
+      feedbackConversation({
+        extraction: {
+          cursorSeq: 1,
+          lastRunAt: repliedAt,
+          model: "openai/gpt-5.6-terra",
+          usage,
+          serviceTier: "priority",
+          parkedSince: null,
+          parkedRuns: 0,
+          parkedNoticeSentAt: null,
+        },
+      }),
+    ]);
+    const find = vi.fn().mockReturnValue({ toArray });
+    const collection = collectionMock({ find });
+    const repository = createRepository(collection);
+
+    await expect(
+      repository.listExtractionAccountingForCampaigns([campaignId, campaignId]),
+    ).resolves.toEqual([
+      {
+        conversationId,
+        extraction: {
+          model: "openai/gpt-5.6-terra",
+          usage,
+          serviceTier: "priority",
+        },
+      },
+    ]);
+    expect(find).toHaveBeenCalledWith(
+      {
+        schemaVersion: 2,
+        purpose: "post_event_feedback",
+        campaignId: { $in: [campaignId] },
+      },
+      {
+        projection: {
+          _id: 1,
+          "extraction.model": 1,
+          "extraction.usage": 1,
+          "extraction.serviceTier": 1,
+        },
+      },
+    );
+  });
+
+  it("does not open MongoDB for empty extraction accounting scope", async () => {
+    const collection = collectionMock({});
+    const mongo = {
+      collection: vi.fn().mockResolvedValue(collection),
+      ping: vi.fn().mockResolvedValue(undefined),
+    } as unknown as MongoService;
+    const repository = new FeedbackConversationRepository(mongo);
+
+    await expect(
+      repository.listExtractionAccountingForCampaigns([]),
+    ).resolves.toEqual([]);
+    expect(mongo.collection).not.toHaveBeenCalled();
+  });
+
   it("creates the launch document under a deterministic id and reviewed indexes", async () => {
     const collection = collectionMock({});
     const repository = createRepository(collection);

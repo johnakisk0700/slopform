@@ -13,7 +13,11 @@ import {
   burstPersonaCatalogEntry,
   burstPersonaPhoneE164,
 } from "./burst-scenario.js";
-import { feedbackBurstCatalogResponseSchema } from "./burst.schemas.js";
+import {
+  feedbackBurstAccountingQuerySchema,
+  feedbackBurstAccountingResponseSchema,
+  feedbackBurstCatalogResponseSchema,
+} from "./burst.schemas.js";
 import { resolveStubTurnIndex } from "./scripted-extraction-model.service.js";
 
 /**
@@ -44,6 +48,44 @@ describe("feedbackBurstCatalogResponseSchema", () => {
     expect(() =>
       feedbackBurstCatalogResponseSchema.parse(response),
     ).not.toThrow();
+  });
+});
+
+describe("feedback burst accounting schemas", () => {
+  it("normalizes one campaign id and accepts the durable usage projection", () => {
+    const campaignId = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
+
+    expect(feedbackBurstAccountingQuerySchema.parse({ campaignId })).toEqual({
+      campaignId: [campaignId],
+    });
+    expect(
+      feedbackBurstAccountingResponseSchema.parse([
+        {
+          conversationId: "9f3c1a52-6e2b-4b4a-9a17-2cb2a6d13a55",
+          extraction: {
+            model: "openai/gpt-5.6-terra",
+            usage: {
+              inputTokens: 1_200,
+              outputTokens: 200,
+              totalTokens: 1_400,
+            },
+            serviceTier: null,
+          },
+        },
+      ]),
+    ).toHaveLength(1);
+  });
+
+  it("rejects a missing or unbounded campaign scope", () => {
+    expect(() => feedbackBurstAccountingQuerySchema.parse({})).toThrow();
+    expect(() =>
+      feedbackBurstAccountingQuerySchema.parse({
+        campaignId: Array.from(
+          { length: BURST_CAMPAIGNS.length + 1 },
+          () => "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
+        ),
+      }),
+    ).toThrow();
   });
 });
 

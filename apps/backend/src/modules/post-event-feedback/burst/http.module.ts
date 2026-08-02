@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 
 import { QueueModule } from "../../../infrastructure/queue/queue.module.js";
+import { PostEventFeedbackCoreModule } from "../core.module.js";
 import { FeedbackBurstController } from "./burst.controller.js";
 
 /**
@@ -12,7 +13,7 @@ import { FeedbackBurstController } from "./burst.controller.js";
  * persona.
  */
 @Module({
-  imports: [QueueModule],
+  imports: [QueueModule, PostEventFeedbackCoreModule],
   controllers: [FeedbackBurstController],
 })
 export class PostEventFeedbackBurstHttpModule {}
