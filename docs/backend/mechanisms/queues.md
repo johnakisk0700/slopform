@@ -162,10 +162,14 @@ classification and campaign summaries — also enters the same Redis-backed
 lease semaphore. `PROVIDER_CALL_CONCURRENCY_LIMIT` is deliberately hardcoded to
 `20`: neither OpenAI nor OpenRouter publishes one stable concurrency quota
 across all models and accounts, so twenty is a product guard, not a claim about
-provider capacity. RPM and TPM still come from the provider account. The Redis
-lease is deployment-wide, so worker replicas share twenty slots instead of
-multiplying the ceiling; a dead worker loses capacity until its six-minute
-lease expires but can never create an extra slot.
+provider capacity. A second deployment-wide Redis window permits at most
+`PROVIDER_CALL_STARTS_PER_MINUTE_LIMIT` (20) starts in any rolling minute.
+Releasing a fast call frees its concurrency lease but not its minute-window
+entry. This was added after the 2026-08-02 Luna rehearsal: roughly 18 feedback
+turns consumed the project's 200k TPM allowance while its 500 RPM allowance was
+nearly untouched. Worker replicas therefore share both guards; a dead worker
+loses concurrency until its six-minute lease expires but can never create an
+extra slot.
 
 The feedback Worker's BullMQ name also carries a versioned, base64url-encoded
 control attestation: extraction-stub state, public model id, provider adapter id,

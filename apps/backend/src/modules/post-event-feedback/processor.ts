@@ -415,6 +415,13 @@ export class PostEventFeedbackProcessor extends WorkerHost {
         attemptsMade < attempts,
       error: {
         name: error.name,
+        ...(error instanceof FeedbackExtractionGenerationError
+          ? {
+              code: error.code,
+              cause: error.failureCause,
+              ...(error.failureDetail ? { detail: error.failureDetail } : {}),
+            }
+          : {}),
         // Only for the errors this processor constructs itself. Any other
         // error's message may quote whatever it was handed, and job data is
         // never log-safe by assumption.

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   PROVIDER_CALL_CONCURRENCY_LIMIT,
+  PROVIDER_CALL_STARTS_PER_MINUTE_LIMIT,
   ProviderCallLimiter,
   RedisProviderCallLimiter,
   type ProviderCallRedisClient,
@@ -10,6 +11,7 @@ import {
 describe("ProviderCallLimiter", () => {
   it("keeps the deployment-wide hardcoded default at twenty", () => {
     expect(PROVIDER_CALL_CONCURRENCY_LIMIT).toBe(20);
+    expect(PROVIDER_CALL_STARTS_PER_MINUTE_LIMIT).toBe(20);
   });
 
   it("never runs more than the configured number of calls", async () => {
@@ -82,28 +84,68 @@ describe("ProviderCallLimiter", () => {
     await expect(Promise.all(calls)).resolves.toEqual([0, 1, 2, 3, 4, 5]);
     expect(peak).toBe(2);
   });
+
+  it("retains completed starts until the rolling rate window clears", async () => {
+    const redis = new SharedSemaphoreRedisFake();
+    const limiter = new RedisProviderCallLimiter(
+      redis,
+      5,
+      60_000,
+      1,
+      2,
+      60_000,
+    );
+
+    await expect(limiter.run(async () => "first")).resolves.toBe("first");
+    await expect(limiter.run(async () => "second")).resolves.toBe("second");
+
+    let thirdStarted = false;
+    const third = limiter.run(async () => {
+      thirdStarted = true;
+      return "third";
+    });
+
+    await vi.waitFor(() => expect(redis.rateDenials).toBeGreaterThan(0));
+    expect(thirdStarted).toBe(false);
+    redis.clearRateWindow();
+
+    await expect(third).resolves.toBe("third");
+  });
 });
 
 class SharedSemaphoreRedisFake implements ProviderCallRedisClient {
   private readonly activeTokens = new Set<string>();
+  private readonly recentStarts = new Set<string>();
+  rateDenials = 0;
 
   async eval(
     script: string,
     _numberOfKeys: number,
     ...args: Array<string | number>
   ): Promise<unknown> {
-    const token = String(args.at(-1));
     if (script.includes('redis.call("ZREM"')) {
+      const token = String(args.at(-1));
       this.activeTokens.delete(token);
       return 1;
     }
 
-    const limit = Number(args[1]);
+    const token = String(args[4]);
+    const limit = Number(args[2]);
+    const rateLimit = Number(args[5]);
+    if (this.recentStarts.size >= rateLimit) {
+      this.rateDenials += 1;
+      return [0, 1];
+    }
     if (this.activeTokens.size >= limit) {
       return [0, 1];
     }
     this.activeTokens.add(token);
+    this.recentStarts.add(token);
     return [1, 0];
+  }
+
+  clearRateWindow(): void {
+    this.recentStarts.clear();
   }
 
   disconnect(): void {}

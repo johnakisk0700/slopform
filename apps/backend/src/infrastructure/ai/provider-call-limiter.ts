@@ -11,16 +11,36 @@ import { randomUUID } from "node:crypto";
  */
 export const PROVIDER_CALL_CONCURRENCY_LIMIT = 20;
 
+/**
+ * Maximum provider requests allowed to start in any rolling minute.
+ *
+ * The local Luna rehearsal on 2026-08-02 measured roughly 10–11k tokens per
+ * feedback turn across extraction and attention. Twenty conversations launched
+ * together crossed this project's 200k TPM ceiling even though its 500 RPM
+ * allowance was almost untouched. Twenty starts per minute leaves token
+ * headroom for assistant and summary calls while the separate semaphore still
+ * permits short low-token calls to overlap.
+ */
+export const PROVIDER_CALL_STARTS_PER_MINUTE_LIMIT = 20;
+export const PROVIDER_CALL_RATE_WINDOW_MS = 60_000;
+
 /** Longer than the longest provider timeout (campaign summaries: five min). */
 export const PROVIDER_CALL_LEASE_MS = 6 * 60_000;
 
 const PROVIDER_CALL_RETRY_MS = 100;
 const PROVIDER_CALL_REDIS_KEY = "jts:ai:provider-call-slots:v1";
+const PROVIDER_CALL_RATE_REDIS_KEY = "jts:ai:provider-call-starts:v1";
 
 const ACQUIRE_PROVIDER_SLOT_SCRIPT = `
 local nowParts = redis.call("TIME")
 local now = (tonumber(nowParts[1]) * 1000) + math.floor(tonumber(nowParts[2]) / 1000)
 redis.call("ZREMRANGEBYSCORE", KEYS[1], "-inf", now)
+redis.call("ZREMRANGEBYSCORE", KEYS[2], "-inf", now - tonumber(ARGV[5]))
+
+if redis.call("ZCARD", KEYS[2]) >= tonumber(ARGV[4]) then
+  local earliest = redis.call("ZRANGE", KEYS[2], 0, 0, "WITHSCORES")
+  return { 0, math.max(1, tonumber(earliest[2]) + tonumber(ARGV[5]) - now) }
+end
 
 if redis.call("ZCARD", KEYS[1]) >= tonumber(ARGV[1]) then
   local earliest = redis.call("ZRANGE", KEYS[1], 0, 0, "WITHSCORES")
@@ -28,7 +48,9 @@ if redis.call("ZCARD", KEYS[1]) >= tonumber(ARGV[1]) then
 end
 
 redis.call("ZADD", KEYS[1], now + tonumber(ARGV[2]), ARGV[3])
+redis.call("ZADD", KEYS[2], now, ARGV[3])
 redis.call("PEXPIRE", KEYS[1], tonumber(ARGV[2]) + 60000)
+redis.call("PEXPIRE", KEYS[2], tonumber(ARGV[5]) + 60000)
 return { 1, 0 }
 `;
 
@@ -95,13 +117,16 @@ export class ProviderCallLimiter {
 }
 
 /**
- * Deployment-wide semaphore backed by one Redis sorted set.
+ * Deployment-wide semaphore and rolling start-rate gate backed by Redis sorted
+ * sets.
  *
  * Each member is a random lease token and its score is the expiry according to
  * Redis's clock. Acquisition removes expired leases and claims a slot in one
  * Lua script, so workers cannot race past the cap. A dead process temporarily
  * consumes capacity, never creates extra capacity; its lease expires after the
- * longest bounded provider call plus one minute of margin.
+ * longest bounded provider call plus one minute of margin. Releasing a call
+ * removes only its active lease; its start remains in the rolling-minute set so
+ * fast calls cannot burst through the token budget.
  *
  * Redis failure is deliberately fail-closed: no slot means no paid call. The
  * queue retry remains the visible recovery mechanism.
@@ -115,6 +140,8 @@ export class RedisProviderCallLimiter
     limit: number = PROVIDER_CALL_CONCURRENCY_LIMIT,
     private readonly leaseMs: number = PROVIDER_CALL_LEASE_MS,
     private readonly retryMs: number = PROVIDER_CALL_RETRY_MS,
+    private readonly rateLimit: number = PROVIDER_CALL_STARTS_PER_MINUTE_LIMIT,
+    private readonly rateWindowMs: number = PROVIDER_CALL_RATE_WINDOW_MS,
   ) {
     super(limit);
     if (!Number.isInteger(leaseMs) || leaseMs < 1) {
@@ -122,6 +149,12 @@ export class RedisProviderCallLimiter
     }
     if (!Number.isInteger(retryMs) || retryMs < 1) {
       throw new Error("Provider call retry delay must be a positive integer");
+    }
+    if (!Number.isInteger(rateLimit) || rateLimit < 1) {
+      throw new Error("Provider call rate limit must be a positive integer");
+    }
+    if (!Number.isInteger(rateWindowMs) || rateWindowMs < 1) {
+      throw new Error("Provider call rate window must be a positive integer");
     }
   }
 
@@ -148,11 +181,14 @@ export class RedisProviderCallLimiter
     for (;;) {
       const raw = await this.redis.eval(
         ACQUIRE_PROVIDER_SLOT_SCRIPT,
-        1,
+        2,
         PROVIDER_CALL_REDIS_KEY,
+        PROVIDER_CALL_RATE_REDIS_KEY,
         this.limit,
         this.leaseMs,
         token,
+        this.rateLimit,
+        this.rateWindowMs,
       );
       const [acquired, waitMs] = parseAcquireResult(raw);
       if (acquired === 1) {
