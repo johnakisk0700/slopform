@@ -1904,6 +1904,13 @@ pnpm feedback:burst \
   --profile prova \
   --confirm-paid-run
 
+# Prepare the exact intro-only baseline for a guarded production data push.
+# This launches campaigns but sends no participant messages and makes no model
+# calls, so paid confirmation is intentionally not required.
+pnpm feedback:burst \
+  --profile prova \
+  --seed-only
+
 # Optional provider comparison; never selected by the prova path.
 pnpm feedback:burst \
   --comparison qwen \
@@ -1920,6 +1927,10 @@ both paths it requires an exact venue read-back and a positive server-owned
 `contextRevision` before launching via `launchFeedbackCampaign`. It then drives
 every scripted persona concurrently through the ordinary simulator path and writes
 `report/feedback-burst-<timestamp>.html`.
+With `--seed-only`, it stops after every intro has been delivered and every
+conversation has been mapped. That mode makes no participant, cursor-agent or
+provider-model call, rejects `--live-guests`, and exists to create the clean
+baseline copied by the guarded production-data workflow before the real run.
 It never cleans up. Settlement polling keeps the configured deadline as an outer
 bound, but stops early when the settled set and every conversation's message
 count are unchanged for several polls after the quiet-settle threshold — and

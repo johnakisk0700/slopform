@@ -10,6 +10,7 @@ import {
   assertFeedbackBurstQuestionSetVersion,
   assertFeedbackBurstTreatmentAdapter,
   resolveFeedbackBurstLiveGuests,
+  resolveFeedbackBurstSeedOnly,
   resolveFeedbackBurstTreatment,
 } from "./feedback-burst-paid-models.mjs";
 
@@ -109,6 +110,18 @@ describe("feedback burst paid policy", () => {
     );
     assert.doesNotThrow(() =>
       assertFeedbackBurstLiveGuestTreatment(false, null),
+    );
+  });
+
+  it("allows a provider-free seed-only baseline but rejects live guests", () => {
+    assert.equal(resolveFeedbackBurstSeedOnly({}, false), false);
+    assert.equal(
+      resolveFeedbackBurstSeedOnly({ "seed-only": true }, false),
+      true,
+    );
+    assert.throws(
+      () => resolveFeedbackBurstSeedOnly({ "seed-only": true }, true),
+      /cannot be combined with --live-guests/u,
     );
   });
 

@@ -38,6 +38,7 @@ import {
   assertFeedbackBurstQuestionSetVersion,
   assertFeedbackBurstTreatmentAdapter,
   resolveFeedbackBurstLiveGuests,
+  resolveFeedbackBurstSeedOnly,
   resolveFeedbackBurstTreatment,
 } from "./feedback-burst-paid-models.mjs";
 import { summarizeThreadsCost } from "./model-prices.mjs";
@@ -155,10 +156,12 @@ async function main() {
   let args;
   let treatment;
   let liveGuestsEnabled;
+  let seedOnly;
   try {
     args = parseArgs(process.argv.slice(2));
     treatment = resolveFeedbackBurstTreatment(args);
     liveGuestsEnabled = resolveFeedbackBurstLiveGuests(args);
+    seedOnly = resolveFeedbackBurstSeedOnly(args, liveGuestsEnabled);
     assertFeedbackBurstLiveGuestTreatment(liveGuestsEnabled, treatment);
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
@@ -288,7 +291,7 @@ async function main() {
     return;
   }
 
-  if (treatment && !args["confirm-paid-run"]) {
+  if (treatment && !args["confirm-paid-run"] && !seedOnly) {
     console.error("Paid real-model burst rehearsal not confirmed.");
     console.error(`  treatment:      ${treatment.name}`);
     console.error(`  model:          ${paidModel}`);
@@ -318,9 +321,11 @@ async function main() {
   // matched against the running API before this point. Keep them in every run
   // record: xhigh/high and high/none are different experiments, not trivia.
   console.error(
-    stubMode
-      ? "Starting deterministic burst rehearsal (FEEDBACK_EXTRACTION_STUB):"
-      : "Starting confirmed paid burst rehearsal:",
+    seedOnly
+      ? "Preparing intro-only burst baseline (no participant or provider calls):"
+      : stubMode
+        ? "Starting deterministic burst rehearsal (FEEDBACK_EXTRACTION_STUB):"
+        : "Starting confirmed paid burst rehearsal:",
   );
   console.error(`  model:          ${modelLabel}`);
   if (treatment) {
@@ -457,6 +462,25 @@ async function main() {
           `Campaign ${campaign.slug} missing conversations for: ${missing.join(", ")}`,
         );
       }
+    }
+
+    if (seedOnly) {
+      console.log(
+        JSON.stringify({
+          event: "feedback_burst.seeded",
+          model: modelLabel,
+          treatment: treatment?.name ?? null,
+          config: runConfig,
+          correlationId,
+          campaignCount: seeded.campaigns.length,
+          conversationCount: byPersonaId.size,
+          seededAt: new Date().toISOString(),
+        }),
+      );
+      console.error(
+        "Seed-only baseline ready; no participant messages or provider calls were made.",
+      );
+      return;
     }
 
     if (!liveGuestsEnabled && liveGuestsById.size > 0) {
@@ -1797,6 +1821,7 @@ function parseArgs(values) {
     }
     if (
       value === "--confirm-paid-run" ||
+      value === "--seed-only" ||
       value === "--live-guests" ||
       value === "--confirm-live-guests"
     ) {
@@ -1963,6 +1988,8 @@ Options:
                          Omit for stub mode.
   --comparison qwen      Explicit Qwen/OpenRouter comparison using the same efforts.
   --confirm-paid-run     Required acknowledgement of extraction/classifier model cost
+  --seed-only            Launch intro-only campaigns, map all conversations, then stop.
+                         Makes no participant or provider-model calls.
   --live-guests          Enable cursor-agent calls for the six unscripted personas.
                          Requires a paid profile/comparison; stub cannot read them.
                          Omit to substitute deterministic silence.

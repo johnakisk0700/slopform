@@ -96,6 +96,19 @@ export function resolveFeedbackBurstLiveGuests(args) {
   return enabled;
 }
 
+/**
+ * Seed-only prepares the ordinary intro-only campaign baseline and then stops.
+ * It cannot include improvised guests because no participant turn is driven in
+ * this mode; accepting both switches would make the run label a lie.
+ */
+export function resolveFeedbackBurstSeedOnly(args, liveGuestsEnabled) {
+  const enabled = args["seed-only"] === true;
+  if (enabled && liveGuestsEnabled) {
+    throw new Error("--seed-only cannot be combined with --live-guests");
+  }
+  return enabled;
+}
+
 export function assertFeedbackBurstLiveGuestTreatment(
   liveGuestsEnabled,
   treatment,
