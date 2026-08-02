@@ -2,7 +2,8 @@
 
 Status: accepted, verified 2026-07-27 (WP9, design pass and staff notes in
 WP12, conversation-list pass, extraction status, two-pane bento layout);
-transcript-density pass verified 2026-08-01.
+transcript-density pass verified 2026-08-01; venue orientation verified
+2026-08-02.
 
 The operator surface for the post-event feedback feature: one campaign's
 WhatsApp conversations in a two-pane inbox over a strip of detail cards, the
@@ -49,7 +50,7 @@ Every product call goes through the generated hooks in
 `useAddFeedbackConversationNote`, `useCorrectFeedbackConversationAnswer`,
 `useWithdrawFeedbackConversationAnswer`, `useAddFeedbackConversationAnswer`,
 `useStartFeedbackConversation`,
-`useListEventFeedbackCandidates`, `useGetFeedbackCampaignSummary`,
+`useGetEvent`, `useListEventFeedbackCandidates`, `useGetFeedbackCampaignSummary`,
 `useRequestFeedbackCampaignSummary`, and the campaign
 launch/pause/resume/close/get hooks.
 
@@ -85,6 +86,8 @@ they are unit-tested directly in `apps/admin/test/feedback-inbox.spec.ts`.
 ```mermaid
 flowchart LR
   picker["Campaign picker\nlistFeedbackCampaigns"] -->|open| list["Conversation list\nlistFeedbackCampaignConversations"]
+  list -->|"campaign eventId"| event["Current event + venue\ngetEvent"]
+  event -->|"persisted venue"| header["Compact campaign header"]
   list -->|select| detail["Transcript\ngetFeedbackConversation"]
   detail -->|"capability flags"| actions["Take over / Resume bot / Close / Staff send"]
   detail -->|"unresolved reasons"| attention["Attention strip\nresolveFeedbackConversationAttentionReason"]
@@ -113,6 +116,10 @@ flowchart LR
 - **Selection survives polling.** `resolveSelectedConversationId` keeps the
   operator's choice while it remains visible and only falls back to the first
   row when it disappears.
+- **The venue is current orientation, not testimony or message provenance.**
+  The header renders the event read model and never infers that an existing bot
+  reply used that venue. Historical context belongs to the backend's durable
+  outbox decision log.
 - **Status is text plus tone.** Every badge carries its own label; colour is
   reinforcement. The transcript names a run of same-actor messages once, at
   the run's start, with alignment and fill carrying the actor through the
@@ -266,10 +273,24 @@ the viewport. Two changes fixed that without a layout rework:
   eyebrow, the title with its own actions row, and the campaign line —
   ~230 px before the first message. Now the back link and the campaign actions
   share the top line, the title and the campaign line share the second, and
-  the eyebrow is gone (the sidebar item and «All campaigns» already place the
-  page). `CampaignHeader` renders its own compact `h1` with the signature
-  marker rather than `JtsPageHeader`, whose stacked eyebrow/description/actions
-  grammar is right for every other page and wrong for a working surface.
+  the eyebrow is gone (the sidebar item and «Back to campaigns» already place
+  the page). `CampaignHeader` renders its own compact `h1` with the six-dot
+  title mark rather than `JtsPageHeader`, whose stacked
+  eyebrow/description/actions grammar is right for every other page and wrong
+  for a working surface. The back link itself is the shared `JtsBackLink`, so
+  the exit reads the same here as on every other detail screen — this header
+  decides only that it shares a line with the campaign's actions.
+- **The venue and the exceptions are not part of the title.** They started under
+  it — the venue in a sunken box 8 px below the six-dot mark, the exceptions
+  floating bottom-aligned beside it — which glued two facts about the _campaign_
+  onto the page's nameplate and put a second bordered block where the eye is
+  still reading the heading. `CampaignContext` renders them instead as one bare
+  row, venue at one end and exceptions at the other, a full page gap (24 px)
+  under the title and one small gap (8 px) above `CampaignSummary`. The three
+  answer the same question — what is true about this campaign right now — and
+  now read as one band; the summary card keeps the only frame on it. When there
+  is no venue and nothing is wrong the row does not render at all, and the
+  transcript gets the height back.
 - **The pane cap is viewport-anchored.** `66vh` gave the panes two thirds of
   the screen regardless of what the header actually used; with the header
   compressed to about 9 rem including the main padding, both panes now cap at
@@ -497,6 +518,24 @@ mark, not operator-actionable state.
 
 Greek copy lives in `src/features/feedback/extractionStatus.ts`; every colour
 is a token (`warning-soft` for backlog, `danger-soft` for failure).
+
+### Venue orientation
+
+When the campaign's current event read model has a venue, `CampaignHeader`
+renders `VenueCompact` directly under the title: the persisted label and any
+stored type, area and price context, with a normal Google Maps deep-link. The
+inbox does not mount `GooglePlaceDetails`, load the Places JavaScript API or
+request live photos/metadata. `FeedbackInboxPage` gets the value through the
+generated `useGetEvent` hook — the same event read already needed for NOT
+STARTED attendees — and refreshes it when the window regains focus.
+
+This is the current operator-confirmed venue, displayed whether or not
+`useInFeedback` is enabled. It is not a historical badge on each message. If
+staff later replace or clear the venue, the header follows the current event on
+refetch; already-durable outbox bodies and transcript entries remain unchanged.
+Per-reply provenance is the backend outbox log's nullable
+`venueContextRevision`; the inbox does not invent an old label from a revision
+number.
 
 ### The campaign line
 
@@ -745,6 +784,10 @@ fallback, «άγνωστο» when unread testimony has no retained job, that the
 a polite live region without an indefinite spinner, and that the transcript —
 not the page or a detail card — is what mounts it.
 
+The venue-orientation pass pins the generated `useGetEvent` source, window-focus
+refresh, compact persisted venue under the campaign title, and the absence of
+live Google UI or Places loading from the inbox header.
+
 `apps/admin/test/theme-tokens.spec.ts` asserts the solid attention pill, the
 NEEDS ATTENTION heading on its tint, the sunken card pairings (which the OPEN
 and CLOSED headings share), the respondent link and the soft accent chip from
@@ -760,5 +803,6 @@ and CLOSED headings share), the respondent link and the soft accent chip from
 - [ADR 0009](../decisions/0009-generated-api-client.md) — generated admin API client
 - [`frontend.md`](../frontend.md) — admin conventions; [`theming.md`](theming.md) — tokens
 - [`backend/modules/post-event-feedback.md`](../backend/modules/post-event-feedback.md) — the campaign and conversation contracts
+- [`backend/modules/events.md`](../backend/modules/events.md) — current event venue and revision contract
 - [TanStack Query `refetchInterval`](https://tanstack.com/query/latest/docs/framework/react/reference/useQuery) (v5.101.4, verified 2026-07-25)
 - [HeroUI v3](https://v3.heroui.com/docs/introduction) (3.2.2) — `Modal`, `Select`, `Input`, `Button`, `Avatar`

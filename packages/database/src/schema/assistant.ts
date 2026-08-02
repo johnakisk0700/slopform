@@ -55,9 +55,31 @@ export const assistantTurns = pgTable(
     status: text("status").notNull().default("queued"),
     model: text("model").notNull(),
     effort: text("effort").notNull().default("low"),
+    /**
+     * The OpenAI service tier this turn actually ran under. `fast` doubles the
+     * token price, so it is persisted next to model and effort rather than read
+     * back from a browser preference — a turn that cannot be repriced from its
+     * own row is not auditable. Turns routed through OpenRouter are always
+     * `standard`: the parameter does not exist there.
+     */
+    serviceTier: text("service_tier").notNull().default("standard"),
     attempt: integer("attempt").notNull().default(1),
     userContent: text("user_content").notNull(),
     assistantContent: text("assistant_content"),
+    /**
+     * Text streamed so far by the in-flight attempt. Deliberately separate from
+     * `assistant_content`: the result check below is what makes "succeeded
+     * content is authoritative" true, so partial text must never be able to
+     * occupy that column. Cleared when the turn reaches a terminal state.
+     */
+    streamedContent: text("streamed_content"),
+    /**
+     * The provider's own account of its thinking for the in-flight attempt: a
+     * summary on the OpenAI route, live deltas through OpenRouter. Never an
+     * answer, so it lives beside the streamed text rather than inside it, and is
+     * cleared with it when the turn settles.
+     */
+    reasoningContent: text("reasoning_content"),
     errorCode: text("error_code"),
     errorMessage: text("error_message"),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
@@ -111,6 +133,18 @@ export const assistantTurns = pgTable(
     check(
       "assistant_turns_result_check",
       sql`(${table.status} = 'succeeded' and ${table.assistantContent} is not null and char_length(btrim(${table.assistantContent})) >= 1 and ${table.completedAt} is not null) or (${table.status} <> 'succeeded' and ${table.assistantContent} is null)`,
+    ),
+    check(
+      "assistant_turns_service_tier_check",
+      sql`${table.serviceTier} in ('standard', 'fast')`,
+    ),
+    check(
+      "assistant_turns_streamed_content_check",
+      sql`${table.streamedContent} is null or ${table.status} in ('queued', 'running')`,
+    ),
+    check(
+      "assistant_turns_reasoning_content_check",
+      sql`${table.reasoningContent} is null or ${table.status} in ('queued', 'running')`,
     ),
     check(
       "assistant_turns_completion_check",

@@ -69,28 +69,48 @@ hooks before the application loads those libraries.
 - `FEEDBACK_EXTRACTION_MODEL` optionally overrides the post-event feedback
   extraction model. It must name a registered adapter; an unknown id fails at
   worker start rather than silently using the default.
-  The key for the exact selected model is required to create assistant turns;
-  the Gemini default therefore requires OpenRouter. The HTTP process validates
-  provider availability but never substitutes a model. Calls occur exclusively
-  in the worker. Production supplies both through Docker secret files rather
-  than Compose environment metadata.
+  The key for the exact selected model is required: OpenRouter currently serves
+  Gemini and Qwen, while OpenAI direct serves Luna and Terra. The HTTP process
+  validates provider availability but never substitutes a model. Calls occur
+  exclusively in the worker. Production supplies both keys through Docker
+  secret files rather than Compose environment metadata.
+  `FEEDBACK_EXTRACTION_REASONING_EFFORT` controls the extraction call and is
+  omitted when empty; `FEEDBACK_ATTENTION_REASONING_EFFORT` controls the
+  separately billed classifier and defaults to explicit `none`.
+  `FEEDBACK_EXTRACTION_SERVICE_TIER` reaches direct OpenAI adapters only,
+  including the Luna evaluation route.
+  `FEEDBACK_SUMMARY_MODEL` and `FEEDBACK_SUMMARY_REASONING_EFFORT` configure the
+  separate campaign-summary call, which defaults to direct-OpenAI Terra at
+  `xhigh`. Turbo and both Compose launch paths forward these values instead of
+  silently replacing them with in-module/provider defaults.
 - `MONGODB_URI` is required and must select a database. Production requires
   credentials and verified TLS except for the internal Compose hostname
   `mongo`; the entrypoint builds that URI from a database-scoped application
   secret mounted only into API and worker. MongoDB is part of readiness because
   conversation content cannot fall back to PostgreSQL.
 - `WASENDER_SESSION_API_KEY` is an optional worker-only session bearer key.
-  `TRANSPORT_MODE` selects the feedback outbound adapter (`simulated` default,
-  or `wasender` which requires the session key).
-  `FEEDBACK_SIMULATOR_ENABLED=true` mounts the non-production dev simulator
-  surface only when the transport is `simulated`. It enables the existing
-  manual composer and the explicitly invoked `pnpm feedback:simulate` headless
-  evaluator. Production does not ignore the flag — `validateEnvironment` raises
-  an issue for it and the process exits non-zero at boot, exactly as it does for
-  `FEEDBACK_EXTRACTION_STUB`. Leaving it in a production env file is a failed
-  start, not a no-op.
+  `TRANSPORT_MODE` selects the feedback outbound adapter: `disabled` rejects
+  every delivery locally with `transport_disabled`, `simulated` is the
+  development default, and `wasender` requires the session key when the worker
+  graph is composed. The shared schema deliberately does not require that key,
+  so an API configured for Wasender can start without receiving a worker secret.
+  `FEEDBACK_SIMULATOR_ENABLED=true` mounts the manual composer and headless
+  simulator only with `TRANSPORT_MODE=simulated`.
+  Production remains fail-closed unless the explicit
+  `FEEDBACK_PRODUCTION_REHEARSAL_ENABLED=true` exception is also set. That gate
+  requires the simulator, forbids the extraction stub, Wasender session key and
+  webhook, and leaves every simulator controller behind the ordinary Clerk
+  admin guard. Extraction and classification use the configured real models and
+  incur their normal provider cost; outbound messages end in
+  `feedback_sim_outbound`, never the Wasender network.
   Real-model runs still use the worker-wide `FEEDBACK_EXTRACTION_MODEL` and
-  require `--confirm-paid-run`.
+  reasoning settings, and require `--confirm-paid-run`. The documented Luna
+  rehearsal profile is extraction `xhigh` with classifier `high`; it is an
+  explicit paid treatment, not a change to the Gemini production default.
+  The feedback worker registers a versioned, non-secret fingerprint of that
+  complete profile in its BullMQ worker name. Simulator and burst preflight
+  reject absent, legacy, malformed, mixed or API-mismatched workers before any
+  paid ingress is seeded.
   `FEEDBACK_EXTRACTION_STUB=true` replaces the worker extraction model with the
   deterministic burst script for multi-campaign rehearsal. It requires the
   simulator gate and is refused in production — a scripted model outside the

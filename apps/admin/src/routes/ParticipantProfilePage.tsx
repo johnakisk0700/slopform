@@ -1,4 +1,4 @@
-import { Avatar, Chip } from "@heroui/react";
+import { Avatar, Checkbox, Chip } from "@heroui/react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
 import type { LucideIcon } from "lucide-react";
@@ -7,16 +7,15 @@ import {
   Cake,
   Calendar,
   Check,
-  ChevronLeft,
-  ContactRound,
-  Mail,
+  Copy,
   MapPin,
   MessageCircle,
   Minus,
   Phone,
+  SlidersHorizontal,
   UserRound,
 } from "lucide-react";
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 
 import {
@@ -28,12 +27,15 @@ import {
 } from "../api/generated/participants";
 import type { ParticipantDtoOutput } from "../api/generated/model/participantDtoOutput";
 import type { ParticipantEventHistoryDtoOutputItemsItem } from "../api/generated/model/participantEventHistoryDtoOutputItemsItem";
-import type { ParticipantEventHistoryDtoOutputItemsItemStatus } from "../api/generated/model/participantEventHistoryDtoOutputItemsItemStatus";
 import type { ParticipantListDtoOutput } from "../api/generated/model/participantListDtoOutput";
+import { EventStatusChip } from "../components/admin/events/EventStatusChip";
+import { VenuePill } from "../components/admin/events/VenuePill";
+import { JtsBackLink } from "../components/ui/JtsBackLink";
 import { JtsDataTable } from "../components/ui/JtsDataTable";
 import {
   formatAgeBand,
   formatNeighborhood,
+  participantMonogram,
 } from "../features/participants/profileFields";
 import { apiErrorMessage } from "../lib/api";
 import { formatDateTime } from "../lib/dateTime";
@@ -51,60 +53,128 @@ function displayText(value: string | number | null | undefined): ReactNode {
   return String(value);
 }
 
-const backToParticipantsLinkClassName =
-  "inline-flex items-center gap-1.5 self-start text-sm font-semibold text-primary";
+/** Long enough to notice, short enough not to linger — same beat as CopyableId. */
+const COPIED_FEEDBACK_MS = 1_500;
+
+function useCopyFeedback() {
+  const [copied, setCopied] = useState(false);
+  const resetTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  useEffect(() => () => clearTimeout(resetTimerRef.current), []);
+
+  async function copyValue(value: string): Promise<void> {
+    clearTimeout(resetTimerRef.current);
+    try {
+      await navigator.clipboard?.writeText(value);
+      setCopied(true);
+      resetTimerRef.current = setTimeout(
+        () => setCopied(false),
+        COPIED_FEEDBACK_MS,
+      );
+    } catch {
+      // Clipboard can be unavailable on insecure LAN origins; leave the UI calm.
+    }
+  }
+
+  return { copied, copyValue };
+}
 
 function BackToParticipantsLink() {
   return (
-    <Link to="/admin/participants" className={backToParticipantsLinkClassName}>
-      <ChevronLeft aria-hidden="true" className="size-4 shrink-0" />
-      Back to participants
-    </Link>
+    <JtsBackLink to="/admin/participants">Back to participants</JtsBackLink>
   );
 }
 
-const EVENT_STATUS_LABEL: Record<
-  ParticipantEventHistoryDtoOutputItemsItemStatus,
-  string
-> = {
-  draft: "Draft",
-  scheduled: "Scheduled",
-  finished: "Finished",
-  cancelled: "Cancelled",
-};
+/**
+ * The contact pill, and the page's one rule about colour.
+ *
+ * **The sheet spends one hue, and it is `primary`** — the links, the pill
+ * hovers and five of the six title dots. Every glyph that only labels a field
+ * is neutral ink. Two earlier cuts each got half of this: the first painted
+ * the email and phone *values* in the accent, the second moved that accent
+ * onto the leading glyphs and spread it to all seven icons on the card. Both
+ * left copper and primary sharing one screen with nothing to tell them apart
+ * — near-neighbours in the warm palettes, so the eye read the pair as an
+ * accident rather than as two meanings. Copper stays what tokens.css says it
+ * is: occasional emphasis (the Overview aside, the sixth title dot), never a
+ * page's icon ink.
+ *
+ * The leading glyph is what earlier drafts were missing rather than the
+ * colour: every other labelled field here is icon-led, so a bare pill had
+ * nothing to belong to. `AtSign` / `Phone` are the same icons — now in the
+ * same `ink-subtle` — the feedback pane's Respondent header spends on these
+ * two fields.
+ *
+ * The fill is `surface-sunken` over `border`, the recipe VenuePill and
+ * CopyableId share, so the pill sits in the card instead of floating over it.
+ */
+const contactPillClassName =
+  "inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-surface-sunken px-2 py-0.5 text-sm text-ink transition-colors hover:border-primary";
 
-function eventStatusChip(
-  status: ParticipantEventHistoryDtoOutputItemsItemStatus,
-) {
-  const color = status === "finished" ? "success" : "default";
-  return (
-    <Chip color={color} size="sm" variant="soft">
-      <Chip.Label>{EVENT_STATUS_LABEL[status]}</Chip.Label>
-    </Chip>
-  );
-}
+function ContactEmail({ email }: { email: string }) {
+  const { copied, copyValue } = useCopyFeedback();
 
-function SectionOverline({
-  id,
-  icon: Icon,
-  children,
-}: {
-  id: string;
-  icon: LucideIcon;
-  children: string;
-}) {
   return (
-    <h2
-      id={id}
-      className="mb-4 flex items-center gap-2 jts-overline text-ink-muted"
+    <button
+      type="button"
+      onClick={() => void copyValue(email)}
+      aria-label={copied ? "Copied email" : "Copy email"}
+      title={email}
+      className={`${contactPillClassName} cursor-pointer hover:text-primary`}
     >
-      <Icon aria-hidden="true" className="size-4 shrink-0" />
-      {children}
-    </h2>
+      <AtSign
+        aria-hidden="true"
+        className="size-3.5 shrink-0 text-ink-subtle"
+      />
+      <span className="truncate">{email}</span>
+      {copied ? (
+        <Check aria-hidden="true" className="size-3.5 shrink-0 text-primary" />
+      ) : (
+        <Copy
+          aria-hidden="true"
+          className="size-3.5 shrink-0 text-ink-subtle"
+        />
+      )}
+    </button>
   );
 }
 
-function FieldRow({
+/**
+ * The number dials via `tel:` (mobile), and a quiet copy control sits beside it
+ * for desktop paste jobs — two affordances in one pill, so the hover states
+ * stay on the parts rather than on the whole.
+ */
+function ContactPhone({ phone }: { phone: string }) {
+  const { copied, copyValue } = useCopyFeedback();
+
+  return (
+    <span className={contactPillClassName}>
+      <Phone aria-hidden="true" className="size-3.5 shrink-0 text-ink-subtle" />
+      <a
+        href={`tel:${phone}`}
+        className="truncate tabular-nums underline-offset-2 transition-colors hover:text-primary hover:underline"
+      >
+        {phone}
+      </a>
+      <button
+        type="button"
+        onClick={() => void copyValue(phone)}
+        aria-label={copied ? "Copied phone" : "Copy phone"}
+        title={phone}
+        className="inline-flex shrink-0 cursor-pointer text-ink-subtle transition-colors hover:text-primary"
+      >
+        {copied ? (
+          <Check aria-hidden="true" className="size-3.5 text-primary" />
+        ) : (
+          <Copy aria-hidden="true" className="size-3.5" />
+        )}
+      </button>
+    </span>
+  );
+}
+
+/** Label-over-value cell for the character-sheet attribute grid. */
+function SheetAttribute({
   icon: Icon,
   label,
   children,
@@ -114,7 +184,9 @@ function FieldRow({
   children: ReactNode;
 }) {
   return (
-    <div className="flex gap-3">
+    <div className="flex min-w-0 gap-2.5">
+      {/* Icon and label are one unit, so they share one ink: the glyph only
+          repeats what the caps line already says. */}
       <Icon
         aria-hidden="true"
         className="mt-0.5 size-4 shrink-0 text-ink-muted"
@@ -123,7 +195,7 @@ function FieldRow({
         <dt className="text-xs font-semibold uppercase tracking-caps text-ink-muted">
           {label}
         </dt>
-        <dd className="text-sm text-ink">{children}</dd>
+        <dd className="mt-1 text-sm text-ink">{children}</dd>
       </div>
     </div>
   );
@@ -176,11 +248,10 @@ export function ParticipantProfilePage() {
   const participant = participantQuery.data;
   const displayName =
     participant?.preferredName ?? participant?.emailNormalized ?? "Participant";
-  const monogramSource =
-    participant?.preferredName?.trim() ||
-    participant?.emailNormalized?.trim() ||
-    displayName;
-  const monogram = monogramSource.charAt(0).toLocaleUpperCase() || "?";
+  const monogram = participantMonogram(
+    participant?.preferredName ?? null,
+    participant?.emailNormalized ?? displayName,
+  );
 
   usePageMeta(
     participant ? displayName : "Participant",
@@ -245,12 +316,19 @@ export function ParticipantProfilePage() {
         accessorKey: "title",
         header: "Event",
         cell: ({ row }) => (
-          <Link
-            to={`/admin/events/${row.original.eventId}`}
-            className="font-bold text-primary underline-offset-2 hover:underline"
-          >
-            {row.original.title}
-          </Link>
+          <div className="grid min-w-0 gap-1.5">
+            <Link
+              to={`/admin/events/${row.original.eventId}`}
+              className="truncate font-bold text-primary underline-offset-2 hover:underline"
+            >
+              {row.original.title}
+            </Link>
+            {row.original.venue ? (
+              <div>
+                <VenuePill venue={row.original.venue} />
+              </div>
+            ) : null}
+          </div>
         ),
       },
       {
@@ -265,7 +343,7 @@ export function ParticipantProfilePage() {
       {
         accessorKey: "status",
         header: "Status",
-        cell: ({ row }) => eventStatusChip(row.original.status),
+        cell: ({ row }) => <EventStatusChip status={row.original.status} />,
       },
       {
         accessorKey: "present",
@@ -327,61 +405,8 @@ export function ParticipantProfilePage() {
   const optedIn = participant.postEventFeedbackWhatsappOptIn;
 
   return (
-    <div className="flex flex-col gap-5">
-      <div className="mb-3 flex flex-col gap-4">
-        <BackToParticipantsLink />
-
-        <header className="flex flex-wrap items-start justify-between gap-4">
-          <div className="flex min-w-0 items-start gap-4">
-            {/* Rounded square: circle motif stays reserved for the brand mark. */}
-            <Avatar
-              color="default"
-              variant="soft"
-              size="lg"
-              aria-hidden="true"
-              className="size-14 shrink-0 rounded-md"
-            >
-              <Avatar.Fallback className="border border-border bg-surface-raised text-lg font-extrabold text-ink">
-                {monogram}
-              </Avatar.Fallback>
-            </Avatar>
-            <div className="min-w-0">
-              {/* Matches JtsPageHeader's scale — this route owns its own h1 for
-                  the avatar pairing, not a different title hierarchy. */}
-              <h1 className="mb-0 font-display text-[1.375rem] font-extrabold text-ink after:mt-2 after:block after:h-[3px] after:w-8 after:bg-primary after:content-['']">
-                {displayName}
-              </h1>
-              <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-ink-muted">
-                <span className="inline-flex items-center gap-1.5">
-                  <Mail
-                    aria-hidden="true"
-                    className="size-3.5 shrink-0 text-ink-subtle"
-                  />
-                  {participant.emailNormalized}
-                </span>
-                <span aria-hidden="true" className="text-ink-subtle">
-                  ·
-                </span>
-                <span className="inline-flex items-center gap-1.5">
-                  <Phone
-                    aria-hidden="true"
-                    className="size-3.5 shrink-0 text-ink-subtle"
-                  />
-                  {displayText(participant.phoneE164)}
-                </span>
-              </p>
-            </div>
-          </div>
-
-          <Chip
-            color={optedIn ? "success" : "default"}
-            size="sm"
-            variant="soft"
-          >
-            <Chip.Label>{optedIn ? "Opted in" : "Not opted in"}</Chip.Label>
-          </Chip>
-        </header>
-      </div>
+    <div className="flex flex-col gap-6">
+      <BackToParticipantsLink />
 
       {error ? (
         <p role="alert" className="text-sm text-danger">
@@ -389,62 +414,113 @@ export function ParticipantProfilePage() {
         </p>
       ) : null}
 
+      {/* Character sheet: nameplate + attributes. Preferences and dinner
+          history sit below as their own sections. */}
       <section
-        aria-labelledby="participant-profile-heading"
+        aria-labelledby="participant-sheet-heading"
         className="rounded-md border border-border bg-surface px-4 py-4"
       >
-        <SectionOverline id="participant-profile-heading" icon={ContactRound}>
-          Profile
-        </SectionOverline>
-        <dl className="grid gap-4 sm:grid-cols-2">
-          <FieldRow icon={UserRound} label="Preferred name">
+        {/* Two bands, not three columns. The nameplate is one 48px band —
+            monogram beside a name-and-mark cluster boxed to the very same
+            height — and the contacts are a second band below it, starting at
+            the card's left rail like the attribute grid does. The first cut
+            stacked name, mark and pills in a column taller than the avatar,
+            so the monogram hung against dead space and nothing on the card
+            shared an edge with anything else. */}
+        <header className="flex min-w-0 flex-col gap-3">
+          <div className="flex min-w-0 items-center gap-3">
+            {/* Rounded square: circle motif stays reserved for the brand mark. */}
+            <Avatar
+              color="default"
+              variant="soft"
+              size="lg"
+              aria-hidden="true"
+              className="size-12 shrink-0 rounded-md border border-border"
+            >
+              <Avatar.Fallback className="bg-surface-raised text-base font-extrabold text-ink">
+                {monogram}
+              </Avatar.Fallback>
+            </Avatar>
+            {/* `min-h-12` is the avatar's height and `justify-center` centres
+                the cluster in it: the name keeps its mark 8px away — the mark
+                belongs to the name, not to the box — while the pair reads as
+                the monogram's exact twin. `min-h` rather than `h` so a name
+                that wraps grows the band instead of spilling out of it, and
+                `leading-tight` rather than `leading-none` because a two-line
+                Greek name at narrow widths sets its own descenders against
+                the next line's ascenders. */}
+            <div className="flex min-h-12 min-w-0 flex-col justify-center">
+              {/* Same display scale and the same six-dot mark JtsPageHeader
+                  gives a title — this h1 is the route's, it just happens to
+                  sit beside the avatar. Opt-in lives in Preferences. */}
+              <h1
+                id="participant-sheet-heading"
+                className="jts-title-mark mb-0 font-display text-[1.375rem] font-extrabold leading-tight text-ink"
+              >
+                {displayName}
+              </h1>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <ContactEmail email={participant.emailNormalized} />
+            {participant.phoneE164 ? (
+              <ContactPhone phone={participant.phoneE164} />
+            ) : null}
+          </div>
+        </header>
+
+        <dl className="mt-4 grid gap-x-6 gap-y-4 border-t border-border-subtle pt-4 sm:grid-cols-2 lg:grid-cols-4">
+          <SheetAttribute icon={UserRound} label="Preferred name">
             {displayText(participant.preferredName)}
-          </FieldRow>
-          <FieldRow icon={Cake} label="Age band">
+          </SheetAttribute>
+          <SheetAttribute icon={Cake} label="Age band">
             {displayText(formatAgeBand(participant.ageBand))}
-          </FieldRow>
-          <FieldRow icon={MapPin} label="Neighborhood">
+          </SheetAttribute>
+          <SheetAttribute icon={MapPin} label="Neighborhood">
             {displayText(formatNeighborhood(participant.preferredNeighborhood))}
-          </FieldRow>
-          <FieldRow icon={MessageCircle} label="Conversation style">
+          </SheetAttribute>
+          <SheetAttribute icon={MessageCircle} label="Conversation style">
             <ConversationStyleMeter value={participant.conversationStyle} />
-          </FieldRow>
+          </SheetAttribute>
         </dl>
       </section>
 
       <section
-        aria-labelledby="participant-contact-heading"
+        aria-labelledby="participant-preferences-heading"
         className="rounded-md border border-border bg-surface px-4 py-4"
       >
-        <SectionOverline id="participant-contact-heading" icon={Mail}>
-          Contact & consent
-        </SectionOverline>
-        <dl className="grid gap-4 sm:grid-cols-2">
-          <FieldRow icon={AtSign} label="Email">
-            {participant.emailNormalized}
-          </FieldRow>
-          <FieldRow icon={Phone} label="Phone">
-            {displayText(participant.phoneE164)}
-          </FieldRow>
-        </dl>
-
-        <div className="mt-5 border-t border-border-subtle pt-4">
-          <label className="inline-flex items-center gap-2 text-sm text-ink">
-            <input
-              type="checkbox"
-              checked={optedIn}
-              disabled={saving}
-              onChange={(change) => {
-                void toggleOptIn(change.target.checked);
-              }}
-              aria-label={`Post-event feedback WhatsApp opt-in for ${displayName}`}
-            />
-            Feedback WhatsApp opted in
-          </label>
-          <p className="mt-1.5 text-xs text-ink-muted">
-            When on, this person may receive post-event feedback on WhatsApp.
-          </p>
-        </div>
+        <h2
+          id="participant-preferences-heading"
+          className="mb-3 flex items-center gap-2 jts-overline text-ink-muted"
+        >
+          <SlidersHorizontal
+            aria-hidden="true"
+            className="size-4 shrink-0 text-ink-muted"
+          />
+          Preferences
+        </h2>
+        {/* HeroUI's Checkbox, as on the participants list: the raw
+            `<input type="checkbox">` this replaces was painted by the OS
+            accent colour, so the same opt-in was themed in the table and
+            system-pink on the profile — the one control on screen belonging to
+            no palette. */}
+        <Checkbox
+          isSelected={optedIn}
+          isDisabled={saving}
+          onChange={(checked) => {
+            void toggleOptIn(checked);
+          }}
+        >
+          <Checkbox.Content>
+            <Checkbox.Control>
+              <Checkbox.Indicator />
+            </Checkbox.Control>
+            <span className="text-sm">Feedback WhatsApp opted in</span>
+          </Checkbox.Content>
+        </Checkbox>
+        <p className="mt-1.5 text-xs text-ink-muted">
+          When on, this person may receive post-event feedback on WhatsApp.
+        </p>
       </section>
 
       <JtsDataTable

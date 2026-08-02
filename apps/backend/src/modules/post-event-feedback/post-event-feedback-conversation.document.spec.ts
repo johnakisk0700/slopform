@@ -3,8 +3,11 @@ import { randomUUID } from "node:crypto";
 import { BSON } from "mongodb";
 import { describe, expect, it } from "vitest";
 
-import { FEEDBACK_ANSWER_QUESTION_KEYS } from "@join-the-six/database";
 import { conversationThreadDocumentSchema } from "../conversations/conversation-thread.schemas.js";
+import {
+  POST_EVENT_FEEDBACK_QUESTION_SET_V1,
+  POST_EVENT_FEEDBACK_QUESTION_SET_V2,
+} from "./question-set.js";
 import {
   FEEDBACK_CONVERSATION_MAX_MESSAGES,
   FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH,
@@ -54,32 +57,36 @@ describe("deriveFeedbackConversationId", () => {
 });
 
 describe("buildFeedbackConversationGoals", () => {
-  it("uses the versioned question-set keys in their locked order", () => {
+  it("uses the current V2 question-set keys in their locked order", () => {
     const goals = buildFeedbackConversationGoals();
 
-    expect(goals.map((goal) => goal.key)).toEqual([
-      ...FEEDBACK_ANSWER_QUESTION_KEYS,
-    ]);
-    expect(goals.map((goal) => goal.ordinal)).toEqual([1, 2, 3, 4]);
+    expect(goals.map((goal) => goal.key)).toEqual(
+      POST_EVENT_FEEDBACK_QUESTION_SET_V2.answerQuestions.map(
+        (question) => question.key,
+      ),
+    );
+    expect(goals.map((goal) => goal.ordinal)).toEqual([1, 2, 3, 4, 5, 6]);
     expect(goals.every((goal) => goal.status === "pending")).toBe(true);
   });
 
-  it("takes prompts from the campaign copy snapshot", () => {
-    const goals = buildFeedbackConversationGoals({
-      intro: "intro",
-      event_score: "Score?",
-      liked: "Liked?",
-      meet_again: "Again?",
-      avoid: "Avoid?",
-      closing: "closing",
-      closing_after_safety: "quiet closing",
-      declined: "declined",
-      stop_ack: "stop",
-      reminder: "reminder",
-      reminder_followup: "followup {question}",
-      cannot_read_media: "cannot read",
-    });
+  it("preserves V1 goals and takes prompts from its campaign snapshot", () => {
+    const goals = buildFeedbackConversationGoals(
+      {
+        ...POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy,
+        event_score: "Score?",
+        liked: "Liked?",
+        meet_again: "Again?",
+        avoid: "Avoid?",
+      },
+      1,
+    );
 
+    expect(goals.map((goal) => goal.key)).toEqual([
+      "event_score",
+      "liked",
+      "meet_again",
+      "avoid",
+    ]);
     expect(goals[0]?.prompt).toBe("Score?");
     expect(goals.at(-1)?.prompt).toBe("Avoid?");
   });

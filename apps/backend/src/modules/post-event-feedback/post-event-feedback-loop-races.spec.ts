@@ -143,4 +143,5 @@ const MODEL_CALL_RACES: readonly FeedbackScenario[] = [
 runFeedbackScenarios(
   "post-event feedback loop — state changes during a model call",
   MODEL_CALL_RACES,
+  { questionSetVersion: 1 },
 );

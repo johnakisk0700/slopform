@@ -1,5 +1,11 @@
 import { clsx } from "clsx";
-import { Inbox, ScrollText } from "lucide-react";
+import {
+  ArrowUpToLine,
+  ChevronLeft,
+  ChevronRight,
+  Inbox,
+  ScrollText,
+} from "lucide-react";
 import { useId } from "react";
 
 import type { FeedbackOutboxHistoryDtoOutputItemsItem } from "../../../api/generated/model/feedbackOutboxHistoryDtoOutputItemsItem";
@@ -19,10 +25,15 @@ interface OutboxHistoryListProps {
   onSelect: (outboxId: string) => void;
   loading: boolean;
   error: string | null;
-  /** True when the endpoint capped the page below the real total. */
-  truncated: boolean;
+  /** Rows matching the active filter — not rows in the table. */
   total: number;
   isRefreshing: boolean;
+  /** True on the first page, which is the only one that refreshes itself. */
+  atNewest: boolean;
+  hasOlder: boolean;
+  onOlder: () => void;
+  onNewer: () => void;
+  onNewest: () => void;
 }
 
 /**
@@ -34,6 +45,11 @@ interface OutboxHistoryListProps {
  * carries the log's origin, so «why was this written» is already on the page
  * before a row is opened.
  *
+ * It is a narrow column beside a wide detail pane, so a row is written for
+ * scanning rather than reading: a name, a time, and the one word that says why
+ * the message exists. Everything else about it is one click away, in a pane
+ * with room for it.
+ *
  * Same restraint as the queue list: no live region (rows arrive on every
  * poll), one `aria-current` selection, and opening a row is what spends the
  * single Redis lookup.
@@ -44,30 +60,40 @@ export function OutboxHistoryList({
   onSelect,
   loading,
   error,
-  truncated,
   total,
   isRefreshing,
+  atNewest,
+  hasOlder,
+  onOlder,
+  onNewer,
+  onNewest,
 }: OutboxHistoryListProps) {
   const headingId = useId();
 
   return (
     <section
       aria-labelledby={headingId}
-      className="flex max-h-[78vh] min-h-0 flex-col overflow-hidden rounded-md border border-border bg-surface"
+      className="flex min-h-0 flex-col overflow-hidden rounded-md border border-border bg-surface"
     >
-      <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
+      <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2.5">
         <h2
           id={headingId}
-          className="flex items-center gap-2 jts-overline text-ink-muted"
+          className="flex min-w-0 items-center gap-2 jts-overline text-ink-muted"
         >
           <ScrollText aria-hidden="true" className="size-4 shrink-0" />
-          Everything written, newest first
-          <span className="font-bold tabular-nums opacity-70">{total}</span>
+          <span className="truncate">Newest first</span>
+          <span className="shrink-0 font-bold tabular-nums opacity-70">
+            {total}
+          </span>
         </h2>
-        <JtsLiveIndicator
-          active={isRefreshing}
-          label="This list refreshes itself every few seconds."
-        />
+        {/* Only the newest page is live. Further back, the indicator would
+            claim a refresh that deliberately is not happening. */}
+        {atNewest ? (
+          <JtsLiveIndicator
+            active={isRefreshing}
+            label="This list refreshes itself every few seconds while you are on the newest page."
+          />
+        ) : null}
       </div>
 
       {error ? (
@@ -89,9 +115,14 @@ export function OutboxHistoryList({
             className="mb-2 size-7 text-ink-subtle"
             strokeWidth={1.5}
           />
-          <p className="text-sm font-semibold text-ink">Nothing sent yet</p>
+          <p className="text-sm font-semibold text-ink">Nothing here</p>
           <p className="mt-1 text-sm text-ink-muted">
-            No outbound feedback message has ever been written.
+            {/* A filter that matches nothing is not the same fact as a table
+                that holds nothing, and telling an operator the second when the
+                first is true sends them looking for a bug. */}
+            {total === 0
+              ? "No outbound feedback message matches this range and status."
+              : "This page of the log is empty."}
           </p>
         </div>
       ) : null}
@@ -112,16 +143,16 @@ export function OutboxHistoryList({
                     {...(isSelected ? { "aria-current": true } : {})}
                     onClick={() => onSelect(item.id)}
                     className={clsx(
-                      "block w-full cursor-pointer px-4 py-2.5 text-left transition-colors",
+                      "block w-full cursor-pointer px-3 py-2 text-left transition-colors",
                       isSelected
                         ? "bg-primary-soft"
                         : "hover:bg-surface-sunken",
                     )}
                   >
-                    <span className="flex items-baseline justify-between gap-3">
+                    <span className="flex items-baseline justify-between gap-2">
                       <span
                         className={clsx(
-                          "line-clamp-2 min-w-0 flex-1 text-sm leading-snug font-bold break-words",
+                          "line-clamp-1 min-w-0 flex-1 text-sm leading-snug font-bold break-words",
                           isSelected ? "text-primary" : "text-ink",
                         )}
                       >
@@ -150,17 +181,14 @@ export function OutboxHistoryList({
                           : outboundOriginLabel(item.origin)}
                       </span>
                       <span aria-hidden="true">·</span>
+                      {/* The event title, not the phone number: the column is
+                          half the width it was, and a number nobody dials from
+                          here was the first thing worth its space. It is on
+                          the opened row, beside the conversation it belongs
+                          to. */}
                       <span className="min-w-0 truncate">
                         {item.eventTitle}
                       </span>
-                      {item.phoneAtLaunch === null ? null : (
-                        <>
-                          <span aria-hidden="true">·</span>
-                          <span className="shrink-0 tabular-nums">
-                            {item.phoneAtLaunch}
-                          </span>
-                        </>
-                      )}
                     </span>
 
                     <FeedbackBadges
@@ -172,14 +200,83 @@ export function OutboxHistoryList({
               );
             })}
           </ul>
-
-          {truncated ? (
-            <p className="border-t border-border-subtle bg-surface-sunken px-4 py-2.5 text-xs text-ink-muted">
-              Showing the {items.length} newest of {total}.
-            </p>
-          ) : null}
         </div>
       ) : null}
+
+      {/* The walk through the log. Keyset paging only knows how to go forward,
+          so there is no page number to print and none is invented: «Older» and
+          «Newer» are exactly the two moves the cursor supports, and «Newest»
+          is the way back to the page that keeps itself up to date. */}
+      {items.length > 0 || !atNewest ? (
+        <nav
+          aria-label="History pages"
+          className="flex items-center justify-between gap-2 border-t border-border-subtle bg-surface-sunken px-3 py-2"
+        >
+          <div className="flex items-center gap-1">
+            <PageButton
+              onClick={onNewer}
+              disabled={atNewest}
+              icon={ChevronLeft}
+              label="Newer"
+            />
+            <PageButton
+              onClick={onOlder}
+              disabled={!hasOlder}
+              icon={ChevronRight}
+              label="Older"
+              iconTrailing
+            />
+          </div>
+
+          {atNewest ? (
+            <span className="text-xs text-ink-subtle">Newest page</span>
+          ) : (
+            <button
+              type="button"
+              onClick={onNewest}
+              className="inline-flex cursor-pointer items-center gap-1.5 text-xs font-semibold text-primary underline-offset-2 hover:underline"
+            >
+              <ArrowUpToLine aria-hidden="true" className="size-3.5" />
+              Jump to newest
+            </button>
+          )}
+        </nav>
+      ) : null}
     </section>
+  );
+}
+
+/** One move along the log, disabled at the end it cannot go past. */
+function PageButton({
+  onClick,
+  disabled,
+  icon: Icon,
+  label,
+  iconTrailing = false,
+}: {
+  onClick: () => void;
+  disabled: boolean;
+  icon: typeof ChevronLeft;
+  label: string;
+  iconTrailing?: boolean;
+}) {
+  const glyph = <Icon aria-hidden="true" className="size-3.5 shrink-0" />;
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={clsx(
+        "inline-flex items-center gap-1 rounded-sm border border-border px-2 py-1 text-xs font-semibold transition-colors",
+        disabled
+          ? "cursor-not-allowed text-ink-subtle opacity-60"
+          : "cursor-pointer bg-surface text-ink hover:border-primary hover:text-primary",
+      )}
+    >
+      {iconTrailing ? null : glyph}
+      {label}
+      {iconTrailing ? glyph : null}
+    </button>
   );
 }

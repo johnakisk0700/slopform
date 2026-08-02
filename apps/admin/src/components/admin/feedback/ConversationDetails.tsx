@@ -333,10 +333,11 @@ interface ProgressPanelProps {
  * One glyph per directed question, tinted with that question's own status
  * colour.
  *
- * The three groups are the part of this card an operator reads fastest and the
- * part they must not confuse — «Μαρία» under LIKED and under AVOID are opposite
- * facts about the same evening. Glyph, heading and pill tint all say which is
- * which, so no single channel is carrying it.
+ * These groups are the part of this card an operator reads fastest and the part
+ * they must not confuse. `liked` remains for V1 history; V2 asks only
+ * `meet_again` and `avoid`. Glyph, heading and pill tint all say which is which,
+ * so no single channel is carrying it. A no-rematch preference is not a safety
+ * finding, hence warning rather than danger.
  */
 const DIRECTED_QUESTION_GLYPHS: Record<
   DirectedQuestionKey,
@@ -344,7 +345,7 @@ const DIRECTED_QUESTION_GLYPHS: Record<
 > = {
   liked: { icon: Heart, className: "text-success" },
   meet_again: { icon: Handshake, className: "text-info" },
-  avoid: { icon: Ban, className: "text-danger" },
+  avoid: { icon: Ban, className: "text-warning" },
 };
 
 /**
@@ -706,9 +707,9 @@ export function RespondentPanel({ conversation }: RespondentPanelProps) {
           variant="soft"
           size="md"
           aria-hidden="true"
-          className="size-10 shrink-0 rounded-md"
+          className="size-10 shrink-0 rounded-md border border-border"
         >
-          <Avatar.Fallback className="border border-border bg-surface-raised font-extrabold text-ink">
+          <Avatar.Fallback className="bg-surface-raised font-extrabold text-ink">
             {monogram}
           </Avatar.Fallback>
         </Avatar>

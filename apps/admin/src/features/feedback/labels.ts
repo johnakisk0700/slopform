@@ -58,25 +58,48 @@ export function isUnresolvedParticipant(displayName: string | null): boolean {
   return (displayName?.trim() ?? "") === "";
 }
 
-const QUESTION_LABELS: Record<
-  FeedbackConversationResultsDtoOutputAnswersItemQuestionKey,
-  string
-> = {
-  event_score: "Score",
-  liked: "Liked",
+/**
+ * The generated enum still describes the committed API, while the three
+ * explicit literals are the V2 additions that the same change will generate.
+ * Keeping the union closed means an unknown storage key cannot acquire a label
+ * by accident during the cross-package rollout.
+ */
+export type FeedbackQuestionKey =
+  | FeedbackConversationResultsDtoOutputAnswersItemQuestionKey
+  | "table_fit"
+  | "participation_ease"
+  | "conversation_balance";
+
+const QUESTION_LABELS: Readonly<Record<FeedbackQuestionKey, string>> = {
+  event_score: "Overall night",
+  table_fit: "Table fit",
+  participation_ease: "Ease of participation",
+  conversation_balance: "Conversation balance",
   meet_again: "Meet again",
-  avoid: "Avoid",
+  avoid: "No rematch",
+  liked: "Liked (V1)",
 };
 
-export function questionLabel(
-  key: FeedbackConversationResultsDtoOutputAnswersItemQuestionKey,
-): string {
+export function questionLabel(key: FeedbackQuestionKey): string {
   return QUESTION_LABELS[key];
 }
 
-/** Question keys in the order they are asked (§5), for filter controls. */
-export const QUESTION_KEYS: readonly FeedbackConversationResultsDtoOutputAnswersItemQuestionKey[] =
-  ["event_score", "liked", "meet_again", "avoid"];
+/**
+ * Every question the results screen can render.
+ *
+ * V2's six keys come first in questionnaire order. `liked` is last because it
+ * is no longer asked, but old V1 campaigns still contain valid rows that must
+ * remain filterable instead of degrading to an unexplained storage key.
+ */
+export const QUESTION_KEYS: readonly FeedbackQuestionKey[] = [
+  "event_score",
+  "table_fit",
+  "participation_ease",
+  "conversation_balance",
+  "meet_again",
+  "avoid",
+  "liked",
+];
 
 const GOAL_STATUS_LABELS: Record<
   FeedbackConversationDetailDtoOutputGoalsItemStatus,

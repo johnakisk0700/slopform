@@ -94,13 +94,51 @@ export const feedbackOutboxHistoryItemSchema = feedbackOutboxQueueItemSchema
   })
   .strict();
 
+/** Rows in one page of history when the caller does not say. */
+export const FEEDBACK_OUTBOX_HISTORY_PAGE_SIZE = 25;
+
+/**
+ * Which slice of the log the caller wants.
+ *
+ * Every field is optional and the default is «the newest page of everything»,
+ * so the screen's first paint needs no parameters at all. `from`/`to` are the
+ * operator's own local day expressed as instants — this table is read as a log,
+ * and «today» is a question about their clock, not the server's.
+ */
+export const feedbackOutboxHistoryQuerySchema = z
+  .object({
+    limit: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(FEEDBACK_OUTBOX_QUEUE_VIEW_LIMIT)
+      .default(FEEDBACK_OUTBOX_HISTORY_PAGE_SIZE),
+    /** Opaque; produced only by a previous response's `nextCursor`. */
+    cursor: z.string().min(1).max(200).optional(),
+    status: z.enum(MESSAGE_OUTBOX_STATUSES).optional(),
+    from: z.iso.datetime().optional(),
+    to: z.iso.datetime().optional(),
+  })
+  .strict();
+
 export const feedbackOutboxHistorySchema = z
   .object({
     observedAt: z.iso.datetime(),
-    /** Rows ever written, so the capped page cannot imply a total. */
+    /**
+     * Rows matching the active filter — not rows in the table.
+     *
+     * Under a one-hour filter the table's own total would be a number about a
+     * different set of rows, printed directly above the page it contradicts.
+     */
     total: z.number().int().nonnegative(),
-    /** True when `total` exceeds what `items` could carry. */
-    truncated: z.boolean(),
+    /**
+     * Where the next page begins, or null at the end of the log.
+     *
+     * This is the only pagination fact the client is given. There is no page
+     * number and no page count on purpose: rows are appended while an operator
+     * reads, so «page 3 of 40» would be stale before it finished rendering.
+     */
+    nextCursor: z.string().min(1).max(200).nullable(),
     items: z
       .array(feedbackOutboxHistoryItemSchema)
       .max(FEEDBACK_OUTBOX_QUEUE_VIEW_LIMIT),
@@ -171,7 +209,33 @@ export const feedbackOutboxMessageDeliverySchema = z
     conversationId: z.uuid(),
     campaignId: z.uuid(),
     campaignStatus: z.enum(FEEDBACK_CAMPAIGN_STATUSES),
+    /**
+     * Who this was written to, and the event it is about.
+     *
+     * Both lists carry these and the opened row did not, so the one pane in the
+     * screen with room to say «this message, to this person, about this event»
+     * was the one place that never said it — an operator who followed a link
+     * into a row had to go back to the list to find out whose it was. The phone
+     * is the launch-time number, the same one the lists showed; it moved here
+     * when the list column narrowed, and this is where it can be acted on.
+     */
+    eventTitle: z.string().min(1).max(200),
+    respondentDisplayName: z.string().min(1).max(200).nullable(),
+    phoneAtLaunch: z.string().min(1).max(50).nullable(),
     kind: z.enum(MESSAGE_OUTBOX_KINDS),
+    /**
+     * The message itself, exactly as the participant receives it.
+     *
+     * The list answers «did it arrive»; this is the only place that answers
+     * «what did we actually say to this person», which is the question a
+     * complaint, a bad reply or a suspicious origin all end at. The bound is
+     * the column's own `message_outbox_body_length_check`.
+     *
+     * It is not on the list rows and must not be: a page of 25 bodies is a
+     * different endpoint's worth of payload for text nobody has asked to read
+     * yet, and this pane is already the one place a row is opened deliberately.
+     */
+    body: z.string().min(1).max(10_000),
     status: z.enum(MESSAGE_OUTBOX_STATUSES),
     deliveryStatus: z.enum(MESSAGE_OUTBOX_DELIVERY_STATUSES).nullable(),
     observedAt: z.iso.datetime(),
@@ -208,6 +272,9 @@ export class FeedbackOutboxQueueDto extends createZodDto(
 export class FeedbackOutboxHistoryDto extends createZodDto(
   feedbackOutboxHistorySchema,
 ) {}
+export class FeedbackOutboxHistoryQueryDto extends createZodDto(
+  feedbackOutboxHistoryQuerySchema,
+) {}
 export class FeedbackOutboxMessageDeliveryDto extends createZodDto(
   feedbackOutboxMessageDeliverySchema,
 ) {}
@@ -221,6 +288,9 @@ export type FeedbackOutboxHistoryView = z.infer<
 >;
 export type FeedbackOutboxHistoryItemView = z.infer<
   typeof feedbackOutboxHistoryItemSchema
+>;
+export type FeedbackOutboxHistoryQuery = z.infer<
+  typeof feedbackOutboxHistoryQuerySchema
 >;
 export type FeedbackOutboxQueueItemView = z.infer<
   typeof feedbackOutboxQueueItemSchema

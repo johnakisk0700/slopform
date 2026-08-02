@@ -16,8 +16,10 @@ import { AssistantConversation } from "../components/admin/assistant/AssistantCo
 import {
   EFFORT_STORAGE_KEY,
   MODEL_STORAGE_KEY,
+  SERVICE_TIER_STORAGE_KEY,
   readSavedEffort,
   readSavedModel,
+  readSavedServiceTier,
 } from "../features/assistant/composerSettings";
 import {
   requestFailureMessage,
@@ -33,6 +35,7 @@ import {
   type AssistantDisplayMessage,
   type AssistantEffort,
   type AssistantModel,
+  type AssistantServiceTier,
   type AssistantThread,
   type AssistantThreadSummary,
   type AssistantTurn,
@@ -56,6 +59,7 @@ type AssistantAction =
       requestId: string;
       model: AssistantModel;
       effort: AssistantEffort;
+      serviceTier: AssistantServiceTier;
       content: string;
     }
   | {
@@ -64,6 +68,7 @@ type AssistantAction =
       requestId: string;
       model: AssistantModel;
       effort: AssistantEffort;
+      serviceTier: AssistantServiceTier;
       content: string;
     }
   | { kind: "poll"; threadId: string; turnId: string }
@@ -81,6 +86,7 @@ interface PendingUserMessage {
   requestId: string;
   model: AssistantModel;
   effort: AssistantEffort;
+  serviceTier: AssistantServiceTier;
   content: string;
 }
 
@@ -158,6 +164,8 @@ export function AssistantPage() {
     useState<AssistantModel>(readSavedModel);
   const [selectedEffort, setSelectedEffort] =
     useState<AssistantEffort>(readSavedEffort);
+  const [selectedServiceTier, setSelectedServiceTier] =
+    useState<AssistantServiceTier>(readSavedServiceTier);
   const [phase, setPhase] = useState<PagePhase>("loading");
   const [failure, setFailure] = useState<PageFailure | null>(null);
   const [announcement, setAnnouncement] = useState("");
@@ -256,6 +264,7 @@ export function AssistantPage() {
               requestId: turn.requestId,
               model: turn.model,
               effort: turn.effort,
+              serviceTier: turn.serviceTier,
               content: turn.user.content,
             },
           });
@@ -292,6 +301,7 @@ export function AssistantPage() {
               requestId: lastTurn.requestId,
               model: lastTurn.model,
               effort: lastTurn.effort,
+              serviceTier: lastTurn.serviceTier,
               content: lastTurn.user.content,
             },
           });
@@ -330,6 +340,7 @@ export function AssistantPage() {
                 action.requestId,
                 action.model,
                 action.effort,
+                action.serviceTier,
                 action.content,
               ),
               signal: controller.signal,
@@ -354,6 +365,7 @@ export function AssistantPage() {
                   action.requestId,
                   action.model,
                   action.effort,
+                  action.serviceTier,
                   action.content,
                 ),
                 signal: controller.signal,
@@ -423,6 +435,7 @@ export function AssistantPage() {
                 requestId: submission.requestId,
                 model: submission.model,
                 effort: submission.effort,
+                serviceTier: submission.serviceTier,
                 content: submission.content,
               }
             : null,
@@ -476,6 +489,8 @@ export function AssistantPage() {
       content: pendingUser.content,
       model: pendingUser.model,
       effort: pendingUser.effort,
+      serviceTier: pendingUser.serviceTier,
+      reasoning: null,
       status: "queued",
     };
     return [...persisted, optimistic];
@@ -556,6 +571,15 @@ export function AssistantPage() {
     }
   }
 
+  function changeServiceTier(tier: AssistantServiceTier): void {
+    setSelectedServiceTier(tier);
+    try {
+      localStorage.setItem(SERVICE_TIER_STORAGE_KEY, tier);
+    } catch {
+      // The selection still works for this tab if storage is unavailable.
+    }
+  }
+
   function submitMessage(): void {
     // State updates lag one render; the ref closes the double-submit window
     // before optimistic UI or composer state is mutated.
@@ -573,6 +597,7 @@ export function AssistantPage() {
       requestId,
       model: selectedModel,
       effort: selectedEffort,
+      serviceTier: selectedServiceTier,
       content,
     });
     setComposer("");
@@ -587,6 +612,7 @@ export function AssistantPage() {
         requestId,
         model: selectedModel,
         effort: selectedEffort,
+        serviceTier: selectedServiceTier,
         content,
       });
     } else {
@@ -595,6 +621,7 @@ export function AssistantPage() {
         requestId,
         model: selectedModel,
         effort: selectedEffort,
+        serviceTier: selectedServiceTier,
         content,
       });
     }
@@ -637,6 +664,7 @@ export function AssistantPage() {
     setComposerError(null);
     changeModel(revision.model);
     changeEffort(revision.effort);
+    changeServiceTier(revision.serviceTier);
     setAnnouncement(
       "Draft restored. Revise it or change model settings before sending a new request.",
     );
@@ -739,7 +767,9 @@ export function AssistantPage() {
         aria-label="Assistant conversation history"
         tabIndex={0}
         orientation="vertical"
-        className="min-h-0 flex-1 overflow-y-auto bg-surface focus-visible:-outline-offset-2"
+        // Always-on gutter, like the source: an appearing scrollbar would
+        // otherwise recentre the column while the docked composer stays put.
+        className="min-h-0 flex-1 overflow-y-scroll bg-surface focus-visible:-outline-offset-2"
       >
         <AssistantConversation
           messages={messages}
@@ -768,6 +798,7 @@ export function AssistantPage() {
         value={composer}
         selectedModel={selectedModel}
         selectedEffort={selectedEffort}
+        selectedServiceTier={selectedServiceTier}
         isBusy={isBusy}
         isBlocked={failure !== null}
         error={composerError}
@@ -778,6 +809,7 @@ export function AssistantPage() {
         }}
         onModelChange={changeModel}
         onEffortChange={changeEffort}
+        onServiceTierChange={changeServiceTier}
         onSubmit={submitMessage}
       />
     </section>

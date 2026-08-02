@@ -1,0 +1,4 @@
+ALTER TABLE "feedback_answer_withdrawals" DROP CONSTRAINT "feedback_answer_withdrawals_question_key_check";--> statement-breakpoint
+ALTER TABLE "feedback_answers" DROP CONSTRAINT "feedback_answers_question_key_check";--> statement-breakpoint
+ALTER TABLE "feedback_answer_withdrawals" ADD CONSTRAINT "feedback_answer_withdrawals_question_key_check" CHECK ("feedback_answer_withdrawals"."question_key" in ('event_score', 'table_fit', 'participation_ease', 'conversation_balance', 'liked', 'meet_again', 'avoid'));--> statement-breakpoint
+ALTER TABLE "feedback_answers" ADD CONSTRAINT "feedback_answers_question_key_check" CHECK ("feedback_answers"."question_key" in ('event_score', 'table_fit', 'participation_ease', 'conversation_balance', 'liked', 'meet_again', 'avoid'));

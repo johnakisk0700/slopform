@@ -33,6 +33,7 @@
  * @property {string} finishedAt
  * @property {number} durationMs
  * @property {string} model
+ * @property {{mode: string, total: number, substituted: number}|null} liveGuests
  * @property {boolean} passed
  * @property {BurstCampaignResult[]} campaigns
  * @property {BurstFinding[]} findings
@@ -244,9 +245,23 @@ function readRun(result) {
     finishedAt: text(source.finishedAt),
     durationMs: Number.isFinite(source.durationMs) ? source.durationMs : null,
     model: text(source.model),
+    liveGuests: readLiveGuests(source.liveGuests),
     passed: source.passed === true,
     campaigns: list(source.campaigns).map(readCampaign),
     findings: list(source.findings).map(readFinding),
+  };
+}
+
+function readLiveGuests(liveGuests) {
+  if (!isObject(liveGuests)) {
+    return null;
+  }
+  return {
+    mode: text(liveGuests.mode),
+    total: Number.isSafeInteger(liveGuests.total) ? liveGuests.total : 0,
+    substituted: Number.isSafeInteger(liveGuests.substituted)
+      ? liveGuests.substituted
+      : 0,
   };
 }
 
@@ -402,6 +417,7 @@ function renderMasthead(run, stats) {
   const meta = [
     metaItem("clock", "Έναρξη", formatTimestamp(run.startedAt)),
     metaItem("spark", "Μοντέλο", run.model === "" ? EMPTY : run.model),
+    metaItem("chat", "Ζωντανοί καλεσμένοι", formatLiveGuests(run.liveGuests)),
     metaItem("clock", "Διάρκεια", formatDuration(run.durationMs)),
   ];
   return `<header class="masthead">
@@ -417,6 +433,16 @@ function renderMasthead(run, stats) {
 </div>
 <p class="masthead-note"><span>${escapeHtml(String(stats.campaigns))} καμπάνιες ταυτόχρονα, ${escapeHtml(String(stats.conversations))} συνομιλίες. Το ερώτημα δεν είναι η ταχύτητα· είναι αν ο μηχανισμός μένει σωστός όταν απαντούν όλοι μαζί.</span></p>
 </header>`;
+}
+
+function formatLiveGuests(liveGuests) {
+  if (!liveGuests) {
+    return EMPTY;
+  }
+  if (liveGuests.substituted > 0) {
+    return `${liveGuests.substituted}/${liveGuests.total} ντετερμινιστική σιωπή (χωρίς κάλυψη συμπεριφοράς)`;
+  }
+  return `${liveGuests.total} μέσω cursor-agent`;
 }
 
 function metaItem(iconName, label, value) {

@@ -6,6 +6,7 @@ import { ConfigService } from "@nestjs/config";
 import type { Queue } from "bullmq";
 
 import type { Environment } from "../../../infrastructure/config/environment.js";
+import { isFeedbackSimulatorEnabled } from "../../../infrastructure/config/enabled-modules.js";
 import { FEEDBACK_QUEUE } from "../../../infrastructure/queue/queue.constants.js";
 import { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
 import { FEEDBACK_CONVERSATION_MAX_MESSAGES } from "../post-event-feedback-conversation.document.js";
@@ -37,12 +38,12 @@ import {
   PostEventFeedbackIngressService,
   type RecordObservedMessageResult,
 } from "../ingress/ingress.service.js";
-import { resolveFeedbackExtractionModel } from "../extraction/model.service.js";
 import {
   POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS,
+  POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS_QUESTION_SET_VERSION,
   type PostEventFeedbackRealModelCorpusCase,
 } from "../post-event-feedback-real-model-corpus.js";
-import { FEEDBACK_ANSWER_QUESTION_KEYS } from "../question-set.js";
+import { getPostEventFeedbackQuestionSet } from "../question-set.js";
 import {
   boundObservedMessageText,
   createFeedbackExtractJobId,
@@ -51,6 +52,12 @@ import {
   type FeedbackJobName,
 } from "../jobs.schemas.js";
 import { toRunView } from "./run-status.js";
+import {
+  attestFeedbackWorkers,
+  resolveFeedbackWorkerControlProfile,
+  type FeedbackWorkerAttestation,
+  type FeedbackWorkerControlProfile,
+} from "../worker-attestation.js";
 
 const FEEDBACK_SIMULATOR_RUN_LIMIT = 100;
 const FEEDBACK_SIMULATOR_NON_MODEL_SCENARIO_IDS = new Set([
@@ -139,10 +146,16 @@ export class FeedbackSimulatorService {
     private readonly outboundTranscript: FeedbackOutboundTranscriptService,
   ) {}
 
-  getCatalog(): FeedbackSimulatorCatalogResponseDto {
+  async getCatalog(): Promise<FeedbackSimulatorCatalogResponseDto> {
     this.assertEnabled();
+    const activeProfile = this.configuredWorkerProfile();
+    const workerAttestation = await this.workerAttestation(activeProfile);
     return {
-      activeModel: this.configuredModel(),
+      activeModel: activeProfile.model,
+      activeExtractionReasoningEffort: activeProfile.extractionReasoningEffort,
+      activeAttentionReasoningEffort: activeProfile.attentionReasoningEffort,
+      activeServiceTier: activeProfile.serviceTier,
+      workerAttestation,
       availableModels: [...FEEDBACK_SIMULATOR_EVAL_MODELS],
       quietWindowMs: FEEDBACK_EXTRACT_QUIET_WINDOW_MS,
       timingPolicy: "single_quiet_window_batch",
@@ -164,8 +177,8 @@ export class FeedbackSimulatorService {
   ): Promise<FeedbackSimulatorPreflightView> {
     this.assertEnabled();
     const { configuredModel, scenario } = this.resolveScenarioSelection(input);
-    const workers = await this.queue.getWorkers();
-    const workerRegistered = workers.length > 0;
+    const workerAttestation = await this.workerAttestation();
+    const workerRegistered = workerAttestation.status === "verified";
     const [campaign, conversation] = await Promise.all([
       this.campaigns.findCampaignById(input.campaignId),
       this.conversations.findById(input.conversationId),
@@ -180,9 +193,18 @@ export class FeedbackSimulatorService {
         "The selected conversation does not belong to this campaign.",
       );
     }
+    if (
+      campaign.questionSetVersion !==
+      POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS_QUESTION_SET_VERSION
+    ) {
+      throw new FeedbackSimulatorRunRejectedError(
+        `The paid corpus is calibrated for questionnaire V${POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS_QUESTION_SET_VERSION}, but the selected campaign uses V${campaign.questionSetVersion}.`,
+      );
+    }
 
     const [
       event,
+      feedbackVenue,
       participant,
       candidates,
       answers,
@@ -192,6 +214,7 @@ export class FeedbackSimulatorService {
       simulatedSends,
     ] = await Promise.all([
       this.events.findById(campaign.eventId),
+      this.eventsService.getFeedbackVenueContext(campaign.eventId),
       this.participants.findById(conversation.respondentParticipantId),
       this.eventsService.listFeedbackCandidatesForRespondent(
         campaign.eventId,
@@ -207,6 +230,11 @@ export class FeedbackSimulatorService {
     if (event?.status !== "finished") {
       throw new FeedbackSimulatorRunRejectedError(
         "Real-model simulation requires a campaign for a finished event.",
+      );
+    }
+    if (feedbackVenue.venue === null) {
+      throw new FeedbackSimulatorRunRejectedError(
+        "Paid real-model simulation requires a configured event venue with useInFeedback enabled.",
       );
     }
     if (campaign.status !== "launched") {
@@ -259,7 +287,12 @@ export class FeedbackSimulatorService {
       !transcriptIsClean ||
       conversation.messages.length > 1 ||
       conversation.extraction.cursorSeq !== 0 ||
-      !hasCleanSimulatorGoals(conversation.goals) ||
+      !hasCleanSimulatorGoals(
+        conversation.goals,
+        getPostEventFeedbackQuestionSet(
+          campaign.questionSetVersion,
+        ).answerQuestions.map((question) => question.key),
+      ) ||
       conversation.needsAttention
     ) {
       throw new FeedbackSimulatorRunRejectedError(
@@ -310,12 +343,17 @@ export class FeedbackSimulatorService {
         configured: configuredModel,
       },
       workerRegistered,
+      workerAttestation,
       timingPolicy: "single_quiet_window_batch",
       baseline: {
         clean: true,
         currentMessageCount: conversation.messages.length,
         effectiveMessageCount,
         introTranscriptRepairRequired,
+      },
+      feedbackVenue: {
+        contextRevision: feedbackVenue.contextRevision,
+        venue: feedbackVenue.venue,
       },
       candidateBindings,
       renderedMessages: scenario.messages.map((message) =>
@@ -325,9 +363,9 @@ export class FeedbackSimulatorService {
         ),
       ),
       rubric: feedbackSimulatorRubricSchema.parse(scenario.rubric),
-      warning: workerRegistered
-        ? "The confirmed run makes paid provider calls (one extraction plus one or more attention-classification batches), permanently consumes this clean conversation, and does not clean up normal persisted outputs."
-        : "Read-only baseline validation passed, but no feedback worker is registered in Redis. Start requires the worker and will reject before any repair or ingress write.",
+      warning:
+        workerAttestation.issue ??
+        "The confirmed run makes paid provider calls (one extraction plus one or more attention-classification batches), permanently consumes this clean conversation, and does not clean up normal persisted outputs.",
     };
   }
 
@@ -339,6 +377,11 @@ export class FeedbackSimulatorService {
     if (input.confirmPaidRun !== true) {
       throw new FeedbackSimulatorRunRejectedError(
         "Explicit paid-run confirmation is required. This can make multiple calls to the configured real model and permanently consumes the selected clean conversation.",
+      );
+    }
+    if (this.configuredWorkerProfile().extractionReasoningEffort === null) {
+      throw new FeedbackSimulatorRunRejectedError(
+        "Paid real-model simulation requires an explicit FEEDBACK_EXTRACTION_REASONING_EFFORT; provider-default reasoning is not a reproducible treatment. No transcript repair or ingress write was performed.",
       );
     }
     const { configuredModel, scenario } = this.resolveScenarioSelection(input);
@@ -362,7 +405,7 @@ export class FeedbackSimulatorService {
       const preflight = await this.preflightScenarioRun(input, correlationId);
       if (!preflight.workerRegistered) {
         throw new FeedbackSimulatorRunRejectedError(
-          "No feedback worker is registered in Redis. Start it before the confirmed run; no transcript repair or ingress write was performed.",
+          `${preflight.workerAttestation.issue ?? "The feedback worker attestation failed."} No transcript repair or ingress write was performed.`,
         );
       }
 
@@ -426,7 +469,12 @@ export class FeedbackSimulatorService {
         !transcriptIsClean ||
         conversation.messages.length > 1 ||
         conversation.extraction.cursorSeq !== 0 ||
-        !hasCleanSimulatorGoals(conversation.goals)
+        !hasCleanSimulatorGoals(
+          conversation.goals,
+          getPostEventFeedbackQuestionSet(
+            campaign.questionSetVersion,
+          ).answerQuestions.map((question) => question.key),
+        )
       ) {
         throw new FeedbackSimulatorRunRejectedError(
           "The write-time baseline changed after preflight. It must still have one sent intro in the simulated sink, only a matching intro transcript entry, pending goals, and extraction cursor 0.",
@@ -688,10 +736,32 @@ export class FeedbackSimulatorService {
   }
 
   private configuredModel(): AssistantModel {
-    const configured = this.config.get("FEEDBACK_EXTRACTION_MODEL", {
-      infer: true,
+    return this.configuredWorkerProfile().model;
+  }
+
+  private configuredWorkerProfile(): FeedbackWorkerControlProfile {
+    return resolveFeedbackWorkerControlProfile({
+      extractionStub:
+        this.config.get("FEEDBACK_EXTRACTION_STUB", { infer: true }) === true,
+      model: this.config.get("FEEDBACK_EXTRACTION_MODEL", { infer: true }),
+      extractionReasoningEffort: this.config.get(
+        "FEEDBACK_EXTRACTION_REASONING_EFFORT",
+        { infer: true },
+      ),
+      attentionReasoningEffort: this.config.get(
+        "FEEDBACK_ATTENTION_REASONING_EFFORT",
+        { infer: true },
+      ),
+      serviceTier: this.config.get("FEEDBACK_EXTRACTION_SERVICE_TIER", {
+        infer: true,
+      }),
     });
-    return resolveFeedbackExtractionModel(configured);
+  }
+
+  private async workerAttestation(
+    expected: FeedbackWorkerControlProfile = this.configuredWorkerProfile(),
+  ): Promise<FeedbackWorkerAttestation> {
+    return attestFeedbackWorkers(await this.queue.getWorkers(), expected);
   }
 
   private resolveScenarioSelection(input: FeedbackSimulatorPreflightInput): {
@@ -734,15 +804,25 @@ export class FeedbackSimulatorService {
   }
 
   private assertEnabled(): void {
-    if (
-      this.config.get("NODE_ENV", { infer: true }) === "production" ||
-      this.config.get("FEEDBACK_SIMULATOR_ENABLED", { infer: true }) !== true ||
-      this.config.get("TRANSPORT_MODE", { infer: true }) !== "simulated"
-    ) {
+    if (!this.isEnabled()) {
       throw new FeedbackSimulatorRunRejectedError(
-        "The feedback simulator requires non-production, FEEDBACK_SIMULATOR_ENABLED=true, and TRANSPORT_MODE=simulated.",
+        "The feedback simulator requires FEEDBACK_SIMULATOR_ENABLED=true and TRANSPORT_MODE=simulated; production additionally requires FEEDBACK_PRODUCTION_REHEARSAL_ENABLED=true.",
       );
     }
+  }
+
+  private isEnabled(): boolean {
+    return isFeedbackSimulatorEnabled({
+      nodeEnv: this.config.get("NODE_ENV", { infer: true }),
+      productionRehearsalEnabled: this.config.get(
+        "FEEDBACK_PRODUCTION_REHEARSAL_ENABLED",
+        { infer: true },
+      ),
+      simulatorEnabled: this.config.get("FEEDBACK_SIMULATOR_ENABLED", {
+        infer: true,
+      }),
+      transportMode: this.config.get("TRANSPORT_MODE", { infer: true }),
+    });
   }
 
   private rememberRun(run: FeedbackSimulatorRunRecord): void {
@@ -829,12 +909,13 @@ function hasCleanSimulatorGoals(
     readonly ordinal: number;
     readonly status: string;
   }[],
+  expectedQuestionKeys: readonly string[],
 ): boolean {
   return (
-    goals.length === FEEDBACK_ANSWER_QUESTION_KEYS.length &&
+    goals.length === expectedQuestionKeys.length &&
     goals.every(
       (goal, index) =>
-        goal.key === FEEDBACK_ANSWER_QUESTION_KEYS[index] &&
+        goal.key === expectedQuestionKeys[index] &&
         goal.ordinal === index + 1 &&
         goal.status === "pending",
     )

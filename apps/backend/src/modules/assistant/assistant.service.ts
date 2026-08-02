@@ -12,7 +12,10 @@ import {
   type ConversationThreadDocument,
   type ConversationTurn,
 } from "../conversations/conversation-thread.schemas.js";
-import { assistantModelAdapter } from "./assistant-models.js";
+import {
+  assistantModelAdapter,
+  assistantModelSupportsServiceTier,
+} from "./assistant-models.js";
 import {
   AssistantActiveTurnPersistenceError,
   AssistantRepository,
@@ -23,10 +26,12 @@ import {
 import {
   DEFAULT_ASSISTANT_MODEL,
   DEFAULT_ASSISTANT_REASONING_EFFORT,
+  DEFAULT_ASSISTANT_SERVICE_TIER,
   assistantFailureCodeSchema,
   assistantModelSchema,
   type AssistantFailureCode,
   type AssistantModel,
+  type AssistantServiceTier,
   type AssistantThreadListView,
   type AssistantThreadView,
   type AssistantTurnView,
@@ -109,6 +114,7 @@ export class AssistantService {
   ): Promise<AssistantThreadCreation> {
     const model = input.model ?? DEFAULT_ASSISTANT_MODEL;
     const effort = input.effort ?? DEFAULT_ASSISTANT_REASONING_EFFORT;
+    const serviceTier = resolveServiceTier(model, input.serviceTier);
     const replay = await this.repository.findRequestForOwner(
       input.requestId,
       createdBy,
@@ -119,7 +125,7 @@ export class AssistantService {
           "The request id already belongs to a different assistant operation",
         );
       }
-      assertIdempotentReplay(replay.turn, input, model, effort);
+      assertIdempotentReplay(replay.turn, input, model, effort, serviceTier);
       const record = await this.getRecord(replay.thread.id, createdBy);
       const conversation = await this.materializeConversation(
         record,
@@ -144,6 +150,7 @@ export class AssistantService {
       title: titleFromContent(input.content),
       model,
       effort,
+      serviceTier,
       content: input.content,
     });
     if (!persisted.created && persisted.turn.sequence !== 1) {
@@ -151,7 +158,7 @@ export class AssistantService {
         "The request id already belongs to a different assistant operation",
       );
     }
-    assertIdempotentReplay(persisted.turn, input, model, effort);
+    assertIdempotentReplay(persisted.turn, input, model, effort, serviceTier);
 
     const record = await this.getRecord(persisted.thread.id, createdBy);
     const conversation = await this.materializeConversation(
@@ -177,6 +184,7 @@ export class AssistantService {
   ): Promise<AssistantTurnCreation> {
     const model = input.model ?? DEFAULT_ASSISTANT_MODEL;
     const effort = input.effort ?? DEFAULT_ASSISTANT_REASONING_EFFORT;
+    const serviceTier = resolveServiceTier(model, input.serviceTier);
     try {
       const replay = await this.repository.findRequestForOwner(
         input.requestId,
@@ -188,7 +196,7 @@ export class AssistantService {
             "The request id already belongs to a different assistant operation",
           );
         }
-        assertIdempotentReplay(replay.turn, input, model, effort);
+        assertIdempotentReplay(replay.turn, input, model, effort, serviceTier);
         const record = await this.getRecord(threadId, createdBy);
         const conversation = await this.materializeConversation(
           record,
@@ -218,13 +226,14 @@ export class AssistantService {
         requestId: input.requestId,
         model,
         effort,
+        serviceTier,
         content: input.content,
         maximumTurns: CONVERSATION_THREAD_MAX_TURNS,
       });
       if (!persisted) {
         throw new AssistantThreadNotFoundError(threadId);
       }
-      assertIdempotentReplay(persisted.turn, input, model, effort);
+      assertIdempotentReplay(persisted.turn, input, model, effort, serviceTier);
       const record = await this.getRecord(threadId, createdBy);
       const materialized = await this.materializeConversation(
         record,
@@ -499,6 +508,43 @@ export class AssistantService {
       return;
     }
     await this.repository.markQueued(id, attempt);
+  }
+
+  /**
+   * Records the text one attempt has streamed so far, in the read model first
+   * and the execution projection second. Both writes are fenced on the same
+   * attempt, and both are best-effort by design: a lost partial only costs the
+   * operator a moment of live text, never the answer, so a failure here must not
+   * take down a generation the queue still owns.
+   */
+  async recordPartial(
+    id: string,
+    attempt: number,
+    partial: string,
+    reasoning: string | null = null,
+  ): Promise<void> {
+    const turn = await this.getTurnRow(id);
+    if (
+      turn.attempt !== attempt ||
+      turn.status === "succeeded" ||
+      turn.status === "failed"
+    ) {
+      return;
+    }
+
+    const applied = await this.conversations.recordTurnPartial({
+      threadId: turn.threadId,
+      ownerId: turn.createdBy,
+      turnId: turn.id,
+      attempt,
+      partial,
+      reasoning,
+    });
+    if (!applied) {
+      return;
+    }
+
+    await this.repository.recordPartial(id, attempt, partial, reasoning);
   }
 
   async markSucceeded(
@@ -788,4 +834,23 @@ export class AssistantService {
       throw new AssistantProviderUnavailableError();
     }
   }
+}
+
+/**
+ * The tier the turn will actually run under.
+ *
+ * A request may ask for the fast lane on a model that cannot sell it. Recording
+ * the request rather than the reality would price that turn at double for a
+ * surcharge nobody paid, so the answer is normalised here, once, before anything
+ * is persisted — and the idempotency check compares against the normalised value
+ * for the same reason.
+ */
+function resolveServiceTier(
+  model: AssistantModel,
+  requested: AssistantServiceTier | undefined,
+): AssistantServiceTier {
+  const tier = requested ?? DEFAULT_ASSISTANT_SERVICE_TIER;
+  return assistantModelSupportsServiceTier(model)
+    ? tier
+    : DEFAULT_ASSISTANT_SERVICE_TIER;
 }

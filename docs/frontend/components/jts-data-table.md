@@ -47,6 +47,13 @@ meta?: { align?: "start" | "center" | "end" }
 first leaf column renders as the row header (`isRowHeader`). A column is sortable
 only when its `ColumnDef` allows sorting; the surface reads `getCanSort()`.
 
+Alignment is applied twice, on purpose. HeroUI lays `SortableColumnHeader` out
+as a `flex` row with `justify-content: space-between` filling the column, so
+`text-align` on the cell cannot move it — a sortable `end`-aligned column showed
+its header pinned left above right-aligned figures. The surface therefore also
+passes a matching `justify-*` class to that header. `start` keeps HeroUI's
+default, which is what pushes the sort indicator to the far edge.
+
 ## States
 
 ```mermaid

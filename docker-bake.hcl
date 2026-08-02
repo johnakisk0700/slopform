@@ -10,6 +10,10 @@ variable "VITE_CLERK_PUBLISHABLE_KEY" {
   default = ""
 }
 
+variable "VITE_GOOGLE_MAPS_API_KEY" {
+  default = ""
+}
+
 target "container" {
   context    = "."
   dockerfile = "Dockerfile"
@@ -20,8 +24,10 @@ target "web" {
   target   = "web"
   tags     = ["join-the-six-web:${RELEASE_TAG}"]
   args = {
+    RELEASE_TAG               = "${RELEASE_TAG}"
     VITE_API_BASE              = "/api"
     VITE_CLERK_PUBLISHABLE_KEY = "${VITE_CLERK_PUBLISHABLE_KEY}"
+    VITE_GOOGLE_MAPS_API_KEY   = "${VITE_GOOGLE_MAPS_API_KEY}"
   }
 }
 
@@ -29,16 +35,25 @@ target "api" {
   inherits = ["container"]
   target   = "api"
   tags     = ["join-the-six-api:${RELEASE_TAG}"]
+  args = {
+    RELEASE_TAG = "${RELEASE_TAG}"
+  }
 }
 
 target "worker" {
   inherits = ["container"]
   target   = "worker"
   tags     = ["join-the-six-worker:${RELEASE_TAG}"]
+  args = {
+    RELEASE_TAG = "${RELEASE_TAG}"
+  }
 }
 
 target "migrate" {
   inherits = ["container"]
   target   = "migrate"
   tags     = ["join-the-six-migrate:${RELEASE_TAG}"]
+  args = {
+    RELEASE_TAG = "${RELEASE_TAG}"
+  }
 }

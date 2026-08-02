@@ -33,7 +33,10 @@ import { useUpdateFeedbackNoteReviewStatus } from "../api/generated/feedback-not
 import type { AddFeedbackConversationNoteDtoNoteType } from "../api/generated/model/addFeedbackConversationNoteDtoNoteType";
 import type { DirectedQuestionKey } from "../features/feedback/directedAnswers";
 import type { FeedbackConversationDetailDtoOutput } from "../api/generated/model/feedbackConversationDetailDtoOutput";
-import { CampaignHeader } from "../components/admin/feedback/CampaignHeader";
+import {
+  CampaignContext,
+  CampaignHeader,
+} from "../components/admin/feedback/CampaignHeader";
 import { CampaignSummary } from "../components/admin/feedback/CampaignSummary";
 import { ConversationAttention } from "../components/admin/feedback/ConversationAttention";
 import {
@@ -456,7 +459,10 @@ export function FeedbackInboxPage() {
   // with no conversation yet. Read from the event's own attendee list — the
   // backend re-checks eligibility on start, so this is display, not the rule.
   const eventQuery = useGetEvent(campaign?.eventId ?? "", {
-    query: { enabled: campaign !== undefined },
+    query: {
+      enabled: campaign !== undefined,
+      refetchOnWindowFocus: true,
+    },
   });
   const startCandidates = useMemo(() => {
     const attendees = eventQuery.data?.attendees ?? [];
@@ -486,10 +492,9 @@ export function FeedbackInboxPage() {
   }
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-6">
       <CampaignHeader
         campaign={campaign}
-        simulatorAvailable={simulatorAvailable}
         pausePending={pauseCampaign.isPending}
         resumePending={resumeCampaign.isPending}
         closePending={closeCampaign.isPending}
@@ -516,151 +521,170 @@ export function FeedbackInboxPage() {
         }
       />
 
-      <CampaignSummary campaignId={campaignId} />
-
-      {/* Two panes on top — triage beside the thread — and the conversation's
-          detail broken into a strip of small cards under them. Each pane is
-          its own scroll container capped to the viewport, so switching
-          conversations never costs an operator their place in the list, and no
-          single column has to carry every fact about the conversation. */}
-      <div className="grid items-start gap-4 lg:grid-cols-[minmax(15rem,19rem)_minmax(0,1fr)]">
-        <div className="min-h-0">
-          <ConversationList
-            conversations={visible}
-            selectedId={selectedId}
-            query={query}
-            onQueryChange={setQuery}
-            onSelect={selectConversation}
-            loading={listQuery.isPending}
-            error={listError}
-            totalCount={conversations.length}
-            isRefreshing={listQuery.isFetching}
-            startCandidates={startCandidates}
-            onStartConversation={handleStartConversation}
-            startPending={startConversation.isPending}
-            startDisabled={
-              campaign === undefined || campaign.status === "closed"
-            }
+      {/* Everything under the title is one working surface on one rhythm. The
+          panes and the detail strip already sat `gap-4` apart from each other;
+          the summary card now sits `gap-4` from them too, so every card on this
+          screen is the same distance from the next one. Only the page gap above
+          — header to surface — is larger, because that boundary is the one that
+          separates the page's nameplate from its work. */}
+      <div className="flex flex-col gap-4">
+        {/* The standing facts about this campaign, as one band: where the
+            dinner was and what is wrong, then the summary generated from it.
+            These two sit closer than a card gap because the row is a caption
+            for the card, not a card of its own. */}
+        <div className="flex flex-col gap-2">
+          <CampaignContext
+            campaign={campaign}
+            venue={eventQuery.data?.venue ?? null}
+            simulatorAvailable={simulatorAvailable}
           />
+          <CampaignSummary campaignId={campaignId} />
         </div>
 
-        <div className="min-h-0">
-          {conversation ? (
-            <ConversationTranscript
-              conversation={conversation}
-              onStaffSend={handleStaffSend}
-              staffSendPending={sendStaffMessage.isPending}
-              {...(simulatorAvailable
-                ? {
-                    onSimulatedReply: handleSimulatedReply,
-                    simulatedReplyPending: injectSimulatorMessage.isPending,
-                  }
-                : {})}
-              actionError={actionError}
-              isRefreshing={detailQuery.isFetching}
-              attention={
-                <ConversationAttention
-                  conversation={conversation}
-                  dismissingReasonId={dismissingReasonId}
-                  onDismiss={handleDismissAttentionReason}
-                />
-              }
-              actions={
-                <ConversationActions
-                  conversation={conversation}
-                  pendingAction={pendingAction}
-                  onTakeOver={() =>
-                    runConversationAction(
-                      "take-over",
-                      () =>
-                        takeOver.mutateAsync({
-                          campaignId,
-                          conversationId: conversation.id,
-                        }),
-                      "The conversation could not be taken over.",
-                    )
-                  }
-                  onResumeBot={() =>
-                    runConversationAction(
-                      "resume-bot",
-                      () =>
-                        resumeBot.mutateAsync({
-                          campaignId,
-                          conversationId: conversation.id,
-                        }),
-                      "The bot could not be resumed.",
-                    )
-                  }
-                  onClose={(input) =>
-                    runConversationAction(
-                      "close",
-                      () =>
-                        closeConversation.mutateAsync({
-                          campaignId,
-                          conversationId: conversation.id,
-                          data: input,
-                        }),
-                      "The conversation could not be closed.",
-                    )
-                  }
-                />
+        {/* Two panes on top — triage beside the thread — and the conversation's
+            detail broken into a strip of small cards under them. Each pane is
+            its own scroll container capped to the viewport, so switching
+            conversations never costs an operator their place in the list, and
+            no single column has to carry every fact about the conversation. */}
+        <div className="grid items-start gap-4 lg:grid-cols-[minmax(15rem,19rem)_minmax(0,1fr)]">
+          <div className="min-h-0">
+            <ConversationList
+              conversations={visible}
+              selectedId={selectedId}
+              query={query}
+              onQueryChange={setQuery}
+              onSelect={selectConversation}
+              loading={listQuery.isPending}
+              error={listError}
+              totalCount={conversations.length}
+              isRefreshing={listQuery.isFetching}
+              startCandidates={startCandidates}
+              onStartConversation={handleStartConversation}
+              startPending={startConversation.isPending}
+              startDisabled={
+                campaign === undefined || campaign.status === "closed"
               }
             />
-          ) : detailQuery.isError ? (
-            <p role="alert" className="text-sm text-danger">
-              {apiErrorMessage(
-                detailQuery.error,
-                "Failed to load conversation.",
-              )}
-            </p>
-          ) : detailQuery.isPending && selectedId !== null ? (
-            <p role="status" className="text-sm text-ink-muted">
-              Loading conversation…
-            </p>
-          ) : (
-            <ConversationTranscriptEmpty />
-          )}
-        </div>
+          </div>
 
-        {/* The detail strip: what the conversation produced, what staff wrote
+          <div className="min-h-0">
+            {conversation ? (
+              <ConversationTranscript
+                conversation={conversation}
+                onStaffSend={handleStaffSend}
+                staffSendPending={sendStaffMessage.isPending}
+                {...(simulatorAvailable
+                  ? {
+                      onSimulatedReply: handleSimulatedReply,
+                      simulatedReplyPending: injectSimulatorMessage.isPending,
+                    }
+                  : {})}
+                actionError={actionError}
+                isRefreshing={detailQuery.isFetching}
+                attention={
+                  <ConversationAttention
+                    conversation={conversation}
+                    dismissingReasonId={dismissingReasonId}
+                    onDismiss={handleDismissAttentionReason}
+                  />
+                }
+                actions={
+                  <ConversationActions
+                    conversation={conversation}
+                    pendingAction={pendingAction}
+                    onTakeOver={() =>
+                      runConversationAction(
+                        "take-over",
+                        () =>
+                          takeOver.mutateAsync({
+                            campaignId,
+                            conversationId: conversation.id,
+                          }),
+                        "The conversation could not be taken over.",
+                      )
+                    }
+                    onResumeBot={() =>
+                      runConversationAction(
+                        "resume-bot",
+                        () =>
+                          resumeBot.mutateAsync({
+                            campaignId,
+                            conversationId: conversation.id,
+                          }),
+                        "The bot could not be resumed.",
+                      )
+                    }
+                    onClose={(input) =>
+                      runConversationAction(
+                        "close",
+                        () =>
+                          closeConversation.mutateAsync({
+                            campaignId,
+                            conversationId: conversation.id,
+                            data: input,
+                          }),
+                        "The conversation could not be closed.",
+                      )
+                    }
+                  />
+                }
+              />
+            ) : detailQuery.isError ? (
+              <p role="alert" className="text-sm text-danger">
+                {apiErrorMessage(
+                  detailQuery.error,
+                  "Failed to load conversation.",
+                )}
+              </p>
+            ) : detailQuery.isPending && selectedId !== null ? (
+              <p role="status" className="text-sm text-ink-muted">
+                Loading conversation…
+              </p>
+            ) : (
+              <ConversationTranscriptEmpty />
+            )}
+          </div>
+
+          {/* The detail strip: what the conversation produced, what staff wrote
             about it, and who it is with — three short cards side by side
             instead of one column an operator has to scroll to reach the
             notes. */}
-        {conversation ? (
-          <div className="grid gap-4 md:grid-cols-2 lg:col-span-2 xl:grid-cols-3">
-            <ProgressPanel
-              conversation={conversation}
-              eventId={campaign?.eventId ?? ""}
-              results={resultsQuery.data}
-              resultsLoading={resultsQuery.isPending}
-              resultsError={
-                resultsQuery.isError
-                  ? apiErrorMessage(
-                      resultsQuery.error,
-                      "Failed to load answers.",
-                    )
-                  : null
-              }
-              onCorrectAnswer={handleCorrectAnswer}
-              onWithdrawAnswer={handleWithdrawAnswer}
-              onAddAnswer={handleAddAnswer}
-              answerUpdatePending={
-                correctAnswer.isPending || withdrawAnswer.isPending
-              }
-              addAnswerPending={addAnswer.isPending}
-            />
-            <NotesPanel
-              conversation={conversation}
-              eventId={campaign?.eventId ?? ""}
-              results={resultsQuery.data}
-              onNoteReviewChange={handleNoteReviewChange}
-              onAddNote={(input) => handleAddNote(conversation.id, input)}
-              noteUpdatePending={updateNoteReviewStatus.isPending}
-              addNotePending={addNote.isPending}
-            />
-            <RespondentPanel conversation={conversation} />
-          </div>
-        ) : null}
+          {conversation ? (
+            <div className="grid gap-4 md:grid-cols-2 lg:col-span-2 xl:grid-cols-3">
+              <ProgressPanel
+                conversation={conversation}
+                eventId={campaign?.eventId ?? ""}
+                results={resultsQuery.data}
+                resultsLoading={resultsQuery.isPending}
+                resultsError={
+                  resultsQuery.isError
+                    ? apiErrorMessage(
+                        resultsQuery.error,
+                        "Failed to load answers.",
+                      )
+                    : null
+                }
+                onCorrectAnswer={handleCorrectAnswer}
+                onWithdrawAnswer={handleWithdrawAnswer}
+                onAddAnswer={handleAddAnswer}
+                answerUpdatePending={
+                  correctAnswer.isPending || withdrawAnswer.isPending
+                }
+                addAnswerPending={addAnswer.isPending}
+              />
+              <NotesPanel
+                conversation={conversation}
+                eventId={campaign?.eventId ?? ""}
+                results={resultsQuery.data}
+                onNoteReviewChange={handleNoteReviewChange}
+                onAddNote={(input) => handleAddNote(conversation.id, input)}
+                noteUpdatePending={updateNoteReviewStatus.isPending}
+                addNotePending={addNote.isPending}
+              />
+              <RespondentPanel conversation={conversation} />
+            </div>
+          ) : null}
+        </div>
       </div>
     </div>
   );

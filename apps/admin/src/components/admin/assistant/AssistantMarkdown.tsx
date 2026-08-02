@@ -6,6 +6,7 @@ import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 
+import { AssistantCard } from "./AssistantCard";
 import { AssistantChart } from "./AssistantChart";
 import { AssistantMermaid } from "./AssistantMermaid";
 
@@ -34,13 +35,20 @@ function isFencedAs(node: unknown, language: string): boolean {
 
 const components: Components = {
   pre({ node, children }) {
-    if (isFencedAs(node, "chart") || isFencedAs(node, "mermaid")) {
+    if (
+      isFencedAs(node, "chart") ||
+      isFencedAs(node, "mermaid") ||
+      isFencedAs(node, "jts")
+    ) {
       return <>{children}</>;
     }
     return <pre>{children}</pre>;
   },
   code({ className, children }) {
     const text = String(children ?? "").replace(/\n$/, "");
+    if (className?.includes("language-jts")) {
+      return <AssistantCard source={text} />;
+    }
     if (className?.includes("language-chart")) {
       return <AssistantChart source={text} />;
     }
@@ -71,7 +79,7 @@ export const AssistantMarkdown = memo(({ children }: { children?: string }) => (
       [rehypeSanitize, sanitizeSchema],
       [
         rehypeHighlight,
-        { ignoreMissing: true, plainText: ["chart", "mermaid"] },
+        { ignoreMissing: true, plainText: ["chart", "mermaid", "jts"] },
       ],
     ]}
     components={components}

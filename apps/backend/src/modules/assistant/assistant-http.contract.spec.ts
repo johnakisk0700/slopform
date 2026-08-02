@@ -27,8 +27,11 @@ const queuedTurn = {
   status: "queued" as const,
   model: "google/gemini-3.6-flash" as const,
   effort: "low" as const,
+  serviceTier: "standard" as const,
   user: { role: "user" as const, content: "Hello" },
   assistant: null,
+  partial: null,
+  reasoning: null,
   error: null,
   attempt: 1,
   createdAt: "2026-07-23T10:00:00.000Z",
@@ -121,7 +124,7 @@ describe("assistant HTTP contract", () => {
     expect(createResponse.status).toBe(201);
     expect(await createResponse.json()).toEqual(queuedThread);
     expect(jobs.createThreadAndEnqueue).toHaveBeenCalledWith(
-      { requestId, effort: "low", content: "Hello" },
+      { requestId, effort: "low", serviceTier: "standard", content: "Hello" },
       "user_admin123",
       expect.any(String),
     );

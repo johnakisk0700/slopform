@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { FEEDBACK_OBSERVED_TEXT_HARD_LIMIT } from "../jobs.schemas.js";
 import { FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH } from "../post-event-feedback-conversation.document.js";
+import { POST_EVENT_FEEDBACK_QUESTION_SET_V2 } from "../question-set.js";
 import { BURST_PERSONAS } from "./burst-personas.js";
 import {
   BURST_CAMPAIGNS,
@@ -29,6 +30,7 @@ describe("feedbackBurstCatalogResponseSchema", () => {
         slug: campaign.slug,
         ordinal: campaign.ordinal,
         title: campaign.title,
+        venue: campaign.venue,
       })),
       // The endpoint's own mapping, not a copy of it — see
       // `burstPersonaCatalogEntry`.
@@ -42,6 +44,79 @@ describe("feedbackBurstCatalogResponseSchema", () => {
 });
 
 describe("BURST_PERSONAS", () => {
+  it("keeps every scripted rehearsal on V2 and completes every V2 finisher", () => {
+    const v2Keys = POST_EVENT_FEEDBACK_QUESTION_SET_V2.answerQuestions.map(
+      (question) => question.key,
+    );
+    const allowed: ReadonlySet<string> = new Set(v2Keys);
+    const newNumeric: ReadonlySet<string> = new Set([
+      "table_fit",
+      "participation_ease",
+      "conversation_balance",
+    ]);
+
+    for (const persona of BURST_PERSONAS.filter((entry) => !entry.live)) {
+      const terminal = new Set<string>();
+      for (const turn of persona.stub) {
+        for (const answer of turn.answers ?? []) {
+          expect(
+            allowed.has(answer.question),
+            `${persona.id} scripts removed/non-V2 goal ${answer.question}`,
+          ).toBe(true);
+          terminal.add(answer.question);
+          if (newNumeric.has(answer.question)) {
+            expect(
+              answer.value,
+              `${persona.id} omits ${answer.question}`,
+            ).toBeGreaterThanOrEqual(1);
+            expect(
+              answer.value,
+              `${persona.id} exceeds ${answer.question}`,
+            ).toBeLessThanOrEqual(5);
+            expect(answer.about).toBeUndefined();
+          }
+        }
+        for (const question of turn.skippedGoals ?? []) {
+          expect(
+            allowed.has(question),
+            `${persona.id} skips removed/non-V2 goal ${question}`,
+          ).toBe(true);
+          terminal.add(question);
+        }
+        if (turn.nextGoal !== undefined && turn.nextGoal !== null) {
+          expect(
+            allowed.has(turn.nextGoal),
+            `${persona.id} advances to removed/non-V2 goal ${turn.nextGoal}`,
+          ).toBe(true);
+        }
+      }
+
+      const expectedIdentities = persona.expect.answers.map((answer) => {
+        expect(
+          allowed.has(answer.question),
+          `${persona.id} expects removed/non-V2 goal ${answer.question}`,
+        ).toBe(true);
+        if (newNumeric.has(answer.question)) {
+          expect(answer.about).toBeNull();
+          expect(answer.value).toBeGreaterThanOrEqual(1);
+          expect(answer.value).toBeLessThanOrEqual(5);
+        }
+        return `${answer.question}:${answer.about ?? ""}`;
+      });
+      expect(
+        new Set(expectedIdentities).size,
+        `${persona.id} expects the same answer edge more than once`,
+      ).toBe(expectedIdentities.length);
+
+      if (persona.expect.closedBecause === "completed") {
+        expect(
+          [...terminal].filter((key) => allowed.has(key)).sort(),
+          `${persona.id} completes without settling every V2 goal`,
+        ).toEqual([...v2Keys].sort());
+      }
+    }
+  });
+
   it("gives every persona a unique id and a unique phone", () => {
     const ids = BURST_PERSONAS.map((persona) => persona.id);
     const phones = BURST_PERSONAS.map(burstPersonaPhoneE164);
@@ -123,5 +198,18 @@ describe("BURST_PERSONAS", () => {
         `${persona.id} sends ${clusters} clusters but declares ${persona.stub.length} stub turns`,
       ).toBeLessThanOrEqual(clusters);
     }
+  });
+});
+
+describe("BURST_CAMPAIGNS", () => {
+  it("pins one distinct Google venue with feedback enabled per event", () => {
+    const placeIds = BURST_CAMPAIGNS.map((campaign) => {
+      expect(campaign.venue.provider, campaign.slug).toBe("google");
+      expect(campaign.venue.placeId.trim(), campaign.slug).not.toBe("");
+      expect(campaign.venue.useInFeedback, campaign.slug).toBe(true);
+      return campaign.venue.placeId;
+    });
+
+    expect(new Set(placeIds).size).toBe(BURST_CAMPAIGNS.length);
   });
 });

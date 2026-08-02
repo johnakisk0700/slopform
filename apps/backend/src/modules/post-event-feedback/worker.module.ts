@@ -15,7 +15,10 @@ import {
 import { FeedbackOutboxSchedulerService } from "./outbox/relay-scheduler.service.js";
 import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
 import { FeedbackSweepSchedulerService } from "./sweeps/sweep-scheduler.service.js";
-import { FEEDBACK_TRANSPORT } from "./outbox/transport.js";
+import {
+  FEEDBACK_TRANSPORT,
+  type FeedbackTransport,
+} from "./outbox/transport.js";
 import { MessageOutboxDeliveryService } from "./outbox/deliver.service.js";
 import { MessageOutboxRelayService } from "./outbox/relay.service.js";
 import { PostEventFeedbackCoreModule } from "./core.module.js";
@@ -30,8 +33,27 @@ import { PostEventFeedbackIngressProcessor } from "./ingress/ingress.processor.j
 import { PostEventFeedbackProcessor } from "./processor.js";
 import { PostEventFeedbackSweepService } from "./sweeps/sweep.service.js";
 import { PostEventFeedbackCampaignSummaryService } from "./summary/summary.service.js";
+import { DisabledFeedbackTransport } from "./outbox/disabled-transport.service.js";
 import { SimulatedFeedbackTransport } from "./outbox/simulated-transport.service.js";
 import { WasenderFeedbackTransport } from "./outbox/wasender-transport.service.js";
+
+export function createFeedbackTransport(
+  mode: Environment["TRANSPORT_MODE"],
+  wasender: WasenderClient | undefined,
+  simulated: SimulatedFeedbackTransport,
+  disabled: DisabledFeedbackTransport,
+): FeedbackTransport {
+  if (mode === "wasender") {
+    if (!wasender) {
+      throw new Error(
+        "WASENDER_SESSION_API_KEY is required when TRANSPORT_MODE=wasender",
+      );
+    }
+    return new WasenderFeedbackTransport(wasender);
+  }
+
+  return mode === "simulated" ? simulated : disabled;
+}
 
 /**
  * The worker-side half: the `feedback` queue consumer and every store it needs
@@ -85,6 +107,7 @@ import { WasenderFeedbackTransport } from "./outbox/wasender-transport.service.j
     FeedbackSweepSchedulerService,
     PostEventFeedbackSweepService,
     PostEventFeedbackCampaignSummaryService,
+    DisabledFeedbackTransport,
     SimulatedFeedbackTransport,
     {
       provide: FEEDBACK_TRANSPORT,
@@ -92,23 +115,20 @@ import { WasenderFeedbackTransport } from "./outbox/wasender-transport.service.j
         ConfigService,
         { token: WasenderClient, optional: true },
         SimulatedFeedbackTransport,
+        DisabledFeedbackTransport,
       ],
       useFactory: (
         config: ConfigService<Environment, true>,
         wasender: WasenderClient | undefined,
         simulated: SimulatedFeedbackTransport,
-      ) => {
-        const mode = config.get("TRANSPORT_MODE", { infer: true });
-        if (mode === "wasender") {
-          if (!wasender) {
-            throw new Error(
-              "WASENDER_SESSION_API_KEY is required when TRANSPORT_MODE=wasender",
-            );
-          }
-          return new WasenderFeedbackTransport(wasender);
-        }
-        return simulated;
-      },
+        disabled: DisabledFeedbackTransport,
+      ) =>
+        createFeedbackTransport(
+          config.get("TRANSPORT_MODE", { infer: true }),
+          wasender,
+          simulated,
+          disabled,
+        ),
     },
     PostEventFeedbackProcessor,
     PostEventFeedbackIngressProcessor,

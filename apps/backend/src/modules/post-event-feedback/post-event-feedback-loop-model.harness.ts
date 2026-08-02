@@ -1,3 +1,5 @@
+import type { FeedbackAnswerQuestionKey } from "@join-the-six/database";
+
 import type { FeedbackConversationDocument } from "./post-event-feedback-conversation.document.js";
 import type { FakeFeedbackConversations } from "./post-event-feedback-doubles.harness.js";
 import {
@@ -6,12 +8,13 @@ import {
   type FeedbackExtractionGenerationResult,
 } from "./extraction/model.service.js";
 import {
+  createFeedbackExtractionProposalSchema,
   FEEDBACK_EXTRACTION_MAX_SOURCE_MESSAGES,
   feedbackExtractionGoalVerdicts,
-  feedbackExtractionProposalSchema,
   type FeedbackExtractionMessageView,
   type FeedbackExtractionProposal,
 } from "./extraction/extraction.schemas.js";
+import type { FeedbackExtractionPrompt } from "./extraction/prompt.js";
 import type {
   AttentionTurn,
   Cite,
@@ -52,6 +55,8 @@ interface PendingModelPause {
  * have produced.
  */
 export class ScriptedExtractionModel {
+  /** Exact provider-bound extraction prompts, in call order. */
+  readonly extractionPrompts: FeedbackExtractionPrompt[] = [];
   private turns: readonly ModelTurn[] = [];
   private attentionTurns: readonly AttentionTurn[] = [];
   private turnIndex = 0;
@@ -77,6 +82,7 @@ export class ScriptedExtractionModel {
     this.failuresTaken = 0;
     this.attemptedTurnIndexes.clear();
     this.emittedFailures.splice(0);
+    this.extractionPrompts.splice(0);
     this.allowUnscriptedExtractionCalls = allowUnscriptedExtractionCalls;
   }
 
@@ -141,13 +147,20 @@ export class ScriptedExtractionModel {
     return this.emittedFailures.shift();
   }
 
-  async propose(): Promise<FeedbackExtractionGenerationResult> {
+  async propose(
+    prompt: FeedbackExtractionPrompt,
+    questionKeys: readonly FeedbackAnswerQuestionKey[],
+  ): Promise<FeedbackExtractionGenerationResult> {
     const conversation = this.requireRunConversation();
+    this.extractionPrompts.push({ ...prompt });
     await this.waitAtPause("extraction");
     const turn = this.turns[this.turnIndex];
     if (!turn) {
       if (this.allowUnscriptedExtractionCalls) {
-        return this.emit(buildProposal({}, conversation, this.idByName));
+        return this.emit(
+          buildProposal({}, conversation, this.idByName, questionKeys),
+          questionKeys,
+        );
       }
       throw new Error(
         `Unexpected extraction provider call ${this.turnIndex + 1}: the scenario script is exhausted`,
@@ -161,7 +174,10 @@ export class ScriptedExtractionModel {
     }
     this.turnIndex += 1;
     this.failuresTaken = 0;
-    return this.emit(buildProposal(turn, conversation, this.idByName));
+    return this.emit(
+      buildProposal(turn, conversation, this.idByName, questionKeys),
+      questionKeys,
+    );
   }
 
   async classifyAttention(
@@ -222,10 +238,12 @@ export class ScriptedExtractionModel {
 
   private emit(
     proposal: Record<string, unknown>,
+    questionKeys: readonly FeedbackAnswerQuestionKey[],
   ): FeedbackExtractionGenerationResult {
     let parsed: FeedbackExtractionProposal;
     try {
-      parsed = feedbackExtractionProposalSchema.parse(proposal);
+      parsed =
+        createFeedbackExtractionProposalSchema(questionKeys).parse(proposal);
     } catch {
       // The production boundary reports a response that never satisfied the
       // agreed schema exactly this way.
@@ -302,6 +320,7 @@ function buildProposal(
   turn: ModelTurn,
   conversation: FeedbackConversationDocument,
   idByName: ReadonlyMap<string, string>,
+  questionKeys: readonly FeedbackAnswerQuestionKey[],
 ): Record<string, unknown> {
   const subject = (
     about: string | undefined,
@@ -313,23 +332,29 @@ function buildProposal(
   };
 
   return {
-    goals: feedbackExtractionGoalVerdicts({
-      answered: (turn.answers ?? []).map((answer) => {
-        const resolved = subject(answer.about);
-        return {
-          questionKey: answer.question,
-          valueInt: answer.value ?? null,
-          subjectParticipantId: resolved.id,
-          subjectMentionedName: resolved.mentioned,
-          sourceMessageIds: resolveCite(answer.cite ?? "all-new", conversation),
-          confidence: answer.confidence ?? 0.9,
-        };
-      }),
-      declined: [...(turn.skip ?? [])].map((questionKey) => ({
-        questionKey,
-        sourceMessageIds: resolveCite("all-new", conversation),
-      })),
-    }),
+    goals: feedbackExtractionGoalVerdicts(
+      {
+        answered: (turn.answers ?? []).map((answer) => {
+          const resolved = subject(answer.about);
+          return {
+            questionKey: answer.question,
+            valueInt: answer.value ?? null,
+            subjectParticipantId: resolved.id,
+            subjectMentionedName: resolved.mentioned,
+            sourceMessageIds: resolveCite(
+              answer.cite ?? "all-new",
+              conversation,
+            ),
+            confidence: answer.confidence ?? 0.9,
+          };
+        }),
+        declined: [...(turn.skip ?? [])].map((questionKey) => ({
+          questionKey,
+          sourceMessageIds: resolveCite("all-new", conversation),
+        })),
+      },
+      questionKeys,
+    ),
     notes: (turn.notes ?? []).map((note) => {
       const resolved = subject(note.about);
       return {

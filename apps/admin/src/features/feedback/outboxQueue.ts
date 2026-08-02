@@ -77,6 +77,27 @@ export function formatWaiting(seconds: number): string {
   return `${Math.floor(total / 3600)}h ${String(Math.floor((total % 3600) / 60)).padStart(2, "0")}m`;
 }
 
+/**
+ * The gap between two steps of one message's delivery.
+ *
+ * Sub-second resolution up to a second, because that is the whole scale a
+ * healthy delivery lives on: written, leased and sent inside the same second is
+ * the normal case, and `formatWaiting` would print all three of those gaps as
+ * `0s` — three zeros in a column whose only job is to show that nothing was
+ * slow. Past a minute the milliseconds have stopped meaning anything and the
+ * queue's own compact form takes over.
+ */
+export function formatDelta(milliseconds: number): string {
+  const total = Math.max(0, milliseconds);
+  if (total < 1000) {
+    return `+${Math.round(total)}ms`;
+  }
+  if (total < 60_000) {
+    return `+${(total / 1000).toFixed(1)}s`;
+  }
+  return `+${formatWaiting(Math.floor(total / 1000))}`;
+}
+
 /** Spoken form for a screen reader, where `2m 27s` reads as punctuation. */
 export function describeWaiting(seconds: number): string {
   const total = Math.max(0, Math.floor(seconds));
@@ -626,6 +647,233 @@ export function outboundConversationStateFacts(
         state.reminderCount === 0 ? "none sent" : `${state.reminderCount} sent`,
     },
   ];
+}
+
+/**
+ * One thing that happened to a message, and how long after the last one.
+ *
+ * The pane used to print six labelled timestamps in a stack — «Created», «Row
+ * last changed», «Delivery last changed», «Sent», «Delivered», «Read» — of
+ * which two were the same instant and two were usually an em dash. What an
+ * operator reads that stack to find is never the absolute time; it is the
+ * distance between two of them. So the distance is what this publishes, and
+ * steps that did not happen are simply not steps.
+ */
+export interface OutboundDeliveryStep {
+  /** Unique within the timeline, so it doubles as the React key. */
+  key: string;
+  label: string;
+  /** The instant itself, already formatted to the millisecond. */
+  at: string;
+  /** Time since the previous step; null on the first, which has no previous. */
+  sincePrevious: string | null;
+  /** True for a step that records a stop rather than progress. */
+  terminal: boolean;
+}
+
+/**
+ * What actually happened to this message, in order, with the gaps.
+ *
+ * `updatedAt` earns a place only where it means something nameable: the lease
+ * on a `sending` row, and the moment a `failed` or `cancelled` row stopped. On
+ * every other row it is a column that changes for reasons the screen has no
+ * word for, which is exactly what made it noise in the old stack.
+ *
+ * The steps are sorted by their own instant rather than trusted in the order
+ * they are assembled — a row that failed after a provider call has an
+ * `updatedAt` later than its `sentAt`, and a timeline that printed them the
+ * other way round would invent a negative gap.
+ */
+export function outboundDeliveryTimeline(
+  message: Pick<
+    FeedbackOutboxMessageDeliveryDtoOutput,
+    | "createdAt"
+    | "updatedAt"
+    | "sentAt"
+    | "deliveredAt"
+    | "readAt"
+    | "playedAt"
+    | "status"
+  >,
+  now: Date = new Date(),
+): OutboundDeliveryStep[] {
+  const candidates: {
+    key: string;
+    label: string;
+    iso: string | null;
+    terminal: boolean;
+  }[] = [
+    {
+      key: "created",
+      label: "Written",
+      iso: message.createdAt,
+      terminal: false,
+    },
+    {
+      key: "leased",
+      label: "Leased by the relay",
+      iso: message.status === "sending" ? message.updatedAt : null,
+      terminal: false,
+    },
+    { key: "sent", label: "Sent", iso: message.sentAt, terminal: false },
+    {
+      key: "delivered",
+      label: "Delivered",
+      iso: message.deliveredAt,
+      terminal: false,
+    },
+    { key: "read", label: "Read", iso: message.readAt, terminal: false },
+    { key: "played", label: "Played", iso: message.playedAt, terminal: false },
+    {
+      key: "failed",
+      label: "Failed",
+      iso: message.status === "failed" ? message.updatedAt : null,
+      terminal: true,
+    },
+    {
+      key: "cancelled",
+      label: "Cancelled",
+      iso: message.status === "cancelled" ? message.updatedAt : null,
+      terminal: true,
+    },
+  ];
+
+  const happened = candidates
+    .filter(
+      (candidate): candidate is typeof candidate & { iso: string } =>
+        candidate.iso !== null,
+    )
+    .map((candidate) => ({ ...candidate, time: new Date(candidate.iso) }))
+    .sort((left, right) => left.time.getTime() - right.time.getTime());
+
+  return happened.map((step, index) => {
+    const previous = happened[index - 1];
+    return {
+      key: step.key,
+      label: step.label,
+      at: formatPreciseTimestamp(step.iso, now),
+      sincePrevious:
+        previous === undefined
+          ? null
+          : formatDelta(step.time.getTime() - previous.time.getTime()),
+      terminal: step.terminal,
+    };
+  });
+}
+
+/**
+ * The provider's own reading, but only when the timeline does not already say
+ * it.
+ *
+ * `message_outbox` carries two statuses and the pane used to print both as raw
+ * enum values in adjacent rows — `sent` above `delivered`, which reads like a
+ * contradiction and is not one. Four of the six delivery statuses are exactly
+ * the steps the timeline now draws with their times attached, so repeating them
+ * as a word without a time is strictly less information in more space.
+ *
+ * The two that survive are the two the timeline cannot draw, because neither
+ * has a timestamp of its own: a provider that reported an error, and a provider
+ * that has not reported anything back yet.
+ */
+export function outboxProviderReadingBadge(
+  deliveryStatus: FeedbackOutboxMessageDeliveryDtoOutput["deliveryStatus"],
+): FeedbackBadge | null {
+  if (deliveryStatus === "error") {
+    return {
+      key: "provider-reading",
+      label: "Provider reported an error",
+      tone: "danger",
+    };
+  }
+  if (deliveryStatus === "pending") {
+    return {
+      key: "provider-reading",
+      label: "Provider has not confirmed",
+      tone: "neutral",
+    };
+  }
+  return null;
+}
+
+/**
+ * How far back the history reaches.
+ *
+ * Presets rather than two date pickers: every question anybody has actually
+ * asked this log — «what broke in the last hour», «what did we send today»,
+ * «has this been happening all week» — is one of these, and a pair of pickers
+ * makes the common case cost six interactions to answer.
+ */
+export type OutboxHistoryRangeKey = "hour" | "today" | "week" | "all";
+
+export const OUTBOX_HISTORY_RANGES: readonly {
+  key: OutboxHistoryRangeKey;
+  label: string;
+}[] = [
+  { key: "hour", label: "Last hour" },
+  { key: "today", label: "Today" },
+  { key: "week", label: "7 days" },
+  { key: "all", label: "All" },
+];
+
+export function isOutboxHistoryRangeKey(
+  value: string | null,
+): value is OutboxHistoryRangeKey {
+  return OUTBOX_HISTORY_RANGES.some((range) => range.key === value);
+}
+
+/**
+ * The instant a range starts, or undefined for «all», which sends no bound.
+ *
+ * Computed against the *browser's* clock and the operator's own midnight. Every
+ * other time on this screen is measured on the server on purpose — an age is a
+ * measurement and a skewed client would misreport it — but a range is not a
+ * measurement, it is a question, and «today» is a question about the day the
+ * person asking is having.
+ */
+export function outboxHistoryRangeFrom(
+  key: OutboxHistoryRangeKey,
+  now: Date = new Date(),
+): string | undefined {
+  switch (key) {
+    case "hour":
+      return new Date(now.getTime() - 3_600_000).toISOString();
+    case "today": {
+      const start = new Date(now);
+      start.setHours(0, 0, 0, 0);
+      return start.toISOString();
+    }
+    case "week":
+      return new Date(now.getTime() - 7 * 86_400_000).toISOString();
+    case "all":
+      return undefined;
+  }
+}
+
+/**
+ * The status filter's options, «any» first.
+ *
+ * The vocabulary is `outboxHistoryStatusBadge`'s, not a second one: a word must
+ * not mean one thing in the filter and another on the row it selects.
+ */
+export const OUTBOX_HISTORY_STATUS_FILTERS: readonly {
+  key: FeedbackOutboxHistoryDtoOutputItemsItemStatus | "any";
+  label: string;
+}[] = [
+  { key: "any", label: "Any status" },
+  ...(
+    Object.keys(
+      OUTBOX_HISTORY_STATUS_LABELS,
+    ) as FeedbackOutboxHistoryDtoOutputItemsItemStatus[]
+  ).map((status) => ({
+    key: status,
+    label: OUTBOX_HISTORY_STATUS_LABELS[status],
+  })),
+];
+
+export function isOutboxHistoryStatus(
+  value: string | null,
+): value is FeedbackOutboxHistoryDtoOutputItemsItemStatus {
+  return value !== null && value in OUTBOX_HISTORY_STATUS_LABELS;
 }
 
 export interface OutboxQueueSummary {

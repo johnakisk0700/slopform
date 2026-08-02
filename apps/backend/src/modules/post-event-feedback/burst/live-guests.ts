@@ -27,6 +27,13 @@ import type { BurstPersona } from "./burst-scenario.js";
  * — and a flaky failure is ignored within a fortnight. What these six are for is
  * the transcript; the harness therefore records what they produced instead of
  * grading it (see `buildExpectations` in `scripts/run-feedback-burst.mjs`).
+ *
+ * Current campaigns use the six-question V2 ladder. Each guest gets sixteen
+ * turns: enough to answer every prompt plus ask a side question, react to a
+ * clarification or split a thought into messages without the harness cutting
+ * off a healthy conversation. The character sheets describe experience and
+ * future-contact intent, but never pin a question-set version or script an
+ * answer key; the live bot still owns what it asks.
  */
 
 /**
@@ -91,7 +98,7 @@ export const BURST_LIVE_GUESTS: readonly BurstPersona[] = [
         "Γράφεις όπως γράφει άνθρωπος στο κινητό: σύντομα, χωρίς τόνους όταν βαριέσαι, μερικές φορές δύο μηνύματα αντί για ένα.",
         "Δεν είσαι εξυπηρετικός επίτηδες. Αν σου ξαναρωτήσει κάτι που έχεις απαντήσει, θα το πεις. Αν σου γράψει σαν έντυπο, θα βαρεθείς.",
       ].join(" "),
-      maxTurns: 12,
+      maxTurns: 16,
     },
   },
   {
@@ -115,7 +122,7 @@ export const BURST_LIVE_GUESTS: readonly BurstPersona[] = [
         "Είσαι κουβεντιάστρα και λίγο ειρωνική. Ρωτάς και εσύ πράγματα, δεν απαντάς μόνο — και σε ενδιαφέρει πραγματικά τι γίνεται με αυτά που τους λες.",
         "Γράφεις όπως γράφει άνθρωπος στο κινητό, με emoji όταν σου βγει. Αν το bot σε πιέσει ή σου ξαναπεί το ίδιο, θα το σχολιάσεις.",
       ].join(" "),
-      maxTurns: 12,
+      maxTurns: 16,
     },
   },
   {
@@ -139,7 +146,7 @@ export const BURST_LIVE_GUESTS: readonly BurstPersona[] = [
         "Γράφετε στον πληθυντικό, με «Καλησπέρα σας», με τόνους και τελείες, ολόκληρες προτάσεις, κανένα emoji. Είστε ευγενικός και συνεργάσιμος.",
         "Αν σας μιλήσουν υπερβολικά φιλικά ή σαν σε παιδί, δεν θυμώνετε — απαντάτε όμως πάντα στο δικό σας ύφος και δεν το αλλάζετε.",
       ].join(" "),
-      maxTurns: 12,
+      maxTurns: 16,
     },
   },
   {
@@ -163,7 +170,7 @@ export const BURST_LIVE_GUESTS: readonly BurstPersona[] = [
         "ΓΡΑΦΕΙΣ ΠΑΝΤΑ GREEKLISH, με λατινικούς χαρακτήρες και ποτέ με ελληνικό αλφάβητο: «kalimera, perasa teleia, thelw na ksanapaw». Έτσι γράφεις στο κινητό σου, δεν αλλάζει.",
         "Είσαι χαλαρή και θετική. Αν το bot σου ξαναρωτήσει το ίδιο θα του το πεις, αλλά χωρίς κακία.",
       ].join(" "),
-      maxTurns: 12,
+      maxTurns: 16,
     },
   },
   {
@@ -187,7 +194,7 @@ export const BURST_LIVE_GUESTS: readonly BurstPersona[] = [
         "Απαντάς με μία ή δύο λέξεις και τίποτα άλλο: «ναι», «οκ», «καλα ηταν», «δεν ξερω», «κατι αλλο;». Ποτέ ολόκληρη πρόταση, ποτέ εξήγηση.",
         "ΔΕΝ είσαι αγενής και δεν βρίζεις. Δεν λες ποτέ να σταματήσει, απλώς δεν δίνεις τίποτα. Αν επιμείνει ευγενικά, μπορεί στο τέλος να πεις ένα νούμερο.",
       ].join(" "),
-      maxTurns: 12,
+      maxTurns: 16,
     },
   },
   {
@@ -212,7 +219,7 @@ export const BURST_LIVE_GUESTS: readonly BurstPersona[] = [
         "Το τέλος όμως σου άφησε άσχημη αίσθηση: ο Τάκης επέμενε να σε πάει σπίτι με το αυτοκίνητό του, του είπες δύο φορές όχι, και συνέχισε μέχρι που αναγκάστηκες να φύγεις με άλλον τρόπο. Ένιωσες στριμωγμένη και δεν το έχεις πει σε κανέναν.",
         "Είσαι ανοιχτός άνθρωπος και γράφεις ζεστά και πολλά. Δεν το ξεφουρνίζεις στο πρώτο μήνυμα — το λες όταν έρθει η κουβέντα εκεί. Αν το bot σου απαντήσει με αστείο ή σαν να μην άκουσε, θα ενοχληθείς και θα του το πεις.",
       ].join(" "),
-      maxTurns: 12,
+      maxTurns: 16,
     },
   },
 ];

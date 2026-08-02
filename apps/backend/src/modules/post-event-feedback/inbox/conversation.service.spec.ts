@@ -16,7 +16,10 @@ import {
   FeedbackConversationCapacityError,
   type FeedbackConversationRepository,
 } from "../post-event-feedback-conversation.repository.js";
-import type { FeedbackConversationDocument } from "../post-event-feedback-conversation.document.js";
+import {
+  buildFeedbackConversationGoals,
+  type FeedbackConversationDocument,
+} from "../post-event-feedback-conversation.document.js";
 import type { FeedbackJobData, FeedbackJobName } from "../jobs.schemas.js";
 import type { EventsRepository } from "../../events/events.repository.js";
 import type { EventsService } from "../../events/events.service.js";
@@ -63,7 +66,7 @@ const campaignRow: FeedbackCampaignRow = {
   id: campaignId,
   eventId,
   questionSetVersion: 1,
-  questions: buildPostEventFeedbackQuestionLaunchSnapshot(),
+  questions: buildPostEventFeedbackQuestionLaunchSnapshot(1),
   status: "launched",
   launchedAt: new Date("2026-07-25T00:00:00.000Z"),
   launchedBy: "admin-1",
@@ -76,6 +79,17 @@ const eventRow: EventRow = {
   title: "Friday dinner",
   startsAt: new Date("2026-07-01T18:00:00.000Z"),
   status: "finished",
+  venueProvider: null,
+  venuePlaceId: null,
+  venueLabel: null,
+  venueType: null,
+  venueArea: null,
+  venuePriceLevel: null,
+  venuePriceStartMinor: null,
+  venuePriceEndMinor: null,
+  venuePriceCurrencyCode: null,
+  venueUseInFeedback: null,
+  venueContextRevision: 0,
   createdAt: new Date("2026-07-01T00:00:00.000Z"),
   updatedAt: new Date("2026-07-01T00:00:00.000Z"),
 };
@@ -1206,7 +1220,7 @@ describe("PostEventFeedbackConversationService", () => {
   it("records an operator's answer about a candidate with staff provenance", async () => {
     const { service, repository, conversations, eventsService, auditAppend } =
       createService();
-    conversations.findById.mockResolvedValue(openConversation());
+    conversations.findById.mockResolvedValue(openV1Conversation());
     eventsService.listFeedbackCandidatesForRespondent.mockResolvedValue({
       items: [{ participantId: subjectId, displayName: "Kostas" }],
     });
@@ -1270,7 +1284,7 @@ describe("PostEventFeedbackConversationService", () => {
   it("refuses to record an answer about someone outside the D16 candidates", async () => {
     const { service, repository, conversations, eventsService } =
       createService();
-    conversations.findById.mockResolvedValue(openConversation());
+    conversations.findById.mockResolvedValue(openV1Conversation());
     eventsService.listFeedbackCandidatesForRespondent.mockResolvedValue({
       items: [],
     });
@@ -1287,10 +1301,34 @@ describe("PostEventFeedbackConversationService", () => {
     expect(repository.insertStaffAnswer).not.toHaveBeenCalled();
   });
 
+  it("refuses a legacy liked answer on a V2 conversation", async () => {
+    const { service, repository, conversations, eventsService } =
+      createService();
+    conversations.findById.mockResolvedValue(
+      openConversation({
+        goals: buildFeedbackConversationGoals(undefined, 2),
+      }),
+    );
+    eventsService.listFeedbackCandidatesForRespondent.mockResolvedValue({
+      items: [{ participantId: subjectId, displayName: "Kostas" }],
+    });
+
+    await expect(
+      service.addStaffAnswer(
+        campaignId,
+        conversationId,
+        { questionKey: "liked", subjectParticipantId: subjectId },
+        "admin-1",
+        "req-41-v2",
+      ),
+    ).rejects.toBeInstanceOf(FeedbackConversationActionNotAllowedError);
+    expect(repository.insertStaffAnswer).not.toHaveBeenCalled();
+  });
+
   it("moves a person rather than holding both positions at once", async () => {
     const { service, repository, conversations, eventsService, auditAppend } =
       createService();
-    conversations.findById.mockResolvedValue(openConversation());
+    conversations.findById.mockResolvedValue(openV1Conversation());
     eventsService.listFeedbackCandidatesForRespondent.mockResolvedValue({
       items: [{ participantId: subjectId, displayName: "Kostas" }],
     });
@@ -1341,7 +1379,7 @@ describe("PostEventFeedbackConversationService", () => {
   it("lifts the tombstone on the slot an operator fills", async () => {
     const { service, repository, conversations, eventsService, auditAppend } =
       createService();
-    conversations.findById.mockResolvedValue(openConversation());
+    conversations.findById.mockResolvedValue(openV1Conversation());
     eventsService.listFeedbackCandidatesForRespondent.mockResolvedValue({
       items: [{ participantId: subjectId, displayName: "Kostas" }],
     });
@@ -1375,7 +1413,7 @@ describe("PostEventFeedbackConversationService", () => {
   it("returns the row already there rather than recording a second one", async () => {
     const { service, repository, conversations, eventsService } =
       createService();
-    conversations.findById.mockResolvedValue(openConversation());
+    conversations.findById.mockResolvedValue(openV1Conversation());
     eventsService.listFeedbackCandidatesForRespondent.mockResolvedValue({
       items: [{ participantId: subjectId, displayName: "Kostas" }],
     });
@@ -1668,6 +1706,15 @@ function openConversation(
     updatedAt: now,
     ...overrides,
   };
+}
+
+function openV1Conversation(
+  overrides: Partial<FeedbackConversationDocument> = {},
+): FeedbackConversationDocument {
+  return openConversation({
+    goals: buildFeedbackConversationGoals(undefined, 1),
+    ...overrides,
+  });
 }
 
 function attentionReason(

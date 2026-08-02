@@ -32,6 +32,9 @@ importers:
       '@fontsource-variable/sora':
         specifier: ^5.3.0
         version: 5.3.0
+      '@googlemaps/js-api-loader':
+        specifier: 2.1.1
+        version: 2.1.1
       '@heroui/react':
         specifier: 3.2.2
         version: 3.2.2(@react-spectrum/provider@3.11.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(tailwindcss@4.3.3)
@@ -102,6 +105,9 @@ importers:
       '@tailwindcss/vite':
         specifier: 4.3.3
         version: 4.3.3(vite@8.1.5(@types/node@24.13.3)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(tsx@4.23.1)(yaml@2.9.0))
+      '@types/google.maps':
+        specifier: 3.65.4
+        version: 3.65.4
       '@types/node':
         specifier: 24.13.3
         version: 24.13.3
@@ -222,6 +228,9 @@ importers:
       helmet:
         specifier: 8.3.0
         version: 8.3.0
+      ioredis:
+        specifier: 5.11.1
+        version: 5.11.1
       mongodb:
         specifier: 7.5.0
         version: 7.5.0
@@ -1023,6 +1032,9 @@ packages:
 
   '@gerrit0/mini-shiki@3.23.0':
     resolution: {integrity: sha512-bEMORlG0cqdjVyCEuU0cDQbORWX+kYCeo0kV1lbxF5bt4r7SID2l9bqsxJEM0zndaxpOUT7riCyIVEuqq/Ynxg==}
+
+  '@googlemaps/js-api-loader@2.1.1':
+    resolution: {integrity: sha512-yUpAwksbHrlZIWD49JmveNSfBG4oAK0AwMknfSaPMnP5N7UT8oFRVCqwjGb1XQovi//7KLbPQKZpbofiLGzpDw==}
 
   '@grpc/grpc-js@1.14.4':
     resolution: {integrity: sha512-k9Dj3DV/itK9D06Y8f190Qgop7/Ui+D0njFV3LHMPwPT75DpXLQohE9Wmz0QElrJnzsjB7KPWiKJbOl7IPDArQ==}
@@ -2481,6 +2493,9 @@ packages:
 
   '@types/geojson@7946.0.16':
     resolution: {integrity: sha512-6C8nqWur3j98U6+lXDfTUWIfgvZU+EumvpHKcYjujKH7woYyLj2sUmff0tRhrqM7BohUw7Pz3ZB1jj2gW9Fvmg==}
+
+  '@types/google.maps@3.65.4':
+    resolution: {integrity: sha512-5mvL6keNtWL8jisY5ABjNCpczqGpP9SU9CgYYi7xK+rmy0PSVsDIS+4fM+q6HR1uihDj2k7F1KoHK7kSV5GBpQ==}
 
   '@types/hast@3.0.5':
     resolution: {integrity: sha512-rp/ezSWaD1m44dPKICGhiskI13nVr7qTloFwDa/IYkhhf5nzwP+zIQcIJh3WIFSBOy/H1PzB40jPjMDksN4F+g==}
@@ -6412,6 +6427,10 @@ snapshots:
       '@shikijs/types': 3.23.0
       '@shikijs/vscode-textmate': 10.0.2
 
+  '@googlemaps/js-api-loader@2.1.1':
+    dependencies:
+      '@types/google.maps': 3.65.4
+
   '@grpc/grpc-js@1.14.4':
     dependencies:
       '@grpc/proto-loader': 0.8.1
@@ -8131,6 +8150,8 @@ snapshots:
       '@types/serve-static': 2.2.0
 
   '@types/geojson@7946.0.16': {}
+
+  '@types/google.maps@3.65.4': {}
 
   '@types/hast@3.0.5':
     dependencies:

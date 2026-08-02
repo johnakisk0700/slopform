@@ -53,8 +53,9 @@ import type {
   FeedbackNoteType,
 } from "@join-the-six/database";
 import {
-  POST_EVENT_FEEDBACK_QUESTION_SET_V1,
+  CURRENT_POST_EVENT_FEEDBACK_QUESTION_SET_VERSION,
   createFeedbackIntroDedupeKey,
+  getPostEventFeedbackQuestionSet,
   renderPostEventFeedbackCopy,
 } from "./question-set.js";
 import { PostEventFeedbackIngressProcessor } from "./ingress/ingress.processor.js";
@@ -94,6 +95,8 @@ import {
   type FeedbackLoopOutcome,
   type FeedbackReceivedKind,
   type FeedbackScenario,
+  type FeedbackScenarioVenue,
+  type FeedbackScenarioSuiteOptions,
   type FeedbackSeedOptions,
   type FeedbackStep,
   type ModelFailure,
@@ -112,6 +115,8 @@ export {
   type FeedbackReceivedKind,
   type FeedbackReceivedMessage,
   type FeedbackScenario,
+  type FeedbackScenarioVenue,
+  type FeedbackScenarioSuiteOptions,
   type FeedbackSeedOptions,
   type FeedbackStep,
   type FeedbackTranscriptEntry,
@@ -376,12 +381,16 @@ export async function createFeedbackLoopHarness(
       })[key],
   } as unknown as ConfigService<Environment, true>;
 
-  const copy = { ...POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy };
+  const questionSetVersion =
+    seed.questionSetVersion ?? CURRENT_POST_EVENT_FEEDBACK_QUESTION_SET_VERSION;
+  const questionSet = getPostEventFeedbackQuestionSet(questionSetVersion);
+  const copy = { ...questionSet.copy };
   repository.campaigns.set(CAMPAIGN_ID, {
     id: CAMPAIGN_ID,
     eventId: EVENT_ID,
     status: seed.campaign ?? "launched",
-    questions: { questionSetVersion: 1, copy },
+    questionSetVersion,
+    questions: { questionSetVersion, copy },
   });
   participants.rows.set(respondentId, {
     id: respondentId,
@@ -404,6 +413,10 @@ export async function createFeedbackLoopHarness(
     participantId: idByName.get(name)!,
     displayName: name,
   }));
+  events.seedVenue(
+    seed.venue ?? null,
+    seed.venueContextRevision ?? (seed.venue ? 1 : 0),
+  );
 
   const conversationId = deriveFeedbackConversationId(
     CAMPAIGN_ID,
@@ -427,10 +440,12 @@ export async function createFeedbackLoopHarness(
     phoneAtLaunch: phone,
     lifecycle: { state: "open", reason: null, closedAt: null },
     control: { mode: "bot", source: "launch", changedAt: FEEDBACK_LOOP_START },
-    goals: buildFeedbackConversationGoals(copy).map((goal) => ({
-      ...goal,
-      status: goalStatuses[goal.key] ?? goal.status,
-    })),
+    goals: buildFeedbackConversationGoals(copy, questionSetVersion).map(
+      (goal) => ({
+        ...goal,
+        status: goalStatuses[goal.key] ?? goal.status,
+      }),
+    ),
     messages: [],
     extraction: {
       cursorSeq: 0,
@@ -563,6 +578,7 @@ export async function createFeedbackLoopHarness(
     repository as unknown as FeedbackCampaignRepository,
     repository as unknown as FeedbackResultsRepository,
     repository as unknown as FeedbackOutboxRepository,
+    repository as unknown as FeedbackIngressRepository,
     conversations as unknown as FeedbackConversationRepository,
     events as unknown as EventsService,
     participants as unknown as ParticipantsRepository,
@@ -848,6 +864,14 @@ export async function createFeedbackLoopHarness(
           action.optedIn,
         );
       });
+    } else if (action.kind === "venue") {
+      if (action.action === "replace") {
+        events.replaceVenue(action.venue);
+      } else if (action.action === "disable") {
+        events.disableVenue();
+      } else {
+        events.clearVenue();
+      }
     } else {
       transport.outcome = action.outcome;
     }
@@ -938,7 +962,8 @@ export async function createFeedbackLoopHarness(
         }))
         .sort(
           (left, right) =>
-            questionOrdinal(left.question) - questionOrdinal(right.question) ||
+            questionOrdinal(left.question, questionSet.answerQuestions) -
+              questionOrdinal(right.question, questionSet.answerQuestions) ||
             (left.about ?? "").localeCompare(right.about ?? ""),
         ),
       notes: repository.notes
@@ -1012,10 +1037,11 @@ export async function createFeedbackLoopHarness(
   };
 }
 
-function questionOrdinal(key: FeedbackAnswerQuestionKey): number {
-  return POST_EVENT_FEEDBACK_QUESTION_SET_V1.answerQuestions.findIndex(
-    (question) => question.key === key,
-  );
+function questionOrdinal(
+  key: FeedbackAnswerQuestionKey,
+  questions: readonly { readonly key: FeedbackAnswerQuestionKey }[],
+): number {
+  return questions.findIndex((question) => question.key === key);
 }
 
 /**
@@ -1077,6 +1103,7 @@ function classifyOutbound(
 export function runFeedbackScenarios(
   suite: string,
   scenarios: readonly FeedbackScenario[],
+  options: FeedbackScenarioSuiteOptions = {},
 ): void {
   describe(suite, () => {
     beforeAll(() => {
@@ -1093,7 +1120,12 @@ export function runFeedbackScenarios(
         : `${scenario.id} — ${scenario.title}`;
 
       it(title, async () => {
-        const harness = await createFeedbackLoopHarness(scenario.seed);
+        const questionSetVersion =
+          scenario.seed?.questionSetVersion ?? options.questionSetVersion;
+        const harness = await createFeedbackLoopHarness({
+          ...scenario.seed,
+          ...(questionSetVersion === undefined ? {} : { questionSetVersion }),
+        });
         harness.model.script(
           scenario.script ?? [],
           scenario.allowUnscriptedExtractionCalls ?? false,

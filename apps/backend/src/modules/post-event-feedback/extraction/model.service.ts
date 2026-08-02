@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
+import type { FeedbackAnswerQuestionKey } from "@join-the-six/database";
 import {
   APICallError,
   NoObjectGeneratedError,
@@ -11,6 +12,7 @@ import {
   type LanguageModel,
 } from "ai";
 
+import { withProviderCallSlot } from "../../../infrastructure/ai/provider-call-limiter.js";
 import type { Environment } from "../../../infrastructure/config/environment.js";
 import {
   assistantModelAdapter,
@@ -34,7 +36,7 @@ import {
 import type { FeedbackPolicyQuestionMatch } from "./policy-answers.js";
 import { resolveFeedbackExtractionProviderSettings } from "./permissive-safety-settings.js";
 import {
-  feedbackExtractionProposalSchema,
+  createFeedbackExtractionProposalSchema,
   type FeedbackExtractionMessageView,
   type FeedbackExtractionProposal,
   type FeedbackExtractionSafetySignalProposal,
@@ -218,6 +220,7 @@ export interface FeedbackExtractionModelPort {
   readonly serviceTier: FeedbackExtractionServiceTier | undefined;
   propose(
     prompt: FeedbackExtractionPrompt,
+    questionKeys: readonly FeedbackAnswerQuestionKey[],
   ): Promise<FeedbackExtractionGenerationResult>;
   classifyAttention(
     messages: readonly FeedbackExtractionMessageView[],
@@ -231,9 +234,10 @@ export interface FeedbackExtractionModelPort {
  *
  * Deliberately not the assistant's `low | medium | high`. That enum is persisted
  * on every turn behind the `assistant_turns_effort_check` constraint; this one
- * is persisted nowhere, so widening it costs no migration. `xhigh` and `max` are
- * offered by OpenAI on Luna and are not reachable through OpenRouter, which is
- * the whole reason the Luna route moved — see `ASSISTANT_MODEL_ADAPTERS`.
+ * is persisted nowhere, so widening it costs no migration. `xhigh` and `max`
+ * are offered by OpenAI on Luna. The evaluation deliberately uses OpenAI direct
+ * so this budget is an explicit request control under our provider contract,
+ * not an assumed equivalent through an upstream router.
  *
  * `max` was added on 2026-07-31 after probing the responses API directly:
  * `reasoning: { effort: "max" }` on `gpt-5.6-luna` answered 200 rather than the
@@ -552,8 +556,10 @@ export class PostEventFeedbackExtractionModel implements FeedbackExtractionModel
 
   async propose(
     prompt: FeedbackExtractionPrompt,
+    questionKeys: readonly FeedbackAnswerQuestionKey[],
   ): Promise<FeedbackExtractionGenerationResult> {
     const model = this.resolveProviderModel(this.model);
+    const proposalSchema = createFeedbackExtractionProposalSchema(questionKeys);
     const providerOptions = feedbackExtractionProviderOptions(
       this.model,
       this.reasoningEffort,
@@ -561,28 +567,30 @@ export class PostEventFeedbackExtractionModel implements FeedbackExtractionModel
     );
 
     try {
-      const result = await generateObject({
-        model,
-        schema: feedbackExtractionProposalSchema,
-        schemaName: "post_event_feedback_extraction",
-        schemaDescription:
-          "Structured post-event feedback extraction proposal validated by the application before persistence.",
-        system: prompt.system,
-        prompt: prompt.user,
-        maxOutputTokens: feedbackExtractionMaxOutputTokens(
-          this.reasoningEffort,
-        ),
-        ...(providerOptions ? { providerOptions } : {}),
-        // BullMQ owns visible retries, exactly as the assistant worker does.
-        maxRetries: 0,
-        abortSignal: AbortSignal.timeout(
-          FEEDBACK_EXTRACTION_TIMEOUT_MILLISECONDS,
-        ),
-      });
+      const result = await withProviderCallSlot(() =>
+        generateObject({
+          model,
+          schema: proposalSchema,
+          schemaName: "post_event_feedback_extraction",
+          schemaDescription:
+            "Structured post-event feedback extraction proposal validated by the application before persistence.",
+          system: prompt.system,
+          prompt: prompt.user,
+          maxOutputTokens: feedbackExtractionMaxOutputTokens(
+            this.reasoningEffort,
+          ),
+          ...(providerOptions ? { providerOptions } : {}),
+          // BullMQ owns visible retries, exactly as the assistant worker does.
+          maxRetries: 0,
+          abortSignal: AbortSignal.timeout(
+            FEEDBACK_EXTRACTION_TIMEOUT_MILLISECONDS,
+          ),
+        }),
+      );
 
       return {
         model: this.model,
-        proposal: feedbackExtractionProposalSchema.parse(result.object),
+        proposal: proposalSchema.parse(result.object),
         usage: {
           inputTokens: result.usage.inputTokens ?? null,
           outputTokens: result.usage.outputTokens ?? null,
@@ -625,21 +633,23 @@ export class PostEventFeedbackExtractionModel implements FeedbackExtractionModel
           targetMessageIds: batch,
         });
         estimatedPromptTokens += estimatePromptTokens(prompt);
-        const result = await generateObject({
-          model,
-          schema: feedbackAttentionClassificationProposalSchema,
-          schemaName: "post_event_feedback_attention_classification",
-          schemaDescription:
-            "One contextual incident classification for every supplied participant message.",
-          system: prompt.system,
-          prompt: prompt.user,
-          maxOutputTokens,
-          maxRetries: 0,
-          ...(providerOptions ? { providerOptions } : {}),
-          abortSignal: AbortSignal.timeout(
-            FEEDBACK_EXTRACTION_TIMEOUT_MILLISECONDS,
-          ),
-        });
+        const result = await withProviderCallSlot(() =>
+          generateObject({
+            model,
+            schema: feedbackAttentionClassificationProposalSchema,
+            schemaName: "post_event_feedback_attention_classification",
+            schemaDescription:
+              "One contextual incident classification for every supplied participant message.",
+            system: prompt.system,
+            prompt: prompt.user,
+            maxOutputTokens,
+            maxRetries: 0,
+            ...(providerOptions ? { providerOptions } : {}),
+            abortSignal: AbortSignal.timeout(
+              FEEDBACK_EXTRACTION_TIMEOUT_MILLISECONDS,
+            ),
+          }),
+        );
         const proposal = feedbackAttentionClassificationProposalSchema.parse(
           result.object,
         );

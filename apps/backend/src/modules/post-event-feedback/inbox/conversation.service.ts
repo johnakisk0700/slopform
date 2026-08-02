@@ -946,6 +946,11 @@ export class PostEventFeedbackConversationService {
       conversationId,
     );
     const campaign = await this.requireCampaign(campaignId);
+    if (!conversation.goals.some((goal) => goal.key === input.questionKey)) {
+      throw new FeedbackConversationActionNotAllowedError(
+        "An answer can only be recorded for this conversation's question set",
+      );
+    }
 
     const candidates =
       await this.eventsService.listFeedbackCandidatesForRespondent(
@@ -987,6 +992,7 @@ export class PostEventFeedbackConversationService {
       // enum), so the comparison is against the rule's keys as strings.
       const contradicted = contradictedPostEventFeedbackQuestionKeys(
         input.questionKey,
+        conversation.goals.map((goal) => goal.key),
       ) as readonly string[];
       const superseded = answers.filter(
         (answer) =>

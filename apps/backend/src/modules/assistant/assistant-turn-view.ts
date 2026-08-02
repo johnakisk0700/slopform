@@ -7,11 +7,14 @@ import type {
 } from "../conversations/conversation-thread.schemas.js";
 import type { AssistantThreadRecord } from "./assistant.repository.js";
 import {
+  DEFAULT_ASSISTANT_SERVICE_TIER,
   assistantFailureCodeSchema,
   assistantModelSchema,
   assistantReasoningEffortSchema,
+  assistantServiceTierSchema,
   type AssistantModel,
   type AssistantReasoningEffort,
+  type AssistantServiceTier,
   type AssistantThreadView,
   type AssistantTurnView,
   type CreateAssistantTurnInput,
@@ -31,13 +34,15 @@ export function toThreadView(
 }
 
 export function toTurnView(turn: ConversationTurn): AssistantTurnView {
-  const { effort, model, requestId } = requireAssistantTurnMetadata(turn);
+  const { effort, model, requestId, serviceTier } =
+    requireAssistantTurnMetadata(turn);
   const base = {
     id: turn.id,
     requestId,
     sequence: turn.sequence,
     model,
     effort,
+    serviceTier,
     user: {
       role: "user" as const,
       content: turn.input.content,
@@ -54,6 +59,8 @@ export function toTurnView(turn: ConversationTurn): AssistantTurnView {
         ...base,
         status: turn.status,
         assistant: null,
+        partial: turn.partial,
+        reasoning: turn.reasoning,
         error: null,
         completedAt: null,
       };
@@ -74,6 +81,8 @@ export function toTurnView(turn: ConversationTurn): AssistantTurnView {
           role: "assistant",
           content: turn.output.content,
         },
+        partial: null,
+        reasoning: null,
         error: null,
         completedAt: turn.completedAt.toISOString(),
       };
@@ -87,6 +96,8 @@ export function toTurnView(turn: ConversationTurn): AssistantTurnView {
         ...base,
         status: "failed",
         assistant: null,
+        partial: null,
+        reasoning: null,
         error: {
           code: assistantFailureCodeSchema.parse(turn.error.code),
           message: turn.error.message,
@@ -131,11 +142,14 @@ function toConversationTurn(turn: AssistantTurnRow): ConversationTurn {
     attempt: turn.attempt,
     model: turn.model,
     reasoningEffort: turn.effort,
+    serviceTier: turn.serviceTier,
     input: { actor: "admin", content: turn.userContent },
     output:
       status === "succeeded" && turn.assistantContent
         ? { actor: "assistant", content: turn.assistantContent }
         : null,
+    partial: isNonterminalTurnStatus(status) ? turn.streamedContent : null,
+    reasoning: isNonterminalTurnStatus(status) ? turn.reasoningContent : null,
     error:
       status === "failed" && turn.errorCode && turn.errorMessage
         ? { code: turn.errorCode, message: turn.errorMessage }
@@ -161,6 +175,7 @@ export function requireAssistantTurnMetadata(turn: ConversationTurn): {
   readonly requestId: string;
   readonly model: AssistantModel;
   readonly effort: AssistantReasoningEffort;
+  readonly serviceTier: AssistantServiceTier;
 } {
   if (!turn.requestId) {
     throw new Error("Assistant turn is missing its request id");
@@ -169,6 +184,12 @@ export function requireAssistantTurnMetadata(turn: ConversationTurn): {
     requestId: turn.requestId,
     model: assistantModelSchema.parse(turn.model),
     effort: assistantReasoningEffortSchema.parse(turn.reasoningEffort),
+    // Turns written before the fast lane existed carry no tier, and they all ran
+    // on the standard one — the only tier that existed. Reading them as standard
+    // is a statement of fact, not a default papering over missing data.
+    serviceTier: assistantServiceTierSchema.parse(
+      turn.serviceTier ?? DEFAULT_ASSISTANT_SERVICE_TIER,
+    ),
   };
 }
 
@@ -184,10 +205,12 @@ export function assertIdempotentReplay(
   input: CreateAssistantTurnInput,
   model: AssistantModel,
   effort: AssistantReasoningEffort,
+  serviceTier: AssistantServiceTier,
 ): void {
   if (
     turn.model !== model ||
     turn.effort !== effort ||
+    turn.serviceTier !== serviceTier ||
     turn.userContent !== input.content
   ) {
     throw new AssistantTurnConflictError(
@@ -206,7 +229,9 @@ export function assertConversationProjectionIdentity(
     conversation.input.actor !== "admin" ||
     conversation.input.content !== projection.userContent ||
     conversation.model !== projection.model ||
-    conversation.reasoningEffort !== projection.effort
+    conversation.reasoningEffort !== projection.effort ||
+    (conversation.serviceTier ?? DEFAULT_ASSISTANT_SERVICE_TIER) !==
+      projection.serviceTier
   ) {
     throw new Error(
       "Assistant conversation turn does not match its execution projection",

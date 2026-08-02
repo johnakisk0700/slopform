@@ -57,7 +57,10 @@ export function AssistantConversation({
   const waitingForAssistant = busy && messages.at(-1)?.role !== "assistant";
 
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-3 px-3 pb-40 sm:px-5">
+    /* The source drops the column's left padding once there is room, so the
+       written page starts on the composer's own line of writing rather than
+       inset from it. */
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-3 px-3 pb-40 lg:pl-0">
       <header className="mb-3 flex h-14 w-full items-center justify-between border-b border-border-subtle">
         <span className="hidden text-xs text-ink-muted sm:inline">
           Ask the assistant about operations, events and decisions.

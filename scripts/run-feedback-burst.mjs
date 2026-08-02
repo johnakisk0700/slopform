@@ -20,7 +20,7 @@
 import { execFile } from "node:child_process";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { promisify } from "node:util";
+import { isDeepStrictEqual, promisify } from "node:util";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -32,6 +32,13 @@ import {
   writeRunSummary,
 } from "./burst-artefacts.mjs";
 import { openBurstInspection } from "./burst-inspect.mjs";
+import {
+  assertFeedbackBurstLiveGuestCallAllowed,
+  assertFeedbackBurstQuestionSetVersion,
+  assertFeedbackBurstTreatmentAdapter,
+  resolveFeedbackBurstLiveGuests,
+  resolveFeedbackBurstTreatment,
+} from "./feedback-burst-paid-models.mjs";
 import { summarizeThreadsCost } from "./model-prices.mjs";
 import { renderBurstReport } from "./burst-report.mjs";
 
@@ -62,22 +69,15 @@ const { asc, eq, inArray } = require("drizzle-orm");
 
 const REQUEST_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 const STUB_MODEL_ID = "stub/burst-rehearsal";
-// An allowlist rather than "any id the provider accepts": a typo here bills a
-// real account for the whole catalogue before anybody reads the log.
-const PAID_MODELS = new Set([
-  "qwen/qwen3.7-max",
-  "openai/gpt-5.6-luna",
-  "openai/gpt-5.6-terra",
-]);
 const QUIET_WINDOW_MS = 45_000;
 const POLL_MS = 3_000;
 const INTRO_WAIT_MS = 120_000;
-// Thirty minutes, because the live-guest table now sets the floor rather than
-// the scripted ones. A script sends its whole conversation as fast as the quiet
-// window allows; a live guest waits for the bot, calls a model, waits again, and
-// does that up to twelve times. Two of them already took a run from nine minutes
-// to fourteen and a half — inside the old fifteen, but only just, and six of them
-// will not be.
+// Thirty minutes, because an explicitly enabled live-guest table sets the floor
+// rather than the scripted personas. A script sends its whole conversation as
+// fast as the quiet window allows; a live guest waits for the bot, calls a model,
+// waits again, and does that up to its turn cap. Two of them already took a run
+// from nine minutes to fourteen and a half — inside the old fifteen, but only
+// just, and six of them will not be.
 //
 // Raising it is safe because the deadline was never the real backstop: a run
 // where genuinely nothing moves anywhere for sixty seconds is caught by the
@@ -157,8 +157,12 @@ await main().catch((error) => {
 
 async function main() {
   let args;
+  let treatment;
+  let liveGuestsEnabled;
   try {
     args = parseArgs(process.argv.slice(2));
+    treatment = resolveFeedbackBurstTreatment(args);
+    liveGuestsEnabled = resolveFeedbackBurstLiveGuests(args);
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     printUsage();
@@ -198,17 +202,62 @@ async function main() {
     ...(token ? { authorization: `Bearer ${token}` } : {}),
   };
 
-  const paidModel = args.model ? String(args.model) : undefined;
-  const stubMode = !paidModel;
-  if (paidModel && !PAID_MODELS.has(paidModel)) {
-    throw new Error(
-      `Model "${paidModel}" is outside this rehearsal. Allowed: ${[...PAID_MODELS].join(", ")}`,
-    );
+  const paidModel = treatment?.model;
+  const stubMode = treatment === null;
+  let runConfig = null;
+  if (treatment) {
+    try {
+      runConfig = await resolveTreatmentConfig(treatment);
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exitCode = 2;
+      return;
+    }
   }
 
   const catalog = await requestJson(`${apiBase}/dev/feedback/burst/catalog`, {
     headers,
   });
+  const providerConversationCount = catalog.personas.filter(
+    (persona) => liveGuestsEnabled || !persona.liveModel,
+  ).length;
+  const liveGuestRun = {
+    mode: liveGuestsEnabled ? "cursor_agent" : "deterministic_silence",
+    total: liveGuestsById.size,
+    substituted: liveGuestsEnabled ? 0 : liveGuestsById.size,
+  };
+
+  if (treatment) {
+    const simulatorCatalog = await requestJson(
+      `${apiBase}/dev/feedback/simulator/catalog`,
+      { headers },
+    );
+    if (simulatorCatalog.activeModel !== paidModel) {
+      console.error(
+        `Paid mode requested ${paidModel}, but the running API resolved ${simulatorCatalog.activeModel}.`,
+      );
+      console.error(
+        `Restart both API and worker with FEEDBACK_EXTRACTION_MODEL=${paidModel}; refusing to seed or bill a mislabeled run.`,
+      );
+      process.exitCode = 2;
+      return;
+    }
+    const runningConfig = {
+      reasoningEffort: simulatorCatalog.activeExtractionReasoningEffort,
+      attentionReasoningEffort: simulatorCatalog.activeAttentionReasoningEffort,
+      serviceTier: simulatorCatalog.activeServiceTier,
+    };
+    if (!isDeepStrictEqual(runningConfig, runConfig)) {
+      console.error(
+        `Paid mode requested controls ${JSON.stringify(runConfig)}, but the running API resolved ${JSON.stringify(runningConfig)}.`,
+      );
+      console.error(
+        "Restart both API and worker with the same FEEDBACK_* model controls; refusing to seed or bill a mislabeled treatment.",
+      );
+      process.exitCode = 2;
+      return;
+    }
+  }
 
   if (stubMode) {
     if (catalog.extractionStub !== true) {
@@ -241,12 +290,15 @@ async function main() {
     return;
   }
 
-  if (paidModel && !args["confirm-paid-run"]) {
+  if (treatment && !args["confirm-paid-run"]) {
     console.error("Paid real-model burst rehearsal not confirmed.");
+    console.error(`  treatment:      ${treatment.name}`);
     console.error(`  model:          ${paidModel}`);
-    console.error(`  conversations:  ${burstConversationCount}`);
     console.error(
-      `Each of the ${burstConversationCount} conversations makes at least two provider calls (extraction plus attention classification), permanently consumes the seeded campaigns, and leaves all normal persisted outputs in place.`,
+      `  provider-driven:${String(providerConversationCount).padStart(4, " ")}`,
+    );
+    console.error(
+      `The ${providerConversationCount} personas with testimony can make extraction and attention-classification provider calls. The run permanently consumes the seeded campaigns and leaves all normal persisted outputs in place.`,
     );
     console.error("Re-run with --confirm-paid-run to proceed.");
     process.exitCode = 2;
@@ -264,29 +316,32 @@ async function main() {
 
   const startedAt = new Date();
   const modelLabel = stubMode ? "stub" : paidModel;
-  // The knobs that shaped this run, resolved through the SAME dist module the
-  // workers load and from the same environment dotenv gave both of us — not
-  // copied from anybody's intention. A ledger row without these is anonymous:
-  // run 11 (xhigh/standard) and run 12 (max/priority) differ in nothing the
-  // summary used to record. Soft-fails to null: a run must not die because its
-  // description could not be assembled, and null in the artefact is the honest
-  // "we do not know" the ledger already renders as "?".
-  const runConfig = stubMode ? null : await resolveRunConfig();
-
+  // Paid controls were resolved through the worker's built implementation and
+  // matched against the running API before this point. Keep them in every run
+  // record: xhigh/high and high/none are different experiments, not trivia.
   console.error(
     stubMode
       ? "Starting deterministic burst rehearsal (FEEDBACK_EXTRACTION_STUB):"
       : "Starting confirmed paid burst rehearsal:",
   );
   console.error(`  model:          ${modelLabel}`);
+  if (treatment) {
+    console.error(`  treatment:      ${treatment.name}`);
+  }
   console.error(`  conversations:  ${burstConversationCount}`);
   console.error(`  correlation ID: ${correlationId}`);
   console.error(`  deadline:       ${deadlineMs}ms`);
+  if (runConfig) {
+    console.error(`  controls:       ${JSON.stringify(runConfig)}`);
+  }
 
   console.log(
     JSON.stringify({
       event: "feedback_burst.started",
       model: modelLabel,
+      treatment: treatment?.name ?? null,
+      config: runConfig,
+      liveGuests: liveGuestRun,
       correlationId,
       // The catalogue the running API serves, not the constants this script
       // imported. They are the same source compiled twice, and today they
@@ -344,6 +399,26 @@ async function main() {
           body: JSON.stringify({ eventId: campaign.eventId }),
         },
       );
+      assertFeedbackBurstQuestionSetVersion(
+        launched,
+        `launch response for campaign ${launched.id ?? "missing"}`,
+      );
+      const readBack = await requestJson(
+        `${apiBase}/feedback/campaigns/${launched.id}`,
+        { headers },
+      );
+      if (
+        readBack.id !== launched.id ||
+        readBack.eventId !== campaign.eventId
+      ) {
+        throw new Error(
+          `Campaign read-back did not match launch response for event ${campaign.eventId}`,
+        );
+      }
+      assertFeedbackBurstQuestionSetVersion(
+        readBack,
+        `campaign read-back ${readBack.id}`,
+      );
       campaign.campaignId = launched.id;
       console.error(`  ${campaign.slug}: campaign ${launched.id}`);
     }
@@ -386,6 +461,11 @@ async function main() {
       }
     }
 
+    if (!liveGuestsEnabled && liveGuestsById.size > 0) {
+      console.error(
+        `Replacing ${liveGuestsById.size} unscripted live guests with deterministic silence; no cursor-agent persona calls will run.`,
+      );
+    }
     console.error(`Driving ${burstConversationCount} personas concurrently…`);
     const driveStarted = Date.now();
     await Promise.all(
@@ -395,6 +475,7 @@ async function main() {
           headers,
           entry,
           correlationId,
+          liveGuestsEnabled,
         }),
       ),
     );
@@ -501,6 +582,17 @@ async function main() {
           conversationIds: nonStub.map((row) => row.conversationId),
         });
       }
+    } else {
+      const wrongModel = finalSnapshot.conversations.filter(
+        (row) => row.observedModel !== null && row.observedModel !== paidModel,
+      );
+      if (wrongModel.length > 0) {
+        findings.push({
+          kind: "job_failed",
+          detail: `Expected ${paidModel} but conversations recorded model ${wrongModel[0].observedModel}`,
+          conversationIds: wrongModel.map((row) => row.conversationId),
+        });
+      }
     }
 
     const campaignResults = catalog.campaigns.map((campaignDef) => {
@@ -541,7 +633,9 @@ async function main() {
       finishedAt: finishedAt.toISOString(),
       durationMs: finishedAt.getTime() - startedAt.getTime(),
       model: modelLabel,
+      treatment: treatment?.name ?? null,
       config: runConfig,
+      liveGuests: liveGuestRun,
       passed: !anyConversationFailed && findings.length === 0,
       campaigns: campaignResults,
       findings,
@@ -715,12 +809,17 @@ async function ensureFinishedEvent({
       .where(eq(feedbackCampaigns.eventId, event.id))
       .limit(1);
     if (campaignRow[0]) {
+      assertFeedbackBurstQuestionSetVersion(
+        campaignRow[0],
+        `reused campaign ${campaignRow[0].id}`,
+      );
       await assertReusableCampaign(apiBase, headers, campaignRow[0].id);
       if (event.status !== "finished") {
         throw new Error(
           `Burst event ${event.id} for "${campaign.title}" has a campaign but status ${event.status}`,
         );
       }
+      await ensureEventVenue({ apiBase, headers, campaign, eventId: event.id });
       return event.id;
     }
   }
@@ -728,6 +827,7 @@ async function ensureFinishedEvent({
   if (existingEvents.length > 0) {
     const event = existingEvents.at(-1);
     await finishEventIfNeeded(apiBase, headers, event);
+    await ensureEventVenue({ apiBase, headers, campaign, eventId: event.id });
     return event.id;
   }
 
@@ -737,8 +837,10 @@ async function ensureFinishedEvent({
     body: JSON.stringify({
       title: campaign.title,
       startsAt: new Date(Date.now() - 24 * 60 * 60 * 1_000).toISOString(),
+      venue: campaign.venue,
     }),
   });
+  assertExactEventVenue(campaign, created.venue);
   // draft → scheduled → finished; draft → finished is illegal.
   await requestJson(`${apiBase}/events/${created.id}/status`, {
     method: "POST",
@@ -751,6 +853,51 @@ async function ensureFinishedEvent({
     body: JSON.stringify({ status: "finished" }),
   });
   return created.id;
+}
+
+/**
+ * Canonicalize a reused event through the staff HTTP boundary before launch.
+ *
+ * Venue replacement is whole-object and finished events allow venue-only
+ * patches. Reading first avoids bumping `contextRevision` on every rehearsal;
+ * validating the PATCH response makes persistence drift a pre-launch failure
+ * instead of silently changing what the extraction model is being graded on.
+ */
+async function ensureEventVenue({ apiBase, headers, campaign, eventId }) {
+  const detail = await requestJson(`${apiBase}/events/${eventId}`, { headers });
+  if (eventVenueMatches(campaign.venue, detail.venue)) {
+    assertExactEventVenue(campaign, detail.venue);
+    return;
+  }
+
+  console.error(`  ${campaign.slug}: correcting venue on event ${eventId}`);
+  const updated = await requestJson(`${apiBase}/events/${eventId}`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify({ venue: campaign.venue }),
+  });
+  assertExactEventVenue(campaign, updated.venue);
+}
+
+function eventVenueMatches(expected, actual) {
+  if (
+    actual === null ||
+    typeof actual !== "object" ||
+    !Number.isSafeInteger(actual.contextRevision) ||
+    actual.contextRevision <= 0
+  ) {
+    return false;
+  }
+  const { contextRevision: _contextRevision, ...snapshot } = actual;
+  return isDeepStrictEqual(snapshot, expected);
+}
+
+function assertExactEventVenue(campaign, actual) {
+  if (!eventVenueMatches(campaign.venue, actual)) {
+    throw new Error(
+      `Burst event "${campaign.title}" did not persist its canonical venue exactly (expected ${JSON.stringify(campaign.venue)}, received ${JSON.stringify(actual)})`,
+    );
+  }
 }
 
 async function finishEventIfNeeded(apiBase, headers, event) {
@@ -787,7 +934,7 @@ async function addAttendeeIfAbsent({
     await requestJson(`${apiBase}/events/${eventId}/attendees`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ participantId, present: true }),
+      body: JSON.stringify({ participantId, tableNo: 1, present: true }),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -861,7 +1008,11 @@ async function waitForIntros({ db, catalog, timeoutMs }) {
  * two-second call into a two-minute one. If that happens, the prompt is wrong
  * rather than the model.
  */
-async function askLiveGuest({ live, transcript }) {
+async function askLiveGuest({ live, transcript, liveGuestCallsConfirmed }) {
+  // Keep the spend gate adjacent to the process invocation. The caller also
+  // excludes live personas by default, but that is orchestration; this is the
+  // fail-closed boundary if a future refactor reaches this function directly.
+  assertFeedbackBurstLiveGuestCallAllowed(liveGuestCallsConfirmed);
   const prompt = [
     live.character,
     "",
@@ -918,6 +1069,7 @@ async function driveLiveGuest({
   entry,
   live,
   correlationId,
+  liveGuestCallsConfirmed,
 }) {
   const { persona } = entry;
   let lastSeenBotCount = 0;
@@ -973,7 +1125,11 @@ async function driveLiveGuest({
 
     let text;
     try {
-      text = await askLiveGuest({ live, transcript });
+      text = await askLiveGuest({
+        live,
+        transcript,
+        liveGuestCallsConfirmed,
+      });
     } catch (error) {
       console.error(
         `${persona.id}: the model did not answer (${error.message}) — the guest stops here.`,
@@ -1002,12 +1158,28 @@ async function driveLiveGuest({
   }
 }
 
-async function drivePersona({ apiBase, headers, entry, correlationId }) {
+async function drivePersona({
+  apiBase,
+  headers,
+  entry,
+  correlationId,
+  liveGuestsEnabled,
+}) {
   const { persona } = entry;
   const live = liveGuestsById.get(persona.id);
-  if (live) {
-    return driveLiveGuest({ apiBase, headers, entry, live, correlationId });
+  if (live && liveGuestsEnabled) {
+    return driveLiveGuest({
+      apiBase,
+      headers,
+      entry,
+      live,
+      correlationId,
+      liveGuestCallsConfirmed: liveGuestsEnabled,
+    });
   }
+  // Live personas have no recorded messages by design. In the safe default
+  // they therefore become deterministic silence: the intro remains observable,
+  // no extraction is scheduled for them, and no external persona model runs.
   for (const message of persona.messages) {
     if (message.afterMs > 0) {
       await sleep(message.afterMs);
@@ -1623,8 +1795,12 @@ function parseArgs(values) {
       parsed.help = true;
       continue;
     }
-    if (value === "--confirm-paid-run") {
-      parsed["confirm-paid-run"] = true;
+    if (
+      value === "--confirm-paid-run" ||
+      value === "--live-guests" ||
+      value === "--confirm-live-guests"
+    ) {
+      parsed[value.slice(2)] = true;
       continue;
     }
     if (!value?.startsWith("--")) {
@@ -1669,37 +1845,43 @@ function sleep(ms) {
 }
 
 /**
- * Resolve the run's model knobs exactly as a worker would.
+ * Resolve and validate an exact named treatment against the built worker.
  *
- * Imports the built model service from `dist` — the very code the workers are
- * executing — and feeds it this process's environment, which dotenv loaded from
- * the same `.env`. If the two disagree the workers would not have started, so
- * this is as close to "what the workers actually did" as the runner can get
- * without a config-introspection endpoint.
+ * This checks both halves of the model contract before the API is allowed to
+ * seed anything: the public model id still routes through the expected provider
+ * adapter, and every profile control is accepted by the resolver code the
+ * worker executes. The caller separately compares this result with the running
+ * API's effective catalog.
  */
-async function resolveRunConfig() {
-  try {
-    const m =
-      await import("../apps/backend/dist/modules/post-event-feedback/extraction/model.service.js");
-    return {
-      reasoningEffort:
-        m.resolveFeedbackExtractionReasoningEffort(
-          process.env.FEEDBACK_EXTRACTION_REASONING_EFFORT,
-        ) ?? null,
-      attentionReasoningEffort: m.resolveFeedbackAttentionReasoningEffort(
-        process.env.FEEDBACK_ATTENTION_REASONING_EFFORT,
+async function resolveTreatmentConfig(treatment) {
+  const [modelService, assistantModels] = await Promise.all([
+    import("../apps/backend/dist/modules/post-event-feedback/extraction/model.service.js"),
+    import("../apps/backend/dist/modules/assistant/assistant-models.js"),
+  ]);
+  assertFeedbackBurstTreatmentAdapter(
+    treatment,
+    assistantModels.assistantModelAdapter(treatment.model),
+  );
+  const config = {
+    reasoningEffort:
+      modelService.resolveFeedbackExtractionReasoningEffort(
+        treatment.controls.reasoningEffort,
+      ) ?? null,
+    attentionReasoningEffort:
+      modelService.resolveFeedbackAttentionReasoningEffort(
+        treatment.controls.attentionReasoningEffort,
       ),
-      serviceTier:
-        m.resolveFeedbackExtractionServiceTier(
-          process.env.FEEDBACK_EXTRACTION_SERVICE_TIER,
-        ) ?? null,
-    };
-  } catch (error) {
-    console.error(
-      `run config not recorded: ${error instanceof Error ? error.message : String(error)}`,
+    serviceTier:
+      modelService.resolveFeedbackExtractionServiceTier(
+        treatment.controls.serviceTier ?? undefined,
+      ) ?? null,
+  };
+  if (!isDeepStrictEqual(config, treatment.controls)) {
+    throw new Error(
+      `Burst treatment ${treatment.name} controls drifted in the built worker (expected ${JSON.stringify(treatment.controls)}, resolved ${JSON.stringify(config)})`,
     );
-    return null;
   }
+  return config;
 }
 
 /**
@@ -1769,13 +1951,17 @@ function printUsage() {
   pnpm feedback:burst
 
   pnpm feedback:burst \\
-    --model qwen/qwen3.7-max \\
+    --profile prova \\
     --confirm-paid-run
 
 Options:
-  --model <id>           Paid provider mode (qwen/qwen3.7-max | openai/gpt-5.6-luna).
-                         Default is deterministic stub mode (FEEDBACK_EXTRACTION_STUB).
-  --confirm-paid-run     Required acknowledgement of model cost for ${burstConversationCount} conversations
+  --profile prova        Exact paid profile: direct OpenAI Luna, extraction xhigh,
+                         attention high, service tier unset. Omit for stub mode.
+  --comparison qwen      Explicit Qwen/OpenRouter comparison using the same efforts.
+  --confirm-paid-run     Required acknowledgement of extraction/classifier model cost
+  --live-guests          Enable cursor-agent calls for the six unscripted personas.
+                         Omit to substitute deterministic silence (including stub mode).
+  --confirm-live-guests  Separate acknowledgement required with --live-guests
   --correlation-id <id>  Optional stable log ID; generated when omitted
   --api-base <url>       Default: http://localhost:4000/api/v1
   --admin-base <url>     Default: http://localhost:3000
@@ -1787,7 +1973,12 @@ The API and worker must already be running with:
   FEEDBACK_SIMULATOR_ENABLED=true
   TRANSPORT_MODE=simulated
   FEEDBACK_EXTRACTION_STUB=true          # default free mode
-  # or FEEDBACK_EXTRACTION_STUB=false and FEEDBACK_EXTRACTION_MODEL=<--model>
+  # prova instead requires exactly:
+  FEEDBACK_EXTRACTION_STUB=false
+  FEEDBACK_EXTRACTION_MODEL=openai/gpt-5.6-luna
+  FEEDBACK_EXTRACTION_REASONING_EFFORT=xhigh
+  FEEDBACK_ATTENTION_REASONING_EFFORT=high
+  FEEDBACK_EXTRACTION_SERVICE_TIER=      # unset
 
 Seed identity is the reserved phone block +3069000<cc><pp> and the catalogue
 event titles. The command never cleans up: inspect the persisted campaigns,

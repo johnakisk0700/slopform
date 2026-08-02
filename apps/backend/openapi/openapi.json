@@ -158,6 +158,16 @@
                   ],
                   "type": "string"
                 },
+                "partial": {
+                  "maxLength": 20000,
+                  "nullable": true,
+                  "type": "string"
+                },
+                "reasoning": {
+                  "maxLength": 20000,
+                  "nullable": true,
+                  "type": "string"
+                },
                 "requestId": {
                   "format": "uuid",
                   "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
@@ -168,6 +178,13 @@
                   "maximum": 9007199254740991,
                   "minimum": 0,
                   "type": "integer"
+                },
+                "serviceTier": {
+                  "enum": [
+                    "standard",
+                    "fast"
+                  ],
+                  "type": "string"
                 },
                 "startedAt": {
                   "format": "date-time",
@@ -213,8 +230,11 @@
                 "status",
                 "model",
                 "effort",
+                "serviceTier",
                 "user",
                 "assistant",
+                "partial",
+                "reasoning",
                 "error",
                 "attempt",
                 "createdAt",
@@ -394,6 +414,16 @@
             ],
             "type": "string"
           },
+          "partial": {
+            "maxLength": 20000,
+            "nullable": true,
+            "type": "string"
+          },
+          "reasoning": {
+            "maxLength": 20000,
+            "nullable": true,
+            "type": "string"
+          },
           "requestId": {
             "format": "uuid",
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
@@ -404,6 +434,13 @@
             "maximum": 9007199254740991,
             "minimum": 0,
             "type": "integer"
+          },
+          "serviceTier": {
+            "enum": [
+              "standard",
+              "fast"
+            ],
+            "type": "string"
           },
           "startedAt": {
             "format": "date-time",
@@ -449,8 +486,11 @@
           "status",
           "model",
           "effort",
+          "serviceTier",
           "user",
           "assistant",
+          "partial",
+          "reasoning",
           "error",
           "attempt",
           "createdAt",
@@ -547,6 +587,14 @@
             "format": "uuid",
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
             "type": "string"
+          },
+          "serviceTier": {
+            "default": "standard",
+            "enum": [
+              "standard",
+              "fast"
+            ],
+            "type": "string"
           }
         },
         "required": [
@@ -584,6 +632,14 @@
           "requestId": {
             "format": "uuid",
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+            "type": "string"
+          },
+          "serviceTier": {
+            "default": "standard",
+            "enum": [
+              "standard",
+              "fast"
+            ],
             "type": "string"
           }
         },
@@ -635,6 +691,81 @@
             "maxLength": 200,
             "minLength": 1,
             "type": "string"
+          },
+          "venue": {
+            "additionalProperties": false,
+            "nullable": true,
+            "properties": {
+              "area": {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              "label": {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              "placeId": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "priceLevel": {
+                "enum": [
+                  "free",
+                  "inexpensive",
+                  "moderate",
+                  "expensive",
+                  "very_expensive"
+                ],
+                "type": "string"
+              },
+              "priceRange": {
+                "additionalProperties": false,
+                "properties": {
+                  "currencyCode": {
+                    "pattern": "^[A-Z]{3}$",
+                    "type": "string"
+                  },
+                  "endMinor": {
+                    "maximum": 2147483647,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "startMinor": {
+                    "maximum": 2147483647,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "startMinor",
+                  "currencyCode"
+                ],
+                "type": "object"
+              },
+              "provider": {
+                "enum": [
+                  "google"
+                ],
+                "type": "string"
+              },
+              "type": {
+                "maxLength": 100,
+                "minLength": 1,
+                "type": "string"
+              },
+              "useInFeedback": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "provider",
+              "placeId",
+              "label",
+              "useInFeedback"
+            ],
+            "type": "object"
           }
         },
         "required": [
@@ -1101,6 +1232,88 @@
             "format": "date-time",
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
             "type": "string"
+          },
+          "venue": {
+            "additionalProperties": false,
+            "nullable": true,
+            "properties": {
+              "area": {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              "contextRevision": {
+                "exclusiveMinimum": true,
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "label": {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              "placeId": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "priceLevel": {
+                "enum": [
+                  "free",
+                  "inexpensive",
+                  "moderate",
+                  "expensive",
+                  "very_expensive"
+                ],
+                "type": "string"
+              },
+              "priceRange": {
+                "additionalProperties": false,
+                "properties": {
+                  "currencyCode": {
+                    "pattern": "^[A-Z]{3}$",
+                    "type": "string"
+                  },
+                  "endMinor": {
+                    "maximum": 2147483647,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "startMinor": {
+                    "maximum": 2147483647,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "startMinor",
+                  "currencyCode"
+                ],
+                "type": "object"
+              },
+              "provider": {
+                "enum": [
+                  "google"
+                ],
+                "type": "string"
+              },
+              "type": {
+                "maxLength": 100,
+                "minLength": 1,
+                "type": "string"
+              },
+              "useInFeedback": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "provider",
+              "placeId",
+              "label",
+              "useInFeedback",
+              "contextRevision"
+            ],
+            "type": "object"
           }
         },
         "required": [
@@ -1108,6 +1321,7 @@
           "title",
           "startsAt",
           "status",
+          "venue",
           "attendeeCount",
           "presentCount",
           "createdAt",
@@ -1161,6 +1375,88 @@
             "format": "date-time",
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
             "type": "string"
+          },
+          "venue": {
+            "additionalProperties": false,
+            "nullable": true,
+            "properties": {
+              "area": {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              "contextRevision": {
+                "exclusiveMinimum": true,
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "label": {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              "placeId": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "priceLevel": {
+                "enum": [
+                  "free",
+                  "inexpensive",
+                  "moderate",
+                  "expensive",
+                  "very_expensive"
+                ],
+                "type": "string"
+              },
+              "priceRange": {
+                "additionalProperties": false,
+                "properties": {
+                  "currencyCode": {
+                    "pattern": "^[A-Z]{3}$",
+                    "type": "string"
+                  },
+                  "endMinor": {
+                    "maximum": 2147483647,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "startMinor": {
+                    "maximum": 2147483647,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "startMinor",
+                  "currencyCode"
+                ],
+                "type": "object"
+              },
+              "provider": {
+                "enum": [
+                  "google"
+                ],
+                "type": "string"
+              },
+              "type": {
+                "maxLength": 100,
+                "minLength": 1,
+                "type": "string"
+              },
+              "useInFeedback": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "provider",
+              "placeId",
+              "label",
+              "useInFeedback",
+              "contextRevision"
+            ],
+            "type": "object"
           }
         },
         "required": [
@@ -1168,6 +1464,7 @@
           "title",
           "startsAt",
           "status",
+          "venue",
           "attendeeCount",
           "presentCount",
           "createdAt",
@@ -1223,6 +1520,88 @@
                   "format": "date-time",
                   "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
                   "type": "string"
+                },
+                "venue": {
+                  "additionalProperties": false,
+                  "nullable": true,
+                  "properties": {
+                    "area": {
+                      "maxLength": 200,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "contextRevision": {
+                      "exclusiveMinimum": true,
+                      "maximum": 9007199254740991,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "label": {
+                      "maxLength": 200,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "placeId": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "priceLevel": {
+                      "enum": [
+                        "free",
+                        "inexpensive",
+                        "moderate",
+                        "expensive",
+                        "very_expensive"
+                      ],
+                      "type": "string"
+                    },
+                    "priceRange": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "currencyCode": {
+                          "pattern": "^[A-Z]{3}$",
+                          "type": "string"
+                        },
+                        "endMinor": {
+                          "maximum": 2147483647,
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "startMinor": {
+                          "maximum": 2147483647,
+                          "minimum": 0,
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "startMinor",
+                        "currencyCode"
+                      ],
+                      "type": "object"
+                    },
+                    "provider": {
+                      "enum": [
+                        "google"
+                      ],
+                      "type": "string"
+                    },
+                    "type": {
+                      "maxLength": 100,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "useInFeedback": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "provider",
+                    "placeId",
+                    "label",
+                    "useInFeedback",
+                    "contextRevision"
+                  ],
+                  "type": "object"
                 }
               },
               "required": [
@@ -1230,6 +1609,7 @@
                 "title",
                 "startsAt",
                 "status",
+                "venue",
                 "attendeeCount",
                 "presentCount",
                 "createdAt",
@@ -1300,6 +1680,9 @@
           "questionKey": {
             "enum": [
               "event_score",
+              "table_fit",
+              "participation_ease",
+              "conversation_balance",
               "liked",
               "meet_again",
               "avoid"
@@ -1527,6 +1910,9 @@
                       "key": {
                         "enum": [
                           "event_score",
+                          "table_fit",
+                          "participation_ease",
+                          "conversation_balance",
                           "liked",
                           "meet_again",
                           "avoid"
@@ -2145,6 +2531,9 @@
                 "key": {
                   "enum": [
                     "event_score",
+                    "table_fit",
+                    "participation_ease",
+                    "conversation_balance",
                     "liked",
                     "meet_again",
                     "avoid"
@@ -2540,6 +2929,9 @@
                 "questionKey": {
                   "enum": [
                     "event_score",
+                    "table_fit",
+                    "participation_ease",
+                    "conversation_balance",
                     "liked",
                     "meet_again",
                     "avoid"
@@ -2968,6 +3360,12 @@
             "maxItems": 200,
             "type": "array"
           },
+          "nextCursor": {
+            "maxLength": 200,
+            "minLength": 1,
+            "nullable": true,
+            "type": "string"
+          },
           "observedAt": {
             "format": "date-time",
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
@@ -2977,15 +3375,12 @@
             "maximum": 9007199254740991,
             "minimum": 0,
             "type": "integer"
-          },
-          "truncated": {
-            "type": "boolean"
           }
         },
         "required": [
           "observedAt",
           "total",
-          "truncated",
+          "nextCursor",
           "items"
         ],
         "type": "object"
@@ -2993,6 +3388,11 @@
       "FeedbackOutboxMessageDeliveryDto_Output": {
         "additionalProperties": false,
         "properties": {
+          "body": {
+            "maxLength": 10000,
+            "minLength": 1,
+            "type": "string"
+          },
           "campaignId": {
             "format": "uuid",
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
@@ -3039,6 +3439,11 @@
             "format": "date-time",
             "nullable": true,
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+            "type": "string"
+          },
+          "eventTitle": {
+            "maxLength": 200,
+            "minLength": 1,
             "type": "string"
           },
           "id": {
@@ -3180,6 +3585,9 @@
                         "key": {
                           "enum": [
                             "event_score",
+                            "table_fit",
+                            "participation_ease",
+                            "conversation_balance",
                             "liked",
                             "meet_again",
                             "avoid"
@@ -3336,6 +3744,12 @@
                           "extraction_reply"
                         ],
                         "type": "string"
+                      },
+                      "venueContextRevision": {
+                        "maximum": 9007199254740991,
+                        "minimum": 1,
+                        "nullable": true,
+                        "type": "integer"
                       }
                     },
                     "required": [
@@ -3541,6 +3955,12 @@
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
             "type": "string"
           },
+          "phoneAtLaunch": {
+            "maxLength": 50,
+            "minLength": 1,
+            "nullable": true,
+            "type": "string"
+          },
           "playedAt": {
             "format": "date-time",
             "nullable": true,
@@ -3569,6 +3989,12 @@
             "format": "date-time",
             "nullable": true,
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+            "type": "string"
+          },
+          "respondentDisplayName": {
+            "maxLength": 200,
+            "minLength": 1,
+            "nullable": true,
             "type": "string"
           },
           "sentAt": {
@@ -3604,7 +4030,11 @@
           "conversationId",
           "campaignId",
           "campaignStatus",
+          "eventTitle",
+          "respondentDisplayName",
+          "phoneAtLaunch",
           "kind",
+          "body",
           "status",
           "deliveryStatus",
           "observedAt",
@@ -3981,6 +4411,88 @@
                 },
                 "title": {
                   "type": "string"
+                },
+                "venue": {
+                  "additionalProperties": false,
+                  "nullable": true,
+                  "properties": {
+                    "area": {
+                      "maxLength": 200,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "contextRevision": {
+                      "exclusiveMinimum": true,
+                      "maximum": 9007199254740991,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "label": {
+                      "maxLength": 200,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "placeId": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "priceLevel": {
+                      "enum": [
+                        "free",
+                        "inexpensive",
+                        "moderate",
+                        "expensive",
+                        "very_expensive"
+                      ],
+                      "type": "string"
+                    },
+                    "priceRange": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "currencyCode": {
+                          "pattern": "^[A-Z]{3}$",
+                          "type": "string"
+                        },
+                        "endMinor": {
+                          "maximum": 2147483647,
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "startMinor": {
+                          "maximum": 2147483647,
+                          "minimum": 0,
+                          "type": "integer"
+                        }
+                      },
+                      "required": [
+                        "startMinor",
+                        "currencyCode"
+                      ],
+                      "type": "object"
+                    },
+                    "provider": {
+                      "enum": [
+                        "google"
+                      ],
+                      "type": "string"
+                    },
+                    "type": {
+                      "maxLength": 100,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "useInFeedback": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "provider",
+                    "placeId",
+                    "label",
+                    "useInFeedback",
+                    "contextRevision"
+                  ],
+                  "type": "object"
                 }
               },
               "required": [
@@ -3988,6 +4500,7 @@
                 "title",
                 "startsAt",
                 "status",
+                "venue",
                 "present",
                 "tableNo"
               ],
@@ -4242,6 +4755,81 @@
             "maxLength": 200,
             "minLength": 1,
             "type": "string"
+          },
+          "venue": {
+            "additionalProperties": false,
+            "nullable": true,
+            "properties": {
+              "area": {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              "label": {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              "placeId": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "priceLevel": {
+                "enum": [
+                  "free",
+                  "inexpensive",
+                  "moderate",
+                  "expensive",
+                  "very_expensive"
+                ],
+                "type": "string"
+              },
+              "priceRange": {
+                "additionalProperties": false,
+                "properties": {
+                  "currencyCode": {
+                    "pattern": "^[A-Z]{3}$",
+                    "type": "string"
+                  },
+                  "endMinor": {
+                    "maximum": 2147483647,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "startMinor": {
+                    "maximum": 2147483647,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "startMinor",
+                  "currencyCode"
+                ],
+                "type": "object"
+              },
+              "provider": {
+                "enum": [
+                  "google"
+                ],
+                "type": "string"
+              },
+              "type": {
+                "maxLength": 100,
+                "minLength": 1,
+                "type": "string"
+              },
+              "useInFeedback": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "provider",
+              "placeId",
+              "label",
+              "useInFeedback"
+            ],
+            "type": "object"
           }
         },
         "type": "object"
@@ -5737,6 +6325,9 @@
             "schema": {
               "enum": [
                 "event_score",
+                "table_fit",
+                "participation_ease",
+                "conversation_balance",
                 "liked",
                 "meet_again",
                 "avoid"
@@ -5928,7 +6519,65 @@
     "/api/v1/feedback/outbox/history": {
       "get": {
         "operationId": "listFeedbackOutboxHistory",
-        "parameters": [],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "enum": [
+                "pending",
+                "held",
+                "sending",
+                "sent",
+                "failed",
+                "cancelled"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "required": false,
+            "schema": {
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "format": "date-time",
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {

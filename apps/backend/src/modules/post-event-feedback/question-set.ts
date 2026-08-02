@@ -9,11 +9,24 @@ import { FEEDBACK_CONVERSATION_MESSAGE_MAX_STORED_TEXT_LENGTH } from "./post-eve
 
 export { FEEDBACK_ANSWER_QUESTION_KEYS, FEEDBACK_NOTE_TYPES };
 
-export const POST_EVENT_FEEDBACK_QUESTION_SET_VERSION = 1 as const;
+export const POST_EVENT_FEEDBACK_QUESTION_SET_VERSIONS = [1, 2] as const;
+
+export type PostEventFeedbackQuestionSetVersion =
+  (typeof POST_EVENT_FEEDBACK_QUESTION_SET_VERSIONS)[number];
+
+/** New campaigns launch on this version. Persisted campaigns keep their own. */
+export const CURRENT_POST_EVENT_FEEDBACK_QUESTION_SET_VERSION = 2 as const;
+
+/** @deprecated Prefer the explicit `CURRENT_...` name at new call sites. */
+export const POST_EVENT_FEEDBACK_QUESTION_SET_VERSION =
+  CURRENT_POST_EVENT_FEEDBACK_QUESTION_SET_VERSION;
 
 export const POST_EVENT_FEEDBACK_COPY_KEYS = [
   "intro",
   "event_score",
+  "table_fit",
+  "participation_ease",
+  "conversation_balance",
   "liked",
   "meet_again",
   "avoid",
@@ -25,9 +38,6 @@ export const POST_EVENT_FEEDBACK_COPY_KEYS = [
   "reminder_followup",
   "cannot_read_media",
 ] as const;
-
-export type PostEventFeedbackQuestionSetVersion =
-  typeof POST_EVENT_FEEDBACK_QUESTION_SET_VERSION;
 
 export type PostEventFeedbackCopyKey =
   (typeof POST_EVENT_FEEDBACK_COPY_KEYS)[number];
@@ -51,17 +61,33 @@ export type PostEventFeedbackQuestionSetCopy = Record<
   string
 >;
 
-export type PostEventFeedbackQuestionSetV1 = {
+export type PostEventFeedbackQuestionSet = {
   version: PostEventFeedbackQuestionSetVersion;
   answerQuestions: readonly PostEventFeedbackAnswerQuestionDefinition[];
   noteTypes: readonly PostEventFeedbackNoteTypeDefinition[];
   copy: PostEventFeedbackQuestionSetCopy;
 };
 
+export type PostEventFeedbackQuestionSetV1 = PostEventFeedbackQuestionSet & {
+  version: 1;
+};
+
+export type PostEventFeedbackQuestionSetV2 = PostEventFeedbackQuestionSet & {
+  version: 2;
+};
+
 const POST_EVENT_FEEDBACK_QUESTION_SET_V1_COPY = {
   intro:
     "Γεια σου {name}! Εδώ η ομάδα του Join The Six 🙂 Ελπίζουμε να πέρασες όμορφα. Θα ήθελες να μας πεις 2-3 πράγματα για τη βραδιά; Παίρνει λιγότερο από 2 λεπτά. (Αν δεν θες μηνύματα, γράψε ΣΤΟΠ.)",
   event_score: "Πώς σου φάνηκε συνολικά η βραδιά, από το 1 ως το 5;",
+  // V2-only copy. Keeping every known key in each fallback object makes an old
+  // sparse campaign snapshot readable without weakening the resolved type.
+  table_fit:
+    "Πόσο καλά ταίριαξε η παρέα με αυτό που ήθελες από τη βραδιά, από το 1 ως το 5;",
+  participation_ease:
+    "Πόσο εύκολο ήταν για σένα να μπεις και να συμμετέχεις στη συζήτηση, από το 1 ως το 5;",
+  conversation_balance:
+    "Πόσο ισορροπημένη ήταν η συζήτηση — είχαν όλοι χώρο να μιλήσουν; Βάλε από 1 ως 5.",
   liked:
     "Υπήρχε κάποιος ή κάποια από την παρέα που σου έκανε ιδιαίτερα καλή εντύπωση;",
   meet_again:
@@ -108,7 +134,7 @@ const POST_EVENT_FEEDBACK_QUESTION_SET_V1_COPY = {
 } as const satisfies PostEventFeedbackQuestionSetCopy;
 
 export const POST_EVENT_FEEDBACK_QUESTION_SET_V1 = {
-  version: POST_EVENT_FEEDBACK_QUESTION_SET_VERSION,
+  version: 1,
   answerQuestions: [
     {
       key: "event_score",
@@ -144,15 +170,106 @@ export const POST_EVENT_FEEDBACK_QUESTION_SET_V1 = {
   copy: POST_EVENT_FEEDBACK_QUESTION_SET_V1_COPY,
 } as const satisfies PostEventFeedbackQuestionSetV1;
 
+const POST_EVENT_FEEDBACK_QUESTION_SET_V2_COPY = {
+  ...POST_EVENT_FEEDBACK_QUESTION_SET_V1_COPY,
+  intro:
+    "Γεια σου {name}! Εδώ η ομάδα του Join The Six 🙂 Έχουμε 6 σύντομες, προαιρετικές ερωτήσεις για τη βραδιά — περίπου 2 λεπτά. Οι απαντήσεις σου μας βοηθούν να φτιάχνουμε καλύτερα τα επόμενα τραπέζια και δεν κοινοποιούνται ατομικά σε άλλους συμμετέχοντες. Μπορείς να παραλείψεις όποια ερώτηση θέλεις. Για να μη λαμβάνεις άλλα μηνύματα feedback στο WhatsApp, γράψε ΣΤΟΠ.",
+  meet_again:
+    "Με ποιους από την παρέα θα χαιρόσουν να ξαναβρεθείς σε επόμενο τραπέζι;",
+  avoid:
+    "Υπάρχει κάποιος ή κάποια με τον οποίο θα προτιμούσες να μη βρεθείς ξανά στο ίδιο τραπέζι; Αρκεί το όνομα· δεν χρειάζεται να εξηγήσεις γιατί.",
+  stop_ack:
+    "Έγινε, δεν θα ξαναλάβεις μηνύματα feedback από εμάς σε αυτό το νούμερο.",
+} as const satisfies PostEventFeedbackQuestionSetCopy;
+
+export const POST_EVENT_FEEDBACK_QUESTION_SET_V2 = {
+  version: 2,
+  answerQuestions: [
+    {
+      key: "event_score",
+      valueKind: "int",
+      subjectless: true,
+      skippable: true,
+      intMin: 1,
+      intMax: 5,
+    },
+    {
+      key: "table_fit",
+      valueKind: "int",
+      subjectless: true,
+      skippable: true,
+      intMin: 1,
+      intMax: 5,
+    },
+    {
+      key: "participation_ease",
+      valueKind: "int",
+      subjectless: true,
+      skippable: true,
+      intMin: 1,
+      intMax: 5,
+    },
+    {
+      key: "conversation_balance",
+      valueKind: "int",
+      subjectless: true,
+      skippable: true,
+      intMin: 1,
+      intMax: 5,
+    },
+    {
+      key: "meet_again",
+      valueKind: "candidate_ids",
+      subjectless: false,
+      skippable: true,
+    },
+    {
+      key: "avoid",
+      valueKind: "candidate_ids",
+      subjectless: false,
+      skippable: true,
+    },
+  ],
+  noteTypes: POST_EVENT_FEEDBACK_QUESTION_SET_V1.noteTypes,
+  copy: POST_EVENT_FEEDBACK_QUESTION_SET_V2_COPY,
+} as const satisfies PostEventFeedbackQuestionSetV2;
+
+const POST_EVENT_FEEDBACK_QUESTION_SETS = {
+  1: POST_EVENT_FEEDBACK_QUESTION_SET_V1,
+  2: POST_EVENT_FEEDBACK_QUESTION_SET_V2,
+} as const satisfies Record<
+  PostEventFeedbackQuestionSetVersion,
+  PostEventFeedbackQuestionSet
+>;
+
+export class UnsupportedPostEventFeedbackQuestionSetVersionError extends Error {
+  constructor(readonly version: number) {
+    super(`Unsupported post-event feedback question-set version: ${version}`);
+    this.name = UnsupportedPostEventFeedbackQuestionSetVersionError.name;
+  }
+}
+
+export function getPostEventFeedbackQuestionSet(
+  version: number,
+): PostEventFeedbackQuestionSet {
+  if (version === 1 || version === 2) {
+    return POST_EVENT_FEEDBACK_QUESTION_SETS[version];
+  }
+  throw new UnsupportedPostEventFeedbackQuestionSetVersionError(version);
+}
+
 export type PostEventFeedbackQuestionLaunchSnapshot = {
   questionSetVersion: PostEventFeedbackQuestionSetVersion;
   copy: PostEventFeedbackQuestionSetCopy;
 };
 
-export function buildPostEventFeedbackQuestionLaunchSnapshot(): PostEventFeedbackQuestionLaunchSnapshot {
+export function buildPostEventFeedbackQuestionLaunchSnapshot(
+  version: PostEventFeedbackQuestionSetVersion = CURRENT_POST_EVENT_FEEDBACK_QUESTION_SET_VERSION,
+): PostEventFeedbackQuestionLaunchSnapshot {
+  const questionSet = getPostEventFeedbackQuestionSet(version);
   return {
-    questionSetVersion: POST_EVENT_FEEDBACK_QUESTION_SET_V1.version,
-    copy: { ...POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy },
+    questionSetVersion: questionSet.version,
+    copy: { ...questionSet.copy },
   };
 }
 
@@ -163,11 +280,26 @@ export function buildPostEventFeedbackQuestionLaunchSnapshot(): PostEventFeedbac
  */
 export function resolveCampaignCopy(
   questions: Record<string, unknown> | undefined,
+  questionSetVersion?: number,
 ): PostEventFeedbackQuestionSetCopy {
-  const snapshot = (questions as { copy?: Record<string, unknown> } | undefined)
-    ?.copy;
+  const stored = questions as
+    | {
+        questionSetVersion?: unknown;
+        copy?: Record<string, unknown>;
+      }
+    | undefined;
+  const storedVersion =
+    typeof stored?.questionSetVersion === "number"
+      ? stored.questionSetVersion
+      : undefined;
+  const questionSet = getPostEventFeedbackQuestionSet(
+    questionSetVersion ??
+      storedVersion ??
+      CURRENT_POST_EVENT_FEEDBACK_QUESTION_SET_VERSION,
+  );
+  const snapshot = stored?.copy;
   const resolved: PostEventFeedbackQuestionSetCopy = {
-    ...POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy,
+    ...questionSet.copy,
   };
 
   if (!snapshot) {
@@ -237,14 +369,49 @@ export function isPostEventFeedbackAnswerQuestionKey(
 /**
  * Whether this question's answer is a number.
  *
- * `event_score` is; `liked`, `meet_again` and `avoid` answer with a person and
- * leave `value_int` null. The distinction decides what an operator correction
- * can even mean: there is no number to fix on a question whose answer is who.
+ * V1 has one scored goal and V2 has four; the directed goals answer with a
+ * person and leave `value_int` null. The distinction decides what an operator
+ * correction can mean: there is no number to fix when the answer is who.
  */
 export function isScoredPostEventFeedbackQuestion(value: string): boolean {
-  return POST_EVENT_FEEDBACK_QUESTION_SET_V1.answerQuestions.some(
-    (question) => question.key === value && question.valueKind === "int",
+  return (
+    isPostEventFeedbackAnswerQuestionKey(value) &&
+    getPostEventFeedbackAnswerQuestionDefinition(value)?.valueKind === "int"
   );
+}
+
+/**
+ * Resolves the semantics of a globally valid key across all shipped versions.
+ * Reusing a key with different value semantics is rejected here instead of
+ * making validation depend on whichever version happened to be checked first.
+ */
+export function getPostEventFeedbackAnswerQuestionDefinition(
+  key: FeedbackAnswerQuestionKey,
+): PostEventFeedbackAnswerQuestionDefinition | undefined {
+  const definitions = POST_EVENT_FEEDBACK_QUESTION_SET_VERSIONS.flatMap(
+    (version) =>
+      getPostEventFeedbackQuestionSet(version).answerQuestions.filter(
+        (question) => question.key === key,
+      ),
+  );
+  const [first] = definitions;
+  if (!first) {
+    return undefined;
+  }
+  if (
+    definitions.some(
+      (definition) =>
+        definition.valueKind !== first.valueKind ||
+        definition.subjectless !== first.subjectless ||
+        definition.intMin !== first.intMin ||
+        definition.intMax !== first.intMax,
+    )
+  ) {
+    throw new Error(
+      `Feedback question ${key} changes semantics across versions`,
+    );
+  }
+  return first;
 }
 
 /**
@@ -303,12 +470,16 @@ export function isDirectedPostEventFeedbackQuestion(
  */
 export function contradictedPostEventFeedbackQuestionKeys(
   questionKey: FeedbackAnswerQuestionKey,
+  availableQuestionKeys: readonly FeedbackAnswerQuestionKey[] = FEEDBACK_ANSWER_QUESTION_KEYS,
 ): readonly FeedbackAnswerQuestionKey[] {
+  const available = new Set(availableQuestionKeys);
   if (questionKey === "avoid") {
-    return ["liked", "meet_again"];
+    return (["liked", "meet_again"] as const).filter((key) =>
+      available.has(key),
+    );
   }
   if (questionKey === "liked" || questionKey === "meet_again") {
-    return ["avoid"];
+    return available.has("avoid") ? ["avoid"] : [];
   }
   return [];
 }

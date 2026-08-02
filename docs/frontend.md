@@ -170,15 +170,30 @@ optional, defaults to `/api`, and must be a safe root-relative or HTTP(S) URL.
 `VITE_CLERK_PUBLISHABLE_KEY` must have Clerk's public-key shape when present.
 Credential-free CI builds may omit it; the artifact then renders a clear
 configuration screen. A deployable admin image must bake the publishable key at
-build time. Do not read `import.meta.env` directly in component code — go
-through `env`.
+build time. `VITE_GOOGLE_MAPS_API_KEY` is optional and public. When present it
+enables isolated Places API (New) autocomplete, Places UI Kit attributed details
+and the Maps Embed fallback; when absent, venue editing accepts a Place ID and all
+venue displays retain a normal Google Maps deep-link. Repeated list/history
+venue pills never load the Maps JavaScript API. Google-owned rich details remain
+inside the attributed UI Kit element. After an admin selects a prediction, the
+editor makes exactly one standalone `Place.fetchFields` request for canonical
+`displayName`, `formattedAddress` and `primaryTypeDisplayName`; using a new
+`Place` from the selected ID avoids treating that lookup as the widget session's
+costlier termination tier. The returned values seed editable operator-confirmed
+label, area and type fields, with prediction text only as a failure fallback.
+Price context remains operator-authored. Ordinary event renders make no Google
+request. This is a prototype behavior subject to the production legal/provider
+persistence gate in `docs/deployment.md`, not permission to retain Google
+content outside its session. Do not read
+`import.meta.env` directly in component code — go through `env`.
 
 ```mermaid
 flowchart LR
-  build["Build env / .env\nAPI base + Clerk publishable key"] --> expose["import.meta.env.VITE_*"]
+  build["Build env / .env\nAPI base + public browser keys"] --> expose["import.meta.env.VITE_*"]
   expose --> zod["Zod validateEnv()"]
   zod --> base["env.apiBase (defaults to /api)"]
   zod --> clerk["ClerkProvider or configuration screen"]
+  zod --> places["Optional isolated Places UI Kit adapter"]
   base --> client["ofetch api client"]
   hooks["Generated hooks → apiRequest mutator"] --> client
   client --> proxy["Vite dev proxy or Caddy → backend"]

@@ -3,8 +3,9 @@ import type { LucideIcon } from "lucide-react";
 import {
   ClipboardList,
   ExternalLink,
-  FileClock,
+  Fingerprint,
   MessageSquareDashed,
+  MessageSquareQuote,
   MessagesSquare,
   Route,
   ScrollText,
@@ -14,18 +15,21 @@ import { useId, type ReactNode } from "react";
 import { Link } from "react-router";
 
 import type { FeedbackOutboxMessageDeliveryDtoOutput } from "../../../api/generated/model/feedbackOutboxMessageDeliveryDtoOutput";
-import { formatPreciseTimestamp } from "../../../features/feedback/conversationView";
 import {
   deliverJobLines,
-  formatWaiting,
   outboundConversationStateFacts,
   outboundDecisionFacts,
+  outboundDeliveryTimeline,
+  outboxHistoryStatusBadge,
   outboxKindLabel,
+  outboxProviderReadingBadge,
   OUTBOX_LOG_ABSENT_COPY,
   type OutboundLogFact,
 } from "../../../features/feedback/outboxQueue";
 import { JtsLiveIndicator } from "../../ui/JtsLiveIndicator";
 import { CopyableId } from "./CopyableId";
+import { FeedbackBadges } from "./FeedbackBadges";
+import { ParticipantName } from "./ParticipantName";
 import { ProviderMark } from "./ProviderMark";
 
 interface OutboxMessageDetailsProps {
@@ -38,16 +42,21 @@ function DetailSection({
   icon: Icon,
   title,
   children,
+  className,
 }: {
   icon: LucideIcon;
   title: string;
   children: ReactNode;
+  className?: string;
 }) {
   const headingId = useId();
   return (
     <section
       aria-labelledby={headingId}
-      className="border-t border-border-subtle px-4 py-4 first:border-t-0"
+      className={clsx(
+        "border-t border-border-subtle px-4 py-4 first:border-t-0",
+        className,
+      )}
     >
       <h3
         id={headingId}
@@ -111,22 +120,6 @@ export const FACT_PILL =
  */
 export function TimestampPill({ text }: { text: string }) {
   return <span className={clsx(FACT_PILL, "whitespace-nowrap")}>{text}</span>;
-}
-
-/**
- * A row time, to the millisecond, or the em dash when there is none.
- *
- * Every timestamp in this pane is evidence rather than narration: a row written
- * and leased inside the same second, a provider call that landed between two
- * polls. The minute the rest of the admin shows would flatten exactly the
- * differences an operator opened this row to measure.
- */
-function factTime(iso: string | null): ReactNode {
-  return iso === null ? (
-    "—"
-  ) : (
-    <TimestampPill text={formatPreciseTimestamp(iso)} />
-  );
 }
 
 /**
@@ -195,17 +188,85 @@ function FactValue({ fact }: { fact: OutboundLogFact }) {
 }
 
 /**
+ * What happened to this message, as a walk down the left edge with the gaps
+ * between the steps called out.
+ *
+ * This replaced a stack of six labelled timestamps of which two named the same
+ * instant and two were usually an em dash. The absolute time is still there —
+ * it is evidence and the pane is where evidence lives — but it is no longer
+ * what the eye lands on. `+0.4s` between «Written» and «Sent» is the whole
+ * answer to «was delivery keeping up», and it was the one thing the stack of
+ * absolute times made the reader compute for themselves.
+ */
+function DeliveryTimeline({
+  message,
+}: {
+  message: FeedbackOutboxMessageDeliveryDtoOutput;
+}) {
+  const steps = outboundDeliveryTimeline(message);
+
+  return (
+    <ol className="m-0 flex flex-col gap-0">
+      {steps.map((step, index) => (
+        <li key={step.key} className="flex gap-3">
+          {/* The rail: a dot per step and a line joining it to the next. The
+              last step grows no tail, because a tail into nothing reads as a
+              step still to come. */}
+          <span
+            aria-hidden="true"
+            className="flex flex-col items-center pt-1.5"
+          >
+            <span
+              className={clsx(
+                "size-2 shrink-0 rounded-full",
+                step.terminal
+                  ? "bg-danger"
+                  : index === steps.length - 1
+                    ? "bg-primary"
+                    : "bg-border",
+              )}
+            />
+            {index === steps.length - 1 ? null : (
+              <span className="w-px flex-1 bg-border-subtle" />
+            )}
+          </span>
+
+          <span className="flex min-w-0 flex-1 flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 pb-3 last:pb-0">
+            <span className="flex items-baseline gap-2">
+              <span
+                className={clsx(
+                  "text-sm font-semibold",
+                  step.terminal ? "text-danger" : "text-ink",
+                )}
+              >
+                {step.label}
+              </span>
+              {step.sincePrevious === null ? null : (
+                <span className="text-xs font-bold tabular-nums text-primary">
+                  {step.sincePrevious}
+                </span>
+              )}
+            </span>
+            <TimestampPill text={step.at} />
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+/**
  * What has happened to one outbound message.
  *
  * Two halves, kept visibly apart because their reliability is not the same.
- * PostgreSQL's half is durable and complete — the row's own facts, then the
- * decision that wrote it and the conversation state that decision was made
- * against, which is the only record of why this message exists at all. The
- * queue's half is a live read of a job that exists only while it is queued or
- * running — delivery jobs carry `attempts: 1` with immediate
- * `removeOnComplete` / `removeOnFail` — so it says
- * «άγνωστο» whenever the job is gone and states which indistinguishable
- * situations produced that, instead of dressing absence up as a verdict.
+ * PostgreSQL's half is durable and complete — the message itself, what happened
+ * to it and when, then the decision that wrote it and the conversation state
+ * that decision was made against, which is the only record of why this message
+ * exists at all. The queue's half is a live read of a job that exists only
+ * while it is queued or running — delivery jobs carry `attempts: 1` with
+ * immediate `removeOnComplete` / `removeOnFail` — so it says «άγνωστο»
+ * whenever the job is gone and states which indistinguishable situations
+ * produced that, instead of dressing absence up as a verdict.
  *
  * There is no spinner anywhere in here. A dead worker and a busy one look
  * identical from Redis, so the pane gives a state and a time or admits it does
@@ -217,21 +278,32 @@ export function OutboxMessageDetails({
 }: OutboxMessageDetailsProps) {
   const headingId = useId();
   const job = deliverJobLines(message);
+  const providerReading = outboxProviderReadingBadge(message.deliveryStatus);
+  const parked = message.campaignStatus !== "launched";
 
   return (
     <section
       aria-labelledby={headingId}
-      className="flex max-h-[78vh] min-h-0 flex-col overflow-hidden rounded-md border border-border bg-surface"
+      className="flex min-h-0 flex-col overflow-hidden rounded-md border border-border bg-surface"
     >
-      <header className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
-        <h2
-          id={headingId}
-          className="flex items-center gap-2 jts-overline text-ink-muted"
-        >
-          <ClipboardList aria-hidden="true" className="size-4 shrink-0" />
-          {outboxKindLabel(message.kind)} · waiting{" "}
-          {formatWaiting(message.waitingSeconds)}
-        </h2>
+      {/* Who, not what. The header used to lead with the kind and an age; the
+          kind is a badge below and the age is the first gap in the timeline,
+          while the person this was written to was nowhere on the pane at all. */}
+      <header className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
+        <div className="min-w-0">
+          <h2 id={headingId} className="text-base leading-tight font-extrabold">
+            <ParticipantName displayName={message.respondentDisplayName} />
+          </h2>
+          <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-ink-muted">
+            <span className="truncate">{message.eventTitle}</span>
+            {message.phoneAtLaunch === null ? null : (
+              <>
+                <span aria-hidden="true">·</span>
+                <span className="tabular-nums">{message.phoneAtLaunch}</span>
+              </>
+            )}
+          </p>
+        </div>
         <JtsLiveIndicator
           active={isRefreshing}
           label="This pane refreshes itself every few seconds."
@@ -239,23 +311,45 @@ export function OutboxMessageDetails({
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <DetailSection icon={FileClock} title="Outbox row">
-          <dl className="m-0 divide-y divide-border-subtle">
-            <FactRow label="Row status">{message.status}</FactRow>
-            <FactRow label="Delivery status">
-              {message.deliveryStatus ?? "not reported"}
-            </FactRow>
-            <FactRow label="Created">{factTime(message.createdAt)}</FactRow>
-            <FactRow label="Row last changed">
-              {factTime(message.updatedAt)}
-            </FactRow>
-            <FactRow label="Delivery last changed">
-              {factTime(message.deliveryUpdatedAt)}
-            </FactRow>
-            <FactRow label="Sent">{factTime(message.sentAt)}</FactRow>
-            <FactRow label="Delivered">{factTime(message.deliveredAt)}</FactRow>
-            <FactRow label="Read">{factTime(message.readAt)}</FactRow>
-          </dl>
+        {/* The message itself, first and in full.
+            It is the only thing on this screen the participant ever saw, and
+            for a year the pane that exists to explain a message never showed
+            it. Everything below is context for these words. */}
+        <DetailSection icon={MessageSquareQuote} title="What we sent">
+          <blockquote className="m-0 rounded-md border border-border-subtle bg-surface-sunken px-3 py-2.5">
+            <p className="m-0 text-sm leading-relaxed whitespace-pre-wrap text-ink">
+              {message.body}
+            </p>
+          </blockquote>
+
+          {/* One status line, not two rows of raw enum. The row's own status is
+              the durable truth; the provider's reading appears only when the
+              timeline below cannot already draw it. */}
+          <FeedbackBadges
+            badges={[
+              outboxHistoryStatusBadge(message.status),
+              {
+                key: "kind",
+                label: outboxKindLabel(message.kind),
+                tone: "neutral",
+              },
+              ...(providerReading === null ? [] : [providerReading]),
+              ...(parked
+                ? [
+                    {
+                      key: "campaign",
+                      label: `Campaign ${message.campaignStatus}`,
+                      tone: "neutral" as const,
+                    },
+                  ]
+                : []),
+            ]}
+            className="mt-3 flex flex-wrap items-center gap-1.5"
+          />
+        </DetailSection>
+
+        <DetailSection icon={ClipboardList} title="What happened, and how fast">
+          <DeliveryTimeline message={message} />
         </DetailSection>
 
         {/* Durable PostgreSQL, written in the same transaction as the row, so
@@ -339,49 +433,36 @@ export function OutboxMessageDetails({
             ) : null}
           </div>
 
-          <dl className="m-0 mt-3 divide-y divide-border-subtle">
-            <FactRow label="Job id">
-              <CopyableId value={message.job.id} label="job id" />
-            </FactRow>
-            <FactRow label="Provider log id">
-              {message.providerLogId === null ? (
-                "no provider call recorded"
-              ) : (
-                <CopyableId
-                  value={message.providerLogId}
-                  label="provider log id"
-                />
-              )}
-            </FactRow>
-            <FactRow label="Provider message id">
-              {message.providerMessageId === null ? (
-                "—"
-              ) : (
-                <CopyableId
-                  value={message.providerMessageId}
-                  label="provider message id"
-                />
-              )}
-            </FactRow>
-          </dl>
-
-          {/* The honest limit of this pane, stated where an operator meets it
-              rather than in a document nobody has open. */}
-          <p className="mt-3 text-xs text-ink-subtle">
-            Retry history is not stored anywhere. The outbox table keeps no
-            attempt counter, and the delivery job is removed from Redis the
-            moment it ends, so a job that has finished or was lost is «άγνωστο»
-            — not proof that nothing happened.
-          </p>
+          {/* The honest limit of this pane, folded away.
+              It is five lines an operator needs once — the first time
+              «άγνωστο» surprises them — and had been paying for that once on
+              every single row they opened. It sits directly under the state it
+              explains, which is where the question gets asked. */}
+          <details className="jts-disclosure mt-2 text-xs text-ink-subtle">
+            <summary className="cursor-pointer font-semibold text-ink-muted hover:text-ink">
+              Why there is no retry history
+            </summary>
+            <p className="mt-1.5">
+              Retry history is not stored anywhere. The outbox table keeps no
+              attempt counter, and the delivery job is removed from Redis the
+              moment it ends, so a job that has finished or was lost is
+              «άγνωστο» — not proof that nothing happened.
+            </p>
+          </details>
         </DetailSection>
 
         <DetailSection icon={Route} title="Where it belongs">
-          <p className="text-sm text-ink-muted">
-            {message.campaignStatus === "launched"
-              ? "The campaign is running, so the relay leases this row as soon as it can."
-              : `The campaign is ${message.campaignStatus}, so the relay leaves this row where it is.`}
-          </p>
-          <div className="mt-3 flex flex-col gap-2">
+          {/* Only when it is a fact worth reading. A sentence saying the
+              campaign is running and the relay will get to this row was
+              printed on every opened row, which taught operators to skip the
+              paragraph that matters on the rows where it is not running. */}
+          {parked ? (
+            <p className="mb-3 text-sm text-ink-muted">
+              The campaign is {message.campaignStatus}, so the relay leaves this
+              row where it is.
+            </p>
+          ) : null}
+          <div className="flex flex-col gap-2">
             <Link
               to={`/admin/feedback/${message.campaignId}?conversation=${message.conversationId}`}
               className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary underline-offset-2 hover:underline"
@@ -401,17 +482,72 @@ export function OutboxMessageDetails({
             </Link>
           </div>
         </DetailSection>
+
+        {/* Every id, in one strip at the bottom.
+            They were three labelled rows among the facts, competing with the
+            times and the decision for the reader's attention — and not one of
+            them is read on this screen. They exist to be pasted somewhere else,
+            so they are grouped by that purpose and put where a reader arrives
+            only when they went looking. */}
+        <DetailSection
+          icon={Fingerprint}
+          title="Identifiers"
+          className="bg-surface-sunken"
+        >
+          <div className="flex flex-wrap gap-x-4 gap-y-2">
+            <IdentifierChip
+              label="Job"
+              value={message.job.id}
+              copyLabel="job id"
+            />
+            <IdentifierChip
+              label="Provider log"
+              value={message.providerLogId}
+              copyLabel="provider log id"
+              absent="no provider call"
+            />
+            <IdentifierChip
+              label="Provider message"
+              value={message.providerMessageId}
+              copyLabel="provider message id"
+            />
+          </div>
+        </DetailSection>
       </div>
     </section>
   );
 }
 
-/** Shown until an operator opens a row; the queue itself is the subject. */
+/** One id under its own micro-caps label, or the reason there is none. */
+function IdentifierChip({
+  label,
+  value,
+  copyLabel,
+  absent = "—",
+}: {
+  label: string;
+  value: string | null;
+  copyLabel: string;
+  absent?: string;
+}) {
+  return (
+    <div className="min-w-0">
+      <p className="mb-1 jts-overline text-ink-muted">{label}</p>
+      {value === null ? (
+        <p className="text-xs text-ink-subtle">{absent}</p>
+      ) : (
+        <CopyableId value={value} label={copyLabel} />
+      )}
+    </div>
+  );
+}
+
+/** Shown until an operator opens a row; the list itself is the subject. */
 export function OutboxMessageDetailsEmpty() {
   return (
     <section
       aria-label="Outbound message detail"
-      className="flex min-h-40 flex-col items-center justify-center rounded-md border border-border border-dashed bg-surface px-4 py-8 text-center"
+      className="flex min-h-40 flex-1 flex-col items-center justify-center rounded-md border border-border border-dashed bg-surface px-4 py-8 text-center"
     >
       <ClipboardList
         aria-hidden="true"
@@ -419,11 +555,11 @@ export function OutboxMessageDetailsEmpty() {
         strokeWidth={1.5}
       />
       <p className="text-sm font-semibold text-ink">
-        Choose a message to see its delivery attempts
+        Choose a message to read it
       </p>
-      <p className="mt-1 max-w-[40ch] text-sm text-ink-muted">
-        The queue above reads only PostgreSQL. Opening a row is what looks up
-        its live job state.
+      <p className="mt-1 max-w-[44ch] text-sm text-ink-muted">
+        The list beside this reads only PostgreSQL. Opening a row is what shows
+        the message itself, why it was written, and its live job state.
       </p>
     </section>
   );

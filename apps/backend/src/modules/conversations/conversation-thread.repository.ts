@@ -269,6 +269,8 @@ export class ConversationThreadRepository {
         "turns.$[turn].startedAt": startedAt,
         "turns.$[turn].completedAt": null,
         "turns.$[turn].output": null,
+        "turns.$[turn].partial": null,
+        "turns.$[turn].reasoning": null,
         "turns.$[turn].error": null,
       },
       startedAt,
@@ -285,7 +287,40 @@ export class ConversationThreadRepository {
         "turns.$[turn].attempt": input.attempt,
         "turns.$[turn].completedAt": null,
         "turns.$[turn].output": null,
+        "turns.$[turn].partial": null,
+        "turns.$[turn].reasoning": null,
         "turns.$[turn].error": null,
+      },
+      new Date(),
+    );
+  }
+
+  /**
+   * Records the text one attempt has streamed so far. Shares the transition
+   * fence, so a delta from a superseded attempt — or one that lands after the
+   * turn settled — is dropped instead of overwriting the read model.
+   */
+  recordTurnPartial(
+    input: TurnIdentity & {
+      readonly partial: string;
+      readonly reasoning: string | null;
+    },
+  ): Promise<boolean> {
+    const partial = z.string().min(1).max(20_000).parse(input.partial);
+    return this.transitionTurn(
+      input,
+      input.attempt,
+      ["queued", "running"],
+      {
+        "turns.$[turn].partial": partial,
+        ...(input.reasoning === null
+          ? {}
+          : {
+              "turns.$[turn].reasoning": z
+                .string()
+                .max(20_000)
+                .parse(input.reasoning),
+            }),
       },
       new Date(),
     );
@@ -309,6 +344,8 @@ export class ConversationThreadRepository {
         "turns.$[turn].status": "succeeded",
         "turns.$[turn].attempt": input.attempt,
         "turns.$[turn].output": output,
+        "turns.$[turn].partial": null,
+        "turns.$[turn].reasoning": null,
         "turns.$[turn].error": null,
         "turns.$[turn].completedAt": completedAt,
       },
@@ -338,6 +375,8 @@ export class ConversationThreadRepository {
         "turns.$[turn].status": "failed",
         "turns.$[turn].attempt": input.attempt,
         "turns.$[turn].output": null,
+        "turns.$[turn].partial": null,
+        "turns.$[turn].reasoning": null,
         "turns.$[turn].error": error,
         "turns.$[turn].completedAt": completedAt,
       },
@@ -358,6 +397,8 @@ export class ConversationThreadRepository {
         "turns.$[turn].startedAt": null,
         "turns.$[turn].completedAt": null,
         "turns.$[turn].output": null,
+        "turns.$[turn].partial": null,
+        "turns.$[turn].reasoning": null,
         "turns.$[turn].error": null,
       },
       new Date(),

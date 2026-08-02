@@ -40,9 +40,12 @@ const turn: AssistantTurnRow = {
   status: "queued",
   model: "google/gemini-3.6-flash",
   effort: "low",
+  serviceTier: "standard",
   attempt: 1,
   userContent: "Hello",
   assistantContent: null,
+  streamedContent: null,
+  reasoningContent: null,
   errorCode: null,
   errorMessage: null,
   createdAt: thread.createdAt,
@@ -174,6 +177,7 @@ describe("AssistantService", () => {
       title: "Hello",
       model: "google/gemini-3.6-flash",
       effort: "low",
+      serviceTier: "standard",
       content: "Hello",
     });
     expect(conversations.synchronizeAssistantThread).toHaveBeenCalledWith(
@@ -189,11 +193,8 @@ describe("AssistantService", () => {
     );
   });
 
-  // Both halves used to be reached by naming an OpenAI-routed model; Terra now
-  // routes OpenAI direct like Luna, so the "wrong provider funded" case uses a
-  // Gemini turn instead. The rule under test is unchanged: the model's provider
-  // must be funded before a turn is created, and a missing key is never quietly
-  // worked around.
+  // The exact provider named by the model contract must be configured before a
+  // turn is created. A key for another provider is never treated as a fallback.
   it("never silently substitutes an unavailable default or explicit model", async () => {
     const noProviders = createService().service;
     await expect(
@@ -204,11 +205,22 @@ describe("AssistantService", () => {
     ).rejects.toBeInstanceOf(AssistantProviderUnavailableError);
 
     const onlyOpenAi = createService({ openAi: true }).service;
+    const onlyOpenRouter = createService({ openRouter: true }).service;
     await expect(
       onlyOpenAi.createThread(
         {
           requestId: "a8e94f93-9909-4cf2-b580-3b55c287a453",
           model: "google/gemini-3.6-flash",
+          content: "Hello",
+        },
+        "user_owner",
+      ),
+    ).rejects.toBeInstanceOf(AssistantProviderUnavailableError);
+    await expect(
+      onlyOpenRouter.createThread(
+        {
+          requestId: "a8e94f93-9909-4cf2-b580-3b55c287a454",
+          model: "openai/gpt-5.6-luna",
           content: "Hello",
         },
         "user_owner",
@@ -229,6 +241,7 @@ describe("AssistantService", () => {
         requestId: turn.requestId,
         model: "qwen/qwen3.7-max",
         effort: "high",
+        serviceTier: "standard",
         content: "Hello",
       },
       "user_owner",
@@ -238,6 +251,35 @@ describe("AssistantService", () => {
       expect.objectContaining({
         model: "qwen/qwen3.7-max",
         effort: "high",
+        serviceTier: "standard",
+      }),
+    );
+  });
+
+  it("accepts Luna only when OpenAI direct is configured", async () => {
+    const { repository, service } = createService({ openAi: true });
+    repository.createThreadWithTurn!.mockResolvedValue({
+      created: true,
+      thread,
+      turn: { ...turn, model: "openai/gpt-5.6-luna", effort: "high" },
+    });
+
+    await service.createThread(
+      {
+        requestId: turn.requestId,
+        model: "openai/gpt-5.6-luna",
+        effort: "high",
+        serviceTier: "standard",
+        content: "Hello",
+      },
+      "user_owner",
+    );
+
+    expect(repository.createThreadWithTurn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: "openai/gpt-5.6-luna",
+        effort: "high",
+        serviceTier: "standard",
       }),
     );
   });
@@ -690,6 +732,8 @@ function queuedTurnRow(attempt: number): AssistantTurnRow {
     status: "queued",
     attempt,
     assistantContent: null,
+    streamedContent: null,
+    reasoningContent: null,
     errorCode: null,
     errorMessage: null,
     startedAt: null,
@@ -746,11 +790,14 @@ function conversationFromRows(
         attempt: row.attempt,
         model: row.model,
         reasoningEffort: row.effort,
+        reasoning: null,
+        serviceTier: row.serviceTier,
         input: { actor: "admin", content: row.userContent },
         output:
           status === "succeeded" && row.assistantContent
             ? { actor: "assistant", content: row.assistantContent }
             : null,
+        partial: row.streamedContent,
         error:
           status === "failed" && row.errorCode && row.errorMessage
             ? { code: row.errorCode, message: row.errorMessage }

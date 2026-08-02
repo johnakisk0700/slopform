@@ -1,0 +1,2 @@
+ALTER TABLE "assistant_turns" ADD COLUMN "service_tier" text DEFAULT 'standard' NOT NULL;--> statement-breakpoint
+ALTER TABLE "assistant_turns" ADD CONSTRAINT "assistant_turns_service_tier_check" CHECK ("assistant_turns"."service_tier" in ('standard', 'fast'));

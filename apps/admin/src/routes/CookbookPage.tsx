@@ -14,6 +14,7 @@ import {
   ScrollShadow,
   Select,
   Slider,
+  Switch,
   Table,
   TextArea,
   TextField,
@@ -42,6 +43,7 @@ import {
   Users,
 } from "lucide-react";
 
+import { AssistantMarkdown } from "../components/admin/assistant/AssistantMarkdown";
 import { BrandLockup } from "../components/admin/BrandLockup";
 import { CopyableId } from "../components/admin/feedback/CopyableId";
 import {
@@ -54,6 +56,7 @@ import {
   TimestampPill,
 } from "../components/admin/feedback/OutboxMessageDetails";
 import { ProviderMark } from "../components/admin/feedback/ProviderMark";
+import { JtsBackLink } from "../components/ui/JtsBackLink";
 import { JtsDataTable } from "../components/ui/JtsDataTable";
 import { JtsLiveIndicator } from "../components/ui/JtsLiveIndicator";
 import { JtsPageHeader } from "../components/ui/JtsPageHeader";
@@ -737,6 +740,7 @@ export function CookbookPage() {
   const [operatorNote, setOperatorNote] = useState(
     "Η Ελένη ζήτησε τραπέζι κοντά στο παράθυρο.",
   );
+  const [venueInFeedback, setVenueInFeedback] = useState(true);
 
   return (
     <div className="grid gap-8">
@@ -1170,6 +1174,22 @@ export function CookbookPage() {
                 Needs attention
               </ToggleButton>
             </div>
+            <div className="grid gap-1.5">
+              <span className="jts-overline text-ink-muted">Switch</span>
+              <Switch
+                isSelected={venueInFeedback}
+                onChange={setVenueInFeedback}
+              >
+                <Switch.Content>
+                  <Switch.Control>
+                    <Switch.Thumb />
+                  </Switch.Control>
+                  <span className="text-sm font-semibold">
+                    Use venue context in Luna
+                  </span>
+                </Switch.Content>
+              </Switch>
+            </div>
           </Specimen>
 
           <Specimen
@@ -1424,10 +1444,19 @@ export function CookbookPage() {
             <JtsPageHeader
               eyebrow="Feedback & safety"
               title="Δείπνο στο Κολωνάκι"
-              description="Eyebrow, the h1 with its 3px marker, and a muted supporting line. Actions are omitted here — a hidden frame must not contain anything focusable."
+              description="Eyebrow, the h1 with its six-dot mark, and a muted supporting line. A back link would sit above the eyebrow. Actions are omitted here — a hidden frame must not contain anything focusable."
             />
           </div>
         </div>
+
+        <Specimen
+          label="JtsBackLink"
+          note="The one way out of a detail screen: left chevron, wine, «Back to <place>». JtsPageHeader takes it as `back` and puts it above the eyebrow; a compact header renders it directly. It is never filed among a screen's actions — those change the thing on screen, this leaves it. Kept outside the hidden frame above, because it is focusable."
+        >
+          {/* Points at the section it lives in, so the gallery's one live
+              navigation control cannot navigate out of the gallery. */}
+          <JtsBackLink to="/admin/cookbook#jts">Back to campaigns</JtsBackLink>
+        </Specimen>
 
         <dl aria-label="JtsStat tones" className="grid gap-3 sm:grid-cols-3">
           <JtsStat
@@ -1484,6 +1513,28 @@ export function CookbookPage() {
             active={isSpinning}
             label="This specimen refreshes itself every few seconds."
           />
+        </Specimen>
+
+        <Specimen
+          label="Assistant cards"
+          note="Rendered from the fenced `jts` blocks below exactly as the assistant writes them — the specimen is the real path, not a mock of it. Fields the model omits leave no row behind, and a card that fails to parse falls back to its raw block rather than vanishing."
+          className="grid gap-3 sm:grid-cols-2"
+        >
+          <AssistantMarkdown>
+            {
+              '```jts\n{"kind":"profile","name":"Μαρία Κ.","email":"maria@example.com","phone":"+306900000000","neighborhood":"Κουκάκι","ageBand":"30-39","feedbackOptIn":true,"eventCount":4}\n```'
+            }
+          </AssistantMarkdown>
+          <AssistantMarkdown>
+            {
+              '```jts\n{"kind":"event","title":"Δείπνο στο Παγκράτι","startsAt":"2026-08-09T18:00:00.000Z","status":"scheduled","venue":"Καφενείο","area":"Παγκράτι","attendeeCount":6,"presentCount":0}\n```'
+            }
+          </AssistantMarkdown>
+          <AssistantMarkdown>
+            {
+              '```jts\n{"kind":"conversation","respondent":"Ειρήνη Κ.","campaign":"Δείπνο στο Παγκράτι","state":"open","control":"human","needsAttention":true,"answered":2,"goalCount":4,"messageCount":11,"lastMessageAt":"2026-08-01T20:14:00.000Z"}\n```'
+            }
+          </AssistantMarkdown>
         </Specimen>
       </Section>
 
@@ -1566,18 +1617,18 @@ export function CookbookPage() {
       <Section spec={MOTIF_SECTION}>
         <div className="grid gap-3 lg:grid-cols-2">
           <Specimen
-            label="The 3px marker — horizontal"
-            note="Under a page title. It means «this matters», never «you are here»."
+            label="The six-dot mark — under a title"
+            note="Five dots in the theme's primary and a sixth in its accent: the table, and the seat still open. It belongs to page titles alone, and it replaced the plain 3px dash every h1 used to carry."
             className="grid gap-2"
           >
-            <p className="font-display text-[1.375rem] font-extrabold text-ink after:mt-2 after:block after:h-[3px] after:w-8 after:bg-primary after:content-['']">
+            <p className="jts-title-mark font-display text-[1.375rem] font-extrabold text-ink">
               Operations control
             </p>
           </Specimen>
 
           <Specimen
             label="The 3px marker — vertical"
-            note="On the left edge of a card, in wine or in a status tone. There is no third emphasis device."
+            note="On the left edge of a card, in wine or in a status tone. The horizontal dash that used to pair with it now belongs to the six-dot mark, so these two are the whole vocabulary."
             className="grid gap-2"
           >
             <p className="rounded-md border border-border border-l-[3px] border-l-primary bg-surface-sunken px-3 py-2 text-sm text-ink">

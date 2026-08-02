@@ -12,6 +12,7 @@ import {
   type FeedbackConversationExtractionUsage,
 } from "../post-event-feedback-conversation.document.js";
 import type { EventsService } from "../../events/events.service.js";
+import type { EventFeedbackVenueSnapshot } from "../../events/event-venue.js";
 import type { ParticipantsRepository } from "../../participants/participants.repository.js";
 import type { FeedbackOperatorAlertInput } from "../operator-alert.js";
 import type { FeedbackOutboundLogRepository } from "../outbox/outbound-log.repository.js";
@@ -47,6 +48,7 @@ import { POST_EVENT_FEEDBACK_POLICY_QUESTION_DEFINITIONS } from "./policy-answer
 import type { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
 import type { FeedbackResultsRepository } from "./results.repository.js";
 import type { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
+import type { FeedbackIngressRepository } from "../ingress/ingress.repository.js";
 
 const campaignId = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 const eventId = "5c2f0b8e-9b1a-4a41-8f27-1a6f9b0c2d10";
@@ -303,6 +305,128 @@ describe("PostEventFeedbackExtractor", () => {
       expect(
         harness.events.listFeedbackCandidatesForRespondent,
       ).toHaveBeenCalledWith(eventId, respondentId);
+    });
+
+    describe("venue context", () => {
+      it("passes the enabled safe snapshot to the prompt and fences its revision", async () => {
+        harness.events.getFeedbackVenueContext.mockResolvedValue({
+          contextRevision: 7,
+          venue: {
+            label: "Nakama",
+            type: "japanese restaurant",
+            area: "Κέντρο Αθήνας",
+            priceRange: {
+              startMinor: 1_500,
+              endMinor: 3_000,
+              currencyCode: "EUR",
+            },
+          },
+        } satisfies EventFeedbackVenueSnapshot);
+
+        await harness.extractor.extract({ conversationId, correlationId });
+
+        const prompt = harness.generation.propose.mock.calls[0]?.[0] as
+          { readonly user: string } | undefined;
+        expect(prompt?.user).toContain(
+          "ΠΛΑΙΣΙΟ ΧΩΡΟΥ (χειριστή· όχι μαρτυρία)",
+        );
+        expect(prompt?.user).toContain('- όνομα: "Nakama"');
+        expect(prompt?.user).toContain('- τύπος: "japanese restaurant"');
+        expect(prompt?.user).toContain('- περιοχή: "Κέντρο Αθήνας"');
+        expect(prompt?.user).toContain("- κόστος ανά άτομο: 15–30 EUR");
+        expect(
+          harness.events.feedbackVenueContextIsCurrent,
+        ).toHaveBeenCalledWith(expect.anything(), eventId, 7);
+      });
+
+      it.each([
+        ["absent", 0],
+        ["disabled", 11],
+      ] as const)(
+        "omits %s venue context and does not create a revision fence",
+        async (_case, contextRevision) => {
+          harness.events.getFeedbackVenueContext.mockResolvedValue({
+            contextRevision,
+            venue: null,
+          } satisfies EventFeedbackVenueSnapshot);
+
+          await harness.extractor.extract({ conversationId, correlationId });
+
+          const prompt = harness.generation.propose.mock.calls[0]?.[0] as
+            { readonly user: string } | undefined;
+          expect(prompt?.user).not.toContain("ΠΛΑΙΣΙΟ ΧΩΡΟΥ");
+          expect(
+            harness.events.feedbackVenueContextIsCurrent,
+          ).not.toHaveBeenCalled();
+        },
+      );
+
+      it("rejects a venue-dependent run before results, outbox or goal state when the revision changes", async () => {
+        let currentVenueRevision = 7;
+        harness.events.getFeedbackVenueContext.mockImplementation(
+          async () =>
+            ({
+              contextRevision: currentVenueRevision,
+              venue: {
+                label: "Nakama",
+                type: "japanese restaurant",
+                area: "Κέντρο Αθήνας",
+              },
+            }) satisfies EventFeedbackVenueSnapshot,
+        );
+        harness.events.feedbackVenueContextIsCurrent.mockImplementation(
+          async (
+            _transaction: unknown,
+            _eventId: string,
+            expectedRevision: number,
+          ) => expectedRevision === currentVenueRevision,
+        );
+        harness.generation.propose.mockImplementation(async () => {
+          // Staff edits or disables the venue while the provider is thinking.
+          currentVenueRevision += 1;
+          return generation({
+            answers: [
+              {
+                questionKey: "event_score",
+                valueInt: 5,
+                subjectParticipantId: null,
+                subjectMentionedName: null,
+                sourceMessageIds: ["p1"],
+                confidence: 0.95,
+              },
+            ],
+            nextGoal: "liked",
+            reply: "Και ποιος σου έκανε ιδιαίτερα καλή εντύπωση;",
+          });
+        });
+        harness.conversations.setAllGoals(conversationId, "pending");
+        const goalsBefore = harness.conversations.goalStatuses(conversationId);
+
+        const failure = await harness.extractor
+          .extract({ conversationId, correlationId })
+          .catch((error: unknown) => error);
+
+        expect(failure).toBeInstanceOf(FeedbackExtractionGenerationError);
+        expect(failure).toMatchObject({
+          code: "extraction_failed",
+          retryable: true,
+          failureCause: "validation_failed",
+        });
+        expect(
+          harness.events.feedbackVenueContextIsCurrent,
+        ).toHaveBeenCalledWith(expect.anything(), eventId, 7);
+        expect(harness.repository.locked).toBe(0);
+        expect(harness.repository.answers).toEqual([]);
+        expect(harness.repository.notes).toEqual([]);
+        expect(harness.repository.outbox).toEqual([]);
+        expect(harness.repository.outboxLogs).toEqual([]);
+        expect(harness.conversations.goalStatuses(conversationId)).toEqual(
+          goalsBefore,
+        );
+        expect(
+          harness.conversations.get(conversationId).extraction.cursorSeq,
+        ).toBe(0);
+      });
     });
 
     it("records a degraded subject in the note meta instead of guessing", async () => {
@@ -638,6 +762,35 @@ describe("PostEventFeedbackExtractor", () => {
       // The run reading the newer message speaks instead: one reply per burst,
       // not one per fragment.
       expect(harness.repository.outbox).toEqual([]);
+    });
+
+    it("drops the ordinary reply when newer durable ingress has not reached MongoDB yet", async () => {
+      harness.repository.newerInboundBeyondSnapshot = true;
+      harness.generation.propose.mockResolvedValue(
+        generation({
+          answers: [
+            {
+              questionKey: "event_score",
+              valueInt: 5,
+              subjectParticipantId: null,
+              subjectMentionedName: null,
+              sourceMessageIds: ["p1"],
+              confidence: 0.9,
+            },
+          ],
+          nextGoal: "liked",
+          reply: "Ευχαριστούμε πολύ!",
+        }),
+      );
+
+      const result = await harness.extractor.extract({
+        conversationId,
+        correlationId,
+      });
+
+      expect(result).toMatchObject({ answersWritten: 1, cursorSeq: 2 });
+      expect(harness.repository.outbox).toEqual([]);
+      expect(harness.repository.inboundPhoneLocks).toEqual(["+306900000001"]);
     });
 
     it("still writes its results and closes its own window", async () => {
@@ -1952,6 +2105,7 @@ interface FakeConversation {
   _id: string;
   campaignId: string;
   respondentParticipantId: string;
+  phoneAtLaunch: string;
   lifecycle: { state: string; reason: string | null; closedAt: Date | null };
   control: { mode: string; source: string; changedAt: Date };
   goals: FakeGoal[];
@@ -2023,6 +2177,8 @@ class FakeFeedbackRepository {
   readonly outbox: Record<string, unknown>[] = [];
   readonly outboxLogs: FakeOutboxLogRow[] = [];
   locked = 0;
+  newerInboundBeyondSnapshot = false;
+  readonly inboundPhoneLocks: string[] = [];
 
   async findCampaignById(id: string) {
     return this.campaigns.get(id);
@@ -2039,6 +2195,18 @@ class FakeFeedbackRepository {
   lockConversation(): Promise<unknown> {
     this.locked += 1;
     return Promise.resolve();
+  }
+
+  lockInboundPhone(
+    _transaction: AppTransaction,
+    phoneE164: string,
+  ): Promise<void> {
+    this.inboundPhoneLocks.push(phoneE164);
+    return Promise.resolve();
+  }
+
+  hasInboundBeyondSnapshot(): Promise<boolean> {
+    return Promise.resolve(this.newerInboundBeyondSnapshot);
   }
 
   /** Moving a person between mutually exclusive questions clears the old one. */
@@ -2421,7 +2589,11 @@ interface Harness {
   repository: FakeFeedbackRepository;
   conversations: FakeConversations;
   participants: FakeParticipants;
-  events: { listFeedbackCandidatesForRespondent: ReturnType<typeof vi.fn> };
+  events: {
+    listFeedbackCandidatesForRespondent: ReturnType<typeof vi.fn>;
+    getFeedbackVenueContext: ReturnType<typeof vi.fn>;
+    feedbackVenueContextIsCurrent: ReturnType<typeof vi.fn>;
+  };
   generation: {
     serviceTier: string | undefined;
     propose: ReturnType<typeof vi.fn>;
@@ -2506,6 +2678,11 @@ function createHarness(): Harness {
         { participantId: eleni, displayName: "Ελένη" },
       ],
     }),
+    getFeedbackVenueContext: vi.fn().mockResolvedValue({
+      contextRevision: 0,
+      venue: null,
+    } satisfies EventFeedbackVenueSnapshot),
+    feedbackVenueContextIsCurrent: vi.fn().mockResolvedValue(true),
   };
   const generationService = {
     // Mutable so a case can put the model on OpenAI's fast lane, which is the
@@ -2538,6 +2715,7 @@ function createHarness(): Harness {
     _id: conversationId,
     campaignId,
     respondentParticipantId: respondentId,
+    phoneAtLaunch: "+306900000001",
     lifecycle: { state: "open", reason: null, closedAt: null },
     control: {
       mode: "bot",
@@ -2588,6 +2766,7 @@ function createHarness(): Harness {
     repository as unknown as FeedbackCampaignRepository,
     repository as unknown as FeedbackResultsRepository,
     repository as unknown as FeedbackOutboxRepository,
+    repository as unknown as FeedbackIngressRepository,
     conversations as unknown as FeedbackConversationRepository,
     events as unknown as EventsService,
     participants as unknown as ParticipantsRepository,

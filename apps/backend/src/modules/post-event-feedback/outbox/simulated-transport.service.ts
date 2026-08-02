@@ -13,9 +13,9 @@ import { FeedbackSimOutboundRepository } from "../simulator/sim-outbound.reposit
 /**
  * Durable PostgreSQL outbound sink for `TRANSPORT_MODE=simulated` (WP8).
  *
- * Dev/staging only: rows live in `feedback_sim_outbound` and are queryable per
- * phone for the admin simulator thread. Production must not mount simulated
- * transport or the HTTP injector.
+ * Rows live in `feedback_sim_outbound` and are queryable per phone for the admin
+ * simulator thread. Production can select this adapter only through the
+ * explicit rehearsal gate; no provider client is involved.
  */
 @Injectable()
 export class SimulatedFeedbackTransport implements FeedbackTransport {

@@ -45,6 +45,9 @@ export type FeedbackCampaignSummaryTrigger =
 
 export const FEEDBACK_ANSWER_QUESTION_KEYS = [
   "event_score",
+  "table_fit",
+  "participation_ease",
+  "conversation_balance",
   "liked",
   "meet_again",
   "avoid",
@@ -340,7 +343,7 @@ export const feedbackAnswers = pgTable(
     }).onDelete("restrict"),
     check(
       "feedback_answers_question_key_check",
-      sql`${table.questionKey} in ('event_score', 'liked', 'meet_again', 'avoid')`,
+      sql`${table.questionKey} in ('event_score', 'table_fit', 'participation_ease', 'conversation_balance', 'liked', 'meet_again', 'avoid')`,
     ),
     check(
       "feedback_answers_value_int_check",
@@ -432,7 +435,7 @@ export const feedbackAnswerWithdrawals = pgTable(
     }).onDelete("restrict"),
     check(
       "feedback_answer_withdrawals_question_key_check",
-      sql`${table.questionKey} in ('event_score', 'liked', 'meet_again', 'avoid')`,
+      sql`${table.questionKey} in ('event_score', 'table_fit', 'participation_ease', 'conversation_balance', 'liked', 'meet_again', 'avoid')`,
     ),
     check(
       "feedback_answer_withdrawals_withdrawn_by_length_check",
@@ -677,6 +680,13 @@ export const messageOutbox = pgTable(
       table.status,
       table.createdAt,
     ),
+    // The history screen's own index. It reads the table as a log — newest
+    // first, no status, walked by a `(created_at, id)` keyset and cut by a
+    // `created_at` range — and the composite above cannot serve that, because
+    // its leading column is a status the query does not constrain. `id` is in
+    // the index rather than left to a heap fetch because it is the tie-break
+    // the cursor comparison is written against.
+    index("message_outbox_created_id_idx").on(table.createdAt, table.id),
     index("message_outbox_provider_message_id_idx").on(table.providerMessageId),
   ],
 );

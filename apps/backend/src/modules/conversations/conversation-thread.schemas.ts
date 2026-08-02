@@ -127,8 +127,23 @@ export const conversationTurnSchema = z
     attempt: z.number().int().positive(),
     model: z.string().trim().min(1).max(200).nullable(),
     reasoningEffort: z.string().trim().min(1).max(32).nullable(),
+    /**
+     * The provider service tier the turn ran under. Defaulted so turns written
+     * before the fast lane existed parse as the standard tier they in fact ran
+     * under, rather than failing validation.
+     */
+    serviceTier: z.string().trim().min(1).max(32).nullable().default(null),
     input: conversationMessageSchema,
     output: conversationMessageSchema.nullable(),
+    /**
+     * Text streamed so far by the in-flight attempt. Defaulted so turns written
+     * before streaming existed still parse, and kept apart from `output` because
+     * only `output` is an answer — see
+     * `docs/backend/mechanisms/assistant-streaming.md`.
+     */
+    partial: z.string().max(20_000).nullable().default(null),
+    /** The provider's thinking for the in-flight attempt; cleared when settled. */
+    reasoning: z.string().max(20_000).nullable().default(null),
     error: conversationTurnErrorSchema.nullable(),
     createdAt: z.date(),
     startedAt: z.date().nullable(),
@@ -155,6 +170,16 @@ export const conversationTurnSchema = z
       context.addIssue({
         code: "custom",
         message: "A conversation turn cannot complete before it started",
+      });
+    }
+
+    if (
+      turn.partial !== null &&
+      (turn.status === "succeeded" || turn.status === "failed")
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "A settled conversation turn cannot carry streamed text",
       });
     }
 

@@ -6,11 +6,14 @@ import {
   getPostEventFeedbackExtractionFixture,
   type PostEventFeedbackExtractionFixture,
 } from "./post-event-feedback-fixtures.js";
-import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "./question-set.js";
+import {
+  getPostEventFeedbackQuestionSet,
+  type PostEventFeedbackQuestionSetVersion,
+} from "./question-set.js";
 import { validateFeedbackExtractionProposal } from "./extraction/validate-proposal.js";
 import {
+  createFeedbackExtractionProposalSchema,
   feedbackExtractionGoalVerdicts,
-  feedbackExtractionProposalSchema,
   type FeedbackExtractionAnswerProposal,
   type FeedbackExtractionContext,
   type FeedbackExtractionProposal,
@@ -49,16 +52,25 @@ type EvalProposal = Partial<Omit<FeedbackExtractionProposal, "goals">> & {
   readonly skippedGoals?: readonly FeedbackAnswerQuestionKey[];
 };
 
-function proposal(overrides: EvalProposal): FeedbackExtractionProposal {
+function proposal(
+  overrides: EvalProposal,
+  questionSetVersion: PostEventFeedbackQuestionSetVersion = 1,
+): FeedbackExtractionProposal {
   const { answers, skippedGoals, ...rest } = overrides;
-  return feedbackExtractionProposalSchema.parse({
-    goals: feedbackExtractionGoalVerdicts({
-      ...(answers ? { answered: answers } : {}),
-      declined: (skippedGoals ?? []).map((questionKey) => ({
-        questionKey,
-        sourceMessageIds: ["m2"],
-      })),
-    }),
+  const questionKeys = getPostEventFeedbackQuestionSet(
+    questionSetVersion,
+  ).answerQuestions.map((question) => question.key);
+  return createFeedbackExtractionProposalSchema(questionKeys).parse({
+    goals: feedbackExtractionGoalVerdicts(
+      {
+        ...(answers ? { answered: answers } : {}),
+        declined: (skippedGoals ?? []).map((questionKey) => ({
+          questionKey,
+          sourceMessageIds: ["m2"],
+        })),
+      },
+      questionKeys,
+    ),
     notes: [],
     nextGoal: null,
     reply: null,
@@ -76,6 +88,9 @@ function contextFor(
   fixture: PostEventFeedbackExtractionFixture,
   overrides: Partial<FeedbackExtractionContext> = {},
 ): FeedbackExtractionContext {
+  const questionSet = getPostEventFeedbackQuestionSet(
+    fixture.questionSetVersion,
+  );
   return {
     respondentParticipantId: fixture.respondentParticipantId,
     respondentDisplayName: null,
@@ -90,14 +105,12 @@ function contextFor(
     newParticipantMessageIds: fixture.messages
       .filter((message) => message.actor === "participant")
       .map((message) => message.id),
-    goals: POST_EVENT_FEEDBACK_QUESTION_SET_V1.answerQuestions.map(
-      (question, index) => ({
-        key: question.key,
-        ordinal: index + 1,
-        prompt: POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy[question.key],
-        status: "asked" as const,
-      }),
-    ),
+    goals: questionSet.answerQuestions.map((question, index) => ({
+      key: question.key,
+      ordinal: index + 1,
+      prompt: questionSet.copy[question.key],
+      status: "asked" as const,
+    })),
     acceptedAnswers: [],
     acceptedNotes: [],
     replyAllowed: true,
@@ -146,7 +159,99 @@ describe("post-event feedback extraction eval (WP0 fixtures)", () => {
       "safety_language",
       "stop_mid_flow",
       "staff_follow_up_after_takeover",
+      "v2_full_questionnaire",
     ]);
+  });
+
+  it("v2_full_questionnaire: validates all six V2 goals without a V1 placeholder", () => {
+    const sourceMessageIds = ["m2"];
+    const { result } = runEval(
+      "v2_full_questionnaire",
+      proposal(
+        {
+          answers: [
+            {
+              questionKey: "event_score",
+              valueInt: 4,
+              subjectParticipantId: null,
+              subjectMentionedName: null,
+              sourceMessageIds,
+              confidence: 0.95,
+            },
+            {
+              questionKey: "table_fit",
+              valueInt: 5,
+              subjectParticipantId: null,
+              subjectMentionedName: null,
+              sourceMessageIds,
+              confidence: 0.95,
+            },
+            {
+              questionKey: "participation_ease",
+              valueInt: 4,
+              subjectParticipantId: null,
+              subjectMentionedName: null,
+              sourceMessageIds,
+              confidence: 0.95,
+            },
+            {
+              questionKey: "conversation_balance",
+              valueInt: 3,
+              subjectParticipantId: null,
+              subjectMentionedName: null,
+              sourceMessageIds,
+              confidence: 0.95,
+            },
+            {
+              questionKey: "meet_again",
+              valueInt: null,
+              subjectParticipantId: "p-nikos",
+              subjectMentionedName: "Νίκος",
+              sourceMessageIds,
+              confidence: 0.95,
+            },
+            {
+              questionKey: "avoid",
+              valueInt: null,
+              subjectParticipantId: "p-kostas-a",
+              subjectMentionedName: "Κώστας Π.",
+              sourceMessageIds,
+              confidence: 0.95,
+            },
+          ],
+          nextGoal: null,
+          reply: null,
+        },
+        2,
+      ),
+    );
+
+    expect(answerShape(result)).toEqual([
+      { questionKey: "event_score", valueInt: 4, subjectParticipantId: null },
+      { questionKey: "table_fit", valueInt: 5, subjectParticipantId: null },
+      {
+        questionKey: "participation_ease",
+        valueInt: 4,
+        subjectParticipantId: null,
+      },
+      {
+        questionKey: "conversation_balance",
+        valueInt: 3,
+        subjectParticipantId: null,
+      },
+      {
+        questionKey: "meet_again",
+        valueInt: null,
+        subjectParticipantId: "p-nikos",
+      },
+      {
+        questionKey: "avoid",
+        valueInt: null,
+        subjectParticipantId: "p-kostas-a",
+      },
+    ]);
+    expect(result.rejections).toEqual([]);
+    expect(result.nextGoal).toBeNull();
   });
 
   it("happy_path: score, one liked, one meet-again and a directed activity note", () => {
@@ -291,7 +396,7 @@ describe("post-event feedback extraction eval (WP0 fixtures)", () => {
     );
     const prompt = buildFeedbackExtractionPrompt({
       context: contextFor(fixture),
-      copy: POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy,
+      copy: getPostEventFeedbackQuestionSet(fixture.questionSetVersion).copy,
     });
 
     // Application code cannot tell a correct pick from a lucky guess when both
@@ -311,7 +416,7 @@ describe("post-event feedback extraction eval (WP0 fixtures)", () => {
     const context = contextFor(fixture);
     const prompt = buildFeedbackExtractionPrompt({
       context,
-      copy: POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy,
+      copy: getPostEventFeedbackQuestionSet(fixture.questionSetVersion).copy,
     });
 
     expect(prompt.user).toContain(
@@ -595,7 +700,8 @@ describe("post-event feedback extraction eval (WP0 fixtures)", () => {
       tokens: estimatePromptTokens(
         buildFeedbackExtractionPrompt({
           context: contextFor(fixture),
-          copy: POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy,
+          copy: getPostEventFeedbackQuestionSet(fixture.questionSetVersion)
+            .copy,
         }),
       ),
     }));

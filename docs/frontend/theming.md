@@ -270,6 +270,19 @@ for prose.
 collapses all animation under `prefers-reduced-motion`. Motion signals
 continuity or state change and never carries status by itself.
 
+The one other sanctioned animation is `.jts-disclosure`: a `<details>` whose
+body slides open over `--jts-duration-base` instead of appearing between two
+frames. It transitions `block-size` on the UA's own `::details-content` box,
+from `0` to `calc-size(auto, size)` — the scoped alternative to opting the whole
+document into `interpolate-size`. The rule sits behind
+`@supports (block-size: calc-size(auto, size))` because an unguarded
+`block-size: 0` would fold the content away for good where `calc-size` does not
+parse, and it repeats the reduced-motion rule, because the base layer's covers
+`*`, `::before` and `::after` and `::details-content` is none of those.
+`overflow: hidden` clips the body mid-slide, so only a disclosure whose body
+carries its own padding may wear the class — otherwise a focus ring flush
+against the content box is clipped with it.
+
 ## Invariants
 
 - Components consume semantic tokens (via the bridge utilities), never
@@ -280,11 +293,13 @@ continuity or state change and never carries status by itself.
   chair, filled with `currentColor` (no green plate). The CSS six-dot
   `.brand-mark` is a decorative motif only (empty states, cookbook). One static
   `.status-dot` is the environment indicator.
-- The signature emphasis motif is **the 3px marker** (`--jts-color-primary` or
-  a status tone): horizontal under the page title, vertical on the left edge of
-  accented cards. It means "this matters / something happened" — never "you are
-  here" (the active sidebar item lights its index numeral instead) — and do not
-  invent parallel emphasis devices.
+- Two emphasis motifs, and no third. **The six-dot title mark**
+  (`jts-title-mark`) belongs to page titles alone: six 3px dots, five in
+  `--jts-color-primary` and the sixth in `--jts-color-accent` — the table and the
+  seat still open. **The vertical 3px marker** (`--jts-color-primary` or a status
+  tone) sits on the left edge of an accented card and means "this matters /
+  something happened". Neither ever means "you are here" — the active sidebar
+  item lights its index numeral instead — and neither animates.
 - Metadata text (tags, table column headers, labels, kickers) is tracked
   micro-caps via `jts-overline`, not a hand-written size/weight/tracking triple;
   content and numbers stay sentence case with tabular figures.
@@ -306,6 +321,14 @@ continuity or state change and never carries status by itself.
   single-class wiring: the pre-paint script, `@custom-variant dark`, the
   `--accent: var(--jts-color-primary)` bridge, `:root.dark`, and the
   `useTheme`/`setThemeMode`/`THEME_STORAGE_KEY` exports.
+- `apps/admin/test/page-chrome.spec.ts` — the chrome every admin route shares:
+  that the title mark is one utility rather than a class string screens copy and
+  that it counts to six with the accent last, that every route-owned `h1` wears
+  it, that the back link is `JtsBackLink` everywhere and never a page action,
+  that every flowing route opens on the same gap while a full-height one keeps
+  its `h-full min-h-0` grammar, and that `.jts-disclosure` stays inside its
+  `@supports` guard, spends the shared duration and easing, and names reduced
+  motion for itself.
 - `apps/admin/test/palettes.spec.ts` — every palette in `palettes.css`:
   complete semantic cover, the `:not(.dark)` scoping, the same twelve AA pairs
   in both themes, the ΔE floors and numeral rule above, and the one-id-list

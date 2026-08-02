@@ -35,10 +35,12 @@ CMD ["pnpm", "dev"]
 FROM dependencies AS build
 ARG VITE_API_BASE=/api
 ARG VITE_CLERK_PUBLISHABLE_KEY=
+ARG VITE_GOOGLE_MAPS_API_KEY=
 ENV NODE_ENV=production
 ENV TURBO_TELEMETRY_DISABLED=1
 ENV VITE_API_BASE=$VITE_API_BASE
 ENV VITE_CLERK_PUBLISHABLE_KEY=$VITE_CLERK_PUBLISHABLE_KEY
+ENV VITE_GOOGLE_MAPS_API_KEY=$VITE_GOOGLE_MAPS_API_KEY
 COPY . .
 RUN --network=none pnpm build
 
@@ -66,23 +68,33 @@ ENTRYPOINT ["run-with-secrets"]
 # than a Node runtime. Caddy serves the Vite build and falls back to index.html
 # for client-side routes (see docker/web.Caddyfile).
 FROM caddy:2.11.4-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648 AS web
+ARG RELEASE_TAG=unknown
 COPY --from=build /workspace/apps/admin/dist /srv
 COPY docker/web.Caddyfile /etc/caddy/Caddyfile
+RUN case "$RELEASE_TAG" in *[!A-Za-z0-9_.-]* | "") exit 1 ;; esac && \
+  printf '{"release":"%s"}\n' "$RELEASE_TAG" > /srv/deploy.json
+LABEL org.opencontainers.image.revision=$RELEASE_TAG
 EXPOSE 3000
 
 FROM secret-runtime AS backend-runtime
 COPY --from=backend-package --chown=node:node /opt/backend ./
 
 FROM backend-runtime AS api
+ARG RELEASE_TAG=unknown
+LABEL org.opencontainers.image.revision=$RELEASE_TAG
 EXPOSE 4000
 CMD ["node", "--import", "./dist/instrumentation.js", "./dist/main-http.js"]
 
 FROM backend-runtime AS worker
+ARG RELEASE_TAG=unknown
+LABEL org.opencontainers.image.revision=$RELEASE_TAG
 CMD ["node", "--import", "./dist/instrumentation.js", "./dist/main-worker.js"]
 
 FROM secret-runtime AS migrate
+ARG RELEASE_TAG=unknown
 COPY --from=database-package --chown=node:node /opt/database ./
 COPY --chown=node:node docker/migrate.mjs ./migrate.mjs
 RUN node --check ./migrate.mjs && \
   node --input-type=module --eval "await import('drizzle-orm/node-postgres/migrator'); await import('pg')"
+LABEL org.opencontainers.image.revision=$RELEASE_TAG
 CMD ["node", "./migrate.mjs"]

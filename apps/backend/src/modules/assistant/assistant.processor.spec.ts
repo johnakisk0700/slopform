@@ -25,9 +25,12 @@ const runningTurn: AssistantTurnRow = {
   status: "running",
   model: "google/gemini-3.6-flash",
   effort: "low",
+  serviceTier: "standard",
   attempt: 1,
   userContent: "Hello",
   assistantContent: null,
+  streamedContent: null,
+  reasoningContent: null,
   errorCode: null,
   errorMessage: null,
   createdAt: new Date(),
@@ -64,9 +67,11 @@ function createProcessor(options?: {
     markFailed: ReturnType<typeof vi.fn>;
     markQueued: ReturnType<typeof vi.fn>;
     markSucceeded: ReturnType<typeof vi.fn>;
+    recordPartial: ReturnType<typeof vi.fn>;
     start: ReturnType<typeof vi.fn>;
   };
-  readonly generate: ReturnType<typeof vi.fn>;
+  readonly generateStreaming: ReturnType<typeof vi.fn>;
+  readonly recordPartial: ReturnType<typeof vi.fn>;
   readonly processor: AssistantProcessor;
 } {
   const assistant = {
@@ -77,15 +82,41 @@ function createProcessor(options?: {
     markSucceeded: vi.fn().mockResolvedValue(undefined),
     markFailed: vi.fn().mockResolvedValue(undefined),
     markQueued: vi.fn().mockResolvedValue(undefined),
+    recordPartial: vi.fn().mockResolvedValue(undefined),
   };
-  const generate = options?.generationError
+  // The streaming twin reports the accumulated prefix, so the processor sees the
+  // same delta contract the provider gives it.
+  const generateStreaming = options?.generationError
     ? vi.fn().mockRejectedValue(options.generationError)
-    : vi.fn().mockResolvedValue("Generated response");
+    : vi
+        .fn()
+        .mockImplementation(
+          async (input: { onDelta: (text: string) => void }) => {
+            input.onDelta("Generated");
+            input.onDelta("Generated response");
+            return {
+              content: "Generated response",
+              reasoning: null,
+              usage: {
+                inputTokens: null,
+                outputTokens: null,
+                reasoningTokens: null,
+                cachedInputTokens: null,
+                totalTokens: null,
+              },
+            };
+          },
+        );
   const processor = new AssistantProcessor(
     assistant as unknown as AssistantService,
-    { generate } as unknown as AssistantGenerationService,
+    { generateStreaming } as unknown as AssistantGenerationService,
   );
-  return { assistant, generate, processor };
+  return {
+    assistant,
+    generateStreaming,
+    recordPartial: assistant.recordPartial,
+    processor,
+  };
 }
 
 describe("AssistantProcessor", () => {
@@ -104,14 +135,25 @@ describe("AssistantProcessor", () => {
   });
 
   it("generates from durable context and persists the exact attempt", async () => {
-    const { assistant, generate, processor } = createProcessor();
+    const { assistant, generateStreaming, processor } = createProcessor();
     await expect(processor.process(createJob())).resolves.toBeUndefined();
     expect(assistant.start).toHaveBeenCalledWith(turnId, 1);
-    expect(generate).toHaveBeenCalledWith({
-      model: "google/gemini-3.6-flash",
-      effort: "low",
-      messages,
-    });
+    expect(generateStreaming).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: "google/gemini-3.6-flash",
+        effort: "low",
+        serviceTier: "standard",
+        messages,
+      }),
+    );
+    // The last held delta is drained before the terminal write, so the recorded
+    // prefix can never lag behind the answer that supersedes it.
+    expect(assistant.recordPartial).toHaveBeenLastCalledWith(
+      turnId,
+      1,
+      "Generated response",
+      null,
+    );
     expect(assistant.markSucceeded).toHaveBeenCalledWith(
       turnId,
       1,
@@ -120,11 +162,11 @@ describe("AssistantProcessor", () => {
   });
 
   it("does nothing when a stale delivery has no executable context", async () => {
-    const { assistant, generate, processor } = createProcessor({
+    const { assistant, generateStreaming, processor } = createProcessor({
       messages: [],
     });
     await expect(processor.process(createJob())).resolves.toBeUndefined();
-    expect(generate).not.toHaveBeenCalled();
+    expect(generateStreaming).not.toHaveBeenCalled();
     expect(assistant.markSucceeded).not.toHaveBeenCalled();
   });
 

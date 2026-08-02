@@ -55,7 +55,8 @@ describe("feedback repository conflict targets", () => {
         chatJid: "306900000001@s.whatsapp.net",
       },
     ]);
-    const transaction = { insert: chain.insert };
+    const execute = vi.fn().mockResolvedValue(undefined);
+    const transaction = { execute, insert: chain.insert };
     const repository = new FeedbackIngressRepository({
       db: {},
     } as DatabaseService);
@@ -66,11 +67,22 @@ describe("feedback repository conflict targets", () => {
         providerMessageId: "wamid.1",
         chatJid: "306900000001@s.whatsapp.net",
         direction: "inbound",
+        phoneE164: "+306900000001",
         observedAt: new Date("2026-07-25T18:00:00.000Z"),
         text: "γεια",
       },
     );
 
+    const [lockStatement] = execute.mock.calls[0] as [SQL];
+    expect(new PgDialect().sqlToQuery(lockStatement).sql).toBe(
+      "select pg_advisory_xact_lock(hashtextextended($1, 0))",
+    );
+    expect(new PgDialect().sqlToQuery(lockStatement).params).toEqual([
+      "feedback-ingress-phone:+306900000001",
+    ]);
+    expect(execute.mock.invocationCallOrder[0]).toBeLessThan(
+      chain.insert.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
+    );
     expect(chain.onConflictDoNothing).toHaveBeenCalledWith({
       target: [
         providerMessageIngress.chatJid,
@@ -78,6 +90,42 @@ describe("feedback repository conflict targets", () => {
       ],
     });
     expect(result.inserted).toBe(true);
+  });
+
+  it("finds pending or newly materialized inbound beyond an extraction snapshot", async () => {
+    const limit = vi.fn().mockResolvedValue([{ id: "new-ingress" }]);
+    const where = vi.fn().mockReturnValue({ limit });
+    const from = vi.fn().mockReturnValue({ where });
+    const select = vi.fn().mockReturnValue({ from });
+    const repository = new FeedbackIngressRepository({
+      db: {},
+    } as DatabaseService);
+
+    const found = await repository.hasInboundBeyondSnapshot(
+      { select } as never,
+      {
+        phoneE164: "+306900000001",
+        conversationId: "33333333-3333-4333-8333-333333333333",
+        snapshotIngressIds: ["11111111-1111-4111-8111-111111111111"],
+      },
+    );
+
+    expect(found).toBe(true);
+    const [predicate] = where.mock.calls[0] as [SQL];
+    const query = new PgDialect().sqlToQuery(predicate);
+    expect(query.sql).toContain('"direction" = $1');
+    expect(query.sql).toContain('"processing_status" = $3');
+    expect(query.sql).toContain('"processing_status" = $4');
+    expect(query.sql).toContain('"matched_conversation_id" = $5');
+    expect(query.sql).toContain('"id" not in ($6)');
+    expect(query.params).toEqual([
+      "inbound",
+      "+306900000001",
+      "pending",
+      "materialized",
+      "33333333-3333-4333-8333-333333333333",
+      "11111111-1111-4111-8111-111111111111",
+    ]);
   });
 
   it("dedupes outbox inserts on dedupe_key", async () => {

@@ -2,7 +2,9 @@ import type { FeedbackAnswerQuestionKey } from "@join-the-six/database";
 import { describe, expect, it } from "vitest";
 
 import { validateFeedbackExtractionProposal } from "./validate-proposal.js";
+import { POST_EVENT_FEEDBACK_QUESTION_SET_V2 } from "../question-set.js";
 import {
+  createFeedbackExtractionProposalSchema,
   feedbackExtractionGoalVerdicts,
   feedbackExtractionProposalSchema,
   type FeedbackExtractionAnswerProposal,
@@ -1058,9 +1060,96 @@ describe("validateFeedbackExtractionProposal", () => {
       rejections: [],
     });
   });
+
+  it("validates a V2 score against the goals actually stored on the conversation", () => {
+    const questionKeys =
+      POST_EVENT_FEEDBACK_QUESTION_SET_V2.answerQuestions.map(
+        (question) => question.key,
+      );
+    const v2Context = context({
+      goals: POST_EVENT_FEEDBACK_QUESTION_SET_V2.answerQuestions.map(
+        (question, index) => ({
+          key: question.key,
+          ordinal: index + 1,
+          prompt: POST_EVENT_FEEDBACK_QUESTION_SET_V2.copy[question.key],
+          status: "pending" as const,
+        }),
+      ),
+    });
+    const proposal = createFeedbackExtractionProposalSchema(questionKeys).parse(
+      {
+        goals: feedbackExtractionGoalVerdicts(
+          {
+            answered: [
+              answer({
+                questionKey: "table_fit",
+                valueInt: 4,
+                subjectParticipantId: null,
+              }),
+            ],
+          },
+          questionKeys,
+        ),
+        notes: [],
+        nextGoal: "participation_ease",
+        reply: "Πάμε στην επόμενη ερώτηση.",
+        handoff: false,
+        confidence: 0.9,
+      },
+    );
+
+    expect(
+      validateFeedbackExtractionProposal(proposal, v2Context),
+    ).toMatchObject({
+      answers: [
+        {
+          questionKey: "table_fit",
+          valueInt: 4,
+          subjectParticipantId: null,
+        },
+      ],
+      nextGoal: "participation_ease",
+      rejections: [],
+    });
+  });
 });
 
 describe("feedbackExtractionProposalSchema", () => {
+  it("requires exactly the V2 conversation goals", () => {
+    const questionKeys =
+      POST_EVENT_FEEDBACK_QUESTION_SET_V2.answerQuestions.map(
+        (question) => question.key,
+      );
+    const schema = createFeedbackExtractionProposalSchema(questionKeys);
+    const goals = feedbackExtractionGoalVerdicts({}, questionKeys);
+    const valid = {
+      goals,
+      notes: [],
+      nextGoal: "table_fit",
+      reply: null,
+      handoff: false,
+      confidence: 1,
+    };
+
+    expect(schema.parse(valid).goals).toHaveProperty("conversation_balance");
+    const { conversation_balance: _missing, ...missingGoal } = goals;
+    expect(() => schema.parse({ ...valid, goals: missingGoal })).toThrow();
+    expect(() =>
+      schema.parse({
+        ...valid,
+        goals: {
+          ...goals,
+          liked: {
+            status: "not_addressed",
+            answers: [],
+            declinedSourceMessageIds: [],
+          },
+        },
+      }),
+    ).toThrow();
+    expect(() => schema.parse({ ...valid, nextGoal: "liked" })).toThrow();
+  });
+
   it("rejects an unknown question key at the model boundary", () => {
     expect(() =>
       feedbackExtractionProposalSchema.parse({

@@ -7,12 +7,14 @@ import {
   TextArea,
   TextField,
 } from "@heroui/react";
-import { ArrowUp } from "lucide-react";
+import { ArrowUp, Zap } from "lucide-react";
 import { type FormEvent, type KeyboardEvent, type RefObject } from "react";
 
-import type {
-  AssistantEffort,
-  AssistantModel,
+import {
+  assistantModelSupportsServiceTier,
+  type AssistantEffort,
+  type AssistantModel,
+  type AssistantServiceTier,
 } from "../../../features/assistant/schema";
 import { AssistantModelSelector } from "./AssistantModelSelector";
 
@@ -20,6 +22,7 @@ interface AssistantComposerProps {
   value: string;
   selectedModel: AssistantModel;
   selectedEffort: AssistantEffort;
+  selectedServiceTier: AssistantServiceTier;
   isBusy: boolean;
   isBlocked: boolean;
   error: string | null;
@@ -27,6 +30,7 @@ interface AssistantComposerProps {
   onChange: (value: string) => void;
   onModelChange: (model: AssistantModel) => void;
   onEffortChange: (effort: AssistantEffort) => void;
+  onServiceTierChange: (tier: AssistantServiceTier) => void;
   onSubmit: () => void;
 }
 
@@ -35,6 +39,7 @@ export function AssistantComposer({
   value,
   selectedModel,
   selectedEffort,
+  selectedServiceTier,
   isBusy,
   isBlocked,
   error,
@@ -42,6 +47,7 @@ export function AssistantComposer({
   onChange,
   onModelChange,
   onEffortChange,
+  onServiceTierChange,
   onSubmit,
 }: AssistantComposerProps) {
   const disabled = isBusy || isBlocked;
@@ -78,8 +84,14 @@ export function AssistantComposer({
             Message the assistant
           </Label>
           <div className="flex items-start gap-2">
+            {/* Mono, like the source: the sans "❯" is drawn with no descender at
+                all, so it hangs off its own baseline. The nudge is measured
+                against the ink of the text beside it, which is what the eye
+                actually compares the glyph to — not against the line box, whose
+                half-leading is symmetric and hides the offset. Mono "❯" ink
+                centres 1.1px above that band; +1px closes it. */}
             <span
-              className="select-none text-sm leading-5 text-primary/70"
+              className="translate-y-px select-none font-mono text-sm leading-5 text-primary/70"
               aria-hidden="true"
             >
               ❯
@@ -95,7 +107,15 @@ export function AssistantComposer({
                   ? "Retry the failed turn or start a new conversation"
                   : "Ask anything about Join The Six operations…"
               }
-              className="max-h-40 min-h-12 w-full resize-y border-0 bg-transparent p-0 text-sm shadow-none outline-none focus:border-0 focus:bg-transparent focus:outline-none focus:ring-0 focus:ring-offset-0 focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
+              // Two fixed rows that scroll, exactly like the source composer: a
+              // drag handle here would resize a box the page docks against.
+              //
+              // Horizontal padding is the browser's own 2px, which the source
+              // never resets. A textarea clips at its padding box, so with it
+              // zeroed the caret is painted straight onto that edge and loses
+              // half its width. Vertical padding stays zero — that is what puts
+              // the first line on the prompt's line.
+              className="w-full resize-none border-0 bg-transparent px-0.5 py-0 text-sm shadow-none outline-none focus:border-0 focus:bg-transparent focus:outline-none focus:ring-0 focus:ring-offset-0 focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
               onChange={(event) => onChange(event.target.value)}
               onKeyDown={handleKeyDown}
             />
@@ -112,6 +132,12 @@ export function AssistantComposer({
               isDisabled={disabled}
               onChange={onModelChange}
               onEffortChange={onEffortChange}
+            />
+            <AssistantFastLaneToggle
+              value={selectedServiceTier}
+              isSupported={assistantModelSupportsServiceTier(selectedModel)}
+              isDisabled={disabled}
+              onChange={onServiceTierChange}
             />
             <Description
               id="assistant-composer-help"
@@ -137,5 +163,54 @@ export function AssistantComposer({
         </TextField>
       </form>
     </div>
+  );
+}
+
+/**
+ * The fast-lane toggle.
+ *
+ * Disabled rather than hidden on the OpenRouter models: a control that vanishes
+ * teaches nothing, while a disabled one with a reason explains why this model
+ * cannot be hurried. The label carries the price, because doubling the bill is
+ * the entire trade and an operator should not have to remember it.
+ */
+function AssistantFastLaneToggle({
+  value,
+  isSupported,
+  isDisabled,
+  onChange,
+}: {
+  value: AssistantServiceTier;
+  isSupported: boolean;
+  isDisabled: boolean;
+  onChange: (tier: AssistantServiceTier) => void;
+}) {
+  const isOn = isSupported && value === "fast";
+
+  const explanation = isSupported
+    ? "Fast lane — about twice the speed at twice the token price"
+    : "Fast lane is an OpenAI setting; this model runs through OpenRouter";
+
+  // The tooltip sits on the wrapper, not the button: a disabled control stops
+  // firing the pointer events a title needs, and the disabled case is precisely
+  // the one that has something to explain.
+  return (
+    <span title={explanation} className="inline-flex">
+      <Button
+        type="button"
+        size="sm"
+        variant="ghost"
+        isDisabled={isDisabled || !isSupported}
+        aria-pressed={isOn}
+        aria-label={explanation}
+        className={`h-8 gap-1.5 rounded-sm px-2 text-xs ${
+          isOn ? "bg-primary-soft text-primary" : "text-ink-muted"
+        }`}
+        onPress={() => onChange(isOn ? "standard" : "fast")}
+      >
+        <Zap aria-hidden="true" className="size-3.5" />
+        Fast
+      </Button>
+    </span>
   );
 }

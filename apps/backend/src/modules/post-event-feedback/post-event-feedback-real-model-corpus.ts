@@ -17,11 +17,20 @@ export const POST_EVENT_FEEDBACK_CORPUS_CANDIDATE_SLOTS = [
   "candidate7",
 ] as const;
 
+/** All paid corpus rubrics are calibrated against the six-goal V2 contract. */
+export const POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS_QUESTION_SET_VERSION =
+  2 as const;
+
 export type PostEventFeedbackCorpusCandidateSlot =
   (typeof POST_EVENT_FEEDBACK_CORPUS_CANDIDATE_SLOTS)[number];
 
 export type PostEventFeedbackCorpusQuestion =
-  "event_score" | "liked" | "meet_again" | "avoid";
+  | "event_score"
+  | "table_fit"
+  | "participation_ease"
+  | "conversation_balance"
+  | "meet_again"
+  | "avoid";
 
 /**
  * Hand-written twin of `POST_EVENT_FEEDBACK_SAFETY_CATEGORIES` in
@@ -43,7 +52,9 @@ export type PostEventFeedbackCorpusAttentionAction =
 
 export type PostEventFeedbackCorpusReplyIntent =
   | "ask_event_score"
-  | "ask_liked"
+  | "ask_table_fit"
+  | "ask_participation_ease"
+  | "ask_conversation_balance"
   | "ask_meet_again"
   | "ask_avoid"
   /**
@@ -174,12 +185,16 @@ export interface PostEventFeedbackRealModelCorpusCase {
 export const POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS = [
   {
     id: "burst_typist",
-    title: "A five-message burst carries a score, praise and explicit reunion",
+    title: "A fragmented burst carries all four scores and an explicit reunion",
     requiredCandidateCount: 1,
     messages: [
       { afterMs: 0, textTemplate: "ρε σεις" },
       { afterMs: 2_000, textTemplate: "ωραια φαση χτες" },
-      { afterMs: 2_000, textTemplate: "5 ανετα" },
+      {
+        afterMs: 2_000,
+        textTemplate:
+          "συνολικα 5, ταιριασμα παρεας 4, συμμετοχη 5, ισορροπια 4",
+      },
       { afterMs: 2_000, textTemplate: "{candidate1} πολυ κουλ" },
       {
         afterMs: 2_000,
@@ -189,7 +204,9 @@ export const POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS = [
     rubric: {
       answers: [
         { question: "event_score", value: 5 },
-        { question: "liked", about: "candidate1" },
+        { question: "table_fit", value: 4 },
+        { question: "participation_ease", value: 5 },
+        { question: "conversation_balance", value: 4 },
         { question: "meet_again", about: "candidate1" },
       ],
       reply: { requiredIntent: "ask_avoid" },
@@ -200,17 +217,22 @@ export const POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS = [
   },
   {
     id: "slow_typist",
-    title: "One ordinary thought arrives slowly in three terse fragments",
+    title: "One V2 scorecard arrives slowly in terse fragments",
     requiredCandidateCount: 1,
     messages: [
       { afterMs: 0, textTemplate: "πολυ ωραια ηταν" },
-      { afterMs: 25_000, textTemplate: "5αρι" },
-      { afterMs: 25_000, textTemplate: "{candidate1} top" },
+      { afterMs: 25_000, textTemplate: "συνολικα 5, παρεα 4" },
+      {
+        afterMs: 25_000,
+        textTemplate: "συμμετοχη 3, ισορροπια 4. {candidate1} top",
+      },
     ],
     rubric: {
       answers: [
         { question: "event_score", value: 5 },
-        { question: "liked", about: "candidate1" },
+        { question: "table_fit", value: 4 },
+        { question: "participation_ease", value: 3 },
+        { question: "conversation_balance", value: 4 },
       ],
       reply: { requiredIntent: "ask_meet_again" },
       rationale: [
@@ -226,14 +248,15 @@ export const POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS = [
       {
         afterMs: 0,
         textTemplate:
-          "5. {candidate1} κ {candidate2} πολυ καλοι, κ τους 2 ξανα. να αποφυγω κανεναν",
+          "συνολικα 5, ταιριασμα 4, συμμετοχη 5, ισορροπια 4. {candidate1} κ {candidate2} πολυ καλοι, κ τους 2 ξανα. να αποφυγω κανεναν",
       },
     ],
     rubric: {
       answers: [
         { question: "event_score", value: 5 },
-        { question: "liked", about: "candidate1" },
-        { question: "liked", about: "candidate2" },
+        { question: "table_fit", value: 4 },
+        { question: "participation_ease", value: 5 },
+        { question: "conversation_balance", value: 4 },
         { question: "meet_again", about: "candidate1" },
         { question: "meet_again", about: "candidate2" },
       ],
@@ -256,9 +279,6 @@ export const POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS = [
     rubric: {
       answers: [
         { question: "event_score", value: 4 },
-        { question: "liked", about: "candidate1" },
-        { question: "liked", about: "candidate2" },
-        { question: "liked", about: "candidate5" },
         { question: "meet_again", about: "candidate1" },
         { question: "meet_again", about: "candidate5" },
         { question: "meet_again", about: "candidate6" },
@@ -291,6 +311,7 @@ export const POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS = [
     rubric: {
       answers: [{ question: "event_score", value: 2 }],
       reply: {
+        requiredIntent: "ask_table_fit",
         forbiddenIntents: ["confirm_rejected_answer"],
       },
       rationale: ["The latest explicit revision is the current intent."],
@@ -304,11 +325,14 @@ export const POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS = [
       {
         afterMs: 0,
         textTemplate:
-          "στην αρχη 5 ελεγα αλλα οχι. τελος ψιλοπεθανα. 2 τελικο, κρατα 2",
+          "για το ταιριασμα της παρεας 4. στην αρχη 5 ελεγα για τη βραδια αλλα οχι. τελος ψιλοπεθανα. 2 τελικο, κρατα 2",
       },
     ],
     rubric: {
-      answers: [{ question: "event_score", value: 2 }],
+      answers: [
+        { question: "event_score", value: 2 },
+        { question: "table_fit", value: 4 },
+      ],
       notes: [
         {
           kind: "general",
@@ -320,6 +344,7 @@ export const POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS = [
       rationale: [
         "Latest explicit intent wins; if confidence is insufficient, ask instead of silently choosing 5.",
       ],
+      reply: { requiredIntent: "ask_participation_ease" },
     },
   },
   {
@@ -349,7 +374,7 @@ export const POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS = [
     ],
     rubric: {
       answers: [{ question: "avoid", about: "candidate1" }],
-      forbiddenAnswers: [{ question: "liked", about: "candidate1" }],
+      forbiddenAnswers: [{ question: "meet_again", about: "candidate1" }],
       notes: [
         {
           kind: "general",
@@ -407,13 +432,13 @@ export const POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS = [
     // το λέει ο ίδιος ρητά»: an explicit, repeated refusal does not have to be
     // earned with two or three re-asks first. He said it, then said it again.
     //
-    // And when the hatch opens it opens on all four goals, not on the one being
+    // And when the hatch opens it opens on all six goals, not on the one being
     // asked — 7δ is explicit that withdrawal concerns ΟΛΟ το ερωτηματολόγιο. A
-    // model that declines only the current goal leaves three open, and three
+    // model that declines only the current goal leaves five open, and five
     // open goals are a reminder tomorrow for something he was told we would drop.
     id: "declines_every_question",
     title:
-      "An explicit repeated refusal closes all four goals, not the current one",
+      "An explicit repeated refusal closes all six goals, not the current one",
     requiredCandidateCount: 0,
     messages: [
       { afterMs: 0, textTemplate: "δε λεω" },
@@ -421,7 +446,14 @@ export const POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS = [
     ],
     rubric: {
       answers: [],
-      skippedGoals: ["event_score", "liked", "meet_again", "avoid"],
+      skippedGoals: [
+        "event_score",
+        "table_fit",
+        "participation_ease",
+        "conversation_balance",
+        "meet_again",
+        "avoid",
+      ],
       notes: [],
       attention: null,
       // He is curt, and curt is not abuse. Stated because the ending the
@@ -431,7 +463,7 @@ export const POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS = [
       hostileToUs: false,
       // Stated for the reason rule 7ε exists: handoff is the one thing that
       // switches 7δ off, and a model that reaches for it here would be right to
-      // leave the goals open — so a rubric that demands four declined goals and
+      // leave the goals open — so a rubric that demands six declined goals and
       // says nothing about handoff is demanding them from a premise it never
       // fixed. Refusing to answer is not a request for a person.
       handoff: false,
@@ -440,7 +472,7 @@ export const POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS = [
         "Rule 7δ's «ή σου το λέει ο ίδιος ρητά» does not require two or three re-asks first; an explicit refusal, repeated, is the participant saying it himself.",
         "Withdrawal is whole-questionnaire: a goal left open here is a reminder tomorrow about something he was told we would stop asking.",
         "Declining every question is a choice being exercised, not hostility and not an incident, so nothing here reaches the ladder or a flag.",
-        "The lifecycle word and the outbound copy are the application's half and are pinned by S69's loop scenario; what a model owns is the four declined goals and the intent to stop.",
+        "The lifecycle word and the outbound copy are the application's half and are pinned by S69's loop scenario; what a model owns is the six declined goals and the intent to stop.",
       ],
     },
   },
@@ -466,10 +498,7 @@ export const POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS = [
       { afterMs: 2_000, textTemplate: "αυτα" },
     ],
     rubric: {
-      answers: [
-        { question: "event_score", value: 1 },
-        { question: "liked", about: "candidate1" },
-      ],
+      answers: [{ question: "event_score", value: 1 }],
       notes: [
         {
           kind: "general",
@@ -504,6 +533,7 @@ export const POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS = [
             "The waiter provided excellent service while working alone.",
         },
       ],
+      reply: { requiredIntent: "ask_event_score" },
       rationale: [
         "A role at the venue is not a participant name requiring resolution.",
       ],
@@ -563,7 +593,14 @@ export const POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS = [
     ],
     rubric: {
       answers: [],
-      skippedGoals: ["event_score", "liked", "meet_again", "avoid"],
+      skippedGoals: [
+        "event_score",
+        "table_fit",
+        "participation_ease",
+        "conversation_balance",
+        "meet_again",
+        "avoid",
+      ],
       notes: [],
       attention: null,
       // The row the case exists for. Every message is civil-but-irritated and
@@ -710,10 +747,7 @@ export const POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS = [
       },
     ],
     rubric: {
-      answers: [
-        { question: "event_score", value: 5 },
-        { question: "liked", about: "candidate1" },
-      ],
+      answers: [{ question: "event_score", value: 5 }],
       notes: [
         {
           kind: "general",
@@ -737,15 +771,17 @@ export const POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS = [
       {
         afterMs: 0,
         textTemplate:
-          "poli wraia fash 5. {candidate1} top, tha evgaina pali mazi",
+          "poli wraia fash 5, tairiasma pareas 4, mou itan sxetika efkolo na miliso 3. {candidate1} top, tha evgaina pali mazi",
       },
     ],
     rubric: {
       answers: [
         { question: "event_score", value: 5 },
-        { question: "liked", about: "candidate1" },
+        { question: "table_fit", value: 4 },
+        { question: "participation_ease", value: 3 },
         { question: "meet_again", about: "candidate1" },
       ],
+      reply: { requiredIntent: "ask_conversation_balance" },
       rationale: [
         "Latin-script Greek around a bound display name must not collapse directed feedback.",
       ],
@@ -759,14 +795,15 @@ export const POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS = [
       {
         afterMs: 0,
         textTemplate:
-          "pretty good tbh, 5. {candidate1} was the only one making me laugh",
+          "pretty good tbh, 5. {candidate1} was the only one making me laugh; I'd happily sit with them again",
       },
     ],
     rubric: {
       answers: [
         { question: "event_score", value: 5 },
-        { question: "liked", about: "candidate1" },
+        { question: "meet_again", about: "candidate1" },
       ],
+      reply: { requiredIntent: "ask_table_fit" },
       rationale: ["Language choice does not change answer direction."],
     },
   },
@@ -782,13 +819,11 @@ export const POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS = [
       },
     ],
     rubric: {
-      answers: [
-        { question: "liked", about: "candidate2" },
-        { question: "meet_again", about: "candidate2" },
-      ],
+      answers: [{ question: "meet_again", about: "candidate2" }],
       attention: null,
       // The other side of the same distinction. He is crude about a woman he
-      // liked, not about us, so this must not tick the hostility ladder either:
+      // wants to meet again, not about us, so this must not tick the hostility
+      // ladder:
       // a classifier that reads any profanity as aimed at us would spend three
       // rungs on people who are answering the questionnaire and then refuse to
       // talk to them.
@@ -819,12 +854,8 @@ export const POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS = [
       {
         // «καταπληκτικος», not «ηταν οκ» — the same correction `395b957` made to
         // this case's burst twin, `ouzeri_racist_about_an_attendee`, arriving
-        // here two days late. `liked` is asked as «σου έκανε ιδιαίτερα καλή
-        // εντύπωση» and «ήταν οκ» does not answer it: it is faint praise, a
-        // careful human would have left the goal unanswered too, and three paid
-        // runs were spent failing a model that was right. The row was measuring
-        // the corpus's own wording. The twin was fixed and this one was not,
-        // which is the whole reason a hand-mirrored pair costs what it costs.
+        // here two days late. V2 asks for future meeting intent, so the explicit
+        // «θα τον ξαναέβλεπα» below is the fact the extractor may record.
         //
         // Her first message stays warm on purpose. The case's point is the
         // racist SECOND message, and the contrast between how she speaks about
@@ -847,7 +878,6 @@ export const POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS = [
       // marker, and a silent discard here would be us deciding with no trace.
       answers: [
         { question: "event_score", value: 4 },
-        { question: "liked", about: "candidate1" },
         { question: "meet_again", about: "candidate1" },
         { question: "avoid", about: "candidate5" },
       ],
@@ -878,20 +908,15 @@ export const POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS = [
     },
   },
   {
-    // The missing half of the wording fix above. `racist_about_an_attendee` and
-    // its burst twin used to answer «σου έκανε ιδιαίτερα καλή εντύπωση» with
-    // «ήταν οκ», demand a `liked`, and fail every careful model for three paid
-    // runs; the fixtures were corrected to real praise, but nothing taught the
-    // refusal itself. A model that starts banking lukewarm politeness as a
-    // standout impression would pass the whole corpus.
-    //
-    // The decision is the only thing graded. Re-asking whether anyone actually
-    // stood out (`ask_liked`) and accepting the non-answer then moving on
-    // (`ask_meet_again`) are both right — forcing one would fail the other —
-    // so there is no `requiredIntent`. Banking `{candidate1}` under `liked` is
-    // the only wrong move, and that is the forbiddenAnswers row.
-    id: "faint_praise_is_not_liked",
-    title: "Lukewarm praise about a named person is not a liked answer",
+    // V2 deliberately drops the ambiguous standout-impression question. That
+    // does not make ordinary praise a behavioural intention: re-asking whether
+    // the respondent
+    // wants to meet the person again and accepting the non-answer are both right —
+    // forcing one
+    // would fail the other — so there is no `requiredIntent`. Banking the name
+    // under `meet_again` is the only wrong move.
+    id: "faint_praise_is_not_meet_again",
+    title: "Lukewarm praise does not imply a meet-again answer",
     requiredCandidateCount: 1,
     messages: [
       {
@@ -901,10 +926,10 @@ export const POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS = [
     ],
     rubric: {
       answers: [],
-      forbiddenAnswers: [{ question: "liked", about: "candidate1" }],
+      forbiddenAnswers: [{ question: "meet_again", about: "candidate1" }],
       rationale: [
-        "`liked` asks who made a particularly good impression; «καλός ήταν, οκουλ» answers the social contract with mild politeness and does not name that person.",
-        "Ask once more in different words whether anyone stood out, or accept the non-answer and move on — either decision is fine. Banking the name under `liked` is not.",
+        "«Καλός ήταν, οκουλ» is mild politeness, not an intention to share another table.",
+        "Ask whether the respondent wants to meet candidate1 again, or leave the goal open. Inventing a behavioural preference is not acceptable.",
       ],
     },
   },
@@ -1152,7 +1177,7 @@ export const POST_EVENT_FEEDBACK_REAL_MODEL_CORPUS = [
       answers: [{ question: "event_score", value: 5 }],
       forbiddenAnswers: [
         { question: "avoid", about: "candidate1" },
-        { question: "liked", about: "candidate1" },
+        { question: "meet_again", about: "candidate1" },
       ],
       notes: [
         {

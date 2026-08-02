@@ -1,7 +1,7 @@
 import { Button, ListBox, Select } from "@heroui/react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { useMemo, useState } from "react";
-import { Link, useParams } from "react-router";
+import { useParams } from "react-router";
 
 import {
   useListFeedbackCampaignConversations,
@@ -306,17 +306,13 @@ export function FeedbackResultsPage() {
   return (
     <div className="flex flex-col gap-6">
       <JtsPageHeader
+        back={{
+          to: `/admin/feedback/${campaignId}`,
+          label: "Back to conversations",
+        }}
         eyebrow="Post-event feedback"
         title="Results"
         description="Everything the campaign's conversations produced: structured answers and the side notes flagged for review."
-        actions={
-          <Link
-            to={`/admin/feedback/${campaignId}`}
-            className="self-center text-sm font-semibold text-primary"
-          >
-            Back to conversations
-          </Link>
-        }
       />
 
       {filters}

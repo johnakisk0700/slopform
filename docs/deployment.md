@@ -5,20 +5,22 @@
 The root `Dockerfile` produces five targets:
 
 - `development`: pnpm toolchain and workspace dependencies; source is mounted at runtime;
-- `web`: Caddy serving the static React admin build;
+- `web`: internal Caddy serving the static React admin build on port 3000;
 - `api`: Nest HTTP process;
 - `worker`: Nest BullMQ process;
 - `migrate`: minimal, one-shot Drizzle migration runner.
 
-PostgreSQL, MongoDB and Redis use pinned official images. Caddy is the production edge:
-it routes `/api/*` unchanged to Nest and all other requests to the admin SPA,
-and manages TLS when `DOMAIN` resolves to the VPS.
+PostgreSQL, MongoDB and Redis use pinned official images. Native nginx is the
+shared VPS edge: it already owns ports 80/443 and the `example.com` certificate,
+routes `/api/*` unchanged to the API's loopback port `5201`, and sends everything
+else to the web container's loopback port `5200`. Docker never publishes a data
+store or application port on a public interface.
 
 ```mermaid
 flowchart LR
-  Browser --> Caddy
-  Caddy --> Web["Static admin SPA"]
-  Caddy --> API["Nest API"]
+  Browser --> Nginx["Native nginx / TLS"]
+  Nginx --> Web["Static admin SPA / 127.0.0.1:5200"]
+  Nginx --> API["Nest API / 127.0.0.1:5201"]
   API --> DB[(PostgreSQL)]
   API --> Mongo[(MongoDB)]
   API --> Redis[(Redis)]
@@ -31,13 +33,14 @@ flowchart LR
   Migrate -. "must succeed" .-> Worker
 ```
 
-Production separates `edge`, internal `data`, and worker `egress` networks.
-Caddy and the web tier cannot reach PostgreSQL, MongoDB or Redis. Application filesystems are
-read-only, application and migration images run as the unprivileged `node`
-user with Linux capabilities dropped, Docker's init forwards signals and reaps
-child processes, and writable scratch space is an in-memory `/tmp`. Caddy also
-uses a read-only root filesystem and retains only the capability required to
-bind ports 80 and 443; its state lives in named data/config volumes.
+Production separates `edge`, internal `data`, and worker `egress` networks. The
+web tier cannot reach PostgreSQL, MongoDB or Redis. Application filesystems are
+read-only, application and migration images run as the unprivileged `node` user
+with Linux capabilities dropped, Docker's init forwards signals and reaps child
+processes, and writable scratch space is an in-memory `/tmp`. Native nginx is
+managed outside Compose because it also serves the other applications on this
+VPS; [`deploy/nginx/example.com.conf`](../deploy/nginx/example.com.conf) is this
+repository's complete host-edge contract.
 
 ## Development
 
@@ -46,7 +49,8 @@ fastest inner loop:
 
 ```bash
 cp .env.example .env
-# Set matching Clerk keys, approved admin user IDs and at least one AI key.
+# Set matching Clerk keys, approved admin user IDs and the key for the selected
+# model route. Provider selection never falls back to the other key.
 pnpm install
 pnpm infra:up
 pnpm dev
@@ -119,20 +123,30 @@ touch secrets/openai_api_key secrets/openrouter_api_key
 touch secrets/wasender_session_api_key secrets/wasender_webhook_secret
 ```
 
-Set `DOMAIN`, `WEB_ORIGIN`, database names and any enabled integrations. Keep
+Set `DOMAIN=example.com`, `WEB_ORIGIN=https://example.com`, database names and enabled
+integrations. Model, reasoning and rehearsal variables are forwarded unchanged
+to both backend processes; the worker must not inherit a provider-default effort
+after the operator selected another one in the environment file. Keep
 `.env.production` and `secrets/` out of Git and unencrypted backups. The example
 points Compose at independent URL-safe PostgreSQL/MongoDB/Redis passwords and separate
 files for Clerk, disabled Bull Board authentication, the optional AI providers
-and the opt-in Wasender boundary. Populate the Clerk file before starting the
-API and at least one AI file to enable assistant generation; populate the Bull
-Board file only when the dashboard is enabled. Keep both Wasender files empty
-until enabling the transport/webhook; the session key mounts only into the
-worker and the webhook secret only into the API. Do not move these values back
-into Compose environment metadata. PostgreSQL uses its native password-file contract, Redis reads its
+and the opt-in Wasender boundary. Populate the dedicated Clerk production key
+before starting the API and at least the key used by the selected AI models;
+populate the Bull Board file only when the dashboard is enabled. The initial
+production profile is an explicit rehearsal: `TRANSPORT_MODE=simulated`,
+`FEEDBACK_SIMULATOR_ENABLED=true`,
+`FEEDBACK_PRODUCTION_REHEARSAL_ENABLED=true` and
+`FEEDBACK_EXTRACTION_STUB=false`. It makes real, billable model calls but writes
+outbound messages only to `feedback_sim_outbound`. Both Wasender files stay
+empty and its webhook stays off. The environment validator rejects any mixed
+profile instead of quietly enabling network delivery.
+
+Do not move secret values back into Compose environment metadata. PostgreSQL
+uses its native password-file contract, Redis reads its
 password file at startup, and a small application entrypoint exposes
 credentials only to the child processes that need them. The Clerk secret is
 API-only. AI keys are mounted into API and worker because the API resolves model
-availability while only the worker makes provider calls. Caddy and the web tier
+availability while only the worker makes provider calls. Native nginx and the web tier
 receive none of them. WordPress remains independent; its credential is not read
 from WordPress at runtime. If the backend joins the same Wasender session, copy
 the session key into the worker secret file and coordinate rotation with
@@ -142,13 +156,50 @@ MongoDB secret file does not rotate a user in an existing volume: change the
 database user password first, update the file, recreate API/worker and verify
 readiness.
 
-The web image bakes `VITE_CLERK_PUBLISHABLE_KEY` through a Docker build argument;
-it is public and must match the API's `CLERK_PUBLISHABLE_KEY`. Changing it
-requires rebuilding the web image. `CLERK_ADMIN_USER_IDS` remains API runtime
-configuration so grants and revocations do not require rebuilding the SPA. Use
-a dedicated Clerk application for production; sharing the `notes_ai` tenant
-also shares its users and social-login policy even though the API allowlist
-still blocks unapproved subjects.
+The web image bakes `VITE_CLERK_PUBLISHABLE_KEY` and the optional
+`VITE_GOOGLE_MAPS_API_KEY` through Docker build arguments; both are public
+browser values, not secrets, and changing either requires rebuilding the web
+image. The Google key must be restricted to the deployed and local admin HTTP
+referrers and only Maps JavaScript API, Places API (New), Places UI Kit and Maps
+Embed API. With no Google key, saved venues and their normal Maps deep-links
+keep working while live search, photos and attributed details remain disabled. The Clerk value
+must match the API's `CLERK_PUBLISHABLE_KEY`. `CLERK_ADMIN_USER_IDS` remains API
+runtime configuration so grants and revocations do not require rebuilding the
+SPA. Production uses a dedicated Clerk application in Restricted mode, with
+exactly three shareholder invitations and exactly their resulting stable
+`user_*` subjects in the backend allowlist. Sharing the `notes_ai` tenant is not
+a production shortcut; it would share users and social-login policy.
+
+As verified 2026-08-02, Places API (New) Autocomplete Requests and Places UI Kit
+Query each include a 10,000-request monthly free cap, Place Details Pro includes
+5,000 free requests, and Maps Embed has an unlimited free cap; a standard key
+still requires billing. Each accepted prediction creates one standalone Place
+Details Pro request for `displayName`, `formattedAddress` and
+`primaryTypeDisplayName`, plus the existing UI Kit preview query. Constructing a
+new `Place` from the selected ID intentionally leaves the widget autocomplete
+session unterminated instead of allowing the first details fetch to use its
+costlier non-Essentials termination tier documented in Google's
+[session pricing](https://developers.google.com/maps/documentation/javascript/session-pricing).
+Ordinary event renders make neither request. Restrict the key's HTTP referrers
+and enabled APIs, set Cloud quotas and budget alerts, and re-check the
+official [Maps Platform pricing list](https://developers.google.com/maps/billing-and-pricing/pricing)
+before a public rollout. Google's [Places UI Kit get-started
+guide](https://developers.google.com/maps/documentation/javascript/places-ui-kit/get-started)
+also offers a Demo Key for prototypes; it is not a production credential and
+does not return user-contributed photos or reviews.
+
+Live details, photos and reviews stay inside the attributed Places UI Kit
+surface. The current **prototype** seeds the selected Place ID plus canonical
+Place Details name, address and primary type into editable label/type/area
+fields, with prediction text as the failure fallback. This implementation does
+not establish permission to persist those Google-supplied text fields.
+Google's Maps JavaScript policy explicitly treats capturing a returned Place
+Name outside the user session as prohibited scraping. Production rollout is
+therefore gated on legal/provider review and a terms-compatible persistence
+design; absent that approval, retain only the Place ID and independently authored
+operator context. Re-check the official
+[Maps JavaScript policies](https://developers.google.com/maps/documentation/javascript/policies)
+before expanding this boundary.
 
 This limits credential distribution and keeps credentials out of container
 configuration metadata, but local secret files are not an external secret

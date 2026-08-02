@@ -1,0 +1,2 @@
+ALTER TABLE "assistant_turns" ADD COLUMN "streamed_content" text;--> statement-breakpoint
+ALTER TABLE "assistant_turns" ADD CONSTRAINT "assistant_turns_streamed_content_check" CHECK ("assistant_turns"."streamed_content" is null or "assistant_turns"."status" in ('queued', 'running'));

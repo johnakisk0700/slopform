@@ -288,7 +288,10 @@ export class PostEventFeedbackSweepService {
       return false;
     }
 
-    const copy = resolveCampaignCopy(campaign.questions);
+    const copy = resolveCampaignCopy(
+      campaign.questions,
+      campaign.questionSetVersion,
+    );
     const displayName =
       participant.preferredName?.trim() || participant.emailNormalized;
 

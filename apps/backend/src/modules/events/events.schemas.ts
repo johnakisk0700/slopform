@@ -1,7 +1,10 @@
 import { createZodDto } from "nestjs-zod";
 import { z } from "zod";
 
-import { EVENT_STATUSES } from "@join-the-six/database";
+import {
+  EVENT_STATUSES,
+  EVENT_VENUE_PRICE_LEVELS,
+} from "@join-the-six/database";
 
 export const EVENT_STATUS_TRANSITIONS = {
   draft: ["scheduled", "cancelled"],
@@ -15,10 +18,59 @@ export const EVENT_STATUS_TRANSITIONS = {
 
 export const eventStatusSchema = z.enum(EVENT_STATUSES);
 
+const EVENT_VENUE_PRICE_MINOR_MAX = 2_147_483_647;
+
+export const eventVenuePriceRangeSchema = z
+  .object({
+    startMinor: z.number().int().min(0).max(EVENT_VENUE_PRICE_MINOR_MAX),
+    endMinor: z
+      .number()
+      .int()
+      .min(0)
+      .max(EVENT_VENUE_PRICE_MINOR_MAX)
+      .optional(),
+    currencyCode: z.string().regex(/^[A-Z]{3}$/u),
+  })
+  .strict()
+  .refine(
+    (value) =>
+      value.endMinor === undefined || value.endMinor >= value.startMinor,
+    {
+      message: "Price range end must be greater than or equal to its start",
+      path: ["endMinor"],
+    },
+  );
+
+/**
+ * One Google reference plus independently operator-authored context. Optional
+ * descriptive fields are omitted when the operator supplied no trustworthy
+ * value; they are not a cache of Google place content.
+ */
+export const eventVenueInputSchema = z
+  .object({
+    provider: z.literal("google"),
+    placeId: z.string().trim().min(1),
+    label: z.string().trim().min(1).max(200),
+    type: z.string().trim().min(1).max(100).optional(),
+    area: z.string().trim().min(1).max(200).optional(),
+    priceLevel: z.enum(EVENT_VENUE_PRICE_LEVELS).optional(),
+    priceRange: eventVenuePriceRangeSchema.optional(),
+    useInFeedback: z.boolean(),
+  })
+  .strict();
+
+export const eventVenueSchema = eventVenueInputSchema
+  .extend({
+    /** Server-owned context version; clients never choose or reset it. */
+    contextRevision: z.number().int().positive(),
+  })
+  .strict();
+
 export const createEventSchema = z
   .object({
     title: z.string().trim().min(1).max(200),
     startsAt: z.iso.datetime(),
+    venue: eventVenueInputSchema.nullable().optional(),
   })
   .strict();
 
@@ -26,10 +78,15 @@ export const updateEventSchema = z
   .object({
     title: z.string().trim().min(1).max(200).optional(),
     startsAt: z.iso.datetime().optional(),
+    /** Omitted keeps the current venue; null clears it. */
+    venue: eventVenueInputSchema.nullable().optional(),
   })
   .strict()
   .refine(
-    (value) => value.title !== undefined || value.startsAt !== undefined,
+    (value) =>
+      value.title !== undefined ||
+      value.startsAt !== undefined ||
+      value.venue !== undefined,
     {
       message: "At least one field is required",
     },
@@ -89,6 +146,7 @@ export const eventSchema = z
     title: z.string(),
     startsAt: z.iso.datetime(),
     status: eventStatusSchema,
+    venue: eventVenueSchema.nullable(),
     attendeeCount: z.number().int().nonnegative(),
     presentCount: z.number().int().nonnegative(),
     createdAt: z.iso.datetime(),
@@ -158,6 +216,8 @@ export class FeedbackCandidatesQueryDto extends createZodDto(
 
 export type CreateEventInput = z.infer<typeof createEventSchema>;
 export type UpdateEventInput = z.infer<typeof updateEventSchema>;
+export type EventVenueInput = z.infer<typeof eventVenueInputSchema>;
+export type EventVenueView = z.infer<typeof eventVenueSchema>;
 export type TransitionEventStatusInput = z.infer<
   typeof transitionEventStatusSchema
 >;

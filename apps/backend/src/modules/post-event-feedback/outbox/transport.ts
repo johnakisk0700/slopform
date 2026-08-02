@@ -2,9 +2,10 @@
  * Outbound WhatsApp transport boundary for post-event feedback (WP6).
  *
  * Switched by `TRANSPORT_MODE`:
+ * - `disabled` → deterministic local rejection; no provider is reachable
  * - `wasender` → paced Wasender session client
- * - `simulated` → durable PostgreSQL sink (`feedback_sim_outbound`) plus dev
- *   inject/read HTTP endpoints when `FEEDBACK_SIMULATOR_ENABLED` is true
+ * - `simulated` → durable PostgreSQL sink (`feedback_sim_outbound`) plus
+ *   inject/read HTTP endpoints when the simulator policy permits them
  */
 export const FEEDBACK_TRANSPORT = Symbol("join-the-six.feedback-transport");
 

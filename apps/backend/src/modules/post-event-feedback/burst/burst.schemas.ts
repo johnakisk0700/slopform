@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { FEEDBACK_ANSWER_QUESTION_KEYS } from "@join-the-six/database";
 
+import { eventVenueInputSchema } from "../../events/events.schemas.js";
 import { FEEDBACK_OBSERVED_TEXT_HARD_LIMIT } from "../jobs.schemas.js";
 import { FEEDBACK_CONVERSATION_LIFECYCLE_REASONS } from "../post-event-feedback-conversation.document.js";
 import { BURST_PERSONAS } from "./burst-personas.js";
@@ -53,6 +54,7 @@ export const feedbackBurstCampaignSchema = z
     slug: burstCampaignSlugSchema,
     ordinal: z.number().int().min(1).max(BURST_CAMPAIGNS.length),
     title: z.string().trim().min(1).max(200),
+    venue: eventVenueInputSchema,
   })
   .strict();
 

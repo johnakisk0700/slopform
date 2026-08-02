@@ -1,27 +1,30 @@
 import { InjectQueue } from "@nestjs/bullmq";
 import { Injectable, Logger } from "@nestjs/common";
 import type { Queue } from "bullmq";
-import type {
-  FeedbackCampaignStatus,
-  MessageOutboxLogRow,
-} from "@join-the-six/database";
+import type { MessageOutboxLogRow } from "@join-the-six/database";
 
 import { FEEDBACK_QUEUE } from "../../../infrastructure/queue/queue.constants.js";
 import { ParticipantsRepository } from "../../participants/participants.repository.js";
-import { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
 import { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
 import { displayNameFor } from "../inbox/conversation.view.js";
 import type { FeedbackJobData, FeedbackJobName } from "../jobs.schemas.js";
+import {
+  decodeOutboxHistoryCursor,
+  encodeOutboxHistoryCursor,
+} from "./history-cursor.js";
 import { inspectFeedbackDeliverJob } from "./inspect-deliver-job.js";
 import { FeedbackOutboundLogRepository } from "./outbound-log.repository.js";
 import {
   FEEDBACK_OUTBOX_QUEUE_VIEW_LIMIT,
   FEEDBACK_OUTBOX_RECOVERY_MS,
   FeedbackOutboxRepository,
+  type FeedbackOutboxHistoryFilter,
 } from "./outbox.repository.js";
 import {
   feedbackOutboxMessageLogSchema,
+  FEEDBACK_OUTBOX_HISTORY_PAGE_SIZE,
   type FeedbackOutboxHistoryItemView,
+  type FeedbackOutboxHistoryQuery,
   type FeedbackOutboxHistoryView,
   type FeedbackOutboxMessageDeliveryView,
   type FeedbackOutboxQueueItemView,
@@ -57,7 +60,6 @@ export class FeedbackOutboxQueueViewService {
     private readonly queue: Queue<FeedbackJobData, void, FeedbackJobName>,
     private readonly outbox: FeedbackOutboxRepository,
     private readonly outboundLogs: FeedbackOutboundLogRepository,
-    private readonly campaigns: FeedbackCampaignRepository,
     private readonly conversations: FeedbackConversationRepository,
     private readonly participants: ParticipantsRepository,
   ) {}
@@ -111,16 +113,52 @@ export class FeedbackOutboxQueueViewService {
   }
 
   /**
-   * The history half: the newest rows of any status, each carrying the
-   * decision log's origin so the list already answers «why was this written».
-   * Still PostgreSQL-only — origins arrive in one batched read, and the live
-   * job state stays with the opened row.
+   * One page of the history: rows of any status matching the caller's filter,
+   * newest first, each carrying the decision log's origin so the list already
+   * answers «why was this written». Still PostgreSQL-only — origins arrive in
+   * one batched read, and the live job state stays with the opened row.
+   *
+   * The page is read one row longer than the caller asked for. That extra row
+   * is never returned; it exists only to answer «is there more», which is the
+   * difference between an «older» button that is honest and one that offers a
+   * page it then has to admit is empty.
    */
-  async listHistory(now = new Date()): Promise<FeedbackOutboxHistoryView> {
-    const [rows, total] = await Promise.all([
-      this.outbox.listRecentOutbox(FEEDBACK_OUTBOX_QUEUE_VIEW_LIMIT),
-      this.outbox.countOutbox(),
+  async listHistory(
+    query: FeedbackOutboxHistoryQuery = {
+      limit: FEEDBACK_OUTBOX_HISTORY_PAGE_SIZE,
+    },
+    now = new Date(),
+  ): Promise<FeedbackOutboxHistoryView> {
+    const filter: FeedbackOutboxHistoryFilter = {
+      status: query.status ?? null,
+      from: query.from === undefined ? null : new Date(query.from),
+      to: query.to === undefined ? null : new Date(query.to),
+    };
+    // An unreadable cursor rewinds to the newest page rather than failing: it
+    // reaches us from a URL a person can edit, and this endpoint only reads.
+    const cursor =
+      query.cursor === undefined
+        ? null
+        : decodeOutboxHistoryCursor(query.cursor);
+
+    const [page, total] = await Promise.all([
+      this.outbox.listRecentOutbox({
+        limit: Math.min(query.limit + 1, FEEDBACK_OUTBOX_QUEUE_VIEW_LIMIT),
+        filter,
+        cursor,
+      }),
+      this.outbox.countOutbox(filter),
     ]);
+
+    const rows = page.slice(0, query.limit);
+    const last = rows.at(-1);
+    const nextCursor =
+      page.length > rows.length && last !== undefined
+        ? encodeOutboxHistoryCursor({
+            createdAt: last.row.createdAt,
+            id: last.row.id,
+          })
+        : null;
 
     const [{ respondentByConversation, participantById }, originByOutboxId] =
       await Promise.all([
@@ -133,7 +171,7 @@ export class FeedbackOutboxQueueViewService {
     return {
       observedAt: now.toISOString(),
       total,
-      truncated: total > rows.length,
+      nextCursor,
       items: rows.map((entry): FeedbackOutboxHistoryItemView => {
         const respondent = respondentByConversation.get(
           entry.row.conversationId,
@@ -196,26 +234,37 @@ export class FeedbackOutboxQueueViewService {
     outboxId: string,
     now = new Date(),
   ): Promise<FeedbackOutboxMessageDeliveryView> {
-    const row = await this.outbox.findOutboxById(outboxId);
-    if (!row) {
+    const entry = await this.outbox.findOutboxWithContextById(outboxId);
+    if (!entry) {
       throw new FeedbackOutboxMessageNotFoundError(outboxId);
     }
+    const row = entry.row;
 
-    const [campaign, job, logRow] = await Promise.all([
-      this.campaigns.findCampaignById(row.campaignId),
-      inspectFeedbackDeliverJob(this.queue, row.id),
-      this.outboundLogs.findLogByOutboxId(outboxId),
-    ]);
+    const [job, logRow, { respondentByConversation, participantById }] =
+      await Promise.all([
+        inspectFeedbackDeliverJob(this.queue, row.id),
+        this.outboundLogs.findLogByOutboxId(outboxId),
+        // The same batched pair the lists spend on a whole page, here for one
+        // row. This is the deliberate path — an operator opened it — and it is
+        // what lets the pane name the person the message was written to.
+        this.respondentContext([entry]),
+      ]);
+
+    const respondent = respondentByConversation.get(row.conversationId);
+    const participant = respondent
+      ? participantById.get(respondent.respondentParticipantId)
+      : undefined;
 
     return {
       id: row.id,
       conversationId: row.conversationId,
       campaignId: row.campaignId,
-      // The FK is `on delete restrict`, so the campaign is always there; the
-      // fallback exists because the column is untyped `text`, not because a
-      // row can be orphaned.
-      campaignStatus: (campaign?.status ?? "closed") as FeedbackCampaignStatus,
+      campaignStatus: entry.campaignStatus,
+      eventTitle: entry.eventTitle,
+      respondentDisplayName: displayNameFor(participant),
+      phoneAtLaunch: respondent?.phoneAtLaunch ?? null,
       kind: row.kind as FeedbackOutboxMessageDeliveryView["kind"],
+      body: row.body,
       status: row.status as FeedbackOutboxMessageDeliveryView["status"],
       deliveryStatus:
         row.deliveryStatus as FeedbackOutboxMessageDeliveryView["deliveryStatus"],

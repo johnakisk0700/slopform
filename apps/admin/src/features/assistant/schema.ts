@@ -11,9 +11,13 @@ export const assistantModelSchema = z.enum(ASSISTANT_MODEL_IDS);
 export type AssistantModel = z.infer<typeof assistantModelSchema>;
 
 export const ASSISTANT_EFFORTS = ["low", "medium", "high"] as const;
+export const ASSISTANT_SERVICE_TIERS = ["standard", "fast"] as const;
+export const DEFAULT_ASSISTANT_SERVICE_TIER = "standard" as const;
 export const DEFAULT_ASSISTANT_EFFORT = "low" as const;
 const assistantEffortSchema = z.enum(ASSISTANT_EFFORTS);
 export type AssistantEffort = z.infer<typeof assistantEffortSchema>;
+const assistantServiceTierSchema = z.enum(ASSISTANT_SERVICE_TIERS);
+export type AssistantServiceTier = z.infer<typeof assistantServiceTierSchema>;
 
 export function isAssistantEffort(value: unknown): value is AssistantEffort {
   return assistantEffortSchema.safeParse(value).success;
@@ -71,6 +75,30 @@ export function isAssistantModel(value: unknown): value is AssistantModel {
   return assistantModelSchema.safeParse(value).success;
 }
 
+export function isAssistantServiceTier(
+  value: unknown,
+): value is AssistantServiceTier {
+  return assistantServiceTierSchema.safeParse(value).success;
+}
+
+/**
+ * Whether the fast lane exists for this model at all.
+ *
+ * `service_tier` is an OpenAI request parameter with no OpenRouter equivalent,
+ * so the control must be disabled rather than merely ignored — the tier doubles
+ * the bill, and an operator who thinks they bought speed on a model that cannot
+ * sell it has been misled by the UI, not by the provider. The backend normalises
+ * the same way; this only stops the request being made.
+ */
+export function assistantModelSupportsServiceTier(
+  model: AssistantModel,
+): boolean {
+  return (
+    ASSISTANT_MODELS.find((option) => option.id === model)?.provider ===
+    "OpenAI"
+  );
+}
+
 const messageContentSchema = z.string().trim().min(1).max(20_000);
 
 const userMessageSchema = z
@@ -92,6 +120,9 @@ const assistantTurnRequestSchema = z
     requestId: z.uuid(),
     model: assistantModelSchema.optional(),
     effort: assistantEffortSchema.optional().default(DEFAULT_ASSISTANT_EFFORT),
+    serviceTier: assistantServiceTierSchema
+      .optional()
+      .default(DEFAULT_ASSISTANT_SERVICE_TIER),
     content: messageContentSchema,
   })
   .strict();
@@ -102,11 +133,13 @@ export function buildAssistantTurnRequest(
   requestId: string,
   model: AssistantModel,
   effort: AssistantEffort,
+  serviceTier: AssistantServiceTier,
   content: string,
 ): AssistantTurnRequest {
   return assistantTurnRequestSchema.parse({
     requestId,
     model,
+    serviceTier,
     effort,
     content,
   });
@@ -143,6 +176,7 @@ const turnIdentityShape = {
   sequence: z.number().int().positive(),
   model: assistantModelSchema,
   effort: assistantEffortSchema,
+  serviceTier: assistantServiceTierSchema,
   user: userMessageSchema,
   attempt: z.number().int().positive(),
   createdAt: z.iso.datetime(),
@@ -153,6 +187,8 @@ const queuedTurnSchema = z
     ...turnIdentityShape,
     status: z.literal("queued"),
     assistant: z.null(),
+    partial: z.string().max(20_000).nullable(),
+    reasoning: z.string().max(20_000).nullable(),
     error: z.null(),
     startedAt: z.iso.datetime().nullable(),
     completedAt: z.null(),
@@ -164,6 +200,8 @@ const runningTurnSchema = z
     ...turnIdentityShape,
     status: z.literal("running"),
     assistant: z.null(),
+    partial: z.string().max(20_000).nullable(),
+    reasoning: z.string().max(20_000).nullable(),
     error: z.null(),
     startedAt: z.iso.datetime().nullable(),
     completedAt: z.null(),
@@ -175,6 +213,8 @@ const succeededTurnSchema = z
     ...turnIdentityShape,
     status: z.literal("succeeded"),
     assistant: assistantMessageSchema,
+    partial: z.null(),
+    reasoning: z.null(),
     error: z.null(),
     startedAt: z.iso.datetime().nullable(),
     completedAt: z.iso.datetime(),
@@ -186,6 +226,8 @@ const failedTurnSchema = z
     ...turnIdentityShape,
     status: z.literal("failed"),
     assistant: z.null(),
+    partial: z.null(),
+    reasoning: z.null(),
     error: assistantFailureSchema,
     startedAt: z.iso.datetime().nullable(),
     completedAt: z.iso.datetime(),
@@ -241,6 +283,9 @@ export interface AssistantDisplayMessage {
   content: string;
   model: AssistantModel;
   effort: AssistantEffort;
+  serviceTier: AssistantServiceTier;
+  /** Provider thinking while in flight; null once the turn settles. */
+  reasoning: string | null;
   status: AssistantTurnStatus;
 }
 
@@ -258,10 +303,17 @@ export function messagesFromThread(
       content: turn.user.content,
       model: turn.model,
       effort: turn.effort,
+      serviceTier: turn.serviceTier,
+      reasoning: turn.reasoning,
       status: turn.status,
     };
 
-    if (!turn.assistant) return [user];
+    // Streamed text is shown under the same id the durable answer will take, so
+    // the finished reply replaces the partial in place instead of arriving as a
+    // second message. It is never treated as an answer: `partial` only exists
+    // while the turn is nonterminal.
+    const content = turn.assistant?.content ?? turn.partial;
+    if (!content) return [user];
 
     return [
       user,
@@ -269,9 +321,11 @@ export function messagesFromThread(
         id: `${turn.id}-assistant`,
         turnId: turn.id,
         role: "assistant",
-        content: turn.assistant.content,
+        content,
         model: turn.model,
         effort: turn.effort,
+        serviceTier: turn.serviceTier,
+        reasoning: turn.reasoning,
         status: turn.status,
       },
     ];

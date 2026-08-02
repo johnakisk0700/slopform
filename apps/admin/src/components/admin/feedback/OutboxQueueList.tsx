@@ -79,16 +79,18 @@ export function OutboxQueueList({
   return (
     <section
       aria-labelledby={headingId}
-      className="flex max-h-[78vh] min-h-0 flex-col overflow-hidden rounded-md border border-border bg-surface"
+      className="flex min-h-0 flex-col overflow-hidden rounded-md border border-border bg-surface"
     >
-      <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
+      <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2.5">
         <h2
           id={headingId}
-          className="flex items-center gap-2 jts-overline text-ink-muted"
+          className="flex min-w-0 items-center gap-2 jts-overline text-ink-muted"
         >
           <SendHorizontal aria-hidden="true" className="size-4 shrink-0" />
-          Waiting to reach the participant
-          <span className="font-bold tabular-nums opacity-70">{total}</span>
+          <span className="truncate">Still waiting</span>
+          <span className="shrink-0 font-bold tabular-nums opacity-70">
+            {total}
+          </span>
         </h2>
         <JtsLiveIndicator
           active={isRefreshing}
@@ -143,16 +145,16 @@ export function OutboxQueueList({
                     {...(isSelected ? { "aria-current": true } : {})}
                     onClick={() => onSelect(item.id)}
                     className={clsx(
-                      "block w-full cursor-pointer px-4 py-2.5 text-left transition-colors",
+                      "block w-full cursor-pointer px-3 py-2 text-left transition-colors",
                       isSelected
                         ? "bg-primary-soft"
                         : "hover:bg-surface-sunken",
                     )}
                   >
-                    <span className="flex items-baseline justify-between gap-3">
+                    <span className="flex items-baseline justify-between gap-2">
                       <span
                         className={clsx(
-                          "line-clamp-2 min-w-0 flex-1 text-sm leading-snug font-bold break-words",
+                          "line-clamp-1 min-w-0 flex-1 text-sm leading-snug font-bold break-words",
                           isSelected ? "text-primary" : "text-ink",
                         )}
                       >
@@ -183,17 +185,12 @@ export function OutboxQueueList({
                         {outboxKindLabel(item.kind)}
                       </span>
                       <span aria-hidden="true">·</span>
+                      {/* The phone number left this row with the column's
+                          width. It is on the opened message, beside the
+                          conversation it can actually be used from. */}
                       <span className="min-w-0 truncate">
                         {item.eventTitle}
                       </span>
-                      {item.phoneAtLaunch === null ? null : (
-                        <>
-                          <span aria-hidden="true">·</span>
-                          <span className="shrink-0 tabular-nums">
-                            {item.phoneAtLaunch}
-                          </span>
-                        </>
-                      )}
                     </span>
 
                     <FeedbackBadges

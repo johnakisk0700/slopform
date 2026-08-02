@@ -498,10 +498,10 @@ export class PostEventFeedbackMaterializer {
           conversationId: conversation._id,
           campaignId: conversation.campaignId,
           kind: "system",
-          body: resolveCampaignCopy(campaign?.questions).stop_ack.slice(
-            0,
-            FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH,
-          ),
+          body: resolveCampaignCopy(
+            campaign?.questions,
+            campaign?.questionSetVersion,
+          ).stop_ack.slice(0, FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH),
           dedupeKey: createFeedbackStopAckDedupeKey(conversation._id),
         });
         await this.outboundLog.record(transaction, {
@@ -836,7 +836,10 @@ export class PostEventFeedbackMaterializer {
         conversationId: conversation._id,
         campaignId: conversation.campaignId,
         kind: "system",
-        body: resolveCampaignCopy(campaign.questions).cannot_read_media.slice(
+        body: resolveCampaignCopy(
+          campaign.questions,
+          campaign.questionSetVersion,
+        ).cannot_read_media.slice(
           0,
           FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH,
         ),

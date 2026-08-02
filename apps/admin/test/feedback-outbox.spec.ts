@@ -125,7 +125,41 @@ interface OutboxQueueModule {
     oldestWaitingSeconds: number | null;
     worstTone: "parked" | "fresh" | "slow" | "stalled";
   };
+  formatDelta: (milliseconds: number) => string;
+  outboundDeliveryTimeline: (
+    message: {
+      status: HistoryStatus;
+      createdAt: string;
+      updatedAt: string;
+      sentAt: string | null;
+      deliveredAt: string | null;
+      readAt: string | null;
+      playedAt: string | null;
+    },
+    now?: Date,
+  ) => {
+    key: string;
+    label: string;
+    at: string;
+    sincePrevious: string | null;
+    terminal: boolean;
+  }[];
+  outboxProviderReadingBadge: (
+    deliveryStatus:
+      "error" | "pending" | "sent" | "delivered" | "read" | "played" | null,
+  ) => { label: string; tone: string } | null;
+  OUTBOX_HISTORY_RANGES: readonly { key: RangeKey; label: string }[];
+  outboxHistoryRangeFrom: (key: RangeKey, now?: Date) => string | undefined;
+  isOutboxHistoryRangeKey: (value: string | null) => boolean;
+  OUTBOX_HISTORY_STATUS_FILTERS: readonly {
+    key: HistoryStatus | "any";
+    label: string;
+  }[];
+  isOutboxHistoryStatus: (value: string | null) => boolean;
 }
+
+type RangeKey = "hour" | "today" | "week" | "all";
+type HistoryStatus = QueueStatus | "sent" | "failed" | "cancelled";
 
 interface PollingModule {
   OUTBOX_QUEUE_POLL_INTERVAL_MS: number;
@@ -461,7 +495,7 @@ describe("why the row was written", () => {
     expect(factValue(facts, "Model")).toBe("google/gemini-2.5-flash");
     expect(factValue(facts, "Confidence")).toBe("84%");
     // The goal key is spoken in the inbox's own question vocabulary.
-    expect(factValue(facts, "Asked")).toBe("Liked");
+    expect(factValue(facts, "Asked")).toBe("Liked (V1)");
     expect(factValue(facts, "Goals it recorded")).toBe(
       "1 answered · 1 awaiting reply",
     );
@@ -711,7 +745,9 @@ describe("why the row was written", () => {
 
     expect(details).toContain("<CopyableId");
     expect(details).toContain("<ProviderMark");
-    expect(details).toContain("formatPreciseTimestamp");
+    // Timestamps are formatted in the React-free module now — the pane paints
+    // the pill, the builder decides what goes in it.
+    expect(details).toContain("<TimestampPill");
     // Nullable confidence keeps its words and gets no track.
     expect(details).toContain("ConfidenceValue");
     expect(details).toContain("ratio === null");
@@ -792,18 +828,391 @@ describe("the history half", () => {
     );
   });
 
-  it("is a second view of the same page, sharing the selection", () => {
+  it("is the default view, with the queue reachable from its own tab", () => {
     const page = readAdminFile("src/routes/FeedbackOutboxPage.tsx");
 
     expect(page).toContain("useListFeedbackOutboxHistory");
-    expect(page).toContain('searchParams.get("view") === "history"');
-    // Each list polls only while it is the one on screen.
-    expect(page).toContain('enabled: view === "queue"');
+    // History is what the bare URL shows. The queue is the explicit one,
+    // because its healthy answer is an empty list and that is a poor front
+    // door for the screen people come here to read.
+    expect(page).toContain('searchParams.get("view") === "queue" ? "queue"');
     expect(page).toContain('enabled: view === "history"');
     // The selection survives the toggle: a row means the same thing in both.
+    expect(page).toContain('view === "history" ||');
+  });
+
+  it("keeps an opened message across pages, but not past its own wait", () => {
+    const page = readAdminFile("src/routes/FeedbackOutboxPage.tsx");
+
+    // The queue drops a selection the moment the row stops waiting — a pane
+    // describing a wait that is over is worse than no pane.
     expect(page).toContain(
-      "visibleItems.some((item) => item.id === requestedId)",
+      "queueItems.some((item) => item.id === requestedId)",
     );
+    // The history does not, and that now covers paging: the opened row is
+    // fetched by id and knows nothing about pages, so walking back through the
+    // log while keeping one message on screen is what an operator paged for.
+    expect(page).not.toContain("historyItems.some((item)");
+  });
+
+  it("keeps the queue polling in both views, so its count can still call out", () => {
+    const page = readAdminFile("src/routes/FeedbackOutboxPage.tsx");
+
+    const queueHook = page.slice(
+      page.indexOf("useListFeedbackOutboxQueue({"),
+      page.indexOf("const historyQuery"),
+    );
+    // Leaving the queue view must not mean losing sight of a backlog. The
+    // count rides on the tab, which means the query cannot be view-gated.
+    expect(queueHook).not.toContain("enabled:");
+    expect(queueHook).toContain("OUTBOX_QUEUE_POLL_INTERVAL_MS");
+    // Zero is drawn quietly rather than hidden — a badge that vanishes states
+    // nothing, while «0» states the question was asked and answered.
+    expect(page).toContain("count === 0");
+  });
+});
+
+describe("paging the log", () => {
+  it("walks by cursor and never prints a page number", () => {
+    const page = readAdminFile("src/routes/FeedbackOutboxPage.tsx");
+    const list = readAdminFile(
+      "src/components/admin/feedback/OutboxHistoryList.tsx",
+    );
+
+    // Keyset, not offset: rows are appended while an operator reads, and
+    // `OFFSET` against a growing log repeats and skips rows.
+    expect(page).toContain("nextCursor");
+    expect(page).toContain("setCursors");
+    expect(page).not.toMatch(/\boffset\b/iu);
+    // «Page 3 of 40» would be stale before it rendered, so neither the page
+    // nor the list computes one.
+    expect(list).not.toMatch(/page \d|pageCount|totalPages/iu);
+    expect(list).toContain("Older");
+    expect(list).toContain("Newer");
+  });
+
+  it("stops polling once the operator has walked back into the log", () => {
+    const page = readAdminFile("src/routes/FeedbackOutboxPage.tsx");
+
+    // Refreshing an older page either moves it under the reader or spends a
+    // request proving a finished slice has not changed.
+    expect(page).toContain("const atNewest = cursor === undefined");
+    expect(page).toContain(
+      "...(atNewest\n          ? { refetchInterval: OUTBOX_HISTORY_POLL_INTERVAL_MS }\n          : {})",
+    );
+    expect(page).toContain("refetchOnWindowFocus: atNewest");
+    // And the list stops claiming to be live when it is not.
+    const list = readAdminFile(
+      "src/components/admin/feedback/OutboxHistoryList.tsx",
+    );
+    expect(list).toContain("atNewest ? (\n          <JtsLiveIndicator");
+    expect(list).toContain("Jump to newest");
+  });
+
+  it("restarts the walk whenever the filtered set itself changes", () => {
+    const page = readAdminFile("src/routes/FeedbackOutboxPage.tsx");
+
+    // A cursor is a position inside one filtered set. Carrying it across a
+    // filter change asks the server to continue from a row that may not be in
+    // the new set at all.
+    const changeFilter = page.slice(
+      page.indexOf("const changeFilter"),
+      page.indexOf("const nextCursor"),
+    );
+    expect(changeFilter).toContain("setCursors([])");
+  });
+});
+
+describe("narrowing the log", () => {
+  it("offers the questions people ask a log, not two date pickers", () => {
+    expect(outbox.OUTBOX_HISTORY_RANGES.map((range) => range.key)).toEqual([
+      "hour",
+      "today",
+      "week",
+      "all",
+    ]);
+    // «All» sends no bound at all rather than an ancient date.
+    expect(outbox.outboxHistoryRangeFrom("all")).toBeUndefined();
+
+    const toolbar = readAdminFile(
+      "src/components/admin/feedback/OutboxHistoryToolbar.tsx",
+    );
+    expect(toolbar).not.toContain('type="date"');
+  });
+
+  it("measures a range against the operator's own clock, not the server's", () => {
+    // Every age on this screen is measured on the server because an age is a
+    // measurement. A range is a question, and «today» is a question about the
+    // day the person asking is having.
+    const now = new Date("2026-07-27T11:43:27.000Z");
+
+    const hour = outbox.outboxHistoryRangeFrom("hour", now);
+    expect(hour).toBe("2026-07-27T10:43:27.000Z");
+
+    const today = outbox.outboxHistoryRangeFrom("today", now);
+    const localMidnight = new Date(now);
+    localMidnight.setHours(0, 0, 0, 0);
+    expect(today).toBe(localMidnight.toISOString());
+
+    expect(outbox.outboxHistoryRangeFrom("week", now)).toBe(
+      "2026-07-20T11:43:27.000Z",
+    );
+  });
+
+  it("filters by the same words the rows are badged with", () => {
+    // A word must not mean one thing in the filter and another on the row it
+    // selects, so the options are built from the badge vocabulary itself.
+    for (const option of outbox.OUTBOX_HISTORY_STATUS_FILTERS) {
+      if (option.key === "any") {
+        continue;
+      }
+      expect(option.label).toBe(
+        outbox.outboxHistoryStatusBadge(option.key).label,
+      );
+    }
+    expect(outbox.OUTBOX_HISTORY_STATUS_FILTERS[0]?.key).toBe("any");
+  });
+
+  it("refuses a range or status the URL made up", () => {
+    expect(outbox.isOutboxHistoryRangeKey("today")).toBe(true);
+    expect(outbox.isOutboxHistoryRangeKey("fortnight")).toBe(false);
+    expect(outbox.isOutboxHistoryRangeKey(null)).toBe(false);
+    expect(outbox.isOutboxHistoryStatus("failed")).toBe(true);
+    expect(outbox.isOutboxHistoryStatus("exploded")).toBe(false);
+  });
+
+  it("says «nothing matches» rather than «nothing exists» when a filter is on", () => {
+    const list = readAdminFile(
+      "src/components/admin/feedback/OutboxHistoryList.tsx",
+    );
+    // Telling an operator the table is empty when their filter is what is
+    // empty sends them looking for a bug.
+    expect(list).toContain("total === 0");
+    expect(list).toContain("matches this range and status");
+  });
+});
+
+describe("the opened row, after the rebrand", () => {
+  it("shows the message itself, which is the one thing the participant saw", () => {
+    const details = readAdminFile(
+      "src/components/admin/feedback/OutboxMessageDetails.tsx",
+    );
+
+    expect(details).toContain("message.body");
+    expect(details).toContain("whitespace-pre-wrap");
+    // And it names the person and the event, which the pane never did.
+    expect(details).toContain("message.respondentDisplayName");
+    expect(details).toContain("message.phoneAtLaunch");
+    expect(details).toContain("message.eventTitle");
+  });
+
+  it("draws the gaps between the steps, not six absolute times", () => {
+    const timeline = outbox.outboundDeliveryTimeline({
+      status: "sent",
+      createdAt: "2026-07-27T11:41:00.000Z",
+      updatedAt: "2026-07-27T11:41:00.400Z",
+      sentAt: "2026-07-27T11:41:00.400Z",
+      deliveredAt: "2026-07-27T11:41:01.600Z",
+      readAt: "2026-07-27T11:43:10.600Z",
+      playedAt: null,
+    });
+
+    expect(timeline.map((step) => step.label)).toEqual([
+      "Written",
+      "Sent",
+      "Delivered",
+      "Read",
+    ]);
+    // The first step has no previous, so it claims no gap.
+    expect(timeline[0]?.sincePrevious).toBeNull();
+    expect(timeline[1]?.sincePrevious).toBe("+400ms");
+    expect(timeline[2]?.sincePrevious).toBe("+1.2s");
+    expect(timeline[3]?.sincePrevious).toBe("+2m 09s");
+  });
+
+  it("keeps sub-second resolution, because that is the scale delivery lives on", () => {
+    // `formatWaiting` would print all three of a healthy delivery's gaps as
+    // «0s» — three zeros in a column whose only job is to show nothing was slow.
+    expect(outbox.formatDelta(0)).toBe("+0ms");
+    expect(outbox.formatDelta(412)).toBe("+412ms");
+    expect(outbox.formatDelta(1_400)).toBe("+1.4s");
+    expect(outbox.formatDelta(147_000)).toBe("+2m 27s");
+    // A clock that went backwards is not a negative gap.
+    expect(outbox.formatDelta(-50)).toBe("+0ms");
+  });
+
+  it("omits steps that did not happen instead of printing em dashes", () => {
+    const timeline = outbox.outboundDeliveryTimeline({
+      status: "pending",
+      createdAt: "2026-07-27T11:41:00.000Z",
+      updatedAt: "2026-07-27T11:41:00.000Z",
+      sentAt: null,
+      deliveredAt: null,
+      readAt: null,
+      playedAt: null,
+    });
+
+    expect(timeline).toHaveLength(1);
+    expect(timeline[0]?.label).toBe("Written");
+  });
+
+  it("names `updatedAt` only where it means something", () => {
+    // On a `sending` row it is the relay's lease; on a terminal row it is the
+    // moment the row stopped. Everywhere else it is a column that changes for
+    // reasons the screen has no word for, which is what made it noise.
+    const leased = outbox.outboundDeliveryTimeline({
+      status: "sending",
+      createdAt: "2026-07-27T11:41:00.000Z",
+      updatedAt: "2026-07-27T11:41:02.000Z",
+      sentAt: null,
+      deliveredAt: null,
+      readAt: null,
+      playedAt: null,
+    });
+    expect(leased.map((step) => step.label)).toEqual([
+      "Written",
+      "Leased by the relay",
+    ]);
+
+    const failed = outbox.outboundDeliveryTimeline({
+      status: "failed",
+      createdAt: "2026-07-27T11:41:00.000Z",
+      updatedAt: "2026-07-27T11:41:09.000Z",
+      sentAt: null,
+      deliveredAt: null,
+      readAt: null,
+      playedAt: null,
+    });
+    expect(failed.at(-1)).toMatchObject({ label: "Failed", terminal: true });
+
+    const sent = outbox.outboundDeliveryTimeline({
+      status: "sent",
+      createdAt: "2026-07-27T11:41:00.000Z",
+      updatedAt: "2026-07-27T11:41:30.000Z",
+      sentAt: "2026-07-27T11:41:00.400Z",
+      deliveredAt: null,
+      readAt: null,
+      playedAt: null,
+    });
+    expect(sent.map((step) => step.label)).toEqual(["Written", "Sent"]);
+  });
+
+  it("orders by the instants themselves, never by how they were assembled", () => {
+    // A row that failed after a provider call has an `updatedAt` later than
+    // its `sentAt`; printing them the other way round would invent a negative
+    // gap out of correct data.
+    const timeline = outbox.outboundDeliveryTimeline({
+      status: "failed",
+      createdAt: "2026-07-27T11:41:00.000Z",
+      updatedAt: "2026-07-27T11:41:05.000Z",
+      sentAt: "2026-07-27T11:41:01.000Z",
+      deliveredAt: null,
+      readAt: null,
+      playedAt: null,
+    });
+
+    expect(timeline.map((step) => step.label)).toEqual([
+      "Written",
+      "Sent",
+      "Failed",
+    ]);
+    expect(
+      timeline.every((step) => !step.sincePrevious?.startsWith("+-")),
+    ).toBe(true);
+  });
+
+  it("repeats the provider's reading only where the timeline cannot draw it", () => {
+    // Four of the six delivery statuses are exactly the steps the timeline
+    // draws with their times attached; repeating them as a word without a time
+    // is strictly less information in more space.
+    for (const status of ["sent", "delivered", "read", "played"] as const) {
+      expect(outbox.outboxProviderReadingBadge(status)).toBeNull();
+    }
+    expect(outbox.outboxProviderReadingBadge(null)).toBeNull();
+    // The two that survive are the two with no timestamp of their own.
+    expect(outbox.outboxProviderReadingBadge("error")?.tone).toBe("danger");
+    expect(outbox.outboxProviderReadingBadge("pending")?.label).toContain(
+      "not confirmed",
+    );
+  });
+
+  it("stops printing the paragraph that is true on every healthy row", () => {
+    const details = readAdminFile(
+      "src/components/admin/feedback/OutboxMessageDetails.tsx",
+    );
+
+    // «The campaign is running, so the relay leases this row as soon as it
+    // can» on every opened row taught operators to skip the paragraph that
+    // matters on the rows where it is not running.
+    expect(details).not.toContain(
+      "the relay leases this row as soon as it can",
+    );
+    expect(details).toContain("parked ? (");
+    // And the retry-history limit is folded away: five lines needed once, that
+    // had been charging rent on every row.
+    expect(details).toContain("<details");
+    expect(details).toContain("Why there is no retry history");
+  });
+
+  it("groups every id by the purpose they share — being pasted elsewhere", () => {
+    const details = readAdminFile(
+      "src/components/admin/feedback/OutboxMessageDetails.tsx",
+    );
+
+    expect(details).toContain('title="Identifiers"');
+    // Three labelled rows competing with the times and the decision, for
+    // values nobody reads on this screen.
+    const identifiersAt = details.indexOf('title="Identifiers"');
+    expect(identifiersAt).toBeGreaterThan(
+      details.indexOf('title="Why this was sent"'),
+    );
+    expect(identifiersAt).toBeGreaterThan(
+      details.indexOf('title="Delivery job"'),
+    );
+  });
+});
+
+describe("fitting a laptop screen", () => {
+  it("splits into two columns at `lg`, with the detail pane the wide one", () => {
+    const page = readAdminFile("src/routes/FeedbackOutboxPage.tsx");
+
+    // `2xl` is 1536px. A 1440px laptop never reached it, so the pane meant to
+    // sit beside the list spent its life underneath it.
+    expect(page).not.toContain("2xl:grid-cols");
+    expect(page).toContain("lg:grid-cols-[minmax(18rem,22rem)_minmax(0,1fr)]");
+  });
+
+  it("gives the panes the viewport instead of growing the document", () => {
+    const page = readAdminFile("src/routes/FeedbackOutboxPage.tsx");
+    const shell = readAdminFile("src/components/admin/AdminShell.tsx");
+
+    // Two panes at `max-h-[78vh]` plus a header, a toggle and three stat cards
+    // came to more than a laptop viewport, so the whole layout scrolled to
+    // reach controls that were meant to stay in view.
+    for (const file of [
+      "src/components/admin/feedback/OutboxQueueList.tsx",
+      "src/components/admin/feedback/OutboxHistoryList.tsx",
+      "src/components/admin/feedback/OutboxMessageDetails.tsx",
+    ]) {
+      expect(readAdminFile(file)).not.toContain("max-h-[78vh]");
+    }
+    expect(page).toContain("flex h-full min-h-0 flex-col");
+    expect(page).toContain("grid min-h-0 flex-1");
+    // Each pane owns its own scrolling, which is the price of taking the
+    // viewport.
+    expect(
+      readAdminFile("src/components/admin/feedback/OutboxHistoryList.tsx"),
+    ).toContain("min-h-0 flex-1 overflow-y-auto");
+    expect(shell).toContain('"/admin/outbound"');
+  });
+
+  it("spends no card height on three single-digit numbers", () => {
+    const page = readAdminFile("src/routes/FeedbackOutboxPage.tsx");
+
+    // The height three stat cards took came straight out of the two panes
+    // doing the work.
+    expect(page).not.toContain("<JtsStat");
+    expect(page).toContain("QueueFigure");
   });
 });
 

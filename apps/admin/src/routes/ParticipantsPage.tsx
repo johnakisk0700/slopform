@@ -1,7 +1,8 @@
+import { Checkbox, SearchField } from "@heroui/react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
+import { Search, Users, X } from "lucide-react";
 import { useMemo, useState } from "react";
-import { Link } from "react-router";
 
 import {
   getListParticipantsQueryKey,
@@ -10,8 +11,10 @@ import {
 } from "../api/generated/participants";
 import type { ParticipantDtoOutput } from "../api/generated/model/participantDtoOutput";
 import type { ParticipantListDtoOutput } from "../api/generated/model/participantListDtoOutput";
+import { ParticipantIdentity } from "../components/admin/participants/ParticipantIdentity";
 import { JtsDataTable } from "../components/ui/JtsDataTable";
 import { JtsPageHeader } from "../components/ui/JtsPageHeader";
+import { matchesParticipantQuery } from "../features/participants/search";
 import { apiErrorMessage } from "../lib/api";
 import { usePageMeta } from "../lib/usePageMeta";
 
@@ -28,8 +31,17 @@ export function ParticipantsPage() {
 
   const [actionError, setActionError] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
 
-  const rows = participantsQuery.data?.items ?? [];
+  const allRows = useMemo(
+    () => participantsQuery.data?.items ?? [],
+    [participantsQuery.data?.items],
+  );
+  const rows = useMemo(
+    () => allRows.filter((row) => matchesParticipantQuery(row, query)),
+    [allRows, query],
+  );
+
   const loading = participantsQuery.isPending || participantsQuery.isFetching;
   const error = participantsQuery.isError
     ? apiErrorMessage(participantsQuery.error, "Failed to load participants.")
@@ -73,41 +85,46 @@ export function ParticipantsPage() {
     () => [
       {
         accessorKey: "preferredName",
-        header: "Name",
+        header: "Participant",
         cell: ({ row }) => (
-          <Link
+          <ParticipantIdentity
+            preferredName={row.original.preferredName}
+            emailNormalized={row.original.emailNormalized}
             to={`/admin/participants/${row.original.id}`}
-            className="font-bold text-primary underline-offset-2 hover:underline"
-          >
-            {row.original.preferredName ?? row.original.emailNormalized}
-          </Link>
+          />
         ),
-      },
-      {
-        accessorKey: "emailNormalized",
-        header: "Email",
       },
       {
         accessorKey: "phoneE164",
         header: "Phone",
-        cell: ({ row }) => row.original.phoneE164 ?? "—",
+        cell: ({ row }) =>
+          row.original.phoneE164 ?? <span className="text-ink-subtle">—</span>,
       },
       {
         accessorKey: "postEventFeedbackWhatsappOptIn",
         header: "Feedback WhatsApp",
+        meta: { align: "end" },
         cell: ({ row }) => (
-          <label className="inline-flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={row.original.postEventFeedbackWhatsappOptIn}
-              disabled={savingId === row.original.id}
-              onChange={(change) => {
-                void toggleOptIn(row.original.id, change.target.checked);
+          <div className="flex justify-end">
+            <Checkbox
+              isSelected={row.original.postEventFeedbackWhatsappOptIn}
+              isDisabled={savingId === row.original.id}
+              onChange={(optedIn) => {
+                void toggleOptIn(row.original.id, optedIn);
               }}
-              aria-label={`Post-event feedback WhatsApp opt-in for ${row.original.preferredName ?? row.original.emailNormalized}`}
-            />
-            Opted in
-          </label>
+            >
+              <Checkbox.Content>
+                <Checkbox.Control>
+                  <Checkbox.Indicator />
+                </Checkbox.Control>
+                <span className="text-sm">
+                  {row.original.postEventFeedbackWhatsappOptIn
+                    ? "Opted in"
+                    : "Opted out"}
+                </span>
+              </Checkbox.Content>
+            </Checkbox>
+          </div>
         ),
       },
     ],
@@ -116,7 +133,7 @@ export function ParticipantsPage() {
   );
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-6">
       <JtsPageHeader
         eyebrow="Operations"
         title="Participants"
@@ -125,13 +142,52 @@ export function ParticipantsPage() {
 
       <JtsDataTable
         title="Participants"
+        description={
+          query.trim() === ""
+            ? null
+            : `${rows.length} of ${allRows.length} match “${query.trim()}”.`
+        }
         rows={rows}
         columns={columns}
         getRowId={(row) => row.id}
         loading={loading}
         error={error}
-        emptyTitle="No participants"
-        emptyDescription="Import WordPress profiles before managing opt-in."
+        paginator
+        pageSize={25}
+        rowsPerPageOptions={[25, 50, 100]}
+        emptyTitle={
+          query.trim() === "" ? "No participants" : "Nobody matches that"
+        }
+        emptyDescription={
+          query.trim() === ""
+            ? "Import WordPress profiles before managing opt-in."
+            : "Try a different name, email or phone."
+        }
+        emptyIcon={
+          <Users
+            aria-hidden="true"
+            className="size-9 text-ink-subtle"
+            strokeWidth={1.5}
+          />
+        }
+        toolbarEnd={
+          <SearchField
+            aria-label="Search participants"
+            value={query}
+            onChange={setQuery}
+            className="max-sm:w-full"
+          >
+            <SearchField.Group>
+              <SearchField.SearchIcon>
+                <Search aria-hidden="true" className="size-4" />
+              </SearchField.SearchIcon>
+              <SearchField.Input placeholder="Name, email or phone…" />
+              <SearchField.ClearButton>
+                <X aria-hidden="true" className="size-4" />
+              </SearchField.ClearButton>
+            </SearchField.Group>
+          </SearchField>
+        }
       />
     </div>
   );

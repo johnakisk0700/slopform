@@ -59,6 +59,12 @@ const optionalClerkPublishableKeySchema = z.preprocess(
     .optional(),
 );
 
+const optionalGoogleMapsApiKeySchema = z.preprocess(
+  (value) =>
+    typeof value === "string" && value.trim() === "" ? undefined : value,
+  z.string().trim().min(1).optional(),
+);
+
 const booleanEnvironmentSchema = z.preprocess(
   (value) => (typeof value === "string" ? value.trim().toLowerCase() : value),
   z
@@ -72,6 +78,7 @@ const envSchema = z
     apiBase: apiBaseSchema,
     authDevBypass: booleanEnvironmentSchema,
     clerkPublishableKey: optionalClerkPublishableKeySchema,
+    googleMapsApiKey: optionalGoogleMapsApiKeySchema,
     isDevelopment: z.boolean(),
   })
   .superRefine((environment, context) => {
@@ -89,6 +96,7 @@ export interface Env {
   apiBase: string;
   authDevBypass: boolean;
   clerkPublishableKey?: string | undefined;
+  googleMapsApiKey?: string | undefined;
 }
 
 function validateEnv(input: {
@@ -96,11 +104,13 @@ function validateEnv(input: {
   readonly VITE_API_BASE: unknown;
   readonly VITE_AUTH_DEV_BYPASS: unknown;
   readonly VITE_CLERK_PUBLISHABLE_KEY: unknown;
+  readonly VITE_GOOGLE_MAPS_API_KEY: unknown;
 }): Env {
   const result = envSchema.safeParse({
     apiBase: input.VITE_API_BASE,
     authDevBypass: input.VITE_AUTH_DEV_BYPASS,
     clerkPublishableKey: input.VITE_CLERK_PUBLISHABLE_KEY,
+    googleMapsApiKey: input.VITE_GOOGLE_MAPS_API_KEY,
     isDevelopment: input.DEV,
   });
 
@@ -113,6 +123,7 @@ function validateEnv(input: {
     apiBase: result.data.apiBase,
     authDevBypass: result.data.authDevBypass,
     clerkPublishableKey: result.data.clerkPublishableKey,
+    googleMapsApiKey: result.data.googleMapsApiKey,
   };
 }
 
@@ -121,4 +132,5 @@ export const env: Env = validateEnv({
   VITE_API_BASE: import.meta.env.VITE_API_BASE,
   VITE_AUTH_DEV_BYPASS: import.meta.env.VITE_AUTH_DEV_BYPASS,
   VITE_CLERK_PUBLISHABLE_KEY: import.meta.env.VITE_CLERK_PUBLISHABLE_KEY,
+  VITE_GOOGLE_MAPS_API_KEY: import.meta.env.VITE_GOOGLE_MAPS_API_KEY,
 });

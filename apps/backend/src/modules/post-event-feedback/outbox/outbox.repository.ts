@@ -16,10 +16,13 @@ import {
   count,
   desc,
   eq,
+  gte,
   inArray,
   isNull,
+  lt,
   lte,
   or,
+  type SQL,
 } from "drizzle-orm";
 
 import { DatabaseService } from "../../../infrastructure/database/database.service.js";
@@ -61,6 +64,43 @@ export interface FeedbackUndeliveredOutboxRow {
 
 /** Upper bound on one page of the undelivered list. */
 export const FEEDBACK_OUTBOX_QUEUE_VIEW_LIMIT = 200;
+
+/**
+ * Which rows of the history one page is drawn from.
+ *
+ * `message_outbox` is append-only and never pruned, so the history is a log
+ * that outgrows any cap within a single campaign. Every field here narrows the
+ * *set*; the cursor below walks it. They are separate on purpose: changing a
+ * filter must restart the walk, and a page is only meaningful against the
+ * filter it was cut from.
+ */
+export interface FeedbackOutboxHistoryFilter {
+  /** One status, or null for every status the table allows. */
+  readonly status: MessageOutboxStatus | null;
+  /** Inclusive lower bound on `created_at`; null for «since the beginning». */
+  readonly from: Date | null;
+  /** Inclusive upper bound on `created_at`; null for «up to now». */
+  readonly to: Date | null;
+}
+
+/**
+ * Where the next page of history starts: the last row of the previous one.
+ *
+ * Keyset, not offset. This table is written to while an operator reads it, and
+ * `OFFSET 50` against a growing log silently repeats rows it has already shown
+ * and skips ones it has not — the two failure modes a log viewer must not have.
+ * `id` breaks the tie because `created_at` has no uniqueness guarantee.
+ */
+export interface FeedbackOutboxHistoryCursor {
+  readonly createdAt: Date;
+  readonly id: string;
+}
+
+export const FEEDBACK_OUTBOX_HISTORY_NO_FILTER: FeedbackOutboxHistoryFilter = {
+  status: null,
+  from: null,
+  to: null,
+};
 
 type DatabaseExecutor = AppTransaction | DatabaseService["db"];
 
@@ -132,6 +172,44 @@ export class FeedbackOutboxRepository {
       .limit(1);
 
     return record;
+  }
+
+  /**
+   * One row with the campaign and event context the lists already join in.
+   *
+   * The opened row needs the same three facts a list row carries — the campaign
+   * status that says whether the relay will touch it, and the event it is
+   * about — and reading them as a second and third round trip would be three
+   * queries for one join the index already serves.
+   */
+  async findOutboxWithContextById(
+    id: string,
+    executor: DatabaseExecutor = this.database.db,
+  ): Promise<FeedbackUndeliveredOutboxRow | undefined> {
+    const [entry] = await executor
+      .select({
+        row: messageOutbox,
+        campaignStatus: feedbackCampaigns.status,
+        eventId: feedbackCampaigns.eventId,
+        eventTitle: events.title,
+      })
+      .from(messageOutbox)
+      .innerJoin(
+        feedbackCampaigns,
+        eq(feedbackCampaigns.id, messageOutbox.campaignId),
+      )
+      .innerJoin(events, eq(events.id, feedbackCampaigns.eventId))
+      .where(eq(messageOutbox.id, id))
+      .limit(1);
+
+    return entry === undefined
+      ? undefined
+      : {
+          row: entry.row,
+          campaignStatus: entry.campaignStatus as FeedbackCampaignStatus,
+          eventId: entry.eventId,
+          eventTitle: entry.eventTitle,
+        };
   }
 
   async findOutboxByDedupeKey(
@@ -335,18 +413,28 @@ export class FeedbackOutboxRepository {
   }
 
   /**
-   * The newest outbox rows regardless of status — the history half of the
-   * observability screen. Delivered, failed and cancelled rows are exactly the
-   * ones the queue list refuses to show, and the decision log makes them worth
-   * opening after the fact.
+   * One page of the history, newest first, regardless of status.
+   *
+   * Delivered, failed and cancelled rows are exactly the ones the queue list
+   * refuses to show, and the decision log makes them worth opening after the
+   * fact. The filter narrows which rows exist for this page; the cursor says
+   * where in that set the page begins.
    */
   async listRecentOutbox(
-    limit = FEEDBACK_OUTBOX_QUEUE_VIEW_LIMIT,
+    options: {
+      readonly limit?: number;
+      readonly filter?: FeedbackOutboxHistoryFilter;
+      readonly cursor?: FeedbackOutboxHistoryCursor | null;
+    } = {},
     executor: DatabaseExecutor = this.database.db,
   ): Promise<FeedbackUndeliveredOutboxRow[]> {
     const boundedLimit = Math.min(
-      Math.max(1, limit),
+      Math.max(1, options.limit ?? FEEDBACK_OUTBOX_QUEUE_VIEW_LIMIT),
       FEEDBACK_OUTBOX_QUEUE_VIEW_LIMIT,
+    );
+    const where = outboxHistoryWhere(
+      options.filter ?? FEEDBACK_OUTBOX_HISTORY_NO_FILTER,
+      options.cursor ?? null,
     );
     const rows = await executor
       .select({
@@ -361,6 +449,9 @@ export class FeedbackOutboxRepository {
         eq(feedbackCampaigns.id, messageOutbox.campaignId),
       )
       .innerJoin(events, eq(events.id, feedbackCampaigns.eventId))
+      .where(where)
+      // The exact order the cursor walks — any other order would hand back a
+      // page the next cursor cannot continue from.
       .orderBy(desc(messageOutbox.createdAt), desc(messageOutbox.id))
       .limit(boundedLimit);
 
@@ -372,11 +463,21 @@ export class FeedbackOutboxRepository {
     }));
   }
 
-  /** Total rows ever written, so the capped history page cannot imply a total. */
+  /**
+   * How many rows match the filter, so a page can say what it is a page *of*.
+   *
+   * Deliberately filter-aware and deliberately cursor-blind: «417 messages» must
+   * mean «in the range you are looking at», or the number under a one-hour
+   * filter would be a count of the whole table wearing the filter's clothes.
+   */
   async countOutbox(
+    filter: FeedbackOutboxHistoryFilter = FEEDBACK_OUTBOX_HISTORY_NO_FILTER,
     executor: DatabaseExecutor = this.database.db,
   ): Promise<number> {
-    const [row] = await executor.select({ total: count() }).from(messageOutbox);
+    const [row] = await executor
+      .select({ total: count() })
+      .from(messageOutbox)
+      .where(outboxHistoryWhere(filter, null));
 
     return row?.total ?? 0;
   }
@@ -499,4 +600,46 @@ export class FeedbackOutboxRepository {
 
     return record;
   }
+}
+
+/**
+ * The one predicate the history page and its total are both cut from.
+ *
+ * They must be the same clause or the count is a claim about a different set of
+ * rows than the page beside it — which is how «showing 25 of 4,912» ends up
+ * printed above twelve rows. The cursor is the only part the count leaves out.
+ *
+ * The keyset is written as `created_at < c` OR (`created_at = c` AND `id < c`)
+ * rather than a row-value comparison so it is built from typed Drizzle
+ * operators: same rows, no hand-written cast, and the whole thing stays
+ * assertable without a database.
+ */
+function outboxHistoryWhere(
+  filter: FeedbackOutboxHistoryFilter,
+  cursor: FeedbackOutboxHistoryCursor | null,
+): SQL | undefined {
+  const clauses: SQL[] = [];
+
+  if (filter.status !== null) {
+    clauses.push(eq(messageOutbox.status, filter.status));
+  }
+  if (filter.from !== null) {
+    clauses.push(gte(messageOutbox.createdAt, filter.from));
+  }
+  if (filter.to !== null) {
+    clauses.push(lte(messageOutbox.createdAt, filter.to));
+  }
+  if (cursor !== null) {
+    clauses.push(
+      or(
+        lt(messageOutbox.createdAt, cursor.createdAt),
+        and(
+          eq(messageOutbox.createdAt, cursor.createdAt),
+          lt(messageOutbox.id, cursor.id),
+        ),
+      ) as SQL,
+    );
+  }
+
+  return clauses.length === 0 ? undefined : and(...clauses);
 }

@@ -1,14 +1,20 @@
 import { Injectable } from "@nestjs/common";
-import type { EventStatus } from "@join-the-six/database";
+import type { AppTransaction, EventStatus } from "@join-the-six/database";
 
 import { AuditRepository } from "../../infrastructure/audit/audit.repository.js";
 import { DatabaseService } from "../../infrastructure/database/database.service.js";
 import { FeedbackCampaignRepository } from "../post-event-feedback/campaign/campaign.repository.js";
+import {
+  toEventFeedbackVenueSnapshot,
+  toEventVenueView,
+  type EventFeedbackVenueSnapshot,
+} from "./event-venue.js";
 import { selectFeedbackCandidates } from "./feedback-candidates.js";
 import {
   EventsRepository,
   type EventAttendeeJoinedRow,
   type EventSummaryRow,
+  type EventVenueWrite,
 } from "./events.repository.js";
 import {
   EVENT_STATUS_TRANSITIONS,
@@ -16,6 +22,7 @@ import {
   type EventAttendeeView,
   type EventDetailView,
   type EventListView,
+  type EventVenueInput,
   type EventView,
   type FeedbackCandidate,
   type FeedbackCandidatesView,
@@ -87,6 +94,7 @@ export class EventsService {
       const event = await this.repository.create(transaction, {
         title: input.title,
         startsAt: new Date(input.startsAt),
+        venue: input.venue ? toVenueWrite(input.venue) : null,
       });
       await this.audit.append(transaction, {
         actorType: "admin",
@@ -95,7 +103,12 @@ export class EventsService {
         entityType: "event",
         entityId: event.id,
         requestId,
-        context: { status: event.status },
+        context: {
+          status: event.status,
+          venueConfigured: event.venueProvider !== null,
+          venueContextRevision: event.venueContextRevision,
+          venueUseInFeedback: event.venueUseInFeedback,
+        },
       });
       return event;
     });
@@ -114,9 +127,16 @@ export class EventsService {
       if (!existing) {
         throw new EventNotFoundError(id);
       }
-      if (existing.status === "finished" || existing.status === "cancelled") {
+      if (existing.status === "cancelled") {
         throw new EventMutationNotAllowedError(
           `Cannot edit a ${existing.status} event`,
+        );
+      }
+      const changesEventIdentity =
+        input.title !== undefined || input.startsAt !== undefined;
+      if (existing.status === "finished" && changesEventIdentity) {
+        throw new EventMutationNotAllowedError(
+          "Cannot edit title or start time on a finished event",
         );
       }
 
@@ -124,6 +144,9 @@ export class EventsService {
         ...(input.title !== undefined ? { title: input.title } : {}),
         ...(input.startsAt !== undefined
           ? { startsAt: new Date(input.startsAt) }
+          : {}),
+        ...(input.venue !== undefined
+          ? { venue: input.venue ? toVenueWrite(input.venue) : null }
           : {}),
       });
       if (!event) {
@@ -140,6 +163,10 @@ export class EventsService {
         context: {
           titleChanged: input.title !== undefined,
           startsAtChanged: input.startsAt !== undefined,
+          venueChanged: input.venue !== undefined,
+          venueConfigured: event.venueProvider !== null,
+          venueContextRevision: event.venueContextRevision,
+          venueUseInFeedback: event.venueUseInFeedback,
         },
       });
       return event;
@@ -229,6 +256,39 @@ export class EventsService {
     }));
 
     return { items };
+  }
+
+  /**
+   * Reloadable, provider-free venue context for feedback generation.
+   * The revision is the fence for an in-flight or queued model reply.
+   */
+  async getFeedbackVenueContext(
+    eventId: string,
+  ): Promise<EventFeedbackVenueSnapshot> {
+    const event = await this.repository.findById(eventId);
+    if (!event) {
+      throw new EventNotFoundError(eventId);
+    }
+    return toEventFeedbackVenueSnapshot(event);
+  }
+
+  /**
+   * Locks the event row through the caller's transaction and verifies that the
+   * venue context used by a model call is still enabled and current.
+   */
+  async feedbackVenueContextIsCurrent(
+    transaction: AppTransaction,
+    eventId: string,
+    expectedRevision: number,
+  ): Promise<boolean> {
+    const event = await this.repository.findByIdForShare(transaction, eventId);
+    if (!event) {
+      throw new EventNotFoundError(eventId);
+    }
+    const snapshot = toEventFeedbackVenueSnapshot(event);
+    return (
+      snapshot.venue !== null && snapshot.contextRevision === expectedRevision
+    );
   }
 
   async upsertAttendee(
@@ -384,10 +444,26 @@ function toEventView(row: EventSummaryRow): EventView {
     title: row.title,
     startsAt: row.startsAt.toISOString(),
     status: row.status as EventStatus,
+    venue: toEventVenueView(row),
     attendeeCount: row.attendeeCount,
     presentCount: row.presentCount,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+function toVenueWrite(venue: EventVenueInput): EventVenueWrite {
+  return {
+    provider: venue.provider,
+    placeId: venue.placeId,
+    label: venue.label,
+    type: venue.type ?? null,
+    area: venue.area ?? null,
+    priceLevel: venue.priceLevel ?? null,
+    priceStartMinor: venue.priceRange?.startMinor ?? null,
+    priceEndMinor: venue.priceRange?.endMinor ?? null,
+    priceCurrencyCode: venue.priceRange?.currencyCode ?? null,
+    useInFeedback: venue.useInFeedback,
   };
 }
 

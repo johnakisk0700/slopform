@@ -1,6 +1,6 @@
 # API contract and generated client
 
-Status: accepted, verified 2026-07-25 with `@nestjs/swagger` 11.4.6,
+Status: accepted, verified 2026-08-02 with `@nestjs/swagger` 11.4.6,
 `nestjs-zod` 5.4.0, orval 8.23.0 and `@tanstack/react-query` 5.101.4.
 
 ## Purpose and boundary
@@ -52,6 +52,43 @@ function (`getAuthSession`), the hook (`useGetAuthSession`), the query-key helpe
 (`getGetAuthSessionQueryKey`) and the Zod schema (`GetAuthSessionResponse`) from
 it. Nest's default `AuthController_session` is rejected by a test, because it
 leaks a class name into the client and renames itself during refactors.
+
+### Event venue contract
+
+Event create/update DTOs and event list/detail responses publish one nested,
+nullable `venue`. Participant `GET /api/v1/participants/:id/events` history
+items reuse the same full nullable response view.
+
+| Field             | Request and response contract                                             |
+| ----------------- | ------------------------------------------------------------------------- |
+| `provider`        | Required literal `google`                                                 |
+| `placeId`         | Required, trimmed, non-empty Google place id; no arbitrary maximum length |
+| `label`           | Required operator-confirmed display label                                 |
+| `type`, `area`    | Optional trimmed context                                                  |
+| `priceLevel`      | Optional `free\|inexpensive\|moderate\|expensive\|very_expensive`         |
+| `priceRange`      | Optional `{ startMinor, endMinor?, currencyCode }` exact minor-unit range |
+| `useInFeedback`   | Required boolean intent flag                                              |
+| `contextRevision` | Positive server-owned integer, present only in a non-null response venue  |
+
+`startMinor` is a non-negative integer, optional `endMinor` cannot precede it,
+and `currencyCode` is exactly three uppercase letters. Optional venue fields are
+omitted rather than serialized as `null`. Clients never send
+`contextRevision`.
+
+Venue patch semantics are whole-object replacement: omitting `venue` leaves it
+and its revision unchanged, `venue: null` clears it, and a venue object replaces
+every field. Each explicit object/null mutation atomically increments the
+event-level revision, including clear, re-add, equivalent replacement, price or
+`useInFeedback` changes; clearing never resets it. A finished event permits this
+venue mutation while rejecting title/start changes. A cancelled event rejects
+the patch entirely. Creation without a venue stores revision `0`; creation with
+a venue returns `contextRevision: 1`.
+
+This contract stores an operator-confirmed reference. It performs no Google
+lookup/geocoding and introduces no Google API dependency. `useInFeedback` is
+forward-looking persisted intent; neither post-event feedback nor Luna consumes
+the venue yet. Audit payloads must not include `label`, `placeId` or address-like
+text.
 
 ## Flow
 
@@ -118,12 +155,21 @@ Queue-derived fields on a read model are allowed only when the endpoint is not
 polled as a collection. `getFeedbackConversation` may inspect BullMQ for the
 selected conversation's extract job, and `getFeedbackOutboxMessage` for the one
 opened outbox row's deliver job; `listFeedbackCampaignConversations` and
-`listFeedbackOutboxQueue` must not — a Redis lookup per row on a five- or
-ten-second poll is a load amplifier, and any list signal has to come from data
-already loaded for the row. The rule extends past Redis: a collection endpoint
-must not do a per-row MongoDB read either, which is why
-`listFeedbackOutboxQueue` resolves a whole page of respondents through one
-batched `listRespondentsByIds`.
+`listFeedbackOutboxQueue` and `listFeedbackOutboxHistory` must not — a Redis
+lookup per row on a five- or ten-second poll is a load amplifier, and any list
+signal has to come from data already loaded for the row. The rule extends past
+Redis: a collection endpoint must not do a per-row MongoDB read either, which is
+why both outbox lists resolve a whole page of respondents through one batched
+`listRespondentsByIds`.
+
+**A collection over an append-only table is paged by keyset, not offset.**
+`message_outbox` is written to while an operator reads it, so `OFFSET` repeats
+rows already shown and skips ones that were not. `listFeedbackOutboxHistory`
+takes an opaque `cursor` carrying its own sort key, returns `nextCursor` rather
+than a page count, and scopes `total` to the active filter so the number above a
+page cannot describe a different set of rows. A cursor the server did not write
+rewinds to the newest page instead of answering 400: it arrives from a URL a
+person can edit, and the endpoint only reads.
 
 An observability endpoint publishes absence as absence. Where a queue lookup
 cannot distinguish retention removal from a job that never existed, the field

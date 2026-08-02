@@ -1,21 +1,28 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  CURRENT_POST_EVENT_FEEDBACK_QUESTION_SET_VERSION,
   FEEDBACK_ANSWER_QUESTION_KEYS,
   FEEDBACK_NOTE_TYPES,
   POST_EVENT_FEEDBACK_COPY_KEYS,
   POST_EVENT_FEEDBACK_QUESTION_SET_V1,
-  POST_EVENT_FEEDBACK_QUESTION_SET_VERSION,
+  POST_EVENT_FEEDBACK_QUESTION_SET_V2,
+  UnsupportedPostEventFeedbackQuestionSetVersionError,
   buildPostEventFeedbackQuestionLaunchSnapshot,
+  contradictedPostEventFeedbackQuestionKeys,
+  getPostEventFeedbackQuestionSet,
   isPostEventFeedbackAnswerQuestionKey,
   isPostEventFeedbackNoteType,
+  resolveCampaignCopy,
 } from "./question-set.js";
 
-describe("post-event feedback question set v1", () => {
-  it("locks version 1 answer keys, note types and Greek copy from the plan", () => {
-    expect(POST_EVENT_FEEDBACK_QUESTION_SET_VERSION).toBe(1);
+describe("post-event feedback versioned question sets", () => {
+  it("keeps the global persistence vocabulary as the union of V1 and V2", () => {
     expect(FEEDBACK_ANSWER_QUESTION_KEYS).toEqual([
       "event_score",
+      "table_fit",
+      "participation_ease",
+      "conversation_balance",
       "liked",
       "meet_again",
       "avoid",
@@ -24,6 +31,9 @@ describe("post-event feedback question set v1", () => {
     expect(POST_EVENT_FEEDBACK_COPY_KEYS).toEqual([
       "intro",
       "event_score",
+      "table_fit",
+      "participation_ease",
+      "conversation_balance",
       "liked",
       "meet_again",
       "avoid",
@@ -35,59 +45,132 @@ describe("post-event feedback question set v1", () => {
       "reminder_followup",
       "cannot_read_media",
     ]);
-    // Three things it must not be, and each was a real option. Not a thank-you:
-    // there is nothing to thank a refusal for. Not a question: he has answered
-    // that one four times. Not an apology: he did nothing wrong.
-    expect(POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy.declined).toBe(
-      "Κανένα πρόβλημα, δεν θα σε ξαναρωτήσουμε. Καλή συνέχεια! 🙂",
-    );
+  });
+
+  it("preserves V1 goal order and copy", () => {
+    expect(POST_EVENT_FEEDBACK_QUESTION_SET_V1.version).toBe(1);
+    expect(
+      POST_EVENT_FEEDBACK_QUESTION_SET_V1.answerQuestions.map(
+        (question) => question.key,
+      ),
+    ).toEqual(["event_score", "liked", "meet_again", "avoid"]);
     expect(POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy.intro).toContain(
-      "Join The Six",
+      "2-3 πράγματα",
     );
-    expect(POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy.intro).toContain("ΣΤΟΠ");
-    expect(POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy.stop_ack).toBe(
-      "Έγινε, δεν θα ξαναλάβεις μηνύματα από εμάς σε αυτό το νούμερο.",
+    expect(POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy.avoid).toContain(
+      "Μένει αυστηρά μεταξύ μας",
     );
   });
 
-  it("describes event_score as subjectless int 1-5 and people questions as candidate sets", () => {
-    const eventScore = POST_EVENT_FEEDBACK_QUESTION_SET_V1.answerQuestions.find(
-      (question) => question.key === "event_score",
-    );
-    const liked = POST_EVENT_FEEDBACK_QUESTION_SET_V1.answerQuestions.find(
-      (question) => question.key === "liked",
-    );
-
-    expect(eventScore).toEqual({
-      key: "event_score",
-      valueKind: "int",
-      subjectless: true,
-      skippable: true,
-      intMin: 1,
-      intMax: 5,
-    });
-    expect(liked).toEqual({
-      key: "liked",
-      valueKind: "candidate_ids",
-      subjectless: false,
-      skippable: true,
-    });
-    expect(POST_EVENT_FEEDBACK_QUESTION_SET_V1.noteTypes).toEqual([
-      { key: "activity_interest", maxLength: 500 },
-      { key: "general", maxLength: 500 },
+  it("launches new campaigns on the six-goal V2 questionnaire", () => {
+    expect(CURRENT_POST_EVENT_FEEDBACK_QUESTION_SET_VERSION).toBe(2);
+    expect(POST_EVENT_FEEDBACK_QUESTION_SET_V2.version).toBe(2);
+    expect(
+      POST_EVENT_FEEDBACK_QUESTION_SET_V2.answerQuestions.map(
+        (question) => question.key,
+      ),
+    ).toEqual([
+      "event_score",
+      "table_fit",
+      "participation_ease",
+      "conversation_balance",
+      "meet_again",
+      "avoid",
     ]);
+    expect(POST_EVENT_FEEDBACK_QUESTION_SET_V2.copy.intro).toContain(
+      "6 σύντομες, προαιρετικές ερωτήσεις",
+    );
+    expect(POST_EVENT_FEEDBACK_QUESTION_SET_V2.copy.intro).toContain(
+      "δεν κοινοποιούνται ατομικά σε άλλους συμμετέχοντες",
+    );
+    expect(POST_EVENT_FEEDBACK_QUESTION_SET_V2.copy.intro).toContain("ΣΤΟΠ");
+    expect(POST_EVENT_FEEDBACK_QUESTION_SET_V2.copy.avoid).not.toContain(
+      "μεταξύ μας",
+    );
+    expect(POST_EVENT_FEEDBACK_QUESTION_SET_V2.copy.stop_ack).toContain(
+      "μηνύματα feedback",
+    );
   });
 
-  it("builds a launch snapshot without mutating the canonical constants", () => {
-    const snapshot = buildPostEventFeedbackQuestionLaunchSnapshot();
-    expect(snapshot.questionSetVersion).toBe(1);
-    expect(snapshot.copy).toEqual(POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy);
-    snapshot.copy.intro = "edited";
-    expect(POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy.intro).not.toBe("edited");
+  it("describes all four V2 score questions as subjectless integers 1-5", () => {
+    for (const key of [
+      "event_score",
+      "table_fit",
+      "participation_ease",
+      "conversation_balance",
+    ] as const) {
+      expect(
+        POST_EVENT_FEEDBACK_QUESTION_SET_V2.answerQuestions.find(
+          (question) => question.key === key,
+        ),
+      ).toEqual({
+        key,
+        valueKind: "int",
+        subjectless: true,
+        skippable: true,
+        intMin: 1,
+        intMax: 5,
+      });
+    }
   });
 
-  it("narrows answer keys and note types at runtime", () => {
-    expect(isPostEventFeedbackAnswerQuestionKey("liked")).toBe(true);
+  it("builds an isolated current snapshot and can explicitly snapshot V1", () => {
+    const current = buildPostEventFeedbackQuestionLaunchSnapshot();
+    const legacy = buildPostEventFeedbackQuestionLaunchSnapshot(1);
+
+    expect(current.questionSetVersion).toBe(2);
+    expect(current.copy).toEqual(POST_EVENT_FEEDBACK_QUESTION_SET_V2.copy);
+    expect(legacy.questionSetVersion).toBe(1);
+    expect(legacy.copy).toEqual(POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy);
+
+    current.copy.intro = "edited";
+    expect(POST_EVENT_FEEDBACK_QUESTION_SET_V2.copy.intro).not.toBe("edited");
+  });
+
+  it("uses the persisted version for fallback while preserving stored copy", () => {
+    expect(
+      resolveCampaignCopy(
+        { questionSetVersion: 1, copy: { event_score: "Stored score?" } },
+        1,
+      ),
+    ).toMatchObject({
+      event_score: "Stored score?",
+      liked: POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy.liked,
+    });
+    expect(resolveCampaignCopy(undefined, 2).table_fit).toBe(
+      POST_EVENT_FEEDBACK_QUESTION_SET_V2.copy.table_fit,
+    );
+  });
+
+  it("fails closed on unsupported persisted versions", () => {
+    expect(() => getPostEventFeedbackQuestionSet(3)).toThrow(
+      UnsupportedPostEventFeedbackQuestionSetVersionError,
+    );
+    expect(() => resolveCampaignCopy(undefined, 3)).toThrow(
+      UnsupportedPostEventFeedbackQuestionSetVersionError,
+    );
+  });
+
+  it("filters contradiction cleanup to the active version's keys", () => {
+    expect(
+      contradictedPostEventFeedbackQuestionKeys("avoid", [
+        "event_score",
+        "meet_again",
+        "avoid",
+      ]),
+    ).toEqual(["meet_again"]);
+    expect(
+      contradictedPostEventFeedbackQuestionKeys("avoid", [
+        "event_score",
+        "liked",
+        "meet_again",
+        "avoid",
+      ]),
+    ).toEqual(["liked", "meet_again"]);
+  });
+
+  it("narrows global answer keys and note types at runtime", () => {
+    expect(isPostEventFeedbackAnswerQuestionKey("table_fit")).toBe(true);
     expect(isPostEventFeedbackAnswerQuestionKey("intro")).toBe(false);
     expect(isPostEventFeedbackNoteType("general")).toBe(true);
     expect(isPostEventFeedbackNoteType("safety")).toBe(false);

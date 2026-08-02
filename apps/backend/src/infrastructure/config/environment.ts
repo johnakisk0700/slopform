@@ -238,18 +238,26 @@ export const environmentSchema = observabilityEnvironmentSchema
     WASENDER_WEBHOOK_ENABLED: booleanFromEnvironment,
     WASENDER_WEBHOOK_SECRET: optionalWebhookSecret,
     /**
-     * Outbound feedback transport. `simulated` is the local-first default
-     * (D2); `wasender` requires `WASENDER_SESSION_API_KEY`. WP8 replaces the
-     * in-memory simulated sink with a durable one — do not point production
-     * traffic at simulated.
+     * Outbound feedback transport. `disabled` rejects every attempted delivery
+     * without touching a provider; `simulated` is the local-first default (D2)
+     * and enters production only through the explicit rehearsal gate;
+     * `wasender` is validated against its worker-only credential when the
+     * worker graph is composed.
      */
     TRANSPORT_MODE: z.preprocess(
       emptyStringToUndefined,
-      z.enum(["simulated", "wasender"]).default("simulated"),
+      z.enum(["disabled", "simulated", "wasender"]).default("simulated"),
     ),
     /**
-     * Dev/staging HTTP injector and sim-thread read API (WP8). Requires
-     * `TRANSPORT_MODE=simulated` and a non-production `NODE_ENV`.
+     * Explicit production exception for the Clerk-protected feedback rehearsal
+     * surface. It permits only the simulated transport with the simulator HTTP
+     * gate; the extraction stub remains forbidden so model calls stay real.
+     */
+    FEEDBACK_PRODUCTION_REHEARSAL_ENABLED: booleanFromEnvironment,
+    /**
+     * Simulator HTTP injector and sim-thread read API (WP8). Requires
+     * `TRANSPORT_MODE=simulated` and either a non-production `NODE_ENV` or the
+     * explicit production rehearsal gate above.
      */
     FEEDBACK_SIMULATOR_ENABLED: booleanFromEnvironment,
     /**
@@ -354,31 +362,26 @@ export const environmentSchema = observabilityEnvironmentSchema
       });
     }
 
-    if (
-      environment.TRANSPORT_MODE === "wasender" &&
-      !environment.WASENDER_SESSION_API_KEY
-    ) {
-      context.addIssue({
-        code: "custom",
-        message:
-          "WASENDER_SESSION_API_KEY is required when TRANSPORT_MODE=wasender",
-        path: ["TRANSPORT_MODE"],
-      });
-    }
-
     if (environment.NODE_ENV === "production") {
-      if (environment.TRANSPORT_MODE === "simulated") {
+      if (
+        environment.TRANSPORT_MODE === "simulated" &&
+        !environment.FEEDBACK_PRODUCTION_REHEARSAL_ENABLED
+      ) {
         context.addIssue({
           code: "custom",
           message:
-            "TRANSPORT_MODE=simulated is not allowed in production; use wasender",
+            "TRANSPORT_MODE=simulated in production requires FEEDBACK_PRODUCTION_REHEARSAL_ENABLED=true",
           path: ["TRANSPORT_MODE"],
         });
       }
-      if (environment.FEEDBACK_SIMULATOR_ENABLED) {
+      if (
+        environment.FEEDBACK_SIMULATOR_ENABLED &&
+        !environment.FEEDBACK_PRODUCTION_REHEARSAL_ENABLED
+      ) {
         context.addIssue({
           code: "custom",
-          message: "FEEDBACK_SIMULATOR_ENABLED cannot be enabled in production",
+          message:
+            "FEEDBACK_SIMULATOR_ENABLED in production requires FEEDBACK_PRODUCTION_REHEARSAL_ENABLED=true",
           path: ["FEEDBACK_SIMULATOR_ENABLED"],
         });
       }
@@ -387,6 +390,57 @@ export const environmentSchema = observabilityEnvironmentSchema
           code: "custom",
           message: "FEEDBACK_EXTRACTION_STUB cannot be enabled in production",
           path: ["FEEDBACK_EXTRACTION_STUB"],
+        });
+      }
+    }
+
+    if (environment.FEEDBACK_PRODUCTION_REHEARSAL_ENABLED) {
+      if (environment.NODE_ENV !== "production") {
+        context.addIssue({
+          code: "custom",
+          message:
+            "FEEDBACK_PRODUCTION_REHEARSAL_ENABLED is a production-only gate",
+          path: ["FEEDBACK_PRODUCTION_REHEARSAL_ENABLED"],
+        });
+      }
+      if (environment.TRANSPORT_MODE !== "simulated") {
+        context.addIssue({
+          code: "custom",
+          message:
+            "FEEDBACK_PRODUCTION_REHEARSAL_ENABLED requires TRANSPORT_MODE=simulated",
+          path: ["FEEDBACK_PRODUCTION_REHEARSAL_ENABLED"],
+        });
+      }
+      if (!environment.FEEDBACK_SIMULATOR_ENABLED) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "FEEDBACK_PRODUCTION_REHEARSAL_ENABLED requires FEEDBACK_SIMULATOR_ENABLED=true",
+          path: ["FEEDBACK_PRODUCTION_REHEARSAL_ENABLED"],
+        });
+      }
+      if (environment.WASENDER_SESSION_API_KEY) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "FEEDBACK_PRODUCTION_REHEARSAL_ENABLED requires WASENDER_SESSION_API_KEY to be unset",
+          path: ["WASENDER_SESSION_API_KEY"],
+        });
+      }
+      if (environment.WASENDER_WEBHOOK_ENABLED) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "FEEDBACK_PRODUCTION_REHEARSAL_ENABLED requires WASENDER_WEBHOOK_ENABLED=false",
+          path: ["WASENDER_WEBHOOK_ENABLED"],
+        });
+      }
+      if (environment.WASENDER_WEBHOOK_SECRET) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "FEEDBACK_PRODUCTION_REHEARSAL_ENABLED requires WASENDER_WEBHOOK_SECRET to be unset",
+          path: ["WASENDER_WEBHOOK_SECRET"],
         });
       }
     }

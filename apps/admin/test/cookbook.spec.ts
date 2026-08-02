@@ -149,6 +149,7 @@ describe("cookbook specimen sources", () => {
   it("shows every shared Jts contract", () => {
     for (const component of [
       "JtsPageHeader",
+      "JtsBackLink",
       "JtsStat",
       "JtsDataTable",
       "JtsLiveIndicator",

@@ -1,11 +1,12 @@
 # Participant profiles and WordPress import
 
-Status: schema and offline importer implemented. A WXR export from the supplied
+Status: schema, offline importer and staff event-history read model implemented.
+A WXR export from the supplied
 WordPress admin was applied to local PostgreSQL on **2026-07-23**: 32 profiles
 were imported, 9 trashed profiles were skipped and 4 active profiles remain in
 reconciliation. This is not a production database cutover. Last verified
-against Drizzle ORM `0.45.2`, Drizzle Kit `0.31.10`, `pg` `8.22.0` and Zod
-`4.4.3`.
+**2026-08-02** against Drizzle ORM `0.45.2`, Drizzle Kit `0.31.10`, `pg`
+`8.22.0` and Zod `4.4.3`.
 
 ## Purpose and boundary
 
@@ -70,9 +71,13 @@ Staff-only routes under the Clerk admin guard:
 
 `listParticipantEvents` is a read model over `event_attendees` joined to
 `events`. Each item returns `eventId`, `title`, `startsAt`, event `status`,
-`present` and `tableNo`. Unknown participants return `404`; a known profile
-with no attendance returns an empty `items` array. There is no schema change —
-attendance remains owned by the events module.
+`present`, `tableNo` and the same full nullable `venue` view as event list/detail:
+provider, place id, operator-confirmed label, optional type/area/price level,
+optional exact price range, `useInFeedback` and server-owned `contextRevision`.
+Unknown participants return `404`; a known profile with no attendance returns an
+empty `items` array. The projection reads the venue columns owned by `events`;
+there is no participant or attendance schema change. See the
+[event venue contract](events.md#persisted-contract).
 
 The admin Participants list links into `/admin/participants/:id`, which loads
 the profile through `getParticipant`, the history through
@@ -177,7 +182,8 @@ The participant suites cover every age/neighborhood mapping, normalization,
 incomplete legacy preservation, invalid scale and interest rejection, WXR
 parsing, source-hash idempotency, updates, identical duplicate linking,
 conflicting duplicate rejection, feedback opt-in audit and event-history
-projection (newest-first present/table fields). On 2026-07-25 the complete
+projection (newest-first present/table fields plus the full nullable event venue
+view). On 2026-07-25 the complete
 backend run passed without failures; both database and backend builds and
 `drizzle-kit check` also passed.
 

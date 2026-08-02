@@ -1,10 +1,13 @@
-import { Button, Input } from "@heroui/react";
 import type { ColumnDef } from "@tanstack/react-table";
-import { type FormEvent, useState } from "react";
+import { CalendarRange } from "lucide-react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router";
 
 import { useCreateEvent, useListEvents } from "../api/generated/events";
 import type { EventListDtoOutputItemsItem } from "../api/generated/model/eventListDtoOutputItemsItem";
+import { CreateEventAction } from "../components/admin/events/CreateEventAction";
+import { EventStatusChip } from "../components/admin/events/EventStatusChip";
+import { VenuePill } from "../components/admin/events/VenuePill";
 import { JtsDataTable } from "../components/ui/JtsDataTable";
 import { JtsPageHeader } from "../components/ui/JtsPageHeader";
 import { apiErrorMessage } from "../lib/api";
@@ -16,108 +19,96 @@ const columns: ColumnDef<EventListDtoOutputItemsItem>[] = [
     accessorKey: "title",
     header: "Event",
     cell: ({ row }) => (
-      <Link
-        to={`/admin/events/${row.original.id}`}
-        className="font-bold text-primary underline-offset-2 hover:underline"
-      >
-        {row.original.title}
-      </Link>
+      <div className="grid min-w-0 gap-1.5">
+        <Link
+          to={`/admin/events/${row.original.id}`}
+          className="truncate font-bold text-primary underline-offset-2 hover:underline"
+        >
+          {row.original.title}
+        </Link>
+        {row.original.venue ? (
+          <div>
+            <VenuePill venue={row.original.venue} />
+          </div>
+        ) : null}
+      </div>
     ),
   },
   {
     accessorKey: "startsAt",
     header: "Starts",
-    cell: ({ row }) => formatDateTime(row.original.startsAt),
+    cell: ({ row }) => (
+      <span className="tabular-nums">
+        {formatDateTime(row.original.startsAt)}
+      </span>
+    ),
   },
   {
     accessorKey: "status",
     header: "Status",
+    cell: ({ row }) => <EventStatusChip status={row.original.status} />,
   },
   {
     id: "attendance",
-    header: "Present / total",
-    cell: ({ row }) =>
-      `${row.original.presentCount} / ${row.original.attendeeCount}`,
+    header: "Attended",
+    meta: { align: "end" },
+    // The present count is the number an operator is looking for; the total is
+    // the context it needs to mean anything, so it stays but steps back.
+    cell: ({ row }) => (
+      <span className="tabular-nums">
+        <strong className="font-bold text-ink">
+          {row.original.presentCount}
+        </strong>
+        <span className="text-ink-muted"> / {row.original.attendeeCount}</span>
+      </span>
+    ),
   },
 ];
 
-/** Minimal staff CRUD list for stub events (WP1). */
+/** Every dinner on file: when it is, where it stands, and how many sat down. */
 export function EventsPage() {
-  usePageMeta("Events", "Stub events, attendance and table assignments.");
+  usePageMeta("Events", "Events, venues, attendance and table assignments.");
 
   const eventsQuery = useListEvents();
   const createEvent = useCreateEvent();
 
-  const [title, setTitle] = useState("");
-  const [startsAt, setStartsAt] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const rows = eventsQuery.data?.items ?? [];
+  // Newest first: the event an operator opens is nearly always the last one
+  // that happened. Clicking a header still takes the table over from here.
+  const rows = useMemo(
+    () =>
+      [...(eventsQuery.data?.items ?? [])].sort(
+        (left, right) =>
+          new Date(right.startsAt).getTime() -
+          new Date(left.startsAt).getTime(),
+      ),
+    [eventsQuery.data?.items],
+  );
+
   const loading = eventsQuery.isPending || eventsQuery.isFetching;
   const error = eventsQuery.isError
     ? apiErrorMessage(eventsQuery.error, "Failed to load events.")
     : actionError;
 
-  async function onCreate(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function createNewEvent(details: { title: string; startsAt: string }) {
     setActionError(null);
-    try {
-      await createEvent.mutateAsync({
-        data: {
-          title,
-          startsAt: new Date(startsAt).toISOString(),
-        },
-      });
-      setTitle("");
-      setStartsAt("");
-      await eventsQuery.refetch();
-    } catch (cause) {
-      setActionError(apiErrorMessage(cause, "Failed to create event."));
-    }
+    await createEvent.mutateAsync({
+      data: {
+        title: details.title,
+        startsAt: new Date(details.startsAt).toISOString(),
+      },
+    });
+    await eventsQuery.refetch();
   }
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-6">
       <JtsPageHeader
         eyebrow="Operations"
         title="Events"
-        description="Create stub events, edit attendance and finish them before launching feedback."
+        description="Create an event, correct who came, and finish it before launching feedback."
       />
-
-      <form
-        onSubmit={onCreate}
-        className="flex flex-wrap items-end gap-3 rounded-md border border-border p-4"
-      >
-        <div className="grid min-w-[16rem] flex-1 gap-1.5">
-          <label htmlFor="new-event-title" className="text-sm font-semibold">
-            Title
-          </label>
-          <Input
-            id="new-event-title"
-            value={title}
-            onChange={(change) => setTitle(change.target.value)}
-            required
-          />
-        </div>
-        <div className="grid min-w-[14rem] gap-1.5">
-          <label
-            htmlFor="new-event-starts-at"
-            className="text-sm font-semibold"
-          >
-            Starts at
-          </label>
-          <Input
-            id="new-event-starts-at"
-            type="datetime-local"
-            value={startsAt}
-            onChange={(change) => setStartsAt(change.target.value)}
-            required
-          />
-        </div>
-        <Button type="submit" isDisabled={createEvent.isPending}>
-          Create event
-        </Button>
-      </form>
 
       <JtsDataTable
         title="Events"
@@ -126,8 +117,24 @@ export function EventsPage() {
         getRowId={(row) => row.id}
         loading={loading}
         error={error}
+        paginator
+        pageSize={25}
+        rowsPerPageOptions={[25, 50, 100]}
         emptyTitle="No events yet"
-        emptyDescription="Create a stub event to start attendance."
+        emptyDescription="Create one to start recording attendance."
+        emptyIcon={
+          <CalendarRange
+            aria-hidden="true"
+            className="size-9 text-ink-subtle"
+            strokeWidth={1.5}
+          />
+        }
+        toolbarEnd={
+          <CreateEventAction
+            isPending={createEvent.isPending}
+            onCreate={createNewEvent}
+          />
+        }
       />
     </div>
   );

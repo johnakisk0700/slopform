@@ -5,8 +5,9 @@ import {
   foldedTextContainsAtWordStart,
 } from "../matching/fold-text.js";
 import {
-  POST_EVENT_FEEDBACK_QUESTION_SET_V1,
+  getPostEventFeedbackAnswerQuestionDefinition,
   isAgreeingDirectedPostEventFeedbackQuestion,
+  isDirectedPostEventFeedbackQuestion,
   isPostEventFeedbackAnswerQuestionKey,
   isPostEventFeedbackNoteType,
   noteSignature,
@@ -81,7 +82,7 @@ export function validateFeedbackExtractionProposal(
   );
   const newParticipantMessageIds = new Set(context.newParticipantMessageIds);
 
-  const verdicts = splitGoalVerdicts(proposal.goals, rejections);
+  const verdicts = splitGoalVerdicts(proposal.goals, context, rejections);
   const answersResult = validateAnswers(
     verdicts.answers,
     context,
@@ -174,6 +175,7 @@ export function validateFeedbackExtractionProposal(
  */
 function splitGoalVerdicts(
   goals: FeedbackExtractionProposal["goals"],
+  context: FeedbackExtractionContext,
   rejections: FeedbackExtractionRejection[],
 ): {
   readonly answers: FeedbackExtractionAnswerProposal[];
@@ -181,11 +183,33 @@ function splitGoalVerdicts(
 } {
   const answers: FeedbackExtractionAnswerProposal[] = [];
   const declined: FeedbackAnswerQuestionKey[] = [];
+  const expectedGoalKeys = new Set(context.goals.map((goal) => goal.key));
+
+  for (const goal of context.goals) {
+    if (!Object.hasOwn(goals, goal.key)) {
+      rejections.push({
+        scope: "goal",
+        reason: "missing_goal_verdict",
+        questionKey: goal.key,
+      });
+    }
+  }
 
   for (const [key, verdict] of Object.entries(goals) as [
     FeedbackAnswerQuestionKey,
     FeedbackExtractionProposal["goals"][FeedbackAnswerQuestionKey],
   ][]) {
+    if (!expectedGoalKeys.has(key)) {
+      rejections.push({
+        scope: "goal",
+        reason: "unknown_goal",
+        questionKey: key,
+      });
+      continue;
+    }
+    if (!verdict) {
+      continue;
+    }
     if (verdict.status === "answered") {
       // The check the union would have made unnecessary. Claiming a goal is
       // answered and attaching nothing is not an answer, and saying so is the
@@ -287,7 +311,10 @@ function validateAnswers(
       return undefined;
     };
 
-    if (!isPostEventFeedbackAnswerQuestionKey(proposal.questionKey)) {
+    if (
+      !isPostEventFeedbackAnswerQuestionKey(proposal.questionKey) ||
+      !context.goals.some((goal) => goal.key === proposal.questionKey)
+    ) {
       reject("disallowed_question_key");
       continue;
     }
@@ -301,7 +328,13 @@ function validateAnswers(
       continue;
     }
 
-    const definition = answerDefinition(proposal.questionKey);
+    const definition = getPostEventFeedbackAnswerQuestionDefinition(
+      proposal.questionKey,
+    );
+    if (!definition) {
+      reject("disallowed_question_key");
+      continue;
+    }
     let subjectParticipantId: string | null = null;
     let valueInt: number | null = null;
 
@@ -560,6 +593,7 @@ function validateSkippedGoals(
   rejections: FeedbackExtractionRejection[],
 ): FeedbackAnswerQuestionKey[] {
   const goalKeys = new Set(context.goals.map((goal) => goal.key));
+  const hasAgreeingPair = goalKeys.has("liked") && goalKeys.has("meet_again");
   const skipped: FeedbackAnswerQuestionKey[] = [];
 
   for (const key of proposals) {
@@ -573,6 +607,7 @@ function validateSkippedGoals(
     }
     if (
       proposedAnswers.length > 0 &&
+      hasAgreeingPair &&
       isAgreeingDirectedPostEventFeedbackQuestion(key) &&
       context.goals.find((goal) => goal.key === key)?.status === "pending"
     ) {
@@ -682,14 +717,25 @@ function holdsUnrecordedAnswer(context: FeedbackExtractionContext): boolean {
     );
   };
 
-  if (isOpen("event_score") && mentionsScore(newTestimony)) {
+  const scoredOpen = context.goals.some((goal) => {
+    if (!isOpen(goal.key)) {
+      return false;
+    }
+    const definition = getPostEventFeedbackAnswerQuestionDefinition(goal.key);
+    return (
+      definition?.valueKind === "int" && mentionsScore(newTestimony, definition)
+    );
+  });
+  if (scoredOpen) {
     return true;
   }
   // A name is only unspent while some directed goal can still take it, and only
   // when nothing has been recorded about that person yet — «τον Νίκο» in a
   // conversation that already has Νίκος under `liked` is somebody we have
   // already listened to.
-  const directedOpen = (["liked", "meet_again", "avoid"] as const).some(isOpen);
+  const directedOpen = context.goals.some(
+    (goal) => isDirectedPostEventFeedbackQuestion(goal.key) && isOpen(goal.key),
+  );
   return directedOpen && mentionsUnrecordedCandidate(newTestimony, context);
 }
 
@@ -701,8 +747,10 @@ function holdsUnrecordedAnswer(context: FeedbackExtractionContext): boolean {
  * questionnaire that one day scores out of ten does not leave this rule quietly
  * measuring the old range.
  */
-function mentionsScore(text: string): boolean {
-  const definition = answerDefinition("event_score");
+function mentionsScore(
+  text: string,
+  definition: PostEventFeedbackAnswerQuestionDefinition,
+): boolean {
   const minimum = definition.intMin ?? Number.NEGATIVE_INFINITY;
   const maximum = definition.intMax ?? Number.POSITIVE_INFINITY;
   return foldPostEventFeedbackText(text)
@@ -812,18 +860,6 @@ function checkProvenance(
   }
 
   return citesNewTestimony ? undefined : "stale_source_message";
-}
-
-function answerDefinition(
-  key: FeedbackAnswerQuestionKey,
-): PostEventFeedbackAnswerQuestionDefinition {
-  const definition = POST_EVENT_FEEDBACK_QUESTION_SET_V1.answerQuestions.find(
-    (question) => question.key === key,
-  );
-  if (!definition) {
-    throw new Error(`Unknown feedback question key: ${key}`);
-  }
-  return definition;
 }
 
 function isValidScore(

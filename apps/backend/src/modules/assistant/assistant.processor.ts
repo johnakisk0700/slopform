@@ -19,6 +19,7 @@ import {
   type AssistantJobName,
   type AssistantModel,
   type AssistantReasoningEffort,
+  type AssistantServiceTier,
 } from "./assistant.schemas.js";
 import {
   AssistantService,
@@ -88,14 +89,34 @@ export class AssistantProcessor extends WorkerHost {
       return;
     }
 
+    // One recorder, two streams: the answer and the model's account of reaching
+    // it. Reasoning is carried on the same write so a reader never sees thinking
+    // that belongs to a different moment than the text beside it.
+    let reasoning: string | null = null;
+    const partials = new PartialRecorder((partial) =>
+      this.assistant.recordPartial(turn.id, attempt, partial, reasoning),
+    );
+
     try {
-      const response = await this.generation.generate({
+      const response = await this.generation.generateStreaming({
         model: turn.model as AssistantModel,
         effort: turn.effort as AssistantReasoningEffort,
+        // The persisted tier, never a live preference: a retry must buy exactly
+        // what the original attempt bought, or the same turn bills at two rates.
+        serviceTier: turn.serviceTier as AssistantServiceTier,
         messages,
+        onDelta: (accumulated) => partials.offer(accumulated),
+        onReasoningDelta: (accumulated) => {
+          reasoning = accumulated;
+          // Thinking often runs long before a single token of answer appears;
+          // offering the current text keeps that phase visible instead of blank.
+          partials.offer(accumulated.length > 0 ? " " : "");
+        },
       });
-      await this.assistant.markSucceeded(turn.id, attempt, response);
+      await partials.settle();
+      await this.assistant.markSucceeded(turn.id, attempt, response.content);
     } catch (error) {
+      await partials.settle();
       const terminal =
         (error instanceof AssistantGenerationError && !error.retryable) ||
         job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
@@ -219,6 +240,50 @@ export class AssistantProcessor extends WorkerHost {
       queue: ASSISTANT_QUEUE,
       error: serializeError(error),
     });
+  }
+}
+
+/** How often streamed text may reach the stores, in milliseconds. */
+const PARTIAL_WRITE_INTERVAL_MS = 700;
+
+/**
+ * Bounds partial writes by wall-clock instead of token rate: a fast model would
+ * otherwise turn one answer into thousands of writes across two stores. Deltas
+ * carry the full accumulated prefix, so dropping intermediate ones is lossless —
+ * the next write supersedes every delta it skipped. Writes are serialized and
+ * their failures swallowed: live text is an accelerator, and losing it must
+ * never fail a turn the queue is still accountable for.
+ */
+class PartialRecorder {
+  private pending: string | null = null;
+  private inFlight: Promise<void> = Promise.resolve();
+  private lastWriteAt = 0;
+
+  constructor(private readonly write: (partial: string) => Promise<void>) {}
+
+  offer(accumulated: string): void {
+    if (!accumulated) return;
+    this.pending = accumulated;
+
+    const now = Date.now();
+    if (now - this.lastWriteAt < PARTIAL_WRITE_INTERVAL_MS) return;
+    this.lastWriteAt = now;
+    this.flush();
+  }
+
+  /** Drains the last held delta and waits for every write to finish. */
+  async settle(): Promise<void> {
+    this.flush();
+    await this.inFlight;
+  }
+
+  private flush(): void {
+    const partial = this.pending;
+    if (partial === null) return;
+    this.pending = null;
+    this.inFlight = this.inFlight.then(() =>
+      this.write(partial).catch(() => undefined),
+    );
   }
 }
 

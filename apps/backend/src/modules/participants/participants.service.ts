@@ -3,6 +3,7 @@ import type { ParticipantRow } from "@join-the-six/database";
 
 import { AuditRepository } from "../../infrastructure/audit/audit.repository.js";
 import { DatabaseService } from "../../infrastructure/database/database.service.js";
+import { toEventVenueView } from "../events/event-venue.js";
 import type { ParticipantEventHistoryRow } from "./participants.repository.js";
 import { ParticipantsRepository } from "./participants.repository.js";
 import type {
@@ -117,6 +118,7 @@ function toEventHistoryItemView(
     title: row.title,
     startsAt: row.startsAt.toISOString(),
     status: row.status,
+    venue: toEventVenueView(row),
     present: row.present,
     tableNo: row.tableNo,
   };

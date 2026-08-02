@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 import type { AppTransaction, AuditEventInsert } from "@join-the-six/database";
 
 import { ConversationPersistenceError } from "../conversations/conversation-persistence.errors.js";
+import type { EventFeedbackVenueSnapshot } from "../events/event-venue.js";
+import type { EventVenueInput } from "../events/events.schemas.js";
 import {
   FEEDBACK_ANSWER_CORRECTIONS_KEY,
   isCorrectedAnswer,
@@ -90,6 +92,7 @@ export interface FakeCampaignRow {
   id: string;
   eventId: string;
   status: "launched" | "paused" | "closed";
+  questionSetVersion: number;
   questions: Record<string, unknown>;
 }
 
@@ -655,6 +658,28 @@ export class FakeFeedbackRepository {
     };
     this.ingress.push(row);
     return { row: { ...row }, inserted: true };
+  }
+
+  async lockInboundPhone(): Promise<void> {}
+
+  async hasInboundBeyondSnapshot(
+    _transaction: AppTransaction,
+    input: {
+      phoneE164: string;
+      conversationId: string;
+      snapshotIngressIds: readonly string[];
+    },
+  ): Promise<boolean> {
+    const snapshotIngressIds = new Set(input.snapshotIngressIds);
+    return this.ingress.some(
+      (row) =>
+        row.direction === "inbound" &&
+        row.phoneE164 === input.phoneE164 &&
+        !snapshotIngressIds.has(row.id) &&
+        (row.processingStatus === "pending" ||
+          (row.processingStatus === "materialized" &&
+            row.matchedConversationId === input.conversationId)),
+    );
   }
 
   async findIngressById(id: string): Promise<FakeIngressRow | undefined> {
@@ -1426,6 +1451,79 @@ export class FakeParticipants {
  */
 export class FakeEvents {
   candidates: { participantId: string; displayName: string }[] = [];
+  readonly venueRevisionChecks: number[] = [];
+  private venue: EventVenueInput | null = null;
+  private venueContextRevision = 0;
+
+  seedVenue(
+    venue: EventVenueInput | null,
+    contextRevision = venue === null ? 0 : 1,
+  ): void {
+    if (!Number.isInteger(contextRevision) || contextRevision < 0) {
+      throw new Error("Fake venue revision must be a non-negative integer");
+    }
+    if (venue !== null && contextRevision === 0) {
+      throw new Error("A fake persisted venue must have a positive revision");
+    }
+    this.venue = cloneVenue(venue);
+    this.venueContextRevision = contextRevision;
+  }
+
+  replaceVenue(venue: EventVenueInput): void {
+    this.venue = cloneVenue(venue);
+    this.venueContextRevision += 1;
+  }
+
+  disableVenue(): void {
+    if (!this.venue) {
+      throw new Error("Cannot disable a venue the fake event does not have");
+    }
+    this.venue = { ...cloneVenue(this.venue), useInFeedback: false };
+    this.venueContextRevision += 1;
+  }
+
+  clearVenue(): void {
+    this.venue = null;
+    this.venueContextRevision += 1;
+  }
+
+  async getFeedbackVenueContext(
+    _eventId: string,
+  ): Promise<EventFeedbackVenueSnapshot> {
+    if (!this.venue?.useInFeedback) {
+      return {
+        contextRevision: this.venueContextRevision,
+        venue: null,
+      };
+    }
+
+    return {
+      contextRevision: this.venueContextRevision,
+      venue: {
+        label: this.venue.label,
+        ...(this.venue.type === undefined ? {} : { type: this.venue.type }),
+        ...(this.venue.area === undefined ? {} : { area: this.venue.area }),
+        ...(this.venue.priceLevel === undefined
+          ? {}
+          : { priceLevel: this.venue.priceLevel }),
+        ...(this.venue.priceRange === undefined
+          ? {}
+          : { priceRange: { ...this.venue.priceRange } }),
+      },
+    };
+  }
+
+  async feedbackVenueContextIsCurrent(
+    _transaction: AppTransaction,
+    _eventId: string,
+    expectedRevision: number,
+  ): Promise<boolean> {
+    this.venueRevisionChecks.push(expectedRevision);
+    const current = await this.getFeedbackVenueContext(_eventId);
+    return (
+      current.venue !== null && current.contextRevision === expectedRevision
+    );
+  }
 
   async listFeedbackCandidatesForRespondent(
     _eventId: string,
@@ -1439,6 +1537,21 @@ export class FakeEvents {
         .map((candidate) => ({ ...candidate })),
     };
   }
+}
+
+function cloneVenue(venue: EventVenueInput): EventVenueInput;
+function cloneVenue(venue: null): null;
+function cloneVenue(venue: EventVenueInput | null): EventVenueInput | null;
+function cloneVenue(venue: EventVenueInput | null): EventVenueInput | null {
+  if (venue === null) {
+    return null;
+  }
+  return {
+    ...venue,
+    ...(venue.priceRange === undefined
+      ? {}
+      : { priceRange: { ...venue.priceRange } }),
+  };
 }
 
 export class FakeAudit {

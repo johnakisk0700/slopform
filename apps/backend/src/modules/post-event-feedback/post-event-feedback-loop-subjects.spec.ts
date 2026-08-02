@@ -797,4 +797,5 @@ const SCENARIOS: readonly FeedbackScenario[] = [
 runFeedbackScenarios(
   "post-event feedback loop — subjects, non-text and talking to the bot",
   SCENARIOS,
+  { questionSetVersion: 1 },
 );

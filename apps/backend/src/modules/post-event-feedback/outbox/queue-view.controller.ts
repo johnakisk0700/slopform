@@ -4,6 +4,7 @@ import {
   Header,
   NotFoundException,
   Param,
+  Query,
 } from "@nestjs/common";
 import { ApiOperation, ApiTags } from "@nestjs/swagger";
 import { ZodResponse } from "nestjs-zod";
@@ -12,6 +13,7 @@ import { CurrentUserId } from "../../../infrastructure/auth/current-user-id.deco
 import { PrincipalDto } from "../../../infrastructure/auth/auth.schemas.js";
 import {
   FeedbackOutboxHistoryDto,
+  FeedbackOutboxHistoryQueryDto,
   FeedbackOutboxIdParamDto,
   FeedbackOutboxMessageDeliveryDto,
   FeedbackOutboxQueueDto,
@@ -50,18 +52,24 @@ export class PostEventFeedbackOutboxController {
   }
 
   /**
-   * The history half: newest rows of any status with the decision log's
-   * origin, so delivered messages stay reachable after the queue drains.
-   * Declared before `:outboxId` on purpose — route order is match order.
+   * The history half: rows of any status with the decision log's origin, so
+   * delivered messages stay reachable after the queue drains. Declared before
+   * `:outboxId` on purpose — route order is match order.
+   *
+   * Paged by keyset cursor and narrowed by status and `created_at` range. The
+   * table is append-only and never pruned, so «the newest 200» stopped being a
+   * usable view of it during the first campaign; every parameter is optional
+   * and the bare call still returns the newest page.
    */
   @Get("history")
   @ApiOperation({ operationId: "listFeedbackOutboxHistory" })
   @Header("Cache-Control", "no-store")
   @ZodResponse({ status: 200, type: FeedbackOutboxHistoryDto })
   listHistory(
+    @Query() query: FeedbackOutboxHistoryQueryDto,
     @CurrentUserId() _userId: PrincipalDto,
   ): Promise<FeedbackOutboxHistoryDto> {
-    return this.queueView.listHistory();
+    return this.queueView.listHistory(query);
   }
 
   /**

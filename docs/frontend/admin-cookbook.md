@@ -70,9 +70,9 @@ cannot leave the contents pointing at nothing.
 | 01  | Colour tokens       | Canvas/surface, borders, ink (as text), brand wine, copper/link/focus/selection, the sidebar family, and each of the four status tones as its fg / soft+border / solid triple                                                                         |
 | 02  | Typography          | Manrope (UI/body) + Commissioner (display) with Latin and Greek samples, the five weights, tracking, `jts-overline`, tabular vs proportional figures, `font-mono` machine strings. Sora is not shown here — it is the wordmark's alone, in section 06 |
 | 03  | HeroUI components   | Button (every variant, size, disabled, icon-only), Chip, Input (+ invalid), TextArea, Select, Slider, ToggleButton, Popover, Modal, Drawer, Toast, Avatar, ListBox, ScrollShadow, Pagination, Table                                                   |
-| 04  | Jts components      | `JtsPageHeader` (as a specimen), `JtsStat` in all three tones, `JtsDataTable` with the paginator, `JtsLiveIndicator` with a toggle to spin it                                                                                                         |
+| 04  | Jts components      | `JtsPageHeader` (as a specimen), `JtsBackLink`, `JtsStat` in all three tones, `JtsDataTable` with the paginator, `JtsLiveIndicator` with a toggle to spin it                                                                                          |
 | 05  | Feedback vocabulary | `FeedbackBadges` — six tones, soft and strong, both sizes, with and without glyphs — plus `CopyableId`, `ProviderMark` beside model pills, the timestamp pill and the confidence bar                                                                  |
-| 06  | Motifs & rules      | `BrandLockup` / `BrandMark` (SVG, currentColor), the 3px marker, CSS `.brand-mark` motif, `.status-dot`, radius/shadow scales, and the invariants                                                                                                     |
+| 06  | Motifs & rules      | `BrandLockup` / `BrandMark` (SVG, currentColor), the six-dot title mark, the vertical 3px marker, CSS `.brand-mark` motif, `.status-dot`, radius/shadow scales, and the invariants                                                                    |
 
 Two conventions the page holds itself to:
 

@@ -33,6 +33,32 @@ Related reading: [`post-event-feedback.md`](post-event-feedback.md) (module
 contract and schema v2 aggregate),
 [ADR 0008](../../decisions/0008-post-event-feedback-conversations.md).
 
+## Questionnaire-version note
+
+Part 1 is an intentionally historical V1 catalogue. Its four-goal examples and
+`liked` edges explain the failures that shaped the loop; they are not silently
+rewritten as V2 transcripts. V1 campaigns remain executable and their stored
+`liked` answers remain readable.
+
+The current launch target is question-set V2 with six ordered goals:
+`event_score`, `table_fit`, `participation_ease`, `conversation_balance`,
+`meet_again`, `avoid`. `liked` is not a V2 goal. Current fake-backed and paid
+real-model coverage must therefore prove:
+
+- each of the four numeric dimensions accepts only a subjectless integer 1–5,
+  advances independently and retains its own label in results and summaries;
+- a burst may answer several or all six goals without losing a verdict or
+  fabricating `liked`;
+- `meet_again` remains a positive future-contact edge, while `avoid` is a
+  confidential no-rematch preference and is never treated as a popularity
+  score, misconduct finding or safety classification;
+- replaying a V1 conversation uses the four-key V1 extraction shape, including
+  its historical `liked`/`meet_again` collapse rule, rather than migrating the
+  conversation mid-flight;
+- the paid corpus and burst rehearsal grade completion against the campaign's
+  own versioned goals, so a four-answer V1 transcript does not falsely count as
+  a complete V2 questionnaire.
+
 ## Ground rules
 
 The participants are Greek adults writing casual WhatsApp Greek to what they
@@ -43,13 +69,18 @@ material below is not sanitised. Every scenario is nevertheless about a _system
 behaviour_: the crude message is there because it changes what the system must
 do, never for its own sake.
 
-Three things are constant across every scenario unless stated otherwise:
+Three things are constant across the historical Part 1 scenarios unless stated
+otherwise:
 
-| Fact                | Value                                                                               |
-| ------------------- | ----------------------------------------------------------------------------------- |
-| Respondent          | Μαρία, `+306900000001`, opted in, conversation open, campaign `launched`            |
-| Live candidates     | Νίκος, Ελένη, Κώστας Π., Κώστας Γ. (D16 — selected per run from current attendance) |
-| Goals at scenario 0 | `event_score: asked`, `liked/meet_again/avoid: pending`                             |
+| Fact                   | Value                                                                               |
+| ---------------------- | ----------------------------------------------------------------------------------- |
+| Respondent             | Μαρία, `+306900000001`, opted in, conversation open, campaign `launched`            |
+| Live candidates        | Νίκος, Ελένη, Κώστας Π., Κώστας Γ. (D16 — selected per run from current attendance) |
+| V1 goals at scenario 0 | `event_score: asked`, `liked/meet_again/avoid: pending`                             |
+
+Current V2 executable scenarios instead start with `event_score: asked` and
+`table_fit`, `participation_ease`, `conversation_balance`, `meet_again`,
+`avoid` pending unless their seed explicitly tests a later state.
 
 ### Verdict legend
 

@@ -18,7 +18,6 @@ docs
 **/*.spec.ts
 compose*.yaml
 docker-bake.hcl
-Caddyfile
 *.log
 .DS_Store
 

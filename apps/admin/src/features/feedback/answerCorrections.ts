@@ -27,12 +27,18 @@ export const FEEDBACK_SCORE_CHOICES = [1, 2, 3, 4, 5] as const;
 /**
  * Questions whose answer is a number.
  *
- * Mirrors `valueKind: "int"` in the backend question set. On `liked`,
- * `meet_again` and `avoid` the subject *is* the answer and `valueInt` is null,
- * so there is no number to edit — offering a 1–5 picker there would ask an
- * operator to assert something the question cannot express.
+ * Mirrors `valueKind: "int"` in the V2 question set. All four experience
+ * dimensions use the same 1–5 scale. On the person-valued questions the
+ * subject *is* the answer and `valueInt` is null, so there is no number to edit
+ * — offering a score picker there would assert something the question cannot
+ * express.
  */
-const SCORED_QUESTION_KEYS: readonly string[] = ["event_score"];
+const SCORED_QUESTION_KEYS: readonly string[] = [
+  "event_score",
+  "table_fit",
+  "participation_ease",
+  "conversation_balance",
+];
 
 export function canCorrectAnswerValue(answer: CorrectableAnswer): boolean {
   return SCORED_QUESTION_KEYS.includes(answer.questionKey);

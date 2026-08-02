@@ -22,6 +22,19 @@ export function formatAgeBand(value: string | null): string | null {
   return match ? `${match[1]}–${match[2]}` : value;
 }
 
+/**
+ * First letter of the best name we hold, upper-cased; «?» when we hold none.
+ * The profile header and every list row that shows a monogram square derive it
+ * the same way, so the same person is never two different letters.
+ */
+export function participantMonogram(
+  preferredName: string | null,
+  emailNormalized: string,
+): string {
+  const source = preferredName?.trim() || emailNormalized.trim();
+  return source.charAt(0).toLocaleUpperCase() || "?";
+}
+
 /** Display-only: `nea_smyrni` → `Nea Smyrni`. */
 export function formatNeighborhood(value: string | null): string | null {
   if (value === null || value === "") {

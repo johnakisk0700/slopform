@@ -50,6 +50,8 @@ interface LabelsModule {
   messageAttentionCategoryLabel: (category: string) => string;
   messageAttentionActionLabel: (action: string) => string;
   attentionReasonLabel: (kind: string) => string;
+  questionLabel: (key: string) => string;
+  QUESTION_KEYS: readonly string[];
 }
 
 interface ConversationViewModule {
@@ -1228,10 +1230,23 @@ describe("operator corrections to recorded answers", () => {
   };
 
   it("offers a value edit only where the answer is a number", () => {
-    // On liked / meet_again / avoid the subject *is* the answer and `valueInt`
-    // is null, so a 1–5 picker there would ask an operator to assert something
-    // the question cannot express.
-    expect(answerCorrections.canCorrectAnswerValue(score)).toBe(true);
+    // V2 has four independent 1–5 experience dimensions. The person-valued
+    // questions have no magnitude, including the historical V1 `liked` key.
+    for (const questionKey of [
+      "event_score",
+      "table_fit",
+      "participation_ease",
+      "conversation_balance",
+    ]) {
+      expect(
+        answerCorrections.canCorrectAnswerValue({ ...score, questionKey }),
+      ).toBe(true);
+    }
+    for (const questionKey of ["liked", "meet_again", "avoid"]) {
+      expect(
+        answerCorrections.canCorrectAnswerValue({ ...directed, questionKey }),
+      ).toBe(false);
+    }
     expect(answerCorrections.canCorrectAnswerValue(directed)).toBe(false);
     expect(answerCorrections.FEEDBACK_SCORE_CHOICES).toStrictEqual([
       1, 2, 3, 4, 5,
@@ -1326,13 +1341,13 @@ describe("the people under a directed question", () => {
     expect(directedAnswers.isDirectedQuestion("avoid")).toBe(true);
   });
 
-  it("gives each question its own tone so the three groups separate", () => {
+  it("keeps no-rematch distinct without presenting it as a safety alert", () => {
     // Never the only signal — each group also keeps its heading and its glyph —
     // but «Μαρία» under Liked and under Avoid are opposite facts about the same
     // evening, and they must not look alike.
     expect(directedAnswers.directedQuestionTone("liked")).toBe("success");
     expect(directedAnswers.directedQuestionTone("meet_again")).toBe("info");
-    expect(directedAnswers.directedQuestionTone("avoid")).toBe("danger");
+    expect(directedAnswers.directedQuestionTone("avoid")).toBe("warning");
   });
 
   it("knows which answers cannot both be true of one person", () => {
@@ -1439,6 +1454,25 @@ describe("the people under a directed question", () => {
   });
 });
 
+describe("questionnaire-version labels", () => {
+  it("shows V2 in order and keeps the V1-only liked answer readable", () => {
+    expect(labels.QUESTION_KEYS).toStrictEqual([
+      "event_score",
+      "table_fit",
+      "participation_ease",
+      "conversation_balance",
+      "meet_again",
+      "avoid",
+      "liked",
+    ]);
+    expect(labels.questionLabel("conversation_balance")).toBe(
+      "Conversation balance",
+    );
+    expect(labels.questionLabel("avoid")).toBe("No rematch");
+    expect(labels.questionLabel("liked")).toBe("Liked (V1)");
+  });
+});
+
 describe("staff close reason", () => {
   it("names every reason the backend accepts, and none it does not", () => {
     // The dialog's select and the summary line share this list, so inventing a
@@ -1490,15 +1524,54 @@ describe("staff close reason", () => {
 });
 
 describe("inbox toolbar and orientation", () => {
-  it("reads «All campaigns» as a back affordance, not a campaign action", () => {
+  it("reads «Back to campaigns» as a back affordance, not a campaign action", () => {
     const page = readSource("src/components/admin/feedback/CampaignHeader.tsx");
     const header = page.slice(0, page.indexOf("<h1"));
 
-    // It leaves the campaign, so it renders before the title with a left
-    // chevron rather than among the ConfirmActions that operate on the
-    // campaign — the same glyph the participant profile's back link uses.
-    expect(header).toContain("All campaigns");
-    expect(header).toContain("ChevronLeft");
+    // It leaves the campaign, so it renders before the title through the one
+    // shared back affordance rather than among the ConfirmActions that operate
+    // on the campaign. The chevron and the wording come from JtsBackLink, so
+    // this header cannot drift away from the other detail screens.
+    expect(header).toContain(
+      '<JtsBackLink to="/admin/feedback">Back to campaigns</JtsBackLink>',
+    );
+    expect(page).not.toContain("ChevronLeft");
+  });
+
+  it("puts the summary card on the same gap as every other card", () => {
+    const page = readSource("src/routes/FeedbackInboxPage.tsx");
+    const surface = page.slice(page.indexOf("Everything under the title"));
+
+    // One working surface, one rhythm: the summary, the two panes and the
+    // detail strip are all one gap-4 apart, so no card on this screen is a
+    // different distance from its neighbour than any other. Only the page gap
+    // above it — header to surface — is larger, and that boundary is the one
+    // that separates the page's nameplate from its work.
+    expect(surface).toContain('<div className="flex flex-col gap-4">');
+    expect(surface).toContain(
+      '<div className="grid items-start gap-4 lg:grid-cols-[minmax(15rem,19rem)_minmax(0,1fr)]">',
+    );
+    expect(surface).toContain(
+      '<div className="grid gap-4 md:grid-cols-2 lg:col-span-2 xl:grid-cols-3">',
+    );
+
+    // The context row is the exception, and deliberately: it is a caption for
+    // the summary card, not a card of its own.
+    expect(surface).toContain('<div className="flex flex-col gap-2">');
+  });
+
+  it("shows the persisted venue above the chat without loading Google UI", () => {
+    const page = readSource("src/routes/FeedbackInboxPage.tsx");
+    const header = readSource(
+      "src/components/admin/feedback/CampaignHeader.tsx",
+    );
+
+    expect(page).toContain("venue={eventQuery.data?.venue ?? null}");
+    expect(page).toContain("refetchOnWindowFocus: true");
+    expect(header).toContain("<VenueCompact");
+    expect(header).toContain('aria-label="Dinner venue"');
+    expect(header).not.toContain("GooglePlaceDetails");
+    expect(header).not.toContain("loadGooglePlaces");
   });
 
   it("starts a conversation from the candidate's own row in the list", () => {

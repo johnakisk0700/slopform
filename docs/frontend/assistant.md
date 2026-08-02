@@ -29,7 +29,15 @@ available height, including the small-screen navigation header;
 stacked above the shell — the local authentication bypass is announced in the
 sidebar's environment block, not by a banner that would shorten every route.
 
-Streaming, attachments and tools are not enabled. In particular, this screen
+Answer text now arrives progressively: the worker streams generation and records
+throttled partial text, and the existing poll renders it under the id the durable
+answer will take, so the finished reply replaces it in place. That text is never
+an answer — it carries no copy or attribution footer, keeps the activity marker,
+and is dropped the moment the turn settles. The live SSE channel that would make
+it token-by-token is stage B of
+[assistant streaming](../backend/mechanisms/assistant-streaming.md).
+
+Attachments and tools are not enabled. In particular, this screen
 cannot mutate product data. Future database tools require an explicit
 operator-confirmation contract before they can cross that boundary.
 
@@ -72,6 +80,7 @@ the following paths without repeating that prefix:
 | Retry failed | `POST /v1/assistant/threads/:threadId/turns/:turnId/retry` → the same turn, next attempt           |
 | Models       | `openai/gpt-5.6-luna`, `openai/gpt-5.6-terra`, `google/gemini-3.6-flash`, `qwen/qwen3.7-max`       |
 | Effort       | `low`, `medium`, `high`; backend default `low`                                                     |
+| Service tier | `standard`, `fast`; default `standard`, and forced to `standard` off the OpenAI route              |
 | States       | `queued`, `running`, `succeeded`, `failed`                                                         |
 
 `requestId` is a browser-minted UUID and is required on both creation writes.
@@ -150,7 +159,12 @@ fictional tool/stream state would only disguise a missing backend contract.
 - Historical hydration scrolls to the end immediately, confirms on the next
   animation frame and keeps a short `ResizeObserver` while Markdown/Mermaid
   layout settles. A newly submitted question keeps the separate notes_ai
-  question-alignment behavior.
+  question-alignment behavior. The source additionally reserves a screen of
+  height for the answer so the question it scrolled to the top cannot spring
+  back; that reserve is deliberately **not** ported. It pays for itself there
+  because the answer streams in and fills the space, whereas this transport
+  delivers one complete result — a short reply would sit above several hundred
+  pixels of dead column. Port it together with streaming, not before.
 - Only one nonterminal turn exists per thread. Thread selection, new-thread
   creation and the composer are disabled while that turn is active.
 - Poll failure retries `GET` for the same turn. Submission failure can replay
@@ -184,6 +198,15 @@ Shift+Enter adds a line, and icon-only controls have accessible names. The
 textarea itself suppresses HeroUI/native focus borders and rings; the enclosing
 composer receives the token-based `focus-within` ring so keyboard focus remains
 visible without drawing a box through the writing area.
+
+The writing area is two fixed rows that scroll, with no drag handle: the
+composer is what the message column docks against, so a resizable box would let
+the page be resized from its own footer. The column drops its left padding at
+`lg`, so the written page begins on the composer's line of writing rather than
+inset from it, and the scroll region keeps a permanent gutter so an appearing
+scrollbar cannot recentre the column under a composer that does not move. The
+`❯` prompt is set in the mono family — in the sans face that glyph has no
+descender and floats above the caret it sits beside.
 
 The narrow message column and docked composer remain usable at the 20rem minimum
 viewport. Reduced motion disables the thinking opacity animation through both

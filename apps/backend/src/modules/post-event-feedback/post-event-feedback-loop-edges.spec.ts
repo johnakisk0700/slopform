@@ -289,4 +289,6 @@ const SCENARIOS: readonly FeedbackScenario[] = [
   },
 ];
 
-runFeedbackScenarios("post-event feedback loop — edge seams", SCENARIOS);
+runFeedbackScenarios("post-event feedback loop — edge seams", SCENARIOS, {
+  questionSetVersion: 1,
+});

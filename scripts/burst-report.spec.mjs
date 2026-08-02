@@ -107,6 +107,23 @@ describe("renderBurstReport", () => {
     assert.ok(broken.includes("Πού έσπασε"));
   });
 
+  it("makes deterministic live-guest substitution visible as missing coverage", () => {
+    const html = renderBurstReport(
+      run({
+        liveGuests: {
+          mode: "deterministic_silence",
+          total: 6,
+          substituted: 6,
+        },
+      }),
+    );
+
+    assert.ok(html.includes("Ζωντανοί καλεσμένοι"));
+    assert.ok(
+      html.includes("6/6 ντετερμινιστική σιωπή (χωρίς κάλυψη συμπεριφοράς)"),
+    );
+  });
+
   it("shows the pessimistic verdict when the run flag disagrees with its rows", () => {
     const html = renderBurstReport(
       run({

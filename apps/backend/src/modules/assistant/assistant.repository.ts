@@ -14,6 +14,7 @@ import type {
   AssistantFailureCode,
   AssistantModel,
   AssistantReasoningEffort,
+  AssistantServiceTier,
 } from "./assistant.schemas.js";
 
 type DatabaseExecutor = AppDatabase | AppTransaction;
@@ -65,6 +66,7 @@ export class AssistantRepository {
     readonly title: string;
     readonly model: AssistantModel;
     readonly effort: AssistantReasoningEffort;
+    readonly serviceTier: AssistantServiceTier;
     readonly content: string;
   }): Promise<PersistedAssistantTurn> {
     return this.database.transaction(async (transaction) => {
@@ -95,6 +97,7 @@ export class AssistantRepository {
           sequence: 1,
           model: input.model,
           effort: input.effort,
+          serviceTier: input.serviceTier,
           userContent: input.content,
         })
         .returning();
@@ -112,6 +115,7 @@ export class AssistantRepository {
     readonly requestId: string;
     readonly model: AssistantModel;
     readonly effort: AssistantReasoningEffort;
+    readonly serviceTier: AssistantServiceTier;
     readonly content: string;
     readonly maximumTurns: number;
   }): Promise<PersistedAssistantTurn | undefined> {
@@ -163,6 +167,7 @@ export class AssistantRepository {
           sequence,
           model: input.model,
           effort: input.effort,
+          serviceTier: input.serviceTier,
           userContent: input.content,
         })
         .returning();
@@ -327,10 +332,38 @@ export class AssistantRepository {
     return turn;
   }
 
+  /**
+   * Records the text streamed so far by one attempt. Fenced on `(id, attempt)`
+   * and on a nonterminal status, so a delta that arrives late — from a
+   * superseded attempt, or after the turn already settled — is dropped rather
+   * than resurrecting content the reader would treat as current.
+   */
+  async recordPartial(
+    id: string,
+    attempt: number,
+    partial: string,
+    reasoning: string | null,
+  ): Promise<void> {
+    await this.database.db
+      .update(assistantTurns)
+      .set({
+        streamedContent: partial,
+        ...(reasoning === null ? {} : { reasoningContent: reasoning }),
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(assistantTurns.id, id),
+          eq(assistantTurns.attempt, attempt),
+          inArray(assistantTurns.status, ["queued", "running"]),
+        ),
+      );
+  }
+
   async markQueued(id: string, attempt: number): Promise<void> {
     await this.database.db
       .update(assistantTurns)
-      .set({ status: "queued", updatedAt: new Date() })
+      .set({ status: "queued", streamedContent: null, updatedAt: new Date() })
       .where(
         and(
           eq(assistantTurns.id, id),
@@ -352,6 +385,8 @@ export class AssistantRepository {
         .set({
           status: "succeeded",
           assistantContent: response,
+          streamedContent: null,
+          reasoningContent: null,
           errorCode: null,
           errorMessage: null,
           completedAt: now,
@@ -387,6 +422,8 @@ export class AssistantRepository {
         .set({
           status: "failed",
           assistantContent: null,
+          streamedContent: null,
+          reasoningContent: null,
           errorCode: code,
           errorMessage: message,
           completedAt: now,
@@ -443,6 +480,8 @@ export class AssistantRepository {
           status: "queued",
           attempt: sql`${assistantTurns.attempt} + 1`,
           assistantContent: null,
+          streamedContent: null,
+          reasoningContent: null,
           errorCode: null,
           errorMessage: null,
           startedAt: null,

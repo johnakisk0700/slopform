@@ -9,12 +9,20 @@
     },
     "build": {
       "dependsOn": ["^build"],
-      "env": ["VITE_API_BASE", "VITE_CLERK_PUBLISHABLE_KEY"],
+      "env": [
+        "VITE_API_BASE",
+        "VITE_CLERK_PUBLISHABLE_KEY",
+        "VITE_GOOGLE_MAPS_API_KEY"
+      ],
       "outputs": ["dist/**"]
     },
     "@join-the-six/admin#build": {
       "dependsOn": ["^build", "api:generate"],
-      "env": ["VITE_API_BASE", "VITE_CLERK_PUBLISHABLE_KEY"],
+      "env": [
+        "VITE_API_BASE",
+        "VITE_CLERK_PUBLISHABLE_KEY",
+        "VITE_GOOGLE_MAPS_API_KEY"
+      ],
       "outputs": ["dist/**"]
     },
     "@join-the-six/design-tokens#build": {
@@ -38,8 +46,20 @@
         "CLERK_SECRET_KEY",
         "DATABASE_POOL_MAX",
         "DATABASE_URL",
+        "FEEDBACK_ATTENTION_REASONING_EFFORT",
+        "FEEDBACK_EXPIRE_AFTER_HOURS",
         "FEEDBACK_EXTRACTION_MODEL",
+        "FEEDBACK_EXTRACTION_REASONING_EFFORT",
+        "FEEDBACK_EXTRACTION_SERVICE_TIER",
+        "FEEDBACK_EXTRACTION_STUB",
+        "FEEDBACK_INGRESS_PENDING_RECOVERY_MINUTES",
+        "FEEDBACK_MAX_REMINDERS",
+        "FEEDBACK_OPERATOR_ALERT_MODE",
+        "FEEDBACK_PRODUCTION_REHEARSAL_ENABLED",
+        "FEEDBACK_REMINDER_AFTER_HOURS",
         "FEEDBACK_SIMULATOR_ENABLED",
+        "FEEDBACK_SUMMARY_MODEL",
+        "FEEDBACK_SUMMARY_REASONING_EFFORT",
         "LOG_LEVEL",
         "MONGODB_URI",
         "NODE_ENV",
@@ -64,7 +84,8 @@
       "passThroughEnv": [
         "VITE_API_BASE",
         "VITE_AUTH_DEV_BYPASS",
-        "VITE_CLERK_PUBLISHABLE_KEY"
+        "VITE_CLERK_PUBLISHABLE_KEY",
+        "VITE_GOOGLE_MAPS_API_KEY"
       ],
       "persistent": true
     },

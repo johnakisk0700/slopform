@@ -75,6 +75,23 @@ function alignClass(align: "start" | "center" | "end" | undefined): string {
   return "text-left";
 }
 
+/**
+ * The same alignment, said again in flex terms for sortable headers.
+ *
+ * HeroUI lays `Table.SortableColumnHeader` out as `flex` with
+ * `justify-content: space-between`, so it fills the column and `text-align` on
+ * the cell cannot move it — a sortable numeric column ended up with its header
+ * pinned left above right-aligned figures. `start` keeps the default, which is
+ * what pushes the sort indicator to the far edge of a normal column.
+ */
+function justifyClass(
+  align: "start" | "center" | "end" | undefined,
+): string | undefined {
+  if (align === "center") return "justify-center gap-1.5";
+  if (align === "end") return "justify-end gap-1.5";
+  return undefined;
+}
+
 /** Compact page list with a first page, last page and a window around the current page. */
 function buildPageItems(current: number, total: number): PageItem[] {
   const items: PageItem[] = [1];
@@ -290,6 +307,7 @@ export function JtsDataTable<T>({
                       >
                         {canSort ? (
                           <Table.SortableColumnHeader
+                            className={justifyClass(align)}
                             {...(sortDirection ? { sortDirection } : {})}
                           >
                             {content}

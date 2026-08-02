@@ -48,23 +48,22 @@ import {
   FeedbackSummaryGenerationError,
   PostEventFeedbackCampaignSummaryService,
 } from "./summary/summary.service.js";
+import { createFeedbackWorkerRegistrationNameFromEnvironment } from "./worker-attestation.js";
 
 /**
  * Actual per-process feedback job concurrency.
  *
- * This is an application ordering limit, not an OpenRouter quota. OpenRouter
- * publishes no fixed concurrency cap for paid models; upstream capacity is
- * dynamic and surfaces as retryable 429/503 responses. One extraction job can
- * already make two provider calls in parallel (extraction + attention).
+ * This is an application ordering limit, not a provider quota. One extraction
+ * job can already make two provider calls in parallel (extraction + attention);
+ * those calls are independently guarded by the shared process-wide provider
+ * semaphore in `infrastructure/ai/provider-call-limiter.ts`.
  *
- * Keep this at one until jobs for the same conversation are serialized and
- * provider-call limiting is separated from transcript/outbox ordering. Worker
- * replicas multiply this value.
- *
- * Verified 2026-07-26:
- * https://openrouter.ai/docs/api_reference/limits
+ * Keep this at one until jobs for the same conversation are serialized. Worker
+ * replicas multiply both this value and the process-wide provider-call cap.
  */
 export const FEEDBACK_WORKER_CONCURRENCY = 1;
+export const FEEDBACK_WORKER_REGISTRATION_NAME =
+  createFeedbackWorkerRegistrationNameFromEnvironment(process.env);
 
 @Processor(
   { name: FEEDBACK_QUEUE, configKey: QUEUE_WORKER_CONFIG },
@@ -77,7 +76,7 @@ export const FEEDBACK_WORKER_CONCURRENCY = 1;
     concurrency: FEEDBACK_WORKER_CONCURRENCY,
     maxStalledCount: 1,
     metrics: { maxDataPoints: MetricsTime.ONE_WEEK * 2 },
-    name: "feedback-worker",
+    name: FEEDBACK_WORKER_REGISTRATION_NAME,
   },
 )
 export class PostEventFeedbackProcessor extends WorkerHost {
@@ -265,10 +264,7 @@ export class PostEventFeedbackProcessor extends WorkerHost {
       ) {
         throw new UnrecoverableError(error.message);
       }
-      if (
-        error instanceof FeedbackSummaryGenerationError &&
-        !error.retryable
-      ) {
+      if (error instanceof FeedbackSummaryGenerationError && !error.retryable) {
         throw new UnrecoverableError(error.message);
       }
       if (error instanceof MessageOutboxNotFoundError) {

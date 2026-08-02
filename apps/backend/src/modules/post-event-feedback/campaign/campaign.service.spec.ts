@@ -22,7 +22,10 @@ import {
 import type { FeedbackCampaignRepository } from "./campaign.repository.js";
 import type { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
 import { buildFeedbackConversationGoals } from "../post-event-feedback-conversation.document.js";
-import { buildPostEventFeedbackQuestionLaunchSnapshot } from "../question-set.js";
+import {
+  POST_EVENT_FEEDBACK_QUESTION_SET_V1,
+  buildPostEventFeedbackQuestionLaunchSnapshot,
+} from "../question-set.js";
 
 const eventId = "7c57f3b8-2b13-48f5-8730-18ac71f490cd";
 const campaignId = "89eccaa5-9ce6-4dcf-a630-5e35e4ec6f0d";
@@ -35,6 +38,17 @@ const finishedEvent: EventRow = {
   title: "Friday dinner",
   startsAt: new Date("2026-07-01T18:00:00.000Z"),
   status: "finished",
+  venueProvider: null,
+  venuePlaceId: null,
+  venueLabel: null,
+  venueType: null,
+  venueArea: null,
+  venuePriceLevel: null,
+  venuePriceStartMinor: null,
+  venuePriceEndMinor: null,
+  venuePriceCurrencyCode: null,
+  venueUseInFeedback: null,
+  venueContextRevision: 0,
   createdAt: new Date("2026-07-01T00:00:00.000Z"),
   updatedAt: new Date("2026-07-01T00:00:00.000Z"),
 };
@@ -42,13 +56,19 @@ const finishedEvent: EventRow = {
 const campaignRow: FeedbackCampaignRow = {
   id: campaignId,
   eventId,
-  questionSetVersion: 1,
+  questionSetVersion: 2,
   questions: buildPostEventFeedbackQuestionLaunchSnapshot(),
   status: "launched",
   launchedAt: new Date("2026-07-25T00:00:00.000Z"),
   launchedBy: "admin-1",
   createdAt: new Date("2026-07-25T00:00:00.000Z"),
   updatedAt: new Date("2026-07-25T00:00:00.000Z"),
+};
+
+const legacyCampaignRow: FeedbackCampaignRow = {
+  ...campaignRow,
+  questionSetVersion: 1,
+  questions: buildPostEventFeedbackQuestionLaunchSnapshot(1),
 };
 
 const eligible = {
@@ -96,6 +116,10 @@ describe("PostEventFeedbackCampaignService", () => {
     expect(result.id).toBe(campaignId);
     expect(result.conversationsCreated).toBe(1);
     expect(repository.createCampaign).toHaveBeenCalled();
+    expect(repository.createCampaign).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ questionSetVersion: 2 }),
+    );
     expect(conversations.createFromLaunch).toHaveBeenCalledWith(
       expect.objectContaining({
         campaignId,
@@ -306,6 +330,53 @@ describe("PostEventFeedbackCampaignService", () => {
     expect(result.introEnqueued).toBe(false);
     expect(result.lifecycleState).toBe("closed");
     expect(repository.insertOutboxIfAbsent).not.toHaveBeenCalled();
+  });
+
+  it("starts a late V1 conversation with V1 goals and frozen copy", async () => {
+    const { service, repository, conversations } = createService();
+    repository.findCampaignById.mockResolvedValue(legacyCampaignRow);
+    repository.listEligibleAttendeesForEvent.mockResolvedValue([eligible]);
+    conversations.createFromLaunch.mockResolvedValue({
+      created: true,
+      conversation: openConversation(),
+    });
+    repository.insertOutboxIfAbsent.mockResolvedValue({
+      row: introOutboxRow(),
+      inserted: true,
+    });
+
+    await service.startConversation(
+      campaignId,
+      participantId,
+      "admin-1",
+      "req-v1-late",
+    );
+
+    expect(conversations.createFromLaunch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        goals: expect.arrayContaining([
+          expect.objectContaining({ key: "event_score", ordinal: 1 }),
+          expect.objectContaining({ key: "liked", ordinal: 2 }),
+          expect.objectContaining({ key: "meet_again", ordinal: 3 }),
+          expect.objectContaining({ key: "avoid", ordinal: 4 }),
+        ]),
+      }),
+    );
+    const launchInput = conversations.createFromLaunch.mock.calls[0]?.[0] as {
+      goals: { key: string }[];
+    };
+    expect(launchInput.goals).toHaveLength(4);
+    expect(repository.insertOutboxIfAbsent).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        body: expect.stringContaining(
+          POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy.intro.replace(
+            "{name}",
+            "Roula",
+          ),
+        ),
+      }),
+    );
   });
 
   it("pauses and resumes the campaign kill switch", async () => {

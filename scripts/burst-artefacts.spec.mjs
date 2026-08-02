@@ -45,6 +45,40 @@ describe("buildFinishedEvent", () => {
     assert.equal(event.stamp, "2026-07-28T06-37-03Z");
   });
 
+  it("preserves the exact named paid treatment beside model controls", () => {
+    const event = buildFinishedEvent({
+      result: result({
+        model: "openai/gpt-5.6-luna",
+        treatment: "prova",
+        config: {
+          reasoningEffort: "xhigh",
+          attentionReasoningEffort: "high",
+          serviceTier: null,
+        },
+        liveGuests: {
+          mode: "deterministic_silence",
+          total: 6,
+          substituted: 6,
+        },
+      }),
+      stamp: "s",
+      reportPath: "report/feedback-burst-s.html",
+      revision: { commit: null, dirty: null },
+    });
+
+    assert.equal(event.treatment, "prova");
+    assert.deepEqual(event.config, {
+      reasoningEffort: "xhigh",
+      attentionReasoningEffort: "high",
+      serviceTier: null,
+    });
+    assert.deepEqual(event.liveGuests, {
+      mode: "deterministic_silence",
+      total: 6,
+      substituted: 6,
+    });
+  });
+
   it("keeps the report path relative so a run is not stamped with a laptop", () => {
     const event = buildFinishedEvent({
       result: result(),

@@ -23,6 +23,12 @@ const productionEnvironment = {
   WASENDER_SESSION_API_KEY: "session-key",
 } as const;
 
+const runnableProductionEnvironment = {
+  ...productionEnvironment,
+  MONGODB_URI:
+    "mongodb://user:password@mongo:27017/join_the_six?authSource=join_the_six&retryWrites=false",
+} as const;
+
 describe("validateEnvironment", () => {
   it("coerces safe defaults and numbers", () => {
     const environment = validateEnvironment({
@@ -40,6 +46,7 @@ describe("validateEnvironment", () => {
     expect(environment.WASENDER_WEBHOOK_ENABLED).toBe(false);
     expect(environment.WASENDER_WEBHOOK_SECRET).toBeUndefined();
     expect(environment.TRANSPORT_MODE).toBe("simulated");
+    expect(environment.FEEDBACK_PRODUCTION_REHEARSAL_ENABLED).toBe(false);
     expect(environment.FEEDBACK_SIMULATOR_ENABLED).toBe(false);
     expect(environment.FEEDBACK_EXTRACTION_STUB).toBe(false);
     expect(environment.FEEDBACK_REMINDER_AFTER_HOURS).toBe(24);
@@ -129,19 +136,19 @@ describe("validateEnvironment", () => {
     ).toThrow(/AUTH_DEV_BYPASS/);
   });
 
-  it("rejects simulated transport and the HTTP simulator in production", () => {
+  it("keeps production simulation fail-closed without the rehearsal gate", () => {
     expect(() =>
       validateEnvironment({
         ...productionEnvironment,
         TRANSPORT_MODE: "simulated",
       }),
-    ).toThrow(/TRANSPORT_MODE=simulated is not allowed in production/);
+    ).toThrow(/FEEDBACK_PRODUCTION_REHEARSAL_ENABLED/);
     expect(() =>
       validateEnvironment({
         ...productionEnvironment,
         FEEDBACK_SIMULATOR_ENABLED: "true",
       }),
-    ).toThrow(/FEEDBACK_SIMULATOR_ENABLED cannot be enabled in production/);
+    ).toThrow(/FEEDBACK_PRODUCTION_REHEARSAL_ENABLED/);
     expect(() =>
       validateEnvironment({
         ...productionEnvironment,
@@ -150,13 +157,102 @@ describe("validateEnvironment", () => {
     ).toThrow(/FEEDBACK_EXTRACTION_STUB cannot be enabled in production/);
   });
 
+  it("allows only an explicit real-model simulated rehearsal in production", () => {
+    expect(
+      validateEnvironment({
+        ...runnableProductionEnvironment,
+        TRANSPORT_MODE: "simulated",
+        WASENDER_SESSION_API_KEY: "",
+        FEEDBACK_PRODUCTION_REHEARSAL_ENABLED: "true",
+        FEEDBACK_SIMULATOR_ENABLED: "true",
+        FEEDBACK_EXTRACTION_STUB: "false",
+      }),
+    ).toMatchObject({
+      NODE_ENV: "production",
+      TRANSPORT_MODE: "simulated",
+      WASENDER_SESSION_API_KEY: undefined,
+      FEEDBACK_PRODUCTION_REHEARSAL_ENABLED: true,
+      FEEDBACK_SIMULATOR_ENABLED: true,
+      FEEDBACK_EXTRACTION_STUB: false,
+    });
+
+    expect(() =>
+      validateEnvironment({
+        ...runnableProductionEnvironment,
+        TRANSPORT_MODE: "disabled",
+        WASENDER_SESSION_API_KEY: "",
+        FEEDBACK_PRODUCTION_REHEARSAL_ENABLED: "true",
+        FEEDBACK_SIMULATOR_ENABLED: "true",
+      }),
+    ).toThrow(/requires TRANSPORT_MODE=simulated/);
+    expect(() =>
+      validateEnvironment({
+        ...runnableProductionEnvironment,
+        TRANSPORT_MODE: "simulated",
+        WASENDER_SESSION_API_KEY: "",
+        FEEDBACK_PRODUCTION_REHEARSAL_ENABLED: "true",
+        FEEDBACK_SIMULATOR_ENABLED: "false",
+      }),
+    ).toThrow(/requires FEEDBACK_SIMULATOR_ENABLED=true/);
+    expect(() =>
+      validateEnvironment({
+        ...requiredEnvironment,
+        FEEDBACK_PRODUCTION_REHEARSAL_ENABLED: "true",
+        FEEDBACK_SIMULATOR_ENABLED: "true",
+      }),
+    ).toThrow(/production-only gate/);
+    expect(() =>
+      validateEnvironment({
+        ...runnableProductionEnvironment,
+        TRANSPORT_MODE: "simulated",
+        FEEDBACK_PRODUCTION_REHEARSAL_ENABLED: "true",
+        FEEDBACK_SIMULATOR_ENABLED: "true",
+        WASENDER_SESSION_API_KEY: "session-key",
+      }),
+    ).toThrow(/WASENDER_SESSION_API_KEY to be unset/);
+    expect(() =>
+      validateEnvironment({
+        ...runnableProductionEnvironment,
+        TRANSPORT_MODE: "simulated",
+        WASENDER_SESSION_API_KEY: "",
+        FEEDBACK_PRODUCTION_REHEARSAL_ENABLED: "true",
+        FEEDBACK_SIMULATOR_ENABLED: "true",
+        WASENDER_WEBHOOK_ENABLED: "true",
+        WASENDER_WEBHOOK_SECRET: "a".repeat(32),
+      }),
+    ).toThrow(/WASENDER_WEBHOOK_ENABLED=false/);
+    expect(() =>
+      validateEnvironment({
+        ...runnableProductionEnvironment,
+        TRANSPORT_MODE: "simulated",
+        WASENDER_SESSION_API_KEY: "",
+        FEEDBACK_PRODUCTION_REHEARSAL_ENABLED: "true",
+        FEEDBACK_SIMULATOR_ENABLED: "true",
+        WASENDER_WEBHOOK_SECRET: "a".repeat(32),
+      }),
+    ).toThrow(/WASENDER_WEBHOOK_SECRET to be unset/);
+  });
+
+  it("accepts disabled transport as the production fail-closed mode", () => {
+    expect(
+      validateEnvironment({
+        ...runnableProductionEnvironment,
+        TRANSPORT_MODE: "disabled",
+        WASENDER_SESSION_API_KEY: "",
+      }),
+    ).toMatchObject({
+      TRANSPORT_MODE: "disabled",
+      WASENDER_SESSION_API_KEY: undefined,
+      FEEDBACK_PRODUCTION_REHEARSAL_ENABLED: false,
+    });
+  });
+
   it("requires simulated transport when the HTTP simulator is enabled", () => {
     expect(() =>
       validateEnvironment({
         ...requiredEnvironment,
         FEEDBACK_SIMULATOR_ENABLED: "true",
-        TRANSPORT_MODE: "wasender",
-        WASENDER_SESSION_API_KEY: "session-key",
+        TRANSPORT_MODE: "disabled",
       }),
     ).toThrow(/FEEDBACK_SIMULATOR_ENABLED requires TRANSPORT_MODE=simulated/);
   });
@@ -429,8 +525,23 @@ describe("validateEnvironment", () => {
       }),
     ).toBe(true);
     expect(
-      isWasenderTransportEnabled({ WASENDER_SESSION_API_KEY: "key" }),
+      isFeedbackSimulatorHttpEnabled({
+        NODE_ENV: "production",
+        FEEDBACK_PRODUCTION_REHEARSAL_ENABLED: "true",
+        FEEDBACK_SIMULATOR_ENABLED: "true",
+        TRANSPORT_MODE: "simulated",
+      }),
     ).toBe(true);
+    expect(
+      isFeedbackSimulatorHttpEnabled({
+        NODE_ENV: "production",
+        FEEDBACK_SIMULATOR_ENABLED: "true",
+        TRANSPORT_MODE: "simulated",
+      }),
+    ).toBe(false);
+    expect(
+      isWasenderTransportEnabled({ WASENDER_SESSION_API_KEY: "key" }),
+    ).toBe(false);
     expect(isWasenderTransportEnabled({ WASENDER_SESSION_API_KEY: "  " })).toBe(
       false,
     );
@@ -439,19 +550,18 @@ describe("validateEnvironment", () => {
     );
   });
 
-  it("requires a Wasender session key when TRANSPORT_MODE=wasender", () => {
-    expect(() =>
-      validateEnvironment({
-        ...requiredEnvironment,
-        TRANSPORT_MODE: "wasender",
-      }),
-    ).toThrow(/WASENDER_SESSION_API_KEY is required/);
-
+  it("keeps the shared Wasender config process-agnostic", () => {
     expect(
       validateEnvironment({
         ...requiredEnvironment,
         TRANSPORT_MODE: "wasender",
-        WASENDER_SESSION_API_KEY: "session-key",
+      }).TRANSPORT_MODE,
+    ).toBe("wasender");
+    expect(
+      validateEnvironment({
+        ...runnableProductionEnvironment,
+        TRANSPORT_MODE: "wasender",
+        WASENDER_SESSION_API_KEY: "",
       }).TRANSPORT_MODE,
     ).toBe("wasender");
   });

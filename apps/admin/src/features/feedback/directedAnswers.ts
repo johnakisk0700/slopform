@@ -1,20 +1,21 @@
 import type { FeedbackTone } from "./labels";
 
 /**
- * The three questions whose answer is a person, and the rules for reading and
- * changing them as a group.
+ * The person-valued questions across all supported questionnaire versions, and
+ * the rules for reading and changing them as a group.
  *
  * `answerCorrections.ts` next door is about one recorded answer — may this
  * number be edited, may this row be withdrawn. This module is about the shape
- * the three directed questions take together: who is under each of them, which
- * of them can hold the same person at once, and who is left to add.
+ * the directed answers take together: who is under each of them, which of them
+ * can hold the same person at once, and who is left to add. V2 asks only
+ * `meet_again` and `avoid`; `liked` remains here for valid V1 history.
  *
  * React-free and generated-client-free, like every other module in this folder,
  * so the rules are testable without a renderer. Only the fields the rules read
  * are typed here; the backend re-checks all of it.
  */
 
-/** In the order they are asked, which is the order they are shown. */
+/** V1 display order; V2 omits the historical `liked` key. */
 export const DIRECTED_QUESTION_KEYS = ["liked", "meet_again", "avoid"] as const;
 
 export type DirectedQuestionKey = (typeof DIRECTED_QUESTION_KEYS)[number];
@@ -27,15 +28,16 @@ export function isDirectedQuestion(key: string): key is DirectedQuestionKey {
  * One tone per directed question, so the three groups are told apart before a
  * word is read.
  *
- * They are not decoration: the ladder runs from the answer everyone hopes for to
- * the one that constrains a seating plan, and it is the same status vocabulary
- * the rest of the screen uses. Colour is never the only signal — each group
- * keeps its own heading and its own glyph.
+ * They are not decoration: each tone separates a kind of seating signal. A
+ * no-rematch preference is operational feedback, not evidence of misconduct,
+ * so it uses warning rather than the danger tone reserved for failures and
+ * safety concerns. Colour is never the only signal — each group keeps its own
+ * heading and its own glyph.
  */
 const DIRECTED_QUESTION_TONES: Record<DirectedQuestionKey, FeedbackTone> = {
   liked: "success",
   meet_again: "info",
-  avoid: "danger",
+  avoid: "warning",
 };
 
 export function directedQuestionTone(key: DirectedQuestionKey): FeedbackTone {
@@ -46,10 +48,10 @@ export function directedQuestionTone(key: DirectedQuestionKey): FeedbackTone {
  * The questions about one person that recording this one contradicts.
  *
  * Mirrors `contradictedPostEventFeedbackQuestionKeys` in the backend, which is
- * what actually performs the move. It is duplicated here for one reason: the
- * admin has to *say* what confirming will do before it happens, and «adding
- * Νίκος to Avoid removes him from Liked» cannot be described by a screen that
- * does not know the rule.
+ * what actually performs the move. The `liked` branch is V1 compatibility: on
+ * a V1 campaign, recording `avoid` can still supersede its historical positive
+ * edge. V2 uses the same `avoid` key but has no `liked` goal. The admin has to
+ * say what confirming will do before it happens.
  */
 export function contradictedQuestionKeys(
   key: DirectedQuestionKey,
@@ -76,10 +78,10 @@ export interface AnswerCandidateChoice {
   /**
    * Every question this person is recorded under today that adding them here
    * would take them out of, empty when nothing moves. A list rather than one
-   * key because `liked` and `meet_again` can both hold the same person, and an
-   * `avoid` clears both: naming one of the two would understate what confirming
-   * costs. The picker shows them on the option, because a move is not what an
-   * operator pressing «+» is expecting.
+   * key because a V1 campaign can hold both `liked` and `meet_again` for the
+   * same person, and a no-rematch clears both: naming one would understate what
+   * confirming costs. The picker shows them on the option, because a move is
+   * not what an operator pressing «+» is expecting.
    */
   readonly movesFrom: readonly DirectedQuestionKey[];
 }
@@ -147,5 +149,5 @@ export function recordAnswerDescription(input: {
     .map((label) => `«${label}»`)
     .join(" and ");
   const plural = input.movesFromLabels.length > 1;
-  return `${recorded} ${input.subjectLabel} is currently under ${moved} — those cannot also be true, so ${plural ? "those answers are" : "that answer is"} withdrawn in the same step.`;
+  return `${recorded} ${input.subjectLabel} is currently under ${moved} — the questionnaire treats ${plural ? "those" : "that"} as incompatible with this seating preference, so ${plural ? "those answers are" : "that answer is"} withdrawn in the same step.`;
 }

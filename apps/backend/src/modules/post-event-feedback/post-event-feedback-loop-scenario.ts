@@ -2,6 +2,8 @@ import type {
   FeedbackAnswerQuestionKey,
   FeedbackNoteType,
 } from "@join-the-six/database";
+import type { EventVenueInput } from "../events/events.schemas.js";
+import type { PostEventFeedbackQuestionSetVersion } from "./question-set.js";
 import type {
   FeedbackConversationGoal,
   FeedbackConversationLifecycleReason,
@@ -132,7 +134,7 @@ export type ModelFailure =
 
 export interface ScriptedAnswer {
   readonly question: FeedbackAnswerQuestionKey;
-  /** Only `event_score` carries a value. */
+  /** Integer questions carry a value; directed questions carry `about`. */
   readonly value?: number;
   /** A display name. An unseeded name is one the model could not resolve. */
   readonly about?: string;
@@ -206,6 +208,15 @@ export interface ModelTurn {
   readonly fails?: ModelFailure;
 }
 
+/**
+ * Provider-backed venue state owned by the fake Events port.
+ *
+ * Keeping the full input here is deliberate: scenarios can seed a Google
+ * `placeId`, while the feedback boundary must project only the safe operator
+ * fields before the model sees anything.
+ */
+export type FeedbackScenarioVenue = EventVenueInput;
+
 export type FeedbackExternalAction =
   /** A WhatsApp message arrived. `text: null` is a voice note, photo or reaction. */
   | {
@@ -246,6 +257,16 @@ export type FeedbackExternalAction =
       readonly kind: "consent";
       readonly optedIn: boolean;
     }
+  /** Replace, disable or clear the event's venue through the Events seam. */
+  | {
+      readonly kind: "venue";
+      readonly action: "replace";
+      readonly venue: FeedbackScenarioVenue;
+    }
+  | {
+      readonly kind: "venue";
+      readonly action: "disable" | "clear";
+    }
   /** The next transport send returns this provider outcome. */
   | {
       readonly kind: "transport";
@@ -268,12 +289,18 @@ export type FeedbackStep =
     };
 
 export interface FeedbackSeedOptions {
+  /** Questionnaire contract used by the campaign and seeded conversation. */
+  readonly questionSetVersion?: PostEventFeedbackQuestionSetVersion;
   readonly respondent?: string;
   readonly phone?: string;
   readonly candidates?: readonly string[];
   readonly optedIn?: boolean;
   readonly campaign?: "launched" | "paused" | "closed";
   readonly control?: "bot" | "human";
+  /** Full event venue state; absent means the event has never had one. */
+  readonly venue?: FeedbackScenarioVenue | null;
+  /** Server-owned revision paired with `venue`; inferred when omitted. */
+  readonly venueContextRevision?: number;
   /** Start from an already-closed conversation. */
   readonly closed?: FeedbackConversationLifecycleReason;
   readonly goals?: Partial<
@@ -418,6 +445,14 @@ export interface ExpectedJobFailure {
   readonly job: FeedbackJobName;
   readonly kind: ModelFailure;
   readonly count: number;
+}
+
+export interface FeedbackScenarioSuiteOptions {
+  /**
+   * Version shared by a historical scenario catalogue. A row-level seed wins.
+   * New suites omit this and exercise the current questionnaire by default.
+   */
+  readonly questionSetVersion?: PostEventFeedbackQuestionSetVersion;
 }
 
 export type FeedbackScenario =

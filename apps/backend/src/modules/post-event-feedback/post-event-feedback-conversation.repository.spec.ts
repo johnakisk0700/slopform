@@ -75,7 +75,9 @@ describe("FeedbackConversationRepository", () => {
     });
     expect(result.conversation.goals.map((goal) => goal.key)).toEqual([
       "event_score",
-      "liked",
+      "table_fit",
+      "participation_ease",
+      "conversation_balance",
       "meet_again",
       "avoid",
     ]);

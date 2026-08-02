@@ -28,6 +28,7 @@ import type {
 import {
   buildPostEventFeedbackQuestionLaunchSnapshot,
   createFeedbackIntroDedupeKey,
+  getPostEventFeedbackQuestionSet,
   renderPostEventFeedbackCopy,
   resolveCampaignCopy,
   type PostEventFeedbackQuestionSetCopy,
@@ -167,7 +168,6 @@ export class PostEventFeedbackCampaignService {
 
     const launchedAt = existing?.launchedAt ?? new Date();
     const snapshot = buildPostEventFeedbackQuestionLaunchSnapshot();
-    const copy = snapshot.copy;
 
     const campaign = existing
       ? existing
@@ -195,6 +195,10 @@ export class PostEventFeedbackCampaignService {
           });
           return created;
         });
+    const copy = resolveCampaignCopy(
+      campaign.questions,
+      campaign.questionSetVersion,
+    );
 
     // One attendee's phone conflict must not abandon the launch. The partial
     // unique index allows a single open conversation per number, so a stale row
@@ -347,7 +351,10 @@ export class PostEventFeedbackCampaignService {
       );
     }
 
-    const snapshot = resolveCampaignCopy(campaign.questions);
+    const snapshot = resolveCampaignCopy(
+      campaign.questions,
+      campaign.questionSetVersion,
+    );
     const result = await this.ensureConversationAndIntro({
       campaign,
       attendee,
@@ -430,7 +437,13 @@ export class PostEventFeedbackCampaignService {
   }> {
     const displayName =
       input.attendee.preferredName?.trim() || input.attendee.emailNormalized;
-    const goals = buildFeedbackConversationGoals(input.copy);
+    const questionSet = getPostEventFeedbackQuestionSet(
+      input.campaign.questionSetVersion,
+    );
+    const goals = buildFeedbackConversationGoals(
+      input.copy,
+      questionSet.version,
+    );
     const creation = await this.conversations.createFromLaunch({
       campaignId: input.campaign.id,
       respondentParticipantId: input.attendee.participantId,

@@ -50,6 +50,33 @@ function EnvironmentChips({ variant }: { variant: "sidebar" | "drawer" }) {
 }
 
 /**
+ * Routes that take the viewport rather than grow a scrollbar.
+ *
+ * The default is the right default: a page is as tall as its content and the
+ * document scrolls. These two are the exceptions because they are *panes*, not
+ * documents — a conversation and a log beside the row it opened — and a pane
+ * that pushes the page taller than the screen makes the operator scroll the
+ * whole layout to reach a control that was meant to be permanently in view.
+ * Anything added here must own its own inner scrolling.
+ */
+const FULL_HEIGHT_ROUTES = ["/admin/assistant", "/admin/outbound"] as const;
+
+/**
+ * Of those, the ones that also paint to the shell's edge.
+ *
+ * The assistant is a single surface and its own padding is part of it. The
+ * outbound queue is an ordinary page that happens to be full height, so it
+ * keeps the standard page gutter every other screen has.
+ */
+const BLEED_ROUTES = ["/admin/assistant"] as const;
+
+function matchesRoute(pathname: string, routes: readonly string[]): boolean {
+  return routes.some(
+    (route) => pathname === route || pathname.startsWith(`${route}/`),
+  );
+}
+
+/**
  * The routed main region: the content column with the signature 200ms
  * opacity/8px-rise entrance. It re-runs per route (keyed by pathname) and
  * collapses to no motion when the viewer prefers reduced motion.
@@ -57,25 +84,42 @@ function EnvironmentChips({ variant }: { variant: "sidebar" | "drawer" }) {
 function AdminMain() {
   const reduceMotion = useReducedMotion();
   const { pathname } = useLocation();
-  const isAssistantRoute =
-    pathname === "/admin/assistant" || pathname.startsWith("/admin/assistant/");
+  const isFullHeight = matchesRoute(pathname, FULL_HEIGHT_ROUTES);
+  const bleeds = matchesRoute(pathname, BLEED_ROUTES);
 
   return (
     <main
       id="main-content"
       tabIndex={-1}
-      className={
-        isAssistantRoute
-          ? "relative min-h-0 w-full flex-1 overflow-hidden focus-visible:-outline-offset-2"
-          : "mx-auto w-full max-w-content p-[clamp(1.25rem,3vw,2.5rem)]"
-      }
+      className={clsx(
+        "w-full",
+        // `lg:h-dvh`, and deliberately **not** `flex-1`.
+        //
+        // Every ancestor up to `<body>` is sized by `min-height`, so there is
+        // no definite height anywhere for `flex-1` to resolve against — and
+        // `flex: 1 1 0%` sets a `flex-basis` that wins over `height` on the
+        // main axis, so it also silently swallowed any height stated here.
+        // Between them, a route that asked for the viewport got the document
+        // instead. This is the first element in the chain that can name a
+        // height, so it names one and takes no flex sizing at all.
+        //
+        // Only from `lg`: below it the shell puts a sticky top bar above this
+        // element, so `100dvh` here would overflow by exactly the bar, and a
+        // narrow screen wants the ordinary scrolling page anyway.
+        isFullHeight
+          ? "relative overflow-hidden focus-visible:-outline-offset-2 lg:h-dvh"
+          : undefined,
+        bleeds
+          ? undefined
+          : "mx-auto max-w-content p-[clamp(1.25rem,3vw,2.5rem)]",
+      )}
     >
       <motion.div
         key={pathname}
         initial={reduceMotion ? false : { opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.2, ease: "easeOut" }}
-        className={isAssistantRoute ? "h-full min-h-0" : undefined}
+        className={isFullHeight ? "h-full min-h-0" : undefined}
       >
         <Outlet />
       </motion.div>

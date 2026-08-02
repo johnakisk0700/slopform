@@ -53,8 +53,8 @@ export class FeedbackSimulatorController {
   @Get("catalog")
   @ApiOperation({ operationId: "getFeedbackSimulatorCatalog" })
   @ZodResponse({ status: 200, type: FeedbackSimulatorCatalogResponseDto })
-  getCatalog(): FeedbackSimulatorCatalogResponseDto {
-    return this.simulator.getCatalog();
+  async getCatalog(): Promise<FeedbackSimulatorCatalogResponseDto> {
+    return await this.simulator.getCatalog();
   }
 
   @Post("preflight")

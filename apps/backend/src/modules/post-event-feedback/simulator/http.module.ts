@@ -11,9 +11,9 @@ import { PostEventFeedbackIngressModule } from "../ingress/ingress.module.js";
 import { PostEventFeedbackCoreModule } from "../core.module.js";
 
 /**
- * Dev/staging-only HTTP surface for the simulated feedback transport (WP8).
- * Mounted only when `FEEDBACK_SIMULATOR_ENABLED` is true, `TRANSPORT_MODE` is
- * `simulated`, and `NODE_ENV` is not `production`.
+ * Clerk-protected HTTP surface for the simulated feedback transport (WP8).
+ * Mounted when `FEEDBACK_SIMULATOR_ENABLED` is true and `TRANSPORT_MODE` is
+ * `simulated`; production additionally requires the explicit rehearsal gate.
  */
 @Module({
   imports: [

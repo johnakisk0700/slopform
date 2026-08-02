@@ -18,6 +18,7 @@ import { DatabaseService } from "../../../infrastructure/database/database.servi
 import { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
 import { FeedbackResultsRepository } from "./results.repository.js";
 import { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
+import { FeedbackIngressRepository } from "../ingress/ingress.repository.js";
 import { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
 import type { FeedbackConversationDocument } from "../post-event-feedback-conversation.document.js";
 import { EventsService } from "../../events/events.service.js";
@@ -134,6 +135,7 @@ export class PostEventFeedbackExtractor {
     private readonly campaigns: FeedbackCampaignRepository,
     private readonly results: FeedbackResultsRepository,
     private readonly outbox: FeedbackOutboxRepository,
+    private readonly ingress: FeedbackIngressRepository,
     private readonly conversations: FeedbackConversationRepository,
     private readonly events: EventsService,
     private readonly participants: ParticipantsRepository,
@@ -210,12 +212,18 @@ export class PostEventFeedbackExtractor {
     }
 
     const context = await this.buildContext(conversation, campaign);
-    const copy = resolveCampaignCopy(campaign.questions);
+    const copy = resolveCampaignCopy(
+      campaign.questions,
+      campaign.questionSetVersion,
+    );
     const prompt = buildFeedbackExtractionPrompt({ context, copy });
     const estimatedPromptTokens = estimatePromptTokens(prompt);
 
     const [generated, attention] = await Promise.all([
-      this.generation.propose(prompt),
+      this.generation.propose(
+        prompt,
+        context.goals.map((goal) => goal.key),
+      ),
       this.generation.classifyAttention(
         context.messages,
         context.newParticipantMessageIds,
@@ -432,6 +440,8 @@ export class PostEventFeedbackExtractor {
           .map((match) => match.messageId),
       ),
     ];
+    const ordinaryReply =
+      !progressClosing && !validated.handoff && !stoppingForHostility;
     const withheld = outbound
       ? await this.reviewBeforeSending({
           conversation,
@@ -447,8 +457,7 @@ export class PostEventFeedbackExtractor {
           // one to lose: `awaitingHuman` silences every run after this, so a line
           // dropped for being superseded would leave somebody abusive answered by
           // nothing at all and no explanation of why the bot went quiet.
-          ordinaryReply:
-            !progressClosing && !validated.handoff && !stoppingForHostility,
+          ordinaryReply,
         })
       : undefined;
     if (withheld) {
@@ -477,7 +486,7 @@ export class PostEventFeedbackExtractor {
     // skipped, which would record this person as having declined a questionnaire
     // nobody managed to ask him, and it raises `unfinished_questionnaire` instead
     // of the reason that says what actually happened.
-    const withdrew =
+    let withdrew =
       !dutyOfCare &&
       !stoppingForHostility &&
       validated.safetySignals.length === 0 &&
@@ -527,7 +536,7 @@ export class PostEventFeedbackExtractor {
     // second opinion formed down here. That is the whole of the fix for Πάνος:
     // the copy gate and this word gate now read the same const, so there is no
     // longer a state in which we say one and store the other.
-    const hostility: FeedbackHostilityRaise = stoppingForHostility
+    let hostility: FeedbackHostilityRaise = stoppingForHostility
       ? "stopped"
       : hostileWithoutAnswers && isCompleting(conversation.goals, goalStatuses)
         ? "unanswerable"
@@ -552,7 +561,7 @@ export class PostEventFeedbackExtractor {
     // this: a withdrawal keeps the conversation open because the bot gave up
     // rather than the participant, hostility keeps it open for an operator, and
     // a STOP is a consent decision rather than an answer to these questions.
-    const closingReason: "completed" | "declined" | null = closingNow
+    let closingReason: "completed" | "declined" | null = closingNow
       ? answeredAnything(conversation, validated)
         ? "completed"
         : "declined"
@@ -564,11 +573,58 @@ export class PostEventFeedbackExtractor {
       context,
       validated,
       outbound: sentOutbound,
+      ordinaryReply,
       model: generated.model,
       correlationId: input.correlationId,
       closingReason,
       goalStatuses,
     });
+
+    if (written.outboundSuppressedByNewerIngress) {
+      this.logger.log({
+        event: "feedback.extract.outbound_withheld",
+        correlationId: input.correlationId,
+        conversationId: conversation._id,
+        cursorSeq,
+        reason: "superseded_by_durable_ingress",
+      });
+      goalStatuses = withAskedGoal(recordedStatuses, undefined);
+      withdrew =
+        !dutyOfCare &&
+        !stoppingForHostility &&
+        validated.safetySignals.length === 0 &&
+        isWithdrawal({
+          answers: validated.answers,
+          notes: validated.notes,
+          nextGoal: validated.nextGoal,
+          askedGoal: undefined,
+          outboundSent: false,
+          repairingStoredResults: validated.rejections.some(
+            (rejection) => rejection.reason === "already_recorded",
+          ),
+        });
+      if (withdrew) {
+        goalStatuses = withSettledOpenGoals(conversation.goals, goalStatuses);
+      }
+      hostility = stoppingForHostility
+        ? "stopped"
+        : hostileWithoutAnswers &&
+            isCompleting(conversation.goals, goalStatuses)
+          ? "unanswerable"
+          : "none";
+      const closesAfterFence =
+        isCompleting(conversation.goals, goalStatuses) &&
+        validated.safetySignals.length === 0 &&
+        !dutyOfCare &&
+        !withdrew &&
+        !stoppingForHostility &&
+        !hostileWithoutAnswers;
+      closingReason = closesAfterFence
+        ? answeredAnything(conversation, validated)
+          ? "completed"
+          : "declined"
+        : null;
+    }
 
     // Between the PostgreSQL commit and the cursor advance, so a crash replays
     // the whole run and repairs the transcript through the same `outboxId`. The
@@ -693,15 +749,17 @@ export class PostEventFeedbackExtractor {
     // D16: selected now, from current attendance. The conversation stores no
     // candidate list, so «ξεχάσαμε τη Ρούλα» reaches this turn as soon as
     // attendance is corrected.
-    const candidates = await this.events.listFeedbackCandidatesForRespondent(
-      campaign.eventId,
-      conversation.respondentParticipantId,
-    );
-    const [acceptedAnswers, acceptedNotes, participant] = await Promise.all([
-      this.results.listAnswersByConversation(conversation._id),
-      this.results.listNotesByConversation(conversation._id),
-      this.participants.findById(conversation.respondentParticipantId),
-    ]);
+    const [candidates, acceptedAnswers, acceptedNotes, participant, venue] =
+      await Promise.all([
+        this.events.listFeedbackCandidatesForRespondent(
+          campaign.eventId,
+          conversation.respondentParticipantId,
+        ),
+        this.results.listAnswersByConversation(conversation._id),
+        this.results.listNotesByConversation(conversation._id),
+        this.participants.findById(conversation.respondentParticipantId),
+        this.events.getFeedbackVenueContext(campaign.eventId),
+      ]);
 
     return {
       respondentParticipantId: conversation.respondentParticipantId,
@@ -733,6 +791,10 @@ export class PostEventFeedbackExtractor {
         text: note.text,
         subjectParticipantId: note.subjectParticipantId,
       })),
+      venue: venue.venue,
+      // A disabled or absent venue was not supplied to the model, so enabling
+      // one later cannot invalidate an otherwise venue-blind run.
+      venueContextRevision: venue.venue === null ? null : venue.contextRevision,
       // AI output can never send, change consent or bypass this gate. A paused
       // or closed campaign is the kill switch: results may still persist, but
       // no reply is enqueued.
@@ -813,6 +875,7 @@ export class PostEventFeedbackExtractor {
     readonly context: FeedbackExtractionContext;
     readonly validated: FeedbackExtractionValidationResult;
     readonly outbound: OutboundReply | undefined;
+    readonly ordinaryReply: boolean;
     readonly model: string;
     readonly correlationId: string;
     readonly closingReason: "completed" | "declined" | null;
@@ -821,6 +884,7 @@ export class PostEventFeedbackExtractor {
     answersWritten: number;
     notesWritten: number;
     outbox?: MessageOutboxRow;
+    outboundSuppressedByNewerIngress: boolean;
   }> {
     const candidateIds = input.context.candidates.map(
       (candidate) => candidate.participantId,
@@ -836,6 +900,45 @@ export class PostEventFeedbackExtractor {
     );
 
     return this.database.transaction(async (transaction) => {
+      let outboundSuppressedByNewerIngress = false;
+      if (input.outbound && input.ordinaryReply) {
+        await this.ingress.lockInboundPhone(
+          transaction,
+          input.conversation.phoneAtLaunch,
+        );
+        outboundSuppressedByNewerIngress =
+          await this.ingress.hasInboundBeyondSnapshot(transaction, {
+            phoneE164: input.conversation.phoneAtLaunch,
+            conversationId: input.conversation._id,
+            snapshotIngressIds: input.conversation.messages.flatMap(
+              (message) =>
+                message.actor === "participant" && message.ingressId
+                  ? [message.ingressId]
+                  : [],
+            ),
+          });
+      }
+
+      const venueRevision = input.context.venueContextRevision;
+      if (
+        typeof venueRevision === "number" &&
+        !(await this.events.feedbackVenueContextIsCurrent(
+          transaction,
+          input.campaign.eventId,
+          venueRevision,
+        ))
+      ) {
+        // The event row is held under a shared lock through this transaction.
+        // A venue edit that won the race makes this run retry; an edit that
+        // arrives after the lock waits until the context-dependent outbox
+        // decision is durable. No stale model reply is committed in between.
+        throw new FeedbackExtractionGenerationError(
+          "extraction_failed",
+          true,
+          "validation_failed",
+        );
+      }
+
       await this.results.lockConversation(transaction, input.conversation._id);
 
       let answersWritten = 0;
@@ -849,6 +952,7 @@ export class PostEventFeedbackExtractor {
             subjectParticipantId: answer.subjectParticipantId,
             questionKeys: contradictedPostEventFeedbackQuestionKeys(
               answer.questionKey,
+              input.context.goals.map((goal) => goal.key),
             ),
           });
         }
@@ -954,7 +1058,7 @@ export class PostEventFeedbackExtractor {
       }
 
       let outbox: MessageOutboxRow | undefined;
-      if (input.outbound) {
+      if (input.outbound && !outboundSuppressedByNewerIngress) {
         const enqueued = await this.outbox.insertOutboxIfAbsent(transaction, {
           conversationId: input.conversation._id,
           campaignId: input.campaign.id,
@@ -971,6 +1075,7 @@ export class PostEventFeedbackExtractor {
             confidence: input.validated.confidence ?? null,
             closingReason: input.closingReason,
             askedGoal: input.outbound.askedGoal ?? null,
+            venueContextRevision: input.context.venueContextRevision ?? null,
             goalStatuses: input.goalStatuses.map(({ key, status }) => ({
               key,
               status,
@@ -984,6 +1089,7 @@ export class PostEventFeedbackExtractor {
       return {
         answersWritten,
         notesWritten,
+        outboundSuppressedByNewerIngress,
         ...(outbox ? { outbox } : {}),
       };
     });

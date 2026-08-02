@@ -35,18 +35,23 @@ interface AssistantContractModule {
     requestId: string,
     model: AssistantModel,
     effort: AssistantEffort,
+    serviceTier: "standard" | "fast",
     content: string,
   ) => {
     requestId: string;
     model?: AssistantModel;
     effort: AssistantEffort;
+    serviceTier: "standard" | "fast";
     content: string;
   };
+  assistantModelSupportsServiceTier: (model: AssistantModel) => boolean;
   messagesFromThread: (thread: unknown) => {
+    id: string;
     role: "user" | "assistant";
     content: string;
     turnId: string;
     effort: AssistantEffort;
+    serviceTier: string;
   }[];
 }
 
@@ -71,6 +76,9 @@ function readAdminFile(relativePath: string): string {
 
 function turn(
   status: "queued" | "running" | "succeeded" | "failed",
+  partial: string | null = null,
+  serviceTier: "standard" | "fast" = "standard",
+  reasoning: string | null = null,
 ): Record<string, unknown> {
   const terminal = status === "succeeded" || status === "failed";
   return {
@@ -80,11 +88,14 @@ function turn(
     status,
     model: "google/gemini-3.6-flash",
     effort: "low",
+    serviceTier,
     user: { role: "user", content: "Review this plan." },
     assistant:
       status === "succeeded"
         ? { role: "assistant", content: "Reviewed response." }
         : null,
+    partial: terminal ? null : partial,
+    reasoning: terminal ? null : reasoning,
     error:
       status === "failed"
         ? { code: "generation_failed", message: "Internal provider detail" }
@@ -112,13 +123,24 @@ let AssistantMarkdown: ComponentType<{ children?: string }>;
 
 beforeAll(async () => {
   const media = { matches: false, addEventListener: () => {} };
-  vi.stubGlobal("window", { matchMedia: () => media });
+  // The card reuses the same HeroUI chips as the rest of the admin, and those
+  // reach react-aria, which installs global listeners on import. The stubs are
+  // therefore listener-shaped rather than minimal — server rendering needs the
+  // module to load, not a DOM.
+  vi.stubGlobal("window", {
+    matchMedia: () => media,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  });
   vi.stubGlobal("localStorage", {
     getItem: () => null,
     setItem: () => {},
   });
   vi.stubGlobal("document", {
     documentElement: { classList: { toggle: () => {} } },
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    body: { addEventListener: () => {}, removeEventListener: () => {} },
   });
 
   const contractUrl = new URL(
@@ -177,14 +199,43 @@ describe("durable assistant API boundary", () => {
         REQUEST_ID,
         "openai/gpt-5.6-terra",
         "high",
+        "fast",
         "  Review this plan.  ",
       ),
     ).toEqual({
       requestId: REQUEST_ID,
       model: "openai/gpt-5.6-terra",
       effort: "high",
+      serviceTier: "fast",
       content: "Review this plan.",
     });
+  });
+
+  // The fast lane doubles the token price and exists only on the OpenAI route,
+  // so the control must refuse it rather than send a tier the provider drops.
+  it("offers the fast lane only where it can actually be bought", () => {
+    expect(
+      contract.assistantModelSupportsServiceTier("openai/gpt-5.6-luna"),
+    ).toBe(true);
+    expect(
+      contract.assistantModelSupportsServiceTier("openai/gpt-5.6-terra"),
+    ).toBe(true);
+    expect(
+      contract.assistantModelSupportsServiceTier("google/gemini-3.6-flash"),
+    ).toBe(false);
+    expect(contract.assistantModelSupportsServiceTier("qwen/qwen3.7-max")).toBe(
+      false,
+    );
+  });
+
+  it("carries the tier a turn ran under into its rendered message", () => {
+    const thread = contract.assistantThreadSchema.parse({
+      ...threadView("succeeded"),
+      turns: [turn("succeeded", null, "fast")],
+    });
+    expect(contract.messagesFromThread(thread)[1]).toEqual(
+      expect.objectContaining({ role: "assistant", serviceTier: "fast" }),
+    );
   });
 
   it("accepts persisted queue and terminal turn states", () => {
@@ -250,6 +301,39 @@ describe("durable assistant API boundary", () => {
     ]);
   });
 
+  it("renders streamed text under the id its durable answer will take", () => {
+    const running = contract.assistantThreadSchema.parse({
+      ...threadView("running"),
+      turns: [turn("running", "Reviewed re")],
+    });
+    const streamed = contract.messagesFromThread(running);
+    expect(streamed).toHaveLength(2);
+    expect(streamed[1]).toEqual(
+      expect.objectContaining({
+        role: "assistant",
+        content: "Reviewed re",
+        status: "running",
+      }),
+    );
+
+    // The finished answer must replace that message in place — a second bubble
+    // would double the reply the moment the turn settles.
+    const settled = contract.messagesFromThread(
+      contract.assistantThreadSchema.parse(threadView("succeeded")),
+    );
+    expect(settled[1]?.id).toBe(streamed[1]?.id);
+    expect(settled[1]?.content).toBe("Reviewed response.");
+  });
+
+  it("refuses streamed text on a settled turn", () => {
+    expect(() =>
+      contract.assistantTurnSchema.parse({
+        ...turn("succeeded"),
+        partial: "Reviewed re",
+      }),
+    ).toThrow();
+  });
+
   it("maps raw provider failures to stable operator-safe copy", () => {
     const copy = contract.assistantFailureMessage("provider_rejected");
     expect(copy).toContain("provider rejected");
@@ -281,6 +365,68 @@ describe("assistant Markdown renderer", () => {
 
     expect(html).toContain("<table>");
     expect(html).toContain('class="hljs-keyword"');
+  });
+
+  it("renders a fenced jts profile and omits the fields the model left out", () => {
+    const html = renderToStaticMarkup(
+      createElement(AssistantMarkdown, {
+        children:
+          '```jts\n{"kind":"profile","name":"Maria K.","phone":"+306900000000","feedbackOptIn":true}\n```',
+      }),
+    );
+
+    expect(html).toContain("Maria K.");
+    expect(html).toContain("tel:+306900000000");
+    expect(html).toContain("Feedback opt-in");
+    // Nothing was said about a neighbourhood, so the card says nothing about
+    // one — an empty row would read as «none recorded».
+    expect(html).not.toContain("Neighborhood");
+  });
+
+  it("renders a fenced jts event with its status chip", () => {
+    const html = renderToStaticMarkup(
+      createElement(AssistantMarkdown, {
+        children:
+          '```jts\n{"kind":"event","title":"Sunday Six","status":"scheduled","venue":"Kafeneio","area":"Pagrati","attendeeCount":6}\n```',
+      }),
+    );
+
+    expect(html).toContain("Sunday Six");
+    expect(html).toContain("Scheduled");
+    expect(html).toContain("Kafeneio · Pagrati");
+  });
+
+  it("renders a fenced jts conversation and leads with the flag to act on", () => {
+    const html = renderToStaticMarkup(
+      createElement(AssistantMarkdown, {
+        children:
+          '```jts\n{"kind":"conversation","respondent":"Ειρήνη Κ.","state":"open","control":"human","needsAttention":true,"answered":2,"goalCount":4,"messageCount":11}\n```',
+      }),
+    );
+
+    expect(html).toContain("Ειρήνη Κ.");
+    expect(html).toContain("Needs a person");
+    expect(html).toContain("Staff replying");
+    expect(html).toContain("2 of 4");
+    // The card summarises; testimony stays in the answer as a quotation.
+    expect(html).not.toContain("Last reply");
+  });
+
+  /**
+   * The card is model-authored, so malformed JSON is a matter of when, not if.
+   * Falling back to the raw block keeps a bad card visible and the surrounding
+   * answer intact, which is the same contract the chart fence already honours.
+   */
+  it("falls back to the raw block when a card is malformed", () => {
+    const html = renderToStaticMarkup(
+      createElement(AssistantMarkdown, {
+        children: '```jts\n{"kind":"profile"}\n```',
+      }),
+    );
+
+    expect(html).toContain("<pre>");
+    expect(html).toContain("&quot;kind&quot;:&quot;profile&quot;");
+    expect(html).not.toContain("assistant-card");
   });
 });
 
@@ -324,8 +470,17 @@ describe("assistant route wiring", () => {
       "src/components/admin/assistant/AssistantComposer.tsx",
     );
 
-    expect(shell).toContain('pathname.startsWith("/admin/assistant/")');
+    // The shell now names two full-height routes rather than special-casing
+    // this one, and the assistant is the only one that also paints to the edge.
+    expect(shell).toContain('FULL_HEIGHT_ROUTES = ["/admin/assistant"');
+    expect(shell).toContain('BLEED_ROUTES = ["/admin/assistant"]');
+    expect(shell).toContain("pathname.startsWith(`${route}/`)");
     expect(shell).toContain('"h-full min-h-0"');
+    // `lg:h-dvh` and no flex sizing: every ancestor up to `<body>` is sized by
+    // `min-height`, so `flex-1` had nothing definite to resolve against — and
+    // its `flex-basis: 0%` outranks `height` on the main axis besides.
+    expect(shell).toContain("lg:h-dvh");
+    expect(shell).not.toContain("min-h-0 flex-1 overflow-hidden");
     expect(page).toContain(
       'className="relative flex h-full min-h-0 flex-col overflow-hidden bg-surface"',
     );

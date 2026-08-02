@@ -665,9 +665,11 @@ const MACHINERY_FROM_THE_OUTSIDE: readonly FeedbackScenario[] = [
 runFeedbackScenarios(
   "post-event feedback loop — stopping, silence and time",
   STOPPING_SILENCE_AND_TIME,
+  { questionSetVersion: 1 },
 );
 
 runFeedbackScenarios(
   "post-event feedback loop — machinery, seen from the outside",
   MACHINERY_FROM_THE_OUTSIDE,
+  { questionSetVersion: 1 },
 );

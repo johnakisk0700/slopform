@@ -1,7 +1,7 @@
 # Admin authentication and authorization
 
-Status: implemented Clerk vertical slice; Google profile policy is deliberately
-not enabled. Verified 2026-07-23 with `@clerk/react` 6.12.6 and
+Status: implemented Clerk vertical slice; production admission is restricted to
+three invited shareholder identities. Verified 2026-08-02 with `@clerk/react` 6.12.6 and
 `@clerk/express` 2.1.44.
 
 Local development currently uses an explicit authentication bypass while the
@@ -88,51 +88,32 @@ sequenceDiagram
   subject may be recorded as an audit actor identifier when a durable business
   action requires it.
 
-## Tenant isolation warning
+## Production tenant
 
-The initial keys may be copied from `notes_ai`. Reusing those keys means reusing
-that **Clerk application**, including its users, restrictions, social
-connections, domains and authentication policy. The current server allowlist
-prevents its unrelated users from reaching Join The Six API data, but it does
-not create tenant isolation inside Clerk.
+Production must use a dedicated Join The Six Clerk application. Reusing the
+`notes_ai` keys would also reuse its users, restrictions, social connections,
+domains and authentication policy; the backend allowlist would reduce the blast
+radius but would not create a separate identity tenant.
 
-Use a dedicated Clerk application for Join The Six before production. It gives
-this admin its own users, Google connection, allowed origins, audit surface,
-rotation and revocation lifecycle. Reusing the `notes_ai` application is
-acceptable only as an explicit temporary development shortcut with the
-server-side user-ID allowlist kept in place.
+The approved admission model is deliberately small:
 
-## Google sign-in handoff: decision still required
+1. Set the dedicated production instance to **Restricted** sign-up mode.
+2. Enable Google with production OAuth credentials.
+3. Invite exactly the three shareholder email addresses held in the private
+   operator record. Do not commit that personal-data list to this repository.
+4. Disable self-service primary email changes.
+5. After invitation acceptance, add exactly the resulting stable `user_*`
+   subjects to `CLERK_ADMIN_USER_IDS`.
 
-Do not enable Google until the owner chooses who may enter. Recommended path:
+An invitation controls account creation; it does not grant API access. The
+server-side user-ID allowlist remains the final authorization decision. Clerk
+Organizations add no useful boundary for three equal operators and are not part
+of this deployment.
 
-1. Create the dedicated Join The Six Clerk application.
-2. Put it in **Restricted** sign-up mode and invite/create the initial operators
-   explicitly. Enable Google on that application only after the approved email
-   list and production OAuth ownership are known.
-3. Keep `CLERK_ADMIN_USER_IDS` as the final API authorization check. An invited
-   Google identity becomes an admin only after its stable Clerk user ID is
-   deliberately added.
-4. Disable self-service identifier changes if an approved email must remain the
-   identity anchor. Record who approved the operator, when, and why.
-
-Choose one admission model before implementation:
-
-| Model                                  | Best fit                                                  | Server-side enforcement                                                                                              |
-| -------------------------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| Exact email invitations/allowlist      | A few named operators, including personal Google accounts | Invite exact verified emails, then approve their resulting Clerk user IDs. Do not rely on client email text.         |
-| Verified company domain                | Every account under a domain the organisation controls    | Restrict sign-up to that domain and still check an approved subject/role. Never domain-allowlist `gmail.com`.        |
-| Clerk Organization + roles/permissions | Growing staff, teams or differentiated permissions        | Require the expected organization ID and role/permission in the verified session, with no personal-account fallback. |
-
-Clerk allowlists/restrictions are admission controls, not complete revocation.
-For newer Clerk applications they may apply only to sign-up; existing sessions
-also need ban/session revocation, and the API must retain its own authorization
-decision. Domain matching alone is unsuitable for personal Gmail profiles.
-
-The remaining owner inputs are: dedicated versus temporarily shared Clerk
-application, exact approved identities or owned domain, whether Organizations
-are warranted, and who owns grants/revocations. No list or Google connection is
-invented in code.
+Revocation happens in this order: remove the subject from
+`CLERK_ADMIN_USER_IDS` and roll the API, then ban the Clerk user and revoke its
+sessions. This keeps revocation effective even while Clerk session cleanup is
+still propagating.
 
 Failure cases to test when Google is enabled: uninvited identity, secondary or
 changed email, pending invitation, revoked operator with an active browser

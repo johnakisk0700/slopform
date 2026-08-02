@@ -4,6 +4,7 @@ import {
   events,
   participants,
   type AppTransaction,
+  type EventRow,
   type EventStatus,
   type ParticipantRow,
 } from "@join-the-six/database";
@@ -11,7 +12,20 @@ import { asc, desc, eq, inArray } from "drizzle-orm";
 
 import { DatabaseService } from "../../infrastructure/database/database.service.js";
 
-export type ParticipantEventHistoryRow = {
+export type ParticipantEventHistoryRow = Pick<
+  EventRow,
+  | "venueProvider"
+  | "venuePlaceId"
+  | "venueLabel"
+  | "venueType"
+  | "venueArea"
+  | "venuePriceLevel"
+  | "venuePriceStartMinor"
+  | "venuePriceEndMinor"
+  | "venuePriceCurrencyCode"
+  | "venueUseInFeedback"
+  | "venueContextRevision"
+> & {
   eventId: string;
   title: string;
   startsAt: Date;
@@ -54,6 +68,17 @@ export class ParticipantsRepository {
         title: events.title,
         startsAt: events.startsAt,
         status: events.status,
+        venueProvider: events.venueProvider,
+        venuePlaceId: events.venuePlaceId,
+        venueLabel: events.venueLabel,
+        venueType: events.venueType,
+        venueArea: events.venueArea,
+        venuePriceLevel: events.venuePriceLevel,
+        venuePriceStartMinor: events.venuePriceStartMinor,
+        venuePriceEndMinor: events.venuePriceEndMinor,
+        venuePriceCurrencyCode: events.venuePriceCurrencyCode,
+        venueUseInFeedback: events.venueUseInFeedback,
+        venueContextRevision: events.venueContextRevision,
         present: eventAttendees.present,
         tableNo: eventAttendees.tableNo,
       })
@@ -68,6 +93,17 @@ export class ParticipantsRepository {
       title: row.title,
       startsAt: row.startsAt,
       status: row.status as EventStatus,
+      venueProvider: row.venueProvider,
+      venuePlaceId: row.venuePlaceId,
+      venueLabel: row.venueLabel,
+      venueType: row.venueType,
+      venueArea: row.venueArea,
+      venuePriceLevel: row.venuePriceLevel,
+      venuePriceStartMinor: row.venuePriceStartMinor,
+      venuePriceEndMinor: row.venuePriceEndMinor,
+      venuePriceCurrencyCode: row.venuePriceCurrencyCode,
+      venueUseInFeedback: row.venueUseInFeedback,
+      venueContextRevision: row.venueContextRevision,
       present: row.present,
       tableNo: row.tableNo,
     }));

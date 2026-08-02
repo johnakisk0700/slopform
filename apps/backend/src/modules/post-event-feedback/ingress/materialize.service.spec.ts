@@ -27,7 +27,10 @@ import {
 } from "../post-event-feedback-doubles.harness.js";
 import { PostEventFeedbackMaterializer } from "./materialize.service.js";
 import { PostEventFeedbackMetrics } from "../metrics.service.js";
-import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "../question-set.js";
+import {
+  POST_EVENT_FEEDBACK_QUESTION_SET_V1,
+  POST_EVENT_FEEDBACK_QUESTION_SET_V2,
+} from "../question-set.js";
 import type { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
 import type { FeedbackIngressRepository } from "./ingress.repository.js";
 import type { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
@@ -205,7 +208,7 @@ describe("PostEventFeedbackMaterializer", () => {
     ]);
     expect(harness.repository.outbox[1]).toMatchObject({
       kind: "system",
-      body: POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy.stop_ack,
+      body: POST_EVENT_FEEDBACK_QUESTION_SET_V2.copy.stop_ack,
       dedupeKey: `feedback-stop-ack-${conversationId}`,
     });
     expect(

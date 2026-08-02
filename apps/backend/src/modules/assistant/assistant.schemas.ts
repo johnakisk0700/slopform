@@ -14,6 +14,18 @@ export const ASSISTANT_REASONING_EFFORTS = ["low", "medium", "high"] as const;
 export const DEFAULT_ASSISTANT_REASONING_EFFORT = "low" as const;
 export const ASSISTANT_EFFORTS = ASSISTANT_REASONING_EFFORTS;
 export const DEFAULT_ASSISTANT_EFFORT = DEFAULT_ASSISTANT_REASONING_EFFORT;
+/**
+ * OpenAI's paid fast lane, at double the token price on every column.
+ *
+ * Deliberately two values where the SDK accepts more. `priority` is the old
+ * spelling of the same tier and `auto` means "let the account default decide",
+ * which is what omitting the field already does — two spellings of one thing
+ * only invite a request that says one and means the other. `flex` is a real
+ * third tier but nobody has asked to trade latency for a discount here, and an
+ * option nobody chose is an option that gets chosen by accident.
+ */
+export const ASSISTANT_SERVICE_TIERS = ["standard", "fast"] as const;
+export const DEFAULT_ASSISTANT_SERVICE_TIER = "standard" as const;
 
 export const ASSISTANT_TURN_STATUSES = [
   "queued",
@@ -38,6 +50,7 @@ export const assistantFailureCodeSchema = z.enum(ASSISTANT_FAILURE_CODES);
 export const assistantReasoningEffortSchema = z.enum(
   ASSISTANT_REASONING_EFFORTS,
 );
+export const assistantServiceTierSchema = z.enum(ASSISTANT_SERVICE_TIERS);
 export const assistantContentSchema = z
   .string()
   .trim()
@@ -51,6 +64,9 @@ export const createAssistantTurnSchema = z
     effort: assistantReasoningEffortSchema
       .optional()
       .default(DEFAULT_ASSISTANT_REASONING_EFFORT),
+    serviceTier: assistantServiceTierSchema
+      .optional()
+      .default(DEFAULT_ASSISTANT_SERVICE_TIER),
     content: assistantContentSchema,
   })
   .strict();
@@ -82,8 +98,26 @@ export const assistantTurnSchema = z
     status: assistantTurnStatusSchema,
     model: assistantModelSchema,
     effort: assistantReasoningEffortSchema,
+    /**
+     * The tier this turn ran under, not the one the browser asked for. A model
+     * that cannot buy the fast lane records `standard`, so the row can always be
+     * repriced from itself.
+     */
+    serviceTier: assistantServiceTierSchema,
     user: assistantUserMessageSchema,
     assistant: assistantResponseMessageSchema.nullable(),
+    /**
+     * Text the in-flight attempt has produced so far. Present only while the
+     * turn is nonterminal, and never an answer: `assistant` remains the only
+     * authoritative result.
+     */
+    partial: z.string().max(20_000).nullable(),
+    /**
+     * The provider's own account of its thinking while the turn is in flight —
+     * a summary on the OpenAI route, live deltas through OpenRouter. Never an
+     * answer, and cleared the moment the turn settles.
+     */
+    reasoning: z.string().max(20_000).nullable(),
     error: assistantTurnErrorSchema.nullable(),
     attempt: z.number().int().positive(),
     createdAt: z.iso.datetime(),
@@ -95,6 +129,26 @@ export const assistantTurnSchema = z
     const hasAssistant = turn.assistant !== null;
     const hasError = turn.error !== null;
     const isComplete = turn.completedAt !== null;
+
+    if (
+      turn.partial !== null &&
+      (turn.status === "succeeded" || turn.status === "failed")
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "A settled turn cannot carry streamed text",
+      });
+    }
+
+    if (
+      turn.reasoning !== null &&
+      (turn.status === "succeeded" || turn.status === "failed")
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "A settled turn cannot carry streamed reasoning",
+      });
+    }
 
     if (turn.status === "succeeded") {
       if (!hasAssistant || hasError || !isComplete) {
@@ -187,6 +241,7 @@ export type AssistantFailureCode = z.infer<typeof assistantFailureCodeSchema>;
 export type AssistantReasoningEffort = z.infer<
   typeof assistantReasoningEffortSchema
 >;
+export type AssistantServiceTier = z.infer<typeof assistantServiceTierSchema>;
 export type AssistantTurnView = z.infer<typeof assistantTurnSchema>;
 export type AssistantThreadView = z.infer<typeof assistantThreadSchema>;
 export type AssistantThreadListView = z.infer<typeof assistantThreadListSchema>;

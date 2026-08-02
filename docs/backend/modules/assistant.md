@@ -26,30 +26,30 @@ The public/persisted model id maps to exactly one provider id:
 | ------------------------- | ---------- | ------------------------- |
 | `openai/gpt-5.6-luna`     | OpenAI     | `gpt-5.6-luna`            |
 | `openai/gpt-5.6-terra`    | OpenAI     | `gpt-5.6-terra`           |
-
-Terra routes OpenAI direct for the same reason as Luna: campaign summaries and
-other Terra call sites need the OpenAI thinking-budget vocabulary (`xhigh`,
-`max`), which OpenRouter does not expose on this model.
 | `google/gemini-3.6-flash` | OpenRouter | `google/gemini-3.6-flash` |
 | `qwen/qwen3.7-max`        | OpenRouter | `qwen/qwen3.7-max`        |
+
+Luna routes through OpenAI direct. Its reasoning budget and optional service
+tier are explicit OpenAI request fields owned by our configuration. Terra
+remains direct for the same provider contract. A possible OpenRouter Luna Pro
+fallback is future work and must have a distinct public id; it is never a
+silent remap of `openai/gpt-5.6-luna`.
 
 The id shapes differ per provider and the difference is load-bearing: OpenRouter
 addresses models as `vendor/model` and resolves a bare name to nothing, while
 OpenAI wants the bare name. Either mistake is a 404 on every call, so a contract
 test asserts the shape matches the provider rather than only the table.
 
-The route is chosen by **which account is funded**. The whole table sat on
-OpenRouter from 2026-07-27, after a rehearsal pointed extraction at Luna while
-the OpenAI account was empty and all thirty-six extract jobs died on
-`provider_error`. Luna moved back on 2026-07-31 once that account was funded,
-which also buys the `xhigh` reasoning effort OpenRouter does not expose on it.
+The adapter is part of the persisted model contract: `openai/gpt-5.6-luna`
+always means direct OpenAI. Missing credentials for the selected adapter fail
+closed; they never trigger a substitute provider or model.
 
 The mapping lives in `assistant-models.ts` and has an exact contract test. The
 default is `google/gemini-3.6-flash`. Post-event feedback extraction reuses this
 same registry through `FEEDBACK_EXTRACTION_MODEL`, so there is exactly one
 public-id → provider-id table in the backend; it does not reuse the assistant's
-default constant, because the two features choose a model for different reasons. Missing provider configuration returns
-`503`; the backend never substitutes a different model. Provider clients are
+default constant, because the two features choose a model for different
+reasons. Missing provider configuration returns `503`. Provider clients are
 created once per worker service, as in the source `notes_ai` adapter, while the
 JoinTheSix registry keeps the provider boundary explicit.
 
@@ -57,8 +57,8 @@ Every turn also persists reasoning effort: `low`, `medium` or `high`, defaulting
 to `low`. The worker maps it exactly to
 `{ openai: { reasoningEffort } }` for Luna and Terra or
 `{ openrouter: { reasoning: { effort } } }` for Gemini and Qwen3.7 Max — keyed
-off the adapter's provider, not off the model id, so a route change moves the
-spelling with it. The Qwen entry is the current text-only flagship copied from
+off the adapter fixed by the public model id. The Qwen entry is the current
+text-only flagship copied from
 the `notes_ai` selector, with `low`, `medium` and `high` as its exact offered
 efforts. Retry and resume reuse the persisted model and effort; neither is
 inferred again.
@@ -229,14 +229,10 @@ separate authenticated command boundary.
 
 ## Configuration, observability and tests
 
-`OPENROUTER_API_KEY` enables all four public models — Gemini 3.6 Flash, Qwen3.7
-Max, Luna and Terra alike. Every one is routed through OpenRouter
-(`assistant-models.ts`), whatever its id looks like: `openai/gpt-5.6-luna` names
-the model, not the provider. `OPENAI_API_KEY` provisions nothing on its own, and
-an operator who sets only that gets a 503 from every request. Calls have a
-two-minute total bound and
-AI SDK retries disabled so BullMQ owns visible retries. Worker concurrency is
-two per process.
+`OPENROUTER_API_KEY` enables Gemini 3.6 Flash and Qwen3.7 Max.
+`OPENAI_API_KEY` enables Luna and Terra. Credentials never substitute for one
+another. Calls have a two-minute total bound and AI SDK retries disabled so
+BullMQ owns visible retries. Worker concurrency is two per process.
 
 Logs contain queue/job/turn correlation identifiers and safe error categories,
 never prompts, answers, keys or provider bodies. Focused tests cover Mongo
@@ -275,6 +271,6 @@ sensitive/long-lived personal information or raising that bound.
   [OpenAI provider](https://ai-sdk.dev/providers/ai-sdk-providers/openai) and
   [OpenRouter provider](https://github.com/OpenRouterTeam/ai-sdk-provider)
 - [GPT-5.6 Luna](https://developers.openai.com/api/docs/models/gpt-5.6-luna),
-  [GPT-5.6 Terra](https://developers.openai.com/api/docs/models/gpt-5.6-terra)
+  [GPT-5.6 Terra](https://developers.openai.com/api/docs/models/gpt-5.6-terra),
   [Gemini 3.6 Flash on OpenRouter](https://openrouter.ai/google/gemini-3.6-flash)
   and [Qwen3.7 Max on OpenRouter](https://openrouter.ai/qwen/qwen3.7-max)

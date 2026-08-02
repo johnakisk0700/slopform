@@ -1,13 +1,17 @@
 import { MODULE_METADATA } from "@nestjs/common/constants.js";
 import { describe, expect, it } from "vitest";
 
+import { IS_PUBLIC_ROUTE } from "../../infrastructure/auth/public.decorator.js";
 import { isFeedbackSimulatorHttpEnabled } from "../../infrastructure/config/enabled-modules.js";
 import {
   QueueModule,
   QueueWorkerModule,
 } from "../../infrastructure/queue/queue.module.js";
 import { EventsCoreModule } from "../events/events-core.module.js";
+import { FeedbackBurstController } from "./burst/burst.controller.js";
 import { FeedbackOutboxSchedulerService } from "./outbox/relay-scheduler.service.js";
+import { DisabledFeedbackTransport } from "./outbox/disabled-transport.service.js";
+import type { SimulatedFeedbackTransport } from "./outbox/simulated-transport.service.js";
 import { FeedbackSweepSchedulerService } from "./sweeps/sweep-scheduler.service.js";
 import { MessageOutboxDeliveryService } from "./outbox/deliver.service.js";
 import { MessageOutboxDeliveryStatusService } from "./outbox/delivery-status.service.js";
@@ -19,7 +23,11 @@ import { PostEventFeedbackIngressModule } from "./ingress/ingress.module.js";
 import { PostEventFeedbackIngressService } from "./ingress/ingress.service.js";
 import { PostEventFeedbackMaterializer } from "./ingress/materialize.service.js";
 import { PostEventFeedbackSweepService } from "./sweeps/sweep.service.js";
-import { PostEventFeedbackWorkerModule } from "./worker.module.js";
+import { FeedbackSimulatorController } from "./simulator/simulator.controller.js";
+import {
+  createFeedbackTransport,
+  PostEventFeedbackWorkerModule,
+} from "./worker.module.js";
 import { PostEventFeedbackProcessor } from "./processor.js";
 
 function providerToken(provider: unknown): unknown {
@@ -107,7 +115,7 @@ describe("post-event feedback process composition", () => {
     expect(workerProviders).not.toContain(PostEventFeedbackIngressService);
   });
 
-  it("keeps the feedback simulator HTTP module out of production composition", () => {
+  it("keeps production simulator composition fail-closed without its rehearsal gate", () => {
     expect(
       isFeedbackSimulatorHttpEnabled({
         NODE_ENV: "production",
@@ -136,6 +144,60 @@ describe("post-event feedback process composition", () => {
         TRANSPORT_MODE: "simulated",
       }),
     ).toBe(true);
+    expect(
+      isFeedbackSimulatorHttpEnabled({
+        NODE_ENV: "production",
+        FEEDBACK_PRODUCTION_REHEARSAL_ENABLED: "true",
+        FEEDBACK_SIMULATOR_ENABLED: "true",
+        TRANSPORT_MODE: "simulated",
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps the production rehearsal simulator behind the global Clerk guard", () => {
+    expect(
+      Reflect.getMetadata(IS_PUBLIC_ROUTE, FeedbackSimulatorController),
+    ).not.toBe(true);
+    expect(
+      Reflect.getMetadata(IS_PUBLIC_ROUTE, FeedbackBurstController),
+    ).not.toBe(true);
+    expect(
+      Reflect.getMetadata(
+        IS_PUBLIC_ROUTE,
+        FeedbackBurstController.prototype.getCatalog,
+      ),
+    ).not.toBe(true);
+
+    for (const method of [
+      "getCatalog",
+      "preflightRun",
+      "startRun",
+      "getRun",
+      "inject",
+      "getThread",
+    ] as const) {
+      expect(
+        Reflect.getMetadata(
+          IS_PUBLIC_ROUTE,
+          FeedbackSimulatorController.prototype[method],
+        ),
+      ).not.toBe(true);
+    }
+  });
+
+  it("selects a provider-free disabled transport and enforces Wasender credentials in the worker", () => {
+    const disabled = new DisabledFeedbackTransport();
+    const simulated = {} as SimulatedFeedbackTransport;
+
+    expect(
+      createFeedbackTransport("disabled", undefined, simulated, disabled),
+    ).toBe(disabled);
+    expect(
+      createFeedbackTransport("simulated", undefined, simulated, disabled),
+    ).toBe(simulated);
+    expect(() =>
+      createFeedbackTransport("wasender", undefined, simulated, disabled),
+    ).toThrow(/WASENDER_SESSION_API_KEY is required/);
   });
 
   it("keeps the extraction model provider in the worker process only", () => {

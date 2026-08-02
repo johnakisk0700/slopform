@@ -1135,4 +1135,5 @@ const SCENARIOS: readonly FeedbackScenario[] = [
 runFeedbackScenarios(
   "post-event feedback loop — safety, identity and staff control",
   SCENARIOS,
+  { questionSetVersion: 1 },
 );

@@ -88,7 +88,9 @@ function loadEnvFile(fileName) {
     const [, key, rawValue] = match;
     if (process.env[key]) continue;
 
-    process.env[key] = rawValue.replace(/^['"]|['"]$/g, "").replace(/\\n/g, "\n");
+    process.env[key] = rawValue
+      .replace(/^['"]|['"]$/g, "")
+      .replace(/\\n/g, "\n");
   }
 }
 
@@ -156,14 +158,19 @@ function parseArgs(argv) {
   if (!Number.isInteger(args.n) || args.n < 1 || args.n > 10) {
     throw new Error("--n must be an integer from 1 to 10.");
   }
-  if (args.maxTokens !== null && (!Number.isInteger(args.maxTokens) || args.maxTokens < 1)) {
+  if (
+    args.maxTokens !== null &&
+    (!Number.isInteger(args.maxTokens) || args.maxTokens < 1)
+  ) {
     throw new Error("--max-tokens must be a positive integer.");
   }
   if (
     args.strength !== null &&
     (!Number.isFinite(args.strength) || args.strength < 0 || args.strength > 1)
   ) {
-    throw new Error("--strength must be a number in [0, 1] (0 ≈ identical, 1 ≈ free).");
+    throw new Error(
+      "--strength must be a number in [0, 1] (0 ≈ identical, 1 ≈ free).",
+    );
   }
   if (args.strength !== null && args.references.length === 0) {
     throw new Error("--strength requires at least one --reference (img2img).");
@@ -200,7 +207,9 @@ Options:
 async function listModels() {
   const response = await fetch("https://openrouter.ai/api/v1/images/models");
   if (!response.ok) {
-    throw new Error(`OpenRouter image models request failed: ${response.status}`);
+    throw new Error(
+      `OpenRouter image models request failed: ${response.status}`,
+    );
   }
 
   const json = await response.json();
@@ -224,7 +233,12 @@ function imageExtension(bytes, mediaType = "") {
   if (mediaType === "image/png") return "png";
   if (mediaType === "image/webp") return "webp";
   if (mediaType === "image/jpeg" || mediaType === "image/jpg") return "jpg";
-  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47)
+  if (
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47
+  )
     return "png";
   if (bytes[0] === 0xff && bytes[1] === 0xd8) return "jpg";
   if (bytes.subarray(0, 4).toString("ascii") === "RIFF") return "webp";
@@ -241,7 +255,8 @@ function referenceToDataUrl(reference) {
   if (/^(data:image\/|https?:\/\/)/i.test(reference)) return reference;
 
   const path = resolve(process.cwd(), reference);
-  if (!existsSync(path)) throw new Error(`Reference image not found: ${reference}`);
+  if (!existsSync(path))
+    throw new Error(`Reference image not found: ${reference}`);
 
   const bytes = readFileSync(path);
   const extension = imageExtension(bytes);
@@ -253,7 +268,8 @@ function referenceToDataUrl(reference) {
         : extension === "bin"
           ? null
           : `image/${extension}`;
-  if (!mediaType) throw new Error(`Unsupported reference image format: ${reference}`);
+  if (!mediaType)
+    throw new Error(`Unsupported reference image format: ${reference}`);
 
   return `data:${mediaType};base64,${bytes.toString("base64")}`;
 }
@@ -275,7 +291,9 @@ async function imageItemToBuffer(item) {
     return Buffer.from(await response.arrayBuffer());
   }
 
-  throw new Error("Image response item had no b64_json, data URL, or fetchable URL.");
+  throw new Error(
+    "Image response item had no b64_json, data URL, or fetchable URL.",
+  );
 }
 
 async function writeImageApiOutputs(json, outPath) {
@@ -289,7 +307,10 @@ async function writeImageApiOutputs(json, outPath) {
   for (const [index, item] of images.entries()) {
     const bytes = await imageItemToBuffer(item);
     const extension = imageExtension(bytes, item?.media_type);
-    const targetPath = withActualExtension(outPathForIndex(outPath, index), extension);
+    const targetPath = withActualExtension(
+      outPathForIndex(outPath, index),
+      extension,
+    );
     const target = resolve(process.cwd(), targetPath);
     mkdirSync(dirname(target), { recursive: true });
     writeFileSync(target, bytes);
@@ -374,7 +395,8 @@ async function runImagesApi({ apiKey, args, prompt }) {
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
-      "HTTP-Referer": process.env.OPENROUTER_SITE_URL || "http://localhost:5173",
+      "HTTP-Referer":
+        process.env.OPENROUTER_SITE_URL || "http://localhost:5173",
       "X-Title": process.env.OPENROUTER_APP_NAME || "join-the-six",
     },
     body: JSON.stringify(requestBody),
@@ -431,16 +453,20 @@ async function runChatCompletionsApi({ apiKey, args, prompt }) {
     return;
   }
 
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-      "HTTP-Referer": process.env.OPENROUTER_SITE_URL || "http://localhost:5173",
-      "X-Title": process.env.OPENROUTER_APP_NAME || "join-the-six",
+  const response = await fetch(
+    "https://openrouter.ai/api/v1/chat/completions",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer":
+          process.env.OPENROUTER_SITE_URL || "http://localhost:5173",
+        "X-Title": process.env.OPENROUTER_APP_NAME || "join-the-six",
+      },
+      body: JSON.stringify(requestBody),
     },
-    body: JSON.stringify(requestBody),
-  });
+  );
 
   const json = await response.json();
   if (!response.ok) {
@@ -466,7 +492,10 @@ async function runChatCompletionsApi({ apiKey, args, prompt }) {
 
     const bytes = Buffer.from(match[2], "base64");
     const extension = imageExtension(bytes, `image/${match[1]}`);
-    const targetPath = withActualExtension(outPathForIndex(args.out, index), extension);
+    const targetPath = withActualExtension(
+      outPathForIndex(args.out, index),
+      extension,
+    );
     const target = resolve(process.cwd(), targetPath);
     mkdirSync(dirname(target), { recursive: true });
     writeFileSync(target, bytes);
@@ -496,12 +525,16 @@ async function main() {
 
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
-    throw new Error("OPENROUTER_API_KEY is missing. Put it in .env or export it.");
+    throw new Error(
+      "OPENROUTER_API_KEY is missing. Put it in .env or export it.",
+    );
   }
 
-  let prompt = args.prompt ?? (args.promptFile
-    ? readFileSync(resolve(process.cwd(), args.promptFile), "utf8")
-    : "");
+  let prompt =
+    args.prompt ??
+    (args.promptFile
+      ? readFileSync(resolve(process.cwd(), args.promptFile), "utf8")
+      : "");
   prompt = prompt.trim();
   if (!prompt) {
     throw new Error("No prompt provided. Use --prompt or --prompt-file.");
@@ -511,7 +544,9 @@ async function main() {
   }
 
   const fullPrompt = args.raw ? prompt : `${DOODLE_STYLE}${prompt}`;
-  const runner = IMAGE_API_MODELS.has(args.model) ? runImagesApi : runChatCompletionsApi;
+  const runner = IMAGE_API_MODELS.has(args.model)
+    ? runImagesApi
+    : runChatCompletionsApi;
   await runner({ apiKey, args, prompt: fullPrompt });
 }
 

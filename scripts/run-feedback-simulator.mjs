@@ -61,6 +61,12 @@ async function main() {
       JSON.stringify(
         {
           activeModel: catalog.activeModel,
+          activeExtractionReasoningEffort:
+            catalog.activeExtractionReasoningEffort,
+          activeAttentionReasoningEffort:
+            catalog.activeAttentionReasoningEffort,
+          activeServiceTier: catalog.activeServiceTier,
+          workerAttestation: catalog.workerAttestation,
           evalModels: catalog.availableModels,
           timingPolicy: catalog.timingPolicy,
           quietWindowMs: catalog.quietWindowMs,
@@ -112,6 +118,11 @@ async function main() {
     process.exitCode = 2;
     return;
   }
+  const effectiveConfig = {
+    extractionReasoningEffort: catalog.activeExtractionReasoningEffort,
+    attentionReasoningEffort: catalog.activeAttentionReasoningEffort,
+    serviceTier: catalog.activeServiceTier,
+  };
 
   const selection = {
     campaignId: args.campaign,
@@ -135,23 +146,42 @@ async function main() {
     JSON.stringify({
       event: "feedback_eval.preflight",
       ...preview,
+      config: effectiveConfig,
       links,
     }),
   );
-  if (args.preflight) {
+  if (!effectiveConfig.extractionReasoningEffort) {
+    console.error(
+      "Paid mode requires an explicit FEEDBACK_EXTRACTION_REASONING_EFFORT; provider-default reasoning is not a reproducible treatment.",
+    );
+    console.error(
+      `Restart both API and worker with FEEDBACK_EXTRACTION_MODEL=${args.model} and an explicit reasoning effort.`,
+    );
+    process.exitCode = 2;
     return;
   }
   if (!preview.workerRegistered) {
     console.error(
-      "No feedback worker is registered in Redis. Start the worker before a paid run.",
+      preview.workerAttestation?.issue ??
+        "The feedback worker does not have a verified control attestation. Start the current worker build with the same treatment before a paid run.",
     );
     process.exitCode = 2;
+    return;
+  }
+  if (args.preflight) {
     return;
   }
 
   if (!args["confirm-paid-run"]) {
     console.error("Paid real-model run not confirmed.");
     console.error(`  model:        ${args.model}`);
+    console.error(
+      `  reasoning:    ${effectiveConfig.extractionReasoningEffort}`,
+    );
+    console.error(
+      `  classifier:   ${effectiveConfig.attentionReasoningEffort}`,
+    );
+    console.error(`  service tier: ${effectiveConfig.serviceTier ?? "unset"}`);
     console.error(`  scenario:     ${args.scenario}`);
     console.error(`  campaign:     ${args.campaign}`);
     console.error(`  conversation: ${args.conversation}`);
@@ -171,6 +201,13 @@ async function main() {
     "Starting confirmed paid real-model evaluation (extraction plus attention classification):",
   );
   console.error(`  model:          ${args.model}`);
+  console.error(
+    `  reasoning:      ${effectiveConfig.extractionReasoningEffort}`,
+  );
+  console.error(
+    `  classifier:     ${effectiveConfig.attentionReasoningEffort}`,
+  );
+  console.error(`  service tier:   ${effectiveConfig.serviceTier ?? "unset"}`);
   console.error(`  scenario:       ${args.scenario}`);
   console.error(`  campaign:       ${args.campaign}`);
   console.error(`  conversation:   ${args.conversation}`);
@@ -194,6 +231,8 @@ async function main() {
       campaignId: run.campaignId,
       conversationId: run.conversationId,
       correlationId: run.correlationId,
+      config: effectiveConfig,
+      feedbackVenue: preview.feedbackVenue,
       renderedMessages: run.renderedMessages,
       candidateBindings: run.candidateBindings,
       rubric: run.rubric,
@@ -211,7 +250,17 @@ async function main() {
     }
 
     if (run.stage === "processed" || run.stage === "failed") {
-      console.log(JSON.stringify(run, undefined, 2));
+      console.log(
+        JSON.stringify(
+          {
+            ...run,
+            config: effectiveConfig,
+            feedbackVenue: preview.feedbackVenue,
+          },
+          undefined,
+          2,
+        ),
+      );
       process.exitCode = run.stage === "processed" ? 0 : 1;
       return;
     }
@@ -317,7 +366,11 @@ The API and worker must already be running with:
   NODE_ENV=development
   FEEDBACK_SIMULATOR_ENABLED=true
   TRANSPORT_MODE=simulated
-  FEEDBACK_EXTRACTION_MODEL=<the same explicit --model>
+  FEEDBACK_EXTRACTION_STUB=false
+  FEEDBACK_EXTRACTION_MODEL=openai/gpt-5.6-luna
+  FEEDBACK_EXTRACTION_REASONING_EFFORT=xhigh
+  FEEDBACK_ATTENTION_REASONING_EFFORT=high
+  FEEDBACK_EXTRACTION_SERVICE_TIER=
 
 The command uses the normal ingress/materializer/queue/extractor/outbox path.
 It never cleans up: inspect the persisted conversation and results afterward.`);

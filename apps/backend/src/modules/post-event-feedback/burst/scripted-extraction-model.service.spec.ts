@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { buildFeedbackExtractionPrompt } from "../extraction/prompt.js";
 import type { FeedbackExtractionContext } from "../extraction/extraction.schemas.js";
 import { FeedbackExtractionGenerationError } from "../extraction/model.service.js";
-import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "../question-set.js";
+import { POST_EVENT_FEEDBACK_QUESTION_SET_V2 } from "../question-set.js";
 import type { BurstPersona } from "./burst-scenario.js";
 import { parseBurstExtractionPrompt } from "./parse-burst-extraction-prompt.js";
 import {
@@ -12,7 +12,11 @@ import {
   ScriptedBurstExtractionModel,
 } from "./scripted-extraction-model.service.js";
 
-const COPY = POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy;
+const COPY = POST_EVENT_FEEDBACK_QUESTION_SET_V2.copy;
+const V2_QUESTION_KEYS =
+  POST_EVENT_FEEDBACK_QUESTION_SET_V2.answerQuestions.map(
+    (question) => question.key,
+  );
 
 function persona(overrides: Partial<BurstPersona> = {}): BurstPersona {
   return {
@@ -24,14 +28,19 @@ function persona(overrides: Partial<BurstPersona> = {}): BurstPersona {
     quirk: "types slowly",
     mirrors: "burst_typist",
     messages: [
-      { afterMs: 0, text: "πέντε" },
-      { afterMs: 2_000, text: "μου άρεσε ο Νίκος" },
+      { afterMs: 0, text: "συνολικά πέντε" },
+      {
+        afterMs: 2_000,
+        text: "ταίριασμα τέσσερα, συμμετοχή πέντε, ισορροπία τρία",
+      },
     ],
     stub: [
       {
         answers: [
           { question: "event_score", value: 5, cite: "all-new" },
-          { question: "liked", about: "Νίκος Παπαδόπουλος", cite: "last" },
+          { question: "table_fit", value: 4, cite: "last" },
+          { question: "participation_ease", value: 5, cite: "last" },
+          { question: "conversation_balance", value: 3, cite: "last" },
         ],
         nextGoal: "meet_again",
         reply: "Με ποιους θα ήθελες να ξαναβρεθείς;",
@@ -92,20 +101,32 @@ function context(
         status: "asked",
       },
       {
-        key: "liked",
+        key: "table_fit",
         ordinal: 2,
-        prompt: "liked",
+        prompt: "table fit",
+        status: "pending",
+      },
+      {
+        key: "participation_ease",
+        ordinal: 3,
+        prompt: "participation ease",
+        status: "pending",
+      },
+      {
+        key: "conversation_balance",
+        ordinal: 4,
+        prompt: "conversation balance",
         status: "pending",
       },
       {
         key: "meet_again",
-        ordinal: 3,
+        ordinal: 5,
         prompt: "meet",
         status: "pending",
       },
       {
         key: "avoid",
-        ordinal: 4,
+        ordinal: 6,
         prompt: "avoid",
         status: "pending",
       },
@@ -126,14 +147,14 @@ function context(
         seq: 2,
         actor: "participant",
         occurredAt: "2026-07-27T10:00:12.000Z",
-        text: "πέντε",
+        text: "συνολικά πέντε",
       },
       {
         id: "msg-p-2",
         seq: 3,
         actor: "participant",
         occurredAt: "2026-07-27T10:00:14.000Z",
-        text: "μου άρεσε ο Νίκος",
+        text: "ταίριασμα τέσσερα, συμμετοχή πέντε, ισορροπία τρία",
       },
     ],
     newParticipantMessageIds: ["msg-p-1", "msg-p-2"],
@@ -170,14 +191,14 @@ describe("parseBurstExtractionPrompt", () => {
         occurredAt: "2026-07-27T10:00:12.000Z",
         id: "msg-p-1",
         actor: "participant",
-        text: "πέντε",
+        text: "συνολικά πέντε",
       },
       {
         seq: 3,
         occurredAt: "2026-07-27T10:00:14.000Z",
         id: "msg-p-2",
         actor: "participant",
-        text: "μου άρεσε ο Νίκος",
+        text: "ταίριασμα τέσσερα, συμμετοχή πέντε, ισορροπία τρία",
       },
     ]);
   });
@@ -211,9 +232,9 @@ describe("ScriptedBurstExtractionModel", () => {
       copy: COPY,
     });
 
-    await expect(model.propose(prompt)).rejects.toBeInstanceOf(
-      FeedbackExtractionGenerationError,
-    );
+    await expect(
+      model.propose(prompt, V2_QUESTION_KEYS),
+    ).rejects.toBeInstanceOf(FeedbackExtractionGenerationError);
   });
 
   it("throws when new messages match two personas", () => {
@@ -237,7 +258,7 @@ describe("ScriptedBurstExtractionModel", () => {
       context: context(),
       copy: COPY,
     });
-    await model.propose(first);
+    await model.propose(first, V2_QUESTION_KEYS);
 
     const second = buildFeedbackExtractionPrompt({
       context: context({
@@ -247,7 +268,7 @@ describe("ScriptedBurstExtractionModel", () => {
             seq: 4,
             actor: "participant",
             occurredAt: "2026-07-27T10:01:00.000Z",
-            text: "πέντε",
+            text: "συνολικά πέντε",
           },
         ],
         newParticipantMessageIds: ["msg-p-3"],
@@ -255,7 +276,9 @@ describe("ScriptedBurstExtractionModel", () => {
       copy: COPY,
     });
 
-    await expect(model.propose(second)).rejects.toThrow(/exhausted/);
+    await expect(model.propose(second, V2_QUESTION_KEYS)).rejects.toThrow(
+      /exhausted/,
+    );
   });
 
   it("resolves about names and cite tokens through propose", async () => {
@@ -265,7 +288,7 @@ describe("ScriptedBurstExtractionModel", () => {
       copy: COPY,
     });
 
-    const result = await model.propose(prompt);
+    const result = await model.propose(prompt, V2_QUESTION_KEYS);
     expect(result.usage).toEqual({
       inputTokens: null,
       outputTokens: null,
@@ -285,12 +308,38 @@ describe("ScriptedBurstExtractionModel", () => {
         ],
         declinedSourceMessageIds: [],
       },
-      liked: {
+      table_fit: {
         status: "answered",
         answers: [
           {
-            valueInt: null,
-            subjectParticipantId: "cand-nikos",
+            valueInt: 4,
+            subjectParticipantId: null,
+            subjectMentionedName: null,
+            sourceMessageIds: ["msg-p-2"],
+            confidence: 0.9,
+          },
+        ],
+        declinedSourceMessageIds: [],
+      },
+      participation_ease: {
+        status: "answered",
+        answers: [
+          {
+            valueInt: 5,
+            subjectParticipantId: null,
+            subjectMentionedName: null,
+            sourceMessageIds: ["msg-p-2"],
+            confidence: 0.9,
+          },
+        ],
+        declinedSourceMessageIds: [],
+      },
+      conversation_balance: {
+        status: "answered",
+        answers: [
+          {
+            valueInt: 3,
+            subjectParticipantId: null,
             subjectMentionedName: null,
             sourceMessageIds: ["msg-p-2"],
             confidence: 0.9,
@@ -322,7 +371,7 @@ describe("ScriptedBurstExtractionModel", () => {
     });
 
     const [proposed, attention] = await Promise.all([
-      model.propose(prompt),
+      model.propose(prompt, V2_QUESTION_KEYS),
       model.classifyAttention(
         extractionContext.messages,
         extractionContext.newParticipantMessageIds,
@@ -333,7 +382,7 @@ describe("ScriptedBurstExtractionModel", () => {
       Object.values(proposed.proposal.goals).filter(
         (verdict) => verdict.status === "answered",
       ),
-    ).toHaveLength(2);
+    ).toHaveLength(4);
     expect(attention.signals).toEqual([]);
     expect(attention.usage.inputTokens).toBeNull();
     expect(attention.estimatedPromptTokens).toBe(0);

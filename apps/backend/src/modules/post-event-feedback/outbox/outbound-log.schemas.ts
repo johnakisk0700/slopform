@@ -14,6 +14,11 @@ export const feedbackOutboundDecisionSchema = z.discriminatedUnion("origin", [
       confidence: z.number().min(0).max(1).nullable(),
       closingReason: z.enum(["completed", "declined"]).nullable(),
       askedGoal: z.string().nullable(),
+      /**
+       * Venue context used by this model run. Null means the prompt was venue
+       * blind; optional keeps historical log rows readable.
+       */
+      venueContextRevision: z.number().int().min(1).nullable().optional(),
       goalStatuses: z.array(
         z.object({
           key: z.string().min(1),

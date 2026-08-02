@@ -4,8 +4,9 @@ import type {
   FeedbackCampaignSummaryRow,
 } from "@join-the-six/database";
 import type { ConfigService } from "@nestjs/config";
+import { generateText } from "ai";
 import type { Queue } from "bullmq";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
 import type { Environment } from "../../../infrastructure/config/environment.js";
@@ -21,6 +22,13 @@ import {
 import { buildPostEventFeedbackQuestionLaunchSnapshot } from "../question-set.js";
 import { PostEventFeedbackCampaignSummaryService } from "./summary.service.js";
 
+vi.mock("ai", async (importOriginal) => {
+  const original = await importOriginal<typeof import("ai")>();
+  return { ...original, generateText: vi.fn() };
+});
+
+const mockedGenerateText = vi.mocked(generateText);
+
 const campaignId = "89eccaa5-9ce6-4dcf-a630-5e35e4ec6f0d";
 const eventId = "7c57f3b8-2b13-48f5-8730-18ac71f490cd";
 const correlationId = "req-summary-1";
@@ -29,7 +37,7 @@ const campaignRow: FeedbackCampaignRow = {
   id: campaignId,
   eventId,
   questionSetVersion: 1,
-  questions: buildPostEventFeedbackQuestionLaunchSnapshot(),
+  questions: buildPostEventFeedbackQuestionLaunchSnapshot(1),
   status: "launched",
   launchedAt: new Date("2026-07-25T00:00:00.000Z"),
   launchedBy: "admin-1",
@@ -60,6 +68,13 @@ const pendingSummaryRow = (
   ...overrides,
 });
 
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockedGenerateText.mockResolvedValue({
+    text: "  generated summary  ",
+  } as Awaited<ReturnType<typeof generateText>>);
+});
+
 describe("PostEventFeedbackCampaignSummaryService", () => {
   it("returns the existing pending row without re-enqueueing", async () => {
     const { service, campaigns, queue, auditAppend } = createService();
@@ -83,7 +98,10 @@ describe("PostEventFeedbackCampaignSummaryService", () => {
     const { service, conversations, campaigns, queue } = createService();
     conversations.countOpenForCampaign.mockResolvedValue(2);
 
-    await service.maybeRequestAfterConversationClosed(campaignId, correlationId);
+    await service.maybeRequestAfterConversationClosed(
+      campaignId,
+      correlationId,
+    );
 
     expect(campaigns.findSummaryByCampaignId).not.toHaveBeenCalled();
     expect(campaigns.upsertSummaryPending).not.toHaveBeenCalled();
@@ -124,6 +142,60 @@ describe("PostEventFeedbackCampaignSummaryService", () => {
       }),
     );
   });
+
+  it.each([
+    {
+      version: 1 as const,
+      expectedInstruction: "Αναλύεις campaign με ερωτηματολόγιο V1",
+      excludedInstruction: "Κράτησε χωριστές τις τέσσερις βαθμολογίες",
+    },
+    {
+      version: 2 as const,
+      expectedInstruction: "Αναλύεις campaign με ερωτηματολόγιο V2",
+      excludedInstruction: "Το liked είναι η απάντηση V1",
+    },
+  ])(
+    "builds a V$version prompt from the campaign's persisted question-set version",
+    async ({ version, expectedInstruction, excludedInstruction }) => {
+      const { service, campaigns } = createService();
+      campaigns.findCampaignById.mockResolvedValue({
+        ...campaignRow,
+        questionSetVersion: version,
+        questions: buildPostEventFeedbackQuestionLaunchSnapshot(version),
+      });
+      campaigns.findSummaryByCampaignId.mockResolvedValue(pendingSummaryRow());
+
+      await service.run(
+        {
+          schemaVersion: 1,
+          campaignId,
+          correlationId,
+        },
+        createFeedbackSummarizeCampaignJobId(campaignId, 1),
+      );
+
+      const options = mockedGenerateText.mock.calls[0]?.[0];
+      const message = options?.messages?.[0];
+      const prompt =
+        message && "content" in message && typeof message.content === "string"
+          ? message.content
+          : "";
+      expect(prompt).toContain(expectedInstruction);
+      expect(prompt).not.toContain(excludedInstruction);
+      if (version === 2) {
+        expect(prompt).toContain("Κράτησε χωριστές τις τέσσερις βαθμολογίες");
+      }
+      expect(campaigns.findCampaignById).toHaveBeenCalledWith(campaignId);
+      expect(campaigns.markSummaryReady).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          campaignId,
+          attempt: 1,
+          body: "generated summary",
+        }),
+      );
+    },
+  );
 });
 
 function createService(): {
@@ -132,9 +204,18 @@ function createService(): {
     findCampaignById: ReturnType<typeof vi.fn>;
     findSummaryByCampaignId: ReturnType<typeof vi.fn>;
     upsertSummaryPending: ReturnType<typeof vi.fn>;
+    markSummaryReady: ReturnType<typeof vi.fn>;
   };
   conversations: {
     countOpenForCampaign: ReturnType<typeof vi.fn>;
+    listForCampaign: ReturnType<typeof vi.fn>;
+  };
+  results: {
+    listAnswersByCampaign: ReturnType<typeof vi.fn>;
+    listNotesByCampaign: ReturnType<typeof vi.fn>;
+  };
+  participants: {
+    findByIds: ReturnType<typeof vi.fn>;
   };
   queue: {
     add: ReturnType<typeof vi.fn>;
@@ -157,6 +238,13 @@ function createService(): {
     add: vi.fn().mockResolvedValue(undefined),
   };
   const auditAppend = vi.fn().mockResolvedValue(undefined);
+  const results = {
+    listAnswersByCampaign: vi.fn().mockResolvedValue([]),
+    listNotesByCampaign: vi.fn().mockResolvedValue([]),
+  };
+  const participants = {
+    findByIds: vi.fn().mockResolvedValue([]),
+  };
   const database = {
     transaction: vi.fn(async (work: (tx: AppTransaction) => Promise<unknown>) =>
       work(transaction),
@@ -177,13 +265,15 @@ function createService(): {
       database as unknown as DatabaseService,
       campaigns as unknown as FeedbackCampaignRepository,
       conversations as unknown as FeedbackConversationRepository,
-      {} as FeedbackResultsRepository,
-      {} as ParticipantsRepository,
+      results as unknown as FeedbackResultsRepository,
+      participants as unknown as ParticipantsRepository,
       { append: auditAppend } as unknown as AuditRepository,
       queue as unknown as Queue,
     ),
     campaigns,
     conversations,
+    results,
+    participants,
     queue,
     auditAppend,
   };

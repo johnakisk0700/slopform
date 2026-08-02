@@ -6,6 +6,8 @@ import {
 } from "@join-the-six/database";
 import { z } from "zod";
 
+import type { EventFeedbackVenueContext } from "../../events/event-venue.js";
+
 import {
   postEventFeedbackRecommendedActionSchema,
   postEventFeedbackSafetyCategorySchema,
@@ -75,7 +77,7 @@ const subjectMentionSchema = z
 export const feedbackExtractionAnswerProposalSchema = z
   .object({
     questionKey: z.enum(FEEDBACK_ANSWER_QUESTION_KEYS),
-    /** Only `event_score` carries a value; other questions are directed edges. */
+    /** Scored questions carry a value; directed questions carry a subject. */
     valueInt: z.number().int().nullable(),
     /** A candidate id the model believes it resolved. Never trusted as given. */
     subjectParticipantId: messageReferenceSchema.nullable(),
@@ -109,7 +111,7 @@ export const feedbackExtractionAnswerProposalSchema = z
  */
 const goalAnswerSchema = z
   .object({
-    /** Only `event_score` carries a value; the rest are directed edges. */
+    /** Scored questions carry a value; directed questions carry a subject. */
     valueInt: z.number().int().nullable(),
     /** A candidate id the model believes it resolved. Never trusted as given. */
     subjectParticipantId: messageReferenceSchema.nullable(),
@@ -163,21 +165,13 @@ const goalVerdictSchema = z
     "What the new messages did to this goal. Fill `answers` only for `answered` and `declinedSourceMessageIds` only for `declined`; `already_settled` is a goal that was already answered or skipped before this run.",
   );
 
-/**
- * Every goal, always. The `satisfies` is the guard: adding a questionnaire goal
- * without adding it here stops compiling, rather than silently reintroducing a
- * goal the model is never asked about.
- */
-const goalVerdictShape = {
-  event_score: goalVerdictSchema,
-  liked: goalVerdictSchema,
-  meet_again: goalVerdictSchema,
-  avoid: goalVerdictSchema,
-} satisfies Record<FeedbackAnswerQuestionKey, typeof goalVerdictSchema>;
-
-const feedbackExtractionGoalVerdictsSchema = z
-  .object(goalVerdictShape)
-  .strict();
+/** Legacy static export defaults to V1; runtime generation is per conversation. */
+export const FEEDBACK_EXTRACTION_V1_GOAL_KEYS = [
+  "event_score",
+  "liked",
+  "meet_again",
+  "avoid",
+] as const satisfies readonly FeedbackAnswerQuestionKey[];
 
 export const feedbackExtractionNoteProposalSchema = z
   .object({
@@ -205,37 +199,6 @@ export const feedbackExtractionSafetySignalProposalSchema = z
     "A coarse, non-diagnostic model classification for one or more new participant messages. It is independent of answers and notes.",
   );
 
-export const feedbackExtractionProposalSchema = z
-  .object({
-    goals: feedbackExtractionGoalVerdictsSchema.describe(
-      "Every questionnaire goal, each with its own verdict. A goal answered in the new messages is `answered` even when the same message also describes an incident or asks for a human.",
-    ),
-    notes: z
-      .array(feedbackExtractionNoteProposalSchema)
-      .max(FEEDBACK_EXTRACTION_MAX_NOTES)
-      .describe(
-        "All new ordinary feedback notes. Safety-flavoured testimony remains an ordinary note.",
-      ),
-    nextGoal: z
-      .enum(FEEDBACK_ANSWER_QUESTION_KEYS)
-      .nullable()
-      .describe(
-        "The next unanswered goal after applying this proposal, or null when all goals are terminal.",
-      ),
-    reply: z
-      .string()
-      .trim()
-      .max(FEEDBACK_EXTRACTION_REPLY_MAX_LENGTH)
-      .nullable(),
-    handoff: z
-      .boolean()
-      .describe(
-        "True only when the participant explicitly asks to speak with a human. Staff priority is classified by an independent model call.",
-      ),
-    confidence: confidenceSchema,
-  })
-  .strict();
-
 export type FeedbackExtractionAnswerProposal = z.infer<
   typeof feedbackExtractionAnswerProposalSchema
 >;
@@ -245,12 +208,89 @@ export type FeedbackExtractionNoteProposal = z.infer<
 export type FeedbackExtractionSafetySignalProposal = z.infer<
   typeof feedbackExtractionSafetySignalProposalSchema
 >;
-export type FeedbackExtractionProposal = z.infer<
-  typeof feedbackExtractionProposalSchema
+export type FeedbackExtractionGoalAnswer = z.infer<typeof goalAnswerSchema>;
+
+export interface FeedbackExtractionGoalVerdict {
+  readonly status: (typeof FEEDBACK_EXTRACTION_GOAL_STATUSES)[number];
+  readonly answers: readonly FeedbackExtractionGoalAnswer[];
+  readonly declinedSourceMessageIds: readonly string[];
+}
+
+export type FeedbackExtractionGoalVerdicts = Partial<
+  Record<FeedbackAnswerQuestionKey, FeedbackExtractionGoalVerdict>
 >;
 
-export type FeedbackExtractionGoalVerdicts =
-  FeedbackExtractionProposal["goals"];
+export interface FeedbackExtractionProposal {
+  readonly goals: FeedbackExtractionGoalVerdicts;
+  readonly notes: readonly FeedbackExtractionNoteProposal[];
+  readonly nextGoal: FeedbackAnswerQuestionKey | null;
+  readonly reply: string | null;
+  readonly handoff: boolean;
+  readonly confidence: number;
+}
+
+/**
+ * Builds the provider schema from the goals durably stored on the conversation.
+ * A V1 campaign therefore requires exactly its four verdicts, while V2 requires
+ * exactly its six. No version is padded with fictional `already_settled` keys.
+ */
+export function createFeedbackExtractionProposalSchema(
+  questionKeys: readonly FeedbackAnswerQuestionKey[],
+): z.ZodType<FeedbackExtractionProposal> {
+  const uniqueKeys = [...new Set(questionKeys)];
+  if (uniqueKeys.length === 0 || uniqueKeys.length !== questionKeys.length) {
+    throw new Error(
+      "Feedback extraction schema requires a non-empty unique question-key set",
+    );
+  }
+
+  const goalVerdictShape = Object.fromEntries(
+    uniqueKeys.map((key) => [key, goalVerdictSchema]),
+  ) as Record<FeedbackAnswerQuestionKey, typeof goalVerdictSchema>;
+  const feedbackExtractionGoalVerdictsSchema = z
+    .object(goalVerdictShape)
+    .strict();
+  const nextGoalSchema = z.enum(
+    uniqueKeys as [FeedbackAnswerQuestionKey, ...FeedbackAnswerQuestionKey[]],
+  );
+
+  return z
+    .object({
+      goals: feedbackExtractionGoalVerdictsSchema.describe(
+        "Every questionnaire goal, each with its own verdict. A goal answered in the new messages is `answered` even when the same message also describes an incident or asks for a human.",
+      ),
+      notes: z
+        .array(feedbackExtractionNoteProposalSchema)
+        .max(FEEDBACK_EXTRACTION_MAX_NOTES)
+        .describe(
+          "All new ordinary feedback notes. Safety-flavoured testimony remains an ordinary note.",
+        ),
+      nextGoal: nextGoalSchema
+        .nullable()
+        .describe(
+          "The next unanswered goal after applying this proposal, or null when all goals are terminal.",
+        ),
+      reply: z
+        .string()
+        .trim()
+        .max(FEEDBACK_EXTRACTION_REPLY_MAX_LENGTH)
+        .nullable(),
+      handoff: z
+        .boolean()
+        .describe(
+          "True only when the participant explicitly asks to speak with a human. Staff priority is classified by an independent model call.",
+        ),
+      confidence: confidenceSchema,
+    })
+    .strict() as unknown as z.ZodType<FeedbackExtractionProposal>;
+}
+
+/**
+ * Compatibility schema for V1 fixtures and callers without a durable campaign.
+ * Production model generation always uses the per-conversation factory above.
+ */
+export const feedbackExtractionProposalSchema =
+  createFeedbackExtractionProposalSchema(FEEDBACK_EXTRACTION_V1_GOAL_KEYS);
 
 /**
  * Builds a complete verdict set from the goals a caller has something to say
@@ -261,16 +301,20 @@ export type FeedbackExtractionGoalVerdicts =
  * should not each have to spell out the goals that were not, and a hand-written
  * literal is exactly where a missing key would creep back in.
  */
-export function feedbackExtractionGoalVerdicts(input: {
-  readonly answered?: readonly FeedbackExtractionAnswerProposal[];
-  readonly declined?: readonly {
-    readonly questionKey: FeedbackAnswerQuestionKey;
-    readonly sourceMessageIds: readonly string[];
-  }[];
-  readonly alreadySettled?: readonly FeedbackAnswerQuestionKey[];
-}): FeedbackExtractionGoalVerdicts {
+export function feedbackExtractionGoalVerdicts(
+  input: {
+    readonly answered?: readonly FeedbackExtractionAnswerProposal[];
+    readonly declined?: readonly {
+      readonly questionKey: FeedbackAnswerQuestionKey;
+      readonly sourceMessageIds: readonly string[];
+    }[];
+    readonly alreadySettled?: readonly FeedbackAnswerQuestionKey[];
+  },
+  questionKeys: readonly FeedbackAnswerQuestionKey[] = FEEDBACK_EXTRACTION_V1_GOAL_KEYS,
+): FeedbackExtractionGoalVerdicts {
+  const allowedKeys = new Set(questionKeys);
   const verdicts = Object.fromEntries(
-    FEEDBACK_ANSWER_QUESTION_KEYS.map((key) => [
+    questionKeys.map((key) => [
       key,
       {
         status: "not_addressed",
@@ -282,6 +326,19 @@ export function feedbackExtractionGoalVerdicts(input: {
     FeedbackAnswerQuestionKey,
     FeedbackExtractionGoalVerdict
   >;
+
+  const assertedKeys = [
+    ...(input.alreadySettled ?? []),
+    ...(input.declined ?? []).map((decline) => decline.questionKey),
+    ...(input.answered ?? []).map((answer) => answer.questionKey),
+  ];
+  for (const key of assertedKeys) {
+    if (!allowedKeys.has(key)) {
+      throw new Error(
+        `Feedback verdict key ${key} is not in this question set`,
+      );
+    }
+  }
 
   for (const key of input.alreadySettled ?? []) {
     verdicts[key] = {
@@ -320,9 +377,6 @@ export function feedbackExtractionGoalVerdicts(input: {
 
   return verdicts;
 }
-
-type FeedbackExtractionGoalVerdict =
-  FeedbackExtractionGoalVerdicts[FeedbackAnswerQuestionKey];
 
 export type FeedbackExtractionActor =
   "bot" | "participant" | "staff" | "system";
@@ -390,6 +444,13 @@ export interface FeedbackExtractionContext {
   readonly goals: readonly FeedbackExtractionGoalView[];
   readonly acceptedAnswers: readonly FeedbackExtractionAcceptedAnswerView[];
   readonly acceptedNotes: readonly FeedbackExtractionAcceptedNoteView[];
+  /**
+   * Fallible operator context for conversational coherence only. Google Place
+   * identity and live metadata are excluded by the events-module boundary.
+   */
+  readonly venue?: EventFeedbackVenueContext | null;
+  /** Present only when this run actually supplied venue context to the model. */
+  readonly venueContextRevision?: number | null;
   /** Lifecycle, control and opt-in already agreed that the bot may speak. */
   readonly replyAllowed: boolean;
 }
@@ -413,6 +474,8 @@ export const FEEDBACK_EXTRACTION_REJECTION_REASONS = [
    */
   "answer_corrected_by_operator",
   "unknown_goal",
+  /** A proposal bypassed the per-conversation schema and omitted a real goal. */
+  "missing_goal_verdict",
   /**
    * `status: "answered"` with nothing in `answers`. A discriminated union would
    * have made this unrepresentable; a strict `response_format` refuses unions,

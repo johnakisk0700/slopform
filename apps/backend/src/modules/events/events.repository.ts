@@ -7,6 +7,8 @@ import {
   type EventAttendeeRow,
   type EventRow,
   type EventStatus,
+  type EventVenuePriceLevel,
+  type EventVenueProvider,
 } from "@join-the-six/database";
 import { and, asc, count, eq, sql } from "drizzle-orm";
 
@@ -28,13 +30,30 @@ export interface FeedbackCandidateRow {
   readonly present: boolean;
 }
 
+export interface EventVenueWrite {
+  readonly provider: EventVenueProvider;
+  readonly placeId: string;
+  readonly label: string;
+  readonly type: string | null;
+  readonly area: string | null;
+  readonly priceLevel: EventVenuePriceLevel | null;
+  readonly priceStartMinor: number | null;
+  readonly priceEndMinor: number | null;
+  readonly priceCurrencyCode: string | null;
+  readonly useInFeedback: boolean;
+}
+
 @Injectable()
 export class EventsRepository {
   constructor(private readonly database: DatabaseService) {}
 
   async create(
     transaction: AppTransaction,
-    input: { readonly title: string; readonly startsAt: Date },
+    input: {
+      readonly title: string;
+      readonly startsAt: Date;
+      readonly venue: EventVenueWrite | null;
+    },
   ): Promise<EventRow> {
     const [record] = await transaction
       .insert(events)
@@ -42,6 +61,7 @@ export class EventsRepository {
         title: input.title,
         startsAt: input.startsAt,
         status: "draft",
+        ...(input.venue ? venueCreateValues(input.venue) : {}),
       })
       .returning();
 
@@ -55,13 +75,19 @@ export class EventsRepository {
   async update(
     transaction: AppTransaction,
     id: string,
-    input: { readonly title?: string; readonly startsAt?: Date },
+    input: {
+      readonly title?: string;
+      readonly startsAt?: Date;
+      /** Undefined preserves the venue; null clears it. */
+      readonly venue?: EventVenueWrite | null;
+    },
   ): Promise<EventRow | undefined> {
     const [record] = await transaction
       .update(events)
       .set({
         ...(input.title !== undefined ? { title: input.title } : {}),
         ...(input.startsAt !== undefined ? { startsAt: input.startsAt } : {}),
+        ...(input.venue !== undefined ? venueUpdateValues(input.venue) : {}),
         updatedAt: new Date(),
       })
       .where(eq(events.id, id))
@@ -108,6 +134,25 @@ export class EventsRepository {
     return record;
   }
 
+  /**
+   * Shared row lock used by feedback generation. Parallel conversations may
+   * commit together, while a venue edit waits until their context-dependent
+   * outbox decision is durable.
+   */
+  async findByIdForShare(
+    transaction: AppTransaction,
+    id: string,
+  ): Promise<EventRow | undefined> {
+    const [record] = await transaction
+      .select()
+      .from(events)
+      .where(eq(events.id, id))
+      .limit(1)
+      .for("share");
+
+    return record;
+  }
+
   async listSummaries(): Promise<EventSummaryRow[]> {
     const rows = await this.database.db
       .select({
@@ -115,6 +160,17 @@ export class EventsRepository {
         title: events.title,
         startsAt: events.startsAt,
         status: events.status,
+        venueProvider: events.venueProvider,
+        venuePlaceId: events.venuePlaceId,
+        venueLabel: events.venueLabel,
+        venueType: events.venueType,
+        venueArea: events.venueArea,
+        venuePriceLevel: events.venuePriceLevel,
+        venuePriceStartMinor: events.venuePriceStartMinor,
+        venuePriceEndMinor: events.venuePriceEndMinor,
+        venuePriceCurrencyCode: events.venuePriceCurrencyCode,
+        venueUseInFeedback: events.venueUseInFeedback,
+        venueContextRevision: events.venueContextRevision,
         createdAt: events.createdAt,
         updatedAt: events.updatedAt,
         attendeeCount: count(eventAttendees.id),
@@ -140,6 +196,17 @@ export class EventsRepository {
         title: events.title,
         startsAt: events.startsAt,
         status: events.status,
+        venueProvider: events.venueProvider,
+        venuePlaceId: events.venuePlaceId,
+        venueLabel: events.venueLabel,
+        venueType: events.venueType,
+        venueArea: events.venueArea,
+        venuePriceLevel: events.venuePriceLevel,
+        venuePriceStartMinor: events.venuePriceStartMinor,
+        venuePriceEndMinor: events.venuePriceEndMinor,
+        venuePriceCurrencyCode: events.venuePriceCurrencyCode,
+        venueUseInFeedback: events.venueUseInFeedback,
+        venueContextRevision: events.venueContextRevision,
         createdAt: events.createdAt,
         updatedAt: events.updatedAt,
         attendeeCount: count(eventAttendees.id),
@@ -342,4 +409,49 @@ export class EventsRepository {
       present: row.present,
     }));
   }
+}
+
+function venueCreateValues(venue: EventVenueWrite) {
+  return {
+    ...venueColumnValues(venue),
+    venueContextRevision: 1,
+  };
+}
+
+function venueUpdateValues(venue: EventVenueWrite | null) {
+  return {
+    ...(venue
+      ? venueColumnValues(venue)
+      : {
+          venueProvider: null,
+          venuePlaceId: null,
+          venueLabel: null,
+          venueType: null,
+          venueArea: null,
+          venuePriceLevel: null,
+          venuePriceStartMinor: null,
+          venuePriceEndMinor: null,
+          venuePriceCurrencyCode: null,
+          venueUseInFeedback: null,
+        }),
+    // The row is already locked by EventsService. Keeping the increment in SQL
+    // also prevents a future caller from turning this into a read/compute/write
+    // race or resetting the revision while clearing and re-adding a venue.
+    venueContextRevision: sql`${events.venueContextRevision} + 1`,
+  };
+}
+
+function venueColumnValues(venue: EventVenueWrite) {
+  return {
+    venueProvider: venue.provider,
+    venuePlaceId: venue.placeId,
+    venueLabel: venue.label,
+    venueType: venue.type,
+    venueArea: venue.area,
+    venuePriceLevel: venue.priceLevel,
+    venuePriceStartMinor: venue.priceStartMinor,
+    venuePriceEndMinor: venue.priceEndMinor,
+    venuePriceCurrencyCode: venue.priceCurrencyCode,
+    venueUseInFeedback: venue.useInFeedback,
+  };
 }

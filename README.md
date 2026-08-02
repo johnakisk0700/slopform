@@ -59,29 +59,31 @@ Run the full repository check with:
 pnpm check
 ```
 
-## Production containers
+## Production
 
-Production uses separate `web`, `api`, `worker` and one-shot `migrate` images,
-plus PostgreSQL, MongoDB, Redis and Caddy for TLS/reverse proxying:
+Production keeps native nginx as the shared VPS TLS edge. Docker runs separate
+`web`, `api`, `worker` and one-shot `migrate` images plus PostgreSQL, MongoDB and
+Redis; application ports bind to loopback only.
+
+One operator interface owns release transfer, component deploys, rollback,
+status/logs and the temporary pre-launch data-import window:
 
 ```bash
-cp .env.production.example .env.production
-install -d -m 700 secrets
-umask 077
-openssl rand -hex 32 > secrets/postgres_password
-openssl rand -hex 32 > secrets/mongodb_root_password
-openssl rand -hex 32 > secrets/mongodb_app_password
-openssl rand -hex 32 > secrets/redis_password
-# Replace every placeholder before continuing.
-docker compose --env-file .env.production -f compose.prod.yaml config --quiet
-docker compose --env-file .env.production -f compose.prod.yaml build --pull
-docker compose --env-file .env.production -f compose.prod.yaml up -d \
-  --no-build --remove-orphans --wait
+pnpm prod deploy              # all components
+pnpm prod deploy admin        # SPA only
+pnpm prod deploy backend      # migrate + API + worker
+pnpm prod status
+pnpm prod logs worker
+pnpm prod data status
 ```
 
-Deployment, rollback and VPS CI guidance lives in
-[`docs/deployment.md`](docs/deployment.md). Automatic production deployment is
-deliberately not wired until the VPS target and rollback policy are known.
+It deploys only a clean committed `HEAD`, transfers that exact tree as an
+immutable release over SSH and never sends local secrets or Docker volumes.
+Initial configuration, restricted Clerk setup, repeatable PostgreSQL/MongoDB
+promotion, `data seal`, nginx cutover and rollback are documented in
+[`docs/deployment.md`](docs/deployment.md). Do not replace the phased command
+with a blanket `docker compose up`; that can recreate application processes
+before the migration gate has succeeded.
 
 ## Documentation
 

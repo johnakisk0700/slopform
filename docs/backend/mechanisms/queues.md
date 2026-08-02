@@ -153,12 +153,28 @@ The value keeps one participant's burst in arrival order without a
 per-conversation lock and keeps outbound session pacing single-threaded; worker
 replicas multiply it.
 
-This is an application ordering limit, not an OpenRouter limit. OpenRouter
-publishes no universal concurrency cap for paid models; upstream capacity is
-model/provider-specific and returns retryable `429`/`503` signals. Raising the
-worker value therefore requires explicit per-conversation serialization and a
-separate deployment-wide provider limiter, not a larger integer justified by
-fictional precision.
+This is an application ordering limit, not a provider-call limit. Every backend
+model boundary — assistant generation, feedback extraction, attention
+classification and campaign summaries — also enters the same process-wide FIFO
+semaphore. `PROVIDER_CALL_CONCURRENCY_LIMIT` is deliberately hardcoded to `5`:
+neither OpenAI nor OpenRouter publishes one stable concurrency quota across all
+models and accounts, so five is a conservative product guard, not a claim about
+provider capacity. The production compose topology has one worker, making the
+cap deployment-wide today. Worker replicas would each receive five slots and
+therefore require a Redis-backed distributed semaphore before scale-out.
+
+The feedback Worker's BullMQ name also carries a versioned, base64url-encoded
+control attestation: extraction-stub state, public model id, provider adapter id,
+extraction and attention effort, and the effective OpenAI service tier. BullMQ
+publishes that name through Redis `CLIENT LIST`, which `Queue.getWorkers()`
+returns as `rawname`. Paid simulator preflight compares every registered
+feedback worker with the HTTP process's resolved profile. No worker, an unnamed
+or legacy worker, malformed metadata, mixed replica profiles, or any API/worker
+mismatch is fail-closed before ingress is written. The profile contains no key
+or participant data. The decorator needs its name before Nest dependency
+injection exists, so this single startup boundary reads the environment already
+loaded by `instrumentation.ts`; the same resolvers and strict vocabulary used by
+the validated `ConfigService` build the profile.
 
 That collapse only reaches jobs still waiting, so `feedback.extract.v1` is also
 enqueued with a `FEEDBACK_EXTRACT_QUIET_WINDOW_MS` delay. WhatsApp is typed, not
@@ -176,13 +192,18 @@ run exits on `skipped_closed` without calling the provider at all.
 
 A message that lands after the run has taken its snapshot is the remainder the
 window cannot reach. Before inserting an outbox row the run re-reads the
-conversation, and newer participant testimony drops the reply — one reply per
-burst rather than one per fragment. Only the outbound is dropped: answers, notes
-and the cursor are written exactly as they would have been, so the rule that
-every run closes the window it opened is untouched and a retry reaches the same
-conclusion. Completion and handoff copy are never dropped; the first closes the
-conversation, after which no later run can speak, and the second promises a
-human.
+conversation. Inside the PostgreSQL write transaction it also takes the same
+per-phone advisory lock as the durable inbound insert and checks for inbound
+rows beyond the MongoDB snapshot. The lock namespace is the stable
+`feedback-ingress-phone:<E.164>` string so rolling workers share one fence. This
+catches both a pending row that materialization has not reached and a row that
+materialized after the run loaded MongoDB; an ordinary stale reply is omitted
+from the outbox — one reply per burst rather than one per fragment. Only the
+outbound is dropped: answers, notes and the cursor are written exactly as they
+would have been, so the rule that every run closes the window it opened is
+untouched and the next materialized position can revise the result. Completion
+and handoff copy are never dropped; the first closes the conversation, after
+which no later run can speak, and the second promises a human.
 
 The extraction consumer reloads the conversation and stops before any model call
 when it is closed, under human control, already covered by the extraction cursor

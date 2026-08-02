@@ -3,7 +3,6 @@ import type { Queue } from "bullmq";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ParticipantsRepository } from "../../participants/participants.repository.js";
-import type { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
 import type { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
 import type { FeedbackJobData, FeedbackJobName } from "../jobs.schemas.js";
 import type { FeedbackOutboundLogRepository } from "./outbound-log.repository.js";
@@ -20,6 +19,14 @@ const PARTICIPANT_ID = "d4e5f6a7-8b90-4c1d-9e2f-3a4b5c6d7e8f";
 const OUTBOX_ID = "66de52a8-1a26-4cbb-b8d1-fcf8bdc2dd51";
 
 const NOW = new Date("2026-07-27T11:43:27.000Z");
+
+/** The default the controller's own query schema fills in. */
+const HISTORY_QUERY = { limit: 25 };
+
+const ID_0 = OUTBOX_ID;
+const ID_1 = "1e4b4bd6-8a2f-4f0a-9f19-2c1a4a2b3c4d";
+const ID_2 = "2f5c5ce7-9b30-4a1b-8e20-3d2b5b3c4d5e";
+const HISTORY_IDS = [ID_0, ID_1, ID_2] as const;
 
 const outboxRow = {
   id: OUTBOX_ID,
@@ -72,11 +79,30 @@ const outboundLogRow = {
   createdAt: new Date("2026-07-27T11:41:00.500Z"),
 } satisfies MessageOutboxLogRow;
 
+/** An outbox row wearing the campaign and event context the join adds. */
+function withContext<TRow>(row: TRow) {
+  return {
+    row,
+    campaignStatus: "launched" as const,
+    eventId: EVENT_ID,
+    eventTitle: "Δείπνο Ιουλίου",
+  };
+}
+
+/** One joined history row, distinguishable from its neighbours by id alone. */
+function historyRow(index: number) {
+  return {
+    row: { ...outboxRow, id: HISTORY_IDS[index] ?? OUTBOX_ID },
+    campaignStatus: "launched" as const,
+    eventId: EVENT_ID,
+    eventTitle: "Δείπνο Ιουλίου",
+  };
+}
+
 function createService(overrides: {
   queue?: Partial<Queue>;
   outbox?: Partial<FeedbackOutboxRepository>;
   outboundLogs?: Partial<FeedbackOutboundLogRepository>;
-  campaigns?: Partial<FeedbackCampaignRepository>;
   conversations?: Partial<FeedbackConversationRepository>;
   participants?: Partial<ParticipantsRepository>;
 }) {
@@ -91,7 +117,7 @@ function createService(overrides: {
       countUndeliveredOutboxByStatus: vi.fn().mockResolvedValue(new Map()),
       listRecentOutbox: vi.fn().mockResolvedValue([]),
       countOutbox: vi.fn().mockResolvedValue(0),
-      findOutboxById: vi.fn().mockResolvedValue(undefined),
+      findOutboxWithContextById: vi.fn().mockResolvedValue(undefined),
       ...overrides.outbox,
     } as unknown as FeedbackOutboxRepository,
     {
@@ -99,10 +125,6 @@ function createService(overrides: {
       findLogOriginsByOutboxIds: vi.fn().mockResolvedValue(new Map()),
       ...overrides.outboundLogs,
     } as unknown as FeedbackOutboundLogRepository,
-    {
-      findCampaignById: vi.fn().mockResolvedValue({ status: "launched" }),
-      ...overrides.campaigns,
-    } as unknown as FeedbackCampaignRepository,
     {
       listRespondentsByIds: vi.fn().mockResolvedValue([]),
       ...overrides.conversations,
@@ -270,7 +292,7 @@ describe("FeedbackOutboxQueueViewService.listHistory", () => {
       },
     });
 
-    const view = await service.listHistory(NOW);
+    const view = await service.listHistory(HISTORY_QUERY, NOW);
 
     expect(view.items).toHaveLength(1);
     expect(view.items[0]).toMatchObject({
@@ -279,7 +301,7 @@ describe("FeedbackOutboxQueueViewService.listHistory", () => {
       origin: "extraction_reply",
     });
     expect(view.total).toBe(1);
-    expect(view.truncated).toBe(false);
+    expect(view.nextCursor).toBeNull();
     expect(queue.getJob).not.toHaveBeenCalled();
   });
 
@@ -298,37 +320,148 @@ describe("FeedbackOutboxQueueViewService.listHistory", () => {
       },
     });
 
-    const view = await service.listHistory(NOW);
+    const view = await service.listHistory(HISTORY_QUERY, NOW);
 
     expect(view.items[0]?.origin).toBeNull();
   });
 
-  it("reports the real total when the page is capped", async () => {
+  it("reads one row past the page and returns a cursor without it", async () => {
+    const listRecentOutbox = vi
+      .fn()
+      .mockResolvedValue([historyRow(0), historyRow(1), historyRow(2)]);
+    const { service } = createService({
+      outbox: { listRecentOutbox, countOutbox: vi.fn().mockResolvedValue(407) },
+    });
+
+    const view = await service.listHistory({ limit: 2 }, NOW);
+
+    // The third row was read only to prove there is a next page; handing it
+    // back would make every page one row longer than the caller asked for.
+    expect(listRecentOutbox).toHaveBeenCalledWith(
+      expect.objectContaining({ limit: 3 }),
+    );
+    expect(view.items.map((item) => item.id)).toEqual([ID_0, ID_1]);
+    expect(view.total).toBe(407);
+    expect(view.nextCursor).not.toBeNull();
+  });
+
+  it("stops offering a next page when the log runs out", async () => {
     const { service } = createService({
       outbox: {
-        listRecentOutbox: vi.fn().mockResolvedValue([
-          {
-            row: outboxRow,
-            campaignStatus: "launched" as const,
-            eventId: EVENT_ID,
-            eventTitle: "Δείπνο Ιουλίου",
-          },
-        ]),
-        countOutbox: vi.fn().mockResolvedValue(407),
+        listRecentOutbox: vi.fn().mockResolvedValue([historyRow(0)]),
+        countOutbox: vi.fn().mockResolvedValue(1),
       },
     });
 
-    const view = await service.listHistory(NOW);
+    const view = await service.listHistory({ limit: 2 }, NOW);
 
-    expect(view.total).toBe(407);
-    expect(view.truncated).toBe(true);
+    expect(view.nextCursor).toBeNull();
+  });
+
+  it("continues from the cursor it handed out, at the row after the page", async () => {
+    const listRecentOutbox = vi
+      .fn()
+      .mockResolvedValue([historyRow(0), historyRow(1)]);
+    const { service } = createService({
+      outbox: { listRecentOutbox, countOutbox: vi.fn().mockResolvedValue(9) },
+    });
+
+    const first = await service.listHistory({ limit: 1 }, NOW);
+    await service.listHistory(
+      { limit: 1, cursor: first.nextCursor ?? "" },
+      NOW,
+    );
+
+    expect(listRecentOutbox).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        cursor: { createdAt: outboxRow.createdAt, id: ID_0 },
+      }),
+    );
+  });
+
+  it("rewinds to the newest page when the cursor is not one we wrote", async () => {
+    const listRecentOutbox = vi.fn().mockResolvedValue([]);
+    const { service } = createService({
+      outbox: { listRecentOutbox, countOutbox: vi.fn().mockResolvedValue(0) },
+    });
+
+    // A cursor travels in a URL a person can edit. A read-only log viewer
+    // answering 400 to a mangled one is worse than showing them the top.
+    await service.listHistory({ limit: 25, cursor: "not-a-cursor" }, NOW);
+
+    expect(listRecentOutbox).toHaveBeenCalledWith(
+      expect.objectContaining({ cursor: null }),
+    );
+  });
+
+  it("counts within the filter, so the total cannot describe other rows", async () => {
+    const countOutbox = vi.fn().mockResolvedValue(3);
+    const listRecentOutbox = vi.fn().mockResolvedValue([]);
+    const { service } = createService({
+      outbox: { listRecentOutbox, countOutbox },
+    });
+
+    const from = "2026-07-27T00:00:00.000Z";
+    const view = await service.listHistory(
+      { limit: 25, status: "failed", from },
+      NOW,
+    );
+
+    const filter = { status: "failed", from: new Date(from), to: null };
+    expect(countOutbox).toHaveBeenCalledWith(filter);
+    expect(listRecentOutbox).toHaveBeenCalledWith(
+      expect.objectContaining({ filter }),
+    );
+    expect(view.total).toBe(3);
   });
 });
 
 describe("FeedbackOutboxQueueViewService.getMessageDelivery", () => {
+  it("carries the message, the person and the event the pane names them by", async () => {
+    const { service } = createService({
+      outbox: {
+        findOutboxWithContextById: vi
+          .fn()
+          .mockResolvedValue(withContext(outboxRow)),
+      },
+      conversations: {
+        listRespondentsByIds: vi.fn().mockResolvedValue([
+          {
+            _id: CONVERSATION_ID,
+            respondentParticipantId: PARTICIPANT_ID,
+            phoneAtLaunch: "+30690000102",
+          },
+        ]),
+      },
+      participants: {
+        findByIds: vi.fn().mockResolvedValue([
+          {
+            id: PARTICIPANT_ID,
+            preferredName: "Ελένη Ριπομηνυματού",
+            emailNormalized: "eleni@example.com",
+          },
+        ]),
+      },
+    });
+
+    const view = await service.getMessageDelivery(OUTBOX_ID, NOW);
+
+    // The one place «what did we actually say to this person» is answerable.
+    expect(view.body).toBe("Ευχαριστούμε!");
+    expect(view).toMatchObject({
+      respondentDisplayName: "Ελένη Ριπομηνυματού",
+      phoneAtLaunch: "+30690000102",
+      eventTitle: "Δείπνο Ιουλίου",
+    });
+  });
+
   it("spends exactly one queue lookup on the row an operator opened", async () => {
     const { service, queue } = createService({
-      outbox: { findOutboxById: vi.fn().mockResolvedValue(outboxRow) },
+      outbox: {
+        findOutboxWithContextById: vi
+          .fn()
+          .mockResolvedValue(withContext(outboxRow)),
+      },
     });
 
     const view = await service.getMessageDelivery(OUTBOX_ID, NOW);
@@ -347,7 +480,11 @@ describe("FeedbackOutboxQueueViewService.getMessageDelivery", () => {
       updatedAt: new Date("2026-07-27T11:42:00.000Z"),
     };
     const { service } = createService({
-      outbox: { findOutboxById: vi.fn().mockResolvedValue(sending) },
+      outbox: {
+        findOutboxWithContextById: vi
+          .fn()
+          .mockResolvedValue(withContext(sending)),
+      },
     });
 
     const view = await service.getMessageDelivery(OUTBOX_ID, NOW);
@@ -355,7 +492,11 @@ describe("FeedbackOutboxQueueViewService.getMessageDelivery", () => {
     expect(view.reclaimAt).toBe("2026-07-27T11:47:00.000Z");
 
     const { service: pendingService } = createService({
-      outbox: { findOutboxById: vi.fn().mockResolvedValue(outboxRow) },
+      outbox: {
+        findOutboxWithContextById: vi
+          .fn()
+          .mockResolvedValue(withContext(outboxRow)),
+      },
     });
     await expect(
       pendingService.getMessageDelivery(OUTBOX_ID, NOW),
@@ -372,7 +513,9 @@ describe("FeedbackOutboxQueueViewService.getMessageDelivery", () => {
       deliveredAt: new Date("2026-07-27T11:41:31.000Z"),
     };
     const { service } = createService({
-      outbox: { findOutboxById: vi.fn().mockResolvedValue(sent) },
+      outbox: {
+        findOutboxWithContextById: vi.fn().mockResolvedValue(withContext(sent)),
+      },
     });
 
     // A row that left the list between two polls must explain itself rather
@@ -389,7 +532,11 @@ describe("FeedbackOutboxQueueViewService.getMessageDelivery", () => {
 
   it("returns the decision log when one exists for the row", async () => {
     const { service } = createService({
-      outbox: { findOutboxById: vi.fn().mockResolvedValue(outboxRow) },
+      outbox: {
+        findOutboxWithContextById: vi
+          .fn()
+          .mockResolvedValue(withContext(outboxRow)),
+      },
       outboundLogs: {
         findLogByOutboxId: vi.fn().mockResolvedValue(outboundLogRow),
       },
@@ -408,7 +555,11 @@ describe("FeedbackOutboxQueueViewService.getMessageDelivery", () => {
 
   it("returns log null when the row has no decision log", async () => {
     const { service } = createService({
-      outbox: { findOutboxById: vi.fn().mockResolvedValue(outboxRow) },
+      outbox: {
+        findOutboxWithContextById: vi
+          .fn()
+          .mockResolvedValue(withContext(outboxRow)),
+      },
     });
 
     await expect(
@@ -418,7 +569,11 @@ describe("FeedbackOutboxQueueViewService.getMessageDelivery", () => {
 
   it("returns log null when the stored decision no longer parses", async () => {
     const { service } = createService({
-      outbox: { findOutboxById: vi.fn().mockResolvedValue(outboxRow) },
+      outbox: {
+        findOutboxWithContextById: vi
+          .fn()
+          .mockResolvedValue(withContext(outboxRow)),
+      },
       outboundLogs: {
         findLogByOutboxId: vi.fn().mockResolvedValue({
           ...outboundLogRow,

@@ -1,6 +1,7 @@
 Rebuild this exact brand mark as a clean production SVG logo.
 
 Brand meaning (keep this composition — do not invent or replace icons):
+
 - Flat cream / off-white shapes on a solid dark forest-green square background.
 - One solid circle in the exact center (the table / shared hub).
 - Exactly five stylized people arranged around the center, plus one empty seat.
@@ -9,6 +10,7 @@ Brand meaning (keep this composition — do not invent or replace icons):
 - People sit at the other five positions on a regular 60° radial grid (12, 2, 4, 8, and 10 o'clock). The empty chair holds the remaining slot at 6 o'clock so the ring still reads as six places: five occupied + one open. That open place is “you” — Join the Six.
 
 Geometry requirements (obsessive calibration of the reference):
+
 - Perfect bilateral symmetry.
 - Equal angular spacing on a 60° grid.
 - Identical radial clearance from the central circle to every satellite (people and empty chair).

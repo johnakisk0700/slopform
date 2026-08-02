@@ -6,7 +6,8 @@ Status: architecture accepted in
 **WP3 Mongo conversation schema v2**, **WP4 ingress + materialization**,
 **WP5 extraction + reply loop**, **WP6 outbox relay + transport**, **WP7
 campaign service + schedulers**, **WP7b staff conversation inbox HTTP** and
-**WP8 dev simulated transport** are landed, as is the **WP9** admin
+**WP8 simulated transport + production rehearsal** are landed, as is the
+**WP9** admin
 conversations UI it serves
 ([`docs/frontend/feedback-conversations.md`](../../frontend/feedback-conversations.md)),
 whose WP12 design pass added the staff-written note endpoint documented below.
@@ -128,6 +129,78 @@ Questions are versioned definitions outside the conversation. Campaign launch
 snapshots the question-set version and its copy onto the campaign row, then
 creates the Mongo goals from those keys; it does **not** freeze attendee
 candidate IDs.
+
+### Questionnaire versions and signal contract
+
+Version 1 is retained for campaigns already launched with
+`event_score`, `liked`, `meet_again`, `avoid`. Those snapshots remain readable
+and extractable; `liked` is not silently reinterpreted as a V2 question.
+
+Version 2 is the current six-question set, in this order:
+
+| Key                    | Answer                | Signal and intended use                                                                                                              |
+| ---------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `event_score`          | integer 1–5           | Overall experience. Useful as an outcome measure, but not enough on its own to diagnose a table                                      |
+| `table_fit`            | integer 1–5           | How well the group/table matched what the respondent wanted from the evening                                                         |
+| `participation_ease`   | integer 1–5           | How easy it was for the respondent to enter and take part in the conversation                                                        |
+| `conversation_balance` | integer 1–5           | Whether participants had room to contribute, as perceived by the respondent                                                          |
+| `meet_again`           | zero or more subjects | Positive future-contact intent; a directed matching signal, not a vote on somebody's worth                                           |
+| `avoid`                | zero or more subjects | A confidential preference not to share a future table; an operational no-rematch signal, not proof of misconduct or a safety finding |
+
+V2 removes `liked`. The word is socially and romantically ambiguous, and in V1
+it largely duplicated the more actionable `meet_again` edge. Historical
+`liked` rows remain valid V1 evidence; new V2 conversations neither ask nor
+infer that key.
+
+The three experience dimensions are deliberately separate from the overall
+score. They say whether a weak evening was about fit, access to the
+conversation, or group balance. All four numeric answers are subjectless and
+use the same 1–5 scale. They are not scores about another attendee.
+
+Directed-answer consumers obey four rules:
+
+- absence of a `meet_again` edge is unknown, not rejection;
+- counts are not popularity, desirability or misconduct scores, and summaries
+  must not rank participants;
+- `avoid` feeds a human-reviewed seating decision as a no-rematch preference;
+  it is not by itself a complaint, and safety classification stays on the
+  separate message-attention path;
+- rows carrying `matching_hold = true` never feed matching, as documented in
+  [An avoid row is a statement, not an instruction](#an-avoid-row-is-a-statement-not-an-instruction).
+
+The answers are **confidential, not anonymous**: they remain linked to both the
+respondent and, for directed questions, the named subject so the platform can
+use them for future tables. Participant-facing copy may promise that answers
+are not disclosed to other attendees only if the access and disclosure policy
+keeps that promise; it must not claim anonymity or absolute secrecy.
+
+### Pre-activation privacy gate (open)
+
+Questionnaire V2 does not settle the legal basis by engineering fiat. Before
+messaging real participants, the product/privacy owner and counsel must close
+and record all of the following:
+
+- choose and document the Article 6 legal basis for feedback and matching
+  profiling, distinct from permission to use WhatsApp; if legitimate interests
+  is selected, complete the necessity/balancing assessment and objection path;
+- publish the layered privacy notice and a real URL covering purpose,
+  controller/contact, recipient categories, profiling/human review, rights and
+  both Article 13 and third-party-feedback Article 14 transparency; no placeholder
+  or model-invented URL is acceptable;
+- set enforceable retention periods separately for raw WhatsApp transcripts,
+  structured answers/notes and summaries, and implement deletion/DSAR handling
+  rather than a handoff that has nowhere to go;
+- complete and approve the DPIA, or record the competent review that the DPIA
+  threshold is not met, before the matching profile becomes operational;
+- execute and verify processor/data-transfer terms, subprocessors, regions and
+  deletion commitments for WhatsApp/Meta, Wasender and every enabled model
+  route; a provider privacy page is not an Article 28 contract;
+- keep access to named directed feedback least-privilege and audited, and keep
+  safety or special-category free text out of ordinary matching features.
+
+Until that gate closes, V2 is a rehearsal/test contract, not authorization for
+production processing. The retention period, final legal basis and privacy URL
+are intentionally not invented in this document.
 
 ## Flow
 
@@ -354,8 +427,9 @@ The write path is three components under
   counts, transcript seq; deliberately no bodies, phone or participant ids);
 - [`outbound-log.schemas.ts`](../../../apps/backend/src/modules/post-event-feedback/outbox/outbound-log.schemas.ts)
   — the `decision` contract, a discriminated union over the nine origins
-  (`extraction_reply` with model/confidence/closing reason/goal statuses, the
-  three fallback origins with their failure cause, `stop_ack` and
+  (`extraction_reply` with model/confidence/closing reason/goal statuses and the
+  nullable `venueContextRevision` used by that run, the three fallback origins
+  with their failure cause, `stop_ack` and
   `media_notice` with their triggering ingress, `staff_message` with its actor,
   `campaign_intro` with created-vs-relaunched, `reminder` with its ladder
   rung). Goal keys and statuses are deliberately plain strings: the log is a
@@ -394,13 +468,16 @@ sequenceDiagram
   Queue-->>Run: feedback.extract.v1(conversationId)
   Run->>Mongo: reload conversation
   Note over Run: closed / human / cursor ≥ latestSeq → skip
-  Run->>Events: listFeedbackCandidatesForRespondent (live, D16)
+  Run->>Events: live D16 candidates + feedback venue snapshot
   Run->>PG: campaign + already accepted answers/notes
   par extraction and attention classification
     Run->>Model: full transcript → answers, notes, reply
     Run->>Model: 6 prior turns + new burst → incident per target ID
   end
   Run->>Run: domain validation (provenance, subjects, replay)
+  Run->>PG: fence durable inbound rows beyond the Mongo snapshot
+  Run->>PG: if venue supplied, share-lock event + fence revision
+  Note over Run,PG: mismatch or disabled → rollback + retryable failure
   Run->>PG: answers, notes, audit, one outbox row
   Run->>Mongo: transcribe the outbound reply (actor bot, by outboxId)
   Run->>Mongo: goals, attention, cursor, close(completed)
@@ -469,21 +546,64 @@ to say" is otherwise indistinguishable from the model not having looked —
 **validation does not yet gate on that citation**; what it gates on is
 [the collapse rule](#one-sentence-two-questions) below.
 
+### Venue context and revision fence
+
+Venue context is dynamic per extraction run, not frozen at campaign launch. If
+the event currently has `useInFeedback=true`, the extraction prompt receives
+only the prompt-safe operator fields: `label`, optional `type`, optional `area`,
+and exact per-person `priceRange` when present, otherwise `priceLevel`. The event
+schema trims and bounds the free text, and the prompt JSON-quotes each dynamic
+string on its own value line, so embedded newlines or heading-looking text remain
+data rather than reshaping the prompt. Integer minor units plus the currency code
+produce the displayed exact price.
+
+The whitelist is deliberate. `provider`, `placeId`, `contextRevision` and live
+Google metadata such as photos, ratings and reviews never enter the model prompt.
+An absent, cleared or feedback-disabled venue omits the entire block.
+
+The venue block is fallible operator context, never participant testimony. It
+cannot establish an answer, note, order, action or opinion, and it never
+overrides the participant's words when the two disagree. Its only permitted use
+is making the reply feel locally coherent. For a clear, harmless mismatch the
+model may make at most one brief, general and obviously fictional joke; it may
+not mock the participant or table, claim what somebody ate or did, or turn the
+joke into an answer/note. Complaints, tension, safety issues and mistreatment
+always suppress that humour and use the serious reply rules.
+
+When venue context was supplied, the run carries its `contextRevision` outside
+the prompt. At the start of the PostgreSQL persistence transaction the extractor
+takes a shared lock on the event row and requires the venue to remain enabled at
+that same revision. An edit, clear or feedback-toggle that committed while the
+provider was thinking makes the check fail: the transaction writes no answers,
+notes, audit, outbox/log row or goal/cursor state, and raises a retryable
+`validation_failed` generation error so another attempt can rebuild context. A
+venue update arriving after the shared lock waits until this transaction commits.
+A venue-blind run has no revision fence; enabling a venue later does not
+invalidate work that never saw it.
+
+The fence ends at the durable outbox commit. For an extraction outbox row, the
+decision log records the supplied revision (`null` means venue-blind), but a
+later venue edit does not rewrite, cancel or regenerate the existing body or its
+transcript entry. Relay retries send the stored body. The new venue applies only
+to later extraction runs.
+
 ### Validation before any persistence or send
 
-| Rule                                                                     | Effect on a violating proposal                                     |
-| ------------------------------------------------------------------------ | ------------------------------------------------------------------ |
-| Source message exists in **this** conversation                           | Rejected (`unknown_source_message`)                                |
-| Source message is `actor: participant`                                   | Rejected (`non_participant_source`) — staff/bot text is context    |
-| Question key / note type is in the versioned set                         | Rejected at the Zod boundary and again in the rules                |
-| `event_score` is subjectless, integer 1–5                                | Rejected (`subject_on_subjectless_question`, `invalid_score`)      |
-| Subject is a **current** candidate and ≠ respondent                      | Answer dropped; note degrades subjectless + flagged (D18)          |
-| Nothing already recorded is written twice                                | Skipped (`already_recorded` / `duplicate_in_run`)                  |
-| An unasked `liked` / `meet_again` is not declined beside an answer       | Skip refused (`declined_before_asked`); the run asks that question |
-| Lifecycle ∧ control ∧ opt-in permit a reply                              | Reply suppressed, results still persisted                          |
-| Classifier incident result                                               | Nothing suppressed; annotate target message + attention + audit    |
-| Explicit `handoff`                                                       | Neutral handoff copy replaces the reply; notes still recorded      |
-| A `handoff` that recorded nothing over testimony still holding an answer | The **whole run** is failed (`handoff_discards_testimony`)         |
+| Rule                                                                      | Effect on a violating proposal                                     |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Source message exists in **this** conversation                            | Rejected (`unknown_source_message`)                                |
+| Source message is `actor: participant`                                    | Rejected (`non_participant_source`) — staff/bot text is context    |
+| Question key / note type is in the versioned set                          | Rejected at the Zod boundary and again in the rules                |
+| Every V2 score is subjectless, integer 1–5                                | Rejected (`subject_on_subjectless_question`, `invalid_score`)      |
+| Subject is a **current** candidate and ≠ respondent                       | Answer dropped; note degrades subjectless + flagged (D18)          |
+| Nothing already recorded is written twice                                 | Skipped (`already_recorded` / `duplicate_in_run`)                  |
+| In V1, an unasked `liked` / `meet_again` is not declined beside an answer | Skip refused (`declined_before_asked`); the run asks that question |
+| Lifecycle ∧ control ∧ opt-in permit a reply                               | Reply suppressed, results still persisted                          |
+| Durable inbound exists beyond the model's MongoDB snapshot                | Ordinary reply suppressed; results and cursor still persist        |
+| Classifier incident result                                                | Nothing suppressed; annotate target message + attention + audit    |
+| Explicit `handoff`                                                        | Neutral handoff copy replaces the reply; notes still recorded      |
+| A `handoff` that recorded nothing over testimony still holding an answer  | The **whole run** is failed (`handoff_discards_testimony`)         |
+| Supplied venue is disabled or has a different revision before persistence | Whole transaction rolls back; run fails retryably                  |
 
 D18's degradation is asymmetric on purpose. A **note** carries the
 participant's own words, so an unresolvable mention keeps the note, drops the
@@ -886,16 +1006,19 @@ The provider boundary is the assistant's registry (`assistant-models.ts`), so
 extraction cannot invent a provider mapping or substitute a model when a key is
 missing. `FEEDBACK_EXTRACTION_MODEL` selects the model and defaults to
 `google/gemini-3.6-flash` (D12); an unregistered id fails at worker start rather
-than quietly using the default. Provider clients live in the worker module only.
+than quietly using the default. Luna is the selected paid-rehearsal target and
+`openai/gpt-5.6-luna` routes through OpenAI direct, so reasoning effort and
+service tier remain explicit request controls. Changing that treatment does not
+change the production default. Provider clients live in the worker module only.
 
 `FEEDBACK_EXTRACTION_REASONING_EFFORT` sets the thinking budget for the
 extraction call — `none`, `low`, `medium`, `high`, `xhigh` or `max`, spelled for
 whichever provider the registry chose. **Unset is not `none`.** Unset sends no
 reasoning field at all and leaves the provider on its own default; `none`
 overrides it. The default is unset, so a campaign that never asked for thinking
-behaves exactly as it did before the setting existed. `xhigh` and `max` exist
-only on a model routed direct to OpenAI; `max` was accepted by the responses API
-on `gpt-5.6-luna` when probed on 2026-07-31 and is listed on that evidence.
+behaves exactly as it did before the setting existed. Luna is deliberately
+routed through OpenAI direct, where `max` was accepted by the Responses API when
+probed on 2026-07-31.
 
 Anything above `none` also raises `maxOutputTokens` from 2,048 to 16,384,
 because **reasoning tokens are spent from the same output budget as the answer**.
@@ -927,7 +1050,9 @@ its own upstream routing and the key would ride along ignored while the config
 claimed the fast lane had been bought. Unset omits the field and leaves the
 account's own tier in force. `flex` trades latency for a lower rate; `priority`
 is OpenAI's paid fast mode at roughly **twice the standard token price**, charged
-per token on every call rather than as a flat fee.
+per token on every call rather than as a flat fee. It is therefore part of the
+direct-OpenAI Luna configuration and must stay empty unless tier latency is the
+thing being measured.
 
 Extraction additionally sends **permissive safety thresholds** on its own call
 path ([`permissive-safety-settings.ts`](../../../apps/backend/src/modules/post-event-feedback/extraction/permissive-safety-settings.ts)).
@@ -1444,12 +1569,12 @@ Versioned questionnaire constants, the deterministic STOP matcher and Greek
 extraction fixtures live under
 [`apps/backend/src/modules/post-event-feedback/`](../../../apps/backend/src/modules/post-event-feedback/).
 
-| Artifact            | Source                                     | Contract                                                                                                                                                                                                                |
-| ------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Question set v1     | `packages/database` + `question-set.ts`    | Keys `FEEDBACK_ANSWER_QUESTION_KEYS` / `FEEDBACK_NOTE_TYPES` in the database schema; draft Greek copy in question-set, editable without schema changes                                                                  |
-| Campaign copy       | `resolveCampaignCopy` in `question-set.ts` | Merges the campaign launch snapshot per key onto the versioned defaults; missing or blank keys use the default (so a pre-existing campaign still sends new copy keys such as `reminder_followup` / `cannot_read_media`) |
-| STOP matcher (D14)  | `matching/stop-command.ts`                 | Pure function; `STOP`, `STOP ALL`, `UNSUBSCRIBE`, `ΔΙΑΚΟΠΗ`, `ΣΤΟΠ`; case-, whitespace- and accent-insensitive                                                                                                          |
-| Extraction fixtures | `post-event-feedback-fixtures.ts`          | Typed Greek transcripts with expected-outcome annotations for later WP5 evals                                                                                                                                           |
+| Artifact              | Source                                     | Contract                                                                                                                                                                                                        |
+| --------------------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Question sets V1 + V2 | `packages/database` + `question-set.ts`    | Global persistence vocabulary accepts historical V1 and current V2 keys; `getPostEventFeedbackQuestionSet(version)` resolves the exact ordered goals. `CURRENT_POST_EVENT_FEEDBACK_QUESTION_SET_VERSION` is `2` |
+| Campaign copy         | `resolveCampaignCopy` in `question-set.ts` | Resolves defaults for the campaign's stored version, then merges the launch snapshot per key; missing or blank copy falls back within that version rather than importing goals from another version             |
+| STOP matcher (D14)    | `matching/stop-command.ts`                 | Pure function; `STOP`, `STOP ALL`, `UNSUBSCRIBE`, `ΔΙΑΚΟΠΗ`, `ΣΤΟΠ`; case-, whitespace- and accent-insensitive                                                                                                  |
+| Extraction fixtures   | `post-event-feedback-fixtures.ts`          | Typed Greek transcripts with expected-outcome annotations for later WP5 evals                                                                                                                                   |
 
 The STOP matcher is the sole deterministic text matcher. It compares whole
 commands; stripping punctuation there would widen the command rather than
@@ -1622,12 +1747,13 @@ body-correlation path.
 
 ### Transport boundary
 
-| `TRANSPORT_MODE` | Adapter                                                                                                 |
-| ---------------- | ------------------------------------------------------------------------------------------------------- |
-| `simulated`      | Durable PostgreSQL `feedback_sim_outbound` sink; dev inject/read HTTP when `FEEDBACK_SIMULATOR_ENABLED` |
-| `wasender`       | `WasenderClient.sendText` behind a shared-session pacer (minimum interval + jitter)                     |
+| `TRANSPORT_MODE` | Adapter                                                                                                             |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `disabled`       | Provider-free deterministic rejection; attempted rows fail visibly and are never sent later                         |
+| `simulated`      | Durable PostgreSQL `feedback_sim_outbound` sink; inject/read HTTP when its simulator gate permits                   |
+| `wasender`       | `WasenderClient.sendText` behind a shared-session pacer (minimum interval + jitter); worker-only session key needed |
 
-No development HTTP inject/read endpoints are part of WP6; WP8 adds them behind
+No simulator HTTP inject/read endpoints are part of WP6; WP8 adds them behind
 `FEEDBACK_SIMULATOR_ENABLED` (off by default, excluded from the published
 OpenAPI composition).
 
@@ -1644,41 +1770,48 @@ unknown-outcome no-retry, cancel-on-STOP statuses, delivery-status upgrade
 without downgrade, the transcript repair running before `sendText`, and the
 full-transcript case cancelling instead of sending.
 
-## WP8 dev simulated transport (implemented)
+## WP8 simulated transport and production rehearsal (implemented)
 
 Local-first validation (D2) uses `TRANSPORT_MODE=simulated` with a durable
-PostgreSQL outbound sink and authenticated dev HTTP endpoints. Production
-rejects `TRANSPORT_MODE=simulated` and never mounts the simulator module.
+PostgreSQL outbound sink and authenticated HTTP endpoints. Production rejects
+that pair by default. It permits it only when
+`FEEDBACK_PRODUCTION_REHEARSAL_ENABLED=true` is set together with
+`FEEDBACK_SIMULATOR_ENABLED=true`; the coherent gate requires simulated
+transport, keeps the endpoints behind Clerk, forbids the extraction stub,
+Wasender session key and Wasender webhook, and uses the configured real models.
+Those model calls are billable. Outbound messages remain in the simulated sink
+and never reach WhatsApp.
 
 ### Durable simulated outbound
 
 [`SimulatedFeedbackTransport`](../../../apps/backend/src/modules/post-event-feedback/outbox/simulated-transport.service.ts)
 implements the same `FeedbackTransport` port as Wasender. Each accepted send
-inserts one row into `feedback_sim_outbound` (no foreign keys — dev-only
+inserts one row into `feedback_sim_outbound` (no foreign keys — simulator-only
 traffic, simplest replay/query shape). The outbox `provider_log_id` is the sink
 row primary key; `provider_message_id` is `sim-<uuid>`.
 
-### Dev HTTP surface and headless real-model evaluation
+### Simulator HTTP surface and headless real-model evaluation
 
-When `FEEDBACK_SIMULATOR_ENABLED=true`, `NODE_ENV` is not `production`, and
-`TRANSPORT_MODE=simulated`, the HTTP process mounts
+When `FEEDBACK_SIMULATOR_ENABLED=true`, `TRANSPORT_MODE=simulated`, and either
+`NODE_ENV` is not `production` or the explicit production rehearsal gate is on,
+the HTTP process mounts
 [`PostEventFeedbackSimulatorHttpModule`](../../../apps/backend/src/modules/post-event-feedback/simulator/http.module.ts):
 
-| Operation                                | Purpose                                                                                                                                                                                                                                                                                         |
-| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /dev/feedback/simulator/inject`    | Existing manual composer path: `ObservedProviderMessage` → normal durable ingress. `text` is bounded by what an inbound may durably hold (`FEEDBACK_OBSERVED_TEXT_HARD_LIMIT`), not by the 4 096-character send limit, and `null` injects a bodyless inbound — a voice note, photo or reaction. |
-| `GET /dev/feedback/simulator/thread`     | Existing manual composer read: merge ingress rows and `feedback_sim_outbound` for one phone.                                                                                                                                                                                                    |
-| `GET /dev/feedback/simulator/catalog`    | Read the configured model, the two permitted eval models (`openai/gpt-5.6-luna`, `qwen/qwen3.7-max`) and corpus cases eligible from a clean intro baseline.                                                                                                                                     |
-| `POST /dev/feedback/simulator/preflight` | Read-only validation of a finished event, launched campaign, clean open bot conversation, sent intro in the simulated sink, pending goals, cursor 0, opt-in and candidate capacity; resolves exact live bindings and messages.                                                                  |
-| `POST /dev/feedback/simulator/runs`      | Explicitly confirmed paid run. Repairs a missing intro transcript idempotently, then writes scenario messages through normal ingress; it never supplies a per-run model override.                                                                                                               |
-| `GET /dev/feedback/simulator/runs/:id`   | Poll ordinary ingress, Mongo cursor/model, results, run-created outbox rows and their simulated sink rows.                                                                                                                                                                                      |
+| Operation                                | Purpose                                                                                                                                                                                                                                                                                                      |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `POST /dev/feedback/simulator/inject`    | Existing manual composer path: `ObservedProviderMessage` → normal durable ingress. `text` is bounded by what an inbound may durably hold (`FEEDBACK_OBSERVED_TEXT_HARD_LIMIT`), not by the 4 096-character send limit, and `null` injects a bodyless inbound — a voice note, photo or reaction.              |
+| `GET /dev/feedback/simulator/thread`     | Existing manual composer read: merge ingress rows and `feedback_sim_outbound` for one phone.                                                                                                                                                                                                                 |
+| `GET /dev/feedback/simulator/catalog`    | Read the configured model, effective extraction/attention reasoning and OpenAI service tier, the parsed live-worker attestation, the two permitted eval models (`openai/gpt-5.6-luna`, `qwen/qwen3.7-max`) and corpus cases eligible from a clean intro baseline.                                            |
+| `POST /dev/feedback/simulator/preflight` | Read-only validation of a finished event with feedback-enabled venue, launched campaign, clean open bot conversation, sent intro in the simulated sink, pending goals, cursor 0, opt-in and candidate capacity; resolves exact live bindings, messages, provider-free venue snapshot and worker attestation. |
+| `POST /dev/feedback/simulator/runs`      | Explicitly confirmed paid run. Repairs a missing intro transcript idempotently, then writes scenario messages through normal ingress; it never supplies a per-run model override.                                                                                                                            |
+| `GET /dev/feedback/simulator/runs/:id`   | Poll ordinary ingress, Mongo cursor/model, results, run-created outbox rows and their simulated sink rows.                                                                                                                                                                                                   |
 
 The same gate also mounts
 [`PostEventFeedbackBurstHttpModule`](../../../apps/backend/src/modules/post-event-feedback/burst/http.module.ts):
 
-| Operation                         | Purpose                                                                                                                                                                                                                                                                                                                                                  |
-| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /dev/feedback/burst/catalog` | Read whether the extraction stub is on, whether a feedback worker is registered, and the rehearsal campaigns and personas (messages, expected outcome, reserved phones). Counts are never restated by a caller: the runner reports what this endpoint serves, so a stale `dist` shows up in the log instead of quietly measuring code nobody is running. |
+| Operation                         | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /dev/feedback/burst/catalog` | Read whether the extraction stub is on, whether every registered feedback worker attests the API's same control profile, and the rehearsal campaigns (including their canonical Google venue snapshots) and personas (messages, expected outcome, reserved phones). Counts are never restated by a caller: the runner reports what this endpoint serves, so a stale `dist` shows up in the log instead of quietly measuring code nobody is running. |
 
 `FEEDBACK_EXTRACTION_STUB=true` (requires the simulator gate, refused in
 production) swaps the worker's `PostEventFeedbackExtractionModel` for
@@ -1691,6 +1824,39 @@ always `null` so nothing later reads them as billing.
 The published `openapi.json` keeps `FEEDBACK_SIMULATOR_ENABLED=false`, so these
 routes stay out of the generated admin client. The admin product screen is not
 an eval runner; it retains only the existing manual inject/thread composer.
+
+Before a paid run, both API and worker use the same explicit treatment:
+
+```dotenv
+FEEDBACK_EXTRACTION_STUB=false
+FEEDBACK_EXTRACTION_MODEL=openai/gpt-5.6-luna
+FEEDBACK_EXTRACTION_REASONING_EFFORT=xhigh
+FEEDBACK_ATTENTION_REASONING_EFFORT=high
+```
+
+This treatment uses Luna through OpenAI direct. Leave
+`FEEDBACK_EXTRACTION_SERVICE_TIER` unset unless the service tier itself is the
+variable under test; silently buying `priority` changes both cost and latency.
+The burst runner names this exact treatment `prova`; it is not an alias for
+whatever model controls happen to be in the environment. Qwen is reachable only
+through the explicit `--comparison qwen` path, with the same reasoning efforts
+and no OpenAI service tier.
+The simulator catalog exposes the effective extraction effort, classifier
+effort, service tier and parsed BullMQ worker profile. Both headless runners
+resolve requested controls through the built worker code and compare them with
+the running API and every registered feedback worker before any paid write.
+Absent, legacy/malformed, mixed-profile or API-mismatched workers fail closed;
+BullMQ can assign the next paid job to any replica, so one correct worker cannot
+launder a stale one. The runners also refuse provider-default extraction
+reasoning and stamp the resolved controls into started and terminal output. The
+`POST /runs` service repeats that explicit-effort gate before worker lookup,
+transcript repair or ingress, so bypassing the CLI cannot create an unlabeled
+paid treatment. `--preflight` prints the read-only preview but exits non-zero
+when either the effort or worker attestation is not ready.
+Simulator started/terminal records repeat the preflight's
+provider-free venue snapshot and revision, so two model treatments are not
+compared after an invisible venue change. An OpenAI service tier is reported as
+`null` for OpenRouter routes because it is not an effective provider option.
 
 Run the headless tool against an already-running local API and worker:
 
@@ -1720,25 +1886,47 @@ a Six, because the candidate list is the input extraction is measured on:
 # both API and worker, plus the simulator gate above.
 pnpm feedback:burst
 
-# Paid provider mode — one conversation per persona, each at least two calls.
+# Paid prova profile. Scripted personas send testimony; live guests remain silent
+# unless enabled and separately confirmed below.
 pnpm feedback:burst \
-  --model qwen/qwen3.7-max \
+  --profile prova \
+  --confirm-paid-run
+
+# Optional provider comparison; never selected by the prova path.
+pnpm feedback:burst \
+  --comparison qwen \
   --confirm-paid-run
 ```
 
 `pnpm feedback:burst` seeds participants through `@join-the-six/database` on the
 reserved phone block `+3069000<cc><pp>`, creates one finished event per
-catalogue campaign (draft → scheduled → finished), launches via
-`launchFeedbackCampaign`, injects every persona concurrently through the
-ordinary simulator path, then writes `report/feedback-burst-<timestamp>.html`.
+catalogue campaign (draft → scheduled → finished), and assigns every new seat to
+table 1. New events include the catalogue's operator-confirmed Google venue in
+their ordinary `POST /events` request. For a reused event the runner reads the
+detail and replaces an absent or drifted venue through `PATCH /events/:id`; in
+both paths it requires an exact venue read-back and a positive server-owned
+`contextRevision` before launching via `launchFeedbackCampaign`. It then drives
+every scripted persona concurrently through the ordinary simulator path and writes
+`report/feedback-burst-<timestamp>.html`.
 It never cleans up. Settlement polling keeps the configured deadline as an outer
 bound, but stops early when the settled set and every conversation's message
 count are unchanged for several polls after the quiet-settle threshold — and
 names the unsettled personas so a quiet stop is never mistaken for success.
 Stub mode refuses to start unless the burst catalogue
-reports `extractionStub: true` and a feedback worker is registered; paid mode
+reports `extractionStub: true` and the registered feedback workers attest the
+same stub/model/control profile as the API; paid mode
 treats per-persona semantic expectations as observations and keeps the
 cross-cutting correctness checks as hard failures.
+
+The burst catalogue is calibrated only for question-set V2. A reused campaign
+is rejected from its database row if `questionSetVersion !== 2`. Every launch or
+relaunch response is checked again and immediately read back through
+`GET /feedback/campaigns/:id`; the fresh response must name the same event and
+campaign and still report V2. All campaigns pass these gates before any persona
+is driven, so a V1 campaign cannot consume an extraction or live-guest call.
+Started and terminal events record the live-guest mode, total and substitution
+count, and the HTML report labels deterministic silence as missing behavioral
+coverage rather than presenting it as six successful guest conversations.
 
 ### The live-guest table
 
@@ -1750,11 +1938,16 @@ script for exactly that reason: 11δ, never re-ask in the same words, and 11ζ,
 match the register of the person writing. A script has no register to match and
 never notices being repeated at.
 
-`zontanoi` is the sixth dinner, and its six guests are improvised. Each is handed
-a character sheet and the transcript so far, and a cheap `cursor-agent` model is
-asked for one WhatsApp message back (`burst/live-guests.ts`, driven by
-`driveLiveGuest` in `scripts/run-feedback-burst.mjs`). Three things follow from
-that, and all three are deliberate:
+`zontanoi` is the sixth dinner, and its six guests can be improvised. The safe
+default substitutes deterministic silence for them: they receive the intro but
+send no testimony, so ordinary stub mode makes zero `cursor-agent` or provider
+model calls for those personas. Improvisation requires both `--live-guests` and
+the separate `--confirm-live-guests`; `--confirm-paid-run` does not imply either.
+When enabled, each guest is handed a character sheet and the transcript so far,
+and a cheap `cursor-agent` model is asked for one WhatsApp message back
+(`burst/live-guests.ts`, driven by `driveLiveGuest` in
+`scripts/run-feedback-burst.mjs`). Three things follow from that, and all three
+are deliberate:
 
 - **The character sheet is never published.** The catalogue endpoint carries only
   `liveModel`; in a report or an admin screen the sheet would read like something
@@ -1779,16 +1972,26 @@ that, and all three are deliberate:
   in scope: a resolver leaning on a prefix or an edit distance hands the answer
   to the wrong person, silently.
 
-The cost is wall-clock. A live guest waits for the bot, calls a model, waits
-again, up to twelve times, so the live table sets the run's duration rather than
-the scripted ones — which is why the default settlement deadline is thirty
-minutes. Every turn a guest has left over once the bot has stopped speaking costs
-one whole per-turn timeout, so the caps are what make the run terminate at all.
+When explicitly enabled, the cost is wall-clock. A live guest waits for the bot,
+calls a model, waits again, up to its configured turn cap, so the live table sets
+the run's duration rather than the scripted ones — which is why the default
+settlement deadline is thirty minutes. Every turn a guest has left over once the
+bot has stopped speaking costs one whole per-turn timeout, so the caps are what
+make the run terminate at all.
 
-The preflight never repairs or injects. The paid command requires the literal
-confirmation flag, sends a stable `x-request-id`, and prints run, scenario,
-model, event, campaign, conversation, respondent and correlation identifiers,
-the exact rendered batch/rubric, plus inbox/results links. The normal
+The preflight never repairs or injects. It refuses the paid corpus when the
+event has no venue or staff disabled `useInFeedback`; ordinary extraction may
+still run venue-blind. Its response includes the same prompt-safe venue shape
+used by extraction (`label`, optional `type`, `area`, `priceLevel` /
+`priceRange`) and its server-owned `contextRevision`, never `provider`,
+`placeId`, ratings, reviews or other live Google metadata. Extraction reloads
+dynamic venue context when it actually runs and applies the revision fence
+described above, so a later staff edit cannot make stale context durable.
+
+The paid command requires the literal confirmation flag, sends a stable
+`x-request-id`, and prints run, scenario, model, event, campaign, conversation,
+respondent and correlation identifiers, the exact rendered batch/rubric, plus
+inbox/results links. The normal
 PostgreSQL/MongoDB/Redis worker path remains the source of truth:
 ingress → materialization → delayed extraction → answer/note/outbox writes →
 relay → `feedback_sim_outbound`. No real WhatsApp adapter is reachable.
@@ -1819,7 +2022,7 @@ than manufacturing accounting.
 
 ### Running a paid rehearsal
 
-`pnpm feedback:burst --model … --confirm-paid-run` is the last step, not the
+`pnpm feedback:burst --profile prova --confirm-paid-run` is the last step, not the
 first. Four things have to be true before it, and three of them fail _silently_
 — the run starts, finishes, and reports numbers about something other than what
 you meant to measure. Every one of these has cost a real run.
@@ -1849,11 +2052,13 @@ one's. It deliberately keeps `participants`, `events` and `audit_events`.
 worker is not the system under test, because nothing contends. Keep the replica
 count you have been running and do not trim it for a tidier log.
 
-**4. Assert the preflight rather than reading it.** `GET
-/dev/feedback/burst/catalog` must report `extractionStub: false` for a paid run,
-`workerRegistered: true`, the campaign and persona counts you expect, and the
-live-guest models you expect. Reading those numbers off a screen is how a stale
-`dist` survives; comparing them to what the source says is what catches it.
+**4. Assert the preflight rather than reading it.** The runner requires `GET
+/dev/feedback/burst/catalog` to report `extractionStub: false`, a registered
+worker and the expected rehearsal catalogue. It also compares the requested
+model, extraction/attention reasoning and effective service tier with `GET
+/dev/feedback/simulator/catalog`. Any mismatch fails before participant/event
+seeding. Reading those numbers off a screen is how a stale `dist` survives;
+making the command compare them is what catches it.
 
 Then the run. The paid flag is per invocation on purpose, and one logical run is
 more than one invoice line — an extraction call plus one or more classification
@@ -1896,11 +2101,12 @@ Integration coverage runs intro delivery → inject reply → materialize →
 `feedback.extract.v1` enqueue (extraction execution remains WP5) and asserts the
 resulting transcript holds both sides. Focused real-model-runner tests cover
 read-only preflight, paid confirmation, live candidate rendering, cumulative
-leading-edge eligibility, production rejection, failed extraction precedence
-and completion only after the run-created outbox reaches the simulated sink.
-They use fakes and never call a provider. Composition tests assert production
-cannot enable the HTTP simulator or the extraction stub, and that the worker
-factory returns the real model when `FEEDBACK_EXTRACTION_STUB` is off.
+leading-edge eligibility, production rejection without the explicit rehearsal
+gate, failed extraction precedence and completion only after the run-created
+outbox reaches the simulated sink. They use fakes and never call a provider.
+Composition tests assert production needs the rehearsal gate for the HTTP
+simulator, can never enable the extraction stub, and that the worker factory
+returns the real model when `FEEDBACK_EXTRACTION_STUB` is off.
 
 ## WP3 conversation persistence (implemented)
 
@@ -1948,10 +2154,12 @@ remindedAt               timestamp or null
 createdAt / updatedAt    timestamps
 ```
 
-Goal keys and their order come from the versioned WP0 question set
-(`event_score`, `liked`, `meet_again`, `avoid`); the module does not redefine
-them. Prompts come from the copy snapshot the campaign took at launch, so a
-later copy edit never rewrites a live questionnaire.
+Goal keys and their order come from the campaign's versioned WP0 question set;
+the module does not redefine them. V1 documents carry `event_score`, `liked`,
+`meet_again`, `avoid`. V2 documents carry `event_score`, `table_fit`,
+`participation_ease`, `conversation_balance`, `meet_again`, `avoid`. Prompts
+come from the copy snapshot the campaign took at launch, so a later copy edit
+never rewrites a live questionnaire.
 
 The document stores **no candidate list**. Candidates are selected live at
 extraction time from current attendance, so an attendance correction reaches
@@ -2070,9 +2278,9 @@ the conversation for a person (`awaitingHuman` + `needsAttention`) rather than
 closing it as completed. A `nextGoal: null` statement with nothing to extract is
 left alone so side-question replies do not end the questionnaire.
 
-#### One sentence, two questions
+#### V1 only: one sentence, two questions
 
-`liked` and `meet_again` are one decision said twice, so a single sentence
+V1's `liked` and `meet_again` are one decision said twice, so a single sentence
 routinely answers both: «η Μαρία μου άρεσε, μαζί της θα ξαναέβγαινα», «ο Σωτήρης
 ήταν καταπληκτικός, θα τον ξαναέβλεπα άνετα». The model writes one of them down
 and reports
@@ -2080,7 +2288,7 @@ the other as having nothing in it, on roughly one run in three with the same
 prompt and the same message. Prompt rule 7β says exactly the right thing about
 this and does not stop it, so the ladder carries the net.
 
-**A `declined` verdict for `liked` or `meet_again` is refused when that goal is
+**For a V1 campaign, a `declined` verdict for `liked` or `meet_again` is refused when that goal is
 still `pending` and the same proposal answered some other goal.** The skip is
 dropped, `declined_before_asked` is recorded, and the run asks that question in
 the campaign's own words — the same route a refused answer takes. The two
@@ -2099,8 +2307,8 @@ The condition reads the model's own verdicts rather than the answers that
 survived validation, so a replay — whose answers come back `already_recorded` —
 refuses the same skip instead of closing a goal the first run kept open.
 
-`avoid` is deliberately outside the rule. It is the opposite decision to the
-other two ([`contradictedQuestionKeys`](#effects-of-a-run) is that half), and
+`avoid` is deliberately outside the V1 rule. It is the opposite seating signal
+to the other two ([`contradictedQuestionKeys`](#effects-of-a-run) is that half), and
 «κανέναν να αποφύγω» is the commonest honest answer in the questionnaire:
 refusing it would ask an extra question of nearly everybody who finishes, and
 would cost the participant who answers all four in one message a third and fourth
@@ -2108,6 +2316,12 @@ outbound. What the rule does **not** repair is the same collapse expressed as
 `not_addressed` — there the goal correctly stays open and is re-asked, and the
 answer that sentence carried is lost inside the model with nothing on our side to
 recover it from.
+
+V2 removes `liked`, so it has no equivalent collapse rule: `meet_again` is the
+single positive future-contact question and `avoid` is the independent
+no-rematch question. The extraction schema is built from the conversation's
+exact versioned goal keys; V2 cannot emit a new `liked` answer, while V1 replay
+continues to validate it.
 
 ### Extraction cursor, attention and capacity
 
@@ -2235,17 +2449,17 @@ runs as bounded BullMQ jobs every five minutes:
 
 ### Staff HTTP contract
 
-| Method | Path                                                  | `operationId`               |
-| ------ | ----------------------------------------------------- | --------------------------- |
-| `GET`  | `/feedback/campaigns`                                 | `listFeedbackCampaigns`     |
-| `POST` | `/feedback/campaigns/launch`                          | `launchFeedbackCampaign`    |
-| `GET`  | `/feedback/campaigns/:campaignId`                     | `getFeedbackCampaign`       |
-| `POST` | `/feedback/campaigns/:campaignId/pause`               | `pauseFeedbackCampaign`     |
-| `POST` | `/feedback/campaigns/:campaignId/resume`              | `resumeFeedbackCampaign`    |
-| `POST` | `/feedback/campaigns/:campaignId/close`               | `closeFeedbackCampaign`     |
-| `POST` | `/feedback/campaigns/:campaignId/conversations/start` | `startFeedbackConversation` |
-| `GET`  | `/feedback/campaigns/:campaignId/summary`               | `getFeedbackCampaignSummary`    |
-| `POST` | `/feedback/campaigns/:campaignId/summary`               | `requestFeedbackCampaignSummary` |
+| Method | Path                                                  | `operationId`                    |
+| ------ | ----------------------------------------------------- | -------------------------------- |
+| `GET`  | `/feedback/campaigns`                                 | `listFeedbackCampaigns`          |
+| `POST` | `/feedback/campaigns/launch`                          | `launchFeedbackCampaign`         |
+| `GET`  | `/feedback/campaigns/:campaignId`                     | `getFeedbackCampaign`            |
+| `POST` | `/feedback/campaigns/:campaignId/pause`               | `pauseFeedbackCampaign`          |
+| `POST` | `/feedback/campaigns/:campaignId/resume`              | `resumeFeedbackCampaign`         |
+| `POST` | `/feedback/campaigns/:campaignId/close`               | `closeFeedbackCampaign`          |
+| `POST` | `/feedback/campaigns/:campaignId/conversations/start` | `startFeedbackConversation`      |
+| `GET`  | `/feedback/campaigns/:campaignId/summary`             | `getFeedbackCampaignSummary`     |
+| `POST` | `/feedback/campaigns/:campaignId/summary`             | `requestFeedbackCampaignSummary` |
 
 ### Campaign summary
 
@@ -2260,6 +2474,13 @@ extraction close, staff close, STOP materialization and expiry sweep via
 `notifyIfLastConversationClosed`; manual POST uses trigger `manual`. Retryable
 provider failures leave the row at `pending` so BullMQ can retry; permanent
 failures mark `failed`.
+
+The summary prompt names the four V2 experience dimensions separately, labels
+historical `liked` rows as V1 evidence, and treats `avoid` only as a no-rematch
+preference. It explicitly forbids participant rankings or popularity scores and
+does not turn a missing directed edge into a negative vote. A no-rematch edge is
+not described as misconduct or a safety incident; those claims require the
+separate attention evidence.
 
 `listFeedbackCampaigns` is the read-only campaign picker: newest launch first,
 with event id + title, status, `launchedAt`, and conversation progress counts
@@ -2512,15 +2733,15 @@ not be recorded: `cardinality(source_message_ids) >= 1`.
 `POST …/conversations/:conversationId/answers` closes it, on the staff-note
 precedent in every respect.
 
-| Field                  | Rule                                                          |
-| ---------------------- | ------------------------------------------------------------- |
-| `questionKey`          | `liked` \| `meet_again` \| `avoid` — a directed question only |
-| `subjectParticipantId` | required, and a current D16 candidate of the campaign's event |
+| Field                  | Rule                                                                                                           |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `questionKey`          | A directed question in that campaign's version: V1 `liked` / `meet_again` / `avoid`; V2 `meet_again` / `avoid` |
+| `subjectParticipantId` | required, and a current D16 candidate of the campaign's event                                                  |
 
-`event_score` is refused **by the schema**, not by a service branch: the number
-is the respondent's own, and an operator inventing one would put a rating in
-their mouth. The subject is required for the same reason a note's is optional —
-here the person _is_ the answer.
+Every numeric experience question is refused **by the schema**, not by a
+service branch: the number is the respondent's own, and an operator inventing
+one would put a rating in their mouth. The subject is required for the same
+reason a note's is optional — here the person _is_ the answer.
 
 **Provenance.** `extraction_meta` is `{ origin: 'staff', staffUserId,
 candidateIds }` — no `model`, no `confidence`, because none ran — and

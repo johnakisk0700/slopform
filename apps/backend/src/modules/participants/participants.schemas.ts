@@ -2,6 +2,8 @@ import { EVENT_STATUSES } from "@join-the-six/database";
 import { createZodDto } from "nestjs-zod";
 import { z } from "zod";
 
+import { eventVenueSchema } from "../events/events.schemas.js";
+
 export const participantIdSchema = z.object({ id: z.uuid() }).strict();
 
 export const updateParticipantFeedbackOptInSchema = z
@@ -37,6 +39,7 @@ export const participantEventHistoryItemSchema = z
     title: z.string(),
     startsAt: z.iso.datetime(),
     status: z.enum(EVENT_STATUSES),
+    venue: eventVenueSchema.nullable(),
     present: z.boolean(),
     tableNo: z.number().int().nullable(),
   })

@@ -49,7 +49,7 @@ describe("AssistantController", () => {
 
     await expect(
       controller.createThread(
-        { requestId, effort: "low", content: "Hello" },
+        { requestId, effort: "low", serviceTier: "standard", content: "Hello" },
         "user_verified" as never,
         "request-1" as never,
       ),
@@ -67,7 +67,7 @@ describe("AssistantController", () => {
     await expect(
       controller.appendTurn(
         { id: threadId },
-        { requestId, effort: "low", content: "Hello" },
+        { requestId, effort: "low", serviceTier: "standard", content: "Hello" },
         "user_verified" as never,
         "request-1" as never,
       ),

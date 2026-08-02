@@ -1,9 +1,17 @@
 import { createZodDto } from "nestjs-zod";
 import { z } from "zod";
 
+import { EVENT_VENUE_PRICE_LEVELS } from "@join-the-six/database";
+
 import { FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH } from "../post-event-feedback-conversation.document.js";
 import { FEEDBACK_OBSERVED_TEXT_HARD_LIMIT } from "../jobs.schemas.js";
 import { assistantModelSchema } from "../../assistant/assistant.schemas.js";
+import { eventVenuePriceRangeSchema } from "../../events/events.schemas.js";
+import {
+  FEEDBACK_EXTRACTION_REASONING_EFFORTS,
+  FEEDBACK_EXTRACTION_SERVICE_TIERS,
+} from "../extraction/model.service.js";
+import { feedbackWorkerAttestationSchema } from "../worker-attestation.js";
 
 export const feedbackSimulatorPhoneSchema = z
   .string()
@@ -101,7 +109,9 @@ export const feedbackSimulatorCandidateSlotSchema = z.enum([
 
 const feedbackSimulatorQuestionSchema = z.enum([
   "event_score",
-  "liked",
+  "table_fit",
+  "participation_ease",
+  "conversation_balance",
   "meet_again",
   "avoid",
 ]);
@@ -119,7 +129,9 @@ const feedbackSimulatorQuestionSchema = z.enum([
  */
 const feedbackSimulatorReplyIntentSchema = z.enum([
   "ask_event_score",
-  "ask_liked",
+  "ask_table_fit",
+  "ask_participation_ease",
+  "ask_conversation_balance",
   "ask_meet_again",
   "ask_avoid",
   "ask_whether_to_mark_avoid",
@@ -232,6 +244,14 @@ export const feedbackSimulatorScenarioSummarySchema = z
 export const feedbackSimulatorCatalogResponseSchema = z
   .object({
     activeModel: assistantModelSchema,
+    activeExtractionReasoningEffort: z
+      .enum(FEEDBACK_EXTRACTION_REASONING_EFFORTS)
+      .nullable(),
+    activeAttentionReasoningEffort: z.enum(
+      FEEDBACK_EXTRACTION_REASONING_EFFORTS,
+    ),
+    activeServiceTier: z.enum(FEEDBACK_EXTRACTION_SERVICE_TIERS).nullable(),
+    workerAttestation: feedbackWorkerAttestationSchema,
     availableModels: z.array(assistantModelSchema).min(1),
     quietWindowMs: z.number().int().positive(),
     timingPolicy: z.literal("single_quiet_window_batch"),
@@ -270,6 +290,27 @@ const feedbackSimulatorRenderedMessagesSchema = z
   )
   .min(1);
 
+/**
+ * The exact venue boundary supplied to feedback extraction. Provider
+ * identifiers and mutable Google metadata deliberately have no slot here.
+ */
+const feedbackSimulatorVenueContextSchema = z
+  .object({
+    label: z.string().trim().min(1).max(200),
+    type: z.string().trim().min(1).max(100).optional(),
+    area: z.string().trim().min(1).max(200).optional(),
+    priceLevel: z.enum(EVENT_VENUE_PRICE_LEVELS).optional(),
+    priceRange: eventVenuePriceRangeSchema.optional(),
+  })
+  .strict();
+
+const feedbackSimulatorVenueSnapshotSchema = z
+  .object({
+    contextRevision: z.number().int().positive(),
+    venue: feedbackSimulatorVenueContextSchema,
+  })
+  .strict();
+
 export const feedbackSimulatorPreflightResponseSchema = z
   .object({
     correlationId: z.string().trim().min(1).max(128),
@@ -286,6 +327,7 @@ export const feedbackSimulatorPreflightResponseSchema = z
       })
       .strict(),
     workerRegistered: z.boolean(),
+    workerAttestation: feedbackWorkerAttestationSchema,
     timingPolicy: z.literal("single_quiet_window_batch"),
     baseline: z
       .object({
@@ -295,6 +337,7 @@ export const feedbackSimulatorPreflightResponseSchema = z
         introTranscriptRepairRequired: z.boolean(),
       })
       .strict(),
+    feedbackVenue: feedbackSimulatorVenueSnapshotSchema,
     candidateBindings: z.array(feedbackSimulatorCandidateBindingSchema),
     renderedMessages: feedbackSimulatorRenderedMessagesSchema,
     rubric: feedbackSimulatorRubricSchema,

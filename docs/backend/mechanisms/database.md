@@ -1,6 +1,6 @@
 # Database lifecycle and migrations
 
-Status: implemented foundation. Last verified: **2026-07-22** against Drizzle
+Status: implemented foundation. Last verified: **2026-08-02** against Drizzle
 ORM `0.45.2`, Drizzle Kit `0.31.10`, `pg` `8.22.0` and PostgreSQL `18.4`.
 
 ## Boundary
@@ -71,10 +71,23 @@ unique source key and canonical payload hash without retaining another raw PII
 copy. `post_event_feedback_whatsapp_opt_in` defaults to `false`. The detailed
 contract is in the [participant module](../modules/participants.md).
 
-Stub events and attendance live in `events` / `event_attendees` with status
-checks, a unique `(event_id, participant_id)` pair and
-`ON DELETE RESTRICT` toward participants. See the
-[events module](../modules/events.md).
+Events and attendance live in `events` / `event_attendees` with status checks,
+a unique `(event_id, participant_id)` pair and `ON DELETE RESTRICT` toward
+participants. One operator-confirmed venue reference is stored as flat nullable
+columns on `events`; there is no venue table. The columns cover provider, place
+id, label, optional type/area/price level, optional exact minor-unit price range,
+currency and the `use_in_feedback` flag. Constraints require the complete core
+shape when a venue exists, permit only provider `google`, validate the supported
+price levels and keep exact ranges non-negative, ordered and paired with a
+three-letter uppercase currency code. `venue_place_id` is non-empty when
+present and deliberately has no arbitrary length cap.
+
+`venue_context_revision` is separate event-level state: it is non-null with
+default `0`, creation with a venue stores `1`, and it may remain positive after
+the nullable venue columns are cleared. Every later explicit venue replacement
+or clear increments it with `venue_context_revision + 1` in the same SQL update.
+This preserves monotonic context identity across clear/re-add and
+`use_in_feedback` changes. See the [events module](../modules/events.md).
 
 Post-event feedback persistence lives in `feedback_campaigns`,
 `feedback_answers`, `feedback_answer_withdrawals`, `feedback_notes`,
@@ -97,7 +110,9 @@ See the [email delivery module](../modules/email-delivery.md).
 When a mutation needs business audit, the service writes the domain row and
 `audit_events` row through the same transaction. Runtime logs do not replace
 durable audit data. Audit context remains deliberately small and excludes
-credentials, request bodies, payment data and unnecessary personal data.
+credentials, request bodies, payment data and unnecessary personal data. Event
+venue audits may retain flags and the context revision, but not the venue label,
+Google place id or address-like text.
 
 ## Migration contract
 

@@ -28,8 +28,8 @@ accepted campaign, directed-result and human-control boundary is documented in
 the [post-event feedback module](../modules/post-event-feedback.md) and
 [ADR 0008](../../decisions/0008-post-event-feedback-conversations.md). Outbound
 sending goes through the injectable `FeedbackTransport` port switched by
-`TRANSPORT_MODE` (`wasender` or `simulated`); AI output never calls Wasender
-directly.
+`TRANSPORT_MODE` (`disabled`, `simulated` or `wasender`); AI output never calls
+Wasender directly.
 
 ## Contract
 
@@ -42,14 +42,20 @@ composition. It exposes:
 | `getMessageInfo`    | Positive provider log ID              | WhatsApp message ID, key, timestamp and status `0..5`    |
 | `markMessageAsRead` | Exact key received from a webhook     | Completion or classified provider error                  |
 
-There are no automatic provider retries. `WASENDER_SESSION_API_KEY`
-conditionally adds the transport module to the worker graph; the HTTP graph
-never receives that credential. `TRANSPORT_MODE=wasender` also requires that
-key and selects the paced Wasender `FeedbackTransport` adapter.
+There are no automatic provider retries. `TRANSPORT_MODE=wasender`
+conditionally adds the provider module to the worker graph and requires
+`WASENDER_SESSION_API_KEY` there; the HTTP graph never receives that credential
+and its shared configuration can validate Wasender mode without it.
+`TRANSPORT_MODE=disabled` has no provider dependency and deterministically
+returns `not-accepted / transport_disabled`; the ordinary delivery consumer
+marks the outbox row failed and raises its undelivered-message attention reason,
+so disabled traffic is visible and is never stockpiled for a surprise later send.
 `TRANSPORT_MODE=simulated` (default) uses a durable PostgreSQL outbound sink
-(`feedback_sim_outbound`) plus optional dev inject/read HTTP when
+(`feedback_sim_outbound`) plus optional inject/read HTTP when
 `FEEDBACK_SIMULATOR_ENABLED` is true (off by default; excluded from the
-published OpenAPI composition).
+published OpenAPI composition). The explicit production rehearsal gate may
+enable that Clerk-protected surface with real model calls while forbidding the
+Wasender client and webhook.
 
 When `WASENDER_WEBHOOK_ENABLED=true`, Wasender can call
 `POST /api/v1/webhooks/wasender`. The route is public with respect to Clerk but
@@ -174,16 +180,19 @@ come first.
 
 ## Configuration and operations
 
-| Variable                     | Process | Contract                                                                                                           |
-| ---------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------ |
-| `TRANSPORT_MODE`             | worker  | `simulated` (default, disallowed in production) or `wasender`; wasender requires the session API key               |
-| `FEEDBACK_SIMULATOR_ENABLED` | API     | Defaults false; mounts dev inject/thread routes only with `TRANSPORT_MODE=simulated` and non-production `NODE_ENV` |
-| `WASENDER_SESSION_API_KEY`   | worker  | Optional session-scoped bearer key; presence enables the Wasender client module                                    |
-| `WASENDER_WEBHOOK_ENABLED`   | API     | Defaults false; mounts the public route only when explicitly true                                                  |
-| `WASENDER_WEBHOOK_SECRET`    | API     | Required with the route; 32–512 chars, exact shared secret                                                         |
+| Variable                                | Process | Contract                                                                                                                                   |
+| --------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `TRANSPORT_MODE`                        | worker  | `disabled`, `simulated` (development default), or `wasender`; only Wasender mode composes the provider client and requires its session key |
+| `FEEDBACK_SIMULATOR_ENABLED`            | API     | Defaults false; mounts Clerk-protected inject/thread and rehearsal routes only with simulated transport                                    |
+| `FEEDBACK_PRODUCTION_REHEARSAL_ENABLED` | both    | Defaults false; production-only exception requiring simulated transport + simulator, real model, and no Wasender credential or webhook     |
+| `WASENDER_SESSION_API_KEY`              | worker  | Optional session-scoped bearer key; required by worker composition only when `TRANSPORT_MODE=wasender`                                     |
+| `WASENDER_WEBHOOK_ENABLED`              | API     | Defaults false; mounts the public route only when explicitly true; forbidden by the production rehearsal gate                              |
+| `WASENDER_WEBHOOK_SECRET`               | API     | Required with the route; 32–512 chars, exact shared secret                                                                                 |
 
-Production mounts separate secret files into the worker and API. The webhook
-URL configured in Wasender must be the public HTTPS URL. Validate the signature
+Normal Wasender production mounts separate secret files into the worker and API.
+Production rehearsal mounts no Wasender secret and never composes either
+Wasender edge. The webhook URL configured in Wasender must be the public HTTPS
+URL. Validate the signature
 contract against a staging delivery before activation: the current API and help
 pages prescribe direct secret equality, while an older Wasender blog calls the
 same header an HMAC even though its example still performs equality. The adapter

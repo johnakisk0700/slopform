@@ -2,6 +2,7 @@ import type {
   FeedbackAnswerQuestionKey,
   FeedbackNoteType,
 } from "@join-the-six/database";
+import type { PostEventFeedbackQuestionSetVersion } from "./question-set.js";
 
 export type PostEventFeedbackFixtureActor =
   "bot" | "participant" | "staff" | "system";
@@ -43,6 +44,7 @@ export type PostEventFeedbackFixtureExpectedOutcome = {
 
 export type PostEventFeedbackExtractionFixture = {
   id: string;
+  questionSetVersion: PostEventFeedbackQuestionSetVersion;
   description: string;
   respondentParticipantId: string;
   candidates: readonly PostEventFeedbackFixtureCandidate[];
@@ -62,6 +64,7 @@ const FIXTURE_CANDIDATES = {
 export const POST_EVENT_FEEDBACK_EXTRACTION_FIXTURES = [
   {
     id: "happy_path",
+    questionSetVersion: 1,
     description:
       "Participant answers score, names one liked candidate and one meet-again candidate.",
     respondentParticipantId: FIXTURE_CANDIDATES.maria.participantId,
@@ -125,6 +128,7 @@ export const POST_EVENT_FEEDBACK_EXTRACTION_FIXTURES = [
   },
   {
     id: "multi_message_burst",
+    questionSetVersion: 1,
     description:
       "Participant sends score, liked and meet-again answers in one burst.",
     respondentParticipantId: FIXTURE_CANDIDATES.nikos.participantId,
@@ -168,6 +172,7 @@ export const POST_EVENT_FEEDBACK_EXTRACTION_FIXTURES = [
   },
   {
     id: "two_kostas_ambiguity",
+    questionSetVersion: 1,
     description:
       "Two candidates share the first name Κώστας; extraction must not guess a subject.",
     respondentParticipantId: FIXTURE_CANDIDATES.eleni.participantId,
@@ -202,6 +207,7 @@ export const POST_EVENT_FEEDBACK_EXTRACTION_FIXTURES = [
   },
   {
     id: "unknown_name_subjectless_note",
+    questionSetVersion: 1,
     description:
       "Participant praises Ρούλα who is not in the current candidate set.",
     respondentParticipantId: FIXTURE_CANDIDATES.maria.participantId,
@@ -236,6 +242,7 @@ export const POST_EVENT_FEEDBACK_EXTRACTION_FIXTURES = [
   },
   {
     id: "unrelated_chat",
+    questionSetVersion: 1,
     description:
       "Participant sends off-topic chat without structured feedback signals.",
     respondentParticipantId: FIXTURE_CANDIDATES.nikos.participantId,
@@ -263,6 +270,7 @@ export const POST_EVENT_FEEDBACK_EXTRACTION_FIXTURES = [
   },
   {
     id: "safety_language",
+    questionSetVersion: 1,
     description:
       "Participant describes an urgent self-harm concern that needs staff attention without implicitly requesting handoff.",
     respondentParticipantId: FIXTURE_CANDIDATES.maria.participantId,
@@ -299,6 +307,7 @@ export const POST_EVENT_FEEDBACK_EXTRACTION_FIXTURES = [
   },
   {
     id: "stop_mid_flow",
+    questionSetVersion: 1,
     description:
       "Participant sends STOP while the bot is mid-questionnaire; no extraction.",
     respondentParticipantId: FIXTURE_CANDIDATES.eleni.participantId,
@@ -337,6 +346,7 @@ export const POST_EVENT_FEEDBACK_EXTRACTION_FIXTURES = [
   },
   {
     id: "staff_follow_up_after_takeover",
+    questionSetVersion: 1,
     description:
       "After staff takeover, participant answers a staff follow-up; only participant text may become testimony.",
     respondentParticipantId: FIXTURE_CANDIDATES.nikos.participantId,
@@ -367,6 +377,47 @@ export const POST_EVENT_FEEDBACK_EXTRACTION_FIXTURES = [
         {
           questionKey: "meet_again",
           subjectParticipantIds: [FIXTURE_CANDIDATES.eleni.participantId],
+        },
+      ],
+      notes: [],
+    },
+  },
+  {
+    id: "v2_full_questionnaire",
+    questionSetVersion: 2,
+    description:
+      "Participant answers all six V2 goals explicitly in one compact WhatsApp message.",
+    respondentParticipantId: FIXTURE_CANDIDATES.maria.participantId,
+    candidates: [
+      FIXTURE_CANDIDATES.nikos,
+      FIXTURE_CANDIDATES.kostasA,
+      FIXTURE_CANDIDATES.eleni,
+    ],
+    messages: [
+      {
+        id: "m1",
+        actor: "bot",
+        text: "Πώς σου φάνηκε συνολικά η βραδιά, από το 1 ως το 5;",
+      },
+      {
+        id: "m2",
+        actor: "participant",
+        text: "Συνολικά 4/5. Η παρέα ταίριαξε 5/5, μου ήταν εύκολο να συμμετέχω 4/5 και η συζήτηση ήταν ισορροπημένη 3/5. Θα ξανακαθόμουν με τον Νίκο. Προτιμώ να μη βρεθώ ξανά με τον Κώστα Π.",
+      },
+    ],
+    expected: {
+      answers: [
+        { questionKey: "event_score", valueInt: 4 },
+        { questionKey: "table_fit", valueInt: 5 },
+        { questionKey: "participation_ease", valueInt: 4 },
+        { questionKey: "conversation_balance", valueInt: 3 },
+        {
+          questionKey: "meet_again",
+          subjectParticipantIds: [FIXTURE_CANDIDATES.nikos.participantId],
+        },
+        {
+          questionKey: "avoid",
+          subjectParticipantIds: [FIXTURE_CANDIDATES.kostasA.participantId],
         },
       ],
       notes: [],

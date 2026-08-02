@@ -24,6 +24,10 @@ import type { FeedbackIngressRepository } from "../ingress/ingress.repository.js
 import type { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
 import type { FeedbackSimOutboundRepository } from "./sim-outbound.repository.js";
 import type { FeedbackJobData, FeedbackJobName } from "../jobs.schemas.js";
+import {
+  createFeedbackWorkerRegistrationName,
+  resolveFeedbackWorkerControlProfile,
+} from "../worker-attestation.js";
 
 const campaignId = "11111111-1111-4111-8111-111111111111";
 const eventId = "22222222-2222-4222-8222-222222222222";
@@ -33,6 +37,19 @@ const candidateId = "55555555-5555-4555-8555-555555555555";
 const introOutboxId = "66666666-6666-4666-8666-666666666666";
 const ingressId = "77777777-7777-4777-8777-777777777777";
 const correlationId = "feedback-eval-test-1";
+const enabledFeedbackVenue = {
+  contextRevision: 7,
+  venue: {
+    label: "Ρακί Μεζέ",
+    type: "μεζεδοπωλείο",
+    area: "Παγκράτι",
+    priceRange: {
+      startMinor: 1_800,
+      endMinor: 2_500,
+      currencyCode: "EUR",
+    },
+  },
+} as const;
 
 describe("real-model feedback simulator", () => {
   it("requires explicit paid-run confirmation at the HTTP boundary", () => {
@@ -73,15 +90,67 @@ describe("real-model feedback simulator", () => {
     expect(harness.ingress.recordObservedMessage).not.toHaveBeenCalled();
   });
 
-  it("exposes only the two agreed models and clean single-window scenarios", () => {
+  it("rejects provider-default extraction reasoning before worker lookup or writes", async () => {
+    const harness = createHarness({
+      FEEDBACK_EXTRACTION_REASONING_EFFORT: "",
+    });
+
+    await expect(
+      harness.service.startScenarioRun(
+        {
+          campaignId,
+          conversationId,
+          scenarioId: "greeklish",
+          expectedModel: "openai/gpt-5.6-luna",
+          confirmPaidRun: true,
+        },
+        correlationId,
+      ),
+    ).rejects.toThrow(
+      "requires an explicit FEEDBACK_EXTRACTION_REASONING_EFFORT",
+    );
+    expect(harness.queue.getWorkers).not.toHaveBeenCalled();
+    expect(harness.outboundTranscript.record).not.toHaveBeenCalled();
+    expect(harness.ingress.recordObservedMessage).not.toHaveBeenCalled();
+  });
+
+  it("exposes only the two agreed models and clean single-window scenarios", async () => {
     const { service } = createHarness();
-    const catalog = service.getCatalog();
+    const catalog = await service.getCatalog();
 
     expect(catalog.availableModels).toEqual([
       "openai/gpt-5.6-luna",
       "qwen/qwen3.7-max",
     ]);
+    expect(catalog).toMatchObject({
+      activeModel: "openai/gpt-5.6-luna",
+      activeExtractionReasoningEffort: "xhigh",
+      activeAttentionReasoningEffort: "none",
+      activeServiceTier: null,
+      workerAttestation: {
+        status: "verified",
+        registeredWorkerCount: 1,
+      },
+    });
     expect(catalog.timingPolicy).toBe("single_quiet_window_batch");
+    expect(catalog.scenarios).toHaveLength(23);
+    const scoreFollowUpIntents = [
+      "ask_event_score",
+      "ask_table_fit",
+      "ask_participation_ease",
+      "ask_conversation_balance",
+    ] as const;
+    expect(
+      [
+        ...new Set(
+          catalog.scenarios
+            .map((scenario) => scenario.rubric.reply?.requiredIntent)
+            .filter((intent): intent is (typeof scoreFollowUpIntents)[number] =>
+              scoreFollowUpIntents.some((candidate) => candidate === intent),
+            ),
+        ),
+      ].sort(),
+    ).toEqual([...scoreFollowUpIntents].sort());
     expect(catalog.scenarios.map((scenario) => scenario.id)).not.toEqual(
       expect.arrayContaining([
         "slow_typist",
@@ -91,6 +160,36 @@ describe("real-model feedback simulator", () => {
         "discloses_as_the_very_last_thing",
       ]),
     );
+  });
+
+  it("publishes the resolved paid-model controls used by the runner", async () => {
+    const { service } = createHarness({
+      FEEDBACK_EXTRACTION_REASONING_EFFORT: "high",
+      FEEDBACK_ATTENTION_REASONING_EFFORT: "low",
+      FEEDBACK_EXTRACTION_SERVICE_TIER: "priority",
+    });
+
+    await expect(service.getCatalog()).resolves.toMatchObject({
+      activeModel: "openai/gpt-5.6-luna",
+      activeExtractionReasoningEffort: "high",
+      activeAttentionReasoningEffort: "low",
+      activeServiceTier: "priority",
+    });
+  });
+
+  it("reports no effective OpenAI service tier for an OpenRouter model", async () => {
+    const { service } = createHarness({
+      FEEDBACK_EXTRACTION_MODEL: "qwen/qwen3.7-max",
+      FEEDBACK_EXTRACTION_REASONING_EFFORT: "high",
+      FEEDBACK_EXTRACTION_SERVICE_TIER: "priority",
+    });
+
+    await expect(service.getCatalog()).resolves.toMatchObject({
+      activeModel: "qwen/qwen3.7-max",
+      activeExtractionReasoningEffort: "high",
+      activeAttentionReasoningEffort: "none",
+      activeServiceTier: null,
+    });
   });
 
   it("uses cumulative leading-edge time instead of per-message gaps", () => {
@@ -147,12 +246,23 @@ describe("real-model feedback simulator", () => {
       conversationId,
       respondentParticipantId: respondentId,
       workerRegistered: true,
+      workerAttestation: {
+        status: "verified",
+        observedProfiles: [
+          {
+            model: "openai/gpt-5.6-luna",
+            provider: "openai",
+            providerModelId: "gpt-5.6-luna",
+          },
+        ],
+      },
       baseline: {
         clean: true,
         currentMessageCount: 0,
         effectiveMessageCount: 1,
         introTranscriptRepairRequired: true,
       },
+      feedbackVenue: enabledFeedbackVenue,
       candidateBindings: [
         {
           slot: "candidate1",
@@ -161,6 +271,9 @@ describe("real-model feedback simulator", () => {
         },
       ],
     });
+    expect(JSON.stringify(preview.feedbackVenue)).not.toMatch(
+      /"(?:provider|placeId|rating|reviews?)":/u,
+    );
     expect(preview.renderedMessages[0]).toContain("Ada");
     expect(harness.outboundTranscript.record).not.toHaveBeenCalled();
     expect(harness.ingress.recordObservedMessage).not.toHaveBeenCalled();
@@ -188,6 +301,33 @@ describe("real-model feedback simulator", () => {
     });
   });
 
+  it.each([
+    ["absent", { contextRevision: 0, venue: null }],
+    ["disabled", { contextRevision: 4, venue: null }],
+  ] as const)(
+    "refuses an event whose feedback venue is %s before any write",
+    async (_state, feedbackVenue) => {
+      const harness = createHarness({}, 2, feedbackVenue);
+
+      await expect(
+        harness.service.startScenarioRun(
+          {
+            campaignId,
+            conversationId,
+            scenarioId: "greeklish",
+            expectedModel: "openai/gpt-5.6-luna",
+            confirmPaidRun: true,
+          },
+          correlationId,
+        ),
+      ).rejects.toThrow(
+        "requires a configured event venue with useInFeedback enabled",
+      );
+      expect(harness.outboundTranscript.record).not.toHaveBeenCalled();
+      expect(harness.ingress.recordObservedMessage).not.toHaveBeenCalled();
+    },
+  );
+
   it("reports a stopped worker read-only but hard-blocks confirmed start before writes", async () => {
     const harness = createHarness();
     harness.queue.getWorkers.mockResolvedValue([]);
@@ -203,7 +343,8 @@ describe("real-model feedback simulator", () => {
     );
 
     expect(preview.workerRegistered).toBe(false);
-    expect(preview.warning).toContain("no feedback worker");
+    expect(preview.workerAttestation.status).toBe("absent");
+    expect(preview.warning).toMatch(/no feedback worker/iu);
     await expect(
       harness.service.startScenarioRun(
         {
@@ -216,6 +357,52 @@ describe("real-model feedback simulator", () => {
         correlationId,
       ),
     ).rejects.toThrow("No feedback worker is registered");
+    expect(harness.outboundTranscript.record).not.toHaveBeenCalled();
+    expect(harness.ingress.recordObservedMessage).not.toHaveBeenCalled();
+  });
+
+  it("hard-blocks a valid but differently configured worker before writes", async () => {
+    const harness = createHarness();
+    const staleProfile = resolveFeedbackWorkerControlProfile({
+      extractionStub: true,
+      model: "openai/gpt-5.6-luna",
+      extractionReasoningEffort: undefined,
+      attentionReasoningEffort: undefined,
+      serviceTier: undefined,
+    });
+    harness.queue.getWorkers.mockResolvedValue([
+      workerInfo(createFeedbackWorkerRegistrationName(staleProfile)),
+    ]);
+
+    const preview = await harness.service.preflightScenarioRun(
+      {
+        campaignId,
+        conversationId,
+        scenarioId: "greeklish",
+        expectedModel: "openai/gpt-5.6-luna",
+      },
+      correlationId,
+    );
+
+    expect(preview).toMatchObject({
+      workerRegistered: false,
+      workerAttestation: {
+        status: "mismatch",
+        observedProfiles: [{ extractionStub: true }],
+      },
+    });
+    await expect(
+      harness.service.startScenarioRun(
+        {
+          campaignId,
+          conversationId,
+          scenarioId: "greeklish",
+          expectedModel: "openai/gpt-5.6-luna",
+          confirmPaidRun: true,
+        },
+        correlationId,
+      ),
+    ).rejects.toThrow("control profile disagrees");
     expect(harness.outboundTranscript.record).not.toHaveBeenCalled();
     expect(harness.ingress.recordObservedMessage).not.toHaveBeenCalled();
   });
@@ -254,6 +441,23 @@ describe("real-model feedback simulator", () => {
         correlationId,
       ),
     ).rejects.toThrow("not a clean intro baseline");
+  });
+
+  it("rejects a V1 campaign before spending money on the V2 corpus", async () => {
+    const harness = createHarness({}, 1);
+
+    await expect(
+      harness.service.preflightScenarioRun(
+        {
+          campaignId,
+          conversationId,
+          scenarioId: "greeklish",
+          expectedModel: "openai/gpt-5.6-luna",
+        },
+        correlationId,
+      ),
+    ).rejects.toThrow("corpus is calibrated for questionnaire V2");
+    expect(harness.ingress.recordObservedMessage).not.toHaveBeenCalled();
   });
 
   it("fails extraction/outbox errors before accepting a cursor and waits for the run outbox sink", () => {
@@ -297,16 +501,31 @@ describe("real-model feedback simulator", () => {
     ).toBe("processed");
   });
 
-  it("is impossible to enable in production", () => {
+  it("requires the explicit production rehearsal gate", async () => {
     const { service } = createHarness({ NODE_ENV: "production" });
 
-    expect(() => service.getCatalog()).toThrow(
+    await expect(service.getCatalog()).rejects.toThrow(
       FeedbackSimulatorRunRejectedError,
     );
+
+    const rehearsal = createHarness({
+      NODE_ENV: "production",
+      FEEDBACK_PRODUCTION_REHEARSAL_ENABLED: true,
+    });
+    await expect(rehearsal.service.getCatalog()).resolves.toMatchObject({
+      activeModel: "openai/gpt-5.6-luna",
+    });
   });
 });
 
-function createHarness(environment: Partial<Environment> = {}): {
+function createHarness(
+  environment: Partial<Environment> = {},
+  questionSetVersion = 2,
+  feedbackVenue: {
+    readonly contextRevision: number;
+    readonly venue: typeof enabledFeedbackVenue.venue | null;
+  } = enabledFeedbackVenue,
+): {
   service: FeedbackSimulatorService;
   ingress: { recordObservedMessage: ReturnType<typeof vi.fn> };
   outboundTranscript: { record: ReturnType<typeof vi.fn> };
@@ -335,20 +554,32 @@ function createHarness(environment: Partial<Environment> = {}): {
         status: "pending",
       },
       {
-        key: "liked",
+        key: "table_fit",
         ordinal: 2,
-        prompt: "liked",
+        prompt: "table fit",
+        status: "pending",
+      },
+      {
+        key: "participation_ease",
+        ordinal: 3,
+        prompt: "participation ease",
+        status: "pending",
+      },
+      {
+        key: "conversation_balance",
+        ordinal: 4,
+        prompt: "conversation balance",
         status: "pending",
       },
       {
         key: "meet_again",
-        ordinal: 3,
+        ordinal: 5,
         prompt: "meet again",
         status: "pending",
       },
       {
         key: "avoid",
-        ordinal: 4,
+        ordinal: 6,
         prompt: "avoid",
         status: "pending",
       },
@@ -385,6 +616,7 @@ function createHarness(environment: Partial<Environment> = {}): {
       id: campaignId,
       eventId,
       status: "launched",
+      questionSetVersion,
     }),
     listAnswersByConversation: vi.fn().mockResolvedValue([]),
     listNotesByConversation: vi.fn().mockResolvedValue([]),
@@ -407,9 +639,15 @@ function createHarness(environment: Partial<Environment> = {}): {
       .mockImplementation(async () => structuredClone(conversation)),
   };
   const events = {
-    findById: vi.fn().mockResolvedValue({ id: eventId, status: "finished" }),
+    findById: vi.fn().mockResolvedValue({
+      id: eventId,
+      status: "finished",
+      venueProvider: "google",
+      venuePlaceId: "ChIJ-never-cross-the-preflight-boundary",
+    }),
   };
   const eventsService = {
+    getFeedbackVenueContext: vi.fn().mockResolvedValue(feedbackVenue),
     listFeedbackCandidatesForRespondent: vi.fn().mockResolvedValue({
       items: [
         {
@@ -438,16 +676,32 @@ function createHarness(environment: Partial<Environment> = {}): {
       return { outcome: "appended", conversation };
     }),
   };
-  const queue = {
-    getJob: vi.fn().mockResolvedValue(undefined),
-    getWorkers: vi.fn().mockResolvedValue([{ id: "feedback-worker-test" }]),
-  };
   const values = {
     NODE_ENV: "test",
     FEEDBACK_SIMULATOR_ENABLED: true,
     TRANSPORT_MODE: "simulated",
     FEEDBACK_EXTRACTION_MODEL: "openai/gpt-5.6-luna",
+    FEEDBACK_EXTRACTION_REASONING_EFFORT: "xhigh",
     ...environment,
+  };
+  const expectedProfile = resolveFeedbackWorkerControlProfile({
+    extractionStub: values.FEEDBACK_EXTRACTION_STUB === true,
+    model: optionalString(values.FEEDBACK_EXTRACTION_MODEL),
+    extractionReasoningEffort: optionalString(
+      values.FEEDBACK_EXTRACTION_REASONING_EFFORT,
+    ),
+    attentionReasoningEffort: optionalString(
+      values.FEEDBACK_ATTENTION_REASONING_EFFORT,
+    ),
+    serviceTier: optionalString(values.FEEDBACK_EXTRACTION_SERVICE_TIER),
+  });
+  const queue = {
+    getJob: vi.fn().mockResolvedValue(undefined),
+    getWorkers: vi
+      .fn()
+      .mockResolvedValue([
+        workerInfo(createFeedbackWorkerRegistrationName(expectedProfile)),
+      ]),
   };
   const config = {
     get: vi.fn((key: keyof typeof values) => values[key]),
@@ -473,5 +727,15 @@ function createHarness(environment: Partial<Environment> = {}): {
     outboundTranscript,
     queue,
     conversation,
+  };
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function workerInfo(registrationName: string): { rawname: string } {
+  return {
+    rawname: `bull:ZmVlZGJhY2s=:w:${registrationName}`,
   };
 }

@@ -11,11 +11,13 @@ import {
 } from "ai";
 import type { Queue } from "bullmq";
 import type {
+  FeedbackCampaignRow,
   FeedbackCampaignSummaryRow,
   FeedbackCampaignSummaryTrigger,
 } from "@join-the-six/database";
 
 import { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
+import { withProviderCallSlot } from "../../../infrastructure/ai/provider-call-limiter.js";
 import type { Environment } from "../../../infrastructure/config/environment.js";
 import { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import { FEEDBACK_QUEUE } from "../../../infrastructure/queue/queue.constants.js";
@@ -42,6 +44,7 @@ import {
   parseFeedbackSummarizeCampaignAttempt,
   type FeedbackSummarizeCampaignJobData,
 } from "../jobs.schemas.js";
+import { getPostEventFeedbackQuestionSet } from "../question-set.js";
 import { buildFeedbackCampaignSummaryPrompt } from "./prompt.js";
 
 export const DEFAULT_FEEDBACK_SUMMARY_MODEL =
@@ -228,10 +231,18 @@ export class PostEventFeedbackCampaignSummaryService {
     const summary = await this.campaigns.findSummaryByCampaignId(
       input.campaignId,
     );
-    if (!summary || summary.status !== "pending" || summary.attempt !== attempt) {
+    if (
+      !summary ||
+      summary.status !== "pending" ||
+      summary.attempt !== attempt
+    ) {
       return;
     }
 
+    const campaign = await this.requireCampaign(input.campaignId);
+    const questionSet = getPostEventFeedbackQuestionSet(
+      campaign.questionSetVersion,
+    );
     const answers = await this.results.listAnswersByCampaign(input.campaignId);
     const notes = await this.results.listNotesByCampaign(input.campaignId);
     const participantIds = [
@@ -259,6 +270,8 @@ export class PostEventFeedbackCampaignSummaryService {
     ).length;
 
     const prompt = buildFeedbackCampaignSummaryPrompt({
+      questionSetVersion: questionSet.version,
+      questionDefinitions: questionSet.answerQuestions,
       isPartial: summary.isPartial,
       openConversationCount: summary.openConversationCount,
       closedConversationCount,
@@ -325,25 +338,24 @@ export class PostEventFeedbackCampaignSummaryService {
 
   private async generateSummary(prompt: string): Promise<string> {
     const model = this.resolveProviderModel();
-    const result = await generateText({
-      model,
-      messages: [{ role: "user", content: prompt }],
-      maxOutputTokens: 8_192,
-      maxRetries: 0,
-      timeout: { totalMs: FEEDBACK_SUMMARY_TIMEOUT_MILLISECONDS },
-      providerOptions: {
-        openai: { reasoningEffort: this.reasoningEffort },
-      },
-    });
+    const result = await withProviderCallSlot(() =>
+      generateText({
+        model,
+        messages: [{ role: "user", content: prompt }],
+        maxOutputTokens: 8_192,
+        maxRetries: 0,
+        timeout: { totalMs: FEEDBACK_SUMMARY_TIMEOUT_MILLISECONDS },
+        providerOptions: {
+          openai: { reasoningEffort: this.reasoningEffort },
+        },
+      }),
+    );
     const body = result.text.trim();
     if (!body) {
       throw new FeedbackSummaryGenerationError(true, "empty_response");
     }
     if (body.length > FEEDBACK_SUMMARY_BODY_MAX_LENGTH) {
-      throw new FeedbackSummaryGenerationError(
-        false,
-        "response_too_long",
-      );
+      throw new FeedbackSummaryGenerationError(false, "response_too_long");
     }
     return body;
   }
@@ -362,11 +374,14 @@ export class PostEventFeedbackCampaignSummaryService {
     return this.openAiProvider(adapter.providerModelId);
   }
 
-  private async requireCampaign(campaignId: string): Promise<void> {
+  private async requireCampaign(
+    campaignId: string,
+  ): Promise<FeedbackCampaignRow> {
     const campaign = await this.campaigns.findCampaignById(campaignId);
     if (!campaign) {
       throw new FeedbackCampaignNotFoundError(campaignId);
     }
+    return campaign;
   }
 }
 
@@ -395,9 +410,7 @@ export function resolveFeedbackSummaryReasoningEffort(
       candidate,
     )
   ) {
-    throw new Error(
-      `Unknown FEEDBACK_SUMMARY_REASONING_EFFORT: ${candidate}`,
-    );
+    throw new Error(`Unknown FEEDBACK_SUMMARY_REASONING_EFFORT: ${candidate}`);
   }
   return candidate as FeedbackSummaryReasoningEffort;
 }

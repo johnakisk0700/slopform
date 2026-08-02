@@ -3,6 +3,7 @@ import type {
   FeedbackNoteType,
 } from "@join-the-six/database";
 
+import type { EventVenueInput } from "../../events/events.schemas.js";
 import type {
   PostEventFeedbackRecommendedAction,
   PostEventFeedbackSafetyCategory,
@@ -57,22 +58,96 @@ export interface BurstCampaignDefinition {
   readonly ordinal: number;
   /** Event title as it appears in the admin. */
   readonly title: string;
+  /** Operator-confirmed Google venue snapshot seeded through the event API. */
+  readonly venue: EventVenueInput;
 }
 
 export const BURST_CAMPAIGNS: readonly BurstCampaignDefinition[] = [
-  { slug: "taverna", ordinal: 1, title: "Δοκιμαστικό δείπνο — Ταβέρνα" },
-  { slug: "rooftop", ordinal: 2, title: "Δοκιμαστικό δείπνο — Rooftop" },
-  { slug: "wine", ordinal: 3, title: "Δοκιμαστικό δείπνο — Οινοποιείο" },
+  {
+    slug: "taverna",
+    ordinal: 1,
+    title: "Δοκιμαστικό δείπνο — Ταβέρνα",
+    venue: {
+      provider: "google",
+      placeId: "ChIJkW6XYCS9oRQRVKWbEwZF9JY",
+      label: "Tavern Klimataria",
+      type: "Greek restaurant",
+      area: "Pl. Theatrou 2, Athina 105 52",
+      priceLevel: "moderate",
+      useInFeedback: true,
+    },
+  },
+  {
+    slug: "rooftop",
+    ordinal: 2,
+    title: "Δοκιμαστικό δείπνο — Rooftop",
+    venue: {
+      provider: "google",
+      placeId: "ChIJ1ZkHXHO9oRQRKErpbkULLXs",
+      label: "Elysium Athens Rooftop | Dining & Cocktails",
+      type: "Restaurant",
+      area: "15-17, Ermou 105 63, Athina 105 63",
+      useInFeedback: true,
+    },
+  },
+  {
+    slug: "wine",
+    ordinal: 3,
+    title: "Δοκιμαστικό δείπνο — Οινοποιείο",
+    venue: {
+      provider: "google",
+      placeId: "ChIJn4mgZSG9oRQR3pjizYULen0",
+      label: "Athens Wine Tasting",
+      type: "Wine bar",
+      area: "Tournavitou 9, Athina 105 53",
+      useInFeedback: true,
+    },
+  },
   {
     slug: "mezedopoleio",
     ordinal: 4,
     title: "Δοκιμαστικό δείπνο — Μεζεδοπωλείο",
+    venue: {
+      provider: "google",
+      placeId: "ChIJETz0yTW9oRQR23hUCd_DS80",
+      label: "Ama Lachei",
+      type: "Restaurant",
+      area: "Kallidromiou 69, Athina 106 83",
+      priceLevel: "moderate",
+      useInFeedback: true,
+    },
   },
-  { slug: "ouzeri", ordinal: 5, title: "Δοκιμαστικό δείπνο — Ουζερί" },
+  {
+    slug: "ouzeri",
+    ordinal: 5,
+    title: "Δοκιμαστικό δείπνο — Ουζερί",
+    venue: {
+      provider: "google",
+      placeId: "ChIJtXQszjC9oRQRs2-d32HTveA",
+      label: "Ouzeri Lesvos",
+      type: "Restaurant",
+      area: "Emmanouil Benaki 38, Athina 106 78",
+      priceLevel: "moderate",
+      useInFeedback: true,
+    },
+  },
   {
     slug: "zontanoi",
     ordinal: 6,
     title: "Δοκιμαστικό δείπνο — Ζωντανοί καλεσμένοι",
+    venue: {
+      provider: "google",
+      placeId: "ChIJqSGPIoC9oRQReEqq6nLJWaw",
+      label: "Teras Athens",
+      type: "Art gallery",
+      area: "Theodoritou Vresthenis, Athens",
+      priceRange: {
+        startMinor: 3_000,
+        endMinor: 5_000,
+        currencyCode: "EUR",
+      },
+      useInFeedback: true,
+    },
   },
 ];
 
@@ -197,7 +272,7 @@ export interface BurstStubTurn {
 
 export interface BurstExpectedAnswer {
   readonly question: FeedbackAnswerQuestionKey;
-  /** Candidate display name for directed questions, `null` for `event_score`. */
+  /** Candidate display name for directed questions, `null` for score questions. */
   readonly about: string | null;
   readonly value: number | null;
 }

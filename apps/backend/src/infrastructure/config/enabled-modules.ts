@@ -1,3 +1,5 @@
+import type { Environment } from "./environment.js";
+
 export function isBullBoardEnabled(environment: NodeJS.ProcessEnv): boolean {
   return environment.BULL_BOARD_ENABLED?.trim().toLowerCase() === "true";
 }
@@ -17,22 +19,34 @@ export function isWasenderWebhookEnabled(
 export function isFeedbackSimulatorHttpEnabled(
   environment: NodeJS.ProcessEnv,
 ): boolean {
-  if (environment.NODE_ENV?.trim() === "production") {
-    return false;
-  }
+  return isFeedbackSimulatorEnabled({
+    nodeEnv: environment.NODE_ENV?.trim().toLowerCase(),
+    productionRehearsalEnabled:
+      environment.FEEDBACK_PRODUCTION_REHEARSAL_ENABLED?.trim().toLowerCase() ===
+      "true",
+    simulatorEnabled:
+      environment.FEEDBACK_SIMULATOR_ENABLED?.trim().toLowerCase() === "true",
+    transportMode:
+      environment.TRANSPORT_MODE?.trim().toLowerCase() ?? "simulated",
+  });
+}
 
+export function isFeedbackSimulatorEnabled(environment: {
+  readonly nodeEnv: Environment["NODE_ENV"] | string | undefined;
+  readonly productionRehearsalEnabled: boolean;
+  readonly simulatorEnabled: boolean;
+  readonly transportMode: Environment["TRANSPORT_MODE"] | string;
+}): boolean {
   return (
-    environment.FEEDBACK_SIMULATOR_ENABLED?.trim().toLowerCase() === "true" &&
-    (environment.TRANSPORT_MODE?.trim().toLowerCase() ?? "simulated") ===
-      "simulated"
+    environment.simulatorEnabled &&
+    environment.transportMode === "simulated" &&
+    (environment.nodeEnv !== "production" ||
+      environment.productionRehearsalEnabled)
   );
 }
 
 export function isWasenderTransportEnabled(
   environment: NodeJS.ProcessEnv,
 ): boolean {
-  return (
-    Boolean(environment.WASENDER_SESSION_API_KEY?.trim()) ||
-    environment.TRANSPORT_MODE?.trim().toLowerCase() === "wasender"
-  );
+  return environment.TRANSPORT_MODE?.trim().toLowerCase() === "wasender";
 }

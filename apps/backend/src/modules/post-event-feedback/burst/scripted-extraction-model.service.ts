@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import type { FeedbackAnswerQuestionKey } from "@join-the-six/database";
 
 import type {
   FeedbackExtractionMessageView,
@@ -6,8 +7,8 @@ import type {
   FeedbackExtractionSafetySignalProposal,
 } from "../extraction/extraction.schemas.js";
 import {
+  createFeedbackExtractionProposalSchema,
   feedbackExtractionGoalVerdicts,
-  feedbackExtractionProposalSchema,
 } from "../extraction/extraction.schemas.js";
 import {
   FEEDBACK_ATTENTION_CLASSIFICATION_BATCH_SIZE,
@@ -90,6 +91,7 @@ export class ScriptedBurstExtractionModel implements FeedbackExtractionModelPort
 
   async propose(
     prompt: FeedbackExtractionPrompt,
+    questionKeys: readonly FeedbackAnswerQuestionKey[],
   ): Promise<FeedbackExtractionGenerationResult> {
     try {
       const parsed = parseBurstExtractionPrompt(prompt.user);
@@ -97,10 +99,11 @@ export class ScriptedBurstExtractionModel implements FeedbackExtractionModelPort
         parsed.newMessageIds,
         textsForIds(parsed, parsed.newMessageIds),
       );
-      const proposal = buildProposal(turn, parsed, persona);
+      const proposal = buildProposal(turn, parsed, persona, questionKeys);
       return {
         model: FEEDBACK_EXTRACTION_STUB_MODEL_ID,
-        proposal: feedbackExtractionProposalSchema.parse(proposal),
+        proposal:
+          createFeedbackExtractionProposalSchema(questionKeys).parse(proposal),
         usage: SCRIPTED_USAGE,
       };
     } catch (error) {
@@ -207,6 +210,7 @@ function buildProposal(
   turn: BurstStubTurn,
   parsed: ParsedBurstExtractionPrompt,
   _persona: BurstPersona,
+  questionKeys: readonly FeedbackAnswerQuestionKey[],
 ): FeedbackExtractionProposal {
   const confidence = turn.confidence ?? 0.9;
   // The respondent is addressable on purpose. A stub that could only name
@@ -223,28 +227,34 @@ function buildProposal(
   const declineCite = resolveCite("all-new", parsed.newMessageIds);
 
   return {
-    goals: feedbackExtractionGoalVerdicts({
-      answered: (turn.answers ?? []).map((answer) => {
-        const subject = resolveSubject(answer.about, undefined, byName, {
-          required: answer.question !== "event_score",
-        });
-        return {
-          questionKey: answer.question,
-          valueInt: answer.value ?? null,
-          subjectParticipantId: subject.participantId,
-          subjectMentionedName: subject.mentionedName,
-          sourceMessageIds: resolveCite(
-            answer.cite ?? "all-new",
-            parsed.newMessageIds,
-          ),
-          confidence,
-        };
-      }),
-      declined: (turn.skippedGoals ?? []).map((questionKey) => ({
-        questionKey,
-        sourceMessageIds: declineCite,
-      })),
-    }),
+    goals: feedbackExtractionGoalVerdicts(
+      {
+        answered: (turn.answers ?? []).map((answer) => {
+          const subject = resolveSubject(answer.about, undefined, byName, {
+            required:
+              answer.question === "liked" ||
+              answer.question === "meet_again" ||
+              answer.question === "avoid",
+          });
+          return {
+            questionKey: answer.question,
+            valueInt: answer.value ?? null,
+            subjectParticipantId: subject.participantId,
+            subjectMentionedName: subject.mentionedName,
+            sourceMessageIds: resolveCite(
+              answer.cite ?? "all-new",
+              parsed.newMessageIds,
+            ),
+            confidence,
+          };
+        }),
+        declined: (turn.skippedGoals ?? []).map((questionKey) => ({
+          questionKey,
+          sourceMessageIds: declineCite,
+        })),
+      },
+      questionKeys,
+    ),
     notes: (turn.notes ?? []).map((note) => {
       const subject = resolveSubject(note.about, note.mentionedName, byName, {
         required: false,

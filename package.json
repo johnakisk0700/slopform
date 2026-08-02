@@ -41,6 +41,7 @@
     "infra:up": "docker compose up -d --wait postgres mongo redis",
     "lint": "turbo run lint",
     "openapi:emit": "turbo run openapi:emit --filter=@join-the-six/backend",
+    "prod": "bash scripts/prod.sh",
     "test": "turbo run test",
     "test:scripts": "node --test \"scripts/*.spec.mjs\"",
     "typecheck": "turbo run typecheck"

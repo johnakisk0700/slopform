@@ -7,6 +7,8 @@ import {
   type AssistantDisplayMessage,
 } from "../../../features/assistant/schema";
 import { AssistantMarkdown } from "./AssistantMarkdown";
+import { AssistantReasoningCard } from "./AssistantReasoningCard";
+import { AssistantThinkingIndicator } from "./AssistantThinkingIndicator";
 
 function modelLabel(message: AssistantDisplayMessage): string {
   return (
@@ -38,16 +40,30 @@ export const AssistantMessage = memo(
       );
     }
 
+    // Text from a turn still in flight is streamed, not an answer: keep the
+    // activity marker and withhold the copy/attribution footer until the durable
+    // result lands, so nothing invites acting on a half-written reply.
+    const streaming =
+      message.status === "queued" || message.status === "running";
+
     return (
       <article id={message.id} aria-label="Assistant message">
+        {streaming && message.reasoning ? (
+          <AssistantReasoningCard reasoning={message.reasoning} />
+        ) : null}
         <div className="assistant-markdown max-w-none">
           <AssistantMarkdown>{message.content}</AssistantMarkdown>
         </div>
-        <AssistantMessageActions
-          content={message.content}
-          model={modelLabel(message)}
-          effort={message.effort}
-        />
+        {streaming ? (
+          <AssistantThinkingIndicator />
+        ) : (
+          <AssistantMessageActions
+            content={message.content}
+            model={modelLabel(message)}
+            effort={message.effort}
+            serviceTier={message.serviceTier}
+          />
+        )}
       </article>
     );
   },
@@ -57,6 +73,8 @@ export const AssistantMessage = memo(
     previous.message.content === next.message.content &&
     previous.message.model === next.message.model &&
     previous.message.effort === next.message.effort &&
+    previous.message.serviceTier === next.message.serviceTier &&
+    previous.message.reasoning === next.message.reasoning &&
     previous.message.status === next.message.status,
 );
 
@@ -66,10 +84,12 @@ function AssistantMessageActions({
   content,
   model,
   effort,
+  serviceTier,
 }: {
   content: string;
   model: string;
   effort: AssistantDisplayMessage["effort"];
+  serviceTier: AssistantDisplayMessage["serviceTier"];
 }) {
   const [copied, setCopied] = useState(false);
   const resetTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -105,6 +125,9 @@ function AssistantMessageActions({
       </Button>
       <span className="ml-1 text-[length:var(--jts-text-2xs)] tabular-nums text-ink-subtle">
         {model} · {effort} thinking
+        {/* Stamped only when the fast lane was actually bought, because it is
+            the one setting here that changed what the turn cost. */}
+        {serviceTier === "fast" ? " · fast lane" : ""}
       </span>
     </div>
   );

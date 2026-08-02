@@ -704,4 +704,5 @@ const SCENARIOS: readonly FeedbackScenario[] = [
 runFeedbackScenarios(
   "post-event feedback loop — typing and answering",
   SCENARIOS,
+  { questionSetVersion: 1 },
 );

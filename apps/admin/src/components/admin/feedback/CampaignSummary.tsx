@@ -84,9 +84,7 @@ export function CampaignSummary({ campaignId }: CampaignSummaryProps) {
     : summaryQuery.isPending
       ? "Loading…"
       : "Not generated";
-  const statusClass = summary
-    ? statusToneClass(summary)
-    : "text-ink-muted";
+  const statusClass = summary ? statusToneClass(summary) : "text-ink-muted";
   const actionLabel = campaignSummaryActionLabel(summary?.status ?? "none");
   const partialWarning = summary
     ? campaignSummaryPartialWarning(summary)
@@ -109,12 +107,12 @@ export function CampaignSummary({ campaignId }: CampaignSummaryProps) {
   }
 
   return (
-    <details className="group rounded-lg border border-border bg-surface">
+    <details className="jts-disclosure group rounded-lg border border-border bg-surface">
       <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold text-ink marker:content-none [&::-webkit-details-marker]:hidden">
         <span className="flex min-w-0 items-center gap-2">
           <ChevronDown
             aria-hidden="true"
-            className="size-4 shrink-0 text-ink-muted transition-transform group-open:rotate-180"
+            className="size-4 shrink-0 text-ink-muted transition-transform duration-200 group-open:rotate-180"
           />
           Campaign summary
         </span>

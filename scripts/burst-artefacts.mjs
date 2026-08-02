@@ -38,6 +38,13 @@ export function buildFinishedEvent({ result, stamp, reportPath, revision }) {
     event: "feedback_burst.finished",
     passed: result.passed,
     model: result.model,
+    // Named treatment is separate from the model/config pair: `prova` is the
+    // operator contract that selected those exact values, not a label inferred
+    // later from whichever values happened to be recorded.
+    treatment: result.treatment ?? null,
+    // Silence is deliberately safe but it is not behavioral coverage. Keep
+    // the substitution visible in the tracked terminal event.
+    liveGuests: result.liveGuests ?? null,
     stamp,
     startedAt: result.startedAt,
     finishedAt: result.finishedAt,

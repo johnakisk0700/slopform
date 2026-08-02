@@ -25,6 +25,7 @@ describe("assistant schemas", () => {
       requestId,
       model: "google/gemini-3.6-flash",
       effort: "low",
+      serviceTier: "standard",
       content: "hello",
     });
     expect(() =>
@@ -37,36 +38,32 @@ describe("assistant schemas", () => {
       "openai/gpt-5.6-luna": {
         provider: "openai",
         providerModelId: "gpt-5.6-luna",
+        supportsTools: true,
       },
       "openai/gpt-5.6-terra": {
         provider: "openai",
         providerModelId: "gpt-5.6-terra",
+        supportsTools: true,
       },
       "google/gemini-3.6-flash": {
         provider: "openrouter",
         providerModelId: "google/gemini-3.6-flash",
+        supportsTools: true,
       },
       "qwen/qwen3.7-max": {
         provider: "openrouter",
         providerModelId: "qwen/qwen3.7-max",
+        supportsTools: true,
       },
     });
   });
 
-  // The failure this guards against is silent: an entry naming a provider this
-  // deployment holds no credit with still typechecks, still reads like a
-  // deliberate route, and only shows up as `provider_error` on every call.
-  //
-  // Two providers are funded as of 2026-07-31, so this can no longer assert a
-  // single route. What it can still assert is the half that was silently wrong
-  // for free: the id shape has to match the provider that receives it, and the
-  // two vocabularies are incompatible. OpenRouter addresses models as
-  // `vendor/model` and resolves a bare name to nothing; OpenAI wants the bare
-  // name and rejects the prefixed one. Either mistake is a 404 on every call.
-  it("routes every model through a funded provider, addressed the way that provider expects", () => {
-    const funded = new Set(["openrouter", "openai"]);
+  // The id shape has to match the provider fixed by the model contract.
+  // OpenRouter addresses models as `vendor/model` and resolves a bare name to
+  // nothing; OpenAI wants the bare name and rejects the prefixed one. Either
+  // mistake is a 404 on every call.
+  it("addresses every model exactly as its contracted provider expects", () => {
     for (const [model, adapter] of Object.entries(ASSISTANT_MODEL_ADAPTERS)) {
-      expect(funded.has(adapter.provider), model).toBe(true);
       expect(adapter.providerModelId.includes("/"), model).toBe(
         adapter.provider === "openrouter",
       );
@@ -107,8 +104,11 @@ describe("assistant schemas", () => {
         status: "succeeded",
         model: "google/gemini-3.6-flash",
         effort: "low",
+        serviceTier: "standard",
         user: { role: "user", content: "Hello" },
         assistant: null,
+        partial: null,
+        reasoning: null,
         error: null,
         attempt: 1,
         createdAt: "2026-07-23T10:00:00.000Z",
@@ -116,5 +116,28 @@ describe("assistant schemas", () => {
         completedAt: "2026-07-23T10:00:02.000Z",
       }),
     ).toThrow(/succeeded turn requires/);
+  });
+
+  it("rejects streamed text on a settled turn", () => {
+    expect(() =>
+      assistantTurnSchema.parse({
+        id: turnId,
+        requestId,
+        sequence: 1,
+        status: "succeeded",
+        model: "google/gemini-3.6-flash",
+        effort: "low",
+        serviceTier: "standard",
+        user: { role: "user", content: "Hello" },
+        assistant: { role: "assistant", content: "Answer" },
+        partial: "Answ",
+        reasoning: null,
+        error: null,
+        attempt: 1,
+        createdAt: "2026-07-23T10:00:00.000Z",
+        startedAt: "2026-07-23T10:00:01.000Z",
+        completedAt: "2026-07-23T10:00:02.000Z",
+      }),
+    ).toThrow(/settled turn cannot carry streamed text/);
   });
 });

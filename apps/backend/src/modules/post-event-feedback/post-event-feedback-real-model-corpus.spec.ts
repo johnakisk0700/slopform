@@ -28,6 +28,7 @@ describe("post-event feedback real-model corpus", () => {
     );
 
     expect(new Set(ids).size).toBe(ids.length);
+    expect(ids).toHaveLength(33);
   });
 
   it("keeps every rubric readable by the simulator that runs it", () => {
@@ -124,7 +125,14 @@ describe("post-event feedback real-model corpus", () => {
       expect(
         [...(scenario.rubric.skippedGoals ?? [])].sort(),
         `${id} withdraws from the whole questionnaire, not the current goal`,
-      ).toEqual(["avoid", "event_score", "liked", "meet_again"]);
+      ).toEqual([
+        "avoid",
+        "conversation_balance",
+        "event_score",
+        "meet_again",
+        "participation_ease",
+        "table_fit",
+      ]);
     }
   });
 
@@ -148,19 +156,57 @@ describe("post-event feedback real-model corpus", () => {
     expect(scenario.rubric.notes?.[0]?.about).toBe("candidate4");
   });
 
-  it("does not bank faint praise as a liked answer", () => {
-    // The wording fix on `racist_about_an_attendee` stopped the corpus from
-    // demanding a `liked` off «ήταν οκ», but left no case that fails a model
-    // for doing that on its own. This row is that case: the forbidden answer is
-    // the whole claim, and a requiredIntent would pick a winner between re-ask
-    // and move-on when both are right.
-    const scenario = corpusCase("faint_praise_is_not_liked");
+  it("does not turn faint praise into meet-again intent", () => {
+    const scenario = corpusCase("faint_praise_is_not_meet_again");
 
     expect(scenario.rubric.forbiddenAnswers).toContainEqual({
-      question: "liked",
+      question: "meet_again",
       about: "candidate1",
     });
     expect(scenario.rubric.answers ?? []).toEqual([]);
     expect(scenario.rubric.reply?.requiredIntent).toBeUndefined();
+  });
+
+  it("pins all three new scores and a complete six-question V2 burst", () => {
+    const complete = corpusCase("answers_everything_at_once");
+    const answerKeys = complete.rubric.answers?.map(
+      (answer) => answer.question,
+    );
+
+    expect(answerKeys).toEqual([
+      "event_score",
+      "table_fit",
+      "participation_ease",
+      "conversation_balance",
+      "meet_again",
+      "meet_again",
+    ]);
+    expect(complete.rubric.skippedGoals).toEqual(["avoid"]);
+    expect(complete.rubric.reply?.requiredIntent).toBe("close_questionnaire");
+
+    const scorecard = corpusCase("slow_typist");
+    expect(scorecard.rubric.answers).toEqual(
+      expect.arrayContaining([
+        { question: "table_fit", value: 4 },
+        { question: "participation_ease", value: 3 },
+        { question: "conversation_balance", value: 4 },
+      ]),
+    );
+
+    expect(corpusCase("changes_the_score").rubric.reply?.requiredIntent).toBe(
+      "ask_table_fit",
+    );
+    expect(corpusCase("praises_the_waiter").rubric.reply?.requiredIntent).toBe(
+      "ask_event_score",
+    );
+    expect(corpusCase("replies_in_english").rubric.reply?.requiredIntent).toBe(
+      "ask_table_fit",
+    );
+    expect(
+      corpusCase("contradicts_within_one_message").rubric.reply?.requiredIntent,
+    ).toBe("ask_participation_ease");
+    expect(corpusCase("greeklish").rubric.reply?.requiredIntent).toBe(
+      "ask_conversation_balance",
+    );
   });
 });

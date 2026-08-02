@@ -5,6 +5,7 @@ import {
   FEEDBACK_NOTE_TYPES,
 } from "@join-the-six/database";
 import {
+  getPostEventFeedbackQuestionSet,
   isPostEventFeedbackAnswerQuestionKey,
   isPostEventFeedbackNoteType,
 } from "./question-set.js";
@@ -27,11 +28,17 @@ describe("post-event feedback extraction fixtures", () => {
       "safety_language",
       "stop_mid_flow",
       "staff_follow_up_after_takeover",
+      "v2_full_questionnaire",
     ]);
   });
 
   it("keeps typed expected outcomes aligned with allowed question and note keys", () => {
     for (const fixture of POST_EVENT_FEEDBACK_EXTRACTION_FIXTURES) {
+      const allowedQuestionKeys = new Set(
+        getPostEventFeedbackQuestionSet(
+          fixture.questionSetVersion,
+        ).answerQuestions.map((question) => question.key),
+      );
       const candidateIds = new Set(
         fixture.candidates.map((candidate) => candidate.participantId),
       );
@@ -41,6 +48,10 @@ describe("post-event feedback extraction fixtures", () => {
         expect(isPostEventFeedbackAnswerQuestionKey(answer.questionKey)).toBe(
           true,
         );
+        expect(
+          allowedQuestionKeys.has(answer.questionKey),
+          `${fixture.id} uses ${answer.questionKey} outside question set v${fixture.questionSetVersion}`,
+        ).toBe(true);
         const subjectIds =
           "subjectParticipantIds" in answer
             ? (answer.subjectParticipantIds ?? [])
@@ -98,10 +109,26 @@ describe("post-event feedback extraction fixtures", () => {
         coveredKeys.add(answer.questionKey);
       }
     }
-    expect([...coveredKeys].sort()).toEqual([
+    expect([...coveredKeys].sort()).toEqual(
+      [...FEEDBACK_ANSWER_QUESTION_KEYS].sort(),
+    );
+  });
+
+  it("pins a complete six-goal V2 extraction fixture", () => {
+    const fixture = getPostEventFeedbackExtractionFixture(
+      "v2_full_questionnaire",
+    );
+
+    expect(fixture.questionSetVersion).toBe(2);
+    expect(
+      fixture.expected.answers.map((answer) => answer.questionKey),
+    ).toEqual([
       "event_score",
-      "liked",
+      "table_fit",
+      "participation_ease",
+      "conversation_balance",
       "meet_again",
+      "avoid",
     ]);
   });
 

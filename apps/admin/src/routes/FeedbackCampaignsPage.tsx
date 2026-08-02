@@ -62,7 +62,7 @@ export function FeedbackCampaignsPage() {
   }
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-6">
       <JtsPageHeader
         eyebrow="Post-event feedback"
         title="Feedback campaigns"

@@ -17,6 +17,8 @@
       headings, reduced motion) and the two sanctioned motif classes
       (.brand-mark decorative six-dot, .status-dot) plus .skip-link.
       The product logo is BrandLockup / BrandMark (SVG, currentColor), not .brand-mark.
+      The `jts-title-mark` utility below counts to six as well — deliberately, it
+      is the same sentence at title scale — and belongs to page titles alone.
 
    Dark mode: the `dark` class on <html> (set pre-paint in index.html, owned
    by src/lib/useTheme.ts). Components must not hand-roll colors — see
@@ -211,6 +213,67 @@
   --container-content: var(--jts-content-width);
 }
 
+/* The page title's mark — six dots, the last one in the accent.
+   ---------------------------------------------------------------------------
+   What this replaces: a 3px × 2rem wine dash under every h1. It was a solid
+   bar that said nothing but «a heading ended here», and three files carried
+   the same six utilities by hand to draw it.
+
+   Six dots because that is the product: five at the table and the sixth seat
+   waiting, which is the same sentence the SVG lockup says with a chair. Five
+   take the theme's primary and the last takes its accent, so the count is
+   legible at a glance instead of reading as an anonymous row of pips — and so
+   the mark states the brand rather than merely decorating it. Both hues are
+   the palette's own, so all six themes get their own version of it.
+
+   Geometry, so nobody has to re-derive it: dots are 3px across on a 6px pitch,
+   centres at 1.5 … 31.5, giving a 33px box the sixth dot ends flush with. Six
+   explicit gradients rather than a repeat, mirroring `.brand-mark` below — the
+   copper one is then visibly the last line instead of a second layer whose
+   offset has to agree with a tile size.
+
+   Static, always: a title mark is not a status, so no pulse and no glow. */
+@utility jts-title-mark {
+  &::after {
+    content: "";
+    display: block;
+    width: 33px;
+    height: 3px;
+    margin-top: var(--jts-space-2);
+    background-image:
+      radial-gradient(
+        circle at 1.5px 50%,
+        var(--jts-color-primary) 0 1.5px,
+        transparent 1.6px
+      ),
+      radial-gradient(
+        circle at 7.5px 50%,
+        var(--jts-color-primary) 0 1.5px,
+        transparent 1.6px
+      ),
+      radial-gradient(
+        circle at 13.5px 50%,
+        var(--jts-color-primary) 0 1.5px,
+        transparent 1.6px
+      ),
+      radial-gradient(
+        circle at 19.5px 50%,
+        var(--jts-color-primary) 0 1.5px,
+        transparent 1.6px
+      ),
+      radial-gradient(
+        circle at 25.5px 50%,
+        var(--jts-color-primary) 0 1.5px,
+        transparent 1.6px
+      ),
+      radial-gradient(
+        circle at 31.5px 50%,
+        var(--jts-color-accent) 0 1.5px,
+        transparent 1.6px
+      );
+  }
+}
+
 /* The tracked micro-caps recipe every metadata label shares (tags, table
    labels, kickers). Prefixed because Tailwind's core `overline` utility sets
    text-decoration-line and both rules would emit. */
@@ -336,6 +399,56 @@
       radial-gradient(circle at 50% 88%, currentcolor 0 1.5px, transparent 2px),
       radial-gradient(circle at 17% 69%, currentcolor 0 1.5px, transparent 2px),
       radial-gradient(circle at 17% 31%, currentcolor 0 1.5px, transparent 2px);
+  }
+
+  /* A <details> that opens instead of appearing.
+     ------------------------------------------------------------------------
+     Native <details> has no in-between state: the body is `display: none` on
+     one frame and full height on the next. On the campaign summary — a card
+     whose body can be twenty lines of generated markdown — that jump shoves
+     the panes underneath it down with nothing to say why. This is the one
+     motion the contract asks for: it signals a state change, and it is the
+     state the operator just asked for.
+
+     `::details-content` is the box the UA wraps everything after the <summary>
+     in; it is what gives the closed state something to animate *from*.
+     `calc-size(auto, size)` is what lets the open state land on a height nobody
+     measured in advance — the scoped alternative to opting the whole document
+     into `interpolate-size`, which would change every keyword size transition
+     in the panel for the sake of one card.
+
+     Behind @supports on purpose, and not merely for politeness: where
+     `calc-size` does not parse, an unguarded rule would leave `block-size: 0`
+     standing and fold the content away permanently. Inside the guard, a browser
+     without it gets exactly the native <details> it had before.
+
+     `overflow: hidden` clips the body mid-slide, which means the disclosed
+     content must carry its own padding — a focus ring sitting flush against the
+     content box's edge would be clipped with it. Both consumers do
+     (`px-4 py-3` on the summary, running text on the outbox note);
+     `VenueGoogleSelection`'s Place ID body does not, and is deliberately left
+     native rather than given an animation that could crop the ring on its
+     input. */
+  @supports (block-size: calc-size(auto, size)) {
+    .jts-disclosure::details-content {
+      block-size: 0;
+      overflow: hidden;
+      transition:
+        block-size var(--jts-duration-base) var(--jts-ease-standard),
+        content-visibility var(--jts-duration-base) allow-discrete;
+    }
+
+    .jts-disclosure[open]::details-content {
+      block-size: calc-size(auto, size);
+    }
+  }
+
+  /* Named again because the base layer's reduced-motion rule reaches `*`,
+     `::before` and `::after` — and `::details-content` is none of those. */
+  @media (prefers-reduced-motion: reduce) {
+    .jts-disclosure::details-content {
+      transition: none;
+    }
   }
 
   /* The one static environment indicator. Never pulses, never glows. */
@@ -583,6 +696,95 @@
     color: var(--jts-color-danger);
   }
 
+  /*
+   * A card is a quotation from the database inside an answer, so it is drawn as
+   * a quotation: raised off the message, its own border, and a start rule in the
+   * theme's own colour so a profile beside an event beside prose still reads as
+   * one voice. Deliberately narrower than the message column — a record is a
+   * fact to glance at, not a paragraph to read across.
+   */
+  .assistant-card {
+    max-width: 28rem;
+    margin: 0.8em 0;
+    border: 1px solid var(--jts-color-border);
+    border-inline-start: 2px solid var(--jts-color-primary);
+    border-radius: var(--jts-radius-sm);
+    background: var(--jts-color-surface-raised);
+    padding: 0.65rem 0.8rem;
+  }
+
+  .assistant-card__header {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+  }
+
+  .assistant-card__title {
+    margin: 0;
+    font-family: var(--jts-font-sans);
+    font-size: 0.92rem;
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--jts-color-text);
+  }
+
+  .assistant-card__chip {
+    border-radius: var(--jts-radius-xs);
+    padding: 0.05rem 0.35rem;
+    background: var(--jts-color-surface-sunken);
+    color: var(--jts-color-text-muted);
+    font-family: var(--jts-font-sans);
+    font-size: 0.68rem;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+  }
+
+  .assistant-card__chip--accent {
+    background: var(--jts-color-accent-soft);
+    color: var(--jts-color-accent);
+  }
+
+  .assistant-card__chip--success {
+    background: var(--jts-color-success-soft);
+    color: var(--jts-color-success);
+  }
+
+  .assistant-card__chip--danger {
+    background: var(--jts-color-danger-soft);
+    color: var(--jts-color-danger);
+  }
+
+  .assistant-card__fields {
+    display: grid;
+    grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+    gap: 0.15rem 0.7rem;
+    margin: 0.5rem 0 0;
+    font-size: 0.8rem;
+  }
+
+  /* Each field is its own grid row, so a missing one leaves no gap behind. */
+  .assistant-card__field {
+    display: grid;
+    grid-column: 1 / -1;
+    grid-template-columns: subgrid;
+    align-items: baseline;
+  }
+
+  .assistant-card__field dt {
+    color: var(--jts-color-text-muted);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .assistant-card__field dd {
+    margin: 0;
+    color: var(--jts-color-text);
+    overflow-wrap: anywhere;
+  }
+
   .assistant-chart {
     max-width: 32rem;
     margin: 0.8em 0;
@@ -658,5 +860,27 @@
       animation: none;
       opacity: 1;
     }
+  }
+
+  /*
+   * Google Places Basic Autocomplete host. Only documented CSS properties —
+   * the widget keeps its shadow DOM. color-scheme is set from JS via useTheme
+   * so the widget follows the admin preference, not the OS alone.
+   */
+  .jts-google-place-autocomplete,
+  gmp-basic-place-autocomplete.jts-google-place-autocomplete {
+    display: block;
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    height: 2.5rem;
+    background-color: var(--jts-color-surface-raised);
+    border: 1px solid var(--jts-color-border);
+    border-radius: var(--jts-radius-md);
+    color: var(--jts-color-text);
+    font-family: var(--jts-font-sans);
+    font-size: var(--jts-text-sm);
+    font-weight: var(--jts-weight-regular);
+    line-height: var(--jts-leading-snug);
   }
 }

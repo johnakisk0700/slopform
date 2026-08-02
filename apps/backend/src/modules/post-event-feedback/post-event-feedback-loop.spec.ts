@@ -150,7 +150,9 @@ const SCENARIOS: readonly FeedbackScenario[] = [
   },
 ];
 
-runFeedbackScenarios("post-event feedback loop", SCENARIOS);
+runFeedbackScenarios("post-event feedback loop", SCENARIOS, {
+  questionSetVersion: 1,
+});
 
 describe("outbound decision log from extraction", () => {
   afterEach(() => {
@@ -158,7 +160,7 @@ describe("outbound decision log from extraction", () => {
   });
 
   it("records one extraction_reply log for a sent bot reply and keeps it under replay", async () => {
-    const harness = await createFeedbackLoopHarness();
+    const harness = await createFeedbackLoopHarness({ questionSetVersion: 1 });
     const turn = {
       answers: [
         { question: "event_score" as const, value: 5 },

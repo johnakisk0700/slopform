@@ -57,15 +57,20 @@ split.
   does not answer it. Deferral plus a note.
 - **Needs a decision outside engineering** — likely legal, not a wording choice.
 
-## A commitment we have already made
+## The confidentiality commitment
 
-The `avoid` question ends with **«Μένει αυστηρά μεταξύ μας»**, in the launch copy
-every campaign sends. So confidentiality about who somebody wants to avoid is
-already promised, in production, today — and if a participant asks us to confirm
-it, rule 11στ currently stops the bot from doing so. Whatever else is decided
-here, `will_they_find_out` below has to at least match the promise the
-questionnaire already makes, or the two are in contradiction and the copy is the
-one that reached people first.
+V1 `avoid` copy ended with **«Μένει αυστηρά μεταξύ μας»**. Existing V1 campaign
+snapshots keep that exact text, so it remains a commitment for those
+participants. V2 deliberately narrows the wording: the answer is confidential
+and is not disclosed to other attendees, but it is **not anonymous** — it stays
+linked to the respondent and named subject so a human can review future table
+matching. The questionnaire must not promise absolute secrecy that conflicts
+with access, rights handling or legal obligations.
+
+`will_they_find_out` below is still the owner-approved application answer. Its
+relationship to the final privacy notice, Article 14 handling and any lawful
+disclosure exception is part of the pre-activation legal review; engineering
+must not silently soften or broaden it in generated model copy.
 
 ## The questions
 
@@ -169,11 +174,14 @@ sentence here would be the bot answering a request it cannot carry out.
 
 **They ask:** is this anonymous.
 
-**Needs a decision outside engineering.** The honest answer is probably «no, it
-is tied to you, because it has to be for seating» — but that sentence is worth
-saying carefully rather than quickly, and it sits close to the retention
-question. Deliberately unanswered for now (owner, 2026-08-01): deferral once,
-plus an `unanswered_data_question` attention reason.
+**Architecture fact: it is not anonymous. Approved participant-facing sentence
+still needs a decision outside engineering.** The answer is tied to the
+respondent and, for directed feedback, the named subject so it can support
+human-reviewed seating. That fact must appear in the final layered notice, but
+the bot's exact sentence is worth approving alongside retention, access and
+rights handling rather than improvising it in the model. Deliberately unanswered
+for now (owner, 2026-08-01): deferral once, plus an
+`unanswered_data_question` attention reason.
 
 ## The link
 
@@ -207,4 +215,8 @@ actually ask and the list grows from evidence instead of from guessing.
 
 Still open, deliberately: `how_long_kept` and `is_it_anonymous` wait on a
 decision that is not a wording choice, and the `/policy/` page does not exist —
-when it does, it is one line here and one in the table.
+when it does, it is one line here and one in the table. Questionnaire V2 also
+stays pre-activation until the product/privacy owner closes the legal-basis and
+layered-notice decision, retention and deletion implementation, DPIA sign-off,
+and processor/subprocessor/data-transfer review for WhatsApp, Wasender and every
+enabled model route. No final basis, retention period or URL is implied here.

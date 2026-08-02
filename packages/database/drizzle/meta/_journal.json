@@ -120,6 +120,48 @@
       "when": 1785619350509,
       "tag": "20260801212230_feedback_campaign_summaries",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1785676302964,
+      "tag": "20260802131142_assistant_streamed_content",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1785677173512,
+      "tag": "20260802132613_post_event_feedback_question_set_v2",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1785679591761,
+      "tag": "20260802140631_event_venue_context",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1785690871308,
+      "tag": "20260802171431_assistant_service_tier",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1785691602241,
+      "tag": "20260802172642_message_outbox_history_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1785693618979,
+      "tag": "20260802180018_assistant_reasoning_content",
+      "breakpoints": true
     }
   ]
 }

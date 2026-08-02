@@ -6,8 +6,10 @@ import { z } from "zod";
 import { FEEDBACK_ANSWER_QUESTION_KEYS } from "@join-the-six/database";
 
 import {
-  POST_EVENT_FEEDBACK_QUESTION_SET_V1,
+  CURRENT_POST_EVENT_FEEDBACK_QUESTION_SET_VERSION,
+  getPostEventFeedbackQuestionSet,
   type PostEventFeedbackQuestionSetCopy,
+  type PostEventFeedbackQuestionSetVersion,
 } from "./question-set.js";
 import {
   feedbackConversationAttentionReasonSchema,
@@ -611,16 +613,18 @@ export type FeedbackConversationActor = FeedbackConversationMessage["actor"];
  * stay owned by the question set.
  */
 export function buildFeedbackConversationGoals(
-  copy: PostEventFeedbackQuestionSetCopy = POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy,
+  copy?: PostEventFeedbackQuestionSetCopy,
+  questionSetVersion: PostEventFeedbackQuestionSetVersion = CURRENT_POST_EVENT_FEEDBACK_QUESTION_SET_VERSION,
 ): FeedbackConversationGoal[] {
-  return POST_EVENT_FEEDBACK_QUESTION_SET_V1.answerQuestions.map(
-    (question, index) =>
-      feedbackConversationGoalSchema.parse({
-        key: question.key,
-        ordinal: index + 1,
-        prompt: copy[question.key],
-        status: "pending",
-      }),
+  const questionSet = getPostEventFeedbackQuestionSet(questionSetVersion);
+  const resolvedCopy = copy ?? questionSet.copy;
+  return questionSet.answerQuestions.map((question, index) =>
+    feedbackConversationGoalSchema.parse({
+      key: question.key,
+      ordinal: index + 1,
+      prompt: resolvedCopy[question.key],
+      status: "pending",
+    }),
   );
 }
 
