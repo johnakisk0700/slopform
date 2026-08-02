@@ -41,7 +41,7 @@ consumer needs them.
 
 | Route                                 | Behavior                                                                                                                                                              | Indexing                |
 | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
-| `/sign-in/*`                          | Clerk sign-in with explicit loading and service-failure states                                                                                                        | `noindex, nofollow`     |
+| `/sign-in/*`                          | Clerk sign-in inside this admin's own frame: page-owned `h1`, form placeholder while Clerk loads, explicit service-failure state                                      | `noindex, nofollow`     |
 | `/`                                   | Protected redirect to `/admin` (`<Navigate replace>`)                                                                                                                 | Inherits private policy |
 | `/admin`                              | Clerk session plus backend admin check, then operations shell                                                                                                         | `noindex, nofollow`     |
 | `/admin/assistant`                    | Protected new AI conversation in the admin shell                                                                                                                      | `noindex, nofollow`     |
@@ -49,11 +49,12 @@ consumer needs them.
 | `/admin/events`                       | Stub event list and create                                                                                                                                            | `noindex, nofollow`     |
 | `/admin/events/:eventId`              | Event edit, status transitions and attendance                                                                                                                         | `noindex, nofollow`     |
 | `/admin/participants`                 | Participant list and feedback WhatsApp opt-in                                                                                                                         | `noindex, nofollow`     |
-| `/admin/participants/:id`             | Participant profile, opt-in chip/toggle and dinner history                                                                                                            | `noindex, nofollow`     |
+| `/admin/participants/:id`             | Participant profile, the opt-in checkbox under Preferences, and dinner history                                                                                        | `noindex, nofollow`     |
 | `/admin/feedback`                     | Feedback campaign picker (open a campaign, or launch one)                                                                                                             | `noindex, nofollow`     |
 | `/admin/feedback/:campaignId`         | Three-pane post-event feedback conversation inbox                                                                                                                     | `noindex, nofollow`     |
 | `/admin/feedback/:campaignId/results` | Campaign answers and notes                                                                                                                                            | `noindex, nofollow`     |
 | `/admin/outbound`                     | Outbound feedback messages still waiting, with their job state                                                                                                        | `noindex, nofollow`     |
+| `/admin/docs/feedback`                | In-app explanation of the feedback mechanism (`FeedbackMechanismPage`)                                                                                                | `noindex, nofollow`     |
 | `/admin/cookbook`                     | **Development builds only** — the visual vocabulary gallery ([contract](frontend/admin-cookbook.md)); gated on `import.meta.env.DEV`, so production has no such route | `noindex, nofollow`     |
 | `*`                                   | Standalone 404 (`routes/ErrorPage.tsx`)                                                                                                                               | Inherits private policy |
 
@@ -74,12 +75,25 @@ screens where the sidebar is hidden), the mobile drawer, the toast region
 
 `ClerkProvider` owns browser session state. `RequireAdmin` first checks Clerk,
 then calls the generated `useGetAuthSession` hook; only a backend-approved
-subject reaches the shell. It renders distinct loading, denial and retryable
+subject reaches the shell. It renders distinct waiting, denial and retryable
 failure states. The operator menu displays the Clerk identity and performs real
 sign-out. This
 client guard improves navigation only: the Nest guard and resource-owner
 predicates authorize every API request. See
 [Admin authentication](backend/mechanisms/authentication.md).
+
+Waiting for authentication is never a screen of its own. While Clerk's script
+loads, `App.tsx` paints what the URL already promises: on `/sign-in/*` the
+sign-in frame with `SignInFormPlaceholder` in the form slot, and anywhere else
+`AuthPendingScreen` — the brand and a breathing rule, no title and no action.
+`SignInLayout` therefore lives outside the router, because both the waiting tree
+and the routed page render it, and the operator sees one screen settle rather
+than an interstitial they then leave. `AuthStatusScreen` is left with the three
+states that do have something to say: `configuration`, `denied` and `failed`.
+The sign-in page owns its own `h1` and Clerk's card header is hidden, so the
+heading is on screen from the first paint; Clerk's `elements` are styled with
+CSS objects rather than utility classes, because Clerk injects its stylesheet
+unlayered and unlayered rules outrank anything Tailwind emits from a layer.
 
 ## Application boundaries
 
@@ -184,8 +198,16 @@ label, area and type fields, with prediction text only as a failure fallback.
 Price context remains operator-authored. Ordinary event renders make no Google
 request. This is a prototype behavior subject to the production legal/provider
 persistence gate in `docs/deployment.md`, not permission to retain Google
-content outside its session. Do not read
-`import.meta.env` directly in component code — go through `env`.
+content outside its session.
+
+`VITE_AUTH_DEV_BYPASS` is the fourth browser variable, and the only one that
+changes the shape of the app. A `superRefine` rejects it outside Vite
+development mode, so it cannot be set in a production build. When it is on,
+`/sign-in/*` redirects to `/admin`, a `DevelopmentBypassApp` tree mounts with no
+`ClerkProvider` at all, and the API facade skips `getToken()`. It is not a
+convenience flag — it removes authentication rather than stubbing it.
+
+Do not read `import.meta.env` directly in component code — go through `env`.
 
 ```mermaid
 flowchart LR
@@ -196,7 +218,7 @@ flowchart LR
   zod --> places["Optional isolated Places UI Kit adapter"]
   base --> client["ofetch api client"]
   hooks["Generated hooks → apiRequest mutator"] --> client
-  client --> proxy["Vite dev proxy or Caddy → backend"]
+  client --> proxy["Vite dev proxy or native nginx → backend"]
 ```
 
 ### Call endpoints through the generated client
@@ -355,8 +377,9 @@ Verified with React 19.2.8, Clerk React 6.12.6, HeroUI 3.2.2, Tailwind CSS
 - client source maps stay off (Vite's default; not overridden);
 - the dev server runs on port 3000 and proxies `/api` to `http://localhost:4000`
   (the backend `API_PORT`) with `changeOrigin`. Port 3000 is the CORS-trusted
-  `WEB_ORIGIN`, so same-origin cookies work end to end. In production, Caddy
-  reverse-proxies `/api` to the backend for the same same-origin contract.
+  `WEB_ORIGIN`, so same-origin cookies work end to end. In production, the
+  host's native nginx reverse-proxies `/api` to the backend for the same
+  same-origin contract.
 
 Node must satisfy `>=24.11 <25` and pnpm `>=10.33 <11` (`package.json`
 `engines`). `package.json` and `pnpm-lock.yaml` are the source of truth for

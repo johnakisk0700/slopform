@@ -98,8 +98,9 @@ reads better — slots and children over config objects.
 - A component that mounts twice (the operator menu renders in both the sidebar
   and the small-screen top bar) must source every internal id from `useId`.
 - `prefers-reduced-motion` collapses animation; the only motion is the 200ms
-  opacity/8px-rise page entrance (which already respects it) and HeroUI's own
-  transitions. WCAG AA holds in both themes because the tokens are pre-verified —
+  opacity/8px-rise page entrance (which already respects it), HeroUI's own
+  transitions and the shared `jts-breathe` wait (`.assistant-thinking`,
+  `.jts-pending`). WCAG AA holds in both themes because the tokens are pre-verified —
   another reason hardcoding color is banned.
 
 ## Types, routes and environment
@@ -120,8 +121,8 @@ reads better — slots and children over config objects.
   When a value must be validated at runtime in the browser — a form draft,
   something persisted, a payload echoed back — use the generated schema from
   `src/api/generated/zod/`.
-- Routes: only `/admin` and `/admin/**` exist; `/` redirects to `/admin`; unknown
-  paths render `ErrorPage`. Each view sets its title and description via
+- Routes: `/sign-in/*`, `/admin` and `/admin/**` exist; `/` redirects to
+  `/admin`; unknown paths render `ErrorPage`. Each view sets its title and description via
   `usePageMeta`; `robots` (`noindex, nofollow`) is declared once in `index.html`
   and must not be re-touched per view.
 - Only `import.meta.env.VITE_*` reaches the browser. Add every consumed variable

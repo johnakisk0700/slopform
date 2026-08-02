@@ -1,3 +1,9 @@
+# Front logo prompt (2026-07-24)
+
+> **Spent prompt.** It produced `assets/jts-front-logo.svg` and
+> `assets/jts-front-logo-mark.svg`, which are the shipped marks. Kept so the
+> logo can be regenerated on the same brief — this is not pending work.
+
 Rebuild this exact brand mark as a clean production SVG logo.
 
 Brand meaning (keep this composition — do not invent or replace icons):

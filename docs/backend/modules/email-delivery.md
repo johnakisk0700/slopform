@@ -46,8 +46,11 @@ An exact replay returns the existing delivery. Reusing the key with a different
 normalized recipient, subject or body returns a conflict, using a SHA-256
 fingerprint only for comparison.
 
-Outbox and delivery claims use PostgreSQL row locks with `SKIP LOCKED`, UUID
-lease fencing and expiry recovery. BullMQ job IDs derive only from the outbox
+The outbox batch claim uses a PostgreSQL row lock with `SKIP LOCKED`, so
+concurrent relays step past each other's rows instead of queueing. The delivery
+claim takes a plain `FOR UPDATE` on both rows and therefore blocks rather than
+skips — it is claiming one known row, where waiting is correct and skipping
+would drop the job. Both are fenced by a UUID lease with expiry recovery. BullMQ job IDs derive only from the outbox
 event ID. Acknowledgement loss can enqueue again; database state prevents a
 terminal delivery from acquiring another attempt. This is at-least-once
 coordination, not exactly-once provider delivery.

@@ -29,14 +29,28 @@ and the focused contract in the same change.
 Admin shell and interaction boundaries — documented inline here rather than with
 their own contract file until one grows a reusable surface.
 
-| Component                                                                             | Owner       | Owns                                                                                  |
-| ------------------------------------------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------- |
-| [`AdminShell.tsx`](../../../apps/admin/src/components/admin/AdminShell.tsx)           | Admin shell | Desktop wine sidebar / mobile drawer layout, skip target and the 200ms route entrance |
-| [`AdminNavigation.tsx`](../../../apps/admin/src/components/admin/AdminNavigation.tsx) | Admin shell | Indexed nav landmark shared by sidebar and drawer via a `variant` prop; "Soon" stamps |
-| [`AdminUserMenu.tsx`](../../../apps/admin/src/components/admin/AdminUserMenu.tsx)     | Admin shell | Operator identity popover and the light/dark/auto appearance control (`useTheme`)     |
+| Component                                                                             | Owner       | Owns                                                                                                                           |
+| ------------------------------------------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| [`AdminShell.tsx`](../../../apps/admin/src/components/admin/AdminShell.tsx)           | Admin shell | Desktop wine sidebar / mobile drawer layout, skip target and the 200ms route entrance                                          |
+| [`AdminNavigation.tsx`](../../../apps/admin/src/components/admin/AdminNavigation.tsx) | Admin shell | Indexed nav landmark shared by sidebar and drawer via a `variant` prop; "Soon" stamps                                          |
+| [`AdminUserMenu.tsx`](../../../apps/admin/src/components/admin/AdminUserMenu.tsx)     | Admin shell | Operator identity popover, the light/dark/auto appearance control (`useTheme`) and the six-palette Theme picker (`usePalette`) |
 
 `AdminNavigation` and `AdminUserMenu` mount twice (sidebar + drawer), so every
 internal id comes from React's `useId`.
+
+### Authentication surfaces (`src/components/admin/`)
+
+| Component                                                                                 | Owns                                                                                                                                                                                                   |
+| ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [`SignInLayout.tsx`](../../../apps/admin/src/components/admin/SignInLayout.tsx)           | The sign-in frame — panel, page-owned `h1`, the card that holds the form — plus `SignInFormPlaceholder`, the form-shaped wait. Rendered by the route _and_ by the pre-router waiting tree in `App.tsx` |
+| [`AuthPendingScreen.tsx`](../../../apps/admin/src/components/admin/AuthPendingScreen.tsx) | The wait before a private route can be decided: brand lockup, one breathing rule, `role="status"`. No title, no action, nothing to leave                                                               |
+| [`AuthStatusScreen.tsx`](../../../apps/admin/src/components/admin/AuthStatusScreen.tsx)   | The three auth states that do have something to say — `configuration`, `denied`, `failed` — each with one recovery action                                                                              |
+
+A wait is not a status: it gets `AuthPendingScreen` (or, on `/sign-in`, the
+placeholder inside the real frame), never a card announcing that authentication
+is happening. `SignInPage` owns the Clerk `appearance`, which flattens Clerk's
+own card into the page's card and turns «Secured by Clerk» into that card's
+bottom band.
 
 ### Feedback conversations (`src/components/admin/feedback/`)
 
@@ -53,11 +67,14 @@ callbacks, and their full contract lives in
 | `ConversationDetails.tsx`    | The respondent, goal progress, answers, notes and actions as labelled sections                                                                                                                                                                                                       |
 | `ConfirmAction.tsx`          | A trigger plus its confirmation dialog, stating the consequence of one action                                                                                                                                                                                                        |
 | `AddNoteAction.tsx`          | The staff note dialog: type, an optional D16-candidate subject, bounded text                                                                                                                                                                                                         |
-| `FeedbackBadges.tsx`         | Renders status descriptors as HeroUI chips, always with their own text                                                                                                                                                                                                               |
+| `FeedbackBadges.tsx`         | Renders status descriptors as its own token-painted pills, always with their own text                                                                                                                                                                                                |
 
-The status badge maps a domain tone onto HeroUI `Chip` props through a pure
-function in `features/feedback/labels.ts`, which is the mapping — not a wrapper
-that renames HeroUI's props. The one shared contract the screen did produce is
+The status badge is deliberately **not** a HeroUI `Chip` wrapper: `Chip` has no
+`info` slot, so the slate statuses could not be expressed through it, and half a
+status set painted by HeroUI and half by hand would be worse than painting all
+of it. `FeedbackBadges` renders plain markup against its own tone maps, and
+`features/feedback/labels.ts` supplies the descriptors (`key`, `label`, `tone`,
+`emphasis`) — a domain mapping, not a rename of HeroUI's props. The one shared contract the screen did produce is
 `JtsLiveIndicator`, because two panes poll and both needed the same
 no-layout-shift, no-live-region treatment. The D17 start trigger has no
 component of its own: it lives on the candidate row inside `ConversationList`,

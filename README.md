@@ -62,7 +62,8 @@ pnpm check
 
 ## Production
 
-Production keeps native nginx as the shared VPS TLS edge. Docker runs separate
+Production is served at `https://slopform.example.com` and keeps native nginx as
+the shared VPS TLS edge. Docker runs separate
 `web`, `api`, `worker` and one-shot `migrate` images plus PostgreSQL, MongoDB and
 Redis; application ports bind to loopback only.
 
@@ -88,6 +89,6 @@ before the migration gate has succeeded.
 
 ## Documentation
 
-Start at [`docs/README.md`](docs/README.md). The existing read-only WordPress evidence is in [`WP_AUDIT_2026-07-22.md`](docs/evidence/wordpress-audit-2026-07-22.md).
+Start at [`docs/README.md`](docs/README.md). The existing read-only WordPress evidence is in [`wordpress-audit-2026-07-22.md`](docs/evidence/wordpress-audit-2026-07-22.md).
 
 Do not add business entities or WordPress mappings from memory. Update the relevant contract or migration map first, then implement a vertical slice.

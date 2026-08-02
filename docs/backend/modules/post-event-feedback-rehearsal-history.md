@@ -3,7 +3,7 @@
 Every paid multi-campaign rehearsal that has been run, and — more importantly —
 what these numbers can and cannot be used to argue.
 
-Runs from 2026-07-28 onward record themselves: the runner writes
+Runs from 2026-07-29 onward record themselves: the runner writes
 `report/feedback-burst-<stamp>.json` beside its HTML report, that JSON is
 tracked, and `pnpm feedback:burst:ledger` prints one line per run from those
 files. **Do not extend the table below by hand for future runs** — it is a
@@ -76,8 +76,8 @@ Three specific traps are visible in the table itself:
 
 Generating the ledger surfaced something the HTML never made obvious. Across all
 eleven recovered runs, **every individual conversation passed**, and every single
-`FAIL` verdict came from a cross-cutting finding — `campaign_not_terminal` alone
-accounts for eight of the eleven.
+`FAIL` verdict came from a cross-cutting finding — of the eight that failed,
+`campaign_not_terminal` accounts for seven.
 
 That is not a bug, it is the paid-mode design working as documented: semantic
 expectations are observations there, so a conversation cannot fail on one. But it
@@ -136,6 +136,7 @@ that looks most like a real one.
    read the rows.
 
 Until that has been done, the honest statement about model choice is that
-`openai/gpt-5.6-terra` is what the rehearsal has been run against most recently
-and that no comparison against `openai/gpt-5.6-luna` has been made under
-conditions that would support one.
+`openai/gpt-5.6-luna` is what the rehearsal has been run against most recently —
+the `prova` profile, since Terra is deliberately not a selectable treatment —
+and that no controlled comparison between the two has been made under conditions
+that would support one.

@@ -1,6 +1,7 @@
 # ADR 0003: Nuxt rendering by route family
 
-- Status: Superseded by [ADR 0004](0004-admin-only-boundary.md)
+- Status: Superseded by [ADR 0006](0006-react-admin-runtime.md); narrowed
+  earlier by [ADR 0004](0004-admin-only-boundary.md)
 - Date: 2026-07-22
 - Scope note: the Nuxt rendering policy is fully superseded by [ADR 0006](0006-react-admin-runtime.md) — the admin is now a React SPA with no server rendering.
 

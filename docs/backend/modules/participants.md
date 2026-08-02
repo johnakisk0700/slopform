@@ -32,7 +32,8 @@ facts. The future signup boundary must still require the complete contract.
 
 `post_event_feedback_whatsapp_opt_in` (boolean, default `false`) is an
 eligibility gate for WhatsApp post-event feedback (D4). It is not a consent
-ledger: every staff toggle writes an audit event
+ledger: every staff toggle that changes the value writes an audit event
+(a toggle that sets it to what it already was returns early and writes nothing)
 (`participant.feedback_whatsapp_opt_in_changed`), and STOP handling in later
 work packages will flip it off with its own audit. Legal wording and Meta/BSP
 classification remain a named gate before real humans.
@@ -83,9 +84,9 @@ The admin Participants list links into `/admin/participants/:id`, which loads
 the profile through `getParticipant`, the history through
 `listParticipantEvents`, and reuses `updateParticipantFeedbackOptIn` for the
 WhatsApp opt-in toggle. Age band and neighborhood are humanized only in the UI
-(display mapping; stored codes are unchanged). Opt-in state is also surfaced as
-a soft status chip in the identity header using the same HeroUI chip grammar as
-campaign status. Import remains a CLI operation, not an HTTP signup.
+(display mapping; stored codes are unchanged). Opt-in is a HeroUI `Checkbox` in the
+Preferences section, not a badge in the identity header — it is something an
+operator sets, and a header chip would read as something merely reported. Import remains a CLI operation, not an HTTP signup.
 
 ## Import flow
 

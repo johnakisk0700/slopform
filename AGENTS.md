@@ -44,7 +44,8 @@ Code, tests and configuration are the operational truth. Where docs disagree,
 fix the docs in that same change — do not leave fiction standing out of
 politeness. Supersede an accepted decision with a new ADR rather than editing
 the old one. [`documentation-standard.md`](docs/documentation-standard.md) is
-the template and says where each kind of page belongs.
+the template; [`docs/README.md`](docs/README.md) says where each kind of page
+belongs.
 
 ## The API contract is generated, not retyped
 
@@ -60,19 +61,31 @@ it by orval and is **not** committed
 - Changing an endpoint means running `pnpm api:generate` and committing the
   regenerated `openapi.json`. `pnpm api:check` fails on drift.
 - Never edit generated output, and never bypass the `apiRequest` mutator around
-  the single `ofetch` client.
+  the single `ofetch` client. One documented exception exists — the assistant
+  screen owns hand-written client semantics beyond the response shape, for
+  reasons given in [apps/admin/AGENTS.md](apps/admin/AGENTS.md). It is not a
+  pattern to copy, and adding a second exception needs the same kind of written
+  reason.
 
 ## Repository workflow
 
 - Root `package.json` scripts are the public command surface; ordering, cache
   inputs and real outputs belong in `turbo.json`.
-- `pnpm check` runs fastest-first: `format:check`, `docs:check`, `api:check`,
-  `typecheck`, `lint`, `test`, `build`. Reorder only if fail-fast survives.
+- `pnpm check` runs `format:check`, `docs:check`, `api:check`, `typecheck`,
+  `lint`, `test`, `test:scripts`, `build` — cheap textual gates, then the
+  contract gate, then the compile gates. Note `api:check` is **not** cheap: it
+  runs a full backend build and an orval pass. It sits third because a contract
+  drift makes everything after it meaningless, not because it is fast. Reorder
+  only if fail-fast survives.
+- `test:scripts` (`node --test "scripts/*.spec.mjs"`) gates the repository
+  scripts and is part of `pnpm check`. A `.spec.sh` is **not** picked up by that
+  glob.
 - **`typecheck` and `build` do not cover the same files.** `tsconfig.build.json`
   excludes specs and harnesses, so a broken type in a harness appears only in
-  `typecheck`; `declaration: true` and `exactOptionalPropertyTypes: true`
-  produce errors that appear only in `build`. Vitest checks no types at all.
-  Green tests plus a green build is not a green tree.
+  `typecheck`, while `declaration: true` produces errors that appear only in
+  `build`. (`exactOptionalPropertyTypes` is set in the _base_ config, so
+  `typecheck` enforces it too — it is not part of this asymmetry.) Vitest checks
+  no types at all. Green tests plus a green build is not a green tree.
 - Internal dependencies use `workspace:*`. Update `pnpm-lock.yaml` with manifest
   changes and review `allowBuilds` entries for new dependency scripts.
 - Declare the environment variables a persistent Turbo task needs. Do not pass

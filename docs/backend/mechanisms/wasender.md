@@ -180,14 +180,14 @@ come first.
 
 ## Configuration and operations
 
-| Variable                                | Process | Contract                                                                                                                                   |
-| --------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `TRANSPORT_MODE`                        | worker  | `disabled`, `simulated` (development default), or `wasender`; only Wasender mode composes the provider client and requires its session key |
-| `FEEDBACK_SIMULATOR_ENABLED`            | API     | Defaults false; mounts Clerk-protected inject/thread and rehearsal routes only with simulated transport                                    |
-| `FEEDBACK_PRODUCTION_REHEARSAL_ENABLED` | both    | Defaults false; production-only exception requiring simulated transport + simulator, real model, and no Wasender credential or webhook     |
-| `WASENDER_SESSION_API_KEY`              | worker  | Optional session-scoped bearer key; required by worker composition only when `TRANSPORT_MODE=wasender`                                     |
-| `WASENDER_WEBHOOK_ENABLED`              | API     | Defaults false; mounts the public route only when explicitly true; forbidden by the production rehearsal gate                              |
-| `WASENDER_WEBHOOK_SECRET`               | API     | Required with the route; 32–512 chars, exact shared secret                                                                                 |
+| Variable                                | Process | Contract                                                                                                                                                                                                                               |
+| --------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TRANSPORT_MODE`                        | both    | `disabled`, `simulated` (development default), or `wasender`; only Wasender mode composes the provider client and requires its session key. HTTP reads it too, to decide module composition and to gate the burst and simulator routes |
+| `FEEDBACK_SIMULATOR_ENABLED`            | API     | Defaults false; mounts Clerk-protected inject/thread and rehearsal routes only with simulated transport                                                                                                                                |
+| `FEEDBACK_PRODUCTION_REHEARSAL_ENABLED` | both    | Defaults false; production-only exception requiring simulated transport + simulator, real model, and no Wasender credential or webhook                                                                                                 |
+| `WASENDER_SESSION_API_KEY`              | worker  | Optional session-scoped bearer key; required by worker composition only when `TRANSPORT_MODE=wasender`                                                                                                                                 |
+| `WASENDER_WEBHOOK_ENABLED`              | API     | Defaults false; mounts the public route only when explicitly true; forbidden by the production rehearsal gate                                                                                                                          |
+| `WASENDER_WEBHOOK_SECRET`               | API     | Required with the route; 32–512 chars, exact shared secret                                                                                                                                                                             |
 
 Normal Wasender production mounts separate secret files into the worker and API.
 Production rehearsal mounts no Wasender secret and never composes either

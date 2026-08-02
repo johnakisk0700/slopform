@@ -4,8 +4,9 @@
 - Date: 2026-07-22
 - Scope note: the PostgreSQL-only wording for new product capabilities is later
   narrowed for conversation aggregates by
-  [ADR 0007](0007-mongodb-conversation-authority.md). The WordPress boundary is
-  unchanged.
+  [ADR 0007](0007-mongodb-conversation-authority.md), and “Nuxt” below should be
+  read as “the React admin” per
+  [ADR 0006](0006-react-admin-runtime.md). The WordPress boundary is unchanged.
 
 ## Decision
 

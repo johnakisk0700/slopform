@@ -9,10 +9,10 @@ Source: [`JtsBackLink.tsx`](../../../apps/admin/src/components/ui/JtsBackLink.ts
 
 ## Contract
 
-| Prop       | Type         | Contract                                                        |
-| ---------- | ------------ | --------------------------------------------------------------- |
-| `to`       | `string`     | Required. The route this returns to.                            |
-| `children` | `ReactNode?` | The label. `Back to <place>`, in the destination's own wording. |
+| Prop       | Type        | Contract                                                                  |
+| ---------- | ----------- | ------------------------------------------------------------------------- |
+| `to`       | `string`    | Required. The route this returns to.                                      |
+| `children` | `ReactNode` | Required. The label. `Back to <place>`, in the destination's own wording. |
 
 ## Why it exists
 

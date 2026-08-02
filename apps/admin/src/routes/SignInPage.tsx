@@ -1,79 +1,113 @@
 import { SignIn, useAuth } from "@clerk/react";
 import { Navigate } from "react-router";
 
-import { AuthStatusScreen } from "../components/admin/AuthStatusScreen";
-import { BrandLockup } from "../components/admin/BrandLockup";
+import {
+  SignInFormPlaceholder,
+  SignInLayout,
+} from "../components/admin/SignInLayout";
 import { usePageMeta } from "../lib/usePageMeta";
 
+/**
+ * Clerk's widget wearing this admin's chrome. Everything around the form —
+ * heading, panel, card — belongs to `SignInLayout`, so the appearance below
+ * only has to stop Clerk from drawing a second card inside ours and point its
+ * own vocabulary at the tokens.
+ */
+const SIGN_IN_APPEARANCE = {
+  layout: {
+    // Our lockup is already on the page, twice over on small screens.
+    logoPlacement: "none",
+  },
+  variables: {
+    colorBackground: "var(--jts-color-surface)",
+    colorBorder: "var(--jts-color-border-strong)",
+    colorDanger: "var(--jts-color-danger)",
+    colorForeground: "var(--jts-color-text)",
+    colorInput: "var(--jts-color-surface-raised)",
+    colorInputForeground: "var(--jts-color-text)",
+    colorMuted: "var(--jts-color-surface-sunken)",
+    colorMutedForeground: "var(--jts-color-text-muted)",
+    colorPrimary: "var(--jts-color-primary)",
+    colorPrimaryForeground: "var(--jts-color-primary-contrast)",
+    colorRing: "var(--jts-color-focus)",
+    colorSuccess: "var(--jts-color-success)",
+    colorWarning: "var(--jts-color-warning)",
+    fontFamily: "var(--jts-font-sans)",
+    borderRadius: "var(--jts-radius-md)",
+  },
+  // Style objects, not Tailwind classes: Clerk injects its own stylesheet
+  // unlayered, and unlayered rules beat every utility Tailwind emits from a
+  // cascade layer. The card the page already draws is the only card: Clerk's
+  // frame flattens into it, and its «Secured by Clerk» footer becomes that
+  // card's bottom band instead of a strip floating under the button.
+  elements: {
+    rootBox: { width: "100%" },
+    cardBox: {
+      width: "100%",
+      border: "none",
+      borderRadius: 0,
+      background: "transparent",
+      boxShadow: "none",
+    },
+    card: {
+      width: "100%",
+      margin: 0,
+      border: "none",
+      borderRadius: 0,
+      background: "transparent",
+      boxShadow: "none",
+      padding: "var(--jts-space-8)",
+    },
+    // The page owns the `h1`; Clerk's own title would be the second one.
+    header: { display: "none" },
+    // Google is the intended way in, so it is the biggest thing in the card
+    // rather than a quiet strip above the divider. Clerk's controls default to
+    // 32px, which reads as a widget dropped into the page; 40px is the height
+    // the rest of the admin's controls use.
+    socialButtonsBlockButton: {
+      minHeight: "2.75rem",
+      fontSize: "var(--jts-text-sm)",
+      fontWeight: "var(--jts-weight-bold)",
+      background: "var(--jts-color-surface-raised)",
+      borderColor: "var(--jts-color-border-strong)",
+    },
+    socialButtonsProviderIcon: { width: "1.15rem", height: "1.15rem" },
+    formFieldInput: { minHeight: "2.5rem", fontSize: "var(--jts-text-sm)" },
+    formButtonPrimary: {
+      minHeight: "2.5rem",
+      fontSize: "var(--jts-text-sm)",
+      fontWeight: "var(--jts-weight-bold)",
+    },
+    footer: {
+      margin: 0,
+      padding: "var(--jts-space-4)",
+      background: "var(--jts-color-surface-sunken)",
+      borderTop: "1px solid var(--jts-color-border)",
+    },
+  },
+} as const;
+
 export function SignInPage() {
-  const { isLoaded, isSignedIn } = useAuth();
+  const { isSignedIn } = useAuth();
 
   usePageMeta(
     "Admin sign in",
     "Secure sign in for the Join The Six administration panel.",
   );
 
-  if (!isLoaded) {
-    return <AuthStatusScreen kind="checking" />;
-  }
-
   if (isSignedIn) {
     return <Navigate to="/admin" replace />;
   }
 
   return (
-    <main
-      id="main-content"
-      tabIndex={-1}
-      className="grid min-h-screen bg-canvas lg:grid-cols-[minmax(0,0.9fr)_minmax(28rem,1.1fr)]"
-    >
-      <section className="hidden border-r border-sidebar-border bg-sidebar p-12 text-sidebar-fg lg:flex lg:flex-col lg:justify-between">
-        <BrandLockup surface="strong" wordmarkClassName="text-xl" />
-        <div className="max-w-lg">
-          <p className="text-xs font-extrabold uppercase tracking-caps text-sidebar-fg-muted">
-            Private operations
-          </p>
-          <p className="mt-4 font-display text-4xl font-extrabold leading-tight tracking-tight">
-            One secure entrance to the admin workspace.
-          </p>
-          <p className="mt-5 max-w-prose text-sm leading-6 text-sidebar-fg-muted">
-            Sign-in proves identity. The backend separately checks that your
-            Clerk profile is approved for this admin.
-          </p>
-        </div>
-        <p className="text-xs font-semibold text-sidebar-fg-muted">
-          Authorized staff only
-        </p>
-      </section>
-
-      <section
-        aria-label="Admin authentication"
-        className="grid place-items-center p-6 sm:p-10"
-      >
-        <div className="grid w-full max-w-md justify-items-center gap-6">
-          <BrandLockup
-            surface="default"
-            className="lg:hidden"
-            wordmarkClassName="text-xl text-ink"
-          />
-          <SignIn
-            path="/sign-in"
-            routing="path"
-            fallbackRedirectUrl="/admin"
-            fallback={<p role="status">Loading secure sign-in…</p>}
-            appearance={{
-              variables: {
-                colorBackground: "var(--jts-color-surface)",
-                colorDanger: "var(--jts-color-danger)",
-                colorForeground: "var(--jts-color-text)",
-                colorPrimary: "var(--jts-color-primary)",
-                fontFamily: "var(--jts-font-sans)",
-                borderRadius: "var(--jts-radius-md)",
-              },
-            }}
-          />
-        </div>
-      </section>
-    </main>
+    <SignInLayout>
+      <SignIn
+        path="/sign-in"
+        routing="path"
+        fallbackRedirectUrl="/admin"
+        fallback={<SignInFormPlaceholder />}
+        appearance={SIGN_IN_APPEARANCE}
+      />
+    </SignInLayout>
   );
 }

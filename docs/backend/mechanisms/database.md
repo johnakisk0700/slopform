@@ -90,8 +90,9 @@ This preserves monotonic context identity across clear/re-add and
 `use_in_feedback` changes. See the [events module](../modules/events.md).
 
 Post-event feedback persistence lives in `feedback_campaigns`,
-`feedback_answers`, `feedback_answer_withdrawals`, `feedback_notes`,
-`provider_message_ingress` and `message_outbox`: one campaign per event, answer
+`feedback_campaign_summaries`, `feedback_answers`,
+`feedback_answer_withdrawals`, `feedback_notes`, `provider_message_ingress`,
+`message_outbox` and `message_outbox_log`: one campaign per event, answer
 uniqueness with `NULLS NOT DISTINCT` (including null subjects), ingress dedupe on
 `(chat_jid, provider_message_id)`, outbox `dedupe_key` uniqueness, delivery
 columns folded into the outbox, and participant/campaign FKs

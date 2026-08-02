@@ -1,6 +1,6 @@
 # AI assistant screen
 
-Status: implemented, verified 2026-07-23 against React 19.2.8, HeroUI 3.2.2,
+Status: implemented, verified 2026-08-02 against React 19.2.8, HeroUI 3.2.2,
 React Markdown 10.1.0, Mermaid 11.15.0, Zod 4.4.3 and the durable Assistant
 HTTP contract.
 
@@ -37,9 +37,11 @@ and is dropped the moment the turn settles. The live SSE channel that would make
 it token-by-token is stage B of
 [assistant streaming](../backend/mechanisms/assistant-streaming.md).
 
-Attachments and tools are not enabled. In particular, this screen
-cannot mutate product data. Future database tools require an explicit
-operator-confirmation contract before they can cross that boundary.
+Attachments are not enabled. Tools are — nine of them, all read-only — so this
+screen can look things up but cannot mutate product data. Future database
+mutations require an explicit operator-confirmation contract before they can
+cross that boundary; see
+[the assistant module](../backend/modules/assistant.md).
 
 Sources:
 
@@ -145,10 +147,22 @@ sequenceDiagram
   OpenAI, Gemini and Qwen use code-native `currentColor` brand marks; no remote
   images or fake letter tiles are rendered.
 
-Tool cards and streamed reasoning parts from `notes_ai` are intentionally
-absent: this transport currently receives one complete assistant text result.
-Reasoning _effort_ is real provider input and is therefore retained; rendering
-fictional tool/stream state would only disguise a missing backend contract.
+Cards and reasoning both render, and both are backed by real state rather than
+imitated from `notes_ai`:
+
+- **Cards.** A fenced ` ```jts ` block in the assistant's markdown is parsed
+  against a Zod discriminated union and rendered as `AssistantCard` — kinds
+  `profile`, `event` and `conversation`. A block that fails to parse falls back
+  to the raw fence rather than disappearing, because a card is model-authored
+  text and the model can get it wrong. The three specimens in the cookbook go
+  through the real `AssistantMarkdown`, so they cannot drift from the parser.
+- **Reasoning.** `AssistantReasoningCard` shows the reasoning stream as a
+  collapsed disclosure while the turn is in flight, and it clears when the turn
+  settles — the same rule the backend applies to the column.
+
+The rule the two share is the one worth keeping: nothing here renders fictional
+state. Both surfaces exist because a durable field or a parsed contract backs
+them.
 
 ## Invariants and recovery
 

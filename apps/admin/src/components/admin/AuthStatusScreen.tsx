@@ -2,17 +2,12 @@ import { Button } from "@heroui/react";
 
 import { BrandLockup } from "./BrandLockup";
 
-type AuthStatusKind = "checking" | "configuration" | "denied" | "failed";
+type AuthStatusKind = "configuration" | "denied" | "failed";
 
 const COPY: Record<
   AuthStatusKind,
   { readonly eyebrow: string; readonly title: string; readonly detail: string }
 > = {
-  checking: {
-    eyebrow: "Authentication",
-    title: "Securing the workspace",
-    detail: "Checking your Clerk session and admin access.",
-  },
   configuration: {
     eyebrow: "Configuration required",
     title: "Admin sign-in is not configured",
@@ -39,7 +34,11 @@ interface AuthStatusScreenProps {
   onAction?: () => void;
 }
 
-/** Full-page auth loading/configuration/failure state with one clear recovery. */
+/**
+ * Full-page auth configuration/denial/failure state with one clear recovery.
+ * A wait is not one of these: it has nothing to say and no action, so it gets
+ * `AuthPendingScreen` instead.
+ */
 export function AuthStatusScreen({
   kind,
   actionLabel,
@@ -53,11 +52,7 @@ export function AuthStatusScreen({
       tabIndex={-1}
       className="grid min-h-screen place-items-center bg-canvas p-6"
     >
-      <section
-        aria-live={kind === "checking" ? "polite" : undefined}
-        aria-busy={kind === "checking" ? "true" : undefined}
-        className="w-full max-w-lg border-l-[3px] border-primary bg-surface p-8 shadow-sm"
-      >
+      <section className="w-full max-w-lg border-l-[3px] border-primary bg-surface p-8 shadow-sm">
         <BrandLockup
           surface="default"
           className="mb-6"

@@ -17,7 +17,8 @@ contract and is not tracked in git.
 - **Drift check:** `pnpm api:check` regenerates and fails only when
   `openapi.json` changed. The client is produced as a side effect, not compared.
 - **Build graph:** Turbo caches `api:generate` with
-  `outputs: ["apps/admin/src/api/generated/**"]`. Admin `typecheck`, `lint`,
+  `outputs: ["src/api/generated/**"]` — Turbo `outputs` are package-relative,
+  so the workspace-relative spelling would match nothing. Admin `typecheck`, `lint`,
   `test` and `build` depend on `api:generate`, so a fresh clone regenerates
   before those phases.
 

@@ -6,6 +6,7 @@ import {
   useGetAuthSession,
 } from "../../api/generated/auth";
 import { env } from "../../lib/env";
+import { AuthPendingScreen } from "./AuthPendingScreen";
 import { AuthStatusScreen } from "./AuthStatusScreen";
 
 function responseStatus(error: unknown): number | undefined {
@@ -39,7 +40,7 @@ function ClerkRequireAdmin() {
   });
 
   if (!isLoaded) {
-    return <AuthStatusScreen kind="checking" />;
+    return <AuthPendingScreen />;
   }
 
   if (!isSignedIn) {
@@ -74,5 +75,5 @@ function ClerkRequireAdmin() {
     );
   }
 
-  return <AuthStatusScreen kind="checking" />;
+  return <AuthPendingScreen />;
 }

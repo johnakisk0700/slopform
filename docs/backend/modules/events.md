@@ -15,7 +15,8 @@ It does not own bookings, payments, venue discovery/catalogue, Google APIs,
 WhatsApp transport, campaigns or feedback answers. A venue is a stored reference
 selected and confirmed by an operator; the backend does not resolve, geocode or
 refresh it. Attendance corrections never delete finished-event rows; the admin
-UI exposes no attendee delete operation for finished events (D1).
+UI exposes no attendee delete operation at all, for any status, and the
+controller declares no `@Delete` (D1).
 
 `table_no` is persisted and returned here, but the admin **reads** it only — the
 event screen shows it as a chip and offers no control to change it. Seating is

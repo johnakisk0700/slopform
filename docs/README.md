@@ -10,7 +10,7 @@ This directory is the maintained project memory. Markdown is deliberate: GitHub 
 4. [`backend.md`](backend.md) — Nest, database, job and observability conventions
 5. [`decisions/0001-platform.md`](decisions/0001-platform.md) — accepted platform decision
 6. [`decisions/0002-wordpress-boundary.md`](decisions/0002-wordpress-boundary.md) — transitional WordPress/payment boundary
-7. [`decisions/0003-rendering.md`](decisions/0003-rendering.md) — Nuxt rendering policy
+7. [`decisions/0003-rendering.md`](decisions/0003-rendering.md) — Nuxt rendering policy (superseded by ADR 0006)
 8. [`decisions/0004-admin-only-boundary.md`](decisions/0004-admin-only-boundary.md) — admin/public product ownership boundary
 9. [`decisions/0005-theming-and-dark-mode.md`](decisions/0005-theming-and-dark-mode.md) — design tokens and light/dark theming
 10. [`decisions/0006-react-admin-runtime.md`](decisions/0006-react-admin-runtime.md) — React admin runtime (supersedes the Nuxt frontend)
@@ -19,17 +19,24 @@ This directory is the maintained project memory. Markdown is deliberate: GitHub 
 13. [`decisions/0009-generated-api-client.md`](decisions/0009-generated-api-client.md) — generated admin API client (supersedes hand-written response schemas)
 14. [`decisions/0010-generated-client-not-committed.md`](decisions/0010-generated-client-not-committed.md) — generated admin client is local output, not a committed artifact (supersedes that consequence of ADR 0009)
 15. [`decisions/0011-display-typeface.md`](decisions/0011-display-typeface.md) — Commissioner display face beside Manrope UI/body (supersedes the single-family clause of ADR 0005)
-16. [`deployment.md`](deployment.md) — development containers and production VPS topology
-17. [`agent-readiness.md`](agent-readiness.md) — repeatable extension benchmark and current evidence gaps
+16. [`decisions/0012-selectable-palettes.md`](decisions/0012-selectable-palettes.md) — six selectable palettes as a second appearance axis (narrows the single-source scope of ADR 0005)
+17. [`deployment.md`](deployment.md) — development containers and production VPS topology
+18. [`agent-readiness.md`](agent-readiness.md) — repeatable extension benchmark and current evidence gaps
 
 Area-specific memory:
 
 - [`frontend/components/README.md`](frontend/components/README.md) — reusable component inventory and selection hierarchy
 - [`frontend/theming.md`](frontend/theming.md) — design tokens, dark mode and the HeroUI integration
-- [`frontend/assistant.md`](frontend/assistant.md) — queue-backed AI conversation route and polling contract
+- [`frontend/assistant.md`](frontend/assistant.md) — queue-backed AI conversation route, tools, cards and polling contract
+- [`frontend/admin-cookbook.md`](frontend/admin-cookbook.md) — the dev-only page that lays the whole visual vocabulary out at once
 - [`frontend/feedback-conversations.md`](frontend/feedback-conversations.md) — post-event feedback inbox, capability-gated actions and results
+- [`frontend/feedback-outbound-queue.md`](frontend/feedback-outbound-queue.md) — the read-only outbound queue, its history view and the decision log
 - [`backend/mechanisms/README.md`](backend/mechanisms/README.md) — queue, database and runtime operations contracts
 - [`backend/mechanisms/api-contract.md`](backend/mechanisms/api-contract.md) — OpenAPI emission, admin client generation and drift detection
+- [`backend/mechanisms/queues.md`](backend/mechanisms/queues.md) — BullMQ production, consumption, retries and idempotency
+- [`backend/mechanisms/database.md`](backend/mechanisms/database.md) — pool lifecycle, schema ownership and migrations
+- [`backend/mechanisms/runtime-operations.md`](backend/mechanisms/runtime-operations.md) — configuration, HTTP edge, logging, tracing and process failure
+- [`backend/mechanisms/assistant-streaming.md`](backend/mechanisms/assistant-streaming.md) — partial text and reasoning over the poll, and the SSE stage that is not built
 - [`backend/mechanisms/mongodb.md`](backend/mechanisms/mongodb.md) — conversation-store lifecycle, security, limits and backup
 - [`backend/mechanisms/local-data-query.md`](backend/mechanisms/local-data-query.md) — guarded local PostgreSQL, MongoDB and Redis inspection
 - [`backend/mechanisms/authentication.md`](backend/mechanisms/authentication.md) — Clerk identity, admin authorization and restricted-Google handoff
@@ -56,8 +63,16 @@ accepted decisions are updated with the code—not assigned to a hypothetical
 future archaeologist.
 
 Run `pnpm docs:check` to verify required instruction files, relative links,
-Mermaid fences and orphaned documentation. It is also part of `pnpm check` and
-therefore CI.
+Mermaid fences, orphaned documentation and — the check most likely to fail an
+edit — **inline source references**: any bare `apps/`, `packages/` or `scripts/`
+path ending in `.ts`, `.tsx`, `.mjs`, `.json` or `.css` mentioned in prose must
+exist. `docs/decisions/` and `docs/history/` are exempt, because a record must
+be able to name a file that was later deleted. It is also part of `pnpm check`
+and therefore CI.
+
+Two things it does **not** check, worth knowing before trusting a green run:
+`#anchor` fragments are discarded rather than resolved, and shell scripts are
+outside the source-reference extension list.
 
 ## Repository automation
 
@@ -68,8 +83,8 @@ workspace dependency ordering and cache contracts in [`turbo.json`](../turbo.jso
 - `pnpm dev` loads the root `.env`, starts the native admin, Nest and worker
   processes, and passes only their declared runtime variables through Turbo.
 - `pnpm check` runs formatting, documentation, generated-API drift, typecheck,
-  lint, test and build in that order. The Turbo phases remain separate so a
-  failure names the phase that broke rather than a merged graph.
+  lint, test, script tests and build in that order. The Turbo phases remain
+  separate so a failure names the phase that broke rather than a merged graph.
 - `pnpm api:generate` re-emits `apps/backend/openapi/openapi.json` from the Nest
   controllers and regenerates `apps/admin/src/api/generated/` (gitignored).
   `pnpm api:check` does the same and fails when the committed OpenAPI document

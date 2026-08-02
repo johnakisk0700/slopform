@@ -21,8 +21,9 @@ vocabulary the rest of the admin uses: a person, a campaign, and an age.
 ## Purpose and boundary
 
 It **reports**. Nothing on it retries, cancels, promotes or re-enqueues
-anything; both endpoints are `GET`, and the queue, the relay, the delivery
-service and the extractor are untouched.
+anything; all three endpoints are `GET` — the queue, the history and the single
+message — and the queue, the relay, the delivery service and the extractor are
+untouched.
 
 It **does** own: which statuses count as "not delivered", the age thresholds and
 their tones, the status and job-state vocabulary, the honesty copy for a job
@@ -113,12 +114,16 @@ flowchart LR
 Age is the subject, so it is the one column with its own scale, and the endpoint
 sorts by it. Everything else on a row answers "and who does that affect".
 
-| Part   | Treatment                                                                  |
-| ------ | -------------------------------------------------------------------------- |
-| Name   | Two lines, `break-words`; D18 italic fallback through `ParticipantName`    |
-| Age    | Right-aligned `tabular-nums`, toned and weighted (below)                   |
-| Line 2 | Kind `·` event title `·` phone                                             |
-| Chips  | The row's own status, plus «Campaign paused» when the relay is refusing it |
+| Part   | Treatment                                                                                                          |
+| ------ | ------------------------------------------------------------------------------------------------------------------ |
+| Name   | One `line-clamp-1` line; D18 italic fallback through `ParticipantName`                                             |
+| Age    | Right-aligned `tabular-nums`, toned and weighted (below)                                                           |
+| Line 2 | Kind `·` event title. The phone number left this row when the column ran out of width; it is on the opened message |
+| Chips  | The row's own status, plus «Campaign paused» when the relay is refusing it                                         |
+
+That anatomy is the **queue** row. A history row differs: it leads with the
+decision-log origin, and it carries the status badge alone — «Campaign paused»
+is a live condition and cannot apply to something already sent.
 
 ### Age tones come from the mechanism
 

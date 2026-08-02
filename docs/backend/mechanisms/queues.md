@@ -15,6 +15,7 @@ flowchart LR
   Health["Readiness"] -->|"getJobCounts"| Redis
   Board["Read-only Bull Board"] --> Redis
   Redis -->|"persistent Worker"| Worker["Worker process"]
+  Worker -->|"worker-side Queue"| Redis
   Worker --> DB[(PostgreSQL)]
   Worker --> Mongo[(MongoDB conversations)]
   Worker -.-> Provider["External provider"]
@@ -28,8 +29,13 @@ registered queue for processor discovery. Two worker modules deliberately use
 that worker-side registration Queue as a producer: the email outbox relay
 publishes delivery jobs after leasing committed PostgreSQL outbox rows, and the
 feedback materializer publishes `feedback.extract.v1` after appending an inbound
-message. HTTP never publishes either. No other worker module uses it as a
-producer. Each processor Worker also owns command and blocking connections. Worker connections use `maxRetriesPerRequest: null` and
+message. No other worker module uses it as a producer.
+
+HTTP publishes `feedback.extract.v1` in exactly one place — resuming a
+conversation from human control — under the same deterministic job id and quiet
+window the materializer uses, so a resume that races an inbound message collapses
+onto one run. It never publishes `feedback.deliver.v1`: sending stays behind the
+committed outbox row. Each processor Worker also owns command and blocking connections. Worker connections use `maxRetriesPerRequest: null` and
 keep reconnecting.
 
 Nest closes Queues and Workers. Do not substitute `Queue.disconnect()`; it can
@@ -99,7 +105,10 @@ The post-event feedback contracts are:
 - materialize job ID `feedback-materialize-v1-<ingressId>`;
 - extraction job `feedback.extract.v1`;
 - extraction payload `{ schemaVersion: 1, conversationId: UUID, correlationId: string }`;
-- extraction job ID `feedback-extract-v1-<conversationId>-<latestSeq>`;
+- extraction job ID `feedback-extract-v1-<conversationId>-<latestSeq>`, and
+  `feedback-extract-v1-<conversationId>-<latestSeq>-parked-<parkedRun>` for the
+  retry a parked run queues for itself — a separate id because the parking job
+  is the one currently executing;
 - relay job `feedback.relay-outbox.v1`;
 - delivery job `feedback.deliver.v1`;
 - delivery payload `{ schemaVersion: 1, outboxId: UUID, correlationId: string }`;
@@ -224,15 +233,14 @@ request is `UnrecoverableError`; timeouts, rate limits and provider 5xx stay
 retryable. Extraction only ever inserts an outbox row — the relay and delivery
 jobs above are what send it.
 
-The extraction consumer reloads the conversation and stops before any model call
-when it is closed, under human control, already covered by the extraction cursor
-or carrying no new participant message. Results are written to PostgreSQL first
-and the MongoDB cursor advances last, so a crash in between replays the run: the
-answer unique constraint, the note content signature and the outbox `dedupe_key`
-absorb the repeat. That costs a repeated provider call, never a duplicated
-answer or a second outbound message. A missing provider key or a rejected
-request is `UnrecoverableError`; timeouts, rate limits and provider 5xx stay
-retryable.
+A provider _incident_ is the third case, and it is neither a retry nor an
+`UnrecoverableError`. The run parks: it queues its own successor under the
+parked job id after `FEEDBACK_EXTRACTION_PARK_RETRY_MS` (five minutes) and keeps
+doing so until `FEEDBACK_EXTRACTION_PARK_MAX_MS` (six hours), at which point it
+stops. Parking exists because BullMQ's five attempts are spent in under a
+minute, which is the wrong shape for an outage measured in hours — and because a
+parked conversation stays visible in the campaign's parked count instead of
+failing quietly.
 
 For Assistant work, MongoDB owns the owner-scoped thread, ordered history and
 user-visible turn state. PostgreSQL retains the request id, model, attempt and
@@ -277,16 +285,30 @@ sequenceDiagram
 | Attempts            | 5 total                                                       |
 | Backoff             | Exponential from 1 second, jitter `0.5`                       |
 | Stack traces        | 10 retained entries                                           |
-| Worker concurrency  | 5 per process                                                 |
+| Worker concurrency  | Per processor, not global — see the table below               |
 | Stalls              | BullMQ 30-second lock/renewal; one recovery, next stall fails |
 | Completed retention | 1,000 jobs or 1 day                                           |
 | Failed retention    | 5,000 jobs or 7 days                                          |
 | Metrics             | Completed/failed buckets for 2 weeks, 1-minute granularity    |
 
-Choose these values per provider rate limits, work cost and failure modes; five
-is an example, not sacred numerology. CPU-heavy work needs measured sandboxing
+Concurrency is chosen per processor, and no two agree:
+
+| Processor        | Concurrency | Why                                       |
+| ---------------- | ----------- | ----------------------------------------- |
+| Reference        | 5           | Cheap local work, no provider on the path |
+| Assistant        | 2           | Provider-bound, two-minute deadline       |
+| Email            | 2           | Provider-bound, cheap                     |
+| Feedback         | 10          | Redis-serialized per conversation         |
+| Feedback ingress | 1           | Serialized per process; ordering matters  |
+
+Choose these values per provider rate limits, work cost and failure modes; none
+of them is sacred numerology. CPU-heavy work needs measured sandboxing
 or worker threads. A stall/lock-renewal failure means possible duplicate work,
 event-loop starvation or process death and is logged as an operational error.
+
+The retention rows are the module default. Two enqueue sites — campaign
+summarize and the resume-from-human-control extract — pass count-only retention
+with no age bound, so their jobs are trimmed by volume alone.
 
 The assistant worker deliberately uses concurrency `2` and a two-minute
 provider deadline. AI SDK retries are disabled so BullMQ owns visible retries.

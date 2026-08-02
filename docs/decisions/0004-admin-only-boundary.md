@@ -2,6 +2,14 @@
 
 - Status: Accepted
 - Date: 2026-07-22
+- Scope note: the **ownership boundary** below stands unchanged — this
+  repository owns the private admin, the public site is not ours. The
+  **implementing framework** does not: `apps/web`, Nuxt and PrimeVue are
+  superseded by [ADR 0006](0006-react-admin-runtime.md), and the surface
+  described here is now `apps/admin`. It still carries `noindex, nofollow` and
+  still redirects `/` to `/admin`. This ADR also narrowed the frontend scope of
+  [ADR 0001](0001-platform.md) and the rendering policy of
+  [ADR 0003](0003-rendering.md).
 
 ## Decision
 

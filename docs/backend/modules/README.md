@@ -44,6 +44,11 @@ golden example.
 remains active to drain jobs accepted by an earlier release; disabling producers
 must not strand a backlog.
 
+`src/modules/health/` has no page here on purpose: it owns liveness and
+readiness routes and no durable product boundary, so it falls outside this
+directory's rule. Its behaviour is documented in
+[runtime-operations](../mechanisms/runtime-operations.md).
+
 The reference Core/HTTP/Worker split exists because one use-case service is
 shared by two executable graphs. It is not a starter kit. A domain used in one
 process normally has one Nest module; split adapters only to keep HTTP providers

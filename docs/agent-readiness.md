@@ -1,10 +1,19 @@
 # Agent readiness benchmark
 
-Status: passed foundation target on 2026-07-22.
+Status: passed foundation target on 2026-07-22. **The run below predates the
+current architecture** — the generated API client (ADR 0009/0010), the assistant
+module and the whole post-event feedback loop all landed after it, so by this
+file's own rule a repeat is due.
 
 This is a repeatable extension exercise, not a model-vendor benchmark. It tests
 whether the repository makes a small vertical slice easy to place, implement,
 verify and explain without prior conversation context.
+
+The protocol and findings are recorded as they were run on 2026-07-22 and are
+not rewritten to match today's vocabulary. Two names in them no longer exist:
+`useApi()` was replaced by the generated orval hooks, and the
+`admin-page-stack` contract that came out of finding 2 does not survive under
+that name. Read them as what the exercise surfaced, not as things to look for.
 
 ## Protocol
 
@@ -50,8 +59,9 @@ Luna result is claimed.
   service mocks cannot prove adapter semantics.
 - Add route-level page-state tests when admin data flows stop being disposable
   scaffolding.
-- Run canonical checks on Node `>=24.11 <25`. The benchmark host used Node
-  24.7.0 and emitted engine warnings, although focused checks passed.
+- ~~Run canonical checks on Node `>=24.11 <25`.~~ **Closed.** The benchmark host
+  used Node 24.7.0 and emitted engine warnings; `package.json` now pins
+  `>=24.11 <25` in `engines`.
 
 Repeat this benchmark after a material architecture change, not after ordinary
 feature work. Optimizing a codebase for a score every Tuesday is how a useful

@@ -1,5 +1,11 @@
 # Post-event feedback: what is still open, 2026-07-29
 
+> **Evidence. What was open on 2026-07-29.** An observation fixed to its date,
+> not a work list. Items here may since have been closed; the code and its tests
+> are the live statement.
+
+Date: 2026-07-29
+
 What was known to be wrong, unproven or undecided in the post-event feedback
 loop on the day work on it stopped. An observation fixed to its date, not a
 plan: nothing here is assigned, estimated or promised.

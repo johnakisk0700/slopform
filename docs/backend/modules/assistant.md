@@ -1,8 +1,8 @@
 # Durable assistant threads
 
-Status: implemented text-only asynchronous generation. Last verified:
-**2026-07-25** against AI SDK `7.0.35`, `@ai-sdk/openai` `4.0.18` and
-`@openrouter/ai-sdk-provider` `3.0.0`.
+Status: implemented asynchronous generation, streamed text and reasoning, and a
+read-only tool set. Last verified: **2026-08-02** against AI SDK `7.0.35`,
+`@ai-sdk/openai` `4.0.18` and `@openrouter/ai-sdk-provider` `3.0.0`.
 
 ## Purpose and boundary
 
@@ -13,10 +13,12 @@ it remains the delivery authority, not the conversation-content read store. The
 HTTP process never calls a model provider. The worker reloads authoritative
 history from MongoDB; Redis carries identifiers only.
 
-This version is deliberately non-streaming and tool-free. A browser reload or
-lost HTTP response can resume from the durable thread. Retrieval tools and
-product mutations are a later contract, not untracked side effects hidden in
-assistant prose.
+The worker streams text and reasoning and offers nine read-only retrieval tools.
+A browser reload or lost HTTP response can resume from the durable thread,
+because the stream is an accelerator and the persisted turn is the answer — see
+[assistant streaming](../mechanisms/assistant-streaming.md). Product mutations
+remain out of scope: no tool writes, so the assistant cannot change data as an
+untracked side effect hidden in assistant prose.
 
 ## Models and provider adapters
 
@@ -69,9 +71,10 @@ Every route requires Clerk authentication. Ownership always comes from the
 verified subject and is never accepted in a body.
 
 - `POST /api/v1/assistant/threads` with
-  `{ "requestId": "UUID", "model": "optional model", "effort": "low", "content": "..." }`
+  `{ "requestId": "UUID", "model": "optional model", "effort": "low", "serviceTier": "standard", "content": "..." }`
   creates a thread plus its first turn and returns the full thread. `effort` is
-  optional and defaults to `low`.
+  optional and defaults to `low`; `serviceTier` is `standard` or `fast` and
+  defaults to `standard`.
 - `GET /api/v1/assistant/threads` returns the 50 most recently updated owned
   thread summaries.
 - `GET /api/v1/assistant/threads/:id` returns one owned thread with ordered
@@ -84,7 +87,10 @@ verified subject and is never accepted in a body.
 
 `requestId` is a client-generated UUID. It is unique per verified owner. A
 replayed create/append request with the same owner, UUID, operation, model,
-effort and content returns the existing durable record. A nonterminal replay
+effort, service tier and content returns the existing durable record. The tier
+is part of that tuple deliberately: it doubles the bill, so a replay that
+differs only in tier is a different request and returns `409`, not the earlier
+record. A nonterminal replay
 reasserts the same deterministic queue job id; BullMQ does not add a second
 retained job, and a missing job is recovered. Replay is resolved before current
 provider availability is checked, so a previously accepted request remains
@@ -94,8 +100,11 @@ advisory-lock scope and database uniqueness scope are both
 `(owner, requestId)`.
 
 A turn exposes `id`, `requestId`, `sequence`, `status`, `model`, `effort`,
-`user`, nullable `assistant`, nullable safe `error`, `attempt` and lifecycle
-timestamps. Statuses are `queued`, `running`, `succeeded` and `failed`; failure
+`serviceTier`, `user`, nullable `assistant`, nullable `partial`, nullable
+`reasoning`, nullable safe `error`, `attempt` and lifecycle timestamps.
+`partial` and `reasoning` are present only while the turn is nonterminal and are
+cleared when it settles, so no reader can mistake either for the answer.
+Statuses are `queued`, `running`, `succeeded` and `failed`; failure
 codes remain `provider_unavailable`, `provider_rejected` and
 `generation_failed`. Unknown and other-owner ids both return `404`.
 
@@ -119,7 +128,9 @@ sequenceDiagram
   Queue->>Worker: assistant.generate-turn.v2
   Worker->>DB: Fence execution attempt
   Worker->>Mongo: Load succeeded history
-  Worker->>Model: generateText without tools or stream
+  Worker->>Model: streamText with read-only tools
+  Model-->>Worker: Text and reasoning deltas, tool calls
+  Worker->>Mongo: Record throttled partial under the attempt fence
   Worker->>Mongo: Persist result or safe failure
   Worker->>DB: Advance delivery projection
   Admin->>API: Poll turn / reload thread
@@ -133,10 +144,14 @@ filters are part of every public lookup and update. Status transitions compare
 the exact turn attempt and cannot replace a different terminal result.
 
 PostgreSQL `assistant_threads`/`assistant_turns` retain the execution projection:
-owner-bound request id, sequence allocation, selected model/effort, generation
-attempt and queue recovery state. Existing content columns remain as a
-compatibility/backfill projection and are not read for API responses or model
-history after Mongo materialization. The composite foreign key prevents a
+owner-bound request id, sequence allocation, selected model, effort and
+`service_tier`, generation attempt and queue recovery state, plus
+`streamed_content` and `reasoning_content` for the in-flight turn. Those last
+two carry check constraints confining them to `queued` and `running`, which is
+what keeps a partial from ever being read as a result. The older
+`user_content`/`assistant_content` columns remain as a compatibility/backfill
+projection and are not read for API responses or model history after Mongo
+materialization. The composite foreign key prevents a
 projection owner from disagreeing with its thread. A partial unique index
 permits only one queued/running attempt per thread; advisory locks serialize
 append and retry before that database backstop.
@@ -145,6 +160,12 @@ The worker feeds the model only successful prior MongoDB user/assistant pairs
 plus the current user content. Failed/incomplete prior work is not round-tripped
 into the provider message schema. This keeps an interrupted turn from
 poisoning every future turn.
+
+Tool calls and their results are deliberately outside that replay. History is
+rebuilt from settled user/assistant text only, so a later turn never sees an
+earlier turn's lookups — if it needs the same fact, it calls the tool again.
+That costs a round trip and buys freshness, which is the right trade when the
+underlying rows change under the conversation.
 
 Thread-list reads project only title/timestamps and compact turn
 id/sequence/status/model metadata; they do not pull up to 50 full embedded
@@ -209,13 +230,55 @@ transactional outbox defined in the queue mechanism. Participant messaging must
 use that PostgreSQL delivery boundary rather than treating Mongo persistence as
 delivery.
 
-## Future tools and operator confirmation
+## Tools
 
-Do not place tool state in `assistant_turns.assistant_content`. Add separate,
-ordered records keyed to the turn:
+Nine read-only tools attach to every model that can accept them:
+`current_datetime`, `list_events`, `get_event`, `search_participants`,
+`get_participant`, `list_feedback_campaigns`, `get_campaign_summary`,
+`list_feedback_conversations` and `get_feedback_conversation`. Every one reads;
+none writes. That is the boundary, and it is what makes the whole feature safe
+to leave unconfirmed.
+
+Three properties keep the loop bounded:
+
+- **A step budget.** `ASSISTANT_MAX_STEPS` is 10, and `prepareStep` forces
+  `toolChoice: "none"` on the penultimate step. Without that reserve a model can
+  spend its entire budget on lookups and return nothing, which surfaces as a
+  retryable empty completion rather than an answer.
+- **Bounded results.** A tool returns at most `TOOL_RESULT_MAX_ROWS` (25) rows
+  and reports `{ rows, total, truncated }` so the model knows it is looking at a
+  slice; conversation reads take the last 25 turns. A miss returns
+  `{ found: false }` instead of throwing, because a thrown tool error costs a
+  step and tells the model nothing.
+- **A route that cannot silently drop them.** When tools attach on the
+  OpenRouter path the request carries `provider: { require_parameters: true }`,
+  so a route that would ignore `tools` is refused rather than answering from
+  nothing. Whether a model can take tools at all is a property of the adapter
+  (`supportsTools`), not a guess.
+
+Tool activity is emitted through an in-memory `onToolActivity` callback and is
+**persisted nowhere** — no column, no document field, no DTO field. The
+processor does not currently pass the callback, so today the activity is built
+and consumed by nobody. Treat it as a seam, not as a record.
+
+### The card is a fence, not a DTO
+
+When the model wants to show a profile, an event or a conversation, the system
+prompt instructs it to emit a fenced ` ```jts ` block. The admin parses that
+block against a Zod discriminated union and renders `AssistantCard`; anything
+that fails to parse falls back to the raw block. So the card is model-authored
+text with a schema on the reading side — not a structured field on the turn.
+Changing the card contract means changing the system prompt and the parser
+together.
+
+## Future mutations and operator confirmation
+
+Do not place tool state in `assistant_turns.assistant_content`. When mutations
+arrive, add separate, ordered records keyed to the turn:
 
 1. read-only tool calls/results with validated input, bounded output and a
-   stable execution id;
+   stable execution id — the first half exists in memory today and needs a
+   durable home;
 2. action proposals containing a typed mutation payload, `pending` status,
    proposer/approver identities and expiry;
 3. a confirmation endpoint that revalidates authorization and current database

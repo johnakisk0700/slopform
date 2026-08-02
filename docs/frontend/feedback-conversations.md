@@ -9,7 +9,7 @@ The operator surface for the post-event feedback feature: one campaign's
 WhatsApp conversations in a two-pane inbox over a strip of detail cards, the
 actions that move a conversation between bot and human control, and the
 campaign's collected results. It implements U1–U4 and D17/D18 of
-[`POST_EVENT_FEEDBACK_PLAN_2026-07-25.md`](../history/post-event-feedback-plan-2026-07-25.md)
+[`post-event-feedback-plan-2026-07-25.md`](../history/post-event-feedback-plan-2026-07-25.md)
 and is the operator half of
 [`backend/modules/post-event-feedback.md`](../backend/modules/post-event-feedback.md).
 
@@ -171,9 +171,11 @@ flowchart LR
   A question can hold several answers (D16 subjects), so the row is a list.
 - **Only the exception is badged.** An outbound message handed to the transport
   with nothing reported back is the ordinary end of every message, so
-  `deliveryBadge` returns `null` for a bare `sent`. Queued, sending, held,
-  cancelled, failed, delivered and read all keep their pill. A chip under
-  almost every bubble is how a chip stops being read.
+  `deliveryBadge` returns `null` for a bare `sent`. Only `failed` and
+  `cancelled` still carry a pill; every other state — queued, sending, held,
+  delivered, read — carries `placement: "inline"` and renders through
+  `InlineDeliveryStatus` instead. A chip under almost every bubble is how a chip
+  stops being read.
 - **Attention is emphasised, not merely coloured.** `needsAttention` renders as
   a **solid** warning pill on inbox rows, while every other badge stays tinted.
   It is still a labelled badge — the emphasis is hierarchy, not a second
@@ -592,8 +594,9 @@ has something to add to.
   answer readers are invalidated. Sharing one line with the label and the number,
   the slider had about a third of a narrow card to express five steps: the thumb
   moved a few pixels a point, for the one value on this screen that reaches a
-  seating plan. Offered only where the answer is a number (`event_score`); on
-  `liked` / `meet_again` / `avoid` the subject _is_ the answer, so there is no
+  seating plan. Offered on every scored question — `event_score`, `table_fit`,
+  `participation_ease` and `conversation_balance`; on the directed questions
+  (`liked` / `meet_again` / `avoid`) the subject _is_ the answer, so there is no
   number to slide.
 - **The people are pills, grouped under their own question.** Each of `liked`,
   `meet_again` and `avoid` is a small heading with its own glyph
@@ -695,15 +698,15 @@ never be used merely to navigate. Event detail carries a nullable
   The extraction status block **is** a polite live region — unread count and
   due time are operator-actionable state that changes under the reader, and
   identical text across a poll does not re-announce.
-- Contrast was measured in both themes on the rendered screen. Two pairings
-  needed correction and are commented at their call sites: the list timestamp
-  uses `text-ink-muted` (`text-ink-subtle` measures 4.23:1 on `bg-primary-soft`),
-  and the staff actor label uses `text-ink` (`text-copper` measures 3.93:1 on
-  `bg-surface` at 10 px). **`--jts-color-accent` is not safe for small text on
-  surface in the light theme** — worth a token-level decision rather than more
-  per-call-site patches.
-- The solid attention pill is `--jts-color-canvas` on `--jts-color-warning`:
-  **5.53:1 in light and 8.95:1 in dark**, both clear of AA. Every `strong` tone
+- Contrast was measured in both themes on the rendered screen. The list
+  timestamp uses `text-ink-muted` (`text-ink-subtle` measures 4.23:1 on
+  `bg-primary-soft`), and is commented at its call site. The accent exception is
+  gone: `text-copper` once measured 3.93:1 on `bg-surface`, and that was fixed
+  at the token level rather than by more per-call-site patches. The staff actor
+  label is `text-copper` today, and `theme-tokens.spec.ts` asserts
+  accent-on-surface at AA in both modes — which is what keeps it that way.
+- The solid attention pill is `--jts-color-canvas` on `--jts-color-warning`,
+  clear of AA in both modes. Every `strong` tone
   uses the same pairing shape, which is what makes the emphasis a hierarchy
   decision rather than a contrast risk. `theme-tokens.spec.ts` asserts
   that pairing from `tokens.css` directly, so the emphasis cannot drift below AA
@@ -712,10 +715,12 @@ never be used merely to navigate. Event detail carries a nullable
   token over a new one for a single component. The pill's fill is opaque in both
   themes, so it stays legible on a selected row's `bg-primary-soft`.
 - The design pass introduced three pairings, all measured from `tokens.css` and
-  now asserted alongside the pill: answer-card text on `surface-sunken`
-  (**13.79:1 light / 16.77:1 dark**), its micro-caps label on the same fill
-  (**5.07:1 / 10.33:1**), and the respondent link on `surface` (**8.98:1 /
-  9.03:1**). The "Staff note" chip is HeroUI's soft `accent`, which the bridge
+  now asserted alongside the pill: answer-card text on `surface-sunken`, its
+  micro-caps label on the same fill, and the respondent link on `surface`.
+  Exact ratios are deliberately not quoted here — they move whenever a token
+  moves, and the six selectable palettes multiply every figure by six.
+  `theme-tokens.spec.ts` and `palettes.spec.ts` are the authority, and they fail
+  the build rather than let a pairing drift below AA. The "Staff note" chip is HeroUI's soft `accent`, which the bridge
   points at the wine primary rather than the copper accent, so it measures
   **7.72:1 / 7.38:1** — the copper `--jts-color-accent` remains unsafe for small
   text and is still avoided. Asserting the chip meant teaching the spec's

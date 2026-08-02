@@ -51,7 +51,7 @@ migration boundary, not a currently deployed integration.
 
 ## Deployment units
 
-- `web`: the static React admin SPA, served by Caddy. It is private, non-indexable and deployed independently from `legacy.example.com`.
+- `web`: the static React admin SPA, served by an internal Caddy container behind the VPS's native nginx TLS edge. It is private, non-indexable and deployed independently from `legacy.example.com`.
 - `api`: Nest HTTP process. It validates input, enforces authorization and commits business state.
 - `worker`: Nest application context consuming BullMQ queues. It must be independently deployable and horizontally scalable.
 - `postgres`: durable product data and business audit events.
@@ -94,5 +94,7 @@ These are a migration target, not permission to generate thirteen empty CRUD mod
 - CQRS/event sourcing
 - A generic repository framework
 - A second CMS
-- Automated WhatsApp/Viber sends before durable consent, conversation-state,
-  audit and retry policies exist
+- ~~Automated WhatsApp/Viber sends before durable consent, conversation-state,
+  audit and retry policies exist~~ — **the gate was satisfied**, not waived.
+  Those policies now exist, and the Wasender adapter is opt-in behind
+  `TRANSPORT_MODE=wasender`. Viber remains deferred.

@@ -3,7 +3,12 @@
 - Status: Accepted
 - Date: 2026-07-22
 - Note: the “single family for display, UI and body” typeface clause is
-  superseded by [ADR 0011](0011-display-typeface.md); the rest stands.
+  superseded by [ADR 0011](0011-display-typeface.md).
+- Scope note: “single source of truth” below now means the **shared and
+  primitive layer plus the house theme**. A selectable-palette layer was added
+  on top by [ADR 0012](0012-selectable-palettes.md), so a colour added only to
+  `tokens.css` is correct in one theme of six. The single dark-mode signal is
+  unchanged; palette and light/dark are independent axes.
 
 ## Decision
 
@@ -59,13 +64,17 @@ signal, and PrimeVue is a consumer of that system rather than a parallel one.
 - New colours are added as tokens (primitive + semantic), not as literals in
   components. `packages/design-tokens` verifies the core token names and the
   theme-tokens spec (`apps/admin/test/theme-tokens.spec.ts`) verifies AA
-  contrast in both themes.
-- The display face is the same sans at a heavier weight; there is no serif
-  dependency.
-- The dark palette is a warm wine-black. Both themes are first-class and must be
-  kept above AA contrast whenever tokens change.
-- `cssLayer` is enabled; app CSS is written unlayered and always wins over
-  PrimeVue.
+  contrast in both themes. Since ADR 0012, `apps/admin/test/palettes.spec.ts`
+  gates the five selectable themes as well, in CIEDE2000 as well as contrast.
+- _(Superseded by [ADR 0011](0011-display-typeface.md).)_ The display face is
+  the same sans at a heavier weight; there is no serif dependency.
+- The dark palette is a warm wine-black — true of the house theme; each theme
+  added by ADR 0012 owns its own. Both modes are first-class and must be kept
+  above AA contrast whenever tokens change, in every theme.
+- _(Historical — PrimeVue is no longer the consumer.)_ `cssLayer` is enabled;
+  app CSS is written unlayered and always wins over PrimeVue. The live
+  equivalent is the unlayered HeroUI base-token override in `:root`, which wins
+  for the same reason.
 
 ## References
 

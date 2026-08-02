@@ -12,9 +12,9 @@ conversations UI it serves
 ([`docs/frontend/feedback-conversations.md`](../../frontend/feedback-conversations.md)),
 whose WP12 design pass added the staff-written note endpoint documented below.
 Plan amendments in
-[`POST_EVENT_FEEDBACK_PLAN_2026-07-25.md`](../../history/post-event-feedback-plan-2026-07-25.md)
+[`post-event-feedback-plan-2026-07-25.md`](../../history/post-event-feedback-plan-2026-07-25.md)
 §9 supersede frozen candidate snapshots with live D16 selection, and
-[D13](#d13-safety-content-travels-the-ordinary-pipeline) is amended: safety
+[D13](#d13--safety-content-travels-the-ordinary-pipeline) is amended: safety
 content now travels the ordinary pipeline as visible notes.
 
 ## Purpose and boundary
@@ -28,7 +28,7 @@ It does not own WhatsApp transport, participant identity, attendance, consent,
 general customer support or confidential safety case handling. Wasender remains
 an adapter, and attendance and consent remain upstream gates. Safety-flavoured
 content travels the **ordinary** pipeline and is visible as ordinary notes
-([D13](#d13-safety-content-travels-the-ordinary-pipeline)); the restricted
+([D13](#d13--safety-content-travels-the-ordinary-pipeline)); the restricted
 `safety_reports` table stays a pre-real-humans gate-pack item.
 
 ## Persisted PostgreSQL contract (WP2)
@@ -544,7 +544,7 @@ it a participant whose remaining answer is «κανένας» could never reach
 travel with the verdict in `declinedSourceMessageIds`, because "they did not want
 to say" is otherwise indistinguishable from the model not having looked —
 **validation does not yet gate on that citation**; what it gates on is
-[the collapse rule](#one-sentence-two-questions) below.
+[the collapse rule](#v1-only-one-sentence-two-questions) below.
 
 ### Venue context and revision fence
 
@@ -1560,16 +1560,23 @@ Versioned questionnaire constants, the deterministic STOP matcher and Greek
 extraction fixtures live under
 [`apps/backend/src/modules/post-event-feedback/`](../../../apps/backend/src/modules/post-event-feedback/).
 
-| Artifact              | Source                                     | Contract                                                                                                                                                                                                        |
-| --------------------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Question sets V1 + V2 | `packages/database` + `question-set.ts`    | Global persistence vocabulary accepts historical V1 and current V2 keys; `getPostEventFeedbackQuestionSet(version)` resolves the exact ordered goals. `CURRENT_POST_EVENT_FEEDBACK_QUESTION_SET_VERSION` is `2` |
-| Campaign copy         | `resolveCampaignCopy` in `question-set.ts` | Resolves defaults for the campaign's stored version, then merges the launch snapshot per key; missing or blank copy falls back within that version rather than importing goals from another version             |
-| STOP matcher (D14)    | `matching/stop-command.ts`                 | Pure function; `STOP`, `STOP ALL`, `UNSUBSCRIBE`, `ΔΙΑΚΟΠΗ`, `ΣΤΟΠ`; case-, whitespace- and accent-insensitive                                                                                                  |
-| Extraction fixtures   | `post-event-feedback-fixtures.ts`          | Typed Greek transcripts with expected-outcome annotations for later WP5 evals                                                                                                                                   |
+| Artifact              | Source                                     | Contract                                                                                                                                                                                                                                  |
+| --------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Question sets V1 + V2 | `packages/database` + `question-set.ts`    | Global persistence vocabulary accepts historical V1 and current V2 keys; `getPostEventFeedbackQuestionSet(version)` resolves the exact ordered goals. `CURRENT_POST_EVENT_FEEDBACK_QUESTION_SET_VERSION` is `2`                           |
+| Campaign copy         | `resolveCampaignCopy` in `question-set.ts` | Resolves defaults for the campaign's stored version, then merges the launch snapshot per key; missing or blank copy falls back within that version rather than importing goals from another version                                       |
+| STOP matcher (D14)    | `matching/stop-command.ts`                 | Pure function over three lists: six commands (`STOP`, `STOP ALL`, `UNSUBSCRIBE`, `ΔΙΑΚΟΠΗ`, `ΣΤΟΠ`, `ΣΤΑΜΑΤΗΣΤΕ`), eight courtesy suffixes that may follow one, and ~20 plain-language phrases; case-, whitespace- and accent-insensitive |
+| Extraction fixtures   | `post-event-feedback-fixtures.ts`          | Typed Greek transcripts with expected-outcome annotations for later WP5 evals                                                                                                                                                             |
 
-The STOP matcher is the sole deterministic text matcher. It compares whole
-commands; stripping punctuation there would widen the command rather than
-normalise it. Attention classification intentionally has no curated keyword
+The STOP matcher is the sole deterministic text matcher, and it treats its three
+lists differently on purpose. **Commands** must be the whole message — stripping
+punctuation there would widen the command rather than normalise it, and it is
+what keeps the intro's own «γράψε ΣΤΟΠ.» quoted back from closing anything. A
+command may carry one of the **courtesy suffixes** and still count. **Phrases**
+are matched wherever a word begins, not anchored to the start, because «5
+πάντως. μη μου ξαναστείλετε μηνύματα παρακαλώ» put the answer first and the
+opt-out after it, and anchoring read the consent half as testimony about the
+evening. Withdrawal of consent is not a thing to notice only when it is the
+first thing typed. Attention classification intentionally has no curated keyword
 list.
 
 Focused unit tests cover STOP edge cases (accents, mixed case, precision against
@@ -2487,7 +2494,11 @@ When every conversation in a campaign is closed, or when staff explicitly
 requests one, [`PostEventFeedbackCampaignSummaryService`](../../../apps/backend/src/modules/post-event-feedback/summary/summary.service.ts)
 writes a narrative digest of the campaign's answers and notes to
 `feedback_campaign_summaries`. Generation runs on `feedback.summarize-campaign.v1`
-via OpenAI direct (`FEEDBACK_SUMMARY_MODEL`, default `openai/gpt-5.6-terra`).
+via OpenAI direct (`FEEDBACK_SUMMARY_MODEL`, default `openai/gpt-5.6-terra`)
+at `FEEDBACK_SUMMARY_REASONING_EFFORT`, which defaults to `xhigh` — the most
+expensive setting in the repository, chosen deliberately and worth knowing
+before running a campaign summary. The effort is persisted on the row, so a
+summary is repriceable from itself.
 A partial summary is flagged when any conversation was still open at request
 time (`isPartial`, `openConversationCount`). Automatic enqueue happens from
 extraction close, staff close, STOP materialization and expiry sweep via
@@ -2848,7 +2859,7 @@ retry and `lastRunFailed` / `failedReason` are suppressed. There is nothing for 
 human to do in the meantime, and «η ανάγνωση απέτυχε · απάντησε η εναλλακτική
 διαδικασία» would be false: no fallback answered anybody.
 
-`listFeedbackConversations` reports `campaign.extractionParkedCount` beside
+`listFeedbackCampaignConversations` reports `campaign.extractionParkedCount` beside
 `needsAttentionCount` — the one campaign-level report of a provider incident.
 Cheap: it counts a boolean already projected into the list read, and touches no
 queue.

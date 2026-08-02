@@ -54,9 +54,16 @@ inactive/requested/active/resolved state and ordered timestamps. An active
 takeover requires the thread's `human_takeover` state.
 
 Turns have unique UUIDs and contiguous sequence numbers. A turn stores input,
-optional output or safe error, model metadata when applicable, exact attempt
-and lifecycle timestamps. A terminal result is exclusive: succeeded has output,
-failed has error, and nonterminal turns have neither.
+optional output or safe error, model metadata when applicable — including the
+service tier it ran under — exact attempt and lifecycle timestamps, plus
+optional `partial` and `reasoning` while the turn is in flight. Those two are
+nullable and defaulted so an older document still parses.
+
+A terminal result is exclusive: succeeded has output, failed has error, and
+nonterminal turns have neither. The v1 schema additionally rejects a settled
+turn that still carries `partial`, so in-flight text cannot survive into a
+terminal record. Note the asymmetry with the API schema, which checks both
+`partial` and `reasoning` — the document schema checks only `partial`.
 
 The aggregate embeds at most 75 turns to stay below MongoDB's hard BSON limit
 under worst-case content sizes. A later retention/rollover design must preserve
@@ -71,7 +78,9 @@ same deterministic enqueue, closing the transient cross-store gap.
 
 After materialization:
 
-- API thread/turn/list reads and worker model history come from MongoDB;
+- API thread/turn/list reads and worker model history come from MongoDB —
+  history is rebuilt from settled user/assistant text only, so tool calls and
+  their results are never replayed into a later turn;
 - request replay, list inventory, worker start and stale recovery use
   PostgreSQL snapshots to backfill a missing thread/turn; a detail read also
   materializes a missing aggregate before returning it, and backfill never

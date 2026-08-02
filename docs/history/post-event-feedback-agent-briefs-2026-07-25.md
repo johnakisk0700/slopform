@@ -2,6 +2,14 @@
 
 > **History. Spent dispatch prompts.** These briefed the agents that built the feedback module. Kept as an example of how work was packaged, not as instructions to follow.
 
+The prompts below name files by their 2026-07-25 filenames, which have since
+been renamed. The bodies are left as they were dispatched; use this map to read
+them:
+
+| Named in the prompts                     | The file today                                                                     |
+| ---------------------------------------- | ---------------------------------------------------------------------------------- |
+| `POST_EVENT_FEEDBACK_PLAN_2026-07-25.md` | [`post-event-feedback-plan-2026-07-25.md`](post-event-feedback-plan-2026-07-25.md) |
+
 Copy-paste prompts for dispatching one agent per work package. Source of
 truth: `POST_EVENT_FEEDBACK_PLAN_2026-07-25.md` (referenced below as "the
 plan"). Suggested routing: **WP9 → Opus 5** (frontend/visual); **WP0–WP8 →

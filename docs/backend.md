@@ -1,6 +1,6 @@
 # Backend foundation
 
-Last verified: **2026-07-25**.
+Last verified: **2026-08-02**.
 
 The backend is a NestJS modular monolith on Node.js 24 LTS. HTTP and background
 jobs are separate processes built from the same domain modules. PostgreSQL is
@@ -68,21 +68,30 @@ exception/Sentry plumbing is absent from the worker graph.
 
 ## Source map
 
-| Concern                               | Source                                                                                            |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| Process composition                   | `apps/backend/src/{http-app,worker-app}.module.ts`, `bootstrap-*.ts`, `main-*.ts`                 |
-| Runtime configuration and HTTP policy | `apps/backend/src/infrastructure/config/`                                                         |
-| Pool and transaction lifecycle        | `apps/backend/src/infrastructure/database/`, `packages/database/src/client.ts`                    |
-| Conversation-store lifecycle          | `apps/backend/src/infrastructure/mongo/`, `apps/backend/src/modules/conversations/`               |
-| Schema and deployment SQL             | `packages/database/src/schema/`, `packages/database/drizzle/`                                     |
-| Queues, readiness and dashboard       | `apps/backend/src/infrastructure/queue/`, `infrastructure/readiness.ts`                           |
-| Logging and telemetry                 | `apps/backend/src/infrastructure/logging/`, `infrastructure/observability/`, `instrumentation.ts` |
-| Business audit                        | `apps/backend/src/infrastructure/audit/`, `packages/database/src/schema/audit-events.ts`          |
-| Participant profile/import            | `apps/backend/src/modules/participants/`, `packages/database/src/schema/participants.ts`          |
-| Stub events and attendance            | `apps/backend/src/modules/events/`, `packages/database/src/schema/events.ts`                      |
-| Email delivery                        | `apps/backend/src/modules/email/`, `packages/database/src/schema/email-deliveries.ts`             |
-| Published API contract                | `apps/backend/src/infrastructure/openapi/`, `src/cli/emit-openapi.ts`, `apps/backend/openapi/`    |
-| Domain examples                       | `apps/backend/src/modules/reference/`                                                             |
+| Concern                               | Source                                                                                                 |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Process composition                   | `apps/backend/src/{http-app,worker-app}.module.ts`, `bootstrap-*.ts`, `main-*.ts`                      |
+| Runtime configuration and HTTP policy | `apps/backend/src/infrastructure/config/`                                                              |
+| Pool and transaction lifecycle        | `apps/backend/src/infrastructure/database/`, `packages/database/src/client.ts`                         |
+| Conversation-store lifecycle          | `apps/backend/src/infrastructure/mongo/`, `apps/backend/src/modules/conversations/`                    |
+| Schema and deployment SQL             | `packages/database/src/schema/`, `packages/database/drizzle/`                                          |
+| Queues, readiness and dashboard       | `apps/backend/src/infrastructure/queue/`, `infrastructure/readiness.ts`                                |
+| Logging and telemetry                 | `apps/backend/src/infrastructure/logging/`, `infrastructure/observability/`, `instrumentation.ts`      |
+| Business audit                        | `apps/backend/src/infrastructure/audit/`, `packages/database/src/schema/audit-events.ts`               |
+| Participant profile/import            | `apps/backend/src/modules/participants/`, `packages/database/src/schema/participants.ts`               |
+| Stub events and attendance            | `apps/backend/src/modules/events/`, `packages/database/src/schema/events.ts`                           |
+| Email delivery                        | `apps/backend/src/modules/email/`, `packages/database/src/schema/email-deliveries.ts`                  |
+| Durable assistant threads             | `apps/backend/src/modules/assistant/`, `packages/database/src/schema/assistant.ts`                     |
+| Post-event feedback                   | `apps/backend/src/modules/post-event-feedback/`, `packages/database/src/schema/post-event-feedback.ts` |
+| Liveness and readiness routes         | `apps/backend/src/modules/health/`                                                                     |
+| WhatsApp transport                    | `apps/backend/src/integrations/wasender/`                                                              |
+| Provider clients and auth plumbing    | `apps/backend/src/infrastructure/ai/`, `apps/backend/src/infrastructure/auth/`                         |
+| Published API contract                | `apps/backend/src/infrastructure/openapi/`, `src/cli/emit-openapi.ts`, `apps/backend/openapi/`         |
+| Domain examples                       | `apps/backend/src/modules/reference/`                                                                  |
+
+Note the two homes: product domains live under `src/modules/`, but an external
+provider boundary lives under `src/integrations/` — `wasender` is the one that
+exists today.
 
 The `reference` module is a disposable executable pattern. Its HTTP adapter is
 present only when `REFERENCE_MODULE_ENABLED=true`; its worker stays registered

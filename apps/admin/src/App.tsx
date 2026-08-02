@@ -8,9 +8,14 @@ import { Toast } from "@heroui/react";
 import { lazy, Suspense, type ReactNode } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router";
 
+import { AuthPendingScreen } from "./components/admin/AuthPendingScreen";
 import { AuthStatusScreen } from "./components/admin/AuthStatusScreen";
 import { AdminShell } from "./components/admin/AdminShell";
 import { RequireAdmin } from "./components/admin/RequireAdmin";
+import {
+  SignInFormPlaceholder,
+  SignInLayout,
+} from "./components/admin/SignInLayout";
 import { env } from "./lib/env";
 import { ErrorPage } from "./routes/ErrorPage";
 import { SignInPage } from "./routes/SignInPage";
@@ -268,11 +273,29 @@ export function App() {
   );
 }
 
+/**
+ * `/sign-in` and its Clerk sub-steps (`/sign-in/factor-one`, …). Read from the
+ * location directly because this decision is made before the router mounts, and
+ * only to pick which screen waits for Clerk — nothing here navigates.
+ */
+function isSignInPath(pathname: string): boolean {
+  return pathname === "/sign-in" || pathname.startsWith("/sign-in/");
+}
+
 function ClerkApplication() {
   return (
     <>
+      {/* Clerk's script is still in flight. Paint the screen the URL already
+          promises — the sign-in page with a placeholder where the form will
+          land — instead of an interstitial the operator then has to leave. */}
       <ClerkLoading>
-        <AuthStatusScreen kind="checking" />
+        {isSignInPath(window.location.pathname) ? (
+          <SignInLayout>
+            <SignInFormPlaceholder />
+          </SignInLayout>
+        ) : (
+          <AuthPendingScreen />
+        )}
       </ClerkLoading>
       <ClerkLoaded>
         <BrowserRouter>

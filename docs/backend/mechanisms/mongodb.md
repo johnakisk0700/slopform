@@ -13,7 +13,8 @@ discriminated by `schemaVersion` and `purpose`. PostgreSQL remains
 authoritative for relational business data, audit, outbox and
 delivery/execution projections. Redis remains queue coordination only.
 
-`MongoService` owns one lazy native-driver client per Nest process. Each
+`MongoService` owns one native-driver client per Nest process, constructed
+eagerly with a lazily established and memoized connection. Each
 conversation repository owns its own document version and collection queries;
 controllers and provider adapters never receive a Mongo client.
 

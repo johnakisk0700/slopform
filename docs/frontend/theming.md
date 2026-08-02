@@ -8,14 +8,18 @@ Status: accepted, verified 2026-08-02 (React 19.2.8, HeroUI `@heroui/react`
 This is the base every admin screen is built on. Its promise: **to style a new
 screen you use a semantic token or a plain HeroUI component, and light + dark are
 correct with no colour plumbing.** See
-[ADR 0005](../decisions/0005-theming-and-dark-mode.md) for the decision record
-and [ADR 0006](../decisions/0006-react-admin-runtime.md) for the move from PrimeVue
-to HeroUI as the consumer of this system.
+[ADR 0005](../decisions/0005-theming-and-dark-mode.md) for the decision record,
+[ADR 0006](../decisions/0006-react-admin-runtime.md) for the move from PrimeVue
+to HeroUI as the consumer of this system, and
+[ADR 0012](../decisions/0012-selectable-palettes.md) for the selectable-palette
+layer that sits on top of it.
 
 ## Purpose and boundary
 
 - `packages/design-tokens/src/tokens.css` owns every shared visual value and is
-  framework-neutral. It is the single source of truth.
+  framework-neutral. It is the single source of truth for the shared layer and
+  for the house theme — but **not** for the other five: a colour added only here
+  is correct in one theme of six (see Themes below, and ADR 0012).
 - `apps/admin/src/styles/globals.css` is the **bridge**: it makes HeroUI and
   Tailwind consume those tokens. It owns no colours of its own.
 - `apps/admin/src/lib/useTheme.ts` owns the light/dark/system preference and the
@@ -97,16 +101,14 @@ flowchart LR
 The operator menu's **Theme** group selects one of six themes; the appearance
 system is a 6×2 grid (theme × light/dark), and the two axes never mix.
 
-| Theme        | Field                         | Brand colour |
-| ------------ | ----------------------------- | ------------ |
-| Theme        | Field                         | Brand        | Accent   |
-| ------------ | ----------------------------- | --------     | -------- |
-| Join The Six | warm rosewood paper (default) | wine         | copper   |
-| Graphite     | cool neutral                  | azure        | violet   |
-| Noir         | greyscale                     | ink          | violet   |
-| Amphora      | Flexoki ink on paper          | teal         | orange   |
-| Linen        | Radix Colors sand             | copper       | indigo   |
-| Iris         | Rosé Pine                     | iris         | foam     |
+| Theme        | Field                         | Brand  | Accent |
+| ------------ | ----------------------------- | ------ | ------ |
+| Join The Six | warm rosewood paper (default) | wine   | copper |
+| Graphite     | cool neutral                  | azure  | violet |
+| Noir         | greyscale                     | ink    | violet |
+| Amphora      | Flexoki ink on paper          | teal   | orange |
+| Linen        | Radix Colors sand             | copper | indigo |
+| Iris         | Rosé Pine                     | iris   | foam   |
 
 - **Every theme owns its brand colour.** The first cut kept wine as the primary
   in all of them, so whatever an operator picked, the buttons, the chat bubbles
@@ -188,8 +190,11 @@ points those variables at the tokens. Four mechanisms do it:
 2. **`@theme inline` — the Tailwind utility vocabulary.** HeroUI already maps its
    tokens to utilities (`bg-surface`, `bg-accent`, …); `globals.css` adds the jts
    vocabulary (`canvas`, `ink`/`ink-muted`, `primary`, `copper`, `info`,
-   `*-border`, `sidebar-*`) and overrides the type/radius/shadow/tracking
-   scales, each mapped to a `var(--jts-*)`. The status hairlines are ours
+   `*-border`, `sidebar-*`) and overrides the font-family, radius, shadow and
+   tracking scales, each mapped to a `var(--jts-*)`. The **type scale is
+   deliberately not mapped**: there is no `--text-*` entry, so `text-lg` stays
+   Tailwind's own value and a jts size is written as an arbitrary value that
+   references the token — `text-[length:var(--jts-text-lg)]`. The status hairlines are ours
    because HeroUI models a status as fill + soft fill + text and stops there:
    until `--color-{success,warning,danger,info}-border` existed,
    `border-warning-border` was a name Tailwind had never heard of and emitted
@@ -269,6 +274,15 @@ for prose.
 `useReducedMotion()` reports a preference. A base rule in `globals.css` also
 collapses all animation under `prefers-reduced-motion`. Motion signals
 continuity or state change and never carries status by itself.
+
+One shared keyframe carries "the app is working on it": `jts-breathe`, a 1.6s
+opacity cycle. `.assistant-thinking` wears it on the assistant's thinking line
+and `.jts-pending` wears it on loading placeholders — the sign-in form while
+Clerk's script is in flight, and the rule under the brand while a private route
+is still being decided. `.jts-pending` draws a `--jts-color-surface-sunken`
+block at whatever size its consumer gives it, and stills to a plain block under
+`prefers-reduced-motion`. One vocabulary for waiting, so no screen invents a
+spinner of its own.
 
 The one other sanctioned animation is `.jts-disclosure`: a `<details>` whose
 body slides open over `--jts-duration-base` instead of appearing between two

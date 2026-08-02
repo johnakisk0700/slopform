@@ -1,7 +1,7 @@
 # Post-event feedback — end-to-end scenario suite
 
 The acceptance gate named in
-[`POST_EVENT_FEEDBACK_LOOP_PLAN_2026-07-26.md`](../../history/post-event-feedback-loop-plan-2026-07-26.md)
+[`post-event-feedback-loop-plan-2026-07-26.md`](../../history/post-event-feedback-loop-plan-2026-07-26.md)
 §6. It is a catalogue of **kinds of person the loop might serve badly**, not a
 catalogue of code paths, and it is deliberately written before the tests exist so
 the tests are graded against the humans rather than against the implementation
@@ -9,17 +9,24 @@ they are testing.
 
 Two halves:
 
-- **Part 1** — the original 60-scenario product catalogue. It records the
+- **Part 1** — the original product catalogue, S01 to S70. It records the
   baseline analysis that seeded the executable suite; its numbered “Today”
-  verdicts are historical, not a live pass/fail dashboard.
+  verdicts are **historical, not a live pass/fail dashboard**. Most of the red
+  verdicts below were closed by the loop remediation; they are kept because the
+  reasoning that produced them is why the tests look the way they do.
 - **Part 2** — the current executable contract, followed by the original harness
   design notes retained as implementation history.
 
-The executable suite has since grown to **88 unique scenarios in seven spec
-files**. Fifty-eight currently satisfy the desired contract; **30 known
-production defects** carry two explicit oracles: `knownCurrent` pins the exact
-observable failure and `expect` keeps the desired product outcome. All 88 tests
-therefore run green without pretending the 30 defects are correct.
+The executable suite has since grown to **114 unique scenarios in eight spec
+files**. 112 satisfy the desired contract; **2 known production defects** carry
+two explicit oracles: `knownCurrent` pins the exact observable failure and
+`expect` keeps the desired product outcome. All 114 tests therefore run green
+without pretending the 2 defects are correct.
+
+Read that ratio before reading Part 1. When the catalogue was written, 30
+defects were open; a remediation pass closed 28 of them. A red verdict in Part 1
+is evidence of what was once wrong, and the executable suite is the only
+statement about what is wrong now.
 
 A separate **33-case real-model corpus** exercises semantic interpretation with
 live candidate-name binding. It is for deliberate, paid Luna/Qwen checks through
@@ -93,7 +100,7 @@ Current V2 executable scenarios instead start with `event_score: asked` and
 
 ---
 
-# Part 1 — Original sixty-person catalogue
+# Part 1 — Original person catalogue (S01–S70)
 
 ## A. How people type
 
@@ -201,7 +208,8 @@ seconds.
 it). `event_score=1`, `liked→Νίκος`, one or two `general` notes about the venue.
 No run dies. Nothing about the venue is attributed to a participant.
 
-**Stresses.** `FEEDBACK_EXTRACTION_MAX_SOURCE_MESSAGES = 10` and
+**Stresses.** `FEEDBACK_EXTRACTION_MAX_SOURCE_MESSAGES` (10 when this was
+written, 40 today) and
 `FEEDBACK_ATTENTION_CLASSIFICATION_BATCH_SIZE = 10` on one window;
 `FEEDBACK_EXTRACTION_MAX_NOTES = 5`.
 
@@ -1501,9 +1509,11 @@ signal.
 
 ## Added after the original audit
 
-Part 1 above is the sixty-person catalogue as it was written. Numbering
-continues here rather than editing that list, so a row added later is visibly
-later. The verdicts below are current at the time of writing, not historical.
+Part 1 above is the original sixty-person catalogue as it was written; S61–S70
+were appended here rather than folded into it, so a row added later is visibly
+later. The verdicts below were current when each row was written and are now
+historical, exactly like the rest of Part 1 — the executable suite is the live
+statement.
 
 ### S61 · `racist_about_an_attendee`
 
@@ -1907,7 +1917,7 @@ The harness splits as:
 - `post-event-feedback-loop-model.harness.ts` — scripted extraction model;
 - `post-event-feedback-loop.harness.ts` — factory, queue and runner;
 
-and the seven executable files are:
+and the eight executable files are:
 
 - `post-event-feedback-loop.spec.ts` — ordinary loop completion and silence;
 - `post-event-feedback-loop-typing.spec.ts` — bursts, long/partial/non-text and
@@ -1921,7 +1931,11 @@ and the seven executable files are:
 - `post-event-feedback-loop-races.spec.ts` — real in-flight model barriers for
   control, consent and campaign races;
 - `post-event-feedback-loop-edges.spec.ts` — representative seams that did not
-  justify duplicating the larger matrices.
+  justify duplicating the larger matrices;
+- `post-event-feedback-loop-v2.spec.ts` — question-set V2 goals, races and
+  lifecycle. It is the only consumer of the harness's `questionSetVersion`
+  option, which is why V2 coverage lives in its own file rather than spread
+  through the others.
 
 The real-model input/rubric set lives in
 `post-event-feedback-real-model-corpus.ts`. Candidate placeholders are rendered
@@ -2540,7 +2554,7 @@ an _ordering_ the step list cannot show.
 - [`post-event-feedback.md`](post-event-feedback.md) — module contract, D13 as amended, the fallback,
   schema v2, capacity, close-reason precedence
 - [`conversations.md`](conversations.md) — schema-v1/v2 co-tenancy in `conversation_threads`
-- [`POST_EVENT_FEEDBACK_LOOP_PLAN_2026-07-26.md`](../../history/post-event-feedback-loop-plan-2026-07-26.md) — F1–F7 and WP1–WP6, which this suite is the acceptance gate for
+- [`post-event-feedback-loop-plan-2026-07-26.md`](../../history/post-event-feedback-loop-plan-2026-07-26.md) — F1–F7 and WP1–WP6, which this suite is the acceptance gate for
 - Source: `apps/backend/src/modules/post-event-feedback/`,
   `apps/backend/src/modules/post-event-feedback/post-event-feedback-conversation.repository.ts`
 - Precedent harness: `simulator/simulator.service.integration.spec.ts`

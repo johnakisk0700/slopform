@@ -101,7 +101,7 @@ general`). All questions skippable (goal `skipped`, no answer row). Greek
   A permanently failed extraction falls back to one ordinary note plus one
   acknowledgement so a dead run never leaves a turn unmarked. The restricted
   `safety_reports` table stays deferred to the pre-real-humans gate. See
-  [the module doc](../backend/modules/post-event-feedback.md#d13-safety-content-travels-the-ordinary-pipeline).
+  [the module doc](../backend/modules/post-event-feedback.md#d13--safety-content-travels-the-ordinary-pipeline).
 - **D14 — STOP.** Case-, whitespace- and accent-insensitive: `STOP`,
   `STOP ALL`, `UNSUBSCRIBE`, `ΔΙΑΚΟΠΗ`, `ΣΤΟΠ`. Checked deterministically at
   materialization, before any AI call, effective in both control modes:

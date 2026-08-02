@@ -1,6 +1,7 @@
 # Assistant streaming — durable turns with a live accelerator
 
-Status: stage A in progress. This is the canonical design for putting live
+Status: stage A landed, and reasoning landed with it. Stage B is not started.
+Last verified: **2026-08-02**. This is the canonical design for putting live
 assistant text on `/admin/assistant` without giving up the durable turn.
 
 ## Why this is not a one-line port
@@ -10,9 +11,11 @@ project's answer model came with it. `notes_ai` runs `streamText` inside the HTT
 request and treats the persisted thread as the source of truth with the live SSE
 stream as a _best-effort accelerator_ — its own `docs/chat-durability-plan.md`
 says so, and the reason is flaky mobile connections. Join The Six kept the
-durable half (queued turn, BullMQ worker, `generateText`, idempotent replay,
-attempt fencing, retry) and dropped the accelerator entirely, so nothing reaches
-the operator until the whole answer lands.
+durable half (queued turn, BullMQ worker, idempotent replay, attempt fencing,
+retry) and at first dropped the accelerator entirely, so nothing reached the
+operator until the whole answer landed. Stage A put the accelerator back on the
+existing poll rather than on a new transport; stage B is what replaces the
+channel.
 
 Three local constraints rule out copying the source's shape verbatim:
 
@@ -20,8 +23,8 @@ Three local constraints rule out copying the source's shape verbatim:
    separate processes. Tokens produced in the worker can only reach an HTTP
    response through a broker; Redis is already a hard dependency of the queue.
 2. **A turn lives in two stores.** `assistant_turns` in PostgreSQL is the
-   execution projection that owns fencing; the MongoDB `conversations` document
-   is the read model `toThreadView` serves. Partial text has to reach both under
+   execution projection that owns fencing; the MongoDB `conversation_threads`
+   document is the read model `toThreadView` serves. Partial text reaches both under
    the same attempt fence, or a reload could show text from a superseded attempt.
 3. **The schema forbids nonterminal content.** `assistant_turns_result_check`
    asserts `assistant_content` is null unless the turn succeeded. That check is
@@ -41,26 +44,34 @@ Three local constraints rule out copying the source's shape verbatim:
 - Retry semantics are unchanged: a retried turn increments `attempt` and its
   earlier partial text is discarded.
 
-## Stage A — partial text over the existing poll
+## Stage A — partial text over the existing poll — landed
 
 The worker streams and records throttled partial text; the client's existing
 1.2s poll renders it. No new transport, no new endpoint. This is a prerequisite
-for stage B, which only replaces the delivery channel.
+for stage B, which only replaces the delivery channel. All four parts shipped:
 
-1. `assistant_turns.streamed_content` (nullable text) plus a migration. The
-   existing result check is untouched.
-2. `AssistantGenerationService.generateStreaming({ ..., onDelta })` using
-   `streamText` with `consumeStream()`, so a dropped reader never aborts a
-   generation the queue still owns.
+1. `assistant_turns.streamed_content` (nullable text), with a check constraint
+   confining it to `queued` and `running`. The existing result check is
+   untouched.
+2. `AssistantGenerationService.generateStreaming({ ..., onDelta })`, which
+   consumes `result.fullStream` to completion inside the worker's provider-call
+   slot, so a dropped reader never aborts a generation the queue still owns.
 3. A fenced `recordPartial(turnId, attempt, text)` across both stores, throttled
    in the worker so the write rate is bounded by wall-clock, not token rate.
 4. Nonterminal turn views carry `partial: string | null`; the frontend renders it
    as the in-flight assistant message, replacing the bare thinking indicator.
 
+The processor now has no buffered path: `generateStreaming` is the only call it
+makes.
+
 ## Stage B — the SSE accelerator
 
-1. The worker publishes deltas to a Redis stream keyed by turn and attempt, with
-   a TTL, so a reconnecting reader can replay from an offset rather than restart.
+1. Wire the existing `AssistantStreamRelay` into the worker. It is already
+   written — a Redis stream keyed `assistant:stream:${turnId}:${attempt}` with a
+   ten-minute TTL, replayable from `0-0`, carrying `text`, `reasoning` and
+   `tools` event kinds — but it is registered in no Nest module and has no
+   caller. Until it is wired it is dead code, so read it as a starting point,
+   not as a shipped mechanism.
 2. `GET /v1/assistant/threads/:threadId/turns/:turnId/stream` replays the
    recorded partial, then follows the Redis stream until the turn is terminal.
 3. The client opens that stream on submit and on resume; polling continues
@@ -68,19 +79,15 @@ for stage B, which only replaces the delivery channel.
    persisted content replaces streamed text.
 
 Only once stage B lands do the remaining `notes_ai` behaviours become portable:
-a stop control, streamed reasoning, and the source's reserved answer height —
-that reserve is deliberately absent today because without streaming it is just
-several hundred pixels of dead column under a short reply.
+a stop control and the source's reserved answer height — that reserve is
+deliberately absent today because a short reply under it is just several hundred
+pixels of dead column.
 
-## Stage C — reasoning and cost, shipped with stage B
+## Reasoning — landed
 
-Both are missing for the same reason: the generation call asks for neither and
-reads neither. `reasoningProviderOptions` sends an effort, which _buys_ thinking
-without asking for it back, and the only things ever read off a result are
-`result.text` and `result.textStream`. Neither reasoning nor `result.usage` is
-touched, and neither has a column, a document field or a view field.
-
-### Reasoning
+Reasoning did not wait for stage B; it rode in on stage A's stream, because the
+same `fullStream` loop that yields text deltas yields reasoning deltas beside
+them.
 
 - **Ask for it.** OpenRouter returns reasoning deltas already — that is how the
   source's idle watchdog keeps a text-less thinking phase alive. OpenAI direct
@@ -88,15 +95,21 @@ touched, and neither has a column, a document field or a view field.
   `reasoningSummary` is sent (`@ai-sdk/openai@4.0.18`). Luna and Terra are the
   direct routes, so those two show a summary and the OpenRouter pair show live
   reasoning. That asymmetry is a provider fact, not a bug to chase.
-- **Read it.** `textStream` is documented as text deltas only, so reasoning is
-  discarded silently today. Stage B's consumer must read `fullStream` and split
-  reasoning parts from text parts. The source's equivalent is one flag:
+- **Read it.** `textStream` is text deltas only, so reading it would discard
+  reasoning silently. The service reads `result.fullStream` instead and splits
+  `reasoning-delta` parts from text parts. The source's equivalent is one flag:
   `toUIMessageStream({ sendReasoning: true })`.
-- **Store it.** Reasoning needs the twin of `streamed_content` — its own column,
-  document field and view field, under the same attempt fence and the same
-  clear-on-terminal rule. `PartialRecorder` throttles it the same way.
+- **Store it.** `assistant_turns.reasoning_content` is the exact twin of
+  `streamed_content` — same attempt fence, same clear-on-terminal check
+  constraint, same `PartialRecorder` throttle — with a matching document field
+  and view field. The admin renders it as a collapsed disclosure while the turn
+  streams.
 
-### Cost
+## Cost — not started
+
+`result.usage` is now read once the stream completes, but nothing keeps it: the
+processor discards it, and there is no column, document field or view field for
+token counts. Everything below is still the design, not the code.
 
 `notes_ai` has this and most of it transfers:
 
@@ -143,7 +156,7 @@ touched, and neither has a column, a document field or a view field.
   once the stream completes and persists token counts as real columns rather than
   free-form metadata.
 
-### Fast mode — landed
+## Fast mode — landed
 
 The composer's "Fast" control maps to OpenAI's `service_tier`, the paid fast lane
 the feedback module already describes as roughly twice the token price. The

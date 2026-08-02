@@ -459,6 +459,36 @@
     border-radius: 50%;
     background: var(--jts-color-success);
   }
+
+  /* The app's one "working on it" motion, shared by the assistant's thinking
+     line and by `.jts-pending`. Opacity only, 1.6s, so a waiting surface reads
+     as pending rather than as broken — and so waiting looks the same
+     everywhere instead of each screen inventing its own spinner. */
+  @keyframes jts-breathe {
+    0%,
+    100% {
+      opacity: 0.5;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+
+  /* A placeholder standing in for content that is still loading: the shape of
+     what is coming, drawn on the sunken surface. Sized by the consumer. */
+  .jts-pending {
+    display: block;
+    border-radius: var(--jts-radius-sm);
+    background: var(--jts-color-surface-sunken);
+    animation: jts-breathe 1.6s ease-in-out infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .jts-pending {
+      animation: none;
+      opacity: 1;
+    }
+  }
 }
 
 /* -----------------------------------------------------------------------------
@@ -839,19 +869,9 @@
     height: auto;
   }
 
-  @keyframes assistant-thinking-breathe {
-    0%,
-    100% {
-      opacity: 0.5;
-    }
-    50% {
-      opacity: 1;
-    }
-  }
-
   .assistant-thinking {
     color: var(--jts-color-text-muted);
-    animation: assistant-thinking-breathe 1.6s ease-in-out infinite;
+    animation: jts-breathe 1.6s ease-in-out infinite;
     will-change: opacity;
   }
 
