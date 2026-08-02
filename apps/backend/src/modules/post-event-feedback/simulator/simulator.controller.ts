@@ -146,6 +146,9 @@ export class FeedbackSimulatorController {
           phoneE164: body.phoneE164,
           text: body.text,
           fromMe: body.fromMe ?? false,
+          ...(body.idempotencyKey
+            ? { idempotencyKey: body.idempotencyKey }
+            : {}),
         },
         String(requestId),
       );

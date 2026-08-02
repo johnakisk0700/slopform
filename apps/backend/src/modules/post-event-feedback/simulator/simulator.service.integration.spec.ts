@@ -109,6 +109,27 @@ describe("post-event feedback simulator (simulated mode)", () => {
       },
     ]);
   });
+
+  it("deduplicates a retried simulator injection by its stable key", async () => {
+    const input = {
+      phoneE164: phone,
+      text: "Ήταν τέλεια!",
+      fromMe: false,
+      idempotencyKey: "burst-stable-message-1",
+    };
+
+    const first = await harness.simulator.injectObservedMessage(
+      input,
+      "corr-inject-first",
+    );
+    const retried = await harness.simulator.injectObservedMessage(
+      input,
+      "corr-inject-retry",
+    );
+
+    expect(first.inserted).toBe(true);
+    expect(retried).toEqual({ ingressId: first.ingressId, inserted: false });
+  });
 });
 
 interface FakeIngressRow {

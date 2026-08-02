@@ -1947,6 +1947,12 @@ and is read before every HTTP request. The external refresher owns atomic token
 replacement; the harness fails before its first request if the file is absent or
 empty. This preserves Clerk's normal `authorizedParties` check without adding a
 production auth bypass merely to accommodate short-lived frontend tokens.
+Every burst injection also carries a stable per-run/persona/message idempotency
+key. The simulator derives its provider-message identity from that key, and the
+runner retries only those keyed mutations on bounded network/408/425/429/5xx
+failures. A response lost after the durable insert therefore becomes an ingress
+redelivery, not duplicate testimony. Unkeyed manual simulator injections keep
+their one-shot random identity and are never silently retried by the runner.
 Stub mode refuses to start unless the burst catalogue
 reports `extractionStub: true` and the registered feedback workers attest the
 same stub/model/control profile as the API; paid mode

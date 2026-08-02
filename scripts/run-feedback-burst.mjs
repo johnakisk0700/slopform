@@ -32,6 +32,10 @@ import {
   writeRunSummary,
 } from "./burst-artefacts.mjs";
 import { createFeedbackBurstHeaders } from "./feedback-burst-auth.mjs";
+import {
+  createFeedbackBurstIdempotencyKey,
+  requestFeedbackBurstJson as requestJson,
+} from "./feedback-burst-http.mjs";
 import { openBurstInspection } from "./burst-inspect.mjs";
 import {
   assertFeedbackBurstLiveGuestCallAllowed,
@@ -1168,18 +1172,27 @@ async function driveLiveGuest({
       return;
     }
 
-    await requestJson(`${apiBase}/dev/feedback/simulator/inject`, {
-      method: "POST",
-      headers: {
-        ...headers,
-        "x-request-id": `${correlationId}-${persona.id}-${randomUUID().slice(0, 8)}`,
+    await requestJson(
+      `${apiBase}/dev/feedback/simulator/inject`,
+      {
+        method: "POST",
+        headers: {
+          ...headers,
+          "x-request-id": `${correlationId}-${persona.id}-${randomUUID().slice(0, 8)}`,
+        },
+        body: JSON.stringify({
+          phoneE164: persona.phoneE164,
+          text,
+          fromMe: false,
+          idempotencyKey: createFeedbackBurstIdempotencyKey({
+            correlationId,
+            personaId: persona.id,
+            messageIndex: turn,
+          }),
+        }),
       },
-      body: JSON.stringify({
-        phoneE164: persona.phoneE164,
-        text,
-        fromMe: false,
-      }),
-    });
+      { transientRetries: 3 },
+    );
     entry.injected.push({ text, at: new Date().toISOString() });
     console.error(`${persona.id} (${live.model}): ${text}`);
   }
@@ -1207,25 +1220,34 @@ async function drivePersona({
   // Live personas have no recorded messages by design. In the safe default
   // they therefore become deterministic silence: the intro remains observable,
   // no extraction is scheduled for them, and no external persona model runs.
-  for (const message of persona.messages) {
+  for (const [messageIndex, message] of persona.messages.entries()) {
     if (message.afterMs > 0) {
       await sleep(message.afterMs);
     }
     // `text: null` is a voice note, photo or reaction. It travels through the
     // same inject route — the point of the persona who sends them is that the
     // ordinary path is what decides they cannot become testimony.
-    await requestJson(`${apiBase}/dev/feedback/simulator/inject`, {
-      method: "POST",
-      headers: {
-        ...headers,
-        "x-request-id": `${correlationId}-${persona.id}-${randomUUID().slice(0, 8)}`,
+    await requestJson(
+      `${apiBase}/dev/feedback/simulator/inject`,
+      {
+        method: "POST",
+        headers: {
+          ...headers,
+          "x-request-id": `${correlationId}-${persona.id}-${randomUUID().slice(0, 8)}`,
+        },
+        body: JSON.stringify({
+          phoneE164: persona.phoneE164,
+          text: message.text ?? null,
+          fromMe: false,
+          idempotencyKey: createFeedbackBurstIdempotencyKey({
+            correlationId,
+            personaId: persona.id,
+            messageIndex,
+          }),
+        }),
       },
-      body: JSON.stringify({
-        phoneE164: persona.phoneE164,
-        text: message.text ?? null,
-        fromMe: false,
-      }),
-    });
+      { transientRetries: 3 },
+    );
     entry.injected.push({
       text: message.text ?? null,
       at: new Date().toISOString(),
@@ -1853,21 +1875,6 @@ function positiveInteger(value, name) {
     throw new Error(`--${name} must be a positive integer`);
   }
   return parsed;
-}
-
-async function requestJson(url, init) {
-  const response = await fetch(url, init);
-  const payload = await response.json().catch(() => undefined);
-  if (!response.ok) {
-    const message =
-      payload && typeof payload.message === "string"
-        ? payload.message
-        : Array.isArray(payload?.message)
-          ? payload.message.join("; ")
-          : `${response.status} ${response.statusText}`;
-    throw new Error(`${url}: ${message}`);
-  }
-  return payload;
 }
 
 function sleep(ms) {

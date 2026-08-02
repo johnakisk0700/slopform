@@ -673,12 +673,15 @@ export class FeedbackSimulatorService {
       /** `null` is a voice note, photo or reaction — an inbound with no body. */
       readonly text: string | null;
       readonly fromMe: boolean;
+      readonly idempotencyKey?: string;
     },
     correlationId: string,
   ): Promise<InjectFeedbackSimulatorMessageResponseDto> {
     this.assertEnabled();
     const observedAt = new Date();
-    const providerMessageId = `sim-inject-${randomUUID()}`;
+    const providerMessageId = input.idempotencyKey
+      ? `sim-inject-${input.idempotencyKey}`
+      : `sim-inject-${randomUUID()}`;
     const chatJid = phoneE164ToChatJid(input.phoneE164);
 
     const result: RecordObservedMessageResult =

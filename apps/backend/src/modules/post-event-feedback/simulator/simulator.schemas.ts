@@ -17,6 +17,13 @@ export const feedbackSimulatorPhoneSchema = z
   .string()
   .regex(/^\+[1-9]\d{7,14}$/u, "Expected an E.164 phone number");
 
+export const feedbackSimulatorIdempotencyKeySchema = z
+  .string()
+  .regex(
+    /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u,
+    "Expected a 1-128 character log-safe idempotency key",
+  );
+
 /**
  * What a provider may hand us, not what we are allowed to say.
  *
@@ -42,6 +49,7 @@ export const injectFeedbackSimulatorMessageSchema = z
       .max(FEEDBACK_OBSERVED_TEXT_HARD_LIMIT)
       .nullable(),
     fromMe: z.boolean().optional().default(false),
+    idempotencyKey: feedbackSimulatorIdempotencyKeySchema.optional(),
   })
   .strict();
 
