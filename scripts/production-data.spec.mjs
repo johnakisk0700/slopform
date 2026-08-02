@@ -164,6 +164,30 @@ test("pre-import backups become visible only after both archives validate", () =
   assert.match(importProgram, /production_cleanup_partial_backup/);
 });
 
+test("remote backup and eval commands cannot consume the remaining bash-s program", () => {
+  const importProgram = embeddedRemoteScripts().find(
+    (script) => script.name === "remote_import_source",
+  )?.source;
+  assert.ok(importProgram);
+
+  const postgresBackup = importProgram.slice(
+    importProgram.indexOf('note_remote "taking pre-import PostgreSQL'),
+    importProgram.indexOf('note_remote "taking pre-import MongoDB'),
+  );
+  const mongoBackup = importProgram.slice(
+    importProgram.indexOf('note_remote "taking pre-import MongoDB'),
+    importProgram.indexOf("chmod 0600", importProgram.indexOf("mongodump")),
+  );
+
+  assert.match(postgresBackup, /<\/dev\/null/u);
+  assert.match(mongoBackup, /<\/dev\/null/u);
+  assert.match(
+    importProgram,
+    /redis-cli --no-auth-warning FLUSHALL SYNC[\s\S]*?<\/dev\/null/u,
+  );
+  assert.match(importProgram, /run --rm --no-deps migrate <\/dev\/null/u);
+});
+
 test("remote cleanup is armed before validation and stop-state messages are phase-aware", () => {
   const importProgram = embeddedRemoteScripts().find(
     (script) => script.name === "remote_import_source",

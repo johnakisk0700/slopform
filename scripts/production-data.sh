@@ -519,7 +519,7 @@ done
 postgres_id=$("${production_compose[@]}" ps -q postgres | awk 'NR == 1 { print; exit }')
 if [[ -n $postgres_id ]] && [[ $(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$postgres_id") == healthy ]]; then
   applied=$("${production_compose[@]}" exec -T postgres sh -eu -c \
-    'exec psql -X --no-align --tuples-only --quiet --set=ON_ERROR_STOP=1 --username="$POSTGRES_USER" --dbname="$POSTGRES_DB" --command="SELECT count(*) FROM drizzle.__drizzle_migrations;"')
+    'exec psql -X --no-align --tuples-only --quiet --set=ON_ERROR_STOP=1 --username="$POSTGRES_USER" --dbname="$POSTGRES_DB" --command="SELECT count(*) FROM drizzle.__drizzle_migrations;"' </dev/null)
   applied=${applied//[[:space:]]/}
   printf 'remote.applied_migrations=%s\n' "$applied"
 else
@@ -621,7 +621,7 @@ for service in api worker; do
 done
 
 applied=$("${production_compose[@]}" exec -T postgres sh -eu -c \
-  'exec psql -X --no-align --tuples-only --quiet --set=ON_ERROR_STOP=1 --username="$POSTGRES_USER" --dbname="$POSTGRES_DB" --command="SELECT count(*) FROM drizzle.__drizzle_migrations;"')
+  'exec psql -X --no-align --tuples-only --quiet --set=ON_ERROR_STOP=1 --username="$POSTGRES_USER" --dbname="$POSTGRES_DB" --command="SELECT count(*) FROM drizzle.__drizzle_migrations;"' </dev/null)
 applied=${applied//[[:space:]]/}
 [[ $applied == "$expected_migration_count" ]] || {
   echo "production-data: remote migration count does not match the repository contract" >&2
@@ -630,7 +630,7 @@ applied=${applied//[[:space:]]/}
 
 unexpected_schemas=$("${production_compose[@]}" exec -T postgres sh -eu -c \
   'exec psql -X --no-align --tuples-only --quiet --set=ON_ERROR_STOP=1 --username="$POSTGRES_USER" --dbname="$POSTGRES_DB" --command="$1"' \
-  sh "SELECT count(*) FROM pg_namespace WHERE nspname NOT IN ('public', 'drizzle', 'information_schema') AND nspname !~ '^pg_';")
+  sh "SELECT count(*) FROM pg_namespace WHERE nspname NOT IN ('public', 'drizzle', 'information_schema') AND nspname !~ '^pg_';" </dev/null)
 unexpected_schemas=${unexpected_schemas//[[:space:]]/}
 [[ $unexpected_schemas == 0 ]] || {
   echo "production-data: remote database has schemas outside the explicit public/drizzle application contract" >&2
@@ -886,7 +886,7 @@ note_remote "taking pre-import PostgreSQL logical backup"
     --schema=drizzle \
     --username="$POSTGRES_USER" \
     "$POSTGRES_DB"
-  ' >"$partial_backup_directory/postgres.dump"
+  ' </dev/null >"$partial_backup_directory/postgres.dump"
 
 note_remote "taking pre-import MongoDB logical backup"
 "${compose[@]}" exec -T mongo sh -eu -c '
@@ -899,7 +899,7 @@ note_remote "taking pre-import MongoDB logical backup"
     --authenticationDatabase "$MONGO_INITDB_DATABASE" \
     --excludeCollectionsWithPrefix system. \
     --db "$MONGO_INITDB_DATABASE"
-  ' >"$partial_backup_directory/mongo.archive.gz"
+  ' </dev/null >"$partial_backup_directory/mongo.archive.gz"
 
 chmod 0600 "$partial_backup_directory/postgres.dump" "$partial_backup_directory/mongo.archive.gz"
 (
@@ -966,7 +966,7 @@ note_remote "dropping MongoDB application collections while preserving system/au
     const result = db.getCollection(name).drop();
     if (result !== true) throw new Error(`failed to drop application collection: ${name}`);
   }
-'
+' </dev/null
 
 note_remote "restoring MongoDB application archive"
 "${compose[@]}" exec -T mongo sh -eu -c '
@@ -989,13 +989,13 @@ note_remote "clearing production Redis; local queue state is never imported"
   REDISCLI_AUTH="$(cat /run/secrets/redis_password)"
   export REDISCLI_AUTH
   exec redis-cli --no-auth-warning FLUSHALL SYNC
-' >/dev/null
+' </dev/null >/dev/null
 
 note_remote "running the exact deployed migration image"
-"${compose[@]}" run --rm --no-deps migrate
+"${compose[@]}" run --rm --no-deps migrate </dev/null
 
 applied=$("${compose[@]}" exec -T postgres sh -eu -c \
-  'exec psql -X --no-align --tuples-only --quiet --set=ON_ERROR_STOP=1 --username="$POSTGRES_USER" --dbname="$POSTGRES_DB" --command="SELECT count(*) FROM drizzle.__drizzle_migrations;"')
+  'exec psql -X --no-align --tuples-only --quiet --set=ON_ERROR_STOP=1 --username="$POSTGRES_USER" --dbname="$POSTGRES_DB" --command="SELECT count(*) FROM drizzle.__drizzle_migrations;"' </dev/null)
 applied=${applied//[[:space:]]/}
 [[ $applied == "$expected_migration_count" ]] || {
   echo "production-data: restored PostgreSQL migration count is wrong" >&2
@@ -1055,7 +1055,7 @@ SQL
       : [],
   }));
   print(EJSON.stringify(canonical(inventory), { relaxed: false }));
-' >"$stage/remote-mongo.inventory"
+' </dev/null >"$stage/remote-mongo.inventory"
 
 cmp -s "$stage/postgres.inventory" "$stage/remote-postgres.inventory" || {
   echo "production-data: PostgreSQL table counts or indexes differ after restore" >&2
