@@ -1730,6 +1730,24 @@ describe("campaign picker", () => {
     expect(page).not.toContain("recentCampaigns");
     expect(page).not.toContain("localStorage");
   });
+
+  it("keeps campaign cards inside a narrow viewport", () => {
+    const page = readFileSync(
+      fileURLToPath(
+        new URL("../src/routes/FeedbackCampaignsPage.tsx", import.meta.url),
+      ),
+      "utf8",
+    );
+
+    // Without an explicit zero-minimum base track, CSS Grid sizes its implicit
+    // column from the no-wrap title plus status badge and widens the document.
+    expect(page).toContain(
+      'className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3"',
+    );
+    expect(page).toContain(
+      'className="block min-w-0 flex-1 truncate text-sm font-bold text-ink"',
+    );
+  });
 });
 
 /* -------------------------------------------------------------------------- */

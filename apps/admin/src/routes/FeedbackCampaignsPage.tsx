@@ -93,7 +93,7 @@ export function FeedbackCampaignsPage() {
             No campaigns yet. Launch one from a finished event below.
           </p>
         ) : (
-          <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+          <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
             {campaigns.map((entry) => {
               const status = campaignStatusBadge(entry.status);
               return (
@@ -102,8 +102,8 @@ export function FeedbackCampaignsPage() {
                     to={`/admin/feedback/${entry.id}`}
                     className="block rounded-md border border-border bg-surface px-4 py-3 no-underline transition-colors hover:border-primary-border"
                   >
-                    <span className="flex items-start justify-between gap-2">
-                      <span className="block min-w-0 truncate text-sm font-bold text-ink">
+                    <span className="flex min-w-0 items-start justify-between gap-2">
+                      <span className="block min-w-0 flex-1 truncate text-sm font-bold text-ink">
                         {entry.eventTitle ?? "Untitled event"}
                       </span>
                       <FeedbackBadges badges={[status]} />
