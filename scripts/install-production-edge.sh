@@ -2,11 +2,14 @@
 set -Eeuo pipefail
 
 repository_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-source_file="$repository_root/deploy/nginx/example.com.conf"
-site_available=/etc/nginx/sites-available/example.com
-site_enabled=/etc/nginx/sites-enabled/example.com
+source "$repository_root/scripts/production-common.sh"
+source_file="$repository_root/deploy/nginx/slopform.example.com.conf"
+site_available=/etc/nginx/sites-available/slopform.example.com
+site_enabled=/etc/nginx/sites-enabled/slopform.example.com
 backup_directory=/var/backups/join-the-six/nginx
-deployment_lock=${DEPLOY_LOCK_FILE:-/var/lock/join-the-six-production.lock}
+deployment_lock=/var/lock/join-the-six-production.lock
+production_root=${PRODUCTION_ROOT:-/opt/slopform}
+state_file="$production_root/shared/release-state.env"
 
 for required_command in curl flock install nginx readlink systemctl; do
   if ! command -v "$required_command" >/dev/null 2>&1; then
@@ -26,28 +29,88 @@ if [[ ! -f $source_file ]]; then
 fi
 
 for certificate_file in \
-  /etc/letsencrypt/live/example.com/fullchain.pem \
-  /etc/letsencrypt/live/example.com/privkey.pem; do
+  /etc/letsencrypt/live/slopform.example.com/fullchain.pem \
+  /etc/letsencrypt/live/slopform.example.com/privkey.pem; do
   if [[ ! -r $certificate_file ]]; then
     echo "TLS certificate file is missing: $certificate_file" >&2
     exit 1
   fi
 done
 
-curl --fail --show-error --silent http://127.0.0.1:5201/api/v1/health/ready >/dev/null
-curl --fail --show-error --silent http://127.0.0.1:5200/deploy.json >/dev/null
-
 install -d -m 0755 /etc/nginx/sites-available /etc/nginx/sites-enabled
 install -d -m 0700 "$backup_directory" "$(dirname -- "$deployment_lock")"
-exec 9>"$deployment_lock"
+if [[ -n ${DEPLOY_LOCK_FD:-} ]]; then
+  if [[ ! $DEPLOY_LOCK_FD =~ ^[0-9]+$ || ! -e /proc/$$/fd/$DEPLOY_LOCK_FD ]]; then
+    echo "DEPLOY_LOCK_FD does not name an inherited open descriptor" >&2
+    exit 1
+  fi
+else
+  exec 9>"$deployment_lock"
 
-if ! flock --nonblock 9; then
-  echo "Another Join The Six production operation holds $deployment_lock" >&2
-  exit 1
+  if ! flock --nonblock 9; then
+    echo "Another Join The Six production operation holds $deployment_lock" >&2
+    exit 1
+  fi
+
+  export DEPLOY_LOCK_FD=9
 fi
 
+production_validate_root "$production_root"
+[[ -f $state_file && ! -L $state_file ]] || {
+  echo "Production release state is missing or unsafe: $state_file" >&2
+  exit 1
+}
+production_load_state "$state_file"
+production_export_state
+
+verify_endpoint() {
+  local url=$1
+  local resolve=${2:-}
+  local attempt
+  local -a curl_arguments=(--fail --show-error --silent --connect-timeout 3 --max-time 10)
+
+  if [[ -n $resolve ]]; then
+    curl_arguments+=(--resolve "$resolve")
+  fi
+  for ((attempt = 1; attempt <= 10; attempt += 1)); do
+    if curl "${curl_arguments[@]}" "$url" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+  echo "Endpoint did not become ready: $url" >&2
+  return 1
+}
+
+verify_web_release() {
+  local url=$1
+  local resolve=${2:-}
+  local expected_payload="{\"release\":\"$WEB_RELEASE_TAG\"}"
+  local actual_payload
+  local attempt
+  local -a curl_arguments=(--fail --show-error --silent --connect-timeout 3 --max-time 10)
+
+  if [[ -n $resolve ]]; then
+    curl_arguments+=(--resolve "$resolve")
+  fi
+  for ((attempt = 1; attempt <= 10; attempt += 1)); do
+    actual_payload=$(curl "${curl_arguments[@]}" "$url" 2>/dev/null || true)
+    if [[ $actual_payload == "$expected_payload" ]]; then
+      return 0
+    fi
+    sleep 1
+  done
+  echo "Web endpoint did not serve expected release $WEB_RELEASE_TAG: $url" >&2
+  return 1
+}
+
+verify_endpoint http://127.0.0.1:5201/api/v1/health/ready
+verify_web_release http://127.0.0.1:5200/deploy.json
+
+production_validate_nginx_site_paths "$site_available" "$site_enabled"
+
 timestamp=$(date -u +%Y%m%dT%H%M%SZ)
-backup_file="$backup_directory/example.com.$timestamp.conf"
+backup_file="$backup_directory/slopform.example.com.$timestamp.conf"
 previous_link=$(readlink "$site_enabled" 2>/dev/null || true)
 had_site=false
 confirmed=false
@@ -62,7 +125,7 @@ rollback_edge() {
     return
   fi
 
-  echo "Restoring the previous example.com nginx site" >&2
+  echo "Restoring the previous slopform.example.com nginx site" >&2
   if [[ $had_site == true ]]; then
     install -m 0644 "$backup_file" "$site_available"
   else
@@ -82,7 +145,7 @@ rollback_edge() {
 
 trap rollback_edge EXIT
 
-temporary_site=$(mktemp /etc/nginx/sites-available/.example.com.XXXXXX)
+temporary_site=$(mktemp /etc/nginx/sites-available/.slopform.example.com.XXXXXX)
 trap 'rm -f -- "$temporary_site"; rollback_edge' EXIT
 install -m 0644 "$source_file" "$temporary_site"
 mv -f -- "$temporary_site" "$site_available"
@@ -91,13 +154,13 @@ ln -sfn -- "$site_available" "$site_enabled"
 nginx -t
 systemctl reload nginx
 
-curl --fail --show-error --silent \
-  --resolve example.com:443:127.0.0.1 \
-  https://example.com/api/v1/health/ready >/dev/null
-curl --fail --show-error --silent \
-  --resolve example.com:443:127.0.0.1 \
-  https://example.com/deploy.json >/dev/null
+verify_endpoint \
+  https://slopform.example.com/api/v1/health/ready \
+  slopform.example.com:443:127.0.0.1
+verify_web_release \
+  https://slopform.example.com/deploy.json \
+  slopform.example.com:443:127.0.0.1
 
 confirmed=true
 trap - EXIT
-echo "Installed and verified the example.com production edge"
+echo "Installed and verified the slopform.example.com production edge"

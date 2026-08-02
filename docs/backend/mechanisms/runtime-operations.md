@@ -14,7 +14,7 @@ their owning boundaries.
 
 ```mermaid
 flowchart LR
-  Client["Client"] --> Edge["TLS edge / Caddy"]
+  Client["Client"] --> Edge["Native nginx TLS edge"]
   Edge --> Server["Bounded Node server"]
   Server --> Auth["Clerk request verification"]
   Auth --> Middleware["Helmet, CORS, parsers, request log"]

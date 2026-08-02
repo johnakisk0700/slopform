@@ -11,7 +11,8 @@ The root `Dockerfile` produces five targets:
 - `migrate`: minimal, one-shot Drizzle migration runner.
 
 PostgreSQL, MongoDB and Redis use pinned official images. Native nginx is the
-shared VPS edge: it already owns ports 80/443 and the `example.com` certificate,
+shared VPS edge: it already owns ports 80/443; the admin has its own
+`slopform.example.com` certificate and vhost,
 routes `/api/*` unchanged to the API's loopback port `5201`, and sends everything
 else to the web container's loopback port `5200`. Docker never publishes a data
 store or application port on a public interface.
@@ -39,8 +40,36 @@ read-only, application and migration images run as the unprivileged `node` user
 with Linux capabilities dropped, Docker's init forwards signals and reaps child
 processes, and writable scratch space is an in-memory `/tmp`. Native nginx is
 managed outside Compose because it also serves the other applications on this
-VPS; [`deploy/nginx/example.com.conf`](../deploy/nginx/example.com.conf) is this
+VPS; [`deploy/nginx/slopform.example.com.conf`](../deploy/nginx/slopform.example.com.conf) is this
 repository's complete host-edge contract.
+
+## Domain and Clerk edge
+
+The following Papaki zone records were installed and verified on 2026-08-02.
+Values are public DNS configuration; none is an application secret.
+
+| Name              | Type  | Value                                |
+| ----------------- | ----- | ------------------------------------ |
+| `jointhesix`      | A     | `203.0.113.10`                      |
+| `clerk`           | CNAME | `frontend-api.clerk.services.`       |
+| `accounts`        | CNAME | `accounts.clerk.services.`           |
+| `clkmail`         | CNAME | `mail.ols43sxiepbv.clerk.services.`  |
+| `clk._domainkey`  | CNAME | `dkim1.ols43sxiepbv.clerk.services.` |
+| `clk2._domainkey` | CNAME | `dkim2.ols43sxiepbv.clerk.services.` |
+
+`slopform.example.com` has its own Let's Encrypt certificate at
+`/etc/letsencrypt/live/slopform.example.com/`, obtained through the persistent
+`/var/www/certbot` webroot and covered by the existing Certbot renewal timer.
+The apex `example.com` and `www.example.com` vhost remains a separate VPS concern and
+must not be overwritten by this deployment.
+
+The Clerk application is named **Join The Six**. Its production instance has a
+verified primary `example.com` Clerk domain, allows only
+`slopform.example.com` as an application subdomain, runs in **Restricted** mode,
+and initially uses verified email codes. Google sign-in is disabled until real
+production OAuth credentials exist, and users cannot change their primary email
+address. Invitation delivery and the resulting three stable backend `user_*`
+allowlist entries are operational launch steps, not values committed here.
 
 ## Development
 
@@ -107,7 +136,8 @@ dependency volumes; use it only for an intentional reset.
 
 ## Production configuration
 
-On the VPS:
+Prepare the ignored production configuration locally from the committed
+template:
 
 ```bash
 cp .env.production.example .env.production
@@ -123,7 +153,29 @@ touch secrets/openai_api_key secrets/openrouter_api_key
 touch secrets/wasender_session_api_key secrets/wasender_webhook_secret
 ```
 
-Set `DOMAIN=example.com`, `WEB_ORIGIN=https://example.com`, database names and enabled
+Fill the Clerk and selected AI-provider files, then provision the shared VPS
+configuration once, before the first full deploy. Copy only the named files;
+`secrets/*` is an excellent way to ship an old backup nobody remembered was
+there.
+
+```bash
+ssh -i "$HOME/.ssh/id_ed25519" -o IdentitiesOnly=yes \
+  root@203.0.113.10 \
+  'install -d -m 755 /opt/slopform/releases; install -d -m 700 /opt/slopform/shared /opt/slopform/shared/secrets'
+
+scp -i "$HOME/.ssh/id_ed25519" .env.production \
+  root@203.0.113.10:/opt/slopform/shared/.env.production
+scp -i "$HOME/.ssh/id_ed25519" \
+  secrets/{postgres_password,mongodb_root_password,mongodb_app_password,redis_password,bull_board_password,clerk_secret_key,openai_api_key,openrouter_api_key,wasender_session_api_key,wasender_webhook_secret} \
+  root@203.0.113.10:/opt/slopform/shared/secrets/
+
+ssh -i "$HOME/.ssh/id_ed25519" -o IdentitiesOnly=yes \
+  root@203.0.113.10 \
+  'chmod 600 /opt/slopform/shared/.env.production /opt/slopform/shared/secrets/*'
+```
+
+Set `DOMAIN=slopform.example.com`,
+`WEB_ORIGIN=https://slopform.example.com`, database names and enabled
 integrations. Model, reasoning and rehearsal variables are forwarded unchanged
 to both backend processes; the worker must not inherit a provider-default effort
 after the operator selected another one in the environment file. Keep
@@ -165,7 +217,7 @@ Embed API. With no Google key, saved venues and their normal Maps deep-links
 keep working while live search, photos and attributed details remain disabled. The Clerk value
 must match the API's `CLERK_PUBLISHABLE_KEY`. `CLERK_ADMIN_USER_IDS` remains API
 runtime configuration so grants and revocations do not require rebuilding the
-SPA. Production uses a dedicated Clerk application in Restricted mode, with
+SPA. Production uses the dedicated Join The Six Clerk instance in Restricted mode, with
 exactly three shareholder invitations and exactly their resulting stable
 `user_*` subjects in the backend allowlist. Sharing the `notes_ai` tenant is not
 a production shortcut; it would share users and social-login policy.
@@ -218,103 +270,166 @@ also owns a MongoDB pool capped at ten connections.
 
 ## Build and deploy
 
-The supported VPS deploy command validates a clean checkout, derives the exact
-Git SHA as `RELEASE_TAG`, takes a host-level non-blocking deployment lock,
-validates Compose, builds all four application images, and only then activates
-them:
+The only public operator interface is the root `prod` script:
 
 ```bash
-./scripts/deploy-production.sh
+pnpm prod deploy              # full: migrate + API + worker + web + nginx edge
+pnpm prod deploy admin        # build and replace only the SPA
+pnpm prod deploy backend      # migrate, then replace only API + worker
+pnpm prod status
+pnpm prod logs worker
+pnpm prod logs nginx
 ```
 
-Pass a different environment-file path as the sole argument when required. The
-script deliberately refuses a dirty worktree; building an allegedly immutable
-SHA from miscellaneous server edits is just mutable deployment wearing a fake
-mustache. It uses `flock`, so overlapping deploys and rollbacks fail before a
-second migrator can start. Keep manual production commands under the same
-`DEPLOY_LOCK_FILE` when debugging.
+`deploy` defaults to `all`, and the first deployment must be `all`. It refuses
+anything except a clean, committed local `HEAD`, archives that exact Git tree
+over SSH, and never needs repository credentials on the VPS. The remote layout
+is:
 
-For inspection, the equivalent read-only validation and final status commands
-are:
+```text
+/opt/slopform/
+├── current -> releases/<UTC timestamp>-<full Git SHA>
+├── releases/                 # five retained immutable source releases
+└── shared/
+    ├── .env.production
+    ├── secrets/
+    └── release-state.env     # four exact component image SHAs
+```
+
+The state file records `MIGRATE_RELEASE_TAG`, `API_RELEASE_TAG`,
+`WORKER_RELEASE_TAG` and `WEB_RELEASE_TAG` independently. That is what makes an
+admin-only deploy honest: it changes the web SHA without pretending the running
+backend came from the same commit. Every image also carries the matching
+`org.opencontainers.image.revision` OCI label. A tag without that label is not a
+release.
+
+An existing SHA-tagged image is reused, never overwritten. The web image also
+records a SHA-256 label for its Clerk, Maps and API-base public build inputs. A
+same-commit retry with the same inputs is safe; changing those inputs for an
+existing SHA fails and requires a new Git commit so rollback identity remains
+honest.
+
+The client and every server-side deploy, rollback, edge update and data import
+share `/var/lock/join-the-six-production.lock`. A concurrent operation fails
+before it can start a second migrator or replace data. The SSH defaults are
+`root@203.0.113.10`, `~/.ssh/id_ed25519`, `IdentitiesOnly=yes`, batch mode and a
+bounded connection timeout; override only the documented `PRODUCTION_*`
+variables shown by `pnpm prod help`.
+
+A requested scope is fully built before any running application container is
+replaced. Backend activation starts or verifies PostgreSQL, MongoDB and Redis,
+runs exactly one foreground migration container, waits for API readiness, then
+starts the worker. Web activation waits for the loopback API before replacing
+the SPA. A full deploy installs and validates the dedicated
+`slopform.example.com` native nginx vhost; partial deploys leave the shared edge
+alone. A partial deploy also requires its `compose.prod.yaml` to be
+byte-identical to the active contract; any Compose change requires `deploy
+all`. Every successful path finishes with public HTTPS API and SPA smoke tests.
+The SPA smoke compares `/deploy.json` with the exact active `WEB_RELEASE_TAG`;
+a merely successful response from a stale container does not pass.
+
+Do not replace this with a blanket `docker compose up`. That loses the scoped
+state and may recreate processes before the migration gate succeeds. Builds and
+migrations leave the old application running when they fail. Activation itself
+is phased rather than magically atomic: if a later readiness gate fails,
+`release-state.env` records the intended component set but the running stack may
+be mixed. Treat that as an incident, inspect `pnpm prod status` and logs, then
+rerun or use the supported rollback.
+
+Migration timeouts retain the ordering `lock < statement < execution`. Database
+changes remain forward-only, so use expand-and-contract migrations and never
+edit migration history on the server. Compose health gates startup, while Docker
+restart policies react to exits rather than a container merely becoming
+unhealthy; an external HTTPS uptime check is still required for unattended
+operation.
+
+## Release and rollback
+
+Rollback is scoped and never recompiles:
 
 ```bash
-export RELEASE_TAG=$(git rev-parse --verify HEAD)
-docker compose --env-file .env.production -f compose.prod.yaml config --quiet
-docker compose --env-file .env.production -f compose.prod.yaml ps
+pnpm prod rollback all <full-40-character-git-sha>
+pnpm prod rollback admin <full-40-character-git-sha>
+pnpm prod rollback backend <full-40-character-git-sha>
 ```
 
-Then verify the public TLS path from outside the VPS (replace the hostname):
+The target SHA must still have a real retained immutable release directory and
+every requested image must exist with its matching OCI revision label. A stray
+or retagged Docker image is not accepted as provenance. The retained target's
+`compose.prod.yaml` must be byte-identical to the active release's runtime
+contract; rollback fails closed across a Compose-contract change. Partial
+rollback keeps that current four-tag contract and changes only the requested
+component tags. Backend and full rollback rerun the target migration image, but
+never reverse an already-applied database migration. Prefer a forward fix
+whenever the previous binary's compatibility with the migrated schema is
+uncertain.
+
+Release pruning protects the current source release and the newest retained
+source release for every active component SHA, then keeps the newest releases
+up to a total of five. It does not run a host-wide Docker prune; this VPS serves
+other applications, and indiscriminate cleanup would be arson with a progress
+bar.
+
+## Repeatable pre-launch data promotion
+
+The initial data workflow is deliberately generic. It replaces the application
+state from the current local PostgreSQL and MongoDB databases; it knows nothing
+about WordPress imports, burst fixtures or the name of a test dataset. Use it
+for each of the final two or three data rounds:
 
 ```bash
-curl --fail --show-error --silent https://app.example.com/api/v1/health/ready
-curl --fail --show-error --silent --output /dev/null https://app.example.com/
+pnpm prod data status
+
+# Stop every local API/worker or other writer first.
+CONFIRM_PRODUCTION_DATA_PUSH=slopform.example.com \
+  CONFIRM_LOCAL_DATA_QUIESCED=I_HAVE_STOPPED_ALL_JOIN_THE_SIX_LOCAL_WRITERS \
+  pnpm prod data push
+
+# Only after the accepted final dataset is in production:
+CONFIRM_SEAL_DATA_IMPORT_WINDOW=slopform.example.com \
+  pnpm prod data seal
 ```
 
-The migration image runs after PostgreSQL, MongoDB and Redis are healthy. API
-and worker creation is gated on its successful exit; web and Caddy are gated on
-dependency-aware readiness checks.
-A failed build leaves the current stack alone. The deployment scripts start or
-verify the data services, run migration as a separate foreground container, and
-only replace API/worker/web/edge containers after it succeeds. A failed
-migration therefore leaves the current application containers running. Do not
-replace that phased activation with a blanket `docker compose up`: Compose may
-recreate dependent containers before a `service_completed_successfully` gate
-has passed. Never repair a failure by editing migration history on the server.
-After application activation begins, however, replacement is phased rather than
-atomic. A later readiness failure can leave a mixture of old and new process
-versions. Treat that as an incident: inspect `docker compose ps` and run the
-supported rollback command instead of assuming the script restored every unit.
+`push` requires the explicit local-writer attestation above and a clean local
+`HEAD` whose exact SHA is both the current source release and active for all
+three backend component tags (`migrate`, `api`, `worker`), and whose committed
+migration journal matches the local and remote database. The web tag may differ
+after a backend-only deploy. After an admin-only deploy, run `deploy backend` or
+`deploy all` from that same commit before a data operation. The local PostgreSQL
+and MongoDB containers must be healthy, and the script refuses visible
+API/worker containers, an API listener or other PostgreSQL clients even when the
+attestation is present. It is proof of an operator action, not a convenient
+`--force` flag. Writer checks run both before and after the dumps.
 
-The supported deployment path runs exactly one `migrate` service. Do not scale
-it and do not launch overlapping deployments: Drizzle's PostgreSQL migrator
-does not provide a distributed deployment lock. The runner bounds connection,
-lock and per-statement waits and has a hard whole-process execution deadline;
-`MIGRATION_LOCK_TIMEOUT_MS` must be lower than
-`MIGRATION_STATEMENT_TIMEOUT_MS`, which must be lower than
-`MIGRATION_EXECUTION_TIMEOUT_MS`. PostgreSQL rolls back the active migration
-transaction when a timeout disconnects the runner. Increase a bound only after
-reviewing the migration and observed production duration.
+The transfer consists of a PostgreSQL custom-format logical dump, a gzip MongoDB
+archive, SHA-256 manifests and source inventories of table/collection counts and
+indexes. Raw Docker volumes are never copied between Docker Desktop and Linux.
+Local Redis is never transferred. On the VPS the workflow:
 
-Compose health checks gate startup, but Docker restart policies react to exits,
-not merely an `unhealthy` status. Add an external HTTPS uptime check and an
-alerted restart/diagnosis runbook before treating this as unattended production.
-The worker has no HTTP surface; monitor its restarts and BullMQ failed/delayed
-counts rather than inventing a health check that only proves Node can execute.
+1. verifies the active release state, images, migrations, services, seal marker
+   and uploaded checksums;
+2. stops API and worker, then writes a fresh paired pre-import PostgreSQL/MongoDB
+   logical backup under `/var/backups/join-the-six`;
+3. restores only the PostgreSQL application schemas and replaces MongoDB
+   application collections while preserving its `system.*` authentication
+   collections;
+4. clears production Redis, runs the exact active migration image, compares
+   counts and indexes with the source inventories, and restarts only writers
+   that were running before the import.
 
-The current VPS model builds from a reviewed, tagged checkout. The Dockerfile
-pins Node by multi-platform digest, Compose pins infrastructure by exact version
-and digest, pnpm is exact, and installs use the frozen lockfile. Review pinned
-image updates as dependency changes rather than silently floating major tags.
-After the frozen dependency install, compilation and production packaging run
-with build networking disabled so an accidental remote fetch fails instead of
-quietly making the artifact depend on the weather.
+Any import failure leaves API and worker stopped and retains the pre-import
+backup. There is intentionally no automatic data rollback after a partial
+restore; inspect and restore the matched durable-store pair deliberately. Each
+successful `push` replaces the previous dataset, so it can be repeated during
+the import window. `seal` creates a host marker and this CLI has no unseal
+command; do not run it until the last dataset and shareholder checks are
+accepted.
 
-## Release, rollback and backup
-
-Tag every production commit and record the deployed SHA. Each application image
-is tagged with that SHA instead of overwriting `latest`. While the prior images
-remain on the VPS, roll back without recompilation:
-
-```bash
-git switch --detach <previous-git-sha>
-./scripts/rollback-production.sh <previous-git-sha>
-```
-
-The rollback command requires a clean worktree at that exact commit so its
-Compose, Caddy and deployment contracts match the images. It validates that all
-four SHA-tagged images exist locally, takes the same repository-owned deployment
-lock, reruns the idempotent migration gate from that release and performs the
-same phased activation with `--no-build`. If an image has been removed, rebuild
-that exact reviewed commit explicitly with the same SHA; never substitute a
-floating tag. Database rollback still requires an explicitly reviewed
-forward-fix or rollback migration. Container rollback is easy. Data rollback is
-where optimism goes to die.
-
-The previous application must remain compatible with every schema migration
-already applied by the newer release. The rollback script cannot prove that
-contract and does not reverse migrations. Use expand-and-contract migrations,
-exercise the old application against the migrated schema before release, and
-prefer a forward fix when compatibility is uncertain.
+The snapshot preserves ownership values exactly. Existing local Assistant
+threads owned by a development Clerk subject such as `user_localdev` remain
+invisible to the three production shareholders. Do not silently rewrite audit
+actors inside the generic transport; if those threads must become visible,
+handle that as a reviewed, explicit ownership migration.
 
 Docker volumes are persistence, not backup. Losing MongoDB loses authoritative
 conversation history even when the PostgreSQL execution projection survives.
@@ -329,25 +444,33 @@ backup id:
 
 ```bash
 set -Eeuo pipefail
-export RELEASE_TAG=$(git rev-parse HEAD)
-compose=(docker compose --env-file .env.production -f compose.prod.yaml)
+umask 077
+current=/opt/slopform/current
+state=/opt/slopform/shared/release-state.env
+source "$current/scripts/production-common.sh"
+production_load_state "$state"
+production_export_state
+production_acquire_lock
+production_compose_init "$current" "$current/.env.production"
+compose=("${production_compose[@]}")
 backup_id=$(date -u +%Y%m%dT%H%M%SZ)
 : "${BACKUP_AGE_RECIPIENT:?Set the public age recipient}"
-install -d -m 700 backups
+backup_directory="/var/backups/join-the-six/scheduled/$backup_id"
+install -d -m 700 "$backup_directory"
 
 "${compose[@]}" stop api
 "${compose[@]}" stop worker
 
 "${compose[@]}" exec -T postgres sh -ec \
-  'PGPASSWORD="$(cat /run/secrets/postgres_password)" exec pg_dump --host 127.0.0.1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --format=custom' |
-  age --recipient "$BACKUP_AGE_RECIPIENT" --output "backups/${backup_id}.postgres.dump.age"
+  'PGPASSWORD="$(cat /run/secrets/postgres_password)" exec pg_dump --host 127.0.0.1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --format=custom --no-owner --no-acl --schema=public --schema=drizzle' |
+  age --recipient "$BACKUP_AGE_RECIPIENT" --output "$backup_directory/postgres.dump.age"
 
 "${compose[@]}" exec -T mongo sh -ec \
-  'exec mongodump --host 127.0.0.1 --username "$MONGODB_APP_USER" --password "$(cat /run/secrets/mongodb_app_password)" --authenticationDatabase "$MONGO_INITDB_DATABASE" --db "$MONGO_INITDB_DATABASE" --archive --gzip' |
-  age --recipient "$BACKUP_AGE_RECIPIENT" --output "backups/${backup_id}.mongo.archive.gz.age"
+  'exec mongodump --host 127.0.0.1 --username "$MONGODB_APP_USER" --password "$(cat /run/secrets/mongodb_app_password)" --authenticationDatabase "$MONGO_INITDB_DATABASE" --db "$MONGO_INITDB_DATABASE" --excludeCollectionsWithPrefix system. --archive --gzip' |
+  age --recipient "$BACKUP_AGE_RECIPIENT" --output "$backup_directory/mongo.archive.gz.age"
 
-sha256sum "backups/${backup_id}."*.age > "backups/${backup_id}.sha256"
-"${compose[@]}" up -d --no-build --wait api worker
+sha256sum "$backup_directory/"*.age > "$backup_directory/sha256.manifest"
+"${compose[@]}" up -d --no-build --no-deps --wait api worker
 ```
 
 The example assumes `age` is installed and uses only its public recipient on the
@@ -383,7 +506,7 @@ docker compose --project-name join-the-six-restore \
 ```
 
 Use a restore-only password in `.env.restore`. Validate the encrypted checksums
-before decrypting, Mongo's full collection validation, the three required
+before decrypting, Mongo's full collection validation, the four required
 indexes, document counts, PostgreSQL migration state and representative
 owner-scoped API reads. Record elapsed time against the RTO, then destroy the
 disposable project and its volumes.
@@ -415,13 +538,14 @@ self-hosted runner must never execute untrusted pull-request jobs.
 
 ## Pinned toolchain and references
 
-Verified 2026-07-25 with Docker Engine 29.4.1 and Docker Compose 5.1.3:
+Verified 2026-08-02 with Docker Engine 29.4.1 and Docker Compose 5.1.3:
 
 - Node `24.11.0-bookworm-slim`, pnpm `10.33.0`;
 - PostgreSQL `18.4-alpine3.24`;
 - MongoDB `8.0.28-noble`;
 - Redis `8.8.0-alpine3.23`;
-- Caddy `2.11.4-alpine`.
+- Caddy `2.11.4-alpine` as the internal static-file server;
+- host nginx `1.24.0` and Certbot `2.9.0` as the shared TLS edge.
 
 The repository contract currently pins pnpm 10.33.0. Its official 10.x
 documentation is now marked as no longer actively maintained; upgrade to pnpm

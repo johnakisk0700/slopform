@@ -1,7 +1,7 @@
 # Admin authentication and authorization
 
-Status: implemented Clerk vertical slice; production admission is restricted to
-three invited shareholder identities. Verified 2026-08-02 with `@clerk/react` 6.12.6 and
+Status: implemented Clerk vertical slice; the production admission contract is
+restricted to three shareholder identities. Verified 2026-08-02 with `@clerk/react` 6.12.6 and
 `@clerk/express` 2.1.44.
 
 Local development currently uses an explicit authentication bypass while the
@@ -98,7 +98,9 @@ radius but would not create a separate identity tenant.
 The approved admission model is deliberately small:
 
 1. Set the dedicated production instance to **Restricted** sign-up mode.
-2. Enable Google with production OAuth credentials.
+2. Initially use verified email one-time codes. Keep Google sign-in disabled
+   until its own production OAuth credentials and redirect URI are configured;
+   a provider marked "setup required" is not a login strategy.
 3. Invite exactly the three shareholder email addresses held in the private
    operator record. Do not commit that personal-data list to this repository.
 4. Disable self-service primary email changes.
@@ -115,10 +117,11 @@ Revocation happens in this order: remove the subject from
 sessions. This keeps revocation effective even while Clerk session cleanup is
 still propagating.
 
-Failure cases to test when Google is enabled: uninvited identity, secondary or
-changed email, pending invitation, revoked operator with an active browser
-session, wrong active Organization, expired/rotated keys, Clerk outage, and a
-token issued for an unauthorized origin.
+Failure cases to test include an uninvited identity, secondary or changed email,
+pending invitation, revoked operator with an active browser session,
+expired/rotated keys, Clerk outage, and a token issued for an unauthorized
+origin. If Google is enabled later, add its account-selection and redirect
+failure cases then.
 
 ## Operations and tests
 

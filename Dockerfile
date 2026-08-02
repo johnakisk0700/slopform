@@ -69,11 +69,13 @@ ENTRYPOINT ["run-with-secrets"]
 # for client-side routes (see docker/web.Caddyfile).
 FROM caddy:2.11.4-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648 AS web
 ARG RELEASE_TAG=unknown
+ARG WEB_PUBLIC_CONFIG_SHA256=unconfigured
 COPY --from=build /workspace/apps/admin/dist /srv
 COPY docker/web.Caddyfile /etc/caddy/Caddyfile
-RUN case "$RELEASE_TAG" in *[!A-Za-z0-9_.-]* | "") exit 1 ;; esac && \
+RUN case "$RELEASE_TAG" in ""|*[!A-Za-z0-9_.-]*) exit 1 ;; esac && \
   printf '{"release":"%s"}\n' "$RELEASE_TAG" > /srv/deploy.json
 LABEL org.opencontainers.image.revision=$RELEASE_TAG
+LABEL org.join-the-six.web-public-config-sha256=$WEB_PUBLIC_CONFIG_SHA256
 EXPOSE 3000
 
 FROM secret-runtime AS backend-runtime

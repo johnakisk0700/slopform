@@ -14,6 +14,10 @@ variable "VITE_GOOGLE_MAPS_API_KEY" {
   default = ""
 }
 
+variable "WEB_PUBLIC_CONFIG_SHA256" {
+  default = "unconfigured"
+}
+
 target "container" {
   context    = "."
   dockerfile = "Dockerfile"
@@ -25,6 +29,7 @@ target "web" {
   tags     = ["join-the-six-web:${RELEASE_TAG}"]
   args = {
     RELEASE_TAG               = "${RELEASE_TAG}"
+    WEB_PUBLIC_CONFIG_SHA256  = "${WEB_PUBLIC_CONFIG_SHA256}"
     VITE_API_BASE              = "/api"
     VITE_CLERK_PUBLISHABLE_KEY = "${VITE_CLERK_PUBLISHABLE_KEY}"
     VITE_GOOGLE_MAPS_API_KEY   = "${VITE_GOOGLE_MAPS_API_KEY}"

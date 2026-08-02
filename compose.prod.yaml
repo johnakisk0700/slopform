@@ -245,6 +245,7 @@ services:
       target: web
       args:
         RELEASE_TAG: ${WEB_RELEASE_TAG:?Set WEB_RELEASE_TAG to the deployed Git SHA}
+        WEB_PUBLIC_CONFIG_SHA256: ${WEB_PUBLIC_CONFIG_SHA256:-unconfigured}
         VITE_API_BASE: /api
         VITE_CLERK_PUBLISHABLE_KEY: ${VITE_CLERK_PUBLISHABLE_KEY:?Set VITE_CLERK_PUBLISHABLE_KEY in .env.production}
         VITE_GOOGLE_MAPS_API_KEY: ${VITE_GOOGLE_MAPS_API_KEY:-}
@@ -255,7 +256,8 @@ services:
     tmpfs:
       - /tmp
     environment:
-      # Caddy keeps its state on the in-memory /tmp so the root stays read-only.
+      # The container-internal static Caddy keeps its state on the in-memory
+      # /tmp. Native nginx remains the host TLS edge.
       XDG_CONFIG_HOME: /tmp
       XDG_DATA_HOME: /tmp
     depends_on:
