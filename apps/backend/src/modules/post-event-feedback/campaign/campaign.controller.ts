@@ -36,7 +36,10 @@ import {
   FeedbackCampaignParticipantNotEligibleError,
   PostEventFeedbackCampaignService,
 } from "./campaign.service.js";
-import { PostEventFeedbackCampaignSummaryService } from "../summary/summary.service.js";
+import {
+  FeedbackSummaryDisabledInSimulatorError,
+  PostEventFeedbackCampaignSummaryService,
+} from "../summary/summary.service.js";
 
 type RequestWithId = Request & { id: string };
 const RequestCorrelationId = createParamDecorator(
@@ -209,7 +212,8 @@ async function mapCampaignErrors<T>(operation: Promise<T>): Promise<T> {
     if (
       error instanceof FeedbackCampaignLaunchNotAllowedError ||
       error instanceof FeedbackCampaignMutationNotAllowedError ||
-      error instanceof FeedbackCampaignParticipantNotEligibleError
+      error instanceof FeedbackCampaignParticipantNotEligibleError ||
+      error instanceof FeedbackSummaryDisabledInSimulatorError
     ) {
       throw new BadRequestException(error.message, { cause: error });
     }

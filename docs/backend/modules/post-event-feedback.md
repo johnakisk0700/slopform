@@ -2045,7 +2045,28 @@ baseline, and it never cleans up after itself. `pnpm feedback:burst:reset --yes`
 that step. It prints its plan and does nothing without `--yes`, every statement
 is scoped to the reserved phone block, and it clears the Redis failed **and**
 completed sets — without that, the previous run's failures are reported as this
-one's. It deliberately keeps `participants`, `events` and `audit_events`.
+one's. Its plan and transaction cover every `ON DELETE RESTRICT` campaign child:
+answers, answer-withdrawal tombstones, notes, campaign summaries, outbox rows and
+their decision logs. A source-reading script test compares that list with the
+schema so a new child table cannot quietly make cleanup fail. It deliberately
+keeps `participants`, `events` and `audit_events`. Mongo cleanup uses the same
+reserved phone range rather than campaign ids, so retrying after a PostgreSQL →
+Mongo partial failure still finds the orphaned threads. Before any write, reset
+also refuses queued, active or one-shot delayed feedback jobs; only the known
+delayed repeat schedulers may remain while API and workers are stopped. The
+simulator gate suppresses automatic and manual campaign summaries, and turns a
+stale summary job into a terminal `disabled_in_simulator` row without touching
+the provider. A deterministic run is therefore provider-free, while the named
+Luna treatment cannot be silently contaminated by a Terra summary call that its
+report does not count.
+
+For a literal clean local feedback UI,
+`pnpm feedback:burst:reset --all-feedback` previews the broader local-only scope
+and adding `--yes` removes every post-event campaign, result, outbox/ingress row
+and Mongo document whose purpose is `post_event_feedback`. It still preserves
+events, venues, participants, assistant conversations and the append-only audit
+ledger. Both modes reject `NODE_ENV=production`; production cleanup requires
+its own locked, backed-up operator path.
 
 **3. Start the stack, and count the workers.** One `main-http.js` and several
 `main-worker.js`. Concurrency is the point of the exercise: a rehearsal with one

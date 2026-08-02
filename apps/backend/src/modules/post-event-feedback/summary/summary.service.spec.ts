@@ -20,7 +20,10 @@ import {
   FEEDBACK_JOB_NAMES,
 } from "../jobs.schemas.js";
 import { buildPostEventFeedbackQuestionLaunchSnapshot } from "../question-set.js";
-import { PostEventFeedbackCampaignSummaryService } from "./summary.service.js";
+import {
+  FeedbackSummaryDisabledInSimulatorError,
+  PostEventFeedbackCampaignSummaryService,
+} from "./summary.service.js";
 
 vi.mock("ai", async (importOriginal) => {
   const original = await importOriginal<typeof import("ai")>();
@@ -143,6 +146,60 @@ describe("PostEventFeedbackCampaignSummaryService", () => {
     );
   });
 
+  it("suppresses automatic summaries while the simulator is enabled", async () => {
+    const { service, conversations, campaigns, queue } = createService({
+      simulatorEnabled: true,
+    });
+
+    await service.notifyIfLastConversationClosed(
+      campaignId,
+      correlationId,
+      true,
+    );
+
+    expect(conversations.countOpenForCampaign).not.toHaveBeenCalled();
+    expect(campaigns.findSummaryByCampaignId).not.toHaveBeenCalled();
+    expect(queue.add).not.toHaveBeenCalled();
+    expect(mockedGenerateText).not.toHaveBeenCalled();
+  });
+
+  it("rejects manual summary requests while the simulator is enabled", async () => {
+    const { service, campaigns, queue } = createService({
+      simulatorEnabled: true,
+    });
+
+    await expect(
+      service.request(campaignId, "manual", correlationId, "admin-1"),
+    ).rejects.toBeInstanceOf(FeedbackSummaryDisabledInSimulatorError);
+
+    expect(campaigns.upsertSummaryPending).not.toHaveBeenCalled();
+    expect(queue.add).not.toHaveBeenCalled();
+    expect(mockedGenerateText).not.toHaveBeenCalled();
+  });
+
+  it("terminally suppresses a stale summary job in simulator mode", async () => {
+    const { service, campaigns, results } = createService({
+      simulatorEnabled: true,
+    });
+    campaigns.findSummaryByCampaignId.mockResolvedValue(pendingSummaryRow());
+
+    await service.run(
+      { schemaVersion: 1, campaignId, correlationId },
+      createFeedbackSummarizeCampaignJobId(campaignId, 1),
+    );
+
+    expect(campaigns.markSummaryFailed).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        campaignId,
+        attempt: 1,
+        error: "disabled_in_simulator",
+      }),
+    );
+    expect(results.listAnswersByCampaign).not.toHaveBeenCalled();
+    expect(mockedGenerateText).not.toHaveBeenCalled();
+  });
+
   it.each([
     {
       version: 1 as const,
@@ -198,13 +255,14 @@ describe("PostEventFeedbackCampaignSummaryService", () => {
   );
 });
 
-function createService(): {
+function createService(options: { simulatorEnabled?: boolean } = {}): {
   service: PostEventFeedbackCampaignSummaryService;
   campaigns: {
     findCampaignById: ReturnType<typeof vi.fn>;
     findSummaryByCampaignId: ReturnType<typeof vi.fn>;
     upsertSummaryPending: ReturnType<typeof vi.fn>;
     markSummaryReady: ReturnType<typeof vi.fn>;
+    markSummaryFailed: ReturnType<typeof vi.fn>;
   };
   conversations: {
     countOpenForCampaign: ReturnType<typeof vi.fn>;
@@ -254,6 +312,9 @@ function createService(): {
     get: vi.fn((key: string) => {
       if (key === "OPENAI_API_KEY") {
         return "test-key";
+      }
+      if (key === "FEEDBACK_SIMULATOR_ENABLED") {
+        return options.simulatorEnabled ?? false;
       }
       return undefined;
     }),

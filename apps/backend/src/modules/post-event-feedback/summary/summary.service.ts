@@ -77,6 +77,15 @@ export class FeedbackSummaryGenerationError extends Error {
   }
 }
 
+export class FeedbackSummaryDisabledInSimulatorError extends Error {
+  constructor() {
+    super(
+      "Feedback campaign summaries are disabled while the simulator is enabled",
+    );
+    this.name = FeedbackSummaryDisabledInSimulatorError.name;
+  }
+}
+
 @Injectable()
 export class PostEventFeedbackCampaignSummaryService {
   private readonly logger = new Logger(
@@ -85,6 +94,7 @@ export class PostEventFeedbackCampaignSummaryService {
   private readonly openAiProvider: ReturnType<typeof createOpenAI> | undefined;
   private readonly model: AssistantModel;
   private readonly reasoningEffort: FeedbackSummaryReasoningEffort;
+  private readonly simulatorEnabled: boolean;
 
   constructor(
     private readonly config: ConfigService<Environment, true>,
@@ -107,6 +117,9 @@ export class PostEventFeedbackCampaignSummaryService {
     this.reasoningEffort = resolveFeedbackSummaryReasoningEffort(
       this.config.get("FEEDBACK_SUMMARY_REASONING_EFFORT", { infer: true }),
     );
+    this.simulatorEnabled = this.config.get("FEEDBACK_SIMULATOR_ENABLED", {
+      infer: true,
+    });
   }
 
   async get(campaignId: string): Promise<FeedbackCampaignSummaryView> {
@@ -122,6 +135,9 @@ export class PostEventFeedbackCampaignSummaryService {
     actorId?: string,
   ): Promise<FeedbackCampaignSummaryView> {
     await this.requireCampaign(campaignId);
+    if (this.simulatorEnabled) {
+      throw new FeedbackSummaryDisabledInSimulatorError();
+    }
 
     const existing = await this.campaigns.findSummaryByCampaignId(campaignId);
     if (existing?.status === "pending") {
@@ -181,6 +197,15 @@ export class PostEventFeedbackCampaignSummaryService {
     campaignId: string,
     correlationId: string,
   ): Promise<void> {
+    if (this.simulatorEnabled) {
+      this.logger.debug({
+        event: "feedback_campaign.summary_auto_suppressed_simulator",
+        campaignId,
+        correlationId,
+      });
+      return;
+    }
+
     const openCount = await this.conversations.countOpenForCampaign(campaignId);
     if (openCount > 0) {
       return;
@@ -236,6 +261,24 @@ export class PostEventFeedbackCampaignSummaryService {
       summary.status !== "pending" ||
       summary.attempt !== attempt
     ) {
+      return;
+    }
+
+    // A stale job must not smuggle a Terra call into a deterministic or Luna
+    // rehearsal after the simulator gate was enabled. Mark it terminal so the
+    // admin does not stare at a permanently pending row.
+    if (this.simulatorEnabled) {
+      await this.markTerminalFailure(
+        input.campaignId,
+        attempt,
+        "disabled_in_simulator",
+      );
+      this.logger.warn({
+        event: "feedback_campaign.summary_run_suppressed_simulator",
+        campaignId: input.campaignId,
+        correlationId: input.correlationId,
+        attempt,
+      });
       return;
     }
 

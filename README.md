@@ -40,8 +40,9 @@ pnpm feedback:burst
 `pnpm feedback:burst` seeds six finished events, launches thirty-six concurrent
 post-event feedback conversations, and writes
 `report/feedback-burst-<timestamp>.html`. Default mode is the free deterministic
-stub (`FEEDBACK_EXTRACTION_STUB=true`); paid provider mode needs `--model` and
-`--confirm-paid-run`. It never cleans up.
+stub (`FEEDBACK_EXTRACTION_STUB=true`); the frozen direct-OpenAI Luna treatment
+needs `--profile prova --confirm-paid-run`. Qwen is a separately labelled
+`--comparison qwen` run; a free-form `--model` is rejected. It never cleans up.
 
 To run the application processes in containers too:
 
