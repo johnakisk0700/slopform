@@ -1904,6 +1904,12 @@ pnpm feedback:burst \
   --profile prova \
   --confirm-paid-run
 
+# Long production runs may use a browser-refreshed Clerk token file. The runner
+# reads it again for every request instead of pinning a one-minute session token.
+CLERK_BEARER_TOKEN_FILE=/secure/path/to/token pnpm feedback:burst \
+  --profile prova \
+  --confirm-paid-run
+
 # Prepare the exact intro-only baseline for a guarded production data push.
 # This launches campaigns but sends no participant messages and makes no model
 # calls, so paid confirmation is intentionally not required.
@@ -1935,6 +1941,12 @@ It never cleans up. Settlement polling keeps the configured deadline as an outer
 bound, but stops early when the settled set and every conversation's message
 count are unchanged for several polls after the quiet-settle threshold — and
 names the unsettled personas so a quiet stop is never mistaken for success.
+For a long authenticated production run, `--token-file` (or
+`CLERK_BEARER_TOKEN_FILE`) is mutually exclusive with the static token option
+and is read before every HTTP request. The external refresher owns atomic token
+replacement; the harness fails before its first request if the file is absent or
+empty. This preserves Clerk's normal `authorizedParties` check without adding a
+production auth bypass merely to accommodate short-lived frontend tokens.
 Stub mode refuses to start unless the burst catalogue
 reports `extractionStub: true` and the registered feedback workers attest the
 same stub/model/control profile as the API; paid mode

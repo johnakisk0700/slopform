@@ -31,6 +31,7 @@ import {
   readGitRevision,
   writeRunSummary,
 } from "./burst-artefacts.mjs";
+import { createFeedbackBurstHeaders } from "./feedback-burst-auth.mjs";
 import { openBurstInspection } from "./burst-inspect.mjs";
 import {
   assertFeedbackBurstLiveGuestCallAllowed,
@@ -188,6 +189,10 @@ async function main() {
   const token =
     String(args.token ?? process.env.CLERK_BEARER_TOKEN ?? "").trim() ||
     undefined;
+  const tokenFile =
+    String(
+      args["token-file"] ?? process.env.CLERK_BEARER_TOKEN_FILE ?? "",
+    ).trim() || undefined;
   const correlationId = String(
     args["correlation-id"] ?? `feedback-burst-${randomUUID()}`,
   );
@@ -196,11 +201,11 @@ async function main() {
       "--correlation-id must be 1-128 log-safe letters, digits, dots, underscores, or hyphens",
     );
   }
-  const headers = {
-    "content-type": "application/json",
-    "x-request-id": correlationId,
-    ...(token ? { authorization: `Bearer ${token}` } : {}),
-  };
+  const headers = createFeedbackBurstHeaders({
+    token,
+    tokenFile,
+    correlationId,
+  });
 
   const paidModel = treatment?.model;
   const stubMode = treatment === null;
@@ -1998,6 +2003,7 @@ Options:
   --api-base <url>       Default: http://localhost:4000/api/v1
   --admin-base <url>     Default: http://localhost:3000
   --token <bearer>       Optional; defaults to CLERK_BEARER_TOKEN
+  --token-file <path>    Optional rotating token; defaults to CLERK_BEARER_TOKEN_FILE
   --timeout-ms <ms>      Settlement deadline; default: 1800000 (30 minutes)
 
 The API and worker must already be running with:
