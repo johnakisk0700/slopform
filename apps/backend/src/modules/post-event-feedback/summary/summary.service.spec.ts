@@ -21,8 +21,12 @@ import {
 } from "../jobs.schemas.js";
 import { buildPostEventFeedbackQuestionLaunchSnapshot } from "../question-set.js";
 import {
+  DEFAULT_FEEDBACK_SUMMARY_MODEL,
+  DEFAULT_FEEDBACK_SUMMARY_REASONING_EFFORT,
   FeedbackSummaryDisabledInSimulatorError,
   PostEventFeedbackCampaignSummaryService,
+  resolveFeedbackSummaryModel,
+  resolveFeedbackSummaryReasoningEffort,
 } from "./summary.service.js";
 
 vi.mock("ai", async (importOriginal) => {
@@ -76,6 +80,20 @@ beforeEach(() => {
   mockedGenerateText.mockResolvedValue({
     text: "  generated summary  ",
   } as Awaited<ReturnType<typeof generateText>>);
+});
+
+describe("feedback summary configuration", () => {
+  it.each([undefined, "", "   "])(
+    "uses documented defaults for an absent or blank value (%s)",
+    (configured) => {
+      expect(resolveFeedbackSummaryModel(configured)).toBe(
+        DEFAULT_FEEDBACK_SUMMARY_MODEL,
+      );
+      expect(resolveFeedbackSummaryReasoningEffort(configured)).toBe(
+        DEFAULT_FEEDBACK_SUMMARY_REASONING_EFFORT,
+      );
+    },
+  );
 });
 
 describe("PostEventFeedbackCampaignSummaryService", () => {

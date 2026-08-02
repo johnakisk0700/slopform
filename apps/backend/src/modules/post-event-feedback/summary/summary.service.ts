@@ -431,7 +431,7 @@ export class PostEventFeedbackCampaignSummaryService {
 export function resolveFeedbackSummaryModel(
   configured: string | undefined,
 ): AssistantModel {
-  const candidate = configured ?? DEFAULT_FEEDBACK_SUMMARY_MODEL;
+  const candidate = configured?.trim() || DEFAULT_FEEDBACK_SUMMARY_MODEL;
   const parsed = assistantModelSchema.safeParse(candidate);
   if (!parsed.success) {
     throw new Error(`Unknown FEEDBACK_SUMMARY_MODEL: ${candidate}`);
@@ -447,7 +447,8 @@ export function resolveFeedbackSummaryModel(
 export function resolveFeedbackSummaryReasoningEffort(
   configured: string | undefined,
 ): FeedbackSummaryReasoningEffort {
-  const candidate = configured ?? DEFAULT_FEEDBACK_SUMMARY_REASONING_EFFORT;
+  const candidate =
+    configured?.trim() || DEFAULT_FEEDBACK_SUMMARY_REASONING_EFFORT;
   if (
     !(FEEDBACK_SUMMARY_REASONING_EFFORTS as readonly string[]).includes(
       candidate,
