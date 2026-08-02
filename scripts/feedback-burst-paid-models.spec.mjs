@@ -22,7 +22,7 @@ describe("feedback burst paid policy", () => {
       provider: "openai",
       providerModelId: "gpt-5.6-luna",
       controls: {
-        reasoningEffort: "xhigh",
+        reasoningEffort: "high",
         attentionReasoningEffort: "high",
         serviceTier: null,
       },

@@ -1290,24 +1290,21 @@ once no attempt has managed to read the testimony. It leaves three things behind
    (`provider_refusal | validation_failed | unknown` — `provider_error` reaches
    `park` instead, and `apply` stays cause-agnostic so the routing lives in one
    place). The same class is thrown as the `UnrecoverableError` message, so it is
-   visible in BullMQ's `failedReason` and not only in the audit table.
+   visible in BullMQ's `failedReason` and not only in the audit table. HTTP
+   failures append only their safe status (`http_429`, `http_503`, and so on),
+   which makes quota pressure distinguishable from an outage without retaining
+   provider or participant text.
 2. **One ordinary note** (`note_type: general`, `status: new`) with bounded
    generic text — «Η αυτόματη ανάλυση δεν ολοκληρώθηκε — δείτε τη συζήτηση.».
    Nothing was extracted, so nothing may be characterised. The text names the
    failure rather than the content for exactly that reason: a run reaches the
    fallback for any permanent failure, and the earlier wording asserted a
    possible offensive reference about text nothing had read.
-3. **One bot acknowledgement** so the participant is not left on read: a short
-   acknowledgement plus the current goal's prompt from the campaign copy
-   snapshot. No new copy is authored. **At most one per conversation** — a
-   provider outage that outlasts several messages must not enqueue the same
-   apology on every dead run. The conversation document's
-   `extractionFallbackAckSent` ledger records that the line was already sent;
-   later permanent failures still file notes and raise attention, but stay quiet
-   on WhatsApp until extraction works again or a person takes over. The flag is
-   **not** cleared when extraction next succeeds: the participant was already
-   told once, and a second identical apology after a brief recovery adds
-   nothing.
+3. **No bot message.** The failed run did not successfully understand the
+   participant's latest testimony. Re-appending the current unanswered goal can
+   therefore repeat the exact question they just answered. The operator still
+   gets the note and attention reason, while the participant sees silence until
+   extraction succeeds or a person takes over.
 
 Provenance is honest by omission. `source_message_ids` is the failing
 participant message; `extraction_meta` records
@@ -1321,17 +1318,13 @@ Two candidates called «Κώστας» cannot be separated by application code, 
 note degrades to subjectless and `flaggedForReview` under D18 rather than
 asserting something about a real person.
 
-Idempotency uses two fences:
+Idempotency uses one fence:
 
 - The outbox `dedupe_key`
   `feedback-fallback-<conversationId>-<testimonySeq>` inserts a cancelled
   `system` row first inside the run's transaction. It is never delivered; it
   absorbs replays of the same dead run so the note, audit event and operator
   alert are not duplicated.
-- The participant-facing acknowledgement uses
-  `feedback-fallback-<conversationId>-ack`, inserted only while
-  `extractionFallbackAckSent` is false. A second failing run on a later message
-  still files operator evidence, but does not enqueue a second apology.
 
 ### Parking a provider incident
 
@@ -1405,11 +1398,9 @@ no model composes it. Every clause is a constraint:
 
 Three fences make «once» true: `parkedNoticeSentAt` on the document, the outbox
 `dedupe_key` `feedback-parked-<conversationId>-notice`, and the send yielding to
-`extractionFallbackAckSent` — two machine apologies for one silence is one too
-many. The reverse is deliberately not guarded: the fallback's line carries the
-open question and is what keeps the questionnaire moving. Like
-`extractionFallbackAckSent`, `parkedNoticeSentAt` is **not** cleared when
-extraction recovers. The notice is also withheld while the conversation is closed,
+the legacy `extractionFallbackAckSent` flag when an older deployment already
+spoke. `parkedNoticeSentAt` is **not** cleared when extraction recovers. The
+notice is also withheld while the conversation is closed,
 under human control or `awaitingHuman` — the bot has no floor in any of those, and
 none of the three is left worse off by our silence.
 
@@ -1830,7 +1821,7 @@ Before a paid run, both API and worker use the same explicit treatment:
 ```dotenv
 FEEDBACK_EXTRACTION_STUB=false
 FEEDBACK_EXTRACTION_MODEL=openai/gpt-5.6-luna
-FEEDBACK_EXTRACTION_REASONING_EFFORT=xhigh
+FEEDBACK_EXTRACTION_REASONING_EFFORT=high
 FEEDBACK_ATTENTION_REASONING_EFFORT=high
 ```
 

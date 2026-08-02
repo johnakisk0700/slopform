@@ -10,10 +10,7 @@ import { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
 import { FeedbackResultsRepository } from "./results.repository.js";
 import { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
 import { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
-import type {
-  FeedbackConversationDocument,
-  FeedbackConversationGoal,
-} from "../post-event-feedback-conversation.document.js";
+import type { FeedbackConversationDocument } from "../post-event-feedback-conversation.document.js";
 import { EventsService } from "../../events/events.service.js";
 import { latestParticipantMessage } from "../conversation-reader.js";
 import {
@@ -26,11 +23,9 @@ import type { FeedbackExtractionFailureCause } from "./model.service.js";
 import {
   FEEDBACK_EXTRACTION_PARK_NOTICE_AFTER_MS,
   POST_EVENT_FEEDBACK_EXTRACTION_PARKED_NOTICE,
-  POST_EVENT_FEEDBACK_FALLBACK_ACK,
   POST_EVENT_FEEDBACK_FALLBACK_FENCE_BODY,
   POST_EVENT_FEEDBACK_FALLBACK_NOTE_TEXT,
   createFeedbackExtractionParkedNoticeDedupeKey,
-  createFeedbackFallbackAckDedupeKey,
   createFeedbackFallbackDedupeKey,
 } from "./extraction.schemas.js";
 import {
@@ -85,7 +80,10 @@ export interface FeedbackExtractionParkResult {
  * 2. one ordinary `feedback_notes` row — the same table, status and admin view
  *    as any other note, because D13 (amended) says safety material is visible
  *    feedback, not a separate incident record;
- * 3. one bot acknowledgement so the participant is not left on read.
+ * 3. no participant-facing message. The failed run did not understand the
+ *    testimony, so repeating the current prompt can ask for information the
+ *    participant just supplied. Silence plus an operator flag is safer than a
+ *    confident-looking duplicate question.
  *
  * It fabricates nothing. The note text is generic (nothing was extracted, so
  * nothing may be characterised), `extraction_meta` records
@@ -197,30 +195,7 @@ export class PostEventFeedbackExtractionFallback {
         correlationId: input.correlationId,
       });
       if (!fenced.inserted) {
-        return { replayed: true as const, ackOutbox: null, note: null };
-      }
-
-      let ackOutbox: typeof fenced.row | null = null;
-      if (!conversation.extractionFallbackAckSent) {
-        const enqueued = await this.outbox.insertOutboxIfAbsent(transaction, {
-          conversationId: conversation._id,
-          campaignId: campaign.id,
-          kind: "reply",
-          body: buildFallbackReply(conversation.goals),
-          dedupeKey: createFeedbackFallbackAckDedupeKey(conversation._id),
-        });
-        await this.outboundLog.record(transaction, {
-          outbox: enqueued,
-          conversation,
-          decision: {
-            origin: "extraction_fallback_ack",
-            cause: input.cause,
-          },
-          correlationId: input.correlationId,
-        });
-        if (enqueued.inserted) {
-          ackOutbox = enqueued.row;
-        }
+        return { replayed: true as const, note: null };
       }
 
       const note = await this.results.insertNote(transaction, {
@@ -253,12 +228,12 @@ export class PostEventFeedbackExtractionFallback {
           cause: input.cause,
           sourceMessageId: testimony.id,
           noteId: note.id,
-          outboxId: ackOutbox?.id ?? null,
+          outboxId: null,
           subjectResolved: subjectParticipantId !== null,
         },
       });
 
-      return { ackOutbox, note, replayed: false as const };
+      return { note, replayed: false as const };
     });
 
     if (written.replayed) {
@@ -270,21 +245,6 @@ export class PostEventFeedbackExtractionFallback {
       return { applied: false };
     }
 
-    if (written.ackOutbox) {
-      await this.conversations.markExtractionFallbackAckSent({
-        conversationId: conversation._id,
-        at: new Date(),
-      });
-      // Same forward-repair contract as an ordinary run: PostgreSQL is durable
-      // first, the transcript entry is idempotent by `outboxId`, and the delivery
-      // job repeats it before sending if this crashed.
-      await this.outboundTranscript.record(
-        written.ackOutbox,
-        new Date(),
-        input.correlationId,
-      );
-    }
-
     await this.raiseAttention(conversation, input, [input.cause], testimony.id);
 
     this.logger.warn({
@@ -293,18 +253,12 @@ export class PostEventFeedbackExtractionFallback {
       conversationId: conversation._id,
       cause: input.cause,
       noteId: written.note.id,
-      outboxId: written.ackOutbox?.id,
       subjectResolved: subjectParticipantId !== null,
     });
 
     return {
       applied: true,
       noteId: written.note.id,
-      // Absent rather than undefined: the acknowledgement is sent once per
-      // conversation, so every dead run after the first has no outbox of its
-      // own, and `exactOptionalPropertyTypes` is the compiler holding us to the
-      // difference between «no id» and «an id that is undefined».
-      ...(written.ackOutbox ? { outboxId: written.ackOutbox.id } : {}),
       subjectParticipantId,
     };
   }
@@ -410,11 +364,9 @@ export class PostEventFeedbackExtractionFallback {
    * outage must not postpone the apology for the first one, which is exactly what
    * measuring silence would do.
    *
-   * It yields to `extractionFallbackAckSent`. That flag means a deterministic
-   * fallback has already spoken in this conversation, and two machine apologies
-   * for the same silence is one too many. The reverse is not guarded, because the
-   * fallback's line carries the open question and is what keeps the
-   * questionnaire moving.
+   * It yields to the legacy `extractionFallbackAckSent` flag. Older deployments
+   * may already have sent that deterministic line, and a second machine apology
+   * for the same silence is one too many. New extraction failures stay silent.
    */
   private async sendParkedNotice(
     conversation: FeedbackConversationDocument,
@@ -590,23 +542,6 @@ function buildFallbackExtractionMeta(input: {
     // reason a degraded extraction note is — a human has to finish the job.
     ...(input.subjectResolved ? {} : { flaggedForReview: true }),
   };
-}
-
-/**
- * A brief acknowledgement plus the question the bot was already asking, both
- * taken from copy that already exists. The point is only that the thread does
- * not dead-end: the participant answered, and something has to answer back.
- */
-function buildFallbackReply(
-  goals: readonly FeedbackConversationGoal[],
-): string {
-  const current = [...goals]
-    .sort((left, right) => left.ordinal - right.ordinal)
-    .find((goal) => goal.status !== "answered" && goal.status !== "skipped");
-
-  return current
-    ? `${POST_EVENT_FEEDBACK_FALLBACK_ACK} ${current.prompt}`
-    : POST_EVENT_FEEDBACK_FALLBACK_ACK;
 }
 
 /**

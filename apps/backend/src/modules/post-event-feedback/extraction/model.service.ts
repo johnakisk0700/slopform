@@ -110,9 +110,10 @@ export class FeedbackExtractionGenerationError extends Error {
     readonly retryable: boolean,
     readonly failureCause: FeedbackExtractionFailureCause = "unknown",
     /**
-     * Bounded description of the underlying error when `failureCause` could not
-     * name it. Empty for every classified cause, because there the cause is the
-     * description. Never carries participant text.
+     * Bounded, log-safe description of the underlying error. Classified HTTP
+     * failures retain only their status (`http_429`, `http_503`, and so on), so
+     * BullMQ can distinguish quota pressure from an outage without persisting a
+     * provider message or participant text.
      */
     readonly failureDetail: string = "",
   ) {
@@ -842,6 +843,7 @@ function fromApiCallError(
     error.isRetryable ? "extraction_failed" : "provider_rejected",
     error.isRetryable,
     error.isRetryable || accountFault ? "provider_error" : "provider_refusal",
+    error.statusCode === undefined ? "" : `http_${error.statusCode}`,
   );
 }
 

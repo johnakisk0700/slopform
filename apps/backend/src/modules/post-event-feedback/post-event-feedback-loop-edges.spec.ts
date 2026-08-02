@@ -263,11 +263,11 @@ const SCENARIOS: readonly FeedbackScenario[] = [
     },
   },
   {
-    // Two consecutive permanent failures during a provider outage: each run still
-    // files operator evidence, but the participant hears the canned apology once.
-    id: "one_fallback_ack_across_consecutive_dead_runs",
+    // Two consecutive permanent failures: each run still files operator evidence,
+    // but neither repeats a question the failed extraction may have answered.
+    id: "silent_fallback_across_consecutive_dead_runs",
     title:
-      "speaks one deterministic fallback acknowledgement across consecutive dead runs",
+      "stays silent while preserving evidence across consecutive dead runs",
     script: [{ fails: "refuses" }],
     expectedJobFailures: [
       { job: "feedback.extract.v1", kind: "refuses", count: 10 },
@@ -284,7 +284,7 @@ const SCENARIOS: readonly FeedbackScenario[] = [
         { type: "general", about: null },
       ],
       needsAttention: true,
-      receivedCount: { fallback: 1 },
+      receivedCount: { fallback: 0 },
     },
   },
 ];

@@ -6,10 +6,7 @@ import {
   type FeedbackScenario,
   type FeedbackScenarioVenue,
 } from "./post-event-feedback-loop.harness.js";
-import {
-  POST_EVENT_FEEDBACK_FALLBACK_ACK,
-  POST_EVENT_FEEDBACK_HANDOFF_REPLY,
-} from "./extraction/extraction.schemas.js";
+import { POST_EVENT_FEEDBACK_HANDOFF_REPLY } from "./extraction/extraction.schemas.js";
 import { FeedbackExtractionGenerationError } from "./extraction/model.service.js";
 import { POST_EVENT_FEEDBACK_QUESTION_SET_V2 } from "./question-set.js";
 
@@ -449,8 +446,8 @@ const V2_SCENARIOS: readonly FeedbackScenario[] = [
     },
   },
   {
-    id: "v2_fallback_resumes_current_goal",
-    title: "appends the actual V2 participation prompt after a dead extraction",
+    id: "v2_fallback_does_not_repeat_current_goal",
+    title: "stays silent instead of repeating a goal after dead extraction",
     seed: {
       goals: {
         event_score: "skipped",
@@ -472,12 +469,7 @@ const V2_SCENARIOS: readonly FeedbackScenario[] = [
     expect: {
       notes: [{ type: "general", about: null, flagged: true }],
       needsAttention: true,
-      received: [
-        {
-          kind: "fallback",
-          text: `${POST_EVENT_FEEDBACK_FALLBACK_ACK} ${V2_COPY.participation_ease}`,
-        },
-      ],
+      received: [],
       lifecycle: "open",
     },
   },

@@ -23,10 +23,8 @@ import { PostEventFeedbackExtractionFallback } from "./fallback.service.js";
 import {
   FEEDBACK_EXTRACTION_PARK_NOTICE_AFTER_MS,
   POST_EVENT_FEEDBACK_EXTRACTION_PARKED_NOTICE,
-  POST_EVENT_FEEDBACK_FALLBACK_ACK,
   POST_EVENT_FEEDBACK_FALLBACK_NOTE_TEXT,
   createFeedbackExtractionParkedNoticeDedupeKey,
-  createFeedbackFallbackAckDedupeKey,
 } from "./extraction.schemas.js";
 import {
   FEEDBACK_EXTRACTION_PARK_MAX_MS,
@@ -63,7 +61,7 @@ describe("PostEventFeedbackExtractionFallback", () => {
     harness = createHarness();
   });
 
-  it("records one note, one acknowledgement and one audit event", async () => {
+  it("records one note and one audit event without replying", async () => {
     const result = await harness.fallback.apply({
       conversationId,
       correlationId,
@@ -72,7 +70,11 @@ describe("PostEventFeedbackExtractionFallback", () => {
 
     expect(result.applied).toBe(true);
     expect(harness.repository.notes).toHaveLength(1);
-    expect(harness.repository.outbox).toHaveLength(2);
+    // The one row is the idempotency fence. Nothing is a participant reply.
+    expect(harness.repository.outbox).toHaveLength(1);
+    expect(harness.repository.outbox[0]).toMatchObject({
+      kind: "system",
+    });
     expect(harness.audit.events).toHaveLength(1);
 
     expect(harness.repository.notes[0]).toMatchObject({
@@ -91,25 +93,15 @@ describe("PostEventFeedbackExtractionFallback", () => {
       entityId: conversationId,
       context: { cause: "provider_refusal", sourceMessageId: "p1" },
     });
-    expect(harness.repository.outboxLogs).toHaveLength(2);
-    expect(harness.repository.outboxLogs).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
+    expect(harness.repository.outboxLogs).toEqual([
+      expect.objectContaining({
+        origin: "extraction_fallback_fence",
+        decision: {
           origin: "extraction_fallback_fence",
-          decision: {
-            origin: "extraction_fallback_fence",
-            cause: "provider_refusal",
-          },
-        }),
-        expect.objectContaining({
-          origin: "extraction_fallback_ack",
-          decision: {
-            origin: "extraction_fallback_ack",
-            cause: "provider_refusal",
-          },
-        }),
-      ]),
-    );
+          cause: "provider_refusal",
+        },
+      }),
+    ]);
   });
 
   it("fabricates no model or confidence in the note's provenance", async () => {
@@ -132,28 +124,20 @@ describe("PostEventFeedbackExtractionFallback", () => {
     expect(meta).not.toHaveProperty("confidence");
   });
 
-  it("acknowledges and restates the current goal so the thread does not stall", async () => {
+  it("does not repeat the current goal after failing to read its answer", async () => {
     await harness.fallback.apply({
       conversationId,
       correlationId,
       cause: "provider_refusal",
     });
 
-    const reply = harness.repository.outbox.find((row) => row.kind === "reply");
-    expect(reply).toMatchObject({
-      kind: "reply",
-      dedupeKey: createFeedbackFallbackAckDedupeKey(conversationId),
-    });
-    expect(reply?.body).toBe(
-      `${POST_EVENT_FEEDBACK_FALLBACK_ACK} ${POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy.liked}`,
-    );
+    expect(
+      harness.repository.outbox.filter((row) => row.kind === "reply"),
+    ).toHaveLength(0);
     expect(
       harness.conversations.get(conversationId).extractionFallbackAckSent,
-    ).toBe(true);
-    // And it reaches the transcript as a bot turn, like every other outbound.
-    expect(
-      harness.conversations.transcript(conversationId).at(-1),
-    ).toMatchObject({ actor: "bot", text: reply?.body, outboxId: reply?.id });
+    ).toBe(false);
+    expect(harness.conversations.transcript(conversationId)).toHaveLength(1);
   });
 
   it("raises attention and alerts the operator exactly once", async () => {
@@ -181,7 +165,7 @@ describe("PostEventFeedbackExtractionFallback", () => {
     });
   });
 
-  it("speaks the acknowledgement once per conversation across failing runs", async () => {
+  it("stays silent across separate failing runs", async () => {
     await harness.fallback.apply({
       conversationId,
       correlationId,
@@ -208,11 +192,11 @@ describe("PostEventFeedbackExtractionFallback", () => {
     expect(harness.repository.notes).toHaveLength(2);
     expect(
       harness.repository.outbox.filter((row) => row.kind === "reply"),
-    ).toHaveLength(1);
-    expect(harness.conversations.transcript(conversationId)).toHaveLength(3);
+    ).toHaveLength(0);
+    expect(harness.conversations.transcript(conversationId)).toHaveLength(2);
     expect(
       harness.conversations.get(conversationId).extractionFallbackAckSent,
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("writes nothing a second time when the failure replays", async () => {
@@ -230,11 +214,11 @@ describe("PostEventFeedbackExtractionFallback", () => {
     // The per-testimony fence absorbs replays of the same dead run.
     expect(replay.applied).toBe(false);
     expect(harness.repository.notes).toHaveLength(1);
-    expect(harness.repository.outbox).toHaveLength(2);
+    expect(harness.repository.outbox).toHaveLength(1);
     expect(harness.audit.events).toHaveLength(1);
     expect(harness.alert.raised).toHaveLength(1);
-    expect(harness.conversations.transcript(conversationId)).toHaveLength(2);
-    expect(harness.repository.outboxLogs).toHaveLength(2);
+    expect(harness.conversations.transcript(conversationId)).toHaveLength(1);
+    expect(harness.repository.outboxLogs).toHaveLength(1);
   });
 
   describe("subject resolution (D16 candidates, D18 degradation)", () => {

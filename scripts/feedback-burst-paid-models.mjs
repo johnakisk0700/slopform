@@ -7,7 +7,7 @@
  * the explicit comparison CLI path.
  */
 const PROVA_CONTROLS = Object.freeze({
-  reasoningEffort: "xhigh",
+  reasoningEffort: "high",
   attentionReasoningEffort: "high",
   serviceTier: null,
 });

@@ -1952,7 +1952,7 @@ function printUsage() {
     --confirm-paid-run
 
 Options:
-  --profile prova        Exact paid profile: direct OpenAI Luna, extraction xhigh,
+  --profile prova        Exact paid profile: direct OpenAI Luna, extraction high,
                          attention high, service tier unset. Omit for stub mode.
   --comparison qwen      Explicit Qwen/OpenRouter comparison using the same efforts.
   --confirm-paid-run     Required acknowledgement of extraction/classifier model cost
@@ -1974,7 +1974,7 @@ The API and worker must already be running with:
   # prova instead requires exactly:
   FEEDBACK_EXTRACTION_STUB=false
   FEEDBACK_EXTRACTION_MODEL=openai/gpt-5.6-luna
-  FEEDBACK_EXTRACTION_REASONING_EFFORT=xhigh
+  FEEDBACK_EXTRACTION_REASONING_EFFORT=high
   FEEDBACK_ATTENTION_REASONING_EFFORT=high
   FEEDBACK_EXTRACTION_SERVICE_TIER=      # unset
 

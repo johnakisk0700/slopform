@@ -390,7 +390,10 @@ describe("feedback extraction failure mapping", () => {
           }),
         );
 
-        expect(error.failureCause).toBe(cause);
+        expect(error).toMatchObject({
+          failureCause: cause,
+          failureDetail: `http_${isRetryable ? 503 : 400}`,
+        });
       },
     );
 
@@ -415,6 +418,7 @@ describe("feedback extraction failure mapping", () => {
           code: "provider_rejected",
           retryable: false,
           failureCause: "provider_error",
+          failureDetail: `http_${statusCode}`,
         });
         expect(isFeedbackProviderIncident(error)).toBe(true);
       },

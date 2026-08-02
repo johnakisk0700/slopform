@@ -32,8 +32,8 @@ import { POST_EVENT_FEEDBACK_SAFETY_ASSURANCE } from "./extraction/extraction.sc
  * Style is the reference suite's (`post-event-feedback-loop.spec.ts`): two to
  * four facts per scenario, `toMatchObject`, kinds and counts rather than
  * model-written text, names rather than ids. Application-owned copy — the
- * closing line, the handoff line, the fallback acknowledgement — is asserted by
- * kind because the harness classifies it from our own copy.
+ * closing and handoff lines — is asserted by kind because the harness classifies
+ * it from our own copy. Dead extraction now deliberately emits no fallback copy.
  *
  * ## The known-defect ledger
  *
@@ -361,11 +361,9 @@ const SCENARIOS: readonly FeedbackScenario[] = [
           },
         ],
         next: "event_score",
-        // Deliberately not opening with «Σε ευχαριστούμε που μας το είπες», which
-        // is the application's own fallback acknowledgement: the harness
-        // classifies outbound by our copy, so a scripted reply starting with it
-        // would be counted as a fallback and this row would silently stop
-        // measuring replies at all.
+        // Deliberately not opening with the legacy deterministic fallback copy:
+        // the harness still classifies historical outbound by that prefix, so a
+        // scripted reply starting with it would stop measuring replies at all.
         reply: "Το κρατάω και το προωθώ. Πώς σου φάνηκε η βραδιά συνολικά;",
       },
       {
@@ -707,9 +705,8 @@ const SCENARIOS: readonly FeedbackScenario[] = [
     // S44. The failure the deterministic fallback was written for: she described
     // an assault, the provider's content filter refused to emit structured
     // output for it, and every attempt refused the same way. After the attempts
-    // are exhausted the run still leaves attention, one ordinary note and one
-    // acknowledgement behind, so the worst message in the campaign does not
-    // produce the least evidence.
+    // are exhausted the run still leaves attention and one ordinary note, but
+    // sends nothing it cannot justify from an extraction that never completed.
     //
     // The subject is the thing to watch. Two Κώστας attended, so
     // `resolveUniqueNamedSubject` correctly refuses to pick one: the note stays
@@ -717,7 +714,7 @@ const SCENARIOS: readonly FeedbackScenario[] = [
     // wrong man's profile.
     id: "provider_refuses_the_disclosure",
     title:
-      "leaves a flagged note, an alert and an acknowledgement when the provider refuses the disclosure",
+      "leaves a flagged note and an alert without replying when the provider refuses the disclosure",
     script: [{ fails: "refuses" }],
     expectedJobFailures: [
       { job: "feedback.extract.v1", kind: "refuses", count: 5 },
@@ -733,9 +730,8 @@ const SCENARIOS: readonly FeedbackScenario[] = [
       notes: [{ type: "general", about: null, flagged: true }],
       needsAttention: true,
       alerts: [{ reason: "extraction_failed", detail: ["provider_refusal"] }],
-      // The thread does not dead-end: she is acknowledged and asked the
-      // question the bot was already on.
-      receivedCount: { fallback: 1 },
+      // Repeating the current question could ask for testimony she just gave.
+      receivedCount: { fallback: 0 },
     },
   },
   {
