@@ -197,7 +197,10 @@ production profile is an explicit rehearsal: `TRANSPORT_MODE=simulated`,
 `FEEDBACK_SIMULATOR_ENABLED=true`,
 `FEEDBACK_PRODUCTION_REHEARSAL_ENABLED=true` and
 `FEEDBACK_EXTRACTION_STUB=false`. It makes real, billable model calls but writes
-outbound messages only to `feedback_sim_outbound`. Both Wasender files stay
+outbound messages only to `feedback_sim_outbound`. The initial paid treatment is
+direct-OpenAI Terra with extraction/classification `medium` and the conditional
+participant-facing rewrite at `low`; the worker attestation rejects a partial
+restart with different controls. Both Wasender files stay
 empty and its webhook stays off. The environment validator rejects any mixed
 profile instead of quietly enabling network delivery.
 

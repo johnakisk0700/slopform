@@ -21,6 +21,7 @@ import {
   type FeedbackAttentionClassificationGenerationResult,
   type FeedbackExtractionGenerationResult,
   type FeedbackExtractionModelPort,
+  type FeedbackReplyGenerationResult,
 } from "../extraction/model.service.js";
 import type { FeedbackExtractionPrompt } from "../extraction/prompt.js";
 import type {
@@ -175,6 +176,18 @@ export class ScriptedBurstExtractionModel implements FeedbackExtractionModelPort
     } catch (error) {
       throw toScriptedError(error);
     }
+  }
+
+  async rewriteReply(
+    _prompt: FeedbackExtractionPrompt,
+    draft: string,
+  ): Promise<FeedbackReplyGenerationResult> {
+    return {
+      model: FEEDBACK_EXTRACTION_STUB_MODEL_ID,
+      reply: draft,
+      usage: SCRIPTED_USAGE,
+      estimatedPromptTokens: 0,
+    };
   }
 
   private claimTurn(texts: readonly string[]): ClaimedStubTurn {

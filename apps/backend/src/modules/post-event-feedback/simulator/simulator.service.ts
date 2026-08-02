@@ -66,7 +66,7 @@ const FEEDBACK_SIMULATOR_NON_MODEL_SCENARIO_IDS = new Set([
   "discloses_as_the_very_last_thing",
 ]);
 export const FEEDBACK_SIMULATOR_EVAL_MODELS = [
-  "openai/gpt-5.6-luna",
+  "openai/gpt-5.6-terra",
   "qwen/qwen3.7-max",
 ] as const satisfies readonly AssistantModel[];
 
@@ -153,6 +153,7 @@ export class FeedbackSimulatorService {
     return {
       activeModel: activeProfile.model,
       activeExtractionReasoningEffort: activeProfile.extractionReasoningEffort,
+      activeReplyReasoningEffort: activeProfile.replyReasoningEffort,
       activeAttentionReasoningEffort: activeProfile.attentionReasoningEffort,
       activeServiceTier: activeProfile.serviceTier,
       workerAttestation,
@@ -748,6 +749,9 @@ export class FeedbackSimulatorService {
         "FEEDBACK_EXTRACTION_REASONING_EFFORT",
         { infer: true },
       ),
+      replyReasoningEffort: this.config.get("FEEDBACK_REPLY_REASONING_EFFORT", {
+        infer: true,
+      }),
       attentionReasoningEffort: this.config.get(
         "FEEDBACK_ATTENTION_REASONING_EFFORT",
         { infer: true },

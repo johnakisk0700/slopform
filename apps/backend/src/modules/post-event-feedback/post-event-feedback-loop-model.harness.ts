@@ -6,6 +6,7 @@ import {
   FeedbackExtractionGenerationError,
   type FeedbackAttentionClassificationGenerationResult,
   type FeedbackExtractionGenerationResult,
+  type FeedbackReplyGenerationResult,
 } from "./extraction/model.service.js";
 import {
   createFeedbackExtractionProposalSchema,
@@ -178,6 +179,24 @@ export class ScriptedExtractionModel {
       buildProposal(turn, conversation, this.idByName, questionKeys),
       questionKeys,
     );
+  }
+
+  /**
+   * The mechanism suite owns the extraction proposal and its exact expected
+   * transcript. Keep the new conversational-writer boundary deterministic and
+   * identity-backed here; real-model corpus and burst runs exercise the actual
+   * Terra rewrite.
+   */
+  async rewriteReply(
+    _prompt: FeedbackExtractionPrompt,
+    draft: string,
+  ): Promise<FeedbackReplyGenerationResult> {
+    return {
+      model: SCRIPT_MODEL,
+      reply: draft,
+      usage: { inputTokens: 90, outputTokens: 30, totalTokens: 120 },
+      estimatedPromptTokens: 100,
+    };
   }
 
   async classifyAttention(

@@ -29,7 +29,7 @@ is evidence of what was once wrong, and the executable suite is the only
 statement about what is wrong now.
 
 A separate **33-case real-model corpus** exercises semantic interpretation with
-live candidate-name binding. It is for deliberate, paid Luna/Qwen checks through
+live candidate-name binding. It is for deliberate, paid Terra/Qwen checks through
 the dev simulator, not CI or a nightly schedule. The normal suite remains
 fake-backed and free. Scripted rows involving sarcasm, prompt injection or
 privacy prove the surrounding mechanism accepts and contains a given proposal;

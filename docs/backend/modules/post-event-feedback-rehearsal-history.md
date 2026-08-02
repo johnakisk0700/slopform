@@ -135,8 +135,8 @@ that looks most like a real one.
    against what each fixture declared. Do not compare the `PASS`/`FAIL` column;
    read the rows.
 
-Until that has been done, the honest statement about model choice is that
-`openai/gpt-5.6-luna` is what the rehearsal has been run against most recently —
-the `prova` profile, since Terra is deliberately not a selectable treatment —
-and that no controlled comparison between the two has been made under conditions
-that would support one.
+The active `prova` profile now uses direct-OpenAI `openai/gpt-5.6-terra` with
+medium extraction and attention plus a low-effort participant-facing rewrite.
+That is a new treatment, not a continuation of the historical Luna runs above.
+Until repeated clean runs compare one changed variable at a time, no controlled
+Terra-versus-Luna quality claim is supported.

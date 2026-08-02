@@ -61,6 +61,10 @@ export class FeedbackBurstController {
           "FEEDBACK_EXTRACTION_REASONING_EFFORT",
           { infer: true },
         ),
+        replyReasoningEffort: this.config.get(
+          "FEEDBACK_REPLY_REASONING_EFFORT",
+          { infer: true },
+        ),
         attentionReasoningEffort: this.config.get(
           "FEEDBACK_ATTENTION_REASONING_EFFORT",
           { infer: true },

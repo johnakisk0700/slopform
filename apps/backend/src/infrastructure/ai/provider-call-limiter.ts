@@ -5,23 +5,24 @@ import { randomUUID } from "node:crypto";
  * Maximum paid model requests the whole deployment may keep in flight.
  *
  * OpenAI and OpenRouter enforce account/model-specific RPM and TPM limits, not
- * one public concurrency quota. Twenty is therefore our product guard, not a
+ * one public concurrency quota. Thirty is therefore our product guard, not a
  * statement about either provider. Production uses the Redis-backed limiter
  * below, so adding worker replicas does not multiply this ceiling.
  */
-export const PROVIDER_CALL_CONCURRENCY_LIMIT = 20;
+export const PROVIDER_CALL_CONCURRENCY_LIMIT = 30;
 
 /**
  * Maximum provider requests allowed to start in any rolling minute.
  *
- * The local Luna rehearsal on 2026-08-02 measured roughly 10–11k tokens per
- * feedback turn across extraction and attention. Twenty conversations launched
- * together crossed this project's 200k TPM ceiling even though its 500 RPM
- * allowance was almost untouched. Twenty starts per minute leaves token
- * headroom for assistant and summary calls while the separate semaphore still
- * permits short low-token calls to overlap.
+ * Direct probes on 2026-08-03 measured this project's Terra allowance at 500
+ * RPM / 500k TPM. Thirty is a deliberately conservative operating point below
+ * that measured provider ceiling, with capacity left for the participant reply
+ * writer, assistant traffic and summaries. It is not a derived TPM guarantee:
+ * prompt sizes vary, so rehearsal logs remain the authority for raising it.
+ * The separate semaphore still bounds calls that overlap for longer than a
+ * minute.
  */
-export const PROVIDER_CALL_STARTS_PER_MINUTE_LIMIT = 20;
+export const PROVIDER_CALL_STARTS_PER_MINUTE_LIMIT = 30;
 export const PROVIDER_CALL_RATE_WINDOW_MS = 60_000;
 
 /** Longer than the longest provider timeout (campaign summaries: five min). */

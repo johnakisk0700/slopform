@@ -247,6 +247,7 @@ export const feedbackSimulatorCatalogResponseSchema = z
     activeExtractionReasoningEffort: z
       .enum(FEEDBACK_EXTRACTION_REASONING_EFFORTS)
       .nullable(),
+    activeReplyReasoningEffort: z.enum(FEEDBACK_EXTRACTION_REASONING_EFFORTS),
     activeAttentionReasoningEffort: z.enum(
       FEEDBACK_EXTRACTION_REASONING_EFFORTS,
     ),

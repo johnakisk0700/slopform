@@ -234,6 +234,55 @@ describe("PostEventFeedbackExtractor", () => {
       expect(extraction.serviceTier).toBe("priority");
     });
 
+    it("forwards only the low-effort rewrite of a model-written reply", async () => {
+      harness.generation.propose.mockResolvedValue(
+        generation({
+          nextGoal: "event_score",
+          reply: "Πώς σου φάνηκε συνολικά η βραδιά;",
+        }),
+      );
+      harness.generation.rewriteReply.mockResolvedValue({
+        model,
+        reply: "Για πες, τι βαθμό θα έβαζες στη βραδιά από 1 ως 5;",
+        usage: { inputTokens: 90, outputTokens: 30, totalTokens: 120 },
+        estimatedPromptTokens: 100,
+      });
+
+      await harness.extractor.extract({ conversationId, correlationId });
+
+      expect(harness.generation.rewriteReply).toHaveBeenCalledOnce();
+      expect(harness.repository.outbox).toHaveLength(1);
+      expect(harness.repository.outbox[0]).toMatchObject({
+        body: "Για πες, τι βαθμό θα έβαζες στη βραδιά από 1 ως 5;",
+      });
+    });
+
+    it("says nothing when the participant-facing rewrite fails", async () => {
+      harness.generation.propose.mockResolvedValue(
+        generation({
+          nextGoal: "event_score",
+          reply: "Πώς σου φάνηκε συνολικά η βραδιά;",
+        }),
+      );
+      harness.generation.rewriteReply.mockResolvedValue({
+        model,
+        reply: null,
+        usage: { inputTokens: null, outputTokens: null, totalTokens: null },
+        estimatedPromptTokens: 100,
+      });
+
+      const result = await harness.extractor.extract({
+        conversationId,
+        correlationId,
+      });
+
+      expect(result.outcome).toBe("extracted");
+      expect(harness.repository.outbox).toHaveLength(0);
+      expect(
+        harness.conversations.get(conversationId).extraction.cursorSeq,
+      ).toBe(2);
+    });
+
     it("adds the next run's tokens to what the conversation already spent", async () => {
       await harness.extractor.extract({ conversationId, correlationId });
 
@@ -2597,6 +2646,7 @@ interface Harness {
   generation: {
     serviceTier: string | undefined;
     propose: ReturnType<typeof vi.fn>;
+    rewriteReply: ReturnType<typeof vi.fn>;
     classifyAttention: ReturnType<typeof vi.fn>;
   };
   audit: FakeAudit;
@@ -2689,6 +2739,14 @@ function createHarness(): Harness {
     // only thing that makes the persisted tier anything but null.
     serviceTier: undefined as string | undefined,
     propose: vi.fn().mockResolvedValue(generation({})),
+    rewriteReply: vi
+      .fn()
+      .mockImplementation(async (_prompt: unknown, draft: string) => ({
+        model,
+        reply: draft,
+        usage: { inputTokens: 90, outputTokens: 30, totalTokens: 120 },
+        estimatedPromptTokens: 100,
+      })),
     classifyAttention: vi.fn().mockResolvedValue(attentionGeneration([])),
   };
   const alert = {

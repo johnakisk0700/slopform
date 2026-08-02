@@ -63,6 +63,7 @@ async function main() {
           activeModel: catalog.activeModel,
           activeExtractionReasoningEffort:
             catalog.activeExtractionReasoningEffort,
+          activeReplyReasoningEffort: catalog.activeReplyReasoningEffort,
           activeAttentionReasoningEffort:
             catalog.activeAttentionReasoningEffort,
           activeServiceTier: catalog.activeServiceTier,
@@ -120,6 +121,7 @@ async function main() {
   }
   const effectiveConfig = {
     extractionReasoningEffort: catalog.activeExtractionReasoningEffort,
+    replyReasoningEffort: catalog.activeReplyReasoningEffort,
     attentionReasoningEffort: catalog.activeAttentionReasoningEffort,
     serviceTier: catalog.activeServiceTier,
   };
@@ -178,6 +180,7 @@ async function main() {
     console.error(
       `  reasoning:    ${effectiveConfig.extractionReasoningEffort}`,
     );
+    console.error(`  reply writer: ${effectiveConfig.replyReasoningEffort}`);
     console.error(
       `  classifier:   ${effectiveConfig.attentionReasoningEffort}`,
     );
@@ -198,12 +201,13 @@ async function main() {
     "timeout-ms",
   );
   console.error(
-    "Starting confirmed paid real-model evaluation (extraction plus attention classification):",
+    "Starting confirmed paid real-model evaluation (extraction, attention, and conditional reply rewrite):",
   );
   console.error(`  model:          ${args.model}`);
   console.error(
     `  reasoning:      ${effectiveConfig.extractionReasoningEffort}`,
   );
+  console.error(`  reply writer:   ${effectiveConfig.replyReasoningEffort}`);
   console.error(
     `  classifier:     ${effectiveConfig.attentionReasoningEffort}`,
   );
@@ -342,14 +346,14 @@ function printUsage() {
     --campaign <campaign-uuid> \\
     --conversation <conversation-uuid> \\
     --scenario <eligible-corpus-id> \\
-    --model <openai/gpt-5.6-luna|qwen/qwen3.7-max> \\
+    --model <openai/gpt-5.6-terra|qwen/qwen3.7-max> \\
     --preflight
 
   pnpm feedback:simulate \\
     --campaign <campaign-uuid> \\
     --conversation <conversation-uuid> \\
     --scenario <eligible-corpus-id> \\
-    --model <openai/gpt-5.6-luna|qwen/qwen3.7-max> \\
+    --model <openai/gpt-5.6-terra|qwen/qwen3.7-max> \\
     --confirm-paid-run
 
 Options:
@@ -367,9 +371,10 @@ The API and worker must already be running with:
   FEEDBACK_SIMULATOR_ENABLED=true
   TRANSPORT_MODE=simulated
   FEEDBACK_EXTRACTION_STUB=false
-  FEEDBACK_EXTRACTION_MODEL=openai/gpt-5.6-luna
-  FEEDBACK_EXTRACTION_REASONING_EFFORT=high
-  FEEDBACK_ATTENTION_REASONING_EFFORT=high
+  FEEDBACK_EXTRACTION_MODEL=openai/gpt-5.6-terra
+  FEEDBACK_EXTRACTION_REASONING_EFFORT=medium
+  FEEDBACK_REPLY_REASONING_EFFORT=low
+  FEEDBACK_ATTENTION_REASONING_EFFORT=medium
   FEEDBACK_EXTRACTION_SERVICE_TIER=
 
 The command uses the normal ingress/materializer/queue/extractor/outbox path.

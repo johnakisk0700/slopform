@@ -297,10 +297,10 @@ separate authenticated command boundary.
 another. Calls have a two-minute total bound and AI SDK retries disabled so
 BullMQ owns visible retries. Worker concurrency is two per process, and every
 provider call additionally passes through a deployment-wide Redis lease
-semaphore capped at `PROVIDER_CALL_CONCURRENCY_LIMIT` (20), shared with feedback
+semaphore capped at `PROVIDER_CALL_CONCURRENCY_LIMIT` (30), shared with feedback
 extraction, attention classification and campaign summaries. Queue concurrency
 alone would not bound calls across worker processes. The same limiter also caps
-starts at 20 in any rolling minute; completed calls remain in that minute window
+starts at 30 in any rolling minute; completed calls remain in that minute window
 so fast requests cannot exhaust the shared TPM allowance before concurrency has
 anything useful to say about it.
 

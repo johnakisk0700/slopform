@@ -200,6 +200,15 @@ export const environmentSchema = observabilityEnvironmentSchema
       z.string().trim().min(1).max(20).optional(),
     ),
     /**
+     * Thinking budget for the final participant-facing rewrite. The feedback
+     * model first makes the structured extraction decision, then only replies
+     * that would actually be forwarded pass through this cheaper writer step.
+     */
+    FEEDBACK_REPLY_REASONING_EFFORT: z.preprocess(
+      emptyStringToUndefined,
+      z.string().trim().min(1).max(20).optional(),
+    ),
+    /**
      * Thinking budget for the attention classifier. Same vocabulary as the
      * extraction call, different default: unset means `none`, sent explicitly,
      * which is what the classifier has always done. The classifier is billed per

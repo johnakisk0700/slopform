@@ -156,9 +156,9 @@ before acting.
 of inbound messages collapses onto one model run per position instead of one per
 message. `FEEDBACK_WORKER_CONCURRENCY` is the hardcoded, per-process truth and
 currently equals `10`: one worker may serve ten feedback jobs concurrently. An
-extraction job opens up to two model requests (questionnaire extraction plus
-attention classification), which is how ten active extractions can fill the
-deployment-wide twenty-call provider budget. A Redis lease serializes the whole
+extraction job opens the questionnaire and attention calls together, then may
+open one low-effort reply rewrite only when model-written text would actually be
+forwarded. A Redis lease serializes the whole
 extraction/fallback path per conversation across worker replicas, so two due
 cursor jobs cannot buy duplicate calls and race two replies to one participant.
 The lease lasts fifteen minutes: a dead holder delays only that conversation and
@@ -169,20 +169,22 @@ This is an application ordering limit, not a provider-call limit. Every backend
 model boundary — assistant generation, feedback extraction, attention
 classification and campaign summaries — also enters the same Redis-backed
 lease semaphore. `PROVIDER_CALL_CONCURRENCY_LIMIT` is deliberately hardcoded to
-`20`: neither OpenAI nor OpenRouter publishes one stable concurrency quota
-across all models and accounts, so twenty is a product guard, not a claim about
+`30`: neither OpenAI nor OpenRouter publishes one stable concurrency quota
+across all models and accounts, so thirty is a product guard, not a claim about
 provider capacity. A second deployment-wide Redis window permits at most
-`PROVIDER_CALL_STARTS_PER_MINUTE_LIMIT` (20) starts in any rolling minute.
+`PROVIDER_CALL_STARTS_PER_MINUTE_LIMIT` (30) starts in any rolling minute.
 Releasing a fast call frees its concurrency lease but not its minute-window
-entry. This was added after the 2026-08-02 Luna rehearsal: roughly 18 feedback
-turns consumed the project's 200k TPM allowance while its 500 RPM allowance was
-nearly untouched. Worker replicas therefore share both guards; a dead worker
+entry. This was added after the 2026-08-02 Luna rehearsal consumed the project's
+200k TPM allowance while its 500 RPM allowance was nearly untouched. A direct
+Terra probe on 2026-08-03 returned 500 RPM / 500k TPM for this project; thirty
+starts keeps measured headroom for the conditional reply call, assistant and
+summary traffic. Worker replicas therefore share both guards; a dead worker
 loses concurrency until its six-minute lease expires but can never create an
 extra slot.
 
 The feedback Worker's BullMQ name also carries a versioned, base64url-encoded
 control attestation: extraction-stub state, public model id, provider adapter id,
-extraction and attention effort, and the effective OpenAI service tier. BullMQ
+extraction, reply and attention effort, and the effective OpenAI service tier. BullMQ
 publishes that name through Redis `CLIENT LIST`, which `Queue.getWorkers()`
 returns as `rawname`. Paid simulator preflight compares every registered
 feedback worker with the HTTP process's resolved profile. No worker, an unnamed

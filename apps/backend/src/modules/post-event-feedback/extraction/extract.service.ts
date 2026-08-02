@@ -252,18 +252,15 @@ export class PostEventFeedbackExtractor {
       input.correlationId,
     );
 
-    // What this run cost, both phases together. The metrics above are the same
-    // numbers going to a log that a restart forgets; this one goes to the
-    // conversation, which is where a paid rehearsal is costed from hours later.
-    // Computed here, beside the two calls, rather than deeper in — every path
-    // below this point either persists it or throws, and no path that skipped
-    // the model can reach it.
-    const runUsage = combineFeedbackExtractionUsage([
+    // The optional participant-facing rewrite is added later only when the
+    // application would actually forward model text. Keep the paid usages in
+    // one list so the durable total includes that third call when it exists.
+    const runUsages: FeedbackExtractionUsage[] = [
       generated.usage,
       attention.usage,
-    ]);
+    ];
 
-    const validated = validateFeedbackExtractionProposal(
+    let validated = validateFeedbackExtractionProposal(
       generated.proposal,
       context,
       attention.signals,
@@ -401,20 +398,66 @@ export class PostEventFeedbackExtractor {
     // a disclosure still raises its own safety reason and its own alert from the
     // paths below. Saying the same sentence an eleventh time is not a way to
     // reassure anybody.
-    const capped = withCampaignReaskCap(
+    const testimonySeq =
+      latestParticipantMessage(conversation)?.seq ?? cursorSeq;
+    let resolvedOutbound = resolveOutbound(
       conversation,
-      resolveOutbound(
-        conversation,
-        validated,
-        progressClosing,
-        urgentSafety,
-        latestParticipantMessage(conversation)?.seq ?? cursorSeq,
-        copy,
-        recordedStatuses,
-        stoppingForHostility,
-      ),
+      validated,
+      progressClosing,
+      urgentSafety,
+      testimonySeq,
       copy,
+      recordedStatuses,
+      stoppingForHostility,
     );
+    // Extraction decides facts and progression at the configured medium
+    // effort. Only text the outbound policy would genuinely forward is handed
+    // to the low-effort conversational writer. Fixed handoff, safety,
+    // questionnaire and closing copy never buys this extra call.
+    if (resolvedOutbound?.generatedByModel && validated.reply) {
+      const rewritten = await this.generation.rewriteReply(
+        prompt,
+        validated.reply,
+      );
+      runUsages.push(rewritten.usage);
+      this.metrics.recordExtractTokens(
+        {
+          phase: "feedback_reply",
+          model: rewritten.model,
+          estimatedPromptTokens: rewritten.estimatedPromptTokens,
+          inputTokens: rewritten.usage.inputTokens,
+          outputTokens: rewritten.usage.outputTokens,
+          totalTokens: rewritten.usage.totalTokens,
+        },
+        input.correlationId,
+      );
+      if (rewritten.reply === null) {
+        // Deliberately do not re-resolve with `reply: null`: that path may
+        // manufacture campaign-copy fallback text, including the same question
+        // that just failed. A failed writer means silence for this turn.
+        resolvedOutbound = undefined;
+        this.logger.warn({
+          event: "feedback.extract.reply_withheld",
+          correlationId: input.correlationId,
+          conversationId: conversation._id,
+          reason: "reply_generation_failed",
+        });
+      } else {
+        validated = { ...validated, reply: rewritten.reply };
+        resolvedOutbound = resolveOutbound(
+          conversation,
+          validated,
+          progressClosing,
+          urgentSafety,
+          testimonySeq,
+          copy,
+          recordedStatuses,
+          stoppingForHostility,
+        );
+      }
+    }
+    const runUsage = combineFeedbackExtractionUsage(runUsages);
+    const capped = withCampaignReaskCap(conversation, resolvedOutbound, copy);
     // Policy answers ride between the cap and the assurance: the cap decides
     // whether anything goes out at all, and the assurance stays the message's
     // last word — a promise about a disclosure outranks a sentence about

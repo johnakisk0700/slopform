@@ -1006,8 +1006,8 @@ The provider boundary is the assistant's registry (`assistant-models.ts`), so
 extraction cannot invent a provider mapping or substitute a model when a key is
 missing. `FEEDBACK_EXTRACTION_MODEL` selects the model and defaults to
 `google/gemini-3.6-flash` (D12); an unregistered id fails at worker start rather
-than quietly using the default. Luna is the selected paid-rehearsal target and
-`openai/gpt-5.6-luna` routes through OpenAI direct, so reasoning effort and
+than quietly using the default. Terra is the selected paid-rehearsal target and
+`openai/gpt-5.6-terra` routes through OpenAI direct, so reasoning effort and
 service tier remain explicit request controls. Changing that treatment does not
 change the production default. Provider clients live in the worker module only.
 
@@ -1016,9 +1016,9 @@ extraction call — `none`, `low`, `medium`, `high`, `xhigh` or `max`, spelled f
 whichever provider the registry chose. **Unset is not `none`.** Unset sends no
 reasoning field at all and leaves the provider on its own default; `none`
 overrides it. The default is unset, so a campaign that never asked for thinking
-behaves exactly as it did before the setting existed. Luna is deliberately
-routed through OpenAI direct, where `max` was accepted by the Responses API when
-probed on 2026-07-31.
+behaves exactly as it did before the setting existed. Terra is deliberately
+routed through OpenAI direct. The wider effort vocabulary remains based on the
+direct Luna probe where `max` was accepted by the Responses API on 2026-07-31.
 
 Anything above `none` also raises `maxOutputTokens` from 2,048 to 16,384,
 because **reasoning tokens are spent from the same output budget as the answer**.
@@ -1028,6 +1028,17 @@ ninety-two, and `xhigh` spent the entire 2,048 thinking and **emitted no object
 at all**. That surfaces as `NoObjectGeneratedError`, which this module treats as
 retryable — so the run pays for the same silence on every attempt. A ceiling is
 not a charge; it only has to leave room for the answer after the thinking.
+
+`FEEDBACK_REPLY_REASONING_EFFORT` controls a second call over the **same model**,
+defaulting to `low`. Extraction still proposes the reply draft at its configured
+effort because that draft carries the chosen next question and refusal intent.
+After validation and deterministic outbound policy, only a draft the application
+would genuinely forward is rewritten by the low-effort writer. Fixed campaign,
+handoff, hostility and closing copy do not buy the extra call. The writer sees
+the provider-free prompt context, may change tone and wording, and may not change
+the question, facts or commitments. If it fails or returns invalid text, answers
+and notes still persist but the turn sends **nothing**; the application does not
+re-resolve a null reply into fallback question copy.
 
 The attention classifier has **its own budget, `FEEDBACK_ATTENTION_REASONING_EFFORT`,
 over the same vocabulary, defaulting to `none`.** It was pinned there until
@@ -1043,7 +1054,8 @@ every conversation in the campaign, so thinking there multiplies with participan
 volume rather than with extraction runs.
 
 `FEEDBACK_EXTRACTION_SERVICE_TIER` — `default`, `flex` or `priority` — sets
-OpenAI's scheduling tier on **both** calls, extraction and classifier alike. It
+OpenAI's scheduling tier on **all three possible calls**: extraction,
+classifier and the conditional reply rewrite. It
 is applied **only when the registry routes the configured model direct to
 OpenAI**; an OpenRouter-routed model never receives it, because OpenRouter does
 its own upstream routing and the key would ride along ignored while the config
@@ -1051,7 +1063,7 @@ claimed the fast lane had been bought. Unset omits the field and leaves the
 account's own tier in force. `flex` trades latency for a lower rate; `priority`
 is OpenAI's paid fast mode at roughly **twice the standard token price**, charged
 per token on every call rather than as a flat fee. It is therefore part of the
-direct-OpenAI Luna configuration and must stay empty unless tier latency is the
+direct-OpenAI Terra configuration and must stay empty unless tier latency is the
 thing being measured.
 
 Extraction additionally sends **permissive safety thresholds** on its own call
@@ -1068,10 +1080,11 @@ on non-configurable policy, which is what the
 Staging acceptance must confirm the passthrough actually reaches the upstream
 provider.
 
-Input pressure is logged in **tokens**, separately for `feedback_extraction`
-and `attention_classification` — both the pre-call estimate and the provider's
-reported usage — because a short thread of long Greek paragraphs is the
-expensive case that a message counter would rank as cheap.
+Input pressure is logged in **tokens**, separately for `feedback_extraction`,
+`attention_classification` and conditional `feedback_reply` — both the pre-call
+estimate and the provider's reported usage — because a short thread of long
+Greek paragraphs is the expensive case that a message counter would rank as
+cheap. The durable conversation total combines every call that actually ran.
 
 ## D13 — safety content travels the ordinary pipeline
 
@@ -1799,7 +1812,7 @@ the HTTP process mounts
 | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `POST /dev/feedback/simulator/inject`    | Existing manual composer path: `ObservedProviderMessage` → normal durable ingress. `text` is bounded by what an inbound may durably hold (`FEEDBACK_OBSERVED_TEXT_HARD_LIMIT`), not by the 4 096-character send limit, and `null` injects a bodyless inbound — a voice note, photo or reaction.              |
 | `GET /dev/feedback/simulator/thread`     | Existing manual composer read: merge ingress rows and `feedback_sim_outbound` for one phone.                                                                                                                                                                                                                 |
-| `GET /dev/feedback/simulator/catalog`    | Read the configured model, effective extraction/attention reasoning and OpenAI service tier, the parsed live-worker attestation, the two permitted eval models (`openai/gpt-5.6-luna`, `qwen/qwen3.7-max`) and corpus cases eligible from a clean intro baseline.                                            |
+| `GET /dev/feedback/simulator/catalog`    | Read the configured model, effective extraction/reply/attention reasoning and OpenAI service tier, the parsed live-worker attestation, the two permitted eval models (`openai/gpt-5.6-terra`, `qwen/qwen3.7-max`) and corpus cases eligible from a clean intro baseline.                                     |
 | `POST /dev/feedback/simulator/preflight` | Read-only validation of a finished event with feedback-enabled venue, launched campaign, clean open bot conversation, sent intro in the simulated sink, pending goals, cursor 0, opt-in and candidate capacity; resolves exact live bindings, messages, provider-free venue snapshot and worker attestation. |
 | `POST /dev/feedback/simulator/runs`      | Explicitly confirmed paid run. Repairs a missing intro transcript idempotently, then writes scenario messages through normal ingress; it never supplies a per-run model override.                                                                                                                            |
 | `GET /dev/feedback/simulator/runs/:id`   | Poll ordinary ingress, Mongo cursor/model, results, run-created outbox rows and their simulated sink rows.                                                                                                                                                                                                   |
@@ -1827,20 +1840,21 @@ Before a paid run, both API and worker use the same explicit treatment:
 
 ```dotenv
 FEEDBACK_EXTRACTION_STUB=false
-FEEDBACK_EXTRACTION_MODEL=openai/gpt-5.6-luna
-FEEDBACK_EXTRACTION_REASONING_EFFORT=high
-FEEDBACK_ATTENTION_REASONING_EFFORT=high
+FEEDBACK_EXTRACTION_MODEL=openai/gpt-5.6-terra
+FEEDBACK_EXTRACTION_REASONING_EFFORT=medium
+FEEDBACK_REPLY_REASONING_EFFORT=low
+FEEDBACK_ATTENTION_REASONING_EFFORT=medium
 ```
 
-This treatment uses Luna through OpenAI direct. Leave
+This treatment uses Terra through OpenAI direct. Leave
 `FEEDBACK_EXTRACTION_SERVICE_TIER` unset unless the service tier itself is the
 variable under test; silently buying `priority` changes both cost and latency.
 The burst runner names this exact treatment `prova`; it is not an alias for
 whatever model controls happen to be in the environment. Qwen is reachable only
 through the explicit `--comparison qwen` path, with the same reasoning efforts
 and no OpenAI service tier.
-The simulator catalog exposes the effective extraction effort, classifier
-effort, service tier and parsed BullMQ worker profile. Both headless runners
+The simulator catalog exposes the effective extraction, reply and classifier
+efforts, service tier and parsed BullMQ worker profile. Both headless runners
 resolve requested controls through the built worker code and compare them with
 the running API and every registered feedback worker before any paid write.
 Absent, legacy/malformed, mixed-profile or API-mismatched workers fail closed;
@@ -1864,13 +1878,13 @@ pnpm feedback:simulate \
   --campaign <campaign-uuid> \
   --conversation <conversation-uuid> \
   --scenario <eligible-corpus-id> \
-  --model openai/gpt-5.6-luna \
+  --model openai/gpt-5.6-terra \
   --preflight
 pnpm feedback:simulate \
   --campaign <campaign-uuid> \
   --conversation <conversation-uuid> \
   --scenario <eligible-corpus-id> \
-  --model openai/gpt-5.6-luna \
+  --model openai/gpt-5.6-terra \
   --confirm-paid-run
 ```
 
@@ -2062,8 +2076,8 @@ delayed repeat schedulers may remain while API and workers are stopped. The
 simulator gate suppresses automatic and manual campaign summaries, and turns a
 stale summary job into a terminal `disabled_in_simulator` row without touching
 the provider. A deterministic run is therefore provider-free, while the named
-Luna treatment cannot be silently contaminated by a Terra summary call that its
-report does not count.
+rehearsal treatment cannot be silently contaminated by a campaign-summary call
+that its report does not count.
 
 For a literal clean local feedback UI,
 `pnpm feedback:burst:reset --all-feedback` previews the broader local-only scope
@@ -2076,20 +2090,21 @@ its own locked, backed-up operator path.
 **3. Start the stack, and count the workers.** One `main-http.js` and at least
 one `main-worker.js`. Each worker accepts ten feedback jobs, same-conversation
 extractions serialize through a Redis lease, and every replica shares the same
-twenty-call provider ceiling. Extra worker processes therefore exercise
+thirty-call provider ceiling. Extra worker processes therefore exercise
 cross-process coordination without multiplying paid-call capacity.
 
 **4. Assert the preflight rather than reading it.** The runner requires `GET
 /dev/feedback/burst/catalog` to report `extractionStub: false`, a registered
 worker and the expected rehearsal catalogue. It also compares the requested
-model, extraction/attention reasoning and effective service tier with `GET
+model, extraction/reply/attention reasoning and effective service tier with `GET
 /dev/feedback/simulator/catalog`. Any mismatch fails before participant/event
 seeding. Reading those numbers off a screen is how a stale `dist` survives;
 making the command compare them is what catches it.
 
 Then the run. The paid flag is per invocation on purpose, and one logical run is
-more than one invoice line — an extraction call plus one or more classification
-calls per conversation.
+more than one invoice line — an extraction call, one or more classification
+calls and, only when model text survives outbound policy, one reply rewrite per
+conversation turn.
 
 Afterwards, the analysis is the point, and it is tooling rather than memory:
 

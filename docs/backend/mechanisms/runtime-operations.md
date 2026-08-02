@@ -75,10 +75,12 @@ hooks before the application loads those libraries.
   exclusively in the worker. Production supplies both keys through Docker
   secret files rather than Compose environment metadata.
   `FEEDBACK_EXTRACTION_REASONING_EFFORT` controls the extraction call and is
-  omitted when empty; `FEEDBACK_ATTENTION_REASONING_EFFORT` controls the
+  omitted when empty; `FEEDBACK_REPLY_REASONING_EFFORT` controls the conditional
+  participant-facing rewrite and defaults to `low`;
+  `FEEDBACK_ATTENTION_REASONING_EFFORT` controls the
   separately billed classifier and defaults to explicit `none`.
   `FEEDBACK_EXTRACTION_SERVICE_TIER` reaches direct OpenAI adapters only,
-  including the Luna evaluation route.
+  including the Terra evaluation route.
   `FEEDBACK_SUMMARY_MODEL` and `FEEDBACK_SUMMARY_REASONING_EFFORT` configure the
   separate campaign-summary call, which defaults to direct-OpenAI Terra at
   `xhigh`. Turbo and both Compose launch paths forward these values instead of
@@ -100,12 +102,13 @@ hooks before the application loads those libraries.
   `FEEDBACK_PRODUCTION_REHEARSAL_ENABLED=true` exception is also set. That gate
   requires the simulator, forbids the extraction stub, Wasender session key and
   webhook, and leaves every simulator controller behind the ordinary Clerk
-  admin guard. Extraction and classification use the configured real models and
-  incur their normal provider cost; outbound messages end in
+  admin guard. Extraction, classification and the conditional reply rewrite use
+  the configured real model and incur their normal provider cost; outbound messages end in
   `feedback_sim_outbound`, never the Wasender network.
   Real-model runs still use the worker-wide `FEEDBACK_EXTRACTION_MODEL` and
-  reasoning settings, and require `--confirm-paid-run`. The documented Luna
-  rehearsal profile is extraction `xhigh` with classifier `high`; it is an
+  reasoning settings, and require `--confirm-paid-run`. The documented Terra
+  rehearsal profile is extraction/classifier `medium` with reply writer `low`;
+  it is an
   explicit paid treatment, not a change to the Gemini production default.
   The feedback worker registers a versioned, non-secret fingerprint of that
   complete profile in its BullMQ worker name. Simulator and burst preflight

@@ -241,6 +241,7 @@ async function main() {
     }
     const runningConfig = {
       reasoningEffort: simulatorCatalog.activeExtractionReasoningEffort,
+      replyReasoningEffort: simulatorCatalog.activeReplyReasoningEffort,
       attentionReasoningEffort: simulatorCatalog.activeAttentionReasoningEffort,
       serviceTier: simulatorCatalog.activeServiceTier,
     };
@@ -295,7 +296,7 @@ async function main() {
       `  provider-driven:${String(providerConversationCount).padStart(4, " ")}`,
     );
     console.error(
-      `The ${providerConversationCount} personas with testimony can make extraction and attention-classification provider calls. The run permanently consumes the seeded campaigns and leaves all normal persisted outputs in place.`,
+      `The ${providerConversationCount} personas with testimony can make extraction, attention-classification, and conditional reply-rewrite provider calls. The run permanently consumes the seeded campaigns and leaves all normal persisted outputs in place.`,
     );
     console.error("Re-run with --confirm-paid-run to proceed.");
     process.exitCode = 2;
@@ -1296,8 +1297,9 @@ async function collectSnapshot({
           about: note.subjectDisplayName,
           flagged: flaggedById.get(note.id) === true,
         })),
-        // Each extraction run makes two model calls (propose + classify). Count
-        // distinct extraction timestamps on answers/notes as a lower bound.
+        // Every extraction run makes propose + classify calls. A forwarded
+        // model draft may add a reply rewrite, which this row-level heuristic
+        // cannot recover; exact phase counts come from feedback.extract.tokens.
         modelCalls: countModelCalls(answerRows, noteRows),
       };
 
@@ -1406,7 +1408,8 @@ function countModelCalls(answerRows, noteRows) {
       keys.add(`${model}:${createdAt}`);
     }
   }
-  // propose + classify per extraction run
+  // Lower bound: propose + classify per extraction run. Conditional reply
+  // rewrites are counted from logs, not guessed from result rows.
   return keys.size * 2;
 }
 
@@ -1864,6 +1867,9 @@ async function resolveTreatmentConfig(treatment) {
       modelService.resolveFeedbackExtractionReasoningEffort(
         treatment.controls.reasoningEffort,
       ) ?? null,
+    replyReasoningEffort: modelService.resolveFeedbackReplyReasoningEffort(
+      treatment.controls.replyReasoningEffort,
+    ),
     attentionReasoningEffort:
       modelService.resolveFeedbackAttentionReasoningEffort(
         treatment.controls.attentionReasoningEffort,
@@ -1952,8 +1958,9 @@ function printUsage() {
     --confirm-paid-run
 
 Options:
-  --profile prova        Exact paid profile: direct OpenAI Luna, extraction high,
-                         attention high, service tier unset. Omit for stub mode.
+  --profile prova        Exact paid profile: direct OpenAI Terra, extraction and
+                         attention medium, reply rewrite low, service tier unset.
+                         Omit for stub mode.
   --comparison qwen      Explicit Qwen/OpenRouter comparison using the same efforts.
   --confirm-paid-run     Required acknowledgement of extraction/classifier model cost
   --live-guests          Enable cursor-agent calls for the six unscripted personas.
@@ -1973,9 +1980,10 @@ The API and worker must already be running with:
   FEEDBACK_EXTRACTION_STUB=true          # default free mode
   # prova instead requires exactly:
   FEEDBACK_EXTRACTION_STUB=false
-  FEEDBACK_EXTRACTION_MODEL=openai/gpt-5.6-luna
-  FEEDBACK_EXTRACTION_REASONING_EFFORT=high
-  FEEDBACK_ATTENTION_REASONING_EFFORT=high
+  FEEDBACK_EXTRACTION_MODEL=openai/gpt-5.6-terra
+  FEEDBACK_EXTRACTION_REASONING_EFFORT=medium
+  FEEDBACK_REPLY_REASONING_EFFORT=low
+  FEEDBACK_ATTENTION_REASONING_EFFORT=medium
   FEEDBACK_EXTRACTION_SERVICE_TIER=      # unset
 
 Seed identity is the reserved phone block +3069000<cc><pp> and the catalogue

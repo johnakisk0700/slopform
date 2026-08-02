@@ -57,7 +57,7 @@ describe("real-model feedback simulator", () => {
       campaignId,
       conversationId,
       scenarioId: "greeklish",
-      expectedModel: "openai/gpt-5.6-luna",
+      expectedModel: "openai/gpt-5.6-terra",
     };
 
     expect(startFeedbackSimulatorRunSchema.safeParse(selection).success).toBe(
@@ -80,7 +80,7 @@ describe("real-model feedback simulator", () => {
           campaignId,
           conversationId,
           scenarioId: "greeklish",
-          expectedModel: "openai/gpt-5.6-luna",
+          expectedModel: "openai/gpt-5.6-terra",
           confirmPaidRun: false,
         } as never,
         correlationId,
@@ -101,7 +101,7 @@ describe("real-model feedback simulator", () => {
           campaignId,
           conversationId,
           scenarioId: "greeklish",
-          expectedModel: "openai/gpt-5.6-luna",
+          expectedModel: "openai/gpt-5.6-terra",
           confirmPaidRun: true,
         },
         correlationId,
@@ -119,12 +119,13 @@ describe("real-model feedback simulator", () => {
     const catalog = await service.getCatalog();
 
     expect(catalog.availableModels).toEqual([
-      "openai/gpt-5.6-luna",
+      "openai/gpt-5.6-terra",
       "qwen/qwen3.7-max",
     ]);
     expect(catalog).toMatchObject({
-      activeModel: "openai/gpt-5.6-luna",
-      activeExtractionReasoningEffort: "xhigh",
+      activeModel: "openai/gpt-5.6-terra",
+      activeExtractionReasoningEffort: "medium",
+      activeReplyReasoningEffort: "low",
       activeAttentionReasoningEffort: "none",
       activeServiceTier: null,
       workerAttestation: {
@@ -165,13 +166,15 @@ describe("real-model feedback simulator", () => {
   it("publishes the resolved paid-model controls used by the runner", async () => {
     const { service } = createHarness({
       FEEDBACK_EXTRACTION_REASONING_EFFORT: "high",
+      FEEDBACK_REPLY_REASONING_EFFORT: "medium",
       FEEDBACK_ATTENTION_REASONING_EFFORT: "low",
       FEEDBACK_EXTRACTION_SERVICE_TIER: "priority",
     });
 
     await expect(service.getCatalog()).resolves.toMatchObject({
-      activeModel: "openai/gpt-5.6-luna",
+      activeModel: "openai/gpt-5.6-terra",
       activeExtractionReasoningEffort: "high",
+      activeReplyReasoningEffort: "medium",
       activeAttentionReasoningEffort: "low",
       activeServiceTier: "priority",
     });
@@ -187,6 +190,7 @@ describe("real-model feedback simulator", () => {
     await expect(service.getCatalog()).resolves.toMatchObject({
       activeModel: "qwen/qwen3.7-max",
       activeExtractionReasoningEffort: "high",
+      activeReplyReasoningEffort: "low",
       activeAttentionReasoningEffort: "none",
       activeServiceTier: null,
     });
@@ -234,7 +238,7 @@ describe("real-model feedback simulator", () => {
         campaignId,
         conversationId,
         scenarioId: "greeklish",
-        expectedModel: "openai/gpt-5.6-luna",
+        expectedModel: "openai/gpt-5.6-terra",
       },
       correlationId,
     );
@@ -250,9 +254,9 @@ describe("real-model feedback simulator", () => {
         status: "verified",
         observedProfiles: [
           {
-            model: "openai/gpt-5.6-luna",
+            model: "openai/gpt-5.6-terra",
             provider: "openai",
-            providerModelId: "gpt-5.6-luna",
+            providerModelId: "gpt-5.6-terra",
           },
         ],
       },
@@ -283,7 +287,7 @@ describe("real-model feedback simulator", () => {
         campaignId,
         conversationId,
         scenarioId: "greeklish",
-        expectedModel: "openai/gpt-5.6-luna",
+        expectedModel: "openai/gpt-5.6-terra",
         confirmPaidRun: true,
       },
       correlationId,
@@ -315,7 +319,7 @@ describe("real-model feedback simulator", () => {
             campaignId,
             conversationId,
             scenarioId: "greeklish",
-            expectedModel: "openai/gpt-5.6-luna",
+            expectedModel: "openai/gpt-5.6-terra",
             confirmPaidRun: true,
           },
           correlationId,
@@ -337,7 +341,7 @@ describe("real-model feedback simulator", () => {
         campaignId,
         conversationId,
         scenarioId: "greeklish",
-        expectedModel: "openai/gpt-5.6-luna",
+        expectedModel: "openai/gpt-5.6-terra",
       },
       correlationId,
     );
@@ -351,7 +355,7 @@ describe("real-model feedback simulator", () => {
           campaignId,
           conversationId,
           scenarioId: "greeklish",
-          expectedModel: "openai/gpt-5.6-luna",
+          expectedModel: "openai/gpt-5.6-terra",
           confirmPaidRun: true,
         },
         correlationId,
@@ -365,8 +369,9 @@ describe("real-model feedback simulator", () => {
     const harness = createHarness();
     const staleProfile = resolveFeedbackWorkerControlProfile({
       extractionStub: true,
-      model: "openai/gpt-5.6-luna",
+      model: "openai/gpt-5.6-terra",
       extractionReasoningEffort: undefined,
+      replyReasoningEffort: undefined,
       attentionReasoningEffort: undefined,
       serviceTier: undefined,
     });
@@ -379,7 +384,7 @@ describe("real-model feedback simulator", () => {
         campaignId,
         conversationId,
         scenarioId: "greeklish",
-        expectedModel: "openai/gpt-5.6-luna",
+        expectedModel: "openai/gpt-5.6-terra",
       },
       correlationId,
     );
@@ -397,7 +402,7 @@ describe("real-model feedback simulator", () => {
           campaignId,
           conversationId,
           scenarioId: "greeklish",
-          expectedModel: "openai/gpt-5.6-luna",
+          expectedModel: "openai/gpt-5.6-terra",
           confirmPaidRun: true,
         },
         correlationId,
@@ -417,7 +422,7 @@ describe("real-model feedback simulator", () => {
           campaignId,
           conversationId,
           scenarioId: "greeklish",
-          expectedModel: "openai/gpt-5.6-luna",
+          expectedModel: "openai/gpt-5.6-terra",
         },
         correlationId,
       ),
@@ -436,7 +441,7 @@ describe("real-model feedback simulator", () => {
           campaignId,
           conversationId,
           scenarioId: "greeklish",
-          expectedModel: "openai/gpt-5.6-luna",
+          expectedModel: "openai/gpt-5.6-terra",
         },
         correlationId,
       ),
@@ -452,7 +457,7 @@ describe("real-model feedback simulator", () => {
           campaignId,
           conversationId,
           scenarioId: "greeklish",
-          expectedModel: "openai/gpt-5.6-luna",
+          expectedModel: "openai/gpt-5.6-terra",
         },
         correlationId,
       ),
@@ -513,7 +518,7 @@ describe("real-model feedback simulator", () => {
       FEEDBACK_PRODUCTION_REHEARSAL_ENABLED: true,
     });
     await expect(rehearsal.service.getCatalog()).resolves.toMatchObject({
-      activeModel: "openai/gpt-5.6-luna",
+      activeModel: "openai/gpt-5.6-terra",
     });
   });
 });
@@ -680,8 +685,9 @@ function createHarness(
     NODE_ENV: "test",
     FEEDBACK_SIMULATOR_ENABLED: true,
     TRANSPORT_MODE: "simulated",
-    FEEDBACK_EXTRACTION_MODEL: "openai/gpt-5.6-luna",
-    FEEDBACK_EXTRACTION_REASONING_EFFORT: "xhigh",
+    FEEDBACK_EXTRACTION_MODEL: "openai/gpt-5.6-terra",
+    FEEDBACK_EXTRACTION_REASONING_EFFORT: "medium",
+    FEEDBACK_REPLY_REASONING_EFFORT: "low",
     ...environment,
   };
   const expectedProfile = resolveFeedbackWorkerControlProfile({
@@ -689,6 +695,9 @@ function createHarness(
     model: optionalString(values.FEEDBACK_EXTRACTION_MODEL),
     extractionReasoningEffort: optionalString(
       values.FEEDBACK_EXTRACTION_REASONING_EFFORT,
+    ),
+    replyReasoningEffort: optionalString(
+      values.FEEDBACK_REPLY_REASONING_EFFORT,
     ),
     attentionReasoningEffort: optionalString(
       values.FEEDBACK_ATTENTION_REASONING_EFFORT,

@@ -9,9 +9,9 @@ import {
 } from "./provider-call-limiter.js";
 
 describe("ProviderCallLimiter", () => {
-  it("keeps the deployment-wide hardcoded default at twenty", () => {
-    expect(PROVIDER_CALL_CONCURRENCY_LIMIT).toBe(20);
-    expect(PROVIDER_CALL_STARTS_PER_MINUTE_LIMIT).toBe(20);
+  it("keeps the deployment-wide hardcoded default at thirty", () => {
+    expect(PROVIDER_CALL_CONCURRENCY_LIMIT).toBe(30);
+    expect(PROVIDER_CALL_STARTS_PER_MINUTE_LIMIT).toBe(30);
   });
 
   it("never runs more than the configured number of calls", async () => {

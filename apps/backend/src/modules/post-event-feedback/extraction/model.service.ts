@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
@@ -9,6 +9,7 @@ import {
   RetryError,
   TypeValidationError,
   generateObject,
+  generateText,
   type LanguageModel,
 } from "ai";
 
@@ -23,6 +24,7 @@ import {
   type AssistantModel,
 } from "../../assistant/assistant.schemas.js";
 import {
+  buildFeedbackReplyRewritePrompt,
   type FeedbackExtractionPrompt,
   estimatePromptTokens,
 } from "./prompt.js";
@@ -176,6 +178,13 @@ export interface FeedbackExtractionGenerationResult {
   readonly usage: FeedbackExtractionUsage;
 }
 
+export interface FeedbackReplyGenerationResult {
+  readonly model: FeedbackExtractionModelId;
+  readonly reply: string | null;
+  readonly usage: FeedbackExtractionUsage;
+  readonly estimatedPromptTokens: number;
+}
+
 export interface FeedbackAttentionClassificationGenerationResult {
   readonly model: FeedbackExtractionModelId;
   readonly signals: readonly FeedbackExtractionSafetySignalProposal[];
@@ -223,6 +232,10 @@ export interface FeedbackExtractionModelPort {
     prompt: FeedbackExtractionPrompt,
     questionKeys: readonly FeedbackAnswerQuestionKey[],
   ): Promise<FeedbackExtractionGenerationResult>;
+  rewriteReply(
+    prompt: FeedbackExtractionPrompt,
+    draft: string,
+  ): Promise<FeedbackReplyGenerationResult>;
   classifyAttention(
     messages: readonly FeedbackExtractionMessageView[],
     targetMessageIds: readonly string[],
@@ -258,6 +271,25 @@ export const FEEDBACK_EXTRACTION_REASONING_EFFORTS = [
 
 export type FeedbackExtractionReasoningEffort =
   (typeof FEEDBACK_EXTRACTION_REASONING_EFFORTS)[number];
+
+export const DEFAULT_FEEDBACK_REPLY_REASONING_EFFORT = "low" as const;
+
+export function resolveFeedbackReplyReasoningEffort(
+  configured: string | undefined,
+): FeedbackExtractionReasoningEffort {
+  if (!configured) {
+    return DEFAULT_FEEDBACK_REPLY_REASONING_EFFORT;
+  }
+  const effort = FEEDBACK_EXTRACTION_REASONING_EFFORTS.find(
+    (candidate) => candidate === configured,
+  );
+  if (!effort) {
+    throw new Error(
+      `FEEDBACK_REPLY_REASONING_EFFORT must be one of ${FEEDBACK_EXTRACTION_REASONING_EFFORTS.join(", ")}, received "${configured}"`,
+    );
+  }
+  return effort;
+}
 
 /**
  * `undefined` — the default — means *send no reasoning field at all*, which is
@@ -521,11 +553,13 @@ export function resolveFeedbackExtractionModel(
  */
 @Injectable()
 export class PostEventFeedbackExtractionModel implements FeedbackExtractionModelPort {
+  private readonly logger = new Logger(PostEventFeedbackExtractionModel.name);
   private readonly openAiProvider: ReturnType<typeof createOpenAI> | undefined;
   private readonly openRouterProvider:
     ReturnType<typeof createOpenRouter> | undefined;
   readonly model: AssistantModel;
   readonly reasoningEffort: FeedbackExtractionReasoningEffort | undefined;
+  readonly replyReasoningEffort: FeedbackExtractionReasoningEffort;
   readonly attentionReasoningEffort: FeedbackExtractionReasoningEffort;
   readonly serviceTier: FeedbackExtractionServiceTier | undefined;
 
@@ -549,6 +583,9 @@ export class PostEventFeedbackExtractionModel implements FeedbackExtractionModel
     );
     this.reasoningEffort = resolveFeedbackExtractionReasoningEffort(
       this.config.get("FEEDBACK_EXTRACTION_REASONING_EFFORT", { infer: true }),
+    );
+    this.replyReasoningEffort = resolveFeedbackReplyReasoningEffort(
+      this.config.get("FEEDBACK_REPLY_REASONING_EFFORT", { infer: true }),
     );
     this.attentionReasoningEffort = resolveFeedbackAttentionReasoningEffort(
       this.config.get("FEEDBACK_ATTENTION_REASONING_EFFORT", { infer: true }),
@@ -688,6 +725,79 @@ export class PostEventFeedbackExtractionModel implements FeedbackExtractionModel
     };
   }
 
+  /**
+   * Rewrite only text the application has already decided it may forward.
+   *
+   * Failure is deliberately fail-closed and does not retry the successful
+   * extraction decision: answers and notes remain usable while this turn says
+   * nothing. Retrying the whole job would pay for extraction again and is the
+   * path that previously produced stale duplicate questions.
+   */
+  async rewriteReply(
+    extractionPrompt: FeedbackExtractionPrompt,
+    draft: string,
+  ): Promise<FeedbackReplyGenerationResult> {
+    const prompt = buildFeedbackReplyRewritePrompt({
+      extractionPrompt,
+      draft,
+    });
+    const estimatedPromptTokens = estimatePromptTokens(prompt);
+    const model = this.resolveProviderModel(this.model);
+    const providerOptions = feedbackExtractionProviderOptions(
+      this.model,
+      this.replyReasoningEffort,
+      this.serviceTier,
+    );
+
+    try {
+      const result = await this.providerCalls.run(() =>
+        generateText({
+          model,
+          system: prompt.system,
+          prompt: prompt.user,
+          maxOutputTokens: 2_048,
+          ...(providerOptions ? { providerOptions } : {}),
+          maxRetries: 0,
+          abortSignal: AbortSignal.timeout(
+            FEEDBACK_EXTRACTION_TIMEOUT_MILLISECONDS,
+          ),
+        }),
+      );
+      const reply = normalizeGeneratedReply(result.text);
+      return {
+        model: this.model,
+        reply,
+        usage: {
+          inputTokens: result.usage.inputTokens ?? null,
+          outputTokens: result.usage.outputTokens ?? null,
+          totalTokens: result.usage.totalTokens ?? null,
+        },
+        estimatedPromptTokens,
+      };
+    } catch (error) {
+      const mapped = toGenerationError(error);
+      this.logger.warn({
+        event: "feedback.reply_generation_failed",
+        model: this.model,
+        failure: {
+          code: mapped.code,
+          cause: mapped.failureCause,
+          detail: mapped.failureDetail,
+        },
+      });
+      return {
+        model: this.model,
+        reply: null,
+        usage: {
+          inputTokens: null,
+          outputTokens: null,
+          totalTokens: null,
+        },
+        estimatedPromptTokens,
+      };
+    }
+  }
+
   private resolveProviderModel(model: AssistantModel): LanguageModel {
     const adapter = assistantModelAdapter(model);
 
@@ -718,6 +828,14 @@ export class PostEventFeedbackExtractionModel implements FeedbackExtractionModel
     }
     return this.openAiProvider(adapter.providerModelId);
   }
+}
+
+function normalizeGeneratedReply(value: string): string | null {
+  const reply = value
+    .trim()
+    .replace(/^["«'`]+|["»'`]+$/gu, "")
+    .trim();
+  return reply.length > 0 && reply.length <= 1_000 ? reply : null;
 }
 
 function chunk<T>(items: readonly T[], size: number): readonly T[][] {

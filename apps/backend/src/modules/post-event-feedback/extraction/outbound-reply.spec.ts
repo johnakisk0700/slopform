@@ -455,6 +455,7 @@ describe("resolveOutbound", () => {
     expect(outbound).toEqual({
       body: "Ποιος σου έκανε εντύπωση;",
       dedupeKey: "feedback-reply-conv-1-2",
+      generatedByModel: true,
       askedGoal: "liked",
     });
   });
@@ -479,6 +480,7 @@ describe("resolveOutbound", () => {
     expect(outbound).toEqual({
       body: "ΟΚ, το πιάνω — το bot αποσύρεται με σκυμμένο κεφάλι",
       dedupeKey: "feedback-reply-conv-1-4",
+      generatedByModel: true,
     });
     expect(outbound).not.toHaveProperty("askedGoal");
   });
@@ -536,6 +538,7 @@ describe("resolveOutbound", () => {
     expect(outbound).toEqual({
       body: "Λυπάμαι που το ακούω, θες να μιλήσουμε;",
       dedupeKey: "feedback-reply-conv-1-2",
+      generatedByModel: true,
     });
   });
 
@@ -585,6 +588,7 @@ describe("resolveOutbound", () => {
     expect(outbound).toEqual({
       body: "Τέλεια, σημείωσα τη Λούλα! Υπάρχει κάποιος που θα προτιμούσες να μην πετύχεις ξανά;",
       dedupeKey: "feedback-reply-conv-1-8",
+      generatedByModel: true,
       askedGoal: "avoid",
     });
   });

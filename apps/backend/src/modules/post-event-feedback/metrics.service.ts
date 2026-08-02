@@ -37,7 +37,8 @@ export const FEEDBACK_EXTRACT_OUTCOMES = [
 export type FeedbackExtractOutcome = (typeof FEEDBACK_EXTRACT_OUTCOMES)[number];
 
 export interface FeedbackExtractTokenUsage {
-  readonly phase: "feedback_extraction" | "attention_classification";
+  readonly phase:
+    "feedback_extraction" | "attention_classification" | "feedback_reply";
   readonly model: string;
   /** Pre-call estimate from the assembled prompt. */
   readonly estimatedPromptTokens: number;

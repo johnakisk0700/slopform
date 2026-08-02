@@ -7,8 +7,9 @@
  * the explicit comparison CLI path.
  */
 const PROVA_CONTROLS = Object.freeze({
-  reasoningEffort: "high",
-  attentionReasoningEffort: "high",
+  reasoningEffort: "medium",
+  replyReasoningEffort: "low",
+  attentionReasoningEffort: "medium",
   serviceTier: null,
 });
 
@@ -16,9 +17,9 @@ export const FEEDBACK_BURST_PROFILES = Object.freeze({
   prova: Object.freeze({
     name: "prova",
     mode: "profile",
-    model: "openai/gpt-5.6-luna",
+    model: "openai/gpt-5.6-terra",
     provider: "openai",
-    providerModelId: "gpt-5.6-luna",
+    providerModelId: "gpt-5.6-terra",
     controls: PROVA_CONTROLS,
   }),
 });

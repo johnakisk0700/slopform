@@ -18,6 +18,7 @@ import {
   FEEDBACK_EXTRACTION_DEFAULT_MODEL,
   FEEDBACK_EXTRACTION_MAX_OUTPUT_TOKENS,
   FEEDBACK_EXTRACTION_THINKING_MAX_OUTPUT_TOKENS,
+  DEFAULT_FEEDBACK_REPLY_REASONING_EFFORT,
   FeedbackExtractionGenerationError,
   feedbackAttentionClassificationMaxOutputTokens,
   feedbackExtractionMaxOutputTokens,
@@ -27,6 +28,7 @@ import {
   resolveFeedbackExtractionModel,
   resolveFeedbackExtractionReasoningEffort,
   resolveFeedbackExtractionServiceTier,
+  resolveFeedbackReplyReasoningEffort,
   toGenerationError,
 } from "./model.service.js";
 
@@ -88,6 +90,16 @@ describe("feedback extraction model selection", () => {
     ).toBeUndefined();
     expect(() => resolveFeedbackExtractionReasoningEffort("maximum")).toThrow(
       /FEEDBACK_EXTRACTION_REASONING_EFFORT/u,
+    );
+  });
+
+  it("defaults the participant-facing writer to low and accepts an explicit effort", () => {
+    expect(DEFAULT_FEEDBACK_REPLY_REASONING_EFFORT).toBe("low");
+    expect(resolveFeedbackReplyReasoningEffort(undefined)).toBe("low");
+    expect(resolveFeedbackReplyReasoningEffort("")).toBe("low");
+    expect(resolveFeedbackReplyReasoningEffort("medium")).toBe("medium");
+    expect(() => resolveFeedbackReplyReasoningEffort("tiny")).toThrow(
+      /FEEDBACK_REPLY_REASONING_EFFORT/u,
     );
   });
 

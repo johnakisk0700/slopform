@@ -9,8 +9,8 @@ import {
 } from "./worker-attestation.js";
 
 describe("feedback worker control attestation", () => {
-  it("round-trips the exact paid Luna treatment deterministically", () => {
-    const profile = paidLunaProfile();
+  it("round-trips the exact paid Terra treatment deterministically", () => {
+    const profile = paidTerraProfile();
     const first = createFeedbackWorkerRegistrationName(profile);
     const second = createFeedbackWorkerRegistrationName(profile);
 
@@ -28,7 +28,7 @@ describe("feedback worker control attestation", () => {
   });
 
   it("fails closed for a legacy or corrupt registered worker", () => {
-    const profile = paidLunaProfile();
+    const profile = paidTerraProfile();
     const result = attestFeedbackWorkers(
       [
         workerInfo(createFeedbackWorkerRegistrationName(profile)),
@@ -46,11 +46,12 @@ describe("feedback worker control attestation", () => {
   });
 
   it("rejects a valid worker whose stub/model controls differ from the API", () => {
-    const expected = paidLunaProfile();
+    const expected = paidTerraProfile();
     const staleWorker = resolveFeedbackWorkerControlProfile({
       extractionStub: true,
       model: "qwen/qwen3.7-max",
       extractionReasoningEffort: "xhigh",
+      replyReasoningEffort: "low",
       attentionReasoningEffort: "high",
       serviceTier: "priority",
     });
@@ -71,6 +72,7 @@ describe("feedback worker control attestation", () => {
           provider: "openrouter",
           providerModelId: "qwen/qwen3.7-max",
           extractionReasoningEffort: "xhigh",
+          replyReasoningEffort: "low",
           attentionReasoningEffort: "high",
           serviceTier: null,
         },
@@ -81,14 +83,15 @@ describe("feedback worker control attestation", () => {
   it("uses the same defaults and strict boolean vocabulary as environment validation", () => {
     const name = createFeedbackWorkerRegistrationNameFromEnvironment({
       FEEDBACK_EXTRACTION_STUB: " false ",
-      FEEDBACK_EXTRACTION_MODEL: "openai/gpt-5.6-luna",
-      FEEDBACK_EXTRACTION_REASONING_EFFORT: "xhigh",
-      FEEDBACK_ATTENTION_REASONING_EFFORT: "high",
+      FEEDBACK_EXTRACTION_MODEL: "openai/gpt-5.6-terra",
+      FEEDBACK_EXTRACTION_REASONING_EFFORT: "medium",
+      FEEDBACK_REPLY_REASONING_EFFORT: "low",
+      FEEDBACK_ATTENTION_REASONING_EFFORT: "medium",
       FEEDBACK_EXTRACTION_SERVICE_TIER: "",
     });
 
     expect(parseFeedbackWorkerRegistrationName(name)).toEqual(
-      paidLunaProfile(),
+      paidTerraProfile(),
     );
     expect(() =>
       createFeedbackWorkerRegistrationNameFromEnvironment({
@@ -98,12 +101,13 @@ describe("feedback worker control attestation", () => {
   });
 });
 
-function paidLunaProfile() {
+function paidTerraProfile() {
   return resolveFeedbackWorkerControlProfile({
     extractionStub: false,
-    model: "openai/gpt-5.6-luna",
-    extractionReasoningEffort: "xhigh",
-    attentionReasoningEffort: "high",
+    model: "openai/gpt-5.6-terra",
+    extractionReasoningEffort: "medium",
+    replyReasoningEffort: "low",
+    attentionReasoningEffort: "medium",
     serviceTier: undefined,
   });
 }

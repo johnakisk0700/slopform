@@ -31,6 +31,8 @@ import {
 export interface OutboundReply {
   readonly body: string;
   readonly dedupeKey: string;
+  /** True only when `body` came from the participant-facing model writer. */
+  readonly generatedByModel?: true;
   /**
    * The goal this outbound is actually asking, when it is a question. Goal
    * progress reads this rather than the model's `nextGoal`, so a replaced reply
@@ -495,6 +497,7 @@ function chooseOutbound(
   return {
     body: validated.reply,
     dedupeKey: createFeedbackReplyDedupeKey(conversation._id, testimonySeq),
+    generatedByModel: true,
     ...(validated.nextGoal && replyPosesQuestion(validated.reply)
       ? { askedGoal: validated.nextGoal }
       : {}),

@@ -9,9 +9,10 @@ import {
   resolveFeedbackExtractionModel,
   resolveFeedbackExtractionReasoningEffort,
   resolveFeedbackExtractionServiceTier,
+  resolveFeedbackReplyReasoningEffort,
 } from "./extraction/model.service.js";
 
-export const FEEDBACK_WORKER_ATTESTATION_VERSION = 1 as const;
+export const FEEDBACK_WORKER_ATTESTATION_VERSION = 2 as const;
 export const FEEDBACK_WORKER_ATTESTATION_STATUSES = [
   "verified",
   "absent",
@@ -20,7 +21,7 @@ export const FEEDBACK_WORKER_ATTESTATION_STATUSES = [
 ] as const;
 
 const FEEDBACK_WORKER_REGISTRATION_PREFIX =
-  "jts-feedback-worker-attestation-v1.";
+  "jts-feedback-worker-attestation-v2.";
 const BULLMQ_NAMED_WORKER_SEPARATOR = ":w:";
 
 export const feedbackWorkerControlProfileSchema = z
@@ -33,6 +34,7 @@ export const feedbackWorkerControlProfileSchema = z
     extractionReasoningEffort: z
       .enum(FEEDBACK_EXTRACTION_REASONING_EFFORTS)
       .nullable(),
+    replyReasoningEffort: z.enum(FEEDBACK_EXTRACTION_REASONING_EFFORTS),
     attentionReasoningEffort: z.enum(FEEDBACK_EXTRACTION_REASONING_EFFORTS),
     serviceTier: z.enum(FEEDBACK_EXTRACTION_SERVICE_TIERS).nullable(),
   })
@@ -60,6 +62,7 @@ interface FeedbackWorkerControlInput {
   readonly extractionStub: boolean;
   readonly model: string | undefined;
   readonly extractionReasoningEffort: string | undefined;
+  readonly replyReasoningEffort: string | undefined;
   readonly attentionReasoningEffort: string | undefined;
   readonly serviceTier: string | undefined;
 }
@@ -93,6 +96,9 @@ export function resolveFeedbackWorkerControlProfile(
       resolveFeedbackExtractionReasoningEffort(
         input.extractionReasoningEffort,
       ) ?? null,
+    replyReasoningEffort: resolveFeedbackReplyReasoningEffort(
+      input.replyReasoningEffort,
+    ),
     attentionReasoningEffort: resolveFeedbackAttentionReasoningEffort(
       input.attentionReasoningEffort,
     ),
@@ -120,7 +126,7 @@ export function parseFeedbackWorkerRegistrationName(
   registrationName: string,
 ): FeedbackWorkerControlProfile {
   if (!registrationName.startsWith(FEEDBACK_WORKER_REGISTRATION_PREFIX)) {
-    throw new Error("Feedback worker registration has no v1 attestation");
+    throw new Error("Feedback worker registration has no v2 attestation");
   }
 
   const encoded = registrationName.slice(
@@ -191,7 +197,7 @@ export function attestFeedbackWorkers(
       malformedWorkerCount,
       observedProfiles: uniqueProfiles,
       issue:
-        "At least one registered feedback worker has no valid v1 control attestation. Restart every feedback worker from the current build before running a rehearsal.",
+        "At least one registered feedback worker has no valid v2 control attestation. Restart every feedback worker from the current build before running a rehearsal.",
     };
   }
   if (uniqueProfiles.length !== 1) {
@@ -244,6 +250,9 @@ export function createFeedbackWorkerRegistrationNameFromEnvironment(
       model: emptyToUndefined(environment.FEEDBACK_EXTRACTION_MODEL),
       extractionReasoningEffort: emptyToUndefined(
         environment.FEEDBACK_EXTRACTION_REASONING_EFFORT,
+      ),
+      replyReasoningEffort: emptyToUndefined(
+        environment.FEEDBACK_REPLY_REASONING_EFFORT,
       ),
       attentionReasoningEffort: emptyToUndefined(
         environment.FEEDBACK_ATTENTION_REASONING_EFFORT,
