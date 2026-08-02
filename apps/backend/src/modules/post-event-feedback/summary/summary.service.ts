@@ -1,5 +1,5 @@
 import { InjectQueue } from "@nestjs/bullmq";
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, Optional } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { createOpenAI } from "@ai-sdk/openai";
 import {
@@ -17,7 +17,7 @@ import type {
 } from "@join-the-six/database";
 
 import { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
-import { withProviderCallSlot } from "../../../infrastructure/ai/provider-call-limiter.js";
+import { ProviderCallLimiter } from "../../../infrastructure/ai/provider-call-limiter.js";
 import type { Environment } from "../../../infrastructure/config/environment.js";
 import { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import { FEEDBACK_QUEUE } from "../../../infrastructure/queue/queue.constants.js";
@@ -106,6 +106,8 @@ export class PostEventFeedbackCampaignSummaryService {
     private readonly audit: AuditRepository,
     @InjectQueue(FEEDBACK_QUEUE)
     private readonly queue: Queue,
+    @Optional()
+    private readonly providerCalls: ProviderCallLimiter = new ProviderCallLimiter(),
   ) {
     const openAiKey = this.config.get("OPENAI_API_KEY", { infer: true });
     this.openAiProvider = openAiKey
@@ -381,7 +383,7 @@ export class PostEventFeedbackCampaignSummaryService {
 
   private async generateSummary(prompt: string): Promise<string> {
     const model = this.resolveProviderModel();
-    const result = await withProviderCallSlot(() =>
+    const result = await this.providerCalls.run(() =>
       generateText({
         model,
         messages: [{ role: "user", content: prompt }],

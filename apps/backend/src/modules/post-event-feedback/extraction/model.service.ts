@@ -12,7 +12,7 @@ import {
   type LanguageModel,
 } from "ai";
 
-import { withProviderCallSlot } from "../../../infrastructure/ai/provider-call-limiter.js";
+import { ProviderCallLimiter } from "../../../infrastructure/ai/provider-call-limiter.js";
 import type { Environment } from "../../../infrastructure/config/environment.js";
 import {
   assistantModelAdapter,
@@ -528,7 +528,10 @@ export class PostEventFeedbackExtractionModel implements FeedbackExtractionModel
   readonly attentionReasoningEffort: FeedbackExtractionReasoningEffort;
   readonly serviceTier: FeedbackExtractionServiceTier | undefined;
 
-  constructor(private readonly config: ConfigService<Environment, true>) {
+  constructor(
+    private readonly config: ConfigService<Environment, true>,
+    private readonly providerCalls: ProviderCallLimiter = new ProviderCallLimiter(),
+  ) {
     const openAiKey = this.config.get("OPENAI_API_KEY", { infer: true });
     const openRouterKey = this.config.get("OPENROUTER_API_KEY", {
       infer: true,
@@ -567,7 +570,7 @@ export class PostEventFeedbackExtractionModel implements FeedbackExtractionModel
     );
 
     try {
-      const result = await withProviderCallSlot(() =>
+      const result = await this.providerCalls.run(() =>
         generateObject({
           model,
           schema: proposalSchema,
@@ -633,7 +636,7 @@ export class PostEventFeedbackExtractionModel implements FeedbackExtractionModel
           targetMessageIds: batch,
         });
         estimatedPromptTokens += estimatePromptTokens(prompt);
-        const result = await withProviderCallSlot(() =>
+        const result = await this.providerCalls.run(() =>
           generateObject({
             model,
             schema: feedbackAttentionClassificationProposalSchema,

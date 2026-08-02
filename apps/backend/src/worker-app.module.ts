@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { ConditionalModule } from "@nestjs/config";
 
 import { AppConfigModule } from "./infrastructure/config/app-config.module.js";
+import { ProviderCallLimiterModule } from "./infrastructure/ai/provider-call-limiter.module.js";
 import { isWasenderTransportEnabled } from "./infrastructure/config/enabled-modules.js";
 import { LoggingModule } from "./infrastructure/logging/logging.module.js";
 import { ObservabilityModule } from "./infrastructure/observability/observability.module.js";
@@ -14,6 +15,7 @@ import { ReferenceWorkerModule } from "./modules/reference/reference-worker.modu
 @Module({
   imports: [
     AppConfigModule,
+    ProviderCallLimiterModule,
     LoggingModule,
     ObservabilityModule,
     ConditionalModule.registerWhen(

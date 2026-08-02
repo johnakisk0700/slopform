@@ -14,6 +14,7 @@ import {
 } from "./outbox/deliver.service.js";
 import { MessageOutboxRelayService } from "./outbox/relay.service.js";
 import { PostEventFeedbackExtractionFallback } from "./extraction/fallback.service.js";
+import { FeedbackConversationExecutionLimiter } from "./extraction/execution-limiter.service.js";
 import {
   FeedbackExtractionGenerationError,
   isFeedbackProviderIncident,
@@ -58,21 +59,21 @@ import { createFeedbackWorkerRegistrationNameFromEnvironment } from "./worker-at
  * those calls are independently guarded by the shared process-wide provider
  * semaphore in `infrastructure/ai/provider-call-limiter.ts`.
  *
- * Keep this at one until jobs for the same conversation are serialized. Worker
- * replicas multiply both this value and the process-wide provider-call cap.
+ * Extraction jobs are serialized per conversation by a Redis lease, so ten
+ * jobs may serve different people without racing two replies to one person.
+ * Worker replicas multiply this job concurrency, while both the conversation
+ * lease and provider-call ceiling remain deployment-wide.
  */
-export const FEEDBACK_WORKER_CONCURRENCY = 1;
+export const FEEDBACK_WORKER_CONCURRENCY = 10;
 export const FEEDBACK_WORKER_REGISTRATION_NAME =
   createFeedbackWorkerRegistrationNameFromEnvironment(process.env);
 
 @Processor(
   { name: FEEDBACK_QUEUE, configKey: QUEUE_WORKER_CONFIG },
   {
-    // One message at a time keeps a participant's burst in arrival order inside
-    // the transcript without a per-conversation lock. A campaign is tens of
-    // conversations, not a firehose; raise this only together with explicit
-    // per-conversation serialization. Outbox delivery also shares this worker,
-    // so session pacing remains single-threaded here.
+    // The Redis conversation lease keeps one participant serial while this
+    // worker serves different people concurrently. Outbox delivery retains its
+    // own transport pacing and provider calls share the deployment-wide cap.
     concurrency: FEEDBACK_WORKER_CONCURRENCY,
     maxStalledCount: 1,
     metrics: { maxDataPoints: MetricsTime.ONE_WEEK * 2 },
@@ -90,6 +91,7 @@ export class PostEventFeedbackProcessor extends WorkerHost {
     private readonly sweeps: PostEventFeedbackSweepService,
     private readonly fallback: PostEventFeedbackExtractionFallback,
     private readonly summaries: PostEventFeedbackCampaignSummaryService,
+    private readonly conversationExecutions: FeedbackConversationExecutionLimiter,
   ) {
     super();
   }
@@ -171,13 +173,21 @@ export class PostEventFeedbackProcessor extends WorkerHost {
 
       if (job.name === FEEDBACK_JOB_NAMES.extractV1) {
         const data = feedbackExtractJobDataSchema.parse(job.data);
-        let result;
-        try {
-          result = await this.extractor.extract(data);
-        } catch (error) {
-          const terminal = await this.applyExtractionFallback(job, data, error);
-          throw terminal ?? error;
-        }
+        const result = await this.conversationExecutions.run(
+          data.conversationId,
+          async () => {
+            try {
+              return await this.extractor.extract(data);
+            } catch (error) {
+              const terminal = await this.applyExtractionFallback(
+                job,
+                data,
+                error,
+              );
+              throw terminal ?? error;
+            }
+          },
+        );
         this.logger.log({
           event: "feedback.extract.completed",
           jobId: job.id,

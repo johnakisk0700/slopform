@@ -9,6 +9,7 @@ import { parseBurstExtractionPrompt } from "./parse-burst-extraction-prompt.js";
 import {
   matchBurstPersona,
   resolveCite,
+  resolveStubTurnIndex,
   ScriptedBurstExtractionModel,
 } from "./scripted-extraction-model.service.js";
 
@@ -250,35 +251,100 @@ describe("ScriptedBurstExtractionModel", () => {
     ).toThrow(/multiple personas/);
   });
 
-  it("throws when the scripted stub is exhausted", async () => {
-    const model = new ScriptedBurstExtractionModel([
-      persona({ stub: [{ reply: "μία φορά" }] }),
-    ]);
-    const first = buildFeedbackExtractionPrompt({
-      context: context(),
-      copy: COPY,
+  it("throws when a message cluster has no scripted turn", async () => {
+    const scriptedPersona = persona({
+      messages: [
+        { afterMs: 0, text: "πρώτο μήνυμα" },
+        { afterMs: 90_000, text: "δεύτερο μήνυμα" },
+      ],
+      stub: [{ reply: "μία φορά" }],
     });
-    await model.propose(first, V2_QUESTION_KEYS);
-
+    const model = new ScriptedBurstExtractionModel([scriptedPersona]);
     const second = buildFeedbackExtractionPrompt({
       context: context({
         messages: [
           {
-            id: "msg-p-3",
-            seq: 4,
+            id: "msg-p-2",
+            seq: 2,
             actor: "participant",
-            occurredAt: "2026-07-27T10:01:00.000Z",
-            text: "συνολικά πέντε",
+            occurredAt: "2026-07-27T10:02:00.000Z",
+            text: "δεύτερο μήνυμα",
           },
         ],
-        newParticipantMessageIds: ["msg-p-3"],
+        newParticipantMessageIds: ["msg-p-2"],
       }),
       copy: COPY,
     });
 
     await expect(model.propose(second, V2_QUESTION_KEYS)).rejects.toThrow(
-      /exhausted/,
+      /has no stub for message cluster 2/,
     );
+  });
+
+  it("resolves a later turn identically in a fresh worker process", async () => {
+    const scriptedPersona = persona({
+      messages: [
+        { afterMs: 0, text: "πρώτο μήνυμα" },
+        { afterMs: 90_000, text: "δεύτερο μήνυμα" },
+      ],
+      stub: [
+        { nextGoal: "event_score", reply: "πρώτη απάντηση" },
+        {
+          answers: [{ question: "event_score", value: 2 }],
+          nextGoal: "table_fit",
+          reply: "δεύτερη απάντηση",
+        },
+      ],
+    });
+    const firstPrompt = buildFeedbackExtractionPrompt({
+      context: context({
+        messages: [
+          {
+            id: "msg-p-1",
+            seq: 2,
+            actor: "participant",
+            occurredAt: "2026-07-27T10:00:00.000Z",
+            text: "πρώτο μήνυμα",
+          },
+        ],
+        newParticipantMessageIds: ["msg-p-1"],
+      }),
+      copy: COPY,
+    });
+    const secondPrompt = buildFeedbackExtractionPrompt({
+      context: context({
+        messages: [
+          {
+            id: "msg-p-1",
+            seq: 2,
+            actor: "participant",
+            occurredAt: "2026-07-27T10:00:00.000Z",
+            text: "πρώτο μήνυμα",
+          },
+          {
+            id: "msg-p-2",
+            seq: 4,
+            actor: "participant",
+            occurredAt: "2026-07-27T10:02:00.000Z",
+            text: "δεύτερο μήνυμα",
+          },
+        ],
+        newParticipantMessageIds: ["msg-p-2"],
+      }),
+      copy: COPY,
+    });
+
+    const workerA = new ScriptedBurstExtractionModel([scriptedPersona]);
+    const workerB = new ScriptedBurstExtractionModel([scriptedPersona]);
+    await workerA.propose(firstPrompt, V2_QUESTION_KEYS);
+    const second = await workerB.propose(secondPrompt, V2_QUESTION_KEYS);
+
+    expect(second.proposal.goals.event_score).toMatchObject({
+      status: "answered",
+      answers: [{ valueInt: 2, sourceMessageIds: ["msg-p-2"] }],
+    });
+    expect(second.proposal.reply).toBe("δεύτερη απάντηση");
+    expect(resolveStubTurnIndex(scriptedPersona, ["δεύτερο μήνυμα"])).toBe(1);
   });
 
   it("resolves about names and cite tokens through propose", async () => {

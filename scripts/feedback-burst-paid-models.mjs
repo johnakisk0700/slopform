@@ -95,6 +95,17 @@ export function resolveFeedbackBurstLiveGuests(args) {
   return enabled;
 }
 
+export function assertFeedbackBurstLiveGuestTreatment(
+  liveGuestsEnabled,
+  treatment,
+) {
+  if (liveGuestsEnabled && treatment === null) {
+    throw new Error(
+      "Live guests require --profile prova or --comparison qwen; the deterministic stub cannot interpret improvised participant messages",
+    );
+  }
+}
+
 export function assertFeedbackBurstLiveGuestCallAllowed(confirmed) {
   if (confirmed !== true) {
     throw new Error(

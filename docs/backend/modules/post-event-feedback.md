@@ -1943,6 +1943,9 @@ default substitutes deterministic silence for them: they receive the intro but
 send no testimony, so ordinary stub mode makes zero `cursor-agent` or provider
 model calls for those personas. Improvisation requires both `--live-guests` and
 the separate `--confirm-live-guests`; `--confirm-paid-run` does not imply either.
+It also requires `--profile prova` or `--comparison qwen`: improvised messages
+do not exist in the deterministic stub catalogue, so combining live guests with
+stub extraction now fails before seeding instead of producing nonsense.
 When enabled, each guest is handed a character sheet and the transcript so far,
 and a cheap `cursor-agent` model is asked for one WhatsApp message back
 (`burst/live-guests.ts`, driven by `driveLiveGuest` in
@@ -1977,7 +1980,11 @@ calls a model, waits again, up to its configured turn cap, so the live table set
 the run's duration rather than the scripted ones — which is why the default
 settlement deadline is thirty minutes. Every turn a guest has left over once the
 bot has stopped speaking costs one whole per-turn timeout, so the caps are what
-make the run terminate at all.
+make the run terminate at all. The local persona-model call keeps its two-minute
+bound. Waiting for the product bot uses a separate ten-minute observation
+window: the 45-second quiet period plus queued xhigh calls exceeded the old
+shared two-minute timeout during an otherwise healthy run and reduced every
+live guest to its first message.
 
 The preflight never repairs or injects. It refuses the paid corpus when the
 event has no venue or staff disabled `useInFeedback`; ordinary extraction may
@@ -2068,10 +2075,11 @@ events, venues, participants, assistant conversations and the append-only audit
 ledger. Both modes reject `NODE_ENV=production`; production cleanup requires
 its own locked, backed-up operator path.
 
-**3. Start the stack, and count the workers.** One `main-http.js` and several
-`main-worker.js`. Concurrency is the point of the exercise: a rehearsal with one
-worker is not the system under test, because nothing contends. Keep the replica
-count you have been running and do not trim it for a tidier log.
+**3. Start the stack, and count the workers.** One `main-http.js` and at least
+one `main-worker.js`. Each worker accepts ten feedback jobs, same-conversation
+extractions serialize through a Redis lease, and every replica shares the same
+twenty-call provider ceiling. Extra worker processes therefore exercise
+cross-process coordination without multiplying paid-call capacity.
 
 **4. Assert the preflight rather than reading it.** The runner requires `GET
 /dev/feedback/burst/catalog` to report `extractionStub: false`, a registered

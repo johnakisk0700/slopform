@@ -146,22 +146,26 @@ before acting.
 `latestSeq` is the transcript position the extraction run must cover, so a burst
 of inbound messages collapses onto one model run per position instead of one per
 message. `FEEDBACK_WORKER_CONCURRENCY` is the hardcoded, per-process truth and
-currently equals `1`: at most one feedback job / conversation is actively
-processed by one worker process. One extraction job still opens up to two model
-requests concurrently (questionnaire extraction plus attention classification).
-The value keeps one participant's burst in arrival order without a
-per-conversation lock and keeps outbound session pacing single-threaded; worker
-replicas multiply it.
+currently equals `10`: one worker may serve ten feedback jobs concurrently. An
+extraction job opens up to two model requests (questionnaire extraction plus
+attention classification), which is how ten active extractions can fill the
+deployment-wide twenty-call provider budget. A Redis lease serializes the whole
+extraction/fallback path per conversation across worker replicas, so two due
+cursor jobs cannot buy duplicate calls and race two replies to one participant.
+The lease lasts fifteen minutes: a dead holder delays only that conversation and
+cannot create a second holder. Outbox delivery retains its own shared-session
+pacer; worker replicas still multiply job concurrency, not provider capacity.
 
 This is an application ordering limit, not a provider-call limit. Every backend
 model boundary — assistant generation, feedback extraction, attention
-classification and campaign summaries — also enters the same process-wide FIFO
-semaphore. `PROVIDER_CALL_CONCURRENCY_LIMIT` is deliberately hardcoded to `5`:
-neither OpenAI nor OpenRouter publishes one stable concurrency quota across all
-models and accounts, so five is a conservative product guard, not a claim about
-provider capacity. The production compose topology has one worker, making the
-cap deployment-wide today. Worker replicas would each receive five slots and
-therefore require a Redis-backed distributed semaphore before scale-out.
+classification and campaign summaries — also enters the same Redis-backed
+lease semaphore. `PROVIDER_CALL_CONCURRENCY_LIMIT` is deliberately hardcoded to
+`20`: neither OpenAI nor OpenRouter publishes one stable concurrency quota
+across all models and accounts, so twenty is a product guard, not a claim about
+provider capacity. RPM and TPM still come from the provider account. The Redis
+lease is deployment-wide, so worker replicas share twenty slots instead of
+multiplying the ceiling; a dead worker loses capacity until its six-minute
+lease expires but can never create an extra slot.
 
 The feedback Worker's BullMQ name also carries a versioned, base64url-encoded
 control attestation: extraction-stub state, public model id, provider adapter id,

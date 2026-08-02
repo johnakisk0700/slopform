@@ -14,7 +14,7 @@ import {
   type ToolSet,
 } from "ai";
 
-import { withProviderCallSlot } from "../../infrastructure/ai/provider-call-limiter.js";
+import { ProviderCallLimiter } from "../../infrastructure/ai/provider-call-limiter.js";
 import type { Environment } from "../../infrastructure/config/environment.js";
 import {
   assistantContentSchema,
@@ -142,6 +142,7 @@ export class AssistantGenerationService {
   constructor(
     private readonly config: ConfigService<Environment, true>,
     private readonly tools: AssistantToolsService,
+    private readonly providerCalls: ProviderCallLimiter = new ProviderCallLimiter(),
   ) {
     const openAiKey = this.config.get("OPENAI_API_KEY", { infer: true });
     const openRouterKey = this.config.get("OPENROUTER_API_KEY", {
@@ -176,7 +177,7 @@ export class AssistantGenerationService {
     const tools = this.toolSetFor(input.model);
 
     try {
-      const result = await withProviderCallSlot(() =>
+      const result = await this.providerCalls.run(() =>
         generateText({
           model,
           system: ASSISTANT_SYSTEM_PROMPT,
@@ -258,7 +259,7 @@ export class AssistantGenerationService {
     const tools = this.toolSetFor(input.model);
 
     try {
-      const response = await withProviderCallSlot(async () => {
+      const response = await this.providerCalls.run(async () => {
         const result = streamText({
           model,
           system: ASSISTANT_SYSTEM_PROMPT,

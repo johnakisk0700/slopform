@@ -633,6 +633,9 @@ export async function createFeedbackLoopHarness(
       alerts as FeedbackOperatorAlert,
     ),
     summaries as never,
+    {
+      run: (_conversationId: string, work: () => Promise<unknown>) => work(),
+    } as never,
   );
 
   const sweepData = {

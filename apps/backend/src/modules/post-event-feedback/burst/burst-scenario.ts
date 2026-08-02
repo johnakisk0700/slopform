@@ -244,9 +244,10 @@ export interface BurstStubAttentionSignal {
  * What the deterministic model proposes on one extraction run.
  *
  * A persona declares one turn per extraction run it expects to cause. The stub
- * consumes them in order per conversation; running out means the persona caused
- * more runs than it claimed, which is itself a finding and must fail the
- * rehearsal rather than silently return an empty proposal.
+ * maps each turn to the message cluster separated by the extraction quiet
+ * window, so two worker processes resolve the same turn without sharing an
+ * in-memory cursor. A cluster without a declared turn is itself a finding and
+ * must fail the rehearsal rather than silently return an empty proposal.
  */
 export interface BurstStubTurn {
   readonly answers?: readonly BurstStubAnswer[];

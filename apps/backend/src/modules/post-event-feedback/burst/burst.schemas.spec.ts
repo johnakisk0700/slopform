@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { FEEDBACK_OBSERVED_TEXT_HARD_LIMIT } from "../jobs.schemas.js";
+import {
+  FEEDBACK_EXTRACT_QUIET_WINDOW_MS,
+  FEEDBACK_OBSERVED_TEXT_HARD_LIMIT,
+} from "../jobs.schemas.js";
 import { FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH } from "../post-event-feedback-conversation.document.js";
 import { POST_EVENT_FEEDBACK_QUESTION_SET_V2 } from "../question-set.js";
 import { BURST_PERSONAS } from "./burst-personas.js";
@@ -11,6 +14,7 @@ import {
   burstPersonaPhoneE164,
 } from "./burst-scenario.js";
 import { feedbackBurstCatalogResponseSchema } from "./burst.schemas.js";
+import { resolveStubTurnIndex } from "./scripted-extraction-model.service.js";
 
 /**
  * The catalogue this endpoint actually serves, parsed by the schema that
@@ -186,17 +190,43 @@ describe("BURST_PERSONAS", () => {
     // Clusters are separated by a gap past the quiet window; anything closer
     // collapses into the run before it. Running out of turns mid-rehearsal is a
     // loud failure by design, but it costs a paid run to discover.
-    const QUIET_WINDOW_MS = 45_000;
-
     for (const persona of BURST_PERSONAS) {
       const clusters = persona.messages.filter(
-        (message, index) => index === 0 || message.afterMs > QUIET_WINDOW_MS,
+        (message, index) =>
+          index === 0 || message.afterMs > FEEDBACK_EXTRACT_QUIET_WINDOW_MS,
       ).length;
 
       expect(
         persona.stub.length,
         `${persona.id} sends ${clusters} clusters but declares ${persona.stub.length} stub turns`,
       ).toBeLessThanOrEqual(clusters);
+    }
+  });
+
+  it("resolves every declared stub turn from its message cluster alone", () => {
+    // Two real worker processes share no model memory. Every turn must therefore
+    // be recoverable from the prompt that either worker can receive, not from a
+    // process-local cursor advanced by whichever worker happened to run first.
+    for (const persona of BURST_PERSONAS) {
+      const clusters: string[][] = [];
+      for (const [index, message] of persona.messages.entries()) {
+        if (index === 0 || message.afterMs > FEEDBACK_EXTRACT_QUIET_WINDOW_MS) {
+          clusters.push([]);
+        }
+        if (message.text !== null) {
+          clusters.at(-1)!.push(message.text);
+        }
+      }
+
+      const textClusters = clusters.filter((cluster) => cluster.length > 0);
+      for (const [turnIndex, cluster] of textClusters
+        .slice(0, persona.stub.length)
+        .entries()) {
+        expect(
+          resolveStubTurnIndex(persona, cluster),
+          `${persona.id} turn ${turnIndex + 1}`,
+        ).toBe(turnIndex);
+      }
     }
   });
 });

@@ -232,7 +232,11 @@ separate authenticated command boundary.
 `OPENROUTER_API_KEY` enables Gemini 3.6 Flash and Qwen3.7 Max.
 `OPENAI_API_KEY` enables Luna and Terra. Credentials never substitute for one
 another. Calls have a two-minute total bound and AI SDK retries disabled so
-BullMQ owns visible retries. Worker concurrency is two per process.
+BullMQ owns visible retries. Worker concurrency is two per process, and every
+provider call additionally passes through a deployment-wide Redis lease
+semaphore capped at `PROVIDER_CALL_CONCURRENCY_LIMIT` (20), shared with feedback
+extraction, attention classification and campaign summaries. Queue concurrency
+alone would not bound calls across worker processes.
 
 Logs contain queue/job/turn correlation identifiers and safe error categories,
 never prompts, answers, keys or provider bodies. Focused tests cover Mongo

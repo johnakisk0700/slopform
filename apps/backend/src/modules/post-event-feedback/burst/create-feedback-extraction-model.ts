@@ -2,6 +2,7 @@ import { Logger } from "@nestjs/common";
 import type { ConfigService } from "@nestjs/config";
 
 import type { Environment } from "../../../infrastructure/config/environment.js";
+import { ProviderCallLimiter } from "../../../infrastructure/ai/provider-call-limiter.js";
 import { PostEventFeedbackExtractionModel } from "../extraction/model.service.js";
 import type { BurstPersona } from "./burst-scenario.js";
 import { ScriptedBurstExtractionModel } from "./scripted-extraction-model.service.js";
@@ -19,6 +20,7 @@ const logger = new Logger("PostEventFeedbackExtractionModel");
 export function createFeedbackExtractionModel(
   config: ConfigService<Environment, true>,
   personas?: readonly BurstPersona[],
+  providerCalls?: ProviderCallLimiter,
 ): PostEventFeedbackExtractionModel | ScriptedBurstExtractionModel {
   if (config.get("FEEDBACK_EXTRACTION_STUB", { infer: true })) {
     if (!personas) {
@@ -31,5 +33,5 @@ export function createFeedbackExtractionModel(
     );
     return new ScriptedBurstExtractionModel(personas);
   }
-  return new PostEventFeedbackExtractionModel(config);
+  return new PostEventFeedbackExtractionModel(config, providerCalls);
 }

@@ -5,6 +5,7 @@ import type { Environment } from "../../infrastructure/config/environment.js";
 import { AuditModule } from "../../infrastructure/audit/audit.module.js";
 import { DatabaseModule } from "../../infrastructure/database/database.module.js";
 import { QueueWorkerModule } from "../../infrastructure/queue/queue.module.js";
+import { ProviderCallLimiter } from "../../infrastructure/ai/provider-call-limiter.js";
 import { WasenderClient } from "../../integrations/wasender/wasender.client.js";
 import { EventsCoreModule } from "../events/events-core.module.js";
 import { ParticipantsCoreModule } from "../participants/participants-core.module.js";
@@ -25,6 +26,7 @@ import { PostEventFeedbackCoreModule } from "./core.module.js";
 import { createFeedbackExtractionModel } from "./burst/create-feedback-extraction-model.js";
 import { BURST_PERSONAS } from "./burst/burst-personas.js";
 import { PostEventFeedbackExtractionFallback } from "./extraction/fallback.service.js";
+import { FeedbackConversationExecutionLimiter } from "./extraction/execution-limiter.service.js";
 import { PostEventFeedbackExtractionModel } from "./extraction/model.service.js";
 import { PostEventFeedbackExtractor } from "./extraction/extract.service.js";
 import { PostEventFeedbackMaterializer } from "./ingress/materialize.service.js";
@@ -92,11 +94,14 @@ export function createFeedbackTransport(
       useClass: LoggingFeedbackOperatorAlert,
     },
     PostEventFeedbackExtractionFallback,
+    FeedbackConversationExecutionLimiter,
     {
       provide: PostEventFeedbackExtractionModel,
-      inject: [ConfigService],
-      useFactory: (config: ConfigService<Environment, true>) =>
-        createFeedbackExtractionModel(config, BURST_PERSONAS),
+      inject: [ConfigService, ProviderCallLimiter],
+      useFactory: (
+        config: ConfigService<Environment, true>,
+        providerCalls: ProviderCallLimiter,
+      ) => createFeedbackExtractionModel(config, BURST_PERSONAS, providerCalls),
     },
     PostEventFeedbackExtractor,
     PostEventFeedbackMaterializer,

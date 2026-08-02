@@ -34,6 +34,7 @@ import {
 import { openBurstInspection } from "./burst-inspect.mjs";
 import {
   assertFeedbackBurstLiveGuestCallAllowed,
+  assertFeedbackBurstLiveGuestTreatment,
   assertFeedbackBurstQuestionSetVersion,
   assertFeedbackBurstTreatmentAdapter,
   resolveFeedbackBurstLiveGuests,
@@ -103,19 +104,14 @@ const repositoryRoot = path.resolve(
   "..",
 );
 
-/**
- * How long a live guest waits for the bot to say something before giving up on
- * the turn.
- *
- * Generous against the 45 s quiet window plus a model call: the guest must not
- * answer before the bot has spoken, or it is talking to itself and the whole
- * point — reacting to what was actually said — is lost.
- *
- * It is also the tail of the run. A guest with turns left over waits this long
- * for a bot that has already closed the conversation and will never speak
- * again, so every unused turn past the end costs the whole timeout once.
- */
-const LIVE_GUEST_TURN_TIMEOUT_MS = 120_000;
+/** A separate bound for the local model inventing the participant's reply. */
+const LIVE_GUEST_MODEL_TIMEOUT_MS = 120_000;
+// The bot first waits through the 45 s quiet window and may then queue behind
+// other xhigh extractions. Two minutes expired during a healthy paid rehearsal
+// before Luna's reply arrived, turning every live persona into a one-line test.
+// Ten minutes is a harness observation window, not a product response-time SLO;
+// the run-wide deadline and stall detector still stop a dead system.
+const LIVE_GUEST_BOT_REPLY_TIMEOUT_MS = 10 * 60_000;
 const LIVE_GUEST_POLL_MS = 3_000;
 
 /**
@@ -163,6 +159,7 @@ async function main() {
     args = parseArgs(process.argv.slice(2));
     treatment = resolveFeedbackBurstTreatment(args);
     liveGuestsEnabled = resolveFeedbackBurstLiveGuests(args);
+    assertFeedbackBurstLiveGuestTreatment(liveGuestsEnabled, treatment);
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     printUsage();
@@ -1030,7 +1027,7 @@ async function askLiveGuest({ live, transcript, liveGuestCallsConfirmed }) {
     {
       cwd: tmpdir(),
       maxBuffer: 1_000_000,
-      timeout: LIVE_GUEST_TURN_TIMEOUT_MS,
+      timeout: LIVE_GUEST_MODEL_TIMEOUT_MS,
     },
   );
   // Models like to wrap a line in quotes or prefix it with the character's
@@ -1075,7 +1072,7 @@ async function driveLiveGuest({
   let lastSeenBotCount = 0;
 
   for (let turn = 0; turn < live.maxTurns; turn += 1) {
-    const waitUntil = Date.now() + LIVE_GUEST_TURN_TIMEOUT_MS;
+    const waitUntil = Date.now() + LIVE_GUEST_BOT_REPLY_TIMEOUT_MS;
     let messages = [];
     let botCount = 0;
     // Wait for a bot turn we have not answered yet.
@@ -1093,7 +1090,7 @@ async function driveLiveGuest({
       }
       if (Date.now() >= waitUntil) {
         console.error(
-          `${persona.id}: no new bot message for ${Math.round(LIVE_GUEST_TURN_TIMEOUT_MS / 1000)}s — the guest stops here.`,
+          `${persona.id}: no new bot message for ${Math.round(LIVE_GUEST_BOT_REPLY_TIMEOUT_MS / 1000)}s — the guest stops here.`,
         );
         return;
       }
@@ -1960,7 +1957,8 @@ Options:
   --comparison qwen      Explicit Qwen/OpenRouter comparison using the same efforts.
   --confirm-paid-run     Required acknowledgement of extraction/classifier model cost
   --live-guests          Enable cursor-agent calls for the six unscripted personas.
-                         Omit to substitute deterministic silence (including stub mode).
+                         Requires a paid profile/comparison; stub cannot read them.
+                         Omit to substitute deterministic silence.
   --confirm-live-guests  Separate acknowledgement required with --live-guests
   --correlation-id <id>  Optional stable log ID; generated when omitted
   --api-base <url>       Default: http://localhost:4000/api/v1

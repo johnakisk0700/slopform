@@ -6,6 +6,7 @@ import {
   FEEDBACK_BURST_PAID_MODELS,
   FEEDBACK_BURST_PROFILES,
   assertFeedbackBurstLiveGuestCallAllowed,
+  assertFeedbackBurstLiveGuestTreatment,
   assertFeedbackBurstQuestionSetVersion,
   assertFeedbackBurstTreatmentAdapter,
   resolveFeedbackBurstLiveGuests,
@@ -95,6 +96,19 @@ describe("feedback burst paid policy", () => {
       /Refusing cursor-agent persona call/u,
     );
     assert.doesNotThrow(() => assertFeedbackBurstLiveGuestCallAllowed(true));
+    assert.throws(
+      () => assertFeedbackBurstLiveGuestTreatment(true, null),
+      /deterministic stub cannot interpret improvised participant messages/u,
+    );
+    assert.doesNotThrow(() =>
+      assertFeedbackBurstLiveGuestTreatment(
+        true,
+        FEEDBACK_BURST_PROFILES.prova,
+      ),
+    );
+    assert.doesNotThrow(() =>
+      assertFeedbackBurstLiveGuestTreatment(false, null),
+    );
   });
 
   it("fails closed unless campaign read-back says question-set V2", () => {

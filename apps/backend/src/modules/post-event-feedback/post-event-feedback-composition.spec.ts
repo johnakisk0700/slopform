@@ -2,6 +2,7 @@ import { MODULE_METADATA } from "@nestjs/common/constants.js";
 import { describe, expect, it } from "vitest";
 
 import { IS_PUBLIC_ROUTE } from "../../infrastructure/auth/public.decorator.js";
+import { ProviderCallLimiterModule } from "../../infrastructure/ai/provider-call-limiter.module.js";
 import { isFeedbackSimulatorHttpEnabled } from "../../infrastructure/config/enabled-modules.js";
 import {
   QueueModule,
@@ -60,7 +61,9 @@ describe("post-event feedback process composition", () => {
     ) as readonly unknown[];
 
     expect(workerImports).toContain(PostEventFeedbackWorkerModule);
+    expect(workerImports).toContain(ProviderCallLimiterModule);
     expect(httpImports).not.toContain(PostEventFeedbackWorkerModule);
+    expect(httpImports).not.toContain(ProviderCallLimiterModule);
     expect(httpImports).toContain(PostEventFeedbackHttpModule);
   });
 

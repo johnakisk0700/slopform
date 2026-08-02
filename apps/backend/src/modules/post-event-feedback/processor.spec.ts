@@ -43,7 +43,7 @@ describe("PostEventFeedbackProcessor", () => {
   });
 
   it("keeps the documented per-process ordering limit explicit", () => {
-    expect(FEEDBACK_WORKER_CONCURRENCY).toBe(1);
+    expect(FEEDBACK_WORKER_CONCURRENCY).toBe(10);
   });
 
   it("materializes a valid job through the durable consumer", async () => {
@@ -461,6 +461,7 @@ describe("PostEventFeedbackProcessor", () => {
       } as never,
       { apply: vi.fn(), park: vi.fn() } as never,
       summaries as never,
+      { run: vi.fn((_id, work) => work()) } as never,
     );
 
     const data = {
@@ -501,6 +502,7 @@ function createProcessor(
     } as never,
     fallback as unknown as PostEventFeedbackExtractionFallback,
     { run: vi.fn() } as never,
+    { run: vi.fn((_id, work) => work()) } as never,
   );
 }
 

@@ -10,6 +10,7 @@ import {
   createFeedbackExtractionProposalSchema,
   feedbackExtractionGoalVerdicts,
 } from "../extraction/extraction.schemas.js";
+import { FEEDBACK_EXTRACT_QUIET_WINDOW_MS } from "../jobs.schemas.js";
 import {
   FEEDBACK_ATTENTION_CLASSIFICATION_BATCH_SIZE,
   FeedbackAttentionClassificationValidationError,
@@ -58,21 +59,18 @@ interface ClaimedStubTurn {
 @Injectable()
 export class ScriptedBurstExtractionModel implements FeedbackExtractionModelPort {
   /**
-   * Turn cursor keyed by persona id.
+   * Resolve the scripted turn from the new-message cluster itself.
    *
    * The rendered prompt never carries a conversation id, and recovering one
    * from the persona's phone would need a store this stub does not own.
-   * Persona ids are unique across every campaign, so they are a stable
-   * per-conversation key for the rehearsal.
-   *
-   * `propose` and `classifyAttention` run concurrently for one extraction job
-   * (`Promise.all` in the extractor). Both must see the same stub turn, so a
-   * turn is claimed once per (personaId, new-message fingerprint) and reused
-   * for the sibling call rather than advanced twice.
+   * More importantly, an in-memory cursor is process-local: with two workers,
+   * turn one can run in worker A and turn two in worker B, whose fresh cursor
+   * would replay turn one and drive the real validator into the fallback.
+   * Persona message gaps already define the quiet-window clusters, so the
+   * target texts are a deterministic, worker-independent turn key. `propose`
+   * and `classifyAttention` consequently resolve the same turn without shared
+   * mutable state.
    */
-  private readonly nextTurnIndexByPersonaId = new Map<string, number>();
-  private readonly claimedTurns = new Map<string, ClaimedStubTurn>();
-
   /**
    * The id every run reports, and the same one written to `extraction.model`.
    * Anything reading a conversation after a rehearsal can tell at a glance that
@@ -96,7 +94,6 @@ export class ScriptedBurstExtractionModel implements FeedbackExtractionModelPort
     try {
       const parsed = parseBurstExtractionPrompt(prompt.user);
       const { turn, persona } = this.claimTurn(
-        parsed.newMessageIds,
         textsForIds(parsed, parsed.newMessageIds),
       );
       const proposal = buildProposal(turn, parsed, persona, questionKeys);
@@ -145,7 +142,7 @@ export class ScriptedBurstExtractionModel implements FeedbackExtractionModelPort
         }
         return message.text;
       });
-      const { turn } = this.claimTurn(targetMessageIds, texts);
+      const { turn } = this.claimTurn(texts);
       const signals = (turn.attention ?? []).flatMap((signal) =>
         expandAttentionSignal(signal, targetMessageIds, batches),
       );
@@ -180,30 +177,59 @@ export class ScriptedBurstExtractionModel implements FeedbackExtractionModelPort
     }
   }
 
-  private claimTurn(
-    messageIds: readonly string[],
-    texts: readonly string[],
-  ): ClaimedStubTurn {
+  private claimTurn(texts: readonly string[]): ClaimedStubTurn {
     const persona = matchPersona(this.personas, texts);
-    const key = `${persona.id}::${messageIds.join(",")}`;
-    const existing = this.claimedTurns.get(key);
-    if (existing) {
-      return existing;
-    }
-
-    const turnIndex = this.nextTurnIndexByPersonaId.get(persona.id) ?? 0;
+    const turnIndex = resolveStubTurnIndex(persona, texts);
     const turn = persona.stub[turnIndex];
     if (!turn) {
       throw scriptFailure(
-        `Scripted burst persona ${persona.id} exhausted its stub after ${turnIndex} turns`,
+        `Scripted burst persona ${persona.id} has no stub for message cluster ${turnIndex + 1}`,
       );
     }
-
-    const claimed: ClaimedStubTurn = { persona, turn, turnIndex };
-    this.claimedTurns.set(key, claimed);
-    this.nextTurnIndexByPersonaId.set(persona.id, turnIndex + 1);
-    return claimed;
+    return { persona, turn, turnIndex };
   }
+}
+
+/**
+ * Map new participant text to the quiet-window cluster that owns its stub turn.
+ * This is deliberately exported for the corpus invariant and multi-worker
+ * regression tests; production extraction never calls it.
+ */
+export function resolveStubTurnIndex(
+  persona: BurstPersona,
+  texts: readonly string[],
+): number {
+  const targetTexts = texts.map((text) => text.trim());
+  const clusters: string[][] = [];
+
+  for (const [messageIndex, message] of persona.messages.entries()) {
+    if (
+      messageIndex === 0 ||
+      message.afterMs > FEEDBACK_EXTRACT_QUIET_WINDOW_MS
+    ) {
+      clusters.push([]);
+    }
+    if (message.text !== null) {
+      clusters.at(-1)!.push(message.text.trim());
+    }
+  }
+
+  const textClusters = clusters.filter((cluster) => cluster.length > 0);
+  const matchingIndexes = textClusters.flatMap((cluster, index) =>
+    targetTexts.every((text) => cluster.includes(text)) ? [index] : [],
+  );
+
+  if (matchingIndexes.length === 0) {
+    throw scriptFailure(
+      `Scripted burst persona ${persona.id} matched no quiet-window message cluster`,
+    );
+  }
+  if (matchingIndexes.length > 1) {
+    throw scriptFailure(
+      `Scripted burst persona ${persona.id} matched multiple quiet-window message clusters`,
+    );
+  }
+  return matchingIndexes[0]!;
 }
 
 function buildProposal(

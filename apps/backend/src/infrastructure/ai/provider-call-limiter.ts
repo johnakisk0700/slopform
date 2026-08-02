@@ -1,17 +1,57 @@
+import type { OnModuleDestroy } from "@nestjs/common";
+import { randomUUID } from "node:crypto";
+
 /**
- * Maximum paid model requests that one worker process may keep in flight.
+ * Maximum paid model requests the whole deployment may keep in flight.
  *
- * Neither OpenAI nor OpenRouter publishes one stable concurrency number that
- * applies to every model and account. Five is therefore a deliberately
- * conservative product default, not a provider quota. The production compose
- * topology runs one worker, so this is deployment-wide today; adding worker
- * replicas must add a distributed semaphore or each replica will get five.
+ * OpenAI and OpenRouter enforce account/model-specific RPM and TPM limits, not
+ * one public concurrency quota. Twenty is therefore our product guard, not a
+ * statement about either provider. Production uses the Redis-backed limiter
+ * below, so adding worker replicas does not multiply this ceiling.
  */
-export const PROVIDER_CALL_CONCURRENCY_LIMIT = 5;
+export const PROVIDER_CALL_CONCURRENCY_LIMIT = 20;
+
+/** Longer than the longest provider timeout (campaign summaries: five min). */
+export const PROVIDER_CALL_LEASE_MS = 6 * 60_000;
+
+const PROVIDER_CALL_RETRY_MS = 100;
+const PROVIDER_CALL_REDIS_KEY = "jts:ai:provider-call-slots:v1";
+
+const ACQUIRE_PROVIDER_SLOT_SCRIPT = `
+local nowParts = redis.call("TIME")
+local now = (tonumber(nowParts[1]) * 1000) + math.floor(tonumber(nowParts[2]) / 1000)
+redis.call("ZREMRANGEBYSCORE", KEYS[1], "-inf", now)
+
+if redis.call("ZCARD", KEYS[1]) >= tonumber(ARGV[1]) then
+  local earliest = redis.call("ZRANGE", KEYS[1], 0, 0, "WITHSCORES")
+  return { 0, math.max(1, tonumber(earliest[2]) - now) }
+end
+
+redis.call("ZADD", KEYS[1], now + tonumber(ARGV[2]), ARGV[3])
+redis.call("PEXPIRE", KEYS[1], tonumber(ARGV[2]) + 60000)
+return { 1, 0 }
+`;
+
+const RELEASE_PROVIDER_SLOT_SCRIPT = `
+redis.call("ZREM", KEYS[1], ARGV[1])
+if redis.call("ZCARD", KEYS[1]) == 0 then
+  redis.call("DEL", KEYS[1])
+end
+return 1
+`;
+
+export interface ProviderCallRedisClient {
+  eval(
+    script: string,
+    numberOfKeys: number,
+    ...args: Array<string | number>
+  ): Promise<unknown>;
+  disconnect(): void;
+}
 
 type PendingAcquire = () => void;
 
-/** FIFO semaphore shared by every model boundary in this Node process. */
+/** FIFO in-memory semaphore used by focused unit tests and direct callers. */
 export class ProviderCallLimiter {
   private active = 0;
   private readonly pending: PendingAcquire[] = [];
@@ -54,8 +94,88 @@ export class ProviderCallLimiter {
   }
 }
 
-const sharedProviderCallLimiter = new ProviderCallLimiter();
+/**
+ * Deployment-wide semaphore backed by one Redis sorted set.
+ *
+ * Each member is a random lease token and its score is the expiry according to
+ * Redis's clock. Acquisition removes expired leases and claims a slot in one
+ * Lua script, so workers cannot race past the cap. A dead process temporarily
+ * consumes capacity, never creates extra capacity; its lease expires after the
+ * longest bounded provider call plus one minute of margin.
+ *
+ * Redis failure is deliberately fail-closed: no slot means no paid call. The
+ * queue retry remains the visible recovery mechanism.
+ */
+export class RedisProviderCallLimiter
+  extends ProviderCallLimiter
+  implements OnModuleDestroy
+{
+  constructor(
+    private readonly redis: ProviderCallRedisClient,
+    limit: number = PROVIDER_CALL_CONCURRENCY_LIMIT,
+    private readonly leaseMs: number = PROVIDER_CALL_LEASE_MS,
+    private readonly retryMs: number = PROVIDER_CALL_RETRY_MS,
+  ) {
+    super(limit);
+    if (!Number.isInteger(leaseMs) || leaseMs < 1) {
+      throw new Error("Provider call lease must be a positive integer");
+    }
+    if (!Number.isInteger(retryMs) || retryMs < 1) {
+      throw new Error("Provider call retry delay must be a positive integer");
+    }
+  }
 
-export function withProviderCallSlot<T>(call: () => Promise<T>): Promise<T> {
-  return sharedProviderCallLimiter.run(call);
+  override async run<T>(call: () => Promise<T>): Promise<T> {
+    const token = randomUUID();
+    await this.acquireDistributed(token);
+    try {
+      return await call();
+    } finally {
+      await this.redis.eval(
+        RELEASE_PROVIDER_SLOT_SCRIPT,
+        1,
+        PROVIDER_CALL_REDIS_KEY,
+        token,
+      );
+    }
+  }
+
+  onModuleDestroy(): void {
+    this.redis.disconnect();
+  }
+
+  private async acquireDistributed(token: string): Promise<void> {
+    for (;;) {
+      const raw = await this.redis.eval(
+        ACQUIRE_PROVIDER_SLOT_SCRIPT,
+        1,
+        PROVIDER_CALL_REDIS_KEY,
+        this.limit,
+        this.leaseMs,
+        token,
+      );
+      const [acquired, waitMs] = parseAcquireResult(raw);
+      if (acquired === 1) {
+        return;
+      }
+      await delay(Math.min(this.retryMs, waitMs));
+    }
+  }
+}
+
+function parseAcquireResult(value: unknown): readonly [number, number] {
+  if (
+    !Array.isArray(value) ||
+    value.length !== 2 ||
+    ![0, 1].includes(Number(value[0])) ||
+    !Number.isFinite(Number(value[1])) ||
+    Number(value[1]) < 0
+  ) {
+    throw new Error("Redis returned an invalid provider-slot result");
+  }
+  return [Number(value[0]), Number(value[1])];
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
