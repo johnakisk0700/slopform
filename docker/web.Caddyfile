@@ -1,5 +1,5 @@
 # Static file server for the admin SPA inside the `web` image.
-# The production edge (root Caddyfile) terminates TLS and proxies here; this
+# The production edge (native nginx) terminates TLS and proxies here; this
 # server only hands out the built client.
 :3000 {
 	root * /srv

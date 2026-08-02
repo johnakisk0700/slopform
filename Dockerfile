@@ -72,7 +72,8 @@ ARG RELEASE_TAG=unknown
 ARG WEB_PUBLIC_CONFIG_SHA256=unconfigured
 COPY --from=build /workspace/apps/admin/dist /srv
 COPY docker/web.Caddyfile /etc/caddy/Caddyfile
-RUN case "$RELEASE_TAG" in ""|*[!A-Za-z0-9_.-]*) exit 1 ;; esac && \
+RUN setcap -r /usr/bin/caddy && \
+  case "$RELEASE_TAG" in ""|*[!A-Za-z0-9_.-]*) exit 1 ;; esac && \
   printf '{"release":"%s"}\n' "$RELEASE_TAG" > /srv/deploy.json
 LABEL org.opencontainers.image.revision=$RELEASE_TAG
 LABEL org.join-the-six.web-public-config-sha256=$WEB_PUBLIC_CONFIG_SHA256
