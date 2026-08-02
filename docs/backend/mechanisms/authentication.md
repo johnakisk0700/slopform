@@ -98,9 +98,11 @@ radius but would not create a separate identity tenant.
 The approved admission model is deliberately small:
 
 1. Set the dedicated production instance to **Restricted** sign-up mode.
-2. Initially use verified email one-time codes. Keep Google sign-in disabled
-   until its own production OAuth credentials and redirect URI are configured;
-   a provider marked "setup required" is not a login strategy.
+2. Keep verified email one-time codes available. Google sign-in uses the
+   existing `example.com` Google Cloud web OAuth client with a separate active
+   secret stored only in Google Cloud and Clerk. Its authorized redirect URI is
+   `https://clerk.example.com/v1/oauth_callback`; a Clerk provider marked "setup
+   required" must remain disabled.
 3. Invite exactly the three shareholder email addresses held in the private
    operator record. Do not commit that personal-data list to this repository.
 4. Disable self-service primary email changes.
@@ -112,6 +114,15 @@ server-side user-ID allowlist remains the final authorization decision. Clerk
 Organizations add no useful boundary for three equal operators and are not part
 of this deployment.
 
+The Clerk Hobby plan does not provide an email allowlist, so shareholder
+onboarding remains invitation-based. After an operator completes Clerk account
+creation, copy the resulting `user_*` subject into the private production
+environment and run `pnpm prod deploy backend`. Do not put OAuth credentials,
+shareholder emails or production user IDs in committed files. Restricted mode
+must be on before and after onboarding; if an operator temporarily disables it
+to resolve an invitation/OAuth edge case, the API allowlist must remain deny-all
+for the new subject until restricted mode has been restored.
+
 Revocation happens in this order: remove the subject from
 `CLERK_ADMIN_USER_IDS` and roll the API, then ban the Clerk user and revoke its
 sessions. This keeps revocation effective even while Clerk session cleanup is
@@ -119,9 +130,8 @@ still propagating.
 
 Failure cases to test include an uninvited identity, secondary or changed email,
 pending invitation, revoked operator with an active browser session,
-expired/rotated keys, Clerk outage, and a token issued for an unauthorized
-origin. If Google is enabled later, add its account-selection and redirect
-failure cases then.
+expired/rotated keys, Clerk outage, a token issued for an unauthorized origin,
+and Google account-selection or redirect failures.
 
 ## Operations and tests
 
