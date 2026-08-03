@@ -182,7 +182,10 @@ sequenceDiagram
   existing light/dark class automatically and introduces no parallel palette.
 - The selector retains the source `notes_ai` geometry: an 8-high compact
   rounded trigger, a 20rem top-start popover with token border/radius, 0.75rem
-  row padding and the effort control aligned beneath the provider marks.
+  row padding and the effort control aligned beneath the provider marks. Its
+  selected value renders only the one-line thread title; the timestamp remains
+  available in the open list and cannot make the closed toolbar jump from one
+  line to two.
   OpenAI, Gemini and Qwen use code-native `currentColor` brand marks; no remote
   images or fake letter tiles are rendered.
 
@@ -269,6 +272,11 @@ inset from it, and the scroll region keeps a permanent gutter so an appearing
 scrollbar cannot recentre the column under a composer that does not move. The
 `❯` prompt is set in the mono family — in the sans face that glyph has no
 descender and floats above the caret it sits beside.
+
+Thinking copy and the settled model/cost/token stamp use the same mono
+marginalia face as the source chat. The answer, activity disclosures and footer
+share one left rail; the compact copy action stays in that footer without
+changing its text baseline or horizontal rhythm.
 
 The narrow message column and docked composer remain usable at the 20rem minimum
 viewport. Reduced motion disables the thinking opacity animation through both

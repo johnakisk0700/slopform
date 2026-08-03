@@ -886,8 +886,10 @@ export function AssistantPage() {
           onSelectionChange={selectThread}
           className="min-w-0 flex-1 sm:max-w-sm"
         >
-          <Select.Trigger className="w-full">
-            <Select.Value />
+          <Select.Trigger className="w-full overflow-hidden">
+            <Select.Value className="min-w-0 flex-1 truncate text-left">
+              {({ selectedText }) => selectedText}
+            </Select.Value>
             <Select.Indicator />
           </Select.Trigger>
           <Select.Popover>

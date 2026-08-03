@@ -621,6 +621,28 @@ describe("assistant route wiring", () => {
     expect(selector).toContain("h-8 gap-1.5 rounded-sm px-2 text-xs");
   });
 
+  it("keeps conversation chrome single-line and assistant marginalia aligned", () => {
+    const page = readAdminFile("src/routes/AssistantPage.tsx");
+    const message = readAdminFile(
+      "src/components/admin/assistant/AssistantMessage.tsx",
+    );
+    const thinking = readAdminFile(
+      "src/components/admin/assistant/AssistantThinkingIndicator.tsx",
+    );
+
+    expect(page).toContain("{({ selectedText }) => selectedText}");
+    expect(page).toContain('className="min-w-0 flex-1 truncate text-left"');
+    expect(message).toContain(
+      'className="mt-1.5 flex items-center gap-0.5 text-ink-muted"',
+    );
+    expect(message).toContain(
+      'className="ml-1.5 font-mono text-[length:var(--jts-text-2xs)]',
+    );
+    expect(thinking).toContain(
+      "items-center gap-1.5 font-mono text-xs text-ink-muted",
+    );
+  });
+
   it("offers explicit retry, revise and discard recovery paths", () => {
     const page = readAdminFile("src/routes/AssistantPage.tsx");
     const conversation = readAdminFile(

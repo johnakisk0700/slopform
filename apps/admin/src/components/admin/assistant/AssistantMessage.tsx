@@ -138,7 +138,7 @@ function AssistantMessageActions({
   }
 
   return (
-    <div className="mt-1.5 flex items-center gap-1 text-ink-muted">
+    <div className="mt-1.5 flex items-center gap-0.5 text-ink-muted">
       <Button
         variant="ghost"
         size="sm"
@@ -153,7 +153,7 @@ function AssistantMessageActions({
           <Copy aria-hidden="true" className="size-3.5" />
         )}
       </Button>
-      <span className="ml-1 text-[length:var(--jts-text-2xs)] tabular-nums text-ink-subtle">
+      <span className="ml-1.5 font-mono text-[length:var(--jts-text-2xs)] tabular-nums text-ink-subtle">
         {model} · {effort} thinking
         {/* Stamped only when the fast lane was actually bought, because it is
             the one setting here that changed what the turn cost. */}

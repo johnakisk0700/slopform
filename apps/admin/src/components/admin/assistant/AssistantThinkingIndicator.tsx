@@ -28,7 +28,7 @@ export function AssistantThinkingIndicator() {
 
   return (
     <span
-      className="mt-3 flex w-fit items-center gap-1.5 text-xs text-ink-muted"
+      className="mt-3 flex w-fit items-center gap-1.5 font-mono text-xs text-ink-muted"
       role="status"
       aria-label="Assistant is working"
     >
