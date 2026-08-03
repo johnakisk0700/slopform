@@ -1729,8 +1729,10 @@ wrote will be read tonight.
 
 - `t+0s` bot: «Πώς σου φάνηκε συνολικά η βραδιά, από το 1 ως το 5;»
 - `t+30s` participant: «4! πολύ ωραία παρέα, ο Νίκος ήταν γλυκύτατος»
-- provider: every extraction call returns `402` until `t+3h`, when somebody tops
-  the account up.
+- provider: every extraction call returns either OpenRouter's non-retryable
+  `402`, or OpenAI's retryable `429` with structured
+  `insufficient_quota/credit_balance_exhausted`, until `t+3h`, when somebody
+  tops the account up.
 
 **Should end with.** Nothing at all for the first half hour: no note, no reply, no
 badge, no alert, `needsAttention: false`, and her message still unread behind the
@@ -1744,18 +1746,24 @@ on none of the thirty-six, and one apology each rather than thirty-six notes and
 thirty-six operator rows.
 
 **Stresses.** That the system can tell «this conversation defeated the model» from
-«the model is unavailable to everybody», structurally, from a `402` rather than
-from an error string. That the retry ladder is longer than twenty seconds, which
-is all five BullMQ attempts amount to — and that a non-retryable fault gets a
-ladder at all, since it gets none of those attempts. That the one thing said to
-her blames nobody, mentions no billing, promises no person and no time, and fires
-once. And that our own recovery, not a human, is what finishes her questionnaire.
+«the model is unavailable to everybody», structurally, from a `402` or the exact
+OpenAI 429 body rather than from an error string. The empty-balance 429 must skip
+the four useless immediate BullMQ retries but still enter the five-minute durable
+park ladder. A real TPM/RPM 429 keeps its normal immediate retry treatment. The
+one thing said to her blames nobody, mentions no billing, promises no person and
+no time, and fires once. And our own recovery, not a human, is what finishes her
+questionnaire.
 
-**Today.** ✅ as a mechanism, unrehearsed end to end. The 2026-07-27 incident is
-the real version of this row with every answer wrong: thirty-six
+**Today.** ✅ as a mechanism and production-rehearsed through the parked state.
+The 2026-08-03 Terra run kept five unread transcripts durable, silent and out of
+the operator inbox while OpenAI returned
+`429 insufficient_quota/credit_balance_exhausted`; recovery after top-up remains
+to be observed. The 2026-07-27 incident is the older version of this row with
+every answer wrong: thirty-six
 `extraction_failed` badges, thirty-six «η αυτόματη ανάλυση δεν ολοκληρώθηκε»
 notes, and thirty-six people told the analysis of their evening had failed.
-Covered by unit specs on each half — the classification of `401`–`404`, the park
+Covered by unit specs on each half — the classification of `401`–`404` and the
+structured empty-balance 429, the park
 writing nothing, the notice firing once at the threshold, the ceiling, and the
 `provider_refusal` path unchanged — rather than by a loop scenario, because the
 outage is three hours long and the interesting facts are all absences.

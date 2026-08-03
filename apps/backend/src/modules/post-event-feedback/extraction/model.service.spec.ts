@@ -306,6 +306,53 @@ describe("feedback extraction failure mapping", () => {
     });
   });
 
+  it("parks an exhausted OpenAI credit balance without immediate retries", () => {
+    const error = toGenerationError(
+      new APICallError({
+        message: "quota exceeded",
+        url: "https://api.openai.com/v1/responses",
+        requestBodyValues: {},
+        statusCode: 429,
+        isRetryable: true,
+        responseBody: JSON.stringify({
+          error: {
+            type: "insufficient_quota",
+            code: "credit_balance_exhausted",
+            message: "not persisted",
+          },
+        }),
+      }),
+    );
+
+    expect(error).toMatchObject({
+      code: "provider_rejected",
+      retryable: false,
+      failureCause: "provider_error",
+      failureDetail: "http_429_credit_balance_exhausted",
+    });
+    expect(isFeedbackProviderIncident(error)).toBe(true);
+  });
+
+  it("does not infer an account fault from provider prose", () => {
+    const error = toGenerationError(
+      new APICallError({
+        message: "credit_balance_exhausted",
+        url: "https://api.openai.com/v1/responses",
+        requestBodyValues: {},
+        statusCode: 429,
+        isRetryable: true,
+        responseBody: "not-json",
+      }),
+    );
+
+    expect(error).toMatchObject({
+      code: "extraction_failed",
+      retryable: true,
+      failureCause: "provider_error",
+      failureDetail: "http_429",
+    });
+  });
+
   it("treats an unknown failure as retryable rather than losing the run", () => {
     expect(toGenerationError(new Error("socket hang up"))).toMatchObject({
       code: "extraction_failed",

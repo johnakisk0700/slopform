@@ -1290,6 +1290,15 @@ of `FEEDBACK_PROVIDER_ACCOUNT_FAULT_STATUS_CODES` — `401` (key), `402` (credit
 `403` (route or region), `404` (unknown model). No error message is ever read;
 provider strings differ and change without notice.
 
+OpenAI is the awkward exception at the HTTP layer: on the 2026-08-03 production
+rehearsal an empty balance arrived as retryable `429`, with structured
+`type=insufficient_quota` and `code=credit_balance_exhausted`, and no rate-limit
+headers. `fromApiCallError` recognises that exact structured pair as an account
+fault, makes the current BullMQ attempt non-retryable, and records the bounded
+detail `http_429_credit_balance_exhausted`. An ordinary TPM/RPM `429` remains
+retryable and records only `http_429`; provider prose is never inspected or
+persisted.
+
 `400` and `422` are deliberately **not** in that list. They say the provider
 rejected _this request_, which keeps the fallback treatment. The status class is
 what separates the two, because retryability cannot: all of `401`–`404` are
@@ -1312,8 +1321,9 @@ once no attempt has managed to read the testimony. It leaves three things behind
    `park` instead, and `apply` stays cause-agnostic so the routing lives in one
    place). The same class is thrown as the `UnrecoverableError` message, so it is
    visible in BullMQ's `failedReason` and not only in the audit table. HTTP
-   failures append only their safe status (`http_429`, `http_503`, and so on),
-   which makes quota pressure distinguishable from an outage without retaining
+   failures append only their safe status (`http_429`, `http_503`, and so on).
+   The one structured account fault above appends its fixed application-owned
+   code, which distinguishes empty credit from TPM pressure without retaining
    provider or participant text.
 2. **One ordinary note** (`note_type: general`, `status: new`) with bounded
    generic text — «Η αυτόματη ανάλυση δεν ολοκληρώθηκε — δείτε τη συζήτηση.».

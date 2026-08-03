@@ -80,8 +80,8 @@ export type FeedbackExtractionFailureCause =
  * broken», not «this conversation defeated the model».
  *
  * They are all *non-retryable*, which is exactly why they need naming. The
- * retryable half of a provider fault (a timeout, a 429, a 503) already reaches
- * `provider_error` through `isRetryable`; these do not, and until this list
+ * retryable half of a provider fault (a timeout, a rate-limit 429, a 503)
+ * already reaches `provider_error` through `isRetryable`; these do not, and until this list
  * existed every one of them was classified `provider_refusal` — the class that
  * means a human should read the transcript. An exhausted OpenRouter balance
  * therefore looked identical to a content filter stopping on a disclosure, and
@@ -89,10 +89,12 @@ export type FeedbackExtractionFailureCause =
  * had failed because of our billing.
  *
  * 401 is a wrong or missing key, 402 is out of credit, 403 is a forbidden route
- * or region, 404 is a model id the provider does not serve. Every one of them is
- * identical for every conversation in the campaign and none of them is repaired
- * by reading a message — they are repaired by somebody topping up, fixing a key
- * or correcting a model id, after which the very same request succeeds.
+ * or region, 404 is a model id the provider does not serve. OpenAI reports its
+ * exhausted credit balance as a retryable 429, so `fromApiCallError` separately
+ * recognises the provider's structured `credit_balance_exhausted` code. Every
+ * one of these failures is identical for every conversation in the campaign and
+ * none is repaired by reading a message — somebody must top up, fix the key or
+ * correct the model id, after which the same request succeeds.
  *
  * 400 and 422 are deliberately absent. Those say the provider rejected *this
  * request*, which is the bucket that keeps today's behaviour: fall back once,
@@ -113,9 +115,10 @@ export class FeedbackExtractionGenerationError extends Error {
     readonly failureCause: FeedbackExtractionFailureCause = "unknown",
     /**
      * Bounded, log-safe description of the underlying error. Classified HTTP
-     * failures retain only their status (`http_429`, `http_503`, and so on), so
-     * BullMQ can distinguish quota pressure from an outage without persisting a
-     * provider message or participant text.
+     * failures retain only their status (`http_429`, `http_503`, and so on).
+     * Known account faults may append a fixed application-owned code such as
+     * `http_429_credit_balance_exhausted`; no provider message or participant
+     * text is persisted.
      */
     readonly failureDetail: string = "",
   ) {
@@ -954,15 +957,61 @@ export function toGenerationError(
 function fromApiCallError(
   error: APICallError,
 ): FeedbackExtractionGenerationError {
+  const accountFaultCode = feedbackProviderAccountFaultCode(error);
   const accountFault =
-    error.statusCode !== undefined &&
-    FEEDBACK_PROVIDER_ACCOUNT_FAULT_STATUS_CODES.includes(error.statusCode);
+    accountFaultCode !== undefined ||
+    (error.statusCode !== undefined &&
+      FEEDBACK_PROVIDER_ACCOUNT_FAULT_STATUS_CODES.includes(error.statusCode));
+  // AI SDK marks every HTTP 429 retryable. OpenAI also uses 429 when the credit
+  // balance is empty, which no immediate retry can repair. Make that account
+  // fault permanent for this BullMQ attempt so it parks immediately; the
+  // durable five-minute park ladder remains responsible for recovery after a
+  // top-up.
+  const retryable = accountFault ? false : error.isRetryable;
+  const statusDetail =
+    error.statusCode === undefined ? "" : `http_${error.statusCode}`;
   return new FeedbackExtractionGenerationError(
-    error.isRetryable ? "extraction_failed" : "provider_rejected",
-    error.isRetryable,
-    error.isRetryable || accountFault ? "provider_error" : "provider_refusal",
-    error.statusCode === undefined ? "" : `http_${error.statusCode}`,
+    retryable ? "extraction_failed" : "provider_rejected",
+    retryable,
+    retryable || accountFault ? "provider_error" : "provider_refusal",
+    accountFaultCode && statusDetail
+      ? `${statusDetail}_${accountFaultCode}`
+      : statusDetail,
   );
+}
+
+/**
+ * Returns only fixed, application-owned account-fault names.
+ *
+ * OpenAI's 2026-08-03 production response used HTTP 429 with
+ * `type=insufficient_quota` and `code=credit_balance_exhausted`. Reading the
+ * structured body is necessary because the status is shared with ordinary TPM
+ * pressure; returning a fixed literal keeps provider prose out of logs.
+ */
+function feedbackProviderAccountFaultCode(
+  error: APICallError,
+): "credit_balance_exhausted" | undefined {
+  if (error.statusCode !== 429 || !error.responseBody) {
+    return undefined;
+  }
+  try {
+    const body: unknown = JSON.parse(error.responseBody);
+    if (
+      isRecord(body) &&
+      isRecord(body.error) &&
+      body.error.type === "insufficient_quota" &&
+      body.error.code === "credit_balance_exhausted"
+    ) {
+      return "credit_balance_exhausted";
+    }
+  } catch {
+    // An unparseable provider body still has its ordinary status treatment.
+  }
+  return undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**
