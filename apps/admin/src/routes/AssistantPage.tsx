@@ -25,7 +25,10 @@ import {
   requestFailureMessage,
   responseStatus,
 } from "../features/assistant/failureMessages";
-import { calculateAssistantReplyMinHeight } from "../features/assistant/layout";
+import {
+  calculateAssistantQuestionScrollTop,
+  calculateAssistantReplyMinHeight,
+} from "../features/assistant/layout";
 import {
   assistantFailureMessage,
   assistantThreadListSchema,
@@ -658,22 +661,16 @@ export function AssistantPage() {
         ? document.getElementById(latestUserMessageId)
         : null;
       if (element) {
-        const alignQuestion = () => {
-          const questionContent =
-            element.querySelector<HTMLElement>(
-              "[data-assistant-user-content]",
-            ) ?? element;
-          const offset =
-            questionContent.getBoundingClientRect().top -
-            scroller.getBoundingClientRect().top -
-            12;
-          if (Math.abs(offset) > 0.5) {
-            scroller.scrollTo({
-              top: scroller.scrollTop + offset,
-              behavior: "smooth",
-            });
-          }
-        };
+        const questionContent =
+          element.querySelector<HTMLElement>("[data-assistant-user-content]") ??
+          element;
+        const targetScrollTop = calculateAssistantQuestionScrollTop(
+          scroller.scrollTop,
+          questionContent.getBoundingClientRect().top,
+          scroller.getBoundingClientRect().top,
+        );
+        const alignQuestion = () =>
+          scroller.scrollTo({ top: targetScrollTop, behavior: "smooth" });
 
         alignQuestion();
         const frame = window.requestAnimationFrame(() => {

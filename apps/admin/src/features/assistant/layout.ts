@@ -1,5 +1,6 @@
 const MIN_REPLY_HEIGHT_PX = 300;
 const QUESTION_TOP_AND_MESSAGE_GAP_PX = 24;
+const QUESTION_VIEWPORT_OFFSET_PX = 12;
 
 /**
  * Reserve the visible space below the newest question for its answer.
@@ -16,5 +17,22 @@ export function calculateAssistantReplyMinHeight(
   return Math.max(
     viewportHeight - userMessageHeight - QUESTION_TOP_AND_MESSAGE_GAP_PX,
     MIN_REPLY_HEIGHT_PX,
+  );
+}
+
+/**
+ * Resolve one absolute scroll destination for the newest question.
+ *
+ * The destination is intentionally calculated once. Recomputing a relative
+ * delta on the confirmation frame can overshoot while a smooth scroll is
+ * between its scroll-position and layout-paint updates.
+ */
+export function calculateAssistantQuestionScrollTop(
+  currentScrollTop: number,
+  questionTop: number,
+  viewportTop: number,
+): number {
+  return (
+    currentScrollTop + questionTop - viewportTop - QUESTION_VIEWPORT_OFFSET_PX
   );
 }

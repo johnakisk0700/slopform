@@ -28,6 +28,11 @@ let calculateReplyMinHeight: (
   viewportHeight: number,
   userMessageHeight: number,
 ) => number;
+let calculateQuestionScrollTop: (
+  currentScrollTop: number,
+  questionTop: number,
+  viewportTop: number,
+) => number;
 
 beforeAll(async () => {
   const [schemaModule, cardModule, reasoningModule, costModule, layoutModule] =
@@ -68,6 +73,12 @@ beforeAll(async () => {
     viewportHeight: number,
     userMessageHeight: number,
   ) => number;
+  calculateQuestionScrollTop =
+    layoutModule.calculateAssistantQuestionScrollTop as (
+      currentScrollTop: number,
+      questionTop: number,
+      viewportTop: number,
+    ) => number;
 });
 describe("assistant turn artifacts", () => {
   it("keeps tool calls, reasoning and priced usage on a settled message", () => {
@@ -164,6 +175,7 @@ describe("assistant turn artifacts", () => {
   it("keeps the latest reply tall enough to anchor its question at the top", () => {
     expect(calculateReplyMinHeight(700, 40)).toBe(636);
     expect(calculateReplyMinHeight(260, 40)).toBe(300);
+    expect(calculateQuestionScrollTop(24, 129, 73)).toBe(68);
   });
 
   it("formats tiny per-turn costs honestly as estimates", () => {
