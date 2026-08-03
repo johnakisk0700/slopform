@@ -229,7 +229,7 @@ export function AssistantPage() {
   const composerContainerRef = useRef<HTMLFormElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const alignLatestQuestionRef = useRef(false);
-  const skipNextThreadHydrationRef = useRef(false);
+  const skipHydrationThreadIdRef = useRef<string | null>(null);
   const previousThreadIdRef = useRef<string | null>(null);
 
   const isBusy =
@@ -441,6 +441,7 @@ export function AssistantPage() {
               signal: controller.signal,
             });
             const thread = assistantThreadSchema.parse(rawThread);
+            skipHydrationThreadIdRef.current = thread.id;
             setActiveThread(thread);
             setPendingUser(null);
             suppressedRouteLoadRef.current = thread.id;
@@ -688,8 +689,8 @@ export function AssistantPage() {
     if (!scroller || !activeThreadId) return;
     if (activeThreadId === previousThreadIdRef.current) return;
 
-    if (skipNextThreadHydrationRef.current) {
-      skipNextThreadHydrationRef.current = false;
+    if (skipHydrationThreadIdRef.current === activeThreadId) {
+      skipHydrationThreadIdRef.current = null;
       previousThreadIdRef.current = activeThreadId;
       return;
     }
@@ -770,7 +771,6 @@ export function AssistantPage() {
     setComposerError(null);
     setAnnouncement("Message sent. Assistant generation queued.");
     alignLatestQuestionRef.current = true;
-    skipNextThreadHydrationRef.current = activeThread === null;
 
     if (activeThread) {
       void executeAction({
@@ -803,7 +803,7 @@ export function AssistantPage() {
     setComposer("");
     setComposerError(null);
     setAnnouncement("New conversation ready.");
-    skipNextThreadHydrationRef.current = false;
+    skipHydrationThreadIdRef.current = null;
     previousThreadIdRef.current = null;
     navigate("/admin/assistant");
     focusComposer();
@@ -849,7 +849,7 @@ export function AssistantPage() {
       if (key === activeThread?.id) return;
       setFailure(null);
       setPhase("loading");
-      skipNextThreadHydrationRef.current = false;
+      skipHydrationThreadIdRef.current = null;
       previousThreadIdRef.current = null;
       navigate(`/admin/assistant/${key}`);
     }
