@@ -26,10 +26,10 @@ function modelLabel(message: AssistantDisplayMessage): string {
 export const AssistantMessage = memo(
   ({
     message,
-    reserveAnswerHeight,
+    minHeight,
   }: {
     message: AssistantDisplayMessage;
-    reserveAnswerHeight: boolean;
+    minHeight?: number;
   }) => {
     if (message.role === "user") {
       return (
@@ -58,12 +58,10 @@ export const AssistantMessage = memo(
       <article
         id={message.id}
         aria-label="Assistant message"
-        className={
-          reserveAnswerHeight ? "min-h-[clamp(18rem,48dvh,30rem)]" : undefined
-        }
+        style={minHeight === undefined ? undefined : { minHeight }}
       >
         {message.toolCalls.length > 0 ? (
-          <div className="mb-2 grid gap-0.5">
+          <div>
             {message.toolCalls.map((call) => (
               <AssistantToolCallCard key={call.toolCallId} call={call} />
             ))}
@@ -105,7 +103,7 @@ export const AssistantMessage = memo(
     previous.message.toolCalls === next.message.toolCalls &&
     previous.message.usage === next.message.usage &&
     previous.message.status === next.message.status &&
-    previous.reserveAnswerHeight === next.reserveAnswerHeight,
+    previous.minHeight === next.minHeight,
 );
 
 AssistantMessage.displayName = "AssistantMessage";

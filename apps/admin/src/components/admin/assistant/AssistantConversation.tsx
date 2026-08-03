@@ -21,6 +21,8 @@ interface AssistantConversationProps {
   retryLabel: string;
   startNewLabel: string;
   announcement: string;
+  replyMinHeight: number | null;
+  bottomClearance: number;
   onRetryFailure: () => void;
   onReviseFailure: (() => void) | null;
   onStartNew: () => void;
@@ -42,6 +44,8 @@ export function AssistantConversation({
   retryLabel,
   startNewLabel,
   announcement,
+  replyMinHeight,
+  bottomClearance,
   onRetryFailure,
   onReviseFailure,
   onStartNew,
@@ -60,7 +64,10 @@ export function AssistantConversation({
     /* The source drops the column's left padding once there is room, so the
        written page starts on the composer's own line of writing rather than
        inset from it. */
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-3 px-3 pb-40 lg:pl-0">
+    <div
+      className="mx-auto flex w-full max-w-2xl flex-col gap-3 px-3 lg:pl-0"
+      style={{ paddingBottom: bottomClearance }}
+    >
       <header className="mb-3 flex h-14 w-full items-center justify-between border-b border-border-subtle">
         <span className="hidden text-xs text-ink-muted sm:inline">
           Ask the assistant about operations, events and decisions.
@@ -80,20 +87,29 @@ export function AssistantConversation({
         aria-busy={busy}
         className="grid gap-3"
       >
-        {messages.map((message, index) => (
-          <AssistantMessage
-            key={message.id}
-            message={message}
-            reserveAnswerHeight={
-              busy &&
-              index === messages.length - 1 &&
-              message.role === "assistant"
-            }
-          />
-        ))}
+        {messages.map((message, index) => {
+          const isLatestAssistant =
+            index === messages.length - 1 && message.role === "assistant";
+          return (
+            <AssistantMessage
+              key={message.id}
+              message={message}
+              {...(isLatestAssistant && replyMinHeight !== null
+                ? { minHeight: replyMinHeight }
+                : {})}
+            />
+          );
+        })}
 
         {waitingForAssistant ? (
-          <div className="min-h-[clamp(18rem,48dvh,30rem)] max-w-none">
+          <div
+            className="max-w-none"
+            style={
+              replyMinHeight === null
+                ? { minHeight: 300 }
+                : { minHeight: replyMinHeight }
+            }
+          >
             <AssistantThinkingIndicator />
           </div>
         ) : null}

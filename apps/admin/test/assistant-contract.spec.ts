@@ -463,8 +463,10 @@ describe("assistant route wiring", () => {
     expect(page).toContain("[overflow-anchor:none]");
     expect(conversation).toContain('className="sr-only" aria-live="polite"');
     expect(conversation).toContain('role="log"');
-    expect(conversation).toContain("reserveAnswerHeight");
-    expect(message).toContain("min-h-[clamp(18rem,48dvh,30rem)]");
+    expect(page).toContain("calculateAssistantReplyMinHeight");
+    expect(page).toContain("skipNextThreadHydrationRef");
+    expect(conversation).toContain("replyMinHeight");
+    expect(message).toContain("style={minHeight");
     expect(conversation).not.toContain(
       'role="log"\n        aria-label="Assistant conversation"\n        aria-live',
     );

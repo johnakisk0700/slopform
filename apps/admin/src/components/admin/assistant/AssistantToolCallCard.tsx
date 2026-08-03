@@ -1,26 +1,27 @@
-import { CheckCircle2, ChevronRight, CircleAlert, Wrench } from "lucide-react";
+import { Check, CircleAlert, Loader2, Search, Wrench } from "lucide-react";
 import type { ReactNode } from "react";
 
 import type { AssistantToolCall } from "../../../features/assistant/schema";
+import { AssistantActivityDisclosure } from "./AssistantActivityDisclosure";
 
 export function AssistantToolCallCard({ call }: { call: AssistantToolCall }) {
   const status = toolStatus(call.state);
+  const detail = toolDetail(call.input);
 
   return (
-    <details className="jts-disclosure group border-l-2 border-border pl-3 text-xs">
-      <summary className="flex cursor-pointer list-none items-center gap-1.5 py-1 text-ink-muted transition-colors hover:text-ink [&::-webkit-details-marker]:hidden">
-        {status.icon}
-        <span className={call.state === "running" ? "assistant-thinking" : ""}>
-          {call.label}
-        </span>
-        <span className="text-ink-subtle">· {status.label}</span>
-        <ChevronRight
-          aria-hidden="true"
-          className="ml-auto size-3 transition-transform group-open:rotate-90"
-        />
-      </summary>
-
-      <div className="grid gap-2 pb-2 pl-5 pt-1 text-ink-subtle">
+    <AssistantActivityDisclosure
+      tone="tool"
+      label={call.label}
+      {...(call.state === "running"
+        ? { labelClassName: "assistant-thinking" }
+        : {})}
+      detail={detail}
+      icon={
+        <Search aria-hidden="true" className="size-3.5 shrink-0 opacity-70" />
+      }
+      trailing={status.icon}
+    >
+      <div className="grid gap-2 px-2.5 py-2 text-ink-subtle">
         <ToolPayload
           label="Input"
           value={call.input}
@@ -36,11 +37,21 @@ export function AssistantToolCallCard({ call }: { call: AssistantToolCall }) {
           <p>The lookup failed; provider internals are intentionally hidden.</p>
         ) : null}
         <p className="font-mono text-[length:var(--jts-text-2xs)] text-ink-subtle">
-          {call.tool}
+          {call.tool} · {status.label}
         </p>
       </div>
-    </details>
+    </AssistantActivityDisclosure>
   );
+}
+
+function toolDetail(input: AssistantToolCall["input"]): string | null {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  const values = input as Record<string, unknown>;
+  for (const key of ["query", "search", "name", "title", "email", "status"]) {
+    const value = values[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
 }
 
 function ToolPayload({
@@ -71,18 +82,13 @@ function toolStatus(state: AssistantToolCall["state"]): {
     case "running":
       return {
         label: "running",
-        icon: (
-          <Wrench
-            aria-hidden="true"
-            className="size-3.5 shrink-0 text-primary"
-          />
-        ),
+        icon: <Loader2 aria-hidden="true" className="size-3.5 animate-spin" />,
       };
     case "done":
       return {
         label: "done",
         icon: (
-          <CheckCircle2
+          <Check
             aria-hidden="true"
             className="size-3.5 shrink-0 text-success"
           />

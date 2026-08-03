@@ -25,6 +25,7 @@ import {
   requestFailureMessage,
   responseStatus,
 } from "../features/assistant/failureMessages";
+import { calculateAssistantReplyMinHeight } from "../features/assistant/layout";
 import {
   assistantFailureMessage,
   assistantThreadListSchema,
@@ -216,11 +217,16 @@ export function AssistantPage() {
   const [phase, setPhase] = useState<PagePhase>("loading");
   const [failure, setFailure] = useState<PageFailure | null>(null);
   const [announcement, setAnnouncement] = useState("");
+  const [replyMinHeight, setReplyMinHeight] = useState<number | null>(null);
+  const [conversationBottomClearance, setConversationBottomClearance] =
+    useState(160);
   const operationRef = useRef<AbortController | null>(null);
   const suppressedRouteLoadRef = useRef<string | undefined>(undefined);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const composerContainerRef = useRef<HTMLFormElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const alignLatestQuestionRef = useRef(false);
+  const skipNextThreadHydrationRef = useRef(false);
   const previousThreadIdRef = useRef<string | null>(null);
 
   const isBusy =
@@ -586,37 +592,110 @@ export function AssistantPage() {
     return [...persisted, optimistic];
   }, [activeThread, liveTurn, pendingUser]);
 
+  const latestUserMessageId = useMemo(
+    () =>
+      [...messages].reverse().find((message) => message.role === "user")?.id,
+    [messages],
+  );
+  const activeThreadId = activeThread?.id;
+
   useLayoutEffect(() => {
     const scroller = scrollContainerRef.current;
-    if (!scroller) return;
-
-    if (alignLatestQuestionRef.current && isBusy) {
-      const lastUser = [...messages]
-        .reverse()
-        .find((message) => message.role === "user");
-      const element = lastUser ? document.getElementById(lastUser.id) : null;
-      if (element) {
-        const offset =
-          element.getBoundingClientRect().top -
-          scroller.getBoundingClientRect().top -
-          12;
-        scroller.scrollTo({
-          top: scroller.scrollTop + offset,
-          behavior: "smooth",
-        });
-        alignLatestQuestionRef.current = false;
-        if (activeThread) previousThreadIdRef.current = activeThread.id;
-      }
+    const composer = composerContainerRef.current;
+    const userMessage = latestUserMessageId
+      ? document.getElementById(latestUserMessageId)
+      : null;
+    if (!scroller || !composer) {
+      setReplyMinHeight(null);
       return;
     }
-  }, [activeThread, isBusy, messages]);
 
-  const activeThreadId = activeThread?.id;
+    const measure = () => {
+      const scrollerBounds = scroller.getBoundingClientRect();
+      const composerBounds = composer.getBoundingClientRect();
+      const visibleBottom = Math.min(
+        scrollerBounds.bottom,
+        Math.max(scrollerBounds.top, composerBounds.top),
+      );
+      const visibleHeight = visibleBottom - scrollerBounds.top;
+      const bottomClearance = Math.ceil(
+        Math.max(scrollerBounds.bottom - visibleBottom + 24, 24),
+      );
+      setConversationBottomClearance((current) =>
+        current === bottomClearance ? current : bottomClearance,
+      );
+
+      if (!userMessage) {
+        setReplyMinHeight(null);
+        return;
+      }
+      const userContent = userMessage.querySelector<HTMLElement>(
+        "[data-assistant-user-content]",
+      );
+      const userHeight = (userContent ?? userMessage).getBoundingClientRect()
+        .height;
+      const next = calculateAssistantReplyMinHeight(visibleHeight, userHeight);
+      setReplyMinHeight((current) =>
+        current !== null && Math.abs(current - next) < 0.5 ? current : next,
+      );
+    };
+
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(scroller);
+    observer.observe(composer);
+    if (userMessage) observer.observe(userMessage);
+    return () => observer.disconnect();
+  }, [latestUserMessageId]);
+
+  useLayoutEffect(() => {
+    const scroller = scrollContainerRef.current;
+    if (!scroller || replyMinHeight === null) return;
+
+    if (alignLatestQuestionRef.current && isBusy) {
+      const element = latestUserMessageId
+        ? document.getElementById(latestUserMessageId)
+        : null;
+      if (element) {
+        const alignQuestion = () => {
+          const questionContent =
+            element.querySelector<HTMLElement>(
+              "[data-assistant-user-content]",
+            ) ?? element;
+          const offset =
+            questionContent.getBoundingClientRect().top -
+            scroller.getBoundingClientRect().top -
+            12;
+          if (Math.abs(offset) > 0.5) {
+            scroller.scrollTo({
+              top: scroller.scrollTop + offset,
+              behavior: "smooth",
+            });
+          }
+        };
+
+        alignQuestion();
+        const frame = window.requestAnimationFrame(() => {
+          alignQuestion();
+          alignLatestQuestionRef.current = false;
+          if (activeThreadId) previousThreadIdRef.current = activeThreadId;
+        });
+        return () => window.cancelAnimationFrame(frame);
+      }
+    }
+  }, [activeThreadId, isBusy, latestUserMessageId, replyMinHeight]);
 
   useLayoutEffect(() => {
     const scroller = scrollContainerRef.current;
     if (!scroller || !activeThreadId) return;
     if (activeThreadId === previousThreadIdRef.current) return;
+
+    if (skipNextThreadHydrationRef.current) {
+      skipNextThreadHydrationRef.current = false;
+      previousThreadIdRef.current = activeThreadId;
+      return;
+    }
 
     previousThreadIdRef.current = activeThreadId;
     const scrollToBottom = () => {
@@ -694,6 +773,7 @@ export function AssistantPage() {
     setComposerError(null);
     setAnnouncement("Message sent. Assistant generation queued.");
     alignLatestQuestionRef.current = true;
+    skipNextThreadHydrationRef.current = activeThread === null;
 
     if (activeThread) {
       void executeAction({
@@ -726,6 +806,7 @@ export function AssistantPage() {
     setComposer("");
     setComposerError(null);
     setAnnouncement("New conversation ready.");
+    skipNextThreadHydrationRef.current = false;
     previousThreadIdRef.current = null;
     navigate("/admin/assistant");
     focusComposer();
@@ -771,6 +852,7 @@ export function AssistantPage() {
       if (key === activeThread?.id) return;
       setFailure(null);
       setPhase("loading");
+      skipNextThreadHydrationRef.current = false;
       previousThreadIdRef.current = null;
       navigate(`/admin/assistant/${key}`);
     }
@@ -871,6 +953,8 @@ export function AssistantPage() {
             failure?.kind === "submission" ? "Discard & start new" : "Start new"
           }
           announcement={announcement}
+          replyMinHeight={replyMinHeight}
+          bottomClearance={conversationBottomClearance}
           onRetryFailure={() => {
             if (failure) void executeAction(failure.action);
           }}
@@ -892,6 +976,7 @@ export function AssistantPage() {
         isBusy={isBusy}
         isBlocked={failure !== null}
         error={composerError}
+        containerRef={composerContainerRef}
         textareaRef={textareaRef}
         onChange={(value) => {
           setComposer(value);

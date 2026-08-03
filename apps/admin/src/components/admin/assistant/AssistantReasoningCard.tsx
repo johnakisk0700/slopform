@@ -1,12 +1,13 @@
-import { Brain, ChevronRight } from "lucide-react";
-import { useState } from "react";
+import { Brain, Loader2 } from "lucide-react";
+
+import { AssistantActivityDisclosure } from "./AssistantActivityDisclosure";
 
 /**
  * The model's own account of its thinking, as a quiet disclosure — the shape
  * notes_ai uses for the same part.
  *
  * Collapsed by default and never styled as prose: this is not the answer, and a
- * reader who mistakes reasoning for a result has been misled by the layout. It
+ * reader who mistakes reasoning for a result has been misled by the layout.
  * The provider stops sending it when the turn settles; the durable turn keeps
  * the final accumulated value so the same disclosure survives reload.
  */
@@ -17,31 +18,23 @@ export function AssistantReasoningCard({
   reasoning: string;
   streaming: boolean;
 }) {
-  const [isOpen, setIsOpen] = useState(false);
-
   return (
-    <div className="mb-2 border-l-2 border-border pl-3">
-      <button
-        type="button"
-        aria-expanded={isOpen}
-        onClick={() => setIsOpen((open) => !open)}
-        className="flex items-center gap-1.5 text-xs text-ink-muted transition-colors hover:text-ink"
-      >
-        <Brain aria-hidden="true" className="size-3.5 shrink-0" />
-        <span className={streaming ? "assistant-thinking" : undefined}>
-          Thinking
-        </span>
-        <ChevronRight
-          aria-hidden="true"
-          className={`size-3 transition-transform ${isOpen ? "rotate-90" : ""}`}
-        />
-      </button>
-
-      {isOpen ? (
-        <p className="mt-1.5 whitespace-pre-wrap text-xs leading-5 text-ink-subtle">
-          {reasoning}
-        </p>
-      ) : null}
-    </div>
+    <AssistantActivityDisclosure
+      tone="reasoning"
+      label="Thinking"
+      labelClassName="font-mono"
+      icon={
+        <Brain aria-hidden="true" className="size-3.5 shrink-0 opacity-70" />
+      }
+      trailing={
+        streaming ? (
+          <Loader2 aria-hidden="true" className="size-3.5 animate-spin" />
+        ) : null
+      }
+    >
+      <div className="whitespace-pre-wrap break-words px-2.5 py-2 text-[0.8rem] italic leading-relaxed text-ink-muted">
+        {reasoning}
+      </div>
+    </AssistantActivityDisclosure>
   );
 }

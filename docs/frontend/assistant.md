@@ -193,10 +193,15 @@ them.
 - Historical hydration scrolls to the end immediately, confirms on the next
   animation frame and keeps a short `ResizeObserver` while Markdown/Mermaid
   layout settles. A newly submitted question keeps the separate notes_ai
-  question-alignment behavior. The last in-flight answer retains the thinking
-  placeholder's reserved height, and the scroll region disables overflow
-  anchoring, so the question cannot spring back when the first live text replaces
-  the placeholder. The minimum disappears when the durable turn settles.
+  question-alignment behavior. The visible scroll viewport and newest question
+  and the overlay composer's real top edge are measured with `ResizeObserver`;
+  the genuinely visible remaining height moves unchanged from the waiting
+  placeholder to the live answer and stays on the settled last answer. Matching
+  dynamic bottom clearance keeps that answer out from behind the composer. The
+  scroll region disables overflow anchoring, so neither first text nor
+  settlement can pull the question back down. A new thread created by that turn
+  also suppresses its one historical-hydration scroll, which would otherwise
+  overwrite the live alignment when the server returns its id.
 - Only one nonterminal turn exists per thread. Thread selection, new-thread
   creation and the composer are disabled while that turn is active.
 - Poll failure retries `GET` for the same turn. Submission failure can replay

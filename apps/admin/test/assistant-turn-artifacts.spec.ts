@@ -22,27 +22,52 @@ interface ToolCallCardProps {
 
 let artifacts: ArtifactSchemaModule;
 let ToolCallCard: ComponentType<ToolCallCardProps>;
+let ReasoningCard: ComponentType<{ reasoning: string; streaming: boolean }>;
 let formatCost: (euroMicros: number) => string;
+let calculateReplyMinHeight: (
+  viewportHeight: number,
+  userMessageHeight: number,
+) => number;
 
 beforeAll(async () => {
-  const [schemaModule, cardModule, costModule] = await Promise.all([
-    import(
-      new URL("../src/features/assistant/schema.ts", import.meta.url).href
-    ),
-    import(
-      new URL(
-        "../src/components/admin/assistant/AssistantToolCallCard.tsx",
-        import.meta.url,
-      ).href
-    ),
-    import(new URL("../src/features/assistant/cost.ts", import.meta.url).href),
-  ]);
+  const [schemaModule, cardModule, reasoningModule, costModule, layoutModule] =
+    await Promise.all([
+      import(
+        new URL("../src/features/assistant/schema.ts", import.meta.url).href
+      ),
+      import(
+        new URL(
+          "../src/components/admin/assistant/AssistantToolCallCard.tsx",
+          import.meta.url,
+        ).href
+      ),
+      import(
+        new URL(
+          "../src/components/admin/assistant/AssistantReasoningCard.tsx",
+          import.meta.url,
+        ).href
+      ),
+      import(
+        new URL("../src/features/assistant/cost.ts", import.meta.url).href
+      ),
+      import(
+        new URL("../src/features/assistant/layout.ts", import.meta.url).href
+      ),
+    ]);
   artifacts = schemaModule as ArtifactSchemaModule;
   ToolCallCard =
     cardModule.AssistantToolCallCard as ComponentType<ToolCallCardProps>;
+  ReasoningCard = reasoningModule.AssistantReasoningCard as ComponentType<{
+    reasoning: string;
+    streaming: boolean;
+  }>;
   formatCost = costModule.formatEstimatedAssistantCost as (
     euroMicros: number,
   ) => string;
+  calculateReplyMinHeight = layoutModule.calculateAssistantReplyMinHeight as (
+    viewportHeight: number,
+    userMessageHeight: number,
+  ) => number;
 });
 describe("assistant turn artifacts", () => {
   it("keeps tool calls, reasoning and priced usage on a settled message", () => {
@@ -102,7 +127,7 @@ describe("assistant turn artifacts", () => {
     });
   });
 
-  it("renders the copied disclosure shape with inspectable input and result", () => {
+  it("renders tool and reasoning cards on the same copied disclosure row", () => {
     const html = renderToStaticMarkup(
       createElement(ToolCallCard, {
         call: {
@@ -122,6 +147,23 @@ describe("assistant turn artifacts", () => {
     expect(html).toContain("Searching events");
     expect(html).toContain("scheduled");
     expect(html).toContain("Result");
+
+    const reasoningHtml = renderToStaticMarkup(
+      createElement(ReasoningCard, {
+        reasoning: "I checked the live schedule.",
+        streaming: false,
+      }),
+    );
+    const summaryClass = (markup: string) =>
+      markup.match(/<summary class="([^"]+)"/u)?.[1];
+    expect(summaryClass(html)).toBeTruthy();
+    expect(summaryClass(reasoningHtml)).toBe(summaryClass(html));
+    expect(summaryClass(html)).toContain("min-h-8");
+  });
+
+  it("keeps the latest reply tall enough to anchor its question at the top", () => {
+    expect(calculateReplyMinHeight(700, 40)).toBe(636);
+    expect(calculateReplyMinHeight(260, 40)).toBe(300);
   });
 
   it("formats tiny per-turn costs honestly as estimates", () => {

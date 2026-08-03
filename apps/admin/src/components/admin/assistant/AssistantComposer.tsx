@@ -26,6 +26,7 @@ interface AssistantComposerProps {
   isBusy: boolean;
   isBlocked: boolean;
   error: string | null;
+  containerRef: RefObject<HTMLFormElement | null>;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   onChange: (value: string) => void;
   onModelChange: (model: AssistantModel) => void;
@@ -43,6 +44,7 @@ export function AssistantComposer({
   isBusy,
   isBlocked,
   error,
+  containerRef,
   textareaRef,
   onChange,
   onModelChange,
@@ -71,6 +73,7 @@ export function AssistantComposer({
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center px-3 sm:px-5">
       <form
+        ref={containerRef}
         onSubmit={submit}
         className="pointer-events-auto relative w-[45rem] max-w-full rounded-t-xl border border-b-0 border-border bg-surface/95 px-4 pt-3.5 pb-2 shadow-lg backdrop-blur-md transition-colors focus-within:border-primary-border focus-within:ring-2 focus-within:ring-inset focus-within:ring-primary-border"
       >
