@@ -258,7 +258,7 @@ function AssistantMessageActions({
         <Dropdown>
           <Dropdown.Trigger
             aria-label={copied ? "Response copied" : "Choose what to copy"}
-            className="inline-flex size-7 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-surface-raised hover:text-ink"
+            className="inline-flex size-7 items-center justify-start rounded-md text-ink-muted transition-colors hover:bg-surface-raised hover:text-ink"
           >
             {copied ? (
               <Check aria-hidden="true" className="size-3.5 text-primary" />
@@ -295,7 +295,7 @@ function AssistantMessageActions({
           size="sm"
           isIconOnly
           aria-label={copied ? "Response copied" : "Copy response"}
-          className="size-7 min-w-7"
+          className="size-7 min-w-7 justify-start p-0"
           onPress={() => void copyContent("answer")}
         >
           {copied ? (

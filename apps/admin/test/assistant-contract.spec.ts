@@ -648,6 +648,13 @@ describe("assistant route wiring", () => {
     expect(message).toContain(
       'className="ml-1.5 font-mono text-[length:var(--jts-text-2xs)]',
     );
+    expect(message).toContain(
+      "inline-flex size-7 items-center justify-start rounded-md",
+    );
+    expect(message).toContain('className="size-7 min-w-7 justify-start p-0"');
+    expect(message).not.toContain(
+      "inline-flex size-7 items-center justify-center rounded-md",
+    );
     expect(thinking).toContain(
       "items-center gap-1.5 font-mono text-xs text-ink-muted",
     );

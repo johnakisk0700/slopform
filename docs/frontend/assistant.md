@@ -211,7 +211,11 @@ being imitated cosmetically from `notes_ai`:
 - **Copy.** A settled answer with no activity copies directly. When persisted
   reasoning or tool calls exist, the copy action offers answer-only or answer
   plus thinking and bounded tool input/result artifacts; both variants are
-  formatted from that durable turn, never reconstructed from DOM text.
+  formatted from that durable turn, never reconstructed from DOM text. The
+  visible copy glyph is start-aligned inside its 28px hit target, so it shares
+  the answer column's left axis with prose, activity disclosures, cards,
+  charts, diagrams and the streaming indicator instead of sitting seven pixels
+  inside that axis.
 
 The rule the two share is the one worth keeping: nothing here renders fictional
 state. Both surfaces exist because a durable field or a parsed contract backs
