@@ -254,15 +254,21 @@ them.
 ## Accessibility and responsive states
 
 The route keeps one visually hidden `h1` because the chat deliberately has no
-visible page-header chrome. Conversation history is a named scroll region
+visible page-header chrome. The conversation toolbar does not mirror transient
+page phases: loading and success are intentionally silent there, while the
+conversation body and its live region own generation and failure feedback.
+Conversation history is a named plain scroll region
 containing a non-live `role="log"`, so opening an old thread does not announce
-its entire transcript. A separate atomic live region announces only new-send
+its entire transcript. It deliberately has no scroll-edge gradient: the newest
+question aligns close to its top edge and must remain fully legible there. A
+separate atomic live region announces only new-send
 and lifecycle status; generation and failures also expose focused status and
 alert semantics. The composer has a programmatic label, Enter sends,
 Shift+Enter adds a line, and icon-only controls have accessible names. The
 textarea itself suppresses HeroUI/native focus borders and rings; the enclosing
-composer receives the token-based `focus-within` ring so keyboard focus remains
-visible without drawing a box through the writing area.
+composer changes its existing three-sided token border on `focus-within`, so
+keyboard focus remains visible without drawing a ring or a false bottom edge
+through the docked writing area.
 
 The writing area is two fixed rows that scroll, with no drag handle: the
 composer is what the message column docks against, so a resizable box would let

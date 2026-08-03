@@ -597,7 +597,8 @@ describe("assistant route wiring", () => {
     );
     expect(page).not.toContain("JtsPageHeader");
     expect(page).not.toContain("h-[clamp(36rem,72dvh,52rem)]");
-    expect(composer).toContain("focus-within:ring-primary-border");
+    expect(composer).toContain("focus-within:border-primary-border");
+    expect(composer).not.toContain("focus-within:ring-");
     expect(composer).toContain("focus:ring-0");
     expect(composer).toContain("focus-visible:ring-0");
   });
@@ -632,6 +633,8 @@ describe("assistant route wiring", () => {
 
     expect(page).toContain("{({ selectedText }) => selectedText}");
     expect(page).toContain('className="min-w-0 flex-1 truncate text-left"');
+    expect(page).not.toContain("phaseLabel");
+    expect(page).not.toContain("ScrollShadow");
     expect(message).toContain(
       'className="mt-1.5 flex items-center gap-0.5 text-ink-muted"',
     );

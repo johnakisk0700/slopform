@@ -1,5 +1,4 @@
-import { Button, Chip, ListBox, ScrollShadow, Select } from "@heroui/react";
-import { clsx } from "clsx";
+import { Button, ListBox, Select } from "@heroui/react";
 import { MessageSquarePlus } from "lucide-react";
 import {
   useCallback,
@@ -171,24 +170,6 @@ function clearLiveTurn(
   return current?.turnId === turnId && current.attempt === attempt
     ? null
     : current;
-}
-
-function phaseLabel(phase: PagePhase): string {
-  switch (phase) {
-    case "loading":
-      return "Loading";
-    case "submitting":
-      return "Submitting";
-    case "queued":
-      return "Queued";
-    case "running":
-      return "Generating";
-    case "failed":
-      return "Needs attention";
-    case "succeeded":
-    case "idle":
-      return "Ready";
-  }
 }
 
 /** Durable, queue-backed assistant with the notes_ai chat renderer and shell. */
@@ -917,44 +898,27 @@ export function AssistantPage() {
           </Select.Popover>
         </Select>
 
-        <div className="flex items-center gap-1.5">
-          <Chip
-            variant="tertiary"
-            className={clsx(
-              "rounded-sm border px-2 py-1 text-[0.625rem] font-extrabold uppercase tracking-[0.06em]",
-              failure
-                ? "border-danger/35 bg-danger-soft text-danger"
-                : isBusy
-                  ? "border-primary-border bg-primary-soft text-primary"
-                  : "border-success/35 bg-success-soft text-success",
-            )}
+        {activeThread ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            isIconOnly
+            isDisabled={isBusy}
+            aria-label="New conversation"
+            onPress={startNewConversation}
           >
-            {phaseLabel(phase)}
-          </Chip>
-          {activeThread ? (
-            <Button
-              size="sm"
-              variant="ghost"
-              isIconOnly
-              isDisabled={isBusy}
-              aria-label="New conversation"
-              onPress={startNewConversation}
-            >
-              <MessageSquarePlus aria-hidden="true" className="size-4" />
-            </Button>
-          ) : null}
-        </div>
+            <MessageSquarePlus aria-hidden="true" className="size-4" />
+          </Button>
+        ) : null}
       </div>
 
-      <ScrollShadow
+      <div
         ref={scrollContainerRef}
         role="region"
         aria-label="Assistant conversation history"
-        tabIndex={0}
-        orientation="vertical"
         // Always-on gutter, like the source: an appearing scrollbar would
         // otherwise recentre the column while the docked composer stays put.
-        className="min-h-0 flex-1 overflow-y-scroll bg-surface [overflow-anchor:none] focus-visible:-outline-offset-2"
+        className="min-h-0 flex-1 overflow-y-scroll bg-surface [overflow-anchor:none]"
       >
         <AssistantConversation
           messages={messages}
@@ -979,7 +943,7 @@ export function AssistantPage() {
             focusComposer();
           }}
         />
-      </ScrollShadow>
+      </div>
 
       <AssistantComposer
         value={composer}

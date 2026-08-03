@@ -75,7 +75,7 @@ export function AssistantComposer({
       <form
         ref={containerRef}
         onSubmit={submit}
-        className="pointer-events-auto relative w-[45rem] max-w-full rounded-t-xl border border-b-0 border-border bg-surface/95 px-4 pt-3.5 pb-2 shadow-lg backdrop-blur-md transition-colors focus-within:border-primary-border focus-within:ring-2 focus-within:ring-inset focus-within:ring-primary-border"
+        className="pointer-events-auto relative w-[45rem] max-w-full rounded-t-xl border border-b-0 border-border bg-surface/95 px-4 pt-3.5 pb-2 shadow-lg backdrop-blur-md transition-colors focus-within:border-primary-border"
       >
         <TextField
           fullWidth
