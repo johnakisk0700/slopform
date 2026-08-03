@@ -466,6 +466,11 @@ describe("assistant route wiring", () => {
     expect(conversation).toContain('role="log"');
     expect(page).toContain("calculateAssistantReplyMinHeight");
     expect(page).toContain("skipHydrationThreadIdRef.current = thread.id");
+    expect(page).toContain("preserveAssistantLiveAlignment: true");
+    expect(page).toContain("useRef(preserveLiveAlignment)");
+    expect(page).toContain(
+      "preserveLiveAlignment ? (routeThreadId ?? null) : null",
+    );
     expect(page).toContain(
       "if (activeThreadId) {\n            alignLatestQuestionRef.current = false",
     );

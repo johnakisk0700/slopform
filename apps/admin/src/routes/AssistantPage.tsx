@@ -9,7 +9,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useLocation, useNavigate, useParams } from "react-router";
 
 import { AssistantComposer } from "../components/admin/assistant/AssistantComposer";
 import { AssistantConversation } from "../components/admin/assistant/AssistantConversation";
@@ -199,7 +199,14 @@ export function AssistantPage() {
   );
 
   const navigate = useNavigate();
+  const location = useLocation();
   const { threadId: routeThreadId } = useParams<{ threadId?: string }>();
+  const preserveLiveAlignment =
+    (
+      location.state as {
+        preserveAssistantLiveAlignment?: boolean;
+      } | null
+    )?.preserveAssistantLiveAlignment === true;
 
   const [threads, setThreads] = useState<AssistantThreadSummary[]>([]);
   const [activeThread, setActiveThread] = useState<AssistantThread | null>(
@@ -228,8 +235,10 @@ export function AssistantPage() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const composerContainerRef = useRef<HTMLFormElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const alignLatestQuestionRef = useRef(false);
-  const skipHydrationThreadIdRef = useRef<string | null>(null);
+  const alignLatestQuestionRef = useRef(preserveLiveAlignment);
+  const skipHydrationThreadIdRef = useRef<string | null>(
+    preserveLiveAlignment ? (routeThreadId ?? null) : null,
+  );
   const previousThreadIdRef = useRef<string | null>(null);
 
   const isBusy =
@@ -445,7 +454,10 @@ export function AssistantPage() {
             setActiveThread(thread);
             setPendingUser(null);
             suppressedRouteLoadRef.current = thread.id;
-            navigate(`/admin/assistant/${thread.id}`, { replace: true });
+            navigate(`/admin/assistant/${thread.id}`, {
+              replace: true,
+              state: { preserveAssistantLiveAlignment: true },
+            });
             await refreshThreadList();
             const turn = thread.turns.at(-1);
             if (turn) await watchTurn(thread.id, turn);
