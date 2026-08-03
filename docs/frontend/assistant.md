@@ -1,6 +1,6 @@
 # AI assistant screen
 
-Status: implemented, verified 2026-08-02 against React 19.2.8, HeroUI 3.2.2,
+Status: implemented, verified 2026-08-03 against React 19.2.8, HeroUI 3.2.2,
 React Markdown 10.1.0, Mermaid 11.15.0, Zod 4.4.3 and the durable Assistant
 HTTP contract.
 
@@ -9,9 +9,9 @@ HTTP contract.
 `/admin/assistant` is the new-conversation surface;
 `/admin/assistant/:threadId` is the exact resumable address of a durable
 conversation. The screen owns model and reasoning-effort selection, durable
-thread navigation, optimistic user turns, idempotent submission, polling and
-recovery UI. The backend owns conversation history, provider credentials,
-generation and authorization.
+thread navigation, optimistic user turns, idempotent submission, live SSE
+acceleration, durable polling and recovery UI. The backend owns conversation
+history, provider credentials, generation and authorization.
 
 The chat structure is a deliberate port of the proven `notes_ai` UI rather than
 a new renderer: a narrow written-page message column, compact user ink-wash
@@ -29,12 +29,12 @@ available height, including the small-screen navigation header;
 stacked above the shell — the local authentication bypass is announced in the
 sidebar's environment block, not by a banner that would shorten every route.
 
-Answer text now arrives progressively: the worker streams generation and records
-throttled partial text, and the existing poll renders it under the id the durable
-answer will take, so the finished reply replaces it in place. That text is never
-an answer — it carries no copy or attribution footer, keeps the activity marker,
-and is dropped the moment the turn settles. The live SSE channel that would make
-it token-by-token is stage B of
+Answer text now arrives progressively through authenticated SSE, coalesced to
+20 frames per second, while the existing 1.2-second poll continues underneath.
+The live value renders under the id the durable answer will take, so the finished
+reply replaces it in place. Live text is never an answer — it carries no copy or
+attribution footer, keeps the activity marker, and is dropped the moment the
+turn settles. See
 [assistant streaming](../backend/mechanisms/assistant-streaming.md).
 
 Attachments are not enabled. Tools are — nine of them, all read-only — so this
@@ -51,6 +51,8 @@ Sources:
   copied chat composition, composer, message and rich-output renderer.
 - [`schema.ts`](../../apps/admin/src/features/assistant/schema.ts) — exact model,
   request, thread and turn validation.
+- [`stream.ts`](../../apps/admin/src/features/assistant/stream.ts) — SSE frame
+  validation, parsing and attempt-fenced live overlay.
 - [`composerSettings.ts`](../../apps/admin/src/features/assistant/composerSettings.ts) —
   the persisted model and effort selection.
 - [`failureMessages.ts`](../../apps/admin/src/features/assistant/failureMessages.ts) —
@@ -79,6 +81,7 @@ the following paths without repeating that prefix:
 | Create       | `POST /v1/assistant/threads` with `{ requestId, model, effort, content }` → thread plus first turn |
 | Append       | `POST /v1/assistant/threads/:threadId/turns` with the same body → durable turn                     |
 | Poll         | `GET /v1/assistant/threads/:threadId/turns/:turnId` while `queued` or `running`                    |
+| Live         | `GET /v1/assistant/threads/:threadId/turns/:turnId/stream` → best-effort authenticated SSE         |
 | Retry failed | `POST /v1/assistant/threads/:threadId/turns/:turnId/retry` → the same turn, next attempt           |
 | Models       | `openai/gpt-5.6-luna`, `openai/gpt-5.6-terra`, `google/gemini-3.6-flash`, `qwen/qwen3.7-max`       |
 | Effort       | `low`, `medium`, `high`; backend default `low`                                                     |
@@ -92,9 +95,11 @@ or queue job. This preserves the important generation-ID idempotency property
 from `notes_ai`; a decorative chat copy without it would be a resumption bug in
 a nicer shirt.
 
-Every response enters the UI as `unknown` and must pass the feature-local Zod
-schema. The full thread response is authoritative. The optimistic user message
-uses its `requestId` only until that durable turn arrives.
+Every JSON response and every SSE data frame enters the UI as `unknown` and must
+pass a feature-local Zod schema. The full thread response is authoritative. The
+optimistic user message uses its `requestId` only until that durable turn
+arrives. SSE uses the shared authenticated `ofetch` facade with
+`responseType: "stream"`; native `EventSource` cannot send the Clerk bearer.
 
 ## Flow
 
@@ -103,6 +108,7 @@ sequenceDiagram
   actor Operator
   participant SPA as Assistant route
   participant API as Nest API
+  participant Redis as Redis stream
   participant DB as PostgreSQL
   participant Queue as BullMQ worker
   participant Model as AI provider
@@ -113,12 +119,20 @@ sequenceDiagram
   API->>DB: Idempotently persist queued turn
   API->>Queue: Enqueue turn ID
   API-->>SPA: Durable thread / turn
+  par Live accelerator
+    SPA->>API: GET turn stream
+    API->>Redis: Replay/follow attempt stream
+    Queue->>Redis: Accumulated text/reasoning frames
+    Redis-->>API: Replayable frames
+    API-->>SPA: SSE frames
+  and Durable authority
   loop queued or running
     SPA->>API: GET same turn ID
     API-->>SPA: Validated turn state
   end
-  Queue->>Model: Non-streaming generation
-  Model-->>Queue: Complete text or provider failure
+  end
+  Queue->>Model: Streaming generation
+  Model-->>Queue: Text/reasoning deltas or provider failure
   Queue->>DB: Persist terminal turn
   SPA->>API: GET authoritative thread
   API-->>SPA: Ordered durable history
@@ -173,12 +187,10 @@ them.
 - Historical hydration scrolls to the end immediately, confirms on the next
   animation frame and keeps a short `ResizeObserver` while Markdown/Mermaid
   layout settles. A newly submitted question keeps the separate notes_ai
-  question-alignment behavior. The source additionally reserves a screen of
-  height for the answer so the question it scrolled to the top cannot spring
-  back; that reserve is deliberately **not** ported. It pays for itself there
-  because the answer streams in and fills the space, whereas this transport
-  delivers one complete result — a short reply would sit above several hundred
-  pixels of dead column. Port it together with streaming, not before.
+  question-alignment behavior. The last in-flight answer retains the thinking
+  placeholder's reserved height, and the scroll region disables overflow
+  anchoring, so the question cannot spring back when the first live text replaces
+  the placeholder. The minimum disappears when the durable turn settles.
 - Only one nonterminal turn exists per thread. Thread selection, new-thread
   creation and the composer are disabled while that turn is active.
 - Poll failure retries `GET` for the same turn. Submission failure can replay

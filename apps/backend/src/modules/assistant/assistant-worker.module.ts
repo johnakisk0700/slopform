@@ -13,6 +13,7 @@ import { PostEventFeedbackCampaignSummaryService } from "../post-event-feedback/
 import { AssistantGenerationService } from "./assistant-generation.service.js";
 import { AssistantRecoveryService } from "./assistant-recovery.service.js";
 import { AssistantCoreModule } from "./assistant-core.module.js";
+import { AssistantStreamRelay } from "./assistant-stream.relay.js";
 import { AssistantProcessor } from "./assistant.processor.js";
 import { AssistantToolsService } from "./tools/assistant-tools.service.js";
 
@@ -33,6 +34,7 @@ import { AssistantToolsService } from "./tools/assistant-tools.service.js";
     AssistantGenerationService,
     AssistantProcessor,
     AssistantRecoveryService,
+    AssistantStreamRelay,
     AssistantToolsService,
     /**
      * The feedback read services are declared here rather than imported from

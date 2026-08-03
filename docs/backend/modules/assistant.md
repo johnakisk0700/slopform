@@ -1,7 +1,7 @@
 # Durable assistant threads
 
-Status: implemented asynchronous generation, streamed text and reasoning, and a
-read-only tool set. Last verified: **2026-08-02** against AI SDK `7.0.35`,
+Status: implemented asynchronous generation, live text and reasoning SSE, and a
+read-only tool set. Last verified: **2026-08-03** against AI SDK `7.0.35`,
 `@ai-sdk/openai` `4.0.18` and `@openrouter/ai-sdk-provider` `3.0.0`.
 
 ## Purpose and boundary
@@ -82,6 +82,9 @@ verified subject and is never accepted in a body.
 - `POST /api/v1/assistant/threads/:id/turns` accepts the same body and returns
   the new turn.
 - `GET /api/v1/assistant/threads/:threadId/turns/:turnId` is the polling route.
+- `GET /api/v1/assistant/threads/:threadId/turns/:turnId/stream` is the
+  authenticated best-effort SSE accelerator. It emits attempt-fenced
+  accumulated frames; polling remains authoritative.
 - `POST /api/v1/assistant/threads/:threadId/turns/:turnId/retry` requeues only
   the latest failed turn, preserving its user content and id.
 
@@ -117,6 +120,7 @@ sequenceDiagram
   participant Mongo as MongoDB
   participant DB as PostgreSQL execution projection
   participant Queue as BullMQ
+  participant Redis as Redis stream relay
   participant Worker as Nest worker
   participant Model as OpenRouter or OpenAI
 
@@ -130,6 +134,9 @@ sequenceDiagram
   Worker->>Mongo: Load succeeded history
   Worker->>Model: streamText with read-only tools
   Model-->>Worker: Text and reasoning deltas, tool calls
+  Worker->>Redis: Publish coalesced accumulated frames
+  Redis-->>API: Replay/follow attempt stream
+  API-->>Admin: Authenticated SSE frames
   Worker->>Mongo: Record throttled partial under the attempt fence
   Worker->>Mongo: Persist result or safe failure
   Worker->>DB: Advance delivery projection

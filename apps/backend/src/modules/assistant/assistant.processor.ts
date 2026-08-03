@@ -22,6 +22,10 @@ import {
   type AssistantServiceTier,
 } from "./assistant.schemas.js";
 import {
+  AssistantStreamRelay,
+  type AssistantStreamEvent,
+} from "./assistant-stream.relay.js";
+import {
   AssistantService,
   AssistantTurnNotFoundError,
 } from "./assistant.service.js";
@@ -41,6 +45,7 @@ export class AssistantProcessor extends WorkerHost {
   constructor(
     private readonly assistant: AssistantService,
     private readonly generation: AssistantGenerationService,
+    private readonly stream: AssistantStreamRelay,
   ) {
     super();
   }
@@ -96,6 +101,10 @@ export class AssistantProcessor extends WorkerHost {
     const partials = new PartialRecorder((partial) =>
       this.assistant.recordPartial(turn.id, attempt, partial, reasoning),
     );
+    const live = new LiveStreamRecorder((event) =>
+      this.stream.publish(turn.id, attempt, event),
+    );
+    live.offer({ kind: "reset" });
 
     try {
       const response = await this.generation.generateStreaming({
@@ -105,18 +114,27 @@ export class AssistantProcessor extends WorkerHost {
         // what the original attempt bought, or the same turn bills at two rates.
         serviceTier: turn.serviceTier as AssistantServiceTier,
         messages,
-        onDelta: (accumulated) => partials.offer(accumulated),
+        onDelta: (accumulated) => {
+          partials.offer(accumulated);
+          live.offer({ kind: "text", accumulated });
+        },
         onReasoningDelta: (accumulated) => {
           reasoning = accumulated;
           // Thinking often runs long before a single token of answer appears;
           // offering the current text keeps that phase visible instead of blank.
           partials.offer(accumulated.length > 0 ? " " : "");
+          live.offer({ kind: "reasoning", accumulated });
         },
+        onToolActivity: (activity) =>
+          live.offer({ kind: "tools", accumulated: JSON.stringify(activity) }),
       });
       await partials.settle();
+      await live.settle();
       await this.assistant.markSucceeded(turn.id, attempt, response.content);
+      await this.stream.publish(turn.id, attempt, { kind: "done" });
     } catch (error) {
       await partials.settle();
+      await live.settle();
       const terminal =
         (error instanceof AssistantGenerationError && !error.retryable) ||
         job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
@@ -132,6 +150,7 @@ export class AssistantProcessor extends WorkerHost {
           code,
           failureMessage(code),
         );
+        await this.stream.publish(turn.id, attempt, { kind: "done" });
       } else {
         await this.assistant.markQueued(turn.id, attempt);
       }
@@ -245,6 +264,8 @@ export class AssistantProcessor extends WorkerHost {
 
 /** How often streamed text may reach the stores, in milliseconds. */
 const PARTIAL_WRITE_INTERVAL_MS = 700;
+/** Redis/browser frames are smooth at 20 fps without parsing Markdown per token. */
+const LIVE_FRAME_INTERVAL_MS = 50;
 
 /**
  * Bounds partial writes by wall-clock instead of token rate: a fast model would
@@ -284,6 +305,56 @@ class PartialRecorder {
     this.inFlight = this.inFlight.then(() =>
       this.write(partial).catch(() => undefined),
     );
+  }
+}
+
+/**
+ * Coalesces provider chunks into bounded live frames. Each event still carries
+ * the accumulated value, so dropping an intermediate frame is lossless.
+ */
+class LiveStreamRecorder {
+  private readonly pending = new Map<
+    AssistantStreamEvent["kind"],
+    AssistantStreamEvent
+  >();
+  private inFlight: Promise<void> = Promise.resolve();
+  private timer: NodeJS.Timeout | null = null;
+  private lastWriteAt = 0;
+
+  constructor(
+    private readonly write: (event: AssistantStreamEvent) => Promise<void>,
+  ) {}
+
+  offer(event: AssistantStreamEvent): void {
+    if (event.kind === "done") return;
+    this.pending.set(event.kind, event);
+
+    const remaining = LIVE_FRAME_INTERVAL_MS - (Date.now() - this.lastWriteAt);
+    if (remaining <= 0) {
+      this.flush();
+      return;
+    }
+    this.timer ??= setTimeout(() => this.flush(), remaining);
+  }
+
+  async settle(): Promise<void> {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
+    this.flush();
+    await this.inFlight;
+  }
+
+  private flush(): void {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
+    if (this.pending.size === 0) return;
+
+    const events = [...this.pending.values()];
+    this.pending.clear();
+    this.lastWriteAt = Date.now();
+    this.inFlight = this.inFlight.then(async () => {
+      for (const event of events) await this.write(event);
+    });
   }
 }
 

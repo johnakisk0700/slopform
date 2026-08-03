@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { AssistantJobsService } from "./assistant-jobs.service.js";
 import type { AssistantService } from "./assistant.service.js";
+import type { AssistantStreamRelay } from "./assistant-stream.relay.js";
 
 vi.mock("@clerk/express", async (importOriginal) => {
   const original = await importOriginal<typeof import("@clerk/express")>();
@@ -51,6 +52,7 @@ describe("assistant HTTP contract", () => {
   let baseUrl: string;
   let jobs: AssistantJobsService;
   let assistant: AssistantService;
+  let streams: AssistantStreamRelay;
 
   beforeAll(async () => {
     vi.stubEnv("NODE_ENV", "test");
@@ -74,9 +76,11 @@ describe("assistant HTTP contract", () => {
     app = await bootstrap.createHttpApplication();
     jobs = app.get(types.AssistantJobsService);
     assistant = app.get(types.AssistantService);
+    streams = app.get(types.AssistantStreamRelay);
     vi.spyOn(jobs, "createThreadAndEnqueue").mockResolvedValue(queuedThread);
     vi.spyOn(assistant, "getThread").mockResolvedValue(queuedThread);
     vi.spyOn(assistant, "list").mockResolvedValue({ items: [] });
+    vi.spyOn(assistant, "getTurn").mockResolvedValue(queuedTurn);
 
     await app.listen(0, "127.0.0.1");
     const address = app.getHttpServer().address() as AddressInfo;
@@ -109,6 +113,44 @@ describe("assistant HTTP contract", () => {
         "/api/v1/assistant/threads/{threadId}/turns/{turnId}/retry"
       ],
     ).toHaveProperty("post");
+    expect(
+      document.paths[
+        "/api/v1/assistant/threads/{threadId}/turns/{turnId}/stream"
+      ],
+    ).toHaveProperty("get");
+  });
+
+  it("streams replayable live frames after authorizing the durable turn", async () => {
+    vi.spyOn(streams, "follow").mockImplementation(async function* () {
+      yield { kind: "reset" };
+      yield { kind: "text", accumulated: "Live answer" };
+      yield { kind: "done" };
+    });
+
+    const response = await fetch(
+      `${baseUrl}/api/v1/assistant/threads/${threadId}/turns/${turnId}/stream`,
+      { headers: { accept: "text/event-stream" } },
+    );
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/event-stream");
+    expect(response.headers.get("cache-control")).toBe(
+      "no-cache, no-transform",
+    );
+    expect(response.headers.get("x-accel-buffering")).toBe("no");
+    expect(body).toContain(
+      'data: {"kind":"snapshot","attempt":1,"status":"queued","accumulated":null,"reasoning":null}',
+    );
+    expect(body).toContain(
+      'data: {"attempt":1,"kind":"text","accumulated":"Live answer"}',
+    );
+    expect(body).toContain('data: {"attempt":1,"kind":"done"}');
+    expect(assistant.getTurn).toHaveBeenCalledWith(
+      threadId,
+      turnId,
+      "user_admin123",
+    );
   });
 
   it("creates and resumes an owner-bound durable thread", async () => {
@@ -144,9 +186,14 @@ describe("assistant HTTP contract", () => {
 });
 
 async function importAssistantTypes() {
-  const [{ AssistantJobsService }, { AssistantService }] = await Promise.all([
+  const [
+    { AssistantJobsService },
+    { AssistantService },
+    { AssistantStreamRelay },
+  ] = await Promise.all([
     import("./assistant-jobs.service.js"),
     import("./assistant.service.js"),
+    import("./assistant-stream.relay.js"),
   ]);
-  return { AssistantJobsService, AssistantService };
+  return { AssistantJobsService, AssistantService, AssistantStreamRelay };
 }

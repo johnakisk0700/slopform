@@ -80,8 +80,16 @@ export function AssistantConversation({
         aria-busy={busy}
         className="grid gap-3"
       >
-        {messages.map((message) => (
-          <AssistantMessage key={message.id} message={message} />
+        {messages.map((message, index) => (
+          <AssistantMessage
+            key={message.id}
+            message={message}
+            reserveAnswerHeight={
+              busy &&
+              index === messages.length - 1 &&
+              message.role === "assistant"
+            }
+          />
         ))}
 
         {waitingForAssistant ? (

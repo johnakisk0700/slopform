@@ -12,6 +12,7 @@ import {
   type AssistantJobName,
 } from "./assistant.schemas.js";
 import type { AssistantService } from "./assistant.service.js";
+import type { AssistantStreamRelay } from "./assistant-stream.relay.js";
 import { AssistantProcessor } from "./assistant.processor.js";
 
 const threadId = "66de52a8-1a26-4cbb-b8d1-fcf8bdc2dd51";
@@ -71,6 +72,7 @@ function createProcessor(options?: {
     start: ReturnType<typeof vi.fn>;
   };
   readonly generateStreaming: ReturnType<typeof vi.fn>;
+  readonly publish: ReturnType<typeof vi.fn>;
   readonly recordPartial: ReturnType<typeof vi.fn>;
   readonly processor: AssistantProcessor;
 } {
@@ -107,13 +109,16 @@ function createProcessor(options?: {
             };
           },
         );
+  const publish = vi.fn().mockResolvedValue(undefined);
   const processor = new AssistantProcessor(
     assistant as unknown as AssistantService,
     { generateStreaming } as unknown as AssistantGenerationService,
+    { publish } as unknown as AssistantStreamRelay,
   );
   return {
     assistant,
     generateStreaming,
+    publish,
     recordPartial: assistant.recordPartial,
     processor,
   };
@@ -135,7 +140,8 @@ describe("AssistantProcessor", () => {
   });
 
   it("generates from durable context and persists the exact attempt", async () => {
-    const { assistant, generateStreaming, processor } = createProcessor();
+    const { assistant, generateStreaming, processor, publish } =
+      createProcessor();
     await expect(processor.process(createJob())).resolves.toBeUndefined();
     expect(assistant.start).toHaveBeenCalledWith(turnId, 1);
     expect(generateStreaming).toHaveBeenCalledWith(
@@ -159,6 +165,11 @@ describe("AssistantProcessor", () => {
       1,
       "Generated response",
     );
+    expect(publish.mock.calls).toEqual([
+      [turnId, 1, { kind: "reset" }],
+      [turnId, 1, { kind: "text", accumulated: "Generated response" }],
+      [turnId, 1, { kind: "done" }],
+    ]);
   });
 
   it("does nothing when a stale delivery has no executable context", async () => {
@@ -171,7 +182,7 @@ describe("AssistantProcessor", () => {
   });
 
   it("persists permanent provider failures and stops retries", async () => {
-    const { assistant, processor } = createProcessor({
+    const { assistant, processor, publish } = createProcessor({
       generationError: new AssistantGenerationError("provider_rejected", false),
     });
     await expect(processor.process(createJob())).rejects.toBeInstanceOf(
@@ -183,10 +194,11 @@ describe("AssistantProcessor", () => {
       "provider_rejected",
       "The assistant provider rejected the request.",
     );
+    expect(publish).toHaveBeenLastCalledWith(turnId, 1, { kind: "done" });
   });
 
   it("returns transient failures to queued state before BullMQ retries", async () => {
-    const { assistant, processor } = createProcessor({
+    const { assistant, processor, publish } = createProcessor({
       generationError: new AssistantGenerationError("generation_failed", true),
     });
     await expect(processor.process(createJob())).rejects.toBeInstanceOf(
@@ -194,6 +206,7 @@ describe("AssistantProcessor", () => {
     );
     expect(assistant.markQueued).toHaveBeenCalledWith(turnId, 1);
     expect(assistant.markFailed).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalledWith(turnId, 1, { kind: "done" });
   });
 
   it("does not leave the final unexpected failure stuck running", async () => {

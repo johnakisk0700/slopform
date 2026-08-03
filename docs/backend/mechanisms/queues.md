@@ -38,6 +38,13 @@ onto one run. It never publishes `feedback.deliver.v1`: sending stays behind the
 committed outbox row. Each processor Worker also owns command and blocking connections. Worker connections use `maxRetriesPerRequest: null` and
 keep reconnecting.
 
+The assistant also uses a Redis **stream** to relay accumulated live text from
+the worker process to an authenticated SSE response in the HTTP process. That is
+not a BullMQ job and never becomes a source of truth: it retains only a bounded,
+ten-minute replay tail, and the browser keeps polling the durable turn beneath
+it. Its attempt fencing and failure behavior are owned by
+[assistant streaming](assistant-streaming.md).
+
 Nest closes Queues and Workers. Do not substitute `Queue.disconnect()`; it can
 wait on a client still initializing during an outage. Worker close stops new
 fetches and waits for active jobs without its own deadline. Deployment grace

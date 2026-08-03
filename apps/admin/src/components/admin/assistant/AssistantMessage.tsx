@@ -22,7 +22,13 @@ function modelLabel(message: AssistantDisplayMessage): string {
  * bubbles; assistant turns are full-width written pages with rich Markdown.
  */
 export const AssistantMessage = memo(
-  ({ message }: { message: AssistantDisplayMessage }) => {
+  ({
+    message,
+    reserveAnswerHeight,
+  }: {
+    message: AssistantDisplayMessage;
+    reserveAnswerHeight: boolean;
+  }) => {
     if (message.role === "user") {
       return (
         <article
@@ -47,7 +53,13 @@ export const AssistantMessage = memo(
       message.status === "queued" || message.status === "running";
 
     return (
-      <article id={message.id} aria-label="Assistant message">
+      <article
+        id={message.id}
+        aria-label="Assistant message"
+        className={
+          reserveAnswerHeight ? "min-h-[clamp(18rem,48dvh,30rem)]" : undefined
+        }
+      >
         {streaming && message.reasoning ? (
           <AssistantReasoningCard reasoning={message.reasoning} />
         ) : null}
@@ -75,7 +87,8 @@ export const AssistantMessage = memo(
     previous.message.effort === next.message.effort &&
     previous.message.serviceTier === next.message.serviceTier &&
     previous.message.reasoning === next.message.reasoning &&
-    previous.message.status === next.message.status,
+    previous.message.status === next.message.status &&
+    previous.reserveAnswerHeight === next.reserveAnswerHeight,
 );
 
 AssistantMessage.displayName = "AssistantMessage";

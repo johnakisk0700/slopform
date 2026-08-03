@@ -41,6 +41,13 @@ import {
   type AssistantTurn,
   type AssistantTurnStatus,
 } from "../features/assistant/schema";
+import {
+  consumeAssistantEventStream,
+  overlayAssistantLiveTurn,
+  reduceAssistantLiveTurn,
+  type AssistantLiveTurn,
+  type AssistantStreamFrame,
+} from "../features/assistant/stream";
 import { api } from "../lib/api";
 import { formatDateTime } from "../lib/dateTime";
 import { usePageMeta } from "../lib/usePageMeta";
@@ -109,6 +116,35 @@ function turnPath(threadId: string, turnId: string): string {
   return `${ASSISTANT_THREADS_PATH}/${threadId}/turns/${turnId}`;
 }
 
+async function watchAssistantStream(
+  threadId: string,
+  turnId: string,
+  signal: AbortSignal,
+  onFrame: (frame: AssistantStreamFrame) => void,
+): Promise<boolean> {
+  const response = await api.raw<never, "stream">(
+    `${turnPath(threadId, turnId)}/stream`,
+    {
+      headers: { Accept: "text/event-stream" },
+      responseType: "stream",
+      retry: 0,
+      // The ordinary client timeout protects finite requests. This response is
+      // intentionally open for the provider's full two-minute generation bound.
+      timeout: 0,
+      signal,
+    },
+  );
+  const stream = response._data ?? response.body;
+  if (!stream) return false;
+
+  let completed = false;
+  await consumeAssistantEventStream(stream, (frame) => {
+    if (frame.kind === "done") completed = true;
+    onFrame(frame);
+  });
+  return completed;
+}
+
 function replaceOrAppendTurn(
   thread: AssistantThread,
   turn: AssistantTurn,
@@ -121,6 +157,16 @@ function replaceOrAppendTurn(
   else turns.push(turn);
 
   return { ...thread, turns };
+}
+
+function clearLiveTurn(
+  current: AssistantLiveTurn | null,
+  turnId: string,
+  attempt: number,
+): AssistantLiveTurn | null {
+  return current?.turnId === turnId && current.attempt === attempt
+    ? null
+    : current;
 }
 
 function phaseLabel(phase: PagePhase): string {
@@ -155,6 +201,7 @@ export function AssistantPage() {
   const [activeThread, setActiveThread] = useState<AssistantThread | null>(
     null,
   );
+  const [liveTurn, setLiveTurn] = useState<AssistantLiveTurn | null>(null);
   const [pendingUser, setPendingUser] = useState<PendingUserMessage | null>(
     null,
   );
@@ -192,6 +239,7 @@ export function AssistantPage() {
 
       const controller = new AbortController();
       operationRef.current = controller;
+      setLiveTurn(null);
       let recoveryAction: AssistantAction = action;
       setFailure(null);
       setPhase(
@@ -224,56 +272,94 @@ export function AssistantPage() {
         initialTurn: AssistantTurn,
       ): Promise<void> {
         let turn = initialTurn;
+        const streamAttempt = initialTurn.attempt;
         recoveryAction = { kind: "poll", threadId, turnId: turn.id };
+        const streamController = new AbortController();
+        const stopStream = () => streamController.abort();
+        controller.signal.addEventListener("abort", stopStream, { once: true });
+        const livePromise = watchAssistantStream(
+          threadId,
+          turn.id,
+          streamController.signal,
+          (frame) => {
+            if (streamController.signal.aborted) return;
+            setLiveTurn((current) =>
+              reduceAssistantLiveTurn(current, turn.id, frame),
+            );
+          },
+        )
+          .then((completed) => {
+            if (!completed && !streamController.signal.aborted) {
+              setLiveTurn((current) =>
+                clearLiveTurn(current, turn.id, streamAttempt),
+              );
+            }
+          })
+          .catch(() => {
+            if (!streamController.signal.aborted) {
+              setLiveTurn((current) =>
+                clearLiveTurn(current, turn.id, streamAttempt),
+              );
+            }
+          });
 
-        while (
-          !controller.signal.aborted &&
-          (turn.status === "queued" || turn.status === "running")
-        ) {
-          setPhase(turn.status);
-          await waitForNextPoll(controller.signal);
+        try {
+          while (
+            !controller.signal.aborted &&
+            (turn.status === "queued" || turn.status === "running")
+          ) {
+            setPhase(turn.status);
+            await waitForNextPoll(controller.signal);
+            if (controller.signal.aborted) return;
+
+            const rawTurn: unknown = await api(turnPath(threadId, turn.id), {
+              signal: controller.signal,
+            });
+            turn = assistantTurnSchema.parse(rawTurn);
+            setActiveThread((current) =>
+              current?.id === threadId
+                ? replaceOrAppendTurn(current, turn)
+                : current,
+            );
+          }
+
           if (controller.signal.aborted) return;
 
-          const rawTurn: unknown = await api(turnPath(threadId, turn.id), {
-            signal: controller.signal,
-          });
-          turn = assistantTurnSchema.parse(rawTurn);
-          setActiveThread((current) =>
-            current?.id === threadId
-              ? replaceOrAppendTurn(current, turn)
-              : current,
+          const persistedThread = await fetchThread(threadId);
+          setActiveThread(persistedThread);
+          setPendingUser(null);
+          await refreshThreadList();
+
+          if (turn.status === "failed") {
+            setPhase("failed");
+            setAnnouncement("Assistant turn failed and needs attention.");
+            setFailure({
+              kind: "durable",
+              message: assistantFailureMessage(turn.error.code),
+              action: { kind: "retry", threadId, turnId: turn.id },
+              retryLabel: "Retry turn",
+              revision: {
+                requestId: turn.requestId,
+                model: turn.model,
+                effort: turn.effort,
+                serviceTier: turn.serviceTier,
+                content: turn.user.content,
+              },
+            });
+            return;
+          }
+
+          setPhase("idle");
+          setAnnouncement("Assistant response ready.");
+          focusComposer();
+        } finally {
+          streamController.abort();
+          await livePromise;
+          controller.signal.removeEventListener("abort", stopStream);
+          setLiveTurn((current) =>
+            clearLiveTurn(current, turn.id, streamAttempt),
           );
         }
-
-        if (controller.signal.aborted) return;
-
-        const persistedThread = await fetchThread(threadId);
-        setActiveThread(persistedThread);
-        setPendingUser(null);
-        await refreshThreadList();
-
-        if (turn.status === "failed") {
-          setPhase("failed");
-          setAnnouncement("Assistant turn failed and needs attention.");
-          setFailure({
-            kind: "durable",
-            message: assistantFailureMessage(turn.error.code),
-            action: { kind: "retry", threadId, turnId: turn.id },
-            retryLabel: "Retry turn",
-            revision: {
-              requestId: turn.requestId,
-              model: turn.model,
-              effort: turn.effort,
-              serviceTier: turn.serviceTier,
-              content: turn.user.content,
-            },
-          });
-          return;
-        }
-
-        setPhase("idle");
-        setAnnouncement("Assistant response ready.");
-        focusComposer();
       }
 
       async function adoptThread(thread: AssistantThread): Promise<void> {
@@ -472,7 +558,9 @@ export function AssistantPage() {
   useEffect(() => () => operationRef.current?.abort(), []);
 
   const messages = useMemo(() => {
-    const persisted = messagesFromThread(activeThread);
+    const persisted = messagesFromThread(
+      overlayAssistantLiveTurn(activeThread, liveTurn),
+    );
     if (!pendingUser) return persisted;
     if (
       activeThread?.turns.some(
@@ -494,7 +582,7 @@ export function AssistantPage() {
       status: "queued",
     };
     return [...persisted, optimistic];
-  }, [activeThread, pendingUser]);
+  }, [activeThread, liveTurn, pendingUser]);
 
   useLayoutEffect(() => {
     const scroller = scrollContainerRef.current;
@@ -769,7 +857,7 @@ export function AssistantPage() {
         orientation="vertical"
         // Always-on gutter, like the source: an appearing scrollbar would
         // otherwise recentre the column while the docked composer stays put.
-        className="min-h-0 flex-1 overflow-y-scroll bg-surface focus-visible:-outline-offset-2"
+        className="min-h-0 flex-1 overflow-y-scroll bg-surface [overflow-anchor:none] focus-visible:-outline-offset-2"
       >
         <AssistantConversation
           messages={messages}

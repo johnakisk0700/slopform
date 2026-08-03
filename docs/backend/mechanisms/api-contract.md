@@ -180,10 +180,11 @@ The generated Zod schemas exist for values that leave the typed path — a form
 draft, something persisted in the browser, a payload echoed back into a request.
 Import them from `src/api/generated/zod/`; do not hand-copy a backend schema.
 
-The assistant (`features/assistant/`) still parses responses with hand-written
-schemas because its polling flow owns extra client-side semantics beyond the
-response shape. Events and participants screens consume the generated hooks;
-new code does not copy the assistant pattern for ordinary CRUD.
+The assistant (`features/assistant/`) still parses responses and SSE frames with
+hand-written schemas because its authenticated stream plus durable polling owns
+attempt-fenced client semantics beyond a response shape. Events and participants
+screens consume the generated hooks; new code does not copy the assistant
+pattern for ordinary CRUD.
 
 ## Operations and tests
 

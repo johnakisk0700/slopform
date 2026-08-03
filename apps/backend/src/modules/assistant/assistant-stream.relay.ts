@@ -33,6 +33,7 @@ const STREAM_MAX_ENTRIES = 64;
 const READ_BLOCK_MS = 2_000;
 
 export type AssistantStreamEvent =
+  | { readonly kind: "reset" }
   | { readonly kind: "text"; readonly accumulated: string }
   | { readonly kind: "reasoning"; readonly accumulated: string }
   /**
@@ -103,7 +104,9 @@ export class AssistantStreamRelay implements OnModuleDestroy {
           "kind",
           event.kind,
           "text",
-          event.kind === "done" ? "" : event.accumulated,
+          event.kind === "done" || event.kind === "reset"
+            ? ""
+            : event.accumulated,
         )
         .expire(key, STREAM_TTL_SECONDS)
         .exec();
@@ -162,6 +165,18 @@ export class AssistantStreamRelay implements OnModuleDestroy {
           }
         }
       }
+    } catch (error) {
+      if (!signal.aborted) {
+        this.logger.warn({
+          event: "assistant.stream.follow_failed",
+          turnId,
+          attempt,
+          error: {
+            name: error instanceof Error ? error.name : "UnknownError",
+          },
+        });
+      }
+      throw error;
     } finally {
       this.followers.delete(follower);
       follower.disconnect();
@@ -179,6 +194,7 @@ function toEvent(fields: readonly string[]): AssistantStreamEvent | null {
   }
 
   if (kind === "done") return { kind: "done" };
+  if (kind === "reset") return { kind: "reset" };
   if (kind === "text") return { kind: "text", accumulated: text };
   if (kind === "reasoning") return { kind: "reasoning", accumulated: text };
   if (kind === "tools") return { kind: "tools", accumulated: text };

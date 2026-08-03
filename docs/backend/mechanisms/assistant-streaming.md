@@ -1,7 +1,7 @@
 # Assistant streaming — durable turns with a live accelerator
 
-Status: stage A landed, and reasoning landed with it. Stage B is not started.
-Last verified: **2026-08-02**. This is the canonical design for putting live
+Status: stages A and B landed, including reasoning and stable answer layout.
+Last verified: **2026-08-03**. This is the canonical design for putting live
 assistant text on `/admin/assistant` without giving up the durable turn.
 
 ## Why this is not a one-line port
@@ -64,24 +64,38 @@ for stage B, which only replaces the delivery channel. All four parts shipped:
 The processor now has no buffered path: `generateStreaming` is the only call it
 makes.
 
-## Stage B — the SSE accelerator
+## Stage B — the SSE accelerator — landed
 
-1. Wire the existing `AssistantStreamRelay` into the worker. It is already
-   written — a Redis stream keyed `assistant:stream:${turnId}:${attempt}` with a
-   ten-minute TTL, replayable from `0-0`, carrying `text`, `reasoning` and
-   `tools` event kinds — but it is registered in no Nest module and has no
-   caller. Until it is wired it is dead code, so read it as a starting point,
-   not as a shipped mechanism.
-2. `GET /v1/assistant/threads/:threadId/turns/:turnId/stream` replays the
-   recorded partial, then follows the Redis stream until the turn is terminal.
-3. The client opens that stream on submit and on resume; polling continues
-   underneath and remains the authority. When the poll reports a terminal turn,
-   persisted content replaces streamed text.
+The worker publishes accumulated text, reasoning and tool-activity frames to a
+Redis stream keyed `assistant:stream:${turnId}:${attempt}`. Frames are coalesced
+to at most one flush every 50 ms: that is smooth enough for the browser without
+turning every provider token into a Redis command and a full Markdown parse. The
+stream keeps its latest 64 frames for ten minutes. Because every frame is an
+accumulated value rather than a delta, a late or slow reader can discard any
+intermediate frame and still recover from the next one.
 
-Only once stage B lands do the remaining `notes_ai` behaviours become portable:
-a stop control and the source's reserved answer height — that reserve is
-deliberately absent today because a short reply under it is just several hundred
-pixels of dead column.
+`GET /v1/assistant/threads/:threadId/turns/:turnId/stream` first performs the
+same owner-bound durable lookup as polling, emits a snapshot, then replays and
+follows that Redis stream. It sends SSE keepalives and disables proxy buffering;
+the production nginx `/api/` location already has buffering off and a 310-second
+read timeout. The endpoint closes after a terminal `done` frame or a relay
+failure. It never turns a relay failure into a failed generation.
+
+The admin opens the authenticated response with the shared `ofetch` facade and
+parses its `ReadableStream`; native `EventSource` cannot attach the Clerk bearer.
+Polling continues every 1.2 seconds underneath. Live frames are an overlay on
+the durable turn, fenced by attempt, and a shorter stale poll cannot regress a
+newer live prefix. A `reset` frame clears the overlay before an internal BullMQ
+provider retry. When polling sees terminal state, the authoritative persisted
+answer replaces the overlay. If SSE is absent or drops without `done`, the
+overlay is removed and polling continues alone.
+
+The source's reserved answer height landed with the accelerator. The last
+in-flight assistant article retains the same minimum height as the initial
+thinking placeholder, and the scroll region disables browser overflow
+anchoring. The question therefore stays where the explicit alignment put it
+while the answer grows. A stop control remains deferred because stopping a
+browser reader must not be confused with cancelling the durable queue job.
 
 ## Reasoning — landed
 

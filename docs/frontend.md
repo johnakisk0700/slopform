@@ -278,7 +278,8 @@ Exactly **two** places call the transport directly, both documented and both
 enforced by `apps/admin/test/feedback-inbox.spec.ts`:
 
 - the assistant ([`frontend/assistant.md`](frontend/assistant.md)), whose
-  polling flow owns extra client-side semantics beyond the response shape;
+  SSE-plus-polling flow owns extra client-side semantics beyond the response
+  shape;
 - the dev feedback simulator (`src/lib/feedbackSimulator.ts`), whose controller
   is mounted only outside production under `TRANSPORT_MODE=simulated` and is
   therefore absent from the published OpenAPI document
@@ -288,12 +289,13 @@ Neither is a pattern to copy for ordinary CRUD. A third entry in that list means
 a product endpoint bypassed the generated client.
 
 The AI assistant is the first real queue-backed API consumer. It creates and
-resumes server-owned threads, persists each user/assistant turn, and polls the
-same turn ID through `queued` / `running`. Client-minted `requestId` values make
-create/append POSTs idempotent, so recovery can replay the same write instead of
-duplicating work. Validated terminal text enters the memoized, sanitised
-Markdown renderer copied from the established `notes_ai` chat. Its exact model,
-durability, rendering and recovery contracts are maintained in
+resumes server-owned threads, persists each user/assistant turn, follows a
+best-effort authenticated SSE accelerator and polls the same turn ID through
+`queued` / `running` as the durable fallback. Client-minted `requestId` values
+make create/append POSTs idempotent, so recovery can replay the same write
+instead of duplicating work. Validated terminal text enters the memoized,
+sanitised Markdown renderer copied from the established `notes_ai` chat. Its
+exact model, durability, rendering and recovery contracts are maintained in
 [`frontend/assistant.md`](frontend/assistant.md).
 
 Forms connect errors with `aria-describedby`, focus the first invalid field,

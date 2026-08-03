@@ -439,9 +439,12 @@ describe("assistant route wiring", () => {
     expect(app).toContain('path="assistant/:threadId"');
     expect(page).toContain('ASSISTANT_THREADS_PATH = "/v1/assistant/threads"');
     expect(page).not.toContain('ASSISTANT_THREADS_PATH = "/api/');
+    expect(page).toContain('responseType: "stream"');
+    expect(page).toContain("consumeAssistantEventStream");
+    expect(page).toContain("waitForNextPoll");
   });
 
-  it("preserves exact URL resume, hydration scrolling and non-live history", () => {
+  it("preserves exact URL resume, stable streaming layout and non-live history", () => {
     const page = readAdminFile("src/routes/AssistantPage.tsx");
     const conversation = readAdminFile(
       "src/components/admin/assistant/AssistantConversation.tsx",
@@ -449,13 +452,19 @@ describe("assistant route wiring", () => {
     const mermaid = readAdminFile(
       "src/components/admin/assistant/AssistantMermaid.tsx",
     );
+    const message = readAdminFile(
+      "src/components/admin/assistant/AssistantMessage.tsx",
+    );
 
     expect(page).toContain("routeThreadId");
     expect(page).toContain("ResizeObserver");
     expect(page).toContain("requestAnimationFrame(scrollToBottom)");
     expect(page).toContain("operationRef.current || isBusy || failure");
+    expect(page).toContain("[overflow-anchor:none]");
     expect(conversation).toContain('className="sr-only" aria-live="polite"');
     expect(conversation).toContain('role="log"');
+    expect(conversation).toContain("reserveAnswerHeight");
+    expect(message).toContain("min-h-[clamp(18rem,48dvh,30rem)]");
     expect(conversation).not.toContain(
       'role="log"\n        aria-label="Assistant conversation"\n        aria-live',
     );
