@@ -80,6 +80,7 @@ describe("assistant HTTP contract", () => {
     assistant = app.get(types.AssistantService);
     streams = app.get(types.AssistantStreamRelay);
     vi.spyOn(jobs, "createThreadAndEnqueue").mockResolvedValue(queuedThread);
+    vi.spyOn(jobs, "branchThreadAndEnqueue").mockResolvedValue(queuedThread);
     vi.spyOn(assistant, "getThread").mockResolvedValue(queuedThread);
     vi.spyOn(assistant, "list").mockResolvedValue({ items: [] });
     vi.spyOn(assistant, "getTurn").mockResolvedValue(queuedTurn);
@@ -109,6 +110,9 @@ describe("assistant HTTP contract", () => {
     );
     expect(
       document.paths["/api/v1/assistant/threads/{id}/turns"],
+    ).toHaveProperty("post");
+    expect(
+      document.paths["/api/v1/assistant/threads/{id}/branches"],
     ).toHaveProperty("post");
     expect(
       document.paths[
@@ -184,6 +188,36 @@ describe("assistant HTTP contract", () => {
       body: JSON.stringify({ content: "Hello" }),
     });
     expect(response.status).toBe(400);
+  });
+
+  it("branches through an owner-bound idempotent creation request", async () => {
+    const branchRequestId = "060580dd-b226-4bc6-adc6-0236c10a0b4a";
+    const response = await fetch(
+      `${baseUrl}/api/v1/assistant/threads/${threadId}/branches`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          requestId: branchRequestId,
+          sourceTurnId: turnId,
+          content: "Edited question",
+        }),
+      },
+    );
+
+    expect(response.status).toBe(201);
+    expect(jobs.branchThreadAndEnqueue).toHaveBeenCalledWith(
+      threadId,
+      {
+        requestId: branchRequestId,
+        sourceTurnId: turnId,
+        effort: "low",
+        serviceTier: "standard",
+        content: "Edited question",
+      },
+      "user_admin123",
+      expect.any(String),
+    );
   });
 });
 

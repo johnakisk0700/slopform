@@ -33,6 +33,7 @@ import {
   assistantThreadListSchema,
   assistantThreadSchema,
   assistantTurnSchema,
+  buildBranchAssistantThreadRequest,
   buildAssistantTurnRequest,
   messagesFromThread,
   type AssistantDisplayMessage,
@@ -75,6 +76,16 @@ type AssistantAction =
   | {
       kind: "append";
       threadId: string;
+      requestId: string;
+      model: AssistantModel;
+      effort: AssistantEffort;
+      serviceTier: AssistantServiceTier;
+      content: string;
+    }
+  | {
+      kind: "branch";
+      threadId: string;
+      sourceTurnId: string;
       requestId: string;
       model: AssistantModel;
       effort: AssistantEffort;
@@ -472,6 +483,38 @@ export function AssistantPage() {
             await watchTurn(action.threadId, turn);
             return;
           }
+          case "branch": {
+            const rawThread: unknown = await api(
+              `${ASSISTANT_THREADS_PATH}/${action.threadId}/branches`,
+              {
+                method: "POST",
+                body: buildBranchAssistantThreadRequest(
+                  action.sourceTurnId,
+                  action.requestId,
+                  action.model,
+                  action.effort,
+                  action.serviceTier,
+                  action.content,
+                ),
+                signal: controller.signal,
+              },
+            );
+            const thread = assistantThreadSchema.parse(rawThread);
+            skipHydrationThreadIdRef.current = thread.id;
+            alignLatestQuestionRef.current = true;
+            setActiveThread(thread);
+            setPendingUser(null);
+            suppressedRouteLoadRef.current = thread.id;
+            navigate(`/admin/assistant/${thread.id}`, {
+              replace: true,
+              state: { preserveAssistantLiveAlignment: true },
+            });
+            await refreshThreadList();
+            const turn = thread.turns.at(-1);
+            if (turn) await watchTurn(thread.id, turn);
+            else setPhase("idle");
+            return;
+          }
           case "poll": {
             const rawTurn: unknown = await api(
               turnPath(action.threadId, action.turnId),
@@ -511,7 +554,9 @@ export function AssistantPage() {
             ? ({ kind: "load", threadId: recoveryAction.threadId } as const)
             : recoveryAction;
         const submission =
-          recoveryAction.kind === "create" || recoveryAction.kind === "append"
+          recoveryAction.kind === "create" ||
+          recoveryAction.kind === "append" ||
+          recoveryAction.kind === "branch"
             ? recoveryAction
             : null;
         setPhase("idle");
@@ -521,15 +566,16 @@ export function AssistantPage() {
           message: requestFailureMessage(status),
           action: selectedRecovery,
           retryLabel: status === 409 ? "Reload conversation" : "Try again",
-          revision: submission
-            ? {
-                requestId: submission.requestId,
-                model: submission.model,
-                effort: submission.effort,
-                serviceTier: submission.serviceTier,
-                content: submission.content,
-              }
-            : null,
+          revision:
+            submission && submission.kind !== "branch"
+              ? {
+                  requestId: submission.requestId,
+                  model: submission.model,
+                  effort: submission.effort,
+                  serviceTier: submission.serviceTier,
+                  content: submission.content,
+                }
+              : null,
         });
       } finally {
         if (operationRef.current === controller) {
@@ -597,6 +643,35 @@ export function AssistantPage() {
     [messages],
   );
   const activeThreadId = activeThread?.id;
+  const branchFromMessage = useCallback(
+    (message: AssistantDisplayMessage, content: string): void => {
+      if (operationRef.current || isBusy || !activeThreadId) return;
+      const editedContent = content.trim();
+      if (!editedContent) return;
+
+      setFailure(null);
+      setComposerError(null);
+      setAnnouncement("Creating a new conversation from the selected message.");
+      void executeAction({
+        kind: "branch",
+        threadId: activeThreadId,
+        sourceTurnId: message.turnId,
+        requestId: crypto.randomUUID(),
+        model: selectedModel,
+        effort: selectedEffort,
+        serviceTier: selectedServiceTier,
+        content: editedContent,
+      });
+    },
+    [
+      activeThreadId,
+      executeAction,
+      isBusy,
+      selectedEffort,
+      selectedModel,
+      selectedServiceTier,
+    ],
+  );
 
   useLayoutEffect(() => {
     const scroller = scrollContainerRef.current;
@@ -957,6 +1032,8 @@ export function AssistantPage() {
           }}
           onReviseFailure={failure?.revision ? reviseFailure : null}
           onStartNew={startNewConversation}
+          onBranchMessage={branchFromMessage}
+          isBranchDisabled={isBusy}
           onStarter={(prompt) => {
             setComposer(prompt);
             setComposerError(null);

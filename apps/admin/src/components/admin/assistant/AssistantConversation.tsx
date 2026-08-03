@@ -23,9 +23,11 @@ interface AssistantConversationProps {
   announcement: string;
   replyMinHeight: number | null;
   bottomClearance: number;
+  isBranchDisabled: boolean;
   onRetryFailure: () => void;
   onReviseFailure: (() => void) | null;
   onStartNew: () => void;
+  onBranchMessage: (message: AssistantDisplayMessage, content: string) => void;
   onStarter: (prompt: string) => void;
 }
 
@@ -46,9 +48,11 @@ export function AssistantConversation({
   announcement,
   replyMinHeight,
   bottomClearance,
+  isBranchDisabled,
   onRetryFailure,
   onReviseFailure,
   onStartNew,
+  onBranchMessage,
   onStarter,
 }: AssistantConversationProps) {
   const today = new Date().toLocaleDateString("en-GB", {
@@ -94,6 +98,8 @@ export function AssistantConversation({
             <AssistantMessage
               key={message.id}
               message={message}
+              isBranchDisabled={isBranchDisabled}
+              onBranchMessage={onBranchMessage}
               {...(isLatestAssistant && replyMinHeight !== null
                 ? { minHeight: replyMinHeight }
                 : {})}

@@ -7,6 +7,7 @@ import {
   ASSISTANT_JOB_NAMES,
   ASSISTANT_JOB_SCHEMA_VERSION,
   assistantJobDataSchema,
+  branchAssistantThreadSchema,
   createAssistantThreadSchema,
   createAssistantTurnJobId,
   createAssistantTurnSchema,
@@ -14,6 +15,7 @@ import {
   type AssistantJobName,
   type AssistantThreadView,
   type AssistantTurnView,
+  type BranchAssistantThreadInput,
   type CreateAssistantThreadInput,
   type CreateAssistantTurnInput,
 } from "./assistant.schemas.js";
@@ -63,6 +65,24 @@ export class AssistantJobsService {
       await this.enqueueOrFail(creation.turn, correlationId);
     }
     return creation.turn;
+  }
+
+  async branchThreadAndEnqueue(
+    sourceThreadId: string,
+    input: BranchAssistantThreadInput,
+    createdBy: string,
+    correlationId: string,
+  ): Promise<AssistantThreadView> {
+    const validated = branchAssistantThreadSchema.parse(input);
+    const creation = await this.assistant.branchThread(
+      sourceThreadId,
+      validated,
+      createdBy,
+    );
+    if (creation.enqueueRequired) {
+      await this.enqueueOrFail(creation.turn, correlationId);
+    }
+    return creation.thread;
   }
 
   async retryTurnAndEnqueue(

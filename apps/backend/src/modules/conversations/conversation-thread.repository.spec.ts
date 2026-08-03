@@ -393,6 +393,7 @@ function assistantConversation(
       requestedAt: null,
       resolvedAt: null,
     },
+    branchedFrom: null,
     turns,
     createdAt,
     updatedAt: completedAt,

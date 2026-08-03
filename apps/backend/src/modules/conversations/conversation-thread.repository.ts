@@ -65,6 +65,11 @@ export interface AssistantConversationSnapshot {
   readonly title: string;
   readonly createdAt: Date;
   readonly updatedAt: Date;
+  readonly branchedFrom?: {
+    readonly threadId: string;
+    readonly turnId: string;
+    readonly sequence: number;
+  } | null;
   readonly turns: readonly ConversationTurn[];
 }
 
@@ -129,6 +134,7 @@ export class ConversationThreadRepository {
         requestedAt: null,
         resolvedAt: null,
       },
+      branchedFrom: snapshot.branchedFrom ?? null,
       turns: [...snapshot.turns],
       createdAt: snapshot.createdAt,
       updatedAt: snapshot.updatedAt,
@@ -608,12 +614,25 @@ function assertThreadIdentity(
     existing.purpose !== expected.purpose ||
     existing.channel !== expected.channel ||
     existing.owner.type !== expected.owner.type ||
-    existing.owner.id !== expected.owner.id
+    existing.owner.id !== expected.owner.id ||
+    !sameBranchOrigin(existing.branchedFrom, expected.branchedFrom)
   ) {
     throw new ConversationPersistenceError(
       "Conversation thread id belongs to a different owner or purpose",
     );
   }
+}
+
+function sameBranchOrigin(
+  left: ConversationThreadDocument["branchedFrom"],
+  right: ConversationThreadDocument["branchedFrom"],
+): boolean {
+  if (left === null || right === null) return left === right;
+  return (
+    left.threadId === right.threadId &&
+    left.turnId === right.turnId &&
+    left.sequence === right.sequence
+  );
 }
 
 function assertTurnIdentity(

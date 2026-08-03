@@ -106,6 +106,38 @@ describe("conversationThreadDocumentSchema", () => {
     ).toThrow();
   });
 
+  it("allows only the inherited prefix of an immutable branch to predate it", () => {
+    const inherited = {
+      ...queuedTurn(1),
+      createdAt: new Date("2026-07-23T09:00:00.000Z"),
+    };
+    const replacement = queuedTurn(2);
+    const branch = {
+      ...adminConversation([inherited, replacement]),
+      branchedFrom: {
+        threadId: "487cf55a-2c13-4af3-b535-660c2793107c",
+        turnId: "cbef5725-76e3-4113-98c1-b9eacde554a3",
+        sequence: 2,
+      },
+    };
+
+    expect(conversationThreadDocumentSchema.parse(branch).turns).toHaveLength(
+      2,
+    );
+    expect(() =>
+      conversationThreadDocumentSchema.parse({
+        ...branch,
+        turns: [inherited],
+      }),
+    ).toThrow(/replacement turn/);
+    expect(() =>
+      conversationThreadDocumentSchema.parse({
+        ...adminConversation([inherited]),
+        branchedFrom: null,
+      }),
+    ).toThrow(/thread-bounded timestamps/);
+  });
+
   it("keeps a worst-case valid aggregate below MongoDB's 16 MiB limit", () => {
     // U+0800 occupies three UTF-8 bytes per JavaScript string code unit.
     const maximumContent = "\u0800".repeat(
@@ -174,6 +206,7 @@ function adminConversation(
       requestedAt: null,
       resolvedAt: null,
     },
+    branchedFrom: null,
     turns,
     createdAt,
     updatedAt: createdAt,

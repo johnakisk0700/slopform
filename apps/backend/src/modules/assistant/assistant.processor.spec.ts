@@ -22,6 +22,8 @@ const runningTurn: AssistantTurnRow = {
   threadId,
   createdBy: "user_owner",
   requestId: "a8e94f93-9909-4cf2-b580-3b55c287a452",
+  branchedFromThreadId: null,
+  branchedFromTurnId: null,
   sequence: 1,
   status: "running",
   model: "google/gemini-3.6-flash",

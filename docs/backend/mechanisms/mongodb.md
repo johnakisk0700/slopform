@@ -110,6 +110,14 @@ attempts are fenced and an existing terminal result cannot be replaced by a
 different result. Provider output is validated before mutation, so oversized
 content cannot create an unreadable document.
 
+Assistant edit-in-new-conversation stores immutable `branchedFrom` lineage and
+copies the visible prefix before the replaced user turn. Inherited turns retain
+their ids, artifacts and original timestamps; only that prefix may predate the
+branch thread itself. The replacement and all later turns remain bounded by the
+branch creation time. PostgreSQL keeps the lineage on the first new execution
+turn so a missing MongoDB branch can be reconstructed without duplicating old
+provider executions.
+
 MongoDB documents have a 16 MiB BSON limit. Schema-v1 aggregates therefore cap
 embedded turns at 75. Assistant tool artifacts are additionally capped at 20
 calls per turn with 512-character input and 1,536-character result previews,

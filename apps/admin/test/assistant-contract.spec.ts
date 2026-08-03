@@ -665,6 +665,21 @@ describe("assistant route wiring", () => {
     expect(page).toContain("Discard & start new");
   });
 
+  it("branches edits into a new durable thread and offers artifact-aware copy", () => {
+    const page = readAdminFile("src/routes/AssistantPage.tsx");
+    const message = readAdminFile(
+      "src/components/admin/assistant/AssistantMessage.tsx",
+    );
+
+    expect(page).toContain('kind: "branch"');
+    expect(page).toContain("buildBranchAssistantThreadRequest");
+    expect(page).toContain("onBranchMessage={branchFromMessage}");
+    expect(message).toContain("Edit into a new conversation");
+    expect(message).toContain("Continue in new chat");
+    expect(message).toContain('id="answer-with-activity"');
+    expect(message).toContain("formatAssistantMessageForCopy(message, mode)");
+  });
+
   it("keeps notes_ai's optimized renderer boundaries explicit", () => {
     const message = readAdminFile(
       "src/components/admin/assistant/AssistantMessage.tsx",

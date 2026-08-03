@@ -89,19 +89,20 @@ generated hooks — see
 The shared API facade already has `/api` as its default base. Route code uses
 the following paths without repeating that prefix:
 
-| Operation    | Contract                                                                                           |
-| ------------ | -------------------------------------------------------------------------------------------------- |
-| List         | `GET /v1/assistant/threads` → `{ items: AssistantThreadSummary[] }`                                |
-| Read         | `GET /v1/assistant/threads/:threadId` → owned thread with ordered durable turns                    |
-| Create       | `POST /v1/assistant/threads` with `{ requestId, model, effort, content }` → thread plus first turn |
-| Append       | `POST /v1/assistant/threads/:threadId/turns` with the same body → durable turn                     |
-| Poll         | `GET /v1/assistant/threads/:threadId/turns/:turnId` while `queued` or `running`                    |
-| Live         | `GET /v1/assistant/threads/:threadId/turns/:turnId/stream` → best-effort authenticated SSE         |
-| Retry failed | `POST /v1/assistant/threads/:threadId/turns/:turnId/retry` → the same turn, next attempt           |
-| Models       | `openai/gpt-5.6-luna`, `openai/gpt-5.6-terra`, `google/gemini-3.6-flash`, `qwen/qwen3.7-max`       |
-| Effort       | `low`, `medium`, `high`; backend default `low`                                                     |
-| Service tier | `standard`, `fast`; default `standard`, and forced to `standard` off the OpenAI route              |
-| States       | `queued`, `running`, `succeeded`, `failed`                                                         |
+| Operation    | Contract                                                                                            |
+| ------------ | --------------------------------------------------------------------------------------------------- |
+| List         | `GET /v1/assistant/threads` → `{ items: AssistantThreadSummary[] }`                                 |
+| Read         | `GET /v1/assistant/threads/:threadId` → owned thread with ordered durable turns                     |
+| Create       | `POST /v1/assistant/threads` with `{ requestId, model, effort, content }` → thread plus first turn  |
+| Append       | `POST /v1/assistant/threads/:threadId/turns` with the same body → durable turn                      |
+| Edit in new  | `POST /v1/assistant/threads/:threadId/branches` with the same body plus `sourceTurnId` → new thread |
+| Poll         | `GET /v1/assistant/threads/:threadId/turns/:turnId` while `queued` or `running`                     |
+| Live         | `GET /v1/assistant/threads/:threadId/turns/:turnId/stream` → best-effort authenticated SSE          |
+| Retry failed | `POST /v1/assistant/threads/:threadId/turns/:turnId/retry` → the same turn, next attempt            |
+| Models       | `openai/gpt-5.6-luna`, `openai/gpt-5.6-terra`, `google/gemini-3.6-flash`, `qwen/qwen3.7-max`        |
+| Effort       | `low`, `medium`, `high`; backend default `low`                                                      |
+| Service tier | `standard`, `fast`; default `standard`, and forced to `standard` off the OpenAI route               |
+| States       | `queued`, `running`, `succeeded`, `failed`                                                          |
 
 `requestId` is a browser-minted UUID and is required on both creation writes.
 The backend uniquely persists it and treats an identical replay as the same
@@ -207,6 +208,10 @@ being imitated cosmetically from `notes_ai`:
 - **Cost.** The settled footer shows total tokens and a clearly labelled
   estimated EUR cost when the provider supplied enough usage data. It uses the
   turn's persisted model/tier/price version, never the browser's current picker.
+- **Copy.** A settled answer with no activity copies directly. When persisted
+  reasoning or tool calls exist, the copy action offers answer-only or answer
+  plus thinking and bounded tool input/result artifacts; both variants are
+  formatted from that durable turn, never reconstructed from DOM text.
 
 The rule the two share is the one worth keeping: nothing here renders fictional
 state. Both surfaces exist because a durable field or a parsed contract backs
@@ -243,6 +248,10 @@ them.
   overwritten. Revising restores the failed input and sends it as a new turn in
   the same thread, preserving earlier successful context while the failed turn
   remains visible in the audit history.
+- Editing any durable user message creates a new conversation. The backend
+  copies the immutable prefix before that turn and generates from the edited
+  replacement; the original thread and every later answer remain untouched.
+  The current model, effort and service tier apply to the new branch turn.
 - Raw backend/provider messages are never displayed. Stable failure codes map
   to operator-safe text.
 - The selected model and `low`/`medium`/`high` effort are remembered in local

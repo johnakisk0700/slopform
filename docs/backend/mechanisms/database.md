@@ -69,6 +69,15 @@ Terminal writes remain conditional on both a
 nonterminal status and the current attempt. Add indexes for measured queries,
 verify with `EXPLAIN`, and account for write cost.
 
+The first generated turn of an immutable Assistant branch carries paired
+nullable `branched_from_thread_id` / `branched_from_turn_id` lineage. The source
+thread is `ON DELETE RESTRICT`; the turn id intentionally has no PostgreSQL
+foreign key because a branch-of-branch may reference a turn inherited inside
+the source MongoDB aggregate rather than an execution row owned by that source.
+The pair check prevents half-lineage, and the branch-source index supports
+retention/lineage inspection. Inherited turns are not copied into PostgreSQL,
+so token and cost projections continue to represent real provider calls once.
+
 Participant profiles use normalized unique emails, E.164 phones, constrained
 age/neighborhood/conversation values and a normalized interest join table.
 `participant_source_records` makes operational imports idempotent through a

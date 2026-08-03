@@ -1,7 +1,11 @@
-import { Button } from "@heroui/react";
-import { Check, Copy } from "lucide-react";
+import { Button, Dropdown } from "@heroui/react";
+import { Check, Copy, GitFork, PencilLine, X } from "lucide-react";
 import { memo, useEffect, useRef, useState } from "react";
 
+import {
+  formatAssistantMessageForCopy,
+  type AssistantCopyMode,
+} from "../../../features/assistant/copy";
 import {
   ASSISTANT_MODELS,
   type AssistantDisplayMessage,
@@ -27,24 +31,24 @@ export const AssistantMessage = memo(
   ({
     message,
     minHeight,
+    isBranchDisabled,
+    onBranchMessage,
   }: {
     message: AssistantDisplayMessage;
     minHeight?: number;
+    isBranchDisabled: boolean;
+    onBranchMessage: (
+      message: AssistantDisplayMessage,
+      content: string,
+    ) => void;
   }) => {
     if (message.role === "user") {
       return (
-        <article
-          id={message.id}
-          aria-label="Your message"
-          className="group flex w-full flex-col items-end gap-1.5"
-        >
-          <div
-            data-assistant-user-content
-            className="w-fit max-w-[85%] whitespace-pre-wrap rounded-md border border-primary-border bg-primary-soft px-3 py-1.5 text-left text-sm font-medium leading-5 text-ink"
-          >
-            {message.content}
-          </div>
-        </article>
+        <AssistantUserMessage
+          message={message}
+          isBranchDisabled={isBranchDisabled}
+          onBranchMessage={onBranchMessage}
+        />
       );
     }
 
@@ -82,7 +86,7 @@ export const AssistantMessage = memo(
           <AssistantThinkingIndicator />
         ) : message.status === "succeeded" ? (
           <AssistantMessageActions
-            content={message.content}
+            message={message}
             model={modelLabel(message)}
             effort={message.effort}
             serviceTier={message.serviceTier}
@@ -103,19 +107,124 @@ export const AssistantMessage = memo(
     previous.message.toolCalls === next.message.toolCalls &&
     previous.message.usage === next.message.usage &&
     previous.message.status === next.message.status &&
+    previous.isBranchDisabled === next.isBranchDisabled &&
+    previous.onBranchMessage === next.onBranchMessage &&
     previous.minHeight === next.minHeight,
 );
 
 AssistantMessage.displayName = "AssistantMessage";
 
+function AssistantUserMessage({
+  message,
+  isBranchDisabled,
+  onBranchMessage,
+}: {
+  message: AssistantDisplayMessage;
+  isBranchDisabled: boolean;
+  onBranchMessage: (message: AssistantDisplayMessage, content: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(message.content);
+  const editorRef = useRef<HTMLTextAreaElement>(null);
+  const trimmedDraft = draft.trim();
+
+  useEffect(() => {
+    if (editing) editorRef.current?.focus();
+  }, [editing]);
+
+  if (editing) {
+    return (
+      <article id={message.id} aria-label="Edit your message into a new chat">
+        <form
+          className="ml-auto grid w-full max-w-xl gap-2 rounded-md border border-border bg-surface-raised p-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!trimmedDraft || isBranchDisabled) return;
+            onBranchMessage(message, trimmedDraft);
+            setEditing(false);
+          }}
+        >
+          <label
+            htmlFor={`${message.id}-branch-content`}
+            className="text-xs font-semibold text-ink-muted"
+          >
+            Edit into a new conversation
+          </label>
+          <textarea
+            ref={editorRef}
+            id={`${message.id}-branch-content`}
+            rows={3}
+            value={draft}
+            onChange={(event) => setDraft(event.currentTarget.value)}
+            className="min-h-20 w-full resize-y rounded-sm border border-border bg-surface px-2.5 py-2 text-sm leading-5 text-ink"
+          />
+          <div className="flex justify-end gap-1">
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onPress={() => {
+                setDraft(message.content);
+                setEditing(false);
+              }}
+            >
+              <X aria-hidden="true" className="size-3.5" />
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              size="sm"
+              variant="primary"
+              isDisabled={!trimmedDraft || isBranchDisabled}
+            >
+              <GitFork aria-hidden="true" className="size-3.5" />
+              Continue in new chat
+            </Button>
+          </div>
+        </form>
+      </article>
+    );
+  }
+
+  return (
+    <article
+      id={message.id}
+      aria-label="Your message"
+      className="group flex w-full flex-col items-end gap-1.5"
+    >
+      <div className="flex w-fit max-w-[85%] items-start gap-1">
+        <div className="opacity-60 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100">
+          <Button
+            variant="ghost"
+            size="sm"
+            isIconOnly
+            isDisabled={isBranchDisabled}
+            aria-label="Edit into a new conversation"
+            className="size-7 min-w-7"
+            onPress={() => setEditing(true)}
+          >
+            <PencilLine aria-hidden="true" className="size-3.5" />
+          </Button>
+        </div>
+        <div
+          data-assistant-user-content
+          className="whitespace-pre-wrap rounded-md border border-primary-border bg-primary-soft px-3 py-1.5 text-left text-sm font-medium leading-5 text-ink"
+        >
+          {message.content}
+        </div>
+      </div>
+    </article>
+  );
+}
+
 function AssistantMessageActions({
-  content,
+  message,
   model,
   effort,
   serviceTier,
   usage,
 }: {
-  content: string;
+  message: AssistantDisplayMessage;
   model: string;
   effort: AssistantDisplayMessage["effort"];
   serviceTier: AssistantDisplayMessage["serviceTier"];
@@ -126,10 +235,16 @@ function AssistantMessageActions({
 
   useEffect(() => () => clearTimeout(resetTimerRef.current), []);
 
-  async function copyContent(): Promise<void> {
+  const hasActivity =
+    message.reasoning !== null || message.toolCalls.length > 0;
+
+  async function copyContent(mode: AssistantCopyMode): Promise<void> {
     clearTimeout(resetTimerRef.current);
     try {
-      await navigator.clipboard?.writeText(content);
+      if (!navigator.clipboard) return;
+      await navigator.clipboard.writeText(
+        formatAssistantMessageForCopy(message, mode),
+      );
       setCopied(true);
       resetTimerRef.current = setTimeout(() => setCopied(false), 1_000);
     } catch {
@@ -139,20 +254,57 @@ function AssistantMessageActions({
 
   return (
     <div className="mt-1.5 flex items-center gap-0.5 text-ink-muted">
-      <Button
-        variant="ghost"
-        size="sm"
-        isIconOnly
-        aria-label={copied ? "Response copied" : "Copy response"}
-        className="size-7 min-w-7"
-        onPress={() => void copyContent()}
-      >
-        {copied ? (
-          <Check aria-hidden="true" className="size-3.5 text-primary" />
-        ) : (
-          <Copy aria-hidden="true" className="size-3.5" />
-        )}
-      </Button>
+      {hasActivity ? (
+        <Dropdown>
+          <Dropdown.Trigger
+            aria-label={copied ? "Response copied" : "Choose what to copy"}
+            className="inline-flex size-7 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-surface-raised hover:text-ink"
+          >
+            {copied ? (
+              <Check aria-hidden="true" className="size-3.5 text-primary" />
+            ) : (
+              <Copy aria-hidden="true" className="size-3.5" />
+            )}
+          </Dropdown.Trigger>
+          <Dropdown.Popover placement="top start">
+            <Dropdown.Menu
+              aria-label="Copy assistant response"
+              onAction={(key) =>
+                void copyContent(
+                  key === "answer-with-activity"
+                    ? "answer-with-activity"
+                    : "answer",
+                )
+              }
+            >
+              <Dropdown.Item id="answer" textValue="Answer only">
+                Answer only
+              </Dropdown.Item>
+              <Dropdown.Item
+                id="answer-with-activity"
+                textValue="Answer, thinking and tools"
+              >
+                Answer + thinking &amp; tools
+              </Dropdown.Item>
+            </Dropdown.Menu>
+          </Dropdown.Popover>
+        </Dropdown>
+      ) : (
+        <Button
+          variant="ghost"
+          size="sm"
+          isIconOnly
+          aria-label={copied ? "Response copied" : "Copy response"}
+          className="size-7 min-w-7"
+          onPress={() => void copyContent("answer")}
+        >
+          {copied ? (
+            <Check aria-hidden="true" className="size-3.5 text-primary" />
+          ) : (
+            <Copy aria-hidden="true" className="size-3.5" />
+          )}
+        </Button>
+      )}
       <span className="ml-1.5 font-mono text-[length:var(--jts-text-2xs)] tabular-nums text-ink-subtle">
         {model} · {effort} thinking
         {/* Stamped only when the fast lane was actually bought, because it is

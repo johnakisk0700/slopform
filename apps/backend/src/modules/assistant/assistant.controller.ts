@@ -35,6 +35,7 @@ import {
   AssistantThreadListDto,
   AssistantTurnDto,
   AssistantTurnParametersDto,
+  BranchAssistantThreadDto,
   CreateAssistantThreadDto,
   CreateAssistantTurnDto,
   type AssistantTurnView,
@@ -113,6 +114,25 @@ export class AssistantController {
   ): Promise<AssistantTurnDto> {
     return mapAssistantErrors(
       this.jobs.appendTurnAndEnqueue(
+        parameters.id,
+        input,
+        String(userId),
+        String(correlationId),
+      ),
+    );
+  }
+
+  @Post(":id/branches")
+  @ApiOperation({ operationId: "branchAssistantThread" })
+  @ZodResponse({ status: 201, type: AssistantThreadDto })
+  branchThread(
+    @Param() parameters: AssistantThreadIdDto,
+    @Body() input: BranchAssistantThreadDto,
+    @CurrentUserId() userId: PrincipalDto,
+    @RequestCorrelationId() correlationId: CorrelationIdDto,
+  ): Promise<AssistantThreadDto> {
+    return mapAssistantErrors(
+      this.jobs.branchThreadAndEnqueue(
         parameters.id,
         input,
         String(userId),

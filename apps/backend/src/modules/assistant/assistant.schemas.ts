@@ -75,6 +75,9 @@ export const createAssistantTurnSchema = z
   })
   .strict();
 export const createAssistantThreadSchema = createAssistantTurnSchema;
+export const branchAssistantThreadSchema = createAssistantTurnSchema
+  .extend({ sourceTurnId: z.uuid() })
+  .strict();
 
 export const assistantThreadIdSchema = z.object({ id: z.uuid() }).strict();
 export const assistantTurnParametersSchema = z
@@ -216,6 +219,9 @@ export class CreateAssistantThreadDto extends createZodDto(
 export class CreateAssistantTurnDto extends createZodDto(
   createAssistantTurnSchema,
 ) {}
+export class BranchAssistantThreadDto extends createZodDto(
+  branchAssistantThreadSchema,
+) {}
 export class AssistantThreadIdDto extends createZodDto(
   assistantThreadIdSchema,
 ) {}
@@ -234,6 +240,9 @@ export type CreateAssistantTurnInput = z.input<
 >;
 export type CreateAssistantThreadInput = z.input<
   typeof createAssistantThreadSchema
+>;
+export type BranchAssistantThreadInput = z.input<
+  typeof branchAssistantThreadSchema
 >;
 export type AssistantTurnStatus = z.infer<typeof assistantTurnStatusSchema>;
 export type AssistantFailureCode = z.infer<typeof assistantFailureCodeSchema>;

@@ -18,6 +18,8 @@ const staleTurn: AssistantTurnRow = {
   threadId: "66de52a8-1a26-4cbb-b8d1-fcf8bdc2dd51",
   createdBy: "user_owner",
   requestId: "a8e94f93-9909-4cf2-b580-3b55c287a452",
+  branchedFromThreadId: null,
+  branchedFromTurnId: null,
   sequence: 1,
   status: "running",
   model: "google/gemini-3.6-flash",
@@ -47,6 +49,8 @@ const secondStaleTurn: AssistantTurnRow = {
   ...staleTurn,
   id: "1ee717e8-c80d-4239-a2a9-cd38515417e4",
   requestId: "4163e1ad-9223-43f5-9955-9a2aaf49aecc",
+  branchedFromThreadId: null,
+  branchedFromTurnId: null,
   sequence: 2,
 };
 

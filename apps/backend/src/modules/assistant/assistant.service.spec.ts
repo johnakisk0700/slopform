@@ -36,6 +36,8 @@ const turn: AssistantTurnRow = {
   threadId: thread.id,
   createdBy: "user_owner",
   requestId: "a8e94f93-9909-4cf2-b580-3b55c287a452",
+  branchedFromThreadId: null,
+  branchedFromTurnId: null,
   sequence: 1,
   status: "queued",
   model: "google/gemini-3.6-flash",
@@ -84,6 +86,7 @@ function createService(options?: {
     createThreadWithTurn: vi
       .fn()
       .mockResolvedValue({ created: true, thread, turn }),
+    createBranchedThreadWithTurn: vi.fn(),
     appendTurn: vi.fn().mockResolvedValue({ created: true, thread, turn }),
     findRequestForOwner: vi.fn().mockResolvedValue(undefined),
     findThreadRecordForOwner: vi
@@ -414,6 +417,133 @@ describe("AssistantService", () => {
     );
   });
 
+  it("branches by copying the immutable prefix and replacing the selected user turn", async () => {
+    const harness = createService({ openRouter: true });
+    const first = succeededTurnRow("First answer");
+    const sourceTurn = {
+      ...succeededTurnRow("Second answer"),
+      id: "1ee717e8-c80d-4239-a2a9-cd38515417e4",
+      requestId: "4163e1ad-9223-43f5-9955-9a2aaf49aecc",
+      sequence: 2,
+      userContent: "Original second question",
+    };
+    const sourceConversation = conversationFromRows([first, sourceTurn]);
+    const branchThread: AssistantThreadRow = {
+      ...thread,
+      id: "487cf55a-2c13-4af3-b535-660c2793107c",
+      title: "Edited second question",
+      createdAt: new Date("2026-07-23T11:00:00.000Z"),
+      updatedAt: new Date("2026-07-23T11:00:00.000Z"),
+    };
+    const branchTurn: AssistantTurnRow = {
+      ...turn,
+      id: "cbef5725-76e3-4113-98c1-b9eacde554a3",
+      threadId: branchThread.id,
+      requestId: "060580dd-b226-4bc6-adc6-0236c10a0b4a",
+      branchedFromThreadId: thread.id,
+      branchedFromTurnId: sourceTurn.id,
+      sequence: 2,
+      userContent: "Edited second question",
+      createdAt: branchThread.createdAt,
+      updatedAt: branchThread.updatedAt,
+    };
+
+    harness.conversations.findAssistantThreadForOwner!.mockImplementation(
+      (id: string) =>
+        Promise.resolve(id === thread.id ? sourceConversation : undefined),
+    );
+    harness.conversations.synchronizeAssistantThread!.mockImplementation(
+      (snapshot: AssistantConversationSnapshot) =>
+        Promise.resolve(conversationFromSnapshot(snapshot)),
+    );
+    harness.repository.createBranchedThreadWithTurn!.mockResolvedValue({
+      created: true,
+      thread: branchThread,
+      turn: branchTurn,
+    });
+    harness.repository.findThreadRecordForOwner!.mockImplementation(
+      (id: string) =>
+        Promise.resolve(
+          id === branchThread.id
+            ? { thread: branchThread, turns: [branchTurn] }
+            : { thread, turns: [first, sourceTurn] },
+        ),
+    );
+
+    await expect(
+      harness.service.branchThread(
+        thread.id,
+        {
+          requestId: branchTurn.requestId,
+          sourceTurnId: sourceTurn.id,
+          content: "Edited second question",
+        },
+        "user_owner",
+      ),
+    ).resolves.toMatchObject({
+      created: true,
+      thread: {
+        id: branchThread.id,
+        turns: [
+          { id: first.id, user: { content: "Hello" } },
+          {
+            id: branchTurn.id,
+            user: { content: "Edited second question" },
+            status: "queued",
+          },
+        ],
+      },
+    });
+    expect(
+      harness.repository.createBranchedThreadWithTurn,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceThreadId: thread.id,
+        sourceTurnId: sourceTurn.id,
+        sequence: 2,
+      }),
+    );
+    expect(
+      harness.conversations.synchronizeAssistantThread,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        branchedFrom: {
+          threadId: thread.id,
+          turnId: sourceTurn.id,
+          sequence: 2,
+        },
+        turns: [
+          expect.objectContaining({ id: first.id }),
+          expect.objectContaining({ id: branchTurn.id }),
+        ],
+      }),
+    );
+  });
+
+  it("rejects a branch replay against a different source turn", async () => {
+    const harness = createService();
+    harness.repository.findRequestForOwner!.mockResolvedValue({
+      thread,
+      turn: {
+        ...turn,
+        branchedFromThreadId: thread.id,
+        branchedFromTurnId: "1ee717e8-c80d-4239-a2a9-cd38515417e4",
+      },
+    });
+
+    await expect(
+      harness.service.branchThread(
+        thread.id,
+        {
+          requestId: turn.requestId,
+          sourceTurnId: "cbef5725-76e3-4113-98c1-b9eacde554a3",
+          content: "Hello",
+        },
+        "user_owner",
+      ),
+    ).rejects.toBeInstanceOf(AssistantTurnConflictError);
+  });
+
   it("rejects reuse of a request id with different content", async () => {
     const { service } = createService({ openRouter: true });
     await expect(
@@ -734,6 +864,7 @@ function conversationFromSnapshot(
       requestedAt: null,
       resolvedAt: null,
     },
+    branchedFrom: snapshot.branchedFrom ?? null,
     turns: [...snapshot.turns],
     createdAt: snapshot.createdAt,
     updatedAt: snapshot.updatedAt,

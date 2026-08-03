@@ -37,6 +37,7 @@ import {
   type AssistantToolCall,
   type AssistantTurnView,
   type AssistantUsage,
+  type BranchAssistantThreadInput,
   type CreateAssistantThreadInput,
   type CreateAssistantTurnInput,
 } from "./assistant.schemas.js";
@@ -122,7 +123,7 @@ export class AssistantService {
       createdBy,
     );
     if (replay) {
-      if (replay.turn.sequence !== 1) {
+      if (replay.turn.sequence !== 1 || isBranchTurn(replay.turn)) {
         throw new AssistantTurnConflictError(
           "The request id already belongs to a different assistant operation",
         );
@@ -155,11 +156,87 @@ export class AssistantService {
       serviceTier,
       content: input.content,
     });
-    if (!persisted.created && persisted.turn.sequence !== 1) {
+    if (
+      !persisted.created &&
+      (persisted.turn.sequence !== 1 || isBranchTurn(persisted.turn))
+    ) {
       throw new AssistantTurnConflictError(
         "The request id already belongs to a different assistant operation",
       );
     }
+    assertIdempotentReplay(persisted.turn, input, model, effort, serviceTier);
+
+    const record = await this.getRecord(persisted.thread.id, createdBy);
+    const conversation = await this.materializeConversation(
+      record,
+      persisted.turn.id,
+    );
+    const conversationTurn = requireConversationTurn(
+      conversation,
+      persisted.turn.id,
+    );
+    return {
+      created: persisted.created,
+      enqueueRequired: isNonterminalTurnStatus(conversationTurn.status),
+      thread: toThreadView(conversation),
+      turn: toTurnView(conversationTurn),
+    };
+  }
+
+  async branchThread(
+    sourceThreadId: string,
+    input: BranchAssistantThreadInput,
+    createdBy: string,
+  ): Promise<AssistantThreadCreation> {
+    const model = input.model ?? DEFAULT_ASSISTANT_MODEL;
+    const effort = input.effort ?? DEFAULT_ASSISTANT_REASONING_EFFORT;
+    const serviceTier = resolveServiceTier(model, input.serviceTier);
+    const replay = await this.repository.findRequestForOwner(
+      input.requestId,
+      createdBy,
+    );
+    if (replay) {
+      assertBranchReplay(replay.turn, sourceThreadId, input.sourceTurnId);
+      assertIdempotentReplay(replay.turn, input, model, effort, serviceTier);
+      const record = await this.getRecord(replay.thread.id, createdBy);
+      const conversation = await this.materializeConversation(
+        record,
+        replay.turn.id,
+      );
+      const conversationTurn = requireConversationTurn(
+        conversation,
+        replay.turn.id,
+      );
+      return {
+        created: false,
+        enqueueRequired: isNonterminalTurnStatus(conversationTurn.status),
+        thread: toThreadView(conversation),
+        turn: toTurnView(conversationTurn),
+      };
+    }
+
+    const source = await this.getConversation(sourceThreadId, createdBy);
+    const sourceTurn = source.turns.find(
+      (candidate) => candidate.id === input.sourceTurnId,
+    );
+    if (!sourceTurn) {
+      throw new AssistantTurnNotFoundError(input.sourceTurnId);
+    }
+    this.assertProviderConfigured(model);
+
+    const persisted = await this.repository.createBranchedThreadWithTurn({
+      createdBy,
+      requestId: input.requestId,
+      title: titleFromContent(input.content),
+      sourceThreadId,
+      sourceTurnId: sourceTurn.id,
+      sequence: sourceTurn.sequence,
+      model,
+      effort,
+      serviceTier,
+      content: input.content,
+    });
+    assertBranchReplay(persisted.turn, sourceThreadId, input.sourceTurnId);
     assertIdempotentReplay(persisted.turn, input, model, effort, serviceTier);
 
     const record = await this.getRecord(persisted.thread.id, createdBy);
@@ -193,7 +270,11 @@ export class AssistantService {
         createdBy,
       );
       if (replay) {
-        if (replay.thread.id !== threadId || replay.turn.sequence === 1) {
+        if (
+          replay.thread.id !== threadId ||
+          replay.turn.sequence === 1 ||
+          isBranchTurn(replay.turn)
+        ) {
           throw new AssistantTurnConflictError(
             "The request id already belongs to a different assistant operation",
           );
@@ -691,12 +772,36 @@ export class AssistantService {
     return turn;
   }
 
-  private synchronizeConversation(
+  private async synchronizeConversation(
     record: AssistantThreadRecord,
   ): Promise<ConversationThreadDocument> {
-    return this.conversations.synchronizeAssistantThread(
-      toConversationSnapshot(record),
+    const snapshot = toConversationSnapshot(record);
+    const origin = branchOriginFromRecord(record);
+    if (!origin) {
+      return this.conversations.synchronizeAssistantThread(snapshot);
+    }
+
+    const source = await this.getConversation(
+      origin.threadId,
+      record.thread.createdBy,
     );
+    const sourceTurn = source.turns.find(
+      (candidate) => candidate.id === origin.turnId,
+    );
+    if (!sourceTurn || sourceTurn.sequence !== origin.sequence) {
+      throw new Error("Assistant branch source turn is missing from MongoDB");
+    }
+
+    return this.conversations.synchronizeAssistantThread({
+      ...snapshot,
+      branchedFrom: origin,
+      turns: [
+        ...source.turns.filter(
+          (candidate) => candidate.sequence < origin.sequence,
+        ),
+        ...snapshot.turns,
+      ],
+    });
   }
 
   private async materializeConversation(
@@ -877,4 +982,45 @@ function resolveServiceTier(
   return assistantModelSupportsServiceTier(model)
     ? tier
     : DEFAULT_ASSISTANT_SERVICE_TIER;
+}
+
+function isBranchTurn(turn: AssistantTurnRow): boolean {
+  return turn.branchedFromThreadId !== null || turn.branchedFromTurnId !== null;
+}
+
+function assertBranchReplay(
+  turn: AssistantTurnRow,
+  sourceThreadId: string,
+  sourceTurnId: string,
+): void {
+  if (
+    turn.branchedFromThreadId !== sourceThreadId ||
+    turn.branchedFromTurnId !== sourceTurnId
+  ) {
+    throw new AssistantTurnConflictError(
+      "The request id already belongs to a different assistant operation",
+    );
+  }
+}
+
+function branchOriginFromRecord(record: AssistantThreadRecord): {
+  readonly threadId: string;
+  readonly turnId: string;
+  readonly sequence: number;
+} | null {
+  const branchTurns = record.turns.filter(isBranchTurn);
+  if (branchTurns.length === 0) return null;
+  if (branchTurns.length !== 1) {
+    throw new Error("Assistant thread has invalid branch lineage");
+  }
+
+  const [turn] = branchTurns;
+  if (!turn?.branchedFromThreadId || !turn.branchedFromTurnId) {
+    throw new Error("Assistant branch lineage is incomplete");
+  }
+  return {
+    threadId: turn.branchedFromThreadId,
+    turnId: turn.branchedFromTurnId,
+    sequence: turn.sequence,
+  };
 }

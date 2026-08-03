@@ -63,6 +63,14 @@ export const assistantTurns = pgTable(
     threadId: uuid("thread_id").notNull(),
     createdBy: text("created_by").notNull(),
     requestId: uuid("request_id").notNull(),
+    /**
+     * Immutable branch lineage for the first newly generated turn in a copied
+     * conversation. The referenced turn is a MongoDB aggregate member rather
+     * than necessarily a PostgreSQL row in this thread (a branch may itself be
+     * branched), so only the source thread has a relational foreign key.
+     */
+    branchedFromThreadId: uuid("branched_from_thread_id"),
+    branchedFromTurnId: uuid("branched_from_turn_id"),
     sequence: integer("sequence").notNull(),
     status: text("status").notNull().default("queued"),
     model: text("model").notNull(),
@@ -120,12 +128,21 @@ export const assistantTurns = pgTable(
       foreignColumns: [assistantThreads.id, assistantThreads.createdBy],
       name: "assistant_turns_thread_owner_fk",
     }).onDelete("cascade"),
+    foreignKey({
+      columns: [table.branchedFromThreadId],
+      foreignColumns: [assistantThreads.id],
+      name: "assistant_turns_branch_source_thread_fk",
+    }).onDelete("restrict"),
     check(
       "assistant_turns_created_by_length_check",
       sql`char_length(btrim(${table.createdBy})) between 1 and 200`,
     ),
     check("assistant_turns_sequence_check", sql`${table.sequence} >= 1`),
     check("assistant_turns_attempt_check", sql`${table.attempt} >= 1`),
+    check(
+      "assistant_turns_branch_origin_check",
+      sql`(${table.branchedFromThreadId} is null) = (${table.branchedFromTurnId} is null)`,
+    ),
     check(
       "assistant_turns_status_check",
       sql`${table.status} in ('queued', 'running', 'succeeded', 'failed')`,
@@ -201,6 +218,11 @@ export const assistantTurns = pgTable(
       table.threadId,
       table.createdAt,
     ),
+    // Partial on purpose: almost every turn is a root turn with null lineage,
+    // and the index only ever answers "who branched from here".
+    index("assistant_turns_branch_source_idx")
+      .on(table.branchedFromThreadId, table.branchedFromTurnId)
+      .where(sql`${table.branchedFromThreadId} is not null`),
   ],
 );
 

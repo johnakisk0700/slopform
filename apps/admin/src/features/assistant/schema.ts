@@ -129,6 +129,10 @@ const assistantTurnRequestSchema = z
 
 type AssistantTurnRequest = z.infer<typeof assistantTurnRequestSchema>;
 
+const branchAssistantThreadRequestSchema = assistantTurnRequestSchema
+  .extend({ sourceTurnId: z.uuid() })
+  .strict();
+
 export function buildAssistantTurnRequest(
   requestId: string,
   model: AssistantModel,
@@ -137,6 +141,24 @@ export function buildAssistantTurnRequest(
   content: string,
 ): AssistantTurnRequest {
   return assistantTurnRequestSchema.parse({
+    requestId,
+    model,
+    serviceTier,
+    effort,
+    content,
+  });
+}
+
+export function buildBranchAssistantThreadRequest(
+  sourceTurnId: string,
+  requestId: string,
+  model: AssistantModel,
+  effort: AssistantEffort,
+  serviceTier: AssistantServiceTier,
+  content: string,
+): z.infer<typeof branchAssistantThreadRequestSchema> {
+  return branchAssistantThreadRequestSchema.parse({
+    sourceTurnId,
     requestId,
     model,
     serviceTier,

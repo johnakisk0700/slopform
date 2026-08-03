@@ -1,0 +1,5 @@
+ALTER TABLE "assistant_turns" ADD COLUMN "branched_from_thread_id" uuid;--> statement-breakpoint
+ALTER TABLE "assistant_turns" ADD COLUMN "branched_from_turn_id" uuid;--> statement-breakpoint
+ALTER TABLE "assistant_turns" ADD CONSTRAINT "assistant_turns_branch_source_thread_fk" FOREIGN KEY ("branched_from_thread_id") REFERENCES "public"."assistant_threads"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "assistant_turns_branch_source_idx" ON "assistant_turns" USING btree ("branched_from_thread_id","branched_from_turn_id") WHERE "assistant_turns"."branched_from_thread_id" is not null;--> statement-breakpoint
+ALTER TABLE "assistant_turns" ADD CONSTRAINT "assistant_turns_branch_origin_check" CHECK (("assistant_turns"."branched_from_thread_id" is null) = ("assistant_turns"."branched_from_turn_id" is null));

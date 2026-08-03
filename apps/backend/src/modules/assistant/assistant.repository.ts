@@ -111,6 +111,60 @@ export class AssistantRepository {
     });
   }
 
+  async createBranchedThreadWithTurn(input: {
+    readonly createdBy: string;
+    readonly requestId: string;
+    readonly title: string;
+    readonly sourceThreadId: string;
+    readonly sourceTurnId: string;
+    readonly sequence: number;
+    readonly model: AssistantModel;
+    readonly effort: AssistantReasoningEffort;
+    readonly serviceTier: AssistantServiceTier;
+    readonly content: string;
+  }): Promise<PersistedAssistantTurn> {
+    return this.database.transaction(async (transaction) => {
+      await lockRequest(transaction, input.createdBy, input.requestId);
+      const existing = await this.findByRequestIdForOwner(
+        input.requestId,
+        input.createdBy,
+        transaction,
+      );
+      if (existing) {
+        return { created: false, ...existing };
+      }
+
+      const [thread] = await transaction
+        .insert(assistantThreads)
+        .values({ createdBy: input.createdBy, title: input.title })
+        .returning();
+      if (!thread) {
+        throw new Error("Assistant branch thread insert returned no row");
+      }
+
+      const [turn] = await transaction
+        .insert(assistantTurns)
+        .values({
+          threadId: thread.id,
+          createdBy: input.createdBy,
+          requestId: input.requestId,
+          branchedFromThreadId: input.sourceThreadId,
+          branchedFromTurnId: input.sourceTurnId,
+          sequence: input.sequence,
+          model: input.model,
+          effort: input.effort,
+          serviceTier: input.serviceTier,
+          userContent: input.content,
+        })
+        .returning();
+      if (!turn) {
+        throw new Error("Assistant branch turn insert returned no row");
+      }
+
+      return { created: true, thread, turn };
+    });
+  }
+
   async appendTurn(input: {
     readonly threadId: string;
     readonly createdBy: string;

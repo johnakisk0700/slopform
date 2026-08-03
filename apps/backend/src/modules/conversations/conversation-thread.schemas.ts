@@ -101,6 +101,15 @@ export const conversationHumanTakeoverSchema = z
     }
   });
 
+export const conversationBranchOriginSchema = z
+  .object({
+    threadId: z.uuid(),
+    turnId: z.uuid(),
+    /** The source user turn replaced by the first new turn in this branch. */
+    sequence: z.number().int().positive().max(CONVERSATION_THREAD_MAX_TURNS),
+  })
+  .strict();
+
 export const conversationMessageSchema = z
   .object({
     actor: z.enum(["admin", "participant", "assistant", "system"]),
@@ -276,6 +285,11 @@ export const conversationThreadDocumentSchema = z
     state: conversationStateSchema,
     goals: z.array(conversationGoalSchema).max(10),
     humanTakeover: conversationHumanTakeoverSchema,
+    /**
+     * Immutable lineage for non-destructive edit-in-new-conversation. Older
+     * schema-v1 documents parse as ordinary roots through this default.
+     */
+    branchedFrom: conversationBranchOriginSchema.nullable().default(null),
     turns: z.array(conversationTurnSchema).max(CONVERSATION_THREAD_MAX_TURNS),
     createdAt: z.date(),
     updatedAt: z.date(),
@@ -352,12 +366,25 @@ export const conversationThreadDocumentSchema = z
       }
     }
 
+    if (
+      thread.branchedFrom &&
+      thread.turns.length < thread.branchedFrom.sequence
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "A conversation branch requires its replacement turn",
+      });
+    }
+
     const turnIds = new Set<string>();
     for (const [index, turn] of thread.turns.entries()) {
+      const inherited =
+        thread.branchedFrom !== null &&
+        turn.sequence < thread.branchedFrom.sequence;
       if (
         turnIds.has(turn.id) ||
         turn.sequence !== index + 1 ||
-        turn.createdAt < thread.createdAt ||
+        (!inherited && turn.createdAt < thread.createdAt) ||
         turn.createdAt > thread.updatedAt ||
         (turn.completedAt && turn.completedAt > thread.updatedAt)
       ) {

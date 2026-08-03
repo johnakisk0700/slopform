@@ -82,6 +82,11 @@ verified subject and is never accepted in a body.
   turns.
 - `POST /api/v1/assistant/threads/:id/turns` accepts the same body and returns
   the new turn.
+- `POST /api/v1/assistant/threads/:id/branches` accepts the same generation
+  fields plus `sourceTurnId`. It creates a new thread containing the immutable
+  source prefix before that user turn, replaces the selected turn with the new
+  content, queues generation and returns the new full thread. The source thread
+  is never truncated or edited.
 - `GET /api/v1/assistant/threads/:threadId/turns/:turnId` is the polling route.
 - `GET /api/v1/assistant/threads/:threadId/turns/:turnId/stream` is the
   authenticated best-effort SSE accelerator. It emits attempt-fenced
@@ -102,6 +107,13 @@ resumable after a key is removed.
 Reusing the UUID for different input or operation returns `409`. The
 advisory-lock scope and database uniqueness scope are both
 `(owner, requestId)`.
+
+Branch creation is idempotent on the same owner/request id and persists its
+source thread/turn lineage beside the first new PostgreSQL execution turn. A
+replay with a different source is a conflict even when the edited text happens
+to match. MongoDB stores the same lineage with the copied prefix, allowing a
+missing branch aggregate to be reconstructed from its source without recording
+the inherited answers as new provider executions or charging their cost twice.
 
 A turn exposes `id`, `requestId`, `sequence`, `status`, `model`, `effort`,
 `serviceTier`, `user`, nullable `assistant`, nullable `partial`, nullable
@@ -152,6 +164,11 @@ assistant output/error and user-visible turn lifecycle. It stores purpose,
 channel, owner, future goal/takeover state and at most 75 embedded turns. Owner
 filters are part of every public lookup and update. Status transitions compare
 the exact turn attempt and cannot replace a different terminal result.
+An edit-in-new-conversation branch copies the source turns before the selected
+user turn with their original durable ids, artifacts and timestamps, records
+the source lineage, then adds one genuinely new queued turn at that same
+sequence. Branches of branches follow the current visible aggregate, not a
+fictional PostgreSQL content copy.
 
 PostgreSQL `assistant_threads`/`assistant_turns` retain the execution projection:
 owner-bound request id, sequence allocation, selected model, effort and
@@ -165,6 +182,12 @@ materialization. The composite foreign key prevents a
 projection owner from disagreeing with its thread. A partial unique index
 permits only one queued/running attempt per thread; advisory locks serialize
 append and retry before that database backstop.
+
+The first new branch turn additionally stores nullable paired
+`branched_from_thread_id` / `branched_from_turn_id`. Only the source thread is a
+relational foreign key because the referenced turn may be an inherited MongoDB
+aggregate member in a branch-of-branch rather than an execution row owned by
+the immediate source thread.
 
 The worker feeds the model only successful prior MongoDB user/assistant pairs
 plus the current user content. Failed/incomplete prior work is not round-tripped
