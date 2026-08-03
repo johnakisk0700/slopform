@@ -17,10 +17,13 @@ Both URLs deliberately share one optional route (`assistant/:threadId?`) so the
 empty and durable screen remain one routing boundary instead of two duplicated
 route definitions.
 
-The replacement also carries an explicit live-alignment navigation state. If
-the router remounts the matched branch, the new screen restores the pending
-alignment and suppresses history-to-bottom hydration for that exact thread;
-ordinary links and reloads keep the normal settled-history behavior.
+The replacement also carries an explicit live-alignment navigation state. All
+assistant URLs share one `AdminShell` motion key, so creating or selecting a
+durable thread preserves the mounted screen, scroll measurements and optimistic
+transition instead of flashing through a page entrance. The navigation state
+still identifies the created live thread for alignment and suppresses its
+history-to-bottom hydration; ordinary links and reloads keep the normal
+settled-history behavior.
 
 The chat structure is a deliberate port of the proven `notes_ai` UI rather than
 a new renderer: a narrow written-page message column, compact user ink-wash
@@ -33,7 +36,10 @@ The assistant is the one edge-to-edge route inside `AdminShell`: the shell
 removes its ordinary content width and padding for both assistant URLs, and the
 route fills the shell's remaining flex height. It does not recreate the normal
 page header, description or bordered page card. `#root` and `AdminShell` own the
-available height, including the small-screen navigation header;
+available height. On narrow screens the assistant shell is exactly `100dvh`,
+the navigation header is non-shrinking and the routed main takes the remaining
+flex height; this prevents the reply-height observer from measuring a
+content-sized scroller and feeding that result back into unbounded page growth.
 `AssistantPage` therefore needs no viewport height calculation. Nothing is
 stacked above the shell — the local authentication bypass is announced in the
 sidebar's environment block, not by a banner that would shorten every route.

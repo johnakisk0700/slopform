@@ -70,22 +70,48 @@ const FULL_HEIGHT_ROUTES = ["/admin/assistant", "/admin/outbound"] as const;
  */
 const BLEED_ROUTES = ["/admin/assistant"] as const;
 
+/** The docked assistant owns the remaining viewport on narrow screens too. */
+const MOBILE_VIEWPORT_ROUTES = ["/admin/assistant"] as const;
+
+/**
+ * Route families whose children own navigation without leaving the screen.
+ *
+ * A durable assistant thread changes the URL, but it is still the same chat
+ * surface. Keying the shell entrance by the full thread URL unmounted the
+ * entire assistant on create/select, replayed the opacity/translate entrance
+ * and discarded its scroll and optimistic-transition refs. Keep one shell key
+ * for the whole family; entering from another admin screen still animates.
+ */
+const STABLE_MOUNT_ROUTES = ["/admin/assistant"] as const;
+
 function matchesRoute(pathname: string, routes: readonly string[]): boolean {
   return routes.some(
     (route) => pathname === route || pathname.startsWith(`${route}/`),
   );
 }
 
+function routeTransitionKey(pathname: string): string {
+  return (
+    STABLE_MOUNT_ROUTES.find(
+      (route) => pathname === route || pathname.startsWith(`${route}/`),
+    ) ?? pathname
+  );
+}
+
 /**
  * The routed main region: the content column with the signature 200ms
- * opacity/8px-rise entrance. It re-runs per route (keyed by pathname) and
- * collapses to no motion when the viewer prefers reduced motion.
+ * opacity/8px-rise entrance. It re-runs when the route surface changes and
+ * collapses to no motion when the viewer prefers reduced motion. Navigation
+ * inside the assistant keeps one mount because its URL is conversation state,
+ * not a different screen.
  */
 function AdminMain() {
   const reduceMotion = useReducedMotion();
   const { pathname } = useLocation();
   const isFullHeight = matchesRoute(pathname, FULL_HEIGHT_ROUTES);
   const bleeds = matchesRoute(pathname, BLEED_ROUTES);
+  const ownsMobileViewport = matchesRoute(pathname, MOBILE_VIEWPORT_ROUTES);
+  const transitionKey = routeTransitionKey(pathname);
 
   return (
     <main
@@ -103,11 +129,15 @@ function AdminMain() {
         // instead. This is the first element in the chain that can name a
         // height, so it names one and takes no flex sizing at all.
         //
-        // Only from `lg`: below it the shell puts a sticky top bar above this
-        // element, so `100dvh` here would overflow by exactly the bar, and a
-        // narrow screen wants the ordinary scrolling page anyway.
+        // The assistant gets a definite remaining height from the shell on
+        // narrow screens, so flex-1 is correct there and lets the mobile top
+        // bar keep its own height. Outbound remains an ordinary narrow-screen
+        // document and names the viewport only once its two-pane layout starts.
         isFullHeight
-          ? "relative overflow-hidden focus-visible:-outline-offset-2 lg:h-dvh"
+          ? clsx(
+              "relative overflow-hidden focus-visible:-outline-offset-2 lg:h-dvh",
+              ownsMobileViewport ? "min-h-0 flex-1 lg:flex-none" : undefined,
+            )
           : undefined,
         bleeds
           ? undefined
@@ -115,7 +145,7 @@ function AdminMain() {
       )}
     >
       <motion.div
-        key={pathname}
+        key={transitionKey}
         initial={reduceMotion ? false : { opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.2, ease: "easeOut" }}
@@ -143,9 +173,19 @@ function AdminMain() {
  */
 export function AdminShell() {
   const [isNavOpen, setNavOpen] = useState(false);
+  const { pathname } = useLocation();
+  const ownsMobileViewport = matchesRoute(pathname, MOBILE_VIEWPORT_ROUTES);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-canvas lg:grid lg:grid-cols-[17rem_minmax(0,1fr)]">
+    <div
+      className={clsx(
+        "flex min-h-0 flex-1 flex-col bg-canvas lg:grid lg:grid-cols-[17rem_minmax(0,1fr)]",
+        // `flex-1` has a zero basis and would outrank h-dvh on #root's main
+        // axis. The viewport pane names its height, so it must not also ask the
+        // parent to calculate that height from free space.
+        ownsMobileViewport ? "h-dvh flex-none overflow-hidden" : undefined,
+      )}
+    >
       {/* pb-4 matches the operator row's own pt-4, so that row sits centred
           between its rule and the panel edge instead of riding 8px high. */}
       <aside className="hidden border-r border-sidebar-border bg-sidebar px-4 pt-6 pb-4 text-sidebar-fg lg:sticky lg:top-0 lg:flex lg:h-full lg:max-h-dvh lg:flex-col">
@@ -174,7 +214,7 @@ export function AdminShell() {
       </aside>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex min-h-[4.5rem] items-center justify-between gap-3 border-b border-border bg-surface px-4 py-3 lg:hidden">
+        <header className="sticky top-0 z-30 flex min-h-[4.5rem] shrink-0 items-center justify-between gap-3 border-b border-border bg-surface px-4 py-3 lg:hidden">
           <div className="flex items-center gap-3">
             {/* The Drawer's DialogTrigger wires aria-expanded / aria-controls /
                 aria-haspopup and the press handler onto the hamburger. */}

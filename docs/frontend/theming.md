@@ -269,11 +269,14 @@ for prose.
 
 ## Motion
 
-`AdminShell` wraps each route in a 200ms opacity/8px-rise entrance
-(`motion/react`), keyed by pathname, and drops to no motion when
-`useReducedMotion()` reports a preference. A base rule in `globals.css` also
-collapses all animation under `prefers-reduced-motion`. Motion signals
-continuity or state change and never carries status by itself.
+`AdminShell` wraps each route surface in a 200ms opacity/8px-rise entrance
+(`motion/react`) and drops to no motion when `useReducedMotion()` reports a
+preference. Most surfaces use the pathname as their key. Every assistant thread
+URL deliberately uses `/admin/assistant`, because changing conversation is
+state inside the chat: remounting there would replay the entrance and discard
+scroll/optimistic refs. A base rule in `globals.css` also collapses all
+animation under `prefers-reduced-motion`. Motion signals continuity or state
+change and never carries status by itself.
 
 One shared keyframe carries "the app is working on it": `jts-breathe`, a 1.6s
 opacity cycle. `.assistant-thinking` wears it on the assistant's thinking line

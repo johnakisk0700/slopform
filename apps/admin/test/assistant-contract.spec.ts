@@ -496,11 +496,12 @@ describe("assistant route wiring", () => {
     expect(shell).toContain('BLEED_ROUTES = ["/admin/assistant"]');
     expect(shell).toContain("pathname.startsWith(`${route}/`)");
     expect(shell).toContain('"h-full min-h-0"');
-    // `lg:h-dvh` and no flex sizing: every ancestor up to `<body>` is sized by
-    // `min-height`, so `flex-1` had nothing definite to resolve against — and
-    // its `flex-basis: 0%` outranks `height` on the main axis besides.
+    // Desktop names the viewport directly. On mobile the assistant shell owns
+    // h-dvh, so main can safely take the remaining height below the top bar.
     expect(shell).toContain("lg:h-dvh");
-    expect(shell).not.toContain("min-h-0 flex-1 overflow-hidden");
+    expect(shell).toContain('MOBILE_VIEWPORT_ROUTES = ["/admin/assistant"]');
+    expect(shell).toContain('"h-dvh flex-none overflow-hidden"');
+    expect(shell).toContain('"min-h-0 flex-1 lg:flex-none"');
     expect(page).toContain(
       'className="relative flex h-full min-h-0 flex-col overflow-hidden bg-surface"',
     );

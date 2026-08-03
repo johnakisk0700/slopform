@@ -340,8 +340,15 @@ mechanism and the HeroUI integration are documented in
 [ADR 0005](decisions/0005-theming-and-dark-mode.md).
 
 Motion is the 200ms opacity/8px-rise page entrance (`motion/react`, keyed by
-pathname, respecting `useReducedMotion`) plus component-internal HeroUI
-transitions; `globals.css` also collapses animation under
+route surface, respecting `useReducedMotion`) plus component-internal HeroUI
+transitions. Assistant thread URLs share the `/admin/assistant` surface key, so
+creating or selecting a conversation preserves the mounted chat, its scroll
+measurements and its optimistic state instead of replaying the page entrance.
+On narrow screens that same route fixes the shell to `100dvh`, leaves the mobile
+header at its intrinsic height and flexes the chat into the exact remainder;
+the docked composer therefore never turns reply measurement into document
+growth.
+`globals.css` also collapses animation under
 `prefers-reduced-motion`. Motion communicates continuity or state change and
 never carries status by itself.
 

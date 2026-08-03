@@ -23,6 +23,7 @@ function readAdminFile(relativePath: string): string {
 const globalsCss = readAdminFile("src/styles/globals.css");
 const backLink = readAdminFile("src/components/ui/JtsBackLink.tsx");
 const pageHeader = readAdminFile("src/components/ui/JtsPageHeader.tsx");
+const adminShell = readAdminFile("src/components/admin/AdminShell.tsx");
 
 /**
  * Routes whose content flows down the page, and the component each one's root
@@ -256,5 +257,39 @@ describe("page rhythm", () => {
       // It still opens on the shared header, gap or no gap.
       expect(source).toContain("<JtsPageHeader");
     }
+  });
+});
+
+describe("route entrance continuity", () => {
+  it("keeps every assistant thread on one mounted chat surface", () => {
+    expect(adminShell).toContain(
+      'const STABLE_MOUNT_ROUTES = ["/admin/assistant"]',
+    );
+    expect(adminShell).toContain(
+      "const transitionKey = routeTransitionKey(pathname)",
+    );
+    expect(adminShell).toContain("key={transitionKey}");
+    expect(adminShell).not.toContain("key={pathname}");
+
+    // The family match must include both the blank composer URL and every
+    // durable thread URL. An equality-only key would quietly regress the first
+    // optimistic -> durable transition while later thread switches still
+    // appeared to work.
+    const keyResolver = adminShell.slice(
+      adminShell.indexOf("function routeTransitionKey"),
+      adminShell.indexOf("function AdminMain"),
+    );
+    expect(keyResolver).toContain("pathname === route");
+    expect(keyResolver).toContain("pathname.startsWith(`${route}/`)");
+    expect(keyResolver).toContain("?? pathname");
+  });
+
+  it("gives the docked assistant a definite mobile height", () => {
+    expect(adminShell).toContain(
+      'const MOBILE_VIEWPORT_ROUTES = ["/admin/assistant"]',
+    );
+    expect(adminShell).toContain('"h-dvh flex-none overflow-hidden"');
+    expect(adminShell).toContain('"min-h-0 flex-1 lg:flex-none"');
+    expect(adminShell).toContain("min-h-[4.5rem] shrink-0");
   });
 });
