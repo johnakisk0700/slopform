@@ -1,7 +1,8 @@
 # Durable assistant threads
 
-Status: implemented asynchronous generation, live text and reasoning SSE, and a
-read-only tool set. Last verified: **2026-08-03** against AI SDK `7.0.35`,
+Status: implemented asynchronous generation, live text/reasoning/tool SSE,
+durable turn artifacts and a read-only tool set. Last verified: **2026-08-03**
+against AI SDK `7.0.35`,
 `@ai-sdk/openai` `4.0.18` and `@openrouter/ai-sdk-provider` `3.0.0`.
 
 ## Purpose and boundary
@@ -104,9 +105,11 @@ advisory-lock scope and database uniqueness scope are both
 
 A turn exposes `id`, `requestId`, `sequence`, `status`, `model`, `effort`,
 `serviceTier`, `user`, nullable `assistant`, nullable `partial`, nullable
-`reasoning`, nullable safe `error`, `attempt` and lifecycle timestamps.
-`partial` and `reasoning` are present only while the turn is nonterminal and are
-cleared when it settles, so no reader can mistake either for the answer.
+`reasoning`, bounded `toolCalls`, nullable final `usage`, nullable safe `error`,
+`attempt` and lifecycle timestamps. `partial` is nonterminal only and is cleared
+when the turn settles. Reasoning and tool calls belong to the attempt rather
+than the answer, so they remain inspectable after success or failure; usage is
+present only after a successful provider completion.
 Statuses are `queued`, `running`, `succeeded` and `failed`; failure
 codes remain `provider_unavailable`, `provider_rejected` and
 `generation_failed`. Unknown and other-owner ids both return `404`.
@@ -137,8 +140,8 @@ sequenceDiagram
   Worker->>Redis: Publish coalesced accumulated frames
   Redis-->>API: Replay/follow attempt stream
   API-->>Admin: Authenticated SSE frames
-  Worker->>Mongo: Record throttled partial under the attempt fence
-  Worker->>Mongo: Persist result or safe failure
+  Worker->>Mongo: Record throttled text/reasoning/tool snapshot
+  Worker->>Mongo: Persist result, artifacts, usage or safe failure
   Worker->>DB: Advance delivery projection
   Admin->>API: Poll turn / reload thread
   API-->>Admin: Current durable state
@@ -153,9 +156,9 @@ the exact turn attempt and cannot replace a different terminal result.
 PostgreSQL `assistant_threads`/`assistant_turns` retain the execution projection:
 owner-bound request id, sequence allocation, selected model, effort and
 `service_tier`, generation attempt and queue recovery state, plus
-`streamed_content` and `reasoning_content` for the in-flight turn. Those last
-two carry check constraints confining them to `queued` and `running`, which is
-what keeps a partial from ever being read as a result. The older
+`streamed_content`, durable `reasoning_content`, bounded `tool_calls` JSON and
+final token/cost columns. Only `streamed_content` is confined to `queued` and
+`running`, which is what keeps a partial from ever being read as a result. The older
 `user_content`/`assistant_content` columns remain as a compatibility/backfill
 projection and are not read for API responses or model history after Mongo
 materialization. The composite foreign key prevents a
@@ -263,10 +266,15 @@ Three properties keep the loop bounded:
   nothing. Whether a model can take tools at all is a property of the adapter
   (`supportsTools`), not a guess.
 
-Tool activity is emitted through an in-memory `onToolActivity` callback and is
-**persisted nowhere** — no column, no document field, no DTO field. The
-processor does not currently pass the callback, so today the activity is built
-and consumed by nobody. Treat it as a seam, not as a record.
+Tool activity is an accumulated, typed list keyed by the provider tool-call id.
+The worker publishes it live, writes it through the same `(turnId, attempt)`
+fence as partial text, and retains it in both stores at settlement. Each record
+contains operator wording, tool name, state, JSON-safe input/result previews and
+explicit truncation flags. Input is capped at 512 serialized characters and
+result output at 1,536; at most 20 calls are retained. Provider errors are not
+stored. Tool artifacts are excluded from future model history deliberately: a
+later turn re-runs a lookup against current data rather than replaying stale
+results.
 
 ### The card is a fence, not a DTO
 
@@ -283,9 +291,7 @@ together.
 Do not place tool state in `assistant_turns.assistant_content`. When mutations
 arrive, add separate, ordered records keyed to the turn:
 
-1. read-only tool calls/results with validated input, bounded output and a
-   stable execution id — the first half exists in memory today and needs a
-   durable home;
+1. the existing durable read-only tool calls/results remain observational only;
 2. action proposals containing a typed mutation payload, `pending` status,
    proposer/approver identities and expiry;
 3. a confirmation endpoint that revalidates authorization and current database
@@ -310,6 +316,13 @@ alone would not bound calls across worker processes. The same limiter also caps
 starts at 30 in any rolling minute; completed calls remain in that minute window
 so fast requests cannot exhaust the shared TPM allowance before concurrency has
 anything useful to say about it.
+
+Successful turns also persist the SDK token breakdown and a dated estimated
+EUR cost. The estimate prices cached input separately where a stable rate is
+published, treats reasoning tokens as part of the provider-reported output
+total, and stores integer euro-micros plus pricing version `2026-08-03`. It is an
+operator aid, not billing authority; rates and the pinned ECB conversion live in
+`assistant-pricing.ts`, so a pricing/FX endpoint cannot fail a completion.
 
 Logs contain queue/job/turn correlation identifiers and safe error categories,
 never prompts, answers, keys or provider bodies. Focused tests cover Mongo

@@ -7,10 +7,16 @@ import { useState } from "react";
  *
  * Collapsed by default and never styled as prose: this is not the answer, and a
  * reader who mistakes reasoning for a result has been misled by the layout. It
- * appears only while a turn is in flight, because the provider stops sending it
- * the moment the turn settles.
+ * The provider stops sending it when the turn settles; the durable turn keeps
+ * the final accumulated value so the same disclosure survives reload.
  */
-export function AssistantReasoningCard({ reasoning }: { reasoning: string }) {
+export function AssistantReasoningCard({
+  reasoning,
+  streaming,
+}: {
+  reasoning: string;
+  streaming: boolean;
+}) {
   const [isOpen, setIsOpen] = useState(false);
 
   return (
@@ -22,7 +28,9 @@ export function AssistantReasoningCard({ reasoning }: { reasoning: string }) {
         className="flex items-center gap-1.5 text-xs text-ink-muted transition-colors hover:text-ink"
       >
         <Brain aria-hidden="true" className="size-3.5 shrink-0" />
-        <span className="assistant-thinking">Thinking</span>
+        <span className={streaming ? "assistant-thinking" : undefined}>
+          Thinking
+        </span>
         <ChevronRight
           aria-hidden="true"
           className={`size-3 transition-transform ${isOpen ? "rotate-90" : ""}`}

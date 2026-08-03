@@ -1,6 +1,10 @@
 import * as z from "zod";
 
-import type { AssistantThread } from "./schema";
+import {
+  assistantToolCallSchema,
+  type AssistantThread,
+  type AssistantToolCall,
+} from "./schema";
 
 const attemptSchema = z.number().int().positive();
 const accumulatedSchema = z.string().max(20_000);
@@ -13,6 +17,7 @@ export const assistantStreamFrameSchema = z.discriminatedUnion("kind", [
       status: z.enum(["queued", "running", "succeeded", "failed"]),
       accumulated: accumulatedSchema.nullable(),
       reasoning: accumulatedSchema.nullable(),
+      toolCalls: z.array(assistantToolCallSchema).max(20),
     })
     .strict(),
   z.object({ kind: z.literal("reset"), attempt: attemptSchema }).strict(),
@@ -34,7 +39,7 @@ export const assistantStreamFrameSchema = z.discriminatedUnion("kind", [
     .object({
       kind: z.literal("tools"),
       attempt: attemptSchema,
-      accumulated: accumulatedSchema,
+      accumulated: z.string().max(150_000),
     })
     .strict(),
   z.object({ kind: z.literal("done"), attempt: attemptSchema }).strict(),
@@ -47,6 +52,7 @@ export interface AssistantLiveTurn {
   readonly attempt: number;
   readonly partial: string | null;
   readonly reasoning: string | null;
+  readonly toolCalls: readonly AssistantToolCall[];
   /** A provider retry explicitly discarded every older persisted prefix. */
   readonly reset: boolean;
 }
@@ -68,6 +74,7 @@ export function reduceAssistantLiveTurn(
         attempt: frame.attempt,
         partial: frame.accumulated,
         reasoning: frame.reasoning,
+        toolCalls: frame.toolCalls,
         reset: false,
       };
     case "reset":
@@ -76,6 +83,7 @@ export function reduceAssistantLiveTurn(
         attempt: frame.attempt,
         partial: null,
         reasoning: null,
+        toolCalls: [],
         reset: true,
       };
     case "text":
@@ -89,6 +97,10 @@ export function reduceAssistantLiveTurn(
         reasoning: frame.accumulated,
       };
     case "tools":
+      return reduceToolFrame(
+        compatible ?? emptyLiveTurn(turnId, frame.attempt),
+        frame.accumulated,
+      );
     case "done":
       return compatible;
   }
@@ -120,6 +132,9 @@ export function overlayAssistantLiveTurn(
     reasoning: live.reset
       ? live.reasoning
       : newestAccumulated(turn.reasoning, live.reasoning),
+    toolCalls: live.reset
+      ? [...live.toolCalls]
+      : newestToolCalls(turn.toolCalls, live.toolCalls),
   };
   return { ...thread, turns };
 }
@@ -179,7 +194,42 @@ function consumeBlocks(
 }
 
 function emptyLiveTurn(turnId: string, attempt: number): AssistantLiveTurn {
-  return { turnId, attempt, partial: null, reasoning: null, reset: false };
+  return {
+    turnId,
+    attempt,
+    partial: null,
+    reasoning: null,
+    toolCalls: [],
+    reset: false,
+  };
+}
+
+function reduceToolFrame(
+  current: AssistantLiveTurn,
+  accumulated: string,
+): AssistantLiveTurn {
+  try {
+    const parsed = z
+      .array(assistantToolCallSchema)
+      .max(20)
+      .safeParse(JSON.parse(accumulated));
+    return parsed.success ? { ...current, toolCalls: parsed.data } : current;
+  } catch {
+    return current;
+  }
+}
+
+function newestToolCalls(
+  persisted: readonly AssistantToolCall[],
+  live: readonly AssistantToolCall[],
+): AssistantToolCall[] {
+  const score = (calls: readonly AssistantToolCall[]) =>
+    calls.length * 10 +
+    calls.reduce(
+      (total, call) => total + (call.state === "running" ? 0 : 1),
+      0,
+    );
+  return [...(score(live) >= score(persisted) ? live : persisted)];
 }
 
 function newestAccumulated(

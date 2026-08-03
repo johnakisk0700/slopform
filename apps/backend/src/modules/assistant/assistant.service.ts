@@ -34,7 +34,9 @@ import {
   type AssistantServiceTier,
   type AssistantThreadListView,
   type AssistantThreadView,
+  type AssistantToolCall,
   type AssistantTurnView,
+  type AssistantUsage,
   type CreateAssistantThreadInput,
   type CreateAssistantTurnInput,
 } from "./assistant.schemas.js";
@@ -522,6 +524,7 @@ export class AssistantService {
     attempt: number,
     partial: string,
     reasoning: string | null = null,
+    toolCalls: readonly AssistantToolCall[] = [],
   ): Promise<void> {
     const turn = await this.getTurnRow(id);
     if (
@@ -539,18 +542,30 @@ export class AssistantService {
       attempt,
       partial,
       reasoning,
+      toolCalls,
     });
     if (!applied) {
       return;
     }
 
-    await this.repository.recordPartial(id, attempt, partial, reasoning);
+    await this.repository.recordPartial(
+      id,
+      attempt,
+      partial,
+      reasoning,
+      toolCalls,
+    );
   }
 
   async markSucceeded(
     id: string,
     attempt: number,
-    response: string,
+    result: {
+      readonly content: string;
+      readonly reasoning: string | null;
+      readonly toolCalls: readonly AssistantToolCall[];
+      readonly usage: AssistantUsage;
+    },
   ): Promise<void> {
     const turn = await this.getTurnRow(id);
     if (
@@ -568,7 +583,10 @@ export class AssistantService {
         ownerId: turn.createdBy,
         turnId: turn.id,
         attempt,
-        response,
+        response: result.content,
+        reasoning: result.reasoning,
+        toolCalls: result.toolCalls,
+        usage: result.usage,
         completedAt,
       });
     } catch (error) {
@@ -584,7 +602,12 @@ export class AssistantService {
       await this.repairProjectionFromCurrentTerminalTurn(turn);
       return;
     }
-    await this.repository.markSucceeded(id, attempt, response);
+    await this.repository.markSucceeded(id, attempt, {
+      response: result.content,
+      reasoning: result.reasoning,
+      toolCalls: result.toolCalls,
+      usage: result.usage,
+    });
   }
 
   async markFailed(
@@ -786,11 +809,12 @@ export class AssistantService {
       conversationTurn.status === "succeeded" &&
       conversationTurn.output?.actor === "assistant"
     ) {
-      await this.repository.markSucceeded(
-        projection.id,
-        projection.attempt,
-        conversationTurn.output.content,
-      );
+      await this.repository.markSucceeded(projection.id, projection.attempt, {
+        response: conversationTurn.output.content,
+        reasoning: conversationTurn.reasoning,
+        toolCalls: conversationTurn.toolCalls ?? [],
+        usage: conversationTurn.usage ?? null,
+      });
       return;
     }
     if (conversationTurn.status === "failed" && conversationTurn.error) {

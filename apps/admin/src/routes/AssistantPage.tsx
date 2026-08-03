@@ -579,6 +579,8 @@ export function AssistantPage() {
       effort: pendingUser.effort,
       serviceTier: pendingUser.serviceTier,
       reasoning: null,
+      toolCalls: [],
+      usage: null,
       status: "queued",
     };
     return [...persisted, optimistic];

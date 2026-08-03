@@ -169,6 +169,13 @@
       "when": 1785712753647,
       "tag": "20260802231913_feedback_ingress_fifo_order",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1785777185941,
+      "tag": "20260803171305_assistant_turn_artifacts",
+      "breakpoints": true
     }
   ]
 }

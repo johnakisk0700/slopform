@@ -1,6 +1,7 @@
 # Assistant streaming — durable turns with a live accelerator
 
-Status: stages A and B landed, including reasoning and stable answer layout.
+Status: stages A and B landed, including durable reasoning, tool traces, priced
+usage and stable answer layout.
 Last verified: **2026-08-03**. This is the canonical design for putting live
 assistant text on `/admin/assistant` without giving up the durable turn.
 
@@ -113,17 +114,17 @@ them.
   reasoning silently. The service reads `result.fullStream` instead and splits
   `reasoning-delta` parts from text parts. The source's equivalent is one flag:
   `toUIMessageStream({ sendReasoning: true })`.
-- **Store it.** `assistant_turns.reasoning_content` is the exact twin of
-  `streamed_content` — same attempt fence, same clear-on-terminal check
-  constraint, same `PartialRecorder` throttle — with a matching document field
-  and view field. The admin renders it as a collapsed disclosure while the turn
-  streams.
+- **Store it.** `assistant_turns.reasoning_content` shares the partial recorder
+  and attempt fence with streamed text but is retained at settlement, with a
+  matching Mongo/document and DTO field. The admin renders the same collapsed
+  disclosure live and after reload.
 
-## Cost — not started
+## Cost — landed
 
-`result.usage` is now read once the stream completes, but nothing keeps it: the
-processor discards it, and there is no column, document field or view field for
-token counts. Everything below is still the design, not the code.
+`result.usage` is read exactly once when the stream completes, converted to the
+typed turn usage contract and persisted in PostgreSQL, MongoDB and the API view.
+The assistant footer shows total tokens and `est. €…`; legacy turns and provider
+responses without enough token data show neither fictional zero nor a cost.
 
 `notes_ai` has this and most of it transfers:
 
@@ -168,7 +169,8 @@ token counts. Everything below is still the design, not the code.
 - The hook differs. The source tags the message in `toUIMessageStream`'s
   `messageMetadata` at the `finish` part; here the worker reads `result.usage`
   once the stream completes and persists token counts as real columns rather than
-  free-form metadata.
+  free-form metadata. Cost is stored as integer euro-micros with pricing version
+  `2026-08-03`; pricing uses the provider's cached-input count where present.
 
 ## Fast mode — landed
 
@@ -207,11 +209,11 @@ composer does, it must not imply the fast lane was bought when the selected mode
 cannot buy it — and, since the tier doubles the bill, the persisted turn has to
 record which tier it actually ran under, exactly as it records model and effort.
 
-Two honest limits to record now: the source's table prices input and output only,
-so reasoning tokens (billed as output, reported separately in
-`outputTokenDetails.reasoningTokens`) and cached-input discounts are not
-modelled. Ported as is, the badge is a good estimate and not accounting — which
-is fine for what it is, provided nobody later mistakes it for a bill.
+Two honest limits remain: cache-write charges, regional uplift and OpenAI
+long-context surge pricing are not reported richly enough by this completion
+path to reconstruct an invoice. Reasoning is already included in the SDK's
+output total and cached reads are discounted separately. The badge is explicitly
+an estimate, not accounting.
 
 ## References
 

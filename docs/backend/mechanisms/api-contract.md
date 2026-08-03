@@ -1,6 +1,6 @@
 # API contract and generated client
 
-Status: accepted, verified 2026-08-02 with `@nestjs/swagger` 11.4.6,
+Status: accepted, verified 2026-08-03 with `@nestjs/swagger` 11.4.6,
 `nestjs-zod` 5.4.0, orval 8.23.0 and `@tanstack/react-query` 5.101.4.
 
 ## Purpose and boundary
@@ -89,6 +89,17 @@ lookup/geocoding and introduces no Google API dependency. `useInFeedback` is
 forward-looking persisted intent; neither post-event feedback nor Luna consumes
 the venue yet. Audit payloads must not include `label`, `placeId` or address-like
 text.
+
+### Assistant turn artifacts
+
+Assistant turn responses carry `toolCalls` on every lifecycle state and nullable
+final `usage`. Each tool call has a stable id, operator label, state, JSON-safe
+input/result previews and truncation flags. Usage contains the provider token
+breakdown plus integer `estimatedCostEurMicros` and a nullable dated
+`pricingVersion`. `reasoning` remains nullable but is no longer restricted to
+nonterminal turns. The handwritten assistant client schema mirrors these fields
+because its documented streaming overlay is the repository's one generated-hook
+exception; the committed OpenAPI document remains the HTTP authority.
 
 ## Flow
 

@@ -170,6 +170,38 @@ export const ASSISTANT_TURN_STATUSES = [
 export const assistantTurnStatusSchema = z.enum(ASSISTANT_TURN_STATUSES);
 export type AssistantTurnStatus = z.infer<typeof assistantTurnStatusSchema>;
 
+export const assistantToolCallSchema = z
+  .object({
+    toolCallId: z.string().trim().min(1).max(200),
+    tool: z
+      .string()
+      .trim()
+      .min(1)
+      .max(64)
+      .regex(/^[a-z0-9_]+$/u),
+    label: z.string().trim().min(1).max(100),
+    state: z.enum(["running", "done", "failed"]),
+    input: z.json().nullable(),
+    output: z.json().nullable(),
+    inputTruncated: z.boolean(),
+    outputTruncated: z.boolean(),
+  })
+  .strict();
+export type AssistantToolCall = z.infer<typeof assistantToolCallSchema>;
+
+export const assistantUsageSchema = z
+  .object({
+    inputTokens: z.number().int().nonnegative().nullable(),
+    outputTokens: z.number().int().nonnegative().nullable(),
+    reasoningTokens: z.number().int().nonnegative().nullable(),
+    cachedInputTokens: z.number().int().nonnegative().nullable(),
+    totalTokens: z.number().int().nonnegative().nullable(),
+    estimatedCostEurMicros: z.number().int().nonnegative().nullable(),
+    pricingVersion: z.string().trim().min(1).max(32).nullable(),
+  })
+  .strict();
+export type AssistantUsage = z.infer<typeof assistantUsageSchema>;
+
 const turnIdentityShape = {
   id: z.uuid(),
   requestId: z.uuid(),
@@ -178,6 +210,7 @@ const turnIdentityShape = {
   effort: assistantEffortSchema,
   serviceTier: assistantServiceTierSchema,
   user: userMessageSchema,
+  toolCalls: z.array(assistantToolCallSchema).max(20).default([]),
   attempt: z.number().int().positive(),
   createdAt: z.iso.datetime(),
 } as const;
@@ -189,6 +222,7 @@ const queuedTurnSchema = z
     assistant: z.null(),
     partial: z.string().max(20_000).nullable(),
     reasoning: z.string().max(20_000).nullable(),
+    usage: z.null().default(null),
     error: z.null(),
     startedAt: z.iso.datetime().nullable(),
     completedAt: z.null(),
@@ -202,6 +236,7 @@ const runningTurnSchema = z
     assistant: z.null(),
     partial: z.string().max(20_000).nullable(),
     reasoning: z.string().max(20_000).nullable(),
+    usage: z.null().default(null),
     error: z.null(),
     startedAt: z.iso.datetime().nullable(),
     completedAt: z.null(),
@@ -214,7 +249,8 @@ const succeededTurnSchema = z
     status: z.literal("succeeded"),
     assistant: assistantMessageSchema,
     partial: z.null(),
-    reasoning: z.null(),
+    reasoning: z.string().max(20_000).nullable(),
+    usage: assistantUsageSchema.nullable().default(null),
     error: z.null(),
     startedAt: z.iso.datetime().nullable(),
     completedAt: z.iso.datetime(),
@@ -227,7 +263,8 @@ const failedTurnSchema = z
     status: z.literal("failed"),
     assistant: z.null(),
     partial: z.null(),
-    reasoning: z.null(),
+    reasoning: z.string().max(20_000).nullable(),
+    usage: z.null().default(null),
     error: assistantFailureSchema,
     startedAt: z.iso.datetime().nullable(),
     completedAt: z.iso.datetime(),
@@ -284,8 +321,10 @@ export interface AssistantDisplayMessage {
   model: AssistantModel;
   effort: AssistantEffort;
   serviceTier: AssistantServiceTier;
-  /** Provider thinking while in flight; null once the turn settles. */
+  /** Provider thinking for this turn; retained when the provider supplied it. */
   reasoning: string | null;
+  toolCalls: readonly AssistantToolCall[];
+  usage: AssistantUsage | null;
   status: AssistantTurnStatus;
 }
 
@@ -304,7 +343,9 @@ export function messagesFromThread(
       model: turn.model,
       effort: turn.effort,
       serviceTier: turn.serviceTier,
-      reasoning: turn.reasoning,
+      reasoning: null,
+      toolCalls: [],
+      usage: null,
       status: turn.status,
     };
 
@@ -313,7 +354,8 @@ export function messagesFromThread(
     // second message. It is never treated as an answer: `partial` only exists
     // while the turn is nonterminal.
     const content = turn.assistant?.content ?? turn.partial;
-    if (!content) return [user];
+    if (!content && !turn.reasoning && turn.toolCalls.length === 0)
+      return [user];
 
     return [
       user,
@@ -321,11 +363,13 @@ export function messagesFromThread(
         id: `${turn.id}-assistant`,
         turnId: turn.id,
         role: "assistant",
-        content,
+        content: content ?? "",
         model: turn.model,
         effort: turn.effort,
         serviceTier: turn.serviceTier,
         reasoning: turn.reasoning,
+        toolCalls: turn.toolCalls,
+        usage: turn.usage,
         status: turn.status,
       },
     ];

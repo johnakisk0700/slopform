@@ -148,6 +148,28 @@ describe("ConversationThreadRepository", () => {
         turnId: firstTurnId,
         attempt: 2,
         response: "Answer",
+        reasoning: "Checked the event list.",
+        toolCalls: [
+          {
+            toolCallId: "call-1",
+            tool: "list_events",
+            label: "Searching events",
+            state: "done",
+            input: { status: "scheduled" },
+            output: { items: [] },
+            inputTruncated: false,
+            outputTruncated: false,
+          },
+        ],
+        usage: {
+          inputTokens: 100,
+          outputTokens: 20,
+          reasoningTokens: 5,
+          cachedInputTokens: 10,
+          totalTokens: 120,
+          estimatedCostEurMicros: 42,
+          pricingVersion: "2026-08-03",
+        },
         completedAt,
       }),
     ).resolves.toBe(true);
@@ -164,7 +186,17 @@ describe("ConversationThreadRepository", () => {
           },
         },
       }),
-      expect.any(Object),
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          "turns.$[turn].reasoning": "Checked the event list.",
+          "turns.$[turn].toolCalls": [
+            expect.objectContaining({ toolCallId: "call-1", state: "done" }),
+          ],
+          "turns.$[turn].usage": expect.objectContaining({
+            estimatedCostEurMicros: 42,
+          }),
+        }),
+      }),
       {
         arrayFilters: [
           {

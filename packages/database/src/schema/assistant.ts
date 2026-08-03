@@ -4,12 +4,24 @@ import {
   foreignKey,
   index,
   integer,
+  jsonb,
   pgTable,
   text,
   timestamp,
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+
+export interface AssistantTurnToolCallArtifact {
+  readonly toolCallId: string;
+  readonly tool: string;
+  readonly label: string;
+  readonly state: "running" | "done" | "failed";
+  readonly input: unknown | null;
+  readonly output: unknown | null;
+  readonly inputTruncated: boolean;
+  readonly outputTruncated: boolean;
+}
 
 export const assistantThreads = pgTable(
   "assistant_threads",
@@ -73,13 +85,21 @@ export const assistantTurns = pgTable(
      * occupy that column. Cleared when the turn reaches a terminal state.
      */
     streamedContent: text("streamed_content"),
-    /**
-     * The provider's own account of its thinking for the in-flight attempt: a
-     * summary on the OpenAI route, live deltas through OpenRouter. Never an
-     * answer, so it lives beside the streamed text rather than inside it, and is
-     * cleared with it when the turn settles.
-     */
+    /** The provider's thinking summary/deltas, retained with the settled turn. */
     reasoningContent: text("reasoning_content"),
+    /** Bounded, operator-visible tool traces for this exact attempt. */
+    toolCalls: jsonb("tool_calls")
+      .$type<AssistantTurnToolCallArtifact[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    inputTokens: integer("input_tokens"),
+    outputTokens: integer("output_tokens"),
+    reasoningTokens: integer("reasoning_tokens"),
+    cachedInputTokens: integer("cached_input_tokens"),
+    totalTokens: integer("total_tokens"),
+    /** An estimate, never provider billing authority. One euro = 1,000,000. */
+    estimatedCostEurMicros: integer("estimated_cost_eur_micros"),
+    pricingVersion: text("pricing_version"),
     errorCode: text("error_code"),
     errorMessage: text("error_message"),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
@@ -143,8 +163,20 @@ export const assistantTurns = pgTable(
       sql`${table.streamedContent} is null or ${table.status} in ('queued', 'running')`,
     ),
     check(
-      "assistant_turns_reasoning_content_check",
-      sql`${table.reasoningContent} is null or ${table.status} in ('queued', 'running')`,
+      "assistant_turns_tool_calls_check",
+      sql`jsonb_typeof(${table.toolCalls}) = 'array' and jsonb_array_length(${table.toolCalls}) <= 20`,
+    ),
+    check(
+      "assistant_turns_usage_nonnegative_check",
+      sql`(${table.inputTokens} is null or ${table.inputTokens} >= 0) and (${table.outputTokens} is null or ${table.outputTokens} >= 0) and (${table.reasoningTokens} is null or ${table.reasoningTokens} >= 0) and (${table.cachedInputTokens} is null or ${table.cachedInputTokens} >= 0) and (${table.totalTokens} is null or ${table.totalTokens} >= 0) and (${table.estimatedCostEurMicros} is null or ${table.estimatedCostEurMicros} >= 0)`,
+    ),
+    check(
+      "assistant_turns_usage_status_check",
+      sql`(${table.inputTokens} is null and ${table.outputTokens} is null and ${table.reasoningTokens} is null and ${table.cachedInputTokens} is null and ${table.totalTokens} is null and ${table.estimatedCostEurMicros} is null and ${table.pricingVersion} is null) or ${table.status} = 'succeeded'`,
+    ),
+    check(
+      "assistant_turns_pricing_version_check",
+      sql`(${table.estimatedCostEurMicros} is null and ${table.pricingVersion} is null) or (${table.estimatedCostEurMicros} is not null and char_length(btrim(${table.pricingVersion})) between 1 and 32)`,
     ),
     check(
       "assistant_turns_completion_check",

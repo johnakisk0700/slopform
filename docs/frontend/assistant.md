@@ -161,8 +161,8 @@ sequenceDiagram
   OpenAI, Gemini and Qwen use code-native `currentColor` brand marks; no remote
   images or fake letter tiles are rendered.
 
-Cards and reasoning both render, and both are backed by real state rather than
-imitated from `notes_ai`:
+Cards, reasoning, tool activity and cost all render from real state rather than
+being imitated cosmetically from `notes_ai`:
 
 - **Cards.** A fenced ` ```jts ` block in the assistant's markdown is parsed
   against a Zod discriminated union and rendered as `AssistantCard` — kinds
@@ -170,9 +170,15 @@ imitated from `notes_ai`:
   to the raw fence rather than disappearing, because a card is model-authored
   text and the model can get it wrong. The three specimens in the cookbook go
   through the real `AssistantMarkdown`, so they cannot drift from the parser.
-- **Reasoning.** `AssistantReasoningCard` shows the reasoning stream as a
-  collapsed disclosure while the turn is in flight, and it clears when the turn
-  settles — the same rule the backend applies to the column.
+- **Reasoning.** `AssistantReasoningCard` shows provider reasoning as a collapsed
+  disclosure while the turn is in flight and on settled historical turns.
+- **Tool activity.** `AssistantToolCallCard` ports the Notes AI disclosure shape:
+  operator label and state in the summary, with bounded JSON input/result on
+  expansion. The same typed list comes from SSE while live and the durable turn
+  after polling/reload.
+- **Cost.** The settled footer shows total tokens and a clearly labelled
+  estimated EUR cost when the provider supplied enough usage data. It uses the
+  turn's persisted model/tier/price version, never the browser's current picker.
 
 The rule the two share is the one worth keeping: nothing here renders fictional
 state. Both surfaces exist because a durable field or a parsed contract backs
@@ -256,10 +262,11 @@ the app-wide policy and its focused fallback.
   guarded submission and non-live historical logs;
 - explicit retry/revise/discard recovery affordances.
 
-Before adding tools, define durable tool-call and proposed-action records,
-read-only database access, operator approval/rejection, idempotent execution and
-an audit trail. A tool result should then become a typed message part and may
-reuse the source project's card patterns. Do not squeeze it into assistant text.
+Read-only tools now have durable typed call/result records. Before adding
+mutating tools, define separate proposed-action records, operator
+approval/rejection, idempotent execution and an audit trail. A proposed action
+may reuse the source project's card patterns. Do not squeeze it into assistant
+text.
 
 ## References
 

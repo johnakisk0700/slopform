@@ -32,6 +32,14 @@ const runningTurn: AssistantTurnRow = {
   assistantContent: null,
   streamedContent: null,
   reasoningContent: null,
+  toolCalls: [],
+  inputTokens: null,
+  outputTokens: null,
+  reasoningTokens: null,
+  cachedInputTokens: null,
+  totalTokens: null,
+  estimatedCostEurMicros: null,
+  pricingVersion: null,
   errorCode: null,
   errorMessage: null,
   createdAt: new Date(),
@@ -99,12 +107,15 @@ function createProcessor(options?: {
             return {
               content: "Generated response",
               reasoning: null,
+              toolCalls: [],
               usage: {
                 inputTokens: null,
                 outputTokens: null,
                 reasoningTokens: null,
                 cachedInputTokens: null,
                 totalTokens: null,
+                estimatedCostEurMicros: null,
+                pricingVersion: null,
               },
             };
           },
@@ -159,12 +170,22 @@ describe("AssistantProcessor", () => {
       1,
       "Generated response",
       null,
+      [],
     );
-    expect(assistant.markSucceeded).toHaveBeenCalledWith(
-      turnId,
-      1,
-      "Generated response",
-    );
+    expect(assistant.markSucceeded).toHaveBeenCalledWith(turnId, 1, {
+      content: "Generated response",
+      reasoning: null,
+      toolCalls: [],
+      usage: {
+        inputTokens: null,
+        outputTokens: null,
+        reasoningTokens: null,
+        cachedInputTokens: null,
+        totalTokens: null,
+        estimatedCostEurMicros: null,
+        pricingVersion: null,
+      },
+    });
     expect(publish.mock.calls).toEqual([
       [turnId, 1, { kind: "reset" }],
       [turnId, 1, { kind: "text", accumulated: "Generated response" }],

@@ -1,7 +1,11 @@
 import { createZodDto } from "nestjs-zod";
 import { z } from "zod";
 
-import { CONVERSATION_MESSAGE_MAX_CONTENT_LENGTH } from "../conversations/conversation-thread.schemas.js";
+import {
+  CONVERSATION_MESSAGE_MAX_CONTENT_LENGTH,
+  conversationTurnToolCallSchema,
+  conversationTurnUsageSchema,
+} from "../conversations/conversation-thread.schemas.js";
 
 export const ASSISTANT_MODELS = [
   "openai/gpt-5.6-luna",
@@ -112,12 +116,10 @@ export const assistantTurnSchema = z
      * authoritative result.
      */
     partial: z.string().max(20_000).nullable(),
-    /**
-     * The provider's own account of its thinking while the turn is in flight —
-     * a summary on the OpenAI route, live deltas through OpenRouter. Never an
-     * answer, and cleared the moment the turn settles.
-     */
+    /** Provider thinking for this attempt, retained with terminal turns. */
     reasoning: z.string().max(20_000).nullable(),
+    toolCalls: z.array(conversationTurnToolCallSchema).max(20).default([]),
+    usage: conversationTurnUsageSchema.nullable().default(null),
     error: assistantTurnErrorSchema.nullable(),
     attempt: z.number().int().positive(),
     createdAt: z.iso.datetime(),
@@ -140,13 +142,10 @@ export const assistantTurnSchema = z
       });
     }
 
-    if (
-      turn.reasoning !== null &&
-      (turn.status === "succeeded" || turn.status === "failed")
-    ) {
+    if (turn.usage !== null && turn.status !== "succeeded") {
       context.addIssue({
         code: "custom",
-        message: "A settled turn cannot carry streamed reasoning",
+        message: "Only a succeeded turn can carry final usage",
       });
     }
 
@@ -242,6 +241,8 @@ export type AssistantReasoningEffort = z.infer<
   typeof assistantReasoningEffortSchema
 >;
 export type AssistantServiceTier = z.infer<typeof assistantServiceTierSchema>;
+export type AssistantToolCall = z.infer<typeof conversationTurnToolCallSchema>;
+export type AssistantUsage = z.infer<typeof conversationTurnUsageSchema>;
 export type AssistantTurnView = z.infer<typeof assistantTurnSchema>;
 export type AssistantThreadView = z.infer<typeof assistantThreadSchema>;
 export type AssistantThreadListView = z.infer<typeof assistantThreadListSchema>;

@@ -5,6 +5,10 @@ import type {
   ConversationThreadDocument,
   ConversationTurn,
 } from "../conversations/conversation-thread.schemas.js";
+import {
+  conversationTurnToolCallSchema,
+  conversationTurnUsageSchema,
+} from "../conversations/conversation-thread.schemas.js";
 import type { AssistantThreadRecord } from "./assistant.repository.js";
 import {
   DEFAULT_ASSISTANT_SERVICE_TIER,
@@ -43,6 +47,8 @@ export function toTurnView(turn: ConversationTurn): AssistantTurnView {
     model,
     effort,
     serviceTier,
+    toolCalls: turn.toolCalls ?? [],
+    usage: turn.usage ?? null,
     user: {
       role: "user" as const,
       content: turn.input.content,
@@ -82,7 +88,7 @@ export function toTurnView(turn: ConversationTurn): AssistantTurnView {
           content: turn.output.content,
         },
         partial: null,
-        reasoning: null,
+        reasoning: turn.reasoning,
         error: null,
         completedAt: turn.completedAt.toISOString(),
       };
@@ -97,7 +103,7 @@ export function toTurnView(turn: ConversationTurn): AssistantTurnView {
         status: "failed",
         assistant: null,
         partial: null,
-        reasoning: null,
+        reasoning: turn.reasoning,
         error: {
           code: assistantFailureCodeSchema.parse(turn.error.code),
           message: turn.error.message,
@@ -149,7 +155,12 @@ function toConversationTurn(turn: AssistantTurnRow): ConversationTurn {
         ? { actor: "assistant", content: turn.assistantContent }
         : null,
     partial: isNonterminalTurnStatus(status) ? turn.streamedContent : null,
-    reasoning: isNonterminalTurnStatus(status) ? turn.reasoningContent : null,
+    reasoning: turn.reasoningContent,
+    toolCalls: conversationTurnToolCallSchema
+      .array()
+      .max(20)
+      .parse(turn.toolCalls),
+    usage: usageFromRow(turn),
     error:
       status === "failed" && turn.errorCode && turn.errorMessage
         ? { code: turn.errorCode, message: turn.errorMessage }
@@ -158,6 +169,29 @@ function toConversationTurn(turn: AssistantTurnRow): ConversationTurn {
     startedAt: turn.startedAt,
     completedAt: turn.completedAt,
   };
+}
+
+function usageFromRow(turn: AssistantTurnRow): ConversationTurn["usage"] {
+  if (
+    turn.inputTokens === null &&
+    turn.outputTokens === null &&
+    turn.reasoningTokens === null &&
+    turn.cachedInputTokens === null &&
+    turn.totalTokens === null &&
+    turn.estimatedCostEurMicros === null &&
+    turn.pricingVersion === null
+  ) {
+    return null;
+  }
+  return conversationTurnUsageSchema.parse({
+    inputTokens: turn.inputTokens,
+    outputTokens: turn.outputTokens,
+    reasoningTokens: turn.reasoningTokens,
+    cachedInputTokens: turn.cachedInputTokens,
+    totalTokens: turn.totalTokens,
+    estimatedCostEurMicros: turn.estimatedCostEurMicros,
+    pricingVersion: turn.pricingVersion,
+  });
 }
 
 export function requireConversationTurn(

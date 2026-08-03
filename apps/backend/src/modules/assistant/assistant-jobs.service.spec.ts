@@ -26,6 +26,8 @@ const turn: AssistantTurnView = {
   assistant: null,
   partial: null,
   reasoning: null,
+  toolCalls: [],
+  usage: null,
   error: null,
   attempt: 1,
   createdAt: "2026-07-23T10:00:00.000Z",

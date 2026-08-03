@@ -17,6 +17,7 @@ import {
 import { PostEventFeedbackConversationService } from "../../post-event-feedback/inbox/conversation.service.js";
 import { FeedbackConversationNotFoundError } from "../../post-event-feedback/post-event-feedback-conversation.repository.js";
 import { PostEventFeedbackCampaignSummaryService } from "../../post-event-feedback/summary/summary.service.js";
+import type { AssistantToolCall } from "../assistant.schemas.js";
 
 /**
  * How many rows any one tool may hand back to the model.
@@ -35,6 +36,10 @@ export interface AssistantToolActivity {
   readonly tool: string;
   readonly label: string;
   state: "running" | "done" | "failed";
+  readonly input: AssistantToolCall["input"];
+  output: AssistantToolCall["output"];
+  readonly inputTruncated: boolean;
+  outputTruncated: boolean;
 }
 
 /**

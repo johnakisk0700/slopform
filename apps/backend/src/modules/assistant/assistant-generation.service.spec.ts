@@ -151,12 +151,15 @@ describe("AssistantGenerationService", () => {
     ).resolves.toEqual({
       content: "Luna response",
       reasoning: "Weighing the answer",
+      toolCalls: [],
       usage: {
         inputTokens: 11,
         outputTokens: 7,
         reasoningTokens: 4,
         cachedInputTokens: 3,
         totalTokens: 18,
+        estimatedCostEurMicros: 9,
+        pricingVersion: "2026-08-03",
       },
     });
 
@@ -190,21 +193,27 @@ describe("AssistantGenerationService", () => {
           type: "tool-call",
           toolCallId: "call-1",
           toolName: "list_events",
+          input: { status: "scheduled" },
         };
         yield {
           type: "tool-result",
           toolCallId: "call-1",
           toolName: "list_events",
+          input: { status: "scheduled" },
+          output: { items: ["x".repeat(2_000)] },
         };
         yield {
           type: "tool-call",
           toolCallId: "call-2",
           toolName: "get_event",
+          input: { id: "event-1" },
         };
         yield {
           type: "tool-error",
           toolCallId: "call-2",
           toolName: "get_event",
+          input: { id: "event-1" },
+          error: new Error("secret provider detail"),
         };
         yield { type: "text-delta", text: "Done" };
       })(),
@@ -217,7 +226,7 @@ describe("AssistantGenerationService", () => {
     const service = createService({ openAi: "openai-key" });
     const frames: { label: string; state: string }[][] = [];
 
-    await service.generateStreaming({
+    const result = await service.generateStreaming({
       model: "openai/gpt-5.6-luna",
       effort: "low",
       serviceTier: "standard",
@@ -243,6 +252,24 @@ describe("AssistantGenerationService", () => {
         { label: "Searching events", state: "done" },
         { label: "Reading an event", state: "failed" },
       ],
+    ]);
+    expect(result.toolCalls).toEqual([
+      expect.objectContaining({
+        toolCallId: "call-1",
+        input: { status: "scheduled" },
+        state: "done",
+        outputTruncated: true,
+        output: expect.objectContaining({
+          preview: expect.any(String),
+          originalCharacters: expect.any(Number),
+        }),
+      }),
+      expect.objectContaining({
+        toolCallId: "call-2",
+        input: { id: "event-1" },
+        state: "failed",
+        output: null,
+      }),
     ]);
   });
 

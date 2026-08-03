@@ -1,0 +1,13 @@
+ALTER TABLE "assistant_turns" DROP CONSTRAINT "assistant_turns_reasoning_content_check";--> statement-breakpoint
+ALTER TABLE "assistant_turns" ADD COLUMN "tool_calls" jsonb DEFAULT '[]'::jsonb NOT NULL;--> statement-breakpoint
+ALTER TABLE "assistant_turns" ADD COLUMN "input_tokens" integer;--> statement-breakpoint
+ALTER TABLE "assistant_turns" ADD COLUMN "output_tokens" integer;--> statement-breakpoint
+ALTER TABLE "assistant_turns" ADD COLUMN "reasoning_tokens" integer;--> statement-breakpoint
+ALTER TABLE "assistant_turns" ADD COLUMN "cached_input_tokens" integer;--> statement-breakpoint
+ALTER TABLE "assistant_turns" ADD COLUMN "total_tokens" integer;--> statement-breakpoint
+ALTER TABLE "assistant_turns" ADD COLUMN "estimated_cost_eur_micros" integer;--> statement-breakpoint
+ALTER TABLE "assistant_turns" ADD COLUMN "pricing_version" text;--> statement-breakpoint
+ALTER TABLE "assistant_turns" ADD CONSTRAINT "assistant_turns_tool_calls_check" CHECK (jsonb_typeof("assistant_turns"."tool_calls") = 'array' and jsonb_array_length("assistant_turns"."tool_calls") <= 20);--> statement-breakpoint
+ALTER TABLE "assistant_turns" ADD CONSTRAINT "assistant_turns_usage_nonnegative_check" CHECK (("assistant_turns"."input_tokens" is null or "assistant_turns"."input_tokens" >= 0) and ("assistant_turns"."output_tokens" is null or "assistant_turns"."output_tokens" >= 0) and ("assistant_turns"."reasoning_tokens" is null or "assistant_turns"."reasoning_tokens" >= 0) and ("assistant_turns"."cached_input_tokens" is null or "assistant_turns"."cached_input_tokens" >= 0) and ("assistant_turns"."total_tokens" is null or "assistant_turns"."total_tokens" >= 0) and ("assistant_turns"."estimated_cost_eur_micros" is null or "assistant_turns"."estimated_cost_eur_micros" >= 0));--> statement-breakpoint
+ALTER TABLE "assistant_turns" ADD CONSTRAINT "assistant_turns_usage_status_check" CHECK (("assistant_turns"."input_tokens" is null and "assistant_turns"."output_tokens" is null and "assistant_turns"."reasoning_tokens" is null and "assistant_turns"."cached_input_tokens" is null and "assistant_turns"."total_tokens" is null and "assistant_turns"."estimated_cost_eur_micros" is null and "assistant_turns"."pricing_version" is null) or "assistant_turns"."status" = 'succeeded');--> statement-breakpoint
+ALTER TABLE "assistant_turns" ADD CONSTRAINT "assistant_turns_pricing_version_check" CHECK (("assistant_turns"."estimated_cost_eur_micros" is null and "assistant_turns"."pricing_version" is null) or ("assistant_turns"."estimated_cost_eur_micros" is not null and char_length(btrim("assistant_turns"."pricing_version")) between 1 and 32));

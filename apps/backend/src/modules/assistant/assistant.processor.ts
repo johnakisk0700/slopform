@@ -97,9 +97,19 @@ export class AssistantProcessor extends WorkerHost {
     // One recorder, two streams: the answer and the model's account of reaching
     // it. Reasoning is carried on the same write so a reader never sees thinking
     // that belongs to a different moment than the text beside it.
+    let partial = " ";
     let reasoning: string | null = null;
+    let toolCalls = [] as Awaited<
+      ReturnType<AssistantGenerationService["generateStreaming"]>
+    >["toolCalls"];
     const partials = new PartialRecorder((partial) =>
-      this.assistant.recordPartial(turn.id, attempt, partial, reasoning),
+      this.assistant.recordPartial(
+        turn.id,
+        attempt,
+        partial,
+        reasoning,
+        toolCalls,
+      ),
     );
     const live = new LiveStreamRecorder((event) =>
       this.stream.publish(turn.id, attempt, event),
@@ -115,6 +125,7 @@ export class AssistantProcessor extends WorkerHost {
         serviceTier: turn.serviceTier as AssistantServiceTier,
         messages,
         onDelta: (accumulated) => {
+          partial = accumulated;
           partials.offer(accumulated);
           live.offer({ kind: "text", accumulated });
         },
@@ -122,15 +133,18 @@ export class AssistantProcessor extends WorkerHost {
           reasoning = accumulated;
           // Thinking often runs long before a single token of answer appears;
           // offering the current text keeps that phase visible instead of blank.
-          partials.offer(accumulated.length > 0 ? " " : "");
+          partials.offer(partial);
           live.offer({ kind: "reasoning", accumulated });
         },
-        onToolActivity: (activity) =>
-          live.offer({ kind: "tools", accumulated: JSON.stringify(activity) }),
+        onToolActivity: (activity) => {
+          toolCalls = [...activity];
+          partials.offer(partial);
+          live.offer({ kind: "tools", accumulated: JSON.stringify(activity) });
+        },
       });
       await partials.settle();
       await live.settle();
-      await this.assistant.markSucceeded(turn.id, attempt, response.content);
+      await this.assistant.markSucceeded(turn.id, attempt, response);
       await this.stream.publish(turn.id, attempt, { kind: "done" });
     } catch (error) {
       await partials.settle();

@@ -46,6 +46,14 @@ const turn: AssistantTurnRow = {
   assistantContent: null,
   streamedContent: null,
   reasoningContent: null,
+  toolCalls: [],
+  inputTokens: null,
+  outputTokens: null,
+  reasoningTokens: null,
+  cachedInputTokens: null,
+  totalTokens: null,
+  estimatedCostEurMicros: null,
+  pricingVersion: null,
   errorCode: null,
   errorMessage: null,
   createdAt: thread.createdAt,
@@ -522,7 +530,7 @@ describe("AssistantService", () => {
     repository.findTurnById!.mockResolvedValue({ ...turn, status: "running" });
     conversations.markTurnSucceeded!.mockResolvedValue(false);
 
-    await service.markSucceeded(turn.id, 1, "Answer");
+    await service.markSucceeded(turn.id, 1, completion("Answer"));
 
     expect(repository.markSucceeded).not.toHaveBeenCalled();
   });
@@ -677,15 +685,37 @@ describe("AssistantService", () => {
       new ConversationTerminalResultConflictError(),
     );
 
-    await harness.service.markSucceeded(turn.id, 1, "Different answer");
-
-    expect(harness.repository.markSucceeded).toHaveBeenCalledWith(
+    await harness.service.markSucceeded(
       turn.id,
       1,
-      "Authoritative answer",
+      completion("Different answer"),
     );
+
+    expect(harness.repository.markSucceeded).toHaveBeenCalledWith(turn.id, 1, {
+      response: "Authoritative answer",
+      reasoning: null,
+      toolCalls: [],
+      usage: null,
+    });
   });
 });
+
+function completion(content: string) {
+  return {
+    content,
+    reasoning: null,
+    toolCalls: [],
+    usage: {
+      inputTokens: 10,
+      outputTokens: 5,
+      reasoningTokens: 0,
+      cachedInputTokens: 0,
+      totalTokens: 15,
+      estimatedCostEurMicros: 10,
+      pricingVersion: "2026-08-03",
+    },
+  } as const;
+}
 
 function conversationFromSnapshot(
   snapshot: AssistantConversationSnapshot,

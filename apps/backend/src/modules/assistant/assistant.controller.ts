@@ -189,6 +189,7 @@ export class AssistantController {
         status: turn.status,
         accumulated: turn.partial,
         reasoning: turn.reasoning,
+        toolCalls: turn.toolCalls,
       });
 
       if (turn.status === "succeeded" || turn.status === "failed") {
@@ -244,6 +245,7 @@ type AssistantSseFrame =
       readonly status: AssistantTurnView["status"];
       readonly accumulated: string | null;
       readonly reasoning: string | null;
+      readonly toolCalls: AssistantTurnView["toolCalls"];
     }
   | ({ readonly attempt: number } & AssistantStreamEvent);
 

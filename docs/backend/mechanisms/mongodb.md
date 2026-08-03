@@ -96,8 +96,10 @@ different result. Provider output is validated before mutation, so oversized
 content cannot create an unreadable document.
 
 MongoDB documents have a 16 MiB BSON limit. Schema-v1 aggregates therefore cap
-embedded turns at 75, leaving room for maximum-size UTF-8 input/output and BSON
-metadata. The Assistant append route checks early and enforces the same cap
+embedded turns at 75. Assistant tool artifacts are additionally capped at 20
+calls per turn with 512-character input and 1,536-character result previews,
+leaving room for maximum-size UTF-8 input/output and BSON metadata. The
+Assistant append route checks early and enforces the same cap
 inside its locked PostgreSQL sequence allocation, closing concurrent append
 races. Introduce tested rollover/archival before raising it.
 

@@ -6,9 +6,11 @@ import {
   ASSISTANT_MODELS,
   type AssistantDisplayMessage,
 } from "../../../features/assistant/schema";
+import { formatEstimatedAssistantCost } from "../../../features/assistant/cost";
 import { AssistantMarkdown } from "./AssistantMarkdown";
 import { AssistantReasoningCard } from "./AssistantReasoningCard";
 import { AssistantThinkingIndicator } from "./AssistantThinkingIndicator";
+import { AssistantToolCallCard } from "./AssistantToolCallCard";
 
 function modelLabel(message: AssistantDisplayMessage): string {
   return (
@@ -60,22 +62,35 @@ export const AssistantMessage = memo(
           reserveAnswerHeight ? "min-h-[clamp(18rem,48dvh,30rem)]" : undefined
         }
       >
-        {streaming && message.reasoning ? (
-          <AssistantReasoningCard reasoning={message.reasoning} />
+        {message.toolCalls.length > 0 ? (
+          <div className="mb-2 grid gap-0.5">
+            {message.toolCalls.map((call) => (
+              <AssistantToolCallCard key={call.toolCallId} call={call} />
+            ))}
+          </div>
         ) : null}
-        <div className="assistant-markdown max-w-none">
-          <AssistantMarkdown>{message.content}</AssistantMarkdown>
-        </div>
+        {message.reasoning ? (
+          <AssistantReasoningCard
+            reasoning={message.reasoning}
+            streaming={streaming}
+          />
+        ) : null}
+        {message.content ? (
+          <div className="assistant-markdown max-w-none">
+            <AssistantMarkdown>{message.content}</AssistantMarkdown>
+          </div>
+        ) : null}
         {streaming ? (
           <AssistantThinkingIndicator />
-        ) : (
+        ) : message.status === "succeeded" ? (
           <AssistantMessageActions
             content={message.content}
             model={modelLabel(message)}
             effort={message.effort}
             serviceTier={message.serviceTier}
+            usage={message.usage}
           />
-        )}
+        ) : null}
       </article>
     );
   },
@@ -87,6 +102,8 @@ export const AssistantMessage = memo(
     previous.message.effort === next.message.effort &&
     previous.message.serviceTier === next.message.serviceTier &&
     previous.message.reasoning === next.message.reasoning &&
+    previous.message.toolCalls === next.message.toolCalls &&
+    previous.message.usage === next.message.usage &&
     previous.message.status === next.message.status &&
     previous.reserveAnswerHeight === next.reserveAnswerHeight,
 );
@@ -98,11 +115,13 @@ function AssistantMessageActions({
   model,
   effort,
   serviceTier,
+  usage,
 }: {
   content: string;
   model: string;
   effort: AssistantDisplayMessage["effort"];
   serviceTier: AssistantDisplayMessage["serviceTier"];
+  usage: AssistantDisplayMessage["usage"];
 }) {
   const [copied, setCopied] = useState(false);
   const resetTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -141,6 +160,12 @@ function AssistantMessageActions({
         {/* Stamped only when the fast lane was actually bought, because it is
             the one setting here that changed what the turn cost. */}
         {serviceTier === "fast" ? " · fast lane" : ""}
+        {usage?.estimatedCostEurMicros != null
+          ? ` · est. ${formatEstimatedAssistantCost(usage.estimatedCostEurMicros)}`
+          : ""}
+        {usage?.totalTokens != null
+          ? ` · ${usage.totalTokens.toLocaleString("en-GB")} tokens`
+          : ""}
       </span>
     </div>
   );

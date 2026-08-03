@@ -118,6 +118,47 @@ export const conversationTurnErrorSchema = z
   })
   .strict();
 
+export const conversationTurnToolCallSchema = z
+  .object({
+    toolCallId: z.string().trim().min(1).max(200),
+    tool: z
+      .string()
+      .trim()
+      .min(1)
+      .max(64)
+      .regex(/^[a-z0-9_]+$/u),
+    label: z.string().trim().min(1).max(100),
+    state: z.enum(["running", "done", "failed"]),
+    input: z.json().nullable(),
+    output: z.json().nullable(),
+    inputTruncated: z.boolean(),
+    outputTruncated: z.boolean(),
+  })
+  .strict();
+
+export const conversationTurnUsageSchema = z
+  .object({
+    inputTokens: z.number().int().nonnegative().nullable(),
+    outputTokens: z.number().int().nonnegative().nullable(),
+    reasoningTokens: z.number().int().nonnegative().nullable(),
+    cachedInputTokens: z.number().int().nonnegative().nullable(),
+    totalTokens: z.number().int().nonnegative().nullable(),
+    estimatedCostEurMicros: z.number().int().nonnegative().nullable(),
+    pricingVersion: z.string().trim().min(1).max(32).nullable(),
+  })
+  .strict()
+  .superRefine((usage, context) => {
+    if (
+      (usage.estimatedCostEurMicros === null) !==
+      (usage.pricingVersion === null)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Estimated cost and pricing version must be recorded together",
+      });
+    }
+  });
+
 export const conversationTurnSchema = z
   .object({
     id: z.uuid(),
@@ -142,8 +183,12 @@ export const conversationTurnSchema = z
      * `docs/backend/mechanisms/assistant-streaming.md`.
      */
     partial: z.string().max(20_000).nullable().default(null),
-    /** The provider's thinking for the in-flight attempt; cleared when settled. */
+    /** The provider's thinking for this attempt, retained after settlement. */
     reasoning: z.string().max(20_000).nullable().default(null),
+    /** Bounded tool traces; optional only for documents written before support. */
+    toolCalls: z.array(conversationTurnToolCallSchema).max(20).optional(),
+    /** Final SDK usage and its dated estimate; absent on legacy/in-flight turns. */
+    usage: conversationTurnUsageSchema.nullable().optional(),
     error: conversationTurnErrorSchema.nullable(),
     createdAt: z.date(),
     startedAt: z.date().nullable(),
@@ -180,6 +225,13 @@ export const conversationTurnSchema = z
       context.addIssue({
         code: "custom",
         message: "A settled conversation turn cannot carry streamed text",
+      });
+    }
+
+    if (turn.usage != null && turn.status !== "succeeded") {
+      context.addIssue({
+        code: "custom",
+        message: "Only a succeeded conversation turn can carry final usage",
       });
     }
 
@@ -324,4 +376,8 @@ export type ConversationThreadDocument = z.infer<
   typeof conversationThreadDocumentSchema
 >;
 export type ConversationTurn = z.infer<typeof conversationTurnSchema>;
+export type ConversationTurnToolCall = z.infer<
+  typeof conversationTurnToolCallSchema
+>;
+export type ConversationTurnUsage = z.infer<typeof conversationTurnUsageSchema>;
 export type ConversationGoal = z.infer<typeof conversationGoalSchema>;

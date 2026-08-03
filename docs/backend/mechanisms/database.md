@@ -62,7 +62,10 @@ compatibility/backfill projection; MongoDB is authoritative for user-visible
 thread content and ordered history. Composite ownership foreign keys,
 owner-scoped request-id uniqueness and one-active-turn partial uniqueness keep
 HTTP replay and append concurrency coherent. Status/result/error checks protect
-the execution projection, and terminal writes remain conditional on both a
+the execution projection. Bounded tool traces use checked JSONB; provider token
+counts, integer estimated EUR micros and a dated pricing version remain ordinary
+columns so completed turns are auditable without decoding free-form metadata.
+Terminal writes remain conditional on both a
 nonterminal status and the current attempt. Add indexes for measured queries,
 verify with `EXPLAIN`, and account for write cost.
 

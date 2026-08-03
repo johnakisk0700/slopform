@@ -22,7 +22,10 @@ import {
   type AssistantModel,
   type AssistantReasoningEffort,
   type AssistantServiceTier,
+  type AssistantToolCall,
+  type AssistantUsage,
 } from "./assistant.schemas.js";
+import { priceAssistantUsage } from "./assistant-pricing.js";
 import {
   assistantModelAdapter,
   assistantModelSupportsTools,
@@ -78,6 +81,9 @@ You may also use \`\`\`chart\`\`\` blocks ({"type":"bar","title":"…","data":[{
  * hard stop against a model that has started looping.
  */
 const ASSISTANT_MAX_STEPS = 10;
+const ASSISTANT_MAX_TOOL_CALLS = 20;
+const ASSISTANT_TOOL_INPUT_MAX_CHARACTERS = 512;
+const ASSISTANT_TOOL_OUTPUT_MAX_CHARACTERS = 1_536;
 
 /**
  * Forbids tools on the final permitted step, so the budget can never be spent
@@ -114,13 +120,8 @@ function reserveFinalStepForAnswering(options: {
 export interface AssistantGenerationResult {
   readonly content: string;
   readonly reasoning: string | null;
-  readonly usage: {
-    readonly inputTokens: number | null;
-    readonly outputTokens: number | null;
-    readonly reasoningTokens: number | null;
-    readonly cachedInputTokens: number | null;
-    readonly totalTokens: number | null;
-  };
+  readonly toolCalls: readonly AssistantToolActivity[];
+  readonly usage: AssistantUsage;
 }
 
 export class AssistantGenerationError extends Error {
@@ -303,11 +304,20 @@ export class AssistantGenerationService {
           // reasoning are published: a reader may drop any frame and still hold
           // a coherent picture from the next one.
           if (part.type === "tool-call") {
+            if (activity.length >= ASSISTANT_MAX_TOOL_CALLS) continue;
+            const boundedInput = boundedToolPayload(
+              part.input,
+              ASSISTANT_TOOL_INPUT_MAX_CHARACTERS,
+            );
             activity.push({
               toolCallId: part.toolCallId,
               tool: part.toolName,
               label: assistantToolActivityLabel(part.toolName),
               state: "running",
+              input: boundedInput.value,
+              output: null,
+              inputTruncated: boundedInput.truncated,
+              outputTruncated: false,
             });
             input.onToolActivity?.([...activity]);
             continue;
@@ -318,12 +328,25 @@ export class AssistantGenerationService {
             );
             if (entry) {
               entry.state = part.type === "tool-result" ? "done" : "failed";
+              if (part.type === "tool-result") {
+                const boundedOutput = boundedToolPayload(
+                  part.output,
+                  ASSISTANT_TOOL_OUTPUT_MAX_CHARACTERS,
+                );
+                entry.output = boundedOutput.value;
+                entry.outputTruncated = boundedOutput.truncated;
+              }
               input.onToolActivity?.([...activity]);
             }
           }
         }
 
-        return { text: text.trim(), reasoning, usage: await result.usage };
+        return {
+          text: text.trim(),
+          reasoning,
+          toolCalls: activity,
+          usage: await result.usage,
+        };
       });
 
       if (!response.text) {
@@ -338,7 +361,8 @@ export class AssistantGenerationService {
       return {
         content: persistedResponse.data,
         reasoning: response.reasoning.trim() || null,
-        usage: {
+        toolCalls: response.toolCalls,
+        usage: priceAssistantUsage(input.model, input.serviceTier, {
           inputTokens: response.usage.inputTokens ?? null,
           outputTokens: response.usage.outputTokens ?? null,
           reasoningTokens:
@@ -346,7 +370,7 @@ export class AssistantGenerationService {
           cachedInputTokens:
             response.usage.inputTokenDetails?.cacheReadTokens ?? null,
           totalTokens: response.usage.totalTokens ?? null,
-        },
+        }),
       };
     } catch (error) {
       throw toGenerationError(error);
@@ -382,6 +406,37 @@ export class AssistantGenerationService {
       throw new AssistantGenerationError("provider_unavailable", false);
     }
     return this.openAiProvider(adapter.providerModelId);
+  }
+}
+
+function boundedToolPayload(
+  value: unknown,
+  maximumCharacters: number,
+): {
+  readonly value: AssistantToolCall["input"];
+  readonly truncated: boolean;
+} {
+  try {
+    const serialized = JSON.stringify(value);
+    if (serialized === undefined) return { value: null, truncated: false };
+    if (serialized.length <= maximumCharacters) {
+      return {
+        value: JSON.parse(serialized) as AssistantToolCall["input"],
+        truncated: false,
+      };
+    }
+    return {
+      value: {
+        preview: serialized.slice(0, maximumCharacters),
+        originalCharacters: serialized.length,
+      },
+      truncated: true,
+    };
+  } catch {
+    return {
+      value: { preview: "Tool payload could not be serialized" },
+      truncated: true,
+    };
   }
 }
 

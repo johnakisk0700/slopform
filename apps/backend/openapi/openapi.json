@@ -201,6 +201,132 @@
                   ],
                   "type": "string"
                 },
+                "toolCalls": {
+                  "default": [],
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "input": {
+                        "allOf": [
+                          {
+                            "$ref": "#/components/schemas/AssistantThreadDto_Output__schema0"
+                          }
+                        ],
+                        "nullable": true
+                      },
+                      "inputTruncated": {
+                        "type": "boolean"
+                      },
+                      "label": {
+                        "maxLength": 100,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "output": {
+                        "allOf": [
+                          {
+                            "$ref": "#/components/schemas/AssistantThreadDto_Output__schema1"
+                          }
+                        ],
+                        "nullable": true
+                      },
+                      "outputTruncated": {
+                        "type": "boolean"
+                      },
+                      "state": {
+                        "enum": [
+                          "running",
+                          "done",
+                          "failed"
+                        ],
+                        "type": "string"
+                      },
+                      "tool": {
+                        "maxLength": 64,
+                        "minLength": 1,
+                        "pattern": "^[a-z0-9_]+$",
+                        "type": "string"
+                      },
+                      "toolCallId": {
+                        "maxLength": 200,
+                        "minLength": 1,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "toolCallId",
+                      "tool",
+                      "label",
+                      "state",
+                      "input",
+                      "output",
+                      "inputTruncated",
+                      "outputTruncated"
+                    ],
+                    "type": "object"
+                  },
+                  "maxItems": 20,
+                  "type": "array"
+                },
+                "usage": {
+                  "additionalProperties": false,
+                  "default": null,
+                  "nullable": true,
+                  "properties": {
+                    "cachedInputTokens": {
+                      "maximum": 9007199254740991,
+                      "minimum": 0,
+                      "nullable": true,
+                      "type": "integer"
+                    },
+                    "estimatedCostEurMicros": {
+                      "maximum": 9007199254740991,
+                      "minimum": 0,
+                      "nullable": true,
+                      "type": "integer"
+                    },
+                    "inputTokens": {
+                      "maximum": 9007199254740991,
+                      "minimum": 0,
+                      "nullable": true,
+                      "type": "integer"
+                    },
+                    "outputTokens": {
+                      "maximum": 9007199254740991,
+                      "minimum": 0,
+                      "nullable": true,
+                      "type": "integer"
+                    },
+                    "pricingVersion": {
+                      "maxLength": 32,
+                      "minLength": 1,
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "reasoningTokens": {
+                      "maximum": 9007199254740991,
+                      "minimum": 0,
+                      "nullable": true,
+                      "type": "integer"
+                    },
+                    "totalTokens": {
+                      "maximum": 9007199254740991,
+                      "minimum": 0,
+                      "nullable": true,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "inputTokens",
+                    "outputTokens",
+                    "reasoningTokens",
+                    "cachedInputTokens",
+                    "totalTokens",
+                    "estimatedCostEurMicros",
+                    "pricingVersion"
+                  ],
+                  "type": "object"
+                },
                 "user": {
                   "additionalProperties": false,
                   "properties": {
@@ -235,6 +361,8 @@
                 "assistant",
                 "partial",
                 "reasoning",
+                "toolCalls",
+                "usage",
                 "error",
                 "attempt",
                 "createdAt",
@@ -260,6 +388,58 @@
           "turns"
         ],
         "type": "object"
+      },
+      "AssistantThreadDto_Output__schema0": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "number"
+          },
+          {
+            "type": "boolean"
+          },
+          {
+            "items": {
+              "$ref": "#/components/schemas/AssistantThreadDto_Output__schema0"
+            },
+            "type": "array"
+          },
+          {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/AssistantThreadDto_Output__schema0"
+            },
+            "type": "object"
+          }
+        ],
+        "nullable": true
+      },
+      "AssistantThreadDto_Output__schema1": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "number"
+          },
+          {
+            "type": "boolean"
+          },
+          {
+            "items": {
+              "$ref": "#/components/schemas/AssistantThreadDto_Output__schema1"
+            },
+            "type": "array"
+          },
+          {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/AssistantThreadDto_Output__schema1"
+            },
+            "type": "object"
+          }
+        ],
+        "nullable": true
       },
       "AssistantThreadListDto_Output": {
         "additionalProperties": false,
@@ -457,6 +637,132 @@
             ],
             "type": "string"
           },
+          "toolCalls": {
+            "default": [],
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "input": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/AssistantTurnDto_Output__schema0"
+                    }
+                  ],
+                  "nullable": true
+                },
+                "inputTruncated": {
+                  "type": "boolean"
+                },
+                "label": {
+                  "maxLength": 100,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "output": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/AssistantTurnDto_Output__schema1"
+                    }
+                  ],
+                  "nullable": true
+                },
+                "outputTruncated": {
+                  "type": "boolean"
+                },
+                "state": {
+                  "enum": [
+                    "running",
+                    "done",
+                    "failed"
+                  ],
+                  "type": "string"
+                },
+                "tool": {
+                  "maxLength": 64,
+                  "minLength": 1,
+                  "pattern": "^[a-z0-9_]+$",
+                  "type": "string"
+                },
+                "toolCallId": {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "toolCallId",
+                "tool",
+                "label",
+                "state",
+                "input",
+                "output",
+                "inputTruncated",
+                "outputTruncated"
+              ],
+              "type": "object"
+            },
+            "maxItems": 20,
+            "type": "array"
+          },
+          "usage": {
+            "additionalProperties": false,
+            "default": null,
+            "nullable": true,
+            "properties": {
+              "cachedInputTokens": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "nullable": true,
+                "type": "integer"
+              },
+              "estimatedCostEurMicros": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "nullable": true,
+                "type": "integer"
+              },
+              "inputTokens": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "nullable": true,
+                "type": "integer"
+              },
+              "outputTokens": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "nullable": true,
+                "type": "integer"
+              },
+              "pricingVersion": {
+                "maxLength": 32,
+                "minLength": 1,
+                "nullable": true,
+                "type": "string"
+              },
+              "reasoningTokens": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "nullable": true,
+                "type": "integer"
+              },
+              "totalTokens": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "nullable": true,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "inputTokens",
+              "outputTokens",
+              "reasoningTokens",
+              "cachedInputTokens",
+              "totalTokens",
+              "estimatedCostEurMicros",
+              "pricingVersion"
+            ],
+            "type": "object"
+          },
           "user": {
             "additionalProperties": false,
             "properties": {
@@ -491,6 +797,8 @@
           "assistant",
           "partial",
           "reasoning",
+          "toolCalls",
+          "usage",
           "error",
           "attempt",
           "createdAt",
@@ -498,6 +806,58 @@
           "completedAt"
         ],
         "type": "object"
+      },
+      "AssistantTurnDto_Output__schema0": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "number"
+          },
+          {
+            "type": "boolean"
+          },
+          {
+            "items": {
+              "$ref": "#/components/schemas/AssistantTurnDto_Output__schema0"
+            },
+            "type": "array"
+          },
+          {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/AssistantTurnDto_Output__schema0"
+            },
+            "type": "object"
+          }
+        ],
+        "nullable": true
+      },
+      "AssistantTurnDto_Output__schema1": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "number"
+          },
+          {
+            "type": "boolean"
+          },
+          {
+            "items": {
+              "$ref": "#/components/schemas/AssistantTurnDto_Output__schema1"
+            },
+            "type": "array"
+          },
+          {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/AssistantTurnDto_Output__schema1"
+            },
+            "type": "object"
+          }
+        ],
+        "nullable": true
       },
       "AuthSessionDto_Output": {
         "additionalProperties": false,

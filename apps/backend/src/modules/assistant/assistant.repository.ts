@@ -15,6 +15,8 @@ import type {
   AssistantModel,
   AssistantReasoningEffort,
   AssistantServiceTier,
+  AssistantToolCall,
+  AssistantUsage,
 } from "./assistant.schemas.js";
 
 type DatabaseExecutor = AppDatabase | AppTransaction;
@@ -343,12 +345,14 @@ export class AssistantRepository {
     attempt: number,
     partial: string,
     reasoning: string | null,
+    toolCalls: readonly AssistantToolCall[],
   ): Promise<void> {
     await this.database.db
       .update(assistantTurns)
       .set({
         streamedContent: partial,
         ...(reasoning === null ? {} : { reasoningContent: reasoning }),
+        toolCalls: [...toolCalls],
         updatedAt: new Date(),
       })
       .where(
@@ -363,7 +367,20 @@ export class AssistantRepository {
   async markQueued(id: string, attempt: number): Promise<void> {
     await this.database.db
       .update(assistantTurns)
-      .set({ status: "queued", streamedContent: null, updatedAt: new Date() })
+      .set({
+        status: "queued",
+        streamedContent: null,
+        reasoningContent: null,
+        toolCalls: [],
+        inputTokens: null,
+        outputTokens: null,
+        reasoningTokens: null,
+        cachedInputTokens: null,
+        totalTokens: null,
+        estimatedCostEurMicros: null,
+        pricingVersion: null,
+        updatedAt: new Date(),
+      })
       .where(
         and(
           eq(assistantTurns.id, id),
@@ -376,7 +393,12 @@ export class AssistantRepository {
   async markSucceeded(
     id: string,
     attempt: number,
-    response: string,
+    result: {
+      readonly response: string;
+      readonly reasoning: string | null;
+      readonly toolCalls: readonly AssistantToolCall[];
+      readonly usage: AssistantUsage | null;
+    },
   ): Promise<void> {
     const now = new Date();
     await this.database.transaction(async (transaction) => {
@@ -384,9 +406,17 @@ export class AssistantRepository {
         .update(assistantTurns)
         .set({
           status: "succeeded",
-          assistantContent: response,
+          assistantContent: result.response,
           streamedContent: null,
-          reasoningContent: null,
+          reasoningContent: result.reasoning,
+          toolCalls: [...result.toolCalls],
+          inputTokens: result.usage?.inputTokens ?? null,
+          outputTokens: result.usage?.outputTokens ?? null,
+          reasoningTokens: result.usage?.reasoningTokens ?? null,
+          cachedInputTokens: result.usage?.cachedInputTokens ?? null,
+          totalTokens: result.usage?.totalTokens ?? null,
+          estimatedCostEurMicros: result.usage?.estimatedCostEurMicros ?? null,
+          pricingVersion: result.usage?.pricingVersion ?? null,
           errorCode: null,
           errorMessage: null,
           completedAt: now,
@@ -423,7 +453,6 @@ export class AssistantRepository {
           status: "failed",
           assistantContent: null,
           streamedContent: null,
-          reasoningContent: null,
           errorCode: code,
           errorMessage: message,
           completedAt: now,
@@ -482,6 +511,14 @@ export class AssistantRepository {
           assistantContent: null,
           streamedContent: null,
           reasoningContent: null,
+          toolCalls: [],
+          inputTokens: null,
+          outputTokens: null,
+          reasoningTokens: null,
+          cachedInputTokens: null,
+          totalTokens: null,
+          estimatedCostEurMicros: null,
+          pricingVersion: null,
           errorCode: null,
           errorMessage: null,
           startedAt: null,

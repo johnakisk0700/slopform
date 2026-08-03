@@ -19,6 +19,8 @@ import {
   conversationThreadDocumentSchema,
   conversationTurnErrorSchema,
   conversationTurnSchema,
+  conversationTurnToolCallSchema,
+  conversationTurnUsageSchema,
 } from "./conversation-thread.schemas.js";
 
 const assistantConversationSummarySchema = z
@@ -271,6 +273,8 @@ export class ConversationThreadRepository {
         "turns.$[turn].output": null,
         "turns.$[turn].partial": null,
         "turns.$[turn].reasoning": null,
+        "turns.$[turn].toolCalls": [],
+        "turns.$[turn].usage": null,
         "turns.$[turn].error": null,
       },
       startedAt,
@@ -289,6 +293,8 @@ export class ConversationThreadRepository {
         "turns.$[turn].output": null,
         "turns.$[turn].partial": null,
         "turns.$[turn].reasoning": null,
+        "turns.$[turn].toolCalls": [],
+        "turns.$[turn].usage": null,
         "turns.$[turn].error": null,
       },
       new Date(),
@@ -304,9 +310,16 @@ export class ConversationThreadRepository {
     input: TurnIdentity & {
       readonly partial: string;
       readonly reasoning: string | null;
+      readonly toolCalls: readonly z.infer<
+        typeof conversationTurnToolCallSchema
+      >[];
     },
   ): Promise<boolean> {
     const partial = z.string().min(1).max(20_000).parse(input.partial);
+    const toolCalls = z
+      .array(conversationTurnToolCallSchema)
+      .max(20)
+      .parse(input.toolCalls);
     return this.transitionTurn(
       input,
       input.attempt,
@@ -321,6 +334,7 @@ export class ConversationThreadRepository {
                 .max(20_000)
                 .parse(input.reasoning),
             }),
+        "turns.$[turn].toolCalls": toolCalls,
       },
       new Date(),
     );
@@ -329,6 +343,11 @@ export class ConversationThreadRepository {
   async markTurnSucceeded(
     input: TurnIdentity & {
       readonly response: string;
+      readonly reasoning?: string | null;
+      readonly toolCalls?: readonly z.infer<
+        typeof conversationTurnToolCallSchema
+      >[];
+      readonly usage?: z.infer<typeof conversationTurnUsageSchema> | null;
       readonly completedAt: Date;
     },
   ): Promise<boolean> {
@@ -337,6 +356,18 @@ export class ConversationThreadRepository {
       content: input.response,
     });
     const completedAt = z.date().parse(input.completedAt);
+    const reasoning = z
+      .string()
+      .max(20_000)
+      .nullable()
+      .parse(input.reasoning ?? null);
+    const toolCalls = z
+      .array(conversationTurnToolCallSchema)
+      .max(20)
+      .parse(input.toolCalls ?? []);
+    const usage = conversationTurnUsageSchema
+      .nullable()
+      .parse(input.usage ?? null);
     return this.transitionTerminalTurn(
       input,
       "succeeded",
@@ -345,7 +376,9 @@ export class ConversationThreadRepository {
         "turns.$[turn].attempt": input.attempt,
         "turns.$[turn].output": output,
         "turns.$[turn].partial": null,
-        "turns.$[turn].reasoning": null,
+        "turns.$[turn].reasoning": reasoning,
+        "turns.$[turn].toolCalls": toolCalls,
+        "turns.$[turn].usage": usage,
         "turns.$[turn].error": null,
         "turns.$[turn].completedAt": completedAt,
       },
@@ -376,7 +409,7 @@ export class ConversationThreadRepository {
         "turns.$[turn].attempt": input.attempt,
         "turns.$[turn].output": null,
         "turns.$[turn].partial": null,
-        "turns.$[turn].reasoning": null,
+        "turns.$[turn].usage": null,
         "turns.$[turn].error": error,
         "turns.$[turn].completedAt": completedAt,
       },
@@ -399,6 +432,8 @@ export class ConversationThreadRepository {
         "turns.$[turn].output": null,
         "turns.$[turn].partial": null,
         "turns.$[turn].reasoning": null,
+        "turns.$[turn].toolCalls": [],
+        "turns.$[turn].usage": null,
         "turns.$[turn].error": null,
       },
       new Date(),

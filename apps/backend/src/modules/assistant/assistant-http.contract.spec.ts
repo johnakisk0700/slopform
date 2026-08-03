@@ -33,6 +33,8 @@ const queuedTurn = {
   assistant: null,
   partial: null,
   reasoning: null,
+  toolCalls: [],
+  usage: null,
   error: null,
   attempt: 1,
   createdAt: "2026-07-23T10:00:00.000Z",
@@ -140,7 +142,7 @@ describe("assistant HTTP contract", () => {
     );
     expect(response.headers.get("x-accel-buffering")).toBe("no");
     expect(body).toContain(
-      'data: {"kind":"snapshot","attempt":1,"status":"queued","accumulated":null,"reasoning":null}',
+      'data: {"kind":"snapshot","attempt":1,"status":"queued","accumulated":null,"reasoning":null,"toolCalls":[]}',
     );
     expect(body).toContain(
       'data: {"attempt":1,"kind":"text","accumulated":"Live answer"}',
