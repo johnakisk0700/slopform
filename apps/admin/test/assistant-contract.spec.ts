@@ -435,8 +435,9 @@ describe("assistant route wiring", () => {
     const app = readAdminFile("src/App.tsx");
     const page = readAdminFile("src/routes/AssistantPage.tsx");
 
-    expect(app).toContain('path="assistant"');
-    expect(app).toContain('path="assistant/:threadId"');
+    expect(app).toContain('path="assistant/:threadId?"');
+    expect(app).not.toContain('path="assistant/:threadId"');
+    expect(app.match(/<AssistantPage \/>/g)).toHaveLength(1);
     expect(page).toContain('ASSISTANT_THREADS_PATH = "/v1/assistant/threads"');
     expect(page).not.toContain('ASSISTANT_THREADS_PATH = "/api/');
     expect(page).toContain('responseType: "stream"');

@@ -134,15 +134,7 @@ function AppRoutes() {
             }
           />
           <Route
-            path="assistant"
-            element={
-              <LazyAdminRoute>
-                <AssistantPage />
-              </LazyAdminRoute>
-            }
-          />
-          <Route
-            path="assistant/:threadId"
+            path="assistant/:threadId?"
             element={
               <LazyAdminRoute>
                 <AssistantPage />

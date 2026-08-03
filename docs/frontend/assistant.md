@@ -13,6 +13,11 @@ thread navigation, optimistic user turns, idempotent submission, live SSE
 acceleration, durable polling and recovery UI. The backend owns conversation
 history, provider credentials, generation and authorization.
 
+Both URLs deliberately share one optional route (`assistant/:threadId?`). The
+first durable turn replaces the URL without remounting the screen, so its live
+alignment refs and measured reply space survive the transition from the empty
+conversation to the durable thread.
+
 The chat structure is a deliberate port of the proven `notes_ai` UI rather than
 a new renderer: a narrow written-page message column, compact user ink-wash
 turns, full-width assistant prose, a bottom-docked composer, a compact model
