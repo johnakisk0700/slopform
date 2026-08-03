@@ -107,6 +107,37 @@ describe("renderBurstReport", () => {
     assert.ok(broken.includes("Πού έσπασε"));
   });
 
+  it("does not call a technically passing run clean when observations diverged", () => {
+    const html = renderBurstReport(
+      run({
+        campaigns: [
+          campaign({
+            conversations: [
+              conversation({
+                passed: true,
+                expectations: [
+                  {
+                    label: "observation: needsAttention",
+                    expected: "false",
+                    actual: "true",
+                    passed: false,
+                  },
+                ],
+              }),
+            ],
+          }),
+        ],
+      }),
+    );
+
+    assert.ok(html.includes("Πέρασε τεχνικά — με αποκλίσεις"));
+    assert.ok(html.includes('class="verdict is-warning"'));
+    assert.ok(html.includes("Πού έσπασε ή απέκλινε"));
+    assert.ok(html.includes('class="conv is-pass has-divergence"'));
+    assert.ok(html.includes("Απόκλιση"));
+    assert.ok(!html.includes("Όλα πέρασαν"));
+  });
+
   it("makes deterministic live-guest substitution visible as missing coverage", () => {
     const html = renderBurstReport(
       run({

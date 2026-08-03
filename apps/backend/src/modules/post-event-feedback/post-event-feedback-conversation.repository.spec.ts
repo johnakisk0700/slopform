@@ -1146,6 +1146,130 @@ describe("FeedbackConversationRepository", () => {
     expect(collection.findOneAndUpdate).not.toHaveBeenCalled();
   });
 
+  it("clears stopped-without-answers when an in-flight extraction records an answer", async () => {
+    const stale = attentionReason({
+      kind: "stopped_without_answers",
+      resolvedAt: null,
+      resolvedBy: null,
+    });
+    const stopped = feedbackConversation({
+      lifecycle: {
+        state: "closed",
+        reason: "stopped",
+        closedAt: repliedAt,
+      },
+      needsAttention: true,
+      attentionReasons: [stale],
+    });
+    const answered = {
+      ...stopped,
+      goals: stopped.goals.map((goal, index) =>
+        index === 0 ? { ...goal, status: "answered" as const } : goal,
+      ),
+    };
+    const resolved = {
+      ...answered,
+      attentionReasons: [
+        {
+          ...stale,
+          resolvedAt: repliedAt,
+          resolvedBy: "system:feedback_extraction",
+        },
+      ],
+    };
+    const collection = collectionMock({
+      findOne: vi.fn().mockResolvedValue(stopped),
+      findOneAndUpdate: vi
+        .fn()
+        .mockResolvedValueOnce(answered)
+        .mockResolvedValueOnce(resolved)
+        .mockResolvedValueOnce({ ...resolved, needsAttention: false }),
+    });
+    const repository = createRepository(collection);
+
+    const result = await repository.updateGoalStatuses({
+      conversationId,
+      statuses: [{ key: "event_score", status: "answered" }],
+      at: repliedAt,
+    });
+
+    expect(result).toMatchObject({
+      changed: true,
+      conversation: {
+        needsAttention: false,
+        attentionReasons: [
+          {
+            id: stale.id,
+            kind: "stopped_without_answers",
+            resolvedAt: repliedAt,
+            resolvedBy: "system:feedback_extraction",
+          },
+        ],
+      },
+    });
+  });
+
+  it("keeps unrelated attention when reconciling a stopped conversation", async () => {
+    const stoppedReason = attentionReason({
+      kind: "stopped_without_answers",
+      resolvedAt: null,
+      resolvedBy: null,
+    });
+    const safetyReason = attentionReason({
+      id: secondReasonId,
+      kind: "safety",
+      resolvedAt: null,
+      resolvedBy: null,
+    });
+    const stopped = feedbackConversation({
+      lifecycle: {
+        state: "closed",
+        reason: "stopped",
+        closedAt: repliedAt,
+      },
+      needsAttention: true,
+      attentionReasons: [stoppedReason, safetyReason],
+    });
+    const answered = {
+      ...stopped,
+      goals: stopped.goals.map((goal, index) =>
+        index === 0 ? { ...goal, status: "answered" as const } : goal,
+      ),
+    };
+    const resolved = {
+      ...answered,
+      attentionReasons: [
+        {
+          ...stoppedReason,
+          resolvedAt: repliedAt,
+          resolvedBy: "system:feedback_extraction",
+        },
+        safetyReason,
+      ],
+    };
+    const collection = collectionMock({
+      findOne: vi.fn().mockResolvedValue(stopped),
+      findOneAndUpdate: vi
+        .fn()
+        .mockResolvedValueOnce(answered)
+        .mockResolvedValueOnce(resolved),
+    });
+    const repository = createRepository(collection);
+
+    const result = await repository.updateGoalStatuses({
+      conversationId,
+      statuses: [{ key: "event_score", status: "answered" }],
+      at: repliedAt,
+    });
+
+    expect(result.conversation.needsAttention).toBe(true);
+    expect(
+      result.conversation.attentionReasons.filter(
+        (reason) => reason.resolvedAt === null,
+      ),
+    ).toEqual([safetyReason]);
+  });
+
   it("projects a compact campaign list without transcripts", async () => {
     const cursor = {
       toArray: vi.fn().mockResolvedValue([

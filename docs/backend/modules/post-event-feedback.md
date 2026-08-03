@@ -848,6 +848,14 @@ Everything outside extraction raises through the same call:
 | Somebody writing after their conversation closed                | `post_closure_message`    | the stored turn, when kept    |
 | A STOP from somebody who had answered nothing                   | `stopped_without_answers` | the STOP turn, when stored    |
 
+STOP and extraction run on different clocks. If STOP closes a conversation
+while an earlier provider call is still extracting, the STOP snapshot may
+correctly raise `stopped_without_answers` before that run persists an answer.
+Advancing any goal to `answered` on the closed/stopped conversation resolves
+that reason as `system:feedback_extraction`; any unrelated attention reasons
+remain standing. This keeps the fast deterministic opt-out path without turning
+temporary provider latency into a permanent operator alert.
+
 Two of those names cover two producers each, because the operator's next move is
 identical either way. A truncated render and an edited redelivery both mean the
 transcript is not what arrived, so both say `transcript_mismatch` — and a message

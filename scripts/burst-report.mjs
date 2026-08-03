@@ -365,6 +365,11 @@ function summarise(run) {
   const expectations = conversations.flatMap(
     (row) => row.conversation.expectations,
   );
+  const problemConversations = conversations.filter(
+    (row) =>
+      !row.conversation.passed ||
+      row.conversation.expectations.some((expectation) => !expectation.passed),
+  );
 
   const derivedPassed =
     failedConversations.length === 0 && run.findings.length === 0;
@@ -374,6 +379,7 @@ function summarise(run) {
     conversations: conversations.length,
     failed: failedConversations.length,
     failedConversations,
+    problemConversations,
     expectations: expectations.length,
     failedExpectations: expectations.filter((row) => !row.passed).length,
     findings: run.findings.length,
@@ -451,13 +457,22 @@ function metaItem(iconName, label, value) {
 
 /** The sticky bar: the verdict stays on screen for the whole scroll. */
 function renderRail(run, stats) {
-  const tone = stats.derivedPassed ? "success" : "danger";
+  const hasDivergences = stats.failedExpectations > 0;
+  const tone = stats.derivedPassed
+    ? hasDivergences
+      ? "warning"
+      : "success"
+    : "danger";
   const jumps = run.campaigns
     .map((campaign) => {
-      const clean = campaign.conversations.every(
-        (conversation) => conversation.passed,
+      const broken = campaign.conversations.some(
+        (conversation) => !conversation.passed,
       );
-      return `<a class="rail-jump${clean ? "" : " is-fail"}" href="#${escapeHtml(campaignAnchor(campaign))}">${escapeHtml(campaign.title === "" ? campaign.slug : campaign.title)}</a>`;
+      const divergent = campaign.conversations.some((conversation) =>
+        conversation.expectations.some((expectation) => !expectation.passed),
+      );
+      const stateClass = broken ? " is-fail" : divergent ? " is-warning" : "";
+      return `<a class="rail-jump${stateClass}" href="#${escapeHtml(campaignAnchor(campaign))}">${escapeHtml(campaign.title === "" ? campaign.slug : campaign.title)}</a>`;
     })
     .join("");
 
@@ -468,7 +483,7 @@ function renderRail(run, stats) {
 
   return `<nav class="rail" aria-label="Πλοήγηση αναφοράς">
 <div class="rail-inner">
-<span class="badge is-${tone} is-strong">${icon(stats.derivedPassed ? "check" : "cross")}${stats.derivedPassed ? "Πέρασε" : "Απέτυχε"}</span>
+<span class="badge is-${tone} is-strong">${icon(stats.derivedPassed && !hasDivergences ? "check" : "alert")}${stats.derivedPassed ? (hasDivergences ? "Με αποκλίσεις" : "Πέρασε") : "Απέτυχε"}</span>
 <span class="rail-count">${escapeHtml(String(stats.conversations - stats.failed))}<span class="rail-sep">/</span>${escapeHtml(String(stats.conversations))} συνομιλίες πέρασαν</span>
 <div class="rail-jumps">${findingsJump}${jumps}</div>
 <div class="rail-tools js-only">
@@ -482,7 +497,13 @@ function renderRail(run, stats) {
 
 function renderVerdict(run, stats) {
   const passed = stats.derivedPassed;
-  const headline = passed ? "Όλα πέρασαν" : "Απέτυχε";
+  const hasDivergences = stats.failedExpectations > 0;
+  const tone = passed ? (hasDivergences ? "warning" : "success") : "danger";
+  const headline = passed
+    ? hasDivergences
+      ? "Πέρασε τεχνικά — με αποκλίσεις"
+      : "Όλα πέρασαν"
+    : "Απέτυχε";
   const lines = [];
 
   if (stats.findings > 0) {
@@ -512,8 +533,8 @@ function renderVerdict(run, stats) {
 
   const separator = ' <span class="dot">·</span> ';
 
-  return `<section class="verdict is-${passed ? "success" : "danger"}" aria-labelledby="verdict-title">
-<div class="verdict-mark" aria-hidden="true">${icon(passed ? "check" : "alert")}</div>
+  return `<section class="verdict is-${tone}" aria-labelledby="verdict-title">
+<div class="verdict-mark" aria-hidden="true">${icon(passed && !hasDivergences ? "check" : "alert")}</div>
 <div class="verdict-body">
 <p class="kicker">Πόρισμα εκτέλεσης</p>
 <h1 id="verdict-title">${escapeHtml(headline)}</h1>
@@ -608,13 +629,13 @@ ${involved}
 </section>`;
 }
 
-/** "Πού έσπασε" — the whole answer to "where", without scrolling. */
+/** "Πού έσπασε ή απέκλινε" — the whole answer without scrolling. */
 function renderFailureIndex(stats) {
-  if (stats.failedConversations.length === 0) {
+  if (stats.problemConversations.length === 0) {
     // Nothing to index, but the failures filter still needs something to say.
-    return '<p class="filter-empty">Καμία συνομιλία δεν απέτυχε — το φίλτρο δεν έχει τι να δείξει.</p>';
+    return '<p class="filter-empty">Καμία συνομιλία δεν απέτυχε ή απέκλινε — το φίλτρο δεν έχει τι να δείξει.</p>';
   }
-  const chips = stats.failedConversations
+  const chips = stats.problemConversations
     .map(({ campaign, conversation }) => {
       const failed = conversation.expectations.filter(
         (expectation) => !expectation.passed,
@@ -627,7 +648,7 @@ function renderFailureIndex(stats) {
     .join("");
 
   return `<section class="failures" aria-labelledby="failures-title">
-<h2 id="failures-title" class="section-title">Πού έσπασε<span class="section-count">${escapeHtml(String(stats.failedConversations.length))}</span></h2>
+<h2 id="failures-title" class="section-title">Πού έσπασε ή απέκλινε<span class="section-count">${escapeHtml(String(stats.problemConversations.length))}</span></h2>
 <div class="failure-chips">${chips}</div>
 </section>`;
 }
@@ -636,7 +657,16 @@ function renderCampaign(campaign) {
   const failed = campaign.conversations.filter(
     (conversation) => !conversation.passed,
   ).length;
-  const clean = failed === 0;
+  const failedExpectations = campaign.conversations.reduce(
+    (total, conversation) =>
+      total +
+      conversation.expectations.filter((expectation) => !expectation.passed)
+        .length,
+    0,
+  );
+  const clean = failed === 0 && failedExpectations === 0;
+  const campaignTone =
+    failed > 0 ? "danger" : failedExpectations > 0 ? "warning" : "success";
   const statusLabel =
     CAMPAIGN_STATUS_LABELS[campaign.status] ?? campaign.status;
   const statusTone = CAMPAIGN_STATUS_TONES[campaign.status] ?? "neutral";
@@ -651,7 +681,7 @@ function renderCampaign(campaign) {
 </div>
 <div class="campaign-side">
 <span class="badge is-${statusTone}">${escapeHtml(statusLabel === "" ? EMPTY : statusLabel)}</span>
-<span class="badge is-${clean ? "success" : "danger"}">${escapeHtml(`${campaign.conversations.length - failed}/${campaign.conversations.length} πέρασαν`)}</span>
+<span class="badge is-${campaignTone}">${escapeHtml(`${campaign.conversations.length - failed}/${campaign.conversations.length} πέρασαν${failedExpectations > 0 ? ` · ${failedExpectations} αποκλίσεις` : ""}`)}</span>
 ${adminLink(campaign.adminUrl, "Άνοιγμα καμπάνιας στο admin")}
 </div>
 </header>
@@ -682,18 +712,25 @@ function renderConversation(conversation) {
 
   const checks =
     failedExpectations > 0
-      ? `<span class="chip is-danger">${escapeHtml(count(failedExpectations, "έλεγχος έπεσε", "έλεγχοι έπεσαν"))}</span>`
+      ? `<span class="chip is-${conversation.passed ? "warning" : "danger"}">${escapeHtml(count(failedExpectations, "έλεγχος έπεσε", "έλεγχοι έπεσαν"))}</span>`
       : `<span class="chip">${escapeHtml(count(conversation.expectations.length, "έλεγχος", "έλεγχοι"))}</span>`;
 
-  const collapsed = conversation.passed && conversation.liveModel === null;
+  const divergent = conversation.passed && failedExpectations > 0;
+  const collapsed =
+    conversation.passed && !divergent && conversation.liveModel === null;
+  const conversationTone = conversation.passed
+    ? divergent
+      ? "warning"
+      : "success"
+    : "danger";
   const liveChip =
     conversation.liveModel === null
       ? ""
       : `<span class="chip is-mono" title="Τις απαντήσεις αυτού του καλεσμένου τις έγραψε μοντέλο στη διάρκεια της εκτέλεσης">${escapeHtml(conversation.liveModel)}</span>`;
 
-  return `<details class="conv ${conversation.passed ? "is-pass" : "is-fail"}" id="${escapeHtml(anchor)}"${collapsed ? "" : " open"}>
+  return `<details class="conv ${conversation.passed ? "is-pass" : "is-fail"}${divergent ? " has-divergence" : ""}" id="${escapeHtml(anchor)}"${collapsed ? "" : " open"}>
 <summary class="conv-summary">
-<span class="badge is-${conversation.passed ? "success" : "danger"}${conversation.passed ? "" : " is-strong"}">${icon(conversation.passed ? "check" : "cross")}${conversation.passed ? "Πέρασε" : "Απέτυχε"}</span>
+<span class="badge is-${conversationTone}${conversation.passed && !divergent ? "" : " is-strong"}">${icon(conversation.passed && !divergent ? "check" : divergent ? "alert" : "cross")}${conversation.passed ? (divergent ? "Απόκλιση" : "Πέρασε") : "Απέτυχε"}</span>
 <h3 class="conv-name">${escapeHtml(name)}</h3>
 <span class="conv-chips">
 ${liveChip}
@@ -1433,6 +1470,11 @@ a:hover { color: var(--jts-color-link-hover); }
   background: var(--jts-color-danger-soft);
   color: var(--jts-color-danger);
 }
+.rail-jump.is-warning {
+  border-color: var(--jts-color-warning-border);
+  background: var(--jts-color-warning-soft);
+  color: var(--jts-color-warning);
+}
 
 .rail-tools { margin-inline-start: auto; gap: var(--jts-space-3); align-items: center; flex-wrap: wrap; }
 
@@ -1518,9 +1560,15 @@ a:hover { color: var(--jts-color-link-hover); }
   border-inline-start-color: var(--jts-color-danger);
   background: var(--jts-color-danger-soft);
 }
+.verdict.is-warning {
+  border-color: var(--jts-color-warning-border);
+  border-inline-start-color: var(--jts-color-warning);
+  background: var(--jts-color-warning-soft);
+}
 .verdict-mark { font-size: clamp(2rem, 1.4rem + 2.4vw, 3.4rem); display: flex; }
 .verdict.is-success .verdict-mark { color: var(--jts-color-success); }
 .verdict.is-danger .verdict-mark { color: var(--jts-color-danger); }
+.verdict.is-warning .verdict-mark { color: var(--jts-color-warning); }
 .verdict-body { min-width: 0; }
 .verdict h1 {
   font-size: var(--jts-text-3xl);
@@ -1530,6 +1578,7 @@ a:hover { color: var(--jts-color-link-hover); }
 }
 .verdict.is-success h1 { color: var(--jts-color-success); }
 .verdict.is-danger h1 { color: var(--jts-color-danger); }
+.verdict.is-warning h1 { color: var(--jts-color-warning); }
 .verdict-lines {
   font-size: var(--jts-text-md);
   font-weight: var(--jts-weight-semibold);
@@ -2035,7 +2084,7 @@ a:hover { color: var(--jts-color-link-hover); }
 
 /* --- the failures filter (JS toggles one class on <body>) ----------------- */
 
-body.is-filtered .conv.is-pass,
+body.is-filtered .conv.is-pass:not(.has-divergence),
 body.is-filtered .campaign.is-clean,
 body.is-filtered .findings.is-clean { display: none; }
 .filter-empty {

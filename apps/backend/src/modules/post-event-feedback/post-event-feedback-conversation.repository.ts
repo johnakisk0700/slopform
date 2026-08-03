@@ -1103,7 +1103,7 @@ export class FeedbackConversationRepository {
       );
     });
     if (statuses.length === 0) {
-      return { changed: false, conversation: current };
+      return this.reconcileStoppedWithoutAnswers(current, at);
     }
 
     const set: Record<string, unknown> = {};
@@ -1137,7 +1137,53 @@ export class FeedbackConversationRepository {
         conversation.goals.find((goal) => goal.key === entry.key)?.status !==
         current.goals.find((goal) => goal.key === entry.key)?.status,
     );
-    return { changed, conversation };
+    const reconciled = await this.reconcileStoppedWithoutAnswers(
+      conversation,
+      at,
+    );
+    return {
+      changed: changed || reconciled.changed,
+      conversation: reconciled.conversation,
+    };
+  }
+
+  /**
+   * A deterministic STOP can close while an earlier provider call is still
+   * extracting. The STOP snapshot then legitimately raises
+   * `stopped_without_answers`; if that in-flight run subsequently records an
+   * answer, leaving the reason standing turns a transient ordering fact into a
+   * false operator alert.
+   *
+   * Reconcile here, where every accepted answer advances its goal. Replays also
+   * pass through this method, including one where the goal already reached
+   * `answered`, so a crash between the goal write and this resolution repairs
+   * forward instead of preserving the stale badge.
+   */
+  private async reconcileStoppedWithoutAnswers(
+    conversation: FeedbackConversationDocument,
+    at: Date,
+  ): Promise<FeedbackConversationTransitionResult> {
+    if (
+      conversation.lifecycle.reason !== "stopped" ||
+      !conversation.goals.some((goal) => goal.status === "answered")
+    ) {
+      return { changed: false, conversation };
+    }
+
+    const staleReason = conversation.attentionReasons.find(
+      (reason) =>
+        reason.kind === "stopped_without_answers" && reason.resolvedAt === null,
+    );
+    if (!staleReason) {
+      return { changed: false, conversation };
+    }
+
+    return this.resolveAttentionReason({
+      conversationId: conversation._id,
+      reasonId: staleReason.id,
+      resolvedBy: "system:feedback_extraction",
+      at,
+    });
   }
 
   /**

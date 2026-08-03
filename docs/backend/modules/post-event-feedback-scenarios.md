@@ -451,6 +451,11 @@ any AI, in either control mode.
 already-closed conversation, `materializeOutbound` still correlates it by
 provider message id even though `findOpenByPhone` returns nothing.
 
+The other race is pinned too: STOP may overtake extraction of an earlier
+answer. The initial `stopped_without_answers` reason is then valid for the STOP
+snapshot, but it is resolved automatically when the in-flight run advances a
+goal to `answered`; unrelated reasons and the stopped lifecycle remain intact.
+
 ### S16 · `stop_with_punctuation`
 
 **Person.** Same person, one keystroke different.
