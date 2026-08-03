@@ -259,6 +259,14 @@ is its own scroll container — `calc(100dvh - 10rem)` for the two panes, `44vh`
 for a card — so switching conversations never costs an operator their place in
 the list.
 
+Below `lg`, both grids declare a `minmax(0, 1fr)` base column and every direct
+pane item has a zero minimum width. This is required for route navigation, not
+just unusually long copy: when the campaign queries are already cached, the
+populated inbox participates in the first layout and an implicit `auto` column
+otherwise adopts the panes' min-content width (about 371 px), widening a
+320–360 px document. A cold reload initially renders the loading state and can
+therefore conceal the fault.
+
 It was one tall right-hand column of six stacked sections. Everything about a
 conversation shared a single scrollbar, which meant the notes an operator had
 just written sat below four screens of reference data, and the pane an operator

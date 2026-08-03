@@ -546,8 +546,14 @@ export function FeedbackInboxPage() {
             its own scroll container capped to the viewport, so switching
             conversations never costs an operator their place in the list, and
             no single column has to carry every fact about the conversation. */}
-        <div className="grid items-start gap-4 lg:grid-cols-[minmax(15rem,19rem)_minmax(0,1fr)]">
-          <div className="min-h-0">
+        {/* The explicit zero-minimum base track and grid items are not
+            decorative responsive classes. On a narrow SPA navigation the
+            campaign data is already present for the first layout; the
+            implicit `auto` track otherwise adopts the panes' ~371px
+            min-content width and widens the document. A cold reload painted
+            the empty state first and hid the bug. */}
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] items-start gap-4 lg:grid-cols-[minmax(15rem,19rem)_minmax(0,1fr)]">
+          <div className="min-h-0 min-w-0">
             <ConversationList
               conversations={visible}
               selectedId={selectedId}
@@ -567,7 +573,7 @@ export function FeedbackInboxPage() {
             />
           </div>
 
-          <div className="min-h-0">
+          <div className="min-h-0 min-w-0">
             {conversation ? (
               <ConversationTranscript
                 conversation={conversation}
@@ -650,7 +656,7 @@ export function FeedbackInboxPage() {
             instead of one column an operator has to scroll to reach the
             notes. */}
           {conversation ? (
-            <div className="grid gap-4 md:grid-cols-2 lg:col-span-2 xl:grid-cols-3">
+            <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-2 lg:col-span-2 xl:grid-cols-3">
               <ProgressPanel
                 conversation={conversation}
                 eventId={campaign?.eventId ?? ""}

@@ -1549,15 +1549,26 @@ describe("inbox toolbar and orientation", () => {
     // that separates the page's nameplate from its work.
     expect(surface).toContain('<div className="flex flex-col gap-4">');
     expect(surface).toContain(
-      '<div className="grid items-start gap-4 lg:grid-cols-[minmax(15rem,19rem)_minmax(0,1fr)]">',
+      '<div className="grid min-w-0 grid-cols-[minmax(0,1fr)] items-start gap-4 lg:grid-cols-[minmax(15rem,19rem)_minmax(0,1fr)]">',
     );
     expect(surface).toContain(
-      '<div className="grid gap-4 md:grid-cols-2 lg:col-span-2 xl:grid-cols-3">',
+      '<div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-2 lg:col-span-2 xl:grid-cols-3">',
     );
 
     // The context row is the exception, and deliberately: it is a caption for
     // the summary card, not a card of its own.
     expect(surface).toContain('<div className="flex flex-col gap-2">');
+  });
+
+  it("keeps the populated inbox inside a narrow SPA viewport", () => {
+    const page = readSource("src/routes/FeedbackInboxPage.tsx");
+
+    // A route navigation can render the populated panes on the first layout.
+    // CSS Grid's implicit auto track then adopts their min-content width unless
+    // both the track and its direct items explicitly allow shrinking.
+    expect(page).toContain("grid-cols-[minmax(0,1fr)] items-start gap-4");
+    expect(page.match(/className="min-h-0 min-w-0"/g)).toHaveLength(2);
+    expect(page).toContain("grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-2");
   });
 
   it("shows the persisted venue above the chat without loading Google UI", () => {
