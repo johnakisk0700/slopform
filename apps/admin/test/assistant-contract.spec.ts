@@ -549,12 +549,16 @@ describe("assistant route wiring", () => {
 
     expect(page).toContain("routeThreadId");
     expect(page).toContain("ResizeObserver");
-    expect(page).toContain("requestAnimationFrame(scrollToBottom)");
+    expect(page).not.toContain("scrollToBottom");
+    expect(page).toContain("requestAnimationFrame(alignLatestQuestion)");
     expect(page).toContain("operationRef.current || isBusy || failure");
     expect(page).toContain("[overflow-anchor:none]");
     expect(conversation).toContain('className="sr-only" aria-live="polite"');
     expect(conversation).toContain('role="log"');
     expect(page).toContain("calculateAssistantReplyMinHeight");
+    expect(page).toContain(
+      "[activeThreadId, latestUserMessageId, replyMinHeight]",
+    );
     expect(page).toContain("skipHydrationThreadIdRef.current = thread.id");
     expect(page).toContain("preserveAssistantLiveAlignment: true");
     expect(page).toContain("useRef(preserveLiveAlignment)");
@@ -601,6 +605,9 @@ describe("assistant route wiring", () => {
     expect(composer).not.toContain("focus-within:ring-");
     expect(composer).toContain("focus:ring-0");
     expect(composer).toContain("focus-visible:ring-0");
+    expect(page).toContain("isBusy={isGenerating}");
+    expect(page).toContain('isLoading={phase === "loading"}');
+    expect(composer).toContain("disabled || isLoading || !value.trim()");
   });
 
   it("uses real Gemini and Qwen marks and notes_ai selector geometry", () => {

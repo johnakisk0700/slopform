@@ -24,6 +24,7 @@ interface AssistantComposerProps {
   selectedEffort: AssistantEffort;
   selectedServiceTier: AssistantServiceTier;
   isBusy: boolean;
+  isLoading: boolean;
   isBlocked: boolean;
   error: string | null;
   containerRef: RefObject<HTMLFormElement | null>;
@@ -42,6 +43,7 @@ export function AssistantComposer({
   selectedEffort,
   selectedServiceTier,
   isBusy,
+  isLoading,
   isBlocked,
   error,
   containerRef,
@@ -56,7 +58,7 @@ export function AssistantComposer({
 
   function submit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
-    if (!disabled) onSubmit();
+    if (!disabled && !isLoading) onSubmit();
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>): void {
@@ -152,7 +154,7 @@ export function AssistantComposer({
               type="submit"
               variant="primary"
               isIconOnly
-              isDisabled={disabled || !value.trim()}
+              isDisabled={disabled || isLoading || !value.trim()}
               aria-label="Send message"
               className="ml-auto size-8.5 min-w-8.5 rounded-md"
             >

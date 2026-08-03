@@ -227,6 +227,8 @@ export function AssistantPage() {
     phase === "submitting" ||
     phase === "queued" ||
     phase === "running";
+  const isGenerating =
+    phase === "submitting" || phase === "queued" || phase === "running";
 
   const focusComposer = useCallback(() => {
     requestAnimationFrame(() => textareaRef.current?.focus());
@@ -681,7 +683,14 @@ export function AssistantPage() {
 
   useLayoutEffect(() => {
     const scroller = scrollContainerRef.current;
-    if (!scroller || !activeThreadId) return;
+    if (
+      !scroller ||
+      !activeThreadId ||
+      !latestUserMessageId ||
+      replyMinHeight === null
+    ) {
+      return;
+    }
     if (activeThreadId === previousThreadIdRef.current) return;
 
     if (skipHydrationThreadIdRef.current === activeThreadId) {
@@ -691,19 +700,30 @@ export function AssistantPage() {
     }
 
     previousThreadIdRef.current = activeThreadId;
-    const scrollToBottom = () => {
-      scroller.scrollTop = scroller.scrollHeight;
+    const latestQuestion = document.getElementById(latestUserMessageId);
+    if (!latestQuestion) return;
+    const questionContent =
+      latestQuestion.querySelector<HTMLElement>(
+        "[data-assistant-user-content]",
+      ) ?? latestQuestion;
+    const alignLatestQuestion = () => {
+      scroller.scrollTop = calculateAssistantQuestionScrollTop(
+        scroller.scrollTop,
+        questionContent.getBoundingClientRect().top,
+        scroller.getBoundingClientRect().top,
+      );
     };
 
-    // Match notes_ai hydration: land immediately, confirm one frame later, and
-    // absorb short-lived Markdown/Mermaid/layout growth without visible jumps.
-    scrollToBottom();
-    const frame = window.requestAnimationFrame(scrollToBottom);
+    // Reload and thread selection must restore the same question-aligned layout
+    // as a live send. Bottom-locking here made the final question disappear
+    // above the viewport once the answer reserve was measured.
+    alignLatestQuestion();
+    const frame = window.requestAnimationFrame(alignLatestQuestion);
     const content = scroller.firstElementChild;
     const observer =
       typeof ResizeObserver === "undefined"
         ? null
-        : new ResizeObserver(scrollToBottom);
+        : new ResizeObserver(alignLatestQuestion);
     observer?.observe(scroller);
     if (content) observer?.observe(content);
     const timeoutId = window.setTimeout(() => observer?.disconnect(), 1_000);
@@ -713,7 +733,7 @@ export function AssistantPage() {
       window.clearTimeout(timeoutId);
       observer?.disconnect();
     };
-  }, [activeThreadId]);
+  }, [activeThreadId, latestUserMessageId, replyMinHeight]);
 
   function changeModel(model: AssistantModel): void {
     setSelectedModel(model);
@@ -950,7 +970,8 @@ export function AssistantPage() {
         selectedModel={selectedModel}
         selectedEffort={selectedEffort}
         selectedServiceTier={selectedServiceTier}
-        isBusy={isBusy}
+        isBusy={isGenerating}
+        isLoading={phase === "loading"}
         isBlocked={failure !== null}
         error={composerError}
         containerRef={composerContainerRef}

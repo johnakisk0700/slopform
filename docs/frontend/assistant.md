@@ -218,10 +218,11 @@ them.
   `/admin/assistant/:threadId` restores that exact owned thread and polls its
   final queued/running turn. `/admin/assistant` deliberately stays a blank new
   conversation rather than guessing which history item the operator meant.
-- Historical hydration scrolls to the end immediately, confirms on the next
-  animation frame and keeps a short `ResizeObserver` while Markdown/Mermaid
-  layout settles. A newly submitted question keeps the separate notes_ai
-  question-alignment behavior. The visible scroll viewport and newest question
+- Historical hydration restores the latest question at the same top offset as
+  a live send, confirms on the next animation frame and keeps a short
+  `ResizeObserver` while Markdown/Mermaid layout settles. Reloading or selecting
+  a thread therefore cannot replace the question-aligned answer reserve with a
+  bottom lock. The visible scroll viewport and newest question
   and the overlay composer's real top edge are measured with `ResizeObserver`;
   the genuinely visible remaining height moves unchanged from the waiting
   placeholder to the live answer and stays on the settled last answer. Matching
@@ -278,6 +279,10 @@ inset from it, and the scroll region keeps a permanent gutter so an appearing
 scrollbar cannot recentre the column under a composer that does not move. The
 `❯` prompt is set in the mono family — in the sans face that glyph has no
 descender and floats above the caret it sits beside.
+
+Loading another conversation blocks only submission. It does not disable or
+replace the textarea, model controls or send icon, so the docked composer stays
+visually stable while the transcript changes underneath it.
 
 Thinking copy and the settled model/cost/token stamp use the same mono
 marginalia face as the source chat. The answer, activity disclosures and footer
