@@ -676,8 +676,10 @@ export function AssistantPage() {
         alignQuestion();
         const frame = window.requestAnimationFrame(() => {
           alignQuestion();
-          alignLatestQuestionRef.current = false;
-          if (activeThreadId) previousThreadIdRef.current = activeThreadId;
+          if (activeThreadId) {
+            alignLatestQuestionRef.current = false;
+            previousThreadIdRef.current = activeThreadId;
+          }
         });
         return () => window.cancelAnimationFrame(frame);
       }

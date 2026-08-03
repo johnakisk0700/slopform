@@ -465,6 +465,9 @@ describe("assistant route wiring", () => {
     expect(conversation).toContain('role="log"');
     expect(page).toContain("calculateAssistantReplyMinHeight");
     expect(page).toContain("skipHydrationThreadIdRef.current = thread.id");
+    expect(page).toContain(
+      "if (activeThreadId) {\n            alignLatestQuestionRef.current = false",
+    );
     expect(conversation).toContain("replyMinHeight");
     expect(message).toContain("style={minHeight");
     expect(conversation).not.toContain(
