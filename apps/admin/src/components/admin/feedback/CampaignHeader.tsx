@@ -5,7 +5,6 @@ import {
   PauseCircle,
   PlayCircle,
   SquareX,
-  TriangleAlert,
   Unplug,
 } from "lucide-react";
 import { Link } from "react-router";
@@ -23,6 +22,7 @@ interface CampaignHeaderProps {
   pausePending: boolean;
   resumePending: boolean;
   closePending: boolean;
+  simulatorAvailable: boolean;
   onPause: () => Promise<void>;
   onResume: () => Promise<void>;
   onClose: () => Promise<void>;
@@ -33,6 +33,7 @@ export function CampaignHeader({
   pausePending,
   resumePending,
   closePending,
+  simulatorAvailable,
   onPause,
   onResume,
   onClose,
@@ -126,7 +127,17 @@ export function CampaignHeader({
         {campaign?.eventTitle ?? "Feedback conversations"}
       </h1>
 
-      <div className="flex flex-wrap items-center gap-2 sm:col-start-2 sm:row-start-1 sm:justify-self-end sm:gap-3">
+      <div className="flex min-w-0 flex-nowrap items-center gap-2 sm:col-start-2 sm:row-start-1 sm:justify-self-end sm:gap-3">
+        {simulatorAvailable ? (
+          <span
+            title="Simulated transport"
+            className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border text-ink-muted"
+          >
+            <FlaskConical aria-hidden="true" className="size-3.5" />
+            <span className="sr-only">Simulated transport</span>
+          </span>
+        ) : null}
+
         {campaign ? (
           /* The same pill the two actions are cut from, in the lightest
              variant. It used to be bare text beside them, which reads fine on
@@ -143,10 +154,11 @@ export function CampaignHeader({
                width, colour and offset intact and `style: none`, i.e. invisible.
                Restoring only the style hands this link the exact ring every
                other native element on the app has, without naming a colour. */
-            className={`${buttonVariants({ variant: "ghost", size: "sm" })} focus-visible:outline-solid`}
+            aria-label="Campaign results"
+            className={`${buttonVariants({ variant: "ghost", size: "sm" })} max-sm:min-h-8 max-sm:min-w-8 max-sm:px-2 focus-visible:outline-solid`}
           >
             <BarChart3 aria-hidden="true" className="size-4 shrink-0" />
-            Results
+            <span className="max-sm:hidden">Results</span>
           </Link>
         ) : null}
 
@@ -168,6 +180,7 @@ export function CampaignHeader({
             heading="Pause this campaign"
             description="Queued messages stop going out until you resume. Conversations already open stay open, and replies still arrive."
             confirmLabel="Pause campaign"
+            collapseLabelAt="sm"
             isPending={pausePending}
             isDisabled={campaignBusy}
             onConfirm={onPause}
@@ -181,6 +194,7 @@ export function CampaignHeader({
             heading="Resume this campaign"
             description="Queued messages start going out again, including anything held while the campaign was paused."
             confirmLabel="Resume campaign"
+            collapseLabelAt="sm"
             isPending={resumePending}
             isDisabled={campaignBusy}
             onConfirm={onResume}
@@ -195,6 +209,7 @@ export function CampaignHeader({
             heading="Close this campaign"
             description="The kill switch: nothing further is sent and everything still queued is cancelled. Open conversations are left to STOP, expiry or a staff close. This cannot be undone."
             confirmLabel="Close campaign"
+            collapseLabelAt="sm"
             isPending={closePending}
             isDisabled={campaignBusy}
             onConfirm={onClose}
@@ -208,7 +223,6 @@ export function CampaignHeader({
 interface CampaignContextProps {
   campaign: FeedbackCampaignConversationsDtoOutputCampaign | undefined;
   venue: EventVenueValue | null;
-  simulatorAvailable: boolean;
 }
 
 /**
@@ -225,9 +239,8 @@ interface CampaignContextProps {
  * line, a filled summary card — which is what «κακάσχημη» was pointing at.
  *
  * So the border belongs to the *band*, not to the venue inside it. One ghost
- * frame, the facts flowing left to right and wrapping inside it, so the screen
- * under the title is two objects at every width: what is true now, then the
- * summary generated from it.
+ * frame, one line: the venue owns the shrinking width and its qualifiers
+ * truncate before exceptional campaign/model state can force a second row.
  *
  * Full width, and not the `w-fit` this was first drawn with. Hugging sounds
  * right — a short band should not pretend to be a card — but the content here is
@@ -244,81 +257,46 @@ interface CampaignContextProps {
  * with everything running states itself with silence, and the transcript gets
  * the row back.
  */
-export function CampaignContext({
-  campaign,
-  venue,
-  simulatorAvailable,
-}: CampaignContextProps) {
+export function CampaignContext({ campaign, venue }: CampaignContextProps) {
   const hasException =
     campaign !== undefined &&
-    (campaign.status !== "launched" ||
-      campaign.needsAttentionCount > 0 ||
-      campaign.extractionParkedCount > 0 ||
-      simulatorAvailable);
+    (campaign.status !== "launched" || campaign.extractionParkedCount > 0);
 
   if (!venue && !hasException) {
     return null;
   }
 
   return (
-    /* `gap-x-5` between the two groups against `gap-x-3` inside them: twice the
-       distance is what separates «where» from «what is wrong» here. A hairline
-       would say it more plainly, but this row wraps, and a wrapped rule lands at
-       the start of a line and divides nothing. */
-    <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-lg border border-border px-4 py-2">
+    /* One non-wrapping line. Venue qualifiers give way first; the exceptional
+       status group stays compact and readable at the right edge. */
+    <div className="flex min-w-0 items-center gap-3 overflow-hidden rounded-lg border border-border px-4 py-2">
       {venue ? (
-        <section aria-label="Dinner venue" className="min-w-0">
+        <section aria-label="Dinner venue" className="min-w-0 flex-1">
           <VenueCompact venue={venue} />
         </section>
       ) : null}
 
-      {/* Exceptions only, and nothing when nothing is wrong. The counts that
-          used to live here («N conversations · N open») restated what the
-          list's own headings count right beside them, and the «Launched» pill
-          badged the normal state of every working campaign. What is left
-          appears exactly when it is news: a paused or closed campaign,
-          conversations waiting for a person, extraction parked on a dead
-          provider, a simulated transport. */}
+      {/* Only campaign/model exceptions remain here. Attention belongs to the
+          list that owns its rows; simulated transport lives in the toolbar. */}
       {hasException ? (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-ink-muted">
+        <div className="flex shrink-0 flex-nowrap items-center gap-x-3 whitespace-nowrap text-sm text-ink-muted">
           {campaign.status !== "launched" ? (
             <FeedbackBadges badges={[campaignStatusBadge(campaign.status)]} />
           ) : null}
-          {campaign.needsAttentionCount > 0 ? (
-            <p className="flex items-center gap-1.5 font-semibold text-warning">
-              <TriangleAlert aria-hidden="true" className="size-4 shrink-0" />
-              <span className="tabular-nums">
-                {campaign.needsAttentionCount}
-              </span>
-              need attention
-            </p>
-          ) : null}
-          {/* Beside the triangle and deliberately not inside it. «Needs
-              attention» means these conversations want a person; a parked one
-              wants a working provider, and no operator can do anything for it
-              but wait. Rolling the two together is how one outage became
-              thirty-six things to read on 2026-07-27.
-
-              Its own glyph for the same reason: an unplugged cable says «the
+          {/* An unplugged cable says «the
               model is unreachable» in a way a second warning triangle would
-              not. It renders only above zero, so the ordinary campaign line is
-              unchanged and this appears exactly when there is an incident. */}
+              not. Below `sm`, only the count remains visible so the location
+              line cannot wrap. */}
           {campaign.extractionParkedCount > 0 ? (
-            <p className="flex items-center gap-1.5 font-semibold text-info">
+            <p
+              aria-label={`${campaign.extractionParkedCount} waiting on the model`}
+              className="flex items-center gap-1.5 font-semibold text-info"
+            >
               <Unplug aria-hidden="true" className="size-4 shrink-0" />
               <span className="tabular-nums">
                 {campaign.extractionParkedCount}
               </span>
-              waiting on the model
-            </p>
-          ) : null}
-          {/* Muted, not warning: it is a fact about the environment, present
-              on every dev screen, and a permanent amber line stops being read
-              the day it appears. */}
-          {simulatorAvailable ? (
-            <p className="flex items-center gap-1.5 jts-overline text-ink-muted">
-              <FlaskConical aria-hidden="true" className="size-3.5 shrink-0" />
-              Simulated transport
+              <span className="max-sm:hidden">waiting on the model</span>
             </p>
           ) : null}
         </div>

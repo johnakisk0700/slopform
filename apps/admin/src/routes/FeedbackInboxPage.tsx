@@ -577,6 +577,7 @@ export function FeedbackInboxPage() {
             pausePending={pauseCampaign.isPending}
             resumePending={resumeCampaign.isPending}
             closePending={closeCampaign.isPending}
+            simulatorAvailable={simulatorAvailable}
             onPause={() =>
               runCampaignAction(
                 () => pauseCampaign.mutateAsync({ campaignId }),
@@ -603,7 +604,6 @@ export function FeedbackInboxPage() {
           <CampaignContext
             campaign={campaign}
             venue={eventQuery.data?.venue ?? null}
-            simulatorAvailable={simulatorAvailable}
           />
         </div>
 

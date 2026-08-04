@@ -516,8 +516,9 @@ Placement is the screen's answer to "what does this act on?".
 | Control                        | Home                     | Why                                                                                                                     |
 | ------------------------------ | ------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
 | «All campaigns»                | Header top line, left    | Leaves the campaign — a back affordance (left arrow, link style)                                                        |
-| Results                        | Header top line, right   | Reads this campaign's output                                                                                            |
-| Pause / Resume / Close         | Header top line, right   | Changes this campaign's state; a hairline separates them from Results                                                   |
+| Simulated flask                | Header actions           | Quiet environment context; icon-only so it does not compete with campaign controls                                      |
+| Results                        | Header top line, right   | Reads this campaign's output; icon-only below `sm`                                                                      |
+| Pause / Resume / Close         | Header top line, right   | Changes campaign state; mutations collapse to icon-only below `sm` and remain on one row                                |
 | «Start» (D17)                  | NOT STARTED row, hover   | The affordance lives on the person it would start, in the list it joins                                                 |
 | Take over / Resume bot / Close | Transcript header, right | Opposite the contact — "can I still act here?"; Close icon-only always; Take over / Resume collapse to icons below `sm` |
 | «Add note»                     | NOTES card header        | Writes into the list it sits above                                                                                      |
@@ -633,9 +634,11 @@ is a token (`warning-soft` for backlog, `danger-soft` for failure).
 
 ### Venue orientation
 
-When the campaign's current event read model has a venue, `CampaignHeader`
-renders `VenueCompact` directly under the title: the persisted label and any
-stored type, area and price context, with a normal Google Maps deep-link. The
+When the campaign's current event read model has a venue, `CampaignContext`
+renders `VenueCompact` directly under the title as one non-wrapping line: the
+persisted label and any stored type, area and price context, with a normal
+Google Maps deep-link. Venue context owns the shrinking width, so its qualifiers
+truncate before the band can grow a second mobile row. The
 inbox does not mount `GooglePlaceDetails`, load the Places JavaScript API or
 request live photos/metadata. `FeedbackInboxPage` gets the value through the
 generated `useGetEvent` hook — the same event read already needed for NOT
@@ -651,12 +654,13 @@ number.
 
 ### The campaign line
 
-The campaign states itself beside the title with exceptions only — a status
-pill when it is paused or closed (launched is the normal state of every
-working campaign and gets no pill), the attention count on the list's own
-triangle when it is above zero, the parked count when a provider is down, and
-the muted «Simulated transport» flask in development. A launched campaign with
-nothing waiting states itself with silence. The line has shed, in order: a
+The venue line carries only exceptional campaign/model state beside the
+location — a status pill when paused or closed and a compact parked count when
+a provider is down. The attention count lives only on the conversation list's
+own NEEDS ATTENTION heading, where the affected rows are. The muted simulated
+transport flask lives in the campaign toolbar as an icon-only indicator. A
+launched campaign with nothing waiting states itself with silence. The line has
+shed, in order: a
 bordered summary bar under a paragraph of instructions, its own row under the
 header, and finally the `N conversations · N open` tallies — the list's
 headings count exactly the same rows a hand's width away.

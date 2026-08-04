@@ -1829,20 +1829,29 @@ describe("inbox toolbar and orientation", () => {
     );
     expect(page).toContain("sm:col-span-2 sm:row-start-2");
     expect(page).toContain("sm:col-start-2 sm:row-start-1 sm:justify-self-end");
+    expect(page).toContain('<span className="max-sm:hidden">Results</span>');
+    expect(page.match(/collapseLabelAt="sm"/gu)).toHaveLength(3);
+    expect(page).toContain(
+      '<span className="sr-only">Simulated transport</span>',
+    );
   });
 
-  it("keeps venue and exceptions inside one wrapping context frame", () => {
+  it("keeps venue context on one narrow line without redundant attention or simulator labels", () => {
     const page = readSource("src/components/admin/feedback/CampaignHeader.tsx");
     const context = page.slice(page.indexOf("export function CampaignContext"));
     const rootStart = context.indexOf("<div");
     const root = context.slice(rootStart, context.indexOf(">", rootStart));
 
-    // The band owns one full-width ghost frame, and wrapping keeps all standing
-    // facts inside the same object on narrow screens.
+    // Venue owns the shrinking width; only exceptional campaign/model state
+    // may sit beside it, without growing a second row on phones.
     expect(rootStart).toBeGreaterThan(-1);
-    expect(root).toContain("flex flex-wrap items-center");
+    expect(root).toContain("flex min-w-0 items-center");
+    expect(root).toContain("overflow-hidden");
     expect(root).toContain("rounded-lg border border-border");
+    expect(root).not.toContain("flex-wrap");
     expect(root).not.toContain("justify-between");
+    expect(context).not.toContain("needsAttentionCount");
+    expect(context).not.toContain("simulatorAvailable");
   });
 
   it("puts the summary card on the same gap as every other card", () => {
