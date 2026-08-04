@@ -727,6 +727,52 @@
   }
 
   /*
+   * A tool payload is code the operator may need to read, so it is drawn on the
+   * same surface the markdown renderer gives fenced code — same border, radius
+   * and primary-tinted raised fill — rather than inventing a second code look.
+   *
+   * The JSON inside gets three voices instead of hljs's two: keys in the
+   * theme's primary (they are the part an operator scans for), strings in the
+   * same primary-into-ink mix the markdown code strings use, numbers and
+   * literals in the accent. Punctuation and indentation stay on the base
+   * colour below — quieter than the values, because braces are structure, not
+   * content. The base is `text-muted`, not `text-subtle`: the old payload box
+   * set subtle-on-sunken, which is exactly the washed-out grey this exists to
+   * replace.
+   */
+  .assistant-payload {
+    max-height: 14rem;
+    overflow: auto;
+    border: 1px solid var(--jts-color-border);
+    border-radius: var(--jts-radius-md);
+    background: color-mix(
+      in srgb,
+      var(--jts-color-primary) 10%,
+      var(--jts-color-surface-raised)
+    );
+    padding: 0.5rem 0.625rem;
+    color: var(--jts-color-text-muted);
+    font-family: var(--jts-font-mono);
+    font-size: var(--jts-text-2xs);
+    line-height: 1.6;
+  }
+
+  .assistant-payload .tok-key {
+    color: var(--jts-color-primary);
+    font-weight: 600;
+  }
+
+  .assistant-payload .tok-string {
+    color: color-mix(in srgb, var(--jts-color-primary) 65%, var(--jts-color-text));
+  }
+
+  .assistant-payload .tok-number,
+  .assistant-payload .tok-literal {
+    color: var(--jts-color-accent);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /*
    * A card is a quotation from the database inside an answer, so it is drawn as
    * a quotation: raised off the message, its own border, and a start rule in the
    * theme's own colour so a profile beside an event beside prose still reads as

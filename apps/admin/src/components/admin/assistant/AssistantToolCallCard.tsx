@@ -1,5 +1,5 @@
 import { Check, CircleAlert, Loader2, Search, Wrench } from "lucide-react";
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 
 import type { AssistantToolCall } from "../../../features/assistant/schema";
 import { AssistantActivityDisclosure } from "./AssistantActivityDisclosure";
@@ -21,7 +21,7 @@ export function AssistantToolCallCard({ call }: { call: AssistantToolCall }) {
       }
       trailing={status.icon}
     >
-      <div className="grid gap-2 px-2.5 py-2 text-ink-subtle">
+      <div className="grid gap-2 px-2.5 py-2 text-ink-muted">
         <ToolPayload
           label="Input"
           value={call.input}
@@ -65,12 +65,79 @@ function ToolPayload({
 }) {
   return (
     <section aria-label={`${label} payload`} className="grid gap-1">
-      <h4 className="font-semibold text-ink-muted">{label}</h4>
-      <pre className="max-h-56 overflow-auto rounded-md border border-border-subtle bg-surface-subtle p-2 font-mono text-[length:var(--jts-text-2xs)] leading-4 text-ink-subtle">
-        {value === null ? "No payload" : JSON.stringify(value, null, 2)}
+      <h4 className="jts-overline text-ink-muted">{label}</h4>
+      <pre className="assistant-payload">
+        {value === null ? (
+          <span className="italic">No payload</span>
+        ) : (
+          <JsonSyntax value={value} />
+        )}
       </pre>
-      {truncated ? <p>Stored preview — the full payload was larger.</p> : null}
+      {truncated ? (
+        <p className="text-ink-subtle">
+          Stored preview — the full payload was larger.
+        </p>
+      ) : null}
     </section>
+  );
+}
+
+/**
+ * `JSON.stringify(value, null, 2)` with each token wrapped for the
+ * `.assistant-payload` palette. Hand-rolled rather than routed through the
+ * markdown/highlight pipeline: the value is already parsed JSON, so walking it
+ * is both cheaper than re-lexing its serialisation and immune to a payload
+ * that happens to contain markdown.
+ */
+function JsonSyntax({ value }: { value: unknown }) {
+  return <>{jsonNodes(value, "")}</>;
+}
+
+function jsonNodes(value: unknown, indent: string): ReactNode {
+  if (value === null || typeof value === "boolean") {
+    return <span className="tok-literal">{String(value)}</span>;
+  }
+  if (typeof value === "number") {
+    return <span className="tok-number">{String(value)}</span>;
+  }
+  if (typeof value === "string") {
+    return <span className="tok-string">{JSON.stringify(value)}</span>;
+  }
+  const inner = `${indent}  `;
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "[]";
+    return (
+      <>
+        {"[\n"}
+        {value.map((item, index) => (
+          <Fragment key={index}>
+            {inner}
+            {jsonNodes(item, inner)}
+            {index < value.length - 1 ? "," : ""}
+            {"\n"}
+          </Fragment>
+        ))}
+        {`${indent}]`}
+      </>
+    );
+  }
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length === 0) return "{}";
+  return (
+    <>
+      {"{\n"}
+      {entries.map(([key, entry], index) => (
+        <Fragment key={key}>
+          {inner}
+          <span className="tok-key">{JSON.stringify(key)}</span>
+          {": "}
+          {jsonNodes(entry, inner)}
+          {index < entries.length - 1 ? "," : ""}
+          {"\n"}
+        </Fragment>
+      ))}
+      {`${indent}}`}
+    </>
   );
 }
 

@@ -25,6 +25,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { clsx } from "clsx";
 import {
   Bell,
+  Bot,
   Boxes,
   Calendar,
   Check,
@@ -44,6 +45,9 @@ import {
 } from "lucide-react";
 
 import { AssistantMarkdown } from "../components/admin/assistant/AssistantMarkdown";
+import { AssistantReasoningCard } from "../components/admin/assistant/AssistantReasoningCard";
+import { AssistantToolCallCard } from "../components/admin/assistant/AssistantToolCallCard";
+import type { AssistantToolCall } from "../features/assistant/schema";
 import { BrandLockup } from "../components/admin/BrandLockup";
 import { CopyableId } from "../components/admin/feedback/CopyableId";
 import {
@@ -111,6 +115,13 @@ const FEEDBACK_SECTION: SectionSpec = {
   lede: "The status pills, ids and machine values the feedback screens speak in.",
 };
 
+const ASSISTANT_SECTION: SectionSpec = {
+  id: "assistant",
+  title: "Assistant activity",
+  Icon: Bot,
+  lede: "The disclosures a model turn leaves behind — thinking and tool calls — in every state a conversation can show them.",
+};
+
 const MOTIF_SECTION: SectionSpec = {
   id: "motifs",
   title: "Motifs & rules",
@@ -125,6 +136,7 @@ const SECTIONS: readonly SectionSpec[] = [
   HEROUI_SECTION,
   JTS_SECTION,
   FEEDBACK_SECTION,
+  ASSISTANT_SECTION,
   MOTIF_SECTION,
 ];
 
@@ -722,6 +734,55 @@ const INVARIANTS: readonly string[] = [
  * moment somebody wants to check a token is not the moment to require a
  * database. Sample content is invented and in the product's own voice.
  */
+/* -----------------------------------------------------------------------------
+   Assistant activity fixtures. Shapes a real turn produces, held still: the
+   live conversation only shows these states while a model is actually paying
+   for them, which is no way to review a border colour.
+   ----------------------------------------------------------------------------- */
+
+const TOOL_CALL_DONE: AssistantToolCall = {
+  toolCallId: "cookbook-tool-done",
+  tool: "find_participants",
+  label: "Searching participants",
+  state: "done",
+  input: { query: "Γκροκούλα", status: "confirmed", limit: 5 },
+  output: {
+    participants: [
+      { name: "Λούλα Γκροκούλα", phone: "+30690000602", dinners: 3 },
+      { name: "Θανάσης Γκροκομήτρος", phone: "+30690000603", dinners: 1 },
+    ],
+    total: 2,
+    truncated: false,
+  },
+  inputTruncated: false,
+  outputTruncated: true,
+};
+
+const TOOL_CALL_RUNNING: AssistantToolCall = {
+  toolCallId: "cookbook-tool-running",
+  tool: "list_events",
+  label: "Listing events",
+  state: "running",
+  input: { from: "2026-08-01", statuses: ["published", "finished"] },
+  output: null,
+  inputTruncated: false,
+  outputTruncated: false,
+};
+
+const TOOL_CALL_FAILED: AssistantToolCall = {
+  toolCallId: "cookbook-tool-failed",
+  tool: "find_participants",
+  label: "Searching participants",
+  state: "failed",
+  input: { query: "Ρούλα", limit: 5 },
+  output: null,
+  inputTruncated: false,
+  outputTruncated: false,
+};
+
+const REASONING_SAMPLE =
+  "The operator is asking about attendance for the Ουζερί dinner. I should look up the campaign's conversations first, then cross-reference the participants who confirmed but never answered the feedback questions.";
+
 export function CookbookPage() {
   usePageMeta(
     "Cookbook",
@@ -1613,7 +1674,51 @@ export function CookbookPage() {
         </div>
       </Section>
 
-      {/* 06 — Motifs & rules -------------------------------------------------- */}
+      {/* 06 — Assistant activity ---------------------------------------------- */}
+      <Section spec={ASSISTANT_SECTION}>
+        <div className="grid gap-3 lg:grid-cols-2">
+          <Specimen
+            label="Tool call — done, open it"
+            note="Live component, fixture data. The payloads are the part to judge: keys in primary, strings in ink, numbers in accent, punctuation receding — on the same surface fenced code gets in an answer."
+            className="grid gap-2"
+          >
+            <AssistantToolCallCard call={TOOL_CALL_DONE} />
+          </Specimen>
+
+          <Specimen
+            label="Tool call — running & failed"
+            note="Running breathes on the label and spins at the end of the row; failed keeps the input and says plainly that provider internals stay hidden."
+            className="grid gap-2"
+          >
+            <AssistantToolCallCard call={TOOL_CALL_RUNNING} />
+            <AssistantToolCallCard call={TOOL_CALL_FAILED} />
+          </Specimen>
+
+          <Specimen
+            label="Thinking — settled"
+            note="Reasoning is never styled as prose: italic, muted, and collapsed by default, so nobody mistakes the workings for the answer."
+            className="grid gap-2"
+          >
+            <AssistantReasoningCard
+              reasoning={REASONING_SAMPLE}
+              streaming={false}
+            />
+          </Specimen>
+
+          <Specimen
+            label="Thinking — streaming"
+            note="The same disclosure while the turn is still in flight."
+            className="grid gap-2"
+          >
+            <AssistantReasoningCard
+              reasoning={REASONING_SAMPLE}
+              streaming={true}
+            />
+          </Specimen>
+        </div>
+      </Section>
+
+      {/* 07 — Motifs & rules -------------------------------------------------- */}
       <Section spec={MOTIF_SECTION}>
         <div className="grid gap-3 lg:grid-cols-2">
           <Specimen
