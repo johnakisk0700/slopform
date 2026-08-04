@@ -31,7 +31,8 @@ function readSource(relativePath: string): string {
 }
 
 beforeAll(async () => {
-  const moduleUrl = new URL("../src/lib/liveIndicator.ts", import.meta.url).href;
+  const moduleUrl = new URL("../src/lib/liveIndicator.ts", import.meta.url)
+    .href;
   live = (await import(moduleUrl)) as LiveIndicatorModule;
 });
 

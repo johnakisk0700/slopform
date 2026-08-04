@@ -4,7 +4,7 @@ import type {
   FeedbackCampaignSummaryRow,
 } from "@join-the-six/database";
 import type { ConfigService } from "@nestjs/config";
-import { generateText } from "ai";
+import { generateObject } from "ai";
 import type { Queue } from "bullmq";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -37,10 +37,19 @@ import {
 
 vi.mock("ai", async (importOriginal) => {
   const original = await importOriginal<typeof import("ai")>();
-  return { ...original, generateText: vi.fn() };
+  return { ...original, generateObject: vi.fn() };
 });
 
-const mockedGenerateText = vi.mocked(generateText);
+const mockedGenerateObject = vi.mocked(generateObject);
+
+const narrativeObject = {
+  curiosities: ["Κάποιος βαθμολόγησε 1 τη συζήτηση και 5 τη βραδιά."],
+  gossip: ["Δύο φωνές είπαν ότι ο Νίκος «έκλεψε» το τραπέζι."],
+  actions: ["Seat the two meet-again pairs together next time."],
+  wentWell: ["Overall scores stayed high."],
+  wentWrong: [],
+  missing: null,
+};
 
 const campaignId = "89eccaa5-9ce6-4dcf-a630-5e35e4ec6f0d";
 const eventId = "7c57f3b8-2b13-48f5-8730-18ac71f490cd";
@@ -98,15 +107,15 @@ const summaryClaim: FeedbackCampaignSummaryExecutionClaim = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockedGenerateText.mockResolvedValue({
-    text: "  generated summary  ",
-  } as Awaited<ReturnType<typeof generateText>>);
+  mockedGenerateObject.mockResolvedValue({
+    object: narrativeObject,
+  } as Awaited<ReturnType<typeof generateObject>>);
 });
 
 describe("feedback summary configuration", () => {
-  it("reserves Terra xhigh as the explicit summary default", () => {
+  it("reserves Terra high as the explicit summary default", () => {
     expect(DEFAULT_FEEDBACK_SUMMARY_MODEL).toBe("openai/gpt-5.6-terra");
-    expect(DEFAULT_FEEDBACK_SUMMARY_REASONING_EFFORT).toBe("xhigh");
+    expect(DEFAULT_FEEDBACK_SUMMARY_REASONING_EFFORT).toBe("high");
   });
 
   it.each([undefined, "", "   "])(
@@ -411,7 +420,7 @@ describe("PostEventFeedbackCampaignSummaryService", () => {
 
       expect(queue.getJob).not.toHaveBeenCalled();
       expect(queue.add).not.toHaveBeenCalled();
-      expect(mockedGenerateText).not.toHaveBeenCalled();
+      expect(mockedGenerateObject).not.toHaveBeenCalled();
     },
   );
 
@@ -843,7 +852,7 @@ describe("PostEventFeedbackCampaignSummaryService", () => {
     expect(conversations.countOpenForCampaign).not.toHaveBeenCalled();
     expect(campaigns.findSummaryByCampaignId).not.toHaveBeenCalled();
     expect(queue.add).not.toHaveBeenCalled();
-    expect(mockedGenerateText).not.toHaveBeenCalled();
+    expect(mockedGenerateObject).not.toHaveBeenCalled();
   });
 
   it("allows an explicit manual summary request while the simulator is enabled", async () => {
@@ -863,7 +872,7 @@ describe("PostEventFeedbackCampaignSummaryService", () => {
       expect.objectContaining({ trigger: "manual" }),
     );
     expect(queue.add).toHaveBeenCalledOnce();
-    expect(mockedGenerateText).not.toHaveBeenCalled();
+    expect(mockedGenerateObject).not.toHaveBeenCalled();
   });
 
   it("rejects a direct automatic summary request while the simulator is enabled", async () => {
@@ -877,7 +886,7 @@ describe("PostEventFeedbackCampaignSummaryService", () => {
 
     expect(campaigns.upsertSummaryPending).not.toHaveBeenCalled();
     expect(queue.add).not.toHaveBeenCalled();
-    expect(mockedGenerateText).not.toHaveBeenCalled();
+    expect(mockedGenerateObject).not.toHaveBeenCalled();
   });
 
   it("terminally suppresses a retained automatic summary job in simulator mode", async () => {
@@ -899,7 +908,7 @@ describe("PostEventFeedbackCampaignSummaryService", () => {
       }),
     );
     expect(results.listAnswersByCampaign).not.toHaveBeenCalled();
-    expect(mockedGenerateText).not.toHaveBeenCalled();
+    expect(mockedGenerateObject).not.toHaveBeenCalled();
   });
 
   it("runs an explicitly requested manual summary in simulator mode", async () => {
@@ -915,7 +924,7 @@ describe("PostEventFeedbackCampaignSummaryService", () => {
       ),
     ).resolves.toBe("completed");
 
-    expect(mockedGenerateText).toHaveBeenCalledOnce();
+    expect(mockedGenerateObject).toHaveBeenCalledOnce();
     expect(campaigns.markSummaryFailed).not.toHaveBeenCalled();
     expect(campaigns.markSummaryReady).toHaveBeenCalledWith(
       expect.anything(),
@@ -925,8 +934,8 @@ describe("PostEventFeedbackCampaignSummaryService", () => {
 
   it("admits only the durable claim owner to the provider", async () => {
     const { service, campaigns } = createService();
-    const provider = deferred<Awaited<ReturnType<typeof generateText>>>();
-    mockedGenerateText.mockReturnValue(provider.promise);
+    const provider = deferred<Awaited<ReturnType<typeof generateObject>>>();
+    mockedGenerateObject.mockReturnValue(provider.promise);
     campaigns.findSummaryByCampaignId.mockResolvedValue(pendingSummaryRow());
     campaigns.tryClaimSummaryExecution
       .mockResolvedValueOnce({ outcome: "claimed", claim: summaryClaim })
@@ -936,7 +945,7 @@ describe("PostEventFeedbackCampaignSummaryService", () => {
       { schemaVersion: 2, campaignId, attempt: 1, correlationId },
       { terminalOnFailure: false },
     );
-    await vi.waitFor(() => expect(mockedGenerateText).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(mockedGenerateObject).toHaveBeenCalledOnce());
 
     await expect(
       service.run(
@@ -944,11 +953,11 @@ describe("PostEventFeedbackCampaignSummaryService", () => {
         { terminalOnFailure: false },
       ),
     ).resolves.toBe("claim_busy");
-    expect(mockedGenerateText).toHaveBeenCalledOnce();
+    expect(mockedGenerateObject).toHaveBeenCalledOnce();
 
     provider.resolve({
-      text: "generated summary",
-    } as Awaited<ReturnType<typeof generateText>>);
+      object: narrativeObject,
+    } as Awaited<ReturnType<typeof generateObject>>);
     await expect(owner).resolves.toBe("completed");
   });
 
@@ -969,7 +978,7 @@ describe("PostEventFeedbackCampaignSummaryService", () => {
       summaryClaim,
       expect.any(Number),
     );
-    expect(mockedGenerateText).not.toHaveBeenCalled();
+    expect(mockedGenerateObject).not.toHaveBeenCalled();
     expect(campaigns.markSummaryReady).not.toHaveBeenCalled();
     expect(campaigns.markSummaryFailed).not.toHaveBeenCalled();
   });
@@ -996,7 +1005,7 @@ describe("PostEventFeedbackCampaignSummaryService", () => {
     const { service, campaigns } = createService();
     campaigns.findSummaryByCampaignId.mockResolvedValue(pendingSummaryRow());
     campaigns.markSummaryFailed.mockResolvedValue(undefined);
-    mockedGenerateText.mockRejectedValue(
+    mockedGenerateObject.mockRejectedValue(
       new FeedbackSummaryGenerationError(false, "provider_rejected"),
     );
 
@@ -1017,7 +1026,7 @@ describe("PostEventFeedbackCampaignSummaryService", () => {
     const { service, campaigns } = createService();
     const transient = new Error("provider timeout");
     campaigns.findSummaryByCampaignId.mockResolvedValue(pendingSummaryRow());
-    mockedGenerateText.mockRejectedValue(transient);
+    mockedGenerateObject.mockRejectedValue(transient);
 
     await expect(
       service.run(
@@ -1037,7 +1046,7 @@ describe("PostEventFeedbackCampaignSummaryService", () => {
     const { service, campaigns } = createService();
     const transient = new Error("provider timeout");
     campaigns.findSummaryByCampaignId.mockResolvedValue(pendingSummaryRow());
-    mockedGenerateText.mockRejectedValue(transient);
+    mockedGenerateObject.mockRejectedValue(transient);
 
     await expect(
       service.run(
@@ -1059,8 +1068,8 @@ describe("PostEventFeedbackCampaignSummaryService", () => {
     vi.useFakeTimers();
     try {
       const { service, campaigns } = createService();
-      const provider = deferred<Awaited<ReturnType<typeof generateText>>>();
-      mockedGenerateText.mockReturnValue(provider.promise);
+      const provider = deferred<Awaited<ReturnType<typeof generateObject>>>();
+      mockedGenerateObject.mockReturnValue(provider.promise);
       campaigns.findSummaryByCampaignId.mockResolvedValue(pendingSummaryRow());
 
       const run = service.run(
@@ -1068,7 +1077,7 @@ describe("PostEventFeedbackCampaignSummaryService", () => {
         { terminalOnFailure: false },
       );
       await vi.advanceTimersByTimeAsync(0);
-      expect(mockedGenerateText).toHaveBeenCalledOnce();
+      expect(mockedGenerateObject).toHaveBeenCalledOnce();
 
       await vi.advanceTimersByTimeAsync(
         FEEDBACK_SUMMARY_EXECUTION_HEARTBEAT_MS,
@@ -1076,8 +1085,8 @@ describe("PostEventFeedbackCampaignSummaryService", () => {
       expect(campaigns.renewSummaryExecutionClaim).toHaveBeenCalledTimes(2);
 
       provider.resolve({
-        text: "generated summary",
-      } as Awaited<ReturnType<typeof generateText>>);
+        object: narrativeObject,
+      } as Awaited<ReturnType<typeof generateObject>>);
       await expect(run).resolves.toBe("completed");
     } finally {
       vi.useRealTimers();
@@ -1116,7 +1125,7 @@ describe("PostEventFeedbackCampaignSummaryService", () => {
         { terminalOnFailure: false },
       );
 
-      const options = mockedGenerateText.mock.calls[0]?.[0];
+      const options = mockedGenerateObject.mock.calls[0]?.[0];
       const message = options?.messages?.[0];
       const prompt =
         message && "content" in message && typeof message.content === "string"
@@ -1125,14 +1134,14 @@ describe("PostEventFeedbackCampaignSummaryService", () => {
       expect(prompt).toContain(expectedInstruction);
       expect(prompt).not.toContain(excludedInstruction);
       if (version === 2) {
-        expect(prompt).toContain("Κράτησε χωριστές τις τέσσερις βαθμολογίες");
+        expect(prompt).toContain("Κράτα χωριστές τις τέσσερις βαθμολογίες");
       }
       expect(campaigns.findCampaignById).toHaveBeenCalledWith(campaignId);
       expect(campaigns.markSummaryReady).toHaveBeenCalledWith(
         expect.anything(),
         expect.objectContaining({
           claim: expect.objectContaining({ campaignId, attempt: 1 }),
-          body: "generated summary",
+          body: expect.stringContaining('"version":3'),
         }),
       );
     },
@@ -1163,6 +1172,7 @@ function createService(
     countOpenForCampaign: ReturnType<typeof vi.fn>;
     listLifecycleStatsForCampaigns: ReturnType<typeof vi.fn>;
     listForCampaign: ReturnType<typeof vi.fn>;
+    listAttentionEvidenceForCampaign: ReturnType<typeof vi.fn>;
   };
   results: {
     listAnswersByCampaign: ReturnType<typeof vi.fn>;
@@ -1211,6 +1221,7 @@ function createService(
     countOpenForCampaign: vi.fn().mockResolvedValue(0),
     listLifecycleStatsForCampaigns: vi.fn().mockResolvedValue([]),
     listForCampaign: vi.fn().mockResolvedValue([]),
+    listAttentionEvidenceForCampaign: vi.fn().mockResolvedValue([]),
   };
   const queue = {
     add: vi.fn().mockResolvedValue(undefined),

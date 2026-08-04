@@ -65,9 +65,7 @@ export function BrandLockup({
   // collapse the mark.
   const markClassName = clsx(
     tagline ? "h-10 w-10" : "h-9 w-9",
-    surface === "strong"
-      ? "text-sidebar-active-index"
-      : "text-primary",
+    surface === "strong" ? "text-sidebar-active-index" : "text-primary",
   );
 
   const content = (

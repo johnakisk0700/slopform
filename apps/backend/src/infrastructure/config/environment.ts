@@ -244,7 +244,7 @@ export const environmentSchema = observabilityEnvironmentSchema
     ),
     /**
      * Thinking budget for campaign summaries via OpenAI direct. Unset defaults
-     * to `xhigh` in-module; vocabulary is checked there like extraction effort.
+     * to `high` in-module; vocabulary is checked there like extraction effort.
      */
     FEEDBACK_SUMMARY_REASONING_EFFORT: z.preprocess(
       emptyStringToUndefined,

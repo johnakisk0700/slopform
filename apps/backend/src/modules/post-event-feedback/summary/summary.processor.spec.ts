@@ -27,7 +27,7 @@ describe("PostEventFeedbackSummaryProcessor", () => {
   beforeAll(() => Logger.overrideLogger(false));
 
   it("keeps campaign model work serial per worker process", () => {
-    expect(FEEDBACK_SUMMARY_WORKER_CONCURRENCY).toBe(1);
+    expect(FEEDBACK_SUMMARY_WORKER_CONCURRENCY).toBe(3);
   });
 
   it("runs the exact durable summary attempt encoded by the job", async () => {

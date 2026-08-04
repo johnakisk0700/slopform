@@ -6,7 +6,7 @@ import {
   APICallError,
   NoContentGeneratedError,
   RetryError,
-  generateText,
+  generateObject,
   type LanguageModel,
 } from "ai";
 import type { Queue } from "bullmq";
@@ -50,11 +50,18 @@ import {
 } from "../jobs.schemas.js";
 import { getPostEventFeedbackQuestionSet } from "../question-set.js";
 import { buildFeedbackCampaignSummaryPrompt } from "./prompt.js";
+import {
+  buildFeedbackCampaignSummaryDocument,
+  feedbackCampaignSummaryNarrativeSchema,
+  parseFeedbackCampaignSummaryDocument,
+  serializeFeedbackCampaignSummaryDocument,
+} from "./summary-document.js";
+import { buildFeedbackCampaignSummaryMetrics } from "./summary-metrics.js";
 
 export const DEFAULT_FEEDBACK_SUMMARY_MODEL =
   "openai/gpt-5.6-terra" as const satisfies AssistantModel;
 
-export const DEFAULT_FEEDBACK_SUMMARY_REASONING_EFFORT = "xhigh" as const;
+export const DEFAULT_FEEDBACK_SUMMARY_REASONING_EFFORT = "high" as const;
 
 export const FEEDBACK_SUMMARY_REASONING_EFFORTS = [
   "low",
@@ -682,6 +689,10 @@ export class PostEventFeedbackCampaignSummaryService {
           input.campaignId,
         );
         const notes = await this.results.listNotesByCampaign(input.campaignId);
+        const attention =
+          await this.conversations.listAttentionEvidenceForCampaign(
+            input.campaignId,
+          );
         const participantIds = [
           ...new Set(
             [
@@ -693,6 +704,7 @@ export class PostEventFeedbackCampaignSummaryService {
                 note.respondentParticipantId,
                 note.subjectParticipantId,
               ]),
+              ...attention.map((item) => item.respondentParticipantId),
             ].filter((id): id is string => Boolean(id)),
           ),
         ];
@@ -706,6 +718,11 @@ export class PostEventFeedbackCampaignSummaryService {
           (item) => item.lifecycle.state === "closed",
         ).length;
 
+        const metrics = buildFeedbackCampaignSummaryMetrics({
+          questionSetVersion: questionSet.version,
+          questionDefinitions: questionSet.answerQuestions,
+          answers,
+        });
         const prompt = buildFeedbackCampaignSummaryPrompt({
           questionSetVersion: questionSet.version,
           questionDefinitions: questionSet.answerQuestions,
@@ -715,9 +732,17 @@ export class PostEventFeedbackCampaignSummaryService {
           answers,
           notes,
           displayNames,
+          metrics,
+          attention,
         });
 
-        const body = await this.generateSummary(prompt, claim);
+        const narrative = await this.generateSummary(prompt, claim);
+        const body = serializeFeedbackCampaignSummaryDocument(
+          buildFeedbackCampaignSummaryDocument({ metrics, narrative }),
+        );
+        if (body.length > FEEDBACK_SUMMARY_BODY_MAX_LENGTH) {
+          throw new FeedbackSummaryGenerationError(false, "response_too_long");
+        }
         const ready = await this.database.transaction((transaction) =>
           this.campaigns.markSummaryReady(transaction, {
             claim,
@@ -773,7 +798,7 @@ export class PostEventFeedbackCampaignSummaryService {
   private async generateSummary(
     prompt: string,
     claim: FeedbackCampaignSummaryExecutionClaim,
-  ): Promise<string> {
+  ) {
     const model = this.resolveProviderModel();
     const result = await this.providerCalls.run(async () => {
       // Renew after the deployment-wide limiter grants capacity, immediately
@@ -789,25 +814,22 @@ export class PostEventFeedbackCampaignSummaryService {
       if (!renewed) {
         throw new FeedbackSummaryExecutionSupersededError();
       }
-      return generateText({
+      return generateObject({
         model,
+        schema: feedbackCampaignSummaryNarrativeSchema,
+        schemaName: "feedback_campaign_summary_narrative",
+        schemaDescription:
+          "Short Greek operator lists for a post-event feedback campaign summary. Metrics are counted separately and must not be restated here.",
         messages: [{ role: "user", content: prompt }],
-        maxOutputTokens: 8_192,
+        maxOutputTokens: 4_096,
         maxRetries: 0,
-        timeout: { totalMs: FEEDBACK_SUMMARY_TIMEOUT_MILLISECONDS },
+        abortSignal: AbortSignal.timeout(FEEDBACK_SUMMARY_TIMEOUT_MILLISECONDS),
         providerOptions: {
           openai: { reasoningEffort: this.reasoningEffort },
         },
       });
     });
-    const body = result.text.trim();
-    if (!body) {
-      throw new FeedbackSummaryGenerationError(true, "empty_response");
-    }
-    if (body.length > FEEDBACK_SUMMARY_BODY_MAX_LENGTH) {
-      throw new FeedbackSummaryGenerationError(false, "response_too_long");
-    }
-    return body;
+    return feedbackCampaignSummaryNarrativeSchema.parse(result.object);
   }
 
   private startExecutionHeartbeat(
@@ -939,6 +961,7 @@ function toSummaryView(
     return {
       status: "none",
       body: null,
+      document: null,
       model: null,
       reasoningEffort: null,
       isPartial: false,
@@ -958,6 +981,7 @@ function toSummaryView(
   return {
     status: summary.status as FeedbackCampaignSummaryView["status"],
     body: summary.body,
+    document: parseFeedbackCampaignSummaryDocument(summary.body),
     model: summary.model,
     reasoningEffort: summary.reasoningEffort,
     isPartial: summary.isPartial,

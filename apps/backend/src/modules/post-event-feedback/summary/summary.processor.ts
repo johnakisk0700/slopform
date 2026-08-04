@@ -24,7 +24,7 @@ import {
   PostEventFeedbackCampaignSummaryService,
 } from "./summary.service.js";
 
-export const FEEDBACK_SUMMARY_WORKER_CONCURRENCY = 1;
+export const FEEDBACK_SUMMARY_WORKER_CONCURRENCY = 3;
 export const FEEDBACK_SUMMARY_CLAIM_BUSY_RETRY_MS = 15_000;
 
 @Processor(

@@ -57,7 +57,7 @@ describe("feedback environment launch surfaces", () => {
   });
 
   it.each([".env.production.example", "apps/backend/.env.example"])(
-    "pins Luna medium for conversation work and Terra xhigh only for summaries in %s",
+    "pins Luna medium for conversation work and Terra high only for summaries in %s",
     (path) => {
       const contents = repositoryFile(path);
 
@@ -74,7 +74,7 @@ describe("feedback environment launch surfaces", () => {
       expect(contents).toMatch(
         /^FEEDBACK_SUMMARY_MODEL=openai\/gpt-5\.6-terra$/mu,
       );
-      expect(contents).toMatch(/^FEEDBACK_SUMMARY_REASONING_EFFORT=xhigh$/mu);
+      expect(contents).toMatch(/^FEEDBACK_SUMMARY_REASONING_EFFORT=high$/mu);
     },
   );
 });

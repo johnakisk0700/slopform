@@ -410,7 +410,7 @@ Concurrency is chosen per processor, and no two agree:
 | Feedback V1 bridge    | 10          | Drain only; no new steady-state production                        |
 | Feedback ingress      | 20          | PostgreSQL-serialized per routing identity                        |
 | Feedback conversation | 10          | PostgreSQL-fenced per conversation; parallel across conversations |
-| Feedback summary      | 1           | One expensive aggregation locally; PostgreSQL fences replicas     |
+| Feedback summary      | 3           | Terra-bound; PG lease fences one campaign, parallel across others |
 | Feedback maintenance  | 1           | Bounded repair scan; its subtasks run independently               |
 
 Choose these values per provider rate limits, work cost and failure modes; none

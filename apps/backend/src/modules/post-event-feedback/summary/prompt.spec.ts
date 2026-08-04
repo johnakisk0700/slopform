@@ -1,4 +1,8 @@
-import type { FeedbackAnswerRow, ParticipantRow } from "@join-the-six/database";
+import type {
+  FeedbackAnswerRow,
+  FeedbackNoteRow,
+  ParticipantRow,
+} from "@join-the-six/database";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -6,6 +10,7 @@ import {
   POST_EVENT_FEEDBACK_QUESTION_SET_V2,
 } from "../question-set.js";
 import { buildFeedbackCampaignSummaryPrompt } from "./prompt.js";
+import { buildFeedbackCampaignSummaryMetrics } from "./summary-metrics.js";
 
 const campaignId = "89eccaa5-9ce6-4dcf-a630-5e35e4ec6f0d";
 const conversationId = "11111111-1111-4111-8111-111111111111";
@@ -14,45 +19,37 @@ const subjectId = "33333333-3333-4333-8333-333333333333";
 
 describe("buildFeedbackCampaignSummaryPrompt", () => {
   it("keeps V2 experience dimensions separate and renders every score over five", () => {
-    const prompt = buildFeedbackCampaignSummaryPrompt({
+    const answers = [
+      answer("event_score", 5),
+      answer("table_fit", 4),
+      answer("participation_ease", 3),
+      answer("conversation_balance", 2),
+    ];
+    const prompt = buildPrompt({
       questionSetVersion: POST_EVENT_FEEDBACK_QUESTION_SET_V2.version,
       questionDefinitions: POST_EVENT_FEEDBACK_QUESTION_SET_V2.answerQuestions,
-      isPartial: false,
-      openConversationCount: 0,
-      closedConversationCount: 1,
-      answers: [
-        answer("event_score", 5),
-        answer("table_fit", 4),
-        answer("participation_ease", 3),
-        answer("conversation_balance", 2),
-      ],
-      notes: [],
-      displayNames: new Map<string, ParticipantRow>(),
+      answers,
     });
 
     expect(prompt).toContain("Συνολική αξιολόγηση βραδιάς (5/5)");
     expect(prompt).toContain("Καταλληλότητα παρέας και τραπεζιού (4/5)");
     expect(prompt).toContain("Ευκολία συμμετοχής στη συζήτηση (3/5)");
     expect(prompt).toContain("Ισορροπία συμμετοχής στη συζήτηση (2/5)");
-    expect(prompt).toContain("Κράτησε χωριστές τις τέσσερις βαθμολογίες");
+    expect(prompt).toContain("Κράτα χωριστές τις τέσσερις βαθμολογίες");
     expect(prompt).not.toContain("Το liked είναι η απάντηση V1");
   });
 
   it("preserves V1 liked, meet-again, and avoid semantics without V2 dimensions", () => {
-    const prompt = buildFeedbackCampaignSummaryPrompt({
+    const answers = [
+      answer("event_score", 4),
+      answer("liked", null, subjectId),
+      answer("meet_again", null, subjectId),
+      answer("avoid", null, subjectId),
+    ];
+    const prompt = buildPrompt({
       questionSetVersion: POST_EVENT_FEEDBACK_QUESTION_SET_V1.version,
       questionDefinitions: POST_EVENT_FEEDBACK_QUESTION_SET_V1.answerQuestions,
-      isPartial: false,
-      openConversationCount: 0,
-      closedConversationCount: 1,
-      answers: [
-        answer("event_score", 4),
-        answer("liked", null, subjectId),
-        answer("meet_again", null, subjectId),
-        answer("avoid", null, subjectId),
-      ],
-      notes: [],
-      displayNames: new Map<string, ParticipantRow>(),
+      answers,
     });
 
     expect(prompt).toContain("Αναλύεις campaign με ερωτηματολόγιο V1");
@@ -69,38 +66,47 @@ describe("buildFeedbackCampaignSummaryPrompt", () => {
     expect(prompt).toContain(
       "Η απουσία directed απάντησης είναι άγνωστο, όχι αρνητική ψήφος",
     );
-    expect(prompt).not.toContain("Κράτησε χωριστές τις τέσσερις βαθμολογίες");
+    expect(prompt).not.toContain("Κράτα χωριστές τις τέσσερις βαθμολογίες");
     expect(prompt).not.toContain("Καταλληλότητα παρέας και τραπεζιού");
   });
 
-  it("asks for the same three sections and the same limits on either question set", () => {
+  it("asks for structured list fields and soft limits on either question set", () => {
     for (const questionSet of [
       POST_EVENT_FEEDBACK_QUESTION_SET_V1,
       POST_EVENT_FEEDBACK_QUESTION_SET_V2,
     ]) {
-      const prompt = buildFeedbackCampaignSummaryPrompt({
+      const prompt = buildPrompt({
         questionSetVersion: questionSet.version,
         questionDefinitions: questionSet.answerQuestions,
-        isPartial: false,
-        openConversationCount: 0,
-        closedConversationCount: 1,
         answers: [answer("event_score", 5)],
-        notes: [],
-        displayNames: new Map<string, ParticipantRow>(),
       });
 
-      expect(prompt).toContain("### 📊 Η βραδιά σε νούμερα");
-      expect(prompt).toContain("### 💬 Τι ξεχώρισε");
-      expect(prompt).toContain("### 🎯 Τι κάνουμε");
-      expect(prompt).toContain("Όλη η αναφορά κάτω από 200 λέξεις");
-      expect(prompt).toContain("Κάθε bullet μία γραμμή, έως 20 λέξεις");
+      expect(prompt).toContain("`curiosities`");
+      expect(prompt).toContain("`gossip`");
+      expect(prompt).toContain("Κουτσομπολιό");
+      expect(prompt).toContain("Αξιοπερίεργα");
+      expect(prompt).toContain("έως 10 στοιχεία");
+      expect(prompt).toContain("Μην σταματάς στις 3 γραμμές");
+      expect(prompt).toContain("`actions`");
+      expect(prompt).toContain("`wentWell`");
+      expect(prompt).toContain("`wentWrong`");
+      expect(prompt).not.toContain("έως τρεις");
+      expect(prompt).toContain("## Φωνή");
+      expect(prompt).toContain("καθημερινά ελληνικά");
+      expect(prompt).toContain("είναι ρατσιστής/ρατσίστρια");
+      expect(prompt).toContain("Μην κόβεις κάτι που στέκει");
+      expect(prompt).toContain("κάθε στοιχείο περίπου μία γραμμή");
+      expect(prompt).not.toContain("Όλη η αναφορά κάτω από 200 λέξεις");
+      expect(prompt).not.toContain("έως 20 λέξεις");
       expect(prompt).toContain("Κάθε γεγονός λέγεται μία φορά");
-      expect(prompt).toContain(
-        "Emoji μόνο στους τίτλους των ενοτήτων — πουθενά μέσα στο κείμενο",
-      );
-      // The old open-ended briefs are what produced the padding; a second
-      // structure competing with the standard one is the regression to catch.
+      expect(prompt).toContain("Χωρίς emoji");
+      expect(prompt).toContain("Νούμερα (ήδη μετρημένα");
+      expect(prompt).not.toContain("```chart");
+      expect(prompt).not.toContain("### 📊 Η βραδιά σε νούμερα");
       expect(prompt).not.toContain("Δομή: σύντομη επισκόπηση");
+      expect(prompt).not.toContain(
+        "Γράψε στα ελληνικά για operator που έχει τριάντα δευτερόλεπτα.",
+      );
     }
   });
 
@@ -109,17 +115,15 @@ describe("buildFeedbackCampaignSummaryPrompt", () => {
       questionSetVersion: POST_EVENT_FEEDBACK_QUESTION_SET_V2.version,
       questionDefinitions: POST_EVENT_FEEDBACK_QUESTION_SET_V2.answerQuestions,
       answers: [answer("event_score", 4)],
-      notes: [],
-      displayNames: new Map<string, ParticipantRow>(),
     };
 
-    const partial = buildFeedbackCampaignSummaryPrompt({
+    const partial = buildPrompt({
       ...base,
       isPartial: true,
       openConversationCount: 2,
       closedConversationCount: 4,
     });
-    const complete = buildFeedbackCampaignSummaryPrompt({
+    const complete = buildPrompt({
       ...base,
       isPartial: false,
       openConversationCount: 0,
@@ -127,56 +131,87 @@ describe("buildFeedbackCampaignSummaryPrompt", () => {
     });
 
     expect(partial).toContain(
-      "Πρόσθεσε τελευταία ενότητα «### ⚠️ Τι λείπει» με μία γραμμή",
+      "`missing`: μία γραμμή για το τι δεν καλύπτεται ακόμη επειδή υπάρχουν ανοιχτές συζητήσεις.",
     );
-    // On a complete campaign the fourth section is conditional, and the model
-    // is told to drop it outright rather than write «τίποτα δεν λείπει».
-    expect(complete).toContain("Αλλιώς παράλειψέ την τελείως");
+    expect(complete).toContain("αλλιώς null");
     expect(complete).not.toContain(
-      "Πρόσθεσε τελευταία ενότητα «### ⚠️ Τι λείπει» με μία γραμμή",
+      "`missing`: μία γραμμή για το τι δεν καλύπτεται ακόμη επειδή υπάρχουν ανοιχτές συζητήσεις.",
     );
   });
 
-  it("offers the chart fence on both question sets and keeps it under the no-ranking rule", () => {
-    for (const questionSet of [
-      POST_EVENT_FEEDBACK_QUESTION_SET_V1,
-      POST_EVENT_FEEDBACK_QUESTION_SET_V2,
-    ]) {
-      const prompt = buildFeedbackCampaignSummaryPrompt({
-        questionSetVersion: questionSet.version,
-        questionDefinitions: questionSet.answerQuestions,
-        isPartial: false,
-        openConversationCount: 0,
-        closedConversationCount: 1,
-        answers: [answer("event_score", 5)],
-        notes: [],
-        displayNames: new Map<string, ParticipantRow>(),
-      });
+  it("marks flagged notes and unresolved attention evidence for wentWrong", () => {
+    const note = {
+      id: crypto.randomUUID(),
+      campaignId,
+      conversationId,
+      respondentParticipantId: respondentId,
+      subjectParticipantId: null,
+      noteType: "general" as const,
+      text: "Ο Τάκης ήταν άπαιχτος",
+      sourceMessageIds: ["66666666-6666-4666-8666-666666666666"],
+      extractionMeta: {
+        candidateIds: [],
+        flaggedForReview: true,
+      },
+      status: "new" as const,
+      createdAt: new Date("2026-08-02T12:00:00.000Z"),
+      updatedAt: new Date("2026-08-02T12:00:00.000Z"),
+    } satisfies FeedbackNoteRow;
 
-      // The fence, its type vocabulary and the scale ceiling are the contract
-      // `AssistantChart` implements; a rename on either side must fail here.
-      expect(prompt).toContain("```chart");
-      expect(prompt).toContain('"type":"bar"');
-      expect(prompt).toContain('"data":[{"label":"5/5","value":3}');
-      expect(prompt).toContain('`\"max\":5`');
-      expect(prompt).toContain("`bar` (κατανομές και συγκρίσεις)");
-      expect(prompt).toContain("`line` (εξέλιξη σε σειρά)");
-      expect(prompt).toContain("πίνακες GitHub");
-      expect(prompt).toContain(
-        "Μη φτιάχνεις γράφημα με ονόματα συμμετεχόντων στους άξονες",
-      );
-      expect(prompt).toContain("Ένα γράφημα στην πρώτη ενότητα");
-      expect(prompt).toContain("Ποτέ τρίτο");
-      expect(prompt).toContain(
-        "Κάθε τιμή γραφήματος βγαίνει με μέτρημα ή μέσο όρο πάνω στα δεδομένα παρακάτω",
-      );
-      // The chart channel is offered before the data it may only draw from.
-      expect(prompt.indexOf("## Μορφή")).toBeLessThan(
-        prompt.indexOf("## Απαντήσεις"),
-      );
-    }
+    const prompt = buildPrompt({
+      questionSetVersion: POST_EVENT_FEEDBACK_QUESTION_SET_V2.version,
+      questionDefinitions: POST_EVENT_FEEDBACK_QUESTION_SET_V2.answerQuestions,
+      answers: [answer("event_score", 2)],
+      notes: [note],
+      attention: [
+        {
+          conversationId,
+          respondentParticipantId: respondentId,
+          kind: "safety",
+          messageExcerpt: "φοβήθηκα λίγο",
+        },
+      ],
+    });
+
+    expect(prompt).toContain("[flagged for review]");
+    expect(prompt).toContain("θέμα ασφαλείας");
+    expect(prompt).toContain("«φοβήθηκα λίγο»");
+    expect(prompt).toContain("`wentWrong`");
   });
 });
+
+function buildPrompt(input: {
+  readonly questionSetVersion: 1 | 2;
+  readonly questionDefinitions:
+    | typeof POST_EVENT_FEEDBACK_QUESTION_SET_V1.answerQuestions
+    | typeof POST_EVENT_FEEDBACK_QUESTION_SET_V2.answerQuestions;
+  readonly answers: readonly FeedbackAnswerRow[];
+  readonly notes?: readonly FeedbackNoteRow[];
+  readonly isPartial?: boolean;
+  readonly openConversationCount?: number;
+  readonly closedConversationCount?: number;
+  readonly attention?: Parameters<
+    typeof buildFeedbackCampaignSummaryPrompt
+  >[0]["attention"];
+}): string {
+  const metrics = buildFeedbackCampaignSummaryMetrics({
+    questionSetVersion: input.questionSetVersion,
+    questionDefinitions: input.questionDefinitions,
+    answers: input.answers,
+  });
+  return buildFeedbackCampaignSummaryPrompt({
+    questionSetVersion: input.questionSetVersion,
+    questionDefinitions: input.questionDefinitions,
+    isPartial: input.isPartial ?? false,
+    openConversationCount: input.openConversationCount ?? 0,
+    closedConversationCount: input.closedConversationCount ?? 1,
+    answers: input.answers,
+    notes: input.notes ?? [],
+    displayNames: new Map<string, ParticipantRow>(),
+    metrics,
+    attention: input.attention ?? [],
+  });
+}
 
 function answer(
   questionKey: FeedbackAnswerRow["questionKey"],

@@ -91,10 +91,65 @@ export const feedbackCampaignSummaryStatusSchema = z.enum([
   ...FEEDBACK_CAMPAIGN_SUMMARY_STATUSES,
 ]);
 
+const feedbackCampaignSummaryScoreMetricSchema = z
+  .object({
+    questionKey: z.string().min(1).max(80),
+    label: z.string().min(1).max(200),
+    answerCount: z.number().int().nonnegative(),
+    average: z.number().nullable(),
+    max: z.number().int().positive(),
+    distribution: z
+      .array(
+        z
+          .object({
+            value: z.number().int(),
+            count: z.number().int().nonnegative(),
+          })
+          .strict(),
+      )
+      .max(10),
+  })
+  .strict();
+
+const feedbackCampaignSummaryDirectedMetricSchema = z
+  .object({
+    questionKey: z.string().min(1).max(80),
+    label: z.string().min(1).max(200),
+    edgeCount: z.number().int().nonnegative(),
+    respondentCount: z.number().int().nonnegative(),
+  })
+  .strict();
+
+/**
+ * Parsed v3 campaign summary. Null when the stored body is legacy markdown or
+ * the row has no body yet — the accordion falls back to the raw `body`. The
+ * read path projects older v2 `highlights` bodies into `curiosities` before
+ * this schema sees them.
+ */
+export const feedbackCampaignSummaryDocumentSchema = z
+  .object({
+    version: z.literal(3),
+    metrics: z
+      .object({
+        questionSetVersion: z.union([z.literal(1), z.literal(2)]),
+        scores: z.array(feedbackCampaignSummaryScoreMetricSchema).max(8),
+        directed: z.array(feedbackCampaignSummaryDirectedMetricSchema).max(8),
+      })
+      .strict(),
+    curiosities: z.array(z.string().min(1).max(280)).max(10),
+    gossip: z.array(z.string().min(1).max(280)).max(10),
+    actions: z.array(z.string().min(1).max(280)).max(10),
+    wentWell: z.array(z.string().min(1).max(280)).max(10),
+    wentWrong: z.array(z.string().min(1).max(280)).max(10),
+    missing: z.string().min(1).max(280).nullable(),
+  })
+  .strict();
+
 export const feedbackCampaignSummarySchema = z
   .object({
     status: feedbackCampaignSummaryStatusSchema,
     body: z.string().nullable(),
+    document: feedbackCampaignSummaryDocumentSchema.nullable(),
     model: z.string().nullable(),
     reasoningEffort: z.string().nullable(),
     isPartial: z.boolean(),

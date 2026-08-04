@@ -94,13 +94,16 @@ export function ConfirmAction({
         {...(isIconOnly ? { isIconOnly: true } : {})}
         {...(needsAriaLabel ? { "aria-label": label } : {})}
         className={clsx(
-          collapseLabelAt === "sm" && "max-sm:min-h-8 max-sm:min-w-8 max-sm:px-2",
+          collapseLabelAt === "sm" &&
+            "max-sm:min-h-8 max-sm:min-w-8 max-sm:px-2",
           triggerClassName,
         )}
       >
         {icon}
         {isIconOnly ? null : (
-          <span className={collapseLabelAt === "sm" ? "max-sm:hidden" : undefined}>
+          <span
+            className={collapseLabelAt === "sm" ? "max-sm:hidden" : undefined}
+          >
             {label}
           </span>
         )}

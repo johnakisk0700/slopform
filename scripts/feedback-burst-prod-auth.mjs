@@ -69,7 +69,9 @@ if (mintOnly) {
 }
 
 if (!existsSync(sessionFile) || !existsSync(cookieFile)) {
-  fail("SESSION_FILE and COOKIE_FILE are required for refresh; run --mint first");
+  fail(
+    "SESSION_FILE and COOKIE_FILE are required for refresh; run --mint first",
+  );
 }
 
 let failures = 0;
@@ -278,7 +280,9 @@ async function bapi(path, init = {}) {
       body?.errors?.[0]?.message ??
       JSON.stringify(body)?.slice(0, 200) ??
       res.statusText;
-    throw new Error(`BAPI ${init.method ?? "GET"} ${path} -> ${res.status} ${detail}`);
+    throw new Error(
+      `BAPI ${init.method ?? "GET"} ${path} -> ${res.status} ${detail}`,
+    );
   }
   return body;
 }

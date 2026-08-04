@@ -45,11 +45,51 @@ import {
 import {
   POST_EVENT_FEEDBACK_SAFETY_CATEGORIES,
   feedbackConversationMessageAttentionSchema,
+  postEventFeedbackAttentionReasonSchema,
   strongerRecommendedAction,
   type PostEventFeedbackAttentionReason,
   type PostEventFeedbackRecommendedAction,
   type PostEventFeedbackSafetyCategory,
 } from "./attention.js";
+
+/** Narrow evidence the campaign summary feeds into `wentWrong` / `wentWell`. */
+export type FeedbackCampaignAttentionEvidence = {
+  readonly conversationId: string;
+  readonly respondentParticipantId: string;
+  readonly kind: PostEventFeedbackAttentionReason;
+  readonly messageExcerpt: string | null;
+};
+
+const FEEDBACK_SUMMARY_ATTENTION_EVIDENCE_LIMIT = 40;
+const FEEDBACK_SUMMARY_MESSAGE_EXCERPT_MAX = 180;
+
+const feedbackSummaryAttentionEvidenceRowSchema = z
+  .object({
+    _id: z.uuid(),
+    respondentParticipantId: z.uuid(),
+    attentionReasons: z
+      .array(
+        z
+          .object({
+            kind: postEventFeedbackAttentionReasonSchema,
+            messageId: z.uuid().nullable(),
+            resolvedAt: z.date().nullable().optional(),
+          })
+          .passthrough(),
+      )
+      .max(50),
+    messages: z
+      .array(
+        z
+          .object({
+            id: z.uuid(),
+            text: z.string(),
+          })
+          .passthrough(),
+      )
+      .max(150),
+  })
+  .passthrough();
 
 const FEEDBACK_CONVERSATION_APPEND_ATTEMPTS = 3;
 const FEEDBACK_CONVERSATION_ATTENTION_MERGE_ATTEMPTS = 3;
@@ -526,6 +566,60 @@ export class FeedbackConversationRepository {
         remindedAt: document["remindedAt"] ?? null,
       }),
     );
+  }
+
+  /**
+   * Unresolved attention rows for the campaign summary prompt: kind plus a
+   * short cited-message excerpt. Only conversations that still need a person
+   * are loaded, so a finished quiet campaign pays almost nothing.
+   */
+  async listAttentionEvidenceForCampaign(
+    campaignId: string,
+  ): Promise<FeedbackCampaignAttentionEvidence[]> {
+    const collection = await this.collection();
+    const documents = await collection
+      .find({
+        schemaVersion: FEEDBACK_CONVERSATION_SCHEMA_VERSION,
+        purpose: FEEDBACK_CONVERSATION_PURPOSE,
+        campaignId,
+        needsAttention: true,
+      })
+      .project({
+        _id: 1,
+        respondentParticipantId: 1,
+        attentionReasons: 1,
+        "messages.id": 1,
+        "messages.text": 1,
+      })
+      .limit(FEEDBACK_SUMMARY_ATTENTION_EVIDENCE_LIMIT)
+      .toArray();
+
+    const evidence: FeedbackCampaignAttentionEvidence[] = [];
+    for (const raw of documents) {
+      const document = feedbackSummaryAttentionEvidenceRowSchema.parse(raw);
+      const messagesById = new Map(
+        document.messages.map((message) => [message.id, message.text]),
+      );
+      for (const reason of document.attentionReasons) {
+        if (reason.resolvedAt != null) {
+          continue;
+        }
+        const text =
+          reason.messageId === null
+            ? null
+            : (messagesById.get(reason.messageId) ?? null);
+        evidence.push({
+          conversationId: document._id,
+          respondentParticipantId: document.respondentParticipantId,
+          kind: reason.kind,
+          messageExcerpt: excerptForSummary(text),
+        });
+        if (evidence.length >= FEEDBACK_SUMMARY_ATTENTION_EVIDENCE_LIMIT) {
+          return evidence;
+        }
+      }
+    }
+    return evidence;
   }
 
   /** Open conversations still accepting feedback in one campaign. */
@@ -2391,6 +2485,20 @@ export class FeedbackConversationRepository {
     ]);
     return collection;
   }
+}
+
+function excerptForSummary(text: string | null): string | null {
+  if (!text) {
+    return null;
+  }
+  const collapsed = text.replace(/\s+/gu, " ").trim();
+  if (collapsed.length === 0) {
+    return null;
+  }
+  if (collapsed.length <= FEEDBACK_SUMMARY_MESSAGE_EXCERPT_MAX) {
+    return collapsed;
+  }
+  return `${collapsed.slice(0, FEEDBACK_SUMMARY_MESSAGE_EXCERPT_MAX - 1)}…`;
 }
 
 function workTransition(

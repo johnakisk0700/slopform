@@ -1,6 +1,20 @@
 import { Button, toast } from "@heroui/react";
 import { useQueryClient } from "@tanstack/react-query";
-import { ChevronDown } from "lucide-react";
+import type { ReactNode } from "react";
+import type { LucideIcon } from "lucide-react";
+import {
+  Ban,
+  ChevronDown,
+  CircleAlert,
+  CircleCheck,
+  CircleDashed,
+  Drama,
+  Handshake,
+  Heart,
+  ListTodo,
+  Sparkles,
+  UsersRound,
+} from "lucide-react";
 
 import { AssistantMarkdown } from "../assistant/AssistantMarkdown";
 import {
@@ -9,6 +23,7 @@ import {
   useRequestFeedbackCampaignSummary,
 } from "../../../api/generated/feedback-campaigns";
 import type { FeedbackCampaignSummaryDtoOutput } from "../../../api/generated/model/feedbackCampaignSummaryDtoOutput";
+import type { FeedbackCampaignSummaryDtoOutputDocument } from "../../../api/generated/model/feedbackCampaignSummaryDtoOutputDocument";
 import {
   campaignSummaryActionLabel,
   campaignSummaryPartialWarning,
@@ -70,6 +85,358 @@ function metaParts(summary: FeedbackCampaignSummaryDtoOutput): string[] {
   return parts;
 }
 
+type SummaryDocument = NonNullable<FeedbackCampaignSummaryDtoOutputDocument>;
+type SummaryScore = SummaryDocument["metrics"]["scores"][number];
+type SummaryDirected = SummaryDocument["metrics"]["directed"][number];
+type ScoredMetric = SummaryScore & { average: number };
+
+const DIRECTED_METRIC_GLYPHS: Record<
+  string,
+  { icon: LucideIcon; className: string; chip: string }
+> = {
+  liked: {
+    icon: Heart,
+    className: "text-success",
+    chip: "bg-success-soft",
+  },
+  meet_again: {
+    icon: Handshake,
+    className: "text-info",
+    chip: "bg-info-soft",
+  },
+  avoid: {
+    icon: Ban,
+    className: "text-warning",
+    chip: "bg-warning-soft",
+  },
+};
+
+function directedPresentation(questionKey: string): {
+  icon: LucideIcon;
+  className: string;
+  chip: string;
+} {
+  return (
+    DIRECTED_METRIC_GLYPHS[questionKey] ?? {
+      icon: UsersRound,
+      className: "text-ink-subtle",
+      chip: "bg-surface-sunken",
+    }
+  );
+}
+
+function SectionEmpty({ children }: { children: string }) {
+  return (
+    <p className="flex items-start gap-2 text-sm text-ink-muted">
+      <CircleDashed
+        aria-hidden="true"
+        strokeWidth={1.5}
+        className="mt-0.5 size-4 shrink-0 text-ink-subtle"
+      />
+      {children}
+    </p>
+  );
+}
+
+/**
+ * One report group inside the accordion. No nested border — the disclosure
+ * already frames everything — but a soft sunken wash + padding so each block
+ * has its own island without reading as a stack of cards.
+ */
+function ReportIsland({
+  title,
+  icon: Icon,
+  children,
+}: {
+  title: string;
+  icon: LucideIcon;
+  children: ReactNode;
+}) {
+  return (
+    <section className="grid gap-4 rounded-xl bg-surface-sunken px-4 py-4 sm:px-5 sm:py-5">
+      <h3 className="flex items-center gap-2 jts-overline text-ink-muted">
+        <Icon
+          aria-hidden="true"
+          className="size-3.5 shrink-0 text-ink-subtle"
+        />
+        {title}
+      </h3>
+      {children}
+    </section>
+  );
+}
+
+/**
+ * One 1–max score as a report-card row: label, average, and a filled range
+ * track so four dimensions compare by eye rather than by digit.
+ */
+function ScoreRangeRow({ score }: { score: ScoredMetric }) {
+  const fillPercent = Math.min(
+    100,
+    Math.max(0, (score.average / score.max) * 100),
+  );
+
+  return (
+    <li className="grid gap-1.5">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="min-w-0 truncate text-sm text-ink">{score.label}</span>
+        <span className="shrink-0 font-display text-base font-extrabold tabular-nums text-ink">
+          {score.average}
+          <span className="text-sm font-semibold text-ink-subtle">
+            {" "}
+            / {score.max}
+          </span>
+        </span>
+      </div>
+      <div
+        aria-hidden="true"
+        className="h-2.5 overflow-hidden rounded-full bg-surface ring-1 ring-inset ring-border-subtle"
+      >
+        <div
+          className="h-full rounded-full bg-primary"
+          style={{ width: `${fillPercent}%` }}
+        />
+      </div>
+      <p className="text-xs text-ink-subtle">
+        {countLabel(score.answerCount, "answer", "answers")}
+      </p>
+    </li>
+  );
+}
+
+/**
+ * Person-valued tallies (meet again, avoid, liked) as elongated attention
+ * chips — not the same shape as the score card, on purpose.
+ */
+function DirectedChip({ item }: { item: SummaryDirected }) {
+  const presentation = directedPresentation(item.questionKey);
+  const Icon = presentation.icon;
+
+  return (
+    <li
+      className={`flex min-w-[12rem] flex-1 items-center gap-2.5 rounded-lg px-3.5 py-3 ${presentation.chip}`}
+    >
+      <Icon
+        aria-hidden="true"
+        className={`size-4 shrink-0 ${presentation.className}`}
+      />
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-xs font-medium text-ink-muted">
+          {item.label}
+        </p>
+        <p className="mt-0.5 text-sm text-ink">
+          <span className="font-display text-lg font-extrabold tabular-nums">
+            {item.edgeCount}
+          </span>
+          <span className="text-ink-subtle">
+            {" "}
+            from {countLabel(item.respondentCount, "person", "people")}
+          </span>
+        </p>
+      </div>
+    </li>
+  );
+}
+
+function SummaryMetrics({ document }: { document: SummaryDocument }) {
+  const scores = document.metrics.scores.flatMap<ScoredMetric>((score) =>
+    score.answerCount > 0 && score.average !== null
+      ? [{ ...score, average: score.average }]
+      : [],
+  );
+  const directed = document.metrics.directed.filter(
+    (item) => item.edgeCount > 0,
+  );
+
+  if (scores.length === 0 && directed.length === 0) {
+    return (
+      <SectionEmpty>
+        Nothing counted yet — no scored or person-valued answers have been
+        recorded for this campaign.
+      </SectionEmpty>
+    );
+  }
+
+  return (
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] lg:items-start">
+      {scores.length > 0 ? (
+        <div>
+          <p className="text-xs font-medium text-ink-muted">Score averages</p>
+          <ul className="mt-3.5 grid gap-4">
+            {scores.map((score) => (
+              <ScoreRangeRow key={score.questionKey} score={score} />
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {directed.length > 0 ? (
+        <div className="flex flex-col gap-2.5">
+          <p className="text-xs font-medium text-ink-muted">Who people named</p>
+          <ul className="flex flex-col gap-2.5">
+            {directed.map((item) => (
+              <DirectedChip key={item.questionKey} item={item} />
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Plain bullets — section title + icon already carry meaning, so list items
+ * stay typographic (curiosities, gossip, next actions).
+ */
+function BulletList({
+  items,
+  empty,
+}: {
+  items: readonly string[];
+  empty: string;
+}) {
+  if (items.length === 0) {
+    return <SectionEmpty>{empty}</SectionEmpty>;
+  }
+
+  return (
+    <ul className="grid list-disc gap-3.5 pl-5 marker:text-ink-subtle">
+      {items.map((item) => (
+        <li key={item} className="pl-1 text-sm leading-relaxed text-ink">
+          {item}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * Optional tea drawer: closed until staff open it. Hidden entirely when the
+ * model left gossip empty — no empty tease. Lucide has no nail-polish glyph;
+ * `Drama` is the nearest in-set tea/sass mark.
+ */
+function GossipDrawer({ items }: { items: readonly string[] }) {
+  if (items.length === 0) {
+    return null;
+  }
+
+  return (
+    <details className="group rounded-xl bg-surface-sunken px-4 py-1 sm:px-5">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 py-3.5 marker:content-none [&::-webkit-details-marker]:hidden">
+        <span className="flex min-w-0 items-center gap-2 jts-overline text-ink-muted">
+          <Drama
+            aria-hidden="true"
+            className="size-3.5 shrink-0 text-ink-subtle"
+          />
+          Κουτσομπολιό
+          <span className="font-sans text-xs font-medium normal-case tracking-normal text-ink-subtle">
+            ({items.length})
+          </span>
+        </span>
+        <ChevronDown
+          aria-hidden="true"
+          className="size-4 shrink-0 text-ink-subtle transition-transform group-open:rotate-180"
+        />
+      </summary>
+      <div className="border-t border-border-subtle pb-4 pt-3.5">
+        <BulletList items={items} empty="" />
+      </div>
+    </details>
+  );
+}
+
+function TintedFindingCard({
+  icon: Icon,
+  title,
+  items,
+  empty,
+  tone,
+}: {
+  icon: LucideIcon;
+  title: string;
+  items: readonly string[];
+  empty: string;
+  tone: "success" | "danger";
+}) {
+  const shell = tone === "success" ? "bg-success-soft" : "bg-danger-soft";
+  const iconTone = tone === "success" ? "text-success" : "text-danger";
+
+  return (
+    <section className={`rounded-lg px-4 py-4 ${shell}`}>
+      <h4 className="flex items-center gap-2 text-sm font-semibold text-ink">
+        <Icon aria-hidden="true" className={`size-4 shrink-0 ${iconTone}`} />
+        {title}
+      </h4>
+      {items.length === 0 ? (
+        <p className="mt-3 text-sm text-ink-muted">{empty}</p>
+      ) : (
+        <ul className="mt-3 grid gap-2.5">
+          {items.map((item) => (
+            <li key={item} className="text-sm leading-relaxed text-ink">
+              {item}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function ActionList({ items }: { items: readonly string[] }) {
+  return (
+    <BulletList items={items} empty="No concrete next steps from this round." />
+  );
+}
+
+function StructuredSummary({ document }: { document: SummaryDocument }) {
+  return (
+    <div className="grid gap-5">
+      <ReportIsland title="The night in numbers" icon={UsersRound}>
+        <SummaryMetrics document={document} />
+      </ReportIsland>
+
+      <ReportIsland title="How it felt" icon={CircleCheck}>
+        <div className="grid gap-3.5">
+          <TintedFindingCard
+            icon={CircleCheck}
+            title="What went well"
+            items={document.wentWell}
+            empty="Nothing clear enough to call out."
+            tone="success"
+          />
+          <TintedFindingCard
+            icon={CircleAlert}
+            title="What went wrong"
+            items={document.wentWrong}
+            empty="No complaints or flags to summarise."
+            tone="danger"
+          />
+        </div>
+      </ReportIsland>
+
+      <ReportIsland title="Αξιοπερίεργα" icon={Sparkles}>
+        <BulletList
+          items={document.curiosities}
+          empty="Τίποτα αρκετά αξιοπερίεργο αυτή τη φορά."
+        />
+      </ReportIsland>
+
+      <GossipDrawer items={document.gossip} />
+
+      <ReportIsland title="What we do next" icon={ListTodo}>
+        <ActionList items={document.actions} />
+      </ReportIsland>
+
+      {document.missing ? (
+        <p className="rounded-xl bg-warning-soft px-4 py-4 text-sm text-ink sm:px-5">
+          <span className="font-semibold">Still missing: </span>
+          {document.missing}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 /**
  * Collapsible AI narrative for the open campaign: status in the header, body
  * and regenerate control when expanded. Polls only while generation is pending.
@@ -116,6 +483,8 @@ export function CampaignSummary({ campaignId }: CampaignSummaryProps) {
   const meta = summary ? metaParts(summary) : [];
   const generating = summary?.status === "pending";
   const requestPending = requestSummary.isPending;
+  const document = summary?.document ?? null;
+  const legacyBody = !document && summary?.body ? summary.body : null;
 
   async function handleRequest() {
     try {
@@ -132,20 +501,22 @@ export function CampaignSummary({ campaignId }: CampaignSummaryProps) {
 
   return (
     <details className="jts-disclosure group rounded-lg border border-border bg-surface">
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold text-ink marker:content-none [&::-webkit-details-marker]:hidden">
-        <span className="flex min-w-0 items-center gap-2">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 marker:content-none [&::-webkit-details-marker]:hidden">
+        <span className="flex min-w-0 items-center gap-2 jts-overline text-ink-muted transition-colors group-hover:text-ink">
           <ChevronDown
             aria-hidden="true"
-            className="size-4 shrink-0 text-ink-muted transition-transform duration-200 group-open:rotate-180"
+            className="size-4 shrink-0 transition-transform duration-200 group-open:rotate-180"
           />
           <span className="truncate">Campaign summary</span>
         </span>
-        <span className={`shrink-0 font-medium ${statusClass}`}>
+        <span
+          className={`shrink-0 text-xs font-semibold tabular-nums ${statusClass}`}
+        >
           {statusLabel}
         </span>
       </summary>
 
-      <div className="grid gap-3 border-t border-border px-4 py-3">
+      <div className="grid gap-5 border-t border-border px-4 py-5 sm:px-5">
         {summaryQuery.isError ? (
           <p role="alert" className="text-sm text-danger">
             {apiErrorMessage(
@@ -161,41 +532,42 @@ export function CampaignSummary({ campaignId }: CampaignSummaryProps) {
           </p>
         ) : null}
 
-        {summary?.body ? (
+        {document ? <StructuredSummary document={document} /> : null}
+
+        {legacyBody ? (
           /*
-           * The same renderer the assistant uses, because this is the same kind
-           * of thing: a body a model wrote for an operator to read. That is what
-           * buys the summary tables, quotations and fenced `chart` blocks
-           * without a second markdown pipeline to keep in step with the first.
+           * Legacy markdown bodies from before the structured document. Keep
+           * the assistant renderer so an old ready row still reads correctly
+           * until it is refreshed.
            */
           <div className="assistant-markdown max-w-none">
-            <AssistantMarkdown>{summary.body}</AssistantMarkdown>
+            <AssistantMarkdown>{legacyBody}</AssistantMarkdown>
           </div>
         ) : null}
 
-        {!summary?.body && summary?.status === "none" ? (
-          <p className="text-sm text-ink-muted">
+        {!document && !legacyBody && summary?.status === "none" ? (
+          <SectionEmpty>
             No summary yet. Generate one from the answers and notes collected so
             far.
-          </p>
+          </SectionEmpty>
         ) : null}
 
-        {!summary?.body && pendingPhase ? (
+        {!document && !legacyBody && pendingPhase ? (
           <p className="text-sm text-ink-muted">
             {campaignSummaryPendingDetail(pendingPhase)}
           </p>
         ) : null}
 
-        {meta.length > 0 || partialWarning ? (
-          <div className="grid gap-1 text-xs text-ink-muted">
-            {meta.length > 0 ? <p>{meta.join(" · ")}</p> : null}
-            {partialWarning ? (
-              <p className="font-medium text-warning">{partialWarning}</p>
-            ) : null}
-          </div>
-        ) : null}
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-border-subtle pt-3">
+          {meta.length > 0 || partialWarning ? (
+            <div className="grid min-w-0 gap-0.5 text-xs text-ink-muted">
+              {meta.length > 0 ? <p>{meta.join(" · ")}</p> : null}
+              {partialWarning ? (
+                <p className="font-medium text-warning">{partialWarning}</p>
+              ) : null}
+            </div>
+          ) : null}
 
-        <div>
           <Button
             size="sm"
             variant="secondary"

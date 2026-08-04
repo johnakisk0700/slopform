@@ -2355,7 +2355,7 @@ Expect Luna medium, simulated transport, ~36 conversations, six `cursor-agent`
 live guests, roughly 0.3–0.4 USD and about 10–20 minutes. If the runner dies
 after launch but before participant traffic (intros already in
 `feedback_sim_outbound`), the same slot may be resumed: the harness reuses the
-open intro-only campaigns. Do not click Generate Summary (Terra xhigh) without a
+open intro-only campaigns. Do not click Generate Summary (Terra high) without a
 separate decision.
 
 **5. Teardown.** Stop the refresher, revoke the ephemeral sessions
@@ -3054,13 +3054,14 @@ materialization coordinator, which drains each phone/chat by `ingress_order`.
 
 When every conversation in a campaign is closed, or when staff explicitly
 requests one, [`PostEventFeedbackCampaignSummaryService`](../../../apps/backend/src/modules/post-event-feedback/summary/summary.service.ts)
-writes a narrative digest of the campaign's answers and notes to
+writes a structured digest of the campaign's answers and notes to
 `feedback_campaign_summaries`. Generation runs on `feedback.summarize-campaign.v2`
 via OpenAI direct (`FEEDBACK_SUMMARY_MODEL`, default `openai/gpt-5.6-terra`)
-at `FEEDBACK_SUMMARY_REASONING_EFFORT`, which defaults to `xhigh` — the most
-expensive setting in the repository, chosen deliberately and worth knowing
-before running a campaign summary. The effort is persisted on the row, so a
-summary is repriceable from itself.
+at `FEEDBACK_SUMMARY_REASONING_EFFORT`, which defaults to `high`. The effort is
+persisted on the row, so a summary is repriceable from itself. The summary
+worker runs at concurrency `3`: the PostgreSQL execution lease still fences one
+campaign against duplicate spend, while separate campaigns may generate in
+parallel.
 A partial summary is flagged when any conversation was still open at request
 time (`isPartial`, `openConversationCount`). Automatic enqueue happens from
 extraction close, staff close, STOP materialization and conversation expiry via
@@ -3123,45 +3124,39 @@ across every execution. The seven-minute horizon is far wider than any clock
 skew a reader can have, so a client may compare it against its own clock; the
 admin does exactly that ([the screen](../../frontend/feedback-conversations.md)).
 
-The summary prompt names the four V2 experience dimensions separately, labels
-historical `liked` rows as V1 evidence, and treats `avoid` only as a no-rematch
-preference. It explicitly forbids participant rankings or popularity scores and
-does not turn a missing directed edge into a negative vote. A no-rematch edge is
-not described as misconduct or a safety incident; those claims require the
-separate attention evidence.
+Score averages, distributions and directed-edge counts are computed
+deterministically from the answer rows and stored in the summary document —
+the model never invents or redraws them. The summary prompt names the four V2
+experience dimensions separately, labels historical `liked` rows as V1 evidence,
+and treats `avoid` only as a no-rematch preference. It explicitly forbids
+participant rankings or popularity scores and does not turn a missing directed
+edge into a negative vote. A no-rematch edge is not described as misconduct or a
+safety incident; those claims require the separate attention evidence, which the
+prompt also receives as unresolved attention kinds plus short message excerpts
+and notes flagged for review.
 
-The report is standardised rather than freely composed. A `## Σχήμα` section
-fixes three sections, in order, under exact titles: `### 📊 Η βραδιά σε νούμερα`
-(one chart plus at most two sentences on what it shows), `### 💬 Τι ξεχώρισε`
-(up to three patterns, each carrying the quotation or count that supports it)
-and `### 🎯 Τι κάνουμε` (up to three concrete actions for the next dinner). They
-answer the three questions an operator has after a dinner — how it went, what
-people said, what to change — and a standing shape is what makes one campaign
-comparable to the last at a glance. A fourth, `### ⚠️ Τι λείπει`, is requested
-outright when `isPartial`, and otherwise only if a signal rests on very few
-answers; a caveats section that always appears is one that stops being read.
-Emoji are confined to those headings, as scan targets rather than decoration.
+The model call uses `generateObject` for Greek narrative lists:
+`curiosities`, `gossip`, `actions`, `wentWell`, `wentWrong`, plus optional
+`missing`. Each list may hold up to ten items that earn their place — the
+prompt prefers collecting distinct gossip and wentWrong situations rather than
+stopping at three, so a messy night still fits. Racism and abuse stay in
+`wentWrong`, never gossip.
+The product persists a versioned JSON document (`version: 3`) in `body` and
+projects it as `document` on the summary DTO. Stored v2 bodies with
+`highlights` project into `curiosities` (empty gossip) on read. Legacy markdown
+bodies still parse as `document: null` so an older ready row keeps rendering
+until refreshed.
 
-`## Όρια` states the budget as numbers, because «σύντομα» is advice a model can
-argue itself out of: under 200 words overall, one line and 20 words per bullet,
-each fact stated once, a number in a chart not repeated in prose unless the
-sentence adds a reading, and no preamble, no closing recap, no restating counts
-the screen already shows. The body is read inside a collapsed accordion above
-the conversation list, so length is a product constraint, not a matter of taste.
-The earlier open-ended briefs (`Δομή: σύντομη επισκόπηση, …`) are gone — a
-second structure competing with the standard one is what produced the padding.
+`## Φωνή` asks for everyday Greek — dry, a little blunt, with humour only when
+the evidence earns it. Racism or abuse of another guest is named plainly rather
+than softened into seating preference; a bare `avoid` without that evidence
+stays a no-rematch preference.
 
-`## Μορφή` then tells the model what that accordion can actually draw. It renders
-the body through the assistant's `AssistantMarkdown`, which gives the prompt
-GitHub tables and the fenced `chart` JSON contract of `AssistantChart` (`data`
-with numeric `value` per point; optional `type`, `title`, `unit` and `max`, where
-`max` is the top of the scale so a 4.2 average draws against 5). All three
-sections are ordered before the answers and notes they may draw from. Every
-plotted value comes from counting or averaging the supplied rows; a second chart
-needs to show what the first does not, a third is never allowed, and no chart may
-put participant names on an axis — that would be the ranking the prose is
-forbidden to produce. A chart the model malforms falls back to its raw block; it
-never fails the summary.
+`## Όρια` keeps the accordion scannable: roughly one line per item, no padding,
+and no chopping a line that earns its place just to hit a count. Hard 200/20-word
+caps that chopped Greek mid-thought are gone. Each fact is stated once; counted
+numbers are not restated unless the sentence adds a reading; no preamble, no
+closing recap, no emoji.
 
 `listFeedbackCampaigns` is the read-only campaign picker: newest launch first,
 with event id + title, status, `launchedAt`, and conversation progress counts

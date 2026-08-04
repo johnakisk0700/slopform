@@ -57,20 +57,20 @@ launch/pause/resume/close/get hooks.
 The inbox accordion (`CampaignSummary`, under `CampaignHeader`) loads the
 campaign summary through `GET /feedback/campaigns/:campaignId/summary` and
 refreshes it after `POST /feedback/campaigns/:campaignId/summary` when staff
-explicitly request regeneration. It polls only while status is `pending`,
-renders the markdown body through `AssistantMarkdown` inside an
-`.assistant-markdown` wrapper, and surfaces Generate / Refresh from the same
-status helpers in `campaignSummary.ts`. Sharing the assistant's renderer is
-deliberate: a campaign summary and an assistant answer are the same artifact —
-a body a model wrote for an operator — so the summary gets GitHub tables,
-quotations and the fenced `chart` contract of `AssistantChart` without a second
-markdown pipeline to keep in step. The summary prompt offers that fence
-explicitly; see
+explicitly request regeneration. It polls only while status is `pending`, and
+surfaces Generate / Refresh from the same status helpers in
+`campaignSummary.ts`. A ready v2 summary exposes `document`: deterministic score
+and directed-edge metrics render as a number strip; `wentWell` / `wentWrong`
+use soft tinted blocks; `curiosities` (Αξιοπερίεργα), `gossip` (Κουτσομπολιό)
+and `actions` are plain bulleted lists — section title and icon carry the
+meaning. Gossip sits in a nested disclosure closed by default and is omitted
+when empty. Legacy
+markdown bodies (where `document` is null) still fall back to
+`AssistantMarkdown` until refreshed. See
 [Campaign summary](../backend/modules/post-event-feedback.md#campaign-summary).
-The control remains usable in a
-simulator-backed rehearsal: automatic summaries stay suppressed there, while
-this explicit staff request records a durable `manual` trigger and runs the
-separately billed summary model.
+The control remains usable in a simulator-backed rehearsal: automatic summaries
+stay suppressed there, while this explicit staff request records a durable
+`manual` trigger and runs the separately billed summary model.
 
 `pending` is durable intent, not activity, so the header never says
 «Generating…» on the strength of the status alone. `campaignSummaryPendingPhase`
@@ -498,15 +498,15 @@ Verified in both themes at 240 px and 304 px over the DevTools Protocol
 
 Placement is the screen's answer to "what does this act on?".
 
-| Control                        | Home                    | Why                                                                     |
-| ------------------------------ | ----------------------- | ----------------------------------------------------------------------- |
-| «All campaigns»                | Header top line, left   | Leaves the campaign — a back affordance (left arrow, link style)        |
-| Results                        | Header top line, right  | Reads this campaign's output                                            |
-| Pause / Resume / Close         | Header top line, right  | Changes this campaign's state; a hairline separates them from Results   |
-| «Start» (D17)                  | NOT STARTED row, hover  | The affordance lives on the person it would start, in the list it joins |
+| Control                        | Home                     | Why                                                                                                                     |
+| ------------------------------ | ------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| «All campaigns»                | Header top line, left    | Leaves the campaign — a back affordance (left arrow, link style)                                                        |
+| Results                        | Header top line, right   | Reads this campaign's output                                                                                            |
+| Pause / Resume / Close         | Header top line, right   | Changes this campaign's state; a hairline separates them from Results                                                   |
+| «Start» (D17)                  | NOT STARTED row, hover   | The affordance lives on the person it would start, in the list it joins                                                 |
 | Take over / Resume bot / Close | Transcript header, right | Opposite the contact — "can I still act here?"; Close icon-only always; Take over / Resume collapse to icons below `sm` |
-| «Add note»                     | NOTES card header       | Writes into the list it sits above                                      |
-| Correct / withdraw an answer   | On the answer's own row | Acts on that one recorded answer, beside the value it disagrees with    |
+| «Add note»                     | NOTES card header        | Writes into the list it sits above                                                                                      |
+| Correct / withdraw an answer   | On the answer's own row  | Acts on that one recorded answer, beside the value it disagrees with                                                    |
 
 ## Closing a conversation
 

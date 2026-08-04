@@ -1883,15 +1883,15 @@ describe("selection under polling", () => {
   it("keeps a sticky fallback when the list reorders under polling", () => {
     // Desktop with no ?conversation=: first resolve lands on the head row.
     expect(
-      view.resolveSelectedConversationId([{ id: "a" }, { id: "b" }], null, null),
+      view.resolveSelectedConversationId(
+        [{ id: "a" }, { id: "b" }],
+        null,
+        null,
+      ),
     ).toBe("a");
     // A newer message promotes b to the head — the open pane must not follow.
     expect(
-      view.resolveSelectedConversationId(
-        [{ id: "b" }, { id: "a" }],
-        null,
-        "a",
-      ),
+      view.resolveSelectedConversationId([{ id: "b" }, { id: "a" }], null, "a"),
     ).toBe("a");
   });
 
@@ -1903,11 +1903,7 @@ describe("selection under polling", () => {
 
   it("prefers the URL over a sticky fallback", () => {
     expect(
-      view.resolveSelectedConversationId(
-        [{ id: "a" }, { id: "b" }],
-        "b",
-        "a",
-      ),
+      view.resolveSelectedConversationId([{ id: "a" }, { id: "b" }], "b", "a"),
     ).toBe("b");
   });
 
@@ -2268,12 +2264,11 @@ describe("campaign summary copy", () => {
   });
 
   /**
-   * The summary body and an assistant answer are the same kind of artifact — a
-   * model writing for an operator — so they share one renderer. That is what
-   * lets the summary prompt offer tables and the fenced `chart` contract of
-   * `AssistantChart` without a second markdown pipeline drifting from the first.
+   * Structured v2 summaries render as metric/list cards. Legacy markdown bodies
+   * still share the assistant renderer so an older ready row stays readable
+   * until staff refresh it.
    */
-  it("renders the summary body through the shared model-content renderer", () => {
+  it("renders structured summary cards and keeps a legacy markdown fallback", () => {
     const component = readFileSync(
       fileURLToPath(
         new URL(
@@ -2284,14 +2279,56 @@ describe("campaign summary copy", () => {
       "utf8",
     );
 
+    expect(component).toContain("StructuredSummary");
+    expect(component).toContain("SummaryMetrics");
+    expect(component).toContain("ScoreRangeRow");
+    expect(component).toContain("DirectedChip");
+    expect(component).toContain("TintedFindingCard");
+    expect(component).toContain("summary?.document");
     expect(component).toContain(
       'import { AssistantMarkdown } from "../assistant/AssistantMarkdown"',
     );
     expect(component).toContain('className="assistant-markdown max-w-none"');
-    expect(component).toContain("<AssistantMarkdown>{summary.body}");
-    // No parallel pipeline left behind for the two to drift apart across.
+    expect(component).toContain(
+      "<AssistantMarkdown>{legacyBody}</AssistantMarkdown>",
+    );
     expect(component).not.toContain('from "react-markdown"');
     expect(component).not.toContain('from "remark-gfm"');
+
+    // Grouped report inside one accordion frame: sunken washes + padding for
+    // islands, no nested borders/shadows competing with the disclosure.
+    expect(component).toContain("ReportIsland");
+    expect(component).toContain("The night in numbers");
+    expect(component).toContain("How it felt");
+    expect(component).toContain("bg-primary");
+    expect(component).toContain("bg-surface-sunken");
+    expect(component).toContain("bg-success-soft");
+    expect(component).toContain("bg-danger-soft");
+    expect(component).toContain("bg-warning-soft");
+    expect(component).toContain("Who people named");
+    expect(component).toContain("What went well");
+    expect(component).toContain("What went wrong");
+    expect(component).toContain("Αξιοπερίεργα");
+    expect(component).toContain("GossipDrawer");
+    expect(component).toContain("Drama");
+    expect(component).toContain("Κουτσομπολιό");
+    expect(component).toContain("BulletList");
+    expect(component).toContain("list-disc");
+    expect(component).toContain("document.curiosities");
+    expect(component).toContain("document.gossip");
+    expect(component).not.toContain("What stood out");
+    expect(component).not.toContain("document.highlights");
+    expect(component).toContain("rounded-xl bg-surface-sunken px-4 py-4");
+    expect(component).not.toContain("shadow-xs");
+    // Nested islands must not re-frame themselves; the accordion already does.
+    expect(component).not.toContain(
+      "rounded-xl border border-border bg-surface",
+    );
+
+    // Everything visual comes from the bridge, so there is no literal colour
+    // and no theme branching to flatten it.
+    expect(component).not.toContain("dark:");
+    expect(component).not.toMatch(/#[0-9a-f]{3,8}\b|rgb\(|oklch\(/iu);
   });
 });
 

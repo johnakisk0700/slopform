@@ -532,10 +532,7 @@ export function ConversationTranscript({
 
       {attention}
 
-      <div
-        ref={scrollRef}
-        className="min-h-0 flex-1 overflow-y-auto px-5 py-4"
-      >
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
         {conversation.messages.length === 0 ? (
           <p className="py-8 text-center text-sm text-ink-muted">
             No messages yet. The intro is queued in the outbox.

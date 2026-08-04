@@ -4,11 +4,20 @@ import type {
   ParticipantRow,
 } from "@join-the-six/database";
 
+import type { PostEventFeedbackAttentionReason } from "../attention.js";
 import { displayNameFor } from "../inbox/conversation.view.js";
 import type {
   PostEventFeedbackAnswerQuestionDefinition,
   PostEventFeedbackQuestionSetVersion,
 } from "../question-set.js";
+import type { FeedbackCampaignSummaryMetrics } from "./summary-metrics.js";
+
+export type FeedbackSummaryAttentionEvidence = {
+  readonly conversationId: string;
+  readonly respondentParticipantId: string;
+  readonly kind: PostEventFeedbackAttentionReason;
+  readonly messageExcerpt: string | null;
+};
 
 const QUESTION_LABELS: Readonly<
   Record<PostEventFeedbackQuestionSetVersion, Readonly<Record<string, string>>>
@@ -34,6 +43,26 @@ const NOTE_TYPE_LABELS: Record<string, string> = {
   general: "Γενική σημείωση",
 };
 
+const ATTENTION_KIND_LABELS: Readonly<
+  Record<PostEventFeedbackAttentionReason, string>
+> = {
+  safety: "θέμα ασφαλείας",
+  respondent_conduct: "συμπεριφορά του/της συνομιλητή/τριας",
+  handoff: "αίτηση ανθρώπινης βοήθειας",
+  unattributed_note: "σημείωση χωρίς ταυτοποίηση",
+  answer_revision: "αναθεώρηση απάντησης",
+  hostile_to_bot: "εχθρική στάση προς το bot",
+  unfinished_questionnaire: "ημιτελές ερωτηματολόγιο",
+  extraction_failed: "αποτυχία εξαγωγής",
+  unreadable_message: "μη αναγνώσιμο μήνυμα",
+  transcript_mismatch: "ασυμφωνία transcript",
+  transcript_full: "γεμάτο transcript",
+  undelivered_message: "μη παραδοθέν μήνυμα",
+  post_closure_message: "μήνυμα μετά το κλείσιμο",
+  stopped_without_answers: "STOP χωρίς απαντήσεις",
+  unanswered_data_question: "αναπάντητο ερώτημα δεδομένων",
+};
+
 export function buildFeedbackCampaignSummaryPrompt(input: {
   readonly questionSetVersion: PostEventFeedbackQuestionSetVersion;
   readonly questionDefinitions: readonly PostEventFeedbackAnswerQuestionDefinition[];
@@ -43,6 +72,8 @@ export function buildFeedbackCampaignSummaryPrompt(input: {
   readonly answers: readonly FeedbackAnswerRow[];
   readonly notes: readonly FeedbackNoteRow[];
   readonly displayNames: ReadonlyMap<string, ParticipantRow>;
+  readonly metrics: FeedbackCampaignSummaryMetrics;
+  readonly attention: readonly FeedbackSummaryAttentionEvidence[];
 }): string {
   const questionLabels = QUESTION_LABELS[input.questionSetVersion];
   const questionDefinitions = new Map<
@@ -52,22 +83,25 @@ export function buildFeedbackCampaignSummaryPrompt(input: {
     input.questionDefinitions.map((definition) => [definition.key, definition]),
   );
   const sections: string[] = [
-    "Είσαι αναλυτής ανατροφοδότησης μετά από εκδηλώσεις του Join The Six.",
-    "Γράψε στα ελληνικά, σε markdown, για operator που έχει τριάντα δευτερόλεπτα.",
+    "Είσαι ο συνάδελφος που διαβάζει το feedback μετά τη βραδιά και το λέει στον operator σε τριάντα δευτερόλεπτα.",
+    "Γράψε στα ελληνικά — καθημερινά, ξερά, με χιούμορ όταν το κερδίζουν τα δεδομένα. Όχι εταιρικό memo, όχι δημοσιογραφικό ρεπορτάζ.",
     "Μην εφευρίσκεις δεδομένα — χρησιμοποίησε μόνο ό,τι δίνεται παρακάτω.",
     `Αναλύεις campaign με ερωτηματολόγιο V${input.questionSetVersion}. Ενεργά πεδία: ${input.questionDefinitions.map((definition) => definition.key).join(", ")}.`,
     ...versionInstructions(input.questionSetVersion),
     "Μην κατατάσσεις ανθρώπους και μην παράγεις σκορ δημοτικότητας. Η απουσία directed απάντησης είναι άγνωστο, όχι αρνητική ψήφος.",
     "",
+    ...voiceInstructions(),
+    "",
     ...shapeInstructions(input.isPartial),
     "",
     ...limitInstructions(),
     "",
-    ...presentationInstructions(),
-    "",
     `Κατάσταση: ${input.isPartial ? "μερική (υπάρχουν ακόμη ανοιχτές συζητήσεις)" : "πλήρης (όλες οι συζητήσεις έκλεισαν)"}`,
     `Ανοιχτές συζητήσεις: ${input.openConversationCount}`,
     `Κλειστές συζητήσεις: ${input.closedConversationCount}`,
+    "",
+    "## Νούμερα (ήδη μετρημένα — μην τα ξαναϋπολογίσεις και μην τα επαναλάβεις ως λίστα)",
+    formatMetrics(input.metrics),
     "",
     "## Απαντήσεις",
     formatAnswers(
@@ -79,85 +113,63 @@ export function buildFeedbackCampaignSummaryPrompt(input: {
     "",
     "## Σημειώσεις",
     formatNotes(input.notes, input.displayNames),
+    "",
+    "## Unresolved attention / flagged evidence",
+    formatAttention(input.attention, input.displayNames),
   ];
 
   return sections.join("\n");
 }
 
 /**
- * The report is the same three sections every time, in the same order, under
- * the same titles. Standing structure is what makes a series of campaigns
- * comparable at a glance — the reader learns where to look once — and it is
- * also the cheapest cure for padding: an open brief invites a model to fill
- * every heading it can think of, whether or not the data earned one.
- *
- * The three answer the three questions an operator actually has after a dinner:
- * how did it go, what did people say, and what do we do differently next time.
- * A fourth is offered only when the data is incomplete or thin, because a
- * caveats section that appears unconditionally is a section that gets skipped.
- *
- * Emoji sit in the headings and nowhere else. One mark per section is a
- * landmark you can scan to; emoji scattered through the prose is decoration
- * that slows the same reader down.
+ * Voice is a product decision: the accordion is read by tired operators after
+ * a dinner, not filed next to a risk report. Everyday Greek and a dry jab beat
+ * euphemism — especially when the evidence already named the harm.
+ */
+function voiceInstructions(): readonly string[] {
+  return [
+    "## Φωνή",
+    "Μίλα σαν έξυπνος συνάδελφος στο μπαρ μετά τη βραδιά: καθημερινά ελληνικά, λίγο αθυρόστομα όταν χρειάζεται, ποτέ ψεύτικα «επαγγελματικά».",
+    "Αν τα δεδομένα είναι γελοία ή εξωφρενικά, ένα ξερό αστείο επιτρέπεται — ιδίως όταν το ίδιο το όνομα ή η φράση ήδη κουβαλάει το αστείο. Μην κυνηγάς αστεία όπου δεν υπάρχουν.",
+    "Όταν το evidence δείχνει ρατσισμό, εξύβριση ή abuse προς άλλον καλεσμένο (matching hold, respondent_conduct, abuse στις σημειώσεις/attention), πες το ξεκάθαρα: είναι ρατσιστής/ρατσίστρια, όχι «ευαίσθητο θέμα» και όχι «προτίμηση τραπεζιού».",
+    "Ένα σκέτο avoid χωρίς τέτοιο evidence παραμένει προτίμηση no-rematch — μην το βαφτίζεις παράπτωμα.",
+  ];
+}
+
+/**
+ * The numbers strip is drawn by the product from counted rows. The model only
+ * fills the narrative lists the accordion renders: well/wrong, curiosities,
+ * optional gossip, and next actions.
  */
 function shapeInstructions(isPartial: boolean): readonly string[] {
   return [
     "## Σχήμα",
-    "Αυτές οι τρεις ενότητες, με αυτή τη σειρά και ακριβώς αυτούς τους τίτλους — και μόνο αυτές, εκτός από την τέταρτη που περιγράφεται στο τέλος. Καμία εισαγωγή πριν, κανένα κλείσιμο μετά, καμία δική σου επικεφαλίδα.",
-    "### 📊 Η βραδιά σε νούμερα",
-    "Ένα γράφημα με τις βαθμολογίες και έως δύο προτάσεις για το τι δείχνει: τι ξεχωρίζει προς τα πάνω ή προς τα κάτω, όχι απαρίθμηση όλων των μεγεθών.",
-    "### 💬 Τι ξεχώρισε",
-    "Έως τρία bullets. Το καθένα ένα μοτίβο που εμφανίστηκε σε παραπάνω από έναν άνθρωπο, με τη σύντομη παράθεση ή τον αριθμό που το στηρίζει. Ό,τι είπε ένας μόνο άνθρωπος μπαίνει μόνο αν είναι πράγματι αξιοσημείωτο, και δηλώνεται ως μία φωνή.",
-    "### 🎯 Τι κάνουμε",
-    "Έως τρία bullets, καθένα συγκεκριμένη ενέργεια για την επόμενη βραδιά: καθίσματα, follow-up σε δηλωμένο ενδιαφέρον, ποιος θέλει να ξαναδεί ποιον. Αν τα δεδομένα δεν στηρίζουν ενέργεια, μία γραμμή που το λέει — μην εφευρίσκεις ενέργειες για να γεμίσεις την ενότητα.",
+    "Συμπλήρωσε μόνο τα πεδία του structured output. Καμία εισαγωγή, κανένα markdown, κανένα γράφημα — τα νούμερα τα σχεδιάζει η οθόνη από τα μετρημένα μεγέθη παρακάτω.",
+    "Κάθε λίστα δέχεται έως 10 στοιχεία. Μην σταματάς στις 3 γραμμές όταν υπάρχουν περισσότερα διακριτά πράγματα που στέκουν — ειδικά στο `gossip` και στο `wentWrong` αν η βραδιά ήταν αναμπουμπούλα. Μην γεμίζεις με επανάληψη ή padding.",
+    "`curiosities` (Αξιοπερίεργα): παράξενα ή αξιοσημείωτα μοτίβα που δεν είναι ήδη wentWell/wentWrong — απρόσμενες αποκλίσεις, μία φωνή που αξίζει (και δηλώνεται ως μία φωνή), αστεία χωρίς κακό. Άδειο όταν τίποτα δεν αξίζει γραμμή.",
+    "`gossip` (Κουτσομπολιό): social tea — ποιος ακούστηκε, χημεία τραπεζιού, πιπεράτες αλλά ακίνδυνες παραθέσεις. Μάζεψε τα διακριτά juicy όταν υπάρχουν. Ποτέ ρατσισμό, abuse ή conduct flags εδώ· αυτά μένουν στο wentWrong. Άδειο όταν δεν υπάρχει tea.",
+    "`actions`: συγκεκριμένες ενέργειες για την επόμενη βραδιά. Αν τα δεδομένα δεν στηρίζουν ενέργεια, άφησε τη λίστα άδεια — μην εφευρίσκεις δουλειά.",
+    "`wentWell`: ό,τι φαίνεται να πήγε καλά (υψηλές βαθμολογίες, έπαινος στις σημειώσεις, πρόθεση meet_again).",
+    "`wentWrong`: μάζεψε διακριτές καταστάσεις που πήγαν στραβά (χαμηλές βαθμολογίες, παράπονα, flagged σημειώσεις, unresolved attention) — εδώ η πληρότητα μετράει περισσότερο από τη συντομία. Όπου το evidence δείχνει ρατσισμό ή abuse, ονόμασέ το — μην το μαλακώνεις. Σκέτο avoid χωρίς τέτοιο σήμα μένει no-rematch preference.",
     isPartial
-      ? "Πρόσθεσε τελευταία ενότητα «### ⚠️ Τι λείπει» με μία γραμμή: τι δεν καλύπτεται ακόμη επειδή υπάρχουν ανοιχτές συζητήσεις."
-      : "Πρόσθεσε τελευταία ενότητα «### ⚠️ Τι λείπει» μόνο αν κάποιο σήμα στηρίζεται σε ελάχιστες απαντήσεις. Μία γραμμή, όχι παράγραφος. Αλλιώς παράλειψέ την τελείως.",
+      ? "`missing`: μία γραμμή για το τι δεν καλύπτεται ακόμη επειδή υπάρχουν ανοιχτές συζητήσεις."
+      : "`missing`: μία γραμμή μόνο αν κάποιο σήμα στηρίζεται σε ελάχιστες απαντήσεις· αλλιώς null.",
   ];
 }
 
 /**
- * Length is a product decision, not a stylistic preference: this body is read
- * inside a collapsed accordion above the conversation list, so anything that
- * scrolls has already lost the reader it was written for. The word budget is
- * stated as a number because «σύντομα» is advice a model can always argue
- * itself out of.
+ * Length stays a product constraint — the accordion is still above the inbox —
+ * but hard per-bullet word caps made the model chop Greek mid-thought. Soft
+ * guidance keeps the lists scannable without inviting padding.
  */
 function limitInstructions(): readonly string[] {
   return [
     "## Όρια",
-    "Όλη η αναφορά κάτω από 200 λέξεις. Κάθε bullet μία γραμμή, έως 20 λέξεις.",
-    "Κάθε γεγονός λέγεται μία φορά. Αριθμός που φαίνεται στο γράφημα δεν ξαναγράφεται σε πρόταση, εκτός αν η πρόταση προσθέτει ερμηνεία που το γράφημα δεν δείχνει.",
-    "Χωρίς εισαγωγικές φράσεις τύπου «Σε αυτή την αναφορά», χωρίς τελική σύνοψη, χωρίς επανάληψη της εκφώνησης ή του πλήθους συζητήσεων που ήδη ξέρει η οθόνη.",
+    "Κράτα τις λίστες σφιχτές χωρίς padding — κάθε στοιχείο περίπου μία γραμμή (λίγο μακρύτερο μόνο για σύντομη παράθεση). Μην κόβεις κάτι που στέκει μόνο για να χωρέσει σε αριθμό· μην προσθέτεις γραμμές για να γεμίσεις στήλη.",
+    "Κάθε γεγονός λέγεται μία φορά. Αριθμός που φαίνεται ήδη στα μετρημένα νούμερα δεν ξαναγράφεται, εκτός αν η πρόταση προσθέτει ερμηνεία.",
+    "Χωρίς εισαγωγικές φράσεις τύπου «Σε αυτή την αναφορά», χωρίς τελική σύνοψη, χωρίς επανάληψη του πλήθους συζητήσεων που ήδη ξέρει η οθόνη.",
     "Προτίμησε το ρήμα από την περίφραση και το συγκεκριμένο από το γενικό. Αν μια πρόταση δεν αλλάζει τι θα κάνει ο operator, σβήσ' την.",
-    "Emoji μόνο στους τίτλους των ενοτήτων — πουθενά μέσα στο κείμενο.",
-  ];
-}
-
-/**
- * What the admin accordion can actually draw. It renders the body through the
- * assistant's renderer, so the markdown the model already writes gains GitHub
- * tables and the fenced `chart` contract of `AssistantChart` — the same fence
- * the assistant system prompt offers, kept worded the same way on purpose.
- *
- * The no-ranking rule is repeated here rather than assumed: a bar chart whose
- * axis is participant names is a popularity ranking however carefully the
- * surrounding prose avoids being one, and the chart channel is exactly where
- * that rule is easiest to lose.
- */
-function presentationInstructions(): readonly string[] {
-  return [
-    "## Μορφή",
-    "Το σώμα αποδίδεται ως markdown: επικεφαλίδες, λίστες, έντονα, παραθέσεις και πίνακες GitHub. Σε αναφορά αυτού του μεγέθους ο πίνακας σπάνια χρειάζεται — τα bullets και το γράφημα τα λένε ήδη.",
-    "Μπορείς επίσης να ενσωματώσεις γράφημα ως fenced block `chart` με ένα JSON αντικείμενο:",
-    "```chart",
-    '{"type":"bar","title":"Κατανομή συνολικής αξιολόγησης","unit":"απαντήσεις","data":[{"label":"5/5","value":3},{"label":"4/5","value":2},{"label":"3/5","value":1}]}',
-    "```",
-    'Πεδία: `data` υποχρεωτικό, με αριθμητικό `value` σε κάθε σημείο· `type` ένα από `bar` (κατανομές και συγκρίσεις) ή `line` (εξέλιξη σε σειρά)· `title`, `unit` και `max` προαιρετικά. Το `max` είναι η κορυφή της κλίμακας — δώσε `"max":5` όταν το μέγεθος είναι βαθμολογία 1–5, ώστε ένας μέσος όρος 4.2 να διαβάζεται ως 4.2 στα 5.',
-    "Κάθε τιμή γραφήματος βγαίνει με μέτρημα ή μέσο όρο πάνω στα δεδομένα παρακάτω. Κανένα στρογγυλεμένο «περίπου», καμία τιμή που δεν προκύπτει από τις απαντήσεις.",
-    "Ένα γράφημα στην πρώτη ενότητα, δεύτερο μόνο αν δείχνει κάτι που το πρώτο δεν δείχνει — κατανομή μιας βαθμολογίας ή σύγκριση των διαστάσεων μεταξύ τους. Ποτέ τρίτο.",
-    "Μη φτιάχνεις γράφημα με ονόματα συμμετεχόντων στους άξονες: αυτό θα ήταν κατάταξη ανθρώπων.",
-    "Με ελάχιστες απαντήσεις μην κάνεις γράφημα· δύο σημεία δεν είναι κατανομή.",
+    "Χωρίς emoji.",
   ];
 }
 
@@ -171,10 +183,33 @@ function versionInstructions(
     ];
   }
   return [
-    "Κράτησε χωριστές τις τέσσερις βαθμολογίες: συνολική βραδιά, καταλληλότητα τραπεζιού, ευκολία συμμετοχής και ισορροπία συζήτησης. Όλες είναι σε κλίμακα 1–5.",
+    "Κράτα χωριστές τις τέσσερις βαθμολογίες: συνολική βραδιά, καταλληλότητα τραπεζιού, ευκολία συμμετοχής και ισορροπία συζήτησης. Όλες είναι σε κλίμακα 1–5.",
     "Το meet_again είναι πρόθεση μελλοντικής επαφής.",
     "Το avoid στη V2 σημαίνει μόνο προτίμηση να μη βρεθούν ξανά στο ίδιο τραπέζι. Μην το παρουσιάζεις ως καταγγελία, παράπτωμα, κίνδυνο ή αξιολόγηση χαρακτήρα.",
   ];
+}
+
+function formatMetrics(metrics: FeedbackCampaignSummaryMetrics): string {
+  const lines: string[] = [];
+  for (const score of metrics.scores) {
+    if (score.answerCount === 0 || score.average === null) {
+      lines.push(`- ${score.label}: καμία απάντηση`);
+      continue;
+    }
+    const distribution = score.distribution
+      .filter((entry) => entry.count > 0)
+      .map((entry) => `${entry.value}/${score.max}: ${entry.count}`)
+      .join(", ");
+    lines.push(
+      `- ${score.label}: μέσος ${score.average}/${score.max} από ${score.answerCount} απαντήσεις (${distribution})`,
+    );
+  }
+  for (const directed of metrics.directed) {
+    lines.push(
+      `- ${directed.label}: ${directed.edgeCount} δηλώσεις από ${directed.respondentCount} ανθρώπους`,
+    );
+  }
+  return lines.length > 0 ? lines.join("\n") : "Κανένα μετρήσιμο μέγεθος.";
 }
 
 function formatAnswers(
@@ -205,7 +240,8 @@ function formatAnswers(
             : ` (${answer.valueInt})`
           : "";
       const subjectPart = subject ? ` → ${subject}` : "";
-      return `- ${respondent}: ${question}${subjectPart}${value}`;
+      const hold = answer.matchingHold ? " [matching hold]" : "";
+      return `- ${respondent}: ${question}${subjectPart}${value}${hold}`;
     })
     .join("\n");
 }
@@ -226,7 +262,30 @@ function formatNotes(
         : null;
       const type = NOTE_TYPE_LABELS[note.noteType] ?? note.noteType;
       const subjectPart = subject ? ` (για ${subject})` : "";
-      return `- ${respondent} [${type}]${subjectPart}: «${note.text}»`;
+      const flagged =
+        note.extractionMeta["flaggedForReview"] === true
+          ? " [flagged for review]"
+          : "";
+      return `- ${respondent} [${type}]${subjectPart}${flagged}: «${note.text}»`;
+    })
+    .join("\n");
+}
+
+function formatAttention(
+  attention: readonly FeedbackSummaryAttentionEvidence[],
+  displayNames: ReadonlyMap<string, ParticipantRow>,
+): string {
+  if (attention.length === 0) {
+    return "Καμία ανοιχτή attention ένδειξη.";
+  }
+
+  return attention
+    .map((item) => {
+      const respondent = nameFor(item.respondentParticipantId, displayNames);
+      const kind =
+        ATTENTION_KIND_LABELS[item.kind] ?? item.kind.replaceAll("_", " ");
+      const excerpt = item.messageExcerpt ? `: «${item.messageExcerpt}»` : "";
+      return `- ${respondent} — ${kind}${excerpt}`;
     })
     .join("\n");
 }
