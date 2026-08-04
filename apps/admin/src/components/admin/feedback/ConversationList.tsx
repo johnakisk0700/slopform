@@ -1,12 +1,9 @@
-import { Input } from "@heroui/react";
 import { clsx } from "clsx";
 import {
   Archive,
   Inbox,
   MessageCircleMore,
   MessageSquareDashed,
-  Search,
-  SearchX,
   TriangleAlert,
   UserRoundPlus,
   type LucideIcon,
@@ -38,13 +35,9 @@ export interface StartCandidate {
 interface ConversationListProps {
   conversations: readonly ConversationListItem[];
   selectedId: string | null;
-  query: string;
-  onQueryChange: (query: string) => void;
   onSelect: (conversationId: string) => void;
   loading: boolean;
   error: string | null;
-  /** Total before filtering, so the empty state can tell the two cases apart. */
-  totalCount: number;
   /** True while the list query is refetching, for the live mark. */
   isRefreshing: boolean;
   /**
@@ -90,8 +83,8 @@ const GROUP_STYLES: Record<
 };
 
 /**
- * The inbox column: a text filter over one campaign's conversations, grouped
- * into the buckets an operator triages by (attention, open, closed).
+ * The inbox column: one campaign's conversations, grouped into the buckets an
+ * operator triages by (attention, open, closed).
  *
  * The grouping answers the first question an operator has, so the heading is
  * the loudest thing here and a row states only what its heading does not — see
@@ -110,19 +103,15 @@ const GROUP_STYLES: Record<
 export function ConversationList({
   conversations,
   selectedId,
-  query,
-  onQueryChange,
   onSelect,
   loading,
   error,
-  totalCount,
   isRefreshing,
   startCandidates,
   onStartConversation,
   startPending,
   startDisabled,
 }: ConversationListProps) {
-  const filterId = useId();
   const headingId = useId();
   const groupHeadingId = useId();
   const notStartedId = useId();
@@ -139,14 +128,13 @@ export function ConversationList({
       className="flex min-h-0 flex-col overflow-hidden rounded-md border border-border bg-surface lg:max-h-[calc(100dvh-10rem)]"
     >
       <div className="border-b border-border px-4 py-3">
-        <div className="mb-2.5 flex items-center justify-between gap-2">
+        <div className="flex items-center justify-between gap-2">
           <h2
             id={headingId}
             className="flex items-center gap-2 jts-overline text-ink-muted"
           >
             <Inbox aria-hidden="true" className="size-4 shrink-0" />
             Conversations
-            {/* What is in the list right now, so it stays true under a filter. */}
             <span className="font-bold tabular-nums opacity-70">
               {conversations.length}
             </span>
@@ -154,20 +142,6 @@ export function ConversationList({
           <JtsLiveIndicator
             active={isRefreshing}
             label="This list refreshes automatically."
-          />
-        </div>
-        <div className="relative">
-          <Search
-            aria-hidden="true"
-            className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-subtle"
-          />
-          <Input
-            id={filterId}
-            aria-label="Filter conversations by name or phone"
-            placeholder="Filter by name or phone"
-            value={query}
-            onChange={(change) => onQueryChange(change.target.value)}
-            className="w-full pl-9 text-ink-muted"
           />
         </div>
       </div>
@@ -186,28 +160,16 @@ export function ConversationList({
 
       {!loading && !error && conversations.length === 0 ? (
         <div className="flex flex-col items-center px-4 py-8 text-center">
-          {totalCount === 0 ? (
-            /* Not the header's own Inbox glyph: an icon that repeats inside
-               its own section stops carrying information. */
-            <MessageSquareDashed
-              aria-hidden="true"
-              className="mb-2 size-7 text-ink-subtle"
-              strokeWidth={1.5}
-            />
-          ) : (
-            <SearchX
-              aria-hidden="true"
-              className="mb-2 size-7 text-ink-subtle"
-              strokeWidth={1.5}
-            />
-          )}
-          <p className="text-sm font-semibold text-ink">
-            {totalCount === 0 ? "No conversations yet" : "No matches"}
-          </p>
+          {/* Not the header's own Inbox glyph: an icon that repeats inside
+             its own section stops carrying information. */}
+          <MessageSquareDashed
+            aria-hidden="true"
+            className="mb-2 size-7 text-ink-subtle"
+            strokeWidth={1.5}
+          />
+          <p className="text-sm font-semibold text-ink">No conversations yet</p>
           <p className="mt-1 text-sm text-ink-muted">
-            {totalCount === 0
-              ? "Conversations appear once the campaign launches its intros."
-              : "Clear the filter to see the rest of the campaign."}
+            Conversations appear once the campaign launches its intros.
           </p>
         </div>
       ) : null}

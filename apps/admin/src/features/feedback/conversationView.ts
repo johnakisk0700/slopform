@@ -3,12 +3,7 @@ import type { FeedbackConversationDetailDtoOutputAutomationState } from "../../a
 import type { FeedbackConversationDetailDtoOutputControlMode } from "../../api/generated/model/feedbackConversationDetailDtoOutputControlMode";
 import type { FeedbackConversationDetailDtoOutputGoalsItemStatus } from "../../api/generated/model/feedbackConversationDetailDtoOutputGoalsItemStatus";
 import type { FeedbackConversationDetailDtoOutputLifecycleState } from "../../api/generated/model/feedbackConversationDetailDtoOutputLifecycleState";
-import {
-  controlLabel,
-  lifecycleBadge,
-  participantLabel,
-  type FeedbackBadge,
-} from "./labels";
+import { controlLabel, lifecycleBadge, type FeedbackBadge } from "./labels";
 
 /**
  * Pure view models for the conversations inbox.
@@ -167,36 +162,6 @@ export function closedConversationLine(
     >[0]["reason"],
   });
   return `${label} — no messages can be sent.`;
-}
-
-/**
- * Free-text filter over the visible identity of a conversation: respondent
- * name and the phone it launched against. Accent- and case-insensitive so
- * "κωστας" finds «Κώστας», matching the STOP matcher's folding rule (D14).
- */
-function foldForSearch(value: string): string {
-  return value
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .toLocaleLowerCase("el");
-}
-
-export function matchesConversationQuery(
-  conversation: Pick<
-    ConversationListItem,
-    "respondentDisplayName" | "phoneAtLaunch"
-  >,
-  query: string,
-): boolean {
-  const needle = foldForSearch(query.trim());
-  if (needle === "") {
-    return true;
-  }
-
-  const haystack = foldForSearch(
-    `${participantLabel(conversation.respondentDisplayName)} ${conversation.phoneAtLaunch}`,
-  );
-  return haystack.includes(needle);
 }
 
 /**

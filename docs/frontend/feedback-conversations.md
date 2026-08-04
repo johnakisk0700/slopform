@@ -94,7 +94,7 @@ stalled row the label exists to expose.
 | File                                               | Owns                                                                                                                                     |
 | -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | `src/features/feedback/labels.ts`                  | Status vocabulary: tones, badges, delivery precedence, note origin, D18                                                                  |
-| `src/features/feedback/conversationView.ts`        | Progress, badge rows, search folding, ordering, grouping, selection, message anchor ids                                                  |
+| `src/features/feedback/conversationView.ts`        | Progress, badge rows, ordering, grouping, selection, message anchor ids                                                                  |
 | `src/features/feedback/revealTranscriptMessage.ts` | Pin the transcript pane, smooth-scroll the messages box, flash the cited bubble — never `scrollIntoView` on the message                  |
 | `src/features/feedback/extractionStatus.ts`        | Greek copy over durable conversation automation                                                                                          |
 | `src/features/feedback/answerCorrections.ts`       | Which control a recorded answer gets, the «corrected by» line, the withdrawal wording                                                    |

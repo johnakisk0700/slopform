@@ -62,13 +62,6 @@ interface ConversationViewModule {
     settled: number;
     total: number;
   };
-  matchesConversationQuery: (
-    conversation: {
-      respondentDisplayName: string | null;
-      phoneAtLaunch: string;
-    },
-    query: string,
-  ) => boolean;
   sortConversationsForInbox: (rows: TestConversation[]) => TestConversation[];
   groupConversations: (
     rows: TestConversation[],
@@ -579,27 +572,6 @@ describe("goal progress", () => {
     );
     expect(list).toContain("progress.settled");
     expect(list).not.toContain("style={{ width:");
-  });
-});
-
-describe("inbox filtering", () => {
-  it("folds accents and case so Greek names match either way", () => {
-    const row = { respondentDisplayName: "Κώστας", phoneAtLaunch: "+3069" };
-
-    expect(view.matchesConversationQuery(row, "κωστας")).toBe(true);
-    expect(view.matchesConversationQuery(row, "ΚΩΣΤΑΣ")).toBe(true);
-    expect(view.matchesConversationQuery(row, "Κώστας")).toBe(true);
-    expect(view.matchesConversationQuery(row, "Ρούλα")).toBe(false);
-  });
-
-  it("matches on the phone number and passes an empty query", () => {
-    const row = {
-      respondentDisplayName: null,
-      phoneAtLaunch: "+306912345678",
-    };
-
-    expect(view.matchesConversationQuery(row, "69123")).toBe(true);
-    expect(view.matchesConversationQuery(row, "  ")).toBe(true);
   });
 });
 

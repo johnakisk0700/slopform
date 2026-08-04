@@ -52,7 +52,6 @@ import {
 } from "../components/admin/feedback/ConversationTranscript";
 import {
   hasExplicitConversationSelection,
-  matchesConversationQuery,
   resolveSelectedConversationId,
   sortConversationsForInbox,
 } from "../features/feedback/conversationView";
@@ -86,7 +85,6 @@ export function FeedbackInboxPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
 
-  const [query, setQuery] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<ConversationAction | null>(
     null,
@@ -117,11 +115,8 @@ export function FeedbackInboxPage() {
   );
 
   const visible = useMemo(
-    () =>
-      sortConversationsForInbox(
-        conversations.filter((row) => matchesConversationQuery(row, query)),
-      ),
-    [conversations, query],
+    () => sortConversationsForInbox(conversations),
+    [conversations],
   );
 
   const requestedId = searchParams.get("conversation");
@@ -664,12 +659,9 @@ export function FeedbackInboxPage() {
             <ConversationList
               conversations={visible}
               selectedId={selectedId}
-              query={query}
-              onQueryChange={setQuery}
               onSelect={selectConversation}
               loading={listQuery.isPending}
               error={listError}
-              totalCount={conversations.length}
               isRefreshing={listQuery.isFetching}
               startCandidates={startCandidates}
               onStartConversation={handleStartConversation}
