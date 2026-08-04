@@ -862,16 +862,16 @@ badge is that list's summary
 run's own mapping is owned by
 [`operator-attention.ts`](../../../apps/backend/src/modules/post-event-feedback/extraction/operator-attention.ts):
 
-| Situation                                                                                               | `kind`                     | Anchor                                         |
-| ------------------------------------------------------------------------------------------------------- | -------------------------- | ---------------------------------------------- |
-| A classified safety signal about conduct somebody reported                                              | `safety`                   | each message the signal cited                  |
-| A signal whose category says the respondent is the source                                               | `respondent_conduct`       | each message the signal cited                  |
-| An explicit participant handoff request                                                                 | `handoff`                  | the newest message the run read                |
-| A note kept but degraded to subjectless (D18)                                                           | `unattributed_note`        | the note's own first cited message             |
-| A stored answer re-proposed with a **different** value, revised or refused because a human corrected it | `answer_revision`          | the newest message the run read                |
-| The bot withdrew, leaving goals unanswered                                                              | `unfinished_questionnaire` | the newest message the run read                |
-| The [re-ask cap](#one-send-per-wording) withheld a goal after both wordings were spent                  | `unfinished_questionnaire` | the bot message that spent the re-ask variant  |
-| A data-handling question nobody has decided how to answer (retention, anonymity, no match)              | `unanswered_data_question` | the message that asked it                      |
+| Situation                                                                                               | `kind`                     | Anchor                                        |
+| ------------------------------------------------------------------------------------------------------- | -------------------------- | --------------------------------------------- |
+| A classified safety signal about conduct somebody reported                                              | `safety`                   | each message the signal cited                 |
+| A signal whose category says the respondent is the source                                               | `respondent_conduct`       | each message the signal cited                 |
+| An explicit participant handoff request                                                                 | `handoff`                  | the newest message the run read               |
+| A note kept but degraded to subjectless (D18)                                                           | `unattributed_note`        | the note's own first cited message            |
+| A stored answer re-proposed with a **different** value, revised or refused because a human corrected it | `answer_revision`          | the newest message the run read               |
+| The bot withdrew, leaving goals unanswered                                                              | `unfinished_questionnaire` | the newest message the run read               |
+| The [re-ask cap](#one-send-per-wording) withheld a goal after both wordings were spent                  | `unfinished_questionnaire` | the bot message that spent the re-ask variant |
+| A data-handling question nobody has decided how to answer (retention, anonymity, no match)              | `unanswered_data_question` | the message that asked it                     |
 
 Three of them have no citation of their own — a handoff is a property of the run,
 a refused revision is about the stored row it disagreed with, and a withdrawal is
