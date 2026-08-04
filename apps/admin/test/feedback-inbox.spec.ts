@@ -2373,6 +2373,21 @@ describe("campaign summary copy", () => {
       "rounded-xl border border-border bg-surface",
     );
 
+    // The expanded disclosure is nested Grid all the way down. Every level
+    // needs an explicit zero-minimum track or a long summary widens the inner
+    // track past the mobile card while the document itself stays 375px wide.
+    expect(component).toContain(
+      'className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5 border-t border-border px-4 py-5 sm:px-5"',
+    );
+    expect(component).toContain(
+      'className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5"',
+    );
+    expect(component).toContain(
+      'className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 rounded-xl bg-surface-sunken px-4 py-4 sm:px-5 sm:py-5"',
+    );
+    expect(component).toContain("sm:min-w-[12rem]");
+    expect(component).not.toContain("flex min-w-[12rem]");
+
     // Everything visual comes from the bridge, so there is no literal colour
     // and no theme branching to flatten it.
     expect(component).not.toContain("dark:");

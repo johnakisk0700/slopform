@@ -153,7 +153,7 @@ function ReportIsland({
   children: ReactNode;
 }) {
   return (
-    <section className="grid gap-4 rounded-xl bg-surface-sunken px-4 py-4 sm:px-5 sm:py-5">
+    <section className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 rounded-xl bg-surface-sunken px-4 py-4 sm:px-5 sm:py-5">
       <h3 className="flex items-center gap-2 jts-overline text-ink-muted">
         <Icon
           aria-hidden="true"
@@ -177,7 +177,7 @@ function ScoreRangeRow({ score }: { score: ScoredMetric }) {
   );
 
   return (
-    <li className="grid gap-1.5">
+    <li className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1.5">
       <div className="flex items-baseline justify-between gap-3">
         <span className="min-w-0 truncate text-sm text-ink">{score.label}</span>
         <span className="shrink-0 font-display text-base font-extrabold tabular-nums text-ink">
@@ -214,7 +214,7 @@ function DirectedChip({ item }: { item: SummaryDirected }) {
 
   return (
     <li
-      className={`flex min-w-[12rem] flex-1 items-center gap-2.5 rounded-lg px-3.5 py-3 ${presentation.chip}`}
+      className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-3.5 py-3 sm:min-w-[12rem] ${presentation.chip}`}
     >
       <Icon
         aria-hidden="true"
@@ -258,9 +258,9 @@ function SummaryMetrics({ document }: { document: SummaryDocument }) {
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] lg:items-start">
+    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] lg:items-start">
       {scores.length > 0 ? (
-        <div>
+        <div className="min-w-0">
           <p className="text-xs font-medium text-ink-muted">Score averages</p>
           <ul className="mt-3.5 grid gap-4">
             {scores.map((score) => (
@@ -271,7 +271,7 @@ function SummaryMetrics({ document }: { document: SummaryDocument }) {
       ) : null}
 
       {directed.length > 0 ? (
-        <div className="flex flex-col gap-2.5">
+        <div className="flex min-w-0 flex-col gap-2.5">
           <p className="text-xs font-medium text-ink-muted">Who people named</p>
           <ul className="flex flex-col gap-2.5">
             {directed.map((item) => (
@@ -321,7 +321,7 @@ function GossipDrawer({ items }: { items: readonly string[] }) {
   }
 
   return (
-    <details className="group rounded-xl bg-surface-sunken px-4 py-1 sm:px-5">
+    <details className="group min-w-0 rounded-xl bg-surface-sunken px-4 py-1 sm:px-5">
       <summary className="flex cursor-pointer list-none items-center justify-between gap-3 py-3.5 marker:content-none [&::-webkit-details-marker]:hidden">
         <span className="flex min-w-0 items-center gap-2 jts-overline text-ink-muted">
           <Drama
@@ -362,7 +362,7 @@ function TintedFindingCard({
   const iconTone = tone === "success" ? "text-success" : "text-danger";
 
   return (
-    <section className={`rounded-lg px-4 py-4 ${shell}`}>
+    <section className={`min-w-0 rounded-lg px-4 py-4 ${shell}`}>
       <h4 className="flex items-center gap-2 text-sm font-semibold text-ink">
         <Icon aria-hidden="true" className={`size-4 shrink-0 ${iconTone}`} />
         {title}
@@ -390,7 +390,7 @@ function ActionList({ items }: { items: readonly string[] }) {
 
 function StructuredSummary({ document }: { document: SummaryDocument }) {
   return (
-    <div className="grid gap-5">
+    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5">
       <ReportIsland title="The night in numbers" icon={UsersRound}>
         <SummaryMetrics document={document} />
       </ReportIsland>
@@ -500,7 +500,7 @@ export function CampaignSummary({ campaignId }: CampaignSummaryProps) {
   }
 
   return (
-    <details className="jts-disclosure group rounded-lg border border-border bg-surface">
+    <details className="jts-disclosure group min-w-0 rounded-lg border border-border bg-surface">
       <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 marker:content-none [&::-webkit-details-marker]:hidden">
         <span className="flex min-w-0 items-center gap-2 jts-overline text-ink-muted transition-colors group-hover:text-ink">
           <ChevronDown
@@ -516,7 +516,7 @@ export function CampaignSummary({ campaignId }: CampaignSummaryProps) {
         </span>
       </summary>
 
-      <div className="grid gap-5 border-t border-border px-4 py-5 sm:px-5">
+      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5 border-t border-border px-4 py-5 sm:px-5">
         {summaryQuery.isError ? (
           <p role="alert" className="text-sm text-danger">
             {apiErrorMessage(
