@@ -16,6 +16,8 @@ describe("buildFeedbackBurstDeliveryExpectation", () => {
         minReceived: 1,
         maxReceived: 40,
         liveModel: true,
+        paidModel: true,
+        stoppedForHandoff: false,
         injectedCount,
         receivedCount,
       });
@@ -38,6 +40,8 @@ describe("buildFeedbackBurstDeliveryExpectation", () => {
         minReceived: 3,
         maxReceived: 3,
         liveModel: false,
+        paidModel: false,
+        stoppedForHandoff: false,
         injectedCount: 6,
         receivedCount: 2,
       }),
@@ -48,6 +52,65 @@ describe("buildFeedbackBurstDeliveryExpectation", () => {
         passed: false,
       },
     );
+  });
+
+  it("allows paid scripted supersession while preserving the anti-flood bound", () => {
+    assert.deepEqual(
+      buildFeedbackBurstDeliveryExpectation({
+        minReceived: 4,
+        maxReceived: 4,
+        liveModel: false,
+        paidModel: true,
+        stoppedForHandoff: false,
+        injectedCount: 6,
+        receivedCount: 3,
+      }),
+      {
+        label: FEEDBACK_BURST_DELIVERY_LABEL,
+        expected: "2–4",
+        actual: "3",
+        passed: true,
+      },
+    );
+    assert.equal(
+      buildFeedbackBurstDeliveryExpectation({
+        minReceived: 4,
+        maxReceived: 4,
+        liveModel: false,
+        paidModel: true,
+        stoppedForHandoff: false,
+        injectedCount: 6,
+        receivedCount: 1,
+      }).passed,
+      false,
+    );
+    assert.equal(
+      buildFeedbackBurstDeliveryExpectation({
+        minReceived: 4,
+        maxReceived: 4,
+        liveModel: false,
+        paidModel: true,
+        stoppedForHandoff: false,
+        injectedCount: 6,
+        receivedCount: 5,
+      }).passed,
+      false,
+    );
+  });
+
+  it("does not demand a bot reply for the live turn that raised handoff", () => {
+    const result = buildFeedbackBurstDeliveryExpectation({
+      minReceived: 1,
+      maxReceived: 40,
+      liveModel: true,
+      paidModel: true,
+      stoppedForHandoff: true,
+      injectedCount: 7,
+      receivedCount: 7,
+    });
+
+    assert.equal(result.expected, "7–40");
+    assert.equal(result.passed, true);
   });
 });
 

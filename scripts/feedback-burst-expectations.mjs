@@ -12,12 +12,27 @@ export function buildFeedbackBurstDeliveryExpectation({
   minReceived,
   maxReceived,
   liveModel,
+  paidModel,
+  stoppedForHandoff,
   injectedCount,
   receivedCount,
 }) {
+  // Deterministic stub runs retain the fixture's exact dialogue bounds. A paid
+  // model may legitimately consolidate a stale intermediate question after a
+  // newer inbound advances the conversation revision; that is the state-driven
+  // loop doing its job, not a dropped send. Paid scripted rows therefore keep
+  // the essential mechanism bound (intro + at least one current-state reply)
+  // and the fixture's anti-flood maximum.
+  //
+  // A live guest normally owes intro + one outbound for every injected turn.
+  // When the last turn raises a silent human handoff, however, awaitingHuman is
+  // itself the terminal product response and no bot message is owed for that
+  // final inject.
   const effectiveMinimum = liveModel
-    ? Math.max(minReceived, injectedCount + 1)
-    : minReceived;
+    ? Math.max(minReceived, injectedCount + (stoppedForHandoff ? 0 : 1))
+    : paidModel
+      ? Math.min(minReceived, 2)
+      : minReceived;
   return {
     label: FEEDBACK_BURST_DELIVERY_LABEL,
     expected: `${effectiveMinimum}–${maxReceived}`,

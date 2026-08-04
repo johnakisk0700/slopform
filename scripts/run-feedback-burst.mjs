@@ -32,6 +32,8 @@ import {
   writeRunSummary,
 } from "./burst-artefacts.mjs";
 import { createFeedbackBurstHeaders } from "./feedback-burst-auth.mjs";
+import { feedbackBurstLiveGuestStopReason } from "./feedback-burst-live-guest.mjs";
+import { feedbackBurstOutboundInFlight } from "./feedback-burst-settlement.mjs";
 import {
   buildFeedbackBurstDeliveryExpectation,
   buildFeedbackBurstLiveGuestExerciseExpectation,
@@ -415,7 +417,7 @@ async function main() {
     maxConnections: 4,
   });
 
-  /** @type {Map<string, {persona: object, participantId: string, eventId?: string, campaignId?: string, conversationId?: string, injected: {text: string | null, at: string}[]}>} */
+  /** @type {Map<string, {persona: object, participantId: string, eventId?: string, campaignId?: string, conversationId?: string, injected: {text: string | null, at: string}[], liveStoppedForHandoff: boolean}>} */
   const byPersonaId = new Map();
   /** @type {Map<string, {slug: string, title: string, ordinal: number, eventId: string, campaignId: string, personaIds: string[]}>} */
   const byCampaignSlug = new Map();
@@ -433,6 +435,7 @@ async function main() {
         persona: row.persona,
         participantId: row.participantId,
         injected: [],
+        liveStoppedForHandoff: false,
       });
     }
     for (const campaign of seeded.campaigns) {
@@ -580,6 +583,7 @@ async function main() {
         byCampaignSlug,
         db: client.db,
         liveGuestsEnabled,
+        stubMode,
       });
       const notIngestedAndQuiet = snapshot.conversations.filter(
         (row) => !row.ingestedAndQuiet,
@@ -613,8 +617,12 @@ async function main() {
         )
         .sort()
         .join("|");
+      // A quiet window still open or an outbound genuinely in flight is
+      // progress being waited out, not a stall — a single model call can
+      // outlast the whole stall budget. A dead worker holds its row in
+      // flight forever, and the deadline is what bounds that wait.
       const waitingOnQuiet = notIngestedAndQuiet.some(
-        (row) => !row.quietElapsed,
+        (row) => !row.quietElapsed || row.outboundInFlight,
       );
       if (!waitingOnQuiet && progressKey === previousProgressKey) {
         unchangedPolls += 1;
@@ -644,6 +652,7 @@ async function main() {
       byCampaignSlug,
       db: client.db,
       liveGuestsEnabled,
+      stubMode,
     });
 
     const findings = [
@@ -1217,16 +1226,38 @@ async function driveLiveGuest({
     const waitUntil = Date.now() + LIVE_GUEST_BOT_REPLY_TIMEOUT_MS;
     let messages = [];
     let botCount = 0;
+    let detail;
     // Wait for a bot turn we have not answered yet.
     for (;;) {
-      const thread = await requestJson(
-        `${apiBase}/dev/feedback/simulator/thread?phoneE164=${encodeURIComponent(persona.phoneE164)}`,
-        { headers },
-      );
+      const [thread, currentDetail] = await Promise.all([
+        requestJson(
+          `${apiBase}/dev/feedback/simulator/thread?phoneE164=${encodeURIComponent(persona.phoneE164)}`,
+          { headers },
+        ),
+        requestJson(
+          `${apiBase}/feedback/campaigns/${entry.campaignId}/conversations/${entry.conversationId}`,
+          { headers },
+        ),
+      ]);
+      detail = currentDetail;
       messages = thread.messages ?? [];
       botCount = messages.filter(
         (message) => message.direction === "outbound",
       ).length;
+      const stop = feedbackBurstLiveGuestStopReason(detail);
+      if (stop?.kind === "closed") {
+        console.error(
+          `${persona.id}: the conversation closed (${stop.reason ?? "no reason"}) — the guest stops here with ${live.maxTurns - turn} turn(s) unused.`,
+        );
+        return;
+      }
+      if (stop?.kind === "awaiting_human") {
+        entry.liveStoppedForHandoff = true;
+        console.error(
+          `${persona.id}: the conversation is waiting for staff — the guest stops here with ${live.maxTurns - turn} turn(s) unused.`,
+        );
+        return;
+      }
       if (botCount > lastSeenBotCount) {
         break;
       }
@@ -1244,13 +1275,20 @@ async function driveLiveGuest({
     // Answering it would be the rehearsal manufacturing a `post_closure_message`
     // out of nothing, so the guest leaves the same way a person does when the
     // other side has said goodbye.
-    const detail = await requestJson(
-      `${apiBase}/feedback/campaigns/${entry.campaignId}/conversations/${entry.conversationId}`,
-      { headers },
-    );
-    if (detail.lifecycle.state !== "open") {
+    // `detail` was read in the same poll that observed this bot turn. Re-check
+    // the two terminal facts before spending a persona-model call or injecting
+    // another message.
+    const stop = feedbackBurstLiveGuestStopReason(detail);
+    if (stop?.kind === "closed") {
       console.error(
-        `${persona.id}: the conversation closed (${detail.lifecycle.reason ?? "no reason"}) — the guest stops here with ${live.maxTurns - turn} turn(s) unused.`,
+        `${persona.id}: the conversation closed (${stop.reason ?? "no reason"}) — the guest stops here with ${live.maxTurns - turn} turn(s) unused.`,
+      );
+      return;
+    }
+    if (stop?.kind === "awaiting_human") {
+      entry.liveStoppedForHandoff = true;
+      console.error(
+        `${persona.id}: the conversation is waiting for staff — the guest stops here with ${live.maxTurns - turn} turn(s) unused.`,
       );
       return;
     }
@@ -1372,6 +1410,7 @@ async function collectSnapshot({
   byCampaignSlug,
   db,
   liveGuestsEnabled,
+  stubMode,
 }) {
   const campaignStatusById = new Map();
   const conversations = [];
@@ -1466,6 +1505,8 @@ async function collectSnapshot({
       const expectations = buildExpectations(persona, actual, received, {
         injectedCount: entry.injected.length,
         liveGuestsEnabled,
+        stoppedForHandoff: entry.liveStoppedForHandoff,
+        stubMode,
       });
       // Text sent after a STOP is deliberately not retained — the campaign
       // keeps metadata only once somebody has opted out, because not storing is
@@ -1524,7 +1565,17 @@ async function collectSnapshot({
           (persona.expect.lifecycle === "open" ||
             actual.closedBecause === persona.expect.closedBecause)
         );
-      const ingestedAndQuiet = injectCaughtUp && quietElapsed;
+      // Input quiescence says the system digested what we sent; it says
+      // nothing about the reply it may still owe. Grading while a bot turn is
+      // mid-flight (or a debounced one is about to fire) would read a missing
+      // outbound the worker is about to write.
+      const outboundInFlight = feedbackBurstOutboundInFlight(
+        detail.automation,
+        Date.now(),
+        QUIET_WINDOW_MS,
+      );
+      const ingestedAndQuiet =
+        injectCaughtUp && quietElapsed && !outboundInFlight;
 
       conversations.push({
         personaId: persona.id,
@@ -1553,6 +1604,7 @@ async function collectSnapshot({
         observedModel,
         messageCount: detail.messages.length,
         quietElapsed,
+        outboundInFlight,
         ingestedAndQuiet,
         lifecycleDiverged,
         adminBase,
@@ -1601,13 +1653,20 @@ function buildExpectations(
   persona,
   actual,
   received,
-  { injectedCount = 0, liveGuestsEnabled = false } = {},
+  {
+    injectedCount = 0,
+    liveGuestsEnabled = false,
+    stoppedForHandoff = false,
+    stubMode = true,
+  } = {},
 ) {
   const { expect } = persona;
   const deliveredRow = buildFeedbackBurstDeliveryExpectation({
     minReceived: expect.minReceived,
     maxReceived: expect.maxReceived,
     liveModel: Boolean(persona.liveModel),
+    paidModel: !stubMode,
+    stoppedForHandoff,
     injectedCount,
     receivedCount: received.length,
   });
