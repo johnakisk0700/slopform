@@ -81,6 +81,57 @@ export function VenueCompact({ venue }: VenueDisplayProps) {
   );
 }
 
+/**
+ * The venue as one line of identification, with no link inside it.
+ *
+ * `VenueCompact` cannot be used on a surface that is itself a link: its Maps
+ * anchor would nest inside the outer one, which is invalid HTML and, on the
+ * campaign picker, a second target inside a card whose whole job is to open one
+ * campaign. So this variant drops the anchor rather than the pin — on a picker
+ * the venue is an identifier, not a destination, and Maps is one screen away
+ * once a campaign is open.
+ *
+ * Spans and not paragraphs, because the surfaces that need this are anchors.
+ *
+ * The name is protected and the context gives way: same `flex-1` basis-zero
+ * shrink order `VenueCompact` documents, so a 250px card truncates the area and
+ * keeps «Teras Athens» whole. Separated by a middle dot rather than that
+ * component's hairline — a card this narrow already speaks in dots, and a rule
+ * would be one more piece of chrome inside content that is mostly chrome
+ * already.
+ *
+ * `muted` drops the copper pin and the full-strength name for a card whose
+ * campaign is over. It is not a dimmer switch on the whole line — the venue is
+ * still the fact that tells two closed dinners apart, so it stays legible; what
+ * goes is the accent, because on these screens an accent means there is
+ * something here to act on.
+ *
+ * Makes no API call.
+ */
+export function VenueLine({
+  venue,
+  muted = false,
+}: VenueDisplayProps & { muted?: boolean }) {
+  return (
+    <span className="flex min-w-0 items-center gap-1.5 text-xs">
+      <MapPin
+        aria-hidden="true"
+        className={`size-3.5 shrink-0 ${muted ? "text-ink-subtle" : "text-primary"}`}
+      />
+      <span
+        className={`truncate font-medium ${muted ? "text-ink-muted" : "text-ink"}`}
+      >
+        {venue.label}
+      </span>
+      {venue.area ? (
+        <span className="min-w-0 flex-1 truncate text-ink-muted">
+          · {venue.area}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 /** Rich no-request event view: persisted context plus a plain Maps link. */
 export function VenueDetails({ venue }: VenueDisplayProps) {
   // Level and range are both operator-authored, so a card that shows only one
