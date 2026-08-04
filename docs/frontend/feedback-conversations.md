@@ -91,23 +91,23 @@ That is what keeps it moving: structural sharing hands back an identical `data`
 object on an unchanged poll, so a render clock would sit frozen on exactly the
 stalled row the label exists to expose.
 
-| File                                         | Owns                                                                                                                                     |
-| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/features/feedback/labels.ts`            | Status vocabulary: tones, badges, delivery precedence, note origin, D18                                                                  |
-| `src/features/feedback/conversationView.ts`  | Progress, badge rows, search folding, ordering, grouping, selection, message anchor ids                                                  |
-| `src/features/feedback/revealTranscriptMessage.ts` | Pin the transcript pane, smooth-scroll the messages box, flash the cited bubble — never `scrollIntoView` on the message            |
-| `src/features/feedback/extractionStatus.ts`  | Greek copy over durable conversation automation                                                                                          |
-| `src/features/feedback/answerCorrections.ts` | Which control a recorded answer gets, the «corrected by» line, the withdrawal wording                                                    |
-| `src/features/feedback/directedAnswers.ts`   | The three person-shaped questions as a group: tone per question, what contradicts what, who is left to add, and what recording will cost |
-| `src/features/feedback/campaignSummary.ts`   | Campaign summary status labels, the pending phase and how long it has waited, Generate vs Refresh, partial-warning copy                  |
-| `src/features/feedback/staffClose.ts`        | Staff close reason vocabulary, confirm-dialog labels, the «Closed as …» summary line                                                     |
-| `src/features/feedback/staffMessageDraft.ts` | Staff and simulator draft identity across edits, successful settlement and unknown retries                                               |
-| `src/features/feedback/polling.ts`           | The U3 intervals and the stop-when-closed rule                                                                                           |
-| `src/features/feedback/simulator.ts`         | Zod schemas for the two dev-only simulator endpoints                                                                                     |
-| `src/lib/feedbackSimulator.ts`               | The dev simulator facade over the shared `ofetch` client                                                                                 |
-| `src/components/admin/feedback/`             | The two panes, the attention strip, the detail cards, the badge row, and the dialogs                                                     |
-| `src/features/participants/profileFields.ts` | Participant storage codes as display text, shared with the WP11 profile route                                                            |
-| `src/components/ui/JtsLiveIndicator.tsx`     | The shared polling mark both live panes use ([contract](components/jts-live-indicator.md))                                               |
+| File                                               | Owns                                                                                                                                     |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/features/feedback/labels.ts`                  | Status vocabulary: tones, badges, delivery precedence, note origin, D18                                                                  |
+| `src/features/feedback/conversationView.ts`        | Progress, badge rows, search folding, ordering, grouping, selection, message anchor ids                                                  |
+| `src/features/feedback/revealTranscriptMessage.ts` | Pin the transcript pane, smooth-scroll the messages box, flash the cited bubble — never `scrollIntoView` on the message                  |
+| `src/features/feedback/extractionStatus.ts`        | Greek copy over durable conversation automation                                                                                          |
+| `src/features/feedback/answerCorrections.ts`       | Which control a recorded answer gets, the «corrected by» line, the withdrawal wording                                                    |
+| `src/features/feedback/directedAnswers.ts`         | The three person-shaped questions as a group: tone per question, what contradicts what, who is left to add, and what recording will cost |
+| `src/features/feedback/campaignSummary.ts`         | Campaign summary status labels, the pending phase and how long it has waited, Generate vs Refresh, partial-warning copy                  |
+| `src/features/feedback/staffClose.ts`              | Staff close reason vocabulary, confirm-dialog labels, the «Closed as …» summary line                                                     |
+| `src/features/feedback/staffMessageDraft.ts`       | Staff and simulator draft identity across edits, successful settlement and unknown retries                                               |
+| `src/features/feedback/polling.ts`                 | The U3 intervals and the stop-when-closed rule                                                                                           |
+| `src/features/feedback/simulator.ts`               | Zod schemas for the two dev-only simulator endpoints                                                                                     |
+| `src/lib/feedbackSimulator.ts`                     | The dev simulator facade over the shared `ofetch` client                                                                                 |
+| `src/components/admin/feedback/`                   | The two panes, the attention strip, the detail cards, the badge row, and the dialogs                                                     |
+| `src/features/participants/profileFields.ts`       | Participant storage codes as display text, shared with the WP11 profile route                                                            |
+| `src/components/ui/JtsLiveIndicator.tsx`           | The shared polling mark both live panes use ([contract](components/jts-live-indicator.md))                                               |
 
 `features/feedback/` has no React imports and carries the screen's rules, so
 they are unit-tested directly in `apps/admin/test/feedback-inbox.spec.ts`.

@@ -826,6 +826,40 @@ export class FeedbackOutboxRepository {
     return totals;
   }
 
+  /** Oldest still-undelivered outbox row, for Overview age against `observedAt`. */
+  async findOldestUndeliveredCreatedAt(
+    executor: DatabaseExecutor = this.database.db,
+  ): Promise<Date | null> {
+    const [row] = await executor
+      .select({ createdAt: messageOutbox.createdAt })
+      .from(messageOutbox)
+      .where(
+        inArray(messageOutbox.status, [
+          ...FEEDBACK_OUTBOX_UNDELIVERED_STATUSES,
+        ]),
+      )
+      .orderBy(asc(messageOutbox.createdAt), asc(messageOutbox.id))
+      .limit(1);
+    return row?.createdAt ?? null;
+  }
+
+  /** Terminal failures inside a bounded window — lifetime failed totals only grow. */
+  async countFailedOutboxSince(
+    since: Date,
+    executor: DatabaseExecutor = this.database.db,
+  ): Promise<number> {
+    const [row] = await executor
+      .select({ total: count() })
+      .from(messageOutbox)
+      .where(
+        and(
+          eq(messageOutbox.status, "failed"),
+          gte(messageOutbox.updatedAt, since),
+        ),
+      );
+    return Number(row?.total ?? 0);
+  }
+
   /**
    * Claims due rows directly for a dispatcher replica.
    *

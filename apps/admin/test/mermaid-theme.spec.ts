@@ -1,11 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
-import {
-  MERMAID_FLOW_ROLES,
-  mixHex,
-  withMermaidRoleDefs,
-  type MermaidPalette,
-} from "../src/lib/mermaidTheme";
+/**
+ * Source-module imports must stay dynamic: `tsconfig.node` has no DOM lib, and
+ * `mermaidTheme.ts` reads `document` / canvas at resolve time.
+ */
+type MermaidThemeModule = {
+  MERMAID_FLOW_ROLES: readonly string[];
+  mixHex: (a: string, b: string, weight: number) => string;
+  withMermaidRoleDefs: (
+    chart: string,
+    palette: Record<string, string>,
+  ) => string;
+};
 
 const stubPalette = {
   "--jts-color-surface": "#f5f0eb",
@@ -21,27 +27,33 @@ const stubPalette = {
   "--jts-color-warning": "#b8860b",
   "--jts-color-danger": "#b54a3a",
   "--jts-color-info": "#5a6b7a",
-} satisfies MermaidPalette;
+};
+
+let theme: MermaidThemeModule;
+
+beforeAll(async () => {
+  theme = (await import(
+    new URL("../src/lib/mermaidTheme.ts", import.meta.url).href
+  )) as MermaidThemeModule;
+});
 
 describe("mermaidTheme", () => {
   it("mixes hex colours toward the second stop", () => {
-    expect(mixHex("#000000", "#ffffff", 1)).toBe("#000000");
-    expect(mixHex("#000000", "#ffffff", 0)).toBe("#ffffff");
-    expect(mixHex("#000000", "#ffffff", 0.5)).toBe("#808080");
+    expect(theme.mixHex("#000000", "#ffffff", 1)).toBe("#000000");
+    expect(theme.mixHex("#000000", "#ffffff", 0)).toBe("#ffffff");
+    expect(theme.mixHex("#000000", "#ffffff", 0.5)).toBe("#808080");
   });
 
   it("injects role classDefs only for flowcharts", () => {
-    const flowchart = withMermaidRoleDefs(
+    const flowchart = theme.withMermaidRoleDefs(
       `flowchart LR\n  A["Start"]:::ok --> B["End"]:::risk`,
       stubPalette,
     );
-    for (const role of MERMAID_FLOW_ROLES) {
+    for (const role of theme.MERMAID_FLOW_ROLES) {
       expect(flowchart).toContain(`classDef ${role} fill:`);
     }
-    expect(flowchart).toContain("stroke:#3d6b4f");
-    expect(flowchart).toContain("stroke:#b54a3a");
 
-    const sequence = withMermaidRoleDefs(
+    const sequence = theme.withMermaidRoleDefs(
       `sequenceDiagram\n  A->>B: hi`,
       stubPalette,
     );

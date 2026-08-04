@@ -1,0 +1,1 @@
+CREATE INDEX "participants_feedback_contactable_idx" ON "participants" USING btree ("id") WHERE "participants"."post_event_feedback_whatsapp_opt_in" = true and "participants"."phone_e164" is not null;

@@ -14,6 +14,7 @@ import { ConversationPersistenceError } from "../conversations/conversation-pers
 import { CONVERSATION_THREAD_COLLECTION } from "../conversations/conversation-thread.schemas.js";
 import {
   FEEDBACK_CONVERSATION_CHANNEL,
+  FEEDBACK_CONVERSATION_LIFECYCLE_REASONS,
   FEEDBACK_CONVERSATION_PURPOSE,
   FEEDBACK_CONVERSATION_SCHEMA_VERSION,
   type FeedbackConversationActor,
@@ -631,6 +632,159 @@ export class FeedbackConversationRepository {
       campaignId,
       "lifecycle.state": "open",
     });
+  }
+
+  /**
+   * Exact platform-wide conversation counters for the admin Overview.
+   *
+   * One `$facet` so open/closed, parked, attention and reason tallies never
+   * drift across separate collection scans.
+   */
+  async aggregateOverviewStats(): Promise<{
+    total: number;
+    open: number;
+    closed: number;
+    byClosedReason: Record<FeedbackConversationLifecycleReason, number>;
+    needsAttention: number;
+    extractionParked: number;
+    attentionByReason: Array<{
+      reason: PostEventFeedbackAttentionReason;
+      count: number;
+    }>;
+  }> {
+    const collection = await this.collection();
+    const [facet] = await collection
+      .aggregate<{
+        lifecycle: Array<{
+          _id: {
+            state: "open" | "closed";
+            reason: FeedbackConversationLifecycleReason | null;
+          };
+          count: number;
+        }>;
+        needsAttention: Array<{ count: number }>;
+        extractionParked: Array<{ count: number }>;
+        attentionReasons: Array<{
+          _id: PostEventFeedbackAttentionReason;
+          count: number;
+        }>;
+      }>([
+        {
+          $match: {
+            schemaVersion: FEEDBACK_CONVERSATION_SCHEMA_VERSION,
+            purpose: FEEDBACK_CONVERSATION_PURPOSE,
+          },
+        },
+        {
+          $facet: {
+            lifecycle: [
+              {
+                $group: {
+                  _id: {
+                    state: "$lifecycle.state",
+                    reason: "$lifecycle.reason",
+                  },
+                  count: { $sum: 1 },
+                },
+              },
+            ],
+            needsAttention: [
+              { $match: { needsAttention: true } },
+              { $count: "count" },
+            ],
+            extractionParked: [
+              {
+                $match: {
+                  "extraction.parkedSince": { $type: "date" },
+                },
+              },
+              { $count: "count" },
+            ],
+            attentionReasons: [
+              { $match: { needsAttention: true } },
+              { $unwind: "$attentionReasons" },
+              {
+                $match: {
+                  "attentionReasons.resolvedAt": null,
+                },
+              },
+              {
+                $group: {
+                  _id: "$attentionReasons.kind",
+                  count: { $sum: 1 },
+                },
+              },
+              { $sort: { count: -1, _id: 1 } },
+            ],
+          },
+        },
+      ])
+      .toArray();
+
+    const byClosedReason: Record<FeedbackConversationLifecycleReason, number> =
+      {
+        completed: 0,
+        declined: 0,
+        stopped: 0,
+        expired: 0,
+        cancelled: 0,
+      };
+    let open = 0;
+    let closed = 0;
+    for (const row of facet?.lifecycle ?? []) {
+      const value = z.number().int().nonnegative().parse(row.count);
+      if (row._id.state === "open") {
+        open += value;
+        continue;
+      }
+      closed += value;
+      if (row._id.reason) {
+        const reason = z
+          .enum(FEEDBACK_CONVERSATION_LIFECYCLE_REASONS)
+          .safeParse(row._id.reason);
+        if (reason.success) {
+          byClosedReason[reason.data] += value;
+        }
+      }
+    }
+
+    const attentionByReason = (facet?.attentionReasons ?? [])
+      .map((row) => {
+        const reason = postEventFeedbackAttentionReasonSchema.safeParse(
+          row._id,
+        );
+        const count = z.number().int().positive().safeParse(row.count);
+        if (!reason.success || !count.success) {
+          return null;
+        }
+        return { reason: reason.data, count: count.data };
+      })
+      .filter(
+        (
+          entry,
+        ): entry is {
+          reason: PostEventFeedbackAttentionReason;
+          count: number;
+        } => entry !== null,
+      );
+
+    return {
+      total: open + closed,
+      open,
+      closed,
+      byClosedReason,
+      needsAttention: z
+        .number()
+        .int()
+        .nonnegative()
+        .parse(facet?.needsAttention[0]?.count ?? 0),
+      extractionParked: z
+        .number()
+        .int()
+        .nonnegative()
+        .parse(facet?.extractionParked[0]?.count ?? 0),
+      attentionByReason,
+    };
   }
 
   /** One MongoDB round-trip for a bounded PostgreSQL summary-repair page. */
@@ -2480,6 +2634,21 @@ export class FeedbackConversationRepository {
         partialFilterExpression: {
           purpose: FEEDBACK_CONVERSATION_PURPOSE,
           "work.nextActionAt": { $type: "date" },
+        },
+      },
+      {
+        name: "feedback_conversation_lifecycle_state_idx",
+        key: { "lifecycle.state": 1, updatedAt: -1 },
+        partialFilterExpression: {
+          purpose: FEEDBACK_CONVERSATION_PURPOSE,
+        },
+      },
+      {
+        name: "feedback_conversation_attention_updated_idx",
+        key: { updatedAt: -1 },
+        partialFilterExpression: {
+          purpose: FEEDBACK_CONVERSATION_PURPOSE,
+          needsAttention: true,
         },
       },
     ]);

@@ -11,7 +11,7 @@ export interface JtsPageHeaderProps {
   title: string;
   /** Muted supporting sentence under the title marker. */
   description?: string;
-  /** Optional actions (buttons, links) rendered below the copy. */
+  /** Optional actions (buttons, links) rendered top-right of the header. */
   actions?: ReactNode;
 }
 
@@ -23,6 +23,9 @@ export interface JtsPageHeaderProps {
  * the part screens kept disagreeing on — above the title on two, inside the
  * actions row on a third. Ordering is the header's business; where a route
  * goes is the route's.
+ *
+ * Actions sit top-right of the header row so a Refresh / primary control stays
+ * where operators reach for it, without competing with the title stack.
  */
 export function JtsPageHeader({
   back,
@@ -32,29 +35,33 @@ export function JtsPageHeader({
   actions,
 }: JtsPageHeaderProps) {
   return (
-    <header className="flex max-w-[58rem] flex-col items-start">
-      {back ? (
-        <div className="mb-2">
-          <JtsBackLink to={back.to}>{back.label}</JtsBackLink>
-        </div>
-      ) : null}
-      {eyebrow ? (
-        <p className="mb-1.5 jts-overline text-primary">{eyebrow}</p>
-      ) : null}
-      {/* Fixed 1.375rem, not a viewport clamp: an operations panel is read at
-          one working size all day, and a title that grew to 2.6rem on a wide
-          monitor spent the height the actual work needs. The base layer's
-          --jts-tracking-tight already applies; no utility overrides it. */}
-      <h1 className="jts-title-mark mb-2 font-display text-[1.375rem] font-extrabold">
-        {title}
-      </h1>
-      {description ? (
-        <p className="mb-0 max-w-[65ch] text-sm text-ink-muted">
-          {description}
-        </p>
-      ) : null}
+    <header className="flex w-full max-w-[58rem] items-start justify-between gap-4">
+      <div className="flex min-w-0 flex-1 flex-col items-start">
+        {back ? (
+          <div className="mb-2">
+            <JtsBackLink to={back.to}>{back.label}</JtsBackLink>
+          </div>
+        ) : null}
+        {eyebrow ? (
+          <p className="mb-1.5 jts-overline text-primary">{eyebrow}</p>
+        ) : null}
+        {/* Fixed 1.375rem, not a viewport clamp: an operations panel is read at
+            one working size all day, and a title that grew to 2.6rem on a wide
+            monitor spent the height the actual work needs. The base layer's
+            --jts-tracking-tight already applies; no utility overrides it. */}
+        <h1 className="jts-title-mark mb-2 font-display text-[1.375rem] font-extrabold">
+          {title}
+        </h1>
+        {description ? (
+          <p className="mb-0 max-w-[65ch] text-sm text-ink-muted">
+            {description}
+          </p>
+        ) : null}
+      </div>
       {actions ? (
-        <div className="mt-3 flex flex-wrap gap-3">{actions}</div>
+        <div className="mt-0 flex shrink-0 flex-wrap items-start justify-end gap-3">
+          {actions}
+        </div>
       ) : null}
     </header>
   );

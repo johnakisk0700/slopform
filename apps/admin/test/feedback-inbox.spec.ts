@@ -1125,7 +1125,9 @@ describe("attention reasons (why a conversation wants a person)", () => {
     const transcript = readSource(
       "src/components/admin/feedback/ConversationTranscript.tsx",
     );
-    const reveal = readSource("src/features/feedback/revealTranscriptMessage.ts");
+    const reveal = readSource(
+      "src/features/feedback/revealTranscriptMessage.ts",
+    );
     const styles = readSource("src/styles/globals.css");
 
     // scrollIntoView on the message walks document ancestors and yanks the

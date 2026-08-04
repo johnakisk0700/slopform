@@ -599,6 +599,21 @@ describe("FeedbackConversationRepository", () => {
           "work.nextActionAt": { $type: "date" },
         },
       },
+      {
+        name: "feedback_conversation_lifecycle_state_idx",
+        key: { "lifecycle.state": 1, updatedAt: -1 },
+        partialFilterExpression: {
+          purpose: "post_event_feedback",
+        },
+      },
+      {
+        name: "feedback_conversation_attention_updated_idx",
+        key: { updatedAt: -1 },
+        partialFilterExpression: {
+          purpose: "post_event_feedback",
+          needsAttention: true,
+        },
+      },
     ]);
   });
 
@@ -614,6 +629,12 @@ describe("FeedbackConversationRepository", () => {
     expect(mongoInit).toContain('name: "feedback_conversation_work_due_idx"');
     expect(mongoInit).not.toContain(
       'name: "feedback_conversation_due_work_idx"',
+    );
+    expect(mongoInit).toContain(
+      'name: "feedback_conversation_lifecycle_state_idx"',
+    );
+    expect(mongoInit).toContain(
+      'name: "feedback_conversation_attention_updated_idx"',
     );
   });
 
@@ -2209,6 +2230,66 @@ describe("FeedbackConversationRepository", () => {
     });
     expect(projection["messages"]).toBeUndefined();
     expect(projection["messageCount"]).toEqual({ $size: "$messages" });
+  });
+
+  it("aggregates platform-wide overview conversation counters in one facet", async () => {
+    const cursor = {
+      toArray: vi.fn().mockResolvedValue([
+        {
+          lifecycle: [
+            { _id: { state: "open", reason: null }, count: 2 },
+            { _id: { state: "closed", reason: "completed" }, count: 4 },
+            { _id: { state: "closed", reason: "stopped" }, count: 1 },
+          ],
+          needsAttention: [{ count: 3 }],
+          extractionParked: [{ count: 1 }],
+          attentionReasons: [
+            { _id: "handoff", count: 2 },
+            { _id: "safety", count: 1 },
+          ],
+        },
+      ]),
+    };
+    const collection = collectionMock({
+      aggregate: vi.fn().mockReturnValue(cursor),
+    });
+    const repository = createRepository(collection);
+
+    await expect(repository.aggregateOverviewStats()).resolves.toEqual({
+      total: 7,
+      open: 2,
+      closed: 5,
+      byClosedReason: {
+        completed: 4,
+        declined: 0,
+        stopped: 1,
+        expired: 0,
+        cancelled: 0,
+      },
+      needsAttention: 3,
+      extractionParked: 1,
+      attentionByReason: [
+        { reason: "handoff", count: 2 },
+        { reason: "safety", count: 1 },
+      ],
+    });
+
+    expect(collection.aggregate).toHaveBeenCalledWith([
+      {
+        $match: {
+          schemaVersion: 2,
+          purpose: "post_event_feedback",
+        },
+      },
+      expect.objectContaining({
+        $facet: expect.objectContaining({
+          lifecycle: expect.any(Array),
+          needsAttention: expect.any(Array),
+          extractionParked: expect.any(Array),
+          attentionReasons: expect.any(Array),
+        }),
+      }),
+    ]);
   });
 
   it("groups lifecycle statistics for a bounded campaign repair page", async () => {

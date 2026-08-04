@@ -16,10 +16,11 @@ by the existing Next.js application at `legacy.example.com`; see
 | Task                                  | Location                                       | First reference                                              |
 | ------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------ |
 | Add an admin route                    | `apps/admin/src/routes/`                       | `routes/OverviewPage.tsx` and the table in `App.tsx`         |
+| Change the Overview landing           | `apps/admin/src/routes/OverviewPage.tsx`       | [Overview screen](frontend/overview.md)                      |
 | Extend the AI assistant               | `apps/admin/src/routes/AssistantPage.tsx`      | [Assistant screen contract](frontend/assistant.md)           |
 | Change the feedback inbox             | `apps/admin/src/routes/FeedbackInboxPage.tsx`  | [Feedback conversations](frontend/feedback-conversations.md) |
 | Change the outbound queue screen      | `apps/admin/src/routes/FeedbackOutboxPage.tsx` | [Outbound queue](frontend/feedback-outbound-queue.md)        |
-| Add a domain schema or pure helper    | `apps/admin/src/features/<domain>/`            | `features/event/schema.ts`                                   |
+| Add a domain schema or pure helper    | `apps/admin/src/features/<domain>/`            | `features/event/eventStatus.ts`                              |
 | Add domain UI                         | `apps/admin/src/components/admin/`             | `components/admin/AdminNavigation.tsx`                       |
 | Reuse or add shared UI                | `apps/admin/src/components/ui/`                | [Component inventory](frontend/components/README.md)         |
 | Use a HeroUI primitive                | Owning route or component                      | Import from `@heroui/react`                                  |
@@ -43,7 +44,7 @@ consumer needs them.
 | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
 | `/sign-in/*`                          | Clerk sign-in inside this admin's own frame: page-owned `h1`, form placeholder while Clerk loads, explicit service-failure state                                      | `noindex, nofollow`     |
 | `/`                                   | Protected redirect to `/admin` (`<Navigate replace>`)                                                                                                                 | Inherits private policy |
-| `/admin`                              | Clerk session plus backend admin check, then operations shell                                                                                                         | `noindex, nofollow`     |
+| `/admin`                              | Clerk session plus backend admin check, then Overview ([contract](frontend/overview.md))                                                                              | `noindex, nofollow`     |
 | `/admin/assistant`                    | Protected new AI conversation in the admin shell                                                                                                                      | `noindex, nofollow`     |
 | `/admin/assistant/:threadId`          | Exact durable assistant thread resume                                                                                                                                 | `noindex, nofollow`     |
 | `/admin/events`                       | Stub event list and create                                                                                                                                            | `noindex, nofollow`     |
@@ -54,7 +55,7 @@ consumer needs them.
 | `/admin/feedback/:campaignId`         | Three-pane post-event feedback conversation inbox                                                                                                                     | `noindex, nofollow`     |
 | `/admin/feedback/:campaignId/results` | Campaign answers and notes                                                                                                                                            | `noindex, nofollow`     |
 | `/admin/outbound`                     | Outbound feedback messages still waiting, with their job state                                                                                                        | `noindex, nofollow`     |
-| `/admin/docs/feedback`                | Operator map of post-event feedback (`FeedbackMechanismPage`): write-now/read-later, quiet window, STOP and where to intervene                                         | `noindex, nofollow`     |
+| `/admin/docs/feedback`                | Operator map of post-event feedback (`FeedbackMechanismPage`): write-now/read-later, quiet window, STOP and where to intervene                                        | `noindex, nofollow`     |
 | `/admin/cookbook`                     | **Development builds only** — the visual vocabulary gallery ([contract](frontend/admin-cookbook.md)); gated on `import.meta.env.DEV`, so production has no such route | `noindex, nofollow`     |
 | `*`                                   | Standalone 404 (`routes/ErrorPage.tsx`)                                                                                                                               | Inherits private policy |
 

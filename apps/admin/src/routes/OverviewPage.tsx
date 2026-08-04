@@ -1,54 +1,27 @@
-import { type FormEvent, type ReactNode, useRef, useState } from "react";
+import { type ReactNode } from "react";
+import { Button, Chip } from "@heroui/react";
+import { Link } from "react-router";
 import {
-  Button,
-  Calendar,
-  Chip,
-  DateField,
-  DatePicker,
-  Input,
-  Modal,
-  ProgressBar,
-  toast,
-} from "@heroui/react";
-import type { DateValue } from "@internationalized/date";
-import type { ColumnDef } from "@tanstack/react-table";
-import {
+  AlertTriangle,
   Calendar as CalendarIcon,
   CircleCheck,
-  CreditCard,
-  Filter,
-  Info,
+  Inbox,
   type LucideIcon,
-  MapPin,
-  Network,
-  Plus,
-  Ticket,
-  TriangleAlert,
+  MessageCircleWarning,
+  Pause,
+  RefreshCw,
+  SendHorizontal,
+  Users,
 } from "lucide-react";
 import clsx from "clsx";
 
-import { JtsDataTable } from "../components/ui/JtsDataTable";
+import { useGetOverview } from "../api/generated/overview";
+import type { OverviewDtoOutput } from "../api/generated/model/overviewDtoOutput";
 import { JtsStat } from "../components/ui/JtsStat";
 import { JtsPageHeader } from "../components/ui/JtsPageHeader";
-import {
-  eventPreviewSchema,
-  getEventPreviewErrors,
-  type EventPreviewDraft,
-} from "../features/event/schema";
+import { eventStatusLabel } from "../features/event/eventStatus";
+import { attentionReasonLabel } from "../features/feedback/labels";
 import { usePageMeta } from "../lib/usePageMeta";
-
-/** A single preview event row. All of it is local, reset-on-reload UI state. */
-interface EventPreview {
-  id: string;
-  name: string;
-  city: string;
-  /** ISO `YYYY-MM-DD`, rendered in UTC so the calendar day never drifts. */
-  date: string;
-  bookings: number;
-  capacity: number;
-  blockers: number;
-  status: "Draft" | "Open" | "Ready";
-}
 
 /** Ledger-stamp tones — the status hues sanctioned by the design contract. */
 type StampTone = "primary" | "success" | "warning" | "danger" | "info";
@@ -61,38 +34,13 @@ const stampToneText: Record<StampTone, string> = {
   info: "text-info",
 };
 
-const INITIAL_ROWS: readonly EventPreview[] = [
-  {
-    id: "preview-1",
-    name: "Foundation dinner",
-    city: "Athens",
-    date: "2026-08-06",
-    bookings: 18,
-    capacity: 24,
-    blockers: 2,
-    status: "Open",
-  },
-  {
-    id: "preview-2",
-    name: "September dinner",
-    city: "Athens",
-    date: "2026-09-10",
-    bookings: 0,
-    capacity: 30,
-    blockers: 1,
-    status: "Draft",
-  },
-  {
-    id: "preview-3",
-    name: "Community table",
-    city: "Athens",
-    date: "2026-07-30",
-    bookings: 22,
-    capacity: 24,
-    blockers: 0,
-    status: "Ready",
-  },
-];
+const dateTimeFormatter = new Intl.DateTimeFormat("en-GB", {
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+});
 
 const dateFormatter = new Intl.DateTimeFormat("en-GB", {
   day: "2-digit",
@@ -101,18 +49,12 @@ const dateFormatter = new Intl.DateTimeFormat("en-GB", {
   timeZone: "UTC",
 });
 
+function formatDateTime(value: string): string {
+  return dateTimeFormatter.format(new Date(value));
+}
+
 function formatDate(value: string): string {
-  return dateFormatter.format(new Date(`${value}T00:00:00Z`));
-}
-
-function occupancy(event: EventPreview): number {
-  return Math.round((event.bookings / event.capacity) * 100);
-}
-
-function statusTone(status: EventPreview["status"]): StampTone {
-  if (status === "Ready") return "success";
-  if (status === "Open") return "info";
-  return "warning";
+  return dateFormatter.format(new Date(value));
 }
 
 /**
@@ -133,83 +75,16 @@ function Stamp({ tone, children }: { tone: StampTone; children: ReactNode }) {
   );
 }
 
-/** The event table columns. Module-level so TanStack gets a stable reference. */
-const columns: ColumnDef<EventPreview>[] = [
-  {
-    accessorKey: "name",
-    header: "Event",
-    cell: ({ row }) => (
-      <div className="flex flex-col">
-        <strong className="font-bold text-ink">{row.original.name}</strong>
-        <small className="text-xs text-ink-muted">{row.original.city}</small>
-      </div>
-    ),
-  },
-  {
-    accessorKey: "date",
-    header: "Date",
-    cell: ({ row }) => (
-      <time dateTime={row.original.date}>{formatDate(row.original.date)}</time>
-    ),
-  },
-  {
-    accessorKey: "bookings",
-    header: "Bookings",
-    cell: ({ row }) => `${row.original.bookings} / ${row.original.capacity}`,
-  },
-  {
-    accessorKey: "blockers",
-    header: "Blockers",
-    cell: ({ row }) =>
-      row.original.blockers ? (
-        <Stamp tone="warning">{row.original.blockers}</Stamp>
-      ) : (
-        <Stamp tone="success">Clear</Stamp>
-      ),
-  },
-  {
-    accessorKey: "status",
-    header: "Status",
-    cell: ({ row }) => (
-      <Stamp tone={statusTone(row.original.status)}>
-        {row.original.status}
-      </Stamp>
-    ),
-  },
-];
-
 /** One row in the "Needs attention" operator queue. */
 interface QueueItem {
+  key: string;
   icon: LucideIcon;
   title: string;
   subtitle: string;
   stampTone: StampTone;
   stampLabel: ReactNode;
+  to?: string;
 }
-
-const attentionQueue: readonly QueueItem[] = [
-  {
-    icon: MapPin,
-    title: "Confirm venue",
-    subtitle: "Foundation dinner",
-    stampTone: "danger",
-    stampLabel: "Today",
-  },
-  {
-    icon: CreditCard,
-    title: "Review two payments",
-    subtitle: "Missing references",
-    stampTone: "warning",
-    stampLabel: 2,
-  },
-  {
-    icon: Network,
-    title: "Lock table plan",
-    subtitle: "Community table",
-    stampTone: "success",
-    stampLabel: "Ready",
-  },
-];
 
 /** A single receipt-ruled row in the operator attention queue. */
 function QueueRow({
@@ -218,9 +93,10 @@ function QueueRow({
   subtitle,
   stampTone,
   stampLabel,
+  to,
 }: QueueItem) {
-  return (
-    <li className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
+  const body = (
+    <>
       <span
         aria-hidden="true"
         className="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary-soft text-primary"
@@ -234,6 +110,25 @@ function QueueRow({
       <span className="ml-auto">
         <Stamp tone={stampTone}>{stampLabel}</Stamp>
       </span>
+    </>
+  );
+
+  if (to) {
+    return (
+      <li className="first:pt-0 last:pb-0">
+        <Link
+          to={to}
+          className="flex items-center gap-3 py-3 text-inherit no-underline focus-visible:outline-none"
+        >
+          {body}
+        </Link>
+      </li>
+    );
+  }
+
+  return (
+    <li className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
+      {body}
     </li>
   );
 }
@@ -245,7 +140,10 @@ function CopperNote({ children }: { children: ReactNode }) {
       role="note"
       className="flex items-start gap-3 rounded-md border border-copper/35 bg-copper-soft px-4 py-3 text-sm text-ink-muted"
     >
-      <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-copper" />
+      <Inbox
+        aria-hidden="true"
+        className="mt-0.5 size-4 shrink-0 text-copper"
+      />
       <span>{children}</span>
     </div>
   );
@@ -281,10 +179,73 @@ function FocusCard({
   );
 }
 
+function buildAttentionQueue(data: OverviewDtoOutput): QueueItem[] {
+  const items: QueueItem[] = data.feedback.conversations.attentionByReason.map(
+    (entry) => ({
+      key: `reason-${entry.reason}`,
+      icon: MessageCircleWarning,
+      title: attentionReasonLabel(entry.reason).replace(/\.$/u, ""),
+      subtitle: "Unresolved across open campaigns",
+      stampTone: entry.reason === "safety" ? "danger" : "warning",
+      stampLabel: entry.count,
+      to: "/admin/feedback",
+    }),
+  );
+
+  if (data.feedback.conversations.extractionParked > 0) {
+    items.push({
+      key: "extraction-parked",
+      icon: Pause,
+      title: "Extraction parked",
+      subtitle: "Provider or deployment trouble, not a person request",
+      stampTone: "warning",
+      stampLabel: data.feedback.conversations.extractionParked,
+      to: "/admin/feedback",
+    });
+  }
+
+  if (data.feedback.outbox.ambiguous > 0 || data.feedback.outbox.held > 0) {
+    items.push({
+      key: "outbox-stuck",
+      icon: SendHorizontal,
+      title: "Outbound needs a look",
+      subtitle: "Ambiguous or deliberately held deliveries",
+      stampTone: "danger",
+      stampLabel: data.feedback.outbox.ambiguous + data.feedback.outbox.held,
+      to: "/admin/outbound",
+    });
+  }
+
+  if (data.feedback.summaries.failed > 0) {
+    items.push({
+      key: "summaries-failed",
+      icon: AlertTriangle,
+      title: "Campaign summaries failed",
+      subtitle: "Retry from the campaign results screen",
+      stampTone: "warning",
+      stampLabel: data.feedback.summaries.failed,
+      to: "/admin/feedback",
+    });
+  }
+
+  if (data.events.finishedWithoutFeedbackCampaignCount > 0) {
+    items.push({
+      key: "finished-no-campaign",
+      icon: CircleCheck,
+      title: "Finished dinners without feedback",
+      subtitle: "Mark finished is the gate — launching is still the next step",
+      stampTone: "info",
+      stampLabel: data.events.finishedWithoutFeedbackCampaignCount,
+      to: "/admin/feedback",
+    });
+  }
+
+  return items;
+}
+
 /**
- * The Operations control landing view: the operator's single-screen summary of
- * events, bookings and blockers. Every figure here is local preview state that
- * resets on reload — clearly labelled as such — until the operations API lands.
+ * The Operations control landing view: exact platform aggregates for events,
+ * participants, feedback conversations and outbound delivery.
  */
 export function OverviewPage() {
   usePageMeta(
@@ -292,341 +253,255 @@ export function OverviewPage() {
     "Private Join The Six event operations workspace.",
   );
 
-  const [previewRows, setPreviewRows] = useState<EventPreview[]>(() => [
-    ...INITIAL_ROWS,
-  ]);
-  const [isDialogOpen, setDialogOpen] = useState(false);
-  const [draftName, setDraftName] = useState("");
-  const [draftDate, setDraftDate] = useState<DateValue | null>(null);
-  const dateFieldRef = useRef<HTMLDivElement>(null);
-  const [formErrors, setFormErrors] = useState<
-    Partial<Record<"name" | "date", string>>
-  >({});
+  const overviewQuery = useGetOverview({
+    query: {
+      staleTime: 30_000,
+      refetchOnWindowFocus: true,
+    },
+  });
 
-  const activePreviewEvents = previewRows.filter(
-    (event) => event.status !== "Draft",
-  ).length;
-  const totalPreviewBookings = previewRows.reduce(
-    (total, event) => total + event.bookings,
-    0,
-  );
-  const openBlockers = previewRows.reduce(
-    (total, event) => total + event.blockers,
-    0,
-  );
-  const readyEvents = previewRows.filter(
-    (event) => event.status === "Ready",
-  ).length;
-  const nextDinner = previewRows[0];
-
-  function handleDialogOpenChange(open: boolean): void {
-    if (open) {
-      setDraftName("");
-      setDraftDate(null);
-      setFormErrors({});
-    }
-    setDialogOpen(open);
-  }
-
-  function handleSubmit(event: FormEvent<HTMLFormElement>): void {
-    event.preventDefault();
-
-    const draft: EventPreviewDraft = {
-      // The picker yields a calendar day; read it as UTC so the stored date is
-      // the day the operator chose, in any timezone.
-      name: draftName,
-      date: draftDate ? new Date(`${draftDate.toString()}T00:00:00Z`) : null,
-    };
-    const result = eventPreviewSchema.safeParse(draft);
-
-    if (!result.success) {
-      const errors = getEventPreviewErrors(draft);
-      setFormErrors(errors);
-      requestAnimationFrame(() => {
-        if (errors.name) {
-          document.getElementById("event-name")?.focus();
-          return;
-        }
-        // The date field is a segmented input; focus its first segment.
-        dateFieldRef.current
-          ?.querySelector<HTMLElement>('[role="spinbutton"]')
-          ?.focus();
-      });
-      return;
-    }
-
-    setFormErrors({});
-    setPreviewRows((rows) => [
-      ...rows,
-      {
-        id: crypto.randomUUID(),
-        name: result.data.name,
-        city: "Athens",
-        date: result.data.date.toISOString().slice(0, 10),
-        bookings: 0,
-        capacity: 24,
-        blockers: 1,
-        status: "Draft",
-      },
-    ]);
-    setDialogOpen(false);
-    toast.success("Preview event created", {
-      description: "Local UI state only; the events API is not connected yet.",
-    });
-  }
+  const data = overviewQuery.data;
+  const refreshing = overviewQuery.isFetching && !overviewQuery.isPending;
+  const attentionQueue = data ? buildAttentionQueue(data) : [];
+  const nextDinner = data?.events.nextScheduled ?? null;
 
   return (
     <div className="flex flex-col gap-6">
       <JtsPageHeader
         eyebrow="Admin workspace"
         title="Operations control"
-        /* Was a list of the sidebar's own items. A subtitle that names the nav
-           under it tells an operator nothing they did not just read. */
         description="A dinner is six strangers and a hundred small decisions. This is where the decisions get made."
         actions={
-          <Modal isOpen={isDialogOpen} onOpenChange={handleDialogOpenChange}>
-            <Button>
-              <Plus aria-hidden="true" className="size-4" />
-              New event
-            </Button>
-            <Modal.Backdrop>
-              <Modal.Container size="md" placement="center">
-                <Modal.Dialog>
-                  <Modal.Header className="flex items-start justify-between gap-4">
-                    <Modal.Heading className="text-[1.15rem] font-bold tracking-tight text-ink">
-                      Create a preview event
-                    </Modal.Heading>
-                    <Modal.CloseTrigger />
-                  </Modal.Header>
-                  <Modal.Body>
-                    <form
-                      id="event-preview-form"
-                      noValidate
-                      onSubmit={handleSubmit}
-                      className="grid gap-4"
-                    >
-                      <CopperNote>
-                        This adds local UI state only and does not call an API.
-                      </CopperNote>
-                      <div className="grid gap-1.5">
-                        <label
-                          htmlFor="event-name"
-                          className="flex items-center gap-2 text-sm font-semibold text-ink"
-                        >
-                          Event name
-                          <span className="jts-overline text-ink-muted">
-                            Required
-                          </span>
-                        </label>
-                        <Input
-                          id="event-name"
-                          className="w-full"
-                          value={draftName}
-                          onChange={(event) => setDraftName(event.target.value)}
-                          autoComplete="off"
-                          aria-invalid={formErrors.name ? true : undefined}
-                          aria-describedby={
-                            formErrors.name ? "event-name-error" : undefined
-                          }
-                        />
-                        {formErrors.name ? (
-                          <p
-                            id="event-name-error"
-                            className="text-sm text-danger"
-                          >
-                            {formErrors.name}
-                          </p>
-                        ) : null}
-                      </div>
-                      <div className="grid gap-1.5" ref={dateFieldRef}>
-                        <DatePicker
-                          aria-label="Dinner date"
-                          value={draftDate}
-                          onChange={setDraftDate}
-                          isInvalid={Boolean(formErrors.date)}
-                          {...(formErrors.date
-                            ? { "aria-describedby": "event-date-error" }
-                            : {})}
-                          className="grid gap-1.5"
-                        >
-                          <span className="flex items-center gap-2 text-sm font-semibold text-ink">
-                            Dinner date
-                            <span className="jts-overline text-ink-muted">
-                              Required
-                            </span>
-                          </span>
-                          <DateField.Group>
-                            <DateField.Input>
-                              {(segment) => (
-                                <DateField.Segment segment={segment} />
-                              )}
-                            </DateField.Input>
-                            <DateField.Suffix>
-                              <DatePicker.Trigger>
-                                <DatePicker.TriggerIndicator />
-                              </DatePicker.Trigger>
-                            </DateField.Suffix>
-                          </DateField.Group>
-                          <DatePicker.Popover>
-                            <Calendar aria-label="Choose the dinner date">
-                              <Calendar.Header>
-                                <Calendar.YearPickerTrigger>
-                                  <Calendar.YearPickerTriggerHeading />
-                                  <Calendar.YearPickerTriggerIndicator />
-                                </Calendar.YearPickerTrigger>
-                                <Calendar.NavButton slot="previous" />
-                                <Calendar.NavButton slot="next" />
-                              </Calendar.Header>
-                              <Calendar.Grid>
-                                <Calendar.GridHeader>
-                                  {(day) => (
-                                    <Calendar.HeaderCell>
-                                      {day}
-                                    </Calendar.HeaderCell>
-                                  )}
-                                </Calendar.GridHeader>
-                                <Calendar.GridBody>
-                                  {(date) => <Calendar.Cell date={date} />}
-                                </Calendar.GridBody>
-                              </Calendar.Grid>
-                            </Calendar>
-                          </DatePicker.Popover>
-                        </DatePicker>
-                        {formErrors.date ? (
-                          <p
-                            id="event-date-error"
-                            className="text-sm text-danger"
-                          >
-                            {formErrors.date}
-                          </p>
-                        ) : null}
-                      </div>
-                    </form>
-                  </Modal.Body>
-                  <Modal.Footer className="flex justify-end gap-3">
-                    <Button
-                      variant="ghost"
-                      onPress={() => setDialogOpen(false)}
-                    >
-                      Cancel
-                    </Button>
-                    <Button type="submit" form="event-preview-form">
-                      Create event
-                    </Button>
-                  </Modal.Footer>
-                </Modal.Dialog>
-              </Modal.Container>
-            </Modal.Backdrop>
-          </Modal>
-        }
-      />
-
-      <CopperNote>
-        Local product preview. The layout and interactions are real; the values
-        reset on reload until the operations API is connected.
-      </CopperNote>
-
-      <dl
-        aria-label="Operations summary"
-        className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"
-      >
-        <JtsStat
-          label="Active events"
-          value={activePreviewEvents}
-          detail="Open or ready"
-          icon={CalendarIcon}
-        />
-        <JtsStat
-          label="Bookings"
-          value={totalPreviewBookings}
-          detail="Across preview events"
-          icon={Ticket}
-        />
-        <JtsStat
-          label="Open blockers"
-          value={openBlockers}
-          detail="Need operator action"
-          tone="warning"
-          icon={TriangleAlert}
-        />
-        <JtsStat
-          label="Ready events"
-          value={readyEvents}
-          detail="Cleared to run"
-          tone="success"
-          icon={CircleCheck}
-        />
-      </dl>
-
-      <section
-        aria-label="Operational focus"
-        className="grid gap-6 md:grid-cols-2"
-      >
-        <FocusCard kicker="Immediate event context" title="Next dinner" primary>
-          {nextDinner ? (
-            <div className="grid gap-5">
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex min-w-0 flex-col">
-                  <strong className="text-base font-bold text-ink">
-                    {nextDinner.name}
-                  </strong>
-                  <span className="text-sm text-ink-muted">
-                    {nextDinner.city} · {formatDate(nextDinner.date)}
-                  </span>
-                </div>
-                <Stamp tone={statusTone(nextDinner.status)}>
-                  {nextDinner.status}
-                </Stamp>
-              </div>
-              <div className="grid gap-2">
-                <div className="flex items-baseline justify-between gap-4">
-                  <span className="text-xs font-bold uppercase tracking-wide text-ink-muted">
-                    Table capacity
-                  </span>
-                  <strong className="text-sm font-bold tabular-nums text-ink">
-                    {nextDinner.bookings} / {nextDinner.capacity}
-                  </strong>
-                </div>
-                <ProgressBar
-                  aria-label={`Table occupancy for ${nextDinner.name}`}
-                  value={occupancy(nextDinner)}
-                >
-                  <ProgressBar.Track className="h-1 rounded-none bg-surface-sunken">
-                    <ProgressBar.Fill className="rounded-none" />
-                  </ProgressBar.Track>
-                </ProgressBar>
-              </div>
-            </div>
-          ) : null}
-        </FocusCard>
-
-        <FocusCard kicker="Operator queue" title="Needs attention">
-          <ul className="divide-y divide-dotted divide-border-strong">
-            {attentionQueue.map((item) => (
-              <QueueRow key={item.title} {...item} />
-            ))}
-          </ul>
-        </FocusCard>
-      </section>
-
-      <JtsDataTable
-        rows={previewRows}
-        columns={columns}
-        getRowId={(row) => row.id}
-        title="Event operations"
-        description="Current event stage, capacity and unresolved blockers."
-        emptyTitle="No events yet"
-        emptyDescription="Create the first event to start the operational workflow."
-        paginator
-        pageSize={5}
-        rowsPerPageOptions={[5, 10, 25]}
-        toolbarEnd={
-          <Button variant="outline" isDisabled>
-            <Filter aria-hidden="true" className="size-4" />
-            Filters
+          <Button
+            variant="outline"
+            onPress={() => {
+              void overviewQuery.refetch();
+            }}
+            isDisabled={overviewQuery.isFetching}
+            aria-label="Refresh overview"
+          >
+            <RefreshCw
+              aria-hidden="true"
+              className={clsx("size-4", refreshing && "animate-spin")}
+            />
+            Refresh
           </Button>
         }
       />
+
+      {data ? (
+        <CopperNote>
+          Snapshot at {formatDateTime(data.observedAt)}. Counts are exact
+          aggregates — refresh to read the stores again.
+        </CopperNote>
+      ) : null}
+
+      {overviewQuery.isPending ? (
+        <p role="status" className="text-sm text-ink-muted">
+          Loading operations snapshot…
+        </p>
+      ) : null}
+
+      {overviewQuery.isError ? (
+        <p role="alert" className="text-sm text-danger">
+          The overview could not be loaded. Refresh to try again.
+        </p>
+      ) : null}
+
+      {data ? (
+        <>
+          <dl
+            aria-label="Operations summary"
+            className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"
+          >
+            <JtsStat
+              label="Scheduled events"
+              value={data.events.byStatus.scheduled}
+              detail={`${data.events.total} events total`}
+              icon={CalendarIcon}
+            />
+            <JtsStat
+              label="Participants"
+              value={data.participants.total}
+              detail={`${data.participants.feedbackContactableCount} feedback-contactable`}
+              icon={Users}
+            />
+            <JtsStat
+              label="Needs attention"
+              value={data.feedback.conversations.needsAttention}
+              detail={
+                data.feedback.conversations.extractionParked > 0
+                  ? `${data.feedback.conversations.extractionParked} extraction parked`
+                  : `${data.feedback.conversations.open} conversations open`
+              }
+              {...(data.feedback.conversations.needsAttention > 0
+                ? { tone: "warning" as const }
+                : {})}
+              icon={MessageCircleWarning}
+            />
+            <JtsStat
+              label="Undelivered messages"
+              value={data.feedback.outbox.totalUndelivered}
+              detail={
+                data.feedback.outbox.failedLast24Hours > 0
+                  ? `${data.feedback.outbox.failedLast24Hours} failed in 24h`
+                  : `${data.feedback.campaigns.byStatus.launched} campaigns launched`
+              }
+              {...(data.feedback.outbox.totalUndelivered > 0
+                ? { tone: "warning" as const }
+                : {})}
+              icon={SendHorizontal}
+            />
+          </dl>
+
+          <section
+            aria-label="Operational focus"
+            className="grid gap-6 md:grid-cols-2"
+          >
+            <FocusCard
+              kicker="Immediate event context"
+              title="Next dinner"
+              primary
+            >
+              {nextDinner ? (
+                <div className="grid gap-5">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex min-w-0 flex-col">
+                      <strong className="text-base font-bold text-ink">
+                        {nextDinner.title}
+                      </strong>
+                      <span className="text-sm text-ink-muted">
+                        {nextDinner.venueLabel
+                          ? `${nextDinner.venueLabel} · `
+                          : null}
+                        {formatDateTime(nextDinner.startsAt)}
+                      </span>
+                    </div>
+                    <Stamp tone="info">Scheduled</Stamp>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-4">
+                    <span className="text-xs font-bold uppercase tracking-wide text-ink-muted">
+                      Attendees assigned
+                    </span>
+                    <strong className="text-sm font-bold tabular-nums text-ink">
+                      {nextDinner.attendeeCount}
+                    </strong>
+                  </div>
+                  <Link
+                    to={`/admin/events/${nextDinner.id}`}
+                    className="text-sm font-semibold text-primary underline-offset-4 hover:underline"
+                  >
+                    Open event
+                  </Link>
+                </div>
+              ) : (
+                <p className="text-sm text-ink-muted">
+                  No scheduled dinner yet.{" "}
+                  <Link
+                    to="/admin/events"
+                    className="font-semibold text-primary underline-offset-4 hover:underline"
+                  >
+                    Go to events
+                  </Link>
+                </p>
+              )}
+            </FocusCard>
+
+            <FocusCard kicker="Operator queue" title="Needs attention">
+              {attentionQueue.length > 0 ? (
+                <ul className="divide-y divide-dotted divide-border-strong">
+                  {attentionQueue.map(({ key, ...item }) => (
+                    <QueueRow key={key} {...item} />
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-ink-muted">
+                  Nothing is asking for an operator right now.
+                </p>
+              )}
+            </FocusCard>
+          </section>
+
+          <section
+            aria-label="Platform workflow"
+            className="grid gap-4 rounded-md border border-border bg-surface p-6 md:grid-cols-2"
+          >
+            <div>
+              <p className="mb-2 text-xs font-bold uppercase tracking-wide text-ink-muted">
+                Event stages
+              </p>
+              <dl className="grid gap-2 text-sm">
+                {(["draft", "scheduled", "finished", "cancelled"] as const).map(
+                  (status) => (
+                    <div
+                      key={status}
+                      className="flex items-baseline justify-between gap-4"
+                    >
+                      <dt className="text-ink-muted">
+                        {eventStatusLabel(status)}
+                      </dt>
+                      <dd className="m-0 font-bold tabular-nums text-ink">
+                        {data.events.byStatus[status]}
+                      </dd>
+                    </div>
+                  ),
+                )}
+              </dl>
+            </div>
+            <div>
+              <p className="mb-2 text-xs font-bold uppercase tracking-wide text-ink-muted">
+                Feedback loop
+              </p>
+              <dl className="grid gap-2 text-sm">
+                <div className="flex items-baseline justify-between gap-4">
+                  <dt className="text-ink-muted">Campaigns</dt>
+                  <dd className="m-0 font-bold tabular-nums text-ink">
+                    {data.feedback.campaigns.total}
+                  </dd>
+                </div>
+                <div className="flex items-baseline justify-between gap-4">
+                  <dt className="text-ink-muted">Conversations</dt>
+                  <dd className="m-0 font-bold tabular-nums text-ink">
+                    {data.feedback.conversations.total}
+                  </dd>
+                </div>
+                <div className="flex items-baseline justify-between gap-4">
+                  <dt className="text-ink-muted">Completed</dt>
+                  <dd className="m-0 font-bold tabular-nums text-ink">
+                    {data.feedback.conversations.byClosedReason.completed}
+                  </dd>
+                </div>
+                <div className="flex items-baseline justify-between gap-4">
+                  <dt className="text-ink-muted">Summaries ready</dt>
+                  <dd className="m-0 font-bold tabular-nums text-ink">
+                    {data.feedback.summaries.ready}
+                  </dd>
+                </div>
+                <div className="flex items-baseline justify-between gap-4">
+                  <dt className="text-ink-muted">Present / assigned</dt>
+                  <dd className="m-0 font-bold tabular-nums text-ink">
+                    {data.events.presentCount} / {data.events.attendeeCount}
+                  </dd>
+                </div>
+              </dl>
+              {data.events.finishedWithoutFeedbackCampaignCount > 0 ? (
+                <p className="mt-3 text-xs text-ink-muted">
+                  {data.events.finishedWithoutFeedbackCampaignCount} finished
+                  dinner
+                  {data.events.finishedWithoutFeedbackCampaignCount === 1
+                    ? ""
+                    : "s"}{" "}
+                  still without a feedback campaign
+                  {nextDinner
+                    ? ` · next ${formatDate(nextDinner.startsAt)}`
+                    : ""}
+                  .
+                </p>
+              ) : null}
+            </div>
+          </section>
+        </>
+      ) : null}
     </div>
   );
 }

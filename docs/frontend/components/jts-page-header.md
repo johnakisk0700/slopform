@@ -16,7 +16,7 @@ Source: [`JtsPageHeader.tsx`](../../../apps/admin/src/components/ui/JtsPageHeade
 | `back`        | `{ to: string; label: string }?` | A `JtsBackLink` above the eyebrow. Detail screens only.           |
 | `eyebrow`     | `string?`                        | Tracked wine micro-caps kicker rendered above the title.          |
 | `description` | `string?`                        | Muted supporting sentence under the title (max ~65ch).            |
-| `actions`     | `ReactNode?`                     | Route-owned controls/links in a wrapping row below the copy.      |
+| `actions`     | `ReactNode?`                     | Route-owned controls/links top-right of the header row.           |
 
 The mark is the `jts-title-mark` utility in `globals.css`: six 3px dots on a 6px
 pitch, five in `--jts-color-primary` and the sixth in `--jts-color-accent` — the

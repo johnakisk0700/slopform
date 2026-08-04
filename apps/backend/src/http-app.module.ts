@@ -19,6 +19,7 @@ import { AssistantHttpModule } from "./modules/assistant/assistant-http.module.j
 import { EmailHttpModule } from "./modules/email/email-http.module.js";
 import { EventsHttpModule } from "./modules/events/events-http.module.js";
 import { HealthModule } from "./modules/health/health.module.js";
+import { OverviewHttpModule } from "./modules/overview/overview-http.module.js";
 import { ParticipantsHttpModule } from "./modules/participants/participants-http.module.js";
 import { PostEventFeedbackCoreModule } from "./modules/post-event-feedback/core.module.js";
 import { PostEventFeedbackHttpModule } from "./modules/post-event-feedback/http.module.js";
@@ -42,6 +43,7 @@ const StrictZodValidationPipe = createZodValidationPipe({
     AssistantHttpModule,
     EmailHttpModule,
     EventsHttpModule,
+    OverviewHttpModule,
     ParticipantsHttpModule,
     PostEventFeedbackCoreModule,
     PostEventFeedbackHttpModule,

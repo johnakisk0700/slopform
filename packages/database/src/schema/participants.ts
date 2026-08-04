@@ -98,6 +98,11 @@ export const participants = pgTable(
       table.preferredNeighborhood,
       table.ageBand,
     ),
+    index("participants_feedback_contactable_idx")
+      .on(table.id)
+      .where(
+        sql`${table.postEventFeedbackWhatsappOptIn} = true and ${table.phoneE164} is not null`,
+      ),
   ],
 );
 

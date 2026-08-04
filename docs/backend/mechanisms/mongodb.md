@@ -72,13 +72,14 @@ A fresh volume creates:
 
 - a root user from the Mongo-only root secret;
 - a database-scoped `readWrite` application user from a separate secret;
-- `conversation_threads` plus its five reviewed indexes: the schema-v1
-  owner/recency and purpose/state indexes, the schema-v2 partial **unique**
-  index on `phoneAtLaunch` for open post-event feedback conversations, and the
-  schema-v2 campaign/recency and due-work indexes. The due-work index is
-  `(work.nextActionAt, _id)` with a partial date filter, so maintenance can scan
-  durable intent in keyset pages without rereading one oldest prefix or touching
-  every transcript in one pass.
+- `conversation_threads` plus its seven reviewed indexes: the schema-v1
+  owner/recency and purpose/state indexes; the schema-v2 partial **unique**
+  index on `phoneAtLaunch` for open post-event feedback conversations; the
+  schema-v2 campaign/recency and due-work indexes; plus the schema-v2 lifecycle
+  state and attention-recency indexes that keep the admin Overview facet cheap.
+  The due-work index is `(work.nextActionAt, _id)` with a partial date filter,
+  so maintenance can scan durable intent in keyset pages without rereading one
+  oldest prefix or touching every transcript in one pass.
 
 API and worker receive only the application secret. They never receive the root
 secret. The repository idempotently verifies the required indexes on its first

@@ -4998,6 +4998,427 @@
         ],
         "type": "object"
       },
+      "OverviewDto_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "events": {
+            "additionalProperties": false,
+            "properties": {
+              "attendeeCount": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "byStatus": {
+                "additionalProperties": false,
+                "properties": {
+                  "cancelled": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "draft": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "finished": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "scheduled": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "draft",
+                  "scheduled",
+                  "finished",
+                  "cancelled"
+                ],
+                "type": "object"
+              },
+              "finishedWithoutFeedbackCampaignCount": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "nextScheduled": {
+                "additionalProperties": false,
+                "nullable": true,
+                "properties": {
+                  "attendeeCount": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "id": {
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                    "type": "string"
+                  },
+                  "startsAt": {
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                    "type": "string"
+                  },
+                  "title": {
+                    "maxLength": 200,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "venueLabel": {
+                    "maxLength": 200,
+                    "minLength": 1,
+                    "nullable": true,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "title",
+                  "startsAt",
+                  "attendeeCount",
+                  "venueLabel"
+                ],
+                "type": "object"
+              },
+              "presentCount": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "total": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "total",
+              "byStatus",
+              "attendeeCount",
+              "presentCount",
+              "finishedWithoutFeedbackCampaignCount",
+              "nextScheduled"
+            ],
+            "type": "object"
+          },
+          "feedback": {
+            "additionalProperties": false,
+            "properties": {
+              "campaigns": {
+                "additionalProperties": false,
+                "properties": {
+                  "byStatus": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "closed": {
+                        "maximum": 9007199254740991,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "launched": {
+                        "maximum": 9007199254740991,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "paused": {
+                        "maximum": 9007199254740991,
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "launched",
+                      "paused",
+                      "closed"
+                    ],
+                    "type": "object"
+                  },
+                  "total": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "total",
+                  "byStatus"
+                ],
+                "type": "object"
+              },
+              "conversations": {
+                "additionalProperties": false,
+                "properties": {
+                  "attentionByReason": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "count": {
+                          "exclusiveMinimum": true,
+                          "maximum": 9007199254740991,
+                          "minimum": 0,
+                          "type": "integer"
+                        },
+                        "reason": {
+                          "enum": [
+                            "safety",
+                            "respondent_conduct",
+                            "handoff",
+                            "unattributed_note",
+                            "answer_revision",
+                            "hostile_to_bot",
+                            "unfinished_questionnaire",
+                            "extraction_failed",
+                            "unreadable_message",
+                            "transcript_mismatch",
+                            "transcript_full",
+                            "undelivered_message",
+                            "post_closure_message",
+                            "stopped_without_answers",
+                            "unanswered_data_question"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "reason",
+                        "count"
+                      ],
+                      "type": "object"
+                    },
+                    "maxItems": 15,
+                    "type": "array"
+                  },
+                  "byClosedReason": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "cancelled": {
+                        "maximum": 9007199254740991,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "completed": {
+                        "maximum": 9007199254740991,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "declined": {
+                        "maximum": 9007199254740991,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "expired": {
+                        "maximum": 9007199254740991,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "stopped": {
+                        "maximum": 9007199254740991,
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "completed",
+                      "declined",
+                      "stopped",
+                      "expired",
+                      "cancelled"
+                    ],
+                    "type": "object"
+                  },
+                  "closed": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "extractionParked": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "needsAttention": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "open": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "total": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "total",
+                  "open",
+                  "closed",
+                  "byClosedReason",
+                  "needsAttention",
+                  "extractionParked",
+                  "attentionByReason"
+                ],
+                "type": "object"
+              },
+              "outbox": {
+                "additionalProperties": false,
+                "properties": {
+                  "ambiguous": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "attempting": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "claimed": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "failedLast24Hours": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "held": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "oldestUndeliveredAt": {
+                    "format": "date-time",
+                    "nullable": true,
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                    "type": "string"
+                  },
+                  "pending": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "sending": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "totalUndelivered": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "pending",
+                  "held",
+                  "claimed",
+                  "attempting",
+                  "ambiguous",
+                  "sending",
+                  "totalUndelivered",
+                  "oldestUndeliveredAt",
+                  "failedLast24Hours"
+                ],
+                "type": "object"
+              },
+              "summaries": {
+                "additionalProperties": false,
+                "properties": {
+                  "failed": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "none": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "pending": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "ready": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "none",
+                  "pending",
+                  "ready",
+                  "failed"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "campaigns",
+              "conversations",
+              "outbox",
+              "summaries"
+            ],
+            "type": "object"
+          },
+          "observedAt": {
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+            "type": "string"
+          },
+          "participants": {
+            "additionalProperties": false,
+            "properties": {
+              "feedbackContactableCount": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "total": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "whatsappFeedbackOptInCount": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "withPhoneCount": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "total",
+              "whatsappFeedbackOptInCount",
+              "withPhoneCount",
+              "feedbackContactableCount"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "observedAt",
+          "events",
+          "participants",
+          "feedback"
+        ],
+        "type": "object"
+      },
       "ParticipantDto_Output": {
         "additionalProperties": false,
         "properties": {
@@ -7482,6 +7903,28 @@
         "summary": "",
         "tags": [
           "health"
+        ]
+      }
+    },
+    "/api/v1/overview": {
+      "get": {
+        "operationId": "getOverview",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OverviewDto_Output"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "summary": "",
+        "tags": [
+          "overview"
         ]
       }
     },

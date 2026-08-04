@@ -559,7 +559,7 @@ docker compose --project-name join-the-six-restore \
 ```
 
 Use a restore-only password in `.env.restore`. Validate the encrypted checksums
-before decrypting, Mongo's full collection validation, the four required
+before decrypting, Mongo's full collection validation, the seven required
 indexes, document counts, PostgreSQL migration state and representative
 owner-scoped API reads. Record elapsed time against the RTO, then destroy the
 disposable project and its volumes.

@@ -14,7 +14,10 @@ import { Link } from "react-router";
 import { AssistantMarkdown } from "../components/admin/assistant/AssistantMarkdown";
 import { AssistantMermaid } from "../components/admin/assistant/AssistantMermaid";
 import { ConversationAttention } from "../components/admin/feedback/ConversationAttention";
-import { ConversationActions, ReadingStatus } from "../components/admin/feedback/ConversationDetails";
+import {
+  ConversationActions,
+  ReadingStatus,
+} from "../components/admin/feedback/ConversationDetails";
 import { FeedbackBadges } from "../components/admin/feedback/FeedbackBadges";
 import { JtsPageHeader } from "../components/ui/JtsPageHeader";
 import {

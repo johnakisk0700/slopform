@@ -77,7 +77,9 @@ export function AssistantMermaid({ chart }: { chart: string }) {
         });
 
         const themedChart = withMermaidRoleDefs(chart, palette);
-        const valid = await mermaid.parse(themedChart, { suppressErrors: true });
+        const valid = await mermaid.parse(themedChart, {
+          suppressErrors: true,
+        });
         if (cancelled || !valid) {
           if (!cancelled) setSvg("");
           return;

@@ -7,6 +7,9 @@ and link the source module. Cross-cutting infrastructure belongs in
 
 Product modules:
 
+- [`overview.md`](overview.md) — authenticated admin Operations snapshot:
+  exact PostgreSQL and MongoDB aggregates for events, participants, feedback
+  conversations, outbox and summaries.
 - [`conversations.md`](conversations.md) — MongoDB-authoritative schema-v1
   assistant conversation aggregate; co-tenancy with schema-v2 feedback
   documents in the shared `conversation_threads` collection.

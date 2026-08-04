@@ -62,5 +62,20 @@ applicationDatabase.runCommand({
         "work.nextActionAt": { $type: "date" },
       },
     },
+    {
+      name: "feedback_conversation_lifecycle_state_idx",
+      key: { "lifecycle.state": 1, updatedAt: -1 },
+      partialFilterExpression: {
+        purpose: "post_event_feedback",
+      },
+    },
+    {
+      name: "feedback_conversation_attention_updated_idx",
+      key: { updatedAt: -1 },
+      partialFilterExpression: {
+        purpose: "post_event_feedback",
+        needsAttention: true,
+      },
+    },
   ],
 });
