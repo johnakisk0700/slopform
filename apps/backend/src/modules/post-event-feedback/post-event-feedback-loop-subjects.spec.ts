@@ -190,11 +190,16 @@ const SCENARIOS: readonly FeedbackScenario[] = [
     // measuring the cap after the trigger that found it has gone, so the name
     // here is one that will never resolve however good the folding gets.
     //
-    // Two sends, not three. The second is the legitimate «you may not have seen
-    // this»; the third is where a question stops being one.
+    // Two asks, not three, and not in the same words. The second is the
+    // legitimate «you may not have seen this» — which the 2026-08-04 slot-2
+    // rehearsal proved must not be byte-identical to the first: two identical
+    // bodies ~70 seconds apart are a `duplicate_outbound` finding and read as
+    // a machine not listening. So the re-ask goes out in the goal's `_reask`
+    // variant, and the third attempt — out of wordings — is where a question
+    // stops being one.
     id: "stops_reasking_the_same_words",
     title:
-      "asks the campaign's own question twice for a name it cannot place, then stops and calls a person",
+      "asks the campaign's question, re-asks it in different words for a name it cannot place, then stops and calls a person",
     seed: { goals: { liked: "asked" } },
     script: [
       {
@@ -228,9 +233,12 @@ const SCENARIOS: readonly FeedbackScenario[] = [
       notes: [],
       received: [
         { kind: "reply", text: POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy.liked },
-        { kind: "reply", text: POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy.liked },
+        {
+          kind: "reply",
+          text: POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy.liked_reask,
+        },
       ],
-      // The third run says nothing at all rather than saying it again.
+      // The third run says nothing at all rather than finding a third wording.
       receivedCount: { reply: 2 },
       // And is not left going quietly quiet: the badge is raised
       // `unfinished_questionnaire`, which is the reason's own meaning — the bot

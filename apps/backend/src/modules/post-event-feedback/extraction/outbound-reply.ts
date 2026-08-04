@@ -16,6 +16,7 @@ import {
 import {
   FEEDBACK_ANSWER_QUESTION_KEYS,
   isPostEventFeedbackAnswerQuestionKey,
+  postEventFeedbackReaskCopyKey,
   type PostEventFeedbackQuestionSetCopy,
 } from "../question-set.js";
 import {
@@ -258,24 +259,13 @@ export function withPolicyAnswers(
   };
 }
 
-/**
- * How many times one goal's fixed campaign copy may reach one conversation.
- *
- * Two, because the second one is a legitimate re-ask and the third is a loop.
- * The first time is the question; the second is «you may not have seen this»,
- * which is exactly what a refused answer earns. By the third the wording has
- * demonstrably not worked and repeating it is no longer asking anybody
- * anything.
- */
-export const FEEDBACK_CAMPAIGN_REASK_LIMIT = 2;
-
 /** A run's outbound after the re-ask cap has had its say. */
 export interface CappedOutbound {
   readonly outbound: OutboundReply | undefined;
   /**
    * The bot message an operator should open when the cap withheld this run's
-   * question: the last time this exact copy went out. `null` whenever nothing
-   * was withheld.
+   * question: the last time the goal's re-ask variant went out — the message
+   * that spent the final wording. `null` whenever nothing was withheld.
    *
    * A *bot* message rather than the participant's newest one, and that is
    * load-bearing rather than cosmetic. The anchor is what makes the raise
@@ -289,34 +279,53 @@ export interface CappedOutbound {
 }
 
 /**
- * Stop sending the same fixed question a third time.
+ * Never send a question in words this conversation has already heard.
  *
  * The model's own re-asks vary — rule 11δ forbids repeating a question in the
  * same words, and the personas that get two differently worded re-asks are
- * fine. `questionOutbound` cannot vary: the campaign copy is the one wording
- * this path is guaranteed not to be lying with, which is exactly why it is used
- * and exactly why it cannot be reworded on the fly. So it is capped instead.
+ * fine. `questionOutbound` cannot vary on the fly: the campaign copy is
+ * wording this path is guaranteed not to be lying with, which is exactly why
+ * it is used and exactly why nothing here may improvise a rewording. What it
+ * has instead is exactly one more approved wording per goal — the `_reask`
+ * variant in the question set's copy — and the rule is one send per wording:
+ * the question itself, then the variant, then nothing. This used to be a cap
+ * of two sends of the *identical* body, on the theory that the second was
+ * «you may not have seen this» — and the 2026-08-04 slot-2 rehearsal showed
+ * what that theory looks like from the phone: a refused directed answer put
+ * two byte-identical questions there ~70 seconds apart, which the burst
+ * grader rightly files as `duplicate_outbound` and a participant reads as a
+ * machine not listening. The re-ask was always legitimate; its wording was
+ * the defect.
  *
- * The loop it closes is a real one, and it does not need a broken model to
- * happen. An unresolved mention banks no answer, the next open goal therefore
- * does not move, and `questionOutbound` re-sends the same sentence — while the
- * dedupe key carries the testimony `seq`, so every new participant message
- * mints a fresh key and the outbox fence never fires. In paid rehearsal runs 13
- * and 14 (2026-07-31) two guests were sent «Υπήρχε κάποιος ή κάποια από την
- * παρέα που σου έκανε ιδιαίτερα καλή εντύπωση;» eleven and eight times, one of
- * them answering «re eipa idi 3 fores, i loyla!».
+ * The loop the stall closes is a real one, and it does not need a broken
+ * model to happen. An unresolved mention banks no answer, the next open goal
+ * therefore does not move, and `questionOutbound` re-sends the same goal —
+ * while the dedupe key carries the testimony `seq`, so every new participant
+ * message mints a fresh key and the outbox fence never fires. In paid
+ * rehearsal runs 13 and 14 (2026-07-31) two guests were sent «Υπήρχε κάποιος
+ * ή κάποια από την παρέα που σου έκανε ιδιαίτερα καλή εντύπωση;» eleven and
+ * eight times, one of them answering «re eipa idi 3 fores, i loyla!».
  *
  * Applied by the caller rather than inside `resolveOutbound`, for the same
  * reason `withSafetyAssurance` is: it is not a choice between copies. Whatever
- * this run decided to say, the application is refusing to say it again — and
- * the refusal owes an operator an explanation, which is what the returned
- * anchor is for. A conversation that is out of ways to ask its next question is
- * not one to leave going quietly quiet.
+ * this run decided to say, the application is refusing to say it in words
+ * that already went out — and once both wordings are spent, the refusal owes
+ * an operator an explanation, which is what the returned anchor is for. A
+ * conversation that is out of ways to ask its next question is not one to
+ * leave going quietly quiet.
  *
- * The count is over *identical bodies*, not over "this goal was asked twice".
- * A differently worded re-ask is the behaviour we want and must survive
- * untouched, and the planner's reminder nudge is its own copy — neither is equal
- * to `copy[goal]`, so neither is counted and neither is capped.
+ * The judgement is over *identical bodies*, not over "this goal was asked
+ * twice" — a differently worded ask is the behaviour we want and must survive
+ * untouched — but the two sources of a repeat are checked against different
+ * spans of the transcript. The campaign's fixed wording is checked against
+ * the whole of it, because the grader's `duplicate_outbound` is over the
+ * whole of it too: the identical question landing twice on one phone is a
+ * defect even with an unrelated reply between the two sends. The model's own
+ * words are checked against the last bot message only — a model that repeats
+ * itself byte-for-byte right after itself is parroting the transcript rather
+ * than asking, while a phrase resurfacing after the conversation moved on is
+ * ordinary language. The planner's reminder nudge quotes the question inside
+ * its own wrapper copy, so it is equal to neither wording and never counted.
  */
 export function withCampaignReaskCap(
   conversation: FeedbackConversationDocument,
@@ -324,21 +333,40 @@ export function withCampaignReaskCap(
   copy: PostEventFeedbackQuestionSetCopy,
 ): CappedOutbound {
   const goal = outbound?.askedGoal;
-  // Only the campaign-copy path. A forwarded model reply carries `askedGoal`
-  // too, and its words are its own — reading it as a repeat would cap the one
-  // kind of re-ask that is working.
-  if (!outbound || !goal || outbound.body !== copy[goal]) {
+  // Only questions. Closings, handoffs and the model's non-question replies
+  // carry no `askedGoal`, and none of them is a re-ask this path could reword.
+  if (!outbound || !goal) {
     return { outbound, stalledOnMessageId: null };
   }
-  const alreadySent = conversation.messages.filter(
-    (message) => message.actor === "bot" && message.text === outbound.body,
+  const botMessages = conversation.messages.filter(
+    (message) => message.actor === "bot",
   );
-  if (alreadySent.length < FEEDBACK_CAMPAIGN_REASK_LIMIT) {
+  const repeatsItself =
+    outbound.body === copy[goal]
+      ? botMessages.some((message) => message.text === outbound.body)
+      : botMessages.at(-1)?.text === outbound.body;
+  if (!repeatsItself) {
     return { outbound, stalledOnMessageId: null };
+  }
+  const variantSent = botMessages.filter(
+    (message) => message.text === copy[postEventFeedbackReaskCopyKey(goal)],
+  );
+  if (variantSent.length === 0) {
+    // The re-ask, in the one other wording this path owns. Application copy
+    // replacing whatever repeated, so `generatedByModel` does not survive the
+    // swap; the dedupe key does, because it is this run's reply either way.
+    return {
+      outbound: {
+        body: copy[postEventFeedbackReaskCopyKey(goal)],
+        dedupeKey: outbound.dedupeKey,
+        askedGoal: goal,
+      },
+      stalledOnMessageId: null,
+    };
   }
   return {
     outbound: undefined,
-    stalledOnMessageId: alreadySent.at(-1)?.id ?? null,
+    stalledOnMessageId: variantSent.at(-1)?.id ?? null,
   };
 }
 

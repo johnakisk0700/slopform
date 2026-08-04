@@ -774,8 +774,8 @@ answered`, derived from stored **and** newly written answers so a replay repairs
   `nextGoal: null` after proposing progress that did not finish the ladder, else
   the model's reply when it agrees with the recorded next goal (including
   side-question replies that name no next goal and proposed nothing). A campaign
-  re-ask is capped: the same goal's identical copy is never sent a third time —
-  see [the same question twice](#the-same-question-twice-and-no-more);
+  re-ask is capped: each of the goal's two fixed wordings is sent at most once —
+  see [one send per wording](#one-send-per-wording);
 - that row transcribed as an `actor: bot` message carrying its `outboxId`
   ([outbound transcript entries](#outbound-transcript-entries)), so the next run
   reads what the bot already asked;
@@ -802,11 +802,15 @@ Control is **not** seized on a handoff. `control.source` is `staff_action` or
 human button. The bot stops asking, flags attention and lets an operator take
 over explicitly.
 
-### The same question twice, and no more
+### One send per wording
 
-A goal's **fixed campaign copy** may reach one conversation twice. The third
-identical body is not sent, and the conversation is raised
-`unfinished_questionnaire` instead — `withCampaignReaskCap` in
+A participant never receives the same fixed wording twice. Each goal owns two
+deterministic wordings — its campaign copy and a `_reask` variant
+(`postEventFeedbackReaskCopyKey`) that prefixes the same question with a short
+acknowledgement that the previous answer could not be kept. A refused answer
+earns the variant; once both wordings have been spent the run sends nothing on
+that path and raises `unfinished_questionnaire` instead —
+`withCampaignReaskCap` in
 [`outbound-reply.ts`](../../../apps/backend/src/modules/post-event-feedback/extraction/outbound-reply.ts),
 applied by `extract.service` between the choice of copy and the safety
 assurance.
@@ -818,31 +822,35 @@ re-ask for that goal — and `questionOutbound`'s dedupe key carries the testimo
 never sees a duplicate. In paid rehearsal runs 13 and 14 (2026-07-31) two live
 guests were sent «Υπήρχε κάποιος ή κάποια από την παρέα που σου έκανε ιδιαίτερα
 καλή εντύπωση;» eleven and eight times; one of them answered «re eipa idi 3
-fores, i loyla!». Prompt rule 11δ forbids re-asking in the same words, and this
-path is the one place the rule cannot reach: the campaign copy is used precisely
-because it is the wording guaranteed still to be true, which is the same reason
-it cannot be varied. So it is counted instead.
+fores, i loyla!». The first cap stopped the flood at two identical bodies; the
+2026-08-04 slot-2 rehearsal then showed that even the supported second identical
+send reads as a defect — the burst grader flags any repeated phone+body pair,
+and the participant answered the byte-identical repeat with «ton taki re trito
+forea les». Prompt rule 11δ forbids re-asking in the same words, and this path
+is the one place the rule cannot reach a model: the fixed copy is used precisely
+because it is the wording guaranteed still to be true. So the variant is fixed
+copy too — a second wording that claims only what is always true when it fires,
+and nothing about why the answer was refused.
 
-Two, not one, because the second send is a legitimate «you may not have seen
-this» — exactly what a refused answer earns. Three is where a question stops
-being one.
+The comparison scope is deliberately split:
 
-The count is over **identical bodies**, not over "this goal was asked twice", and
-that distinction is the whole safety of it:
-
-- a re-ask the **model** worded differently is the behaviour 11δ asks for and is
-  never counted — the personas that get two differently phrased re-asks and stay
-  open are untouched;
+- the **campaign wordings** are checked against the whole bot transcript, because
+  the defect is «this phone received these bytes before», not «twice in a row»;
+- a **model-written** body is checked against the last bot message only — a
+  byte-identical consecutive repeat is substituted with the variant like any
+  other repeat, while a model legitimately circling back to earlier phrasing
+  after intervening turns stays untouched;
 - the planner's reminder nudge restates the open question **inside**
-  `reminder_followup`'s own wrapper, so it is never equal to the campaign copy
-  and never spends a rung;
+  `reminder_followup`'s own wrapper, so it is never equal to either wording and
+  never spends one;
 - the assurance-bearing and ending copies carry no `askedGoal` at all, so none of
   them is a question this path could repeat.
 
-When the cap trips the run sends nothing on that path. It does not close the
-conversation, does not settle the ladder and does not take control: the
-participant asked us for none of those. It raises the badge, and a person decides
-what the bot has run out of ways to ask.
+When both wordings are spent the run does not close the conversation, does not
+settle the ladder and does not take control: the participant asked us for none
+of those. It raises the badge, and a person decides what the bot has run out of
+ways to ask. A conversation that already carried two identical bodies from
+before this rule receives the variant once and then stalls the same way.
 
 ### Naming the raise
 
@@ -862,7 +870,7 @@ run's own mapping is owned by
 | A note kept but degraded to subjectless (D18)                                                           | `unattributed_note`        | the note's own first cited message             |
 | A stored answer re-proposed with a **different** value, revised or refused because a human corrected it | `answer_revision`          | the newest message the run read                |
 | The bot withdrew, leaving goals unanswered                                                              | `unfinished_questionnaire` | the newest message the run read                |
-| The [re-ask cap](#the-same-question-twice-and-no-more) withheld a goal's campaign copy                  | `unfinished_questionnaire` | the bot message that already carried that copy |
+| The [re-ask cap](#one-send-per-wording) withheld a goal after both wordings were spent                  | `unfinished_questionnaire` | the bot message that spent the re-ask variant  |
 | A data-handling question nobody has decided how to answer (retention, anonymity, no match)              | `unanswered_data_question` | the message that asked it                      |
 
 Three of them have no citation of their own — a handoff is a property of the run,

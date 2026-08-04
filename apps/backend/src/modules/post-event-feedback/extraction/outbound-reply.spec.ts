@@ -696,23 +696,53 @@ describe("withCampaignReaskCap", () => {
     } as unknown as FeedbackConversationDocument;
   }
 
-  it("lets the campaign's own words ask the same question a second time", () => {
-    // The legitimate re-ask, and the one the cap must not touch: an answer was
-    // refused, the goal is still open, and «you may not have seen this» is a
-    // reasonable thing to say once.
+  it("lets the campaign's own words ask a question their first time out", () => {
+    // The first ask is not a repeat of anything: nothing on the transcript
+    // carries this body, so the copy goes out exactly as `questionOutbound`
+    // wrote it.
     expect(
-      withCampaignReaskCap(botSaid(copy.liked), campaignQuestion, copy),
+      withCampaignReaskCap(botSaid("Γεια σου Μαρία!"), campaignQuestion, copy),
     ).toEqual({ outbound: campaignQuestion, stalledOnMessageId: null });
   });
 
-  it("refuses to send the identical campaign question a third time, and names the message to open", () => {
+  it("re-asks the second time in the variant's words instead of repeating itself", () => {
+    // The legitimate re-ask: an answer was refused and the goal is still open.
+    // It used to go out as the identical body again — the 2026-08-04 slot-2
+    // rehearsal put two byte-identical questions on one phone ~70 seconds
+    // apart, a `duplicate_outbound` finding — so the second ask now comes from
+    // the goal's `_reask` copy: still application wording that cannot lie,
+    // no longer the machine saying the same sentence twice.
+    expect(
+      withCampaignReaskCap(botSaid(copy.liked), campaignQuestion, copy),
+    ).toEqual({
+      outbound: {
+        body: copy.liked_reask,
+        dedupeKey: campaignQuestion.dedupeKey,
+        askedGoal: "liked",
+      },
+      stalledOnMessageId: null,
+    });
+    // Against the whole transcript, not just the newest message: the grader's
+    // `duplicate_outbound` is over the whole conversation too, so an unrelated
+    // reply between the two sends does not make the repeat acceptable.
+    expect(
+      withCampaignReaskCap(
+        botSaid(copy.liked, "κάτι άλλο εντελώς"),
+        campaignQuestion,
+        copy,
+      ).outbound?.body,
+    ).toBe(copy.liked_reask);
+  });
+
+  it("refuses a third campaign ask once both wordings are spent, and names the message to open", () => {
     // Paid rehearsal runs 13 and 14 (2026-07-31): «Υπήρχε κάποιος ή κάποια από
     // την παρέα που σου έκανε ιδιαίτερα καλή εντύπωση;» eleven times to one
     // guest and eight to another, one of whom answered «re eipa idi 3 fores, i
-    // loyla!». The third send is where it stops being a question.
+    // loyla!». The question and its variant have both gone out; a third
+    // campaign send has no wording left that is not a repeat.
     expect(
       withCampaignReaskCap(
-        botSaid(copy.liked, copy.liked),
+        botSaid(copy.liked, copy.liked_reask),
         campaignQuestion,
         copy,
       ),
@@ -724,7 +754,7 @@ describe("withCampaignReaskCap", () => {
     // on kind plus message, and a bot message that has already been sent does
     // not move, however many more messages the participant writes. Anchoring on
     // the newest testimony instead would file one identical reason per turn.
-    const stuck = botSaid(copy.liked, "κάτι άλλο εντελώς", copy.liked);
+    const stuck = botSaid(copy.liked, "κάτι άλλο εντελώς", copy.liked_reask);
 
     expect(
       withCampaignReaskCap(stuck, campaignQuestion, copy).stalledOnMessageId,
@@ -739,12 +769,57 @@ describe("withCampaignReaskCap", () => {
     ).toBe("m-bot-3");
   });
 
+  it("catches the model repeating itself byte-for-byte against the last message", () => {
+    // A forwarded model reply used to escape the cap entirely on the theory
+    // that rule 11δ makes its re-asks vary. When it does not — the model
+    // parroting its own last message verbatim — the participant is in exactly
+    // the loop the cap exists for, so the repeat is swapped for the variant.
+    // The swap replaces model text with application copy, which is why
+    // `generatedByModel` does not survive it.
+    const modelAsk = {
+      body: "Ποια Λούλα εννοείς, την Λούλα Γ.; 🙂",
+      dedupeKey: "feedback-reply-conv-1-11",
+      generatedByModel: true,
+      askedGoal: "liked",
+    } as const;
+
+    expect(
+      withCampaignReaskCap(botSaid(modelAsk.body), modelAsk, copy),
+    ).toEqual({
+      outbound: {
+        body: copy.liked_reask,
+        dedupeKey: modelAsk.dedupeKey,
+        askedGoal: "liked",
+      },
+      stalledOnMessageId: null,
+    });
+    // Only the *last* message: a model phrase resurfacing after the
+    // conversation moved on is ordinary language, not a stuck loop.
+    expect(
+      withCampaignReaskCap(
+        botSaid(modelAsk.body, "κάτι άλλο εντελώς"),
+        modelAsk,
+        copy,
+      ),
+    ).toEqual({ outbound: modelAsk, stalledOnMessageId: null });
+    // And once the variant is spent too, the repeat is withheld like any
+    // other, anchored on the message that spent it.
+    expect(
+      withCampaignReaskCap(
+        botSaid(copy.liked_reask, modelAsk.body),
+        modelAsk,
+        copy,
+      ),
+    ).toEqual({ outbound: undefined, stalledOnMessageId: "m-bot-1" });
+  });
+
   it("leaves a differently worded re-ask of the same goal alone", () => {
     // Rule 11δ forbids the model from repeating a question in the same words,
     // and the personas that get two differently worded re-asks are working as
-    // intended. The cap counts identical bodies, not "this goal was asked
-    // twice" — capping the model's own wording would break the one kind of
-    // re-ask that still reads as somebody asking.
+    // intended. The cap judges identical bodies, not "this goal was asked
+    // twice" — even with both fixed wordings already spent, the model's own
+    // wording is the one kind of re-ask that still reads as somebody asking,
+    // and capping it would break exactly that.
     const inItsOwnWords = {
       body: "Συγγνώμη που επιμένω 🙂 ποια Λούλα εννοείς, την Λούλα Γ.;",
       dedupeKey: "feedback-reply-conv-1-9",
@@ -753,7 +828,7 @@ describe("withCampaignReaskCap", () => {
 
     expect(
       withCampaignReaskCap(
-        botSaid(copy.liked, copy.liked),
+        botSaid(copy.liked, copy.liked_reask),
         inItsOwnWords,
         copy,
       ),
@@ -763,15 +838,16 @@ describe("withCampaignReaskCap", () => {
   it("does not count the planner's reminder nudge, which quotes the question inside its own copy", () => {
     // `reminder_followup` restates the open question inside a wrapper, so the
     // campaign copy is a substring of it and never equal to it. Counting by
-    // substring would spend a rung of the cap on a message that is not this
-    // path's and reads nothing like a repeat.
+    // substring would spend a wording on a message that is not this path's and
+    // reads nothing like a repeat — the campaign's own words are still owed
+    // their first send after a nudge.
     const nudge = renderPostEventFeedbackCopy(
       copy.reminder_followup,
       "Μαρία",
     ).replace("{question}", copy.liked);
 
     expect(
-      withCampaignReaskCap(botSaid(copy.liked, nudge), campaignQuestion, copy),
+      withCampaignReaskCap(botSaid(nudge), campaignQuestion, copy),
     ).toEqual({ outbound: campaignQuestion, stalledOnMessageId: null });
   });
 
@@ -830,11 +906,24 @@ describe("withCampaignReaskCap", () => {
       3,
     );
 
-    // And the cap is the whole of what stops it: the third of those three, with
-    // the first two on the transcript, is withheld.
+    // And the cap is the whole of what stops it. A pre-fix transcript that
+    // already carries the identical body twice gets the variant — the one
+    // wording left that is not a repeat —
     expect(
       withCampaignReaskCap(botSaid(copy.liked, copy.liked), uncapped[2], copy)
         .outbound,
+    ).toEqual({
+      body: copy.liked_reask,
+      dedupeKey: uncapped[2]!.dedupeKey,
+      askedGoal: "liked",
+    });
+    // — and once the variant is on the transcript too, the next is withheld.
+    expect(
+      withCampaignReaskCap(
+        botSaid(copy.liked, copy.liked, copy.liked_reask),
+        uncapped[2],
+        copy,
+      ).outbound,
     ).toBeUndefined();
   });
 });

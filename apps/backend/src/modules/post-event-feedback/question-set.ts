@@ -30,6 +30,13 @@ export const POST_EVENT_FEEDBACK_COPY_KEYS = [
   "liked",
   "meet_again",
   "avoid",
+  "event_score_reask",
+  "table_fit_reask",
+  "participation_ease_reask",
+  "conversation_balance_reask",
+  "liked_reask",
+  "meet_again_reask",
+  "avoid_reask",
   "closing",
   "closing_after_safety",
   "declined",
@@ -94,6 +101,36 @@ const POST_EVENT_FEEDBACK_QUESTION_SET_V1_COPY = {
     "Με ποιους από την παρέα θα ήθελες να ξαναβρεθείς σε επόμενο τραπέζι;",
   avoid:
     "Υπάρχει κάποιος ή κάποια που θα προτιμούσες να μην πετύχεις ξανά; Μένει αυστηρά μεταξύ μας.",
+  // The deterministic second ask, one per goal. `withCampaignReaskCap`
+  // substitutes this wording when the campaign's own words for the goal have
+  // already reached the phone once, so a refused answer earns a re-ask that a
+  // person could plausibly have typed instead of the same sentence twice —
+  // two byte-identical bodies in a row is what the 2026-08-04 slot-2 rehearsal
+  // sent a guest ~70 seconds apart, and the burst grader rightly files that as
+  // `duplicate_outbound`.
+  //
+  // Application copy for the same reason the questions themselves are: this
+  // wording goes out precisely when the model's reply could not be trusted, so
+  // it must be guaranteed not to lie whichever refusal produced it. The
+  // acknowledgement claims only what is always true at that point — the goal
+  // is still open, so nothing usable was kept from the previous message. It
+  // deliberately does not say *why* (a name we could not place, a score out of
+  // range, …), because by the time this fallback fires the reason may be any
+  // of them.
+  event_score_reask:
+    "Συγγνώμη, δεν μπορέσαμε να το κρατήσουμε αυτό ως απάντηση 🙏 Πώς σου φάνηκε συνολικά η βραδιά, από το 1 ως το 5;",
+  table_fit_reask:
+    "Συγγνώμη, δεν μπορέσαμε να το κρατήσουμε αυτό ως απάντηση 🙏 Πόσο καλά ταίριαξε η παρέα με αυτό που ήθελες από τη βραδιά, από το 1 ως το 5;",
+  participation_ease_reask:
+    "Συγγνώμη, δεν μπορέσαμε να το κρατήσουμε αυτό ως απάντηση 🙏 Πόσο εύκολο ήταν για σένα να μπεις και να συμμετέχεις στη συζήτηση, από το 1 ως το 5;",
+  conversation_balance_reask:
+    "Συγγνώμη, δεν μπορέσαμε να το κρατήσουμε αυτό ως απάντηση 🙏 Πόσο ισορροπημένη ήταν η συζήτηση — είχαν όλοι χώρο να μιλήσουν; Βάλε από 1 ως 5.",
+  liked_reask:
+    "Συγγνώμη, δεν μπορέσαμε να το κρατήσουμε αυτό ως απάντηση 🙏 Υπήρχε κάποιος ή κάποια από την παρέα που σου έκανε ιδιαίτερα καλή εντύπωση;",
+  meet_again_reask:
+    "Συγγνώμη, δεν μπορέσαμε να το κρατήσουμε αυτό ως απάντηση 🙏 Με ποιους από την παρέα θα ήθελες να ξαναβρεθείς σε επόμενο τραπέζι;",
+  avoid_reask:
+    "Συγγνώμη, δεν μπορέσαμε να το κρατήσουμε αυτό ως απάντηση 🙏 Υπάρχει κάποιος ή κάποια που θα προτιμούσες να μην πετύχεις ξανά; Μένει αυστηρά μεταξύ μας.",
   closing:
     "Τέλεια, ευχαριστούμε πολύ! Ό,τι άλλο θες να μας πεις, είμαστε εδώ. 🙌",
   // The same ending in the register the conversation was actually held in.
@@ -178,6 +215,13 @@ const POST_EVENT_FEEDBACK_QUESTION_SET_V2_COPY = {
     "Με ποιους από την παρέα θα χαιρόσουν να ξαναβρεθείς σε επόμενο τραπέζι;",
   avoid:
     "Υπάρχει κάποιος ή κάποια με τον οποίο θα προτιμούσες να μη βρεθείς ξανά στο ίδιο τραπέζι; Αρκεί το όνομα· δεν χρειάζεται να εξηγήσεις γιατί.",
+  // The re-ask variants restate the question, so the two whose V2 wording
+  // differs are re-derived here; the rest ask the same words in both versions
+  // and ride in on the spread.
+  meet_again_reask:
+    "Συγγνώμη, δεν μπορέσαμε να το κρατήσουμε αυτό ως απάντηση 🙏 Με ποιους από την παρέα θα χαιρόσουν να ξαναβρεθείς σε επόμενο τραπέζι;",
+  avoid_reask:
+    "Συγγνώμη, δεν μπορέσαμε να το κρατήσουμε αυτό ως απάντηση 🙏 Υπάρχει κάποιος ή κάποια με τον οποίο θα προτιμούσες να μη βρεθείς ξανά στο ίδιο τραπέζι; Αρκεί το όνομα· δεν χρειάζεται να εξηγήσεις γιατί.",
   stop_ack:
     "Έγινε, δεν θα ξαναλάβεις μηνύματα feedback από εμάς σε αυτό το νούμερο.",
 } as const satisfies PostEventFeedbackQuestionSetCopy;
@@ -364,6 +408,20 @@ export function isPostEventFeedbackAnswerQuestionKey(
   value: string,
 ): value is FeedbackAnswerQuestionKey {
   return (FEEDBACK_ANSWER_QUESTION_KEYS as readonly string[]).includes(value);
+}
+
+/**
+ * The copy key of a goal's deterministic re-ask variant — the differently
+ * worded second ask `withCampaignReaskCap` substitutes when the goal's own
+ * campaign copy has already gone out once. A type-level derivation rather than
+ * a lookup table, so a new answer question cannot ship without its variant:
+ * indexing the copy record with this return type stops compiling until every
+ * question key has its `_reask` entry in `POST_EVENT_FEEDBACK_COPY_KEYS`.
+ */
+export function postEventFeedbackReaskCopyKey(
+  goal: FeedbackAnswerQuestionKey,
+): `${FeedbackAnswerQuestionKey}_reask` {
+  return `${goal}_reask`;
 }
 
 /**
