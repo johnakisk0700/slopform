@@ -218,7 +218,10 @@ export function FeedbackCampaignsPage() {
               rent on the row above the content. */}
           {campaignsByStatus.size > 1 ? (
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <span id={orderingLabelId} className="jts-overline text-ink-muted">
+              <span
+                id={orderingLabelId}
+                className="jts-overline text-ink-muted"
+              >
                 Campaigns {campaigns.length}
               </span>
               <ToggleButtonGroup

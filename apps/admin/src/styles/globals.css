@@ -763,7 +763,11 @@
   }
 
   .assistant-payload .tok-string {
-    color: color-mix(in srgb, var(--jts-color-primary) 65%, var(--jts-color-text));
+    color: color-mix(
+      in srgb,
+      var(--jts-color-primary) 65%,
+      var(--jts-color-text)
+    );
   }
 
   .assistant-payload .tok-number,
