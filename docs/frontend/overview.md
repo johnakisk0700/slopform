@@ -12,7 +12,9 @@ and a copper note for the snapshot age.
 - Header **Refresh** lives in `JtsPageHeader` `actions` (top-right). It calls
   `refetch()`; the glyph spins while a background refresh is in flight.
 - Stats: scheduled events, participants (with feedback-contactable detail),
-  conversations needing attention, undelivered outbound messages.
+  conversations needing attention, undelivered outbound messages. The four
+  cards remain a compact two-by-two summary below the `sm` breakpoint, then
+  expand to two and four columns at the existing desktop breakpoints.
 - Focus: next scheduled dinner (attendee assignments, venue label) and an
   operator queue built from unresolved attention reasons, extraction parked,
   ambiguous/held outbox, failed summaries, and finished dinners without a

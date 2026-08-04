@@ -36,6 +36,22 @@ describe("OverviewPage", () => {
     expect(page).not.toContain("Bookings");
     expect(page).not.toContain("capacity");
   });
+
+  it("keeps the summary scannable as a two-by-two mobile grid", () => {
+    expect(page).toContain(
+      'className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4"',
+    );
+  });
+});
+
+describe("JtsStat responsive density", () => {
+  it("uses compact spacing and type below the small breakpoint", () => {
+    const stat = readAdminFile("src/components/ui/JtsStat.tsx");
+    expect(stat).toContain("p-4 sm:p-5");
+    expect(stat).toContain("right-4 top-4 sm:right-5 sm:top-5");
+    expect(stat).toContain("text-[0.6875rem]");
+    expect(stat).toContain("sm:text-xs");
+  });
 });
 
 describe("JtsPageHeader actions placement", () => {

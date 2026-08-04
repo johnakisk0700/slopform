@@ -45,7 +45,7 @@ export function JtsStat({
   return (
     <div
       className={clsx(
-        "relative grid min-w-0 rounded-md border border-border border-l-[3px] bg-surface p-5",
+        "relative grid min-w-0 rounded-md border border-border border-l-[3px] bg-surface p-4 sm:p-5",
         markerByTone[key],
       )}
     >
@@ -53,19 +53,19 @@ export function JtsStat({
         <span
           aria-hidden="true"
           className={clsx(
-            "absolute right-5 top-5",
+            "absolute right-4 top-4 sm:right-5 sm:top-5",
             tone ? toneText[key] : "text-ink-subtle",
           )}
         >
           <Icon size="1.1rem" />
         </span>
       ) : null}
-      <dt className="mb-2 ml-0 mr-10 mt-0 text-xs font-bold uppercase tracking-wide text-ink-muted">
+      <dt className="mb-2 ml-0 mr-8 mt-0 text-[0.6875rem] font-bold uppercase tracking-wide text-ink-muted sm:mr-10 sm:text-xs">
         {label}
       </dt>
       <dd
         className={clsx(
-          "mx-0 mb-1 mt-0 text-[clamp(2rem,_1.6rem_+_1.2vw,_2.75rem)] font-extrabold leading-none tracking-tighter tabular-nums",
+          "mx-0 mb-1 mt-0 text-[clamp(1.75rem,_1.45rem_+_1.2vw,_2.75rem)] font-extrabold leading-none tracking-tighter tabular-nums sm:text-[clamp(2rem,_1.6rem_+_1.2vw,_2.75rem)]",
           toneText[key],
         )}
       >

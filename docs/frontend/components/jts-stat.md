@@ -7,6 +7,10 @@ does not indent them. The page owns calculation, formatting and loading
 coordination; the card standardises `dt`/`dd` order, the 3px marker and the
 restrained tone accents.
 
+Below the `sm` breakpoint the card reduces its padding, label size, value size
+and icon inset so a page can place two metrics side by side without clipping.
+Its established desktop density resumes at `sm`.
+
 Source: [`JtsStat.tsx`](../../../apps/admin/src/components/ui/JtsStat.tsx)
 
 ## Contract
