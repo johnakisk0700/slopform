@@ -2272,6 +2272,98 @@ and is read before every HTTP request. The external refresher owns atomic token
 replacement; the harness fails before its first request if the file is absent or
 empty. This preserves Clerk's normal `authorizedParties` check without adding a
 production auth bypass merely to accommodate short-lived frontend tokens.
+
+#### Production paid rehearsal runbook
+
+The 2026-08-04 slot-3 Luna run established the path that survives a ~20 minute
+rehearsal against `https://slopform.example.com`. Do not invent a second auth
+bypass; the production API requires a JWT whose `azp` matches `WEB_ORIGIN`.
+
+**What failed when we skipped a step.** Clerk Backend API
+`POST /sessions/{id}/tokens` JWTs omit `azp` and get `401 Authentication
+required`. A one-shot mint without a refresher dies within about a minute —
+Clerk frontend JWTs expire in ~60s and the burst keeps calling the API. A
+refresher started with a throwaway shell that exits also dies; keep it in its
+own long-lived terminal for the whole run.
+
+**Unused fixture slot.** Slots are durable namespaces, never cleaned up. Slot 0
+is historical; 1 and 2 were consumed on 2026-08-04; use the next free digit
+(next was 3). Never reset production or reuse a finished slot.
+
+**1. Tunnels + seed env.** Postgres and Redis are on the compose data network
+only. Forward their container IPs (verify with `docker inspect` — historically
+`172.20.0.4:5432` and `172.20.0.3:6379`) to free local ports (convention
+`55432` / `56379`):
+
+```sh
+ssh -i ~/.ssh/id_ed25519 -o ExitOnForwardFailure=yes -f -N \
+  -L 55432:172.20.0.4:5432 \
+  -L 56379:172.20.0.3:6379 \
+  root@203.0.113.10
+```
+
+Build `DATABASE_URL` / `REDIS_URL` against those ports from the production
+shared env and secret files (never print the values). Export them in the burst
+shell so `dotenv -e .env` does not replace them with the local stack. Pull the
+Clerk secret the same way into a `0600` file (e.g. `~/.jts-clerk-secret`).
+
+**2. Auth that carries `azp`.** Use
+[`scripts/feedback-burst-prod-auth.mjs`](../../../scripts/feedback-burst-prod-auth.mjs):
+Frontend API ticket sign-in with `Origin: https://slopform.example.com`, then
+atomic rotation of the JWT file every ~15s.
+
+```sh
+# terminal A — mint once, then leave the refresher running
+CLERK_SECRET_FILE=~/.jts-clerk-secret \
+TOKEN_FILE=~/.jts-burst-token \
+SESSION_FILE=~/.jts-burst-session-id \
+COOKIE_FILE=~/.jts-burst-fapi-cookie \
+node scripts/feedback-burst-prod-auth.mjs --mint
+
+CLERK_SECRET_FILE=~/.jts-clerk-secret \
+TOKEN_FILE=~/.jts-burst-token \
+SESSION_FILE=~/.jts-burst-session-id \
+COOKIE_FILE=~/.jts-burst-fapi-cookie \
+INTERVAL_MS=15000 \
+node scripts/feedback-burst-prod-auth.mjs
+```
+
+Probe `GET /api/v1/auth/session` with the file before seeding; expect 200.
+
+**3. Close leftover campaigns.** List
+`GET /api/v1/feedback/campaigns` and `POST …/close` every row whose
+`status !== "closed"` so prior slot debris cannot keep sweeping. Prefer the HTTP
+kill switch over SQL so outbox cancellation and audit stay correct. Re-list and
+confirm zero non-closed rows.
+
+**4. Run.** Keep the refresher alive. In a second terminal with the tunnel env
+exported:
+
+```sh
+CLERK_BEARER_TOKEN_FILE=~/.jts-burst-token \
+pnpm feedback:burst \
+  --profile prova \
+  --fixture-slot <unused 1-9> \
+  --live-guests \
+  --confirm-live-guests \
+  --confirm-paid-run \
+  --api-base https://slopform.example.com/api/v1 \
+  --admin-base https://slopform.example.com
+```
+
+Expect Luna medium, simulated transport, ~36 conversations, six `cursor-agent`
+live guests, roughly 0.3–0.4 USD and about 10–20 minutes. If the runner dies
+after launch but before participant traffic (intros already in
+`feedback_sim_outbound`), the same slot may be resumed: the harness reuses the
+open intro-only campaigns. Do not click Generate Summary (Terra xhigh) without a
+separate decision.
+
+**5. Teardown.** Stop the refresher, revoke the ephemeral sessions
+(`node scripts/feedback-burst-prod-auth.mjs --revoke`), delete the token /
+cookie / secret / env files, and kill the SSH tunnels. Commit only the JSON
+report under `report/feedback-burst-*.json` when filing evidence; HTML stays
+gitignored.
+
 Every burst injection also carries a stable per-run/persona/message idempotency
 key. The simulator derives its provider-message identity from that key, and the
 runner retries only those keyed mutations on bounded network/408/425/429/5xx
