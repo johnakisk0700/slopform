@@ -782,12 +782,12 @@ describe("why the row was written", () => {
 
 describe("polling policy", () => {
   it("samples queue and opened-row state every five seconds", () => {
-    expect(polling.OUTBOX_QUEUE_POLL_INTERVAL_MS).toBe(5_000);
-    expect(polling.OUTBOX_MESSAGE_POLL_INTERVAL_MS).toBe(5_000);
+    expect(polling.OUTBOX_QUEUE_POLL_INTERVAL_MS).toBe(3_000);
+    expect(polling.OUTBOX_MESSAGE_POLL_INTERVAL_MS).toBe(3_000);
   });
 
   it("lets the history breathe slower — it is an archive, not a wait", () => {
-    expect(polling.OUTBOX_HISTORY_POLL_INTERVAL_MS).toBe(10_000);
+    expect(polling.OUTBOX_HISTORY_POLL_INTERVAL_MS).toBe(5_000);
   });
 });
 

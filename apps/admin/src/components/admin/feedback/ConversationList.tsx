@@ -132,8 +132,10 @@ export function ConversationList({
   return (
     <section
       aria-labelledby={headingId}
-      /* Same viewport-anchored cap as the transcript pane, and `lg:` for the
-         same reason — see the comment there. */
+      /* Viewport-anchored cap only — the list sizes to its rows, never to an
+         empty viewport. The transcript beside it stretches to this height via
+         the grid; this pane stays `self-start` so it does not grow a blank
+         foot under the last conversation. */
       className="flex min-h-0 flex-col overflow-hidden rounded-md border border-border bg-surface lg:max-h-[calc(100dvh-10rem)]"
     >
       <div className="border-b border-border px-4 py-3">

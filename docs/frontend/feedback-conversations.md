@@ -151,8 +151,12 @@ flowchart LR
   success clears and rotates only the exact submitted draft, so a newer edit is
   never erased by an older request settling late.
 - **Selection survives polling.** `resolveSelectedConversationId` keeps the
-  operator's choice while it remains visible and only falls back to the first
-  row when it disappears.
+  URL pin (`?conversation=`) while that row remains visible. Without a URL pin,
+  a sticky previous id keeps the desktop auto-select from chasing `visible[0]`
+  when the list reorders under attention / latest-activity sorting — only when
+  both are gone does it fall through to the first visible row. The sticky id
+  stays in component state (not the URL) so mobile master/detail is not forced
+  open by the desktop empty-pane fallback.
 - **The venue is current orientation, not testimony or message provenance.**
   The header renders the event read model and never infers that an existing bot
   reply used that venue. Historical context belongs to the backend's durable
@@ -185,10 +189,14 @@ flowchart LR
   The transcript header renders **no status badge row** (density pass,
   2026-08-01): every fact the pills carried is stated once, in the place it
   acts — attention is the strip below with its reasons, who writes is the
-  composer or the transcript foot line. That line reads `automation.running`
-  as «The bot is replying» only while a live execution lease exists; an open
-  bot-controlled handoff uses the detail read model's explicit `awaitingHuman`
-  and reads «Waiting for staff». Idle, scheduled and parked work claim neither.
+  composer or the transcript foot indicator, and the controls that change who
+  may write sit opposite the contact block (Take over / Resume bot labelled
+  from `sm` up and icon-only below; Close icon-only always). ΑΝΑΓΝΩΣΗ pins to
+  that same foot so it stays visible while messages scroll. The reply line
+  reads `automation.running` as «The bot is replying» only while a live
+  execution lease exists; an open bot-controlled handoff uses the detail read
+  model's explicit `awaitingHuman` and reads «Waiting for staff». Idle,
+  scheduled and parked work claim neither.
   Capability flags never stand in for activity. The one fact nothing else
   states, the named end of a closed thread, is a single icon pill top-right —
   `lifecycleBadge` plus a per-reason glyph (`CircleCheck` completed, `Ban`
@@ -283,10 +291,10 @@ flowchart LR
 
 | Query             | Interval | Notes                                          |
 | ----------------- | -------- | ---------------------------------------------- |
-| Open conversation | 3 s      | Stops entirely once the list reports it closed |
-| Conversation list | 10 s     | Also refetches on window focus                 |
-| Answers and notes | 15 s     | Extraction lands after the message             |
-| Campaign summary  | 5 s      | Only while status is `pending`                 |
+| Open conversation | 2 s      | Stops entirely once the list reports it closed |
+| Conversation list | 5 s      | Also refetches on window focus                 |
+| Answers and notes | 10 s     | Extraction lands after the message             |
+| Campaign summary  | 3 s      | Only while status is `pending`                 |
 
 TanStack Query's `refetchIntervalInBackground` stays at its default `false`, so
 every interval pauses while the browser tab is hidden. There is no visibility
@@ -294,18 +302,22 @@ listener to maintain. WebSockets/SSE remain deferred.
 
 Both live panes say so on screen. The list and transcript headers render
 [`JtsLiveIndicator`](components/jts-live-indicator.md) bound to their query's
-`isFetching`: a 14px muted icon that turns during a fetch and fades out
-otherwise. It reserves its space so a poll never nudges the header, and it is
-not a live region — a three-second poll that announced itself would be unusable.
+`isFetching`. The indicator owns show/hide hysteresis so a snappy background
+poll does not flash the icon; when a fetch lingers, a 14px muted icon turns and
+fades out over 300 ms. It reserves its space so a poll never nudges the header,
+and it is not a live region — a two-second poll that announced itself would
+be unusable.
 
 ## Layout
 
 Two panes over a strip of cards. From `lg` the list sits beside the transcript;
 under both, spanning the full width, the conversation's detail runs as three
 small cards (three columns from `xl`, two from `md`, one below that). Each pane
-is its own scroll container — `calc(100dvh - 10rem)` for the two panes, `44vh`
-for a card — so switching conversations never costs an operator their place in
-the list.
+is its own scroll container, capped at `calc(100dvh - 10rem)` (cards at
+`44vh`). The list sizes to its rows (`self-start`); the transcript stretches to
+meet that row so a short thread is not a stub, without forcing empty space
+under the last conversation. Switching conversations never costs an operator
+their place in the list.
 
 Below `lg`, both grids declare a `minmax(0, 1fr)` base column and every direct
 pane item has a zero minimum width. This is required for route navigation, not
@@ -355,7 +367,8 @@ the viewport. Two changes fixed that without a layout rework:
 - **The pane cap is viewport-anchored.** `66vh` gave the panes two thirds of
   the screen regardless of what the header actually used; with the header
   compressed to about 9 rem including the main padding, both panes now cap at
-  `calc(100dvh - 10rem)` and the transcript takes everything under the header.
+  `calc(100dvh - 10rem)`. The transcript fills the row beside the list; the
+  list itself stays content-sized so it does not grow a blank foot.
   Inside the pane the same pass cost every non-message row what it could spare:
   the transcript header is the two-line contact block every messaging app
   taught — name over number, the staff close line only when there is one; the
@@ -370,15 +383,19 @@ the viewport. Two changes fixed that without a layout rework:
 
 A second round took the remaining always-on rows out of the pane's chrome:
 
-- **The header pills are gone.** See the badge invariant — the header states
-  only the named end of a closed thread, as one icon pill on its right, where
-  an operator glances for "can I still act here?".
-- **The reading status lives at the end of the messages,** inside the scroll,
-  not on a foot line — see «Extraction status».
-- **The foot row renders only while something can act.** «The bot is
-  replying.» plus the capability-gated actions when the thread is open; on a
-  closed thread the header already says why there is no composer, and the foot
-  disappears instead of renting a hairline and padding.
+- **The header pills are gone.** See the badge invariant — the header's right
+  carries the capability-gated conversation actions while the thread is open,
+  and the named end of a closed thread as one icon pill once nothing can act —
+  both answer "can I still act here?" in the same corner.
+- **The reading status pins to the transcript foot,** outside the message
+  scroll — see «Extraction status». Scrolling older messages must not hide
+  why an answer has not appeared yet.
+- **The foot chrome stays docked under the messages.** ΑΝΑΓΝΩΣΗ always; «The
+  bot is replying.» / «Waiting for staff.» while a reply is in flight and
+  there is no composer yet; then the composers. Conversation actions live in
+  the header. The transcript is capped at every breakpoint so that foot stays
+  on screen while the messages scroll (below `lg` the master/detail switch
+  already hides the list, so the old nested-scroll trap does not return).
 - **CLOSED rows recede.** An archived row's name drops to the muted ink its
   metadata already uses — a token swap, not opacity, because every muted
   pairing is measured AA and a faded chip is not. The selected row keeps full
@@ -487,7 +504,7 @@ Placement is the screen's answer to "what does this act on?".
 | Results                        | Header top line, right  | Reads this campaign's output                                            |
 | Pause / Resume / Close         | Header top line, right  | Changes this campaign's state; a hairline separates them from Results   |
 | «Start» (D17)                  | NOT STARTED row, hover  | The affordance lives on the person it would start, in the list it joins |
-| Take over / Resume bot / Close | Transcript, foot        | On the line that says who may write here — the question they answer     |
+| Take over / Resume bot / Close | Transcript header, right | Opposite the contact — "can I still act here?"; Close icon-only always; Take over / Resume collapse to icons below `sm` |
 | «Add note»                     | NOTES card header       | Writes into the list it sits above                                      |
 | Correct / withdraw an answer   | On the answer's own row | Acts on that one recorded answer, beside the value it disagrees with    |
 
@@ -543,11 +560,10 @@ record to fetch, so the query never runs for one and the card says why.
 ### Reading and automation status
 
 A feedback conversation is read after a durable quiet window, not on arrival,
-and `ReadingStatus` is the only place that says so. It renders at the end of
-the messages, inside the transcript's scroll, centred the way a read receipt
-ends a thread: «why has that answer not appeared yet» is a question about
-these messages, and it is answered directly under the message the answer would
-come from.
+and `ReadingStatus` is the only place that says so. It pins to the transcript
+foot, outside the message scroll and centred the way a read receipt ends a
+thread: «why has that answer not appeared yet» is a question about these
+messages, and scrolling older ones must not hide the answer.
 
 The read model reports conversation work, never a retained BullMQ job:
 
@@ -729,8 +745,10 @@ has something to add to.
 ## Campaign picker
 
 `/admin/feedback` lists campaigns from `listFeedbackCampaigns` (newest first)
-with event title, status, launched_at and conversation progress counts. Opening
-an inbox is a plain link. Launching a campaign for a finished event that does
+with event title, status, launched_at and conversation progress counts. Live and
+paused cards carry the signature 3px left marker in their status tone
+(`border-l-success` / `border-l-warning`); closed cards stay unmarked and
+desaturated. Opening an inbox is a plain link. Launching a campaign for a finished event that does
 not yet have one is a separate confirmed action — `launchFeedbackCampaign` also
 opens conversations and queues intros for newly eligible attendees, so it must
 never be used merely to navigate. Event detail carries a nullable
@@ -828,7 +846,7 @@ subject picker consuming the D16 candidate endpoint, «All campaigns» reading
 as a back affordance before the title, D17 starting from the candidate's own
 NOT STARTED row (derived from present attendees, confirmed «Start» on
 hover/focus), the polling indicator being bound to `isFetching` in both panes
-with no live region, and the transcript's minute grouping
+(with hysteresis inside the shared mark and no live region), and the transcript's minute grouping
 (`sameTranscriptMinute` by display minute and day, `formatExactTimestamp`
 carrying date and seconds for the hover/press reveal).
 

@@ -20,9 +20,10 @@ what fixes its position; render it directly only where there is no page header
 to hold it. `JtsDataTable` owns table states and framing; the page owns TanStack `ColumnDef`
 columns, cell formatting, filters, row actions and API calls. `JtsStat` renders
 inside a page-owned labelled `dl`. `JtsLiveIndicator` takes a boolean and a
-hidden sentence — the pane keeps its query, its interval and its own header. Add
-a prop or slot only after a real consumer needs it, then update this inventory
-and the focused contract in the same change.
+hidden sentence — the pane keeps its query, its interval and its own header;
+show/hide hysteresis lives in the mark (`src/lib/liveIndicator.ts`), not in
+callers. Add a prop or slot only after a real consumer needs it, then update
+this inventory and the focused contract in the same change.
 
 ## Domain components (`src/components/admin/`)
 

@@ -307,9 +307,12 @@ against the content box is clipped with it.
 - `dark` on `<html>` is the only dark-mode signal.
 - No glows, blurred circles, gradient washes or pulsing dots. Flat accents
   only. The product logo is `BrandLockup` / `BrandMark`: SVG five-people + empty
-  chair, filled with `currentColor` (no green plate). The CSS six-dot
-  `.brand-mark` is a decorative motif only (empty states, cookbook). One static
-  `.status-dot` is the environment indicator.
+  chair, filled with `currentColor` (no green plate). The mark wears the theme's
+  brand on its slab — `text-sidebar-active-index` on the inverse panel,
+  `text-primary` on paper — while the wordmark keeps the surface foreground;
+  Noir's brand is already ink / near-white, so it stays monochrome there. The
+  CSS six-dot `.brand-mark` is a decorative motif only (empty states, cookbook).
+  One static `.status-dot` is the environment indicator.
 - Two emphasis motifs, and no third. **The six-dot title mark**
   (`jts-title-mark`) belongs to page titles alone: six 3px dots, five in
   `--jts-color-primary` and the sixth in `--jts-color-accent` — the table and the

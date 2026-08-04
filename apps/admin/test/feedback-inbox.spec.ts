@@ -77,6 +77,7 @@ interface ConversationViewModule {
   resolveSelectedConversationId: (
     visible: { id: string }[],
     requested: string | null,
+    previousSelected?: string | null,
   ) => string | null;
   hasExplicitConversationSelection: (
     requested: string | null,
@@ -790,8 +791,9 @@ describe("a row never repeats its own heading", () => {
 
     // The transcript header renders no badge row (density pass, 2026-08-01):
     // attention is the strip with its reasons, who-writes is the composer or
-    // the foot line, and the one fact nothing else states — the named end of
-    // a closed thread — is the quiet closed line on the header's right.
+    // the foot indicator, conversation actions sit opposite the contact, and
+    // the one fact nothing else states — the named end of a closed thread —
+    // is the quiet closed pill on the header's right.
     const transcript = readSource(
       "src/components/admin/feedback/ConversationTranscript.tsx",
     );
@@ -1327,16 +1329,22 @@ describe("extraction status (operator visibility)", () => {
     expect(details).toContain("query: { enabled: !unresolved }");
   });
 
-  it("reads the messages it is about, at the foot of the transcript", () => {
+  it("pins reading status to the transcript foot, outside the message scroll", () => {
     const transcript = readSource(
       "src/components/admin/feedback/ConversationTranscript.tsx",
     );
 
-    // «Why has that answer not appeared yet» is a question about these
-    // messages, so it is answered under them rather than in a reference card
-    // three columns away.
+    // «Why has that answer not appeared yet» is about these messages, but
+    // scrolling older ones must not hide the answer — so it docks under the
+    // scroller rather than riding inside it.
     expect(transcript).toContain("<ReadingStatus");
     expect(transcript).toContain("campaignStatus={campaignStatus}");
+    const scrollOpen = transcript.indexOf("ref={scrollRef}");
+    const footChrome = transcript.indexOf("shrink-0 border-t border-border");
+    const reading = transcript.indexOf("<ReadingStatus");
+    expect(scrollOpen).toBeGreaterThan(-1);
+    expect(footChrome).toBeGreaterThan(scrollOpen);
+    expect(reading).toBeGreaterThan(footChrome);
     const page = readSource("src/routes/FeedbackInboxPage.tsx");
     expect(page).toContain("campaignStatus={campaign?.status ?? null}");
     expect(page).not.toContain("ReadingStatus");
@@ -1780,7 +1788,7 @@ describe("inbox toolbar and orientation", () => {
     // different distance from its neighbour than anything else.
     expect(surface).toContain('<div className="flex flex-col gap-4">');
     expect(surface).toContain(
-      '<div className="grid min-w-0 grid-cols-[minmax(0,1fr)] items-start gap-4 lg:grid-cols-[minmax(15rem,19rem)_minmax(0,1fr)]">',
+      '<div className="grid min-w-0 grid-cols-[minmax(0,1fr)] items-stretch gap-4 lg:grid-cols-[minmax(15rem,19rem)_minmax(0,1fr)]">',
     );
     // The detail strip's classes, not its opening tag: below `lg` the strip is
     // part of the thread view and hides with it, so the class list now reaches
@@ -1803,7 +1811,9 @@ describe("inbox toolbar and orientation", () => {
     // A route navigation can render the populated panes on the first layout.
     // CSS Grid's implicit auto track then adopts their min-content width unless
     // both the track and its direct items explicitly allow shrinking.
-    expect(page).toContain("grid-cols-[minmax(0,1fr)] items-start gap-4");
+    expect(page).toContain("grid-cols-[minmax(0,1fr)] items-stretch gap-4");
+    // List stays content-sized; the transcript fills the row beside it.
+    expect(page).toContain("lg:self-start");
     // Two pane wrappers, and each now picks its classes per breakpoint so the
     // master/detail switch can hide one of them — four branches, every one of
     // which still has to carry the zero minimum.
@@ -1847,7 +1857,9 @@ describe("inbox toolbar and orientation", () => {
 
     expect(page).toContain("isRefreshing={listQuery.isFetching}");
     expect(page).toContain("isRefreshing={detailQuery.isFetching}");
-    // A three-second poll must not announce itself over and over.
+    // Callers stay dumb: hysteresis lives in the indicator, not the page.
+    expect(indicator).toContain("resolveLiveIndicatorPainted");
+    // A two-second poll must not announce itself over and over.
     expect(indicator).not.toContain("aria-live");
     expect(indicator).not.toContain('role="status"');
     expect(indicator).toContain("sr-only");
@@ -1866,6 +1878,45 @@ describe("selection under polling", () => {
       "a",
     );
     expect(view.resolveSelectedConversationId([], "missing")).toBeNull();
+  });
+
+  it("keeps a sticky fallback when the list reorders under polling", () => {
+    // Desktop with no ?conversation=: first resolve lands on the head row.
+    expect(
+      view.resolveSelectedConversationId([{ id: "a" }, { id: "b" }], null, null),
+    ).toBe("a");
+    // A newer message promotes b to the head — the open pane must not follow.
+    expect(
+      view.resolveSelectedConversationId(
+        [{ id: "b" }, { id: "a" }],
+        null,
+        "a",
+      ),
+    ).toBe("a");
+  });
+
+  it("drops the sticky fallback once that row leaves the visible set", () => {
+    expect(
+      view.resolveSelectedConversationId([{ id: "b" }, { id: "c" }], null, "a"),
+    ).toBe("b");
+  });
+
+  it("prefers the URL over a sticky fallback", () => {
+    expect(
+      view.resolveSelectedConversationId(
+        [{ id: "a" }, { id: "b" }],
+        "b",
+        "a",
+      ),
+    ).toBe("b");
+  });
+
+  it("wires the sticky ref into the inbox page resolve", () => {
+    const page = readSource("src/routes/FeedbackInboxPage.tsx");
+    expect(page).toContain("stickySelectedRef");
+    expect(page).toContain(
+      "resolveSelectedConversationId(\n    visible,\n    requestedId,\n    stickySelectedRef.current,\n  )",
+    );
   });
 
   it("does not treat a stale requested id as an opened mobile thread", () => {
@@ -1978,8 +2029,8 @@ describe("polling policy (U3)", () => {
     expect(polling.CONVERSATION_POLL_INTERVAL_MS).toBeLessThan(
       polling.CONVERSATION_LIST_POLL_INTERVAL_MS,
     );
-    expect(polling.CONVERSATION_POLL_INTERVAL_MS).toBeGreaterThanOrEqual(3_000);
-    expect(polling.CONVERSATION_POLL_INTERVAL_MS).toBeLessThanOrEqual(5_000);
+    expect(polling.CONVERSATION_POLL_INTERVAL_MS).toBe(2_000);
+    expect(polling.CONVERSATION_LIST_POLL_INTERVAL_MS).toBe(5_000);
   });
 
   it("stops polling a conversation that can no longer change", () => {
@@ -2384,5 +2435,28 @@ describe("API contract boundary", () => {
     expect(details).toContain("capabilities.canTakeOver");
     expect(details).toContain("capabilities.canResumeBot");
     expect(details).toContain("capabilities.canClose");
+  });
+
+  it("keeps conversation actions in the transcript header, compact on mobile", () => {
+    const transcript = readSource(
+      "src/components/admin/feedback/ConversationTranscript.tsx",
+    );
+    const details = readSource(
+      "src/components/admin/feedback/ConversationDetails.tsx",
+    );
+
+    // Opposite the contact block — not a second foot strip of buttons.
+    const headerClose = transcript.indexOf("</header>");
+    const actionsSlot = transcript.indexOf("{actions}");
+    expect(actionsSlot).toBeGreaterThan(-1);
+    expect(actionsSlot).toBeLessThan(headerClose);
+    expect(transcript.indexOf("{actions}", headerClose)).toBe(-1);
+
+    // Close is always icon-only; Take over / Resume collapse below `sm` so a
+    // Greek full name still fits the header line on a phone.
+    const closeBlock = details.indexOf('label="Close"');
+    expect(closeBlock).toBeGreaterThan(-1);
+    expect(details.slice(closeBlock, closeBlock + 80)).toContain("isIconOnly");
+    expect(details).toContain('collapseLabelAt="sm"');
   });
 });

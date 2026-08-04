@@ -55,9 +55,9 @@ would leave both «Feedback & safety» and «Outbound queue» carrying
 
 | Operation                   | Reads                                            | Polled          |
 | --------------------------- | ------------------------------------------------ | --------------- |
-| `listFeedbackOutboxQueue`   | PostgreSQL + one batched MongoDB respondent read | 5 s, both views |
-| `listFeedbackOutboxHistory` | PostgreSQL + one batched MongoDB respondent read | 10 s, page 1    |
-| `getFeedbackOutboxMessage`  | PostgreSQL                                       | 5 s             |
+| `listFeedbackOutboxQueue`   | PostgreSQL + one batched MongoDB respondent read | 3 s, both views |
+| `listFeedbackOutboxHistory` | PostgreSQL + one batched MongoDB respondent read | 5 s, page 1     |
+| `getFeedbackOutboxMessage`  | PostgreSQL                                       | 3 s             |
 
 All three are consumed through the generated hooks
 ([api-contract](../backend/mechanisms/api-contract.md)).
@@ -108,7 +108,7 @@ states that limit instead of laundering a migration default into evidence.
 
 ```mermaid
 flowchart LR
-  list["listFeedbackOutboxQueue\n(polled 5s)"] --> pg[(PostgreSQL\nmessage_outbox + campaign + event)]
+  list["listFeedbackOutboxQueue\n(polled 3s)"] --> pg[(PostgreSQL\nmessage_outbox + campaign + event)]
   list --> mongo[(MongoDB\none $in respondent read)]
   row["getFeedbackOutboxMessage\n(one opened row)"] --> pg
 ```

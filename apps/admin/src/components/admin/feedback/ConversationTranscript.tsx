@@ -354,9 +354,8 @@ interface ConversationTranscriptProps {
    */
   attention?: ReactNode;
   /**
-   * The capability-gated conversation actions. They live at the foot of this
-   * pane, on the line that says who may write here — see
-   * `ConversationActions`.
+   * The capability-gated conversation actions. They live in this pane's
+   * header, opposite the contact block — see `ConversationActions`.
    */
   actions?: ReactNode;
 }
@@ -399,14 +398,6 @@ export function ConversationTranscript({
   );
   const capabilities = conversation.capabilities;
   const canSendStaffMessage = capabilities.canSendStaffMessage;
-  // Presence checks only — whether each action exists is still the server's
-  // capability flags, exactly as `ConversationActions` reads them. This just
-  // keeps an empty foot row from renting a hairline and padding on a thread
-  // where nothing can act any more.
-  const hasConversationActions =
-    capabilities.canTakeOver ||
-    capabilities.canResumeBot ||
-    capabilities.canClose;
   const replyIndicator = conversationReplyIndicator(conversation);
   const botReplying = replyIndicator === "bot_replying";
   const awaitingStaff = replyIndicator === "awaiting_staff";
@@ -418,19 +409,12 @@ export function ConversationTranscript({
   // when the operator switches threads.
   //
   // The pane's own scrollTop, never `scrollIntoView`. That walked up to the
-  // nearest scrollable ancestor, which below `lg` — where the pane is as tall
-  // as its content — is the document: opening a thread on a phone yanked the
-  // page down past the header, and every three-second poll did it again. This
-  // moves the pane when the pane scrolls and does nothing when it does not,
-  // which is the whole intent either way.
+  // nearest scrollable ancestor — which used to be the document whenever the
+  // pane was uncapped — and yanked the page on every poll. The messages box
+  // is always the scroller now, so this stays inside it.
   useEffect(() => {
     const box = scrollRef.current;
-    // «Is this pane the scroller», not «does it overflow yet». The height
-    // question races the first paint — on mount the messages have not been laid
-    // out, so a `scrollHeight > clientHeight` guard reads false and the thread
-    // opens at the top on a wide screen. The computed overflow is the actual
-    // breakpoint state and is true from the first frame.
-    if (!box || getComputedStyle(box).overflowY === "visible") {
+    if (!box) {
       return;
     }
     // One frame later, because the pane is still settling when this effect
@@ -472,26 +456,20 @@ export function ConversationTranscript({
   return (
     <section
       aria-labelledby={headingId}
-      /* Viewport-anchored cap rather than the old 66vh: the compressed
-         campaign header above the panes costs about 9rem including the main
-         padding, so this hands the transcript everything under it instead of
-         two thirds of the screen. The list pane carries the same value so the
-         panes stay level.
-
-         `lg:` only, because the cap exists to keep two side-by-side panes level
-         and independently scrollable. Below `lg` there is only one pane on
-         screen, and capping it turned the thread into a 652px scroller nested
-         inside a 2651px page — the phone's own scroll stopped working the
-         moment a thumb landed on a message. Uncapped, the thread is as tall as
-         it is and the page scrolls once. */
-      className="flex min-h-0 flex-col overflow-hidden rounded-md border border-border bg-surface lg:max-h-[calc(100dvh-10rem)]"
+      /* Fill the grid cell beside the list (`h-full`) up to the shared
+         viewport cap. The list stays content-sized (`self-start`); this pane
+         stretches to meet it so a short thread is not a stub, without forcing
+         empty space under the last conversation row. The cap also keeps the
+         reading-status foot on screen while the messages scroll. */
+      className="flex h-full min-h-0 max-h-[calc(100dvh-10rem)] flex-col overflow-hidden rounded-md border border-border bg-surface"
     >
       {/* The contact block every messaging app taught: name over number, two
           short lines. No badge row (density pass) — attention is the strip
-          below with its reasons, who writes is the composer or the foot line.
-          The one fact nothing else states, the named end of a closed thread,
-          is an icon pill top-right where an operator glances for "can I still
-          act here?"; its tooltip keeps the full sentence. */}
+          below with its reasons, who writes is the composer or the foot
+          indicator. The controls that change who may write sit opposite the
+          contact, where an operator glances for "can I still act here?"; on a
+          closed thread they disappear and the named end is an icon pill in
+          the same corner, tooltip keeping the full sentence. */}
       <header className="border-b border-border px-5 py-2.5">
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
           <div className="min-w-0">
@@ -517,16 +495,17 @@ export function ConversationTranscript({
               </p>
             ) : null}
           </div>
-          {/* Indicator first, pill last: the live mark reserves its width even
-              while idle, and with the pill inboard of it the pill hung half a
-              step in from the corner beside an invisible gap. This way the
-              pill sits flush in the corner, list-chip sized, and centred on
-              the contact block rather than hanging off its first line. */}
+          {/* Live mark, then the act cluster, then the closed pill last so the
+              corner always holds the strongest signal — "can I still act?" —
+              whether that is the buttons or the end-state pill. The live mark
+              reserves its width even while idle, so neither neighbour shifts
+              when a poll starts. */}
           <div className="flex shrink-0 items-center gap-2">
             <JtsLiveIndicator
               active={isRefreshing}
               label="This transcript refreshes automatically while the conversation is open."
             />
+            {actions}
             {closedLine ? (
               <div title={closedLine}>
                 <FeedbackBadges
@@ -555,43 +534,29 @@ export function ConversationTranscript({
 
       <div
         ref={scrollRef}
-        className="min-h-0 flex-1 px-5 py-4 lg:overflow-y-auto"
+        className="min-h-0 flex-1 overflow-y-auto px-5 py-4"
       >
         {conversation.messages.length === 0 ? (
           <p className="py-8 text-center text-sm text-ink-muted">
             No messages yet. The intro is queued in the outbox.
           </p>
         ) : (
-          <>
-            <ul className="flex flex-col gap-4">
-              {conversation.messages.map((message, index) => {
-                const previous = conversation.messages[index - 1];
-                return (
-                  <TranscriptMessage
-                    key={message.id}
-                    message={message}
-                    startsRun={previous?.actor !== message.actor}
-                    newMinute={
-                      previous === undefined ||
-                      !sameTranscriptMinute(previous.at, message.at)
-                    }
-                  />
-                );
-              })}
-            </ul>
-            {/* The reading status ends the conversation the way a read receipt
-                does: it is about these messages, so it sits under the last of
-                them and scrolls with them, centred like the system lines. The
-                auto-scroll lands past it, so its tinted states are on screen
-                exactly when a reply has just arrived — the moment «why has the
-                answer not appeared yet» gets asked. */}
-            <div className="mt-4 flex justify-center">
-              <ReadingStatus
-                conversation={conversation}
-                campaignStatus={campaignStatus}
-              />
-            </div>
-          </>
+          <ul className="flex flex-col gap-4">
+            {conversation.messages.map((message, index) => {
+              const previous = conversation.messages[index - 1];
+              return (
+                <TranscriptMessage
+                  key={message.id}
+                  message={message}
+                  startsRun={previous?.actor !== message.actor}
+                  newMinute={
+                    previous === undefined ||
+                    !sameTranscriptMinute(previous.at, message.at)
+                  }
+                />
+              );
+            })}
+          </ul>
         )}
       </div>
 
@@ -604,32 +569,32 @@ export function ConversationTranscript({
         </p>
       ) : null}
 
-      <div
-        className={clsx(
-          (botReplying ||
-            awaitingStaff ||
-            hasConversationActions ||
-            canSendStaffMessage ||
-            onSimulatedReply !== undefined) &&
-            "border-t border-border",
-        )}
-      >
-        {/* Who may write here, and how to change that, on one line. The
-            sentence explains the missing composer and the buttons beside it
-            are what alters it — the actions belong to this thread, so they sit
-            at the foot of it rather than off in a corner of its header. On a
-            closed thread nothing can act, the header already says so, and the
-            whole row disappears. */}
-        {botReplying || awaitingStaff || hasConversationActions ? (
-          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5 py-2.5">
-            {/* With a composer below, its own placeholder already says who is
-                writing; the sentence is only needed when there is none. */}
+      {/* Pane chrome below the messages — not inside their scroller. The
+          reading status and reply indicator stay on screen while an operator
+          scrolls older messages; composers sit under them the way a messaging
+          app keeps the input docked. */}
+      <div className="shrink-0 border-t border-border bg-surface">
+        {/* ΑΝΑΓΝΩΣΗ: about these messages, pinned where a read receipt lives
+            in every chat UI — always under the thread, never scrolled away. */}
+        <div className="flex justify-center px-5 py-2 text-center">
+          <ReadingStatus
+            conversation={conversation}
+            campaignStatus={campaignStatus}
+          />
+        </div>
+
+        {/* Who is writing right now — status only. The controls that change
+            that live in the header opposite the contact. With a composer
+            below, its placeholder already says who is writing, so this line
+            appears only while there is none. On a closed thread the header
+            already says why, and the whole row disappears. */}
+        {botReplying || awaitingStaff ? (
+          <div className="border-t border-border-subtle px-5 py-2 text-center">
             {botReplying ? (
               <p className="text-sm text-ink-muted">The bot is replying.</p>
-            ) : awaitingStaff ? (
+            ) : (
               <p className="text-sm text-warning">Waiting for staff.</p>
-            ) : null}
-            <div className="ml-auto">{actions}</div>
+            )}
           </div>
         ) : null}
 
@@ -715,7 +680,7 @@ export function ConversationTranscript({
 /** Placeholder shown while no conversation is selected. */
 export function ConversationTranscriptEmpty() {
   return (
-    <section className="flex min-h-0 flex-col items-center justify-center gap-3 rounded-md border border-border bg-surface p-10 text-center">
+    <section className="flex h-full min-h-0 max-h-[calc(100dvh-10rem)] flex-col items-center justify-center gap-3 rounded-md border border-border bg-surface p-10 text-center">
       <span aria-hidden="true" className="flex gap-2 text-ink-subtle">
         <Bot className="size-6" />
         <UserRound className="size-6" />

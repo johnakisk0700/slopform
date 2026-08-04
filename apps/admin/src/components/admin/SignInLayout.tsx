@@ -63,10 +63,11 @@ export function SignInLayout({ children }: { children: ReactNode }) {
             be a status somebody can act on. This is the unauthenticated shell:
             nobody is triaging here, there is no data to compete with, and the
             only thing on screen worth looking at before the form is the brand.
-            5% of the sidebar's own foreground, so it is a change in the surface
-            rather than an object on it — and it is `aria-hidden`, like every
-            other instance of the mark. */}
-        <BrandMark className="pointer-events-none absolute top-1/2 right-0 size-[34rem] -translate-y-1/2 -rotate-90 text-sidebar-fg opacity-[0.03]" />
+            A few percent of the slab's brand tint (`sidebar-active-index` —
+            the same hue the corner lockup and the lit nav numeral wear), so it
+            is a change in the surface rather than an object on it — and it is
+            `aria-hidden`, like every other instance of the mark. */}
+        <BrandMark className="pointer-events-none absolute top-1/2 right-0 size-[34rem] -translate-y-1/2 -rotate-90 text-sidebar-active-index opacity-[0.06]" />
 
         <div className="relative">
           <BrandLockup

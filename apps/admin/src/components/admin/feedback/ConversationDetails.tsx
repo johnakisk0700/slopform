@@ -75,8 +75,9 @@ export type ConversationPendingAction =
  * what the conversation produced (progress and answers), what staff wrote about
  * it (notes), and who it is with (the respondent's actual profile record).
  * `ConversationActions` and `ReadingStatus` belong to the transcript instead —
- * both are about the messages: the actions render at the foot of them, the
- * reading status at the end of them, inside the scroll.
+ * both are about the messages: the actions sit in the transcript header,
+ * opposite the contact block; the reading status pins to the pane's foot so
+ * it stays visible while the messages scroll.
  *
  * Every control that could reach a participant is gated on the capability flags
  * the backend publishes for this conversation — a STOP-closed thread simply
@@ -163,11 +164,14 @@ interface ConversationActionsProps {
 }
 
 /**
- * Take over, hand back, close — rendered at the foot of the transcript, on the
- * line that says who may write there. That line is the question these buttons
- * answer, and it is where an operator already is when they decide to step in.
- * The transcript renders the row only while something can act, so a closed
- * thread's foot disappears instead of renting an empty strip.
+ * Take over, hand back, close — rendered in the transcript header, opposite
+ * the contact block. That is where an operator glances for "can I still act
+ * here?", and putting the controls there frees the foot for the reading
+ * status, reply indicator and composers. Close is always icon-only; Take
+ * over / Resume bot collapse to icons below `sm` — both keep `aria-label` —
+ * so the header stays one line beside a Greek full name on a phone. The
+ * transcript omits the cluster when nothing can act, so a closed thread's
+ * header keeps only the closed pill.
  */
 export function ConversationActions({
   conversation,
@@ -196,6 +200,7 @@ export function ConversationActions({
       {capabilities.canTakeOver ? (
         <ConfirmAction
           label="Take over"
+          collapseLabelAt="sm"
           icon={<Hand aria-hidden="true" className="size-4" />}
           heading="Take over this conversation"
           description={
@@ -214,6 +219,7 @@ export function ConversationActions({
       {capabilities.canResumeBot ? (
         <ConfirmAction
           label="Resume bot"
+          collapseLabelAt="sm"
           icon={<BotMessageSquare aria-hidden="true" className="size-4" />}
           heading="Hand back to the bot"
           description={
@@ -233,6 +239,7 @@ export function ConversationActions({
         <ConfirmAction
           label="Close"
           tone="danger"
+          isIconOnly
           icon={<SquareX aria-hidden="true" className="size-4" />}
           heading="Close this conversation"
           description={
@@ -825,12 +832,10 @@ interface ReadingStatusProps {
  * How far behind the reading of this conversation is (ΑΝΑΓΝΩΣΗ).
  *
  * A feedback conversation is read after durable work becomes due, not on arrival,
- * and this line is the only place that says so. It renders at the end of the
- * messages, inside the transcript's scroll, the way a read receipt ends a
- * thread: it is about these messages, and it answers «why has that answer not
- * appeared yet» directly under the message the answer would come from. It
- * stays quiet while the reading is current and takes a tinted block only when
- * it is behind or has failed.
+ * and this line is the only place that says so. It pins to the transcript foot,
+ * outside the message scroll, so an operator scrolling older messages still
+ * sees why an answer has not appeared yet. It stays quiet while the reading is
+ * current and takes a tinted block only when it is behind or has failed.
  */
 export function ReadingStatus({
   conversation,
@@ -870,7 +875,7 @@ export function ReadingStatus({
       role="status"
       aria-live="polite"
       className={clsx(
-        "flex min-w-0 flex-wrap items-center gap-x-2 text-xs",
+        "mx-auto flex min-w-0 flex-wrap items-center justify-center gap-x-2 text-center text-xs",
         attention === "danger"
           ? "rounded-sm border border-danger-border bg-danger-soft px-2 py-1 text-danger"
           : attention === "pending"

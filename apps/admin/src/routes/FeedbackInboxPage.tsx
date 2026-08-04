@@ -1,6 +1,6 @@
 import { toast } from "@heroui/react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
 
 import {
@@ -125,7 +125,21 @@ export function FeedbackInboxPage() {
   );
 
   const requestedId = searchParams.get("conversation");
-  const selectedId = resolveSelectedConversationId(visible, requestedId);
+  /**
+   * Desktop auto-selects the first row so the right pane is never empty, but
+   * that must not chase `visible[0]` across polls — the list is ordered by
+   * attention then latest activity, so a new message would otherwise yank the
+   * open transcript. The URL is the explicit pin; this ref is the sticky
+   * fallback when the URL is quiet. Writing the fallback into `?conversation=`
+   * would open the detail on mobile (`threadOpenOnNarrow`), so it stays local.
+   */
+  const stickySelectedRef = useRef<string | null>(null);
+  const selectedId = resolveSelectedConversationId(
+    visible,
+    requestedId,
+    stickySelectedRef.current,
+  );
+  stickySelectedRef.current = selectedId;
 
   /**
    * Master/detail below `lg`, and the URL already holds the state for it.
@@ -631,7 +645,10 @@ export function FeedbackInboxPage() {
             implicit `auto` track otherwise adopts the panes' ~371px
             min-content width and widens the document. A cold reload painted
             the empty state first and hid the bug. */}
-        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] items-start gap-4 lg:grid-cols-[minmax(15rem,19rem)_minmax(0,1fr)]">
+        {/* `items-stretch` so the transcript can fill the row; the list column
+            stays `self-start` so it does not grow a blank band under its last
+            row when the thread is taller. */}
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] items-stretch gap-4 lg:grid-cols-[minmax(15rem,19rem)_minmax(0,1fr)]">
           {/* Master and detail, one at a time below `lg`. Stacking them was the
               desktop layout folded into one column: a 520px picker, then a
               652px thread, then three 44vh cards — 2651px of page carrying
@@ -640,8 +657,8 @@ export function FeedbackInboxPage() {
           <div
             className={
               threadOpenOnNarrow
-                ? "hidden min-h-0 min-w-0 lg:block"
-                : "min-h-0 min-w-0"
+                ? "hidden min-h-0 min-w-0 lg:block lg:self-start"
+                : "min-h-0 min-w-0 lg:self-start"
             }
           >
             <ConversationList

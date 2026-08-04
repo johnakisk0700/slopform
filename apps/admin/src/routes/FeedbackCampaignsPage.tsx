@@ -451,12 +451,17 @@ function CampaignCard({
 
   /* The 3px left marker in the status tone — this admin's only emphasis motif,
      and the reason a paused card can be told from a live one with the headings
-     stripped away. Launched takes no marker: it is the ordinary state of a
-     working campaign, and marking the majority is how a marker stops meaning
-     anything. Closed takes none either; being drained of colour is already its
-     whole treatment, and an archived card does not need pointing at. */
+     stripped away. Launched gets success green (same tone as its status badge);
+     paused gets warning amber. Closed takes none: being drained of colour is
+     already its whole treatment, and an archived card does not need pointing at. */
+  /* Re-assert the left tone on hover/focus: `hover:border-primary-border`
+     paints all four sides and would otherwise wipe the marker. */
   const marker =
-    entry.status === "paused" ? "border-l-[3px] border-l-warning" : "";
+    entry.status === "launched"
+      ? "border-l-[3px] border-l-success hover:border-l-success focus-visible:border-l-success"
+      : entry.status === "paused"
+        ? "border-l-[3px] border-l-warning hover:border-l-warning focus-visible:border-l-warning"
+        : "";
 
   return (
     <Link

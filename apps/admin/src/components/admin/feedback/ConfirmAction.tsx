@@ -1,4 +1,5 @@
 import { Button, Modal } from "@heroui/react";
+import { clsx } from "clsx";
 import { useState, type ReactNode } from "react";
 
 interface ConfirmActionProps {
@@ -30,6 +31,12 @@ interface ConfirmActionProps {
    * person's pill — where a word would make the pill about its own button.
    */
   isIconOnly?: boolean;
+  /**
+   * Hide the visible label below this breakpoint and tighten the trigger to
+   * icon-button proportions. `label` stays the accessible name. For a header
+   * cluster that must share a line with a Greek full name on a phone.
+   */
+  collapseLabelAt?: "sm";
   /** Trigger styling for a control embedded in another surface. */
   triggerClassName?: string;
   onConfirm: () => Promise<void>;
@@ -58,10 +65,12 @@ export function ConfirmAction({
   icon,
   size = "sm",
   isIconOnly = false,
+  collapseLabelAt,
   triggerClassName,
   onConfirm,
 }: ConfirmActionProps) {
   const [isOpen, setOpen] = useState(false);
+  const needsAriaLabel = isIconOnly || collapseLabelAt !== undefined;
 
   async function handleConfirm() {
     await onConfirm();
@@ -82,11 +91,19 @@ export function ConfirmAction({
         size={size}
         variant={tone === "danger" ? "danger-soft" : "secondary"}
         isDisabled={isDisabled}
-        {...(isIconOnly ? { isIconOnly: true, "aria-label": label } : {})}
-        {...(triggerClassName ? { className: triggerClassName } : {})}
+        {...(isIconOnly ? { isIconOnly: true } : {})}
+        {...(needsAriaLabel ? { "aria-label": label } : {})}
+        className={clsx(
+          collapseLabelAt === "sm" && "max-sm:min-h-8 max-sm:min-w-8 max-sm:px-2",
+          triggerClassName,
+        )}
       >
         {icon}
-        {isIconOnly ? null : label}
+        {isIconOnly ? null : (
+          <span className={collapseLabelAt === "sm" ? "max-sm:hidden" : undefined}>
+            {label}
+          </span>
+        )}
       </Button>
       <Modal.Backdrop>
         <Modal.Container size="sm" placement="center">

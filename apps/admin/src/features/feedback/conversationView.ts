@@ -318,16 +318,27 @@ export function conversationRowBadges(
 }
 
 /**
- * Picks the conversation the screen should show. Keeps the operator's choice
- * whenever it survives the current filter — polling must never move the
- * selection out from under someone reading a transcript.
+ * Picks the conversation the screen should show.
+ *
+ * The URL (`requested`) wins while that row is still visible. Without a URL
+ * pin — the desktop empty-pane fallback — `previousSelected` keeps the row
+ * the operator was already looking at when the list reorders under polling
+ * (attention / latest activity). Only when both are gone do we fall through
+ * to the first visible row.
  */
 export function resolveSelectedConversationId(
   visible: readonly ConversationListItem[],
   requested: string | null,
+  previousSelected: string | null = null,
 ): string | null {
   if (requested !== null && visible.some((row) => row.id === requested)) {
     return requested;
+  }
+  if (
+    previousSelected !== null &&
+    visible.some((row) => row.id === previousSelected)
+  ) {
+    return previousSelected;
   }
   return visible[0]?.id ?? null;
 }

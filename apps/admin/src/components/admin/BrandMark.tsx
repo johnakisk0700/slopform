@@ -6,7 +6,8 @@ interface BrandMarkProps {
 
 /**
  * Product mark: five people + empty chair around a table.
- * Fills with `currentColor` so wine/sidebar and light ink surfaces both work.
+ * Fills with `currentColor` — callers set the tone (`text-primary`,
+ * `text-sidebar-active-index`, …) for the slab the mark sits on.
  */
 export function BrandMark({ className }: BrandMarkProps) {
   return (

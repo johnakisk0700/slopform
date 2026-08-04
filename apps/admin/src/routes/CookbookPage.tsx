@@ -1561,7 +1561,7 @@ export function CookbookPage() {
 
         <Specimen
           label="JtsLiveIndicator"
-          note="It occupies its space whether or not it is turning, so a poll never nudges the header beside it. It never changes colour — «working» is not a status anyone must act on."
+          note="It occupies its space whether or not it is turning, so a poll never nudges the header beside it. Hold «Simulate a fetch» briefly — snappy toggles stay dark; a linger spins, then fades. It never changes colour — «working» is not a status anyone must act on."
         >
           <ToggleButton
             className="rounded-md"
@@ -1739,6 +1739,9 @@ export function CookbookPage() {
             <p className="rounded-md border border-border border-l-[3px] border-l-primary bg-surface-sunken px-3 py-2 text-sm text-ink">
               border-l-[3px] border-l-primary
             </p>
+            <p className="rounded-md border border-border border-l-[3px] border-l-success bg-surface-sunken px-3 py-2 text-sm text-ink">
+              border-l-[3px] border-l-success
+            </p>
             <p className="rounded-md border border-border border-l-[3px] border-l-warning bg-surface-sunken px-3 py-2 text-sm text-ink">
               border-l-[3px] border-l-warning
             </p>
@@ -1746,7 +1749,7 @@ export function CookbookPage() {
 
           <Specimen
             label="Brand lockup"
-            note="SVG mark (five people + empty chair) via currentColor + the Sora wordmark (`font-brand`, the wordmark's own face — never UI copy). With a tagline the mark steps up to 40px and both lines set solid, so the three parts read as one block."
+            note="SVG mark (five people + empty chair) via currentColor + the Sora wordmark (`font-brand`, the wordmark's own face — never UI copy). The mark takes the theme brand on its slab (`sidebar-active-index` on strong, `primary` on paper); the wordmark inherits the parent tone. With a tagline the mark steps up to 40px and both lines set solid, so the three parts read as one block."
             className="grid gap-4"
           >
             <div className="rounded-md bg-sidebar px-4 py-3 text-sidebar-fg">

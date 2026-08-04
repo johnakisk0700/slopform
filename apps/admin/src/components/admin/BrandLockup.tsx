@@ -6,8 +6,11 @@ import { BrandMark } from "./BrandMark";
 
 interface BrandLockupProps {
   /**
-   * Kept for call-site clarity. The mark uses `currentColor`, so the parent
-   * text tone (sidebar-fg / ink) paints both surfaces.
+   * Which slab the lockup sits on. The wordmark still inherits the parent
+   * text tone; the mark takes the theme's brand colour that belongs on that
+   * slab (`sidebar-active-index` on the inverse panel, `primary` on paper).
+   * Noir's brand is ink / near-white, so the mark stays monochrome there —
+   * that is the theme saying so, not a special case in this component.
    */
   surface?: "strong" | "default";
   /** When set, the lockup is a home link; omit for a static mark (e.g. auth status). */
@@ -34,6 +37,7 @@ interface BrandLockupProps {
  * status. The CSS six-dot `.brand-mark` remains a decorative motif only.
  */
 export function BrandLockup({
+  surface = "default",
   to,
   ariaLabel = "Join The Six admin home",
   className,
@@ -56,13 +60,23 @@ export function BrandLockup({
     </span>
   );
 
+  // Size must travel with the tone class: BrandMark treats a passed className
+  // as a full override of its default h-9, so a colour-only string would
+  // collapse the mark.
+  const markClassName = clsx(
+    tagline ? "h-10 w-10" : "h-9 w-9",
+    surface === "strong"
+      ? "text-sidebar-active-index"
+      : "text-primary",
+  );
+
   const content = (
     <>
       {/* The mark grows with the lockup: against a two-line stack a 36px mark
           reads as an icon beside the words, where 40px reads as the logo the
           words belong to — a little taller than the text block on both edges,
           which is what makes the three parts sit as one. */}
-      <BrandMark {...(tagline ? { className: "h-10 w-10" } : {})} />
+      <BrandMark className={markClassName} />
       {tagline ? (
         // Both lines set solid. The overline recipe carries no line-height, so
         // without `leading-none` the tagline inherits the 1.6 body leading and
