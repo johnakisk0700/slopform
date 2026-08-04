@@ -107,7 +107,9 @@ export function EventsPage() {
       <JtsPageHeader
         eyebrow="Operations"
         title="Events"
-        description="Create an event, correct who came, and finish it before launching feedback."
+        /* The create/correct steps are already the screen's own buttons. What
+           is not on screen is that «finished» is a gate, not a status. */
+        description="A dinner is not over when everyone goes home — it is over when you mark it finished. Nothing reaches the guests before that."
       />
 
       <JtsDataTable

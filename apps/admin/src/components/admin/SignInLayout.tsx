@@ -48,8 +48,12 @@ export function SignInLayout({ children }: { children: ReactNode }) {
           <p className="jts-overline text-sidebar-fg-muted">
             Private operations
           </p>
+          {/* Was «One secure entrance to the admin workspace.» — a sentence
+              that described the door rather than the room. Whoever is reading
+              it already knows they are at a sign-in; what they cannot see is
+              what the workspace is for. */}
           <p className="mt-4 font-display text-4xl font-extrabold leading-tight tracking-tight">
-            One secure entrance to the admin workspace.
+            Six seats, one table, and everything it takes to fill them.
           </p>
           <ul className="mt-9 grid gap-6">
             {WORKSPACE_AREAS.map(({ icon: Icon, title, detail }) => (
@@ -91,9 +95,14 @@ export function SignInLayout({ children }: { children: ReactNode }) {
           <h1 className="jts-title-mark mt-2 font-display text-3xl font-extrabold tracking-tight text-ink">
             Sign in
           </h1>
+          {/* Was «Sign-in proves identity. The backend separately checks that
+              your profile is approved for this admin.» — the architecture,
+              narrated to somebody who only wants to get in. It named a backend
+              they cannot see and left out the one thing they can act on: which
+              account to use, and why the right person can still be refused. */}
           <p className="mt-4 max-w-prose text-sm leading-6 text-ink-muted">
-            Sign-in proves identity. The backend separately checks that your
-            profile is approved for this admin.
+            Use the Google account your access was granted on. Being the right
+            person is not enough — access is checked separately.
           </p>
           {/* No padding here: the form pads itself and the «Secured by Clerk»
               band pads itself, so the band reaches the card's own edges. */}

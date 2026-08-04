@@ -319,7 +319,7 @@ export function EventDetailPage() {
         back={BACK_TO_EVENTS}
         eyebrow="Operations"
         title={event.title}
-        description="Correct who came, then finish the event so feedback can be launched."
+        description="Who actually showed up is the one thing only you know. Correct it, then finish the event — everything after this reads from that list."
       />
 
       {/* Standing on the left, what you can do about it on the right — so the

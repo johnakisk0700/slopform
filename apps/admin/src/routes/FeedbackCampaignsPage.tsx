@@ -66,7 +66,7 @@ export function FeedbackCampaignsPage() {
       <JtsPageHeader
         eyebrow="Post-event feedback"
         title="Feedback campaigns"
-        description="Each finished event can run one feedback campaign. Open its inbox to read and steer the conversations."
+        description="One dinner, one campaign, one chance to ask. Open a campaign to read what came back — and to step in where the bot should not answer alone."
       />
 
       {launchError ? (

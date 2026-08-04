@@ -312,7 +312,7 @@ export function FeedbackResultsPage() {
         }}
         eyebrow="Post-event feedback"
         title="Results"
-        description="Everything the campaign's conversations produced: structured answers and the side notes flagged for review."
+        description="What the table actually said, once the talking stopped: the answers people gave, and the things they mentioned that nobody asked about."
       />
 
       {filters}

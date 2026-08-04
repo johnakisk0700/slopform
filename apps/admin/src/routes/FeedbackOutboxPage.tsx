@@ -228,7 +228,7 @@ export function FeedbackOutboxPage() {
           back={{ to: "/admin/feedback", label: "Back to campaigns" }}
           eyebrow="Post-event feedback"
           title="Outbound queue"
-          description="Everything the bot or an operator has written to a participant. The queue is dispatch that remains unresolved or deliberately held; age is the number that matters there."
+          description="Every word this system has put in front of a participant. What is still queued is either unresolved or deliberately held — and how long it has waited is the number that matters."
         />
 
         {/* The queue's three figures, as one line rather than three cards.

@@ -137,7 +137,7 @@ export function ParticipantsPage() {
       <JtsPageHeader
         eyebrow="Operations"
         title="Participants"
-        description="Toggle post-event feedback WhatsApp eligibility. Default is opted out; every change is audited."
+        description="Whose phone we are allowed to reach after a dinner. Silence is the default, and every change here is signed and dated."
       />
 
       <JtsDataTable

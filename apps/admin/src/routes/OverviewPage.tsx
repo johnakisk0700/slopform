@@ -380,7 +380,9 @@ export function OverviewPage() {
       <JtsPageHeader
         eyebrow="Admin workspace"
         title="Operations control"
-        description="Events, bookings and blockers in one focused workspace for the team running Join The Six."
+        /* Was a list of the sidebar's own items. A subtitle that names the nav
+           under it tells an operator nothing they did not just read. */
+        description="A dinner is six strangers and a hundred small decisions. This is where the decisions get made."
         actions={
           <Modal isOpen={isDialogOpen} onOpenChange={handleDialogOpenChange}>
             <Button>
