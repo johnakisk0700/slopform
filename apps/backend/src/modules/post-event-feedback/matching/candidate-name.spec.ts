@@ -73,6 +73,20 @@ describe("foldPostEventFeedbackName", () => {
     );
   });
 
+  it("keeps the case ending in the skeleton itself", () => {
+    // The inflection fold is deliberately not here. The skeleton stays letter
+    // for letter, and it is `candidateNameKeys` that lets a Τάκης answer to
+    // «taki» — stripping the sigma inside the fold would run on the mention
+    // too, and a mention in the genitive usually marks the *owner* of the
+    // subject, not the subject: «ο φίλος της Ελένης» must never land on Ελένη.
+    expect(foldPostEventFeedbackName("taki")).not.toBe(
+      foldPostEventFeedbackName("takis"),
+    );
+    expect(foldPostEventFeedbackName("Ελένης")).not.toBe(
+      foldPostEventFeedbackName("Ελένη"),
+    );
+  });
+
   it("keeps different names apart", () => {
     expect(foldPostEventFeedbackName("Νίκος")).not.toBe(
       foldPostEventFeedbackName("Ελένη"),
@@ -213,6 +227,97 @@ describe("resolvePostEventFeedbackCandidateByName", () => {
     expect(
       resolvePostEventFeedbackCandidateByName("royla", [LOULA, ROULA, NIKOS]),
     ).toMatchObject({ participantId: "p-roula" });
+  });
+
+  it("resolves an inflected first name to the person it declines from", () => {
+    // Verbatim from report/feedback-burst-2026-08-04T16-44-08Z.json: the
+    // mention «taki», a Τάκης at the table, and no match — so his praise was
+    // filed as an unattributable note and the question was asked again.
+    const TAKIS = {
+      participantId: "p-takis",
+      displayName: "Τάκης Γκροκοβούβαλος",
+    };
+
+    expect(
+      resolvePostEventFeedbackCandidateByName("taki", [TAKIS, NIKOS, ELENI]),
+    ).toMatchObject({ participantId: "p-takis" });
+    expect(
+      resolvePostEventFeedbackCandidateByName("Τάκη", [TAKIS, NIKOS, ELENI]),
+    ).toMatchObject({ participantId: "p-takis" });
+    expect(
+      resolvePostEventFeedbackCandidateByName("ο τακη", [TAKIS, NIKOS]),
+    ).toMatchObject({ participantId: "p-takis" });
+    expect(
+      resolvePostEventFeedbackCandidateByName("kosta", [KOSTAS_P, NIKOS]),
+    ).toMatchObject({ participantId: "p-kostas-p" });
+    expect(
+      resolvePostEventFeedbackCandidateByName("Κώστα", [KOSTAS_P, NIKOS]),
+    ).toMatchObject({ participantId: "p-kostas-p" });
+  });
+
+  it("still refuses when the inflected form fits two different people", () => {
+    // A Τάκης and a Τάκη who are two real people share the sigma-less form.
+    // That is exactly when guessing is most tempting and most wrong: the
+    // widening adds forms a candidate answers to, never touches the
+    // exactly-one-match requirement, so the shared form refuses.
+    const TAKIS = { participantId: "p-takis", displayName: "Τάκης" };
+    const TAKI = { participantId: "p-taki", displayName: "Τάκη" };
+
+    expect(
+      resolvePostEventFeedbackCandidateByName("taki", [TAKIS, TAKI, NIKOS]),
+    ).toBeUndefined();
+    expect(
+      resolvePostEventFeedbackCandidateByName("Τάκη", [TAKIS, TAKI]),
+    ).toBeUndefined();
+    // The full nominative is a form only one of them carries, so it keeps
+    // resolving exactly as it did before the widening.
+    expect(
+      resolvePostEventFeedbackCandidateByName("Τάκης", [TAKIS, TAKI]),
+    ).toMatchObject({ participantId: "p-takis" });
+    // And the vocative reaches both Κώστας exactly as the nominative does.
+    expect(
+      resolvePostEventFeedbackCandidateByName("kosta", [KOSTAS_P, KOSTAS_G]),
+    ).toBeUndefined();
+    expect(
+      resolvePostEventFeedbackCandidateByName("Κώστα", [KOSTAS_P, KOSTAS_G]),
+    ).toBeUndefined();
+  });
+
+  it("does not read a genitive mention as the person who owns it", () => {
+    // «ο φίλος της Ελένης» is about the friend, not about Ελένη — and it is
+    // the disclosure case where attributing the sentence to her is the worst
+    // available outcome. The widening is one-sided on purpose: candidates gain
+    // their sigma-less form, mentions gain nothing, so «Ελένης» is not a form
+    // the candidate «Ελένη» answers to.
+    expect(
+      resolvePostEventFeedbackCandidateByName("Ελένης", [ELENI, NIKOS]),
+    ).toBeUndefined();
+    expect(
+      resolvePostEventFeedbackCandidateByName("ο φίλος της Ελένης", [
+        ELENI,
+        NIKOS,
+      ]),
+    ).toBeUndefined();
+  });
+
+  it("does not let the sigma widening pull «Μαρία» onto her neighbours", () => {
+    // Μαρία, Μάρη and Μάριος are three different people one or two letters
+    // apart. Only a final sigma is dropped, and only on the candidate side, so
+    // Μαρία keeps her whole name and resolves to herself alone even with both
+    // neighbours seeded.
+    const MARIA = { participantId: "p-maria", displayName: "Μαρία" };
+    const MARIOS = { participantId: "p-marios", displayName: "Μάριος" };
+
+    expect(
+      resolvePostEventFeedbackCandidateByName("μαρια", [MARIA, MARIOS, MARI]),
+    ).toMatchObject({ participantId: "p-maria" });
+    expect(
+      resolvePostEventFeedbackCandidateByName("maria", [MARIA, MARIOS, MARI]),
+    ).toMatchObject({ participantId: "p-maria" });
+    // Μάριος keeps answering to his own vocative, not to hers.
+    expect(
+      resolvePostEventFeedbackCandidateByName("Μάριο", [MARIA, MARIOS]),
+    ).toMatchObject({ participantId: "p-marios" });
   });
 
   it("resolves nothing for an unknown name or an empty mention", () => {

@@ -759,6 +759,47 @@ const SCENARIOS: readonly FeedbackScenario[] = [
     },
   },
   {
+    // Greek first names decline on the final sigma, and «τον Τάκη» is how you
+    // mention Τάκης, not a variant spelling. In the 2026-08-04T16-44-08Z burst
+    // a guest answered the avoid question with «ton taki isws», the fold kept
+    // `taki` and `takis` apart, and the answer degraded to a flagged
+    // subjectless note while the bot asked again — «ton taki re nai», «ton
+    // taki sou eipa re», «ton taki re trito forea les» — a paid conversation
+    // spent repeating a name the table plainly held.
+    //
+    // The fold now drops the case ending, so this row pins the whole path:
+    // the inflected mention banks a directed answer against the Τάκης who was
+    // there, nothing is flagged, and nobody is asked a fourth time.
+    id: "greek_inflected_first_name",
+    title:
+      "resolves «taki» to the Τάκης who was actually at the table instead of re-asking",
+    seed: {
+      goals: { avoid: "asked" },
+      candidates: ["Τάκης Γκροκοβούβαλος", "Νίκος", "Ελένη"],
+    },
+    script: [
+      {
+        answers: [{ question: "avoid", about: "taki" }],
+        next: "meet_again",
+        reply: "Το σημείωσα. Με ποιους θα ήθελες να ξαναβρεθείς;",
+      },
+    ],
+    steps: [
+      { kind: "inbound", text: "ton taki isws" },
+      { kind: "wait", after: "settles" },
+    ],
+    expect: {
+      answers: [
+        { question: "avoid", about: "Τάκης Γκροκοβούβαλος", value: null },
+      ],
+      // Nothing degrades and nobody is re-asked: the name was never ambiguous,
+      // only declined the way Greek declines it.
+      notes: [],
+      needsAttention: false,
+      receivedCount: { reply: 1 },
+    },
+  },
+  {
     // The same person opting out in the same alphabet. STOP is whole-string
     // equality over a fixed command list, so this reads as ordinary chatter and
     // the questionnaire carries on messaging somebody who asked it to stop.

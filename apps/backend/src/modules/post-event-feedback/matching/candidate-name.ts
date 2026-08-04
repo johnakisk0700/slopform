@@ -16,6 +16,10 @@ import { foldPostEventFeedbackText } from "./fold-text.js";
  * - both sides collapse to the same lossy **skeleton**, so the many ways to
  *   transliterate one sound stop mattering (ι/η/υ/ει/οι all become `i`, ο/ω
  *   both `o`, χ may be written `x`, `h` or `ch`);
+ * - a candidate also answers to his name with the final sigma dropped, because
+ *   Greek declines first names on exactly that letter and «τον Τάκη» is how a
+ *   Τάκης gets mentioned — see `candidateNameKeys` for why the mention side is
+ *   *not* widened the same way;
  * - a name resolves only when it matches **exactly one** candidate. Two Κώστας
  *   at the same table is the ordinary case, not a rare one, and a coin flip
  *   between them is worse than admitting we do not know.
@@ -107,6 +111,14 @@ const LATIN_EQUIVALENTS: readonly (readonly [RegExp, string])[] = [
 ];
 
 /**
+ * Shortest word that may stand in for a whole person.
+ *
+ * Keeps initials and the articles Greek names arrive with — «ο», «η», `o`, `i`,
+ * «Κώστας Π.» — from being addressable on their own.
+ */
+const MIN_ADDRESSABLE_PART_LENGTH = 3;
+
+/**
  * The alphabet-independent skeleton of a name. Not reversible and not meant to
  * be: its only job is to make two spellings of one name compare equal.
  */
@@ -131,14 +143,6 @@ export interface PostEventFeedbackNameCandidate {
 }
 
 /**
- * Shortest word that may stand in for a whole person.
- *
- * Keeps initials and the articles Greek names arrive with — «ο», «η», `o`, `i`,
- * «Κώστας Π.» — from being addressable on their own.
- */
-const MIN_ADDRESSABLE_PART_LENGTH = 3;
-
-/**
  * Every skeleton a candidate may be addressed by: the whole display name, and
  * each word in it.
  *
@@ -149,9 +153,27 @@ const MIN_ADDRESSABLE_PART_LENGTH = 3;
  * nobody, so a directed answer was dropped for a person who was named plainly
  * and unambiguously.
  *
+ * A candidate additionally answers to each key with its final `s` dropped,
+ * because Greek declines first names on exactly that letter: Τάκης is «τον
+ * Τάκη» the moment somebody speaks *about* him, and people write feedback the
+ * way they speak. In the 2026-08-04T16-44-08Z rehearsal burst a guest wrote
+ * «ton taki isws» at a table that held a Τάκης, `taki` ≠ `takis` filed his
+ * answer as an unattributable note, and the guest was re-asked until he wrote
+ * «ton taki re trito forea les». Both alphabets have collapsed to one Latin
+ * skeleton by key time, so one dropped letter covers greeklish and Greek
+ * script alike, and the guard keeps the remainder long enough to still name
+ * somebody.
+ *
+ * The widening is deliberately one-sided. Stripping the *mention* too would
+ * read every genitive as its owner — and «ο φίλος της Ελένης» is about the
+ * friend, not about Ελένη, which is precisely the disclosure case where
+ * attributing the sentence to her is the worst available outcome. A mention
+ * must therefore still be, letter for letter, a form some candidate answers
+ * to.
+ *
  * This widens who we recognise, never who we choose between: the caller still
- * requires exactly one matching candidate, so two Κώστας at one table go on
- * resolving to nobody.
+ * requires exactly one matching candidate, so two Κώστας at one table — or a
+ * Τάκης and a Τάκη who are different people — go on resolving to nobody.
  */
 function candidateNameKeys(displayName: string): readonly string[] {
   const keys = new Set<string>();
@@ -163,6 +185,11 @@ function candidateNameKeys(displayName: string): readonly string[] {
     const folded = foldPostEventFeedbackName(part);
     if (folded.length >= MIN_ADDRESSABLE_PART_LENGTH) {
       keys.add(folded);
+    }
+  }
+  for (const key of [...keys]) {
+    if (key.length > MIN_ADDRESSABLE_PART_LENGTH && key.endsWith("s")) {
+      keys.add(key.slice(0, -1));
     }
   }
   return [...keys];
