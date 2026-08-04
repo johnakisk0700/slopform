@@ -286,6 +286,14 @@ text with a schema on the reading side — not a structured field on the turn.
 Changing the card contract means changing the system prompt and the parser
 together.
 
+The ` ```chart ` fence works the same way, and it now has a second author: the
+post-event feedback campaign summary renders through this same
+`AssistantMarkdown`, and its prompt offers the same fence. Optional `max` names
+the top of the scale the values were measured on, so a 4.2 average on a 1–5
+rating draws against 5 rather than filling the bar. A change to the chart
+contract is therefore a change to two prompts and one renderer — see
+[Campaign summary](post-event-feedback.md#campaign-summary).
+
 ## Future mutations and operator confirmation
 
 Do not place tool state in `assistant_turns.assistant_content`. When mutations

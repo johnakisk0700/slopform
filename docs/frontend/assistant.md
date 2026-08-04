@@ -167,7 +167,17 @@ sequenceDiagram
   bundle. It uses `securityLevel: "strict"`; invalid source falls back to code,
   and the existing `useTheme` store rerenders diagrams when light/dark changes.
 - Fenced `chart` accepts the small JSON bar/line/sparkline contract implemented
-  by `AssistantChart`. Malformed source also falls back to code.
+  by `AssistantChart`. Malformed source also falls back to code. Optional `max`
+  is the top of the scale the values were measured on, so an average of 4.2 on a
+  1–5 rating draws as 4.2 of 5 rather than as a full bar; an unusable `max` is
+  dropped on its own instead of failing the whole chart, because the values are
+  still true. Bar rows give the category name an 11rem track in the text face,
+  not the mono the value column needs for aligned digits — Greek dimension names
+  truncated at the old 7rem. This renderer is shared with the feedback campaign
+  summary
+  accordion — see
+  [Feedback conversations](feedback-conversations.md) — so the fence is a
+  contract two prompts write against, not an assistant-only convenience.
 - Assistant renderer CSS uses only `--jts-*` semantic values. It follows the
   existing light/dark class automatically and introduces no parallel palette.
 - The selector retains the source `notes_ai` geometry: an 8-high compact

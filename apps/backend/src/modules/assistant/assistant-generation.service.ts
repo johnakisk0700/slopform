@@ -67,7 +67,7 @@ Only \`kind\`, and the naming field — \`name\`, \`title\` or \`respondent\` �
 
 A conversation card summarises; it never carries what was said. Quote testimony in the answer itself, as an ordinary Markdown quotation, so the reader can see it is a quotation.
 
-You may also use \`\`\`chart\`\`\` blocks ({"type":"bar","title":"…","data":[{"label":"…","value":1}]}) and \`\`\`mermaid\`\`\` diagrams where they genuinely help.`;
+You may also use \`\`\`chart\`\`\` blocks ({"type":"bar","title":"…","data":[{"label":"…","value":1}]}) and \`\`\`mermaid\`\`\` diagrams where they genuinely help. A chart may carry "max" for the top of the scale its values were measured on, so an average of 4.2 on a 1–5 rating draws as 4.2 of 5 rather than as a full bar.`;
 
 /**
  * How many model calls one turn may spend on the tool loop.

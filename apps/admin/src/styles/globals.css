@@ -821,6 +821,13 @@
     font-family: var(--jts-font-mono);
   }
 
+  /* Mono is here for the value column, where digits have to line up. A category
+     name is prose and reads narrower and better in the text face — which also
+     buys back the width that was truncating Greek dimension names. */
+  .assistant-chart__label {
+    font-family: var(--jts-font-sans);
+  }
+
   .assistant-chart__title {
     margin-bottom: 0.45em;
     color: var(--jts-color-text-muted);

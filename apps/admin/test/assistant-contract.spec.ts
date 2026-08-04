@@ -428,6 +428,96 @@ describe("assistant Markdown renderer", () => {
     expect(html).toContain("&quot;kind&quot;:&quot;profile&quot;");
     expect(html).not.toContain("assistant-card");
   });
+
+  /**
+   * A rating average is only readable against the scale it was measured on.
+   * Without a ceiling the largest bar is always full, so 4.2 and 2.1 draw the
+   * same picture whenever they happen to be the highest number present.
+   */
+  it("draws bars against the declared scale ceiling rather than the largest value", () => {
+    const points =
+      '[{"label":"Βραδιά","value":2.5},{"label":"Τραπέζι","value":4}]';
+    const scaled = renderToStaticMarkup(
+      createElement(AssistantMarkdown, {
+        children: `\`\`\`chart\n{"type":"bar","max":5,"data":${points}}\n\`\`\``,
+      }),
+    );
+    const unscaled = renderToStaticMarkup(
+      createElement(AssistantMarkdown, {
+        children: `\`\`\`chart\n{"type":"bar","data":${points}}\n\`\`\``,
+      }),
+    );
+
+    // 2.5 and 4 on a 1–5 scale: half the scale and four fifths of it.
+    expect(scaled).toContain("width:50%");
+    expect(scaled).toContain("width:80%");
+    expect(scaled).not.toContain("width:100%");
+    // The same data with no declared scale still fills to its own largest bar.
+    expect(unscaled).toContain("width:62.5%");
+    expect(unscaled).toContain("width:100%");
+    // A ceiling below the data cannot clip a bar past full width.
+    expect(
+      renderToStaticMarkup(
+        createElement(AssistantMarkdown, {
+          children:
+            '```chart\n{"type":"bar","max":1,"data":[{"label":"Απαντήσεις","value":4}]}\n```',
+        }),
+      ),
+    ).toContain("width:100%");
+  });
+
+  it("keeps a chart whose scale ceiling is unusable and drops only the ceiling", () => {
+    const html = renderToStaticMarkup(
+      createElement(AssistantMarkdown, {
+        children:
+          '```chart\n{"type":"bar","max":0,"title":"Κατανομή","data":[{"label":"5/5","value":3},{"label":"4/5","value":1}]}\n```',
+      }),
+    );
+
+    expect(html).toContain("Κατανομή");
+    expect(html).toContain("width:100%");
+    expect(html).toContain("width:33.33333333333333%");
+    expect(html).not.toContain("<pre>");
+  });
+
+  it("falls back safely for malformed model-authored chart fields", () => {
+    for (const source of [
+      '{"type":"pie","data":[{"label":"A","value":1}]}',
+      '{"title":{"unsafe":true},"data":[{"label":"A","value":1}]}',
+      '{"data":[{"label":{"unsafe":true},"value":1}]}',
+      '{"unit":4,"data":[{"label":"A","value":1}]}',
+    ]) {
+      const html = renderToStaticMarkup(
+        createElement(AssistantMarkdown, {
+          children: `\`\`\`chart\n${source}\n\`\`\``,
+        }),
+      );
+      expect(html).toContain("<pre>");
+      expect(html).not.toContain("assistant-chart");
+    }
+  });
+
+  it("draws zero as zero and keeps a declared line scale anchored", () => {
+    const bars = renderToStaticMarkup(
+      createElement(AssistantMarkdown, {
+        children:
+          '```chart\n{"type":"bar","max":5,"data":[{"label":"Καμία","value":0},{"label":"Μερικές","value":2.5}]}\n```',
+      }),
+    );
+    expect(bars).toContain("width:0%");
+    expect(bars).toContain("width:50%");
+
+    const line = renderToStaticMarkup(
+      createElement(AssistantMarkdown, {
+        children:
+          '```chart\n{"type":"line","max":5,"data":[{"label":"A","value":4},{"label":"B","value":5}]}\n```',
+      }),
+    );
+    // With zero as the inferred baseline, 4/5 sits above the middle rather
+    // than becoming the plot's artificial floor.
+    expect(line).toContain("M 6.0,25.2 L 314.0,10.0");
+    expect(line).not.toContain("M 6.0,86.0 L 314.0,10.0");
+  });
 });
 
 describe("assistant route wiring", () => {

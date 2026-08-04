@@ -7,6 +7,13 @@ interface ChartSpec {
   type?: "bar" | "line" | "sparkline";
   title?: string;
   unit?: string;
+  /**
+   * Top of the scale the values are measured on, when that scale exists
+   * independently of the data — a 1–5 rating being the case that matters. An
+   * average of 4.2 drawn against the highest observed average reads as a full
+   * bar; drawn against `max: 5` it reads as what it is.
+   */
+  max?: number;
   data: ChartPoint[];
 }
 
@@ -18,21 +25,53 @@ function formatValue(value: number, unit?: string): string {
 
 function parseSpec(source: string): ChartSpec | null {
   try {
-    const spec = JSON.parse(source) as ChartSpec;
-    if (!spec || !Array.isArray(spec.data) || spec.data.length === 0) {
+    const candidate = JSON.parse(source) as unknown;
+    if (
+      !candidate ||
+      typeof candidate !== "object" ||
+      Array.isArray(candidate)
+    ) {
       return null;
     }
+    const spec = candidate as Record<string, unknown>;
+    if (!Array.isArray(spec.data) || spec.data.length === 0) return null;
+    if (
+      spec.type !== undefined &&
+      spec.type !== "bar" &&
+      spec.type !== "line" &&
+      spec.type !== "sparkline"
+    ) {
+      return null;
+    }
+    if (spec.title !== undefined && typeof spec.title !== "string") return null;
+    if (spec.unit !== undefined && typeof spec.unit !== "string") return null;
     if (
       !spec.data.every(
         (point) =>
           point &&
-          typeof point.value === "number" &&
-          Number.isFinite(point.value),
+          typeof point === "object" &&
+          !Array.isArray(point) &&
+          typeof (point as Record<string, unknown>).value === "number" &&
+          Number.isFinite((point as Record<string, unknown>).value) &&
+          ((point as Record<string, unknown>).label === undefined ||
+            typeof (point as Record<string, unknown>).label === "string"),
       )
     ) {
       return null;
     }
-    return spec;
+    // An unusable ceiling drops out rather than failing the chart: the values
+    // are still true, and falling back to code for one bad field would hide
+    // them behind JSON.
+    const normalized: ChartSpec = {
+      ...(spec.type === undefined ? {} : { type: spec.type }),
+      ...(spec.title === undefined ? {} : { title: spec.title }),
+      ...(spec.unit === undefined ? {} : { unit: spec.unit }),
+      data: spec.data as ChartPoint[],
+    };
+    const { max } = spec;
+    return typeof max === "number" && Number.isFinite(max) && max > 0
+      ? { ...normalized, max }
+      : normalized;
   } catch {
     return null;
   }
@@ -60,16 +99,23 @@ export function AssistantChart({ source }: { source: string }) {
 }
 
 function BarChart({ spec }: { spec: ChartSpec }) {
-  const max = Math.max(...spec.data.map((point) => point.value), 0);
+  const max = Math.max(
+    ...spec.data.map((point) => point.value),
+    spec.max ?? 0,
+    0,
+  );
 
   return (
     <div className="flex flex-col gap-1">
       {spec.data.map((point, index) => (
         <div
           key={`${point.label ?? "point"}-${index}`}
-          className="grid grid-cols-[minmax(0,7rem)_1fr_auto] items-center gap-2 text-xs"
+          className="grid grid-cols-[minmax(0,11rem)_1fr_auto] items-center gap-2 text-xs"
         >
-          <span className="truncate text-ink" title={point.label}>
+          <span
+            className="assistant-chart__label truncate text-ink"
+            title={point.label}
+          >
             {point.label ?? index + 1}
           </span>
           <span className="h-3.5 w-full overflow-hidden rounded-xs bg-surface-sunken">
@@ -78,7 +124,7 @@ function BarChart({ spec }: { spec: ChartSpec }) {
               style={{
                 width:
                   max > 0
-                    ? `${Math.max((point.value / max) * 100, 1.5)}%`
+                    ? `${Math.max(0, Math.min((point.value / max) * 100, 100))}%`
                     : "0%",
               }}
             />
@@ -104,8 +150,12 @@ function LineChart({
   const paddingX = 6;
   const paddingY = sparkline ? 6 : 10;
   const values = spec.data.map((point) => point.value);
-  const min = Math.min(...values);
-  const max = Math.max(...values);
+  // A declared ceiling describes an external scale, so the plot must not zoom
+  // its bottom to the smallest observed value. Without a declared lower bound,
+  // zero is the only honest baseline available.
+  const min =
+    spec.max === undefined ? Math.min(...values) : Math.min(0, ...values);
+  const max = Math.max(...values, spec.max ?? Number.NEGATIVE_INFINITY);
   const span = max - min || 1;
   const count = values.length;
   const x = (index: number) =>
