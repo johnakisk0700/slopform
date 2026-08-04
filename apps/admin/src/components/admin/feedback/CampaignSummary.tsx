@@ -1,9 +1,8 @@
 import { Button, toast } from "@heroui/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ChevronDown } from "lucide-react";
-import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 
+import { AssistantMarkdown } from "../assistant/AssistantMarkdown";
 import {
   getGetFeedbackCampaignSummaryQueryKey,
   useGetFeedbackCampaignSummary,
@@ -13,7 +12,10 @@ import type { FeedbackCampaignSummaryDtoOutput } from "../../../api/generated/mo
 import {
   campaignSummaryActionLabel,
   campaignSummaryPartialWarning,
+  campaignSummaryPendingDetail,
+  campaignSummaryPendingPhase,
   campaignSummaryStatusLabel,
+  type CampaignSummaryPendingPhase,
 } from "../../../features/feedback/campaignSummary";
 import { formatExactTimestamp } from "../../../features/feedback/conversationView";
 import { CAMPAIGN_SUMMARY_POLL_INTERVAL_MS } from "../../../features/feedback/polling";
@@ -25,12 +27,15 @@ interface CampaignSummaryProps {
 
 function statusToneClass(
   summary: Pick<FeedbackCampaignSummaryDtoOutput, "status" | "isPartial">,
+  phase: CampaignSummaryPendingPhase | null,
 ): string {
   if (summary.status === "failed") {
     return "text-danger";
   }
   if (summary.status === "pending") {
-    return "text-info";
+    // A lapsed claim is not a failure — the row still self-heals — but it is
+    // the state worth a second look, so it does not share the calm live tone.
+    return phase === "retrying" ? "text-warning" : "text-info";
   }
   if (summary.status === "ready" && summary.isPartial) {
     return "text-warning";
@@ -52,6 +57,12 @@ function metaParts(summary: FeedbackCampaignSummaryDtoOutput): string[] {
   }
   if (summary.noteCount !== null) {
     parts.push(countLabel(summary.noteCount, "note", "notes"));
+  }
+  // The header carries how long the wait has been; a row that is still owed
+  // also gets the exact clock it started from, which is what a worker log or an
+  // audit entry is read against.
+  if (summary.status === "pending" && summary.requestedAt !== null) {
+    parts.push(`Requested ${formatExactTimestamp(summary.requestedAt)}`);
   }
   if (summary.generatedAt !== null) {
     parts.push(`Generated ${formatExactTimestamp(summary.generatedAt)}`);
@@ -79,12 +90,25 @@ export function CampaignSummary({ campaignId }: CampaignSummaryProps) {
   const requestSummary = useRequestFeedbackCampaignSummary();
   const summary = summaryQuery.data;
 
+  // Elapsed time is read as of the last successful fetch rather than of the
+  // render. Reading `dataUpdatedAt` is also what keeps it moving: structural
+  // sharing hands back an identical `data` on an unchanged poll, so a render
+  // clock would both sit frozen on the stalled row this label exists to expose
+  // and be impure here. It is only ever read alongside `data`, which is what
+  // stamped it.
+  const asOf = new Date(summaryQuery.dataUpdatedAt);
+  const pendingPhase = summary
+    ? campaignSummaryPendingPhase(summary, asOf)
+    : null;
+
   const statusLabel = summary
-    ? campaignSummaryStatusLabel(summary)
+    ? campaignSummaryStatusLabel(summary, asOf)
     : summaryQuery.isPending
       ? "Loading…"
       : "Not generated";
-  const statusClass = summary ? statusToneClass(summary) : "text-ink-muted";
+  const statusClass = summary
+    ? statusToneClass(summary, pendingPhase)
+    : "text-ink-muted";
   const actionLabel = campaignSummaryActionLabel(summary?.status ?? "none");
   const partialWarning = summary
     ? campaignSummaryPartialWarning(summary)
@@ -114,7 +138,7 @@ export function CampaignSummary({ campaignId }: CampaignSummaryProps) {
             aria-hidden="true"
             className="size-4 shrink-0 text-ink-muted transition-transform duration-200 group-open:rotate-180"
           />
-          Campaign summary
+          <span className="truncate">Campaign summary</span>
         </span>
         <span className={`shrink-0 font-medium ${statusClass}`}>
           {statusLabel}
@@ -138,8 +162,14 @@ export function CampaignSummary({ campaignId }: CampaignSummaryProps) {
         ) : null}
 
         {summary?.body ? (
-          <div className="space-y-2 text-sm text-ink [&_h1]:text-base [&_h1]:font-semibold [&_h2]:text-sm [&_h2]:font-semibold [&_h3]:text-sm [&_h3]:font-semibold [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:leading-relaxed">
-            <Markdown remarkPlugins={[remarkGfm]}>{summary.body}</Markdown>
+          /*
+           * The same renderer the assistant uses, because this is the same kind
+           * of thing: a body a model wrote for an operator to read. That is what
+           * buys the summary tables, quotations and fenced `chart` blocks
+           * without a second markdown pipeline to keep in step with the first.
+           */
+          <div className="assistant-markdown max-w-none">
+            <AssistantMarkdown>{summary.body}</AssistantMarkdown>
           </div>
         ) : null}
 
@@ -150,8 +180,10 @@ export function CampaignSummary({ campaignId }: CampaignSummaryProps) {
           </p>
         ) : null}
 
-        {!summary?.body && generating ? (
-          <p className="text-sm text-ink-muted">Generating the summary…</p>
+        {!summary?.body && pendingPhase ? (
+          <p className="text-sm text-ink-muted">
+            {campaignSummaryPendingDetail(pendingPhase)}
+          </p>
         ) : null}
 
         {meta.length > 0 || partialWarning ? (

@@ -132,9 +132,9 @@ export function ConversationList({
   return (
     <section
       aria-labelledby={headingId}
-      /* Same viewport-anchored cap as the transcript pane, so the two stay
-         level — see the comment there for the 10rem. */
-      className="flex max-h-[calc(100dvh-10rem)] min-h-0 flex-col overflow-hidden rounded-md border border-border bg-surface"
+      /* Same viewport-anchored cap as the transcript pane, and `lg:` for the
+         same reason — see the comment there. */
+      className="flex min-h-0 flex-col overflow-hidden rounded-md border border-border bg-surface lg:max-h-[calc(100dvh-10rem)]"
     >
       <div className="border-b border-border px-4 py-3">
         <div className="mb-2.5 flex items-center justify-between gap-2">
@@ -211,7 +211,7 @@ export function ConversationList({
       ) : null}
 
       {conversations.length > 0 || startCandidates.length > 0 ? (
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="min-h-0 flex-1 lg:overflow-y-auto">
           {groups.map((group) => {
             const style = GROUP_STYLES[group.key];
             const GroupIcon = style.icon;

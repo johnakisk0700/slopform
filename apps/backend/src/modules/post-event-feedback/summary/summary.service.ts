@@ -950,6 +950,8 @@ function toSummaryView(
       noteCount: null,
       requestedAt: null,
       generatedAt: null,
+      executionEpoch: null,
+      claimExpiresAt: null,
     };
   }
 
@@ -967,6 +969,8 @@ function toSummaryView(
     noteCount: summary.noteCount,
     requestedAt: summary.requestedAt.toISOString(),
     generatedAt: summary.generatedAt?.toISOString() ?? null,
+    executionEpoch: summary.executionEpoch,
+    claimExpiresAt: summary.claimExpiresAt?.toISOString() ?? null,
   };
 }
 

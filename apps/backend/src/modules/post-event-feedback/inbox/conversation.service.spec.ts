@@ -1948,10 +1948,11 @@ describe("PostEventFeedbackConversationService", () => {
     ]);
   });
 
-  it("exposes attention reasons, resolved ones included, on the detail view", async () => {
+  it("exposes handoff state and attention reasons on the detail view", async () => {
     const { service, conversations } = createService();
     conversations.findById.mockResolvedValue(
       openConversation({
+        awaitingHuman: true,
         needsAttention: true,
         attentionReasons: [
           attentionReason(),
@@ -1968,6 +1969,7 @@ describe("PostEventFeedbackConversationService", () => {
 
     const detail = await service.get(campaignId, conversationId);
 
+    expect(detail.awaitingHuman).toBe(true);
     expect(detail.attentionReasons).toStrictEqual([
       {
         id: reasonId,

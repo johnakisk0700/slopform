@@ -2330,12 +2330,24 @@ are deliberate:
   a hard failed row instead of an intro-only false pass. Deterministic silence
   owes only the intro. Once an enabled live guest injects testimony, its
   effective outbound minimum becomes intro plus one reply per injected turn, so
-  timing out after an unanswered message cannot pass on the intro alone.
+  timing out after an unanswered message cannot pass on the intro alone. The
+  detail read model publishes `awaitingHuman`, and the driver checks it on every
+  poll and again before another persona-model call. A handoff therefore stops
+  the guest before it manufactures another inbound; when the handoff itself is
+  silent, that final injected turn does not invent an outbound obligation.
   Everything else appears in the conversation panel as observation. The
   same reason makes a live conversation become input-quiescent on ingestion plus
   quiet alone — waiting for it to reach an expected lifecycle would hold its
   campaign open to the deadline and then misreport an expectation mismatch as
   an ingestion stall.
+- **Paid scripted delivery is a mechanism bound, not a transcript script.** A
+  newer inbound may supersede an in-flight revision and correctly suppress its
+  stale intermediate question. Deterministic stub mode retains each fixture's
+  exact minimum and maximum. Paid mode requires the intro plus at least one
+  current-state response and keeps the fixture maximum as the anti-flood bound;
+  lifecycle, answers and the exact dialogue remain observations. This catches
+  silence and flooding without failing the state-driven loop for refusing to
+  send yesterday's question after today's answer arrived.
 - **The registers are mutually incompatible.** Terse and accentless, chatty and
   ironic, formal plural, greeklish, monosyllabic, warm and over-sharing. One
   reply cannot suit all six, so a bot that sends essentially the same message to
@@ -2995,12 +3007,61 @@ current worker fleet. It does not invent provider idempotency: a process crash
 after the provider accepted a request but before PostgreSQL records the result
 can still require a paid retry.
 
+That lease is also the only thing that distinguishes the two halves of
+`pending`, so the summary read model publishes it: `executionEpoch` (executions
+this durable attempt has started) and `claimExpiresAt` (the current lease
+horizon, nulled the moment a worker releases the claim). `claimToken` stays
+server-side — it authorizes a write, and the horizon carries the whole signal
+without it. A horizon still ahead of PostgreSQL's clock means a worker is inside
+the model call. A null or already-passed horizon means nobody is generating:
+epoch `0` is the first execution still queued, and anything higher is a run that
+stopped without settling while BullMQ holds the retry behind its backoff. Both
+read as one durable `pending` row, which is correct — the row is intent, never
+activity — and both are what an operator needs told apart, because only one of
+them is a summary that is actually being produced. `requestedAt` bounds the wait
+across every execution. The seven-minute horizon is far wider than any clock
+skew a reader can have, so a client may compare it against its own clock; the
+admin does exactly that ([the screen](../../frontend/feedback-conversations.md)).
+
 The summary prompt names the four V2 experience dimensions separately, labels
 historical `liked` rows as V1 evidence, and treats `avoid` only as a no-rematch
 preference. It explicitly forbids participant rankings or popularity scores and
 does not turn a missing directed edge into a negative vote. A no-rematch edge is
 not described as misconduct or a safety incident; those claims require the
 separate attention evidence.
+
+The report is standardised rather than freely composed. A `## Σχήμα` section
+fixes three sections, in order, under exact titles: `### 📊 Η βραδιά σε νούμερα`
+(one chart plus at most two sentences on what it shows), `### 💬 Τι ξεχώρισε`
+(up to three patterns, each carrying the quotation or count that supports it)
+and `### 🎯 Τι κάνουμε` (up to three concrete actions for the next dinner). They
+answer the three questions an operator has after a dinner — how it went, what
+people said, what to change — and a standing shape is what makes one campaign
+comparable to the last at a glance. A fourth, `### ⚠️ Τι λείπει`, is requested
+outright when `isPartial`, and otherwise only if a signal rests on very few
+answers; a caveats section that always appears is one that stops being read.
+Emoji are confined to those headings, as scan targets rather than decoration.
+
+`## Όρια` states the budget as numbers, because «σύντομα» is advice a model can
+argue itself out of: under 200 words overall, one line and 20 words per bullet,
+each fact stated once, a number in a chart not repeated in prose unless the
+sentence adds a reading, and no preamble, no closing recap, no restating counts
+the screen already shows. The body is read inside a collapsed accordion above
+the conversation list, so length is a product constraint, not a matter of taste.
+The earlier open-ended briefs (`Δομή: σύντομη επισκόπηση, …`) are gone — a
+second structure competing with the standard one is what produced the padding.
+
+`## Μορφή` then tells the model what that accordion can actually draw. It renders
+the body through the assistant's `AssistantMarkdown`, which gives the prompt
+GitHub tables and the fenced `chart` JSON contract of `AssistantChart` (`data`
+with numeric `value` per point; optional `type`, `title`, `unit` and `max`, where
+`max` is the top of the scale so a 4.2 average draws against 5). All three
+sections are ordered before the answers and notes they may draw from. Every
+plotted value comes from counting or averaging the supplied rows; a second chart
+needs to show what the first does not, a third is never allowed, and no chart may
+put participant names on an axis — that would be the ranking the prose is
+forbidden to produce. A chart the model malforms falls back to its raw block; it
+never fails the summary.
 
 `listFeedbackCampaigns` is the read-only campaign picker: newest launch first,
 with event id + title, status, `launchedAt`, and conversation progress counts

@@ -107,7 +107,11 @@ function Panel({
   return (
     <section
       aria-labelledby={headingId}
-      className="flex max-h-[44vh] min-h-0 flex-col overflow-hidden rounded-md border border-border bg-surface"
+      /* `lg:` for the same reason the two panes above cap only there: side by
+         side, a card that outgrows its neighbours would drag the strip's height
+         with it. Stacked on a phone they are three sections of one page, and a
+         44vh scroller inside a scrolling page is a trap, not a cap. */
+      className="flex min-h-0 flex-col overflow-hidden rounded-md border border-border bg-surface lg:max-h-[44vh]"
     >
       <header className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
         <h2
@@ -119,7 +123,7 @@ function Panel({
         </h2>
         {action}
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3.5">
+      <div className="min-h-0 flex-1 px-4 py-3.5 lg:overflow-y-auto">
         {children}
       </div>
     </section>

@@ -236,6 +236,15 @@ export const feedbackConversationDetailSchema = z
     messages: z.array(feedbackConversationMessageSchema).max(150),
     extraction: feedbackConversationExtractionSchema,
     automation: feedbackConversationAutomationSchema,
+    /**
+     * The bot has deliberately stopped and is waiting for an operator.
+     *
+     * This is independent of control mode: a safety handoff remains under bot
+     * control until staff actually takes over, but no automatic reply may run
+     * in the meantime. Publishing the fact keeps clients from inferring
+     * activity from capability flags.
+     */
+    awaitingHuman: z.boolean(),
     needsAttention: z.boolean(),
     attentionReasons: z
       .array(feedbackConversationAttentionReasonSchema)

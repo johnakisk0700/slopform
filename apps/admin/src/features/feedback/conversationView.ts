@@ -1,4 +1,5 @@
 import type { FeedbackCampaignConversationsDtoOutputConversationsItem } from "../../api/generated/model/feedbackCampaignConversationsDtoOutputConversationsItem";
+import type { FeedbackConversationDetailDtoOutputAutomationState } from "../../api/generated/model/feedbackConversationDetailDtoOutputAutomationState";
 import type { FeedbackConversationDetailDtoOutputControlMode } from "../../api/generated/model/feedbackConversationDetailDtoOutputControlMode";
 import type { FeedbackConversationDetailDtoOutputGoalsItemStatus } from "../../api/generated/model/feedbackConversationDetailDtoOutputGoalsItemStatus";
 import type { FeedbackConversationDetailDtoOutputLifecycleState } from "../../api/generated/model/feedbackConversationDetailDtoOutputLifecycleState";
@@ -31,6 +32,35 @@ export interface ConversationStatusFields {
   };
   control: { mode: FeedbackConversationDetailDtoOutputControlMode };
   needsAttention: boolean;
+}
+
+export type ConversationReplyIndicator =
+  "bot_replying" | "awaiting_staff" | null;
+
+/**
+ * What the transcript may truthfully say about who acts next.
+ *
+ * Capability flags answer what an operator is allowed to do; they do not say a
+ * worker is active. A bot-controlled conversation may be idle, parked or
+ * deliberately waiting for a person, so only a live automation lease earns the
+ * replying label and an explicit handoff always wins.
+ */
+export function conversationReplyIndicator(conversation: {
+  lifecycle: { state: FeedbackConversationDetailDtoOutputLifecycleState };
+  control: { mode: FeedbackConversationDetailDtoOutputControlMode };
+  automation: { state: FeedbackConversationDetailDtoOutputAutomationState };
+  awaitingHuman: boolean;
+}): ConversationReplyIndicator {
+  if (conversation.lifecycle.state !== "open") {
+    return null;
+  }
+  if (conversation.awaitingHuman) {
+    return "awaiting_staff";
+  }
+  return conversation.control.mode === "bot" &&
+    conversation.automation.state === "running"
+    ? "bot_replying"
+    : null;
 }
 
 export interface GoalProgress {
@@ -300,6 +330,14 @@ export function resolveSelectedConversationId(
     return requested;
   }
   return visible[0]?.id ?? null;
+}
+
+/** Whether the URL names the row actually selected, rather than a stale id. */
+export function hasExplicitConversationSelection(
+  requested: string | null,
+  selected: string | null,
+): boolean {
+  return requested !== null && requested === selected;
 }
 
 /**

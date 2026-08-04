@@ -72,6 +72,110 @@ describe("buildFeedbackCampaignSummaryPrompt", () => {
     expect(prompt).not.toContain("Κράτησε χωριστές τις τέσσερις βαθμολογίες");
     expect(prompt).not.toContain("Καταλληλότητα παρέας και τραπεζιού");
   });
+
+  it("asks for the same three sections and the same limits on either question set", () => {
+    for (const questionSet of [
+      POST_EVENT_FEEDBACK_QUESTION_SET_V1,
+      POST_EVENT_FEEDBACK_QUESTION_SET_V2,
+    ]) {
+      const prompt = buildFeedbackCampaignSummaryPrompt({
+        questionSetVersion: questionSet.version,
+        questionDefinitions: questionSet.answerQuestions,
+        isPartial: false,
+        openConversationCount: 0,
+        closedConversationCount: 1,
+        answers: [answer("event_score", 5)],
+        notes: [],
+        displayNames: new Map<string, ParticipantRow>(),
+      });
+
+      expect(prompt).toContain("### 📊 Η βραδιά σε νούμερα");
+      expect(prompt).toContain("### 💬 Τι ξεχώρισε");
+      expect(prompt).toContain("### 🎯 Τι κάνουμε");
+      expect(prompt).toContain("Όλη η αναφορά κάτω από 200 λέξεις");
+      expect(prompt).toContain("Κάθε bullet μία γραμμή, έως 20 λέξεις");
+      expect(prompt).toContain("Κάθε γεγονός λέγεται μία φορά");
+      expect(prompt).toContain(
+        "Emoji μόνο στους τίτλους των ενοτήτων — πουθενά μέσα στο κείμενο",
+      );
+      // The old open-ended briefs are what produced the padding; a second
+      // structure competing with the standard one is the regression to catch.
+      expect(prompt).not.toContain("Δομή: σύντομη επισκόπηση");
+    }
+  });
+
+  it("asks what is still missing only when the campaign is partial", () => {
+    const base = {
+      questionSetVersion: POST_EVENT_FEEDBACK_QUESTION_SET_V2.version,
+      questionDefinitions: POST_EVENT_FEEDBACK_QUESTION_SET_V2.answerQuestions,
+      answers: [answer("event_score", 4)],
+      notes: [],
+      displayNames: new Map<string, ParticipantRow>(),
+    };
+
+    const partial = buildFeedbackCampaignSummaryPrompt({
+      ...base,
+      isPartial: true,
+      openConversationCount: 2,
+      closedConversationCount: 4,
+    });
+    const complete = buildFeedbackCampaignSummaryPrompt({
+      ...base,
+      isPartial: false,
+      openConversationCount: 0,
+      closedConversationCount: 6,
+    });
+
+    expect(partial).toContain(
+      "Πρόσθεσε τελευταία ενότητα «### ⚠️ Τι λείπει» με μία γραμμή",
+    );
+    // On a complete campaign the fourth section is conditional, and the model
+    // is told to drop it outright rather than write «τίποτα δεν λείπει».
+    expect(complete).toContain("Αλλιώς παράλειψέ την τελείως");
+    expect(complete).not.toContain(
+      "Πρόσθεσε τελευταία ενότητα «### ⚠️ Τι λείπει» με μία γραμμή",
+    );
+  });
+
+  it("offers the chart fence on both question sets and keeps it under the no-ranking rule", () => {
+    for (const questionSet of [
+      POST_EVENT_FEEDBACK_QUESTION_SET_V1,
+      POST_EVENT_FEEDBACK_QUESTION_SET_V2,
+    ]) {
+      const prompt = buildFeedbackCampaignSummaryPrompt({
+        questionSetVersion: questionSet.version,
+        questionDefinitions: questionSet.answerQuestions,
+        isPartial: false,
+        openConversationCount: 0,
+        closedConversationCount: 1,
+        answers: [answer("event_score", 5)],
+        notes: [],
+        displayNames: new Map<string, ParticipantRow>(),
+      });
+
+      // The fence, its type vocabulary and the scale ceiling are the contract
+      // `AssistantChart` implements; a rename on either side must fail here.
+      expect(prompt).toContain("```chart");
+      expect(prompt).toContain('"type":"bar"');
+      expect(prompt).toContain('"data":[{"label":"5/5","value":3}');
+      expect(prompt).toContain('`\"max\":5`');
+      expect(prompt).toContain("`bar` (κατανομές και συγκρίσεις)");
+      expect(prompt).toContain("`line` (εξέλιξη σε σειρά)");
+      expect(prompt).toContain("πίνακες GitHub");
+      expect(prompt).toContain(
+        "Μη φτιάχνεις γράφημα με ονόματα συμμετεχόντων στους άξονες",
+      );
+      expect(prompt).toContain("Ένα γράφημα στην πρώτη ενότητα");
+      expect(prompt).toContain("Ποτέ τρίτο");
+      expect(prompt).toContain(
+        "Κάθε τιμή γραφήματος βγαίνει με μέτρημα ή μέσο όρο πάνω στα δεδομένα παρακάτω",
+      );
+      // The chart channel is offered before the data it may only draw from.
+      expect(prompt.indexOf("## Μορφή")).toBeLessThan(
+        prompt.indexOf("## Απαντήσεις"),
+      );
+    }
+  });
 });
 
 function answer(

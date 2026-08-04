@@ -66,9 +66,52 @@ export function CampaignHeader({
           JtsBackLink, so this screen's exit is the one every other screen
           has — the compact header only decides that it shares the actions'
           line instead of standing on its own. */}
-      <JtsBackLink to="/admin/feedback">Back to campaigns</JtsBackLink>
+      {/* Wrapped, and the wrapper is the point. `JtsBackLink` carries its own
+          `self-start` — right in the column layouts the other detail screens
+          put it in, where it must not stretch — and as a direct grid item that
+          `self-start` beats this row's `items-center`, so the link sat pinned
+          to the top of a row whose height the 36px action pills set. Against
+          them it read about 8px high. The wrapper takes the alignment; the
+          link keeps its own contract.
 
-      <h1 className="jts-title-mark font-display text-[1.375rem] font-extrabold sm:col-span-2 sm:row-start-2">
+          `flex` and not a bare block: a block wrapper is a 25.6px line box, an
+          inline-flex child sits on its baseline, and the link came out 2.3px
+          high inside a wrapper that was itself perfectly centred. Flex makes
+          the wrapper exactly as tall as the link, so centring the wrapper
+          centres the link. */}
+      <div className="flex">
+        <JtsBackLink to="/admin/feedback">Back to campaigns</JtsBackLink>
+      </div>
+
+      {/* No `jts-title-mark`. The six dots are the app signing a page: they sit
+          under «Events», «Participants», «Feedback campaigns» — names the
+          product chose for its own screens. This h1 is not one of those. It is
+          `campaign.eventTitle`, a dinner someone typed, and the mark under it
+          read as the app claiming authorship of the operator's data — a brand
+          flourish decorating a value.
+
+          Losing it also buys the thing this screen wants most: the mark cost
+          11px between the name and the context band directly under it, and
+          without it the dinner's name and the facts about that dinner close up
+          into one block. The campaign gets easier to see by having less
+          attached to it, not more.
+
+          And `font-sans`, not the `font-display` every other h1 wears. The two
+          faces already mean something in this admin: Commissioner is the
+          product's voice — it sets the names the product chose for its own
+          screens — and Manrope sets everything a person typed. On this screen
+          that is not a fine distinction, it is most of what is on it: the
+          participants in the list, the messages in the thread, the venue's
+          name. All Manrope. The campaign's title is the same kind of thing as
+          all of it, so it is set in the same face, and the difference from a
+          page title is legible before a word of it is read.
+
+          (`font-brand`/Sora, the third face, is not a candidate: it is the
+          wordmark's alone and carries no Greek — and these titles are Greek.)
+
+          `tracking-tight` because Manrope runs wider than Commissioner at
+          extrabold, and the line should still read as one name. */}
+      <h1 className="min-w-0 truncate font-sans text-[1.375rem] font-extrabold tracking-tight sm:col-span-2 sm:row-start-2">
         {campaign?.eventTitle ?? "Feedback conversations"}
       </h1>
 
@@ -82,7 +125,14 @@ export function CampaignHeader({
              hierarchy survives the alignment. */
           <Link
             to={`/admin/feedback/${campaign.id}/results`}
-            className={buttonVariants({ variant: "ghost", size: "sm" })}
+            /* `outline-solid` is the focus ring, not a decoration. HeroUI's
+               `.button` clears `outline-style` because its own components take
+               focus from react-aria's `data-focus-visible`, which a plain
+               anchor never gets — so the base layer's ring arrived with its
+               width, colour and offset intact and `style: none`, i.e. invisible.
+               Restoring only the style hands this link the exact ring every
+               other native element on the app has, without naming a colour. */
+            className={`${buttonVariants({ variant: "ghost", size: "sm" })} focus-visible:outline-solid`}
           >
             <BarChart3 aria-hidden="true" className="size-4 shrink-0" />
             Results

@@ -123,6 +123,54 @@ describe("feedback summary configuration", () => {
 });
 
 describe("PostEventFeedbackCampaignSummaryService", () => {
+  it("publishes the execution lease so a pending row is readable", async () => {
+    const { service, campaigns } = createService();
+    const claimExpiresAt = new Date("2026-08-01T12:07:00.000Z");
+    campaigns.findSummaryByCampaignId.mockResolvedValue(
+      pendingSummaryRow({ executionEpoch: 3, claimExpiresAt }),
+    );
+
+    // A live horizon is a worker inside the model call; the epoch counts the
+    // executions this durable attempt has started. Neither is derivable from
+    // `status`, which says only that a summary is owed.
+    await expect(service.get(campaignId)).resolves.toMatchObject({
+      status: "pending",
+      attempt: 1,
+      executionEpoch: 3,
+      claimExpiresAt: claimExpiresAt.toISOString(),
+      requestedAt: "2026-08-01T12:00:00.000Z",
+    });
+
+    // The token authorizes a write and stays server-side.
+    await expect(service.get(campaignId)).resolves.not.toHaveProperty(
+      "claimToken",
+    );
+  });
+
+  it("reports a released claim on a row that is still pending", async () => {
+    const { service, campaigns } = createService();
+    campaigns.findSummaryByCampaignId.mockResolvedValue(
+      pendingSummaryRow({ executionEpoch: 1, claimExpiresAt: null }),
+    );
+
+    await expect(service.get(campaignId)).resolves.toMatchObject({
+      status: "pending",
+      executionEpoch: 1,
+      claimExpiresAt: null,
+    });
+  });
+
+  it("reports no lease for a campaign that never requested a summary", async () => {
+    const { service, campaigns } = createService();
+    campaigns.findSummaryByCampaignId.mockResolvedValue(undefined);
+
+    await expect(service.get(campaignId)).resolves.toMatchObject({
+      status: "none",
+      executionEpoch: null,
+      claimExpiresAt: null,
+    });
+  });
+
   it("repairs a missing wake-up for an existing durable pending row", async () => {
     const { service, campaigns, conversations, queue, auditAppend } =
       createService();

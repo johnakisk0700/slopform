@@ -58,12 +58,38 @@ The inbox accordion (`CampaignSummary`, under `CampaignHeader`) loads the
 campaign summary through `GET /feedback/campaigns/:campaignId/summary` and
 refreshes it after `POST /feedback/campaigns/:campaignId/summary` when staff
 explicitly request regeneration. It polls only while status is `pending`,
-renders the markdown body with `react-markdown` + `remark-gfm` (not the
-assistant renderer), and surfaces Generate / Refresh from the same status
-helpers in `campaignSummary.ts`. The control remains usable in a
+renders the markdown body through `AssistantMarkdown` inside an
+`.assistant-markdown` wrapper, and surfaces Generate / Refresh from the same
+status helpers in `campaignSummary.ts`. Sharing the assistant's renderer is
+deliberate: a campaign summary and an assistant answer are the same artifact —
+a body a model wrote for an operator — so the summary gets GitHub tables,
+quotations and the fenced `chart` contract of `AssistantChart` without a second
+markdown pipeline to keep in step. The summary prompt offers that fence
+explicitly; see
+[Campaign summary](../backend/modules/post-event-feedback.md#campaign-summary).
+The control remains usable in a
 simulator-backed rehearsal: automatic summaries stay suppressed there, while
 this explicit staff request records a durable `manual` trigger and runs the
 separately billed summary model.
+
+`pending` is durable intent, not activity, so the header never says
+«Generating…» on the strength of the status alone. `campaignSummaryPendingPhase`
+splits the row on the execution lease the read model publishes
+([the module](../backend/modules/post-event-feedback.md)): a `claimExpiresAt`
+still in the future is `generating`, otherwise `executionEpoch` `0` is `queued`
+and anything higher is `retrying` — a run that stopped without settling, with
+BullMQ holding the next one behind its backoff. The header carries the wait with
+it (`Generating… (2 min)`, `Queued (5 s)`, `Waiting to retry — attempt 2
+(16 min)`), counted from `requestedAt` so it spans the runs that died; `retrying`
+takes the warning tone, because the row still self-heals but is the one worth a
+second look. The expanded body names which side is holding the work, and a
+pending row adds its exact `Requested` clock to the meta line for reading
+against a worker log.
+
+The elapsed time is computed against `dataUpdatedAt` rather than render time.
+That is what keeps it moving: structural sharing hands back an identical `data`
+object on an unchanged poll, so a render clock would sit frozen on exactly the
+stalled row the label exists to expose.
 
 | File                                         | Owns                                                                                                                                     |
 | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
@@ -72,7 +98,7 @@ separately billed summary model.
 | `src/features/feedback/extractionStatus.ts`  | Greek copy over durable conversation automation                                                                                          |
 | `src/features/feedback/answerCorrections.ts` | Which control a recorded answer gets, the «corrected by» line, the withdrawal wording                                                    |
 | `src/features/feedback/directedAnswers.ts`   | The three person-shaped questions as a group: tone per question, what contradicts what, who is left to add, and what recording will cost |
-| `src/features/feedback/campaignSummary.ts`   | Campaign summary status labels, Generate vs Refresh, partial-warning copy                                                                |
+| `src/features/feedback/campaignSummary.ts`   | Campaign summary status labels, the pending phase and how long it has waited, Generate vs Refresh, partial-warning copy                  |
 | `src/features/feedback/staffClose.ts`        | Staff close reason vocabulary, confirm-dialog labels, the «Closed as …» summary line                                                     |
 | `src/features/feedback/staffMessageDraft.ts` | Staff and simulator draft identity across edits, successful settlement and unknown retries                                               |
 | `src/features/feedback/polling.ts`           | The U3 intervals and the stop-when-closed rule                                                                                           |
@@ -159,7 +185,11 @@ flowchart LR
   The transcript header renders **no status badge row** (density pass,
   2026-08-01): every fact the pills carried is stated once, in the place it
   acts — attention is the strip below with its reasons, who writes is the
-  composer or the «bot is replying» foot line. The one fact nothing else
+  composer or the transcript foot line. That line reads `automation.running`
+  as «The bot is replying» only while a live execution lease exists; an open
+  bot-controlled handoff uses the detail read model's explicit `awaitingHuman`
+  and reads «Waiting for staff». Idle, scheduled and parked work claim neither.
+  Capability flags never stand in for activity. The one fact nothing else
   states, the named end of a closed thread, is a single icon pill top-right —
   `lifecycleBadge` plus a per-reason glyph (`CircleCheck` completed, `Ban`
   stopped, `TimerOff` expired, `CircleSlash` declined, `SquareX` cancelled,

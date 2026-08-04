@@ -1223,6 +1223,7 @@ export class PostEventFeedbackConversationService {
       })),
       extraction: toExtractionView(conversation),
       automation: toAutomationView(conversation, activeLease),
+      awaitingHuman: conversation.awaitingHuman,
       needsAttention: conversation.needsAttention,
       attentionReasons: conversation.attentionReasons.map((reason) => ({
         id: reason.id,

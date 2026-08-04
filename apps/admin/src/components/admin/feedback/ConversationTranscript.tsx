@@ -36,6 +36,7 @@ import type { FeedbackConversationDetailDtoOutputMessagesItem } from "../../../a
 import type { FeedbackCampaignDtoOutputStatus } from "../../../api/generated/model/feedbackCampaignDtoOutputStatus";
 import {
   closedConversationLine,
+  conversationReplyIndicator,
   formatExactTimestamp,
   formatTimestamp,
   sameTranscriptMinute,
@@ -390,7 +391,7 @@ export function ConversationTranscript({
   const [simulatorDraft, setSimulatorDraft] = useState(
     createSimulatorMessageDraft,
   );
-  const endRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   const name = participantLabel(conversation.respondentDisplayName);
   const unresolved = isUnresolvedParticipant(
@@ -406,16 +407,40 @@ export function ConversationTranscript({
     capabilities.canTakeOver ||
     capabilities.canResumeBot ||
     capabilities.canClose;
-  const botReplying =
-    !canSendStaffMessage && conversation.lifecycle.state === "open";
+  const replyIndicator = conversationReplyIndicator(conversation);
+  const botReplying = replyIndicator === "bot_replying";
+  const awaitingStaff = replyIndicator === "awaiting_staff";
   const closedLine = closedConversationLine(conversation);
 
   const lastMessageId = conversation.messages.at(-1)?.id ?? null;
 
   // Follow the conversation as it grows, including across polled refreshes and
   // when the operator switches threads.
+  //
+  // The pane's own scrollTop, never `scrollIntoView`. That walked up to the
+  // nearest scrollable ancestor, which below `lg` — where the pane is as tall
+  // as its content — is the document: opening a thread on a phone yanked the
+  // page down past the header, and every three-second poll did it again. This
+  // moves the pane when the pane scrolls and does nothing when it does not,
+  // which is the whole intent either way.
   useEffect(() => {
-    endRef.current?.scrollIntoView({ block: "end" });
+    const box = scrollRef.current;
+    // «Is this pane the scroller», not «does it overflow yet». The height
+    // question races the first paint — on mount the messages have not been laid
+    // out, so a `scrollHeight > clientHeight` guard reads false and the thread
+    // opens at the top on a wide screen. The computed overflow is the actual
+    // breakpoint state and is true from the first frame.
+    if (!box || getComputedStyle(box).overflowY === "visible") {
+      return;
+    }
+    // One frame later, because the pane is still settling when this effect
+    // runs — the attention banner above the list and the messages themselves
+    // finish laying out after it, and a scrollTop set against the pre-settle
+    // `scrollHeight` lands ~80px short of the newest message.
+    const frame = requestAnimationFrame(() => {
+      box.scrollTop = box.scrollHeight;
+    });
+    return () => cancelAnimationFrame(frame);
   }, [lastMessageId, conversation.id]);
 
   async function handleStaffSubmit(event: FormEvent<HTMLFormElement>) {
@@ -451,8 +476,15 @@ export function ConversationTranscript({
          campaign header above the panes costs about 9rem including the main
          padding, so this hands the transcript everything under it instead of
          two thirds of the screen. The list pane carries the same value so the
-         panes stay level. */
-      className="flex max-h-[calc(100dvh-10rem)] min-h-0 flex-col overflow-hidden rounded-md border border-border bg-surface"
+         panes stay level.
+
+         `lg:` only, because the cap exists to keep two side-by-side panes level
+         and independently scrollable. Below `lg` there is only one pane on
+         screen, and capping it turned the thread into a 652px scroller nested
+         inside a 2651px page — the phone's own scroll stopped working the
+         moment a thumb landed on a message. Uncapped, the thread is as tall as
+         it is and the page scrolls once. */
+      className="flex min-h-0 flex-col overflow-hidden rounded-md border border-border bg-surface lg:max-h-[calc(100dvh-10rem)]"
     >
       {/* The contact block every messaging app taught: name over number, two
           short lines. No badge row (density pass) — attention is the strip
@@ -521,7 +553,10 @@ export function ConversationTranscript({
 
       {attention}
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+      <div
+        ref={scrollRef}
+        className="min-h-0 flex-1 px-5 py-4 lg:overflow-y-auto"
+      >
         {conversation.messages.length === 0 ? (
           <p className="py-8 text-center text-sm text-ink-muted">
             No messages yet. The intro is queued in the outbox.
@@ -558,7 +593,6 @@ export function ConversationTranscript({
             </div>
           </>
         )}
-        <div ref={endRef} />
       </div>
 
       {actionError ? (
@@ -573,6 +607,7 @@ export function ConversationTranscript({
       <div
         className={clsx(
           (botReplying ||
+            awaitingStaff ||
             hasConversationActions ||
             canSendStaffMessage ||
             onSimulatedReply !== undefined) &&
@@ -585,12 +620,14 @@ export function ConversationTranscript({
             at the foot of it rather than off in a corner of its header. On a
             closed thread nothing can act, the header already says so, and the
             whole row disappears. */}
-        {botReplying || hasConversationActions ? (
+        {botReplying || awaitingStaff || hasConversationActions ? (
           <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5 py-2.5">
             {/* With a composer below, its own placeholder already says who is
                 writing; the sentence is only needed when there is none. */}
             {botReplying ? (
               <p className="text-sm text-ink-muted">The bot is replying.</p>
+            ) : awaitingStaff ? (
+              <p className="text-sm text-warning">Waiting for staff.</p>
             ) : null}
             <div className="ml-auto">{actions}</div>
           </div>

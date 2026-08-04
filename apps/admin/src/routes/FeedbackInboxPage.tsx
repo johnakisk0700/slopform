@@ -51,6 +51,7 @@ import {
   ConversationTranscriptEmpty,
 } from "../components/admin/feedback/ConversationTranscript";
 import {
+  hasExplicitConversationSelection,
   matchesConversationQuery,
   resolveSelectedConversationId,
   sortConversationsForInbox,
@@ -60,6 +61,7 @@ import {
   RESULTS_POLL_INTERVAL_MS,
   conversationPollInterval,
 } from "../features/feedback/polling";
+import { JtsBackLink } from "../components/ui/JtsBackLink";
 import { apiErrorMessage } from "../lib/api";
 import {
   useFeedbackSimulatorThread,
@@ -124,6 +126,24 @@ export function FeedbackInboxPage() {
 
   const requestedId = searchParams.get("conversation");
   const selectedId = resolveSelectedConversationId(visible, requestedId);
+
+  /**
+   * Master/detail below `lg`, and the URL already holds the state for it.
+   *
+   * `selectedId` falls back to the first row so the wide layout never shows an
+   * empty right pane, which makes it useless as a «has the operator opened a
+   * thread» flag — it is true on arrival. `requestedId` is the honest one: null
+   * until someone picks a conversation.
+   *
+   * Reading it off the query string rather than a `useState` is what lets the
+   * back gesture return to the list and a pasted link open straight to the
+   * thread. A stale id is not explicit selection: treating it as one would hide
+   * the list on mobile and open the first unrelated conversation instead.
+   */
+  const threadOpenOnNarrow = hasExplicitConversationSelection(
+    requestedId,
+    selectedId,
+  );
   const selectedRow = useMemo(
     () => visible.find((row) => row.id === selectedId),
     [visible, selectedId],
@@ -132,7 +152,11 @@ export function FeedbackInboxPage() {
   function selectConversation(conversationId: string) {
     const next = new URLSearchParams(searchParams);
     next.set("conversation", conversationId);
-    setSearchParams(next, { replace: true });
+    // Opening the *first* thread is a step into a detail view — on a phone the
+    // whole screen changes, so the back gesture has to undo it. Switching
+    // between threads is not a step: that replaces, or an operator clicking
+    // down the list on a wide screen buries the way out under ten entries.
+    setSearchParams(next, { replace: threadOpenOnNarrow });
     setActionError(null);
   }
 
@@ -503,55 +527,98 @@ export function FeedbackInboxPage() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <CampaignHeader
-        campaign={campaign}
-        pausePending={pauseCampaign.isPending}
-        resumePending={resumeCampaign.isPending}
-        closePending={closeCampaign.isPending}
-        onPause={() =>
-          runCampaignAction(
-            () => pauseCampaign.mutateAsync({ campaignId }),
-            "The campaign could not be paused.",
-            "Campaign paused",
-          )
-        }
-        onResume={() =>
-          runCampaignAction(
-            () => resumeCampaign.mutateAsync({ campaignId }),
-            "The campaign could not be resumed.",
-            "Campaign resumed",
-          )
-        }
-        onClose={() =>
-          runCampaignAction(
-            () => closeCampaign.mutateAsync({ campaignId }),
-            "The campaign could not be closed.",
-            "Campaign closed",
-          )
-        }
-      />
+    /* The app-wide page root, and on this screen it holds one child.
 
-      {/* Everything under the title is one working surface on one rhythm. The
-          panes and the detail strip already sat `gap-4` apart from each other;
-          the summary card now sits `gap-4` from them too, so every card on this
-          screen is the same distance from the next one. Only the page gap above
-          — header to surface — is larger, because that boundary is the one that
-          separates the page's nameplate from its work. */}
+       Every other route spends the `gap-6` here to part a bare nameplate from
+       the cards below it. This one has no bare nameplate left: the standing
+       facts about the campaign are a framed band that sits with the title, so
+       the first gap under the title group lands between two bordered things and
+       a 24px one reads as a hole. Chasing it around is what happened twice —
+       the title floating 24px above its own facts, then the frame stranded 24px
+       above the summary. There is nothing to part.
+
+       So the whole column runs on the card rhythm and the only tighter gap is
+       the one that binds the name to its facts. */
+    <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-4">
-        {/* The standing facts about this campaign — where the dinner was and
-            what is wrong — then the summary generated from it. The context row
-            used to sit `gap-2` under the title as a caption for the summary
-            card. The venue in it is framed now, and two frames 8px apart read
-            as one panel that has been cut in half, so the row joins the screen's
-            rhythm: every bordered thing here is the same distance from the next
-            one. */}
-        <CampaignContext
-          campaign={campaign}
-          venue={eventQuery.data?.venue ?? null}
-          simulatorAvailable={simulatorAvailable}
-        />
-        <CampaignSummary campaignId={campaignId} />
+        {/* The campaign's nameplate: the way out, what you can do to it, its
+            name, and the standing facts about it — one block, bound at `gap-3`.
+            Tighter than the rhythm around it, which is the whole signal: the
+            frame under the title is not the next card, it is what the title
+            means.
+
+            Below `lg` it stands down while a thread is open: on a phone the
+            list and the thread are two screens, and leaving this stacked above
+            the thread meant ~500px of campaign chrome before the first message
+            of the conversation the operator tapped. */}
+        <div
+          className={
+            threadOpenOnNarrow
+              ? "hidden lg:flex lg:flex-col lg:gap-3"
+              : "flex flex-col gap-3"
+          }
+        >
+          <CampaignHeader
+            campaign={campaign}
+            pausePending={pauseCampaign.isPending}
+            resumePending={resumeCampaign.isPending}
+            closePending={closeCampaign.isPending}
+            onPause={() =>
+              runCampaignAction(
+                () => pauseCampaign.mutateAsync({ campaignId }),
+                "The campaign could not be paused.",
+                "Campaign paused",
+              )
+            }
+            onResume={() =>
+              runCampaignAction(
+                () => resumeCampaign.mutateAsync({ campaignId }),
+                "The campaign could not be resumed.",
+                "Campaign resumed",
+              )
+            }
+            onClose={() =>
+              runCampaignAction(
+                () => closeCampaign.mutateAsync({ campaignId }),
+                "The campaign could not be closed.",
+                "Campaign closed",
+              )
+            }
+          />
+
+          <CampaignContext
+            campaign={campaign}
+            venue={eventQuery.data?.venue ?? null}
+            simulatorAvailable={simulatorAvailable}
+          />
+        </div>
+
+        {/* The way back to the list, and only where the list is a separate
+          screen. Not `JtsBackLink`'s usual job — it leaves a route, and this
+          leaves a pane — but it is the same act from the operator's side and
+          the one exit affordance the app has, so it should not be relearned
+          here. The campaign's own «Back to campaigns» is hidden above while
+          this shows, so there is exactly one back link on screen at a time. */}
+        {threadOpenOnNarrow ? (
+          <div className="lg:hidden">
+            <JtsBackLink to={`/admin/feedback/${campaignId}`}>
+              Back to conversations
+            </JtsBackLink>
+          </div>
+        ) : null}
+
+        {/* Everything under the nameplate is one working surface on one rhythm:
+            the summary, the two panes and the detail strip are all `gap-4`
+            apart, so no card on this screen is a different distance from its
+            neighbour than any other.
+
+            The summary opens it. It used to share a block with the context row
+            above it, back when that row was the card's caption; the row belongs
+            to the nameplate now, and what is left here is the first thing this
+            screen actually produced. */}
+        <div className={threadOpenOnNarrow ? "hidden lg:block" : undefined}>
+          <CampaignSummary campaignId={campaignId} />
+        </div>
 
         {/* Two panes on top — triage beside the thread — and the conversation's
             detail broken into a strip of small cards under them. Each pane is
@@ -565,7 +632,18 @@ export function FeedbackInboxPage() {
             min-content width and widens the document. A cold reload painted
             the empty state first and hid the bug. */}
         <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] items-start gap-4 lg:grid-cols-[minmax(15rem,19rem)_minmax(0,1fr)]">
-          <div className="min-h-0 min-w-0">
+          {/* Master and detail, one at a time below `lg`. Stacking them was the
+              desktop layout folded into one column: a 520px picker, then a
+              652px thread, then three 44vh cards — 2651px of page carrying
+              three nested scrollers, where reading a thread meant scrolling
+              past every conversation that was not it. */}
+          <div
+            className={
+              threadOpenOnNarrow
+                ? "hidden min-h-0 min-w-0 lg:block"
+                : "min-h-0 min-w-0"
+            }
+          >
             <ConversationList
               conversations={visible}
               selectedId={selectedId}
@@ -585,7 +663,13 @@ export function FeedbackInboxPage() {
             />
           </div>
 
-          <div className="min-h-0 min-w-0">
+          <div
+            className={
+              threadOpenOnNarrow
+                ? "min-h-0 min-w-0"
+                : "hidden min-h-0 min-w-0 lg:block"
+            }
+          >
             {conversation ? (
               <ConversationTranscript
                 key={conversation.id}
@@ -670,7 +754,13 @@ export function FeedbackInboxPage() {
             instead of one column an operator has to scroll to reach the
             notes. */}
           {conversation ? (
-            <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-2 lg:col-span-2 xl:grid-cols-3">
+            <div
+              className={
+                threadOpenOnNarrow
+                  ? "grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-2 lg:col-span-2 xl:grid-cols-3"
+                  : "hidden min-w-0 grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-2 lg:col-span-2 lg:grid xl:grid-cols-3"
+              }
+            >
               <ProgressPanel
                 conversation={conversation}
                 eventId={campaign?.eventId ?? ""}

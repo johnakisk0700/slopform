@@ -66,6 +66,19 @@ const TITLE_OWNERS = [
   "src/routes/ParticipantProfilePage.tsx",
 ];
 
+/**
+ * The title owners whose h1 names a *page* — a screen the product named. The
+ * six dots are the app signing its own nameplate, so they belong to these.
+ *
+ * `CampaignHeader` is deliberately not one: its h1 is `campaign.eventTitle`, a
+ * dinner an operator typed, and the mark under it read as the app signing the
+ * operator's data. `ParticipantProfilePage` has the same shape — its h1 is a
+ * person's name — and is still marked; if that follows, move it here too.
+ */
+const PAGE_NAME_TITLE_OWNERS = TITLE_OWNERS.filter(
+  (path) => path !== "src/components/admin/feedback/CampaignHeader.tsx",
+);
+
 describe("the six-dot title mark", () => {
   it("is one utility in globals.css, not a class string screens copy", () => {
     expect(globalsCss).toContain("@utility jts-title-mark");
@@ -104,8 +117,8 @@ describe("the six-dot title mark", () => {
     expect(mark).not.toContain("box-shadow");
   });
 
-  it("is what every route-owned h1 wears", () => {
-    for (const path of TITLE_OWNERS) {
+  it("is what every h1 that names a page wears", () => {
+    for (const path of PAGE_NAME_TITLE_OWNERS) {
       const source = readAdminFile(path);
       const title = source.slice(source.indexOf("<h1"));
       expect(title.slice(0, title.indexOf(">"))).toContain("jts-title-mark");
@@ -248,9 +261,15 @@ describe("page rhythm", () => {
   it("opens every flowing route on the same gap", () => {
     for (const [path, opener] of FLOWING_ROUTES) {
       const source = readAdminFile(path);
-      expect(source).toContain(
-        `<div className="flex flex-col gap-6">\n      ${opener}`,
-      );
+      const root = source.indexOf('<div className="flex flex-col gap-6">');
+      expect(root).toBeGreaterThan(-1);
+
+      // The header is the first thing the column renders. Adjacency in the
+      // source is not the rule — the inbox wraps its header in a div that hides
+      // it on narrow screens while a thread is open — so this asks the question
+      // the rhythm actually cares about: nothing renders above the nameplate.
+      const first = source.slice(root + 1).match(/<[A-Z][A-Za-z]*/)?.[0];
+      expect(first).toBe(opener.match(/<[A-Z][A-Za-z]*/)?.[0]);
     }
   });
 

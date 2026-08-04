@@ -106,6 +106,25 @@ export const feedbackCampaignSummarySchema = z
     noteCount: z.number().int().nonnegative().nullable(),
     requestedAt: z.iso.datetime().nullable(),
     generatedAt: z.iso.datetime().nullable(),
+    /**
+     * Splits the two halves of `pending`, which are one word on screen and two
+     * very different operational states underneath.
+     *
+     * `executionEpoch` counts the executions this durable attempt has started;
+     * `claimExpiresAt` is the current lease horizon, nulled the moment a worker
+     * releases the claim. A horizon still in the future means a live worker is
+     * inside the model call. A null or already-passed horizon on a pending row
+     * means nobody is generating right now: epoch `0` is the first run waiting
+     * in the queue, and anything higher is a run that stopped without settling,
+     * with BullMQ holding the retry behind its backoff.
+     *
+     * The comparison is against PostgreSQL's clock, which is what grants the
+     * lease; the seven-minute horizon is far wider than any clock skew a reader
+     * can have. `claimToken` stays server-side — the horizon carries the whole
+     * signal without publishing the value that authorizes a write.
+     */
+    executionEpoch: z.number().int().nonnegative().nullable(),
+    claimExpiresAt: z.iso.datetime().nullable(),
   })
   .strict();
 

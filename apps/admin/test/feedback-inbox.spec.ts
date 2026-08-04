@@ -78,6 +78,16 @@ interface ConversationViewModule {
     visible: { id: string }[],
     requested: string | null,
   ) => string | null;
+  hasExplicitConversationSelection: (
+    requested: string | null,
+    selected: string | null,
+  ) => boolean;
+  conversationReplyIndicator: (conversation: {
+    lifecycle: { state: "open" | "closed" };
+    control: { mode: "bot" | "human" };
+    automation: { state: "idle" | "scheduled" | "running" | "parked" };
+    awaitingHuman: boolean;
+  }) => "bot_replying" | "awaiting_staff" | null;
   conversationBadges: (
     conversation: TestConversation,
   ) => { key: string; label: string; tone: string; emphasis?: string }[];
@@ -178,11 +188,33 @@ interface StaffCloseModule {
   }) => string;
 }
 
+interface TestSummaryStatus {
+  status: "none" | "pending" | "ready" | "failed";
+  isPartial: boolean;
+  requestedAt: string | null;
+  executionEpoch: number | null;
+  claimExpiresAt: string | null;
+}
+
 interface CampaignSummaryModule {
-  campaignSummaryStatusLabel: (summary: {
-    status: "none" | "pending" | "ready" | "failed";
-    isPartial: boolean;
-  }) => string;
+  campaignSummaryStatusLabel: (
+    summary: TestSummaryStatus,
+    now?: Date,
+  ) => string;
+  campaignSummaryPendingPhase: (
+    summary: Pick<
+      TestSummaryStatus,
+      "status" | "executionEpoch" | "claimExpiresAt"
+    >,
+    now?: Date,
+  ) => "queued" | "generating" | "retrying" | null;
+  campaignSummaryElapsedLabel: (
+    requestedAt: string | null,
+    now?: Date,
+  ) => string | null;
+  campaignSummaryPendingDetail: (
+    phase: "queued" | "generating" | "retrying",
+  ) => string;
   campaignSummaryActionLabel: (
     status: "none" | "pending" | "ready" | "failed",
   ) => "Generate" | "Refresh";
@@ -797,6 +829,47 @@ describe("a row never repeats its own heading", () => {
         }),
       ),
     ).toBe("Closed — no messages can be sent.");
+  });
+
+  it("names real execution and handoff without guessing from capabilities", () => {
+    const status = (
+      overrides: Partial<{
+        lifecycle: { state: "open" | "closed" };
+        control: { mode: "bot" | "human" };
+        automation: {
+          state: "idle" | "scheduled" | "running" | "parked";
+        };
+        awaitingHuman: boolean;
+      }> = {},
+    ) =>
+      view.conversationReplyIndicator({
+        lifecycle: { state: "open" },
+        control: { mode: "bot" },
+        automation: { state: "idle" },
+        awaitingHuman: false,
+        ...overrides,
+      });
+
+    expect(status()).toBeNull();
+    expect(status({ automation: { state: "scheduled" } })).toBeNull();
+    expect(status({ automation: { state: "parked" } })).toBeNull();
+    expect(status({ automation: { state: "running" } })).toBe("bot_replying");
+    expect(
+      status({ automation: { state: "running" }, awaitingHuman: true }),
+    ).toBe("awaiting_staff");
+    expect(
+      status({
+        control: { mode: "human" },
+        automation: { state: "running" },
+      }),
+    ).toBeNull();
+    expect(
+      status({
+        lifecycle: { state: "closed" },
+        automation: { state: "running" },
+        awaitingHuman: true,
+      }),
+    ).toBeNull();
   });
 });
 
@@ -1699,24 +1772,28 @@ describe("inbox toolbar and orientation", () => {
 
   it("puts the summary card on the same gap as every other card", () => {
     const page = readSource("src/routes/FeedbackInboxPage.tsx");
-    const surface = page.slice(page.indexOf("Everything under the title"));
+    const surface = page.slice(page.indexOf("The app-wide page root"));
+    expect(surface).not.toBe("");
 
-    // One working surface, one rhythm: the summary, the two panes and the
-    // detail strip are all one gap-4 apart, so no card on this screen is a
-    // different distance from its neighbour than any other. Only the page gap
-    // above it — header to surface — is larger, and that boundary is the one
-    // that separates the page's nameplate from its work.
+    // One column, one rhythm: the nameplate, the summary, the two panes and the
+    // detail strip are all one gap-4 apart, so nothing on this screen is a
+    // different distance from its neighbour than anything else.
     expect(surface).toContain('<div className="flex flex-col gap-4">');
     expect(surface).toContain(
       '<div className="grid min-w-0 grid-cols-[minmax(0,1fr)] items-start gap-4 lg:grid-cols-[minmax(15rem,19rem)_minmax(0,1fr)]">',
     );
+    // The detail strip's classes, not its opening tag: below `lg` the strip is
+    // part of the thread view and hides with it, so the class list now reaches
+    // the element through a conditional rather than a literal attribute.
     expect(surface).toContain(
-      '<div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-2 lg:col-span-2 xl:grid-cols-3">',
+      "grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-2 lg:col-span-2 xl:grid-cols-3",
     );
 
-    // The context row is on that rhythm too. It used to be the one exception,
-    // held `gap-2` under the summary card as its caption; the venue in it is
-    // framed now, so it stands with the cards instead of hanging off one.
+    // Exactly one gap is tighter, and it is the one binding the campaign's name
+    // to the framed facts about it. Twice now a 24px gap has been left stranded
+    // between two of these blocks — first above the frame, then below it — so
+    // the page keeps no gap it cannot justify.
+    expect(surface).toContain("flex flex-col gap-3");
     expect(surface).not.toContain('<div className="flex flex-col gap-2">');
   });
 
@@ -1727,7 +1804,10 @@ describe("inbox toolbar and orientation", () => {
     // CSS Grid's implicit auto track then adopts their min-content width unless
     // both the track and its direct items explicitly allow shrinking.
     expect(page).toContain("grid-cols-[minmax(0,1fr)] items-start gap-4");
-    expect(page.match(/className="min-h-0 min-w-0"/g)).toHaveLength(2);
+    // Two pane wrappers, and each now picks its classes per breakpoint so the
+    // master/detail switch can hide one of them — four branches, every one of
+    // which still has to carry the zero minimum.
+    expect(page.match(/min-h-0 min-w-0/g)).toHaveLength(4);
     expect(page).toContain("grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-2");
   });
 
@@ -1786,6 +1866,12 @@ describe("selection under polling", () => {
       "a",
     );
     expect(view.resolveSelectedConversationId([], "missing")).toBeNull();
+  });
+
+  it("does not treat a stale requested id as an opened mobile thread", () => {
+    expect(view.hasExplicitConversationSelection("b", "b")).toBe(true);
+    expect(view.hasExplicitConversationSelection("missing", "a")).toBe(false);
+    expect(view.hasExplicitConversationSelection(null, "a")).toBe(false);
   });
 });
 
@@ -1910,37 +1996,186 @@ describe("polling policy (U3)", () => {
 });
 
 describe("campaign summary copy", () => {
+  const summaryNow = new Date("2026-08-01T12:02:00.000Z");
+  const summaryStatus = (
+    overrides: Partial<TestSummaryStatus> & {
+      status: TestSummaryStatus["status"];
+    },
+  ): TestSummaryStatus => ({
+    isPartial: false,
+    requestedAt: "2026-08-01T12:00:00.000Z",
+    executionEpoch: 0,
+    claimExpiresAt: null,
+    ...overrides,
+  });
+
   it("names each status for the collapsed header", () => {
     expect(
-      campaignSummary.campaignSummaryStatusLabel({
-        status: "none",
-        isPartial: false,
-      }),
+      campaignSummary.campaignSummaryStatusLabel(
+        summaryStatus({ status: "none", requestedAt: null }),
+        summaryNow,
+      ),
     ).toBe("Not generated");
     expect(
-      campaignSummary.campaignSummaryStatusLabel({
-        status: "pending",
-        isPartial: false,
-      }),
-    ).toBe("Generating…");
+      campaignSummary.campaignSummaryStatusLabel(
+        summaryStatus({
+          status: "pending",
+          executionEpoch: 1,
+          claimExpiresAt: "2026-08-01T12:08:00.000Z",
+        }),
+        summaryNow,
+      ),
+    ).toBe("Generating… (2 min)");
     expect(
-      campaignSummary.campaignSummaryStatusLabel({
-        status: "ready",
-        isPartial: false,
-      }),
+      campaignSummary.campaignSummaryStatusLabel(
+        summaryStatus({ status: "ready" }),
+        summaryNow,
+      ),
     ).toBe("Ready");
     expect(
-      campaignSummary.campaignSummaryStatusLabel({
-        status: "ready",
-        isPartial: true,
-      }),
+      campaignSummary.campaignSummaryStatusLabel(
+        summaryStatus({ status: "ready", isPartial: true }),
+        summaryNow,
+      ),
     ).toBe("Partial");
     expect(
-      campaignSummary.campaignSummaryStatusLabel({
-        status: "failed",
-        isPartial: false,
-      }),
+      campaignSummary.campaignSummaryStatusLabel(
+        summaryStatus({ status: "failed" }),
+        summaryNow,
+      ),
     ).toBe("Failed");
+  });
+
+  it("splits a pending row by whether an execution claim is live", () => {
+    const pending = (
+      overrides: Partial<TestSummaryStatus>,
+    ): TestSummaryStatus => summaryStatus({ status: "pending", ...overrides });
+
+    // Requested, never claimed: BullMQ still owes the first execution.
+    expect(
+      campaignSummary.campaignSummaryPendingPhase(
+        pending({ executionEpoch: 0, claimExpiresAt: null }),
+        summaryNow,
+      ),
+    ).toBe("queued");
+    // A worker holds the lease and is inside the model call.
+    expect(
+      campaignSummary.campaignSummaryPendingPhase(
+        pending({
+          executionEpoch: 1,
+          claimExpiresAt: "2026-08-01T12:08:00.000Z",
+        }),
+        summaryNow,
+      ),
+    ).toBe("generating");
+    // Released by a run that failed retryably — same row, nobody generating.
+    expect(
+      campaignSummary.campaignSummaryPendingPhase(
+        pending({ executionEpoch: 1, claimExpiresAt: null }),
+        summaryNow,
+      ),
+    ).toBe("retrying");
+    // The worker died mid-call, so its lease lapsed instead of being released.
+    expect(
+      campaignSummary.campaignSummaryPendingPhase(
+        pending({
+          executionEpoch: 2,
+          claimExpiresAt: "2026-08-01T12:01:00.000Z",
+        }),
+        summaryNow,
+      ),
+    ).toBe("retrying");
+    // Every other status clears the lease fields and owes no execution.
+    expect(
+      campaignSummary.campaignSummaryPendingPhase(
+        summaryStatus({ status: "ready" }),
+        summaryNow,
+      ),
+    ).toBeNull();
+    expect(
+      campaignSummary.campaignSummaryPendingPhase(
+        summaryStatus({ status: "failed" }),
+        summaryNow,
+      ),
+    ).toBeNull();
+  });
+
+  it("distinguishes a live generation from a queued retry in the header", () => {
+    expect(
+      campaignSummary.campaignSummaryStatusLabel(
+        summaryStatus({
+          status: "pending",
+          executionEpoch: 0,
+          claimExpiresAt: null,
+          requestedAt: "2026-08-01T12:01:55.000Z",
+        }),
+        summaryNow,
+      ),
+    ).toBe("Queued (5 s)");
+    expect(
+      campaignSummary.campaignSummaryStatusLabel(
+        summaryStatus({
+          status: "pending",
+          executionEpoch: 1,
+          claimExpiresAt: "2026-08-01T12:08:00.000Z",
+          requestedAt: "2026-08-01T11:47:00.000Z",
+        }),
+        summaryNow,
+      ),
+    ).toBe("Generating… (15 min)");
+    // The epoch counts executions started, so the held retry is the next one.
+    expect(
+      campaignSummary.campaignSummaryStatusLabel(
+        summaryStatus({
+          status: "pending",
+          executionEpoch: 1,
+          claimExpiresAt: null,
+          requestedAt: "2026-08-01T11:46:00.000Z",
+        }),
+        summaryNow,
+      ),
+    ).toBe("Waiting to retry — attempt 2 (16 min)");
+    // A row whose request timestamp is missing still names the state.
+    expect(
+      campaignSummary.campaignSummaryStatusLabel(
+        summaryStatus({
+          status: "pending",
+          executionEpoch: 3,
+          claimExpiresAt: null,
+          requestedAt: null,
+        }),
+        summaryNow,
+      ),
+    ).toBe("Waiting to retry — attempt 4");
+  });
+
+  it("counts the wait from the request, through seconds, minutes and hours", () => {
+    const elapsed = (requestedAt: string) =>
+      campaignSummary.campaignSummaryElapsedLabel(requestedAt, summaryNow);
+
+    expect(elapsed("2026-08-01T12:02:00.000Z")).toBe("0 s");
+    expect(elapsed("2026-08-01T12:01:01.000Z")).toBe("59 s");
+    expect(elapsed("2026-08-01T12:01:00.000Z")).toBe("1 min");
+    expect(elapsed("2026-08-01T11:03:00.000Z")).toBe("59 min");
+    expect(elapsed("2026-08-01T11:02:00.000Z")).toBe("1 h");
+    expect(elapsed("2026-08-01T08:45:00.000Z")).toBe("3 h 17 min");
+    // A clock that reads ahead of the row must not produce a negative wait.
+    expect(elapsed("2026-08-01T12:05:00.000Z")).toBe("0 s");
+    expect(campaignSummary.campaignSummaryElapsedLabel(null, summaryNow)).toBe(
+      null,
+    );
+  });
+
+  it("says which side is holding the work while a summary is owed", () => {
+    expect(campaignSummary.campaignSummaryPendingDetail("queued")).toBe(
+      "Queued for generation. A worker picks it up as soon as one is free.",
+    );
+    expect(campaignSummary.campaignSummaryPendingDetail("generating")).toBe(
+      "Generating the summary…",
+    );
+    expect(campaignSummary.campaignSummaryPendingDetail("retrying")).toBe(
+      "The last run stopped before it finished. The summary is still owed — the queued retry starts once its backoff elapses.",
+    );
   });
 
   it("offers Generate for a missing or failed summary, Refresh otherwise", () => {
@@ -1979,6 +2214,33 @@ describe("campaign summary copy", () => {
         openConversationCount: null,
       }),
     ).toBe("Based on incomplete data — some conversations were still open.");
+  });
+
+  /**
+   * The summary body and an assistant answer are the same kind of artifact — a
+   * model writing for an operator — so they share one renderer. That is what
+   * lets the summary prompt offer tables and the fenced `chart` contract of
+   * `AssistantChart` without a second markdown pipeline drifting from the first.
+   */
+  it("renders the summary body through the shared model-content renderer", () => {
+    const component = readFileSync(
+      fileURLToPath(
+        new URL(
+          "../src/components/admin/feedback/CampaignSummary.tsx",
+          import.meta.url,
+        ),
+      ),
+      "utf8",
+    );
+
+    expect(component).toContain(
+      'import { AssistantMarkdown } from "../assistant/AssistantMarkdown"',
+    );
+    expect(component).toContain('className="assistant-markdown max-w-none"');
+    expect(component).toContain("<AssistantMarkdown>{summary.body}");
+    // No parallel pipeline left behind for the two to drift apart across.
+    expect(component).not.toContain('from "react-markdown"');
+    expect(component).not.toContain('from "remark-gfm"');
   });
 });
 
