@@ -110,8 +110,19 @@ export function CampaignHeader({
           wordmark's alone and carries no Greek — and these titles are Greek.)
 
           `tracking-tight` because Manrope runs wider than Commissioner at
-          extrabold, and the line should still read as one name. */}
-      <h1 className="min-w-0 truncate font-sans text-[1.375rem] font-extrabold tracking-tight sm:col-span-2 sm:row-start-2">
+          extrabold, and the line should still read as one name.
+
+          `pl-[3px]` is optical, not structural, which is why it is off the
+          spacing scale. The h1's box already sits flush with the column —
+          same x as the context band's border below — but Manrope's extrabold
+          Δ and Τ carry ~0.2–0.4px of left sidebearing where H, D or F carry
+          ~1.5px, and these titles are Greek dinner names that mostly open on
+          exactly those diagonals. Flush at 22px, that ink reads as leaning
+          out past the border under it. The first pixel seats the diagonal
+          where the square letters already sit; the other two settle the name
+          just inside the column edge. 4px was tried and overshot — it stops
+          reading as an aligned title and starts reading as an indent. */}
+      <h1 className="min-w-0 truncate pl-[3px] font-sans text-[1.375rem] font-extrabold tracking-tight sm:col-span-2 sm:row-start-2">
         {campaign?.eventTitle ?? "Feedback conversations"}
       </h1>
 
