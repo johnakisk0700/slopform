@@ -35,7 +35,10 @@ subject the backend re-checks against the live D16 candidate set.
 | `/admin/feedback/:campaignId/results` | `FeedbackResultsPage`   | The campaign's answers and notes (U4)      |
 
 The selected conversation lives in `?conversation=<id>` so a thread is
-linkable and survives reload, while the list beside it stays put.
+linkable and survives reload, while the list beside it stays put. On a narrow
+thread screen, `?fullscreen=1` covers the transcript to the large viewport;
+opening it pushes history so the platform back gesture leaves the cover before
+the thread.
 
 ## Contract
 
@@ -95,7 +98,7 @@ stalled row the label exists to expose.
 | -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | `src/features/feedback/labels.ts`                  | Status vocabulary: tones, badges, delivery precedence, note origin, D18                                                                  |
 | `src/features/feedback/conversationView.ts`        | Progress, badge rows, ordering, grouping, selection, message anchor ids                                                                  |
-| `src/features/feedback/revealTranscriptMessage.ts` | Pin the transcript pane, smooth-scroll the messages box, flash the cited bubble — never `scrollIntoView` on the message                  |
+| `src/features/feedback/revealTranscriptMessage.ts` | Pin the transcript pane (16px wide / 88px under the sticky mobile header), smooth-scroll the messages box, flash the cited bubble — never `scrollIntoView` on the message |
 | `src/features/feedback/extractionStatus.ts`        | Greek copy over durable conversation automation                                                                                          |
 | `src/features/feedback/answerCorrections.ts`       | Which control a recorded answer gets, the «corrected by» line, the withdrawal wording                                                    |
 | `src/features/feedback/directedAnswers.ts`         | The three person-shaped questions as a group: tone per question, what contradicts what, who is left to add, and what recording will cost |
@@ -241,11 +244,13 @@ flowchart LR
   that message and a confirmation per reason is how a badge ends up never being
   cleared. The link never calls `scrollIntoView` on the message — that walked
   document ancestors and yanked the page. `revealTranscriptMessage` pins the
-  transcript pane 16px under the viewport top when it has drifted (so the whole
-  chat breathes under the page chrome), smooth-scrolls only inside
+  transcript pane under the viewport top when it has drifted — 16px of air on
+  wide screens, and 88px on narrow ones so the sticky AdminShell top bar
+  (`min-h-[4.5rem]`) does not cover the chat — then smooth-scrolls only inside
   `[data-transcript-scroller]` to centre the cited message, focuses the row,
   and runs a one-shot `.jts-message-flash` pulse on the bubble (warning tokens;
-  static tint under `prefers-reduced-motion`). Rows stay as dense as the
+  static tint under `prefers-reduced-motion`). A viewport-fixed cover skips the
+  document pin. Rows stay as dense as the
   collapsed disclosure (shared min-height, compact ghost Dismiss — HeroUI has
   no xs size, so sm is shrunk by class) with a hairline gap so adjacent
   controls do not touch. More than two unresolved reasons collapse into one
@@ -328,11 +333,15 @@ be unusable.
 Two panes over a strip of cards. From `lg` the list sits beside the transcript;
 under both, spanning the full width, the conversation's detail runs as three
 small cards (three columns from `xl`, two from `md`, one below that). Each pane
-is its own scroll container, capped at `calc(100dvh - 10rem)` (cards at
-`44vh`). The list sizes to its rows (`self-start`); the transcript stretches to
-meet that row so a short thread is not a stub, without forcing empty space
-under the last conversation. Switching conversations never costs an operator
-their place in the list.
+is its own scroll container, capped at `calc(100lvh - 10rem)` (cards at
+`44vh`). Large viewport height, not dynamic: mobile browser chrome show/hide
+must not resize the panes. The list sizes to its rows (`self-start`); the
+transcript stretches to meet that row so a short thread is not a stub, without
+forcing empty space under the last conversation. Switching conversations never
+costs an operator their place in the list. On the narrow thread screen a
+header control expands that same transcript mount to a fixed `100lvh` cover
+(no remount — drafts and scroll stay) when the operator wants the whole
+viewport.
 
 Below `lg`, both grids declare a `minmax(0, 1fr)` base column and every direct
 pane item has a zero minimum width. This is required for route navigation, not
@@ -382,8 +391,12 @@ the viewport. Two changes fixed that without a layout rework:
 - **The pane cap is viewport-anchored.** `66vh` gave the panes two thirds of
   the screen regardless of what the header actually used; with the header
   compressed to about 9 rem including the main padding, both panes now cap at
-  `calc(100dvh - 10rem)`. The transcript fills the row beside the list; the
-  list itself stays content-sized so it does not grow a blank foot.
+  `calc(100lvh - 10rem)`. Cap against the large viewport so a collapsing mobile
+  URL bar does not reflow the panes; the narrow-screen cover (`?fullscreen=1`,
+  same mount, `lvh`) opens from the back-link row — not the act cluster — so
+  back clears it before leaving the thread. The transcript fills the row
+  beside the list; the list itself stays content-sized so it does not grow a
+  blank foot.
   Inside the pane the same pass cost every non-message row what it could spare:
   the transcript header is the two-line contact block every messaging app
   taught — name over number, the staff close line only when there is one; the

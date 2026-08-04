@@ -1,6 +1,7 @@
-import { toast } from "@heroui/react";
+import { Button, toast } from "@heroui/react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useMemo, useRef, useState } from "react";
+import { Maximize2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router";
 
 import {
@@ -153,6 +154,14 @@ export function FeedbackInboxPage() {
     requestedId,
     selectedId,
   );
+  /**
+   * Narrow-thread cover. Same idea as `?conversation=`: the URL is the state
+   * so the platform back gesture steps out of the cover before it leaves the
+   * thread. Push on open, replace on close — a direct link with both params
+   * still works, and minimise does not leave a stale cover entry on the stack.
+   */
+  const fullscreenOnNarrow =
+    threadOpenOnNarrow && searchParams.get("fullscreen") === "1";
   const selectedRow = useMemo(
     () => visible.find((row) => row.id === selectedId),
     [visible, selectedId],
@@ -161,6 +170,7 @@ export function FeedbackInboxPage() {
   function selectConversation(conversationId: string) {
     const next = new URLSearchParams(searchParams);
     next.set("conversation", conversationId);
+    next.delete("fullscreen");
     // Opening the *first* thread is a step into a detail view — on a phone the
     // whole screen changes, so the back gesture has to undo it. Switching
     // between threads is not a step: that replaces, or an operator clicking
@@ -168,6 +178,43 @@ export function FeedbackInboxPage() {
     setSearchParams(next, { replace: threadOpenOnNarrow });
     setActionError(null);
   }
+
+  const setConversationFullscreen = useCallback(
+    (open: boolean) => {
+      const next = new URLSearchParams(searchParams);
+      if (open) {
+        if (next.get("fullscreen") === "1") {
+          return;
+        }
+        next.set("fullscreen", "1");
+        setSearchParams(next);
+        return;
+      }
+      if (next.get("fullscreen") !== "1") {
+        return;
+      }
+      next.delete("fullscreen");
+      setSearchParams(next, { replace: true });
+    },
+    [searchParams, setSearchParams],
+  );
+
+  // The cover is a phone affordance. A wide layout with `?fullscreen=1` left
+  // in the URL (rotate, paste) must not keep a scroll-locked fixed pane.
+  useEffect(() => {
+    const desktop = window.matchMedia("(min-width: 64rem)");
+    function dropFullscreenOnDesktop() {
+      if (!desktop.matches || searchParams.get("fullscreen") !== "1") {
+        return;
+      }
+      const next = new URLSearchParams(searchParams);
+      next.delete("fullscreen");
+      setSearchParams(next, { replace: true });
+    }
+    dropFullscreenOnDesktop();
+    desktop.addEventListener("change", dropFullscreenOnDesktop);
+    return () => desktop.removeEventListener("change", dropFullscreenOnDesktop);
+  }, [searchParams, setSearchParams]);
 
   const detailQuery = useGetFeedbackConversation(campaignId, selectedId ?? "", {
     query: {
@@ -609,10 +656,28 @@ export function FeedbackInboxPage() {
           here. The campaign's own «Back to campaigns» is hidden above while
           this shows, so there is exactly one back link on screen at a time. */}
         {threadOpenOnNarrow ? (
-          <div className="lg:hidden">
+          <div className="flex items-center justify-between gap-1 lg:hidden">
             <JtsBackLink to={`/admin/feedback/${campaignId}`}>
               Back to conversations
             </JtsBackLink>
+            {/* Navigation chrome, not the act cluster — keeps the cover
+                control away from Take over / Close. Hidden once the cover is
+                on; minimise lives in the transcript header then, and back
+                clears `?fullscreen=1` first. */}
+            {!fullscreenOnNarrow ? (
+              <Button
+                isIconOnly
+                size="sm"
+                variant="ghost"
+                className="h-7 w-7 min-h-7 shrink-0"
+                aria-label="Open conversation fullscreen"
+                onPress={() => {
+                  setConversationFullscreen(true);
+                }}
+              >
+                <Maximize2 aria-hidden="true" className="size-4" />
+              </Button>
+            ) : null}
           </div>
         ) : null}
 
@@ -686,6 +751,8 @@ export function FeedbackInboxPage() {
                 campaignStatus={campaign?.status ?? null}
                 onStaffSend={handleStaffSend}
                 staffSendPending={sendStaffMessage.isPending}
+                isFullscreen={fullscreenOnNarrow}
+                onFullscreenChange={setConversationFullscreen}
                 {...(simulatorAvailable
                   ? {
                       onSimulatedReply: handleSimulatedReply,

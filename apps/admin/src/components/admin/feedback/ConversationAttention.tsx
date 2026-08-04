@@ -79,7 +79,7 @@ export function ConversationAttention({
         return (
           <li
             key={reason.id}
-            className="flex min-h-7 flex-wrap items-center justify-between gap-x-3"
+            className="flex min-h-7 flex-nowrap items-center justify-between gap-x-3"
           >
             <span className="flex min-w-0 items-center gap-1.5">
               <TriangleAlert
@@ -87,12 +87,15 @@ export function ConversationAttention({
                 className="size-3.5 shrink-0 text-warning"
               />
               {anchor === null ? (
-                <p className="min-w-0 text-sm text-ink">{label}</p>
+                <p className="min-w-0 truncate text-sm text-ink" title={label}>
+                  {label}
+                </p>
               ) : (
                 <button
                   type="button"
                   onClick={() => showMessage(anchor)}
-                  className="min-w-0 rounded-xs text-left text-sm text-ink underline decoration-warning-border decoration-1 underline-offset-2 hover:decoration-warning"
+                  title={label}
+                  className="min-w-0 truncate rounded-xs text-left text-sm text-ink underline decoration-warning-border decoration-1 underline-offset-2 hover:decoration-warning"
                 >
                   {label}
                   <span className="sr-only">
@@ -104,11 +107,12 @@ export function ConversationAttention({
             </span>
             {/* No xs size in HeroUI — compact the sm ghost down to the row
                 height. text-ink is forced because the default ghost colour
-                matches the warning tint and disappears. */}
+                matches the warning tint and disappears. shrink-0 keeps
+                Dismiss on the same line as a long truncated reason. */}
             <Button
               size="sm"
               variant="ghost"
-              className="h-6 min-h-6 px-1.5 text-xs text-ink"
+              className="h-6 min-h-6 shrink-0 px-1.5 text-xs text-ink"
               aria-label={`Dismiss: ${label}`}
               isDisabled={dismissing}
               onPress={() => {

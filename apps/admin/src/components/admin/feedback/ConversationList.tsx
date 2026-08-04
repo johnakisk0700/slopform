@@ -125,7 +125,7 @@ export function ConversationList({
          empty viewport. The transcript beside it stretches to this height via
          the grid; this pane stays `self-start` so it does not grow a blank
          foot under the last conversation. */
-      className="flex min-h-0 flex-col overflow-hidden rounded-md border border-border bg-surface lg:max-h-[calc(100dvh-10rem)]"
+      className="flex min-h-0 flex-col overflow-hidden rounded-md border border-border bg-surface lg:max-h-[calc(100lvh-10rem)]"
     >
       <div className="border-b border-border px-4 py-3">
         <div className="flex items-center justify-between gap-2">

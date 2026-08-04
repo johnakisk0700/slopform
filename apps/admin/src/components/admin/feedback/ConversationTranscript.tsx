@@ -12,6 +12,7 @@ import {
   Clock,
   Eye,
   FlaskConical,
+  Minimize2,
   PauseCircle,
   Phone,
   Send,
@@ -360,6 +361,13 @@ interface ConversationTranscriptProps {
    * header, opposite the contact block — see `ConversationActions`.
    */
   actions?: ReactNode;
+  /**
+   * Narrow-thread cover driven by `?fullscreen=1` on the inbox page. The open
+   * control lives next to «Back to conversations»; while the cover is up the
+   * exit sits in the act cluster beside Take over (and Escape still clears it).
+   */
+  isFullscreen?: boolean;
+  onFullscreenChange?: (open: boolean) => void;
 }
 
 /**
@@ -383,6 +391,8 @@ export function ConversationTranscript({
   isRefreshing,
   attention,
   actions,
+  isFullscreen = false,
+  onFullscreenChange,
 }: ConversationTranscriptProps) {
   const headingId = useId();
   const staffInputId = useId();
@@ -429,6 +439,27 @@ export function ConversationTranscript({
     return () => cancelAnimationFrame(frame);
   }, [lastMessageId, conversation.id]);
 
+  // Cover the viewport without remounting the pane (composer drafts and the
+  // message scroller stay put). Escape and the header minimise both exit via
+  // the page (clears `?fullscreen=1`); the document must not scroll underneath.
+  useEffect(() => {
+    if (!isFullscreen) {
+      return;
+    }
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onFullscreenChange?.(false);
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [isFullscreen, onFullscreenChange]);
+
   async function handleStaffSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const text = staffDraft.text.trim();
@@ -456,235 +487,276 @@ export function ConversationTranscript({
   }
 
   return (
-    <section
-      aria-labelledby={headingId}
-      data-transcript-pane
-      /* Fill the grid cell beside the list (`h-full`) up to the shared
-         viewport cap. The list stays content-sized (`self-start`); this pane
-         stretches to meet it so a short thread is not a stub, without forcing
-         empty space under the last conversation row. The cap also keeps the
-         reading-status foot on screen while the messages scroll. */
-      className="flex h-full min-h-0 max-h-[calc(100dvh-10rem)] flex-col overflow-hidden rounded-md border border-border bg-surface"
-    >
-      {/* The contact block every messaging app taught: name over number, two
-          short lines. No badge row (density pass) — attention is the strip
-          below with its reasons, who writes is the composer or the foot
-          indicator. The controls that change who may write sit opposite the
-          contact, where an operator glances for "can I still act here?"; on a
-          closed thread they disappear and the named end is an icon pill in
-          the same corner, tooltip keeping the full sentence. */}
-      <header className="border-b border-border px-5 py-2.5">
-        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-          <div className="min-w-0">
-            <h2
-              id={headingId}
-              className={clsx(
-                "truncate text-[1.05rem] leading-tight font-bold tracking-tight text-ink",
-                unresolved && "italic",
-              )}
-            >
-              {name}
-            </h2>
-            <p className="mt-0.5 flex items-center gap-1.5 text-xs text-ink-muted tabular-nums">
-              <Phone
-                aria-hidden="true"
-                className="size-3.5 shrink-0 text-ink-subtle"
-              />
-              {conversation.phoneAtLaunch}
-            </p>
-            {conversation.staffClose ? (
-              <p className="mt-1 text-xs text-ink-muted">
-                {staffCloseSummary(conversation.staffClose)}
-              </p>
-            ) : null}
-          </div>
-          {/* Live mark, then the act cluster, then the closed pill last so the
-              corner always holds the strongest signal — "can I still act?" —
-              whether that is the buttons or the end-state pill. The live mark
-              reserves its width even while idle, so neither neighbour shifts
-              when a poll starts. */}
-          <div className="flex shrink-0 items-center gap-2">
-            <JtsLiveIndicator
-              active={isRefreshing}
-              label="This transcript refreshes automatically while the conversation is open."
-            />
-            {actions}
-            {closedLine ? (
-              <div title={closedLine}>
-                <FeedbackBadges
-                  badges={[
-                    {
-                      ...lifecycleBadge({
-                        state: conversation.lifecycle.state,
-                        reason: conversation.lifecycle.reason as Parameters<
-                          typeof lifecycleBadge
-                        >[0]["reason"],
-                      }),
-                      glyph:
-                        CLOSED_STATE_ICONS[
-                          conversation.lifecycle.reason ?? ""
-                        ] ?? Archive,
-                    },
-                  ]}
-                />
-              </div>
-            ) : null}
-          </div>
-        </div>
-      </header>
-
-      {attention}
-
-      <div
-        ref={scrollRef}
-        data-transcript-scroller
-        className="min-h-0 flex-1 overflow-y-auto px-5 py-4"
-      >
-        {conversation.messages.length === 0 ? (
-          <p className="py-8 text-center text-sm text-ink-muted">
-            No messages yet. The intro is queued in the outbox.
-          </p>
-        ) : (
-          <ul className="flex flex-col gap-4">
-            {conversation.messages.map((message, index) => {
-              const previous = conversation.messages[index - 1];
-              return (
-                <TranscriptMessage
-                  key={message.id}
-                  message={message}
-                  startsRun={previous?.actor !== message.actor}
-                  newMinute={
-                    previous === undefined ||
-                    !sameTranscriptMinute(previous.at, message.at)
-                  }
-                />
-              );
-            })}
-          </ul>
-        )}
-      </div>
-
-      {actionError ? (
-        <p
-          role="alert"
-          className="border-t border-border bg-danger-soft px-5 py-2 text-sm text-danger"
-        >
-          {actionError}
-        </p>
+    <>
+      {/* Fixed cover pulls the pane out of flow; keep its slot so the detail
+          cards below do not jump while the operator is reading fullscreen. */}
+      {isFullscreen ? (
+        <div
+          className="h-[calc(100lvh-10rem)] max-h-[calc(100lvh-10rem)] lg:hidden"
+          aria-hidden="true"
+        />
       ) : null}
+      <section
+        aria-labelledby={headingId}
+        data-transcript-pane
+        {...(isFullscreen
+          ? { role: "dialog" as const, "aria-modal": true as const }
+          : {})}
+        /* Fill the grid cell beside the list (`h-full`) up to the shared
+           viewport cap. The list stays content-sized (`self-start`); this pane
+           stretches to meet it so a short thread is not a stub, without forcing
+           empty space under the last conversation row. The cap also keeps the
+           reading-status foot on screen while the messages scroll.
 
-      {/* Pane chrome below the messages — not inside their scroller. The
+           Cap against `lvh`, not `dvh`: mobile browser chrome show/hide must
+           not resize the pane. Fullscreen is a fixed cover on this same mount
+           (no remount, drafts stay) for when the operator needs the whole
+           large viewport. */
+        className={clsx(
+          "flex min-h-0 flex-col overflow-hidden bg-surface",
+          isFullscreen
+            ? "fixed inset-0 z-50 h-lvh max-h-none rounded-none"
+            : "h-full max-h-[calc(100lvh-10rem)] rounded-md border border-border",
+        )}
+      >
+        {/* The contact block every messaging app taught: name over number, two
+            short lines. No badge row (density pass) — attention is the strip
+            below with its reasons, who writes is the composer or the foot
+            indicator. The controls that change who may write sit opposite the
+            contact, where an operator glances for "can I still act here?"; on a
+            closed thread they disappear and the named end is an icon pill in
+            the same corner, tooltip keeping the full sentence. */}
+        <header className="border-b border-border px-5 py-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+            <div className="min-w-0">
+              <h2
+                id={headingId}
+                className={clsx(
+                  "truncate text-[1.05rem] leading-tight font-bold tracking-tight text-ink",
+                  unresolved && "italic",
+                )}
+              >
+                {name}
+              </h2>
+              <p className="mt-0.5 flex items-center gap-1.5 text-xs text-ink-muted tabular-nums">
+                <Phone
+                  aria-hidden="true"
+                  className="size-3.5 shrink-0 text-ink-subtle"
+                />
+                {conversation.phoneAtLaunch}
+              </p>
+              {conversation.staffClose ? (
+                <p className="mt-1 text-xs text-ink-muted">
+                  {staffCloseSummary(conversation.staffClose)}
+                </p>
+              ) : null}
+            </div>
+            {/* Live mark, then the act cluster, then the closed pill last so the
+                corner always holds the strongest signal — "can I still act?" —
+                whether that is the buttons or the end-state pill. The live mark
+                reserves its width even while idle, so neither neighbour shifts
+                when a poll starts. Cover exit sits with Take over / Close —
+                open stays on the back-link row outside the cover. */}
+            <div className="flex shrink-0 items-center gap-1.5">
+              <JtsLiveIndicator
+                active={isRefreshing}
+                label="This transcript refreshes automatically while the conversation is open."
+              />
+              {isFullscreen && onFullscreenChange ? (
+                <Button
+                  isIconOnly
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 w-7 min-h-7 shrink-0"
+                  aria-label="Exit fullscreen conversation"
+                  onPress={() => {
+                    onFullscreenChange(false);
+                  }}
+                >
+                  <Minimize2 aria-hidden="true" className="size-4" />
+                </Button>
+              ) : null}
+              {actions}
+              {closedLine ? (
+                <div title={closedLine}>
+                  <FeedbackBadges
+                    badges={[
+                      {
+                        ...lifecycleBadge({
+                          state: conversation.lifecycle.state,
+                          reason: conversation.lifecycle.reason as Parameters<
+                            typeof lifecycleBadge
+                          >[0]["reason"],
+                        }),
+                        glyph:
+                          CLOSED_STATE_ICONS[
+                            conversation.lifecycle.reason ?? ""
+                          ] ?? Archive,
+                      },
+                    ]}
+                  />
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </header>
+
+        {attention}
+
+        <div
+          ref={scrollRef}
+          data-transcript-scroller
+          className="min-h-0 flex-1 overflow-y-auto px-5 py-4"
+        >
+          {conversation.messages.length === 0 ? (
+            <p className="py-8 text-center text-sm text-ink-muted">
+              No messages yet. The intro is queued in the outbox.
+            </p>
+          ) : (
+            <ul className="flex flex-col gap-4">
+              {conversation.messages.map((message, index) => {
+                const previous = conversation.messages[index - 1];
+                return (
+                  <TranscriptMessage
+                    key={message.id}
+                    message={message}
+                    startsRun={previous?.actor !== message.actor}
+                    newMinute={
+                      previous === undefined ||
+                      !sameTranscriptMinute(previous.at, message.at)
+                    }
+                  />
+                );
+              })}
+            </ul>
+          )}
+        </div>
+
+        {actionError ? (
+          <p
+            role="alert"
+            className="border-t border-border bg-danger-soft px-5 py-2 text-sm text-danger"
+          >
+            {actionError}
+          </p>
+        ) : null}
+
+        {/* Pane chrome below the messages — not inside their scroller. The
           reading status and reply indicator stay on screen while an operator
           scrolls older messages; composers sit under them the way a messaging
           app keeps the input docked. */}
-      <div className="shrink-0 border-t border-border bg-surface">
-        {/* ΑΝΑΓΝΩΣΗ: about these messages, pinned where a read receipt lives
+        <div className="shrink-0 border-t border-border bg-surface">
+          {/* ΑΝΑΓΝΩΣΗ: about these messages, pinned where a read receipt lives
             in every chat UI — always under the thread, never scrolled away. */}
-        <div className="flex justify-center px-5 py-2 text-center">
-          <ReadingStatus
-            conversation={conversation}
-            campaignStatus={campaignStatus}
-          />
-        </div>
+          <div className="flex justify-center px-5 py-2 text-center">
+            <ReadingStatus
+              conversation={conversation}
+              campaignStatus={campaignStatus}
+            />
+          </div>
 
-        {/* Who is writing right now — status only. The controls that change
+          {/* Who is writing right now — status only. The controls that change
             that live in the header opposite the contact. With a composer
             below, its placeholder already says who is writing, so this line
             appears only while there is none. On a closed thread the header
             already says why, and the whole row disappears. */}
-        {botReplying || awaitingStaff ? (
-          <div className="border-t border-border-subtle px-5 py-2 text-center">
-            {botReplying ? (
-              <p className="text-sm text-ink-muted">The bot is replying.</p>
-            ) : (
-              <p className="text-sm text-warning">Waiting for staff.</p>
-            )}
-          </div>
-        ) : null}
+          {botReplying || awaitingStaff ? (
+            <div className="border-t border-border-subtle px-5 py-2 text-center">
+              {botReplying ? (
+                <p className="text-sm text-ink-muted">The bot is replying.</p>
+              ) : (
+                <p className="text-sm text-warning">Waiting for staff.</p>
+              )}
+            </div>
+          ) : null}
 
-        {canSendStaffMessage ? (
-          <form
-            onSubmit={handleStaffSubmit}
-            className="flex gap-2 border-t border-border-subtle px-5 py-3"
-          >
-            <label htmlFor={staffInputId} className="sr-only">
-              Message to {name}, sent as staff
-            </label>
-            <Input
-              id={staffInputId}
-              value={staffDraft.text}
-              onChange={(change) =>
-                setStaffDraft((current) =>
-                  editStaffMessageDraft(current, change.target.value),
-                )
-              }
-              placeholder={`Reply to ${name} as staff…`}
-              maxLength={SIMULATOR_MESSAGE_MAX_LENGTH}
-              disabled={staffSendPending}
-              className="flex-1 text-ink-muted"
-            />
-            <Button
-              type="submit"
-              isDisabled={staffSendPending || staffDraft.text.trim() === ""}
+          {canSendStaffMessage ? (
+            <form
+              onSubmit={handleStaffSubmit}
+              className="flex gap-2 border-t border-border-subtle px-5 py-3"
             >
-              <Send aria-hidden="true" className="size-4" />
-              {staffSendPending ? "Sending…" : "Send"}
-            </Button>
-          </form>
-        ) : null}
+              <label htmlFor={staffInputId} className="sr-only">
+                Message to {name}, sent as staff
+              </label>
+              <Input
+                id={staffInputId}
+                value={staffDraft.text}
+                onChange={(change) =>
+                  setStaffDraft((current) =>
+                    editStaffMessageDraft(current, change.target.value),
+                  )
+                }
+                placeholder={`Reply to ${name} as staff…`}
+                maxLength={SIMULATOR_MESSAGE_MAX_LENGTH}
+                disabled={staffSendPending}
+                className="flex-1 text-ink-muted"
+              />
+              <Button
+                type="submit"
+                isDisabled={staffSendPending || staffDraft.text.trim() === ""}
+              >
+                <Send aria-hidden="true" className="size-4" />
+                {staffSendPending ? "Sending…" : "Send"}
+              </Button>
+            </form>
+          ) : null}
 
-        {onSimulatedReply ? (
-          /* One compact row, not a captioned block: the dashed hairline, the
+          {onSimulatedReply ? (
+            /* One compact row, not a captioned block: the dashed hairline, the
              sunken fill and the flask already say "not the real transport",
              and the full sentence lives on the label and the title. A dev
              affordance must not out-size the staff composer above it. */
-          <form
-            onSubmit={handleSimulatedSubmit}
-            title="Development simulator — not a real WhatsApp message"
-            className="flex items-center gap-2.5 border-t border-dashed border-border bg-surface-sunken px-5 py-2"
-          >
-            <p className="flex shrink-0 items-center gap-1.5 jts-overline text-ink-muted">
-              <FlaskConical aria-hidden="true" className="size-3.5 shrink-0" />
-              Dev
-            </p>
-            <label htmlFor={simulatorInputId} className="sr-only">
-              Reply as {name} through the development simulator — not a real
-              WhatsApp message
-            </label>
-            <Input
-              id={simulatorInputId}
-              value={simulatorDraft.text}
-              onChange={(change) =>
-                setSimulatorDraft((current) =>
-                  editSimulatorMessageDraft(current, change.target.value),
-                )
-              }
-              placeholder={`Reply as ${name} — simulated…`}
-              maxLength={SIMULATOR_MESSAGE_MAX_LENGTH}
-              disabled={simulatedReplyPending}
-              className="min-w-0 flex-1 text-ink-muted"
-            />
-            <Button
-              type="submit"
-              size="sm"
-              variant="secondary"
-              isDisabled={
-                simulatedReplyPending || simulatorDraft.text.trim() === ""
-              }
+            <form
+              onSubmit={handleSimulatedSubmit}
+              title="Development simulator — not a real WhatsApp message"
+              className="flex items-center gap-2.5 border-t border-dashed border-border bg-surface-sunken px-5 py-2"
             >
-              {simulatedReplyPending ? "Injecting…" : "Inject"}
-            </Button>
-          </form>
-        ) : null}
-      </div>
-    </section>
+              <p className="flex shrink-0 items-center gap-1.5 jts-overline text-ink-muted">
+                <FlaskConical
+                  aria-hidden="true"
+                  className="size-3.5 shrink-0"
+                />
+                Dev
+              </p>
+              <label htmlFor={simulatorInputId} className="sr-only">
+                Reply as {name} through the development simulator — not a real
+                WhatsApp message
+              </label>
+              <Input
+                id={simulatorInputId}
+                value={simulatorDraft.text}
+                onChange={(change) =>
+                  setSimulatorDraft((current) =>
+                    editSimulatorMessageDraft(current, change.target.value),
+                  )
+                }
+                placeholder={`Reply as ${name} — simulated…`}
+                maxLength={SIMULATOR_MESSAGE_MAX_LENGTH}
+                disabled={simulatedReplyPending}
+                className="min-w-0 flex-1 text-ink-muted"
+              />
+              <Button
+                type="submit"
+                size="sm"
+                variant="secondary"
+                isDisabled={
+                  simulatedReplyPending || simulatorDraft.text.trim() === ""
+                }
+              >
+                {simulatedReplyPending ? "Injecting…" : "Inject"}
+              </Button>
+            </form>
+          ) : null}
+        </div>
+      </section>
+    </>
   );
 }
 
 /** Placeholder shown while no conversation is selected. */
 export function ConversationTranscriptEmpty() {
   return (
-    <section className="flex h-full min-h-0 max-h-[calc(100dvh-10rem)] flex-col items-center justify-center gap-3 rounded-md border border-border bg-surface p-10 text-center">
+    <section className="flex h-full min-h-0 max-h-[calc(100lvh-10rem)] flex-col items-center justify-center gap-3 rounded-md border border-border bg-surface p-10 text-center">
       <span aria-hidden="true" className="flex gap-2 text-ink-subtle">
         <Bot className="size-6" />
         <UserRound className="size-6" />

@@ -5,15 +5,31 @@ export const TRANSCRIPT_MESSAGE_FLASH_CLASS = "jts-message-flash";
 
 /**
  * Breathing room between the viewport top and the transcript pane when we pin
- * it. Flush-to-top felt cramped under the admin chrome.
+ * it on a wide screen. Flush-to-top felt cramped; there is no sticky chrome
+ * from `lg` up, so 16px is enough air.
  */
-const PANE_TOP_INSET_PX = 16;
+const PANE_TOP_INSET_WIDE_PX = 16;
+
+/**
+ * AdminShell's narrow sticky top bar is `min-h-[4.5rem]` (72px). Pin below
+ * that plus the same 16px air, or the chat tucks under the header and the
+ * cited message reads as "missing".
+ */
+const PANE_TOP_INSET_NARROW_PX = 72 + PANE_TOP_INSET_WIDE_PX;
 
 /** How far the pane may sit from that inset before we bother pinning. */
 const PANE_PIN_SLACK_PX = 48;
 
 /** Fallback if `scrollend` never fires (no movement, or older engines). */
 const FLASH_FALLBACK_MS = 450;
+
+const WIDE_VIEWPORT = "(min-width: 64rem)";
+
+function paneTopInsetPx(): number {
+  return window.matchMedia(WIDE_VIEWPORT).matches
+    ? PANE_TOP_INSET_WIDE_PX
+    : PANE_TOP_INSET_NARROW_PX;
+}
 
 /**
  * Sends the operator to the transcript message an attention reason cites —
@@ -22,8 +38,9 @@ const FLASH_FALLBACK_MS = 450;
  * `scrollIntoView` on the message walks every scrollable ancestor and used to
  * move the page on every press. The transcript already forbids that for
  * follow-bottom; this is the same rule for the attention link: pin the pane
- * with a little air under the viewport top if it has drifted, smooth-scroll
- * only inside the messages box, then flash the bubble and move focus there.
+ * with a little air under the viewport top (and under the sticky mobile
+ * header when it is present) if it has drifted, smooth-scroll only inside the
+ * messages box, then flash the bubble and move focus there.
  */
 export function revealTranscriptMessage(messageId: string): void {
   const element = document.getElementById(transcriptMessageAnchorId(messageId));
@@ -68,14 +85,21 @@ export function revealTranscriptMessage(messageId: string): void {
 }
 
 function pinPaneWithInset(pane: HTMLElement): void {
+  // The narrow-thread cover is already viewport-fixed — document scroll would
+  // only move the page underneath it.
+  if (getComputedStyle(pane).position === "fixed") {
+    return;
+  }
+
+  const inset = paneTopInsetPx();
   const top = pane.getBoundingClientRect().top;
-  if (Math.abs(top - PANE_TOP_INSET_PX) <= PANE_PIN_SLACK_PX) {
+  if (Math.abs(top - inset) <= PANE_PIN_SLACK_PX) {
     return;
   }
   // Document scroll only — never ask the message to scrollIntoView. Leave the
   // inset so the whole chat breathes under the page chrome instead of kissing
-  // the viewport edge.
-  const nextTop = window.scrollY + top - PANE_TOP_INSET_PX;
+  // the viewport edge (or sliding under the sticky mobile header).
+  const nextTop = window.scrollY + top - inset;
   window.scrollTo({ top: Math.max(0, nextTop), behavior: "auto" });
 }
 

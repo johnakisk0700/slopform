@@ -1110,7 +1110,10 @@ describe("attention reasons (why a conversation wants a person)", () => {
     expect(transcript).toContain("data-transcript-scroller");
     expect(transcript).toContain("data-transcript-bubble");
     expect(reveal).toContain("data-transcript-scroller");
-    expect(reveal).toContain("PANE_TOP_INSET_PX = 16");
+    // Wide: 16px air. Narrow: clear AdminShell's sticky `min-h-[4.5rem]` bar
+    // (72px) plus the same air, or the cited message lands under the header.
+    expect(reveal).toContain("PANE_TOP_INSET_WIDE_PX = 16");
+    expect(reveal).toContain("PANE_TOP_INSET_NARROW_PX = 72 + PANE_TOP_INSET_WIDE_PX");
     expect(reveal).toContain('behavior: "smooth"');
     expect(reveal).toContain("jts-message-flash");
     expect(styles).toContain("@keyframes jts-message-flash");
@@ -1145,12 +1148,14 @@ describe("attention reasons (why a conversation wants a person)", () => {
     );
 
     // Same min-height for open rows and the accordion summary, with a compact
-    // Dismiss — HeroUI has no xs size, so sm is shrunk by class.
+    // Dismiss — HeroUI has no xs size, so sm is shrunk by class. nowrap +
+    // truncate keeps Dismiss on the reason's line on a narrow phone.
     expect(block).toContain('className="flex flex-col gap-0.5"');
     expect(block).toContain(
-      "flex min-h-7 flex-wrap items-center justify-between gap-x-3",
+      "flex min-h-7 flex-nowrap items-center justify-between gap-x-3",
     );
-    expect(block).toContain("h-6 min-h-6 px-1.5 text-xs text-ink");
+    expect(block).toContain("min-w-0 truncate text-sm text-ink");
+    expect(block).toContain("h-6 min-h-6 shrink-0 px-1.5 text-xs text-ink");
   });
 
   it("collapses more than two unresolved reasons into one disclosure", () => {
@@ -2558,5 +2563,41 @@ describe("API contract boundary", () => {
     expect(closeBlock).toBeGreaterThan(-1);
     expect(details.slice(closeBlock, closeBlock + 80)).toContain("isIconOnly");
     expect(details).toContain('collapseLabelAt="sm"');
+  });
+
+  it("caps panes against the large viewport, not the dynamic one", () => {
+    const transcript = readSource(
+      "src/components/admin/feedback/ConversationTranscript.tsx",
+    );
+    const list = readSource(
+      "src/components/admin/feedback/ConversationList.tsx",
+    );
+
+    // `dvh` reflows when mobile browser chrome shows or hides; `lvh` stays put.
+    expect(transcript).toContain("max-h-[calc(100lvh-10rem)]");
+    expect(transcript).not.toContain("100dvh-10rem");
+    expect(list).toContain("lg:max-h-[calc(100lvh-10rem)]");
+    expect(list).not.toContain("100dvh-10rem");
+  });
+
+  it("covers the narrow thread as a fixed fullscreen on the same mount", () => {
+    const transcript = readSource(
+      "src/components/admin/feedback/ConversationTranscript.tsx",
+    );
+    const page = readSource("src/routes/FeedbackInboxPage.tsx");
+
+    // Same tree — no Modal remount that would drop a typed reply. Cover state
+    // is `?fullscreen=1` so platform back steps out before leaving the thread;
+    // open sits beside «Back to conversations», not next to Take over / Close.
+    expect(page).toContain('searchParams.get("fullscreen") === "1"');
+    expect(page).toContain('next.set("fullscreen", "1")');
+    expect(page).toContain("Open conversation fullscreen");
+    expect(page).toContain("Maximize2");
+    expect(page).toContain("isFullscreen={fullscreenOnNarrow}");
+    expect(transcript).toContain("Minimize2");
+    expect(transcript).toContain("Exit fullscreen conversation");
+    expect(transcript).toContain("fixed inset-0 z-50 h-lvh max-h-none");
+    expect(transcript).not.toContain("Maximize2");
+    expect(transcript).not.toContain('size="cover"');
   });
 });
