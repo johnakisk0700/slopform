@@ -299,26 +299,29 @@ the viewport. Two changes fixed that without a layout rework:
 
 - **The campaign header is two rows, not four.** It stacked the back link, an
   eyebrow, the title with its own actions row, and the campaign line —
-  ~230 px before the first message. Now the back link and the campaign actions
-  share the top line, the title and the campaign line share the second, and
-  the eyebrow is gone (the sidebar item and «Back to campaigns» already place
-  the page). `CampaignHeader` renders its own compact `h1` with the six-dot
-  title mark rather than `JtsPageHeader`, whose stacked
-  eyebrow/description/actions grammar is right for every other page and wrong
-  for a working surface. The back link itself is the shared `JtsBackLink`, so
-  the exit reads the same here as on every other detail screen — this header
-  decides only that it shares a line with the campaign's actions.
+  ~230 px before the first message. On a wide screen the back link and campaign
+  actions share the top line and the title spans the second; the eyebrow is gone
+  (the sidebar item and «Back to campaigns» already place the page). On a narrow
+  screen the DOM instead reads back link, `h1`, actions, so destructive controls
+  never precede the name of the campaign they affect; the `sm` grid placement
+  lifts only the actions back onto the top line. `CampaignHeader` renders its own
+  compact `h1` with the six-dot title mark rather than `JtsPageHeader`, whose
+  stacked eyebrow/description/actions grammar is right for every other page and
+  wrong for a working surface. The back link itself is the shared `JtsBackLink`,
+  so the exit reads the same here as on every other detail screen.
 - **The venue and the exceptions are not part of the title.** They started under
   it — the venue in a sunken box 8 px below the six-dot mark, the exceptions
   floating bottom-aligned beside it — which glued two facts about the _campaign_
   onto the page's nameplate and put a second bordered block where the eye is
-  still reading the heading. `CampaignContext` renders them instead as one bare
-  row, venue at one end and exceptions at the other, a full page gap (24 px)
-  under the title and one small gap (8 px) above `CampaignSummary`. The three
-  answer the same question — what is true about this campaign right now — and
-  now read as one band; the summary card keeps the only frame on it. When there
-  is no venue and nothing is wrong the row does not render at all, and the
-  transcript gets the height back.
+  still reading the heading. `CampaignContext` now owns one unfilled outline for
+  the whole standing-facts band: venue and exceptions flow left to right inside
+  it and wrap together on a narrow screen. The frame spans the working column,
+  matching the summary and panes below instead of stopping a few pixels short
+  when its content almost fills the row. It sits a full page gap (24 px) under
+  the header and on the same 16 px rhythm as `CampaignSummary`; the outline
+  states current context while the filled summary remains the heavier result.
+  When there is no venue and nothing is wrong the band does not render at all,
+  and the transcript gets the height back.
 - **The pane cap is viewport-anchored.** `66vh` gave the panes two thirds of
   the screen regardless of what the header actually used; with the header
   compressed to about 9 rem including the main padding, both panes now cap at

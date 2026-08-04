@@ -1,3 +1,4 @@
+import { buttonVariants } from "@heroui/react";
 import {
   BarChart3,
   FlaskConical,
@@ -49,81 +50,96 @@ export function CampaignHeader({
        can do to this campaign, and its name. The venue and the exceptions moved
        to `CampaignContext` below, because they answer «what is true about this
        campaign right now» — a question the summary card underneath also
-       answers, and the title does not. */
-    <div className="grid gap-2">
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-        {/* A back affordance, not a peer of the campaign's own actions: it
-            leaves this campaign rather than doing something to it. The shared
-            JtsBackLink, so this screen's exit is the one every other screen
-            has — the compact header only decides that it shares the actions'
-            line instead of standing on its own. */}
-        <JtsBackLink to="/admin/feedback">Back to campaigns</JtsBackLink>
+       answers, and the title does not.
 
-        <div className="flex flex-wrap items-center gap-3">
-          {campaign ? (
-            <Link
-              to={`/admin/feedback/${campaign.id}/results`}
-              className="inline-flex items-center gap-1.5 self-center text-sm font-semibold text-primary"
-            >
-              <BarChart3 aria-hidden="true" className="size-4 shrink-0" />
-              Results
-            </Link>
-          ) : null}
+       Grid rather than two stacked flex rows, because the order is not the same
+       at both sizes. Wide, the actions ride the back link's line and the title
+       spans under both. Narrow, three controls cannot share a 375px line with
+       the way out, and stacking them in that order put ~200px of buttons above
+       the title — the operator met «Close campaign» before learning which
+       campaign. Source order is back, title, actions; the `sm:` placement is
+       what lifts the actions back up beside the exit, so the DOM reads the way
+       the phone does and only the wide screen rearranges. */
+    <div className="grid gap-x-4 gap-y-3 sm:grid-cols-[1fr_auto] sm:items-center sm:gap-y-2">
+      {/* A back affordance, not a peer of the campaign's own actions: it
+          leaves this campaign rather than doing something to it. The shared
+          JtsBackLink, so this screen's exit is the one every other screen
+          has — the compact header only decides that it shares the actions'
+          line instead of standing on its own. */}
+      <JtsBackLink to="/admin/feedback">Back to campaigns</JtsBackLink>
 
-          {/* Reading the campaign's output and changing its state are two
-              different kinds of act; a hairline says so without a heading. */}
-          {campaign && campaign.status !== "closed" ? (
-            <span
-              aria-hidden="true"
-              className="hidden h-6 self-center border-l border-border sm:block"
-            />
-          ) : null}
-
-          {campaign?.status === "launched" ? (
-            <ConfirmAction
-              label="Pause campaign"
-              icon={<PauseCircle aria-hidden="true" className="size-4" />}
-              heading="Pause this campaign"
-              description="Queued messages stop going out until you resume. Conversations already open stay open, and replies still arrive."
-              confirmLabel="Pause campaign"
-              isPending={pausePending}
-              isDisabled={campaignBusy}
-              onConfirm={onPause}
-            />
-          ) : null}
-
-          {campaign?.status === "paused" ? (
-            <ConfirmAction
-              label="Resume campaign"
-              icon={<PlayCircle aria-hidden="true" className="size-4" />}
-              heading="Resume this campaign"
-              description="Queued messages start going out again, including anything held while the campaign was paused."
-              confirmLabel="Resume campaign"
-              isPending={resumePending}
-              isDisabled={campaignBusy}
-              onConfirm={onResume}
-            />
-          ) : null}
-
-          {campaign && campaign.status !== "closed" ? (
-            <ConfirmAction
-              label="Close campaign"
-              tone="danger"
-              icon={<SquareX aria-hidden="true" className="size-4" />}
-              heading="Close this campaign"
-              description="The kill switch: nothing further is sent and everything still queued is cancelled. Open conversations are left to STOP, expiry or a staff close. This cannot be undone."
-              confirmLabel="Close campaign"
-              isPending={closePending}
-              isDisabled={campaignBusy}
-              onConfirm={onClose}
-            />
-          ) : null}
-        </div>
-      </div>
-
-      <h1 className="jts-title-mark font-display text-[1.375rem] font-extrabold">
+      <h1 className="jts-title-mark font-display text-[1.375rem] font-extrabold sm:col-span-2 sm:row-start-2">
         {campaign?.eventTitle ?? "Feedback conversations"}
       </h1>
+
+      <div className="flex flex-wrap items-center gap-2 sm:col-start-2 sm:row-start-1 sm:justify-self-end sm:gap-3">
+        {campaign ? (
+          /* The same pill the two actions are cut from, in the lightest
+             variant. It used to be bare text beside them, which reads fine on
+             one wide line and badly on a wrapped narrow one: a text label and
+             a button label start at different offsets, so the column of
+             controls came out ragged. Same shape, different weight — the
+             hierarchy survives the alignment. */
+          <Link
+            to={`/admin/feedback/${campaign.id}/results`}
+            className={buttonVariants({ variant: "ghost", size: "sm" })}
+          >
+            <BarChart3 aria-hidden="true" className="size-4 shrink-0" />
+            Results
+          </Link>
+        ) : null}
+
+        {/* Reading the campaign's output and changing its state are two
+            different kinds of act; a hairline says so without a heading. Wide
+            only — on a wrapped row it would land at the start of a line and
+            divide nothing. */}
+        {campaign && campaign.status !== "closed" ? (
+          <span
+            aria-hidden="true"
+            className="hidden h-6 self-center border-l border-border sm:block"
+          />
+        ) : null}
+
+        {campaign?.status === "launched" ? (
+          <ConfirmAction
+            label="Pause campaign"
+            icon={<PauseCircle aria-hidden="true" className="size-4" />}
+            heading="Pause this campaign"
+            description="Queued messages stop going out until you resume. Conversations already open stay open, and replies still arrive."
+            confirmLabel="Pause campaign"
+            isPending={pausePending}
+            isDisabled={campaignBusy}
+            onConfirm={onPause}
+          />
+        ) : null}
+
+        {campaign?.status === "paused" ? (
+          <ConfirmAction
+            label="Resume campaign"
+            icon={<PlayCircle aria-hidden="true" className="size-4" />}
+            heading="Resume this campaign"
+            description="Queued messages start going out again, including anything held while the campaign was paused."
+            confirmLabel="Resume campaign"
+            isPending={resumePending}
+            isDisabled={campaignBusy}
+            onConfirm={onResume}
+          />
+        ) : null}
+
+        {campaign && campaign.status !== "closed" ? (
+          <ConfirmAction
+            label="Close campaign"
+            tone="danger"
+            icon={<SquareX aria-hidden="true" className="size-4" />}
+            heading="Close this campaign"
+            description="The kill switch: nothing further is sent and everything still queued is cancelled. Open conversations are left to STOP, expiry or a staff close. This cannot be undone."
+            confirmLabel="Close campaign"
+            isPending={closePending}
+            isDisabled={campaignBusy}
+            onConfirm={onClose}
+          />
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -135,22 +151,33 @@ interface CampaignContextProps {
 }
 
 /**
- * One line of standing context, between the title and the summary card.
+ * One framed line of standing context, between the title and the summary card.
  *
  * It used to hang off the title: the venue in a sunken box 8px under the six-dot
  * mark, the exceptions floating bottom-aligned beside it. That glued two facts
  * about the *campaign* onto the page's own nameplate, and put a second bordered
  * block directly under the mark where the eye is still reading the heading.
  *
- * Here it is a bare row — where the dinner was at one end, what is wrong at the
- * other — sitting one small gap above `CampaignSummary`, which answers the same
- * kind of question. The summary keeps the only frame on this band; a second
- * border around the venue would make two cards out of one thought.
+ * Then it was a bare row, venue at one end and exceptions at the other. Wide,
+ * that read; narrow, `justify-between` collapses to a stack, and the band came
+ * out as three different treatments in a row — an outlined venue, a bare status
+ * line, a filled summary card — which is what «κακάσχημη» was pointing at.
  *
- * One line on both ends, at the same size and the same muted weight. The venue
- * used to be a two-line block here, so `items-center` centred a 42px stack
- * against a 20px row and neither end agreed with the other; `VenueCompact` is
- * now a single line and the two share a centre line exactly.
+ * So the border belongs to the *band*, not to the venue inside it. One ghost
+ * frame, the facts flowing left to right and wrapping inside it, so the screen
+ * under the title is two objects at every width: what is true now, then the
+ * summary generated from it.
+ *
+ * Full width, and not the `w-fit` this was first drawn with. Hugging sounds
+ * right — a short band should not pretend to be a card — but the content here is
+ * long enough that it landed 900px into a 931px column: a 31px miss reads as a
+ * frame that failed to stretch, not as one that chose its size. It shares the
+ * column with everything else on the screen instead.
+ *
+ * Ghost and not filled: `CampaignSummary` directly under it is the filled one,
+ * and two filled blocks would make two cards out of one thought. That is also
+ * what keeps a venue-only campaign honest — a wide outline with one line in it
+ * is a status band, the same shape the collapsed summary under it takes.
  *
  * Nothing at all when there is no venue and no exception: a launched campaign
  * with everything running states itself with silence, and the transcript gets
@@ -173,16 +200,16 @@ export function CampaignContext({
   }
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
+    /* `gap-x-5` between the two groups against `gap-x-3` inside them: twice the
+       distance is what separates «where» from «what is wrong» here. A hairline
+       would say it more plainly, but this row wraps, and a wrapped rule lands at
+       the start of a line and divides nothing. */
+    <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-lg border border-border px-4 py-2">
       {venue ? (
         <section aria-label="Dinner venue" className="min-w-0">
           <VenueCompact venue={venue} />
         </section>
-      ) : (
-        /* Holds the left end so a lone exception stays on the right, where it
-           is in every other state of this screen. */
-        <span aria-hidden="true" />
-      )}
+      ) : null}
 
       {/* Exceptions only, and nothing when nothing is wrong. The counts that
           used to live here («N conversations · N open») restated what the

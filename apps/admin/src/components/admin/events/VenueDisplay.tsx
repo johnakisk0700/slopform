@@ -23,16 +23,16 @@ interface VenueDisplayProps {
  * this rendered. And two bare lines under a heading read as a weaker second
  * heading: loud enough to compete, plain enough to skip.
  *
- * So it is one 20px line inside a border. `items-center` does the centring
- * exactly and no margin has to be picked at all, which is the actual fix — a
- * nudged `mt-1` would only have been right until the type scale moved.
+ * So it is one 20px line. `items-center` does the centring exactly and no margin
+ * has to be picked at all, which is the actual fix — a nudged `mt-1` would only
+ * have been right until the type scale moved.
  *
- * Border and no fill, hugging its content rather than stretching. Both halves of
- * that matter. The fill is what makes a card, and a filled full-width block
- * above `CampaignSummary` would put two cards where the screen has one thought;
- * an outline that stops at its own text is an object on the page instead — the
- * venue can be picked out at a glance without being read as another panel. The
- * pin carries the accent so the frame does not have to shout.
+ * The emphasis is a copper pin and a full-strength name, not a frame. This spent
+ * a version carrying its own border, which worked on one wide row and fell apart
+ * on a phone: the frame stretched, the status line under it stayed bare, and the
+ * band read as three unrelated treatments stacked. The border moved out to
+ * whatever band renders this — `CampaignContext` on the feedback screen — so the
+ * frame belongs to the thought rather than to one fact inside it.
  *
  * The context that had its own line sits behind a hairline and truncates from
  * the end: the address is the first thing worth giving up when the row runs
@@ -48,11 +48,7 @@ export function VenueCompact({ venue }: VenueDisplayProps) {
   ].filter((value): value is string => Boolean(value));
 
   return (
-    /* `px-4` and not the tighter `px-3` a chip this size would take: on the
-       feedback screen this frame sits directly above `CampaignSummary`, whose
-       own padding is `px-4`, and the two leading glyphs — this pin, that
-       chevron — then stand on one vertical line instead of 4px apart. */
-    <div className="inline-flex min-w-0 max-w-full items-center gap-2.5 rounded-lg border border-border px-4 py-1.5 text-sm">
+    <div className="flex min-w-0 items-center gap-2.5 text-sm">
       <MapPin aria-hidden="true" className="size-4 shrink-0 text-primary" />
       <a
         href={googleMapsPlaceUrl(venue)}

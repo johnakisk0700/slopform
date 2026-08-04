@@ -1655,18 +1655,46 @@ describe("staff close reason", () => {
 });
 
 describe("inbox toolbar and orientation", () => {
-  it("reads «Back to campaigns» as a back affordance, not a campaign action", () => {
+  it("keeps the campaign name before its actions on mobile, then lifts the actions on wider screens", () => {
     const page = readSource("src/components/admin/feedback/CampaignHeader.tsx");
-    const header = page.slice(0, page.indexOf("<h1"));
+    const back = page.indexOf("<JtsBackLink");
+    const title = page.indexOf("<h1");
+    const results = page.indexOf("<Link", title);
+    const firstAction = page.indexOf("<ConfirmAction", results);
 
-    // It leaves the campaign, so it renders before the title through the one
-    // shared back affordance rather than among the ConfirmActions that operate
-    // on the campaign. The chevron and the wording come from JtsBackLink, so
-    // this header cannot drift away from the other detail screens.
-    expect(header).toContain(
+    // Mobile follows source order: leave, identify the campaign, then offer
+    // navigation/results and mutations. A destructive action must not be the
+    // first thing an operator meets before the campaign's own name.
+    expect(back).toBeGreaterThan(-1);
+    expect(back).toBeLessThan(title);
+    expect(title).toBeLessThan(results);
+    expect(results).toBeLessThan(firstAction);
+    expect(page).toContain(
       '<JtsBackLink to="/admin/feedback">Back to campaigns</JtsBackLink>',
     );
     expect(page).not.toContain("ChevronLeft");
+
+    // At `sm` only the visual grid changes: actions share the back-link row and
+    // the title spans the row below. DOM/focus order remains the mobile order.
+    expect(page).toContain(
+      'className="grid gap-x-4 gap-y-3 sm:grid-cols-[1fr_auto] sm:items-center sm:gap-y-2"',
+    );
+    expect(page).toContain("sm:col-span-2 sm:row-start-2");
+    expect(page).toContain("sm:col-start-2 sm:row-start-1 sm:justify-self-end");
+  });
+
+  it("keeps venue and exceptions inside one wrapping context frame", () => {
+    const page = readSource("src/components/admin/feedback/CampaignHeader.tsx");
+    const context = page.slice(page.indexOf("export function CampaignContext"));
+    const rootStart = context.indexOf("<div");
+    const root = context.slice(rootStart, context.indexOf(">", rootStart));
+
+    // The band owns one full-width ghost frame, and wrapping keeps all standing
+    // facts inside the same object on narrow screens.
+    expect(rootStart).toBeGreaterThan(-1);
+    expect(root).toContain("flex flex-wrap items-center");
+    expect(root).toContain("rounded-lg border border-border");
+    expect(root).not.toContain("justify-between");
   });
 
   it("puts the summary card on the same gap as every other card", () => {
