@@ -165,8 +165,14 @@ sequenceDiagram
   is security-critical. The sanitiser adds only `mark`, `kbd`, `sub` and `sup`
   to its default GitHub schema. Event handlers and scripts are removed.
 - Fenced `mermaid` is dynamically imported so Mermaid stays out of the initial
-  bundle. It uses `securityLevel: "strict"`; invalid source falls back to code,
-  and the existing `useTheme` store rerenders diagrams when light/dark changes.
+  bundle. It uses `securityLevel: "strict"` and Mermaid's `base` theme with
+  `themeVariables` / `themeCSS` resolved from `--jts-color-*` tokens at render
+  time (hex via canvas — Mermaid cannot parse `oklch()` / `color-mix()`).
+  Flowchart nodes may carry `:::decision|info|data|ok|risk|ext`; classDefs are
+  injected from status/brand tokens — sources never include `%%init%%`, `style`
+  or `classDef`. Invalid source falls back to code; `useTheme` rerenders when
+  light/dark changes. The same renderer powers the in-app feedback mechanism
+  map at `/admin/docs/feedback`.
 - Fenced `chart` accepts the small JSON bar/line/sparkline contract implemented
   by `AssistantChart`. Malformed source also falls back to code. Optional `max`
   is the top of the scale the values were measured on, so an average of 4.2 on a

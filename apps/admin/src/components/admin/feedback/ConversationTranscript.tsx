@@ -262,11 +262,13 @@ function TranscriptMessage({
       )}
       <div
         title={formatExactTimestamp(message.at)}
+        data-transcript-bubble
         className={clsx(
           "max-w-[min(42rem,85%)] rounded-lg px-3.5 py-2.5 text-sm",
-          attention
-            ? "rounded-bl-sm border border-warning-border bg-warning-soft text-ink"
-            : styles.bubble,
+          // Attention keeps the actor's normal bubble. Painting it warning-soft
+          // made the cited message and the attention strip the same slab — the
+          // labelled chips below already say why this one was flagged.
+          styles.bubble,
           // Dimmed until it reaches the participant. The line below carries the
           // same fact in words, so the opacity is a second reading of it rather
           // than the only one.
@@ -284,7 +286,7 @@ function TranscriptMessage({
              deciding whether to act. */
           <ul
             aria-label="Message attention signals"
-            className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-warning-border pt-2"
+            className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-border-subtle pt-2"
           >
             {attention.categories.map((category) => (
               <li key={category} className="flex">
@@ -456,6 +458,7 @@ export function ConversationTranscript({
   return (
     <section
       aria-labelledby={headingId}
+      data-transcript-pane
       /* Fill the grid cell beside the list (`h-full`) up to the shared
          viewport cap. The list stays content-sized (`self-start`); this pane
          stretches to meet it so a short thread is not a stub, without forcing
@@ -532,7 +535,11 @@ export function ConversationTranscript({
 
       {attention}
 
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+      <div
+        ref={scrollRef}
+        data-transcript-scroller
+        className="min-h-0 flex-1 overflow-y-auto px-5 py-4"
+      >
         {conversation.messages.length === 0 ? (
           <p className="py-8 text-center text-sm text-ink-muted">
             No messages yet. The intro is queued in the outbox.

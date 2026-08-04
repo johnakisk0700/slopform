@@ -54,7 +54,7 @@ consumer needs them.
 | `/admin/feedback/:campaignId`         | Three-pane post-event feedback conversation inbox                                                                                                                     | `noindex, nofollow`     |
 | `/admin/feedback/:campaignId/results` | Campaign answers and notes                                                                                                                                            | `noindex, nofollow`     |
 | `/admin/outbound`                     | Outbound feedback messages still waiting, with their job state                                                                                                        | `noindex, nofollow`     |
-| `/admin/docs/feedback`                | In-app explanation of the feedback mechanism (`FeedbackMechanismPage`)                                                                                                | `noindex, nofollow`     |
+| `/admin/docs/feedback`                | Operator map of post-event feedback (`FeedbackMechanismPage`): write-now/read-later, quiet window, STOP and where to intervene                                         | `noindex, nofollow`     |
 | `/admin/cookbook`                     | **Development builds only** — the visual vocabulary gallery ([contract](frontend/admin-cookbook.md)); gated on `import.meta.env.DEV`, so production has no such route | `noindex, nofollow`     |
 | `*`                                   | Standalone 404 (`routes/ErrorPage.tsx`)                                                                                                                               | Inherits private policy |
 

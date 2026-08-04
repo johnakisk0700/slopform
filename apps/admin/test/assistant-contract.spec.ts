@@ -574,6 +574,9 @@ describe("assistant route wiring", () => {
       'role="log"\n        aria-label="Assistant conversation"\n        aria-live',
     );
     expect(mermaid).toContain("import { useTheme }");
+    expect(mermaid).toContain("resolveMermaidPalette");
+    expect(mermaid).toContain("withMermaidRoleDefs");
+    expect(mermaid).toContain('theme: "base"');
     expect(mermaid).toContain("[chart, isDark, renderId]");
   });
 

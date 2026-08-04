@@ -95,6 +95,7 @@ stalled row the label exists to expose.
 | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | `src/features/feedback/labels.ts`            | Status vocabulary: tones, badges, delivery precedence, note origin, D18                                                                  |
 | `src/features/feedback/conversationView.ts`  | Progress, badge rows, search folding, ordering, grouping, selection, message anchor ids                                                  |
+| `src/features/feedback/revealTranscriptMessage.ts` | Pin the transcript pane, smooth-scroll the messages box, flash the cited bubble — never `scrollIntoView` on the message            |
 | `src/features/feedback/extractionStatus.ts`  | Greek copy over durable conversation automation                                                                                          |
 | `src/features/feedback/answerCorrections.ts` | Which control a recorded answer gets, the «corrected by» line, the withdrawal wording                                                    |
 | `src/features/feedback/directedAnswers.ts`   | The three person-shaped questions as a group: tone per question, what contradicts what, who is left to add, and what recording will cost |
@@ -238,21 +239,35 @@ flowchart LR
   (`transcriptMessageAnchorId` is the anchor both ends share) and carries a
   one-press Dismiss: no dialog and no note, because the operator has just read
   that message and a confirmation per reason is how a badge ends up never being
-  cleared. Resolved reasons are not shown, and the whole block is absent when
-  nothing is unresolved. A reason whose message is no longer in the 150-message
-  transcript keeps its sentence and drops the link rather than scrolling
-  nowhere, and so does a reason that never had one: a voice note the transcript
-  could not hold, a full document and a send that never went out are all about
-  something the transcript does not contain, which is the point of saying so.
+  cleared. The link never calls `scrollIntoView` on the message — that walked
+  document ancestors and yanked the page. `revealTranscriptMessage` pins the
+  transcript pane 16px under the viewport top when it has drifted (so the whole
+  chat breathes under the page chrome), smooth-scrolls only inside
+  `[data-transcript-scroller]` to centre the cited message, focuses the row,
+  and runs a one-shot `.jts-message-flash` pulse on the bubble (warning tokens;
+  static tint under `prefers-reduced-motion`). Rows stay as dense as the
+  collapsed disclosure (shared min-height, compact ghost Dismiss — HeroUI has
+  no xs size, so sm is shrunk by class) with a hairline gap so adjacent
+  controls do not touch. More than two unresolved reasons collapse into one
+  native disclosure («N things need attention») so a stack of alerts does not
+  out-size the transcript; one or two stay open. Resolved reasons are not
+  shown, and the whole block is absent when nothing is unresolved. A reason
+  whose message is no longer in the 150-message transcript keeps its sentence
+  and drops the link rather than scrolling nowhere, and so does a reason that
+  never had one: a voice note the transcript could not hold, a full document
+  and a send that never went out are all about something the transcript does
+  not contain, which is the point of saying so.
 - **The cited message is explicit.** Participant messages with `attention`
-  metadata replace their normal bubble fill with the warning surface and render
-  labelled chips below the testimony. Categories and actions are fixed mappings,
-  never model-authored copy: `sexual_misconduct` is `🍌 Sexual misconduct`, and
-  human follow-up actions use the Lucide bell plus readable text. Colour and
-  symbols only reinforce the labels. The chips are one row of equal-height flex
-  items: the action icon is the chip's own child rather than a flex layer
-  nested inside its label, because that layer made the icon the chip's baseline
-  and left the action sitting 2.5px above the categories beside it.
+  metadata keep their normal actor bubble and render labelled chips below the
+  testimony — the fill is not swapped for the warning surface, because that is
+  already the attention strip above and two warning slabs in one pane stop
+  being read. Categories and actions are fixed mappings, never model-authored
+  copy: `sexual_misconduct` is `🍌 Sexual misconduct`, and human follow-up
+  actions use the Lucide bell plus readable text. Colour and symbols only
+  reinforce the labels. The chips are one row of equal-height flex items: the
+  action icon is the chip's own child rather than a flex layer nested inside
+  its label, because that layer made the icon the chip's baseline and left the
+  action sitting 2.5px above the categories beside it.
 - **D18 everywhere.** Any unresolved participant id renders
   `«άγνωστος συμμετέχων»` in italics — respondents, answer subjects and note
   subjects alike. Raw UUIDs never reach the screen.

@@ -99,9 +99,11 @@ reads better — slots and children over config objects.
   and the small-screen top bar) must source every internal id from `useId`.
 - `prefers-reduced-motion` collapses animation; the only motion is the 200ms
   opacity/8px-rise page entrance (which already respects it), HeroUI's own
-  transitions and the shared `jts-breathe` wait (`.assistant-thinking`,
-  `.jts-pending`). WCAG AA holds in both themes because the tokens are pre-verified —
-  another reason hardcoding color is banned.
+  transitions, the shared `jts-breathe` wait (`.assistant-thinking`,
+  `.jts-pending`), and the one-shot `.jts-message-flash` pulse when an
+  attention reason reveals its cited transcript message. WCAG AA holds in both
+  themes because the tokens are pre-verified — another reason hardcoding color
+  is banned.
 
 ## Types, routes and environment
 

@@ -1,14 +1,10 @@
 import {
   Ban,
-  Boxes,
   ClipboardCheck,
   Compass,
   Eye,
-  GitFork,
   LifeBuoy,
-  MessageSquareReply,
   Route,
-  ShieldCheck,
   Timer,
   type LucideIcon,
 } from "lucide-react";
@@ -17,7 +13,18 @@ import { Link } from "react-router";
 
 import { AssistantMarkdown } from "../components/admin/assistant/AssistantMarkdown";
 import { AssistantMermaid } from "../components/admin/assistant/AssistantMermaid";
+import { ConversationAttention } from "../components/admin/feedback/ConversationAttention";
+import { ConversationActions, ReadingStatus } from "../components/admin/feedback/ConversationDetails";
+import { FeedbackBadges } from "../components/admin/feedback/FeedbackBadges";
 import { JtsPageHeader } from "../components/ui/JtsPageHeader";
+import {
+  specimenActionsConversation,
+  specimenAttentionConversation,
+  specimenConversationBadges,
+  specimenOutboxBadges,
+  specimenParkedReadingConversation,
+  specimenReadingConversation,
+} from "../features/feedback/mechanismSpecimens";
 import { usePageMeta } from "../lib/usePageMeta";
 
 /**
@@ -36,7 +43,7 @@ import { usePageMeta } from "../lib/usePageMeta";
 export function FeedbackMechanismPage() {
   usePageMeta(
     "How feedback works",
-    "The post-event feedback mechanism end to end: durable state, four queue contracts, the dispatcher and the failure paths.",
+    "Post-event feedback end to end: what is written immediately, what waits to be read, and where operators look when a conversation needs a human.",
   );
 
   return (
@@ -44,7 +51,7 @@ export function FeedbackMechanismPage() {
       <JtsPageHeader
         eyebrow="Post-event feedback"
         title="Πώς δουλεύει το feedback"
-        description="Ο χάρτης του μηχανισμού που μαζεύει τα σχόλια μετά το δείπνο: τι κάνει κάθε βήμα, γιατί περιμένει πριν απαντήσει, και τι μένει πίσω όταν κάτι σπάσει."
+        description="Ο χάρτης του μηχανισμού μετά το δείπνο: τι γράφεται αμέσως, γιατί ο bot περιμένει πριν μιλήσει και πού κοιτάς όταν σηκωθεί σημαία για άνθρωπο."
       />
 
       <Section id="overview" title="Με δύο λόγια" Icon={Compass}>
@@ -54,99 +61,130 @@ export function FeedbackMechanismPage() {
       <Section id="path" title="Η διαδρομή ενός μηνύματος" Icon={Route}>
         <Prose>{"### Από το μήνυμα στη συζήτηση"}</Prose>
         <Diagram
-          chart={INBOUND_SEQUENCE}
-          caption="Το εισερχόμενο μήνυμα, από το WhatsApp μέχρι τη συζήτηση."
+          chart={INBOUND_CHART}
+          caption="Το μήνυμα γράφεται σχεδόν αμέσως· η ανάγνωση ακολουθεί αργότερα."
         />
         <Prose>{PATH_INBOUND}</Prose>
         <Prose wide>{MATERIALIZE_OUTCOMES}</Prose>
-        <Prose>{PATH_INBOUND_ORDER}</Prose>
+        <Prose>{PATH_INBOUND_TAIL}</Prose>
         <Prose>{"### Το τρέξιμο που διαβάζει"}</Prose>
         <Diagram
-          chart={EXTRACTION_SEQUENCE}
-          caption="Ένα τρέξιμο extract: τι ρωτάει, τι επικυρώνει, τι γράφει."
+          chart={EXTRACT_CHART}
+          caption="Ο reconciler αποφασίζει από την τρέχουσα κατάσταση, όχι από την εντολή της ουράς."
         />
         <Prose>{PATH_EXTRACTION}</Prose>
         <Prose>{"### Από τη γραμμή στο τηλέφωνο"}</Prose>
         <Diagram
-          chart={SEND_SEQUENCE}
-          caption="Ο dispatcher κάνει durable claim, σημαδεύει το attempt και στέλνει χωρίς BullMQ hop."
+          chart={SEND_CHART}
+          caption="Πριν από το WhatsApp: claimed. Μετά το attempting: καμία τυφλή επανάληψη."
         />
         <Prose>{PATH_SEND}</Prose>
-      </Section>
-
-      <Section
-        id="queues"
-        title="Τέσσερις λωρίδες, όχι μία ουρά"
-        Icon={GitFork}
-      >
-        <Diagram
-          chart={QUEUES_CHART}
-          caption="Ποια δουλειά κάθεται σε ποια ουρά."
-        />
-        <Prose>{QUEUES}</Prose>
-      </Section>
-
-      <Section id="jobs" title="Οι τέσσερις συμβάσεις" Icon={Boxes}>
-        <Prose>{JOBS_INTRO}</Prose>
+        <Prose>{LANES}</Prose>
         <Prose wide>{JOBS_TABLE}</Prose>
-        <Prose>{JOBS_IDS}</Prose>
-        <Prose>{JOBS_FAILURES}</Prose>
-        <Prose>{JOBS_OUTRO}</Prose>
       </Section>
 
-      <Section id="window" title="Το ήσυχο παράθυρο" Icon={Timer}>
+      <Section id="window" title="Γιατί περιμένει" Icon={Timer}>
         <Prose>{WINDOW}</Prose>
-        <Prose>{"### Οι έξοδοι πριν την κλήση στο μοντέλο"}</Prose>
         <Diagram
           chart={SKIP_CHART}
-          caption="Κάθε έλεγχος διαβάζεται φρέσκος από τη βάση, όχι από την ουρά."
+          caption="Κάθε έξοδος διαβάζεται φρέσκια από τη βάση, όχι από την ουρά."
         />
-        <Prose>{WINDOW_EXITS}</Prose>
         <Prose wide>{WINDOW_EXITS_TABLE}</Prose>
-        <Prose>{WINDOW_EXITS_NOTE}</Prose>
       </Section>
 
       <Section
-        id="goals"
-        title="Μια ετυμηγορία για κάθε στόχο"
+        id="record-reply"
+        title="Τι καταγράφει και τι λέει πίσω"
         Icon={ClipboardCheck}
       >
-        <Prose>{GOALS}</Prose>
-      </Section>
-
-      <Section id="answer" title="Τι λέει πίσω ο bot" Icon={MessageSquareReply}>
+        <Prose>{RECORD}</Prose>
         <Diagram
           chart={OUTBOUND_DECISION_CHART}
-          caption="Ποιο κείμενο φεύγει, και ποιος το αποφασίζει."
+          caption="Ο κώδικας διαλέγει το κείμενο· το μοντέλο προτείνει, δεν αποφασίζει."
         />
-        <Prose>{ANSWER}</Prose>
+        <Prose>{REPLY}</Prose>
       </Section>
 
-      <Section id="stop" title="STOP και αποχώρηση" Icon={Ban}>
+      <Section id="you" title="STOP" Icon={Ban}>
         <Prose>{STOP}</Prose>
       </Section>
 
-      <Section id="fallback" title="Όταν πεθάνει το διάβασμα" Icon={LifeBuoy}>
-        <Prose>{FALLBACK_INTRO}</Prose>
+      <Section id="breaks" title="Όταν κάτι σπάσει" Icon={LifeBuoy}>
+        <Prose>{BREAKS}</Prose>
         <Diagram
           chart={FALLBACK_CHART}
-          caption="Τι μένει πίσω από ένα τρέξιμο που δεν μπόρεσε να τελειώσει."
+          caption="Οριστική αποτυχία: άνθρωπος. Προσωρινή: αναμονή και νέα προσπάθεια."
         />
-        <Prose>{FALLBACK}</Prose>
-      </Section>
-
-      <Section id="guards" title="Οι φρουροί" Icon={ShieldCheck}>
         <Prose>{GUARDS}</Prose>
       </Section>
 
       <Section id="where" title="Πού το βλέπεις" Icon={Eye}>
-        <Prose>{WHERE}</Prose>
+        <Prose>{WHERE_INTRO}</Prose>
+        <Specimen
+          title="Στη λίστα συνομιλιών"
+          note="Η σειρά είναι NEEDS ATTENTION → OPEN → CLOSED. Το solid badge είναι αυτό που δεν πρέπει να προσπεράσεις."
+        >
+          <FeedbackBadges badges={specimenConversationBadges()} size="md" />
+        </Specimen>
+        <Specimen
+          title="Σημαία προσοχής"
+          note="Κάθε λόγος έχει δικό του Dismiss. Το δείγμα δεν καλεί API — πάτα Dismiss και δεν αλλάζει τίποτα εδώ."
+        >
+          <div className="overflow-hidden rounded-md border border-border bg-surface">
+            <ConversationAttention
+              conversation={specimenAttentionConversation()}
+              dismissingReasonId={null}
+              onDismiss={async () => undefined}
+            />
+          </div>
+        </Specimen>
+        <Specimen
+          title="ΑΝΑΓΝΩΣΗ"
+          note="Το μόνο σημείο που εξηγεί γιατί αργεί η απάντηση. Πρώτα το συνηθισμένο «περιμένει το παράθυρο», μετά το parked."
+        >
+          <div className="flex flex-col gap-3">
+            <ReadingStatus
+              conversation={specimenReadingConversation()}
+              campaignStatus="launched"
+            />
+            <ReadingStatus
+              conversation={specimenParkedReadingConversation()}
+              campaignStatus="launched"
+            />
+          </div>
+        </Specimen>
+        <Specimen
+          title="Take over / Close"
+          note="Όσο κρατάς εσύ τον έλεγχο — ή η καμπάνια είναι σε pause — η αυτοματοποίηση σταματάει επίτηδες. Τα κουμπιά ανοίγουν το κανονικό confirm· τίποτα δεν στέλνεται από αυτή τη σελίδα."
+        >
+          <ConversationActions
+            conversation={specimenActionsConversation()}
+            pendingAction={null}
+            onTakeOver={async () => undefined}
+            onResumeBot={async () => undefined}
+            onClose={async () => undefined}
+          />
+        </Specimen>
+        <Specimen
+          title="Outbound queue"
+          note="Αδελφή οθόνη για παράδοση. Το ambiguous σημαίνει «μην ξαναστείλεις στα τυφλά»."
+        >
+          <FeedbackBadges badges={specimenOutboxBadges()} size="md" />
+        </Specimen>
+        <Prose>{WHERE_OUTRO}</Prose>
         <p className="text-sm text-ink-muted">
           <Link
             to="/admin/feedback"
             className="font-semibold text-primary underline decoration-primary/40 underline-offset-2 hover:decoration-primary"
           >
             Άνοιγμα των καμπανιών feedback
+          </Link>
+          {" · "}
+          <Link
+            to="/admin/outbound"
+            className="font-semibold text-primary underline decoration-primary/40 underline-offset-2 hover:decoration-primary"
+          >
+            Outbound queue
           </Link>
         </p>
       </Section>
@@ -226,705 +264,340 @@ function Diagram({ chart, caption }: { chart: string; caption: string }) {
   );
 }
 
-const INBOUND_SEQUENCE = `sequenceDiagram
-  autonumber
-  actor P as Συμμετέχων
-  participant WA as WhatsApp
-  participant API as API
-  participant PG as PostgreSQL
-  participant QI as feedback-ingress
-  participant M as Materializer
-  participant MG as MongoDB
-  participant QC as feedback-conversation
+/**
+ * Live inbox chrome on the mechanism map: the same components the operator
+ * already uses, fed with static specimens so the page stays offline and honest.
+ */
+function Specimen({
+  title,
+  note,
+  children,
+}: {
+  title: string;
+  note: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-border bg-surface px-4 py-3">
+      <div className="flex flex-col gap-0.5">
+        <p className="text-sm font-semibold text-ink">{title}</p>
+        <p className="text-xs text-ink-muted">{note}</p>
+      </div>
+      <div className="min-w-0">{children}</div>
+    </div>
+  );
+}
 
-  P->>WA: «βάζω 4, ο Νίκος ήταν φοβερός»
-  WA->>API: webhook
-  API->>PG: μία γραμμή ingress
-  API->>QI: feedback.materialize.v1
-  API-->>WA: 200
-  QI->>M: αναλαμβάνει
-  M->>MG: γράφει το μήνυμα στη συζήτηση
-  M->>MG: revision + 1, nextActionAt από το current state
-  M->>QC: wake-up της συζήτησης
-  M->>PG: σφραγίζει τη γραμμή ως materialized`;
+const INBOUND_CHART = `flowchart LR
+  WA["Μήνυμα WhatsApp"]:::ext --> Hook["Webhook"]:::info
+  Hook --> Ingress[("Παραλαβή στη βάση")]:::data
+  Hook --> Mat["Καταχώριση"]:::info
+  Mat --> Talk[("Συζήτηση")]:::data
+  Mat --> Wake["Ξύπνημα reconciler"]:::info`;
 
-const EXTRACTION_SEQUENCE = `sequenceDiagram
-  autonumber
-  participant QC as feedback-conversation
-  participant X as Reconciler
-  participant MG as MongoDB
-  participant AI as Μοντέλο
-  participant PG as PostgreSQL
+const EXTRACT_CHART = `flowchart LR
+  Wake["Ξύπνημα"]:::info --> Plan{"Τι ορίζει η κατάσταση;"}:::decision
+  Plan -->|"αναμονή"| Wait["Περιμένει"]:::info
+  Plan -->|"ανάγνωση"| AI["Μοντέλο"]:::ext
+  AI --> Check{"Έγκυρη πρόταση;"}:::decision
+  Check -->|"ναι"| Out[("Αποτελέσματα και outbox")]:::data
+  Check -->|"όχι"| Soft["Νέα ερώτηση ή σιωπή"]:::risk`;
 
-  QC->>X: feedback.reconcile-conversation.v2
-  X->>MG: ξαναδιαβάζει current state και revision
-  X->>X: planner → idle, wait, extract, reminder ή expiry
-  X->>PG: lease και monotonic execution epoch
-  X->>MG: δέχεται το epoch μόνο αν το revision είναι ακόμα due
-  X->>PG: καμπάνια, ζωντανοί υποψήφιοι, ό,τι έχει καταγραφεί
-  X->>AI: συζήτηση με ετικέτες, ερωτήσεις, υποψήφιοι
-  AI-->>X: ετυμηγορία ανά στόχο, σημειώσεις, απάντηση
-  X->>X: επικυρώνει την πρόταση
-  X->>MG: τελευταίος έλεγχος πριν δεσμεύσει απάντηση
-  X->>PG: απαντήσεις, σημειώσεις, μία γραμμή εξερχομένων
-  X->>MG: γράφει την απάντηση του bot
-  X->>MG: στόχοι, προσοχή, δείκτης, επόμενο durable work`;
-
-const SEND_SEQUENCE = `sequenceDiagram
-  autonumber
-  participant D as Dispatcher
-  participant PG as PostgreSQL
-  participant WA as WhatsApp
-  actor P as Συμμετέχων
-
-  D->>PG: claim μιας pending γραμμής
-  D->>PG: ξαναδιαβάζει καμπάνια, συζήτηση, consent και τηλέφωνο
-  D->>PG: γράφει attempting πριν το εξωτερικό side effect
-  D->>WA: στέλνει το κείμενο
-  WA->>P: το μήνυμα φτάνει
-  alt καθαρή απάντηση
-    D->>PG: sent ή failed, provider id, attempt count
-  else άγνωστο αποτέλεσμα ή crash
-    D->>PG: ambiguous — κανένα blind resend
-  end`;
-
-const QUEUES_CHART = `flowchart LR
-  W["Webhook"] --> QI["ουρά feedback-ingress"]
-  QI --> MJ["materialize · χιλιοστά"]
-  MJ --> QC["ουρά feedback-conversation"]
-  QC --> RC["reconcile · μία μετάβαση current state"]
-  QM["ουρά feedback-maintenance"] --> RP["repair · ξαναδημοσίευση durable work"]
-  QS["ουρά feedback-summary"] --> SM["summary · μεγάλη κλήση μοντέλου"]
-  PG[("PostgreSQL outbox")] --> DP["dispatcher · απευθείας αποστολή"]`;
+const SEND_CHART = `flowchart LR
+  Row[("Outbox")]:::data --> Claim["Δέσμευση · claimed"]:::info
+  Claim --> Ok{"Επιτρέπεται ακόμη;"}:::decision
+  Ok -->|"όχι"| Mute["Ακύρωση αποστολής"]:::risk
+  Ok -->|"ναι"| Go["Απόπειρα · attempting"]:::info
+  Go --> WA["WhatsApp"]:::ext
+  WA --> Done["Εστάλη ή απέτυχε"]:::ok
+  WA --> Amb["Άγνωστο αποτέλεσμα"]:::risk`;
 
 const SKIP_CHART = `flowchart TD
-  A["Το durable work γίνεται due"] --> B{"Επιτρέπεται να δράσει ο bot;"}
-  B -->|"όχι"| X1["skipped_closed · human_control · awaiting_human"]
-  B -->|"ναι"| C{"Υπάρχει κάτι νέο να διαβάσει;"}
-  C -->|"όχι"| X2["skipped_cursor · no_new_testimony"]
-  C -->|"ναι"| D{"Τελείωσε η ριπή;"}
-  D -->|"όχι"| X3["skipped_still_typing"]
-  D -->|"ναι"| E{"Το revision είναι ακόμα current;"}
-  E -->|"όχι"| X4["reload και νέο nextActionAt"]
-  E -->|"ναι"| F["Fenced claim και κλήση στο μοντέλο"]`;
+  Due["Ώρα για ανάγνωση"]:::info --> Bot{"Μπορεί να μιλήσει ο bot;"}:::decision
+  Bot -->|"όχι"| Stop["Κλειστή ή σε άνθρωπο"]:::risk
+  Bot -->|"ναι"| New{"Υπάρχει νέα μαρτυρία;"}:::decision
+  New -->|"όχι"| Idle["Καμία νέα μαρτυρία"]:::info
+  New -->|"ναι"| Quiet{"Σταμάτησε να γράφει;"}:::decision
+  Quiet -->|"όχι"| Wait["Περιμένει"]:::info
+  Quiet -->|"ναι"| Run["Δέσμευση και μοντέλο"]:::ok`;
 
 const OUTBOUND_DECISION_CHART = `flowchart TD
-  A["Η ετυμηγορία επικυρώθηκε"] --> B{"Επείγον περιστατικό, χωρίς αίτημα για άνθρωπο;"}
-  B -->|"ναι"| Z["Σιωπή. Η συζήτηση περιμένει άνθρωπο"]
-  B -->|"όχι"| C{"Με προτεραιότητα, τι ισχύει;"}
-  C -->|"ζήτησε άνθρωπο"| H["Ουδέτερο κείμενο handoff"]
-  C -->|"έκλεισαν όλοι οι στόχοι"| K["Κείμενο κλεισίματος, η συζήτηση κλείνει"]
-  C -->|"απορρίφθηκε απάντηση"| R["Ξαναρωτάει με τα λόγια της καμπάνιας"]
-  C -->|"τίποτα από τα πάνω"| M["Η απάντηση του μοντέλου"]
-  H --> L["Τελευταίος έλεγχος πριν φύγει"]
-  K --> L
-  R --> L
-  M --> L`;
+  Ready["Έγκυρη ετυμηγορία"]:::ok --> Urgent{"Επείγον χωρίς αίτημα ανθρώπου;"}:::decision
+  Urgent -->|"ναι"| Silence["Σιωπή και αναμονή ανθρώπου"]:::risk
+  Urgent -->|"όχι"| Pick{"Ποια απάντηση προηγείται;"}:::decision
+  Pick -->|"άνθρωπος"| Hand["Ουδέτερη ενημέρωση"]:::info
+  Pick -->|"ολοκλήρωση"| Close["Κλείσιμο"]:::ok
+  Pick -->|"διόρθωση"| Ask["Ερώτηση της καμπάνιας"]:::info
+  Pick -->|"αλλιώς"| Model["Απάντηση μοντέλου"]:::ext
+  Hand --> Last["Τελικός έλεγχος"]:::decision
+  Close --> Last
+  Ask --> Last
+  Model --> Last`;
 
 const FALLBACK_CHART = `flowchart TD
-  A["Η ενέργεια extract αποτυγχάνει"] --> B{"Μόνιμη άρνηση ή προσωρινό συμβάν παρόχου;"}
-  B -->|"προσωρινό"| R["parked durable work με επόμενο έλεγχο"]
-  B -->|"οριστικό"| F["Εναλλακτική διαδικασία"]
-  F --> N["Μία απλή σημείωση, χωρίς χαρακτηρισμό"]
-  F --> K["Ένα σύντομο μήνυμα με την τρέχουσα ερώτηση"]
-  F --> S["needsAttention, audit, μία ειδοποίηση"]
-  F --> Q["Η αιτία μένει στο audit"]`;
+  Fail["Αποτυχία ανάλυσης"]:::risk --> Kind{"Προσωρινή ή οριστική;"}:::decision
+  Kind -->|"προσωρινή"| Park["Αναμονή και νέα προσπάθεια"]:::info
+  Kind -->|"οριστική"| Human["Σημείωση, σημαία και αναμονή ανθρώπου"]:::risk`;
 
 const OVERVIEW = `
-Όταν ένα δείπνο τελειώσει, ανοίγουμε μια συζήτηση στο WhatsApp με κάθε
-συμμετέχοντα που ήταν παρών και έχει δώσει άδεια. Ο bot ρωτάει τέσσερα
-πράγματα: βαθμολογία για τη βραδιά, ποιους συμπάθησε, ποιους θα ξανάβλεπε,
-ποιους καλύτερα όχι. Ό,τι απαντήσει γίνεται δομημένη εγγραφή στη βάση — μια
-**απάντηση** ή μια **σημείωση** — και η εγγραφή έχει κατεύθυνση: «η Ρούλα είπε
-αυτό για τον Κώστα». Αν αντιστρέψεις τα δύο ονόματα, αλλάζει το νόημα.
+Όταν τελειώσει ένα δείπνο, ανοίγουμε συζήτηση στο WhatsApp με κάθε συμμετέχοντα
+που ήταν παρών και έχει δώσει άδεια. Ο bot ρωτάει έξι πράγματα, με αυτή τη
+σειρά: βαθμολογία βραδιάς, πόσο ταίριαξε το τραπέζι, πόσο εύκολα μπήκε στη
+συζήτηση, πόσο ισορροπημένη την ένιωσε, ποιους θα ξανάβλεπε και ποιους θα
+προτιμούσε να μην πετύχει σε μελλοντικό τραπέζι. Κάθε απάντηση γίνεται δομημένη
+εγγραφή — **απάντηση** ή **σημείωση** — με κατεύθυνση: «η Ρούλα είπε αυτό για
+τον Κώστα». Αν γυρίσεις τα ονόματα ανάποδα, αλλάζεις το νόημα. Οι απαντήσεις
+είναι **εμπιστευτικές, όχι ανώνυμες**: μένουν δεμένες με αυτόν που μίλησε και,
+όπου υπάρχει, με το πρόσωπο για το οποίο μίλησε.
 
-Κράτα ένα πράγμα, γιατί εξηγεί σχεδόν όλη την πολυπλοκότητα: **το μήνυμα
-γράφεται αμέσως, αλλά διαβάζεται αργότερα.** Μόλις φτάσει, μπαίνει στη συζήτηση
-σε χιλιοστά του δευτερολέπτου. Το διάβασμα από το μοντέλο — αυτό που βγάζει τις
-απαντήσεις και γράφει την επόμενη ερώτηση — τρέχει σαν ξεχωριστή δουλειά, με
-καθυστέρηση, επίτηδες.
+Κράτα αυτό, γιατί ξεμπερδεύει σχεδόν όλο το κουβάρι: **γράφουμε αμέσως,
+διαβάζουμε αργότερα.** Το μήνυμα μπαίνει στη συζήτηση σχεδόν αμέσως — μέσω
+μιας γρήγορης δουλειάς, όχι μέσω του μοντέλου. Η ανάγνωση από το μοντέλο —
+αυτή που βγάζει αποτελέσματα και γράφει την επόμενη ερώτηση — είναι ξεχωριστή
+δουλειά και καθυστερεί επίτηδες.
 
-Τρία πράγματα αξίζει να τα ξεχωρίζεις, γιατί συνεχώς μπερδεύονται:
+Τρία πράγματα να μην μπερδεύονται:
 
-- **Η συζήτηση** ζει στη MongoDB. Είναι το ιστορικό των μηνυμάτων και η
-  κατάστασή της — ανοιχτή ή κλειστή, bot ή άνθρωπος, πόσοι στόχοι απαντήθηκαν.
-- **Τα αποτελέσματα** ζουν στην PostgreSQL. Απαντήσεις, σημειώσεις, γραμμές
-  εισερχομένων, γραμμές εξερχομένων, audit.
-- **Η δουλειά που εκκρεμεί** αποτυπώνεται μαζί με τη συζήτηση: revision,
-  επόμενη ενέργεια και τυχόν ενεργή ανάθεση. Το BullMQ είναι κουδούνι που
-  ξυπνάει worker, όχι τρίτη εκδοχή της αλήθειας.
-
-Υπάρχουν τέσσερις συμβάσεις ουράς επειδή έχουν διαφορετικό κόστος και τρόπο
-κλιμάκωσης. Δεν υπάρχει job ανά business βήμα. Η αποστολή στο WhatsApp δεν
-περνάει καθόλου από BullMQ: ένας dispatcher διαβάζει το μόνιμο outbox απευθείας.
+- **Η συζήτηση** ζει στη MongoDB: ιστορικό μηνυμάτων, ανοιχτή ή κλειστή, bot ή
+  άνθρωπος, πόσοι στόχοι απαντήθηκαν και ποια δουλειά εκκρεμεί (revision και
+  επόμενη ενέργεια).
+- **Τα αποτελέσματα** ζουν στην PostgreSQL: απαντήσεις, σημειώσεις, εισερχόμενα,
+  εξερχόμενα και audit.
+- **Το BullMQ είναι κουδούνι**, όχι τρίτη αλήθεια. Ξυπνάει έναν εργάτη· η
+  απόφαση βγαίνει πάντα από την τρέχουσα κατάσταση στις βάσεις. Η αποστολή στο
+  WhatsApp δεν περνάει από ουρά: ο dispatcher διαβάζει απευθείας το μόνιμο
+  outbox.
 `;
 
 const PATH_INBOUND = `
-**Το webhook κάνει τρία πράγματα και τίποτε άλλο.** Ελέγχει την υπογραφή,
-γράφει μία γραμμή στον πίνακα \`provider_message_ingress\`, βάζει μία δουλειά
-στην ουρά, απαντάει 200. Δεν ψάχνει σε ποια συζήτηση ανήκει το μήνυμα, δεν καλεί
-μοντέλο, δεν στέλνει τίποτα. Ο λόγος είναι ότι το webhook έχει προθεσμία: ο
-πάροχος περιμένει απάντηση, και ό,τι κάνουμε μέσα σε αυτό το παράθυρο είναι
-ρίσκο. Ομαδικές συνομιλίες και ό,τι δεν είναι προσωπικό μήνυμα δεν αποθηκεύονται
-καθόλου.
+**Το webhook κάνει τρία πράγματα και μέχρι εκεί.** Ελέγχει την υπογραφή, γράφει
+μία γραμμή στον πίνακα \`provider_message_ingress\`, βάζει μία δουλειά στην ουρά
+και απαντάει 200. Δεν ψάχνει σε ποια συζήτηση ανήκει το μήνυμα, δεν καλεί
+μοντέλο, δεν στέλνει τίποτα. Αν η ουρά δεν δεχτεί τη δουλειά, απαντάμε 503 —
+για να ξαναστείλει ο πάροχος, όχι για να κάνουμε πως δεν είδαμε το μήνυμα που
+κόλλησε.
 
-**Η γραμμή στη βάση είναι η απόδειξη ότι το λάβαμε.** Είναι μοναδική στο ζεύγος
-«ποια συνομιλία» + «ποιο μήνυμα του παρόχου», άρα μια διπλή αποστολή από τον
-πάροχο δεν γράφει δεύτερη γραμμή. Αν το WhatsApp ξαναστείλει το ίδιο id με
-*διαφορετικά λόγια* — δηλαδή ο συμμετέχων διόρθωσε αυτό που έγραψε — κρατάμε τη
-δεύτερη εκδοχή σε δική της γραμμή και σηκώνουμε σημαία για άνθρωπο. Το «ο Κώστας
-ήταν χάλια» που διορθώθηκε σε «ο Κώστας τελικά ήταν οκ» αφορά πραγματικό
-άνθρωπο· ούτε να σβήσουμε το πρώτο ούτε να αγνοήσουμε το δεύτερο είναι δική μας
-απόφαση.
+**Η γραμμή στη βάση είναι η απόδειξη παραλαβής.** Είναι μοναδική στο ζεύγος
+chat του παρόχου + id μηνύματος. Αν το WhatsApp ξαναστείλει το ίδιο id με
+*άλλα λόγια* — διόρθωση — κρατάμε και τις δύο εκδοχές και σηκώνουμε σημαία για
+άνθρωπο.
 
-**Πρώτα η γραμμή, μετά η ουρά.** Αν η ουρά δεν πάρει τη δουλειά, απαντάμε 503
-αντί για 200. Ένα 200 θα έκρυβε ένα μήνυμα που κόλλησε· ένα 503 καλεί τον πάροχο
-να ξαναστείλει. Η γραμμή μένει \`pending\` και έχει και δεύτερο δίχτυ, το
-\`feedback.maintenance.v2\` πιο κάτω.
-
-**Το materialize είναι το βήμα που γράφει στη συζήτηση.** Ξαναδιαβάζει τη γραμμή
-και αποφασίζει τι είναι αυτό το μήνυμα:
+**Το materialize γράφει το μήνυμα στη συζήτηση.** Ξαναδιαβάζει τη γραμμή και
+αποφασίζει τι ακριβώς έφτασε:
 `;
 
 const MATERIALIZE_OUTCOMES = `
 | Τι βρήκε | Τι κάνει |
 | --- | --- |
-| Η γραμμή είναι ήδη κλεισμένη | Τίποτα. Αυτή είναι η διαδρομή της επανάληψης |
-| Το τηλέφωνο δεν ταιριάζει σε καμία συζήτηση | Κρατάει το κείμενο στη γραμμή και φωνάζει άνθρωπο στα logs. Δεν το αποδίδει σε κανέναν |
-| Το τηλέφωνο ταιριάζει σε **κλειστή** συζήτηση | Γράφει το μήνυμα στη συζήτηση, σηκώνει σημαία, δεν βάζει διάβασμα. Εξαίρεση: αν η συζήτηση είχε κλείσει με STOP, κρατάμε μόνο τα μεταδεδομένα |
-| Μήνυμα STOP | Κλείνει τη συζήτηση, ακυρώνει ό,τι περιμένει να σταλεί, αποσύρει τη συγκατάθεση, στέλνει μία επιβεβαίωση |
+| Η γραμμή είναι ήδη κλεισμένη | Τίποτα. Η επανάληψη τη βγάζει καθαρή χωρίς δεύτερη εγγραφή |
+| Το τηλέφωνο δεν ταιριάζει σε καμία συζήτηση | Κρατάει το κείμενο στη γραμμή και καλεί άνθρωπο στα logs. Δεν το φορτώνει σε κανέναν |
+| Το τηλέφωνο ταιριάζει σε **κλειστή** συζήτηση | Γράφει το μήνυμα στη συζήτηση, σηκώνει σημαία και δεν προγραμματίζει ανάγνωση. Αν είχε κλείσει με STOP, κρατάμε μόνο τα μεταδεδομένα |
+| Μήνυμα STOP | Κλείνει τη συζήτηση, ακυρώνει ό,τι περιμένει να σταλεί, αποσύρει τη συγκατάθεση και στέλνει μία επιβεβαίωση |
 | Κανονική απάντηση | Γράφει το μήνυμα, αυξάνει το durable revision και ξυπνάει τον reconciler |
 | Μήνυμα χωρίς κείμενο — φωνητικό, φωτογραφία, αντίδραση | Σηκώνει σημαία και λέει **μία φορά** στον συμμετέχοντα ότι δεν μπορούμε να το διαβάσουμε |
-| Δικό μας εξερχόμενο που γύρισε από τον πάροχο | Ενημερώνει μόνο την κατάσταση παράδοσης. Το κείμενο το έχει γράψει ήδη η γραμμή εξερχομένων |
-| Εξερχόμενο που **δεν** είναι δικό μας | Περνάει τη συζήτηση σε ανθρώπινο χειρισμό και σωπαίνει τον bot |
+| Δικό μας εξερχόμενο που επέστρεψε από τον πάροχο | Ενημερώνει μόνο την κατάσταση παράδοσης. Το κείμενο υπάρχει ήδη στη γραμμή εξερχομένων |
+| Εξερχόμενο που **δεν** είναι δικό μας | Περνάει τη συζήτηση σε ανθρώπινο χειρισμό και ο bot σωπαίνει |
 `;
 
-const PATH_INBOUND_ORDER = `
-**Η σειρά είναι πάντα MongoDB πρώτα, PostgreSQL τελευταία.** Κάθε βήμα πριν τη
-σφραγίδα είναι idempotent — αν το ξανακάνεις, δεν αλλάζει τίποτα. Άρα μια
-διακοπή στη μέση ξανατρέχει και καταλήγει στο ίδιο σημείο, αντί να χάσει ή να
-διπλασιάσει κάτι. Η σφραγίδα είναι ένα \`SELECT ... FOR UPDATE\` πάνω στη
-γραμμή: δύο ταυτόχρονες εκτελέσεις της ίδιας δουλειάς καταλήγουν σε ένα audit,
-μία ακύρωση, μία επιβεβαίωση.
-
-Και μια λεπτομέρεια που σώζει λόγια: αν το κείμενο δεν χωράει στο όριο των 4096
-χαρακτήρων της συζήτησης, κόβεται **μόνο** το αντίγραφο που εμφανίζεται, και
-σηκώνεται σημαία. Ολόκληρο το μήνυμα μένει στη γραμμή της βάσης. Μια αποκοπή που
-δεν την λέει κανείς διαβάζεται από την οθόνη σαν πλήρες μήνυμα, και η ουρά του
-μηνύματος είναι εκεί που ο κόσμος βάζει αυτό που έφτασε να πει.
+const PATH_INBOUND_TAIL = `
+Αν το κείμενο ξεπερνάει το όριο της συζήτησης, κόβεται **μόνο** το αντίγραφο που
+εμφανίζεται και σηκώνεται σημαία. Ολόκληρο το μήνυμα μένει στη γραμμή της βάσης
+— γιατί το ζουμί βρίσκεται συχνά εκεί που ο κόσμος μόλις πρόλαβε να φτάσει.
 `;
 
 const PATH_EXTRACTION = `
-**Ο reconciler δεν εμπιστεύεται την εντολή της ουράς.** Ξαναδιαβάζει τη
-συζήτηση και από το current state παράγει μία απόφαση: τίποτα, αναμονή μέχρι το
-quiet window, extraction συγκεκριμένου snapshot, reminder ή expiry. Ένα παλιό
-wake-up είναι ακίνδυνο· αν το revision έχει αλλάξει, δεν καλεί μοντέλο και δεν
-προσπαθεί να αναπαραστήσει το παρελθόν από ένα stale payload.
+**Ο reconciler δεν παίρνει την εντολή της ουράς τοις μετρητοίς.** Ξαναδιαβάζει
+τη συζήτηση και, από την τρέχουσα κατάσταση, βγάζει **μία** απόφαση: τίποτα,
+αναμονή, extraction, reminder ή expiry. Ένα παλιό ξύπνημα δεν κάνει ζημιά· αν
+το revision έχει αλλάξει, μοντέλο δεν καλείται.
 
-**Το extraction κάνει δύο κλήσεις στο μοντέλο, παράλληλα.** Η πρώτη παίρνει όλη τη
-συζήτηση με ετικέτες — «αυτό το είπε ο bot, αυτό ο συμμετέχων, αυτό ένας
-συνάδελφος» — τα κείμενα των ερωτήσεων, τους ζωντανούς υποψήφιους και ό,τι έχει
-ήδη καταγραφεί· επιστρέφει ετυμηγορία για κάθε στόχο, σημειώσεις, την επόμενη
-ερώτηση και μια απάντηση. Η δεύτερη είναι ανεξάρτητη ταξινόμηση προσοχής:
-βλέπει μόνο τα έξι μηνύματα πριν τη νέα ριπή συν τη ριπή, και επιστρέφει μία
-κρίση για **κάθε** νέο μήνυμα. Δεν βλέπει ερωτηματολόγιο και δεν βλέπει
-υποψήφιους — δουλειά της είναι μόνο το «πρέπει να το δει άνθρωπος αυτό;».
+**Το extraction ξεκινάει με δύο παράλληλες κλήσεις στο μοντέλο.** Η πρώτη
+παίρνει τη συζήτηση με ετικέτες, τα κείμενα των ερωτήσεων, τους ζωντανούς
+υποψήφιους και ό,τι έχει ήδη καταγραφεί· επιστρέφει ετυμηγορία ανά στόχο,
+σημειώσεις και πρόταση απάντησης. Η δεύτερη ταξινομεί ανεξάρτητα την προσοχή:
+βλέπει μόνο τα πρόσφατα μηνύματα και ρωτάει «πρέπει να το δει άνθρωπος;». Αν
+πρέπει να φύγει κανονική απάντηση του μοντέλου, μπορεί να ακολουθήσει και μια
+τρίτη, ελαφριά κλήση που την ξαναγράφει σε πιο φυσικά ελληνικά.
 
-**Οι υποψήφιοι επιλέγονται τώρα, όχι στην εκκίνηση.** Η συζήτηση δεν αποθηκεύει
-λίστα προσώπων. Αν διορθώσεις την παρουσία σε ένα δείπνο, η διόρθωση φτάνει στο
-επόμενο διάβασμα. Κάθε γραμμή που γράφεται κρατάει τα ids των υποψηφίων *εκείνης
-της στιγμής*, γιατί αλλιώς δεν θα μπορούσες ποτέ να εξηγήσεις γιατί ένα όνομα
-δεν αναγνωρίστηκε.
+**Οι υποψήφιοι επιλέγονται τώρα, όχι στην εκκίνηση.** Αν διορθώσεις την παρουσία
+σε ένα δείπνο, η διόρθωση πιάνει από την επόμενη ανάγνωση. Κάθε γραμμή κρατάει
+τα ids των υποψηφίων *εκείνης της στιγμής*.
 
-**Τίποτα από το μοντέλο δεν γράφεται όπως ήρθε.** Πριν την πρώτη εγγραφή, ο
-κώδικας ελέγχει ότι κάθε μήνυμα που επικαλείται υπάρχει σε *αυτή* τη συζήτηση,
-ότι το είπε ο συμμετέχων και όχι ο bot ή ο συνάδελφος, ότι τουλάχιστον μια πηγή
-είναι μέσα στο νέο παράθυρο, ότι το κλειδί της ερώτησης και ο τύπος της
-σημείωσης επιτρέπονται, ότι το υποκείμενο είναι πραγματικός υποψήφιος και δεν
-είναι ο ίδιος ο ομιλητής, και ότι δεν ξαναγράφεται κάτι που υπάρχει. Ένα
-επινοημένο id ή μια επινοημένη πηγή είναι απορριφθείσα πρόταση, όχι εγγραφή.
+**Τίποτα από το μοντέλο δεν γράφεται όπως κατέβηκε.** Πριν από την πρώτη
+εγγραφή, ο κώδικας ελέγχει ids μηνυμάτων, πηγές, επιτρεπόμενα κλειδιά,
+υποψήφιους και διπλότυπα. Επινοημένο id σημαίνει απορριφθείσα πρόταση, όχι
+εγγραφή.
 
 **Το extraction σταματάει στη γραμμή εξερχομένων.** Δεν στέλνει. Γράφει μία
-γραμμή στον \`message_outbox\`, κάνει checkpoint το snapshot και υπολογίζει από
-το φρέσκο state τι μένει ακόμα να γίνει.
+γραμμή στον \`message_outbox\` και υπολογίζει, από τη φρέσκια κατάσταση, τι
+μένει ακόμα.
 `;
 
 const PATH_SEND = `
-Ο **dispatcher** διαβάζει απευθείας την PostgreSQL. Κλειδώνει bounded batch με
-\`FOR UPDATE SKIP LOCKED\` και βάζει κάθε γραμμή σε \`claimed\`. Αυτό το στάδιο
-είναι ασφαλές να ανακτηθεί: δεν έχει ξεκινήσει εξωτερικό side effect.
-
-Ακριβώς πριν καλέσει το WhatsApp γράφει \`attempting\` και αυξάνει τον μόνιμο
-μετρητή προσπαθειών. Από εκεί και μετά **δεν υπάρχει αυτόματο reclaim**. Αν ο
-πάροχος απαντήσει καθαρά, η γραμμή γίνεται \`sent\` ή \`failed\`. Αν το αποτέλεσμα
-είναι άγνωστο — timeout ή crash αφού ο πάροχος μπορεί να παρέλαβε — γίνεται
-\`ambiguous\` και περιμένει reconciliation. Το να ξαναστείλεις στα τυφλά δεν
-είναι retry policy· είναι duplicate generator με γραβάτα.
-
-Τα δύο μισά — extraction και αποστολή — δεν μιλάνε ποτέ απευθείας: μια πρόταση
-του μοντέλου φτάνει σε τηλέφωνο μόνο αφού μια μόνιμη γραμμή στη βάση πέρασε από
-τους ελέγχους. Μια αποστολή που ο πάροχος **αρνήθηκε** σηκώνει σημαία
-στη συζήτηση, όχι μόνο στη γραμμή: από την οθόνη, κάποιος που «σώπασε» μετά από
-ερώτηση που ποτέ δεν του στάλθηκε είναι ίδιος με κάποιον που τη διάβασε και δεν
-απάντησε — και αυτό είναι ακριβώς η διαφορά που ανοίγει κανείς το inbox για να
-δει.
+Ο **dispatcher** διαβάζει απευθείας την PostgreSQL. Κλειδώνει μια pending γραμμή
+ως \`claimed\` — στάδιο που ανακτάται με ασφάλεια. Ακριβώς πριν καλέσει το
+WhatsApp γράφει \`attempting\`. Από εκεί και πέρα **αυτόματο reclaim δεν
+παίζει**. Καθαρή απάντηση → \`sent\` ή \`failed\`. Άγνωστο αποτέλεσμα →
+\`ambiguous\`, χωρίς αποστολή στα τυφλά. Διπλό απολογητικό μήνυμα είναι χειρότερο
+από ένα κολλημένο badge.
 `;
 
-const QUEUES = `
-Κάθε λωρίδα έχει ένα είδος κόστους:
+const LANES = `
+### Τέσσερις λωρίδες, ένας dispatcher
 
-- \`feedback-ingress\`: μόνο materialize, γρήγορο I/O και υψηλή παραλληλία.
-- \`feedback-conversation\`: reconcile μίας συζήτησης, με το deployment-wide
-  όριο του AI provider και fenced claim ανά conversation.
-- \`feedback-summary\`: μεγάλα campaign-wide AI runs, χαμηλή παραλληλία ώστε να
-  μη νοικιάζουν τις θέσεις των συνομιλιών.
-- \`feedback-maintenance\`: bounded repair scans. Δεν καλεί μοντέλο και δεν
-  στέλνει· ξαναδημοσιεύει μόνο δουλειά που αποδεικνύεται από durable state.
-
-Ο PostgreSQL outbox dispatcher είναι πέμπτη runtime λωρίδα, αλλά όχι BullMQ
-contract. Έχει δικό του pacing και κλιμακώνεται ανεξάρτητα μόνο όταν το κοινό
-WhatsApp session μπορεί να συντονιστεί σε επίπεδο deployment.
-
-Στη μεταβατική έκδοση παραμένει και η παλιά ουρά \`feedback\`, μόνο ως drain και
-validation bridge για retained δουλειές παλιότερου deploy. Τα current-state
-paths δεν παράγουν νέα δουλειά εκεί· ο bridge φεύγει μετά από μία πλήρη περίοδο
-διατήρησης. Άρα το steady state έχει τέσσερα BullMQ contracts, ενώ το rollout
-έχει προσωρινά μία επιπλέον φυσική ουρά. Glamorous δεν είναι, αλλά είναι τίμιο.
-
-Ο λόγος του χωρισμού είναι απλός. Το γράψιμο ενός μηνύματος στη συζήτηση είναι
-χιλιοστά. Ένα AI run κρατάει θέση δεκάδες δευτερόλεπτα. Σε μία κοινή ουρά, η
-γρήγορη δουλειά κληρονομεί τον χρόνο της αργής και το delivery περιμένει πίσω
-από tokens που δεν το αφορούν.
-
-Μια πρόβα με **δεκαοχτώ ταυτόχρονες συζητήσεις** μέτρησε τι κοστίζει αυτό: 52
-κλήσεις στον πάροχο κατανάλωσαν **2340 από τα 2364 δευτερόλεπτα-θέσης** που
-υπήρχαν, και 45 εισερχόμενα μηνύματα έφτασαν στη συζήτηση με **118 δευτερόλεπτα
-καθυστέρηση κατά μέσο όρο, και 296 στη χειρότερη περίπτωση**.
-
-Τρία πράγματα από κάτω υποθέτουν ότι αυτό δεν συμβαίνει, και τα τρία χάλασαν
-σιωπηλά:
-
-- το ήσυχο παράθυρο μαζεύει ό,τι έχει **ήδη γραφτεί** στη συζήτηση·
-- οι φρουροί που ακυρώνουν μια ξεπερασμένη απάντηση συγκρίνουν με τη συζήτηση·
-- η οθόνη του χειριστή τα δείχνει με σειρά χρόνου.
-
-Αποτέλεσμα: ο bot ρωτούσε πράγματα που ο συμμετέχων είχε ήδη απαντήσει, και ένα
-μήνυμα που ελήφθη στις 11:41 εμφανιζόταν *κάτω* από μια ερώτηση που έγινε στις
-11:42, επειδή γράφτηκε μετά από αυτήν.
-
-Η σειρά μιας συζήτησης δεν βασίζεται σε process concurrency 1. Το ingress
-κρατιέται FIFO ανά chat, ενώ ο reconciler αποκτά fenced claim για συγκεκριμένο
-revision. Άρα περισσότερα worker replicas αυξάνουν throughput μεταξύ
-συζητήσεων χωρίς να επιτρέπουν σε δύο από αυτά να κάνουν valid commit στην ίδια.
-`;
-
-const JOBS_INTRO = `
-Τέσσερις συμβάσεις δουλειάς, τέσσερις λωρίδες. Κάθε φορτίο περιέχει **μόνο
-ταυτότητες** και ένα \`correlationId\` — ποτέ κείμενο μηνύματος, τηλέφωνο ή
-διαπιστευτήρια. Ο worker ξαναδιαβάζει current state από τις βάσεις.
+Χωρίζουμε τη δουλειά επειδή το γράψιμο ενός μηνύματος στη συζήτηση παίρνει
+χιλιοστά, ενώ ένα τρέξιμο AI κρατάει θέση για δεκάδες δευτερόλεπτα. Σε μία κοινή
+ουρά, η γρήγορη δουλειά τρώει την καθυστέρηση της αργής — και ο bot καταλήγει να
+ρωτάει όσα ο συμμετέχων έχει ήδη απαντήσει.
 `;
 
 const JOBS_TABLE = `
-| Δουλειά | Ουρά | Ποιος τη βάζει | Τι κάνει |
-| --- | --- | --- | --- |
-| \`feedback.materialize.v1\` | \`feedback-ingress\` | Το webhook και το maintenance repair | Γράφει το inbound FIFO, εφαρμόζει STOP/delivery receipt και ενημερώνει το durable work |
-| \`feedback.reconcile-conversation.v2\` | \`feedback-conversation\` | Κάθε relevant state change και το maintenance repair | Παράγει από current state **μία** ενέργεια: wait, extract, reminder, expiry ή τίποτα |
-| \`feedback.summarize-campaign.v2\` | \`feedback-summary\` | Αίτημα χειριστή, auto-summary και recovery | Παράγει campaign summary χωρίς να κρατάει conversation ή delivery slot |
-| \`feedback.maintenance.v2\` | \`feedback-maintenance\` | Ένα bounded χρονοπρόγραμμα | Βρίσκει pending ingress, due conversations, ληγμένα claims και stranded summaries και ξαναδημοσιεύει intent |
-`;
+| Δουλειά | Ουρά | Τι κάνει |
+| --- | --- | --- |
+| \`feedback.materialize.v1\` | \`feedback-ingress\` | Γράφει το εισερχόμενο, εφαρμόζει STOP ή ενημέρωση παράδοσης και ενημερώνει το durable work |
+| \`feedback.reconcile-conversation.v2\` | \`feedback-conversation\` | Διαλέγει από την τρέχουσα κατάσταση μία ενέργεια: wait, extract, reminder, expiry ή τίποτα |
+| \`feedback.summarize-campaign.v2\` | \`feedback-summary\` | Βγάζει σύνοψη καμπάνιας χωρίς να κρατάει θέση συζήτησης ή παράδοσης |
+| \`feedback.maintenance.v2\` | \`feedback-maintenance\` | Βρίσκει pending ingress, due conversations και ξεχασμένη δουλειά και ξαναδημοσιεύει το intent |
 
-const JOBS_IDS = `
-Η ταυτότητα αποτρέπει άχρηστα διπλότυπα στο Redis· η ορθότητα δεν εξαρτάται από
-αυτήν:
-
-- **materialize** — \`feedback-materialize-v1-<ingressId>\`
-- **reconcile** — conversation id + durable revision
-- **summary** — campaign id + generation attempt
-- **maintenance** — μία σταθερή scheduler identity
-
-Το κρίσιμο ζεύγος είναι \`revision / processed revision\` στη μόνιμη κατάσταση.
-Αν ένα wake-up χαθεί ή καθαριστεί, το maintenance το ξαναφτιάχνει. Αν φτάσουν
-δέκα wake-ups, ο planner βλέπει ένα current state και τα εννέα γίνονται no-op.
-`;
-
-const JOBS_FAILURES = `
-Και αυτό συμβαίνει όταν κάτι πάει στραβά:
-
-- **materialize** — 5 προσπάθειες, εκθετική αναμονή από 1 δευτερόλεπτο. Άγνωστο
-  όνομα δουλειάς, χαλασμένο φορτίο, λάθος ταυτότητα, χαμένη γραμμή ή
-  απορριφθείσα επανάληψη είναι **οριστικά** και δεν ξαναδοκιμάζονται: η δεύτερη
-  προσπάθεια θα έπαιρνε την ίδια απόρριψη.
-- **reconcile** — ένα transient provider incident παρκάρει το durable work με
-  συγκεκριμένο \`nextActionAt\`; οριστική αποτυχία περνάει από τη ντετερμινιστική
-  fallback. Το BullMQ retry δεν είναι η μνήμη του συμβάντος.
-- **summary** — το pending attempt μένει στη βάση. Αν χαθεί το enqueue, το
-  maintenance το ξαναδημοσιεύει αντί να αφήσει αιώνιο \`pending\`.
-- **maintenance** — κάθε υποσάρωση είναι bounded και απομονωμένη. Αποτυχία στο
-  summary recovery δεν εμποδίζει ingress ή conversation repair.
-- **dispatcher** — πριν το provider call ένα ληγμένο \`claimed\` ανακτάται με
-  ασφάλεια. Μετά το \`attempting\`, άγνωστο αποτέλεσμα γίνεται \`ambiguous\` και
-  **δεν** ξαναστέλνεται αυτόματα.
-`;
-
-const JOBS_OUTRO = `
-Προσοχή σε ένα λεπτό σημείο: μια σταθερή ταυτότητα εμποδίζει το διπλότυπο **μόνο
-όσο η δουλειά είναι ακόμα στο Redis**. Μόλις καθαριστεί, η ίδια ταυτότητα
-επιτρέπεται ξανά. Γι' αυτό τα checkpoints, τα monotonic revisions, τα fenced
-claims και τα outbox dedupe keys ζουν στις βάσεις. Το Redis επιταχύνει· δεν
-αποφασίζει τι χρωστάει το σύστημα.
+Η αποστολή δεν είναι δουλειά BullMQ: ο dispatcher διαβάζει απευθείας το μόνιμο outbox.
+Κάθε φορτίο ουράς κουβαλάει **μόνο ταυτότητες** — ο εργάτης ξαναδιαβάζει τις βάσεις.
 `;
 
 const WINDOW = `
-Το WhatsApp γράφεται, δεν υπαγορεύεται. Μια σκέψη έρχεται συχνά σε κομμάτια:
-«τον Νίκο τον βρήκα» … «πολύ καλό, 5». Αν ανοίξεις τρέξιμο στο πρώτο κομμάτι,
-πληρώνεις μια κλήση στο μοντέλο, απαντάς σε μισή πρόταση, και το άλλο μισό
-πρέπει μετά να το καταλάβεις χωρίς την αρχή του.
+Το WhatsApp γράφεται, δεν υπαγορεύεται. Μια σκέψη έρχεται συχνά σε δόσεις:
+«τον Νίκο τον βρήκα» … «πολύ καλό, 5». Αν ξεκινήσεις τρέξιμο στο πρώτο κομμάτι,
+πληρώνεις κλήση, απαντάς σε μισή πρόταση και μετά προσπαθείς να καταλάβεις το
+υπόλοιπο χωρίς την αρχή.
 
-Γι' αυτό κάθε νέο participant message μετακινεί το durable \`nextActionAt\` σε
-**45 δευτερόλεπτα μετά το τελευταίο μήνυμα**. Είναι rolling debounce: δεν
-υπάρχει ένα positional extract job ανά μήνυμα, υπάρχει μία συζήτηση που δηλώνει
-πότε επιτρέπεται να ξαναδουλευτεί. Το webhook, η γραμμή ingress και το
-materialize μένουν άμεσα, γιατί αυτά γεμίζουν το current state.
+Γι' αυτό κάθε νέο μήνυμα μετακινεί το \`nextActionAt\` σε **45 δευτερόλεπτα μετά
+το τελευταίο μήνυμα**. Είναι κυλιόμενο παράθυρο: όσο ο συμμετέχων συνεχίζει, το
+ρολόι ξαναρχίζει. Το webhook και το materialize παραμένουν άμεσα, γιατί αυτά
+γεμίζουν τη συζήτηση που βλέπεις.
 
-Γιατί 45 και όχι 12: το παράθυρο μαζεύει με βάση **πόσο κρατάει** η ριπή, όχι
-πόσα μηνύματα έχει. Στα 12 δευτερόλεπτα, κάποιος που στέλνει ένα κομμάτι κάθε 20
-δευτερόλεπτα άνοιγε τρέξιμο — και έπαιρνε απάντηση — για κάθε ένα. Τα 45
-καλύπτουν κανονικό ρυθμό γραφής. Όσο συνεχίζει να στέλνει, το ίδιο durable ρολόι
-μετακινείται. Η καθυστέρηση εδώ δεν κοστίζει σε ορθότητα, άρα ο αριθμός μπορεί
-να ανέβει αν η πραγματική κίνηση το ζητήσει.
-
-### Το διπλό check πριν καούν tokens
-
-Ένα wake-up μπορεί να ωριμάσει ενώ νεότερο μήνυμα έχει ήδη μετακινήσει το
-\`nextActionAt\`. Ο reconciler ξαναδιαβάζει current state στην αρχή και ακριβώς
-πριν το provider call. Αν το revision άλλαξε ή δεν έχει λήξει το quiet window,
-αφήνει τον δείκτη εκεί που τον βρήκε και προγραμματίζει το current revision.
-
-Αν νέο μήνυμα φτάσει **αφού** ξεκίνησε το provider call, τα tokens που έχουν ήδη
-καταναλωθεί δεν επιστρέφονται. Το run κάνει checkpoint μόνο το snapshot που
-διάβασε, κρατάει έγκυρα answers/notes, κόβει την ξεπερασμένη κανονική απάντηση
-και αφήνει το νεότερο revision due. Αυτό είναι cost containment, όχι μαγεία.
-`;
-
-const WINDOW_EXITS = `
-Οι αποφάσεις που τελειώνουν χωρίς provider call, με αυτή τη σειρά:
+Πριν καεί έστω ένα token, ο reconciler ξαναδιαβάζει την τρέχουσα κατάσταση.
+Οι έξοδοι χωρίς κλήση στο μοντέλο:
 `;
 
 const WINDOW_EXITS_TABLE = `
 | Έξοδος | Πότε |
 | --- | --- |
-| closed / cancelled | Η συζήτηση έκλεισε στο μεταξύ. Ένα STOP βγάζει τον reconciler εδώ χωρίς provider call |
+| closed / cancelled | Η συζήτηση έκλεισε στο μεταξύ |
 | human control | Συνάδελφος ανέλαβε τη συζήτηση |
-| awaiting human | Ο bot υποσχέθηκε άνθρωπο, ή διάβασε κάτι που δεν πρέπει να απαντήσει, και περιμένει |
-| already checkpointed | Νεότερο valid commit κάλυψε ήδη το ίδιο revision/snapshot |
-| not due | Ο συμμετέχων μίλησε μέσα στο quiet window· το \`nextActionAt\` μετακινείται |
-| no new testimony | Η συζήτηση μεγάλωσε μόνο με bot/staff μήνυμα· ο δείκτης προχωράει χωρίς μοντέλο |
+| awaitingHuman | Ο bot υποσχέθηκε άνθρωπο ή διάβασε κάτι στο οποίο δεν πρέπει να απαντήσει |
+| already checkpointed | Νεότερο έγκυρο commit έχει ήδη καλύψει το ίδιο revision |
+| not due | Ο συμμετέχων μίλησε μέσα στο παράθυρο ησυχίας |
+| no new testimony | Η συζήτηση μεγάλωσε μόνο με μήνυμα του bot ή του προσωπικού |
 `;
 
-const WINDOW_EXITS_NOTE = `
-Καμία από αυτές τις εξόδους δεν είναι υπόθεση για την ουρά: όλες διαβάζονται
-φρέσκες από τη βάση, γιατί η δουλειά μπορεί να περίμενε πίσω από ένα STOP, από
-μια ανάληψη συναδέλφου ή από νεότερο τρέξιμο.
+const RECORD = `
+Το μοντέλο επιστρέφει **μία υποχρεωτική ετυμηγορία για κάθε στόχο** του
+ερωτηματολογίου της καμπάνιας. Στις νέες καμπάνιες αυτό σημαίνει έξι κλειδιά.
+Κάθε ετυμηγορία είναι μία από τέσσερις: \`answered\`, \`declined\`,
+\`not_addressed\`, \`already_settled\`. Οι απαντήσεις ενός στόχου είναι λίστα —
+«ο Νίκος, η Ελένη και η Άννα» γίνονται τρεις κατευθυνόμενες ακμές από μία
+πρόταση.
 
-Το no-new-testimony branch είναι το πιο διακριτικό, και είναι επίσης η καθαρή
-επανάληψη ενός run που είχε ήδη τελειώσει: η δική του απάντηση είναι το μόνο που
-πρόσθεσε στη συζήτηση.
+Η σκάλα των στόχων συνήθως ανεβαίνει: \`pending < asked < skipped < answered\`.
+Εξαίρεση: ένα \`skipped\` μπορεί να ξαναγίνει \`asked\` αν ο bot πρέπει να
+ξαναρωτήσει. \`answered\` δεν γυρίζει πίσω. Αν κάποιος αλλάξει γνώμη *για
+πρόσωπο*, η νέα απάντηση καθαρίζει τις ασυμβίβαστες για το ίδιο πρόσωπο — π.χ.
+\`avoid\` καθαρίζει \`meet_again\`. Διαφορετική τιμή για κάτι ήδη καταγεγραμμένο
+δεν περνάει στα μουλωχτά· σηκώνει σημαία.
 `;
 
-const GOALS = `
-Το μοντέλο επιστρέφει μία **υποχρεωτική ετυμηγορία για κάθε στόχο** του
-ερωτηματολογίου. Τέσσερις στόχοι, τέσσερα κλειδιά, πάντα. Κάθε ετυμηγορία είναι
-ένα από τέσσερα:
-
-- \`answered\` — με λίστα απαντήσεων για αυτόν τον στόχο·
-- \`declined\` — με τα λόγια που τον αρνήθηκαν·
-- \`not_addressed\` — δεν το άγγιξαν τα νέα μηνύματα·
-- \`already_settled\` — είχε κλείσει πριν από αυτό το τρέξιμο.
-
-**Γιατί άλλαξε.** Μέχρι τις 27 Ιουλίου 2026 υπήρχε ένας ελεύθερος πίνακας
-\`answers[]\` και ένας ξεχωριστός \`skippedGoals[]\`: «δώσε μου τις απαντήσεις
-που βρήκες». Ένας πίνακας με ένα στοιχείο είναι έγκυρη έξοδος. Άρα ένα μήνυμα
-που απαντούσε τρία πράγματα μπορούσε να γυρίσει με ένα, και **τίποτα στην έξοδο
-δεν φαινόταν κενό, γιατί δεν υπήρχε θέση για να είναι κενή.** Το μόνο που
-ζητούσε πληρότητα ήταν πεζό κείμενο σε μια περιγραφή πεδίου. Το μοντέλο διάβασε
-«βαζω 3. η Λιτσα περασε, θα την ξαναεβλεπα. κανεναν οχι», γύρισε μόνο τη
-βαθμολογία, και μετά ρώτησε για το πρόσωπο που του είχαν μόλις πει.
-
-Ένα υποχρεωτικό κλειδί ανά στόχο **αφαιρεί την επιλογή** αντί να
-επιχειρηματολογεί εναντίον της: δεν υπάρχει έγκυρη απάντηση που δεν έχει πει
-κάτι για το \`liked\`. Αυτό επιβάλλει *σκέψη*, όχι *ορθότητα* — ένα λάθος
-\`not_addressed\` είναι ακόμα πιθανό. Αλλά ένα λάθος πεδίο φαίνεται και
-ελέγχεται· ένα στοιχείο πίνακα που λείπει δεν κάνει ούτε το ένα ούτε το άλλο.
-
-**Οι απαντήσεις ενός στόχου είναι λίστα**, γιατί ένας στόχος κρατάει νόμιμα
-πολλές κατευθυνόμενες απαντήσεις: το «ο Νίκος, η Ελένη και η Άννα μου άρεσαν»
-είναι τρεις ακμές \`liked\` από μία πρόταση, και το ερωτηματολόγιο υπάρχει για
-να φτιάξει αυτό το γράφημα.
-
-Δύο πράγματα ακόμα για το σχήμα:
-
-- Το \`declined\` δεν ήταν στο αρχικό σκίτσο. Μπήκε επειδή κάθε ερώτηση
-  επιτρέπεται να προσπεραστεί χωρίς εγγραφή απάντησης — και χωρίς παραγωγό για
-  αυτό, κάποιος που απαντάει «κανένας» δεν θα έφτανε ποτέ σε ολοκλήρωση, άρα το
-  κείμενο κλεισίματος δεν θα στελνόταν ποτέ. Κρατάει προέλευση για τον ίδιο λόγο
-  που την κρατάει μια απάντηση: αλλιώς το «δεν θέλησαν να πουν» δεν ξεχωρίζει
-  από το «το μοντέλο δεν κοίταξε».
-- Το σχήμα είναι επίπεδο, όχι ένωση τύπων. Μια ένωση είναι ο φυσικός τρόπος να
-  το πεις, και ο πάροχος **δεν** τη δέχεται σε αυστηρή δομημένη έξοδο. Άρα ο
-  διαχωριστής είναι ένα enum, τα φορτία υπάρχουν πάντα και μένουν κενά όταν δεν
-  ισχύουν, και ο κώδικας ελέγχει τον συνδυασμό που η ένωση θα είχε κάνει
-  αδύνατο — ένα \`answered\` με κενές απαντήσεις απορρίπτεται.
-
-**Η σκάλα των στόχων ανεβαίνει μόνο**: \`pending < asked < skipped < answered\`.
-Ένα μεταγενέστερο τρέξιμο δεν μπορεί να ρίξει μια καταγεγραμμένη απάντηση πίσω
-σε ερώτηση που ο bot θα ξαναρωτούσε, όσο σίγουρο και να είναι. Ένας στόχος
-γίνεται \`asked\` μόνο όταν φύγει πραγματικά μήνυμα που τον ρωτάει.
-
-**Μια εξαίρεση που αξίζει να ξέρεις.** Οι απαντήσεις είναι αμετάβλητες, με ένα
-συγκεκριμένο άνοιγμα: όταν κάποιος αλλάζει γνώμη *για πρόσωπο*, η νέα απάντηση
-σβήνει τις ασυμβίβαστες. Το «καλύτερα όχι ξανά» για κάποιον καθαρίζει το «μου
-άρεσε» και το «θα τον ξανάβλεπα» για το ίδιο πρόσωπο, και αντίστροφα. Δεν είναι
-δεύτερη γνώμη· είναι μετακίνηση. Ίδια τιμή που ξαναπροτείνεται παραλείπεται·
-**διαφορετική** τιμή για κάτι ήδη καταγεγραμμένο δεν ξαναγράφεται και σηκώνει
-σημαία για άνθρωπο.
-`;
-
-const ANSWER = `
-Ένα τρέξιμο ανοίγει **το πολύ μία** γραμμή εξερχομένων, και ποια θα είναι το
+const REPLY = `
+Κάθε τρέξιμο ανοίγει **το πολύ μία** γραμμή εξερχομένων. Το ποια θα είναι το
 αποφασίζει ο κώδικας, όχι το μοντέλο.
 
-**Γιατί σιωπή στο επείγον.** Όταν κάποιος έχει μόλις πει ότι δεν θέλει να ζει,
-δεν υπάρχει εγκεκριμένο κείμενο για αυτό, και κάθε επιλογή που έχει το
-ερωτηματολόγιο είναι λάθος: η επόμενη ερώτηση το αντιμετωπίζει σαν κενό στην
-κουβέντα, το ευχαριστώ σαν τέλος. Μέχρι να ορίσει μια πολιτική ασφαλή απάντηση,
-ο bot δεν λέει τίποτα και η συζήτηση πάει σε άνθρωπο.
+**Στο επείγον, σιωπή.** Αν κάποιος περιγράψει κάτι που θέλει άμεση ανθρώπινη
+παρακολούθηση χωρίς να ζητήσει ρητά άνθρωπο, ο bot δεν απαντάει. Κάθε επόμενη
+ερώτηση του ερωτηματολογίου θα ήταν λάθος τόνος. Απαντήσεις και σημαίες
+γράφονται κανονικά· μόνο το εξερχόμενο κόβεται.
 
-**Γιατί το κλείσιμο περιμένει.** Μια αποκάλυψη που τυχαίνει να συμπληρώνει το
-ερωτηματολόγιο δεν είναι γραμμή τερματισμού. Η κατάταξη της ολοκλήρωσης πάνω από
-την αποκάλυψη ευχαρίστησε κάποια που είχε μόλις περιγράψει ότι την άρπαξαν, και
-της έκλεισε την πόρτα. Τα αποτελέσματα, η σημαία και η ειδοποίηση γράφονται
-κανονικά· μόνο το συζητησιακό τέλος αναβάλλεται.
+**Το handoff είναι υπόσχεση, όχι ανάληψη.** Αν ζητήσει ρητά άνθρωπο, φεύγει ένα
+ουδέτερο κείμενο. Ο έλεγχος **δεν** αλλάζει χέρια αυτόματα — χρειάζεται να
+πατήσει άνθρωπος το κουμπί. Ως τότε η συζήτηση μένει \`awaitingHuman\`: ανοιχτή
+υπό τον bot, αλλά ο bot σωπαίνει.
 
-**Γιατί ξαναρωτάει.** Το μοντέλο έγραψε την απάντησή του πιστεύοντας ότι η
-πρότασή του έγινε δεκτή. Όταν ο έλεγχος την απορρίψει — βαθμολογία εκτός εύρους,
-υποκείμενο που λείπει — ένα «Τέλεια, το σημείωσα!» είναι σκέτο ψέμα: τίποτα δεν
-καταγράφηκε, ο συμμετέχων πιστεύει ότι η ερώτηση πέρασε, και η βαθμολογία
-χάθηκε χωρίς να το ξέρει κανείς. Άρα ξαναρωτάει, **με τα λόγια της καμπάνιας** —
-τα μόνα εδώ που είναι σίγουρα ακόμα αληθινά. Απόρριψη για την οποία ο
-συμμετέχων δεν μπορεί να κάνει κάτι — διπλότυπο, όνομα που δεν λύνεται — δεν
-ξαναρωτάει.
+**Το κλείσιμο περιμένει.** Μια αποκάλυψη που στα καλά καθούμενα συμπληρώνει και
+το ερωτηματολόγιο δεν είναι γραμμή τερματισμού. Τα αποτελέσματα γράφονται· το
+χαρούμενο «ευχαριστούμε, τελειώσαμε» μένει στην άκρη.
 
-**Ο τελευταίος έλεγχος.** Ό,τι αποφάσισε το τρέξιμο, το αποφάσισε πάνω σε
-στιγμιότυπο που πάρθηκε *πριν* την κλήση στο μοντέλο, και εκείνη η κλήση κρατάει
-δευτερόλεπτα — αρκετά για να πάρει τη συζήτηση συνάδελφος, να την κλείσει, ή να
-αποσύρει ο συμμετέχων τη συγκατάθεσή του. Πριν μπει η γραμμή, ο κώδικας
-ξαναδιαβάζει και σωπαίνει:
+**Ξαναρωτάει με τα λόγια της καμπάνιας** όταν μια πρόταση απορριφθεί για κάτι
+που μπορεί να διορθώσει ο συμμετέχων — βαθμολογία εκτός εύρους ή υποκείμενο που
+λείπει. Για διπλότυπο ή όνομα που δεν ξεκαθαρίζει, δεν ξαναρωτάει.
 
-| Τι βρήκε | Τι σωπαίνει |
-| --- | --- |
-| Η συζήτηση χάθηκε ή έκλεισε | **Κάθε** εξερχόμενο, μαζί με το κλείσιμο και το handoff |
-| Πέρασε σε ανθρώπινο χειρισμό | Κάθε εξερχόμενο |
-| Αποσύρθηκε η συγκατάθεση | Κάθε εξερχόμενο |
-| Ο συμμετέχων έγραψε κάτι νεότερο | **Μόνο** την κανονική απάντηση |
-
-Το τελευταίο είναι σκόπιμα στενότερο. Εκεί η συζήτηση είναι υγιής και απλώς έχει
-νεότερη σκέψη για το επόμενο τρέξιμο. Το κλείσιμο και το handoff είναι δεσμεύσεις
-με δικό τους κείμενο: το πρώτο κλείνει τη συζήτηση και μετά κανένα τρέξιμο δεν
-μπορεί να μιλήσει, το δεύτερο υπόσχεται άνθρωπο. Να καταπιείς οποιοδήποτε από τα
-δύο αφήνει τον συμμετέχοντα να περιμένει μήνυμα που δεν έρχεται ποτέ.
+**Ο τελευταίος έλεγχος** ξαναδιαβάζει πριν γραφτεί το εξερχόμενο: κλειστή
+συζήτηση, ανθρώπινος χειρισμός ή απόσυρση συγκατάθεσης σωπαίνουν **κάθε**
+εξερχόμενο. Νεότερο μήνυμα του συμμετέχοντα σωπαίνει την κανονική απάντηση και
+το κλείσιμο — μένει μόνο το handoff, γιατί είναι υπόσχεση ότι θα έρθει άνθρωπος.
 
 **Μόνο το εξερχόμενο πέφτει.** Απαντήσεις, σημειώσεις και δείκτης γράφονται
-ακριβώς όπως θα γράφονταν. Ο κανόνας «κάθε τρέξιμο κλείνει το παράθυρο που
-άνοιξε» μένει άθικτος, και μια επανάληψη καταλήγει στο ίδιο συμπέρασμα — κάθε
-λόγος είναι ανάγνωση από βάση, όχι κρίση μοντέλου.
-
-### Handoff: υπόσχεση, όχι μεταβίβαση
-
-Όταν ο συμμετέχων ζητήσει **ρητά** άνθρωπο, φεύγει ένα ουδέτερο κείμενο που
-υπόσχεται επικοινωνία και τίποτε άλλο. Ο έλεγχος **δεν** περνάει αυτόματα σε
-άνθρωπο: η μεταβίβαση είναι κουμπί που πατάει πρόσωπο.
-
-Ανάμεσα στην υπόσχεση και το κουμπί υπάρχει μια κατάσταση, το \`awaitingHuman\`.
-Χωρίς αυτήν, ο έλεγχος έμενε \`bot\`, όλοι οι φρουροί περνούσαν, και το
-ερωτηματολόγιο συνέχιζε στο **αμέσως επόμενο** μήνυμα: ο συμμετέχων μάθαινε ότι
-θα επικοινωνήσει άνθρωπος, και μετά ρωτούνταν ξανά ποιον συμπάθησε. Τώρα η
-συζήτηση μένει ανοιχτή και υπό bot, αλλά ο bot σωπαίνει μέχρι να έρθει κάποιος.
-Καθαρίζει όταν ένα πρόσωπο εμπλακεί — αναλάβει, ή επιστρέψει τη συζήτηση στον
-bot.
-
-Ένα σήμα ασφάλειας με σύσταση «επείγουσα ανθρώπινη παρακολούθηση» οδηγεί στην
-ίδια κατάσταση, γιατί σημαίνει το ίδιο πράγμα: από εδώ και πέρα απαντάει
-άνθρωπος, όχι ο bot.
+κανονικά.
 `;
 
 const STOP = `
-Το STOP είναι **ντετερμινιστικό**, ελέγχεται **πριν** από κάθε κλήση σε μοντέλο,
-και ισχύει είτε χειρίζεται τη συζήτηση ο bot είτε άνθρωπος. Μια ανάληψη από
-συνάδελφο δεν κάνει την αποχώρηση διαπραγματεύσιμη.
+Το STOP είναι **ντετερμινιστικό**, ελέγχεται **πριν** από κάθε κλήση στο μοντέλο
+και ισχύει είτε κρατάει τη συζήτηση ο bot είτε άνθρωπος.
 
-Ένα μήνυμα κλείνει τη συζήτηση με δύο τρόπους:
+- **Εντολή**, που πρέπει να είναι σχεδόν όλο το μήνυμα: \`STOP\`, «ΔΙΑΚΟΠΗ»,
+  «ΣΤΟΠ», «ΣΤΑΜΑΤΗΣΤΕ». Η ευγένεια επιτρέπεται: «Στοπ ευχαριστώ».
+- **Φράση**, που μπορεί να ακολουθεί μια απάντηση: «μη μου ξαναστείλετε», «δεν
+  θέλω άλλα μηνύματα». Το «σταμάτα να ρωτάς για τον Νίκο» δεν πιάνεται: είναι
+  αντίρρηση στην ερώτηση, όχι αποχώρηση.
 
-- **Εντολή**, που πρέπει να είναι όλο το μήνυμα: \`STOP\`, \`STOP ALL\`,
-  \`UNSUBSCRIBE\`, «ΔΙΑΚΟΠΗ», «ΣΤΟΠ», «ΣΤΑΜΑΤΗΣΤΕ». Χωρίς διάκριση πεζών,
-  κεφαλαίων, τόνων ή κενών. Επιτρέπεται να ακολουθεί ευγένεια — «Στοπ
-  ευχαριστώ» είναι αποχώρηση με κάθε ανάγνωση.
-- **Φράση**, που αναγνωρίζεται όπου κι αν ξεκινάει λέξη: «μη μου ξαναστείλετε»,
-  «δεν θέλω άλλα μηνύματα», «σταματήστε να μου στέλνετε» και οι παραλλαγές τους.
-  Αυτές ήταν αγκυρωμένες στην αρχή του μηνύματος, μέχρι που το «5 πάντως. μη μου
-  ξαναστείλετε μηνύματα παρακαλώ» έδειξε το κόστος: ο κόσμος βάζει την απάντηση
-  πρώτα και την αποχώρηση μετά.
+Μόλις πιαστεί, η συζήτηση **κλείνει πρώτα**. Μετά ακυρώνεται ό,τι περιμένει,
+γράφεται μία επιβεβαίωση και αποσύρεται η συγκατάθεση. **Καμία** διαδρομή δεν
+ξανανοίγει κλειστή συζήτηση.
 
-Η διάκριση είναι σκόπιμη. Οι εντολές είναι μονολεκτικές και θα ταίριαζαν κατά
-λάθος μέσα σε πρόταση, άρα απαιτούν όλο το μήνυμα — γι' αυτό και το «γράψε
-ΣΤΟΠ.» του δικού μας εισαγωγικού μηνύματος, όταν το παρατεθεί, δεν κλείνει
-τίποτα. Οι φράσεις είναι πολλές λέξεις, απευθύνονται σε εμάς, και λένε κάτι που
-κανείς δεν λέει για ένα δείπνο. Το «σταμάτα να ρωτάς για τον Νίκο» δεν ταιριάζει
-πουθενά: είναι αντίρρηση σε ερώτηση, όχι στο να δέχεσαι μηνύματα.
-
-Όταν πιαστεί, με αυτή τη σειρά: η συζήτηση **κλείνει πρώτα**, ώστε κανείς να μη
-μπορεί να μιλήσει ξανά. Μετά, σε μία συναλλαγή: ακυρώνεται ό,τι περιμένει στα
-εξερχόμενα, γράφεται **μία** επιβεβαίωση, αποσύρεται η συγκατάθεση του
-συμμετέχοντα, και γράφεται audit. Το κλείσιμο με λόγο \`stopped\` υπερισχύει
-οποιουδήποτε πιο μαλακού λόγου, και **καμία** μέθοδος δεν ξανανοίγει κλειστή
-συζήτηση.
-
-Ένα STOP από κάποιον που **δεν** έχει απαντήσει τίποτα σηκώνει και σημαία για
-άνθρωπο. Αυτό είναι το σχήμα ενός νούμερου που άλλαξε χέρια: ρωτάμε έναν ξένο
-για δείπνο στο οποίο δεν ήταν ποτέ. Ένα STOP *μετά* τις απαντήσεις είναι το
-συνηθισμένο υγιές τέλος και δεν σηκώνει τίποτα — ένα inbox που γεμίζει με κάθε
-STOP είναι inbox που δεν διαβάζει κανείς.
+STOP χωρίς καμία καταγεγραμμένη απάντηση σηκώνει σημαία — μυρίζει λάθος αριθμό.
+STOP μετά από απαντήσεις είναι φυσιολογικό τέλος και δεν γεμίζει το inbox.
 `;
 
-const FALLBACK_INTRO = `
-Αυτό υπάρχει για ένα πραγματικό περιστατικό. Μια συμμετέχουσα περιέγραψε
-σεξουαλική παρενόχληση, το μοντέλο αρνήθηκε να παράγει δομημένη έξοδο, η δουλειά
-απέτυχε οριστικά, και **τίποτα** δεν καταγράφηκε: καμία σημείωση, καμία σημαία,
-κανένα audit, και μια συζήτηση παγωμένη στη μέση μιας ερώτησης. Το χειρότερο
-μήνυμα της καμπάνιας παρήγαγε τα λιγότερα στοιχεία.
-`;
+const BREAKS = `
+Αν το μοντέλο αρνηθεί οριστικά να δώσει δομημένη έξοδο, η παλιότερη έκδοση δεν
+άφηνε **τίποτα**: ούτε σημείωση, ούτε σημαία, μόνο μια συζήτηση κολλημένη στη
+μέση. Τώρα η εναλλακτική διαδρομή είναι ντετερμινιστική — χωρίς μοντέλο — και
+αφήνει:
 
-const FALLBACK = `
-Η εναλλακτική είναι εντελώς ντετερμινιστική — κανένα μοντέλο — και αφήνει τρία
-πράγματα πίσω:
+1. **Σημαία και audit** με κατηγορία αιτίας (\`provider_refusal\`,
+   \`provider_error\`, \`validation_failed\` ή \`unknown\`).
+2. **Μία κανονική σημείωση**: «Η αυτόματη ανάλυση δεν ολοκληρώθηκε — δείτε τη
+   συζήτηση.» Καταγράφει την αποτυχία, όχι το περιεχόμενο.
+3. **\`awaitingHuman\`** και ακύρωση των εκκρεμών αυτοματισμών. **Καμία**
+   αυτόματη απάντηση δεν φεύγει στον συμμετέχοντα — από εδώ και πέρα μιλάς εσύ.
 
-1. **Σημαία και audit** με μια περιορισμένη κατηγορία αιτίας:
-   \`provider_refusal\`, \`provider_error\`, \`validation_failed\` ή \`unknown\`.
-   Η ίδια κατηγορία μένει στον πίνακα audit ώστε το περιστατικό να εξηγείται
-   χωρίς retained failed job.
-2. **Μία κανονική σημείωση**, στον ίδιο πίνακα και με την ίδια εμφάνιση με κάθε
-   άλλη: «Η αυτόματη ανάλυση δεν ολοκληρώθηκε — δείτε τη συζήτηση.» Το κείμενο
-   ονομάζει την **αποτυχία**, όχι το περιεχόμενο. Η παλιότερη διατύπωση έλεγε
-   «πιθανή προσβλητική αναφορά» — χαρακτηρισμός για κείμενο που κανείς δεν είχε
-   διαβάσει. Σε μια πρόβα, μια συμμετέχουσα που είχε γράψει ότι κάποιος ήταν
-   ευχάριστη παρέα χρεώθηκε «πιθανή προσβλητική αναφορά» στο όνομά της.
-3. **Μία σύντομη απάντηση**, ώστε ο συμμετέχων να μην μείνει διαβασμένος: ένα
-   ευχαριστώ και η ερώτηση του τρέχοντος στόχου, από το κείμενο της καμπάνιας.
-   Δεν γράφεται νέο κείμενο.
-
-Η προέλευση είναι ειλικρινής **δι' απουσίας**. Η σημείωση επικαλείται το μήνυμα
-που απέτυχε, καταγράφει \`origin: deterministic_fallback\`, την αιτία και τους
-υποψήφιους του τρεξίματος, και **δεν** έχει μοντέλο ή βεβαιότητα. Ένα πεδίο που
-λείπει είναι αληθινό· ένα μηδέν θα διαβαζόταν σαν πραγματική εξαγωγή με χαμηλή
-βεβαιότητα.
-
-Η σημείωση κατευθύνεται σε πρόσωπο **μόνο** όταν στο μήνυμα εμφανίζεται ακριβώς
-ένα όνομα υποψηφίου. Δύο υποψήφιοι που λέγονται «Κώστας» δεν ξεχωρίζουν με
-κώδικα — και τα δύο ids είναι έγκυρα, άρα η σωστή επιλογή και η τυχερή είναι η
-ίδια κίνηση. Στην αμφισημία, η σημείωση μένει χωρίς υποκείμενο και σημαδεύεται
-για έλεγχο.
-
-Όλη η εναλλακτική έχει **ένα** φράχτη: το κλειδί μοναδικότητας της γραμμής
-εξερχομένων μπαίνει πρώτο, μέσα στη συναλλαγή. Μια επανάληψη που το βρίσκει
-γραμμένο δεν γράφει ούτε σημείωση, ούτε audit, ούτε στέλνει ειδοποίηση.
+Ένα προσωρινό συμβάν του παρόχου **παρκάρει** το durable work και το ξαναδοκιμάζει
+αργότερα, χωρίς καταιγίδα ειδοποιήσεων. Αν μείνει παρκαρισμένο αρκετή ώρα, μπορεί
+να φύγει **μία** ειδοποίηση στον συμμετέχοντα — όχι μία ανά επανάληψη.
 `;
 
 const GUARDS = `
-Ο μηχανισμός δεν υπόσχεται «ακριβώς μία φορά» — κανείς δεν μπορεί, με δύο βάσεις
-και έναν εξωτερικό πάροχο. Υπόσχεται ότι μια επανάληψη **επισκευάζει προς
-μπροστά**: μπορεί να πληρωθεί δεύτερο model computation, αλλά stale worker δεν
-κάνει valid commit και άγνωστο provider outcome δεν προκαλεί blind resend.
+### Οι φρουροί, στα γρήγορα
 
-Επτά πράγματα κρατάνε αυτή την υπόσχεση.
+Ο μηχανισμός δεν υπόσχεται «ακριβώς μία φορά». Υπόσχεται ότι κάθε επανάληψη
+**διορθώνει προς τα μπροστά**.
 
-**Το durable revision.** Νέα participant testimony και ρητή επανενεργοποίηση
-αυξάνουν μονότονα το revision και ξαναϋπολογίζουν το \`nextActionAt\`. Lifecycle,
-control, campaign και consent ξαναδιαβάζονται ως current-state guards πριν από
-κάθε ακριβή ή μη αναστρέψιμη ενέργεια. Το wake-up κουβαλάει ταυτότητα, αλλά ο
-planner αποφασίζει μόνο από το current document. Χαμένο wake-up επισκευάζεται
-από το maintenance· διπλό wake-up γίνεται no-op.
-
-**Το fenced claim.** Ένα monotonic execution epoch και lease επιτρέπουν σε έναν
-worker να δουλέψει το revision. Heartbeat κρατάει το claim όσο τρέχει provider
-call, και κάθε commit ελέγχει ξανά το fence. Worker που έχασε το lease μπορεί να
-τελειώσει τον υπολογισμό του, όχι να γράψει σαν να ήταν ακόμα ιδιοκτήτης.
-
-**Ο δείκτης ανάγνωσης.** Κάθε συζήτηση κρατάει μέχρι ποια θέση έχει διαβαστεί.
-Προχωράει μονότονα και δεν περνάει ποτέ το τέλος της συζήτησης. Ένα τρέξιμο που
-δεν θα τον κουνούσε είναι no-op. Ο δείκτης προχωράει **τελευταίος**, αφού όλα τα
-αποτελέσματα είναι μόνιμα — αν προχωρούσε πρώτος, μια διακοπή στη μέση θα έριχνε
-σιωπηλά τα αποτελέσματα.
-
-**Τα κλειδιά μοναδικότητας στα εξερχόμενα.** Κάθε γραμμή έχει ένα
-\`dedupe_key\`, μοναδικό στη βάση:
-
-| Είδος | Κλειδί |
-| --- | --- |
-| Απάντηση | \`feedback-reply-<conversationId>-<seq>\` |
-| Κλείσιμο | \`feedback-closing-<conversationId>\` |
-| Handoff | \`feedback-handoff-<conversationId>-<seq>\` |
-| Εναλλακτική | \`feedback-fallback-<conversationId>-<seq>\` |
-| Εισαγωγικό | \`feedback-intro-<conversationId>\` |
-| Υπενθύμιση | \`feedback-reminder-<conversationId>-<ordinal>\` |
-
-Το \`seq\` είναι η θέση του **τελευταίου μηνύματος του συμμετέχοντα**, όχι το
-μήκος της συζήτησης. Είναι λεπτό αλλά κρίσιμο: το τρέξιμο γράφει τη δική του
-απάντηση στη συζήτηση, άρα ένα κλειδί βασισμένο στο μήκος θα ήταν διαφορετικό σε
-μια επανάληψη που βλέπει ήδη εκείνη την απάντηση — και διαφορετικό κλειδί
-σημαίνει δεύτερο μήνυμα στο WhatsApp.
-
-**Το ίδιο κλειδί, ίδιο σώμα.** Η εγγραφή στη συζήτηση χρησιμοποιεί πάντα το σώμα
-**της αποθηκευμένης γραμμής**, όχι το κείμενο που πρότεινε ο καλών. Μια
-επανάληψη μπορεί να παραγάγει άλλη διατύπωση ενώ η γραμμή που θα σταλεί είναι η
-πρώτη· να γράψεις τη φρέσκια διατύπωση θα ήταν αντιφατική επανάληψη του ίδιου
-μηνύματος.
-
-**Το όριο πριν το μη αναστρέψιμο.** Το \`claimed\` είναι ασφαλές lease πριν από
-provider call και μπορεί να ανακτηθεί. Το \`attempting\` γράφεται πριν από το
-send· από εκεί και μετά ληγμένο claim ή άγνωστο transport αποτέλεσμα οδηγεί σε
-\`ambiguous\`, ποτέ σε αυτόματη επανάληψη. Χωρίς idempotency key από τον provider
-δεν υπάρχει exactly-once· υπάρχει ειλικρινής αμφισημία αντί για σιωπηλό
-διπλότυπο.
-
-**Ένα audit και μία ειδοποίηση, όχι πολλά.** Η ειδοποίηση χειριστή σηκώνεται
-μόνο σε γνήσια μετάβαση της σημαίας από «όχι» σε «ναι», και μόνο για ασφάλεια,
-ρητό handoff ή οριστικά νεκρό διάβασμα. Μια σημείωση χωρίς υποκείμενο ή μια
-αρνηθείσα διόρθωση σηκώνουν τη σημαία **χωρίς** ειδοποίηση: είναι δουλειά inbox,
-όχι λόγος να ξυπνήσει κανείς. Η επανάληψη σιωπά από μόνη της, γιατί η σημαία
-αναφέρει αν άλλαξε κάτι.
+- **Durable revision** — νέα μαρτυρία αυξάνει το revision· ο planner αποφασίζει
+  από το τρέχον έγγραφο, όχι από ένα παλιό ξύπνημα.
+- **Fenced claim** — ένα lease αφήνει έναν εργάτη να δουλέψει το revision· χωρίς
+  lease δεν υπάρχει έγκυρο commit.
+- **Δείκτης ανάγνωσης** — προχωράει τελευταίος, αφού μονιμοποιηθούν τα
+  αποτελέσματα.
+- **Outbox πριν/μετά το \`attempting\`** — πριν, το reclaim είναι ασφαλές· μετά,
+  άγνωστο αποτέλεσμα σημαίνει \`ambiguous\`, ποτέ ξανά αποστολή στα τυφλά.
+- **Ένα audit και μία ειδοποίηση** μόνο στην πραγματική μετάβαση της σημαίας —
+  όχι σε κάθε επανάληψη.
 `;
 
-const WHERE = `
-Ο μηχανισμός δεν είναι αόρατος από την οθόνη.
+const WHERE_INTRO = `
+Τα ίδια κομμάτια που βλέπεις στο inbox — όχι σκίτσα. Κάθε δείγμα είναι το
+πραγματικό component με στατικά δεδομένα, ώστε να δεις τι σημαίνει χωρίς να
+ανοίξεις καμπάνια.
+`;
 
-- **Το inbox της καμπάνιας** δείχνει τις συζητήσεις ομαδοποιημένες: πρώτα ό,τι
-  θέλει άνθρωπο, μετά τα ανοιχτά, μετά τα κλειστά. Η ομαδοποίηση απαντάει στο
-  «περιμένει κάτι εμένα;», και γι' αυτό οι γραμμές είναι σκόπιμα ήσυχες.
-- **Το πλαίσιο ΑΝΑΓΝΩΣΗ** στη δεξιά κολόνα είναι το μόνο μέρος που λέει ότι το
-  διάβασμα είναι καθυστερημένο: πόσα μηνύματα δεν έχουν διαβαστεί, πότε είναι η
-  επόμενη durable ενέργεια, αν υπάρχει ενεργή ανάθεση ή parked work, αν απέτυχε,
-  και με ποιο μοντέλο. Δεν διαβάζει retained jobs και δεν έχει αιώνιο spinner.
-- **Το Outbound queue** δείχνει τη μόνιμη κατάσταση dispatch: αν μια γραμμή
-  περιμένει, έχει ασφαλές claim, ξεκίνησε provider attempt, απέτυχε καθαρά ή
-  έμεινε \`ambiguous\`. Ο μετρητής προσπαθειών και το τελευταίο error έρχονται
-  από PostgreSQL· κανένα job id δεν παριστάνει το audit log.
-- **Η σημαία προσοχής** είναι το ένα σήμα που αξίζει να κοιτάς. Σηκώνεται από
-  αποκάλυψη, ρητό handoff, νεκρό διάβασμα, σημείωση χωρίς υποκείμενο, αρνηθείσα
-  διόρθωση, μήνυμα μετά το κλείσιμο, διορθωμένο μήνυμα, κείμενο που κόπηκε,
-  φωνητικό που δεν διαβάζεται, αποτυχημένη αποστολή, ή STOP από κάποιον που δεν
-  απάντησε τίποτα.
-- **Οι υπενθυμίσεις δεν κυνηγάνε σημαδεμένη συζήτηση.** Κάποιος που αποκάλυψε
-  κάτι, ή που του υποσχεθήκαμε άνθρωπο, δεν πρέπει να δεχτεί αυτόματο «πες μας
-  και για τα υπόλοιπα» την επόμενη μέρα. Η λήξη δεν έχει τον ίδιο φρουρό: δεν
-  στέλνει τίποτα και ελευθερώνει το τηλέφωνο, άρα η παρακράτησή της θα άφηνε
-  μόνο τη γραμμή κολλημένη.
+const WHERE_OUTRO = `
+Οι υπενθυμίσεις **δεν** κυνηγάνε σημαδεμένη συζήτηση. Όποιος αποκάλυψε κάτι ή
+άκουσε ότι θα έρθει άνθρωπος δεν παίρνει αυτόματο «πες μας και για τα υπόλοιπα»
+την επόμενη μέρα.
 `;

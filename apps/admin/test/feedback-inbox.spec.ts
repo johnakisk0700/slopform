@@ -992,13 +992,17 @@ describe("needs-attention emphasis", () => {
     );
   });
 
-  it("highlights the cited transcript message and labels the action in text", () => {
+  it("flags the cited message with chips, not a second warning fill", () => {
     const transcript = readSource(
       "src/components/admin/feedback/ConversationTranscript.tsx",
     );
 
+    // The attention strip already owns warning-soft. A filled bubble of the
+    // same tint made the cited message and the strip one continuous slab.
     expect(transcript).toContain("message.attention");
-    expect(transcript).toContain("bg-warning-soft");
+    expect(transcript).not.toContain(
+      "rounded-bl-sm border border-warning-border bg-warning-soft text-ink",
+    );
     expect(transcript).toContain("messageAttentionCategoryLabel(category)");
     expect(transcript).toContain("messageAttentionActionLabel(");
     expect(transcript).toContain("BellRing");
@@ -1106,12 +1110,37 @@ describe("attention reasons (why a conversation wants a person)", () => {
     );
     // The anchor and the thing pointing at it must come from the same helper,
     // or the link silently scrolls nowhere.
-    for (const file of [
-      "src/components/admin/feedback/ConversationTranscript.tsx",
+    expect(
+      readSource("src/components/admin/feedback/ConversationTranscript.tsx"),
+    ).toContain("transcriptMessageAnchorId");
+    expect(
+      readSource("src/features/feedback/revealTranscriptMessage.ts"),
+    ).toContain("transcriptMessageAnchorId");
+  });
+
+  it("reveals a cited message inside the transcript scroller, not the page", () => {
+    const attention = readSource(
       "src/components/admin/feedback/ConversationAttention.tsx",
-    ]) {
-      expect(readSource(file)).toContain("transcriptMessageAnchorId");
-    }
+    );
+    const transcript = readSource(
+      "src/components/admin/feedback/ConversationTranscript.tsx",
+    );
+    const reveal = readSource("src/features/feedback/revealTranscriptMessage.ts");
+    const styles = readSource("src/styles/globals.css");
+
+    // scrollIntoView on the message walks document ancestors and yanks the
+    // page — the same defect follow-bottom already forbids.
+    expect(attention).not.toContain("scrollIntoView");
+    expect(attention).toContain("revealTranscriptMessage");
+    expect(transcript).toContain("data-transcript-pane");
+    expect(transcript).toContain("data-transcript-scroller");
+    expect(transcript).toContain("data-transcript-bubble");
+    expect(reveal).toContain("data-transcript-scroller");
+    expect(reveal).toContain("PANE_TOP_INSET_PX = 16");
+    expect(reveal).toContain('behavior: "smooth"');
+    expect(reveal).toContain("jts-message-flash");
+    expect(styles).toContain("@keyframes jts-message-flash");
+    expect(styles).toContain("prefers-reduced-motion");
   });
 
   it("shows only unresolved reasons, and nothing at all when there are none", () => {
@@ -1134,6 +1163,33 @@ describe("attention reasons (why a conversation wants a person)", () => {
     expect(block).not.toContain("ConfirmAction");
     expect(block).not.toContain("Modal");
     expect(block).toContain("onDismiss(reason.id)");
+  });
+
+  it("keeps reason rows as dense as the collapsed disclosure", () => {
+    const block = readSource(
+      "src/components/admin/feedback/ConversationAttention.tsx",
+    );
+
+    // Same min-height for open rows and the accordion summary, with a compact
+    // Dismiss — HeroUI has no xs size, so sm is shrunk by class.
+    expect(block).toContain('className="flex flex-col gap-0.5"');
+    expect(block).toContain(
+      "flex min-h-7 flex-wrap items-center justify-between gap-x-3",
+    );
+    expect(block).toContain("h-6 min-h-6 px-1.5 text-xs text-ink");
+  });
+
+  it("collapses more than two unresolved reasons into one disclosure", () => {
+    const block = readSource(
+      "src/components/admin/feedback/ConversationAttention.tsx",
+    );
+
+    // Two stay open: still a short list. Five open rows push the transcript
+    // off the first screen, which is the defect the disclosure exists to end.
+    expect(block).toContain("const COLLAPSE_AFTER = 2");
+    expect(block).toContain("unresolved.length > COLLAPSE_AFTER");
+    expect(block).toContain("<details");
+    expect(block).toContain("things need attention");
   });
 
   it("paints itself from the status tokens, in both themes", () => {
@@ -1364,8 +1420,17 @@ describe("feedback mechanism map", () => {
       expect(page).toContain(contract);
     }
 
-    expect(page).toContain("dispatcher διαβάζει το μόνιμο outbox απευθείας");
+    expect(page).toContain("dispatcher διαβάζει απευθείας το μόνιμο outbox");
     expect(page).toContain("ambiguous");
+    expect(page).toContain("έξι πράγματα");
+    expect(page).toContain(":::decision");
+    expect(page).toContain(":::data");
+    expect(page).toContain("flowchart LR");
+    expect(page).toContain("specimenAttentionConversation");
+    expect(page).toContain("ConversationAttention");
+    expect(page).toContain("ReadingStatus");
+    expect(page).not.toContain("liked");
+    expect(page).not.toContain("sequenceDiagram");
     expect(page).not.toContain("feedback.extract.v1");
     expect(page).not.toContain("feedback.relay-outbox.v1");
     expect(page).not.toContain("feedback.deliver.v1");
