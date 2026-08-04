@@ -74,6 +74,34 @@ export const FEEDBACK_SUMMARY_REASONING_EFFORTS = [
 export type FeedbackSummaryReasoningEffort =
   (typeof FEEDBACK_SUMMARY_REASONING_EFFORTS)[number];
 
+/**
+ * What a summary narrative needs when the model is not spending the budget on
+ * thinking. Kept as the non-thinking floor; production always selects an
+ * effort from {@link FEEDBACK_SUMMARY_REASONING_EFFORTS}, so the live call uses
+ * {@link FEEDBACK_SUMMARY_THINKING_MAX_OUTPUT_TOKENS}.
+ */
+export const FEEDBACK_SUMMARY_MAX_OUTPUT_TOKENS = 4_096;
+
+/**
+ * Ceiling once Terra is allowed to think. Reasoning tokens come out of the
+ * same `maxOutputTokens` budget as the JSON object — the extraction path
+ * measured that `xhigh` on a 2,048 ceiling spent the entire budget thinking
+ * and returned `NoObjectGeneratedError` with no object. Summary defaults to
+ * `high` (and production has used `xhigh`); a flat 4,096 ceiling is the same
+ * trap on a harder prompt. Keep this far above extraction's 16,384: Terra at
+ * high/xhigh on a full campaign digests more evidence and thinks longer. A
+ * ceiling is not a charge — it only has to leave room for the narrative after
+ * the thinking.
+ */
+export const FEEDBACK_SUMMARY_THINKING_MAX_OUTPUT_TOKENS = 65_536;
+
+/** Summary has no `none` effort; every configured value pays for thinking. */
+export function feedbackSummaryMaxOutputTokens(
+  _effort: FeedbackSummaryReasoningEffort,
+): number {
+  return FEEDBACK_SUMMARY_THINKING_MAX_OUTPUT_TOKENS;
+}
+
 export const FEEDBACK_SUMMARY_TIMEOUT_MILLISECONDS = 300_000;
 export const FEEDBACK_SUMMARY_EXECUTION_LEASE_MS = 7 * 60_000;
 export const FEEDBACK_SUMMARY_EXECUTION_HEARTBEAT_MS = 60_000;
@@ -821,7 +849,7 @@ export class PostEventFeedbackCampaignSummaryService {
         schemaDescription:
           "Short Greek operator lists for a post-event feedback campaign summary. Metrics are counted separately and must not be restated here.",
         messages: [{ role: "user", content: prompt }],
-        maxOutputTokens: 4_096,
+        maxOutputTokens: feedbackSummaryMaxOutputTokens(this.reasoningEffort),
         maxRetries: 0,
         abortSignal: AbortSignal.timeout(FEEDBACK_SUMMARY_TIMEOUT_MILLISECONDS),
         providerOptions: {

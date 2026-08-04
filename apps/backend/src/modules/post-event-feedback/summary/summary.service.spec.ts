@@ -28,9 +28,12 @@ import {
   DEFAULT_FEEDBACK_SUMMARY_MODEL,
   DEFAULT_FEEDBACK_SUMMARY_REASONING_EFFORT,
   FEEDBACK_SUMMARY_EXECUTION_HEARTBEAT_MS,
+  FEEDBACK_SUMMARY_MAX_OUTPUT_TOKENS,
+  FEEDBACK_SUMMARY_THINKING_MAX_OUTPUT_TOKENS,
   FeedbackSummaryDisabledInSimulatorError,
   FeedbackSummaryGenerationError,
   PostEventFeedbackCampaignSummaryService,
+  feedbackSummaryMaxOutputTokens,
   resolveFeedbackSummaryModel,
   resolveFeedbackSummaryReasoningEffort,
 } from "./summary.service.js";
@@ -129,6 +132,20 @@ describe("feedback summary configuration", () => {
       );
     },
   );
+
+  // Same measured trap as extraction: reasoning tokens share maxOutputTokens
+  // with the JSON object. A flat 4,096 ceiling on Terra high/xhigh can spend
+  // the whole budget thinking and surface as NoObjectGeneratedError.
+  it("raises the output ceiling for every configured summary effort", () => {
+    for (const effort of ["low", "medium", "high", "xhigh", "max"] as const) {
+      expect(feedbackSummaryMaxOutputTokens(effort), effort).toBe(
+        FEEDBACK_SUMMARY_THINKING_MAX_OUTPUT_TOKENS,
+      );
+    }
+    expect(FEEDBACK_SUMMARY_THINKING_MAX_OUTPUT_TOKENS).toBeGreaterThan(
+      FEEDBACK_SUMMARY_MAX_OUTPUT_TOKENS,
+    );
+  });
 });
 
 describe("PostEventFeedbackCampaignSummaryService", () => {
@@ -925,6 +942,11 @@ describe("PostEventFeedbackCampaignSummaryService", () => {
     ).resolves.toBe("completed");
 
     expect(mockedGenerateObject).toHaveBeenCalledOnce();
+    expect(mockedGenerateObject.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        maxOutputTokens: FEEDBACK_SUMMARY_THINKING_MAX_OUTPUT_TOKENS,
+      }),
+    );
     expect(campaigns.markSummaryFailed).not.toHaveBeenCalled();
     expect(campaigns.markSummaryReady).toHaveBeenCalledWith(
       expect.anything(),

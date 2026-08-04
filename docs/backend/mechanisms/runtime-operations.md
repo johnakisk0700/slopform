@@ -84,8 +84,10 @@ hooks before the application loads those libraries.
   including the Luna paid-rehearsal route.
   `FEEDBACK_SUMMARY_MODEL` and `FEEDBACK_SUMMARY_REASONING_EFFORT` configure the
   separate campaign-summary call, which defaults to direct-OpenAI Terra at
-  `high`. Turbo and both Compose launch paths forward these values instead of
-  silently replacing them with in-module/provider defaults.
+  `high` and raises that call's `maxOutputTokens` to 65,536 so reasoning does
+  not empty the structured-output budget. Turbo and both Compose launch paths
+  forward these values instead of silently replacing them with
+  in-module/provider defaults.
 - `MONGODB_URI` is required and must select a database. Production requires
   credentials and verified TLS except for the internal Compose hostname
   `mongo`; the entrypoint builds that URI from a database-scoped application

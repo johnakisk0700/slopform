@@ -3058,7 +3058,13 @@ writes a structured digest of the campaign's answers and notes to
 `feedback_campaign_summaries`. Generation runs on `feedback.summarize-campaign.v2`
 via OpenAI direct (`FEEDBACK_SUMMARY_MODEL`, default `openai/gpt-5.6-terra`)
 at `FEEDBACK_SUMMARY_REASONING_EFFORT`, which defaults to `high`. The effort is
-persisted on the row, so a summary is repriceable from itself. The summary
+persisted on the row, so a summary is repriceable from itself. Every configured
+effort raises `maxOutputTokens` from 4,096 to 65,536 because **reasoning tokens
+are spent from the same output budget as the JSON narrative** — the same trap
+extraction measured when `xhigh` emptied a smaller ceiling into thinking and
+returned `NoObjectGeneratedError`. Summary keeps a higher ceiling than
+extraction: Terra at `high`/`xhigh` on a full campaign digests more evidence.
+The summary
 worker runs at concurrency `3`: the PostgreSQL execution lease still fences one
 campaign against duplicate spend, while separate campaigns may generate in
 parallel.
