@@ -492,7 +492,21 @@ describe("event screens", () => {
     expect(pill).not.toContain("loadGooglePlaces");
     expect(display).toContain("export function VenueCompact");
     expect(display).toContain("googleMapsPlaceUrl");
-    expect(display.match(/<MapPin/g)).toHaveLength(1);
+    // Two pins, one per pin-bearing variant: the compact line and the link-free
+    // one. `VenueDetails` deliberately has none — it leads with the venue name
+    // as the link instead.
+    expect(display.match(/<MapPin/g)).toHaveLength(2);
+
+    // `VenueLine` exists for surfaces that are themselves links (the campaign
+    // picker's cards), so it must never grow an anchor of its own: a nested <a>
+    // is invalid HTML and puts a second target inside a card whose whole job is
+    // to open one campaign.
+    const venueLine = display.slice(
+      display.indexOf("export function VenueLine"),
+      display.indexOf("export function VenueDetails"),
+    );
+    expect(venueLine).toContain("<MapPin");
+    expect(venueLine).not.toContain("<a");
     expect(display).not.toContain("GooglePlaceDetails");
     expect(display).not.toContain("loadGooglePlaces");
     expect(list).not.toContain("GooglePlaceDetails");

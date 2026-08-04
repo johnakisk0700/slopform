@@ -208,6 +208,7 @@ describe("cookbook specimen sources", () => {
       "heroui",
       "jts",
       "feedback",
+      "assistant",
       "motifs",
     ]);
     expect(cookbook).toContain("const SECTIONS: readonly SectionSpec[]");
