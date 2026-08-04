@@ -4,9 +4,8 @@
 
 [`scripts/local-data-query.mjs`](../../../scripts/local-data-query.mjs) gives
 developers and coding agents one stable command for inspecting the local
-PostgreSQL, MongoDB and Redis stores. It uses the repository's Docker Compose
-services, so callers do not need to rediscover container names, ports or
-credentials.
+PostgreSQL, MongoDB and Redis stores via Docker Compose — without rediscovering
+container names, ports or credentials.
 
 It is strictly a local-development tool. It does not accept remote connection
 strings and is not a production operations interface.
@@ -34,28 +33,26 @@ pnpm db:query redis HGETALL feedback:extract:job-id
 
 Read-only is the default:
 
-- PostgreSQL executes inside `BEGIN TRANSACTION READ ONLY` and always rolls
-  back.
+- PostgreSQL runs inside `BEGIN TRANSACTION READ ONLY` and always rolls back.
 - MongoDB rejects known mutating APIs before invoking `mongosh`.
 - Redis accepts only an explicit allowlist of read commands.
 
-`--write` is required for mutations. Before using it, resolve the exact target
-with a read query and avoid broad filters, wildcards and database-wide commands.
-The flag is a guard against accidents, not permission to perform unrelated
-changes.
+`--write` is required for mutations. Resolve the exact target with a read first;
+avoid broad filters, wildcards and database-wide commands. The flag guards
+against accidents — it is not permission for unrelated changes.
 
 ## Failure states
 
-- Docker Compose reports a clear failure if the requested local service is not
-  running; start it with `pnpm infra:up`.
-- PostgreSQL stops on the first SQL error.
+- Compose fails clearly if the local service is not running; start with
+  `pnpm infra:up`.
+- PostgreSQL stops on the first SQL error (`ON_ERROR_STOP=1`).
 - A rejected MongoDB API or Redis command exits without contacting the store and
   explains that `--write` is required.
-- The MongoDB check is intentionally conservative but is not a database
+- The MongoDB check is conservative pattern matching, not a database
   authorization boundary. Production access remains outside this helper.
 
 ## Tests and verification
 
-Run `pnpm db:query --help`, then use one harmless read against each running
-store. Repository formatting and documentation links are covered by
-`pnpm format:check` and `pnpm docs:check`.
+Run `pnpm db:query --help`, then one harmless read against each running store.
+Formatting and documentation links are covered by `pnpm format:check` and
+`pnpm docs:check`.

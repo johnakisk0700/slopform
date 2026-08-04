@@ -1,58 +1,54 @@
 # JtsDataTable
 
-`JtsDataTable` is the standard operational table surface: a TanStack Table
-headless core (core/sorted/pagination row models) skinned with the HeroUI
-`Table`. It owns accessible naming, the loading / empty / error states,
-keyboard-reachable horizontal overflow and the optional client paginator. The
-page owns columns, cell formatting, row actions, fetching and domain rules. It
-does not fetch, retry or paginate on a server.
+Standard operational table: TanStack Table (core/sorted/pagination) skinned with
+HeroUI `Table`. Owns accessible naming, loading/empty/error, keyboard-reachable
+horizontal overflow and optional client paginator. Page owns columns, cell
+formatting, row actions, fetching and domain rules — never fetch, retry or
+server pagination here.
 
 Source: [`JtsDataTable.tsx`](../../../apps/admin/src/components/ui/JtsDataTable.tsx)
 
 ## Contract
 
-Generic over the row type `T`.
+Generic over row type `T`.
 
-| Prop                 | Type                        | Contract                                                         |
-| -------------------- | --------------------------- | ---------------------------------------------------------------- |
-| `rows`               | `readonly T[]`              | Required. Presentation only — the page fetches and shapes.       |
-| `columns`            | `ColumnDef<T>[]`            | Required. TanStack column definitions supplied by the page.      |
-| `getRowId`           | `(row: T, index) => string` | Required. Stable identity so sorting/pagination keep row keys.   |
-| `title`              | `string`                    | Required. Visible `h2` and the table's accessible name.          |
-| `description`        | `string \| null`            | Optional visible caption; wired as `aria-describedby`.           |
-| `loading`            | `boolean`                   | Shows the labelled skeleton in place of rows (`aria-busy`).      |
-| `error`              | `string \| null`            | Blocking error (no rows) or a stale-data warning (rows present). |
-| `emptyTitle`         | `string`                    | Ready-but-empty heading. Default `"Nothing to show yet"`.        |
-| `emptyDescription`   | `string`                    | Ready-but-empty copy.                                            |
-| `emptyIcon`          | `ReactNode`                 | Optional empty-state mark; defaults to the CSS six-dot motif.    |
-| `paginator`          | `boolean`                   | Enables client pagination, hidden while unnecessary.             |
-| `pageSize`           | `number`                    | Initial page size. Default `10`.                                 |
-| `rowsPerPageOptions` | `number[]`                  | Footer page-size choices. Default `[10, 25, 50]`.                |
-| `toolbarEnd`         | `ReactNode`                 | Page-owned actions, right of the title.                          |
-| `emptyActions`       | `ReactNode`                 | Domain recovery controls for the empty state.                    |
-| `errorActions`       | `ReactNode`                 | Domain recovery controls for the error state.                    |
+| Prop | Type | Contract |
+| ---- | ---- | -------- |
+| `rows` | `readonly T[]` | Required. Presentation only — page fetches and shapes. |
+| `columns` | `ColumnDef<T>[]` | Required. Page-supplied TanStack column defs. |
+| `getRowId` | `(row: T, index) => string` | Required. Stable identity for sort/pagination keys. |
+| `title` | `string` | Required. Visible `h2` and table accessible name. |
+| `description` | `string \| null` | Optional caption; `aria-describedby`. |
+| `loading` | `boolean` | Labelled skeleton in place of rows (`aria-busy`). |
+| `error` | `string \| null` | Blocking error (no rows) or stale-data warning (rows present). |
+| `emptyTitle` | `string` | Ready-but-empty heading. Default `"Nothing to show yet"`. |
+| `emptyDescription` | `string` | Ready-but-empty copy. |
+| `emptyIcon` | `ReactNode` | Optional empty mark; defaults to CSS six-dot motif. |
+| `paginator` | `boolean` | Client pagination; hidden while unnecessary. |
+| `pageSize` | `number` | Initial page size. Default `10`. |
+| `rowsPerPageOptions` | `number[]` | Footer page-size choices. Default `[10, 25, 50]`. |
+| `toolbarEnd` | `ReactNode` | Page-owned actions, right of the title. |
+| `emptyActions` | `ReactNode` | Domain recovery for empty state. |
+| `errorActions` | `ReactNode` | Domain recovery for error state. |
 
 ### Column contract (page-owned)
 
-Columns are plain TanStack `ColumnDef<T>` — `accessorKey`/`header`/`cell` and
-`enableSorting`. Alignment is the one presentation hook the surface reads from
-each column, via a module augmentation:
+Plain TanStack `ColumnDef<T>` — `accessorKey`/`header`/`cell`, `enableSorting`.
+Alignment via module augmentation:
 
 ```ts
 // @tanstack/react-table ColumnMeta
 meta?: { align?: "start" | "center" | "end" }
 ```
 
-`meta.align` sets both header and body cell alignment (default `start`). The
-first leaf column renders as the row header (`isRowHeader`). A column is sortable
-only when its `ColumnDef` allows sorting; the surface reads `getCanSort()`.
+`meta.align` sets header and body (default `start`). First leaf column is the
+row header (`isRowHeader`). Sortable when `ColumnDef` allows; surface reads
+`getCanSort()`.
 
-Alignment is applied twice, on purpose. HeroUI lays `SortableColumnHeader` out
-as a `flex` row with `justify-content: space-between` filling the column, so
-`text-align` on the cell cannot move it — a sortable `end`-aligned column showed
-its header pinned left above right-aligned figures. The surface therefore also
-passes a matching `justify-*` class to that header. `start` keeps HeroUI's
-default, which is what pushes the sort indicator to the far edge.
+Alignment is applied twice: HeroUI's `SortableColumnHeader` is a `flex` row with
+`space-between`, so `text-align` alone cannot end-align a sortable header — the
+surface also passes a matching `justify-*`. `start` keeps HeroUI's default
+(sort indicator on the far edge).
 
 ## States
 
@@ -68,56 +64,46 @@ flowchart TD
   R -->|Populated| Table["Table + optional paginator footer"]
 ```
 
-- **Loading** — skeleton bars in the body; the scroll region is `aria-busy`.
-- **Blocking error** — no rows: a centred `role="alert"` panel with
-  `errorActions`.
-- **Inline error** — rows still present: a `role="alert"` warning banner above
-  the retained rows.
-- **Empty** — ready with zero rows: `emptyIcon` (or the six-dot brand mark),
-  `emptyTitle`, `emptyDescription` and `emptyActions`.
-- **Populated** — rows, plus the footer when paginating.
+- **Loading** — skeleton body; scroll region `aria-busy`.
+- **Blocking error** — no rows: centred `role="alert"` + `errorActions`.
+- **Inline error** — rows kept: `role="alert"` warning banner above rows.
+- **Empty** — `emptyIcon` (or brand mark), title, description, `emptyActions`.
+- **Populated** — rows + footer when paginating.
 
 ## Sorting and pagination
 
-- Sorting is client-side, single column, held in local `SortingState` and
-  bridged to HeroUI's `sortDescriptor` / `onSortChange`. Sorted headers tint
-  `text-primary`.
-- Pagination is client-side and only mounted when `paginator` is set. The footer
-  (rows-per-page `Select` + compact `Pagination`) is hidden unless it is
-  needed — i.e. more than one page, or more rows than the smallest page-size
-  option. Page numbers are windowed: first, last and ±1 around the current page
-  with ellipses.
+- Client-side, single-column sort in local `SortingState`, bridged to HeroUI
+  `sortDescriptor` / `onSortChange`. Active headers tint `text-primary`.
+- Client pagination only when `paginator` is set. Footer (rows-per-page `Select`
+  + compact `Pagination`) hidden unless multi-page or row count exceeds the
+  smallest page-size option. Page numbers windowed: first, last, ±1 around
+  current, with ellipses.
 
 ## Accessibility
 
-- The `section` is `aria-labelledby` the title `h2`.
-- The scroll container is a focusable `role="region"` (`tabIndex=0`) labelled by
-  the title, so overflow is keyboard reachable; it carries `aria-busy` while
-  loading.
-- `Table.Content` gets `aria-labelledby`, and `aria-describedby` when a
-  `description` is present.
-- Status is conveyed by text and tone, never colour alone.
+- `section` `aria-labelledby` the title `h2`.
+- Scroll container: focusable `role="region"` (`tabIndex=0`) labelled by title;
+  `aria-busy` while loading.
+- `Table.Content`: `aria-labelledby`, plus `aria-describedby` when `description`
+  present.
+- Status by text and tone, never colour alone.
 
 ## Invariants
 
-- `getRowId` must be stable per row — it keys sorting and pagination.
-- The surface owns states, framing and a11y; it never owns domain data,
-  fetching, filtering or business rules.
-- Rows may persist under `error` (stale-data warning); they vanish under
-  `loading`.
-- TanStack's `useReactTable()` returns an intentionally mutable table API whose
-  methods cannot be safely compiler-memoized. `JtsDataTable` contains that API,
-  opts this component out with `"use no memo"` and carries one line-local
-  `react-hooks/incompatible-library` suppression. Do not widen that suppression
-  to the module or ESLint configuration.
+- `getRowId` stable per row — keys sorting and pagination.
+- Surface owns states, framing and a11y; never domain data, fetching, filtering
+  or business rules.
+- Rows may persist under `error` (stale warning); vanish under `loading`.
+- TanStack's mutable table API cannot be safely compiler-memoized:
+  `"use no memo"` + one line-local `react-hooks/incompatible-library`
+  suppression. Do not widen that suppression.
 
 ## Extension points
 
-- **Add a column** — edit the consumer's `ColumnDef[]` only; zero table edits.
-  Align numeric columns with `meta.align`.
-- **Make a column sortable** — set `enableSorting` in its `ColumnDef`.
-- Add sorting/selection/lazy-pagination _props_ only when a second real table
-  needs the shared contract — not speculatively.
+- **Column** — consumer `ColumnDef[]` only; `meta.align` for numerics.
+- **Sortable** — `enableSorting` on the `ColumnDef`.
+- Shared sorting/selection/lazy-pagination props only when a second real table
+  needs them.
 
 ## References
 
@@ -132,4 +118,4 @@ Verified 2026-07-23:
   [Sorting](https://tanstack.com/table/v8/docs/guide/sorting),
   [Pagination](https://tanstack.com/table/v8/docs/guide/pagination).
 - [React Compiler directives](https://react.dev/reference/react-compiler/directives) —
-  function-local `"use no memo"` for an incompatible third-party integration.
+  function-local `"use no memo"`.

@@ -6,22 +6,22 @@ Drizzle ORM `0.45.2`, Nest `11.1.28` and Zod `4.4.3`.
 
 ## Purpose and boundary
 
-This module owns staff-entered events, one operator-confirmed venue context per
-event and attendance rows. It is the upstream gate for post-event feedback
-campaigns: finish an event, correct who was present, then later work packages
-launch conversations.
+Owns staff-entered events, one operator-confirmed venue snapshot per event and
+attendance rows. Upstream gate for post-event feedback: finish an event, correct
+who was present, then launch conversations elsewhere.
 
-It does not own bookings, payments, venue discovery/catalogue, Google APIs,
-WhatsApp transport, campaigns or feedback answers. A venue is a stored reference
-selected and confirmed by an operator; the backend does not resolve, geocode or
+Does **not** own bookings, payments, venue discovery/catalogue, Google APIs,
+WhatsApp transport, campaigns or feedback answers. Venue is a stored reference
+the operator selected and confirmed — the backend does not resolve, geocode or
 refresh it. Attendance corrections never delete finished-event rows; the admin
-UI exposes no attendee delete operation at all, for any status, and the
-controller declares no `@Delete` (D1).
+UI exposes no attendee delete for any status, and the controller declares no
+`@Delete` (D1).
 
-`table_no` is persisted and returned here, but the admin **reads** it only — the
-event screen shows it as a chip and offers no control to change it. Seating is
-the «Tables & matching» area's to assign; the `PUT` below still accepts
-`table_no` so that owner has an endpoint waiting for it.
+`table_no` is persisted and returned; the event screen shows it read-only.
+Seating assignment belongs to «Tables & matching»; `PUT` still accepts
+`table_no` so that owner has an endpoint waiting.
+
+`post_event_feedback_whatsapp_opt_in` lives on `participants` (D4), not here.
 
 ## Persisted contract
 
@@ -32,31 +32,26 @@ the «Tables & matching» area's to assign; the `PUT` below still accepts
 | Uniqueness        | `UNIQUE(event_id, participant_id)`                                                              |
 | FKs               | attendees → events `ON DELETE CASCADE`; attendees → participants `ON DELETE RESTRICT` (D18)     |
 
-There is no venue table and no venue foreign key. The single venue snapshot is
-stored directly on `events` as `venue_provider`, `venue_place_id`,
-`venue_label`, optional `venue_type`, optional `venue_area`, optional
-`venue_price_level`, the optional exact-price columns
-`venue_price_start_minor` / `venue_price_end_minor` /
-`venue_price_currency_code`, and `venue_use_in_feedback`.
+No venue table or FK. Snapshot columns on `events`: `venue_provider`,
+`venue_place_id`, `venue_label`, optional `venue_type` / `venue_area` /
+`venue_price_level`, optional exact-price
+`venue_price_start_minor` / `venue_price_end_minor` / `venue_price_currency_code`,
+and `venue_use_in_feedback`.
 
-The only provider is `google`. `placeId` is trimmed and non-empty, with no
-arbitrary application length cap; `label` is the operator-confirmed display
-text. `priceLevel`, when present, is one of `free`, `inexpensive`, `moderate`,
-`expensive` or `very_expensive`. An exact `priceRange` is independent of that
-level: `startMinor` is a non-negative integer, `endMinor` is optional and cannot
-precede it, and `currencyCode` is three uppercase letters.
+Provider is only `google`. `placeId` trimmed non-empty (no app length cap);
+`label` is operator-confirmed display text. `priceLevel` ∈ `free` |
+`inexpensive` | `moderate` | `expensive` | `very_expensive`. Exact `priceRange`
+is independent: non-negative `startMinor`, optional `endMinor` ≥ start, ISO
+`currencyCode` (three uppercase letters).
 
-`venue_context_revision` is event-level state, not part of the nullable venue
-columns. It is non-null; creation without a venue stores `0`, while creation
-with a venue stores `1`. It then increases atomically on every explicit venue
-replacement or clear. Clearing a venue does not reset it, so a later re-add,
-price change or `useInFeedback` toggle has a strictly newer revision.
-
-`post_event_feedback_whatsapp_opt_in` lives on `participants` (D4), not here.
+`venue_context_revision` is event-level, non-null, not part of the nullable
+venue columns. Create without venue → `0`; with venue → `1`. Every explicit
+venue replace or clear increments it atomically (clear does not reset). Later
+re-add, price change or `useInFeedback` toggle gets a strictly newer revision.
 
 ## Public HTTP contract
 
-Staff-only under the existing Clerk admin guard (`/api/v1/events`):
+Staff-only under Clerk admin guard (`/api/v1/events`):
 
 | Method  | Path                                                       | Effect                                                       |
 | ------- | ---------------------------------------------------------- | ------------------------------------------------------------ |
@@ -66,38 +61,30 @@ Staff-only under the existing Clerk admin guard (`/api/v1/events`):
 | `PATCH` | `/events/:id`                                              | Edit title/start where allowed; replace, keep or clear venue |
 | `POST`  | `/events/:id/status`                                       | Transition status (see graph)                                |
 | `POST`  | `/events/:id/attendees`                                    | Insert attendee (late add)                                   |
-| `PUT`   | `/events/:id/attendees/:attendeeId`                        | Update `present` / `table_no` (corrections)                  |
+| `PUT`   | `/events/:id/attendees/:attendeeId`                        | Update `present` / `table_no`                                |
 | `GET`   | `/events/:id/feedback-candidates?respondentParticipantId=` | Shared D16 candidate list                                    |
 
-`venue` is nested and nullable on create/update requests and on list/detail
-responses. Request fields are `provider`, `placeId`, `label`, optional `type`,
-optional `area`, optional `priceLevel`, optional exact `priceRange`, and
-`useInFeedback`. Responses add the server-owned positive `contextRevision` when
-a venue exists. Clients cannot set that revision. Optional nested fields are
-omitted, not emitted as `null`.
+`venue` is nested and nullable on create/update and list/detail. Request:
+`provider`, `placeId`, `label`, optional `type` / `area` / `priceLevel` /
+`priceRange`, `useInFeedback`. Responses add server-owned positive
+`contextRevision` when a venue exists (clients cannot set it). Optional nested
+fields are omitted, not `null`.
 
-Venue updates use whole-object replacement. Omitting `venue` from `PATCH` leaves
-the existing snapshot and revision unchanged; `venue: null` clears the snapshot;
-an object replaces every venue field. Every explicit object/null mutation bumps
-the persisted revision atomically, including an otherwise identical replacement.
+Venue updates are whole-object replacement: omit `venue` → unchanged; `null` →
+clear; object → replace every field. Every explicit object/null mutation bumps
+revision atomically. No expected-revision / `If-Match`; concurrent saves are
+**last-write-wins**. `contextRevision` is provenance and an extraction fence,
+not an optimistic-edit token.
 
-The endpoint has no expected-revision or `If-Match` precondition. The event-row
-lock serializes writes, but concurrent whole-object saves are explicitly
-**last-write-wins**: the later update replaces the entire venue with its payload,
-including the omission of optional fields. `contextRevision` is therefore not an
-optimistic-edit token; it is server-owned provenance and an extraction fence.
+`feedbackCampaignId` is a read-model deep-link convenience. This module does not
+own campaign lifecycle — launch is `launchFeedbackCampaign` in the feedback
+module. When `useInFeedback` is enabled, each extraction run may receive a
+provider-free snapshot of `label` and optional type/area/price; otherwise the
+run is venue-blind. Google identifiers never cross that boundary. See
+[venue context and revision fence](post-event-feedback.md#venue-context-and-revision-fence).
 
-`feedbackCampaignId` is a read-model convenience for deep-linking the feedback
-inbox. This module still does not own campaign lifecycle; launching remains a
-feedback-module write (`launchFeedbackCampaign`). `useInFeedback` controls the
-feedback extraction boundary: when enabled, each run may receive a provider-free
-snapshot of `label` and optional `type`, `area` and price context; when disabled,
-absent or cleared, the run is venue-blind. Google identifiers and live metadata
-never cross that boundary.
-
-Every mutation writes an `audit_events` row in the same transaction. Venue audit
-context may record state flags and the revision, but never `label`, `placeId` or
-address-like text.
+Every mutation writes `audit_events` in the same transaction. Venue audit may
+record flags and revision, never `label`, `placeId` or address-like text.
 
 ## Status transitions
 
@@ -109,26 +96,22 @@ flowchart LR
   scheduled --> cancelled
 ```
 
-`finished` and `cancelled` are terminal status values. For event detail patches,
-a finished event blocks title/start edits but still allows venue replacement or
-clear. A cancelled event blocks the patch entirely. Attendance inserts and
-present/table updates are blocked only on cancelled events; a finished event
-still allows both late attendee inserts and attendance corrections.
+`finished` and `cancelled` are terminal. Finished blocks title/start edits but
+still allows venue replace/clear and attendance inserts/corrections. Cancelled
+blocks the detail patch and attendance mutations entirely.
 
 ## Feedback candidates (D16)
 
-`EventsService.listFeedbackCandidatesForRespondent(eventId, respondentParticipantId)`
-is the single source of the eligibility rule. It loads present attendees and
-applies `selectFeedbackCandidates` from
+`EventsService.listFeedbackCandidatesForRespondent` is the sole eligibility
+source. It loads present attendees and applies
 [`feedback-candidates.ts`](../../../apps/backend/src/modules/events/feedback-candidates.ts):
 
-- include attendees with `present = true`;
-- exclude the respondent;
+- include `present = true`; exclude the respondent;
 - return `participantId` + `displayName` (`preferred_name`, else email).
 
-Extraction prompt building and subject validation both call this helper at run
-time; nothing re-filters attendance on its own. Each run records the candidate
-ids it received in `extraction_meta` (D12), so live selection stays auditable.
+Extraction prompt building and subject validation call this helper at run time;
+nothing re-filters attendance alone. Each run records candidate ids in
+`extraction_meta` (D12).
 
 ## Flow
 
@@ -146,12 +129,12 @@ flowchart LR
 
 ## Invariants
 
-- Corrections for «did not come» are `present=false`, never deletes.
-- Late adds are inserts; duplicate `(event_id, participant_id)` is rejected.
-- Participant deletion is restricted by FK; casual delete is not supported.
-- One event has at most one venue snapshot; no venue table is created.
-- Venue revision changes are atomic SQL increments and never reset on clear.
-- No `feedback_*` tables are created in this module.
+- «Did not come» → `present=false`, never deletes.
+- Late adds are inserts; duplicate `(event_id, participant_id)` → reject.
+- Participant delete restricted by FK; casual delete unsupported.
+- At most one venue snapshot per event; no venue table.
+- Venue revision: atomic SQL increment; never reset on clear.
+- No `feedback_*` tables in this module.
 
 ## Failure states
 
@@ -165,13 +148,11 @@ flowchart LR
 
 ## Extension points
 
-Campaign launch (WP7) gates on `status=finished`, present attendees, opt-in and
-phone. Do not store candidate snapshots on conversations; keep using the live
-helper. See
-[post-event feedback WP7](post-event-feedback.md#wp7-campaign-service-and-schedulers-implemented).
-Feedback extraction also reads venue context live for each run and fences every
-venue-dependent persist by `contextRevision`; see
-[venue context and revision fence](post-event-feedback.md#venue-context-and-revision-fence).
+Campaign launch gates on `status=finished`, present attendees, opt-in and phone
+— see
+[campaign service](post-event-feedback.md#campaign-service-and-current-state-scheduling-implemented).
+Do not store candidate snapshots on conversations; keep the live D16 helper.
+Venue context is read live per extraction run and fenced by `contextRevision`.
 
 ## Operations and tests
 
@@ -181,15 +162,13 @@ pnpm --filter @join-the-six/database test
 pnpm --filter @join-the-six/backend test
 ```
 
-Focused coverage: schema constraints and migration review, venue mapping and
-revision semantics, D16 helper rule, status transition graph, opt-in audit
-(participants module).
+Focused coverage: schema/migration, venue mapping and revision, D16 helper,
+status graph, opt-in audit (participants module).
 
 ## Decisions and references
 
 - [ADR 0008](../../decisions/0008-post-event-feedback-conversations.md)
 - [Post-event feedback module](post-event-feedback.md)
-- [Plan WP1](../../history/post-event-feedback-plan-2026-07-25.md)
 - Source: `apps/backend/src/modules/events/`,
   `packages/database/src/schema/events.ts`
 - Migrations:

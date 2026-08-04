@@ -6,27 +6,25 @@ Status: accepted, verified 2026-08-03 with `@nestjs/swagger` 11.4.6,
 ## Purpose and boundary
 
 One contract crosses the HTTP boundary: the OpenAPI document that
-`@nestjs/swagger` builds from the controllers and their `nestjs-zod` DTOs. This
-page owns how that document becomes a committed artifact and how the admin SPA
-consumes it as generated, named, typed functions that are produced locally and
-not committed.
+`@nestjs/swagger` builds from controllers and `nestjs-zod` DTOs. This page owns
+how that document becomes a committed artifact and how the admin SPA consumes it
+as generated, typed functions (local output, not committed).
 
 It owns:
 
-- `apps/backend/src/infrastructure/openapi/openapi-document.ts` — the single
-  definition of the published document, its fixed emit environment and its
-  deterministic serialization;
-- `apps/backend/src/cli/emit-openapi.ts` and `apps/backend/openapi/openapi.json`
-  — the emit command and the committed artifact;
+- `apps/backend/src/infrastructure/openapi/openapi-document.ts` — published
+  document, fixed emit environment, deterministic serialization;
+- `apps/backend/src/cli/emit-openapi.ts` and
+  `apps/backend/openapi/openapi.json` — emit command and committed artifact;
 - `apps/admin/orval.config.ts`, `apps/admin/openapi.transformer.ts`,
   `apps/admin/src/lib/api-mutator.ts` and `apps/admin/src/api/generated/**` —
-  the generation contract and its output;
-- `scripts/verify-generated-api.mjs` — the drift check inside `pnpm check`.
+  generation contract and output;
+- `scripts/verify-generated-api.mjs` — drift check inside `pnpm check`.
 
-It does not own transport policy (that is `apps/admin/src/lib/api.ts`, see
-[Frontend foundation](../../frontend.md)), authorization (see
-[Admin authentication](authentication.md)) or the HTTP edge configuration (see
-[Runtime operations](runtime-operations.md)).
+It does not own transport policy (`apps/admin/src/lib/api.ts`, see
+[Frontend foundation](../../frontend.md)), authorization
+([authentication](authentication.md)) or the HTTP edge
+([runtime operations](runtime-operations.md)).
 
 ## Contract
 
@@ -34,72 +32,61 @@ It does not own transport policy (that is `apps/admin/src/lib/api.ts`, see
 | ----------------------------------- | -------------------------------------------- | -------------------------------------------- |
 | `apps/backend/openapi/openapi.json` | `pnpm openapi:emit`                          | orval, contract review, external integrators |
 | `src/api/generated/<tag>.ts`        | `pnpm api:generate` (gitignored)             | admin routes and components                  |
-| `src/api/generated/model/*.ts`      | `pnpm api:generate` (gitignored)             | response and request types                   |
-| `src/api/generated/zod/*.zod.ts`    | `pnpm api:generate` (gitignored)             | hand-rolled validation of a value we persist |
-| `/api/openapi.json` (runtime)       | `createHttpApplication()` outside production | Swagger UI at `/api/docs`, manual inspection |
+| `src/api/generated/model/*.ts`      | `pnpm api:generate` (gitignored)             | request/response types                       |
+| `src/api/generated/zod/*.zod.ts`    | `pnpm api:generate` (gitignored)             | validation of values that leave the typed path |
+| `/api/openapi.json` (runtime)       | `createHttpApplication()` outside production | Swagger UI at `/api/docs`, inspection        |
 
-Commands, all from the repository root:
-
-| Command             | Effect                                                                  |
-| ------------------- | ----------------------------------------------------------------------- |
-| `pnpm openapi:emit` | Builds the backend through Turbo, then rewrites the committed document  |
-| `pnpm api:generate` | Emits the document and regenerates the admin client from it             |
+| Command             | Effect                                                                 |
+| ------------------- | ---------------------------------------------------------------------- |
+| `pnpm openapi:emit` | Builds the backend through Turbo, rewrites the committed document      |
+| `pnpm api:generate` | Emits the document and regenerates the admin client                    |
 | `pnpm api:check`    | Regenerates and fails when `openapi.json` changed; part of `pnpm check` |
 
-Operation names are the public API. Every operation declares
-`@ApiOperation({ operationId })` in lower camel case; orval derives the exported
-function (`getAuthSession`), the hook (`useGetAuthSession`), the query-key helper
-(`getGetAuthSessionQueryKey`) and the Zod schema (`GetAuthSessionResponse`) from
-it. Nest's default `AuthController_session` is rejected by a test, because it
-leaks a class name into the client and renames itself during refactors.
+Every operation declares `@ApiOperation({ operationId })` in lower camel case.
+Orval derives the function (`getAuthSession`), hook (`useGetAuthSession`),
+query-key helper (`getGetAuthSessionQueryKey`) and Zod schema
+(`GetAuthSessionResponse`) from it. Nest's default `AuthController_session`
+form is rejected by test.
 
-### Event venue contract
+### Event venue
 
-Event create/update DTOs and event list/detail responses publish one nested,
-nullable `venue`. Participant `GET /api/v1/participants/:id/events` history
-items reuse the same full nullable response view.
+Event create/update DTOs and list/detail responses publish one nested nullable
+`venue`. Participant event history reuses the same view.
 
-| Field             | Request and response contract                                             |
-| ----------------- | ------------------------------------------------------------------------- |
-| `provider`        | Required literal `google`                                                 |
-| `placeId`         | Required, trimmed, non-empty Google place id; no arbitrary maximum length |
-| `label`           | Required operator-confirmed display label                                 |
-| `type`, `area`    | Optional trimmed context                                                  |
-| `priceLevel`      | Optional `free\|inexpensive\|moderate\|expensive\|very_expensive`         |
-| `priceRange`      | Optional `{ startMinor, endMinor?, currencyCode }` exact minor-unit range |
-| `useInFeedback`   | Required boolean intent flag                                              |
-| `contextRevision` | Positive server-owned integer, present only in a non-null response venue  |
+| Field             | Contract                                                                      |
+| ----------------- | ----------------------------------------------------------------------------- |
+| `provider`        | Required literal `google`                                                     |
+| `placeId`         | Required, trimmed, non-empty; no arbitrary max length                         |
+| `label`           | Required operator-confirmed display label                                     |
+| `type`, `area`    | Optional trimmed context                                                      |
+| `priceLevel`      | Optional `free\|inexpensive\|moderate\|expensive\|very_expensive`             |
+| `priceRange`      | Optional `{ startMinor, endMinor?, currencyCode }` (exact minor units)        |
+| `useInFeedback`   | Required boolean intent flag                                                  |
+| `contextRevision` | Positive server-owned integer; only on a non-null response venue              |
 
-`startMinor` is a non-negative integer, optional `endMinor` cannot precede it,
-and `currencyCode` is exactly three uppercase letters. Optional venue fields are
-omitted rather than serialized as `null`. Clients never send
-`contextRevision`.
+`startMinor` is non-negative; optional `endMinor` cannot precede it;
+`currencyCode` is three uppercase letters. Optional fields are omitted, not
+`null`. Clients never send `contextRevision`.
 
-Venue patch semantics are whole-object replacement: omitting `venue` leaves it
-and its revision unchanged, `venue: null` clears it, and a venue object replaces
-every field. Each explicit object/null mutation atomically increments the
-event-level revision, including clear, re-add, equivalent replacement, price or
-`useInFeedback` changes; clearing never resets it. A finished event permits this
-venue mutation while rejecting title/start changes. A cancelled event rejects
-the patch entirely. Creation without a venue stores revision `0`; creation with
-a venue returns `contextRevision: 1`.
+Venue patch is whole-object replacement: omit leaves venue and revision
+unchanged; `null` clears; an object replaces every field. Each explicit
+object/null mutation atomically increments the event-level revision (including
+clear). Finished events allow venue mutation but reject title/start changes;
+cancelled events reject the patch. Creation without a venue stores revision
+`0`; with a venue returns `contextRevision: 1`.
 
-This contract stores an operator-confirmed reference. It performs no Google
-lookup/geocoding and introduces no Google API dependency. `useInFeedback` is
-forward-looking persisted intent; neither post-event feedback nor Luna consumes
-the venue yet. Audit payloads must not include `label`, `placeId` or address-like
-text.
+This stores an operator-confirmed reference only — no Google lookup. Audit
+payloads must not include `label`, `placeId` or address-like text.
+`useInFeedback` is forward-looking intent; feedback and Luna do not consume
+venue yet.
 
 ### Assistant turn artifacts
 
-Assistant turn responses carry `toolCalls` on every lifecycle state and nullable
-final `usage`. Each tool call has a stable id, operator label, state, JSON-safe
-input/result previews and truncation flags. Usage contains the provider token
-breakdown plus integer `estimatedCostEurMicros` and a nullable dated
-`pricingVersion`. `reasoning` remains nullable but is no longer restricted to
-nonterminal turns. The handwritten assistant client schema mirrors these fields
-because its documented streaming overlay is the repository's one generated-hook
-exception; the committed OpenAPI document remains the HTTP authority.
+Turn responses carry `toolCalls` on every lifecycle state and nullable final
+`usage` (provider token breakdown, integer `estimatedCostEurMicros`, nullable
+dated `pricingVersion`). `reasoning` is nullable on any state. The handwritten
+assistant client mirrors these fields; the committed OpenAPI document remains
+the HTTP authority. See [apps/admin/AGENTS.md](../../../apps/admin/AGENTS.md).
 
 ## Flow
 
@@ -116,112 +103,74 @@ flowchart LR
 
 ## Invariants
 
-- The emitted artifact is a function of source code alone. `emit-openapi.ts`
-  applies `OPENAPI_EMIT_ENVIRONMENT` before importing the application module, so
-  a developer's `.env` cannot change the published contract, and every object key
-  is sorted before serialization so a new route produces a local diff.
-- The published composition is the default one: the Wasender webhook, the
-  reference module, Bull Board and the feedback dev simulator are off. Promoting
-  one of them to a product surface means publishing it deliberately in that
-  environment.
-- The document the running process serves and the committed artifact are built by
-  the same `createOpenApiDocument()`; a backend test asserts they are identical
-  byte for byte.
-- Generated code is never edited. It carries an orval header, is excluded from
-  ESLint (so no autofix rewrites a file the next run overwrites), is gitignored,
-  and is still typechecked by `tsc` after generation.
-- `apiRequest` is the only bridge between generated code and HTTP, and it adds no
-  policy of its own — authentication, retries and timeouts stay in `api.ts`.
-- Published paths keep the `/api` mount point; `openapi.transformer.ts` removes
-  it at generation time because the client's `baseURL` (`env.apiBase`) owns it.
-  A path outside `/api/` fails generation instead of silently producing a broken
-  URL.
+- Emit applies `OPENAPI_EMIT_ENVIRONMENT` before importing the application
+  module, then sorts object keys — local `.env` cannot change the artifact.
+- Published composition is the default: Wasender webhook, reference module, Bull
+  Board and feedback simulator are off.
+- Runtime-served and committed documents both come from
+  `createOpenApiDocument()`; a backend test asserts byte identity.
+- Generated code is never edited: orval header, ESLint-excluded, gitignored,
+  still typechecked after generation.
+- `apiRequest` is the only bridge to HTTP and adds no policy; auth, retries and
+  timeouts stay in `api.ts`.
+- Published paths keep the `/api` mount; `openapi.transformer.ts` strips it
+  because `env.apiBase` owns it. Paths outside `/api/` fail generation.
 
 ## Failure states
 
-| Situation                                    | Behavior                                                                                           |
-| -------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| Controller changed, artifact not regenerated | `pnpm api:check` regenerates, lists the changed `openapi.json` and fails; `pnpm test` fails too    |
-| Generated client edited by hand              | The next generation overwrites it; the client is not a review surface                              |
-| Operation without an explicit `operationId`  | The OpenAPI document test fails before a class-derived hook name can reach the client              |
-| Backend unbuildable                          | `pnpm api:check` prints the Turbo output and fails without touching the artifact                   |
-| Request fails at runtime                     | The hook reports `isError`; the screen owns the denial/retry/failure state, as `RequireAdmin` does |
+| Situation                                   | Behavior                                                                                        |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Controller changed, artifact not regenerated | `pnpm api:check` regenerates, lists the diff and fails; `pnpm test` fails too                   |
+| Generated client edited by hand              | Next generation overwrites it                                                                   |
+| Operation without explicit `operationId`     | OpenAPI document test fails                                                                     |
+| Backend unbuildable                          | `pnpm api:check` fails without touching the artifact                                            |
+| Request fails at runtime                     | Hook reports `isError`; the screen owns denial/retry/failure                                    |
 
-`pnpm api:check` leaves the regenerated files in place: a contract failure is an
-instruction to review and commit `openapi.json`, never to hand-edit generated
-files. The admin client is produced locally and is not committed.
+`pnpm api:check` leaves regenerated files in place: review and commit
+`openapi.json`, never hand-edit generated output.
 
 ## Extension points
 
-Adding or changing an endpoint:
+1. Change controller, Zod schemas and DTOs; declare `operationId` for new ops.
+2. Run `pnpm api:generate`; commit `openapi.json` with the backend change.
+3. Consume the generated hook. Do not hand-write a response schema the document
+   already describes.
 
-1. Change the controller, its Zod schemas and DTOs; declare
-   `@ApiOperation({ operationId })` for a new operation.
-2. Run `pnpm api:generate`; commit `openapi.json` with the backend change. The
-   admin client is regenerated locally and is not committed.
-3. Consume the new hook in the admin app. Do not write a Zod schema for a
-   response that the document already describes.
-
-Feedback operator read models do not derive business state from BullMQ at all.
+Feedback operator read models do not derive business state from BullMQ.
 `getFeedbackConversation` projects automation from MongoDB work plus an active
 PostgreSQL execution lease; `getFeedbackOutboxMessage` projects dispatch from
-PostgreSQL claim/send markers. Redis retention or loss must not rewrite an
-operator's story. The list rule extends past Redis: a collection endpoint must
-not do a per-row MongoDB read either, which is why both outbox lists resolve a
-whole page of respondents through one batched `listRespondentsByIds`.
+PostgreSQL claim/send markers. Collection endpoints must not do per-row MongoDB
+reads — outbox lists batch respondents via `listRespondentsByIds`.
 
-**A collection over an append-only table is paged by keyset, not offset.**
-`message_outbox` is written to while an operator reads it, so `OFFSET` repeats
-rows already shown and skips ones that were not. `listFeedbackOutboxHistory`
-takes an opaque `cursor` carrying its own sort key, returns `nextCursor` rather
-than a page count, and scopes `total` to the active filter so the number above a
-page cannot describe a different set of rows. A cursor the server did not write
-rewinds to the newest page instead of answering 400: it arrives from a URL a
-person can edit, and the endpoint only reads.
+**Append-only collections page by keyset, not offset.**
+`listFeedbackOutboxHistory` takes an opaque `cursor`, returns `nextCursor`, and
+scopes `total` to the active filter. An unreadable cursor rewinds to the newest
+page (not 400). Observability endpoints publish absence as absence — nullable
+claim, provider id or delivery timestamp stay nullable. See
+[outbound queue](../../frontend/feedback-outbound-queue.md).
 
-An observability endpoint publishes absence as absence. A nullable durable
-claim, provider id or delivery timestamp stays nullable; it is not backfilled
-from queue state or optimistic UI wording. See
-[the outbound queue](../../frontend/feedback-outbound-queue.md).
-
-The generated Zod schemas exist for values that leave the typed path — a form
-draft, something persisted in the browser, a payload echoed back into a request.
-Import them from `src/api/generated/zod/`; do not hand-copy a backend schema.
-
-The assistant (`features/assistant/`) still parses responses and SSE frames with
-hand-written schemas because its authenticated stream plus durable polling owns
-attempt-fenced client semantics beyond a response shape. Events and participants
-screens consume the generated hooks; new code does not copy the assistant
-pattern for ordinary CRUD.
+Generated Zod schemas are for values that leave the typed path (form drafts,
+browser persistence, echoed payloads). Import from `src/api/generated/zod/`.
+The assistant screen is the one documented exception for hand-written client
+semantics; do not copy that pattern for ordinary CRUD.
 
 ## Operations and tests
 
-- `apps/backend/src/infrastructure/openapi/openapi-document.spec.ts` — boots the
-  real HTTP composition, compares the document with the committed artifact,
-  requires explicit unique operation ids, requires the `/api/v1` prefix and
-  asserts deterministic serialization.
-- `apps/admin/test/generated-api-client.spec.ts` — the path transformer, one hook
-  per published operation, every generated file routed through the mutator, the
-  admin gate on the generated hook and the single `QueryClientProvider`.
-- `pnpm api:check` runs between `docs:check` and `typecheck` in `pnpm check`, so
-  the compiler, linter and tests always read a current client. Admin Turbo tasks
-  also depend on `api:generate`.
-- Emitting opens no port and requires no live dependency. Some instantiated
-  queue clients attempt an eager Redis connection and may log `ECONNREFUSED`
-  when local Redis is absent; document generation must still complete without
-  dependency reachability. `onModuleInit`, which opens the database pool, does
-  not run.
+- `openapi-document.spec.ts` — real HTTP composition vs committed artifact,
+  unique operation ids, `/api/v1` prefix, deterministic serialization.
+- `apps/admin/test/generated-api-client.spec.ts` — path transformer, one hook
+  per operation, mutator routing, admin gate, single `QueryClientProvider`.
+- `pnpm api:check` sits between `docs:check` and `typecheck` in `pnpm check`.
+  Admin Turbo tasks depend on `api:generate`.
+- Emit opens no port and needs no live dependency. Eager Redis clients may log
+  `ECONNREFUSED` when Redis is absent; generation must still succeed.
+  `onModuleInit` (database pool) does not run.
 
 ## Decisions and references
 
-- [ADR 0009](../../decisions/0009-generated-api-client.md) — generated client
-  over hand-written response schemas.
-- [ADR 0010](../../decisions/0010-generated-client-not-committed.md) — client is
-  local output; only `openapi.json` is the committed contract.
-- [Frontend foundation](../../frontend.md) — how admin screens consume the hooks.
-- [Backend foundation](../../backend.md) — controller, DTO and slice conventions.
-- [Nest OpenAPI](https://docs.nestjs.com/openapi/introduction) and
-  [operation ids](https://docs.nestjs.com/openapi/operations)
-- [orval configuration](https://orval.dev/reference/configuration/overview) and
-  [custom mutators](https://orval.dev/guides/custom-axios)
-- [TanStack Query v5](https://tanstack.com/query/latest/docs/framework/react/overview)
+- [ADR 0009](../../decisions/0009-generated-api-client.md),
+  [ADR 0010](../../decisions/0010-generated-client-not-committed.md)
+- [Frontend foundation](../../frontend.md), [Backend foundation](../../backend.md)
+- [Nest OpenAPI](https://docs.nestjs.com/openapi/introduction),
+  [orval](https://orval.dev/reference/configuration/overview),
+  [TanStack Query v5](https://tanstack.com/query/latest/docs/framework/react/overview)

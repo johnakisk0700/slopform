@@ -1,58 +1,30 @@
 # Backend module inventory
 
-Document product modules here when they own durable invariants, permissions or
-lifecycle. Use the [documentation standard](../../documentation-standard.md)
-and link the source module. Cross-cutting infrastructure belongs in
-[mechanisms](../mechanisms/README.md).
+Product modules that own durable invariants, permissions or lifecycle.
+Cross-cutting infrastructure: [mechanisms](../mechanisms/README.md). Writing
+conventions: [documentation standard](../../documentation-standard.md).
 
-Product modules:
+| Page                                                                                     | Owns                                                                                          |
+| ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| [overview.md](overview.md)                                                               | Admin Operations snapshot aggregates (events, participants, feedback, outbox, summaries)      |
+| [conversations.md](conversations.md)                                                     | MongoDB schema-v1 assistant aggregate; co-tenancy with schema-v2 feedback in `conversation_threads` |
+| [post-event-feedback.md](post-event-feedback.md)                                         | Full feedback loop (questions, PG + Mongo v2, webhook, extraction, delivery, inbox, takeover) |
+| [post-event-feedback-policy-answers.md](post-event-feedback-policy-answers.md)           | Approved participant-facing policy sentences (synced with `policy-answers.ts`)              |
+| [post-event-feedback-rehearsal-history.md](post-event-feedback-rehearsal-history.md)     | Paid rehearsal runs and what those numbers can/cannot argue                                   |
+| [post-event-feedback-scenarios.md](post-event-feedback-scenarios.md)                     | Executable behavior suite, end states, known defects, harness/corpus contracts                |
+| [events.md](events.md)                                                                   | Stub events, attendance corrections, shared D16 feedback-candidate helper                     |
+| [assistant.md](assistant.md)                                                             | Authenticated owner-scoped AI threads and durable generation turns                            |
+| [email-delivery.md](email-delivery.md)                                                   | Provider-agnostic email intent, outbox, redacted attempts, admin visibility                   |
+| [participants.md](participants.md)                                                       | Canonical profiles, feedback WhatsApp opt-in, WordPress import                                |
 
-- [`overview.md`](overview.md) — authenticated admin Operations snapshot:
-  exact PostgreSQL and MongoDB aggregates for events, participants, feedback
-  conversations, outbox and summaries.
-- [`conversations.md`](conversations.md) — MongoDB-authoritative schema-v1
-  assistant conversation aggregate; co-tenancy with schema-v2 feedback
-  documents in the shared `conversation_threads` collection.
-- [`post-event-feedback.md`](post-event-feedback.md) — the whole loop, and the
-  largest module in the repo: question contract, PostgreSQL persistence, Mongo
-  conversation schema v2, webhook ingress and materialization, model extraction,
-  outbound delivery, campaign launch, the admin inbox and human takeover. WP0–WP8
-  are implemented; what is still open is recorded in
-  [the 2026-07-29 evidence note](../../evidence/post-event-feedback-open-issues-2026-07-29.md),
-  not here.
-- [`post-event-feedback-policy-answers.md`](post-event-feedback-policy-answers.md)
-  — **draft, nothing approved**: what the bot may say when somebody asks what
-  happens to their answers. Governs a data-handling commitment, so it is indexed
-  here rather than left two levels down.
-- [`post-event-feedback-rehearsal-history.md`](post-event-feedback-rehearsal-history.md)
-  — every paid rehearsal run, and what those numbers can and cannot argue.
-- [`post-event-feedback-scenarios.md`](post-event-feedback-scenarios.md) — the
-  executable behavior suite, its desired end states and known defects, plus the
-  mocked harness and occasional real-model corpus contracts.
-- [`events.md`](events.md) — stub events, attendance corrections and the shared
-  D16 feedback-candidate helper.
-- [`assistant.md`](assistant.md) — authenticated, owner-scoped asynchronous AI
-  conversation threads and durable generation turns.
-- [`email-delivery.md`](email-delivery.md) — provider-agnostic email intent,
-  transactional outbox, redacted attempts and safe admin visibility.
-- [`participants.md`](participants.md) — canonical participant profile schema,
-  feedback WhatsApp opt-in and controlled WordPress profile import.
+Open feedback work stays in the
+[2026-07-29 evidence note](../../evidence/post-event-feedback-open-issues-2026-07-29.md),
+not on the module page.
 
-`apps/backend/src/modules/reference/` remains a disposable executable pattern,
-not production CRUD. Remove the reference route, queue, processor and table
-through a reviewed forward migration when the foundation no longer needs the
-golden example.
+Not indexed here:
 
-`REFERENCE_MODULE_ENABLED=true` adds only the reference HTTP adapter. Its worker
-remains active to drain jobs accepted by an earlier release; disabling producers
-must not strand a backlog.
-
-`src/modules/health/` has no page here on purpose: it owns liveness and
-readiness routes and no durable product boundary, so it falls outside this
-directory's rule. Its behaviour is documented in
-[runtime-operations](../mechanisms/runtime-operations.md).
-
-The reference Core/HTTP/Worker split exists because one use-case service is
-shared by two executable graphs. It is not a starter kit. A domain used in one
-process normally has one Nest module; split adapters only to keep HTTP providers
-out of workers or worker providers out of HTTP.
+- `src/modules/reference/` — disposable Core/HTTP/Worker pattern, not production
+  CRUD. HTTP only with `REFERENCE_MODULE_ENABLED=true`; worker stays to drain
+  prior jobs. Remove via forward migration when finished.
+- `src/modules/health/` — liveness/readiness only; see
+  [runtime-operations](../mechanisms/runtime-operations.md).

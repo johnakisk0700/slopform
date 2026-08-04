@@ -5,58 +5,54 @@ Status: accepted, verified 2026-08-02 (React 19.2.8, HeroUI `@heroui/react`
 `@fontsource-variable/commissioner` 5.2.10,
 `@fontsource-variable/sora` 5.3.0).
 
-This is the base every admin screen is built on. Its promise: **to style a new
-screen you use a semantic token or a plain HeroUI component, and light + dark are
-correct with no colour plumbing.** See
-[ADR 0005](../decisions/0005-theming-and-dark-mode.md) for the decision record,
-[ADR 0006](../decisions/0006-react-admin-runtime.md) for the move from PrimeVue
-to HeroUI as the consumer of this system, and
-[ADR 0012](../decisions/0012-selectable-palettes.md) for the selectable-palette
-layer that sits on top of it.
+Base every admin screen builds on: style with a semantic token or plain HeroUI
+component; light + dark stay correct without colour plumbing. Decisions:
+[ADR 0005](../decisions/0005-theming-and-dark-mode.md),
+[ADR 0006](../decisions/0006-react-admin-runtime.md) (HeroUI consumer),
+[ADR 0012](../decisions/0012-selectable-palettes.md) (palette axis).
+Consumer rules (no literals, no `dark:` colour branches) live in
+[`apps/admin/AGENTS.md`](../../apps/admin/AGENTS.md) — this doc owns the token
+graph, bridge and appearance axes.
 
 ## Purpose and boundary
 
-- `packages/design-tokens/src/tokens.css` owns every shared visual value and is
-  framework-neutral. It is the single source of truth for the shared layer and
-  for the house theme — but **not** for the other five: a colour added only here
-  is correct in one theme of six (see Themes below, and ADR 0012).
-- `apps/admin/src/styles/globals.css` is the **bridge**: it makes HeroUI and
-  Tailwind consume those tokens. It owns no colours of its own.
-- `apps/admin/src/lib/useTheme.ts` owns the light/dark/system preference and the
-  `dark` class on `<html>`; the pre-paint script in `apps/admin/index.html`
-  applies that class before first paint.
-- Components style themselves with the semantic utilities the bridge exposes
-  (`bg-canvas`, `text-ink-muted`, `bg-accent`, …) — never literal colours.
+| Owner | Owns |
+| ----- | ---- |
+| `packages/design-tokens/src/tokens.css` | Shared visual values and the house theme (Join The Six). Framework-neutral. A colour added only here is correct in one theme of six. |
+| `packages/design-tokens/src/palettes.css` | The five override themes (`data-palette` on `<html>`): flat resolved hexes for the **semantic colour layer only**. |
+| `apps/admin/src/styles/globals.css` | The **bridge**: HeroUI + Tailwind consume tokens. Owns no colours. |
+| `apps/admin/src/lib/useTheme.ts` + `index.html` pre-paint | Light/dark/system → `dark` class on `<html>`. |
+| `apps/admin/src/lib/usePalette.ts` + same pre-paint | Theme id → `data-palette` on `<html>`. |
 
-If you are adding colour, spacing or type to a screen and reach for a literal
-value, stop — add or reuse a token instead.
+Components use bridge utilities (`bg-canvas`, `text-ink-muted`, `bg-accent`, …).
+If a needed semantic is missing, add a token — do not hardcode.
 
 ## Token layers
 
-Tokens are layered. Consume the semantic layer; never hardcode primitives.
+Consume the semantic layer; never hardcode primitives.
 
-| Layer         | Example                                   | Use it for                                  |
-| ------------- | ----------------------------------------- | ------------------------------------------- |
-| Primitive     | `--jts-wine-700`, `--jts-clay-300`        | Defining semantics only. Not in components. |
-| Semantic      | `--jts-color-primary`, `--jts-color-text` | Everything you build. Carries light/dark.   |
-| Scale (type…) | `--jts-space-4`, `--jts-radius-lg`        | Layout, rhythm, type, shadow, z, motion.    |
+| Layer | Example | Use |
+| ----- | ------- | --- |
+| Primitive | `--jts-wine-700`, `--jts-clay-300` | Defining semantics only. Not in components. |
+| Semantic | `--jts-color-primary`, `--jts-color-text` | Everything you build. Carries light/dark. |
+| Scale | `--jts-space-4`, `--jts-radius-lg` | Layout, rhythm, type, shadow, z, motion. |
 
-### Semantic colour tokens you will actually use
+### Semantic colour tokens
 
-| Token                                                                    | Meaning                                      |
-| ------------------------------------------------------------------------ | -------------------------------------------- |
-| `--jts-color-canvas`                                                     | App background                               |
-| `--jts-color-surface`                                                    | Card / panel background                      |
-| `--jts-color-surface-raised` / `-sunken`                                 | Inputs & overlays / insets, table stripes    |
-| `--jts-color-surface-strong`                                             | Inverse (the wine sidebar)                   |
-| `--jts-color-border` / `-subtle` / `-strong`                             | Hairlines and dividers                       |
-| `--jts-color-text` / `-muted` / `-subtle`                                | Body / secondary / tertiary text             |
-| `--jts-color-text-on-strong`                                             | Text on the wine sidebar                     |
-| `--jts-color-primary` (`-hover`/`-active`/`-soft`/`-contrast`)           | Brand actions & emphasis                     |
-| `--jts-color-accent`, `--jts-color-link`                                 | Warm secondary accent (copper), links        |
-| `--jts-color-focus`, `--jts-focus-ring`                                  | Focus outline and ring                       |
-| `--jts-color-success`/`-warning`/`-danger`/`-info` (+ `-soft`/`-border`) | Status: fg, fill, border                     |
-| `--jts-color-sidebar-*`                                                  | Sidebar nav states (composed from the above) |
+| Token | Meaning |
+| ----- | ------- |
+| `--jts-color-canvas` | App background |
+| `--jts-color-surface` | Card / panel background |
+| `--jts-color-surface-raised` / `-sunken` | Inputs & overlays / insets, table stripes |
+| `--jts-color-surface-strong` | Inverse (wine sidebar) |
+| `--jts-color-border` / `-subtle` / `-strong` | Hairlines and dividers |
+| `--jts-color-text` / `-muted` / `-subtle` | Body / secondary / tertiary |
+| `--jts-color-text-on-strong` | Text on the wine sidebar |
+| `--jts-color-primary` (`-hover`/`-active`/`-soft`/`-contrast`) | Brand actions & emphasis |
+| `--jts-color-accent`, `--jts-color-link` | Warm secondary (copper), links |
+| `--jts-color-focus`, `--jts-focus-ring` | Focus outline and ring |
+| `--jts-color-success`/`-warning`/`-danger`/`-info` (+ `-soft`/`-border`) | Status: fg, fill, border |
+| `--jts-color-sidebar-*` | Sidebar nav states (composed from above) |
 
 Non-colour scales: `--jts-space-{1..24}`, `--jts-radius-{xs..xl,pill,circle}`,
 `--jts-shadow-{xs,sm,md,lg}`, `--jts-z-{base..max}`,
@@ -67,8 +63,8 @@ Non-colour scales: `--jts-space-{1..24}`, `--jts-radius-{xs..xl,pill,circle}`,
 
 ## Dark mode: one class, one source
 
-Everything dark is decided by the `dark` class on `<html>`. Nothing else — it is
-the class the design tokens, HeroUI and Tailwind all read.
+`dark` on `<html>` is the only dark-mode signal — tokens, HeroUI and Tailwind
+all read it.
 
 ```mermaid
 flowchart LR
@@ -83,295 +79,169 @@ flowchart LR
   heroui --> ui
 ```
 
-- **No flash.** The inline script in `apps/admin/index.html` reads the stored
-  preference (and the OS query when unset/`system`) and toggles `dark` before the
-  first paint. It mirrors `useTheme()` exactly; re-applying on mount is
-  idempotent.
-- **State.** `useTheme()` (a `useSyncExternalStore` module store, not context, so
-  every consumer stays in sync) exposes `mode` (`light`/`dark`/`system`),
-  `resolved`, `isDark` and `setMode()`. `setMode` persists to `localStorage`
-  under `jts-theme` and toggles the class; the store follows OS changes while in
-  `system`.
-- **Control.** `AdminUserMenu` renders an "Appearance" HeroUI `ToggleButtonGroup`
-  (Light / Dark / Auto) bound to `useTheme()`. The menu appears in both the
-  sidebar footer and the small-screen top bar, so both stay in step.
+- **No flash.** Pre-paint script mirrors `useTheme()` (preference + OS when
+  `system`); re-apply on mount is idempotent.
+- **State.** `useTheme()` is a `useSyncExternalStore` module store:
+  `mode` / `resolved` / `isDark` / `setMode()`. Persists under `jts-theme`;
+  follows OS while in `system`.
+- **Control.** `AdminUserMenu` Appearance group (Light / Dark / Auto) in sidebar
+  footer and small-screen top bar.
 
-## Themes: the second and last appearance axis
+## Themes: the second appearance axis
 
-The operator menu's **Theme** group selects one of six themes; the appearance
-system is a 6×2 grid (theme × light/dark), and the two axes never mix.
+Operator **Theme** group × Appearance = 6×2 grid. Axes never mix. Each theme
+owns its own primary, accent, link, focus and status tones — not a field wash
+over a fixed wine brand.
 
-| Theme        | Field                         | Brand  | Accent |
-| ------------ | ----------------------------- | ------ | ------ |
-| Join The Six | warm rosewood paper (default) | wine   | copper |
-| Graphite     | cool neutral                  | azure  | violet |
-| Noir         | greyscale                     | ink    | violet |
-| Amphora      | Flexoki ink on paper          | teal   | orange |
-| Linen        | Radix Colors sand             | copper | indigo |
-| Iris         | Rosé Pine                     | iris   | foam   |
+| Theme | Field | Brand | Accent |
+| ----- | ----- | ----- | ------ |
+| Join The Six | warm rosewood paper (default) | wine | copper |
+| Graphite | cool neutral | azure | violet |
+| Noir | greyscale | ink | violet |
+| Amphora | Flexoki ink on paper | teal | orange |
+| Linen | Radix Colors sand | copper | indigo |
+| Iris | Rosé Pine | iris | foam |
 
-- **Every theme owns its brand colour.** The first cut kept wine as the primary
-  in all of them, so whatever an operator picked, the buttons, the chat bubbles
-  and the progress bars stayed pink — the field changed and nothing else did. A
-  theme states its own primary, accent, link, focus and status tones.
-- **Every meaning keeps its distance**, measured in CIEDE2000 rather than by
-  comparing hex strings — see [Rules a theme must pass](#rules-a-theme-must-pass).
-- **Noir** is monochrome **in its brand only**: the field is grey and the
-  primary is ink, so the one thing on screen wearing colour is a meaning. Its
-  status tones are real hues. The first cut spent a single amber on the accent,
-  the warning _and_ the danger, which made «this needs a human», «careful» and
-  «this failed» the same pill — the character was costing the operator the
-  distinction the colour existed to carry.
-- `packages/design-tokens/src/palettes.css` holds the five override themes,
-  keyed by `data-palette` on `<html>`, each repainting the **semantic colour
-  layer only** as flat resolved hexes; type, space, radius, shadows and the
-  primitives stay shared. **Join The Six**, the default, is the absence of the
-  attribute: `tokens.css` itself.
-- The light blocks are scoped `:not(.dark)` because they tie with `:root.dark`
-  on specificity and `palettes.css` imports after `tokens.css`. This mirrors
-  HeroUI v3's own mechanism for a palette variant, which scopes
-  `[data-vibrant-palette="true"]` exactly the same way — HeroUI is CSS-first
-  and has no theme object, so a theme is this and nothing more.
-- `apps/admin/src/lib/usePalette.ts` mirrors `useTheme`: a module store over
-  `localStorage` (`jts-palette`) that stamps the attribute; the pre-paint script
-  in `index.html` stamps it before first paint, so neither axis flashes.
-
-To retune a theme, edit its block in `palettes.css` (flat hexes — a theme is a
-finished coat of paint, not a second token graph). To retune **Join The Six**,
-edit `tokens.css` as always.
+- **Join The Six** = absence of `data-palette` (`tokens.css`). Overrides live in
+  `palettes.css` as flat hexes; type, space, radius, shadows and primitives stay
+  shared.
+- Light blocks are scoped `:not(.dark)` so they tie with `:root.dark` on
+  specificity (`palettes.css` imports after `tokens.css`) — same pattern as
+  HeroUI's `[data-vibrant-palette="true"]`.
+- `usePalette` + pre-paint stamp `data-palette` from `localStorage`
+  (`jts-palette`); neither axis flashes.
+- **Noir** is monochrome in brand only; status tones stay real hues so warning /
+  danger / accent remain distinct.
+- Retune an override in its `palettes.css` block; retune the house theme in
+  `tokens.css`.
 
 ### Rules a theme must pass
 
-`apps/admin/test/palettes.spec.ts` gates the five selectable themes and
-`theme-tokens.spec.ts` gates the house theme; both measure with
-`apps/admin/test/colour-metrics.ts`, so the floors live in one place.
+Gated by `apps/admin/test/palettes.spec.ts` (five overrides) and
+`theme-tokens.spec.ts` (house); floors in
+`apps/admin/test/colour-metrics.ts` (CIEDE2000, not hex `!==`).
 
-| Rule                                                                         | Floor    |
-| ---------------------------------------------------------------------------- | -------- |
-| The twelve AA text/background pairs, both modes                              | 4.5:1    |
-| Each badge tone on its own `-soft` tint, and `canvas` on it solid            | 4.5:1    |
-| `accent` as label ink on `surface`                                           | 4.5:1    |
-| The five badge tones (`info` `success` `warning` `danger` `accent`) pairwise | ΔE 12    |
-| `primary` against each status tone                                           | ΔE 10    |
-| Brand colour and sidebar slab, across themes                                 | distinct |
+| Rule | Floor |
+| ---- | ----- |
+| Twelve AA text/background pairs, both modes | 4.5:1 |
+| Each badge tone on its `-soft` tint; `canvas` on its solid | 4.5:1 |
+| `accent` as label ink on `surface` | 4.5:1 |
+| Badge tones (`info` `success` `warning` `danger` `accent`) pairwise | ΔE 12 |
+| `primary` against each status tone | ΔE 10 |
+| Brand colour and sidebar slab, across themes | distinct |
 
-**Why ΔE and not `!==`.** Distinctness is a perceptual claim, and the previous
-gate made it by comparing hex strings. Everything below passed it: noir shipped
-one value as both its accent and its warning, and in dark mode its warning,
-accent and danger sat within ΔE 5.4 — an error looked like a warning. Graphite's
-dark info and accent were ΔE 3.3 apart. `accent` was not in the compared set at
-all. The floors are far above the ~2.3 just-noticeable difference because a
-badge is 10px of text, read in a column, by someone scanning rather than reading.
-
-**The lit sidebar numeral is the theme's dark primary, in both modes.** The slab
-is dark whichever mode you are in, so a light theme's primary — dark ink meant
-for paper — would sink into it; that is the whole reason
-`--jts-color-sidebar-active-index` exists as its own token. Left to taste, every
-theme invented a tint here and the numeral became the one colour on screen
-belonging to nothing (graphite lit a sky blue over a steel primary and a grey
-accent, ΔE 28 from its nearest neighbour), with half the themes reaching for
-primary and half for accent. `AdminNavigation`'s mobile drawer already paints
-this numeral `text-primary`; the sidebar now says the same thing.
+**Sidebar numeral.** `--jts-color-sidebar-active-index` is the theme's **dark
+primary** in both modes (the slab is always dark). Matches
+`AdminNavigation`'s mobile drawer `text-primary`.
 
 ## HeroUI + Tailwind bridge
 
-HeroUI v3 is CSS-first: there is no theme provider and no JS theme object.
-Components read plain CSS variables, and `apps/admin/src/styles/globals.css`
-points those variables at the tokens. Four mechanisms do it:
+HeroUI v3 is CSS-first (no theme provider / JS theme object). `globals.css`
+points HeroUI variables at tokens via four mechanisms:
 
-1. **Unlayered `:root` override of HeroUI's base tokens.** HeroUI defines its
-   base tokens (`--background`, `--surface`, `--accent`, `--danger`, `--field-*`,
-   `--radius`, …) in `@layer base`. `globals.css` redefines them **unlayered** in
-   `:root`, each as a `var(--jts-*)` reference (e.g.
-   `--accent: var(--jts-color-primary)`). Unlayered rules beat layered ones, so
-   our values win without specificity fights; and because the `--jts-*` tokens
-   themselves flip under `:root.dark`, HeroUI flips with them. No second theme
-   definition exists anywhere.
-2. **`@theme inline` — the Tailwind utility vocabulary.** HeroUI already maps its
-   tokens to utilities (`bg-surface`, `bg-accent`, …); `globals.css` adds the jts
-   vocabulary (`canvas`, `ink`/`ink-muted`, `primary`, `copper`, `info`,
-   `*-border`, `sidebar-*`) and overrides the font-family, radius, shadow and
-   tracking scales, each mapped to a `var(--jts-*)`. The **type scale is
-   deliberately not mapped**: there is no `--text-*` entry, so `text-lg` stays
-   Tailwind's own value and a jts size is written as an arbitrary value that
-   references the token — `text-[length:var(--jts-text-lg)]`. The status hairlines are ours
-   because HeroUI models a status as fill + soft fill + text and stops there:
-   until `--color-{success,warning,danger,info}-border` existed,
-   `border-warning-border` was a name Tailwind had never heard of and emitted
-   no rule at all, so a tinted block silently lost its edge. Because it is `@theme inline`, the utilities emit the
-   `var()` reference itself (rather than baking a colour at build time), so
-   `bg-canvas` and friends resolve at runtime and flip with the tokens too.
-3. **`@custom-variant dark (&:is(.dark *))`.** This makes Tailwind's `dark:`
-   variant key off the same `dark` class, for the rare genuinely structural
-   override. Colours never need it — the tokens already flip.
-4. **`@utility jts-overline` — the one multi-property type recipe.** Metadata
-   labels repeat the same four declarations (`--jts-text-2xs`, extrabold,
-   uppercase, `--jts-tracking-caps`) on 23 elements, which no single `@theme`
-   entry can express. The `jts-` prefix is required: Tailwind 4.3.3 ships a core
-   `overline` utility that sets `text-decoration-line`, v4 dropped
-   `corePlugins`, and both rules would emit against the same class.
+1. **Unlayered `:root` override** of HeroUI base tokens (`--background`,
+   `--surface`, `--accent`, `--danger`, `--field-*`, `--radius`, …) as
+   `var(--jts-*)`. Unlayered beats `@layer base`; `:root.dark` flips HeroUI with
+   the tokens — no second theme definition.
+2. **`@theme inline`** — jts Tailwind vocabulary (`canvas`, `ink`/`ink-muted`,
+   `primary`, `copper`, `info`, `*-border`, `sidebar-*`) plus font/radius/shadow/
+   tracking mapped to `var(--jts-*)`. **Type scale is not mapped:** use
+   `text-[length:var(--jts-text-lg)]` (no `--text-*`); `text-lg` stays Tailwind's.
+   Status hairlines (`border-warning-border`, …) exist because HeroUI models
+   status as fill + soft + text only. Inline theme emits runtime `var()` so
+   utilities flip with tokens.
+3. **`@custom-variant dark (&:is(.dark *))`** — Tailwind `dark:` on the same
+   class. Colours never need it; tokens already flip.
+4. **`@utility jts-overline`** — metadata recipe (`--jts-text-2xs`, extrabold,
+   uppercase, `--jts-tracking-caps`). `jts-` prefix required: Tailwind ships a
+   core `overline` (text-decoration).
 
-### Extending it
+### Extending
 
-- **To restyle globally:** edit a token in `tokens.css`. HeroUI components,
-  Tailwind utilities and hand-written CSS all update, in both themes.
-- **To adjust one HeroUI component:** pass `className` (or per-slot `classNames`)
-  using token utilities, or override its `--field-*`/component token locally.
-  Never wrap a HeroUI component just to rename its props.
-- **To add utility vocabulary:** add a `--color-*` / `--radius-* …` line under
-  `@theme inline` mapping to a token (or override a HeroUI base token in `:root`).
-  No component edits — this is the "add a status tone" litmus test.
+- **Global restyle:** edit `tokens.css` (or a palette block).
+- **One HeroUI component:** `className` / `classNames` with token utilities, or
+  local `--field-*` override. Never wrap HeroUI just to rename props.
+- **New utility vocabulary:** `--color-*` / `--radius-* …` under `@theme inline`
+  (or `:root` HeroUI base override).
 
-Do not reintroduce a second source of colour: no hex/rgb/oklch in components, no
-default Tailwind palette classes (`bg-red-500`, `text-slate-600`, …), no inline
-style colours. That is the "shenanigan" this base exists to prevent — if a needed
-semantic doesn't exist, add a token, don't hardcode.
+### Auditing
 
-### Auditing changes
-
-Every claim above is checkable on one screen. `/admin/cookbook` renders the whole
-vocabulary — each swatch painted by the utility it names, each HeroUI and `Jts*`
-specimen the real component — so a token or bridge edit can be judged in one
-place instead of by touring the product and hoping the tour covered it. Make the
-change, read the page, then flip **Appearance** in the operator menu and read it
-again; there is no side-by-side dark preview, because the `dark` class is the
-only theme signal and a faked second theme would be the one thing there that
-cannot be trusted. The page is gated on `import.meta.env.DEV`, so production
-never ships it. New vocabulary — a token, a bridge utility, a badge tone, a
-`Jts*` component — is added to it in the same change. See
-[the cookbook contract](admin-cookbook.md).
+`/admin/cookbook` (DEV-only) renders the vocabulary — real utilities and real
+components. Change → read page → flip Appearance → read again. No side-by-side
+dark preview (`dark` is the only signal). New token / bridge utility / badge
+tone / `Jts*` lands on the cookbook in the same change. Contract:
+[admin-cookbook.md](admin-cookbook.md).
 
 ## Typography
 
-Three Fontsource variable families ([ADR 0011](../decisions/0011-display-typeface.md)):
+Three Fontsource variable families
+([ADR 0011](../decisions/0011-display-typeface.md)):
 
-- **Manrope** (`@fontsource-variable/manrope/wght.css`) — UI and body
-  (`--jts-font-sans`).
-- **Commissioner** (`@fontsource-variable/commissioner/wght.css`) — display
-  headings (`--jts-font-display` / `font-display`).
-- **Sora** (`@fontsource-variable/sora/wght.css`) — the wordmark and nothing
-  else (`--jts-font-brand` / `font-brand`), used only by
-  [`BrandLockup`](../../apps/admin/src/components/admin/BrandLockup.tsx). Its
-  geometry answers the round product mark beside it.
+| Face | Token / utility | Use |
+| ---- | --------------- | --- |
+| Manrope | `--jts-font-sans` | UI and body (Latin + Greek) |
+| Commissioner | `--jts-font-display` / `font-display` | Display headings (Latin + Greek) |
+| Sora | `--jts-font-brand` / `font-brand` | Wordmark only — [`BrandLockup`](../../apps/admin/src/components/admin/BrandLockup.tsx); never UI copy |
 
-Manrope and Commissioner ship **Latin and Greek**, so Greek and English look
-identical for the operator. `font-brand` sets one fixed Latin string, so the
-Greek requirement does not reach it — and `font-brand` must never be used for
-UI copy, where that would show. Numbers that are scanned or compared use
-tabular figures (the
-`tabular-nums` utility, applied to stat values and table bodies). System sans is
-the fallback under Manrope.
-
-`font-mono` is mapped to `--jts-font-mono` in `globals.css` so Tailwind's own
-default mono stack never becomes a second source. It is for machine strings an
-operator copies or compares — ids, model names, millisecond timestamps — never
-for prose.
+Scanned/compared numbers: `tabular-nums`. `font-mono` → `--jts-font-mono`
+(machine strings only: ids, model names, ms timestamps — never prose).
 
 ## Motion
 
-`AdminShell` wraps each route surface in a 200ms opacity/8px-rise entrance
-(`motion/react`) and drops to no motion when `useReducedMotion()` reports a
-preference. Most surfaces use the pathname as their key. Every assistant thread
-URL deliberately uses `/admin/assistant`, because changing conversation is
-state inside the chat: remounting there would replay the entrance and discard
-scroll/optimistic refs. A base rule in `globals.css` also collapses all
-animation under `prefers-reduced-motion`. Motion signals continuity or state
-change and never carries status by itself.
-
-One shared keyframe carries "the app is working on it": `jts-breathe`, a 1.6s
-opacity cycle. `.assistant-thinking` wears it on the assistant's thinking line
-and `.jts-pending` wears it on loading placeholders — the sign-in form while
-Clerk's script is in flight, and the rule under the brand while a private route
-is still being decided. `.jts-pending` draws a `--jts-color-surface-sunken`
-block at whatever size its consumer gives it, and stills to a plain block under
-`prefers-reduced-motion`. One vocabulary for waiting, so no screen invents a
-spinner of its own.
-
-The one other sanctioned animation is `.jts-disclosure`: a `<details>` whose
-body slides open over `--jts-duration-base` instead of appearing between two
-frames. It transitions `block-size` on the UA's own `::details-content` box,
-from `0` to `calc-size(auto, size)` — the scoped alternative to opting the whole
-document into `interpolate-size`. The rule sits behind
-`@supports (block-size: calc-size(auto, size))` because an unguarded
-`block-size: 0` would fold the content away for good where `calc-size` does not
-parse, and it repeats the reduced-motion rule, because the base layer's covers
-`*`, `::before` and `::after` and `::details-content` is none of those.
-`overflow: hidden` clips the body mid-slide, so only a disclosure whose body
-carries its own padding may wear the class — otherwise a focus ring flush
-against the content box is clipped with it.
+- `AdminShell`: 200ms opacity/8px-rise route entrance (`motion/react`); off under
+  `useReducedMotion()`. Key is pathname except assistant threads, which share
+  `/admin/assistant` so conversation switches do not remount.
+- Shared wait: `jts-breathe` (1.6s opacity) on `.assistant-thinking` and
+  `.jts-pending` (sunken block; stills under reduced motion).
+- `.jts-disclosure`: `<details>` body slides via `::details-content`
+  `block-size` `0` → `calc-size(auto, size)`, behind
+  `@supports (block-size: calc-size(auto, size))`, with its own reduced-motion
+  rule. Only disclosures whose body has its own padding — `overflow: hidden`
+  clips mid-slide focus rings otherwise.
+- Base `globals.css` collapses animation under `prefers-reduced-motion`. Motion
+  never carries status alone.
 
 ## Invariants
 
-- Components consume semantic tokens (via the bridge utilities), never
-  primitives or literals.
-- `dark` on `<html>` is the only dark-mode signal.
-- No glows, blurred circles, gradient washes or pulsing dots. Flat accents
-  only. The product logo is `BrandLockup` / `BrandMark`: SVG five-people + empty
-  chair, filled with `currentColor` (no green plate). The mark wears the theme's
-  brand on its slab — `text-sidebar-active-index` on the inverse panel,
-  `text-primary` on paper — while the wordmark keeps the surface foreground;
-  Noir's brand is already ink / near-white, so it stays monochrome there. The
-  CSS six-dot `.brand-mark` is a decorative motif only (empty states, cookbook).
-  One static `.status-dot` is the environment indicator.
-- Two emphasis motifs, and no third. **The six-dot title mark**
-  (`jts-title-mark`) belongs to page titles alone: six 3px dots, five in
-  `--jts-color-primary` and the sixth in `--jts-color-accent` — the table and the
-  seat still open. **The vertical 3px marker** (`--jts-color-primary` or a status
-  tone) sits on the left edge of an accented card and means "this matters /
-  something happened". Neither ever means "you are here" — the active sidebar
-  item lights its index numeral instead — and neither animates.
-- Metadata text (tags, table column headers, labels, kickers) is tracked
-  micro-caps via `jts-overline`, not a hand-written size/weight/tracking triple;
-  content and numbers stay sentence case with tabular figures.
-- Both themes stay at or above WCAG AA for text.
+- Semantic tokens via bridge utilities — never primitives or literals.
+- `dark` on `<html>` is the only dark-mode signal; `data-palette` is the only
+  theme signal.
+- No glows, blurred circles, gradient washes or pulsing dots. Flat accents only.
+- Logo: `BrandLockup` / `BrandMark` (SVG five-people + empty chair, `currentColor`).
+  Mark wears brand on its slab (`text-sidebar-active-index` on inverse,
+  `text-primary` on paper); wordmark keeps surface foreground. CSS `.brand-mark`
+  is decorative only; one static `.status-dot` is the environment indicator.
+- Two emphasis motifs, no third: **`jts-title-mark`** (page titles — six 3px
+  dots, five primary + sixth accent) and the **vertical 3px marker** (primary or
+  status on an accented card). Neither means "you are here" (sidebar lights the
+  index numeral); neither animates.
+- Metadata: `jts-overline`. Content/numbers: sentence case + tabular figures.
+- Both modes ≥ WCAG AA for text (pre-verified in token specs).
 
 ## Tests
 
-- `packages/design-tokens/scripts/verify-tokens.mjs` — the package's own
-  build-time guard: required token names, and that every palette block parses,
-  covers the whole semantic layer in flat hexes, and lights its numeral with its
-  dark primary. Presence and shape only; the colour maths lives in the specs so
-  the floors are not stated twice.
-- `apps/admin/test/colour-metrics.ts` — the shared measurements (WCAG contrast,
-  CIEDE2000) and the floors both token specs hold every theme to.
-- `apps/admin/test/theme-tokens.spec.ts` — AA contrast for critical text/
-  background pairs, light and dark, resolved from `tokens.css`, plus the house
-  theme's own tone separation and lit numeral.
-- `apps/admin/test/theme-switch.spec.ts` — the `resolveTheme` logic and the
-  single-class wiring: the pre-paint script, `@custom-variant dark`, the
-  `--accent: var(--jts-color-primary)` bridge, `:root.dark`, and the
-  `useTheme`/`setThemeMode`/`THEME_STORAGE_KEY` exports.
-- `apps/admin/test/page-chrome.spec.ts` — the chrome every admin route shares:
-  that the title mark is one utility rather than a class string screens copy and
-  that it counts to six with the accent last, that every route-owned `h1` wears
-  it, that the back link is `JtsBackLink` everywhere and never a page action,
-  that every flowing route opens on the same gap while a full-height one keeps
-  its `h-full min-h-0` grammar, and that `.jts-disclosure` stays inside its
-  `@supports` guard, spends the shared duration and easing, and names reduced
-  motion for itself.
-- `apps/admin/test/palettes.spec.ts` — every palette in `palettes.css`:
-  complete semantic cover, the `:not(.dark)` scoping, the same twelve AA pairs
-  in both themes, the ΔE floors and numeral rule above, and the one-id-list
-  wiring across CSS, store, pre-paint script and operator menu.
-- `apps/admin/test/delivery-shell.spec.ts` — the `index.html` shell: pre-paint
-  theme script, unindexed robots meta, and the focusable `#main-content`
-  landmark fallback.
-- `apps/admin/test/cookbook.spec.ts` — the audit surface: both
-  `import.meta.env.DEV` gates, that the gallery names only tokens that exist in
-  `tokens.css`, and that it carries no literal colour of its own.
+| Spec / script | Guards |
+| ------------- | ------ |
+| `packages/design-tokens/scripts/verify-tokens.mjs` | Required names; palette blocks parse, cover semantics in flat hexes, light numeral with dark primary |
+| `apps/admin/test/colour-metrics.ts` | Shared WCAG + CIEDE2000 floors |
+| `theme-tokens.spec.ts` | House AA pairs, tone separation, lit numeral |
+| `theme-switch.spec.ts` | `resolveTheme`, pre-paint, `@custom-variant dark`, `--accent` bridge, `useTheme` exports |
+| `page-chrome.spec.ts` | Title mark, `JtsBackLink`, route gap / full-height grammar, `.jts-disclosure` |
+| `palettes.spec.ts` | Override cover, `:not(.dark)`, AA + ΔE + numeral, id-list wiring |
+| `delivery-shell.spec.ts` | Pre-paint script, robots meta, `#main-content` |
+| `cookbook.spec.ts` | DEV gates, gallery token names, no literal colour |
 
 ## References
 
 - [ADR 0005](../decisions/0005-theming-and-dark-mode.md),
   [ADR 0006](../decisions/0006-react-admin-runtime.md),
-  [ADR 0011](../decisions/0011-display-typeface.md)
+  [ADR 0011](../decisions/0011-display-typeface.md),
+  [ADR 0012](../decisions/0012-selectable-palettes.md)
 - HeroUI v3 theming — <https://heroui.com/en/docs/react/getting-started/theming>
   (2026-07-23)
-- Tailwind CSS v4 theme (`@theme`) — <https://tailwindcss.com/docs/theme>
-  (2026-07-23)
-- Tailwind CSS v4 dark mode (`@custom-variant`) —
+- Tailwind CSS v4 theme / dark mode —
+  <https://tailwindcss.com/docs/theme>,
   <https://tailwindcss.com/docs/dark-mode> (2026-07-23)
-- Fontsource Manrope — <https://fontsource.org/fonts/manrope>
-- Fontsource Commissioner — <https://fontsource.org/fonts/commissioner>
-- Fontsource Sora — <https://fontsource.org/fonts/sora>
-- [ADR 0011](../decisions/0011-display-typeface.md) — display face split
+- Fontsource: [Manrope](https://fontsource.org/fonts/manrope),
+  [Commissioner](https://fontsource.org/fonts/commissioner),
+  [Sora](https://fontsource.org/fonts/sora)

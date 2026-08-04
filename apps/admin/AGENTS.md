@@ -1,12 +1,11 @@
 # Admin frontend agent contract
 
 The repository [`AGENTS.md`](../../AGENTS.md) applies here. `apps/admin` is the
-live admin panel: a React 19 single-page app (Vite) that replaced the retired
-Nuxt/PrimeVue client (see ADR 0006). Before changing UI architecture, read
-[`docs/frontend/theming.md`](../../docs/frontend/theming.md) (tokens, the bridge
-and dark mode) and
-[ADR 0006](../../docs/decisions/0006-react-admin-runtime.md) (the React runtime
-decision). Component contracts live under `docs/frontend/components/`.
+live admin panel: a React 19 SPA (Vite) that replaced the retired Nuxt/PrimeVue
+client (ADR 0006). Before changing UI architecture, read
+[`docs/frontend/theming.md`](../../docs/frontend/theming.md) and
+[ADR 0006](../../docs/decisions/0006-react-admin-runtime.md). Component
+contracts live under `docs/frontend/components/`.
 
 ## Verified stack
 
@@ -50,8 +49,7 @@ one-off page logic explicit; delete scaffolding for APIs that do not exist.
 
 1. Reuse a matching `Jts*` component.
 2. Otherwise use a HeroUI primitive directly.
-3. Compose a documented `Jts*` component only for a real repeated pattern
-   (accessibility, loading/empty/error states, pagination).
+3. Compose a documented `Jts*` only for a real repeated pattern (a11y, loading/empty/error, pagination).
 4. Use semantic HTML/CSS for content and layout.
 
 Pages own columns, cell formatting, filters, row actions and API calls. Shared
@@ -60,84 +58,64 @@ rename its props. Props are the narrowest honest contract: no speculative
 options, no `...rest` into the void, no boolean explosion where a variant union
 reads better — slots and children over config objects.
 
-## Tokens and the bridge are the only color vocabulary
+## Tokens, HeroUI and accessibility
 
-- Every visual value comes from `packages/design-tokens/src/tokens.css` (`--jts-*`)
-  through the HeroUI mapping and Tailwind `@theme` bridge in `globals.css`. Build
-  with the semantic utilities that bridge exposes (`bg-surface`, `text-ink`,
-  `text-primary`, `border-border`, `bg-copper-soft`, `text-sidebar-fg` …).
-- Never write raw hex/rgb/oklch, default Tailwind palette classes (`bg-red-500`,
-  `text-slate-600`, `gray-*`) or inline style colors. If a needed semantic does
-  not exist, **stop and report it** — do not hardcode and do not edit
-  `packages/design-tokens/` to patch a single component.
-- Dark mode is the `dark` class on `<html>` (set pre-paint in `index.html`, owned
-  by `src/lib/useTheme.ts`); the tokens flip under it. Components must not branch
-  on theme: no `dark:` color variants for values the tokens already flip. `dark:`
-  is reserved for genuinely structural cases, which should be rare to nonexistent.
+- **Tokens only.** Visual values come from `packages/design-tokens/src/tokens.css`
+  (`--jts-*`) via the HeroUI mapping and Tailwind `@theme` bridge in
+  `globals.css`. Use bridge utilities (`bg-surface`, `text-ink`, `text-primary`,
+  `border-border`, `bg-copper-soft`, `text-sidebar-fg` …). Never raw
+  hex/rgb/oklch, default Tailwind palette classes (`bg-red-500`, `text-slate-600`,
+  `gray-*`) or inline style colors. Missing semantic → **stop and report**; do
+  not hardcode and do not edit `packages/design-tokens/` for one component.
+- **Dark mode** is the `dark` class on `<html>` (pre-paint in `index.html`, owned
+  by `src/lib/useTheme.ts`). Tokens flip under it — no `dark:` color variants for
+  values tokens already flip. `dark:` is for rare structural cases only.
+- **HeroUI v3:** import from `@heroui/react`; read installed declarations
+  (`node_modules/@heroui/react/dist/index.d.ts`) before use — no invented props,
+  no v2/NextUI patterns. CSS-first: **no HeroUI provider**. Mount
+  `<Toast.Provider />` once in `App.tsx` and fire with `toast()`. Icons:
+  `lucide-react`; page entrance: `motion/react`.
+- **A11y:** one `<h1>` per page; landmarks; focusable `#main-content`
+  (`tabIndex={-1}`) with `skip-link` first. Native focus uses the global 2px
+  `--jts-color-focus` ring (offset 3px); do not double-ring HeroUI. Icon-only
+  controls need `aria-label`; current nav uses `aria-current="page"`; status is
+  **text plus tone, never color alone**; toasts announce. Dual-mounted UI (e.g.
+  operator menu in sidebar and small-screen top bar) must use `useId` for every
+  internal id. Motion is only the 200ms opacity/8px-rise page entrance (respects
+  `prefers-reduced-motion`), HeroUI transitions, shared `jts-breathe`
+  (`.assistant-thinking`, `.jts-pending`), and one-shot `.jts-message-flash` on
+  cited transcript reveal. WCAG AA holds via pre-verified tokens — another reason
+  hardcoding color is banned.
 
-## HeroUI v3 usage
+## Types, API client, routes and environment
 
-- Import everything from `@heroui/react`. Read the installed declarations
-  (`node_modules/@heroui/react/dist/index.d.ts`) before using a component or
-  prop; do not invent props or copy patterns from HeroUI v2 / NextUI.
-- HeroUI v3 is CSS-first — there is **no provider wrapper**. Do not add one.
-- Toasts: mount `<Toast.Provider />` exactly once at the app root (`App.tsx`) and
-  fire with `toast()`; do not mount a second provider.
-- Icons come from `lucide-react`; the page-entrance animation from `motion/react`.
-
-## Accessibility invariants
-
-- One `<h1>` per page; landmark regions; a focusable `#main-content`
-  (`tabIndex={-1}`) skip target with the `skip-link` as the first focusable
-  element.
-- Visible focus: native elements get the global 2px `--jts-color-focus` ring
-  (offset 3px); HeroUI components manage their own — do not double-ring them.
-- Icon-only controls carry `aria-label`; current nav item uses
-  `aria-current="page"`; status is conveyed by **text plus tone, never color
-  alone**; toasts announce.
-- A component that mounts twice (the operator menu renders in both the sidebar
-  and the small-screen top bar) must source every internal id from `useId`.
-- `prefers-reduced-motion` collapses animation; the only motion is the 200ms
-  opacity/8px-rise page entrance (which already respects it), HeroUI's own
-  transitions, the shared `jts-breathe` wait (`.assistant-thinking`,
-  `.jts-pending`), and the one-shot `.jts-message-flash` pulse when an
-  attention reason reveals its cited transcript message. WCAG AA holds in both
-  themes because the tokens are pre-verified — another reason hardcoding color
-  is banned.
-
-## Types, routes and environment
-
-- Strict TypeScript is on: `strict` plus the trio (`exactOptionalPropertyTypes`,
-  `noUncheckedIndexedAccess`, `noImplicitOverride`) and `noUnusedLocals` /
-  `noUnusedParameters`. Write code that passes without suppressions. Every
-  `eslint-disable` / `@ts-expect-error` needs a one-line WHY and should be rare
-  enough to count on one hand. No `any`, no non-null `!` without justification,
-  no `as` where a type guard is honest.
-- Call backend endpoints through the generated hooks in `src/api/generated/`
-  (`useGetAuthSession`, …), named after the backend `operationId`. Never
-  hand-write a fetch call, a URL string or a response Zod schema for an endpoint
-  that exists in `apps/backend/openapi/openapi.json`; if an endpoint is missing,
-  the backend change comes first, then `pnpm api:generate`. `RequireAdmin` is the
-  reference consumer. The assistant screen still owns hand-written client
-  semantics beyond the response shape — not a pattern to copy for ordinary CRUD.
-  When a value must be validated at runtime in the browser — a form draft,
-  something persisted, a payload echoed back — use the generated schema from
-  `src/api/generated/zod/`.
-- Routes: `/sign-in/*`, `/admin` and `/admin/**` exist; `/` redirects to
-  `/admin`; unknown paths render `ErrorPage`. Each view sets its title and description via
-  `usePageMeta`; `robots` (`noindex, nofollow`) is declared once in `index.html`
-  and must not be re-touched per view.
-- Only `import.meta.env.VITE_*` reaches the browser. Add every consumed variable
-  to the Zod schema in `src/lib/env.ts`; it validates at module load and fails
-  fast on a misconfigured deploy.
+- **Strict TS:** `strict` plus `exactOptionalPropertyTypes`,
+  `noUncheckedIndexedAccess`, `noImplicitOverride`, `noUnusedLocals` /
+  `noUnusedParameters`. No suppressions without a one-line WHY
+  (`eslint-disable` / `@ts-expect-error` should be countable on one hand). No
+  `any`, no unjustified `!`, no `as` where a type guard is honest.
+- **Generated client:** call endpoints through `src/api/generated/` hooks
+  (`useGetAuthSession`, …), named after backend `operationId`. Never hand-write
+  a fetch, URL string or response Zod schema for an operation in
+  `apps/backend/openapi/openapi.json` — missing endpoint → backend first, then
+  `pnpm api:generate`. `RequireAdmin` is the reference consumer. Runtime
+  browser validation (drafts, persisted values, echoed payloads) uses
+  `src/api/generated/zod/`. Assistant screen owns hand-written client semantics
+  beyond the response shape — not a pattern to copy (see root AGENTS.md).
+- **Routes:** `/sign-in/*`, `/admin` and `/admin/**`; `/` → `/admin`; `*` →
+  `ErrorPage`. Each view sets title/description via `usePageMeta`; `robots`
+  (`noindex, nofollow`) is once in `index.html` — never re-touched per view.
+- **Env:** only `import.meta.env.VITE_*` reaches the browser. Every consumed
+  variable belongs in the Zod schema in `src/lib/env.ts` (fails fast at module
+  load).
 
 ## Documentation and verification
 
-When a change alters structure, a reusable `Jts*` contract, the token/bridge
-vocabulary or measured delivery constraints, update `docs/frontend/theming.md`
-and/or the focused `docs/frontend/components/` contract in the same change.
+Structure, reusable `Jts*` contracts, token/bridge vocabulary or measured
+delivery constraints → update `docs/frontend/theming.md` and/or the focused
+`docs/frontend/components/` contract in the same change.
 
-Run `pnpm --filter @join-the-six/admin typecheck`, `lint`, `test` and `build`
-before handoff; run `pnpm check` when the change touches shared conventions. If
-the change touched a backend endpoint, run `pnpm api:generate` first and commit
-the regenerated contract and client with it — `pnpm check` fails on drift.
+Before handoff: `pnpm --filter @join-the-six/admin typecheck`, `lint`, `test`
+and `build`. Shared conventions → `pnpm check`. Backend endpoint change →
+`pnpm api:generate` first; commit regenerated contract with the change
+(`pnpm check` fails on drift).

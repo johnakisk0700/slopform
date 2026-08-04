@@ -3,9 +3,9 @@
 Status: implemented. Last verified: **2026-08-05**.
 
 `GET /api/v1/overview` (`operationId: getOverview`) is the admin Operations
-landing snapshot. It is a cross-domain read model: events and participants from
+landing snapshot. Cross-domain read model: events and participants from
 PostgreSQL, post-event feedback conversation tallies from MongoDB, outbound
-undelivered counts from `message_outbox`, and campaign summary statuses from
+undelivered counts from `message_outbox`, campaign summary statuses from
 PostgreSQL. Controllers stay thin; the service fans out in parallel; the Mongo
 client never leaves `FeedbackConversationRepository`.
 
@@ -17,7 +17,7 @@ client never leaves `FeedbackConversationRepository`.
   non-zero array sorted by count.
 - Honest labels only: attendee assignments and recorded presence — never
   bookings or capacity fiction.
-- Assistant usage is out of scope: threads are owner-scoped personal workspaces.
+- Assistant usage is out of scope (owner-scoped personal workspaces).
 
 Source: [`apps/backend/src/modules/overview/`](../../../apps/backend/src/modules/overview/).
 
@@ -33,4 +33,5 @@ Source: [`apps/backend/src/modules/overview/`](../../../apps/backend/src/modules
 | Undelivered outbox + failed last 24h                      | PostgreSQL           | `message_outbox_status_created_idx`                                                        |
 
 BullMQ is not consulted. PostgreSQL outbox statuses remain the delivery
-authority, matching the outbound queue screen.
+authority, matching the outbound queue screen. Conversation semantics belong to
+[post-event feedback](post-event-feedback.md).

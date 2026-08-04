@@ -1,92 +1,72 @@
 # Participant profiles and WordPress import
 
 Status: schema, offline importer and staff event-history read model implemented.
-A WXR export from the supplied
-WordPress admin was applied to local PostgreSQL on **2026-07-23**: 32 profiles
-were imported, 9 trashed profiles were skipped and 4 active profiles remain in
-reconciliation. This is not a production database cutover. Last verified
-**2026-08-02** against Drizzle ORM `0.45.2`, Drizzle Kit `0.31.10`, `pg`
-`8.22.0` and Zod `4.4.3`.
+Local WXR import verified **2026-07-23** (not a production cutover). Last
+verified **2026-08-02** against Drizzle ORM `0.45.2`, Drizzle Kit `0.31.10`,
+`pg` `8.22.0` and Zod `4.4.3`.
 
 ## Purpose and boundary
 
-The participant profile stores the answers needed for contact and initial table
-matching. The v1 operational importer moves existing `jts_profile` answers from
-WordPress into that model with validation, provenance, idempotency and audit.
+Participant profile stores contact answers and initial table-matching fields.
+The v1 operational importer moves `jts_profile` answers from WordPress with
+validation, provenance, idempotency and audit.
 
-This module does not expose an HTTP signup endpoint yet. It does not import
-payments, bookings, table assignments or raw WordPress post meta. It also does
-not create consent evidence: the audited legacy profile data has no defensible
-consent timestamp or notice version, so manufacturing one would turn a missing
-fact into a very official-looking lie.
+No HTTP signup yet. Does not import payments, bookings, table assignments or
+raw WordPress post meta. Does not invent consent evidence: legacy profile data
+has no defensible consent timestamp or notice version.
 
 ## Persisted contract
 
-`participants` stores one normalized profile. `participant_interests` stores
-the selected set. `participant_source_records` links a source record to the
-participant and keeps source identifiers, source update time and a SHA-256 hash
-of the canonical profile. It deliberately does not duplicate the raw PII
-payload. Email remains required for identity/deduplication; the other answers
-are nullable so incomplete legacy profiles can be migrated without inventing
-facts. The future signup boundary must still require the complete contract.
+`participants` — one normalized profile. `participant_interests` — selected set.
+`participant_source_records` — source link, identifiers, source update time,
+SHA-256 of the canonical profile (no duplicated raw PII). Email required for
+identity/dedup; other answers nullable so incomplete legacy rows migrate without
+invented facts. Future signup must still require the complete contract.
 
-`post_event_feedback_whatsapp_opt_in` (boolean, default `false`) is an
-eligibility gate for WhatsApp post-event feedback (D4). It is not a consent
-ledger: every staff toggle that changes the value writes an audit event
-(a toggle that sets it to what it already was returns early and writes nothing)
-(`participant.feedback_whatsapp_opt_in_changed`), and STOP handling in later
-work packages will flip it off with its own audit. Legal wording and Meta/BSP
-classification remain a named gate before real humans.
+`post_event_feedback_whatsapp_opt_in` (boolean, default `false`) is a WhatsApp
+feedback eligibility gate (D4), not a consent ledger. Staff toggles that change
+the value write `participant.feedback_whatsapp_opt_in_changed`; a no-op toggle
+writes nothing. STOP handling flips it off with its own audit. Legal wording and
+Meta/BSP classification remain a named gate before real humans.
 
 | Legacy question | Canonical field          | Rule                                                    |
 | --------------- | ------------------------ | ------------------------------------------------------- |
 | `name`          | `preferred_name`         | Trim/collapse whitespace; 1–120 characters when present |
 | `age`           | `age_band`               | `18_24`, `25_34`, `35_44`, `45_54`, `55_plus`           |
-| `telephone`     | `phone_e164`             | Normalize a present Greek/local or international number |
-| `city`          | `preferred_neighborhood` | One of the ten deployed Athens neighborhood options     |
-| `interests`     | `participant_interests`  | Unique canonical codes; 0–5 for legacy, 1–5 for signup  |
+| `telephone`     | `phone_e164`             | Normalize present Greek/local or international number   |
+| `city`          | `preferred_neighborhood` | One of ten deployed Athens neighborhood options         |
+| `interests`     | `participant_interests`  | Unique canonical codes; 0–5 legacy, 1–5 signup          |
 | `personality`   | `conversation_style`     | Integer 1–5, listener to speaker                        |
-| `email`         | `email_normalized`       | Trim, lowercase, validate; unique deduplication key     |
+| `email`         | `email_normalized`       | Trim, lowercase, validate; unique dedup key             |
 
-The exact Greek labels and canonical codes live in the
-[mapper](../../../apps/backend/src/modules/participants/wordpress-profile.mapper.ts)
-and database checks live in the
-[schema](../../../packages/database/src/schema/participants.ts). The importer
-accepts only export schema version `1`; changing a question meaning or option
-requires a new explicit mapping/version, not fuzzy matching. Import v1 covers
-the seven questions in the supplied signup screenshots. The WXR also contains
-newer `availability`, `diet`, `goal`, `languages`, `topics`, `values` and `vibe`
-metadata on 15 profiles; those answers remain in the restricted source export
-until their target contract is approved.
+Greek labels and codes:
+[mapper](../../../apps/backend/src/modules/participants/wordpress-profile.mapper.ts);
+DB checks:
+[schema](../../../packages/database/src/schema/participants.ts). Importer accepts
+export schema version `1` only — meaning/option changes need a new mapping
+version. Import v1 covers the seven deployed signup questions. WXR also carries
+newer `availability`, `diet`, `goal`, `languages`, `topics`, `values`, `vibe` on
+some profiles; those stay in the restricted export until a target contract is
+approved.
 
 ## Staff HTTP surface
 
-Staff-only routes under the Clerk admin guard:
+Staff-only under Clerk admin guard:
 
-| Method  | Path                                                | Effect                                       |
-| ------- | --------------------------------------------------- | -------------------------------------------- |
-| `GET`   | `/api/v1/participants`                              | List profiles (capped)                       |
-| `GET`   | `/api/v1/participants/:id`                          | Single profile                               |
-| `GET`   | `/api/v1/participants/:id/events`                   | Event history for a profile (newest first)   |
-| `PATCH` | `/api/v1/participants/:id/feedback-whatsapp-opt-in` | Toggle opt-in + audit when the value changes |
+| Method  | Path                                                | Effect                                     |
+| ------- | --------------------------------------------------- | ------------------------------------------ |
+| `GET`   | `/api/v1/participants`                              | List profiles (capped)                     |
+| `GET`   | `/api/v1/participants/:id`                          | Single profile                             |
+| `GET`   | `/api/v1/participants/:id/events`                   | Event history (newest first)               |
+| `PATCH` | `/api/v1/participants/:id/feedback-whatsapp-opt-in` | Toggle opt-in + audit when value changes   |
 
-`listParticipantEvents` is a read model over `event_attendees` joined to
-`events`. Each item returns `eventId`, `title`, `startsAt`, event `status`,
-`present`, `tableNo` and the same full nullable `venue` view as event list/detail:
-provider, place id, operator-confirmed label, optional type/area/price level,
-optional exact price range, `useInFeedback` and server-owned `contextRevision`.
-Unknown participants return `404`; a known profile with no attendance returns an
-empty `items` array. The projection reads the venue columns owned by `events`;
-there is no participant or attendance schema change. See the
-[event venue contract](events.md#persisted-contract).
-
-The admin Participants list links into `/admin/participants/:id`, which loads
-the profile through `getParticipant`, the history through
-`listParticipantEvents`, and reuses `updateParticipantFeedbackOptIn` for the
-WhatsApp opt-in toggle. Age band and neighborhood are humanized only in the UI
-(display mapping; stored codes are unchanged). Opt-in is a HeroUI `Checkbox` in the
-Preferences section, not a badge in the identity header — it is something an
-operator sets, and a header chip would read as something merely reported. Import remains a CLI operation, not an HTTP signup.
+`listParticipantEvents` joins `event_attendees` → `events`. Items:
+`eventId`, `title`, `startsAt`, event `status`, `present`, `tableNo`, and the
+same full nullable `venue` view as event list/detail (including
+`contextRevision`). Unknown participant → `404`; known with no attendance →
+empty `items`. Venue columns are owned by `events` — see
+[event venue contract](events.md#persisted-contract). Import remains CLI, not
+HTTP signup. Admin UI: `/admin/participants/:id`.
 
 ## Import flow
 
@@ -104,112 +84,79 @@ flowchart LR
   Validate --> Rejects["Source-id-only reject report"]
 ```
 
-The preferred path for the currently available access is WordPress admin
-**Tools > Export > Profiles**. The CLI auto-detects the resulting WXR/XML file.
-When WP-CLI access is available, the maintained JSON exporter remains supported:
+Preferred path with current access: WordPress **Tools > Export > Profiles**
+(CLI auto-detects WXR). When WP-CLI is available:
 
 ```bash
 umask 077
 wp eval-file /path/to/export-jts-profiles.php > /restricted/jts-profiles.json
 ```
 
-The maintained export script is
+Exporter:
 [`scripts/wordpress/export-jts-profiles.php`](../../../scripts/wordpress/export-jts-profiles.php).
-`get_post_meta()` decodes WordPress-serialized values before JSON is emitted.
-The checked-in
-[`example-jts-profiles.json`](../../../scripts/wordpress/example-jts-profiles.json)
-contains fake data and documents the envelope.
+Fake envelope:
+[`example-jts-profiles.json`](../../../scripts/wordpress/example-jts-profiles.json).
 
-Keep real exports in a restricted, ignored location such as
-`secrets/wordpress/`; never add them to Git. Validate before opening a database
-connection:
+Keep real exports under ignored `secrets/wordpress/`; never commit them.
 
 ```bash
 pnpm import:wordpress-profiles --file=/restricted/jts-profiles.xml
-```
-
-Apply only after reviewing the report and migrating the target database:
-
-```bash
 pnpm db:migrate
 pnpm import:wordpress-profiles --file=/restricted/jts-profiles.xml --apply
 ```
 
-Dry-run is the default. The input is capped at 20 MiB. The command returns JSON
-counts and source record IDs only; it does not print names, emails, phones or
-answers. Exit code `2` means at least one row was rejected or conflicted. Delete
-the export according to the approved retention process after reconciliation.
+Dry-run is default. Input capped at 20 MiB. Report is JSON counts and source
+record IDs only (no names/emails/phones/answers). Exit `2` = at least one
+reject/conflict. Delete the export per approved retention after reconciliation.
 
 ## Invariants and reconciliation
 
-- `(source_system, source_record_id)` is unique. Replaying the same canonical
-  hash is a no-op only when the target row still matches. Unexpected target
-  changes become `target_drift` instead of a false successful replay.
-- A changed payload for the same source record updates the linked participant,
-  interests and provenance in one transaction.
-- Normalized email is unique. A second source record with the same email links
-  only when every canonical answer is identical; otherwise it is a manual
-  `duplicate_email_conflict`.
-- Trashed WordPress profiles are counted and skipped. Blank optional legacy
-  answers are stored as `null`/an empty interest set and reported as incomplete.
-  Non-blank unknown or invalid values are rejected rather than coerced.
-- WordPress's public question metadata reports a zero scale bound, while the
-  deployed UI offers `1`–`5`. The importer enforces the UI contract and reports
-  zero as invalid for reconciliation.
-- Import audit context contains source identifiers and action only. Runtime
-  logs, audit rows and provenance rows contain no answer payload.
+- `(source_system, source_record_id)` unique. Same canonical hash is a no-op only
+  when the target still matches; unexpected target changes → `target_drift`.
+- Changed payload for the same source record updates participant, interests and
+  provenance in one transaction.
+- Normalized email unique. Second source with same email links only when every
+  canonical answer is identical; else `duplicate_email_conflict`.
+- Trashed WordPress profiles counted and skipped. Blank optional legacy →
+  `null`/empty interests (incomplete). Non-blank unknown/invalid → reject, never
+  coerce.
+- WordPress metadata reports a zero scale bound; deployed UI is `1`–`5`.
+  Importer enforces the UI contract (zero = invalid).
+- Audit/logs/provenance: source identifiers and action only — no answer payload.
 
-The importer processes valid records independently so one bad legacy row does
-not roll back unrelated rows. Any reject, conflict or count mismatch blocks
-migration sign-off; partial success is not permission to forget the remainder.
+Valid records process independently so one bad row does not roll back others.
+Any reject, conflict or count mismatch blocks migration sign-off.
 
 ## Extension points
 
-The future signup API should reuse the canonical participant schema and domain
-rules but write through an authenticated/consent-aware application service. It
-must not accept WordPress source identifiers or call this operational CLI.
-Consent requires a separate versioned record containing the accepted notice and
-timestamp. Participant identity/authorization must come from the authentication
-boundary, not from possession of an email address.
+Future signup reuses the canonical schema and domain rules through an
+authenticated/consent-aware service — not WordPress source identifiers or this
+CLI. Consent needs a separate versioned notice+timestamp record. Identity comes
+from the authentication boundary, not possession of an email.
 
-Add option values by updating the database check, canonical Zod schema, legacy
-mapping tests and reviewed migration together. Do not store new questionnaire
-answers as an untyped JSON drawer unless the product explicitly chooses that
-trade-off in an ADR.
+Add option values by updating DB check, canonical Zod, legacy mapping tests and
+reviewed migration together. Untyped JSON drawers need an ADR.
 
-## Tests and current migration status
+## Tests and local migration status
 
-The participant suites cover every age/neighborhood mapping, normalization,
-incomplete legacy preservation, invalid scale and interest rejection, WXR
-parsing, source-hash idempotency, updates, identical duplicate linking,
-conflicting duplicate rejection, feedback opt-in audit and event-history
-projection (newest-first present/table fields plus the full nullable event venue
-view). On 2026-07-25 the complete
-backend run passed without failures; both database and backend builds and
-`drizzle-kit check` also passed.
+Suites cover age/neighborhood mapping, normalization, incomplete legacy,
+invalid scale/interest rejection, WXR parsing, source-hash idempotency, updates,
+identical-duplicate linking, conflicting-duplicate rejection, opt-in audit and
+event-history projection (including venue view).
 
-The restricted WXR contained 45 `jts_profile` posts: 36 active and 9 trashed.
-The local import accepted 32 active profiles (22 complete and 10 incomplete),
-creating 137 interest rows, 32 provenance rows and 32 audit rows. Four active
-profiles remain rejected because source IDs `77`, `83`, `96` and `105` contain
-non-empty values that cannot be normalized as phone numbers. A replay reported
-all 32 accepted profiles as `unchanged`, confirming idempotency. These numbers
-describe the local migration database only; deploying the schema and import to
-the canonical environment remains a separate operation.
-
-Credentials live only in the ignored local root `.env` with user-only file
-permissions. Real exports live only under ignored `secrets/wordpress/` with
-restricted permissions. No WordPress Application Password was created because
-the existing authenticated admin session was sufficient.
+**Local 2026-07-23 WXR (not production cutover):** 45 `jts_profile` posts
+(36 active, 9 trashed) → 32 accepted (22 complete, 10 incomplete), 137 interest /
+32 provenance / 32 audit rows; 4 active rejected on invalid phones (`77`, `83`,
+`96`, `105`); replay reported all 32 `unchanged`. Credentials and real exports
+stay in ignored local paths with restricted permissions.
 
 ## Decisions and references
 
-- [WordPress migration strategy](../../migration-strategy.md) and
+- [WordPress migration strategy](../../migration-strategy.md),
   [WordPress boundary ADR](../../decisions/0002-wordpress-boundary.md)
 - [Importer CLI](../../../apps/backend/src/cli/import-wordpress-profiles.ts),
   [service](../../../apps/backend/src/modules/participants/wordpress-profile-import.service.ts),
   [WXR parser](../../../apps/backend/src/modules/participants/wordpress-wxr.parser.ts),
-  [base migration](../../../packages/database/drizzle/20260723015851_add_participant_profiles.sql)
-  and [legacy-nullability migration](../../../packages/database/drizzle/20260723021648_allow_incomplete_participant_profiles.sql)
+  [base migration](../../../packages/database/drizzle/20260723015851_add_participant_profiles.sql),
+  [legacy-nullability](../../../packages/database/drizzle/20260723021648_allow_incomplete_participant_profiles.sql)
 - [Zod schemas](../../../apps/backend/src/modules/participants/wordpress-profile-import.schemas.ts)
-  and [Drizzle transactions](https://orm.drizzle.team/docs/transactions)

@@ -2,26 +2,34 @@
 
 ## Position
 
-WordPress is a live prototype, migration source and possible temporary Viva checkout host. It is not the canonical schema for the new application. We migrate meaning, provenance and reconciliation state—not `wp_posts`, `wp_postmeta` and serialized blobs one-for-one.
+WordPress is a live prototype, migration source and possible temporary Viva
+checkout host. It is not the canonical schema for the new application. Migrate
+meaning, provenance and reconciliation state — not `wp_posts` / `wp_postmeta` /
+serialized blobs one-for-one.
 
 The runtime deploys no WordPress adapter and carries no WordPress URL or
 credentials. Profile migration uses one-shot WXR/XML or versioned JSON
-export/import paths instead of giving the application permanent access to the
-legacy system.
-Add runtime configuration only with an adapter that validates and consumes it;
-dormant secrets are not an integration strategy.
+export/import. Add runtime configuration only with an adapter that validates and
+consumes it; dormant secrets are not an integration strategy.
 
-The factual source inventory is [`../evidence/wordpress-audit-2026-07-22.md`](evidence/wordpress-audit-2026-07-22.md).
+Factual source inventory:
+[`evidence/wordpress-audit-2026-07-22.md`](evidence/wordpress-audit-2026-07-22.md).
 
 ## Sequence
 
-1. **Freeze and export** — obtain a read-only database dump/WP-CLI export and the deployed Next.js source/configuration.
-2. **Land raw snapshots** — preserve source IDs, source type, extraction timestamp and source payload in restricted staging tables or encrypted artifacts.
-3. **Reconcile** — deduplicate identities; compare payment/order codes with Viva; classify live, trashed and test records; resolve contradictory status.
-4. **Transform** — map explicit fields into target entities through a versioned migration program. Record rejects; never silently coerce them.
-5. **Validate** — compare counts, money totals, status groups and sampled records. Product/operations sign off exceptions.
-6. **Cut over by capability** — new writes move one flow at a time. During overlap, choose one writer for every fact.
-7. **Retire** — remove WordPress credentials and adapters only after rollback and retention windows expire.
+1. **Freeze and export** — read-only dump/WP-CLI export and deployed Next.js
+   source/configuration.
+2. **Land raw snapshots** — source IDs, type, extraction timestamp and payload
+   in restricted staging or encrypted artifacts.
+3. **Reconcile** — dedupe identities; compare payment/order codes with Viva;
+   classify live/trashed/test; resolve contradictory status.
+4. **Transform** — versioned field mapping into target entities; record rejects;
+   never silently coerce.
+5. **Validate** — counts, money totals, status groups, sampled records;
+   product/ops sign off exceptions.
+6. **Cut over by capability** — one writer per fact during overlap.
+7. **Retire** — remove WordPress credentials/adapters after rollback and
+   retention windows expire.
 
 ## Preliminary mapping
 
@@ -37,50 +45,39 @@ The factual source inventory is [`../evidence/wordpress-audit-2026-07-22.md`](ev
 
 ## Participant profile import v1
 
-The implemented profile path is intentionally operational rather than an HTTP
-route:
+Operational CLI path (not an HTTP route). Canonical mapping, invariants and
+commands: [participant module](backend/modules/participants.md).
 
-1. Export `jts_profile` records from WordPress admin as WXR/XML, or run
-   [`export-jts-profiles.php`](../scripts/wordpress/export-jts-profiles.php)
-   through WP-CLI to produce restricted JSON v1. Both paths extract the seven
-   deployed signup questions; the importer auto-detects the input format.
-2. Run `pnpm import:wordpress-profiles --file=<path>` locally or in the approved
-   migration environment. Dry-run validates and normalizes without connecting
-   to PostgreSQL.
-3. Reconcile total, eligible, trashed and rejected counts against WordPress.
-4. Apply reviewed database migrations, then rerun with `--apply`. Each accepted
-   source profile writes participant, interests, provenance and audit in one
-   transaction.
-5. Replay the same artifact and require every accepted row to report
-   `unchanged`. Resolve all source-ID rejects and duplicate-email conflicts
-   before sign-off.
+1. Export `jts_profile` as WXR/XML (admin Tools > Export) or restricted JSON v1
+   via [`export-jts-profiles.php`](../scripts/wordpress/export-jts-profiles.php).
+2. `pnpm import:wordpress-profiles --file=<path>` (dry-run default; no DB).
+3. Reconcile totals against WordPress; resolve rejects/conflicts.
+4. Migrate, then `--apply`. Replay until every accepted row reports `unchanged`.
 
-The canonical mapping and operational controls are documented in the
-[participant module](backend/modules/participants.md). Real exports are kept in
-the ignored, permission-restricted `secrets/wordpress/` directory; the
-repository contains only fake example data.
-
-The 2026-07-23 WXR inventory contained 45 profiles: 36 active and 9 trashed. A
-local PostgreSQL import accepted 32 active profiles (22 complete and 10
-incomplete), wrote 137 interests plus 32 provenance and 32 audit rows, and
-replayed all 32 as unchanged. Four active profiles remain blocked on invalid
-non-empty phone values at source IDs `77`, `83`, `96` and `105`. This is a
-verified local migration run, not evidence of a production database cutover.
+Real exports stay under ignored `secrets/wordpress/`; the repo has fake examples
+only. Local 2026-07-23 inventory numbers are recorded on the participant page —
+verified local run, not production cutover.
 
 ## Payment coexistence
 
-The first safe boundary is a browser redirect to a WordPress-hosted checkout followed by a server-to-server, signed result notification. The Nest backend must independently verify the provider transaction before recording a payment ledger entry. A browser return URL is user experience, not proof of payment.
+Safe first boundary: browser redirect to WordPress-hosted checkout, then a
+server-to-server signed result notification. Nest must independently verify the
+provider transaction before recording a ledger entry. A browser return URL is
+UX, not proof of payment.
 
-Every checkout attempt needs a correlation ID created by the new backend. Store external order/transaction IDs with a unique constraint and make callbacks idempotent. If WordPress cannot provide a trustworthy signed/verified result, query Viva directly before marking the ledger entry settled.
+Every checkout attempt needs a backend-created correlation ID. Unique external
+order/transaction IDs; idempotent callbacks. If WordPress cannot provide a
+trustworthy signed result, query Viva before marking settled.
 
 ## No 1:1 database clone
 
-A clone would preserve the exact modelling defects we are replacing: dynamic post meta, serialized member arrays, derived bookings and contradictory payment flags. Keep source IDs and raw evidence for traceability; build target tables around product invariants.
+A clone would preserve the modelling defects we are replacing. Keep source IDs
+and raw evidence for traceability; build target tables around product invariants.
 
 ## Required access before production migration
 
-- A fresh WordPress WXR export at cutover, or read-only database/WP-CLI access
-- Viva transaction export/API access for reconciliation
+- Fresh WXR at cutover, or read-only database/WP-CLI access
+- Viva transaction export/API for reconciliation
 - Current Next.js repository and deployment configuration
 - Confirmation whether `ebisu` is staging, pilot production or both
 - Approved retention/consent rules and canonical status lifecycle

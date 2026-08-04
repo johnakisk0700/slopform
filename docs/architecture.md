@@ -1,18 +1,20 @@
 # Architecture
 
+Boundary map only. Runtime detail lives in the handbooks linked below.
+
 ## Core idea
 
-The application is a modular monolith with two executable surfaces: a private
-React administration panel and a NestJS backend. The backend runs as separate
-HTTP and BullMQ worker processes but shares modules and domain contracts.
-PostgreSQL is the source of truth for relational business, audit, outbox and
-delivery data. MongoDB is the source of truth for user conversation aggregates
-and ordered turns.
+Modular monolith: private React admin (`apps/admin`) + NestJS backend
+(`apps/backend`) as separate HTTP and BullMQ worker processes sharing modules
+and contracts. PostgreSQL owns relational business, audit, outbox and delivery.
+MongoDB owns conversation aggregates and ordered turns. Redis is disposable
+queue coordination, not a business source of truth.
 
-The public website, registration and participant-facing journeys belong to the
-existing Next.js application at `legacy.example.com`. That application is outside
-this repository. It may integrate with the operations backend only through a
-future explicit API contract; shared branding is not shared runtime ownership.
+Public site, registration and participant journeys stay on the existing Next.js
+app at `legacy.example.com` (outside this repo). Integration only via a future
+explicit API contract — shared branding is not shared runtime. WordPress remains
+a temporary checkout/migration source behind a future narrow adapter; this repo
+carries no WordPress URL, token or webhook secret until that contract exists.
 
 ```mermaid
 flowchart LR
@@ -35,66 +37,62 @@ flowchart LR
   Worker --> Obs
 ```
 
-The foundation intentionally carries no WordPress URL, token or webhook secret.
-Those runtime inputs belong to the future adapter and are added only when its
-validated contract, ownership and rotation path exist. The diagram records the
-migration boundary, not a currently deployed integration.
-
 ## Repository boundaries
 
-| Location                 | Responsibility                                                                      | Must not own                                                                   |
+| Location                 | Owns                                                                                | Must not own                                                                   |
 | ------------------------ | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `apps/admin`             | Staff-only admin routes, shell, interaction, presentation and typed API consumption | Public website, registration UI, business invariants or direct database access |
-| `apps/backend`           | HTTP contracts, use cases, authorization, jobs and integrations                     | UI state or provider-specific domain models                                    |
-| `packages/database`      | PostgreSQL schema, migrations and database client primitives                        | Request/response DTOs or UI types                                              |
+| `apps/admin`             | Staff routes, shell, presentation, typed API consumption                            | Public website, registration UI, business invariants, direct DB access         |
+| `apps/backend`           | HTTP contracts, use cases, authorization, jobs, integrations                        | UI state or provider-specific domain models                                    |
+| `packages/database`      | PostgreSQL schema, migrations, DB client primitives                                 | Request/response DTOs or UI types                                              |
 | `packages/design-tokens` | Shared visual tokens                                                                | Business data or backend dependencies                                          |
 
 ## Deployment units
 
-- `web`: the static React admin SPA, served by an internal Caddy container behind the VPS's native nginx TLS edge. It is private, non-indexable and deployed independently from `legacy.example.com`.
-- `api`: Nest HTTP process. It validates input, enforces authorization and commits business state.
-- `worker`: Nest application context consuming BullMQ queues. It must be independently deployable and horizontally scalable.
-- `postgres`: durable product data and business audit events.
-- `mongo`: durable owner-scoped conversation threads, goals and ordered turns.
-- `redis`: disposable queue coordination. It is not a business source of truth.
+`web` (Caddy SPA behind native nginx), `api`, `worker`, `migrate`, `postgres`,
+`mongo`, `redis`. Topology, env/secret boundaries, deploy/rollback and backup:
+[deployment.md](deployment.md).
 
 ## Domain direction
 
-The target entities come from the approved product contracts, not from WordPress tables:
-
-- Participant and Consent
-- Booking and PaymentLedgerEntry
-- Event and Venue
-- Table and TableAssignment
-- Attendance
-- Message
-- Feedback and SafetyReport
-- AuditEvent
-
-These are a migration target, not permission to generate thirteen empty CRUD modules. Add them by vertical slice after field/status contracts are confirmed.
+Target entities (from product contracts, not WordPress tables): Participant,
+Consent, Booking, PaymentLedgerEntry, Event, Venue, Table, TableAssignment,
+Attendance, Message, Feedback, SafetyReport, AuditEvent. Migration target, not
+permission to generate empty CRUD — add by vertical slice after contracts are
+confirmed. Cutover path: [migration-strategy.md](migration-strategy.md),
+[ADR 0002](decisions/0002-wordpress-boundary.md).
 
 ## Non-negotiable invariants
 
-- Paid state is derived from verified, immutable ledger entries. A mutable `paid` boolean is not accounting.
-- A booking is independent of an event/table assignment.
-- A table has an enforced capacity and lifecycle; member arrays are not serialized into one column.
-- Sensitive safety data is separated from ordinary feedback and has stricter access rules.
-- State transitions that affect participants, money or outbound communication create an application audit event.
-- Queue handlers are idempotent and retries are expected.
-- External providers are adapters. Their payloads do not become the domain schema.
-- MongoDB conversation state does not replace PostgreSQL business audit, outbox
-  or delivery guarantees. Cross-store workflows name their recovery direction.
-- Clerk proves staff identity; the API separately authorizes the verified
-  subject against the Join The Six admin policy. A browser route guard is not a
-  permission boundary.
+- Paid state from verified immutable ledger entries — not a mutable `paid` flag.
+- Booking independent of event/table assignment; table capacity/lifecycle
+  enforced (no serialized member arrays).
+- Safety data separated from ordinary feedback; stricter access.
+- Transitions affecting participants, money or outbound comms write audit events.
+- Queue handlers idempotent; retries expected. Providers are adapters — their
+  payloads are not the domain schema.
+- Mongo conversation state does not replace Postgres audit/outbox/delivery;
+  cross-store workflows name recovery direction
+  ([ADR 0007](decisions/0007-mongodb-conversation-authority.md)).
+- Clerk proves identity; API authorizes the subject against admin policy. A
+  browser route guard is not a permission boundary
+  ([authentication](backend/mechanisms/authentication.md)).
 
 ## Explicitly deferred
 
-- Microservices and an event bus
-- CQRS/event sourcing
-- A generic repository framework
-- A second CMS
-- ~~Automated WhatsApp/Viber sends before durable consent, conversation-state,
-  audit and retry policies exist~~ — **the gate was satisfied**, not waived.
-  Those policies now exist, and the Wasender adapter is opt-in behind
-  `TRANSPORT_MODE=wasender`. Viber remains deferred.
+- Microservices / event bus, CQRS/event sourcing, generic repository framework,
+  a second CMS, Viber.
+- ~~Automated WhatsApp before durable consent/conversation/audit/retry~~ —
+  **gate satisfied**, not waived. Wasender is opt-in via
+  `TRANSPORT_MODE=wasender` ([wasender](backend/mechanisms/wasender.md),
+  [post-event feedback](backend/modules/post-event-feedback.md)).
+
+## Read next
+
+| Concern                         | Doc                                                                                      |
+| ------------------------------- | ---------------------------------------------------------------------------------------- |
+| Nest, pools, jobs, observability | [backend.md](backend.md)                                                                |
+| Admin UI, theming, components    | [frontend.md](frontend.md), [components](frontend/components/README.md)                  |
+| Containers / VPS                 | [deployment.md](deployment.md)                                                           |
+| Feedback orchestration           | [ADR 0013](decisions/0013-state-driven-feedback-orchestration.md)                        |
+| Generated HTTP client            | [ADR 0009](decisions/0009-generated-api-client.md), [ADR 0010](decisions/0010-generated-client-not-committed.md) |
+| Handbook index                   | [docs/README.md](README.md)                                                              |

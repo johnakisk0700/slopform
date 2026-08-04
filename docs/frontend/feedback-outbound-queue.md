@@ -1,478 +1,181 @@
 # Outbound queue screen
 
-Status: accepted. Verified 2026-07-27 in real Chrome over the DevTools Protocol
-(light and dark, 1600×1000); re-verified 2026-08-02 against the running dev
-server at 1440×820 and 1280×800 after the history rebuild. Durable-dispatch
-indicator contract and generated DTO cutover completed 2026-08-03.
-
-The operator surface for every outbound post-event feedback message: what was
-sent and why, and what dispatch has not resolved yet. It is the admin half of the
-PostgreSQL `message_outbox` dispatcher documented in
-[`backend/mechanisms/queues.md`](../backend/mechanisms/queues.md).
-
-## Why it exists
-
-A rehearsal on 2026-07-27 left replies unsent for up to 147 seconds while
-extraction held every worker slot, and the only way to see it was a hand-written
-script against Redis. Bull Board is mounted at `/admin/queues` when enabled, but
-it sits behind separate Basic credentials, speaks in job ids and knows nothing
-about which participant is waiting. This screen answers the same question in the
-vocabulary the rest of the admin uses: a person, a campaign, and an age.
+Status: accepted. Read-only operator surface for post-event feedback outbound
+messages: waiting rows, history and one opened message. Dispatcher ownership:
+[`queues.md`](../backend/mechanisms/queues.md).
 
 ## Purpose and boundary
 
-It **reports**. Nothing on it retries, cancels, promotes or re-enqueues
-anything; all three endpoints are `GET` — the queue, the history and the single
-message — and the queue, the dispatcher and the extractor are
-untouched.
+It **reports**. No retry, cancel, promote or re-enqueue — three `GET`s only.
 
-It **does** own: which statuses count as "not delivered", the age thresholds and
-their tones, durable dispatch vocabulary, the polling cadence, and the decision
-not to announce.
+| Owns                                                         | Does not own                                                                 |
+| ------------------------------------------------------------ | ---------------------------------------------------------------------------- |
+| «Not delivered» statuses, age thresholds/tones, dispatch copy, polling, no live-region announce | Whether a row is sent; claim / ambiguous-send policy; D18 (inherits [inbox](feedback-conversations.md)) |
 
-It **does not** own: whether a row is sent (the dispatcher decides), claim and
-ambiguous-send policy, or
-the `«άγνωστος συμμετέχων»` rule, which it inherits from
-[the conversations screen](feedback-conversations.md).
+| Route             | View                 | Owns                                |
+| ----------------- | -------------------- | ----------------------------------- |
+| `/admin/outbound` | `FeedbackOutboxPage` | Queue + history, filters, open row  |
 
-| Route             | View                 | Owns                                          |
-| ----------------- | -------------------- | --------------------------------------------- |
-| `/admin/outbound` | `FeedbackOutboxPage` | Both lists, the filters, paging, the open row |
-
-The opened row lives in `?message=<outboxId>` so a message is linkable and
-survives reload, exactly as `?conversation=` does on the inbox. The filters join
-it there — `?range=` and `?status=` — because «failures, today» is a view worth
-sending to somebody. **The cursor does not.** A link that says «this range, this
-status» still means the same thing tomorrow; one that also pinned page 4 of a
-log that has grown since would not, so the walk lives in component state.
-
-**The route is deliberately not under `/admin/feedback/`.** The queue spans every
-campaign, and `AdminNavigation` `end`-matches only `/admin`, so a nested path
-would leave both «Feedback & safety» and «Outbound queue» carrying
-`aria-current="page"` at once.
+URL: `?message=<outboxId>`, `?range=`, `?status=`, `?view=queue`. Cursor stays
+in component state (not the URL). Route is **not** under `/admin/feedback/` so
+`AdminNavigation` `end`-match does not mark both nav items current.
 
 ## Contract
 
-| Operation                   | Reads                                            | Polled          |
-| --------------------------- | ------------------------------------------------ | --------------- |
-| `listFeedbackOutboxQueue`   | PostgreSQL + one batched MongoDB respondent read | 3 s, both views |
-| `listFeedbackOutboxHistory` | PostgreSQL + one batched MongoDB respondent read | 5 s, page 1     |
-| `getFeedbackOutboxMessage`  | PostgreSQL                                       | 3 s             |
+| Operation                   | Reads                                            | Polled                    |
+| --------------------------- | ------------------------------------------------ | ------------------------- |
+| `listFeedbackOutboxQueue`   | PostgreSQL + batched MongoDB respondents         | 3 s, both views           |
+| `listFeedbackOutboxHistory` | PostgreSQL + batched MongoDB respondents         | 5 s, newest page only     |
+| `getFeedbackOutboxMessage`  | PostgreSQL                                       | 3 s                       |
 
-All three are consumed through the generated hooks
-([api-contract](../backend/mechanisms/api-contract.md)).
+Generated hooks only
+([api-contract](../backend/mechanisms/api-contract.md)). Queue query is **not**
+gated on the visible view — its count badges the History tab.
 
-The queue query is **not** gated on the visible view. Its count rides on the
-Queue tab, and that badge is the only thing telling a reader of the history that
-something is stuck behind them.
+| File                                                     | Owns                                              |
+| -------------------------------------------------------- | ------------------------------------------------- |
+| `src/features/feedback/outboxQueue.ts`                   | Ages, deltas, timeline, ranges, vocabulary, copy  |
+| `src/features/feedback/polling.ts`                       | Three intervals                                   |
+| `src/components/admin/feedback/OutboxQueueList.tsx`      | Waiting list                                      |
+| `src/components/admin/feedback/OutboxHistoryList.tsx`    | Log + pager                                       |
+| `src/components/admin/feedback/OutboxHistoryToolbar.tsx` | Range + status filters                            |
+| `src/components/admin/feedback/OutboxMessageDetails.tsx` | Opened row                                        |
+| `src/routes/FeedbackOutboxPage.tsx`                      | Wiring, selection, cursor stack                   |
 
-| File                                                     | Owns                                                                |
-| -------------------------------------------------------- | ------------------------------------------------------------------- |
-| `src/features/feedback/outboxQueue.ts`                   | Age tones, delta formatting, the timeline, ranges, vocabulary, copy |
-| `src/features/feedback/polling.ts`                       | The three intervals                                                 |
-| `src/components/admin/feedback/OutboxQueueList.tsx`      | The waiting list, its ages and its empty state                      |
-| `src/components/admin/feedback/OutboxHistoryList.tsx`    | The log, its rows and its pager                                     |
-| `src/components/admin/feedback/OutboxHistoryToolbar.tsx` | The range and status filters                                        |
-| `src/components/admin/feedback/OutboxMessageDetails.tsx` | The opened row: the message, timeline, log and dispatch activity    |
-| `src/routes/FeedbackOutboxPage.tsx`                      | The queue strip, the filters, the cursor stack, selection, wiring   |
+Rules unit-tested in `apps/admin/test/feedback-outbox.spec.ts`.
 
-`features/feedback/outboxQueue.ts` has no React imports, so its rules are
-unit-tested directly in `apps/admin/test/feedback-outbox.spec.ts`.
+## Load constraint
 
-## The load constraint
-
-**The page does not read Redis.** Queue rows, history and one opened message are
-PostgreSQL reads plus the existing batched MongoDB respondent lookup. A
-polled observability page must not inspect one ephemeral job per row, and the
-direct dispatcher no longer has a delivery job to inspect anyway.
-
-The detail DTO publishes this durable block:
-
-```text
-dispatch {
-  state: pending | claimed | attempting | ambiguous |
-         sending (bridge) | sent | failed | held | cancelled
-  claimExpiresAt
-  sendStartedAt
-  attemptCount
-  lastError
-}
-```
-
-The claim token never crosses the API boundary. `claimed` is the only safely
-reclaimable state; `attempting` means a provider call may have started, and
-`ambiguous` blocks automatic resend. `deliveryActivityLines` owns this copy.
-`attemptCount = 0` on a pre-cutover `sending` or `sent` row means the counter did
-not exist for that send, not that no provider call happened; the detail pane
-states that limit instead of laundering a migration default into evidence.
+**No Redis reads.** PostgreSQL + batched MongoDB respondent lookup only. Detail
+publishes durable `dispatch` (`pending | claimed | attempting | ambiguous |
+sending` bridge | `sent | failed | held | cancelled`) with
+`claimExpiresAt` / `sendStartedAt` / `attemptCount` / `lastError`. Claim token
+never crosses HTTP. `deliveryActivityLines` owns copy: `claimed` reclaimable;
+`attempting` may have started a provider call; `ambiguous` blocks automatic
+resend. `attemptCount = 0` on pre-cutover `sending`/`sent` means the counter did
+not exist — pane states that limit. Policy detail:
+[`queues.md`](../backend/mechanisms/queues.md).
 
 ```mermaid
 flowchart LR
-  list["listFeedbackOutboxQueue\n(polled 3s)"] --> pg[(PostgreSQL\nmessage_outbox + campaign + event)]
-  list --> mongo[(MongoDB\none $in respondent read)]
-  row["getFeedbackOutboxMessage\n(one opened row)"] --> pg
+  list["listFeedbackOutboxQueue"] --> pg[(PostgreSQL)]
+  list --> mongo[(MongoDB respondents)]
+  row["getFeedbackOutboxMessage"] --> pg
 ```
 
-## What the list shows
+## Lists
 
-Age is the subject, so it is the one column with its own scale, and the endpoint
-sorts by it. Everything else on a row answers "and who does that affect".
+Age is the subject; endpoint sorts by it.
 
-| Part   | Treatment                                                                                                          |
-| ------ | ------------------------------------------------------------------------------------------------------------------ |
-| Name   | One `line-clamp-1` line; D18 italic fallback through `ParticipantName`                                             |
-| Age    | Right-aligned `tabular-nums`, toned and weighted (below)                                                           |
-| Line 2 | Kind `·` event title. The phone number left this row when the column ran out of width; it is on the opened message |
-| Chips  | The row's own status, plus «Campaign paused» when dispatch is deliberately blocked                                 |
+| Part   | Queue                                                                 | History                                      |
+| ------ | --------------------------------------------------------------------- | -------------------------------------------- |
+| Lead   | Name (`line-clamp-1`; D18 via `ParticipantName`)                      | Decision-log `origin` (kind fallback)        |
+| Age    | Right `tabular-nums`, toned                                           | —                                            |
+| Line 2 | Kind · event title (phone on opened message)                          | Same pattern without live pause chip         |
+| Chips  | Status + «Campaign paused» when dispatch blocked                      | Status alone                                 |
 
-That anatomy is the **queue** row. A history row differs: it leads with the
-decision-log origin, and it carries the status badge alone — «Campaign paused»
-is a live condition and cannot apply to something already sent.
+### Age tones
 
-### Age tones come from the mechanism
+| Tone      | When                                              | Class            |
+| --------- | ------------------------------------------------- | ---------------- |
+| `fresh`   | under 15 s                                        | `text-ink`       |
+| `slow`    | 15–60 s                                           | `text-warning`   |
+| `stalled` | ≥ 60 s                                            | `text-danger`    |
+| `parked`  | `held`, or campaign not `launched`                | `text-ink-muted` |
 
-The dispatcher scans every second. Provider pacing and transport still add real
-latency, so the operator thresholds intentionally leave headroom:
+Seconds stay visible to the hour (`2m 27s`). Cap 200 rows; endpoint publishes
+real per-status totals so the cap is not mistaken for the backlog. Summary count
+carries **no** tone.
 
-| Tone      | When                                                                | Reads as         |
-| --------- | ------------------------------------------------------------------- | ---------------- |
-| `fresh`   | under 15 s — ordinary claim, pacing and send headroom               | `text-ink`       |
-| `slow`    | 15–60 s — a launched row survived at least fifteen dispatcher scans | `text-warning`   |
-| `stalled` | 60 s and over — the shape of the 2026-07-27 incident                | `text-danger`    |
-| `parked`  | `held`, or any campaign that is not `launched`                      | `text-ink-muted` |
+## Queue vs history
 
-`parked` is the important one. A paused campaign's rows are never leased and
-`held` rows never are either, so an hour of age there is obedience, not an
-incident — colouring it red would teach an operator that the colour means
-nothing. The count in the summary row carries **no** tone for the same reason: a
-backlog of six is neither good nor bad, and the age beside it is what says so.
+| View    | Default URL     | Rows                                              | Selection                                      |
+| ------- | --------------- | ------------------------------------------------- | ---------------------------------------------- |
+| History | bare `/admin/outbound` | Any status; `sent` quiet, `failed` loud     | Kept across pages (fetch by id)                |
+| Queue   | `?view=queue`   | `pending` / `claimed` / `attempting` / `ambiguous` / bridge `sending` / `held` | Cleared when row leaves waiting |
 
-Seconds stay visible right up to the hour (`2m 27s`, not "2 minutes ago"),
-because the difference between 40 s and 90 s is the difference between fine and
-broken.
+Queue badge on the History tab carries the waiting count (including quiet `0`).
+`ambiguous` stays until reconciliation even when delivery is otherwise healthy.
 
-The list is capped at 200 rows, oldest first, and the endpoint publishes the
-real per-status totals alongside it, so a capped page states what it is showing
-instead of implying that the cap is the backlog.
+## History paging and filters
 
-## Queue and history are one page, two questions — and history is the front door
+Keyset cursor `(created_at, id)` opaque base64url — not offset. Malformed cursor
+rewinds to newest (no 400). Pager: Older / Newer / Jump to newest — **no page
+numbers**. Server reads one past the page → `nextCursor`. Only the newest page
+polls (and shows the live indicator). `total` is filter-scoped. Empty states:
+«nothing matches» vs «nothing ever written».
 
-The screen carries a History/Queue toggle (`?view=queue`). The queue is «who is
-waiting right now»: `pending`, `claimed`, `attempting`, `ambiguous`, bridge-only
-`sending`, and `held` rows, with ages measured on the server. It empties itself
-the moment delivery is healthy, except that `ambiguous` deliberately remains
-until reconciliation. The history is
-«everything ever written, and why»: rows of any status, each leading with the
-decision log's one-word `origin` (kind is the fallback for rows older than the
-log), with `sent` in the quiet success tone and `failed` in the loud one.
+| Control | Options                          | Notes                                              |
+| ------- | -------------------------------- | -------------------------------------------------- |
+| Range   | Last hour · Today · 7 days · All | Browser clock; ages remain server-measured         |
+| Status  | Any + every table status         | Options from `outboxHistoryStatusBadge` vocabulary |
 
-**History is what the bare URL shows**, and the queue is the explicit one. That
-is the inverse of the first cut, for a reason the first cut could not see: the
-queue's healthy answer is an empty list, so on a good day the screen's front
-door was a page saying nothing, standing in front of the log everyone had
-actually come to read. The backlog did not lose its voice — the count moved onto
-the Queue tab, where it can raise a hand without taking the room. Zero is drawn
-quietly rather than hidden, because a badge that vanishes states nothing while
-«0» states that the question was asked and answered.
+Filter change clears the cursor stack.
 
-Selection behaves differently in the two halves, and the difference is the
-point. The queue drops a selection the moment the row stops waiting — a pane
-describing a wait that is over is worse than no pane. The history drops nothing,
-**including across pages**: the opened row is fetched by id and knows nothing
-about paging, so walking back through the log with one message held on screen is
-exactly the comparison an operator paged for.
+## Layout
 
-## Paging a log that is still being written
+Full-height route in `AdminShell` (with assistant): split at `lg`, list fixed
+~18–22 rem, detail takes the rest; `main` `lg:h-dvh`. Below `lg`, ordinary
+document scroll. Summary is one strip, not cards.
 
-`message_outbox` is append-only and nothing prunes it. «The newest 200» stopped
-being a usable view of it during the first campaign, so
-`listFeedbackOutboxHistory` takes `limit`, `cursor`, `status`, `from` and `to`.
-Every one is optional and the bare call still returns the newest page.
+## Opened row
 
-**Keyset, not offset.** The table is written to while an operator reads it, and
-`OFFSET 50` against a growing log repeats rows it has already shown and skips
-ones it has not — the two failure modes a log viewer must not have. The cursor
-is `(created_at, id)`, exactly the sort key, base64url-encoded into one opaque
-token. Opaque is the contract: the sort key can gain a column without breaking
-stored links, and nobody can hand-craft a cursor that walks an order the query
-does not have. A cursor that is not one we wrote **rewinds to the newest page**
-rather than answering 400 — it arrives from a URL a person can edit, and this
-endpoint only reads.
+1. **Message body** first; header: person, event, launch-time phone.
+2. **Timeline** — deltas between steps (`formatDelta` keeps sub-second to 1 s);
+   omit steps that did not happen; sort by instant (no negative gaps).
+   `claimExpiresAt` / `sendStartedAt` named; `updatedAt` only for terminal
+   transitions without a better stamp. Durable status badge; provider reading
+   only when timeline cannot already show it (`error` / `pending`).
+3. **Why it was sent** — decision log (same transaction as the row): origin +
+   per-origin facts; conversation snapshot labelled as not current. Predates
+   `message_outbox_log` → stated plainly. Vocabulary from `labels.ts`, unknown
+   values pass through.
+4. **Dispatch activity** — durable attempt/error copy (not ephemeral jobs).
+5. **Identifiers** — foot strip; copy via `CopyableId`. Campaign-running prose
+   only when the campaign is **not** running.
 
-That is also why no page number appears anywhere. «Page 3 of 40» would be stale
-before it finished rendering, so the pager offers exactly the two moves the
-cursor supports — Older and Newer — plus «Jump to newest». The server reads one
-row past the page and returns it as `nextCursor` rather than as data, which is
-the difference between an «Older» button that is honest and one that offers a
-page it then has to admit is empty.
-
-**Only the newest page refreshes itself.** Once an operator has walked back, new
-rows land above where they are reading; polling would either move the page under
-them or spend a request proving a finished slice has not changed. The live
-indicator disappears along with the polling, because a mark claiming a refresh
-that is deliberately not happening is worse than no mark.
-
-`total` is scoped to the active filter, not to the table. Under a one-hour
-filter the table's own total would be a number about a different set of rows,
-printed directly above the page that contradicts it. For the same reason the
-empty state distinguishes «nothing matches this range and status» from «nothing
-was ever written» — telling an operator the second when the first is true sends
-them looking for a bug.
-
-The index this rests on is `message_outbox_created_id_idx` on
-`(created_at, id)`. The existing `(status, created_at)` composite cannot serve
-it: its leading column is a status the unfiltered query does not constrain.
-
-## Narrowing it
-
-Paging alone answers none of the questions people bring to a log — «the failure
-was somewhere in the last four thousand rows» is not an answer, it is the same
-problem with a button. So the history carries two filters and no date pickers.
-
-| Control | Options                                 | Why                                           |
-| ------- | --------------------------------------- | --------------------------------------------- |
-| Range   | Last hour · Today · 7 days · All        | The questions people actually ask a log       |
-| Status  | Any, then every status the table allows | «Show me the failures» is why logs get opened |
-
-A pair of date pickers would make the common case cost six interactions; the day
-a genuinely arbitrary range is needed it belongs here as a third control, not as
-the price of the first two. The status options are built from
-`outboxHistoryStatusBadge`'s own vocabulary, so a word cannot mean one thing in
-the filter and another on the row it selects.
-
-The range is computed against the **browser's** clock, and it is the one time on
-this screen that is. Every age is measured on the server because an age is a
-measurement and a skewed client would misreport the figure the screen exists to
-show. A range is not a measurement — it is a question, and «today» is a question
-about the day the person asking is having.
-
-Changing either filter clears the cursor stack. A cursor is a position inside
-one filtered set, and carrying it across a filter change asks the server to
-continue from a row that may not be in the new set at all.
-
-## It fits one laptop screen
-
-The screen is two panes, so it takes the viewport instead of growing the
-document: `AdminShell` lists `/admin/outbound` beside `/admin/assistant` as a
-full-height route, each pane scrolls itself, and nothing scrolls the page.
-
-Three things had to change together, and each was load-bearing:
-
-- **The split is at `lg`, not `2xl`.** `2xl` is 1536px. A 1440px laptop never
-  reached it, so the detail pane designed to sit beside the list spent its life
-  underneath it — which is the whole reason the screen did not fit.
-- **The proportions are inverted.** The list took `1fr` and the pane took 26rem;
-  now the list is a fixed 18–22rem column and the pane takes the rest. A row is
-  one name and one time; the thing an operator opened it for is a message, a
-  decision and a timeline. The phone number left the rows along with the width
-  and moved onto the opened message, where it can be acted on.
-- **The height is stated once, at `main`.** Every ancestor up to `<body>` is
-  sized by `min-height`, so `flex-1` had no definite basis to resolve against —
-  and `flex: 1 1 0%` sets a `flex-basis` that wins over `height` on the main
-  axis, so it also swallowed any height stated further in. `main` now takes
-  `lg:h-dvh` and no flex sizing at all. Only from `lg`, because below it the
-  shell puts a sticky top bar above `main`, and a narrow screen wants the
-  ordinary scrolling page anyway.
-
-The three summary figures became one strip. As cards they cost about a fifth of
-a laptop screen for numbers that are single digits on a healthy day, and that
-height came straight out of the two panes doing the work.
-
-## What an opened row shows
-
-It opens with the message itself. For a year the pane that exists to explain a
-message never showed the one thing the participant actually saw, and everything
-else on it is context for those words — so `body` is now on the delivery DTO and
-first in the pane. The header names the person, the event and the launch-time
-phone for the same reason: both lists carried them and the opened row did not,
-so an operator who followed a link into a row had to go back to a list to find
-out whose message it was.
-
-Below that, two halves kept visibly apart because their reliability differs.
-
-### The timeline, not a stack of timestamps
-
-«What happened, and how fast» replaced six labelled times — Created, Row last
-changed, Delivery last changed, Sent, Delivered, Read — of which two named the
-same instant and two were usually an em dash. What an operator reads that stack
-to find is never an absolute time; it is the distance between two of them. So
-the distance is what is printed, the absolute time keeps its pill beside it, and
-steps that did not happen are simply not steps.
-
-`formatDelta` keeps sub-second resolution up to a second (`+412ms`, `+1.4s`,
-then `+2m 27s`) because that is the entire scale a healthy delivery lives on:
-written, leased and sent inside the same second is the normal case, and
-`formatWaiting` would print all three of those gaps as `0s` — three zeros in a
-column whose only job is to show that nothing was slow.
-
-`claimExpiresAt` names the safe claim horizon and `sendStartedAt` names the
-irreversible boundary. `updatedAt` earns a step only for a terminal transition
-that has no more specific timestamp. Steps are sorted by their own instant
-rather than by assembly order, so a failed or reconciled row cannot print a
-negative gap out of correct data.
-
-The row's two statuses became one badge and, sometimes, a second. The durable
-row status is the truth and carries the vocabulary. The provider's own reading
-appears **only** when the timeline cannot already draw it: `sent`, `delivered`,
-`read` and `played` are exactly the steps above with their times attached, so
-repeating them as a bare word is strictly less information in more space. The
-two that survive — `error` and `pending` — are the two with no timestamp of
-their own.
-
-### Why it was sent
-
-The outbound decision log sits on the durable side of the reliability line,
-because it is written in the same transaction as the row itself. «Why this was
-sent» renders the log's origin and per-origin decision facts (model, confidence
-and goal statuses for a model reply; the failure cause for the fallback origins;
-the triggering ingress, staff actor, intro created-vs-relaunched or reminder
-rung for the rest), and «Conversation as it stood» renders the conversation
-snapshot the writer decided against, with one quiet line saying it is not the
-conversation now. A row that predates `message_outbox_log` states that plainly
-instead of hiding the section — an empty section would teach an operator that
-the log is unreliable, when the record is simply older than the table.
-Vocabulary is reused from `labels.ts`, tolerant of values the log outlived: an
-unrecognised goal status or failure cause passes through verbatim.
-
-Machine values in the opened pane carry their own quiet treatment, decided by
-the React-free fact builder's `kind` and painted only in the component: model
-ids sit in a mono pill with a provider mark (OpenAI's own for `openai/*`
-direct models, a neutral glyph for OpenRouter-routed ones — no redrawn
-third-party logos), timestamps sit in the same pill at millisecond precision
-(they are evidence, and the minute would flatten exactly the differences the
-row was opened to measure), confidence renders as a small `aria-hidden` fill
-bar beside the percentage that remains the fact, and every id is truncated to
-eight characters with the full value on hover and one click to copy
-(`CopyableId` — glyph-swap confirmation, no layout shift, silent when the
-clipboard is unavailable).
-
-### What stopped being printed on every row
-
-Three things were paying rent on every opened row for a fact needed on almost
-none of them, and each moved rather than vanished:
-
-| Was                                        | Is                                              |
-| ------------------------------------------ | ----------------------------------------------- |
-| Three ids as labelled fact rows            | One «Identifiers» strip at the foot of the pane |
-| A paragraph saying the campaign is running | Printed only when it is **not** running         |
-| Ephemeral job/retry diagnostics            | Durable dispatch activity                       |
-
-The ids are not read on this screen; they exist to be pasted somewhere else, so
-they are grouped by that purpose and placed where a reader arrives only when
-they went looking. The campaign sentence was true on every healthy row, which
-taught operators to skip the paragraph that matters on the rows where it is not.
-For direct-dispatch rows, durable `attemptCount` answers how many provider
-attempts started without pretending to be a full per-attempt audit log. Legacy
-rows say when that counter was not available.
+Machine values: mono model pills + `ProviderMark`, ms timestamps, confidence
+fill bar beside %, ids truncated to 8 with full value on hover/copy.
 
 ## Failure and loading states
 
-- The list owns its loading, empty and error states; the error is `role="alert"`.
-- A selection that leaves the queue (dispatch reached a terminal state between
-  two polls) falls away rather than pinning a stale pane.
-- `getFeedbackOutboxMessage` accepts **any** outbox status, so a row that has
-  just been sent explains itself instead of answering 404.
-- `queryClient` retries are off repo-wide, so a detail failure resolves visibly
-  rather than hiding behind a browser retry loop.
-- A history page keeps the previous one on screen while the next loads
-  (`placeholderData`), so the list never blinks to an empty state between two
-  clicks of «Older».
-- **No spinner anywhere states progress.** The pane gives durable state and a
-  claim/attempt time. It never converts a valid claim into a liveness claim.
+- List owns loading / empty / error (`role="alert"`).
+- Queue selection drops when the row leaves waiting.
+- `getFeedbackOutboxMessage` accepts any status (just-sent explains itself).
+- History uses `placeholderData` between Older clicks.
+- No spinner as progress — durable state and claim/attempt times only.
+- `queryClient` retries off repo-wide.
 
 ## Accessibility
 
-- One `h1` through `JtsPageHeader`; the list, the opened row and each of its
-  sections are labelled `section`s with their own heading.
-- **Nothing on this page is a live region, and that is deliberate.** The
-  extraction block on the inbox _is_ a polite live region because it is one short
-  sentence that mostly holds still. Here every age changes on every poll by
-  construction, so `aria-live` would announce forever and make the screen
-  unusable. Instead both panes carry
-  [`JtsLiveIndicator`](components/jts-live-indicator.md), whose hidden sentence
-  states once that the pane refreshes itself and that ages are measured on the
-  server. Failures still announce through `role="alert"`.
-- The age is rendered twice: `2m 27s` for scanning, `aria-hidden`, beside a
-  visually hidden «waiting 2 minutes 27 seconds», because a reader voices the
-  compact form as punctuation. No `aria-label` is placed on the row, so its
-  accessible name stays computed from its own visible content (WCAG 2.5.3).
-- Rows are buttons in a list; the opened row carries `aria-current`. The pager
-  is a `nav` with its own label, and its two ends are `disabled` rather than
-  hidden, so the control does not move under the pointer at the edges of the log.
-- The queue count on the tab is a number for the eye and a sentence for a
-  reader: «3 messages waiting», not a bare «3» beside a word.
-- Status is text plus tone, never tone alone: every chip carries its label and
-  every age has its status chip beside it.
-- Verified 2026-07-27 over the DevTools Protocol at 1600×1000: one `h1`, **zero**
-  `[aria-live]` nodes, **zero** unnamed interactive nodes in the full
-  accessibility tree, exactly **one** `nav a[aria-current]`, no horizontal
-  document overflow, and no console errors, in both themes.
-- Re-verified 2026-08-02 at 1440×820 and 1280×800 after the rebuild: the same
-  five invariants, plus `scrollHeight === clientHeight` on the document (the
-  page itself does not scroll), heading order `h1 → h2 list → h2 message → h3
-sections`, and exactly one `aria-current` row with a message open.
+- One `h1` via `JtsPageHeader`; list / message / sections labelled.
+- **No live regions** (ages change every poll). Both panes use
+  [`JtsLiveIndicator`](components/jts-live-indicator.md); failures still
+  `role="alert"`.
+- Age: compact `aria-hidden` + visually hidden spoken form; row name from
+  content (no replacing `aria-label`).
+- Rows are buttons; open row `aria-current`. Pager `nav`; ends `disabled` not
+  hidden. Tab count: «N messages waiting». Status = text + tone.
 
 ## Remaining limit
 
-`attemptCount`, `sendStartedAt` and `lastError` are durable for direct-dispatch
-attempts, but they are not a full per-attempt ledger. They answer whether and
-how many new-path provider attempts started and why the latest transition
-stopped. Pre-cutover terminal rows retain no equivalent counter. If incident
-review later needs every attempt's start, finish and response, that requires an
-append-only attempts table; the screen must not reconstruct one from aggregate
-columns.
+`attemptCount` / `sendStartedAt` / `lastError` are durable for direct-dispatch
+attempts, not a full per-attempt ledger. Pre-cutover terminals may lack the
+counter. A future append-only attempts table is out of scope for this screen.
 
 ## Tests
 
-`apps/admin/test/feedback-outbox.spec.ts` covers the age thresholds against the
-dispatcher tick, that a parked row never takes an urgent tone, the compact and
-spoken age formats, the status and kind vocabulary, the summary's real totals and
-oldest age, safe `claimed` recovery, the `attempting` no-reclaim boundary,
-`ambiguous` as blocked resend, durable attempt/error copy, the polling policy,
-the absence of any live region, the generated-hook boundary, that the backend
-list path names no queue call, the route/navigation registration, and that the
-screen colours itself from tokens alone. A «why the row was written» block
-covers the decision-log facts per origin, that no confidence is invented when
-the model reported none, the verbatim passthrough of an unrecognised failure
-cause, the conversation-state wording, the predates-the-log statement, and
-that both log sections render above «Dispatch activity».
-
-Three blocks cover the rebuild. **Paging the log** asserts the cursor walk, the
-absence of any page number, that only the newest page polls, and that a filter
-change clears the stack. **Narrowing the log** asserts the four ranges, that
-«all» sends no bound, that a range is computed against the browser's own
-midnight, that the status options reuse the badge vocabulary, that an invented
-range or status in the URL is refused, and that an empty filter says so instead
-of claiming an empty table. **The opened row** asserts the body and the header
-facts, the timeline's deltas and its sub-second scale, that steps which did not
-happen are omitted, that `updatedAt` appears only where it is nameable, that
-steps sort by instant so no negative gap can be printed, the provider-reading
-rule, that the campaign paragraph is conditional, and that retry-history copy
-and legacy job identity are absent. **Fitting a laptop screen** pins the `lg`
-breakpoint, the absence
-of `max-h-[78vh]`, and that the panes take the viewport.
-
-Backend: `dispatcher.repository.spec.ts` and `dispatcher.service.spec.ts` cover
-safe claim, the pre-send marker, durable attempt counts and ambiguous outcomes;
-`queue-view.service.spec.ts` covers the no-Redis read invariant,
-server-measured ages, the D18-shaped fallback, capped totals, the durable
-dispatch block and an already-sent row, the
-decision log on the opened row — present, absent, and unreadable-jsonb-as-null —
-the message, person and event the pane names a row by, and the paging contract:
-the read-one-past-the-page cursor, the end of the log, continuing from the
-cursor it handed out, rewinding on a cursor we did not write, and that the total
-is counted within the filter. `history-cursor.spec.ts` covers the round trip,
-the retained millisecond, that no `+`, `/` or `=` survives into a query string,
-and five malformed inputs that must produce `null` rather than a predicate.
+`apps/admin/test/feedback-outbox.spec.ts` covers age tones (parked never
+urgent), formats, vocabulary, durable dispatch copy, polling, no live region,
+generated-hook boundary, paging/filter/cursor rules, opened-row body/timeline/
+decision-log, and `lg` full-height layout pins. Backend dispatcher / queue-view /
+history-cursor specs own the PostgreSQL contracts — see
+[`queues.md`](../backend/mechanisms/queues.md).
 
 ## Decisions and references
 
-- [ADR 0008](../decisions/0008-post-event-feedback-conversations.md) — post-event
-  feedback conversations
-- [`queues.md`](../backend/mechanisms/queues.md) — the four feedback contracts
-  and direct outbox dispatcher
-- [`api-contract.md`](../backend/mechanisms/api-contract.md) — the rule this
-  screen's list obeys
-- [`feedback-conversations.md`](feedback-conversations.md) — the inbox it links
-  into, and the D18 fallback it inherits
-- [`theming.md`](theming.md) — tokens
+- [ADR 0008](../decisions/0008-post-event-feedback-conversations.md)
+- [`queues.md`](../backend/mechanisms/queues.md)
+- [`api-contract.md`](../backend/mechanisms/api-contract.md)
+- [`feedback-conversations.md`](feedback-conversations.md)
+- [`theming.md`](theming.md)

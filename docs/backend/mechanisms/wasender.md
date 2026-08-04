@@ -2,47 +2,41 @@
 
 Status: transport adapter, opt-in HTTP edge, durable ingress consumer and
 direct fenced outbound dispatcher implemented. Last verified: **2026-08-03**
-against the official Wasender API documentation. The implementation uses Node 24
-`fetch`, not the pre-1.0 Wasender Node SDK.
+against the official Wasender API documentation. Uses Node 24 `fetch`, not the
+pre-1.0 Wasender Node SDK.
 
 ## Purpose and boundary
 
 Wasender is the transport adapter for the existing WhatsApp session. WordPress
-keeps using that same session; the new backend is another client, not its
+keeps using that same session; this backend is another client, not its
 replacement. This boundary owns authenticated provider calls, bounded response
 validation, webhook authentication and normalization of provider payloads.
 
 It does not own conversations, participant matching, AI feedback state, retries,
 consent, a staff inbox or an admin UI. The webhook controller lives in the
-post-event feedback ingress edge and hands each normalized observation to the
-ingress service and each delivery-status event to the outbox delivery-status
-service. The `integrations/wasender` adapter itself still writes nothing:
-durable rows, queue jobs and every domain decision belong to that module. The
-Wasender dashboard is not treated as a shared-inbox product. Its message-log API
-contains messages sent through the Wasender API only, and content/recipient
-logging depends on a session setting; it is not a backfill source for WhatsApp
-Business/Web or WordPress history.
+post-event feedback ingress edge and hands normalized observations to the
+ingress service and delivery-status events to the outbox delivery-status
+service. The `integrations/wasender` adapter writes nothing: durable rows, queue
+jobs and domain decisions belong to that module. The Wasender dashboard is not a
+shared-inbox product and is not a backfill source for WhatsApp Business/Web or
+WordPress history.
 
-The selected follow-up flow is conversational feedback inside WhatsApp. The
-accepted campaign, directed-result and human-control boundary is documented in
-the [post-event feedback module](../modules/post-event-feedback.md) and
-[ADR 0008](../../decisions/0008-post-event-feedback-conversations.md). Outbound
-sending goes through the injectable `FeedbackTransport` port switched by
-`TRANSPORT_MODE` (`disabled`, `simulated` or `wasender`); AI output never calls
-Wasender directly.
+Outbound sending goes through the injectable `FeedbackTransport` port switched
+by `TRANSPORT_MODE` (`disabled`, `simulated` or `wasender`); AI output never
+calls Wasender directly. `FeedbackTransport` exposes only `sendText`. The
+direct dispatcher obtains the deployment-wide Redis slot and commits its
+provider-entry marker before calling that method. After acceptance the Wasender
+adapter may best-effort call `WasenderClient.getMessageInfo` to capture the
+WhatsApp id when already available.
 
-`FeedbackTransport` exposes one operation, `sendText`. It has no second
-unpaced-send method and no provider-info lookup. The direct dispatcher obtains
-the deployment-wide Redis slot and commits its provider-entry marker before it
-calls that method. The Wasender adapter is therefore a raw provider mapping;
-after acceptance it still performs one best-effort internal
-`WasenderClient.getMessageInfo` lookup to capture the WhatsApp id when it is
-already available.
+Campaign, directed-result and human-control boundaries:
+[post-event feedback](../modules/post-event-feedback.md),
+[ADR 0008](../../decisions/0008-post-event-feedback-conversations.md).
 
 ## Contract
 
 `WasenderClient` is exported from a controller-free client module for worker
-composition. It exposes:
+composition:
 
 | Operation           | Input                                 | Normalized output                                        |
 | ------------------- | ------------------------------------- | -------------------------------------------------------- |
@@ -50,70 +44,46 @@ composition. It exposes:
 | `getMessageInfo`    | Positive provider log ID              | WhatsApp message ID, key, timestamp and status `0..5`    |
 | `markMessageAsRead` | Exact key received from a webhook     | Completion or classified provider error                  |
 
-There are no automatic provider retries. `TRANSPORT_MODE=wasender`
-conditionally adds the provider module to the worker graph and requires
-`WASENDER_SESSION_API_KEY` there; the HTTP graph never receives that credential
-and its shared configuration can validate Wasender mode without it.
-`TRANSPORT_MODE=disabled` has no provider dependency and deterministically
-returns `not-accepted / transport_disabled`; the direct outbox dispatcher
-marks the outbox row failed and raises its undelivered-message attention reason,
-so disabled traffic is visible and is never stockpiled for a surprise later send.
-`TRANSPORT_MODE=simulated` (default) uses a durable PostgreSQL outbound sink
-(`feedback_sim_outbound`) plus optional inject/read HTTP when
-`FEEDBACK_SIMULATOR_ENABLED` is true (off by default; excluded from the
-published OpenAPI composition). The explicit production rehearsal gate may
-enable that Clerk-protected surface with real model calls while forbidding the
-Wasender client and webhook.
+No automatic provider retries. `TRANSPORT_MODE=wasender` adds the provider
+module to the worker graph and requires `WASENDER_SESSION_API_KEY` there; the
+HTTP graph never receives that credential. `disabled` returns
+`not-accepted / transport_disabled`; the dispatcher marks the outbox failed and
+raises undelivered-message attention — disabled traffic is never stockpiled.
+`simulated` (default) uses durable sink `feedback_sim_outbound` plus optional
+inject/read HTTP when `FEEDBACK_SIMULATOR_ENABLED` is true (off by default;
+excluded from published OpenAPI). Production rehearsal may enable that
+Clerk-protected surface with real model calls while forbidding Wasender client
+and webhook.
 
-The simulated adapter can apply an explicitly configured, deterministic
-provider treatment without changing the Wasender adapter: known rejection,
-known rate limiting, unknown outcome with no acceptance evidence, unknown
-outcome after a sink write, or a seeded mix, plus bounded latency. A sink row
-means simulated provider acceptance only; it does not pretend `delivered` or
-`read`. The unknown-after-accept mode deliberately leaves both a sink row and
-an `ambiguous` outbox row, reproducing the dangerous reality in which the
-message may exist remotely but automatic retry is unsafe.
+Simulated transport can apply a process-wide deterministic fault treatment
+(`reject`, `rate-limit`, unknown before/after accept, or seeded mix) plus
+bounded latency. A sink row means simulated acceptance only — not `delivered` or
+`read`. Different simultaneous treatments need separate deployments; there is no
+admin global fault toggle. See configuration below.
 
-This is one process-wide transport profile, not a property of a simulator run.
-Every simulated outbound is eligible while it is active, including campaign
-intros and operator-authored messages. Different simultaneous treatments
-therefore need separate deployments; the admin UI intentionally has no global
-fault toggle.
+When `WASENDER_WEBHOOK_ENABLED=true`, Wasender calls
+`POST /api/v1/webhooks/wasender`. The route is public w.r.t. Clerk but requires
+exact `X-Webhook-Signature`. Accepted events:
 
-When `WASENDER_WEBHOOK_ENABLED=true`, Wasender can call
-`POST /api/v1/webhooks/wasender`. The route is public with respect to Clerk but
-requires the exact `X-Webhook-Signature` shared secret. It accepts only:
+- `messages.upsert` and `messages-personal.received` → `message.observed`
+  (direction, message ID, JID, chat kind, optional E.164, optional text);
+- `messages.update` → `message.status-changed`
+  (`error | pending | sent | delivered | read | played`).
 
-- `messages.upsert` and `messages-personal.received`, normalized to
-  `message.observed` with direction, message ID, JID, chat kind, optional E.164
-  counterparty and optional text;
-- `messages.update`, normalized to `message.status-changed` with
-  `error | pending | sent | delivered | read | played`.
-
-Provider `sessionId` is never copied into normalized events because Wasender's
-status example labels it as the session API key. Top-level event envelopes are
-strict. The nested WhatsApp message/key objects tolerate unknown provider fields
-while validating every field consumed by our code.
-
-After verification the controller dispatches each normalized event and answers
-with the counts it acted on:
+Provider `sessionId` is never copied into normalized events (Wasender's status
+example labels it as the session API key). Top-level envelopes are strict;
+nested WhatsApp objects tolerate unknown fields while validating consumed ones.
 
 | Event                                   | Handling                                                                                    |
 | --------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `message.observed`, personal chat       | One durable ingress write and one materialize enqueue; counted as `recordedCount`           |
-| `message.observed`, group or newsletter | Never stored; counted as `skippedCount`                                                     |
-| `message.status-changed`                | Updates delivery columns on the correlated `message_outbox` row; counted as `deferredCount` |
+| `message.observed`, personal chat       | Durable ingress write + materialize enqueue; `recordedCount`                                |
+| `message.observed`, group or newsletter | Never stored; `skippedCount`                                                                |
+| `message.status-changed`                | Updates delivery columns on correlated `message_outbox`; `deferredCount`                    |
 
-Feedback conversations are one-to-one chats, so group, newsletter and
-unrecognized chat kinds are dropped at the edge rather than written and later
-discarded. Text is trimmed and bounded to `FEEDBACK_OBSERVED_TEXT_HARD_LIMIT`
-(64,000 characters) — deliberately far above WhatsApp's 4096-character _send_
-limit, because the two are different constraints and sharing one value cut an
-inbound message at the webhook edge. People write their way up to the hard thing,
-so the tail is where a disclosure lives
-before it reaches the durable row. A message the endpoint could not queue is
-answered with 503 so the provider may redeliver; the committed row stays
-`pending`. Delivery status never moves backwards.
+Text is trimmed and bounded to `FEEDBACK_OBSERVED_TEXT_HARD_LIMIT` (64,000) —
+far above WhatsApp's 4096 send limit. Unqueueable messages answer 503 so the
+provider may redeliver; the committed row stays `pending`. Delivery status never
+moves backwards.
 
 ## Flow
 
@@ -132,154 +102,115 @@ flowchart LR
   Hook -->|"messages.update"| Delivery["Outbox delivery columns"]
 ```
 
-The HTTP path authenticates, validates and durably records plus enqueues an
-observed event before acknowledging it. Status updates patch outbox delivery
-columns directly. The worker resolves the conversation, applies STOP, appends
-the transcript, extracts structured results, correlates delivery and dispatches
-the outbox directly from PostgreSQL through the transport port. Extraction and sending stay separated by
-`message_outbox`: AI output inserts a row and never calls Wasender directly.
+The HTTP path authenticates, validates and durably records plus enqueues before
+acknowledging. Status updates patch outbox delivery columns directly. Extraction
+and sending stay separated by `message_outbox`.
 
 ## Invariants
 
-- The WordPress and backend clients share one session, API-key rotation and
-  provider rate/concurrency limits. Neither side may assume it is the sole
-  sender. Outbound feedback starts wait on one deployment-wide Redis limiter;
-  adding worker replicas does not multiply session throughput.
-- Provider IDs and event status transitions are untrusted inputs. The ingress
-  table deduplicates by `(chat_jid, provider_message_id)` and the consumer
-  tolerates duplicate and out-of-order delivery.
+- WordPress and backend share one session, API-key rotation and provider
+  rate/concurrency limits. Outbound feedback starts wait on one deployment-wide
+  Redis limiter; worker replicas do not multiply session throughput.
+- Provider IDs and status transitions are untrusted. Ingress deduplicates by
+  `(chat_jid, provider_message_id)`.
 - Phone normalization yields an E.164 candidate, not verified identity.
-  Resolution is a MongoDB lookup against a partial unique index, so a number
-  matches at most one open conversation and an unmatched number is never
-  guessed at.
-- Subscribe to `messages.upsert` for incoming and outgoing observation and
-  `messages.update` for delivery state. Enabling
+  Resolution is a MongoDB lookup against a partial unique index — at most one
+  open conversation; unmatched numbers are never guessed.
+- Subscribe to `messages.upsert` and `messages.update`. Enabling
   `messages-personal.received` as well creates duplicate inbound observations;
-  do so only when durable deduplication exists.
-- Free-text feedback can contain sensitive data. Application logs exclude
-  bodies, provider response bodies, credentials and `sessionId`. Keep Wasender
-  `log_messages=false` unless retention and provider exposure are explicitly
-  approved. Traffic that matches no open conversation keeps provider metadata
-  only for group or newsletter chats, which are never written at all. Inbound
-  text that matches no open conversation is **kept**, not dropped: the row
-  becomes `ignored_unmatched` and `feedback.materialize.unmatched_inbound_retained`
-  is logged so somebody knows it is there. That was a deliberate reversal — a
-  participant writing from a second number is somebody we failed to match, not
-  somebody to erase — and it means unmatched WhatsApp traffic does hold message
-  content. Say so to a reviewer or a DPO.
-- Wasender is transport, not the system of record. MongoDB must own durable
-  conversation/feedback state; PostgreSQL must own business audit, outbox and
-  delivery state.
+  do so only with durable deduplication.
+- Application logs exclude bodies, provider response bodies, credentials and
+  `sessionId`. Keep Wasender `log_messages=false` unless retention is
+  explicitly approved. Unmatched personal inbound text is **kept** as
+  `ignored_unmatched` (`feedback.materialize.unmatched_inbound_retained`) — a
+  second-number participant is a match failure, not data to erase.
+- Wasender is transport, not system of record. MongoDB owns durable conversation
+  state; PostgreSQL owns business audit, outbox and delivery state.
 
 ## Failure and recovery
 
-`WasenderClientError` exposes only a safe operation, failure kind, HTTP status,
+`WasenderClientError` exposes safe operation, failure kind, HTTP status,
 optional retry delay and delivery outcome:
 
-- a send rejected by a non-5xx HTTP response is `not-accepted`;
-- a send timeout, network failure, malformed success response or 5xx response
-  is `unknown` because the provider may have accepted it;
-- reads carry `not-applicable` delivery outcome.
+- non-5xx HTTP rejection → `not-accepted`;
+- timeout, network failure, malformed success or 5xx → `unknown` (provider may
+  have accepted);
+- reads → `not-applicable` delivery outcome.
 
-Callers must not blindly retry an `unknown` send. Immediately before transport,
-the dispatcher token-fences an `attempting` row with `send_started_at`. An
-unknown result changes it to terminal `ambiguous`, keeps any `provider_log_id`
-and excludes it from automatic claims. An observed outbound that carries no
-known provider message id is
-also matched to the oldest unlinked row of that conversation with the same body,
-which marks it sent rather than sending it twice. A 429 can use `Retry-After`;
-Wasender's documentation is inconsistent about whether `X-RateLimit-Reset` is a
-delta or Unix timestamp, so the adapter accepts either form defensively.
+Do not blindly retry an `unknown` send. Immediately before transport the
+dispatcher token-fences an `attempting` row with `send_started_at`. Unknown
+results become terminal `ambiguous`, keep any `provider_log_id` and leave the
+claim query. An observed outbound without a known provider message id may match
+the oldest unlinked same-body row of that conversation (marks sent rather than
+double-sending). A 429 can use `Retry-After`; the adapter also accepts
+`X-RateLimit-Reset` as either delta or Unix timestamp.
 
-The simulator mirrors these classifications rather than inventing nicer ones.
-`reject` and `rate-limit` return `not-accepted` and therefore become terminal
-`failed` rows under today's dispatcher policy. The adapter returns a
-`Retry-After` hint for the simulated 429, but the dispatcher currently neither
-persists nor schedules it; only the classified failure survives.
-`unknown-before-accept` writes no sink row, while `unknown-after-accept` writes
-the sink then returns `unknown`; both become `ambiguous`. Stable bounded latency happens after the durable
-`attempting` marker, so stopping a worker during it exercises the same expiry
-quarantine as a slow real provider.
+The simulator mirrors these classifications. `reject` / `rate-limit` become
+terminal `failed` under current dispatcher policy; the adapter's `Retry-After`
+hint is not persisted or scheduled. `unknown-before-accept` writes no sink row;
+`unknown-after-accept` writes the sink then returns `unknown`; both become
+`ambiguous`. Bounded latency is applied after the durable `attempting` marker.
 
-Webhook payload documentation also disagrees on whether `data.messages` is an
-object or array. The parser accepts both, but rejects unsupported event names or
-invalid consumed fields.
+Webhook payload docs disagree on whether `data.messages` is object or array —
+the parser accepts both, but rejects unsupported event names or invalid consumed
+fields.
 
-`WASENDER_WEBHOOK_ENABLED` stays `false` by default. Durable ingress and direct
-outbox dispatch now exist, so enabling it is a deliberate operational decision:
-the staging acceptance pack (linked-client outbound observation, provider retry
-behavior, session disconnect, ambiguous sends) and the consent/legal gate still
-come first.
+`WASENDER_WEBHOOK_ENABLED` defaults false. Enabling it is deliberate: staging
+acceptance pack and consent/legal gate first.
 
 ## Configuration and operations
 
-| Variable                                     | Process | Contract                                                                                                                                                                                                                               |
-| -------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `TRANSPORT_MODE`                             | both    | `disabled`, `simulated` (development default), or `wasender`; only Wasender mode composes the provider client and requires its session key. HTTP reads it too, to decide module composition and to gate the burst and simulator routes |
-| `FEEDBACK_SIMULATOR_ENABLED`                 | API     | Defaults false; mounts Clerk-protected inject/thread and rehearsal routes only with simulated transport                                                                                                                                |
-| `FEEDBACK_PRODUCTION_REHEARSAL_ENABLED`      | both    | Defaults false; production-only exception requiring simulated transport + simulator, real model, and no Wasender credential or webhook                                                                                                 |
-| `FEEDBACK_SIMULATED_TRANSPORT_FAULT_MODE`    | both    | `none`, `reject`, `rate-limit`, `unknown-before-accept`, `unknown-after-accept`, or `mixed`; non-`none` requires a positive percentage                                                                                                 |
-| `FEEDBACK_SIMULATED_TRANSPORT_FAULT_PERCENT` | both    | Integer `0..100`; stable selection per `(seed, outbox id)`, not a process-local counter                                                                                                                                                |
-| `FEEDBACK_SIMULATED_TRANSPORT_SEED`          | both    | Non-secret log-safe seed, included in worker attestation so all replicas and the API must agree                                                                                                                                        |
-| `FEEDBACK_SIMULATED_TRANSPORT_MAX_DELAY_MS`  | both    | Stable per-row delay from `0..30,000` ms; requires simulated transport when non-zero                                                                                                                                                   |
-| `WASENDER_SESSION_API_KEY`                   | worker  | Optional session-scoped bearer key; required by worker composition only when `TRANSPORT_MODE=wasender`                                                                                                                                 |
-| `WASENDER_WEBHOOK_ENABLED`                   | API     | Defaults false; mounts the public route only when explicitly true; forbidden by the production rehearsal gate                                                                                                                          |
-| `WASENDER_WEBHOOK_SECRET`                    | API     | Required with the route; 32–512 chars, exact shared secret                                                                                                                                                                             |
+| Variable                                     | Process | Contract                                                                                                                                          |
+| -------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TRANSPORT_MODE`                             | both    | `disabled`, `simulated` (dev default), or `wasender`; only Wasender mode composes the provider client and requires its session key                |
+| `FEEDBACK_SIMULATOR_ENABLED`                 | API     | Defaults false; mounts Clerk-protected inject/thread and rehearsal routes only with simulated transport                                           |
+| `FEEDBACK_PRODUCTION_REHEARSAL_ENABLED`      | both    | Defaults false; production-only exception requiring simulated transport + simulator, real model, and no Wasender credential or webhook            |
+| `FEEDBACK_SIMULATED_TRANSPORT_FAULT_MODE`    | both    | `none`, `reject`, `rate-limit`, `unknown-before-accept`, `unknown-after-accept`, or `mixed`; non-`none` requires a positive percentage            |
+| `FEEDBACK_SIMULATED_TRANSPORT_FAULT_PERCENT` | both    | Integer `0..100`; stable selection per `(seed, outbox id)`                                                                                        |
+| `FEEDBACK_SIMULATED_TRANSPORT_SEED`          | both    | Non-secret log-safe seed; included in worker attestation so replicas and API must agree                                                           |
+| `FEEDBACK_SIMULATED_TRANSPORT_MAX_DELAY_MS`  | both    | Stable per-row delay `0..30_000` ms; requires simulated transport when non-zero                                                                   |
+| `WASENDER_SESSION_API_KEY`                   | worker  | Required by worker composition only when `TRANSPORT_MODE=wasender`                                                                                |
+| `WASENDER_WEBHOOK_ENABLED`                   | API     | Defaults false; mounts the public route only when true; forbidden by production rehearsal                                                         |
+| `WASENDER_WEBHOOK_SECRET`                    | API     | Required with the route; 32–512 chars, exact shared secret                                                                                        |
 
-Normal Wasender production mounts separate secret files into the worker and API.
-Production rehearsal mounts no Wasender secret and never composes either
-Wasender edge. The webhook URL configured in Wasender must be the public HTTPS
-URL. Validate the signature
-contract against a staging delivery before activation: the current API and help
-pages prescribe direct secret equality, while an older Wasender blog calls the
-same header an HMAC even though its example still performs equality. The adapter
-implements the current API/help contract with a constant-time comparison; an
-actual HMAC header would correctly fail with 401 and requires a reviewed contract
-change.
-
-The provider recommends controlled concurrency and publishes per-session rate
-limits. Feedback send starts pass through the deployment-wide Redis limiter
-rather than launching one promise per participant or multiplying capacity per
-worker replica.
+Normal Wasender production mounts separate secret files into worker and API.
+Production rehearsal mounts no Wasender secret. The webhook URL must be the
+public HTTPS URL. Current API/help prescribe direct secret equality (constant-
+time compare); an older blog calls the same header an HMAC — an actual HMAC
+header correctly fails with 401 and needs a reviewed contract change.
 
 ## Tests
 
-Focused tests cover request shape and bearer authentication, response/status
+Focused tests cover request shape and bearer auth, response/status
 normalization, no-retry ambiguous failures, redacted errors, E.164 validation,
-both webhook message shapes, all status codes, shared-secret verification,
-HTTP 200/400/401 behavior, OpenAPI and the disabled-by-default 404 contract.
-Controller tests add the dispatch contract: one ingress call per observed
-personal message, no durable write for group traffic, status events applied to
-outbox delivery columns, a signature rejected before the durable boundary, and
-503 when the message could not be queued. Transport/dispatcher tests cover
-deployment-wide pacing, token loss, the pre-send marker and unknown-outcome
+both webhook message shapes, status codes, shared-secret verification,
+HTTP 200/400/401, OpenAPI and disabled-by-default 404. Controller tests cover
+dispatch: one ingress call per observed personal message, no durable write for
+group traffic, status events on outbox delivery columns, signature rejected
+before the durable boundary, 503 when unqueueable. Transport/dispatcher tests
+cover deployment-wide pacing, token loss, pre-send marker and unknown-outcome
 quarantine.
 
 ## Sources and official references
 
-- [Client and schemas](../../../apps/backend/src/integrations/wasender/wasender.client.ts),
-  [JID encode/decode](../../../apps/backend/src/integrations/wasender/wasender.jid.ts),
-  [webhook adapter](../../../apps/backend/src/integrations/wasender/wasender.webhook.ts)
-  and [client module](../../../apps/backend/src/integrations/wasender/wasender-client.module.ts)
+- [Client](../../../apps/backend/src/integrations/wasender/wasender.client.ts),
+  [JID](../../../apps/backend/src/integrations/wasender/wasender.jid.ts),
+  [webhook adapter](../../../apps/backend/src/integrations/wasender/wasender.webhook.ts),
+  [client module](../../../apps/backend/src/integrations/wasender/wasender-client.module.ts)
 - [Webhook controller](../../../apps/backend/src/modules/post-event-feedback/ingress/wasender.controller.ts),
-  [webhook module](../../../apps/backend/src/modules/post-event-feedback/ingress/wasender-webhook.module.ts),
-  [Feedback transport port](../../../apps/backend/src/modules/post-event-feedback/outbox/transport.ts),
+  [transport port](../../../apps/backend/src/modules/post-event-feedback/outbox/transport.ts),
   [Wasender adapter](../../../apps/backend/src/modules/post-event-feedback/outbox/wasender-transport.service.ts),
   [simulated sink](../../../apps/backend/src/modules/post-event-feedback/outbox/simulated-transport.service.ts),
-  [direct dispatcher](../../../apps/backend/src/modules/post-event-feedback/outbox/dispatcher.service.ts),
-  [ingress service](../../../apps/backend/src/modules/post-event-feedback/ingress/ingress.service.ts)
-  and the [post-event feedback module](../modules/post-event-feedback.md) that
-  owns everything past the normalized event
-- Wasender [session bearer authentication](https://wasenderapi.com/api-docs/authentication/how-to-authenticate-api-requests-using-bearer-tokens),
+  [dispatcher](../../../apps/backend/src/modules/post-event-feedback/outbox/dispatcher.service.ts),
+  [ingress](../../../apps/backend/src/modules/post-event-feedback/ingress/ingress.service.ts),
+  [post-event feedback module](../modules/post-event-feedback.md)
+- Wasender [auth](https://wasenderapi.com/api-docs/authentication/how-to-authenticate-api-requests-using-bearer-tokens),
   [send text](https://api.wasenderapi.com/api-docs/messages/send-text-message),
-  [message info](https://wasenderapi.com/api-docs/messages/get-message-info)
-  and [mark read](https://wasenderapi.com/api-docs/messages/mark-message-as-read)
-- Wasender [webhook setup](https://wasenderapi.com/api-docs/webhooks/webhook-setup),
+  [message info](https://wasenderapi.com/api-docs/messages/get-message-info),
+  [mark read](https://wasenderapi.com/api-docs/messages/mark-message-as-read),
+  [webhook setup](https://wasenderapi.com/api-docs/webhooks/webhook-setup),
   [upsert](https://wasenderapi.com/api-docs/webhooks/webhook-message-upsert),
-  [personal message](https://www.wasenderapi.com/api-docs/webhooks/webhook-personal-message-received)
-  and [status update](https://wasenderapi.com/api-docs/webhooks/webhook-message-update)
-- Wasender [errors](https://wasenderapi.com/api-docs/responses-errors/error-responses),
+  [personal](https://www.wasenderapi.com/api-docs/webhooks/webhook-personal-message-received),
+  [status](https://wasenderapi.com/api-docs/webhooks/webhook-message-update),
   [rate limits](https://wasenderapi.com/api-docs/rate-limits/understanding-rate-limits),
-  [message logs](https://wasenderapi.com/api-docs/sessions/get-message-logs),
-  [webhook help](https://www.wasenderapi.com/help/messaging/using-webhooks) and
-  [conflicting HMAC blog wording](https://wasenderapi.com/blog/whatsapp-chatbot-using-nodejs-and-wasenderapi-build-efficient-customer-service-wasenderapi)
+  [webhook help](https://www.wasenderapi.com/help/messaging/using-webhooks)

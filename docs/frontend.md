@@ -2,213 +2,149 @@
 
 Status: accepted admin-only foundation, verified 2026-07-25.
 
-The frontend in `apps/admin` is the private Join The Six administration panel.
-It is a React 19 single-page application built with Clerk 6, HeroUI v3, Tailwind
-CSS v4, TanStack Query, TanStack Table, React Router 7 and Vite. It replaces the
-retired Nuxt/PrimeVue client, removed in the same change that introduced this
-one. The
-public website, registration, intake and participant-facing journeys are owned
-by the existing Next.js application at `legacy.example.com`; see
-[ADR 0004](decisions/0004-admin-only-boundary.md).
+`apps/admin` is the private Join The Six administration panel: a React 19 SPA
+(Clerk 6, HeroUI v3, Tailwind CSS v4, TanStack Query/Table, React Router 7,
+Vite). It replaced the retired Nuxt/PrimeVue client (historical;
+[ADR 0006](decisions/0006-react-admin-runtime.md)). Public journeys stay on the
+Next.js product at `legacy.example.com`
+([ADR 0004](decisions/0004-admin-only-boundary.md)).
+
+Editing rules live in [`apps/admin/AGENTS.md`](../apps/admin/AGENTS.md). This
+page maps ownership, routes, transport and delivery constraints, and points at
+focused contracts.
 
 ## Start here
 
-| Task                                  | Location                                       | First reference                                              |
-| ------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------ |
-| Add an admin route                    | `apps/admin/src/routes/`                       | `routes/OverviewPage.tsx` and the table in `App.tsx`         |
-| Change the Overview landing           | `apps/admin/src/routes/OverviewPage.tsx`       | [Overview screen](frontend/overview.md)                      |
-| Extend the AI assistant               | `apps/admin/src/routes/AssistantPage.tsx`      | [Assistant screen contract](frontend/assistant.md)           |
-| Change the feedback inbox             | `apps/admin/src/routes/FeedbackInboxPage.tsx`  | [Feedback conversations](frontend/feedback-conversations.md) |
-| Change the outbound queue screen      | `apps/admin/src/routes/FeedbackOutboxPage.tsx` | [Outbound queue](frontend/feedback-outbound-queue.md)        |
-| Add a domain schema or pure helper    | `apps/admin/src/features/<domain>/`            | `features/event/eventStatus.ts`                              |
-| Add domain UI                         | `apps/admin/src/components/admin/`             | `components/admin/AdminNavigation.tsx`                       |
-| Reuse or add shared UI                | `apps/admin/src/components/ui/`                | [Component inventory](frontend/components/README.md)         |
-| Use a HeroUI primitive                | Owning route or component                      | Import from `@heroui/react`                                  |
-| Call a backend endpoint               | `apps/admin/src/api/generated/`                | [Generated client](backend/mechanisms/api-contract.md)       |
-| Change transport policy               | `apps/admin/src/lib/api.ts`                    | `apps/admin/src/lib/env.ts`                                  |
-| Regenerate the API client             | `pnpm api:generate` (root)                     | [API contract](backend/mechanisms/api-contract.md)           |
-| Read appearance / toggle dark mode    | `apps/admin/src/lib/useTheme.ts`               | Pre-paint script in `index.html`                             |
-| Change the token bridge / HeroUI look | `apps/admin/src/styles/globals.css`            | Named section in that file                                   |
-| Change a shared visual value          | `packages/design-tokens/src/tokens.css`        | Token ownership below                                        |
-| Change routing, redirect or 404       | `apps/admin/src/App.tsx`                       | `Routes` table                                               |
-| Change the dev proxy or build         | `apps/admin/vite.config.ts`                    | `/api` proxy and env contract below                          |
+| Task                               | Location                                      | First reference                                              |
+| ---------------------------------- | --------------------------------------------- | ------------------------------------------------------------ |
+| Add an admin route                 | `apps/admin/src/routes/`                      | `OverviewPage.tsx` + route table in `App.tsx`                |
+| Overview landing                   | `routes/OverviewPage.tsx`                     | [Overview](frontend/overview.md)                             |
+| AI assistant                       | `routes/AssistantPage.tsx`                    | [Assistant](frontend/assistant.md)                           |
+| Feedback inbox                     | `routes/FeedbackInboxPage.tsx`                | [Feedback conversations](frontend/feedback-conversations.md) |
+| Outbound queue                     | `routes/FeedbackOutboxPage.tsx`               | [Outbound queue](frontend/feedback-outbound-queue.md)        |
+| Domain schema / pure helper        | `features/<domain>/`                          | `features/event/eventStatus.ts`                              |
+| Domain UI                          | `components/admin/`                           | `AdminNavigation.tsx`                                        |
+| Shared UI                          | `components/ui/`                              | [Component inventory](frontend/components/README.md)         |
+| HeroUI primitive                   | Owning route or component                     | `@heroui/react`                                              |
+| Call a backend endpoint            | `api/generated/`                              | [API contract](backend/mechanisms/api-contract.md)           |
+| Transport / env policy             | `lib/api.ts`, `lib/env.ts`                    | Env table below                                              |
+| Regenerate API client              | `pnpm api:generate` (root)                    | [API contract](backend/mechanisms/api-contract.md)           |
+| Theme / dark mode / tokens         | `useTheme.ts`, `globals.css`, design-tokens   | [Theming](frontend/theming.md)                               |
+| Routing / redirect / 404           | `App.tsx`                                     | Route table below                                            |
+| Dev proxy / build                  | `vite.config.ts`                              | Delivery constraints below                                   |
 
-Components are imported explicitly — there is no filename-based discovery.
-Shared project components use the `Jts*` prefix. One component per file, named
-export matching the filename; colocate types and export them only when a
+Imports are explicit (no filename discovery). Shared components use the `Jts*`
+prefix: one file, named export matching the filename; export types only when a
 consumer needs them.
 
 ## Product and route boundary
 
-| Route                                 | Behavior                                                                                                                                                              | Indexing                |
-| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
-| `/sign-in/*`                          | Clerk sign-in inside this admin's own frame: page-owned `h1`, form placeholder while Clerk loads, explicit service-failure state                                      | `noindex, nofollow`     |
-| `/`                                   | Protected redirect to `/admin` (`<Navigate replace>`)                                                                                                                 | Inherits private policy |
-| `/admin`                              | Clerk session plus backend admin check, then Overview ([contract](frontend/overview.md))                                                                              | `noindex, nofollow`     |
-| `/admin/assistant`                    | Protected new AI conversation in the admin shell                                                                                                                      | `noindex, nofollow`     |
-| `/admin/assistant/:threadId`          | Exact durable assistant thread resume                                                                                                                                 | `noindex, nofollow`     |
-| `/admin/events`                       | Stub event list and create                                                                                                                                            | `noindex, nofollow`     |
-| `/admin/events/:eventId`              | Event edit, status transitions and attendance                                                                                                                         | `noindex, nofollow`     |
-| `/admin/participants`                 | Participant list and feedback WhatsApp opt-in                                                                                                                         | `noindex, nofollow`     |
-| `/admin/participants/:id`             | Participant profile, the opt-in checkbox under Preferences, and dinner history                                                                                        | `noindex, nofollow`     |
-| `/admin/feedback`                     | Feedback campaign picker (open a campaign, or launch one)                                                                                                             | `noindex, nofollow`     |
-| `/admin/feedback/:campaignId`         | Three-pane post-event feedback conversation inbox                                                                                                                     | `noindex, nofollow`     |
-| `/admin/feedback/:campaignId/results` | Campaign answers and notes                                                                                                                                            | `noindex, nofollow`     |
-| `/admin/outbound`                     | Outbound feedback messages still waiting, with their job state                                                                                                        | `noindex, nofollow`     |
-| `/admin/docs/feedback`                | Operator map of post-event feedback (`FeedbackMechanismPage`): write-now/read-later, quiet window, STOP and where to intervene                                        | `noindex, nofollow`     |
-| `/admin/cookbook`                     | **Development builds only** — the visual vocabulary gallery ([contract](frontend/admin-cookbook.md)); gated on `import.meta.env.DEV`, so production has no such route | `noindex, nofollow`     |
-| `*`                                   | Standalone 404 (`routes/ErrorPage.tsx`)                                                                                                                               | Inherits private policy |
+| Route                                 | Behavior                                                                                      |
+| ------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `/sign-in/*`                          | Clerk sign-in frame (page `h1`, form placeholder while loading, service-failure state)        |
+| `/`                                   | Protected redirect to `/admin`                                                                |
+| `/admin`                              | Clerk + backend admin check → Overview ([contract](frontend/overview.md))                     |
+| `/admin/assistant`                    | New AI conversation                                                                           |
+| `/admin/assistant/:threadId`          | Durable thread resume (`assistant/:threadId?` in `App.tsx`)                                   |
+| `/admin/events`                       | Stub event list and create                                                                    |
+| `/admin/events/:eventId`              | Edit, status transitions, attendance                                                          |
+| `/admin/participants`                 | List + feedback WhatsApp opt-in                                                               |
+| `/admin/participants/:id`             | Profile, Preferences opt-in, dinner history                                                   |
+| `/admin/feedback`                     | Campaign picker                                                                               |
+| `/admin/feedback/:campaignId`         | Three-pane inbox                                                                              |
+| `/admin/feedback/:campaignId/results` | Campaign answers and notes                                                                    |
+| `/admin/outbound`                     | Outbound queue (not under `feedback/`, so nav `aria-current` stays unambiguous)               |
+| `/admin/docs/feedback`                | Operator map (`FeedbackMechanismPage`)                                                        |
+| `/admin/cookbook`                     | **Dev only** — `import.meta.env.DEV` gallery ([contract](frontend/admin-cookbook.md))         |
+| `*`                                   | Standalone 404 (`ErrorPage.tsx`)                                                              |
 
-Do not add `/join`, `/register`, `/feedback`, marketing or public legal routes
-to this application. They belong in the existing Next.js public product. A
-future integration between that product and the operations backend starts with
-an explicit API, consent and abuse-control contract, not by quietly recreating
-its screens here.
+`noindex, nofollow` is one static meta in `index.html` for the whole SPA. Do not
+add `/join`, `/register`, `/feedback`, marketing or public legal routes here.
 
-`noindex, nofollow` is declared once as a static `<meta name="robots">` in
-`index.html` and covers the whole SPA. Each routed view sets its own accurate
-title and description through `usePageMeta` (`src/lib/usePageMeta.ts`), which
-never touches robots, and owns a single `h1`. The shell provides the focusable
-`#main-content` landmark and skip-link target, the navigation landmark, the
-operator menu docked in the sidebar footer (a top bar carries it on small
-screens where the sidebar is hidden), the mobile drawer, the toast region
-(`<Toast.Provider />` in `App.tsx`) and the reduced-motion policy.
+Each view sets title/description via `usePageMeta` (never robots) and owns one
+`h1`. The shell owns `#main-content`, skip link, nav, operator menu (sidebar
+footer; top bar on small screens), drawer, `<Toast.Provider />` and
+reduced-motion. Accessibility invariants:
+[`apps/admin/AGENTS.md`](../apps/admin/AGENTS.md).
 
-`ClerkProvider` owns browser session state. `RequireAdmin` first checks Clerk,
-then calls the generated `useGetAuthSession` hook; only a backend-approved
-subject reaches the shell. It renders distinct waiting, denial and retryable
-failure states. The operator menu displays the Clerk identity and performs real
-sign-out. This
-client guard improves navigation only: the Nest guard and resource-owner
-predicates authorize every API request. See
-[Admin authentication](backend/mechanisms/authentication.md).
+`RequireAdmin`: Clerk session, then `useGetAuthSession`; only a backend-approved
+subject reaches the shell. Client guard improves navigation only — Nest
+authorizes every API request
+([authentication](backend/mechanisms/authentication.md)).
 
-Waiting for authentication is never a screen of its own. While Clerk's script
-loads, `App.tsx` paints what the URL already promises: on `/sign-in/*` the
-sign-in frame with `SignInFormPlaceholder` in the form slot, and anywhere else
-`AuthPendingScreen` — the brand and a breathing rule, no title and no action.
-`SignInLayout` therefore lives outside the router, because both the waiting tree
-and the routed page render it, and the operator sees one screen settle rather
-than an interstitial they then leave. `AuthStatusScreen` is left with the three
-states that do have something to say: `configuration`, `denied` and `failed`.
-The sign-in page owns its own `h1` and Clerk's card header is hidden, so the
-heading is on screen from the first paint; Clerk's `elements` are styled with
-CSS objects rather than utility classes, because Clerk injects its stylesheet
-unlayered and unlayered rules outrank anything Tailwind emits from a layer.
+While Clerk loads, paint the URL's promise: `/sign-in/*` → `SignInLayout` +
+`SignInFormPlaceholder`; elsewhere → `AuthPendingScreen`. `SignInLayout` lives
+outside the router so waiting and routed sign-in share one frame.
+`AuthStatusScreen` covers `configuration` / `denied` / `failed`. Style Clerk
+`elements` with CSS objects (unlayered Clerk CSS outranks Tailwind layers).
 
 ## Application boundaries
 
 ```text
 src/
-├── api/generated/          orval output: hooks, models, Zod schemas (never edited)
+├── api/generated/          orval output (never edited)
 ├── components/ui/          shared, domain-free Jts* contracts
 ├── components/admin/       admin shell and domain UI
-│   └── RequireAdmin.tsx    Clerk session + backend authorization gate
-├── features/<domain>/      client-only schemas and pure helpers (no React imports)
-├── lib/                    hooks and facades (api, api-mutator, env, queryClient, useTheme, usePageMeta)
-├── routes/                 route metadata, data and composition
-├── styles/globals.css      the design-token bridge + base layer + motifs
-├── theme/                  reserved (empty); the HeroUI mapping lives in globals.css
-├── App.tsx                 router: skip link, Toast.Provider, route table
-└── main.tsx                React root mount (StrictMode + QueryClientProvider + ClerkProvider)
+│   └── RequireAdmin.tsx    Clerk + backend authorization gate
+├── features/<domain>/      client-only schemas and pure helpers (no React)
+├── lib/                    api, api-mutator, env, queryClient, useTheme, usePageMeta, …
+├── routes/                 page metadata, data wiring, composition
+├── styles/globals.css      token bridge + base layer + motifs
+├── theme/                  reserved (empty); HeroUI mapping is in globals.css
+├── App.tsx                 skip link, Toast.Provider, route table
+└── main.tsx                StrictMode + QueryClientProvider + ClerkProvider
 ```
 
-`features/` has no React runtime behavior and remains independently testable.
-Routes orchestrate; they do not absorb reusable table or form behavior. Shared
-UI does not hide domain API calls or business rules.
-
-Choose UI in this order:
-
-1. Reuse a matching project component.
-2. Use a HeroUI primitive directly (import from `@heroui/react`).
-3. Compose a documented `Jts*` component when repeated operational behavior is
-   the real abstraction.
-4. Use semantic HTML and CSS for content and layout.
-
-The shared contracts are `JtsPageHeader`, `JtsStat`, `JtsDataTable` and
-`JtsLiveIndicator`. Their contracts are linked from the
-[component inventory](frontend/components/README.md). Columns, filters, cell
-formatting and row actions remain with the consuming route — adding a table
-column is a consumer-side `ColumnDef` change and touches no `Jts*` file.
-Wrapping HeroUI only to rename props is filing paperwork in a nicer font.
+Routes orchestrate; they do not absorb reusable table/form behavior. Shared UI
+does not hide domain API calls or business rules. UI selection order (full
+detail in `AGENTS.md`): reuse `Jts*` → HeroUI primitive → new documented `Jts*`
+only for repeated operational behavior → semantic HTML/CSS. Columns, filters,
+cells and row actions stay on the consumer
+([inventory](frontend/components/README.md)). Do not wrap HeroUI only to rename
+props.
 
 ## HeroUI and theme
 
-HeroUI v3.2.2 is imported per component from `@heroui/react`; its stylesheet
-(`@heroui/styles`) is imported once in `src/styles/globals.css`. HeroUI v3 is
-CSS-first (React Aria behavior + Tailwind v4 styling) and has no application
-provider to mount — the only global HeroUI mount is `<Toast.Provider />` in
-`App.tsx`, paired with the imperative `toast()` API. Icons come from
-`lucide-react`; conditional class strings use `clsx`; `tailwind-variants` is a
-HeroUI dependency, not a project abstraction.
+HeroUI v3 is CSS-first: import from `@heroui/react`, `@heroui/styles` once in
+`globals.css`. **No app provider.** Mount `<Toast.Provider />` once in `App.tsx`
+and fire `toast()`. Icons: `lucide-react`. Classes: `clsx`.
+`tailwind-variants` is HeroUI's, not ours.
 
-The admin shell and overview currently use HeroUI `Avatar`, `Button`, `Chip`,
-`Drawer`, `Input`, `ListBox`, `Modal`, `Pagination`, `Popover`, `ProgressBar`,
-`Select`, `Separator`, `Table`, `Toast`, `ToggleButton` and `ToggleButtonGroup`
-through their compound sub-components (`Table.Content`, `Drawer.Dialog`,
-`Modal.Body`, `Popover.Content`, `Select.Popover`, `ProgressBar.Track` …).
+Appearance goes through the `globals.css` token bridge — no theme preset.
+HeroUI base tokens map to `var(--jts-*)` and flip with `:root.dark`. Prefer
+semantic bridge utilities over DOM-coupled selectors. Ownership, dark mode and
+the `dark:` ban: [theming](frontend/theming.md),
+[ADR 0005](decisions/0005-theming-and-dark-mode.md).
 
-Extend HeroUI appearance through the token bridge in `src/styles/globals.css`;
-there is no theme preset. HeroUI's base tokens (`--surface`, `--accent`, …) are
-overridden unlayered in `:root` with `var(--jts-*)` references, and because the
-`--jts-*` tokens flip under `:root.dark`, HeroUI flips with them — no second
-theme definition exists. Prefer semantic tokens and the Tailwind utilities the
-bridge exposes over selectors coupled to generated DOM.
+`JtsDataTable` = TanStack Table core + HeroUI `Table` (`ColumnMeta.align` is the
+only type hatch). Routing: React Router 7 `BrowserRouter` — no data router/loaders.
+`NavLink` → `aria-current`; `<Outlet>` in the shell's animated main.
 
-`JtsDataTable` skins a headless TanStack Table 8.21.3 core (sorting, client
-pagination and the row model) with the HeroUI `Table`. The single type escape
-hatch is a `ColumnMeta.align` module augmentation for column alignment; the page
-owns every `ColumnDef`. Routing is React Router 7.18.1 in declarative
-(`BrowserRouter`) mode — no data router, no loaders. `NavLink` drives
-`aria-current` and active styling; `<Outlet>` renders the routed view inside the
-shell's animated main region.
-
-`@heroui/react` and `@heroui/styles` share a release train — upgrade them
-together (both 3.2.2). `package.json` and `pnpm-lock.yaml` are the source of
-truth for exact dependency versions.
+Upgrade `@heroui/react` and `@heroui/styles` together. Exact versions:
+`package.json` / `pnpm-lock.yaml` (stack table in `AGENTS.md`).
 
 ## API, state and forms
 
-`src/lib/api.ts` exports `api`, a single `ofetch` instance with:
+`src/lib/api.ts`: one `ofetch` with `baseURL = env.apiBase`, Clerk
+`Authorization` + `credentials: "include"`, `retry: 0`, 15s timeout.
 
-- `baseURL` set to the validated `env.apiBase`;
-- Clerk's current session token overwriting `Authorization` before every
-  request, plus `credentials: "include"` for Clerk's cookie flow;
-- `retry: 0` so mutations never double-fire, and a 15-second timeout.
+`src/lib/env.ts` Zod-validates at module load. Only `import.meta.env.VITE_*`
+reaches the bundle — always go through `env`.
 
-It is the client port of the previous `$fetch` seam; because this is a client-only
-SPA, all SSR request-header forwarding is dropped.
+| Variable                     | Role                                                                                         |
+| ---------------------------- | -------------------------------------------------------------------------------------------- |
+| `VITE_API_BASE`              | Optional; defaults `/api`; safe root-relative or HTTP(S) URL                                 |
+| `VITE_CLERK_PUBLISHABLE_KEY` | Clerk public-key shape when present; omit only for credential-free CI → configuration screen |
+| `VITE_GOOGLE_MAPS_API_KEY`   | Optional Places UI Kit / Embed; absent → Place ID + Maps deep-links                          |
+| `VITE_AUTH_DEV_BYPASS`       | Dev-only (`superRefine` rejects elsewhere). Removes auth — not a stub                        |
 
-`src/lib/env.ts` validates the browser environment with Zod at module load.
-Vite exposes only `import.meta.env.VITE_*` to the bundle. `VITE_API_BASE` is
-optional, defaults to `/api`, and must be a safe root-relative or HTTP(S) URL.
-`VITE_CLERK_PUBLISHABLE_KEY` must have Clerk's public-key shape when present.
-Credential-free CI builds may omit it; the artifact then renders a clear
-configuration screen. A deployable admin image must bake the publishable key at
-build time. `VITE_GOOGLE_MAPS_API_KEY` is optional and public. When present it
-enables isolated Places API (New) autocomplete, Places UI Kit attributed details
-and the Maps Embed fallback; when absent, venue editing accepts a Place ID and all
-venue displays retain a normal Google Maps deep-link. Repeated list/history
-venue pills never load the Maps JavaScript API. Google-owned rich details remain
-inside the attributed UI Kit element. After an admin selects a prediction, the
-editor makes exactly one standalone `Place.fetchFields` request for canonical
-`displayName`, `formattedAddress` and `primaryTypeDisplayName`; using a new
-`Place` from the selected ID avoids treating that lookup as the widget session's
-costlier termination tier. The returned values seed editable operator-confirmed
-label, area and type fields, with prediction text only as a failure fallback.
-Price context remains operator-authored. Ordinary event renders make no Google
-request. This is a prototype behavior subject to the production legal/provider
-persistence gate in `docs/deployment.md`, not permission to retain Google
+Bypass on: `/sign-in/*` → `/admin`, `DevelopmentBypassApp` with no
+`ClerkProvider`, API skips `getToken()`.
+
+Places (prototype; legal/provider gate in [deployment](deployment.md)): key
+present → isolated Places autocomplete + one post-select `Place.fetchFields`;
+list pills and ordinary event renders do not load Maps JS. Do not retain Google
 content outside its session.
-
-`VITE_AUTH_DEV_BYPASS` is the fourth browser variable, and the only one that
-changes the shape of the app. A `superRefine` rejects it outside Vite
-development mode, so it cannot be set in a production build. When it is on,
-`/sign-in/*` redirects to `/admin`, a `DevelopmentBypassApp` tree mounts with no
-`ClerkProvider` at all, and the API facade skips `getToken()`. It is not a
-convenience flag — it removes authentication rather than stubbing it.
-
-Do not read `import.meta.env` directly in component code — go through `env`.
 
 ```mermaid
 flowchart LR
@@ -222,11 +158,10 @@ flowchart LR
   client --> proxy["Vite dev proxy or native nginx → backend"]
 ```
 
-### Call endpoints through the generated client
+### Generated client
 
-Every endpoint in the backend's OpenAPI document reaches this app as a generated,
-named, typed hook. Do not hand-write a fetch call, a URL string or a Zod schema
-for a response the document already describes.
+Every OpenAPI operation is a named typed hook. Do not hand-write fetch, URL or
+response Zod for a documented operation.
 
 ```tsx
 import { useGetAuthSession } from "../../api/generated/auth";
@@ -234,170 +169,85 @@ import { useGetAuthSession } from "../../api/generated/auth";
 const session = useGetAuthSession({ query: { enabled: isSignedIn } });
 ```
 
-- `src/api/generated/` is orval output: TanStack Query hooks per tag,
-  request/response types under `model/`, and matching Zod schemas under `zod/`.
-  It is **not** committed — ADR 0010 made it local output, so a fresh clone has
-  no `src/api/generated/` until `pnpm api:generate` runs. It is typechecked,
-  excluded from ESLint and **never edited by
-  hand**.
-- Hook names come from the backend `operationId`: `getAuthSession` produces
-  `useGetAuthSession`, `getGetAuthSessionQueryKey` and the
-  `GetAuthSessionResponse` schema. A missing endpoint is a backend change, not a
-  local fetch call.
-- Every generated call goes through `src/lib/api-mutator.ts`, which delegates to
-  the `api` client above; authentication, retries and timeouts are still owned by
-  `api.ts` alone.
-- `main.tsx` mounts one `QueryClientProvider` (`src/lib/queryClient.ts`). Query
-  and mutation retries are off, matching the client's `retry: 0`; a screen owns
-  its loading, empty and error states rather than a silent retry loop.
-- Generated Zod schemas are for values that leave the typed path — a form draft,
-  a persisted value, a payload echoed back. Import them from
-  `src/api/generated/zod/`; do not copy a backend schema into `features/`.
-- `features/<domain>/` keeps client-only schemas and pure helpers: draft
-  validation, derived view models, formatting. It no longer mirrors response
-  shapes.
-
-Regenerate whenever a backend endpoint changes, in the same change:
+- `src/api/generated/` — orval hooks / `model/` / `zod/`. **Not committed**
+  ([ADR 0010](decisions/0010-generated-client-not-committed.md)); run
+  `pnpm api:generate`. Never hand-edit.
+- Names from backend `operationId`. Missing endpoint → backend first, then
+  regenerate.
+- Calls go through `api-mutator.ts` → `api`; auth/retry/timeout stay in `api.ts`.
+- One `QueryClientProvider` (`queryClient.ts`); query/mutation retries off.
+  Screens own loading/empty/error.
+- Runtime validation of drafts/persisted/echoed values: generated schemas from
+  `api/generated/zod/`. `features/` never mirrors backend response shapes.
 
 ```bash
-pnpm api:generate   # emits openapi.json, then regenerates the client
-pnpm api:check      # regenerates and fails on drift (runs inside pnpm check)
+pnpm api:generate   # openapi.json + client
+pnpm api:check      # fails on drift (inside pnpm check)
 ```
 
-The pipeline, its invariants and its failure modes are documented in
-[API contract and generated client](backend/mechanisms/api-contract.md) and
-[ADR 0009](decisions/0009-generated-api-client.md).
+See [API contract](backend/mechanisms/api-contract.md) and
+[ADR 0009](decisions/0009-generated-api-client.md). `RequireAdmin` is the
+reference consumer.
 
-`RequireAdmin` is the reference consumer for generated hooks. Events,
-participants and the post-event feedback inbox use `useListEvents`,
-`useGetEvent`, `useListParticipants`, `useGetParticipant`,
-`useListParticipantEvents`,
-`useListFeedbackCampaignConversations` and their mutation siblings; new screens
-follow the same generated-hook pattern.
+Exactly **two** direct-transport exceptions (enforced by
+`apps/admin/test/feedback-inbox.spec.ts`):
 
-Exactly **two** places call the transport directly, both documented and both
-enforced by `apps/admin/test/feedback-inbox.spec.ts`:
+| Exception | Why | Contract |
+| --------- | --- | -------- |
+| Assistant | SSE + polling beyond response shape | [assistant.md](frontend/assistant.md) |
+| Dev feedback simulator (`lib/feedbackSimulator.ts`) | Outside production under `TRANSPORT_MODE=simulated`; not in OpenAPI | [feedback-conversations.md](frontend/feedback-conversations.md) |
 
-- the assistant ([`frontend/assistant.md`](frontend/assistant.md)), whose
-  SSE-plus-polling flow owns extra client-side semantics beyond the response
-  shape;
-- the dev feedback simulator (`src/lib/feedbackSimulator.ts`), whose controller
-  is mounted only outside production under `TRANSPORT_MODE=simulated` and is
-  therefore absent from the published OpenAPI document
-  ([`frontend/feedback-conversations.md`](frontend/feedback-conversations.md)).
+Not patterns to copy. A third entry means a product endpoint bypassed the client.
 
-Neither is a pattern to copy for ordinary CRUD. A third entry in that list means
-a product endpoint bypassed the generated client.
-
-The AI assistant is the first real queue-backed API consumer. It creates and
-resumes server-owned threads, persists each user/assistant turn, follows a
-best-effort authenticated SSE accelerator and polls the same turn ID through
-`queued` / `running` as the durable fallback. Client-minted `requestId` values
-make create/append POSTs idempotent, so recovery can replay the same write
-instead of duplicating work. Validated terminal text enters the memoized,
-sanitised Markdown renderer copied from the established `notes_ai` chat. Its
-exact model, durability, rendering and recovery contracts are maintained in
-[`frontend/assistant.md`](frontend/assistant.md).
-
-Forms connect errors with `aria-describedby`, focus the first invalid field,
-preserve values on retryable failure and never display raw server messages.
-Preview-only interactions must say that they do not persist; do not simulate a
-successful backend write. The Overview event dialog is the reference: it parses
-its draft with the feature schema, focuses the first invalid input, and both a
-copper note and the success toast state that it writes local UI state only.
+Forms: `aria-describedby`, focus first invalid field, preserve values on
+retryable failure, never raw server messages. Preview-only UIs must say they do
+not persist (Overview event dialog is the reference).
 
 ## CSS, tokens, fonts and motion
 
-| Owner                                   | Responsibility                                                                                                          |
-| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `packages/design-tokens/src/tokens.css` | Framework-neutral semantic `--jts-*` values; single source of truth; light plus the `:root.dark` flip                   |
-| `apps/admin/src/styles/globals.css`     | The bridge: HeroUI base-token overrides, the Tailwind `@theme inline` vocabulary, the base layer, and the motif classes |
-| Component and route markup (Tailwind)   | Domain structure using only semantic utilities — no raw hex, no default Tailwind palette classes                        |
+| Owner                                   | Responsibility                                                         |
+| --------------------------------------- | ---------------------------------------------------------------------- |
+| `packages/design-tokens/src/tokens.css` | `--jts-*`; light + `:root.dark` flip                                   |
+| `apps/admin/src/styles/globals.css`     | HeroUI overrides, `@theme inline`, base layer, sanctioned motifs       |
+| Markup                                  | Semantic utilities only — no raw hex, no default Tailwind palette      |
 
-`globals.css` is layered as documented in its header: HeroUI base tokens are
-mapped to `--jts-*`, Tailwind's `@theme inline` block adds the `jts` utility
-vocabulary (`ink`, `canvas`, `primary`, `copper`, `info`, `sidebar-*` …), and a
-small base layer carries app-wide rules (focus ring, selection, headings,
-reduced motion) plus the three sanctioned classes `.skip-link`, `.brand-mark`
-and `.status-dot`.
+`globals.css` header documents the layering. Sanctioned classes: `.skip-link`,
+`.brand-mark`, `.status-dot`. Fonts / wordmark: [ADR 0011](decisions/0011-display-typeface.md).
+Logo: `BrandLockup` / `BrandMark`; `.brand-mark` is decorative.
 
-Manrope Variable 5.3.0 (UI/body), Commissioner Variable 5.2.10 (display
-headings) and Sora Variable 5.3.0 (the wordmark alone) are self-hosted through
-Fontsource (OFL-1.1), imported in `globals.css`. Manrope and Commissioner carry
-**Latin and Greek** so operator Greek and English render identically, with
-system sans as the Manrope fallback; Sora sets one fixed Latin string and is
-never used for copy ([ADR 0011](decisions/0011-display-typeface.md)). The build
-emits the font subsets as separate `woff2` assets, and the `unicode-range` on
-each face keeps a page to the subsets it actually renders. The product logo is `BrandLockup` / `BrandMark` (inline SVG, `currentColor`);
-the CSS six-dot `.brand-mark` is a decorative motif only.
+Dark mode: `dark` on `<html>` (pre-paint in `index.html`, then `useTheme.ts`).
+Motion: 200ms opacity/8px-rise page entrance (`motion/react`, route-surface key,
+`useReducedMotion`) + HeroUI transitions; `prefers-reduced-motion` collapses
+animation. Assistant threads share the `/admin/assistant` surface key —
+[assistant.md](frontend/assistant.md). Full token rules:
+[theming](frontend/theming.md).
 
-Dark mode is the `dark` class on `<html>`, shared by the tokens, HeroUI and
-Tailwind. The pre-paint script in `index.html` applies it before first paint
-(no flash); `src/lib/useTheme.ts` owns it afterwards through a module-level
-`useSyncExternalStore` so every consumer — the operator menu renders in both the
-sidebar and the top bar — stays in sync. The design tokens, the single-class
-mechanism and the HeroUI integration are documented in
-[`frontend/theming.md`](frontend/theming.md) and
-[ADR 0005](decisions/0005-theming-and-dark-mode.md).
-
-Motion is the 200ms opacity/8px-rise page entrance (`motion/react`, keyed by
-route surface, respecting `useReducedMotion`) plus component-internal HeroUI
-transitions. Assistant thread URLs share the `/admin/assistant` surface key, so
-creating or selecting a conversation preserves the mounted chat, its scroll
-measurements and its optimistic state instead of replaying the page entrance.
-On narrow screens that same route fixes the shell to `100dvh`, leaves the mobile
-header at its intrinsic height and flexes the chat into the exact remainder;
-the docked composer therefore never turns reply measurement into document
-growth.
-`globals.css` also collapses animation under
-`prefers-reduced-motion`. Motion communicates continuity or state change and
-never carries status by itself.
-
-Every new screen preserves one logical `h1`, landmarks, explicit labels,
-keyboard-visible focus, status text in addition to color, and reduced-motion
-behavior. Local preview data remains visibly identified until a real API owns
-the state.
+New screens: one `h1`, landmarks, labels, visible focus, status text plus tone,
+reduced-motion. Preview data stays visibly identified until a real API owns it.
 
 ## Delivery constraints
 
-Verified with React 19.2.8, Clerk React 6.12.6, HeroUI 3.2.2, Tailwind CSS
-4.3.3, TanStack Query 5.101.4, TanStack Table 8.21.3, React Router 7.18.1, Vite
-8.1.5, orval 8.23.0 and Zod 4.4.3 on 2026-07-25:
+Verified 2026-07-25 (React 19.2.8, Clerk 6.12.6, HeroUI 3.2.2, Tailwind 4.3.3,
+TanStack Query 5.101.4, Table 8.21.3, React Router 7.18.1, Vite 8.1.5, orval
+8.23.0, Zod 4.4.3):
 
-- the client is a static SPA with no SSR or SSG; `build` runs
-  `tsc -b --noEmit && vite build`, so a type error gates the bundle;
-- `index.html` ships the pre-paint theme script and a static, focusable
-  `#main-content` fallback with a `role="status"` message and a `<noscript>`
-  notice, so the landmark and status exist before the SPA mounts;
-- every routed view is a React-lazy boundary. The production build emits a
-  ~173.53 kB entry (~55.73 kB gzip, including TanStack Query and the generated
-  client the admin gate uses), a ~159.11 kB Overview chunk (~49.87 kB gzip), a
-  ~362.53 kB Assistant chunk (~111.46 kB gzip) and small events/participants
-  chunks (~2–6 kB each) over a shared ~154.92 kB table/header chunk. Rolldown
-  also separates Clerk (`auth`, ~92.47 kB), HeroUI (`ui`, ~65.62 kB) and the
-  Assistant Markdown stack (`markdown`, ~168.84 kB); the Markdown group is
-  fetched only with the Assistant route;
-- Mermaid's generated parser runtime is an indivisible ~662.68 kB module
-  (~143.23 kB gzip), but it is dynamically imported only when an assistant
-  message contains a fenced Mermaid diagram. Vite's advisory threshold is
-  therefore 700 kB; there is no hard application-wide chunk budget for this
-  private admin SPA;
-- CSS is ~455.65 kB (~50.13 kB gzip), with Manrope subsets and Mermaid diagram
-  assets emitted separately;
-- client source maps stay off (Vite's default; not overridden);
-- the dev server runs on port 3000 and proxies `/api` to `http://localhost:4000`
-  (the backend `API_PORT`) with `changeOrigin`. Port 3000 is the CORS-trusted
-  `WEB_ORIGIN`, so same-origin cookies work end to end. In production, the
-  host's native nginx reverse-proxies `/api` to the backend for the same
-  same-origin contract.
+- static SPA; `build` = `tsc -b --noEmit && vite build`;
+- `index.html`: pre-paint theme, focusable `#main-content` fallback, `<noscript>`;
+- every route is React-lazy. Measured production chunks: entry ~173.53 kB
+  (~55.73 kB gzip), Overview ~159.11 kB (~49.87), Assistant ~362.53 kB (~111.46),
+  events/participants ~2–6 kB, shared table/header ~154.92 kB; Rolldown splits
+  Clerk (`auth` ~92.47), HeroUI (`ui` ~65.62), Assistant Markdown
+  (`markdown` ~168.84, Assistant-only);
+- Mermaid parser ~662.68 kB (~143.23 gzip), dynamic-import only for fenced
+  Mermaid in assistant messages; Vite advisory 700 kB; no hard app-wide budget;
+- CSS ~455.65 kB (~50.13 gzip); fonts/Mermaid assets separate; source maps off;
+- dev: port 3000 proxies `/api` → `localhost:4000` (`API_PORT`, `changeOrigin`);
+  3000 is CORS-trusted `WEB_ORIGIN`. Prod: nginx reverse-proxies `/api` for the
+  same same-origin contract.
 
-Node must satisfy `>=24.11 <25` and pnpm `>=10.33 <11` (`package.json`
-`engines`). `package.json` and `pnpm-lock.yaml` are the source of truth for
-exact dependency versions.
+Engines: Node `>=24.11 <25`, pnpm `>=10.33 <11`.
 
-## Verification and extension
-
-From the repository root:
+## Verification
 
 ```bash
 pnpm --filter @join-the-six/admin lint
@@ -406,33 +256,24 @@ pnpm --filter @join-the-six/admin test
 pnpm --filter @join-the-six/admin build
 ```
 
-Root `pnpm check` runs the same four Turbo phases across the workspace, plus
-`pnpm api:check`, which regenerates the client and fails when the committed
-output drifts from the backend contract. Tests run in vitest's node environment
-and assert reality without a DOM: the `index.html`/`App.tsx` delivery invariants
-(pre-paint theme, robots, focusable landmark, root redirect), the generated API
-client wiring (path transformer, one hook per operation, the mutator seam, the
-single query client), the pure `resolveTheme` logic, and the real `tokens.css`
-resolved to WCAG AA contrast in both themes.
+`pnpm check` runs those plus `pnpm api:check`. Vitest (node, no DOM) covers
+delivery invariants, generated-client wiring, `resolveTheme`, and token WCAG AA.
 
-For each admin vertical slice, confirm the backend permission contract, consume
-the generated hooks (regenerating them with the backend change), implement
-loading/empty/error states, preserve accessibility, add accurate private metadata
-and write the narrowest test that protects the behavior.
+Per vertical slice: permission contract → generated hooks → loading/empty/error →
+a11y → private metadata → narrowest protecting test.
 
 ## Official references
 
-Library behavior was verified 2026-07-25 against:
-
-- [HeroUI v3 introduction](https://v3.heroui.com/docs/introduction)
-- [Tailwind CSS v4 theme variables](https://tailwindcss.com/docs/theme)
-- [TanStack Query v5 React adapter](https://tanstack.com/query/latest/docs/framework/react/overview)
-- [TanStack Table v8 React adapter](https://tanstack.com/table/v8/docs/framework/react/react-table)
-- [orval configuration](https://orval.dev/reference/configuration/overview)
-- [React Router v7 documentation](https://reactrouter.com/)
-- [Clerk React quickstart](https://clerk.com/docs/react/getting-started/quickstart)
-- [Vite build options](https://vite.dev/guide/build.html)
-- [Rolldown manual code splitting](https://rolldown.rs/in-depth/manual-code-splitting)
-- [Vite server proxy](https://vite.dev/config/server-options.html#server-proxy)
-- [Vite env variables and modes](https://vite.dev/guide/env-and-mode.html)
-- [Zod documentation](https://zod.dev/)
+Verified 2026-07-25:
+[HeroUI v3](https://v3.heroui.com/docs/introduction) ·
+[Tailwind v4 theme](https://tailwindcss.com/docs/theme) ·
+[TanStack Query](https://tanstack.com/query/latest/docs/framework/react/overview) ·
+[TanStack Table](https://tanstack.com/table/v8/docs/framework/react/react-table) ·
+[orval](https://orval.dev/reference/configuration/overview) ·
+[React Router v7](https://reactrouter.com/) ·
+[Clerk React](https://clerk.com/docs/react/getting-started/quickstart) ·
+[Vite](https://vite.dev/guide/build.html) ·
+[Rolldown splitting](https://rolldown.rs/in-depth/manual-code-splitting) ·
+[Vite proxy](https://vite.dev/config/server-options.html#server-proxy) ·
+[Vite env](https://vite.dev/guide/env-and-mode.html) ·
+[Zod](https://zod.dev/)

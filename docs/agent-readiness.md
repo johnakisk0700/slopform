@@ -1,34 +1,28 @@
 # Agent readiness benchmark
 
-Status: passed foundation target on 2026-07-22. **The run below predates the
-current architecture** — the generated API client (ADR 0009/0010), the assistant
-module and the whole post-event feedback loop all landed after it, so by this
-file's own rule a repeat is due.
+**Historical protocol and results from 2026-07-22.** Status then: foundation
+target passed. This file is an evidence-style record of that exercise — not a
+living how-to for today's stack.
 
-This is a repeatable extension exercise, not a model-vendor benchmark. It tests
-whether the repository makes a small vertical slice easy to place, implement,
-verify and explain without prior conversation context.
+The run predates the generated API client (ADR 0009/0010), the assistant module,
+and the post-event feedback loop. By the rule at the bottom, a repeat is due
+after those material changes. Names in the protocol (`useApi()`,
+`admin-page-stack`) reflect what agents were told / what finding 2 proposed at
+the time; they are not current contracts to hunt for.
 
-The protocol and findings are recorded as they were run on 2026-07-22 and are
-not rewritten to match today's vocabulary. Two names in them no longer exist:
-`useApi()` was replaced by the generated orval hooks, and the
-`admin-page-stack` contract that came out of finding 2 does not survive under
-that name. Read them as what the exercise surfaced, not as things to look for.
+## Protocol (as run 2026-07-22)
 
-## Protocol
+Fresh agents got an isolated detached worktree and the same task:
 
-Fresh agents received only an isolated detached worktree and the same task:
-
-- add a validated, newest-first read endpoint to the gated reference module;
-- add an admin list page through `useApi()` and `JtsDataTable`;
-- cover loading, error, empty and populated states;
+- validated, newest-first read endpoint on the gated reference module;
+- admin list page via `useApi()` and `JtsDataTable`;
+- loading, error, empty and populated states;
 - preserve Nest/Drizzle, Zod, HeroUI, metadata and documentation contracts;
-- add no dependency, migration, mutation or speculative abstraction.
+- no new dependency, migration, mutation or speculative abstraction.
 
-Candidates did not commit. An independent fresh Sol judge reviewed anonymous
-diffs with this fixed rubric: architecture 2.0, correctness 2.0, frontend 2.0,
-minimality 1.5, tests/docs 1.5 and explanation/risk awareness 1.0. Benchmark code
-was discarded after review.
+Candidates did not commit. An independent Sol judge scored anonymous diffs:
+architecture 2.0, correctness 2.0, frontend 2.0, minimality 1.5, tests/docs 1.5,
+explanation/risk 1.0. Benchmark code was discarded.
 
 ## Results
 
@@ -38,31 +32,24 @@ was discarded after review.
 | Sol, audited foundation     |       9.7 / 10 |           9.2 / 10 | Passed                                   |
 | Terra, clarified guardrails |       9.3 / 10 |           9.4 / 10 | Passed                                   |
 
-The acceptance threshold is `>= 9.0` for both implementation and foundation
-comfort. The first Terra result exposed three discoverability gaps rather than
-a structural rewrite:
+Threshold: `>= 9.0` on both scores. First Terra miss surfaced three
+discoverability gaps (not a structural rewrite):
 
 1. HTTP tests needed an explicit real-application recipe.
-2. Admin pages needed a named, documented `admin-page-stack` root contract.
-3. Admin API parsing and HeroUI import conventions needed checklist-level wording.
+2. Admin pages needed a named `admin-page-stack` root contract (name did not survive).
+3. Admin API parsing and HeroUI imports needed checklist wording.
 
-Those changes produced a passing fresh Terra run without showing it the first
-diff or its score. Luna was not available in the configured model set, so no
-Luna result is claimed.
+Those clarifications produced a passing fresh Terra run without showing the first
+diff. Luna was unavailable in the model set; no Luna result is claimed.
 
-## Remaining evidence gaps
+## Remaining evidence gaps (from that run)
 
-- Add a copyable real-application HTTP/OpenAPI contract test when the first
-  durable product route lands. Prose is clear, but executable precedent is
-  harder to misread.
-- Exercise repository ordering and migrations against disposable PostgreSQL;
-  service mocks cannot prove adapter semantics.
-- Add route-level page-state tests when admin data flows stop being disposable
-  scaffolding.
-- ~~Run canonical checks on Node `>=24.11 <25`.~~ **Closed.** The benchmark host
-  used Node 24.7.0 and emitted engine warnings; `package.json` now pins
-  `>=24.11 <25` in `engines`.
+- Copyable real-application HTTP/OpenAPI contract test when the first durable
+  product route lands.
+- Exercise ordering and migrations against disposable PostgreSQL.
+- Route-level page-state tests when admin data flows stop being disposable scaffolding.
+- ~~Node `>=24.11 <25`.~~ **Closed** — host used 24.7.0 with engine warnings;
+  `package.json` now pins `>=24.11 <25`.
 
 Repeat this benchmark after a material architecture change, not after ordinary
-feature work. Optimizing a codebase for a score every Tuesday is how a useful
-guardrail becomes ceremonial furniture.
+feature work. Scoring the tree every Tuesday turns a guardrail into ceremony.

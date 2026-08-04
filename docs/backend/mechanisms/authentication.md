@@ -1,28 +1,28 @@
 # Admin authentication and authorization
 
-Status: implemented Clerk vertical slice; the production admission contract is
-restricted to three shareholder identities. Verified 2026-08-02 with `@clerk/react` 6.12.6 and
+Status: implemented Clerk vertical slice; production admission is restricted to
+three shareholder identities. Verified 2026-08-02 with `@clerk/react` 6.12.6 and
 `@clerk/express` 2.1.44.
 
-Local development currently uses an explicit authentication bypass while the
-operator allowlist is being decided. Set both `VITE_AUTH_DEV_BYPASS=true` and
-`AUTH_DEV_BYPASS=true`; the SPA and API then use the stable synthetic principal
-`user_localdev`. Both sides reject this configuration outside development, the
-API does not mount Clerk middleware, and the browser does not initialize Clerk.
-The warning banner is intentional. Threads created this way remain owned by the
-synthetic principal and do not become visible to a later Clerk user automatically.
+Local development uses an explicit auth bypass while the operator allowlist is
+being decided. Set both `VITE_AUTH_DEV_BYPASS=true` and `AUTH_DEV_BYPASS=true`;
+SPA and API then use the synthetic principal `user_localdev`. Both sides reject
+this outside development; the API does not mount Clerk middleware and the
+browser does not initialize Clerk. The warning banner is intentional. Threads
+created this way stay owned by the synthetic principal and are not automatically
+visible to a later Clerk user.
 
 ## Purpose and boundary
 
 Clerk owns staff identity, sign-in factors and session issuance. The Nest HTTP
-process verifies each session token and separately authorizes its Clerk subject
-against `CLERK_ADMIN_USER_IDS`. The browser guard is loading/error UX; it is not
-the permission boundary.
+process verifies each session token and authorizes its Clerk subject against
+`CLERK_ADMIN_USER_IDS`. The browser guard is loading/error UX, not the
+permission boundary.
 
 The worker never receives the Clerk secret in production. Health endpoints stay
-public for operations, development OpenAPI stays reachable under its existing
-environment policy, and Bull Board retains its independent Basic authentication
-and network boundary. Product controllers are private by default.
+public; development OpenAPI stays under its environment policy; Bull Board keeps
+independent Basic auth and network boundary. Product controllers are private by
+default.
 
 ```mermaid
 sequenceDiagram
@@ -49,117 +49,91 @@ sequenceDiagram
 
 ## Contract
 
-- `VITE_CLERK_PUBLISHABLE_KEY` is baked into the SPA and is public by design.
-  A build without it succeeds for credential-free CI and renders a clear
-  configuration screen at runtime.
+- `VITE_CLERK_PUBLISHABLE_KEY` is public by design. A build without it succeeds
+  for credential-free CI and shows a configuration screen at runtime.
 - `CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY` configure the HTTP verifier.
   `CLERK_SECRET_KEY` must never enter the SPA image, web container or logs.
 - `CLERK_ADMIN_USER_IDS` is a comma-separated list of Clerk `user_*` subjects.
-  The HTTP process refuses to start without at least one approved subject unless
-  the development-only bypass is active.
-- `VITE_AUTH_DEV_BYPASS` and `AUTH_DEV_BYPASS` must be enabled together for a
-  usable local stack. Frontend and backend independently refuse the bypass in
-  production so a one-sided deployment cannot accidentally open the API.
-- `WEB_ORIGIN` also supplies Clerk `authorizedParties`, limiting which token
-  origin claims the API accepts.
-- The shared API facade obtains the current Clerk session token and overwrites
-  its `Authorization` header on every request. Request DTOs never select an
-  owner; controllers consume the verified `@CurrentUserId()` principal.
-- `@Public()` is an explicit controller/handler opt-out. Only operational
-  endpoints with a documented reason should use it.
+  The HTTP process refuses to start without at least one unless the
+  development-only bypass is active.
+- `VITE_AUTH_DEV_BYPASS` and `AUTH_DEV_BYPASS` must both be enabled for a usable
+  local stack. Each side independently refuses the bypass in production.
+- `WEB_ORIGIN` also supplies Clerk `authorizedParties`.
+- The shared API facade obtains the Clerk session token and overwrites
+  `Authorization` on every request. Request DTOs never select an owner;
+  controllers use `@CurrentUserId()`.
+- `@Public()` is an explicit opt-out for operational endpoints with a documented
+  reason.
 
 ## Invariants and failure behavior
 
-- A valid Clerk account is not automatically a Join The Six admin. Missing
-  sessions return 401; signed-in subjects outside the server allowlist return 403.
-- The bypass is an explicit local operator identity, not an authorization header
-  accepted from the browser. The API chooses `user_localdev`; callers cannot
-  supply or override it.
+- A valid Clerk account is not automatically an admin. Missing session → 401;
+  signed-in subject outside the allowlist → 403.
+- Bypass identity is chosen by the API (`user_localdev`); callers cannot supply
+  or override it via headers.
 - The SPA calls `/auth/session` before rendering the admin shell. Clerk load,
-  configuration, degraded-service, denial and retryable backend failures have
+  configuration, degraded service, denial and retryable backend failures have
   distinct states.
-- Ownership checks use the verified subject in repository predicates. A
-  resource owned by another admin returns 404 rather than confirming that it
-  exists.
-- Revocation removes the subject from `CLERK_ADMIN_USER_IDS` first, rolls the
-  API, and then revokes/bans the Clerk user or sessions. The server allowlist
-  makes API revocation effective even if a Clerk browser session still exists.
+- Ownership checks use the verified subject. A resource owned by another admin
+  returns 404.
+- Revoke by removing the subject from `CLERK_ADMIN_USER_IDS` and rolling the
+  API first, then ban/revoke the Clerk user or sessions.
 - Never log session tokens, secret keys or full Clerk user payloads. The Clerk
-  subject may be recorded as an audit actor identifier when a durable business
-  action requires it.
+  subject may appear as an audit actor when a durable business action requires it.
 
 ## Production tenant
 
-Production must use a dedicated Join The Six Clerk application. Reusing the
-`notes_ai` keys would also reuse its users, restrictions, social connections,
-domains and authentication policy; the backend allowlist would reduce the blast
-radius but would not create a separate identity tenant.
+Use a dedicated Join The Six Clerk application. Reusing another product's
+keys would reuse its users and auth policy; the backend allowlist reduces blast
+radius but is not a separate identity tenant.
 
-The approved admission model is deliberately small:
+Admission model:
 
-1. Set the dedicated production instance to **Restricted** sign-up mode.
-2. Keep verified email one-time codes available. Google sign-in uses the
-   existing `example.com` Google Cloud web OAuth client with a separate active
-   secret stored only in Google Cloud and Clerk. Its authorized redirect URI is
-   `https://clerk.example.com/v1/oauth_callback`; a Clerk provider marked "setup
-   required" must remain disabled.
-3. Invite exactly the three shareholder email addresses held in the private
-   operator record. Do not commit that personal-data list to this repository.
+1. Set the production instance to **Restricted** sign-up.
+2. Keep verified email OTP available. Google sign-in uses the existing
+   `example.com` Google Cloud web OAuth client with a separate active secret stored
+   only in Google Cloud and Clerk. Redirect URI:
+   `https://clerk.example.com/v1/oauth_callback`. A Clerk provider marked "setup
+   required" must stay disabled.
+3. Invite exactly the three shareholder emails held in the private operator
+   record. Do not commit that list.
 4. Disable self-service primary email changes.
-5. After invitation acceptance, add exactly the resulting stable `user_*`
-   subjects to `CLERK_ADMIN_USER_IDS`.
+5. After acceptance, add the stable `user_*` subjects to `CLERK_ADMIN_USER_IDS`.
 
-An invitation controls account creation; it does not grant API access. The
-server-side user-ID allowlist remains the final authorization decision. Clerk
-Organizations add no useful boundary for three equal operators and are not part
-of this deployment.
+Invitation creates the account; the server allowlist grants API access. Clerk
+Organizations are not part of this deployment (three equal operators).
 
-The Clerk Hobby plan does not provide an email allowlist. Normal onboarding is
-invitation-based: after an operator completes account creation, copy the
-resulting `user_*` subject into the private production environment and run
-`pnpm prod deploy backend`. When access must be provisioned before invitation
-acceptance, an operator may instead create a passwordless Clerk user through
-the Backend API with the exact shareholder email. Clerk verifies email
-addresses created through that endpoint, and a later Google login with the same
-verified address links to the existing identity. Add the returned `user_*`
-subject to the same backend allowlist. Do not put OAuth credentials, shareholder
-emails or production user IDs in committed files, and keep restricted mode on
-throughout either onboarding path.
+Hobby has no email allowlist. Normal path: invite → copy `user_*` into the
+private production env → `pnpm prod deploy backend`. Pre-acceptance alternative:
+create a passwordless Clerk user via Backend API with the exact shareholder
+email; a later Google login with the same verified address links to it. Keep
+restricted mode on. Do not commit OAuth credentials, shareholder emails or
+production user IDs.
 
-Revocation happens in this order: remove the subject from
-`CLERK_ADMIN_USER_IDS` and roll the API, then ban the Clerk user and revoke its
-sessions. This keeps revocation effective even while Clerk session cleanup is
-still propagating.
-
-Failure cases to test include an uninvited identity, secondary or changed email,
-pending invitation, revoked operator with an active browser session,
-expired/rotated keys, Clerk outage, a token issued for an unauthorized origin,
-and Google account-selection or redirect failures.
+Test: uninvited identity, secondary/changed email, pending invitation, revoked
+operator with an active browser session, expired/rotated keys, Clerk outage,
+token for an unauthorized origin, Google account-selection or redirect failures.
 
 ## Operations and tests
 
-- Focused backend tests cover environment parsing, public-route bypass, 401,
-  403 and approved-admin behavior. Assistant repository tests cover cross-owner
-  404 behavior.
-- Frontend tests pin the provider/configuration screen, server authorization
-  check and bearer injection; the production build verifies Vite key plumbing.
-- Rotate Clerk secrets per environment and consumer. Production injects the
-  secret file only into the API container; changing the Vite publishable key
-  requires rebuilding the web image.
+- Backend tests: environment parsing, public-route bypass, 401/403/approved-admin.
+  Assistant repository tests cover cross-owner 404.
+- Frontend tests: provider/configuration screen, server authorization check,
+  bearer injection; production build verifies Vite key plumbing.
+- Rotate Clerk secrets per environment. Production injects the secret file only
+  into the API container; changing the Vite publishable key requires rebuilding
+  the web image.
 
 ## Sources and official references
 
-- [Frontend provider, route guard and API facade](../../../apps/admin/src/main.tsx),
-  [backend guard/configuration](../../../apps/backend/src/infrastructure/auth/)
-  and [HTTP middleware composition](../../../apps/backend/src/bootstrap-http.ts)
+- [Frontend provider/guard](../../../apps/admin/src/main.tsx),
+  [backend auth](../../../apps/backend/src/infrastructure/auth/),
+  [HTTP composition](../../../apps/backend/src/bootstrap-http.ts)
 - [Clerk React quickstart](https://clerk.com/docs/react/getting-started/quickstart),
   [`getToken()`](https://clerk.com/docs/react/reference/objects/session),
-  [Express middleware](https://clerk.com/docs/reference/express/clerk-middleware)
-  and [`getAuth()`](https://clerk.com/docs/reference/express/get-auth)
-- [Clerk restrictions](https://clerk.com/docs/authentication/allowlist),
+  [Express middleware](https://clerk.com/docs/reference/express/clerk-middleware),
+  [`getAuth()`](https://clerk.com/docs/reference/express/get-auth)
+- [Restrictions](https://clerk.com/docs/authentication/allowlist),
   [`createUser()`](https://clerk.com/docs/reference/backend/user/create-user),
   [OAuth account linking](https://clerk.com/docs/guides/configure/auth-strategies/social-connections/account-linking),
-  [allowlist/blocklist sign-in behavior change](https://clerk.com/changelog/2025-08-08-allowlist-blocklist-on-sign-in),
-  [sign-in options and identifier changes](https://clerk.com/docs/guides/configure/auth-strategies/sign-up-sign-in-options),
-  [Organization domain enrollment](https://clerk.com/docs/reference/backend/organization/create-organization-domain)
-  and [key rotation](https://clerk.com/docs/guides/secure/rotate-api-keys)
+  [key rotation](https://clerk.com/docs/guides/secure/rotate-api-keys)
