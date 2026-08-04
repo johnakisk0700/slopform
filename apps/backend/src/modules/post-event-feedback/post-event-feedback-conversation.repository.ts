@@ -25,6 +25,7 @@ import {
   type FeedbackConversationMessage,
   type FeedbackConversationRespondent,
   type FeedbackConversationSummary,
+  type FeedbackConversationWork,
   assertMessageIdentity,
   buildFeedbackConversationGoals,
   deriveFeedbackConversationId,
@@ -37,6 +38,7 @@ import {
   canTransitionGoalStatus,
   lowerGoalStatuses,
   messageIdentityKeys,
+  resolveFeedbackConversationWork,
   sortTranscript,
   type AppendFeedbackConversationMessageInput,
 } from "./post-event-feedback-conversation.document.js";
@@ -51,6 +53,22 @@ import {
 
 const FEEDBACK_CONVERSATION_APPEND_ATTEMPTS = 3;
 const FEEDBACK_CONVERSATION_ATTENTION_MERGE_ATTEMPTS = 3;
+
+const feedbackTerminalOutboxProjectionSchema = z.object({
+  _id: z.uuid(),
+  lifecycle: z.object({
+    state: z.literal("closed"),
+    terminalOutboxId: z.uuid(),
+  }),
+});
+
+const feedbackStopTerminalProjectionSchema = z.object({
+  lifecycle: z.object({
+    state: z.literal("closed"),
+    reason: z.literal("stopped"),
+    terminalOutboxId: z.uuid(),
+  }),
+});
 
 export interface FeedbackConversationLaunchInput {
   readonly campaignId: string;
@@ -70,6 +88,10 @@ export interface FeedbackConversationTransitionResult {
   readonly conversation: FeedbackConversationDocument;
 }
 
+export interface FeedbackConversationWorkTransitionResult extends FeedbackConversationTransitionResult {
+  readonly work: FeedbackConversationWork;
+}
+
 export interface FeedbackConversationAppendResult {
   readonly appended: boolean;
   readonly message: FeedbackConversationMessage;
@@ -83,6 +105,23 @@ export interface FeedbackConversationExtractionAccounting {
     readonly usage: FeedbackConversationExtractionUsage | null;
     readonly serviceTier: string | null;
   };
+}
+
+export interface FeedbackConversationWorkCursor {
+  readonly nextActionAt: Date;
+  readonly conversationId: string;
+}
+
+export interface FeedbackCampaignLifecycleStats {
+  readonly campaignId: string;
+  readonly totalCount: number;
+  readonly openCount: number;
+  readonly latestClosedAt: Date | null;
+}
+
+export interface FeedbackTerminalOutboxCandidate {
+  readonly conversationId: string;
+  readonly outboxId: string;
 }
 
 export class FeedbackConversationNotFoundError extends ConversationPersistenceError {
@@ -150,6 +189,7 @@ export class FeedbackConversationRepository {
       goals: input.goals ? [...input.goals] : buildFeedbackConversationGoals(),
       messages: [],
       extraction: { cursorSeq: 0, lastRunAt: null, model: null },
+      work: { revision: 0, nextActionAt: null, executionEpoch: 0 },
       needsAttention: false,
       remindedAt: null,
       reminderCount: 0,
@@ -195,6 +235,102 @@ export class FeedbackConversationRepository {
     return document
       ? feedbackConversationDocumentSchema.parse(document)
       : undefined;
+  }
+
+  /**
+   * Resolves a bounded PostgreSQL candidate set to the exact terminal outbox
+   * ids currently authorized by MongoDB.
+   *
+   * The pair check after the projected `$in` query matters: two candidate
+   * conversations must not be able to authorize one another's row merely
+   * because both ids occur somewhere in the batch. Lifecycle is re-read again
+   * at the provider-entry guard; this read only decides FIFO claim eligibility.
+   */
+  async listCurrentTerminalOutboxIds(
+    candidates: readonly FeedbackTerminalOutboxCandidate[],
+  ): Promise<string[]> {
+    if (candidates.length === 0) return [];
+
+    const parsed = candidates.map((candidate) => ({
+      conversationId: z.uuid().parse(candidate.conversationId),
+      outboxId: z.uuid().parse(candidate.outboxId),
+    }));
+    const outboxIdsByConversation = new Map<string, Set<string>>();
+    for (const candidate of parsed) {
+      const existing = outboxIdsByConversation.get(candidate.conversationId);
+      if (existing) {
+        existing.add(candidate.outboxId);
+      } else {
+        outboxIdsByConversation.set(
+          candidate.conversationId,
+          new Set([candidate.outboxId]),
+        );
+      }
+    }
+
+    const collection = await this.collection();
+    const documents = await collection
+      .find(
+        {
+          schemaVersion: FEEDBACK_CONVERSATION_SCHEMA_VERSION,
+          purpose: FEEDBACK_CONVERSATION_PURPOSE,
+          _id: { $in: [...outboxIdsByConversation.keys()] },
+          "lifecycle.state": "closed",
+          "lifecycle.terminalOutboxId": {
+            $in: [...new Set(parsed.map((candidate) => candidate.outboxId))],
+          },
+        } as Filter<FeedbackConversationDocument>,
+        {
+          projection: {
+            _id: 1,
+            "lifecycle.state": 1,
+            "lifecycle.terminalOutboxId": 1,
+          },
+        },
+      )
+      .toArray();
+
+    return documents.flatMap((document) => {
+      const projected = feedbackTerminalOutboxProjectionSchema.parse(document);
+      return outboxIdsByConversation
+        .get(projected._id)
+        ?.has(projected.lifecycle.terminalOutboxId)
+        ? [projected.lifecycle.terminalOutboxId]
+        : [];
+    });
+  }
+
+  /** Exact STOP acknowledgements a campaign close must leave retractable. */
+  async listStopTerminalOutboxIdsForCampaign(
+    campaignId: string,
+  ): Promise<string[]> {
+    const id = z.uuid().parse(campaignId);
+    const collection = await this.collection();
+    const documents = await collection
+      .find(
+        {
+          schemaVersion: FEEDBACK_CONVERSATION_SCHEMA_VERSION,
+          purpose: FEEDBACK_CONVERSATION_PURPOSE,
+          campaignId: id,
+          "lifecycle.state": "closed",
+          "lifecycle.reason": "stopped",
+          "lifecycle.terminalOutboxId": { $type: "string" },
+        } as Filter<FeedbackConversationDocument>,
+        {
+          projection: {
+            _id: 0,
+            "lifecycle.state": 1,
+            "lifecycle.reason": 1,
+            "lifecycle.terminalOutboxId": 1,
+          },
+        },
+      )
+      .toArray();
+    return documents.map(
+      (document) =>
+        feedbackStopTerminalProjectionSchema.parse(document).lifecycle
+          .terminalOutboxId,
+    );
   }
 
   /**
@@ -403,62 +539,485 @@ export class FeedbackConversationRepository {
     });
   }
 
+  /** One MongoDB round-trip for a bounded PostgreSQL summary-repair page. */
+  async listLifecycleStatsForCampaigns(
+    campaignIds: readonly string[],
+  ): Promise<FeedbackCampaignLifecycleStats[]> {
+    const ids = z
+      .array(z.uuid())
+      .max(500)
+      .parse([...new Set(campaignIds)]);
+    if (ids.length === 0) return [];
+
+    const collection = await this.collection();
+    const rows = await collection
+      .aggregate<{
+        _id: string;
+        totalCount: number;
+        openCount: number;
+        latestClosedAt: Date | null;
+      }>([
+        {
+          $match: {
+            schemaVersion: FEEDBACK_CONVERSATION_SCHEMA_VERSION,
+            purpose: FEEDBACK_CONVERSATION_PURPOSE,
+            campaignId: { $in: ids },
+          },
+        },
+        {
+          $group: {
+            _id: "$campaignId",
+            totalCount: { $sum: 1 },
+            openCount: {
+              $sum: {
+                $cond: [{ $eq: ["$lifecycle.state", "open"] }, 1, 0],
+              },
+            },
+            latestClosedAt: { $max: "$lifecycle.closedAt" },
+          },
+        },
+      ])
+      .toArray();
+
+    return rows.map((row) => ({
+      campaignId: z.uuid().parse(row._id),
+      totalCount: z.number().int().nonnegative().parse(row.totalCount),
+      openCount: z.number().int().nonnegative().parse(row.openCount),
+      latestClosedAt: z
+        .date()
+        .nullable()
+        .parse(row.latestClosedAt ?? null),
+    }));
+  }
+
   /**
-   * Open bot conversations with participant testimony beyond the durable
-   * extraction cursor. This is the MongoDB side of extraction-job recovery:
-   * Redis may say whether work exists, but only this document can say whether
-   * work is still owed.
+   * Records new durable work for this aggregate.
+   *
+   * The revision increment and replacement schedule are one MongoDB statement.
+   * A later participant message can therefore move a rolling quiet window while
+   * an older execution is still running; that execution may finish its snapshot,
+   * but `settleWorkExecution` cannot erase this newer intent.
    */
-  async listOpenBotConversationsWithUnreadParticipantMessages(input: {
-    readonly limit: number;
-    /** Excludes deliberately exhausted provider-incident ladders. */
-    readonly parkedAfter: Date;
-  }): Promise<FeedbackConversationDocument[]> {
-    const boundedLimit = z
+  async markWorkDue(input: {
+    readonly conversationId: string;
+    readonly nextActionAt: Date;
+    readonly at: Date;
+  }): Promise<FeedbackConversationWorkTransitionResult> {
+    const nextActionAt = z.date().parse(input.nextActionAt);
+    const at = z.date().parse(input.at);
+    const collection = await this.collection();
+    const updated = await collection.findOneAndUpdate(
+      feedbackConversationFilter(input.conversationId),
+      [
+        {
+          $set: {
+            "work.revision": {
+              $add: [{ $ifNull: ["$work.revision", 0] }, 1],
+            },
+            "work.nextActionAt": nextActionAt,
+            "work.executionEpoch": {
+              $ifNull: ["$work.executionEpoch", 0],
+            },
+            updatedAt: { $max: ["$updatedAt", at] },
+          },
+        },
+      ],
+      { returnDocument: "after" },
+    );
+    if (!updated) {
+      throw new FeedbackConversationNotFoundError(input.conversationId);
+    }
+    return workTransition(true, updated);
+  }
+
+  /**
+   * Makes every open conversation in a campaign durably discoverable.
+   *
+   * Campaign resume crosses PostgreSQL and MongoDB, so it cannot rely on the
+   * bounded admin-list projection to enumerate work. This bulk write is the
+   * repairable hand-off: each aggregate admits one PostgreSQL generation at
+   * most once, and maintenance can republish any wake-up the caller did not
+   * reach.
+   */
+  async markCampaignWorkDue(input: {
+    readonly campaignId: string;
+    readonly generation: number;
+    readonly nextActionAt: Date;
+    readonly at: Date;
+  }): Promise<number> {
+    const generation = z.number().int().positive().parse(input.generation);
+    const nextActionAt = z.date().parse(input.nextActionAt);
+    const at = z.date().parse(input.at);
+    const collection = await this.collection();
+    const result = await collection.updateMany(
+      {
+        schemaVersion: FEEDBACK_CONVERSATION_SCHEMA_VERSION,
+        purpose: FEEDBACK_CONVERSATION_PURPOSE,
+        campaignId: input.campaignId,
+        "lifecycle.state": "open",
+        $or: [
+          { "work.campaignResumeGeneration": { $exists: false } },
+          { "work.campaignResumeGeneration": { $lt: generation } },
+        ],
+      },
+      [
+        {
+          $set: {
+            "work.revision": {
+              $add: [{ $ifNull: ["$work.revision", 0] }, 1],
+            },
+            // A participant message may have moved a rolling quiet window
+            // after the PostgreSQL resume committed. Resume makes older work
+            // due now; it must never pull newer participant work earlier.
+            "work.nextActionAt": {
+              $max: [
+                { $ifNull: ["$work.nextActionAt", nextActionAt] },
+                nextActionAt,
+              ],
+            },
+            "work.executionEpoch": {
+              $ifNull: ["$work.executionEpoch", 0],
+            },
+            "work.campaignResumeGeneration": generation,
+            updatedAt: { $max: ["$updatedAt", at] },
+          },
+        },
+      ],
+    );
+    return result.modifiedCount;
+  }
+
+  /**
+   * Bounded rollout bridge for documents written before durable work existed.
+   *
+   * Selection and mutation are deliberately separate: the second filter still
+   * requires `work` to be absent, so a concurrent message or resume wins and
+   * cannot have its newer schedule overwritten. Concurrent maintenance passes
+   * may select the same ids, but only one can seed each document.
+   */
+  async seedMissingWork(input: {
+    readonly dueAt: Date;
+    readonly limit?: number;
+  }): Promise<number> {
+    const dueAt = z.date().parse(input.dueAt);
+    const limit = z
       .number()
       .int()
       .positive()
       .max(500)
-      .parse(input.limit);
-    const parkedAfter = z.date().parse(input.parkedAfter);
+      .parse(input.limit ?? 100);
+    const collection = await this.collection();
+    const missingWorkFilter = {
+      schemaVersion: FEEDBACK_CONVERSATION_SCHEMA_VERSION,
+      purpose: FEEDBACK_CONVERSATION_PURPOSE,
+      "lifecycle.state": "open",
+      "control.mode": "bot",
+      awaitingHuman: { $ne: true },
+      work: { $exists: false },
+    } as const;
+    const candidates = await collection
+      .find(missingWorkFilter, { projection: { _id: 1 } })
+      .sort({ _id: 1 })
+      .limit(limit)
+      .toArray();
+    if (candidates.length === 0) {
+      return 0;
+    }
+
+    const result = await collection.updateMany(
+      {
+        ...missingWorkFilter,
+        _id: { $in: candidates.map((candidate) => candidate._id) },
+      },
+      {
+        $set: {
+          work: {
+            revision: 1,
+            nextActionAt: dueAt,
+            executionEpoch: 0,
+          },
+        },
+      },
+    );
+    return result.modifiedCount;
+  }
+
+  /**
+   * Temporary V1 bridge for the old cursor-first handoff crash.
+   *
+   * A legacy extractor could consume the complete participant snapshot and
+   * then die before setting the bot brake. Durable unresolved operator evidence
+   * is enough to reconstruct that missing state, but only while no participant
+   * message remains unread. `staff_action` is excluded because an explicit
+   * resume is newer human intent and must beat this compatibility repair.
+   */
+  async repairLegacyAwaitingHuman(input: {
+    readonly at: Date;
+    readonly limit?: number;
+  }): Promise<number> {
+    const at = z.date().parse(input.at);
+    const limit = z
+      .number()
+      .int()
+      .positive()
+      .max(500)
+      .parse(input.limit ?? 100);
+    const collection = await this.collection();
+    const repairable: Filter<FeedbackConversationDocument> = {
+      schemaVersion: FEEDBACK_CONVERSATION_SCHEMA_VERSION,
+      purpose: FEEDBACK_CONVERSATION_PURPOSE,
+      "lifecycle.state": "open",
+      "control.mode": "bot",
+      "control.source": { $ne: "staff_action" },
+      awaitingHuman: { $ne: true },
+      $and: [
+        {
+          $or: [
+            {
+              attentionReasons: {
+                $elemMatch: {
+                  kind: {
+                    $in: [
+                      "handoff",
+                      "unfinished_questionnaire",
+                      "hostile_to_bot",
+                      "undelivered_message",
+                    ],
+                  },
+                  resolvedAt: null,
+                },
+              },
+            },
+            {
+              messages: {
+                $elemMatch: {
+                  "attention.recommendedAction": "urgent_human_follow_up",
+                },
+              },
+            },
+          ],
+        },
+        {
+          $expr: {
+            $eq: [
+              {
+                $size: {
+                  $filter: {
+                    input: "$messages",
+                    as: "message",
+                    cond: {
+                      $and: [
+                        { $eq: ["$$message.actor", "participant"] },
+                        {
+                          $gt: ["$$message.seq", "$extraction.cursorSeq"],
+                        },
+                      ],
+                    },
+                  },
+                },
+              },
+              0,
+            ],
+          },
+        },
+      ],
+    };
+    const candidates = await collection
+      .find(repairable, {
+        projection: { _id: 1 },
+      })
+      .sort({ _id: 1 })
+      .limit(limit)
+      .toArray();
+    if (candidates.length === 0) {
+      return 0;
+    }
+
+    const result = await collection.updateMany(
+      {
+        ...repairable,
+        _id: { $in: candidates.map((candidate) => candidate._id) },
+      },
+      {
+        $set: { awaitingHuman: true },
+        $max: { updatedAt: at },
+      },
+    );
+    return result.modifiedCount;
+  }
+
+  /**
+   * Mirrors a PostgreSQL-granted execution epoch onto the aggregate.
+   *
+   * PostgreSQL remains the only lease authority. This compare-and-set only
+   * admits the epoch when the exact MongoDB revision is still current, the
+   * epoch is strictly newer, and its durable schedule is actually due. A
+   * message landing between the PostgreSQL claim and this write increments the
+   * revision and makes this begin fail before any model call is justified.
+   *
+   * `nextActionAt` deliberately stays in place until settlement. If the worker
+   * dies, the durable intent remains discoverable while PostgreSQL eventually
+   * releases or reclaims its lease.
+   */
+  async beginWorkExecution(input: {
+    readonly conversationId: string;
+    readonly revision: number;
+    readonly epoch: number;
+    readonly at: Date;
+  }): Promise<FeedbackConversationWorkTransitionResult> {
+    const revision = z.number().int().min(0).parse(input.revision);
+    const epoch = z.number().int().positive().parse(input.epoch);
+    const at = z.date().parse(input.at);
+    const collection = await this.collection();
+    const updated = await collection.findOneAndUpdate(
+      {
+        ...feedbackConversationFilter(input.conversationId),
+        "work.nextActionAt": { $lte: at },
+        $expr: {
+          $and: [
+            {
+              $eq: [{ $ifNull: ["$work.revision", 0] }, revision],
+            },
+            {
+              $lt: [{ $ifNull: ["$work.executionEpoch", 0] }, epoch],
+            },
+          ],
+        },
+      } as Filter<FeedbackConversationDocument>,
+      [
+        {
+          $set: {
+            "work.revision": revision,
+            "work.executionEpoch": epoch,
+          },
+        },
+      ],
+      { returnDocument: "after" },
+    );
+    if (updated) {
+      return workTransition(true, updated);
+    }
+
+    const current = await this.requireConversation(input.conversationId);
+    return workTransition(false, current);
+  }
+
+  /**
+   * Settles one fenced execution and schedules whatever its planner saw next.
+   *
+   * The epoch guard rejects a stale worker after a newer PostgreSQL execution
+   * has been mirrored. The conditional assignment is the revision fence: when
+   * a message or state transition marked revision N+1 due while revision N was
+   * running, settlement preserves N+1's `nextActionAt` byte-for-byte. Only the
+   * execution that still owns the current revision may replace or clear it. A
+   * non-null successor schedule also advances the revision in this statement,
+   * so its BullMQ wake-up has a different id from the job now completing.
+   */
+  async settleWorkExecution(input: {
+    readonly conversationId: string;
+    readonly revision: number;
+    readonly epoch: number;
+    readonly nextActionAt: Date | null;
+    readonly at: Date;
+  }): Promise<FeedbackConversationWorkTransitionResult> {
+    const revision = z.number().int().min(0).parse(input.revision);
+    const epoch = z.number().int().positive().parse(input.epoch);
+    const nextActionAt = z.date().nullable().parse(input.nextActionAt);
+    z.date().parse(input.at);
+    const collection = await this.collection();
+    const updated = await collection.findOneAndUpdate(
+      {
+        ...feedbackConversationFilter(input.conversationId),
+        "work.executionEpoch": epoch,
+        "work.revision": { $gte: revision },
+      } as Filter<FeedbackConversationDocument>,
+      [
+        {
+          $set: {
+            "work.revision": {
+              $cond: [
+                {
+                  $and: [
+                    { $eq: ["$work.revision", revision] },
+                    { $ne: [nextActionAt, null] },
+                  ],
+                },
+                { $add: ["$work.revision", 1] },
+                "$work.revision",
+              ],
+            },
+            "work.nextActionAt": {
+              $cond: [
+                { $eq: ["$work.revision", revision] },
+                nextActionAt,
+                "$work.nextActionAt",
+              ],
+            },
+          },
+        },
+      ],
+      { returnDocument: "after" },
+    );
+    if (updated) {
+      return workTransition(true, updated);
+    }
+
+    const current = await this.requireConversation(input.conversationId);
+    return workTransition(false, current);
+  }
+
+  /**
+   * Oldest durable reconciliation intents first.
+   *
+   * Closed conversations are intentionally included. A close racing an already
+   * scheduled revision must get one cheap planner pass that settles the intent
+   * to null; filtering it here would leave a permanent due row in the index.
+   */
+  async listDueWork(input: {
+    readonly dueAt: Date;
+    readonly limit?: number;
+    readonly campaignId?: string;
+    readonly after?: FeedbackConversationWorkCursor;
+  }): Promise<FeedbackConversationDocument[]> {
+    const dueAt = z.date().parse(input.dueAt);
+    const limit = z
+      .number()
+      .int()
+      .positive()
+      .max(500)
+      .parse(input.limit ?? 50);
+    const after = input.after
+      ? {
+          nextActionAt: z.date().parse(input.after.nextActionAt),
+          conversationId: z.uuid().parse(input.after.conversationId),
+        }
+      : undefined;
     const collection = await this.collection();
     const documents = await collection
       .find({
         schemaVersion: FEEDBACK_CONVERSATION_SCHEMA_VERSION,
         purpose: FEEDBACK_CONVERSATION_PURPOSE,
-        "lifecycle.state": "open",
-        "control.mode": "bot",
-        awaitingHuman: false,
-        $or: [
-          { "extraction.parkedSince": null },
-          { "extraction.parkedSince": { $gt: parkedAfter } },
-        ],
-        $expr: {
-          $gt: [
-            {
-              $size: {
-                $filter: {
-                  input: "$messages",
-                  as: "message",
-                  cond: {
-                    $and: [
-                      { $eq: ["$$message.actor", "participant"] },
-                      {
-                        $gt: ["$$message.seq", "$extraction.cursorSeq"],
-                      },
-                    ],
+        ...(input.campaignId ? { campaignId: input.campaignId } : {}),
+        ...(after
+          ? {
+              $or: [
+                {
+                  "work.nextActionAt": {
+                    $gt: after.nextActionAt,
+                    $lte: dueAt,
                   },
                 },
-              },
-            },
-            0,
-          ],
-        },
+                {
+                  "work.nextActionAt": after.nextActionAt,
+                  _id: { $gt: after.conversationId },
+                },
+              ],
+            }
+          : { "work.nextActionAt": { $lte: dueAt } }),
       } as Filter<FeedbackConversationDocument>)
-      .sort({ updatedAt: 1, _id: 1 })
-      .limit(boundedLimit)
+      .sort({ "work.nextActionAt": 1, _id: 1 })
+      .limit(limit)
       .toArray();
-
     return documents.map((document) =>
       feedbackConversationDocumentSchema.parse(document),
     );
@@ -668,7 +1227,7 @@ export class FeedbackConversationRepository {
     const changedAt = z.date().parse(input.at);
     const updated = await this.transition(
       input.conversationId,
-      { "control.mode": "bot" },
+      { "control.mode": "bot", "lifecycle.state": "open" },
       {
         control: { mode: "human", source: input.source, changedAt },
         // A person has arrived, so the wait is over either way.
@@ -688,22 +1247,51 @@ export class FeedbackConversationRepository {
    * The bot steps back and waits for a person, without giving up control.
    *
    * Idempotent and one-way here: only a human engaging clears it, through
-   * `takeOver` or `resumeBot`. A replayed extraction run therefore re-asserts
-   * the same quiet state instead of speaking again.
+   * `takeOver` or `resumeBot`. The same atomic write clears the durable wake-up
+   * without advancing its revision, so a terminal failed job remains retained
+   * instead of maintenance deleting and re-adding it. A replay also repairs an
+   * older awaiting-human row whose due time survived a cross-store crash.
    */
   async markAwaitingHuman(input: {
     readonly conversationId: string;
     readonly at: Date;
   }): Promise<FeedbackConversationTransitionResult> {
     const at = z.date().parse(input.at);
-    const updated = await this.transition(
-      input.conversationId,
-      { "lifecycle.state": "open" },
-      { awaitingHuman: true },
-      at,
+    const collection = await this.collection();
+    const updated = await collection.findOneAndUpdate(
+      {
+        ...feedbackConversationFilter(input.conversationId),
+        "lifecycle.state": "open",
+        "control.mode": "bot",
+        $or: [
+          { awaitingHuman: { $ne: true } },
+          { "work.nextActionAt": { $type: "date" } },
+        ],
+      },
+      [
+        {
+          $set: {
+            awaitingHuman: true,
+            // `work` is optional during the rollout bridge. Preserve absence
+            // rather than manufacturing an invalid partial work object.
+            work: {
+              $cond: [
+                { $eq: [{ $type: "$work" }, "missing"] },
+                "$$REMOVE",
+                { $mergeObjects: ["$work", { nextActionAt: null }] },
+              ],
+            },
+            updatedAt: { $max: ["$updatedAt", at] },
+          },
+        },
+      ],
+      { returnDocument: "after" },
     );
     if (updated) {
-      return { changed: true, conversation: updated };
+      return {
+        changed: true,
+        conversation: feedbackConversationDocumentSchema.parse(updated),
+      };
     }
 
     const current = await this.requireConversation(input.conversationId);
@@ -867,24 +1455,80 @@ export class FeedbackConversationRepository {
     return { changed: false, conversation: current };
   }
 
-  /** Returns bot control. A closed conversation is never resumed. */
+  /**
+   * Returns bot control and advances its durable generation atomically.
+   *
+   * The generation advance is required even when there is no unread testimony:
+   * a model execution that started before takeover must not become current
+   * again merely because control completed the human -> bot ABA. When unread
+   * participant turns exist, the same statement also makes reconciliation due,
+   * so a crash before Redis publication remains recoverable from MongoDB.
+   */
   async resumeBot(input: {
     readonly conversationId: string;
     readonly at: Date;
   }): Promise<FeedbackConversationTransitionResult> {
     const changedAt = z.date().parse(input.at);
-    const updated = await this.transition(
-      input.conversationId,
-      { "control.mode": "human", "lifecycle.state": "open" },
+    const latestParticipantSeq = {
+      $ifNull: [
+        {
+          $max: {
+            $map: {
+              input: {
+                $filter: {
+                  input: { $ifNull: ["$messages", []] },
+                  as: "message",
+                  cond: { $eq: ["$$message.actor", "participant"] },
+                },
+              },
+              as: "message",
+              in: "$$message.seq",
+            },
+          },
+        },
+        0,
+      ],
+    };
+    const hasUnreadTestimony = {
+      $gt: [latestParticipantSeq, { $ifNull: ["$extraction.cursorSeq", 0] }],
+    };
+    const collection = await this.collection();
+    const updated = await collection.findOneAndUpdate(
       {
-        control: { mode: "bot", source: "staff_action", changedAt },
-        // Handing back is a deliberate "the bot may speak again".
-        awaitingHuman: false,
+        ...feedbackConversationFilter(input.conversationId),
+        "control.mode": "human",
+        "lifecycle.state": "open",
       },
-      changedAt,
+      [
+        {
+          $set: {
+            control: { mode: "bot", source: "staff_action", changedAt },
+            // Handing back is a deliberate "the bot may speak again".
+            awaitingHuman: false,
+            "work.revision": {
+              $add: [{ $ifNull: ["$work.revision", 0] }, 1],
+            },
+            "work.nextActionAt": {
+              $cond: [
+                hasUnreadTestimony,
+                changedAt,
+                { $ifNull: ["$work.nextActionAt", null] },
+              ],
+            },
+            "work.executionEpoch": {
+              $ifNull: ["$work.executionEpoch", 0],
+            },
+            updatedAt: { $max: ["$updatedAt", changedAt] },
+          },
+        },
+      ],
+      { returnDocument: "after" },
     );
     if (updated) {
-      return { changed: true, conversation: updated };
+      return {
+        changed: true,
+        conversation: feedbackConversationDocumentSchema.parse(updated),
+      };
     }
 
     const current = await this.requireConversation(input.conversationId);
@@ -923,6 +1567,8 @@ export class FeedbackConversationRepository {
     readonly conversationId: string;
     readonly reason: FeedbackConversationLifecycleReason;
     readonly at: Date;
+    /** Exact STOP acknowledgement authorized by this lifecycle transition. */
+    readonly terminalOutboxId?: string | null;
     /**
      * Staff-only close intent. Absent on every bot close; when present the
      * lifecycle reason is still `cancelled` and this is what the admin reads
@@ -932,6 +1578,15 @@ export class FeedbackConversationRepository {
     readonly staffClose?: FeedbackConversationDocument["staffClose"];
   }): Promise<FeedbackConversationTransitionResult> {
     const closedAt = z.date().parse(input.at);
+    const terminalOutboxId = z
+      .uuid()
+      .nullable()
+      .parse(input.terminalOutboxId ?? null);
+    if (terminalOutboxId && input.reason !== "stopped") {
+      throw new FeedbackConversationTransitionError(
+        "Only a STOP close may authorize an outbox row through close()",
+      );
+    }
     const guard: Filter<FeedbackConversationDocument> =
       input.reason === "stopped"
         ? ({
@@ -944,7 +1599,12 @@ export class FeedbackConversationRepository {
       input.conversationId,
       guard,
       {
-        lifecycle: { state: "closed", reason: input.reason, closedAt },
+        lifecycle: {
+          state: "closed",
+          reason: input.reason,
+          closedAt,
+          terminalOutboxId,
+        },
         // Always written: a STOP that overrides a staff-cancelled thread must
         // drop the operator reason, not leave "abusive" on a consent withdrawal.
         staffClose: input.staffClose ?? null,
@@ -1015,14 +1675,29 @@ export class FeedbackConversationRepository {
     readonly model?: string | null;
     readonly serviceTier?: string | null;
     readonly usage?: FeedbackConversationExtractionUsage;
+    readonly workRevision?: number;
+    readonly executionEpoch?: number;
   }): Promise<FeedbackConversationTransitionResult> {
     const toSeq = z.number().int().positive().parse(input.toSeq);
     const lastRunAt = z.date().parse(input.at);
+    const expectedWork =
+      input.workRevision !== undefined || input.executionEpoch !== undefined
+        ? {
+            revision: z.number().int().nonnegative().parse(input.workRevision),
+            epoch: z.number().int().positive().parse(input.executionEpoch),
+          }
+        : undefined;
     const collection = await this.collection();
     const updated = await collection.findOneAndUpdate(
       {
         ...feedbackConversationFilter(input.conversationId),
         "extraction.cursorSeq": { $lt: toSeq },
+        ...(expectedWork
+          ? {
+              "work.revision": expectedWork.revision,
+              "work.executionEpoch": expectedWork.epoch,
+            }
+          : {}),
         $expr: { $lte: [toSeq, { $size: "$messages" }] },
       } as Filter<FeedbackConversationDocument>,
       [
@@ -1049,6 +1724,302 @@ export class FeedbackConversationRepository {
             "extraction.parkedSince": null,
             "extraction.parkedRuns": 0,
             updatedAt: { $max: ["$updatedAt", lastRunAt] },
+          },
+        },
+      ],
+      { returnDocument: "after" },
+    );
+    if (updated) {
+      return {
+        changed: true,
+        conversation: feedbackConversationDocumentSchema.parse(updated),
+      };
+    }
+
+    const current = await this.requireConversation(input.conversationId);
+    if (toSeq > current.messages.length) {
+      throw new FeedbackConversationTransitionError(
+        "The extraction cursor cannot pass the transcript",
+      );
+    }
+    return { changed: false, conversation: current };
+  }
+
+  /**
+   * Commits a consumed extraction snapshot and the bot's handoff state in one
+   * MongoDB write.
+   *
+   * Keeping these fields atomic removes both crash orders of the former pair
+   * of calls: a cursor can no longer advance while the bot remains active, and
+   * `awaitingHuman` can no longer strand testimony behind an old cursor. The
+   * conditional accounting also repairs the old reverse-order seam where an
+   * older binary set `awaitingHuman` before its cursor write and then crashed.
+   */
+  async advanceCursorAndMarkAwaitingHuman(input: {
+    readonly conversationId: string;
+    readonly toSeq: number;
+    readonly at: Date;
+    readonly model: string;
+    readonly serviceTier: string | null;
+    readonly usage: FeedbackConversationExtractionUsage;
+    readonly workRevision?: number;
+    readonly executionEpoch?: number;
+  }): Promise<FeedbackConversationTransitionResult> {
+    const toSeq = z.number().int().positive().parse(input.toSeq);
+    const at = z.date().parse(input.at);
+    const expectedWork =
+      input.workRevision !== undefined || input.executionEpoch !== undefined
+        ? {
+            revision: z.number().int().nonnegative().parse(input.workRevision),
+            epoch: z.number().int().positive().parse(input.executionEpoch),
+          }
+        : undefined;
+    const collection = await this.collection();
+    const advancesCursor = { $lt: ["$extraction.cursorSeq", toSeq] };
+    const hasNewerParticipant = {
+      $gt: [
+        {
+          $size: {
+            $filter: {
+              input: "$messages",
+              as: "message",
+              cond: {
+                $and: [
+                  { $eq: ["$$message.actor", "participant"] },
+                  { $gt: ["$$message.seq", toSeq] },
+                ],
+              },
+            },
+          },
+        },
+        0,
+      ],
+    };
+    const workAdmission = expectedWork
+      ? {
+          $or: [
+            {
+              $and: [
+                {
+                  $eq: [
+                    { $ifNull: ["$work.revision", 0] },
+                    expectedWork.revision,
+                  ],
+                },
+                {
+                  $eq: [
+                    { $ifNull: ["$work.executionEpoch", 0] },
+                    expectedWork.epoch,
+                  ],
+                },
+              ],
+            },
+            // A participant fragment may advance the durable revision after
+            // this paid snapshot persisted its results. It must not defeat the
+            // bot brake: the newer testimony remains beyond `toSeq`, while the
+            // same execution epoch proves no successor provider run took over.
+            {
+              $and: [
+                {
+                  $gt: [
+                    { $ifNull: ["$work.revision", 0] },
+                    expectedWork.revision,
+                  ],
+                },
+                {
+                  $eq: [
+                    { $ifNull: ["$work.executionEpoch", 0] },
+                    expectedWork.epoch,
+                  ],
+                },
+                hasNewerParticipant,
+              ],
+            },
+          ],
+        }
+      : undefined;
+    const updated = await collection.findOneAndUpdate(
+      {
+        ...feedbackConversationFilter(input.conversationId),
+        "lifecycle.state": "open",
+        "control.mode": "bot",
+        $expr: {
+          $and: [
+            {
+              [expectedWork ? "$lte" : "$lt"]: ["$extraction.cursorSeq", toSeq],
+            },
+            { $lte: [toSeq, { $size: "$messages" }] },
+            ...(workAdmission ? [workAdmission] : []),
+          ],
+        },
+      } as Filter<FeedbackConversationDocument>,
+      [
+        {
+          $set: {
+            "extraction.cursorSeq": {
+              $max: ["$extraction.cursorSeq", toSeq],
+            },
+            "extraction.lastRunAt": {
+              $cond: [advancesCursor, at, "$extraction.lastRunAt"],
+            },
+            "extraction.model": {
+              $cond: [advancesCursor, input.model, "$extraction.model"],
+            },
+            "extraction.serviceTier": {
+              $cond: [
+                advancesCursor,
+                input.serviceTier,
+                "$extraction.serviceTier",
+              ],
+            },
+            "extraction.usage": {
+              $cond: [
+                advancesCursor,
+                accumulatedUsage(input.usage),
+                "$extraction.usage",
+              ],
+            },
+            "extraction.parkedSince": {
+              $cond: [advancesCursor, null, "$extraction.parkedSince"],
+            },
+            "extraction.parkedRuns": {
+              $cond: [advancesCursor, 0, "$extraction.parkedRuns"],
+            },
+            awaitingHuman: true,
+            updatedAt: { $max: ["$updatedAt", at] },
+          },
+        },
+      ],
+      { returnDocument: "after" },
+    );
+    if (updated) {
+      return {
+        changed: true,
+        conversation: feedbackConversationDocumentSchema.parse(updated),
+      };
+    }
+
+    const current = await this.requireConversation(input.conversationId);
+    if (toSeq > current.messages.length) {
+      throw new FeedbackConversationTransitionError(
+        "The extraction cursor cannot pass the transcript",
+      );
+    }
+    return { changed: false, conversation: current };
+  }
+
+  /**
+   * Commits a terminal extraction cursor and lifecycle in one MongoDB write.
+   *
+   * The close is admitted only while no participant message exists beyond the
+   * snapshot. That final predicate covers the cross-store gap after the
+   * PostgreSQL ingress fence: a fragment appended before this statement keeps
+   * the conversation open for the successor revision. Cursor/accounting and
+   * lifecycle move atomically, so a crash cannot leave a fully consumed
+   * questionnaire open with no unread work from which to recover the close.
+   * Replaying an already-accounted snapshot closes without adding usage twice.
+   */
+  async advanceCursorAndClose(input: {
+    readonly conversationId: string;
+    readonly toSeq: number;
+    readonly reason: "completed" | "declined";
+    readonly terminalOutboxId: string | null;
+    readonly at: Date;
+    readonly model: string;
+    readonly serviceTier: string | null;
+    readonly usage: FeedbackConversationExtractionUsage;
+    readonly workRevision?: number;
+    readonly executionEpoch?: number;
+  }): Promise<FeedbackConversationTransitionResult> {
+    const toSeq = z.number().int().positive().parse(input.toSeq);
+    const at = z.date().parse(input.at);
+    const reason = z.enum(["completed", "declined"]).parse(input.reason);
+    const terminalOutboxId = z.uuid().nullable().parse(input.terminalOutboxId);
+    const expectedWork =
+      input.workRevision !== undefined || input.executionEpoch !== undefined
+        ? {
+            revision: z.number().int().nonnegative().parse(input.workRevision),
+            epoch: z.number().int().positive().parse(input.executionEpoch),
+          }
+        : undefined;
+    const collection = await this.collection();
+    const advancesCursor = { $lt: ["$extraction.cursorSeq", toSeq] };
+    const updated = await collection.findOneAndUpdate(
+      {
+        ...feedbackConversationFilter(input.conversationId),
+        "lifecycle.state": "open",
+        "control.mode": "bot",
+        awaitingHuman: { $ne: true },
+        ...(expectedWork
+          ? {
+              "work.revision": expectedWork.revision,
+              "work.executionEpoch": expectedWork.epoch,
+            }
+          : {}),
+        $expr: {
+          $and: [
+            { $lte: [toSeq, { $size: "$messages" }] },
+            {
+              $eq: [
+                {
+                  $size: {
+                    $filter: {
+                      input: "$messages",
+                      as: "message",
+                      cond: {
+                        $and: [
+                          { $eq: ["$$message.actor", "participant"] },
+                          { $gt: ["$$message.seq", toSeq] },
+                        ],
+                      },
+                    },
+                  },
+                },
+                0,
+              ],
+            },
+          ],
+        },
+      } as Filter<FeedbackConversationDocument>,
+      [
+        {
+          $set: {
+            "extraction.cursorSeq": {
+              $max: ["$extraction.cursorSeq", toSeq],
+            },
+            "extraction.lastRunAt": {
+              $cond: [advancesCursor, at, "$extraction.lastRunAt"],
+            },
+            "extraction.model": {
+              $cond: [advancesCursor, input.model, "$extraction.model"],
+            },
+            "extraction.serviceTier": {
+              $cond: [
+                advancesCursor,
+                input.serviceTier,
+                "$extraction.serviceTier",
+              ],
+            },
+            "extraction.usage": {
+              $cond: [
+                advancesCursor,
+                accumulatedUsage(input.usage),
+                "$extraction.usage",
+              ],
+            },
+            "extraction.parkedSince": {
+              $cond: [advancesCursor, null, "$extraction.parkedSince"],
+            },
+            "extraction.parkedRuns": {
+              $cond: [advancesCursor, 0, "$extraction.parkedRuns"],
+            },
+            lifecycle: {
+              state: "closed",
+              reason,
+              closedAt: at,
+              terminalOutboxId,
+            },
+            updatedAt: { $max: ["$updatedAt", at] },
           },
         },
       ],
@@ -1345,87 +2316,6 @@ export class FeedbackConversationRepository {
     return { changed: false, conversation: current };
   }
 
-  /**
-   * Approximate reminder candidates. The sweep reloads each conversation and
-   * re-checks campaign status, control, opt-in and how long the participant has
-   * actually been silent.
-   *
-   * `createdAt` is deliberately the coarse filter even though the rule is about
-   * silence. Silence can never exceed a conversation's age, so an age filter is
-   * a correct superset of what is due and needs no denormalized field kept in
-   * step with the transcript. The exact rung is decided in the sweep, against
-   * the loaded document.
-   */
-  async listOpenDueForReminder(input: {
-    readonly olderThan: Date;
-    readonly maxReminders: number;
-    readonly limit?: number;
-  }): Promise<FeedbackConversationDocument[]> {
-    const maxReminders = z.number().int().min(0).parse(input.maxReminders);
-    return this.listOpenBotConversations({
-      olderThan: input.olderThan,
-      limit: input.limit,
-      extraFilter: {
-        // Everything still on the ladder, including conversations predating it.
-        $or: [
-          { reminderCount: { $lt: maxReminders } },
-          { reminderCount: { $exists: false } },
-        ],
-      },
-    });
-  }
-
-  /**
-   * Approximate expiry candidates, filtered by age for the same reason as
-   * `listOpenDueForReminder`: age is a correct superset of silence, and the
-   * sweep decides on the loaded transcript.
-   *
-   * The sweep reloads state and skips human-controlled conversations before
-   * closing.
-   */
-  async listOpenDueForExpiry(input: {
-    readonly olderThan: Date;
-    readonly limit?: number;
-  }): Promise<FeedbackConversationDocument[]> {
-    return this.listOpenBotConversations({
-      olderThan: input.olderThan,
-      limit: input.limit,
-      extraFilter: {},
-    });
-  }
-
-  private async listOpenBotConversations(input: {
-    readonly olderThan: Date;
-    // Explicitly `| undefined` rather than optional: the callers forward their
-    // own optional `limit`, which `exactOptionalPropertyTypes` refuses to widen.
-    readonly limit: number | undefined;
-    readonly extraFilter: Filter<FeedbackConversationDocument>;
-  }): Promise<FeedbackConversationDocument[]> {
-    const olderThan = z.date().parse(input.olderThan);
-    const limit = z
-      .number()
-      .int()
-      .positive()
-      .max(500)
-      .parse(input.limit ?? 50);
-    const collection = await this.collection();
-    const documents = await collection
-      .find({
-        schemaVersion: FEEDBACK_CONVERSATION_SCHEMA_VERSION,
-        purpose: FEEDBACK_CONVERSATION_PURPOSE,
-        "lifecycle.state": "open",
-        "control.mode": "bot",
-        ...input.extraFilter,
-        createdAt: { $lte: olderThan },
-      } as Filter<FeedbackConversationDocument>)
-      .sort({ createdAt: 1, _id: 1 })
-      .limit(limit)
-      .toArray();
-    return documents.map((document) =>
-      feedbackConversationDocumentSchema.parse(document),
-    );
-  }
-
   private async transition(
     id: string,
     guard: Filter<FeedbackConversationDocument>,
@@ -1490,9 +2380,29 @@ export class FeedbackConversationRepository {
         name: "feedback_conversation_campaign_updated_idx",
         key: { campaignId: 1, updatedAt: -1 },
       },
+      {
+        name: "feedback_conversation_work_due_idx",
+        key: { "work.nextActionAt": 1, _id: 1 },
+        partialFilterExpression: {
+          purpose: FEEDBACK_CONVERSATION_PURPOSE,
+          "work.nextActionAt": { $type: "date" },
+        },
+      },
     ]);
     return collection;
   }
+}
+
+function workTransition(
+  changed: boolean,
+  document: FeedbackConversationDocument,
+): FeedbackConversationWorkTransitionResult {
+  const conversation = feedbackConversationDocumentSchema.parse(document);
+  return {
+    changed,
+    conversation,
+    work: resolveFeedbackConversationWork(conversation.work),
+  };
 }
 
 function isDuplicateKeyError(error: unknown): boolean {

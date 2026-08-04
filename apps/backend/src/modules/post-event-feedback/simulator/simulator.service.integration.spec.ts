@@ -11,7 +11,6 @@ import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript
 import type { FeedbackOutboundLogRepository } from "../outbox/outbound-log.repository.js";
 import { FeedbackOutboundLogService } from "../outbox/outbound-log.service.js";
 import { FeedbackSimulatorService } from "./simulator.service.js";
-import { MessageOutboxDeliveryService } from "../outbox/deliver.service.js";
 import {
   FakeAudit,
   FakeDatabase,
@@ -20,15 +19,24 @@ import {
   noopSummaries,
 } from "../post-event-feedback-doubles.harness.js";
 import { PostEventFeedbackIngressService } from "../ingress/ingress.service.js";
+import { FeedbackMaterializeWakeupService } from "../ingress/materialize-wakeup.service.js";
 import { PostEventFeedbackMaterializer } from "../ingress/materialize.service.js";
 import { PostEventFeedbackMetrics } from "../metrics.service.js";
 import type { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
 import type { FeedbackResultsRepository } from "../extraction/results.repository.js";
+import type { FeedbackConversationExecutionFenceRepository } from "../extraction/execution-fence.repository.js";
 import type { FeedbackIngressRepository } from "../ingress/ingress.repository.js";
 import type { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
 import type { FeedbackSimOutboundRepository } from "./sim-outbound.repository.js";
-import type { FeedbackJobData, FeedbackJobName } from "../jobs.schemas.js";
+import {
+  createFeedbackReconcileConversationJobId,
+  FEEDBACK_JOB_NAMES,
+  FEEDBACK_JOB_SCHEMA_VERSION_V2,
+  type FeedbackJobData,
+  type FeedbackJobName,
+} from "../jobs.schemas.js";
 import { SimulatedFeedbackTransport } from "../outbox/simulated-transport.service.js";
+import type { FeedbackConversationWakeupService } from "../reconciliation/wakeup.service.js";
 
 const campaignId = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 const respondentParticipantId = "9f3c1a52-6e2b-4b4a-9a17-2cb2a6d13a55";
@@ -48,17 +56,25 @@ describe("post-event feedback simulator (simulated mode)", () => {
     harness = createSimulatorHarness();
   });
 
-  it("runs intro delivery → inject reply → materialize → extract enqueue", async () => {
-    const introOutboxId = harness.repository.seedOutbox({
+  it("records intro → simulated send → inject reply → materialize → extract enqueue", async () => {
+    const intro = harness.repository.seedOutbox({
       kind: "intro",
       body: "Γεια σου! Πώς ήταν η εκδήλωση;",
-      status: "sending",
+      status: "attempting",
       dedupeKey: "intro:1",
     });
+    const introOutboxId = intro.id;
 
     await expect(
-      harness.delivery.deliver(introOutboxId, "corr-intro"),
-    ).resolves.toEqual({ outcome: "sent" });
+      harness.outboundTranscript.record(intro, observedAt, "corr-intro"),
+    ).resolves.toMatchObject({ outcome: "appended" });
+    await expect(
+      harness.transport.sendText({
+        to: phone,
+        text: intro.body,
+        outboxId: intro.id,
+      }),
+    ).resolves.toMatchObject({ outcome: "accepted" });
     expect(harness.repository.simOutbound).toHaveLength(1);
     expect(harness.repository.simOutbound[0]?.phoneE164).toBe(phone);
 
@@ -76,18 +92,20 @@ describe("post-event feedback simulator (simulated mode)", () => {
     expect(materialize).toMatchObject({
       outcome: "inbound_materialized",
       conversationId,
-      extractJobId: `feedback-extract-v1-${conversationId}-2`,
+      extractJobId: createFeedbackReconcileConversationJobId(conversationId, 1),
     });
     expect(harness.queue.added).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          name: "feedback.extract.v1",
-          jobId: `feedback-extract-v1-${conversationId}-2`,
+          name: FEEDBACK_JOB_NAMES.reconcileConversationV2,
+          jobId: createFeedbackReconcileConversationJobId(conversationId, 1),
         }),
       ]),
     );
     expect(
-      harness.queue.added.filter((job) => job.name === "feedback.extract.v1"),
+      harness.queue.added.filter(
+        (job) => job.name === FEEDBACK_JOB_NAMES.reconcileConversationV2,
+      ),
     ).toHaveLength(1);
     // The regression this covers: the transcript used to hold only the
     // participant side, so the admin pane and the extraction prompt never saw
@@ -192,7 +210,38 @@ class FakeSimulatorRepository {
   readonly outbox: FakeOutboxRow[] = [];
   readonly simOutbound: FakeSimOutboundRow[] = [];
 
-  seedOutbox(overrides: Partial<FakeOutboxRow> & { body: string }): string {
+  async lockConversation(
+    _transaction: AppTransaction,
+    _conversationId: string,
+  ): Promise<void> {}
+
+  async cancelQueuedSupersededAutomationForConversation(
+    _transaction: AppTransaction,
+    id: string,
+    preservedOutboxIds: readonly string[] = [],
+  ): Promise<number> {
+    const preserved = new Set(preservedOutboxIds);
+    let cancelled = 0;
+    for (const row of this.outbox) {
+      if (
+        row.conversationId === id &&
+        !preserved.has(row.id) &&
+        row.kind !== "system" &&
+        row.kind !== "staff" &&
+        (row.status === "pending" ||
+          row.status === "held" ||
+          row.status === "claimed")
+      ) {
+        row.status = "cancelled";
+        cancelled += 1;
+      }
+    }
+    return cancelled;
+  }
+
+  seedOutbox(
+    overrides: Partial<FakeOutboxRow> & { body: string },
+  ): FakeOutboxRow {
     const row: FakeOutboxRow = {
       id: randomUUID(),
       conversationId,
@@ -207,26 +256,13 @@ class FakeSimulatorRepository {
       ...overrides,
     };
     this.outbox.push(row);
-    return row.id;
-  }
-
-  async findOutboxById(id: string): Promise<FakeOutboxRow | undefined> {
-    return structuredClone(this.outbox.find((row) => row.id === id));
+    return structuredClone(row);
   }
 
   async findCampaignById(id: string) {
     return id === campaignId
       ? { id: campaignId, status: "launched" }
       : undefined;
-  }
-
-  async releaseOutboxLease(id: string): Promise<FakeOutboxRow | undefined> {
-    const row = this.outbox.find((candidate) => candidate.id === id);
-    if (!row || row.status !== "sending") {
-      return undefined;
-    }
-    row.status = "pending";
-    return structuredClone(row);
   }
 
   async insertIngressIfAbsent(
@@ -281,12 +317,6 @@ class FakeSimulatorRepository {
     };
     this.simOutbound.push(row);
     return row;
-  }
-
-  async findSimOutboundById(
-    id: string,
-  ): Promise<FakeSimOutboundRow | undefined> {
-    return structuredClone(this.simOutbound.find((row) => row.id === id));
   }
 
   async listIngressByPhoneE164(phoneE164: string): Promise<FakeIngressRow[]> {
@@ -456,7 +486,8 @@ class FakeConversations {
 interface SimulatorHarness {
   repository: FakeSimulatorRepository;
   conversations: FakeConversations;
-  delivery: MessageOutboxDeliveryService;
+  outboundTranscript: FeedbackOutboundTranscriptService;
+  transport: SimulatedFeedbackTransport;
   simulator: FeedbackSimulatorService;
   materializer: PostEventFeedbackMaterializer;
   queue: FakeQueue;
@@ -467,8 +498,19 @@ function createSimulatorHarness(): SimulatorHarness {
   const conversations = new FakeConversations();
   const queue = new FakeQueue();
   const database = new FakeDatabase();
+  const config = {
+    get(key: string) {
+      return {
+        NODE_ENV: "test",
+        FEEDBACK_SIMULATOR_ENABLED: true,
+        TRANSPORT_MODE: "simulated",
+        FEEDBACK_EXTRACTION_MODEL: "google/gemini-3.6-flash",
+      }[key];
+    },
+  } as never;
   const transport = new SimulatedFeedbackTransport(
     repository as unknown as FeedbackSimOutboundRepository,
+    config,
   );
 
   conversations.seed({
@@ -486,8 +528,17 @@ function createSimulatorHarness(): SimulatorHarness {
     needsAttention: false,
   });
 
+  const queuePort = queue as unknown as Queue<
+    FeedbackJobData,
+    void,
+    FeedbackJobName
+  >;
+  const materializeWakeups = new FeedbackMaterializeWakeupService(
+    queuePort,
+    repository as unknown as FeedbackIngressRepository,
+  );
   const ingress = new PostEventFeedbackIngressService(
-    queue as unknown as Queue<FeedbackJobData, void, FeedbackJobName>,
+    materializeWakeups,
     database as unknown as DatabaseService,
     repository as unknown as FeedbackIngressRepository,
   );
@@ -500,31 +551,50 @@ function createSimulatorHarness(): SimulatorHarness {
   const outboundLog = new FeedbackOutboundLogService(
     repository as unknown as FeedbackOutboundLogRepository,
   );
+  let workRevision = 0;
+  const conversationWakeups = {
+    schedule: async (input: {
+      conversationId: string;
+      nextActionAt: Date;
+      correlationId: string;
+      at?: Date;
+    }): Promise<string> => {
+      const revision = (workRevision += 1);
+      const jobId = createFeedbackReconcileConversationJobId(
+        input.conversationId,
+        revision,
+      );
+      const at = input.at ?? new Date();
+      await queue.add(
+        FEEDBACK_JOB_NAMES.reconcileConversationV2,
+        {
+          schemaVersion: FEEDBACK_JOB_SCHEMA_VERSION_V2,
+          conversationId: input.conversationId,
+          revision,
+          correlationId: input.correlationId,
+        },
+        {
+          jobId,
+          delay: Math.max(0, input.nextActionAt.getTime() - at.getTime()),
+        },
+      );
+      return jobId;
+    },
+  };
 
   return {
     repository,
     conversations,
     queue,
-    delivery: new MessageOutboxDeliveryService(
-      database as unknown as DatabaseService,
-      repository as unknown as FeedbackCampaignRepository,
-      repository as unknown as FeedbackOutboxRepository,
-      conversations as unknown as FeedbackConversationRepository,
-      outboundTranscript,
-      transport,
-    ),
+    outboundTranscript,
+    transport,
     simulator: new FeedbackSimulatorService(
       queue as unknown as Queue<FeedbackJobData, void, FeedbackJobName>,
+      database as unknown as DatabaseService,
       {
-        get(key: string) {
-          return {
-            NODE_ENV: "test",
-            FEEDBACK_SIMULATOR_ENABLED: true,
-            TRANSPORT_MODE: "simulated",
-            FEEDBACK_EXTRACTION_MODEL: "google/gemini-3.6-flash",
-          }[key];
-        },
-      } as never,
+        findActiveLease: async () => undefined,
+      } as unknown as FeedbackConversationExecutionFenceRepository,
+      config,
       ingress,
       repository as unknown as FeedbackCampaignRepository,
       repository as unknown as FeedbackResultsRepository,
@@ -538,7 +608,6 @@ function createSimulatorHarness(): SimulatorHarness {
       outboundTranscript,
     ),
     materializer: new PostEventFeedbackMaterializer(
-      queue as unknown as Queue<FeedbackJobData, void, FeedbackJobName>,
       database as unknown as DatabaseService,
       repository as unknown as FeedbackCampaignRepository,
       repository as unknown as FeedbackIngressRepository,
@@ -550,6 +619,7 @@ function createSimulatorHarness(): SimulatorHarness {
       outboundTranscript,
       outboundLog,
       noopSummaries(),
+      conversationWakeups as unknown as FeedbackConversationWakeupService,
     ),
   };
 }

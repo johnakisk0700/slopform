@@ -107,6 +107,24 @@ export const FEEDBACK_PROVIDER_ACCOUNT_FAULT_STATUS_CODES: readonly number[] = [
 /** Matches the assistant's two-minute total bound on a single provider call. */
 export const FEEDBACK_EXTRACTION_TIMEOUT_MILLISECONDS = 120_000;
 
+/**
+ * Revalidated after the deployment-wide provider limiter grants a slot and
+ * immediately before money can be spent. The limiter wait is intentionally
+ * unbounded, so checking only before entering it would let an expired
+ * conversation lease start a paid call minutes later.
+ */
+export type FeedbackProviderCallGuard = () => Promise<void>;
+
+/**
+ * Base class for application ownership checks run inside a granted provider
+ * slot. Model error classification must preserve these verbatim: turning a
+ * lost execution lease into `provider_error` would retry/fallback the wrong
+ * business execution.
+ */
+export class FeedbackProviderCallGuardError extends Error {
+  override name = "FeedbackProviderCallGuardError";
+}
+
 export class FeedbackExtractionGenerationError extends Error {
   /** Named `failureCause` so it never shadows the built-in `Error.cause`. */
   constructor(
@@ -522,10 +540,15 @@ export function resolveFeedbackAttentionReasoningEffort(
 export const FEEDBACK_EXTRACTION_DEFAULT_MODEL: AssistantModel =
   "google/gemini-3.6-flash";
 
+export const FEEDBACK_SUMMARY_ONLY_MODEL: AssistantModel =
+  "openai/gpt-5.6-terra";
+
 /**
  * Resolves the configured extraction model against the shared provider
  * registry. An unrecognised id fails at worker start, because the alternative —
  * quietly using the default — would bill and log a model nobody asked for.
+ * Terra is deliberately rejected here: feedback summaries own it through their
+ * separate configuration, while participant-facing work uses another model.
  */
 export function resolveFeedbackExtractionModel(
   configured: string | undefined,
@@ -539,11 +562,16 @@ export function resolveFeedbackExtractionModel(
       `FEEDBACK_EXTRACTION_MODEL must be a registered model id, received "${configured}"`,
     );
   }
+  if (parsed.data === FEEDBACK_SUMMARY_ONLY_MODEL) {
+    throw new Error(
+      `FEEDBACK_EXTRACTION_MODEL cannot use ${FEEDBACK_SUMMARY_ONLY_MODEL}; Terra is reserved for FEEDBACK_SUMMARY_MODEL`,
+    );
+  }
   return parsed.data;
 }
 
 /**
- * The model boundary for `feedback.extract.v1`.
+ * The model boundary for feedback conversation extraction.
  *
  * It reuses the assistant's provider registry — the public model id maps to
  * exactly one provider id — so extraction cannot invent a provider mapping of
@@ -601,6 +629,7 @@ export class PostEventFeedbackExtractionModel implements FeedbackExtractionModel
   async propose(
     prompt: FeedbackExtractionPrompt,
     questionKeys: readonly FeedbackAnswerQuestionKey[],
+    beforeProviderCall?: FeedbackProviderCallGuard,
   ): Promise<FeedbackExtractionGenerationResult> {
     const model = this.resolveProviderModel(this.model);
     const proposalSchema = createFeedbackExtractionProposalSchema(questionKeys);
@@ -611,8 +640,9 @@ export class PostEventFeedbackExtractionModel implements FeedbackExtractionModel
     );
 
     try {
-      const result = await this.providerCalls.run(() =>
-        generateObject({
+      const result = await this.providerCalls.run(async () => {
+        await beforeProviderCall?.();
+        return generateObject({
           model,
           schema: proposalSchema,
           schemaName: "post_event_feedback_extraction",
@@ -629,8 +659,8 @@ export class PostEventFeedbackExtractionModel implements FeedbackExtractionModel
           abortSignal: AbortSignal.timeout(
             FEEDBACK_EXTRACTION_TIMEOUT_MILLISECONDS,
           ),
-        }),
-      );
+        });
+      });
 
       return {
         model: this.model,
@@ -642,6 +672,7 @@ export class PostEventFeedbackExtractionModel implements FeedbackExtractionModel
         },
       };
     } catch (error) {
+      if (error instanceof FeedbackProviderCallGuardError) throw error;
       throw toGenerationError(error);
     }
   }
@@ -649,6 +680,7 @@ export class PostEventFeedbackExtractionModel implements FeedbackExtractionModel
   async classifyAttention(
     messages: readonly FeedbackExtractionMessageView[],
     targetMessageIds: readonly string[],
+    beforeProviderCall?: FeedbackProviderCallGuard,
   ): Promise<FeedbackAttentionClassificationGenerationResult> {
     const model = this.resolveProviderModel(this.model);
     const batches = chunk(
@@ -677,8 +709,9 @@ export class PostEventFeedbackExtractionModel implements FeedbackExtractionModel
           targetMessageIds: batch,
         });
         estimatedPromptTokens += estimatePromptTokens(prompt);
-        const result = await this.providerCalls.run(() =>
-          generateObject({
+        const result = await this.providerCalls.run(async () => {
+          await beforeProviderCall?.();
+          return generateObject({
             model,
             schema: feedbackAttentionClassificationProposalSchema,
             schemaName: "post_event_feedback_attention_classification",
@@ -692,8 +725,8 @@ export class PostEventFeedbackExtractionModel implements FeedbackExtractionModel
             abortSignal: AbortSignal.timeout(
               FEEDBACK_EXTRACTION_TIMEOUT_MILLISECONDS,
             ),
-          }),
-        );
+          });
+        });
         const proposal = feedbackAttentionClassificationProposalSchema.parse(
           result.object,
         );
@@ -714,6 +747,7 @@ export class PostEventFeedbackExtractionModel implements FeedbackExtractionModel
         });
       }
     } catch (error) {
+      if (error instanceof FeedbackProviderCallGuardError) throw error;
       throw toGenerationError(error);
     }
 
@@ -739,6 +773,7 @@ export class PostEventFeedbackExtractionModel implements FeedbackExtractionModel
   async rewriteReply(
     extractionPrompt: FeedbackExtractionPrompt,
     draft: string,
+    beforeProviderCall?: FeedbackProviderCallGuard,
   ): Promise<FeedbackReplyGenerationResult> {
     const prompt = buildFeedbackReplyRewritePrompt({
       extractionPrompt,
@@ -753,8 +788,9 @@ export class PostEventFeedbackExtractionModel implements FeedbackExtractionModel
     );
 
     try {
-      const result = await this.providerCalls.run(() =>
-        generateText({
+      const result = await this.providerCalls.run(async () => {
+        await beforeProviderCall?.();
+        return generateText({
           model,
           system: prompt.system,
           prompt: prompt.user,
@@ -764,8 +800,8 @@ export class PostEventFeedbackExtractionModel implements FeedbackExtractionModel
           abortSignal: AbortSignal.timeout(
             FEEDBACK_EXTRACTION_TIMEOUT_MILLISECONDS,
           ),
-        }),
-      );
+        });
+      });
       const reply = normalizeGeneratedReply(result.text);
       return {
         model: this.model,
@@ -778,6 +814,7 @@ export class PostEventFeedbackExtractionModel implements FeedbackExtractionModel
         estimatedPromptTokens,
       };
     } catch (error) {
+      if (error instanceof FeedbackProviderCallGuardError) throw error;
       const mapped = toGenerationError(error);
       this.logger.warn({
         event: "feedback.reply_generation_failed",
@@ -813,7 +850,7 @@ export class PostEventFeedbackExtractionModel implements FeedbackExtractionModel
         );
       }
       // Scoped here on purpose: this provider instance serves
-      // `feedback.extract.v1` and nothing else, so permissive thresholds cannot
+      // feedback extraction and nothing else, so permissive thresholds cannot
       // leak into the assistant, which builds its own clients from the same
       // registry.
       const settings = resolveFeedbackExtractionProviderSettings(adapter);

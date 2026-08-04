@@ -164,6 +164,45 @@ describe("feedbackConversationDocumentSchema", () => {
     ).toThrow(/requires a reason/);
   });
 
+  it("authorizes a terminal outbox identity only on a message-bearing close", () => {
+    const terminalOutboxId = "d4a4b3c2-8f1e-4d3c-9b2a-1e0f9d8c7b6a";
+    expect(
+      feedbackConversationDocumentSchema.parse({
+        ...feedbackConversation([]),
+        lifecycle: {
+          state: "closed",
+          reason: "completed",
+          closedAt: updatedAt,
+          terminalOutboxId,
+        },
+      }).lifecycle.terminalOutboxId,
+    ).toBe(terminalOutboxId);
+
+    expect(
+      feedbackConversationDocumentSchema.parse({
+        ...feedbackConversation([]),
+        lifecycle: {
+          state: "closed",
+          reason: "stopped",
+          closedAt: updatedAt,
+          terminalOutboxId,
+        },
+      }).lifecycle.terminalOutboxId,
+    ).toBe(terminalOutboxId);
+
+    expect(() =>
+      feedbackConversationDocumentSchema.parse({
+        ...feedbackConversation([]),
+        lifecycle: {
+          state: "closed",
+          reason: "cancelled",
+          closedAt: updatedAt,
+          terminalOutboxId,
+        },
+      }),
+    ).toThrow(/completed, declined or stopped/);
+  });
+
   it("rejects human control without a control source", () => {
     expect(() =>
       feedbackConversationDocumentSchema.parse({
@@ -277,6 +316,28 @@ describe("feedbackConversationDocumentSchema", () => {
     // document that will not parse is a conversation the inbox cannot show.
     expect(parsed.extraction.usage).toBeNull();
     expect(parsed.extraction.serviceTier).toBeNull();
+  });
+
+  it("reads legacy documents without reconciliation work and validates the bridge when present", () => {
+    const legacy = feedbackConversation([]);
+    expect(
+      feedbackConversationDocumentSchema.parse(legacy).work,
+    ).toBeUndefined();
+
+    const nextActionAt = new Date("2026-07-25T11:00:00.000Z");
+    expect(
+      feedbackConversationDocumentSchema.parse({
+        ...legacy,
+        work: { revision: 3, nextActionAt, executionEpoch: 2 },
+      }).work,
+    ).toEqual({ revision: 3, nextActionAt, executionEpoch: 2 });
+
+    expect(() =>
+      feedbackConversationDocumentSchema.parse({
+        ...legacy,
+        work: { revision: 2, nextActionAt, executionEpoch: 3, leaseToken: "x" },
+      }),
+    ).toThrow();
   });
 
   it("stores a usage component the provider never reported as null rather than zero", () => {

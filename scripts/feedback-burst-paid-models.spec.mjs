@@ -15,16 +15,16 @@ import {
 } from "./feedback-burst-paid-models.mjs";
 
 describe("feedback burst paid policy", () => {
-  it("defines prova as the exact direct-OpenAI Terra treatment", () => {
+  it("defines prova as the exact direct-OpenAI Luna medium treatment", () => {
     assert.deepEqual(FEEDBACK_BURST_PROFILES.prova, {
       name: "prova",
       mode: "profile",
-      model: "openai/gpt-5.6-terra",
+      model: "openai/gpt-5.6-luna",
       provider: "openai",
-      providerModelId: "gpt-5.6-terra",
+      providerModelId: "gpt-5.6-luna",
       controls: {
         reasoningEffort: "medium",
-        replyReasoningEffort: "low",
+        replyReasoningEffort: "medium",
         attentionReasoningEffort: "medium",
         serviceTier: null,
       },
@@ -34,25 +34,25 @@ describe("feedback burst paid policy", () => {
     assert.doesNotThrow(() =>
       assertFeedbackBurstTreatmentAdapter(FEEDBACK_BURST_PROFILES.prova, {
         provider: "openai",
-        providerModelId: "gpt-5.6-terra",
+        providerModelId: "gpt-5.6-luna",
       }),
     );
     assert.throws(
       () =>
         assertFeedbackBurstTreatmentAdapter(FEEDBACK_BURST_PROFILES.prova, {
           provider: "openrouter",
-          providerModelId: "openai/gpt-5.6-terra",
+          providerModelId: "openai/gpt-5.6-luna",
         }),
-      /requires openai\/gpt-5\.6-terra/u,
+      /requires openai\/gpt-5\.6-luna/u,
     );
   });
 
   it("keeps Qwen behind the explicit comparison selector", () => {
     assert.deepEqual(FEEDBACK_BURST_PAID_MODELS, [
-      "openai/gpt-5.6-terra",
+      "openai/gpt-5.6-luna",
       "qwen/qwen3.7-max",
     ]);
-    assert.ok(!FEEDBACK_BURST_PAID_MODELS.includes("openai/gpt-5.6-luna"));
+    assert.ok(!FEEDBACK_BURST_PAID_MODELS.includes("openai/gpt-5.6-terra"));
     assert.equal(resolveFeedbackBurstTreatment({}), null);
     assert.equal(
       resolveFeedbackBurstTreatment({ profile: "prova" }),

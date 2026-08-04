@@ -104,6 +104,49 @@ describe("FeedbackOutboundTranscriptService", () => {
     expect(conversations.raiseAttention).not.toHaveBeenCalled();
   });
 
+  it("fences dispatcher cancellation by the durable claim token", async () => {
+    const { service, conversations, repository } = createService();
+    conversations.appendMessage.mockRejectedValue(
+      new FeedbackConversationCapacityError(),
+    );
+    repository.finishDispatchClaimBeforeAttempt.mockResolvedValue({
+      id: outboxId,
+      status: "cancelled",
+    });
+
+    await expect(
+      service.record(outboxRow(), at, "corr-1", {
+        claimToken: "118234ec-14f8-4c2a-90f3-330a092e4f60",
+      }),
+    ).resolves.toEqual({
+      outcome: "cancelled",
+      reason: "transcript_capacity",
+    });
+    expect(repository.finishDispatchClaimBeforeAttempt).toHaveBeenCalledWith(
+      outboxId,
+      "118234ec-14f8-4c2a-90f3-330a092e4f60",
+      "cancelled",
+      at,
+      "transcript_capacity",
+    );
+    expect(repository.updateOutboxStatus).not.toHaveBeenCalled();
+  });
+
+  it("reports a lost dispatcher claim instead of cancelling another owner", async () => {
+    const { service, conversations, repository } = createService();
+    conversations.appendMessage.mockRejectedValue(
+      new FeedbackConversationCapacityError(),
+    );
+    repository.finishDispatchClaimBeforeAttempt.mockResolvedValue(undefined);
+
+    await expect(
+      service.record(outboxRow(), at, "corr-1", {
+        claimToken: "stale-token",
+      }),
+    ).resolves.toEqual({ outcome: "claim_lost" });
+    expect(repository.updateOutboxStatus).not.toHaveBeenCalled();
+  });
+
   it("cancels and flags a body the transcript cannot hold, without retrying forever", async () => {
     const { service, conversations, repository } = createService();
     const body = "α".repeat(FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH + 1);
@@ -164,7 +207,10 @@ function createService(): {
     appendMessage: ReturnType<typeof vi.fn>;
     raiseAttention: ReturnType<typeof vi.fn>;
   };
-  repository: { updateOutboxStatus: ReturnType<typeof vi.fn> };
+  repository: {
+    updateOutboxStatus: ReturnType<typeof vi.fn>;
+    finishDispatchClaimBeforeAttempt: ReturnType<typeof vi.fn>;
+  };
 } {
   const conversations = {
     appendMessage: vi
@@ -174,6 +220,7 @@ function createService(): {
   };
   const repository = {
     updateOutboxStatus: vi.fn().mockResolvedValue(undefined),
+    finishDispatchClaimBeforeAttempt: vi.fn().mockResolvedValue(undefined),
   };
   const database = {
     transaction: vi.fn(async (work: (tx: AppTransaction) => Promise<unknown>) =>

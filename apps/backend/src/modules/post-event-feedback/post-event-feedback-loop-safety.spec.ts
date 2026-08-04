@@ -717,7 +717,11 @@ const SCENARIOS: readonly FeedbackScenario[] = [
       "leaves a flagged note and an alert without replying when the provider refuses the disclosure",
     script: [{ fails: "refuses" }],
     expectedJobFailures: [
-      { job: "feedback.extract.v1", kind: "refuses", count: 5 },
+      {
+        job: "feedback.reconcile-conversation.v2",
+        kind: "refuses",
+        count: 5,
+      },
     ],
     steps: [
       {
@@ -897,6 +901,10 @@ const SCENARIOS: readonly FeedbackScenario[] = [
     title:
       "delivers an admin staff message once, keeps the reply, and hands control back to the bot",
     seed: { control: "human" },
+    // Resume schedules the unread testimony immediately through durable V2
+    // work. This turn records nothing and sends nothing; the scenario remains
+    // about the staff message and the explicit hand-back.
+    script: [{}],
     steps: [
       {
         kind: "staff",
@@ -1011,7 +1019,7 @@ const SCENARIOS: readonly FeedbackScenario[] = [
     // months ago. There is no identity confirmation anywhere in the module, and
     // «σταμάτα να μου στέλνεις» is not a STOP command, so both messages are read
     // as ordinary testimony and the bot carries on asking somebody who was never
-    // there who they liked at a dinner they never attended. The reminder sweep
+    // there who they liked at a dinner they never attended. The reminder planner
     // is still armed behind it.
     id: "number_changed_owner",
     title:

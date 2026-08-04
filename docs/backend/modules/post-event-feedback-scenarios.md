@@ -29,7 +29,7 @@ is evidence of what was once wrong, and the executable suite is the only
 statement about what is wrong now.
 
 A separate **33-case real-model corpus** exercises semantic interpretation with
-live candidate-name binding. It is for deliberate, paid Terra/Qwen checks through
+live candidate-name binding. It is for deliberate, paid Luna/Qwen checks through
 the dev simulator, not CI or a nightly schedule. The normal suite remains
 fake-backed and free. Scripted rows involving sarcasm, prompt injection or
 privacy prove the surrounding mechanism accepts and contains a given proposal;
@@ -121,13 +121,11 @@ five messages in eight seconds, no punctuation.
 `meet_again→Νίκος`. **Exactly one** outbound reply. Cursor at seq 6. Lifecycle
 `open`, goals `avoid: asked`.
 
-**Stresses.** `FEEDBACK_EXTRACT_QUIET_WINDOW_MS` leading-edge window; the
-`feedback-extract-v1-<id>-<seq>` job-id ladder; `skipped_cursor` as the collapse
-mechanism for the four superseded jobs.
+**Stresses.** The rolling `FEEDBACK_EXTRACT_QUIET_WINDOW_MS`; MongoDB work
+revision replacement; stale revision wake-ups as cheap no-ops.
 
-**Today.** ✅ The window opens at `t+0`, closes at `t+12`, and the run reads all
-five. Jobs `-2..-5` were also enqueued; each exits `skipped_cursor` or
-`skipped_no_new_testimony` without a model call.
+**Today.** ✅ Each fragment moves the due time. Revision 5 runs at `t+53s` and
+reads all five; older wake-ups cannot acquire/begin the current revision.
 
 ### S02 · `slow_typist`
 
@@ -143,13 +141,12 @@ seconds.
 **Should end with.** One reply, or at most one reply per _thought_ — not three.
 All three answers recorded.
 
-**Stresses.** The fixed 12 s window against human typing rhythm; the
-`hasNewerTestimony` superseded-reply guard, which only covers the sliver between
-the transcript snapshot and the outbox insert.
+**Stresses.** The rolling 45 s window against human typing rhythm; the
+`hasNewerTestimony` superseded-reply guard for a message that still arrives
+after the provider snapshot.
 
-**Today.** ⚠️ Three model calls and up to three replies (loop plan F7). The data
-is right; the participant is answered three times mid-thought and the bill is
-tripled. WP3 (12 s → 45 s) narrows this but does not close it.
+**Today.** ✅ The due time moves from `t+45s` to `t+70s` to `t+95s`: one
+extraction call, one reply, all three fragments in the snapshot.
 
 ### S03 · `mid_run_arrival`
 
@@ -159,19 +156,24 @@ their previous message started thinking.
 **Messages**
 
 - `t+0s` participant: «3»
-- `t+12s` extraction run opens, model call takes ~4 s
-- `t+14s` participant: «όχι στάσου, 4 εννοούσα»
+- `t+45s` extraction run opens, model call takes ~4 s
+- `t+47s` participant: «όχι στάσου, 4 εννοούσα»
 
 **Should end with.** `event_score` recorded once, from the corrected value.
 Exactly one reply, and that reply must answer the correction, not the `3`.
 
-**Stresses.** `hasNewerTestimony` — the reply from the first run is dropped, its
-answers are not.
+**Stresses.** Snapshot fencing at persistence and final dispatch: the reply from
+the first run is dropped whether the correction is already in MongoDB or still
+a pending durable ingress row; its answers are not.
 
 **Today.** 🔴 Half-right. The reply is correctly suppressed, but the first run
 already wrote `event_score=3`, and the second run's `event_score=4` is rejected
 as `already_recorded` (loop plan F5). The participant is recorded as having said
-3 and the bot moves on as if nothing happened.
+3 and the bot moves on as if nothing happened. The stale outbound itself is
+now fenced again immediately before provider entry and is durably `cancelled`,
+never sent. Its Mongo turn remains as raw audit intent, but the next extraction
+omits that `cancelled` turn from both model prompts while keeping the raw cursor
+sequence unchanged.
 
 ### S04 · `split_thought`
 
@@ -181,8 +183,8 @@ so the score and the person it refers to land in different extraction runs.
 **Messages**
 
 - `t+0s` participant: «τον Νίκο τον βρήκα»
-- `t+13s` extraction run 1 opens on that fragment alone
-- `t+16s` participant: «πολύ καλό, βάλε 5»
+- `t+45s` extraction run 1 opens on that fragment alone
+- `t+48s` participant: «πολύ καλό, βάλε 5»
 
 **Should end with.** Run 2 records `event_score=5` citing **both** message ids,
 and `liked→Νίκος`. Nothing is discarded for citing the older half.
@@ -204,8 +206,8 @@ seconds.
   έβαλαν δίπλα στην κουζίνα» / «περιμέναμε 40 λεπτά» / «ο Νίκος πάντως ήταν
   εντάξει» / «1 βάζω» …
 
-**Should end with.** At most two model calls (the 45 s window collapses most of
-it). `event_score=1`, `liked→Νίκος`, one or two `general` notes about the venue.
+**Should end with.** One extraction call after `t+85s` (plus two bounded
+attention-classification batches). `event_score=1`, `liked→Νίκος`, one or two `general` notes about the venue.
 No run dies. Nothing about the venue is attributed to a participant.
 
 **Stresses.** `FEEDBACK_EXTRACTION_MAX_SOURCE_MESSAGES` (10 when this was
@@ -238,7 +240,8 @@ intro.
 the closing copy sent once; lifecycle `closed/completed`.
 
 **Stresses.** Multi-answer proposals in one run; `skippedGoals` as the only
-producer that lets «κανέναν» reach completion; `feedback-closing-<id>` dedupe.
+producer that lets «κανέναν» reach completion; generation-bearing
+`feedback-closing-<id>-<testimonySeq>-r<workRevision>` dedupe.
 
 **Today.** ❓ Machinery is correct. Depends entirely on the model proposing
 `skippedGoals: ["avoid"]` rather than leaving `avoid` pending; if it leaves it
@@ -872,10 +875,11 @@ handoff (a promise) from control (a human button, D17).
 
 **Today.** ✅, with two footnotes worth asserting. First, the handoff copy does
 **not** stop the questionnaire — the next participant message resumes normal
-questioning, which reads oddly after "someone will contact you". Second, if the
-campaign is paused, `replyAllowed` is false, `resolveOutbound` returns
-`undefined`, and the person who asked for a human gets **nothing at all** while
-the attention flag is still raised.
+questioning, which reads oddly after "someone will contact you". Second, a
+campaign already paused before reconciliation freezes the model call itself:
+the request remains unread and is classified after resume, so neither a reply
+nor a handoff alert exists yet. A pause that lands during an already-paid call
+still suppresses its outbound while retaining its snapshot results.
 
 ### S35 · `asks_who_reads_this`
 
@@ -1178,20 +1182,21 @@ run is already talking to the provider.
 - `t+12s` extraction run loads the conversation (control `bot`) and calls the
   model
 - `t+14s` operator presses **Take over**
+- optional ABA variant: `t+15s` the operator presses **Resume bot**
 - `t+16s` the model returns a reply
 
 **Should end with.** The reply is **not** sent. Two writers must never speak
 concurrently, and the module doc states that "bot jobs must reload control
 immediately before enqueueing an outbound reply".
 
-**Stresses.** The gap between `buildContext`'s `replyAllowed` snapshot and the
-outbox insert.
+**Stresses.** Producer admission after the paid model call and the final
+provider-entry ABA fence. Merely seeing `control.mode = bot` again is
+insufficient; the immutable outbound snapshot must still match the exact
+control `changedAt`/source, execution epoch and campaign-resume generation.
 
-**Today.** 🔴 The reply is sent. `replyAllowed` is computed once from the
-document loaded at the start of the run; `hasNewerTestimony` re-reads the
-conversation but only inspects `messages`. Nothing re-checks `control.mode` or
-campaign status before `insertOutboxIfAbsent`. The delivery job re-checks the
-_campaign_ status but not control, so a staff takeover races and loses.
+**Today.** ✅ A takeover defeats producer admission. If a transition races after
+the row exists, or control completes the human→bot ABA before dispatch, the
+generation mismatch cancels the ordinary row before `send_started_at`.
 
 ### S48 · `stranded_testimony_after_resume`
 
@@ -1422,18 +1427,18 @@ prevents), but from the participant's side the bot goes mute exactly as in S28.
 - `t+8s` operator pauses the campaign
 - `t+12s` extraction run opens
 
-**Should end with.** Answers and notes still persisted (results are not the kill
-switch's business), **no** outbound enqueued, `replySuppressedReason:
-"not_permitted"`, nothing delivered.
+**Should end with.** The testimony remains unread and durable; no model call,
+answer, note or outbound is created while paused. Resume marks the conversation
+due and replans the same testimony from current state.
 
-**Stresses.** `replyAllowed`'s `campaign.status === "launched"` term; the
-delivery service's independent re-check that releases the lease and returns
-`held`.
+**Stresses.** The planner's paused-campaign idle gate; durable unread testimony;
+resume scheduling; the dispatcher's independent paused-campaign release before
+provider entry.
 
-**Today.** ✅ for this ordering, because `buildContext` runs after the pause. The
-race in S47 applies here too — a pause landing _during_ the model call is not
-re-checked at insert time — but the delivery job catches it, so nothing is
-actually sent. The kill switch holds; the outbox row simply waits.
+**Today.** ✅. If the pause is visible before the run opens, reconciliation does
+not buy the call. If it lands _during_ a model call, the paid snapshot may still
+persist answers and notes, but the direct dispatcher releases any reply before
+provider entry. The call cannot be un-bought; the message can still be stopped.
 
 ### S59 · `sends_the_same_message_five_times`
 
@@ -1891,6 +1896,33 @@ false` on every turn, and `declines_every_question` pins rule 7δ's escape hatch
 an explicit, repeated refusal closing all four goals rather than the one being
 asked. The fork is a graded row now, not a coin toss between runs.
 
+### S71 · `simulated_provider_outcome_is_unknown`
+
+**Person.** A normal participant whose bot reply reaches an unreliable provider
+boundary during a paid simulated rehearsal.
+
+**Messages**
+
+- participant gives one valid answer and extraction creates one ordinary reply
+- variant A: simulator returns `unknown` without a sink write
+- variant B: simulator writes the outbound sink, then loses the response
+
+**Should end with.** Both variants leave the outbox `ambiguous`, never retry it,
+park bot automation for human review and finish the rehearsal as failed rather
+than polling forever. Variant A has no simulated outbound row. Variant B has
+exactly one, but that row proves only simulated acceptance — not delivery or
+read. A later exact provider observation may reconcile the outbox to `sent`; it
+must not silently dismiss human attention or resume automation.
+
+**Stresses.** The `attempting` no-return marker, unknown-outcome quarantine,
+sink-present-but-uncertain reality, and the difference between provider
+acceptance and delivery evidence. The sibling `reject` and `rate-limit` modes
+end `failed` under today's no-auto-retry dispatcher policy.
+
+**Today.** ✅ Mechanically through the deterministic simulated transport and
+direct dispatcher tests. A real Wasender staging run remains necessary to
+verify the provider's actual timeout and webhook behaviour.
+
 # Part 2 — Executable behavioural suite
 
 > **The harness and specs are the operational contract.**
@@ -1956,6 +1988,16 @@ from the selected event's actual eligible attendees; transport-only cases stay
 in the fake-backed suite because paying a model to test a queue retry would be
 performance art, not evaluation.
 
+The broad loop harness schedules extraction through a V2 conversation-revision
+wake-up adapter: it persists the current fake Mongo work revision, delays the
+disposable job to `nextActionAt`, and discards a superseded revision before the
+model boundary. Delivery runs through the real direct PostgreSQL dispatcher;
+the harness has no V1 extraction producer/processor or outbox relay/delivery
+adapter. Focused reconciliation, planner, wake-up, execution-fence,
+direct-dispatcher and maintenance specs cover the full steady-state
+orchestration, and composition tests prove those components are wired in the
+worker.
+
 ## Historical harness design notes
 
 Everything below this heading is the pre-implementation design proposal. It is
@@ -1977,22 +2019,21 @@ flowchart LR
   proc --> mat[Materializer]
   proc --> ext[Extractor]
   proc --> fb[ExtractionFallback]
-  proc --> rel[OutboxRelay]
-  proc --> del[OutboxDelivery]
   proc --> swp[SweepService]
+  pg --> dispatch[DirectOutboxDispatcher]
+  dispatch --> transport[[RecordingTransport]]
   ext --> model[[ScriptedExtractionModel]]
   mat --> mongo[(FakeConversations)]
   ext --> mongo
-  del --> transport[[RecordingTransport]]
   mat --> pg[(FakeFeedbackRepository)]
   ext --> pg
-  del --> pg
+  dispatch --> pg
 ```
 
 Real, unmocked, in every scenario:
 `PostEventFeedbackIngressService`, `PostEventFeedbackMaterializer`,
 `PostEventFeedbackExtractor`, `PostEventFeedbackExtractionFallback`,
-`MessageOutboxRelayService`, `MessageOutboxDeliveryService`,
+`MessageOutboxDispatcherService`,
 `PostEventFeedbackSweepService`, `FeedbackOutboundTranscriptService`,
 `PostEventFeedbackProcessor`, and the pure modules
 (`validateFeedbackExtractionProposal`, the STOP matcher, the question set, the
@@ -2244,7 +2285,8 @@ byte caps (S57); and the phone partial-unique index on create (S50).
 `FakeFeedbackRepository` must enforce: ingress uniqueness on `(chatJid,
 providerMessageId)`; outbox `dedupeKey` uniqueness; answer uniqueness on
 `(conversationId, questionKey, subjectParticipantId)` with `NULLS NOT DISTINCT`;
-and outbox lease semantics for `claimOutboxBatch` / `releaseOutboxLease`.
+and the direct dispatcher's token-fenced `claimDispatchBatch`, claim renewal,
+pre-attempt release and terminal settlement semantics.
 
 A fake that does not enforce a unique key turns S08 and S59 into passing tests
 that describe a system we do not have.

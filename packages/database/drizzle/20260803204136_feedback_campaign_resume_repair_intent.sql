@@ -1,0 +1,6 @@
+ALTER TABLE "feedback_campaigns" ADD COLUMN "resume_generation" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "feedback_campaigns" ADD COLUMN "resume_applied_generation" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "feedback_campaigns" ADD COLUMN "resume_due_at" timestamp with time zone;--> statement-breakpoint
+CREATE INDEX "feedback_campaigns_resume_pending_idx" ON "feedback_campaigns" USING btree ("resume_due_at","id") WHERE "feedback_campaigns"."resume_due_at" is not null;--> statement-breakpoint
+ALTER TABLE "feedback_campaigns" ADD CONSTRAINT "feedback_campaigns_resume_generation_check" CHECK ("feedback_campaigns"."resume_generation" >= 0 and "feedback_campaigns"."resume_applied_generation" >= 0 and "feedback_campaigns"."resume_applied_generation" <= "feedback_campaigns"."resume_generation");--> statement-breakpoint
+ALTER TABLE "feedback_campaigns" ADD CONSTRAINT "feedback_campaigns_resume_intent_pair_check" CHECK (("feedback_campaigns"."resume_applied_generation" < "feedback_campaigns"."resume_generation") = ("feedback_campaigns"."resume_due_at" is not null));

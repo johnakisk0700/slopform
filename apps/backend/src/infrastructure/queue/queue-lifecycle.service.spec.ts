@@ -4,8 +4,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ASSISTANT_QUEUE,
   EMAIL_QUEUE,
+  FEEDBACK_CONVERSATION_QUEUE,
   FEEDBACK_INGRESS_QUEUE,
+  FEEDBACK_MAINTENANCE_QUEUE,
   FEEDBACK_QUEUE,
+  FEEDBACK_SUMMARY_QUEUE,
   REFERENCE_QUEUE,
 } from "./queue.constants.js";
 import {
@@ -23,6 +26,9 @@ const SETTLED_QUEUES = [
   EMAIL_QUEUE,
   FEEDBACK_QUEUE,
   FEEDBACK_INGRESS_QUEUE,
+  FEEDBACK_CONVERSATION_QUEUE,
+  FEEDBACK_SUMMARY_QUEUE,
+  FEEDBACK_MAINTENANCE_QUEUE,
   REFERENCE_QUEUE,
 ] as const;
 
@@ -91,7 +97,25 @@ describe("QueueLifecycleService", () => {
 
 function queueTuple(
   queues: readonly Queue[],
-): [Queue, Queue, Queue, Queue, Queue] {
-  const [assistant, email, feedback, feedbackIngress, reference] = queues;
-  return [assistant!, email!, feedback!, feedbackIngress!, reference!];
+): [Queue, Queue, Queue, Queue, Queue, Queue, Queue, Queue] {
+  const [
+    assistant,
+    email,
+    feedback,
+    feedbackIngress,
+    feedbackConversation,
+    feedbackSummary,
+    feedbackMaintenance,
+    reference,
+  ] = queues;
+  return [
+    assistant!,
+    email!,
+    feedback!,
+    feedbackIngress!,
+    feedbackConversation!,
+    feedbackSummary!,
+    feedbackMaintenance!,
+    reference!,
+  ];
 }

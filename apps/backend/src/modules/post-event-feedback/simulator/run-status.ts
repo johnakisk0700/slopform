@@ -9,6 +9,7 @@ import type {
 import type { AssistantModel } from "../../assistant/assistant.schemas.js";
 import { assistantModelSchema } from "../../assistant/assistant.schemas.js";
 import type { FeedbackConversationDocument } from "../post-event-feedback-conversation.document.js";
+import { resolveFeedbackConversationWork } from "../post-event-feedback-conversation.document.js";
 import {
   createFeedbackClosingDedupeKey,
   createFeedbackFallbackAckDedupeKey,
@@ -29,7 +30,7 @@ export function toRunView({
   notes,
   outbox,
   simulatedSends,
-  extractionJobs,
+  automation,
 }: {
   readonly run: {
     readonly id: string;
@@ -60,7 +61,7 @@ export function toRunView({
   readonly notes: readonly FeedbackNoteRow[];
   readonly outbox: readonly MessageOutboxRow[];
   readonly simulatedSends: readonly FeedbackSimOutboundRow[];
-  readonly extractionJobs: {
+  readonly automation: {
     readonly active: boolean;
     readonly pending: boolean;
     readonly failedReason: string | null;
@@ -80,12 +81,20 @@ export function toRunView({
   const observedModel = assistantModelSchema.safeParse(
     conversation?.extraction.model,
   );
+  const currentWorkRevision = resolveFeedbackConversationWork(
+    conversation?.work,
+  ).revision;
   const expectedOutboxDedupeKeys = new Set([
     createFeedbackReplyDedupeKey(run.conversationId, run.targetCursorSeq),
     createFeedbackHandoffDedupeKey(run.conversationId, run.targetCursorSeq),
     createFeedbackFallbackDedupeKey(run.conversationId, run.targetCursorSeq),
     createFeedbackFallbackAckDedupeKey(run.conversationId),
-    createFeedbackClosingDedupeKey(run.conversationId),
+    createFeedbackClosingDedupeKey(run.conversationId, run.targetCursorSeq),
+    createFeedbackClosingDedupeKey(
+      run.conversationId,
+      run.targetCursorSeq,
+      currentWorkRevision,
+    ),
   ]);
   const runOutbox = outbox.filter(
     (row, index) =>
@@ -96,9 +105,10 @@ export function toRunView({
   const runSimulatedSends = simulatedSends.filter((row) =>
     runOutboxIds.has(row.outboxId),
   );
-  const outboxFailed = runOutbox.some((row) =>
-    ["failed", "cancelled"].includes(row.status),
-  );
+  const outboxAmbiguous = runOutbox.some((row) => row.status === "ambiguous");
+  const outboxFailed =
+    outboxAmbiguous ||
+    runOutbox.some((row) => ["failed", "cancelled"].includes(row.status));
   const outboxMissing =
     currentCursorSeq >= run.targetCursorSeq && runOutbox.length === 0;
   const outboxSettled =
@@ -118,9 +128,9 @@ export function toRunView({
     conversationOpen:
       conversation?.lifecycle.state === "open" &&
       conversation.control.mode === "bot",
-    extractionActive: extractionJobs.active,
-    extractionPending: extractionJobs.pending,
-    extractionFailed: extractionJobs.failedReason !== null,
+    extractionActive: automation.active,
+    extractionPending: automation.pending,
+    extractionFailed: automation.failedReason !== null,
     outboxFailed,
     outboxMissing,
     outboxSettled,
@@ -136,10 +146,12 @@ export function toRunView({
     run.injectionError ??
     (failedMessages > 0
       ? "At least one injected message did not materialize into the selected conversation."
-      : extractionJobs.failedReason) ??
-    (outboxFailed
-      ? "The reply outbox created by this run failed or was cancelled before simulated delivery."
-      : null) ??
+      : automation.failedReason) ??
+    (outboxAmbiguous
+      ? "The reply outbox created by this run crossed the simulated provider boundary with an unknown outcome and was quarantined as ambiguous."
+      : outboxFailed
+        ? "The reply outbox created by this run failed or was cancelled before simulated delivery."
+        : null) ??
     (outboxMissing
       ? "Extraction advanced the run cursor without creating the expected reply outbox."
       : null) ??
@@ -164,7 +176,7 @@ export function toRunView({
     updatedAt: new Date().toISOString(),
     nextExtractionAt:
       finalStage === "waiting_quiet_window"
-        ? (extractionJobs.nextExtractionAt?.toISOString() ?? null)
+        ? (automation.nextExtractionAt?.toISOString() ?? null)
         : null,
     model: {
       expected: run.expectedModel,
@@ -207,6 +219,54 @@ export function toRunView({
     candidateBindings: [...run.candidateBindings],
     renderedMessages: [...run.renderedMessages],
     rubric: run.rubric,
+  };
+}
+
+/**
+ * Rehearsal progress from the same durable state the operator screen reads.
+ *
+ * BullMQ wake-ups are intentionally absent: retention can delete one and a
+ * missing enqueue is repaired from MongoDB. PostgreSQL's live lease is the
+ * only execution signal. A deterministic fallback is durable as an unresolved
+ * `extraction_failed` attention reason, so the runner can terminate instead of
+ * waiting forever for a failed V1 job that no longer exists.
+ */
+export function feedbackSimulatorDurableAutomation(input: {
+  readonly conversation: FeedbackConversationDocument | undefined;
+  readonly activeLease: { readonly claimExpiresAt: Date } | undefined;
+  readonly targetCursorSeq: number;
+}): {
+  readonly active: boolean;
+  readonly pending: boolean;
+  readonly failedReason: string | null;
+  readonly nextExtractionAt: Date | null;
+} {
+  const conversation = input.conversation;
+  if (!conversation) {
+    return {
+      active: false,
+      pending: false,
+      failedReason: null,
+      nextExtractionAt: null,
+    };
+  }
+
+  const unfinished = conversation.extraction.cursorSeq < input.targetCursorSeq;
+  const work = resolveFeedbackConversationWork(conversation.work);
+  const fallbackFailed =
+    unfinished &&
+    conversation.attentionReasons.some(
+      (reason) =>
+        reason.kind === "extraction_failed" && reason.resolvedAt === null,
+    );
+
+  return {
+    active: unfinished && input.activeLease !== undefined,
+    pending: unfinished && work.nextActionAt !== null,
+    failedReason: fallbackFailed
+      ? "The durable conversation entered deterministic extraction fallback."
+      : null,
+    nextExtractionAt: unfinished ? work.nextActionAt : null,
   };
 }
 

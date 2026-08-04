@@ -40,7 +40,7 @@ pnpm feedback:burst
 `pnpm feedback:burst` seeds six finished events, launches thirty-six concurrent
 post-event feedback conversations, and writes
 `report/feedback-burst-<timestamp>.html`. Default mode is the free deterministic
-stub (`FEEDBACK_EXTRACTION_STUB=true`); the frozen direct-OpenAI Terra treatment
+stub (`FEEDBACK_EXTRACTION_STUB=true`); the frozen direct-OpenAI Luna medium treatment
 needs `--profile prova --confirm-paid-run`. Qwen is a separately labelled
 `--comparison qwen` run; a free-form `--model` is rejected. It never cleans up.
 

@@ -44,6 +44,17 @@ export const FEEDBACK_CAMPAIGN_SUMMARY_TRIGGERS = [
 export type FeedbackCampaignSummaryTrigger =
   (typeof FEEDBACK_CAMPAIGN_SUMMARY_TRIGGERS)[number];
 
+export const FEEDBACK_MAINTENANCE_CHECKPOINT_TASKS = [
+  "conversation_due",
+  "ingress_pending",
+  "summary_auto",
+  "summary_pending",
+  "campaign_resume",
+] as const;
+
+export type FeedbackMaintenanceCheckpointTask =
+  (typeof FEEDBACK_MAINTENANCE_CHECKPOINT_TASKS)[number];
+
 export const FEEDBACK_ANSWER_QUESTION_KEYS = [
   "event_score",
   "table_fit",
@@ -93,6 +104,9 @@ export type MessageOutboxKind = (typeof MESSAGE_OUTBOX_KINDS)[number];
 export const MESSAGE_OUTBOX_STATUSES = [
   "pending",
   "held",
+  "claimed",
+  "attempting",
+  "ambiguous",
   "sending",
   "sent",
   "failed",
@@ -100,6 +114,83 @@ export const MESSAGE_OUTBOX_STATUSES = [
 ] as const;
 
 export type MessageOutboxStatus = (typeof MESSAGE_OUTBOX_STATUSES)[number];
+
+/**
+ * PostgreSQL execution fence for one Mongo-authoritative feedback conversation.
+ * It owns no product state; it only prevents a stale worker from committing
+ * relational effects after another worker has taken over the execution lease.
+ */
+export const feedbackConversationExecutions = pgTable(
+  "feedback_conversation_executions",
+  {
+    conversationId: uuid("conversation_id").primaryKey(),
+    epoch: integer("epoch").notNull().default(0),
+    workRevision: integer("work_revision").notNull().default(0),
+    leaseToken: uuid("lease_token"),
+    leaseUntil: timestamp("lease_until", {
+      withTimezone: true,
+      mode: "date",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    check(
+      "feedback_conversation_executions_epoch_check",
+      sql`${table.epoch} >= 0`,
+    ),
+    check(
+      "feedback_conversation_executions_work_revision_check",
+      sql`${table.workRevision} >= 0`,
+    ),
+    check(
+      "feedback_conversation_executions_lease_pair_check",
+      sql`(${table.leaseToken} is null) = (${table.leaseUntil} is null)`,
+    ),
+    index("feedback_conversation_executions_lease_until_idx").on(
+      table.leaseUntil,
+    ),
+  ],
+);
+
+/**
+ * Globally shared fairness cursors for bounded maintenance scans.
+ *
+ * These rows never prove that business work completed. They only allocate the
+ * next keyset page across worker replicas; MongoDB work revisions and campaign
+ * lifecycle remain the durable business authorities.
+ */
+export const feedbackMaintenanceCheckpoints = pgTable(
+  "feedback_maintenance_checkpoints",
+  {
+    task: text("task").$type<FeedbackMaintenanceCheckpointTask>().primaryKey(),
+    cursorAt: timestamp("cursor_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
+    cursorId: uuid("cursor_id"),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    check(
+      "feedback_maintenance_checkpoints_task_check",
+      sql`${table.task} in ('conversation_due', 'ingress_pending', 'summary_auto', 'summary_pending', 'campaign_resume')`,
+    ),
+    check(
+      "feedback_maintenance_checkpoints_cursor_shape_check",
+      sql`(${table.task} in ('conversation_due', 'ingress_pending', 'summary_pending', 'campaign_resume') and ((${table.cursorAt} is null and ${table.cursorId} is null) or (${table.cursorAt} is not null and ${table.cursorId} is not null))) or (${table.task} = 'summary_auto' and ${table.cursorAt} is null)`,
+    ),
+  ],
+);
 
 export const MESSAGE_OUTBOX_DELIVERY_STATUSES = [
   "error",
@@ -158,6 +249,19 @@ export const feedbackCampaigns = pgTable(
     questionSetVersion: integer("question_set_version").notNull(),
     questions: jsonb("questions").$type<FeedbackCampaignQuestions>().notNull(),
     status: text("status").notNull().default("launched"),
+    /**
+     * Monotonic identity of a campaign-wide resume request. PostgreSQL keeps
+     * this repair intent until MongoDB has admitted the same generation for
+     * every open conversation.
+     */
+    resumeGeneration: integer("resume_generation").notNull().default(0),
+    resumeAppliedGeneration: integer("resume_applied_generation")
+      .notNull()
+      .default(0),
+    resumeDueAt: timestamp("resume_due_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
     launchedAt: timestamp("launched_at", {
       withTimezone: true,
       mode: "date",
@@ -192,11 +296,22 @@ export const feedbackCampaigns = pgTable(
       "feedback_campaigns_launched_by_length_check",
       sql`char_length(btrim(${table.launchedBy})) between 1 and 200`,
     ),
+    check(
+      "feedback_campaigns_resume_generation_check",
+      sql`${table.resumeGeneration} >= 0 and ${table.resumeAppliedGeneration} >= 0 and ${table.resumeAppliedGeneration} <= ${table.resumeGeneration}`,
+    ),
+    check(
+      "feedback_campaigns_resume_intent_pair_check",
+      sql`(${table.resumeAppliedGeneration} < ${table.resumeGeneration}) = (${table.resumeDueAt} is not null)`,
+    ),
     uniqueIndex("feedback_campaigns_event_id_uidx").on(table.eventId),
     index("feedback_campaigns_status_launched_at_idx").on(
       table.status,
       table.launchedAt,
     ),
+    index("feedback_campaigns_resume_pending_idx")
+      .on(table.resumeDueAt, table.id)
+      .where(sql`${table.resumeDueAt} is not null`),
   ],
 );
 
@@ -217,6 +332,12 @@ export const feedbackCampaignSummaries = pgTable(
     trigger: text("trigger").notNull(),
     error: text("error"),
     attempt: integer("attempt").notNull(),
+    executionEpoch: integer("execution_epoch").notNull().default(0),
+    claimToken: uuid("claim_token"),
+    claimExpiresAt: timestamp("claim_expires_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
     openConversationCount: integer("open_conversation_count").notNull(),
     answerCount: integer("answer_count").notNull().default(0),
     noteCount: integer("note_count").notNull().default(0),
@@ -254,6 +375,18 @@ export const feedbackCampaignSummaries = pgTable(
       sql`${table.attempt} >= 1`,
     ),
     check(
+      "feedback_campaign_summaries_execution_epoch_check",
+      sql`${table.executionEpoch} >= 0`,
+    ),
+    check(
+      "feedback_campaign_summaries_claim_pair_check",
+      sql`(${table.claimToken} is null) = (${table.claimExpiresAt} is null)`,
+    ),
+    check(
+      "feedback_campaign_summaries_terminal_claim_check",
+      sql`${table.status} = 'pending' or (${table.claimToken} is null and ${table.claimExpiresAt} is null)`,
+    ),
+    check(
       "feedback_campaign_summaries_open_conversation_count_check",
       sql`${table.openConversationCount} >= 0`,
     ),
@@ -284,6 +417,9 @@ export const feedbackCampaignSummaries = pgTable(
     uniqueIndex("feedback_campaign_summaries_campaign_id_uidx").on(
       table.campaignId,
     ),
+    index("feedback_campaign_summaries_pending_recovery_idx")
+      .on(table.requestedAt, table.campaignId)
+      .where(sql`${table.status} = 'pending'`),
   ],
 );
 
@@ -603,6 +739,9 @@ export const providerMessageIngress = pgTable(
       table.processingStatus,
       table.ingressOrder,
     ),
+    index("provider_message_ingress_pending_recovery_idx")
+      .on(table.createdAt, table.id)
+      .where(sql`${table.processingStatus} = 'pending'`),
     index("provider_message_ingress_matched_conversation_idx").on(
       table.matchedConversationId,
     ),
@@ -634,6 +773,17 @@ export const messageOutbox = pgTable(
       withTimezone: true,
       mode: "date",
     }),
+    claimToken: uuid("claim_token"),
+    claimExpiresAt: timestamp("claim_expires_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
+    sendStartedAt: timestamp("send_started_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    lastError: text("last_error"),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
       .defaultNow()
       .notNull(),
@@ -657,7 +807,7 @@ export const messageOutbox = pgTable(
     ),
     check(
       "message_outbox_status_check",
-      sql`${table.status} in ('pending', 'held', 'sending', 'sent', 'failed', 'cancelled')`,
+      sql`${table.status} in ('pending', 'held', 'claimed', 'attempting', 'ambiguous', 'sending', 'sent', 'failed', 'cancelled')`,
     ),
     check(
       "message_outbox_dedupe_key_length_check",
@@ -679,6 +829,34 @@ export const messageOutbox = pgTable(
       "message_outbox_delivery_status_check",
       sql`${table.deliveryStatus} is null or ${table.deliveryStatus} in ('error', 'pending', 'sent', 'delivered', 'read', 'played')`,
     ),
+    check(
+      "message_outbox_claim_pair_check",
+      sql`${table.claimExpiresAt} is null or ${table.claimToken} is not null`,
+    ),
+    check(
+      "message_outbox_claimed_fields_check",
+      sql`${table.status} <> 'claimed' or (${table.claimToken} is not null and ${table.claimExpiresAt} is not null and ${table.sendStartedAt} is null)`,
+    ),
+    check(
+      "message_outbox_attempting_fields_check",
+      sql`${table.status} <> 'attempting' or (${table.claimToken} is not null and ${table.claimExpiresAt} is not null and ${table.sendStartedAt} is not null and ${table.attemptCount} >= 1)`,
+    ),
+    check(
+      "message_outbox_ambiguous_fields_check",
+      sql`${table.status} <> 'ambiguous' or (${table.claimExpiresAt} is null and ((${table.claimToken} is not null and ${table.sendStartedAt} is not null and ${table.attemptCount} >= 1) or (${table.claimToken} is null and ${table.sendStartedAt} is null and ${table.attemptCount} = 0 and ${table.lastError} = 'legacy_sending_cutover_ambiguous')))`,
+    ),
+    check(
+      "message_outbox_send_started_at_check",
+      sql`${table.sendStartedAt} is null or ${table.status} in ('attempting', 'ambiguous', 'sent', 'failed', 'cancelled')`,
+    ),
+    check(
+      "message_outbox_attempt_count_check",
+      sql`${table.attemptCount} >= 0`,
+    ),
+    check(
+      "message_outbox_last_error_length_check",
+      sql`${table.lastError} is null or char_length(btrim(${table.lastError})) between 1 and 2000`,
+    ),
     uniqueIndex("message_outbox_dedupe_key_uidx").on(table.dedupeKey),
     index("message_outbox_conversation_created_idx").on(
       table.conversationId,
@@ -692,6 +870,9 @@ export const messageOutbox = pgTable(
       table.status,
       table.createdAt,
     ),
+    index("message_outbox_dispatch_recovery_idx")
+      .on(table.status, table.claimExpiresAt, table.createdAt, table.id)
+      .where(sql`${table.status} in ('pending', 'claimed', 'attempting')`),
     // The history screen's own index. It reads the table as a log — newest
     // first, no status, walked by a `(created_at, id)` keyset and cut by a
     // `created_at` range — and the composite above cannot serve that, because
@@ -743,6 +924,10 @@ export const messageOutboxLog = pgTable(
 );
 
 export type FeedbackCampaignRow = typeof feedbackCampaigns.$inferSelect;
+export type FeedbackConversationExecutionRow =
+  typeof feedbackConversationExecutions.$inferSelect;
+export type FeedbackMaintenanceCheckpointRow =
+  typeof feedbackMaintenanceCheckpoints.$inferSelect;
 export type FeedbackCampaignSummaryRow =
   typeof feedbackCampaignSummaries.$inferSelect;
 export type FeedbackAnswerRow = typeof feedbackAnswers.$inferSelect;

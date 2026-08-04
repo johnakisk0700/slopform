@@ -457,7 +457,11 @@ const V2_SCENARIOS: readonly FeedbackScenario[] = [
     },
     script: [{ fails: "refuses" }],
     expectedJobFailures: [
-      { job: "feedback.extract.v1", kind: "refuses", count: 5 },
+      {
+        job: "feedback.reconcile-conversation.v2",
+        kind: "refuses",
+        count: 5,
+      },
     ],
     steps: [
       {

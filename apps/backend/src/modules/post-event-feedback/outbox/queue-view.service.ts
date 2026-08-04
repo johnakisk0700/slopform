@@ -1,22 +1,16 @@
-import { InjectQueue } from "@nestjs/bullmq";
 import { Injectable, Logger } from "@nestjs/common";
-import type { Queue } from "bullmq";
 import type { MessageOutboxLogRow } from "@join-the-six/database";
 
-import { FEEDBACK_QUEUE } from "../../../infrastructure/queue/queue.constants.js";
 import { ParticipantsRepository } from "../../participants/participants.repository.js";
 import { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
 import { displayNameFor } from "../inbox/conversation.view.js";
-import type { FeedbackJobData, FeedbackJobName } from "../jobs.schemas.js";
 import {
   decodeOutboxHistoryCursor,
   encodeOutboxHistoryCursor,
 } from "./history-cursor.js";
-import { inspectFeedbackDeliverJob } from "./inspect-deliver-job.js";
 import { FeedbackOutboundLogRepository } from "./outbound-log.repository.js";
 import {
   FEEDBACK_OUTBOX_QUEUE_VIEW_LIMIT,
-  FEEDBACK_OUTBOX_RECOVERY_MS,
   FeedbackOutboxRepository,
   type FeedbackOutboxHistoryFilter,
 } from "./outbox.repository.js";
@@ -43,21 +37,18 @@ export class FeedbackOutboxMessageNotFoundError extends Error {
  * the participant.
  *
  * It reports; it steers nothing. No method here writes a row, adds a job or
- * touches the relay, the delivery service or the extractor.
+ * touches a dispatcher, legacy delivery service or extractor.
  *
- * The load rule is the whole design. `listQueue` is polled and derives every
- * field from PostgreSQL plus one batched MongoDB read — never Redis. The single
- * queue lookup lives in `getMessageDelivery`, which serves one row an operator
- * deliberately opened, exactly as `getFeedbackConversation` may inspect the
- * extract job for the one conversation on screen.
+ * Every method derives its state from PostgreSQL plus bounded MongoDB identity
+ * reads. BullMQ is no longer part of this read model: an ephemeral job could
+ * not prove whether a provider attempt happened, while the dispatcher columns
+ * are the recovery protocol itself.
  */
 @Injectable()
 export class FeedbackOutboxQueueViewService {
   private readonly logger = new Logger(FeedbackOutboxQueueViewService.name);
 
   constructor(
-    @InjectQueue(FEEDBACK_QUEUE)
-    private readonly queue: Queue<FeedbackJobData, void, FeedbackJobName>,
     private readonly outbox: FeedbackOutboxRepository,
     private readonly outboundLogs: FeedbackOutboundLogRepository,
     private readonly conversations: FeedbackConversationRepository,
@@ -74,13 +65,24 @@ export class FeedbackOutboxQueueViewService {
       await this.respondentContext(rows);
 
     const pending = totals.get("pending") ?? 0;
+    const claimed = totals.get("claimed") ?? 0;
+    const attempting = totals.get("attempting") ?? 0;
+    const ambiguous = totals.get("ambiguous") ?? 0;
     const sending = totals.get("sending") ?? 0;
     const held = totals.get("held") ?? 0;
-    const total = pending + sending + held;
+    const total = pending + claimed + attempting + ambiguous + sending + held;
 
     return {
       observedAt: now.toISOString(),
-      counts: { pending, sending, held, total },
+      counts: {
+        pending,
+        claimed,
+        attempting,
+        ambiguous,
+        sending,
+        held,
+        total,
+      },
       truncated: total > rows.length,
       items: rows.map((entry): FeedbackOutboxQueueItemView => {
         const respondent = respondentByConversation.get(
@@ -116,7 +118,7 @@ export class FeedbackOutboxQueueViewService {
    * One page of the history: rows of any status matching the caller's filter,
    * newest first, each carrying the decision log's origin so the list already
    * answers «why was this written». Still PostgreSQL-only — origins arrive in
-   * one batched read, and the live job state stays with the opened row.
+   * one batched read and dispatch state lives on the outbox row itself.
    *
    * The page is read one row longer than the caller asked for. That extra row
    * is never returned; it exists only to answer «is there more», which is the
@@ -223,10 +225,10 @@ export class FeedbackOutboxQueueViewService {
   }
 
   /**
-   * One opened row: its durable status and timestamps, the live state of its
-   * delivery job, and the decision log that produced it when one exists.
+   * One opened row: its durable dispatch status and timestamps, plus the
+   * decision log that produced it when one exists.
    *
-   * Any status is accepted, not only the undelivered three. A row that reached
+   * Any status is accepted, not only the undelivered states. A row that reached
    * the participant between two polls of the list should answer with what
    * happened to it rather than a 404 that reads like a bug.
    */
@@ -240,9 +242,8 @@ export class FeedbackOutboxQueueViewService {
     }
     const row = entry.row;
 
-    const [job, logRow, { respondentByConversation, participantById }] =
+    const [logRow, { respondentByConversation, participantById }] =
       await Promise.all([
-        inspectFeedbackDeliverJob(this.queue, row.id),
         this.outboundLogs.findLogByOutboxId(outboxId),
         // The same batched pair the lists spend on a whole page, here for one
         // row. This is the deliberate path — an operator opened it — and it is
@@ -279,25 +280,13 @@ export class FeedbackOutboxQueueViewService {
       playedAt: row.playedAt?.toISOString() ?? null,
       providerLogId: row.providerLogId,
       providerMessageId: row.providerMessageId,
-      // The relay reclaims a `sending` row this long after its last update, so
-      // an operator staring at a job that never reported back can be told when
-      // recovery takes over instead of being left to guess.
-      reclaimAt:
-        row.status === "sending"
-          ? new Date(
-              row.updatedAt.getTime() + FEEDBACK_OUTBOX_RECOVERY_MS,
-            ).toISOString()
-          : null,
-      job: {
-        id: job.jobId,
-        state: job.state,
-        attemptsMade: job.attemptsMade,
-        attemptsAllowed: job.attemptsAllowed,
-        enqueuedAt: job.enqueuedAt?.toISOString() ?? null,
-        dueAt: job.dueAt?.toISOString() ?? null,
-        startedAt: job.startedAt?.toISOString() ?? null,
-        finishedAt: job.finishedAt?.toISOString() ?? null,
-        failedReason: job.failedReason,
+      dispatch: {
+        state:
+          row.status as FeedbackOutboxMessageDeliveryView["dispatch"]["state"],
+        claimExpiresAt: row.claimExpiresAt?.toISOString() ?? null,
+        sendStartedAt: row.sendStartedAt?.toISOString() ?? null,
+        attemptCount: row.attemptCount,
+        lastError: row.lastError,
       },
       log: this.readOutboundLog(logRow),
     };

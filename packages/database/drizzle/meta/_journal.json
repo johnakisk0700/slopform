@@ -176,6 +176,48 @@
       "when": 1785777185941,
       "tag": "20260803171305_assistant_turn_artifacts",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1785781192014,
+      "tag": "20260803181952_feedback_orchestration_fences",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1785784318143,
+      "tag": "20260803191158_feedback_summary_execution_fence",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1785789696640,
+      "tag": "20260803204136_feedback_campaign_resume_repair_intent",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1785790034287,
+      "tag": "20260803204714_feedback_maintenance_scan_checkpoints",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1785792385571,
+      "tag": "20260803212625_feedback_ingress_recovery_checkpoint",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1785793874855,
+      "tag": "20260803215114_feedback_maintenance_fairness_checkpoints",
+      "breakpoints": true
     }
   ]
 }

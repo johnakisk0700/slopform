@@ -9,8 +9,11 @@ import { createBullBoardAuthMiddleware } from "./bull-board-auth.middleware.js";
 import {
   ASSISTANT_QUEUE,
   EMAIL_QUEUE,
+  FEEDBACK_CONVERSATION_QUEUE,
   FEEDBACK_INGRESS_QUEUE,
+  FEEDBACK_MAINTENANCE_QUEUE,
   FEEDBACK_QUEUE,
+  FEEDBACK_SUMMARY_QUEUE,
   REFERENCE_QUEUE,
 } from "./queue.constants.js";
 import { QueueModule } from "./queue.module.js";
@@ -56,7 +59,7 @@ import { QueueModule } from "./queue.module.js";
       name: FEEDBACK_QUEUE,
       adapter: BullMQAdapter,
       options: {
-        description: "Post-event feedback extraction, relay and sweeps",
+        description: "Legacy post-event feedback V1 drain bridge",
         readOnlyMode: true,
       },
     }),
@@ -67,6 +70,30 @@ import { QueueModule } from "./queue.module.js";
         // Separate from the queue above so a backlog here is legible on sight:
         // anything waiting means inbound messages are not in the transcript yet.
         description: "Post-event feedback ingress materialization",
+        readOnlyMode: true,
+      },
+    }),
+    BullBoardModule.forFeature({
+      name: FEEDBACK_CONVERSATION_QUEUE,
+      adapter: BullMQAdapter,
+      options: {
+        description: "Current-state feedback conversation reconciliation",
+        readOnlyMode: true,
+      },
+    }),
+    BullBoardModule.forFeature({
+      name: FEEDBACK_SUMMARY_QUEUE,
+      adapter: BullMQAdapter,
+      options: {
+        description: "Post-event feedback campaign summaries",
+        readOnlyMode: true,
+      },
+    }),
+    BullBoardModule.forFeature({
+      name: FEEDBACK_MAINTENANCE_QUEUE,
+      adapter: BullMQAdapter,
+      options: {
+        description: "Feedback expiry and recovery maintenance",
         readOnlyMode: true,
       },
     }),

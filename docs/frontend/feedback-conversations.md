@@ -60,17 +60,21 @@ refreshes it after `POST /feedback/campaigns/:campaignId/summary` when staff
 explicitly request regeneration. It polls only while status is `pending`,
 renders the markdown body with `react-markdown` + `remark-gfm` (not the
 assistant renderer), and surfaces Generate / Refresh from the same status
-helpers in `campaignSummary.ts`.
+helpers in `campaignSummary.ts`. The control remains usable in a
+simulator-backed rehearsal: automatic summaries stay suppressed there, while
+this explicit staff request records a durable `manual` trigger and runs the
+separately billed summary model.
 
 | File                                         | Owns                                                                                                                                     |
 | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | `src/features/feedback/labels.ts`            | Status vocabulary: tones, badges, delivery precedence, note origin, D18                                                                  |
 | `src/features/feedback/conversationView.ts`  | Progress, badge rows, search folding, ordering, grouping, selection, message anchor ids                                                  |
-| `src/features/feedback/extractionStatus.ts`  | Greek copy for the detail-pane extraction block (unread, due time, failure, model)                                                       |
+| `src/features/feedback/extractionStatus.ts`  | Greek copy over durable conversation automation                                                                                          |
 | `src/features/feedback/answerCorrections.ts` | Which control a recorded answer gets, the «corrected by» line, the withdrawal wording                                                    |
 | `src/features/feedback/directedAnswers.ts`   | The three person-shaped questions as a group: tone per question, what contradicts what, who is left to add, and what recording will cost |
 | `src/features/feedback/campaignSummary.ts`   | Campaign summary status labels, Generate vs Refresh, partial-warning copy                                                                |
 | `src/features/feedback/staffClose.ts`        | Staff close reason vocabulary, confirm-dialog labels, the «Closed as …» summary line                                                     |
+| `src/features/feedback/staffMessageDraft.ts` | Staff and simulator draft identity across edits, successful settlement and unknown retries                                               |
 | `src/features/feedback/polling.ts`           | The U3 intervals and the stop-when-closed rule                                                                                           |
 | `src/features/feedback/simulator.ts`         | Zod schemas for the two dev-only simulator endpoints                                                                                     |
 | `src/lib/feedbackSimulator.ts`               | The dev simulator facade over the shared `ofetch` client                                                                                 |
@@ -113,6 +117,13 @@ flowchart LR
   straight into the conversation query with `setQueryData` before the list is
   invalidated, so the panes never show an optimistic guess about what an
   operator may do next.
+- **One exact composer draft has one client identity.** The staff composer sends
+  its UUID through the generated mutation; the development simulator sends the
+  same kind of stable identity as its inject idempotency key. Both keep the key
+  and text when a request fails or its outcome is unknown. An unchanged retry
+  therefore reaches the same durable intent. Editing creates a new identity;
+  success clears and rotates only the exact submitted draft, so a newer edit is
+  never erased by an older request settling late.
 - **Selection survives polling.** `resolveSelectedConversationId` keeps the
   operator's choice while it remains visible and only falls back to the first
   row when it disappears.
@@ -225,6 +236,13 @@ flowchart LR
   proves the rule: its failure renders **inside** its own dialog, because the
   operator's typed text is still on screen there and the transcript pane is
   behind the modal.
+- A failed staff send leaves its composer text and client UUID intact. The
+  operator can retry the same intent without creating a second WhatsApp row;
+  editing the draft deliberately creates a new intent instead.
+- A failed or unknown simulator inject likewise leaves its text and idempotency
+  key intact. A retry reuses the backend's provider-message identity and clears
+  only after the inject endpoint confirms the intent already exists or was
+  inserted.
 - The dev simulator's absence is the normal case in any non-simulated
   deployment: the probe fails quietly, the composer is not rendered, and no
   error is shown.
@@ -489,36 +507,56 @@ the profile's number has since changed, the card says so rather than quietly
 showing two different numbers for one person. An unresolved id (D18) has no
 record to fetch, so the query never runs for one and the card says why.
 
-### Extraction status
+### Reading and automation status
 
-A feedback conversation is read by a delayed background job, not on arrival,
+A feedback conversation is read after a durable quiet window, not on arrival,
 and `ReadingStatus` is the only place that says so. It renders at the end of
 the messages, inside the transcript's scroll, centred the way a read receipt
 ends a thread: «why has that answer not appeared yet» is a question about
 these messages, and it is answered directly under the message the answer would
-come from — the auto-scroll lands past it, so its tinted states are on screen
-exactly when a reply has just arrived. `getFeedbackConversation` publishes an
-`extraction` object; the list endpoint never touches Redis for this — anything
-shown on a row would have to come from data already loaded.
+come from.
+
+The read model reports conversation work, never a retained BullMQ job:
+
+```text
+automation {
+  state: idle | scheduled | running | parked
+  nextActionAt
+  revision
+  claimExpiresAt
+}
+```
+
+The extraction cursor, unread count, last run and model stay separate because
+they describe what was processed; `automation` describes what the aggregate
+currently owes. `parked` is the current recovery/failure signal rather than a
+historical failed-job flag. Claim tokens and execution epochs are private
+fencing material and never cross the HTTP boundary. Before interpreting an
+`idle` state, the component also reads the already-published conversation
+lifecycle, control mode and campaign status. Human control and a paused
+campaign are intentional stops; closed state forbids new work. None may be
+reported as a lost enqueue.
 
 It gets one line. Current reading is the normal case and the transcript is what
 the pane is for, so the normal case costs a single row of muted text and only a
 backlog or a failure takes a tinted block. The model id shows only when the
 reading is behind or has failed — that is when it explains something.
 
-| Field                       | Source                                                                       | What the screen may say                                            |
-| --------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| `unreadParticipantMessages` | Document alone (participant turns beyond `cursorSeq`)                        | «N μηνύματα δεν έχουν διαβαστεί ακόμα»                             |
-| `nextRunAt`                 | Earliest delayed extract job for an unread seq                               | «Επόμενη ανάγνωση 11:47» — a time, never a spinner                 |
-| `runInFlight` / `runQueued` | BullMQ `active` / waiting-or-delayed among those jobs                        | «Ανάγνωση σε εξέλιξη» / «Ανάγνωση στην ουρά»                       |
-| `lastRunFailed`             | Retained failed extract job, or a `deterministic_fallback` note while unread | «Η ανάγνωση απέτυχε · απάντησε η εναλλακτική διαδικασία»           |
-| `lastRunAt` / `model`       | Conversation document                                                        | Quiet provenance; a stub id is a different thing from a real model |
+| Field                       | Source                         | What the screen may say                                                   |
+| --------------------------- | ------------------------------ | ------------------------------------------------------------------------- |
+| `unreadParticipantMessages` | Extraction cursor + transcript | «N μηνύματα δεν έχουν διαβαστεί ακόμα»                                    |
+| `automation.nextActionAt`   | Durable conversation work      | «Επόμενη αυτόματη ενέργεια 11:47» — a time, never a spinner               |
+| `automation.state`          | Durable conversation work      | scheduled / running / parked / idle                                       |
+| `automation.claimExpiresAt` | Public claim deadline only     | «ενεργή ανάθεση έως 11:47» — not a claim that the worker process is alive |
+| `lastRunAt` / `model`       | Extraction facts               | Quiet provenance; a stub id is a different thing from a real model        |
 
-**No unresolving spinner.** A dead worker looks identical to a busy one; the
-pane states a time when there is one and failure as failure. When unread
-testimony exists but no job is retained, the schedule line is «Ώρα επόμενης
-ανάγνωσης άγνωστη» — retention removal, a lost enqueue and "already ran" are
-indistinguishable once the Redis row is gone, and inventing «έτοιμο» would lie.
+**No unresolving spinner.** A claim deadline is durable; worker liveness is not.
+Unread testimony with `automation.state = idle` is rendered as an invariant
+failure only while the conversation is open under bot control in a launched
+campaign. Under human control or campaign pause it is a labelled intentional
+stop; unread testimony after conversation/campaign close remains a danger
+because no later automated action may consume it. The generated DTO publishes
+`automation` directly; retained queue jobs are not a second status system.
 
 The line is a polite live region (`role="status"` / `aria-live="polite"`).
 Unread count and due time change under the reader as the quiet window runs;
@@ -791,11 +829,11 @@ width rather than in a right-hand column, the people as tinted pills on one
 wrapping line, one glyph per group — the new answer going through the generated
 hook from the D16 list, and the staff mark on an operator's own answer.
 
-The extraction-status pass adds `extractionStatusLines`: Greek unread wording,
-a due-time line rather than a spinner, failure named as failure with the
-fallback, «άγνωστο» when unread testimony has no retained job, that the block is
-a polite live region without an indefinite spinner, and that the transcript —
-not the page or a detail card — is what mounts it.
+The reading-status pass adds `readingStatusLines`: Greek unread wording, durable
+scheduled/running/parked/idle semantics, the public claim deadline without a
+liveness claim, and unread+idle as an invariant failure. It also asserts that
+the block is a polite live region without an indefinite spinner, and that the
+transcript — not the page or a detail card — is what mounts it.
 
 The venue-orientation pass pins the generated `useGetEvent` source, window-focus
 refresh, compact persisted venue under the campaign title, and the absence of
@@ -811,8 +849,8 @@ and CLOSED headings share), the respondent link and the soft accent chip from
 - [ADR 0008](../decisions/0008-post-event-feedback-conversations.md) — feedback
   conversations, directed results and human control
 - [Outbound queue](feedback-outbound-queue.md) — the sibling screen for messages
-  that have not reached the participant yet, and the same «άγνωστο» rule applied
-  to the delivery job
+  that have not reached the participant yet, including durable ambiguous-send
+  handling
 - [ADR 0009](../decisions/0009-generated-api-client.md) — generated admin API client
 - [`frontend.md`](../frontend.md) — admin conventions; [`theming.md`](theming.md) — tokens
 - [`backend/modules/post-event-feedback.md`](../backend/modules/post-event-feedback.md) — the campaign and conversation contracts

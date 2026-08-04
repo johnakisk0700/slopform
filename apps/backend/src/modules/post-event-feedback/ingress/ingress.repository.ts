@@ -6,7 +6,17 @@ import {
   type ProviderMessageIngressRow,
   type ProviderMessageProcessingStatus,
 } from "@join-the-six/database";
-import { and, asc, eq, isNull, lte, notInArray, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  gt,
+  isNull,
+  lte,
+  notInArray,
+  or,
+  sql,
+} from "drizzle-orm";
 
 import { DatabaseService } from "../../../infrastructure/database/database.service.js";
 
@@ -15,6 +25,11 @@ export const FEEDBACK_SWEEP_BATCH_SIZE = 50;
 export interface FeedbackIngressSerializationKey {
   readonly phoneE164: string | null;
   readonly chatJid: string;
+}
+
+export interface FeedbackPendingIngressCursor {
+  readonly createdAt: Date;
+  readonly ingressId: string;
 }
 
 /**
@@ -243,17 +258,30 @@ export class FeedbackIngressRepository {
    * re-enqueues under the same stable job id.
    */
   async listPendingIngressOlderThan(
-    olderThan: Date,
-    limit = FEEDBACK_SWEEP_BATCH_SIZE,
+    input: {
+      readonly olderThan: Date;
+      readonly limit?: number;
+      readonly after?: FeedbackPendingIngressCursor;
+    },
     executor: DatabaseExecutor = this.database.db,
   ): Promise<ProviderMessageIngressRow[]> {
+    const limit = input.limit ?? FEEDBACK_SWEEP_BATCH_SIZE;
     return executor
       .select()
       .from(providerMessageIngress)
       .where(
         and(
           eq(providerMessageIngress.processingStatus, "pending"),
-          lte(providerMessageIngress.createdAt, olderThan),
+          lte(providerMessageIngress.createdAt, input.olderThan),
+          input.after
+            ? or(
+                gt(providerMessageIngress.createdAt, input.after.createdAt),
+                and(
+                  eq(providerMessageIngress.createdAt, input.after.createdAt),
+                  gt(providerMessageIngress.id, input.after.ingressId),
+                ),
+              )
+            : undefined,
         ),
       )
       .orderBy(

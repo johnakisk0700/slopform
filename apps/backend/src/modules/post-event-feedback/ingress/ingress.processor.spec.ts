@@ -24,6 +24,7 @@ import {
 import { PostEventFeedbackIngressNotFoundError } from "./materialize.service.js";
 import type { PostEventFeedbackMaterializationCoordinator } from "./materialization-coordinator.service.js";
 import { PostEventFeedbackIngressService } from "./ingress.service.js";
+import { FeedbackMaterializeWakeupService } from "./materialize-wakeup.service.js";
 
 const ingressId = "b1c9e0a4-2c65-4a29-9a2e-2d0a3f2e1b77";
 const conversationId = "6f0f2f8a-2b73-5a02-9d0a-3f0b8f5b1c21";
@@ -44,16 +45,28 @@ const validData = {
  * so it guards the structural fact that prevents it instead.
  */
 describe("feedback ingress queue separation", () => {
-  it.each([
-    ["the webhook edge", PostEventFeedbackIngressService],
-    ["ingress recovery", PostEventFeedbackSweepService],
-  ])("enqueues materialization off the model-call queue from %s", (_, type) => {
-    const declared = (Reflect.getMetadata(SELF_DECLARED_DEPS_METADATA, type) ??
-      []) as readonly { param: unknown }[];
+  it("routes webhook and recovery enqueue through the dedicated ingress wake-up boundary", () => {
+    const declared = (Reflect.getMetadata(
+      SELF_DECLARED_DEPS_METADATA,
+      FeedbackMaterializeWakeupService,
+    ) ?? []) as readonly { param: unknown }[];
     const tokens = declared.map((dependency) => dependency.param);
 
     expect(tokens).toContain(getQueueToken(FEEDBACK_INGRESS_QUEUE));
     expect(tokens).not.toContain(getQueueToken(FEEDBACK_QUEUE));
+
+    for (const caller of [
+      PostEventFeedbackIngressService,
+      PostEventFeedbackSweepService,
+    ]) {
+      const callerDependencies = (Reflect.getMetadata(
+        SELF_DECLARED_DEPS_METADATA,
+        caller,
+      ) ?? []) as readonly { param: unknown }[];
+      expect(callerDependencies.map(({ param }) => param)).not.toContain(
+        getQueueToken(FEEDBACK_INGRESS_QUEUE),
+      );
+    }
   });
 
   it("keeps the two queues distinct", () => {

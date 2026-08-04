@@ -3,6 +3,7 @@ export const QUEUE_PRODUCER_CONFIG = "jts-producer";
 export const QUEUE_WORKER_CONFIG = "jts-worker";
 export const ASSISTANT_QUEUE = "assistant";
 export const EMAIL_QUEUE = "email-delivery";
+/** Legacy feedback topology retained only during the bridge rollout. */
 export const FEEDBACK_QUEUE = "feedback";
 /**
  * Materialization only, separated from `FEEDBACK_QUEUE` on 2026-07-27.
@@ -20,6 +21,12 @@ export const FEEDBACK_QUEUE = "feedback";
  * 99% full of model calls does not deliver that, however small the job is.
  */
 export const FEEDBACK_INGRESS_QUEUE = "feedback-ingress";
+/** One current-state reconciliation job per conversation revision. */
+export const FEEDBACK_CONVERSATION_QUEUE = "feedback-conversation";
+/** Campaign-level model work, isolated from conversation throughput. */
+export const FEEDBACK_SUMMARY_QUEUE = "feedback-summary";
+/** Cheap periodic recovery and expiry scans. */
+export const FEEDBACK_MAINTENANCE_QUEUE = "feedback-maintenance";
 export const REFERENCE_QUEUE = "reference";
 
 export const OUTBOX_RELAY_JOB_OPTIONS = {

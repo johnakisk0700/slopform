@@ -328,7 +328,7 @@ describe("resolveOutbound", () => {
 
     expect(outbound).toEqual({
       body: copy.closing,
-      dedupeKey: "feedback-closing-conv-1",
+      dedupeKey: "feedback-closing-conv-1-5",
     });
   });
 
@@ -364,7 +364,7 @@ describe("resolveOutbound", () => {
 
     expect(outbound).toEqual({
       body: copy.closing_after_safety,
-      dedupeKey: "feedback-closing-conv-1",
+      dedupeKey: "feedback-closing-conv-1-5",
     });
   });
 
@@ -435,6 +435,8 @@ describe("resolveOutbound", () => {
 
     expect(outbound).toMatchObject({
       body: "Δίκαιο — το ερωτηματολόγιο μόλις έφαγε πόρτα 😅",
+      dedupeKey: "feedback-reply-conv-1-5",
+      generatedByModel: true,
     });
   });
 
@@ -485,6 +487,28 @@ describe("resolveOutbound", () => {
     expect(outbound).not.toHaveProperty("askedGoal");
   });
 
+  it("does not mistake a 'φτάνει πια' bow-out for a sufficiency ask", () => {
+    const outbound = resolveOutbound(
+      conversationWithScoreOpen,
+      validated({
+        nextGoal: "event_score",
+        reply: "Φτάνει πια, δεν θα σε ζαλίσω άλλο.",
+      }),
+      false,
+      false,
+      4,
+      copy,
+      noRecordedUpdates,
+    );
+
+    expect(outbound).toEqual({
+      body: "Φτάνει πια, δεν θα σε ζαλίσω άλλο.",
+      dedupeKey: "feedback-reply-conv-1-4",
+      generatedByModel: true,
+    });
+    expect(outbound).not.toHaveProperty("askedGoal");
+  });
+
   it("marks the goal asked when the bot asks in the imperative, without a question mark", () => {
     // Verbatim from the last rehearsal. Six of the eight punctuation-free
     // questions it produced were shaped like this, and reading them as
@@ -508,6 +532,27 @@ describe("resolveOutbound", () => {
         ),
       ).toHaveProperty("askedGoal", "event_score");
     }
+  });
+
+  it("marks the goal asked when the bot says that one number is sufficient", () => {
+    const reply = "Ένα νούμερο 1 ως 5 φτάνει, και τελειώσαμε 🙂";
+
+    expect(
+      resolveOutbound(
+        conversationWithScoreOpen,
+        validated({ nextGoal: "event_score", reply }),
+        false,
+        false,
+        4,
+        copy,
+        noRecordedUpdates,
+      ),
+    ).toEqual({
+      body: reply,
+      dedupeKey: "feedback-reply-conv-1-4",
+      generatedByModel: true,
+      askedGoal: "event_score",
+    });
   });
 
   it("keeps the model's reply under a safety signal even when nextGoal is unset", () => {
@@ -715,7 +760,7 @@ describe("withCampaignReaskCap", () => {
     ).toEqual({ outbound: inItsOwnWords, stalledOnMessageId: null });
   });
 
-  it("does not count the reminder sweep's nudge, which quotes the question inside its own copy", () => {
+  it("does not count the planner's reminder nudge, which quotes the question inside its own copy", () => {
     // `reminder_followup` restates the open question inside a wrapper, so the
     // campaign copy is a substring of it and never equal to it. Counting by
     // substring would spend a rung of the cap on a message that is not this
@@ -736,7 +781,7 @@ describe("withCampaignReaskCap", () => {
     // question this path could ask a third time.
     const closing = {
       body: copy.closing,
-      dedupeKey: "feedback-closing-conv-1",
+      dedupeKey: "feedback-closing-conv-1-1",
     };
 
     expect(

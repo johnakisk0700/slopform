@@ -6,9 +6,10 @@ import { correlationIdSchema } from "../../infrastructure/auth/auth.schemas.js";
 import { FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH } from "./post-event-feedback-conversation.document.js";
 
 /**
- * Versioned `feedback` queue contract. Both payloads are identifier-only: the
- * processor reloads every authoritative fact from PostgreSQL and MongoDB, so a
- * job never carries participant text, phone numbers or provider credentials.
+ * Versioned feedback queue contracts. Payloads are identifier-only: processors
+ * reload authoritative PostgreSQL/MongoDB state, so jobs never carry
+ * participant text, phone numbers or provider credentials. V1 names remain for
+ * rolling-deploy drain; steady state is materialize V1 plus the three V2 names.
  */
 export const FEEDBACK_JOB_NAMES = {
   materializeV1: "feedback.materialize.v1",
@@ -19,9 +20,13 @@ export const FEEDBACK_JOB_NAMES = {
   sweepExpiryV1: "feedback.sweep-expiry.v1",
   sweepIngressV1: "feedback.sweep-ingress.v1",
   summarizeCampaignV1: "feedback.summarize-campaign.v1",
+  reconcileConversationV2: "feedback.reconcile-conversation.v2",
+  summarizeCampaignV2: "feedback.summarize-campaign.v2",
+  maintenanceV2: "feedback.maintenance.v2",
 } as const;
 
 export const FEEDBACK_JOB_SCHEMA_VERSION = 1;
+export const FEEDBACK_JOB_SCHEMA_VERSION_V2 = 2;
 
 export const feedbackMaterializeJobDataSchema = z
   .object({
@@ -75,6 +80,31 @@ export const feedbackSummarizeCampaignJobDataSchema = z
   })
   .strict();
 
+export const feedbackReconcileConversationJobDataSchema = z
+  .object({
+    schemaVersion: z.literal(FEEDBACK_JOB_SCHEMA_VERSION_V2),
+    conversationId: z.uuid(),
+    revision: z.number().int().nonnegative(),
+    correlationId: correlationIdSchema,
+  })
+  .strict();
+
+export const feedbackSummarizeCampaignV2JobDataSchema = z
+  .object({
+    schemaVersion: z.literal(FEEDBACK_JOB_SCHEMA_VERSION_V2),
+    campaignId: z.uuid(),
+    attempt: z.number().int().positive(),
+    correlationId: correlationIdSchema,
+  })
+  .strict();
+
+export const feedbackMaintenanceJobDataSchema = z
+  .object({
+    schemaVersion: z.literal(FEEDBACK_JOB_SCHEMA_VERSION_V2),
+    correlationId: correlationIdSchema,
+  })
+  .strict();
+
 export type FeedbackMaterializeJobData = z.infer<
   typeof feedbackMaterializeJobDataSchema
 >;
@@ -89,13 +119,25 @@ export type FeedbackSweepJobData = z.infer<typeof feedbackSweepJobDataSchema>;
 export type FeedbackSummarizeCampaignJobData = z.infer<
   typeof feedbackSummarizeCampaignJobDataSchema
 >;
+export type FeedbackReconcileConversationJobData = z.infer<
+  typeof feedbackReconcileConversationJobDataSchema
+>;
+export type FeedbackSummarizeCampaignV2JobData = z.infer<
+  typeof feedbackSummarizeCampaignV2JobDataSchema
+>;
+export type FeedbackMaintenanceJobData = z.infer<
+  typeof feedbackMaintenanceJobDataSchema
+>;
 export type FeedbackJobData =
   | FeedbackMaterializeJobData
   | FeedbackExtractJobData
   | FeedbackRelayJobData
   | FeedbackDeliverJobData
   | FeedbackSweepJobData
-  | FeedbackSummarizeCampaignJobData;
+  | FeedbackSummarizeCampaignJobData
+  | FeedbackReconcileConversationJobData
+  | FeedbackSummarizeCampaignV2JobData
+  | FeedbackMaintenanceJobData;
 export type FeedbackJobName =
   (typeof FEEDBACK_JOB_NAMES)[keyof typeof FEEDBACK_JOB_NAMES];
 
@@ -104,7 +146,7 @@ export function createFeedbackMaterializeJobId(ingressId: string): string {
 }
 
 /**
- * How long an extraction run waits before it reads the transcript.
+ * How long a conversation stays quiet before reconciliation may extract.
  *
  * WhatsApp is typed, not dictated: one thought routinely arrives as «τον Νίκο
  * τον βρήκα» / «πολύ καλό, 5». Answering the first fragment costs a model call,
@@ -112,41 +154,16 @@ export function createFeedbackMaterializeJobId(ingressId: string): string {
  * without its own beginning. Waiting is the whole fix — the run then opens on a
  * finished thought.
  *
- * It is a leading-edge window, not a rolling debounce: the first message starts
- * the clock and everything typed inside it collapses into one run. A rolling
- * timer would need `remove` + re-`add`, which races an already-active job for a
- * case the fixed window mostly covers anyway.
- *
- * That shape sets the value. Collapse depends on how long the burst takes, not
- * on how many messages it contains, so a window shorter than an ordinary typing
- * pause collapses nothing: at 12s, somebody sending a fragment every 20 seconds
- * opened a run — and got a reply — for every single one. 45s covers ordinary
- * WhatsApp typing. Somebody composing for two minutes still splits, which is
- * inherent to a fixed window and accepted; latency here is free, so the value
- * can rise again if real traffic says it should.
- *
- * The delay costs nothing in correctness. The run reads the transcript live and
- * a superseded job already has a free exit through the extraction cursor, so a
- * later position simply finds its work done. It also makes STOP cheaper: STOP is
- * applied by the materializer and closes the conversation, and a waiting run
- * then exits on `skipped_closed` without ever calling the provider.
+ * It is a rolling debounce. Every participant append atomically increments the
+ * MongoDB work revision and replaces `nextActionAt` with this delay from the
+ * newest observed message. Old BullMQ wake-ups are not removed; their revision
+ * simply fails the begin compare-and-set. This avoids remove/re-add races and
+ * buys one call after a slow typist actually stops, not one per pause.
  */
 export const FEEDBACK_EXTRACT_QUIET_WINDOW_MS = 45_000;
 
 /**
- * Extraction is serialized per conversation by transcript position, so a burst
- * of inbound messages collapses onto the newest transcript state instead of
- * queueing one model run per message.
- */
-export function createFeedbackExtractJobId(
-  conversationId: string,
-  latestSeq: number,
-): string {
-  return `feedback-extract-v1-${conversationId}-${latestSeq}`;
-}
-
-/**
- * How long a run parked on a provider incident waits before trying again.
+ * How long a provider-parked conversation waits before reconciliation retries.
  *
  * The queue's own ladder is five attempts of exponential backoff from one
  * second, so it is spent inside twenty seconds — long enough for a blip,
@@ -160,43 +177,25 @@ export function createFeedbackExtractJobId(
  * topping up an account, a provider recovering, a model id corrected on a
  * deploy. All of those are minutes, so retrying faster only bills failures. It
  * also has to be comfortably shorter than
- * `FEEDBACK_EXTRACTION_PARK_NOTICE_AFTER_MS`, because a parked run waking up is
- * what notices that the participant is owed a word.
+ * `FEEDBACK_EXTRACTION_PARK_NOTICE_AFTER_MS`, because reconciliation is what
+ * notices that the participant is owed a word.
  */
 export const FEEDBACK_EXTRACTION_PARK_RETRY_MS = 5 * 60_000;
 
 /**
- * How long a conversation keeps re-queueing before it stops asking.
+ * How long reconciliation keeps scheduling provider recovery before it stops.
  *
  * A ceiling, not a diagnosis. Six hours of five-minute retries is roughly
  * seventy attempts, which is long enough to cover any outage somebody is
  * actually working on and short enough that a misconfigured model id does not
  * bill a request every five minutes for a week. It is well inside
- * `FEEDBACK_EXPIRE_AFTER_HOURS`, so the expiry sweep is not racing it.
+ * `FEEDBACK_EXPIRE_AFTER_HOURS`, so expiry planning is not racing it.
  *
  * Reaching it changes nothing the participant can see: the conversation stays
  * parked and stays in the campaign's parked count, which is the number an
- * operator reads. It stops only the re-queueing.
+ * operator reads. It stops only the provider-retry schedule.
  */
 export const FEEDBACK_EXTRACTION_PARK_MAX_MS = 6 * 3_600_000;
-
-/**
- * The retry a parked run queues for itself.
- *
- * A separate id from the run that parked, because that one is *this* job: BullMQ
- * refuses a second `add` for an id it still holds, and it holds this one until
- * the failure that is about to be thrown. The park counter is what keeps
- * successive retries distinct, and it is stored on the conversation, so the
- * inbox can derive the id of the retry currently outstanding and report its due
- * time honestly instead of showing a conversation that failed and stopped.
- */
-export function createFeedbackExtractParkedJobId(
-  conversationId: string,
-  latestSeq: number,
-  parkedRun: number,
-): string {
-  return `feedback-extract-v1-${conversationId}-${latestSeq}-parked-${parkedRun}`;
-}
 
 /** Stable deliver job key: the outbox row id is the durable idempotency token. */
 export function createFeedbackDeliverJobId(outboxId: string): string {
@@ -209,6 +208,20 @@ export function createFeedbackSummarizeCampaignJobId(
   attempt: number,
 ): string {
   return `feedback-summarize-v1-${campaignId}-${attempt}`;
+}
+
+export function createFeedbackReconcileConversationJobId(
+  conversationId: string,
+  revision: number,
+): string {
+  return `feedback-reconcile-v2-${conversationId}-${revision}`;
+}
+
+export function createFeedbackSummarizeCampaignV2JobId(
+  campaignId: string,
+  attempt: number,
+): string {
+  return `feedback-summarize-v2-${campaignId}-${attempt}`;
 }
 
 export function parseFeedbackSummarizeCampaignAttempt(

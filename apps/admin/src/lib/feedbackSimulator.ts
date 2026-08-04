@@ -64,6 +64,8 @@ export function useFeedbackSimulatorThread(
 export interface InjectSimulatorMessageVariables {
   phoneE164: string;
   text: string;
+  /** Stable identity for safe retries of one exact simulator draft. */
+  idempotencyKey: string;
   /** `true` injects an operator-side outbound with no outbox row (D7). */
   fromMe?: boolean;
 }
@@ -82,6 +84,7 @@ export function useInjectFeedbackSimulatorMessage() {
           phoneE164: variables.phoneE164,
           text: variables.text,
           fromMe: variables.fromMe ?? false,
+          idempotencyKey: variables.idempotencyKey,
         },
       });
       return simulatorInjectResponseSchema.parse(response);

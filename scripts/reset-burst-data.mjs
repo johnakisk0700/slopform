@@ -29,6 +29,8 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { resolveFeedbackBurstQueueNames } from "./feedback-burst-queues.mjs";
+
 const repositoryRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
@@ -87,6 +89,7 @@ async function main() {
     union all select 'feedback_answer_withdrawals', count(*)::int from feedback_answer_withdrawals where campaign_id in (${scope.campaignIdsSql})
     union all select 'feedback_answers', count(*)::int from feedback_answers where campaign_id in (${scope.campaignIdsSql})
     union all select 'feedback_campaign_summaries', count(*)::int from feedback_campaign_summaries where campaign_id in (${scope.campaignIdsSql})
+    union all select 'feedback_conversation_executions', count(*)::int from feedback_conversation_executions where conversation_id in (${scope.conversationIdsSql})
     union all select 'feedback_notes', count(*)::int from feedback_notes where campaign_id in (${scope.campaignIdsSql})
     union all select 'message_outbox', count(*)::int from message_outbox where campaign_id in (${scope.campaignIdsSql})
     union all select 'message_outbox_log', count(*)::int from message_outbox_log where campaign_id in (${scope.campaignIdsSql})
@@ -142,6 +145,7 @@ async function main() {
     delete from feedback_answer_withdrawals where campaign_id in (${scope.campaignIdsSql});
     delete from feedback_answers where campaign_id in (${scope.campaignIdsSql});
     delete from feedback_campaign_summaries where campaign_id in (${scope.campaignIdsSql});
+    delete from feedback_conversation_executions where conversation_id in (${scope.conversationIdsSql});
     delete from feedback_notes where campaign_id in (${scope.campaignIdsSql});
     delete from feedback_sim_outbound where ${scope.simOutboundPredicate};
     delete from message_outbox_log where campaign_id in (${scope.campaignIdsSql});
@@ -170,6 +174,7 @@ export function resolveResetScope(arguments_) {
     return {
       label: "all local post-event feedback",
       campaignIdsSql: ALL_FEEDBACK_CAMPAIGN_IDS,
+      conversationIdsSql: `select distinct conversation_id from message_outbox where campaign_id in (${ALL_FEEDBACK_CAMPAIGN_IDS})`,
       simOutboundPredicate: "true",
       ingressPredicate: "true",
       mongoFilter: '{purpose:"post_event_feedback"}',
@@ -182,6 +187,7 @@ export function resolveResetScope(arguments_) {
   return {
     label: "scoped to the reserved phone block",
     campaignIdsSql: BURST_CAMPAIGN_IDS,
+    conversationIdsSql: `select distinct conversation_id from message_outbox where campaign_id in (${BURST_CAMPAIGN_IDS})`,
     simOutboundPredicate: `phone_e164 like '${RESERVED_PHONE_PREFIX}%'`,
     ingressPredicate: `phone_e164 like '${RESERVED_PHONE_PREFIX}%'`,
     mongoFilter: `{phoneAtLaunch:{$gte:${JSON.stringify(RESERVED_PHONE_PREFIX)},$lt:${JSON.stringify(RESERVED_PHONE_UPPER_BOUND)}}}`,
@@ -226,9 +232,9 @@ export function classifyResetQueueJobs(jobs) {
 }
 
 /**
- * Both feedback queues, named and prefixed from the backend so they read the
- * app's key space. Materialization lives on its own queue, so a run leaves
- * residue in two places.
+ * Every queue on the burst conversation path, named and prefixed from the
+ * backend so reset reads the application's key space rather than duplicating
+ * queue names here.
  */
 async function openFeedbackQueues() {
   const redisUrl = String(process.env.REDIS_URL ?? "").trim();
@@ -239,7 +245,7 @@ async function openFeedbackQueues() {
     path.join(repositoryRoot, "apps/backend/package.json"),
   );
   const { Queue } = backendRequire("bullmq");
-  const { FEEDBACK_INGRESS_QUEUE, FEEDBACK_QUEUE, QUEUE_PREFIX } = await import(
+  const queueConstants = await import(
     path.join(
       repositoryRoot,
       "apps/backend/dist/infrastructure/queue/queue.constants.js",
@@ -253,8 +259,9 @@ async function openFeedbackQueues() {
     ...(url.password ? { password: decodeURIComponent(url.password) } : {}),
     maxRetriesPerRequest: 1,
   };
-  return [FEEDBACK_QUEUE, FEEDBACK_INGRESS_QUEUE].map(
-    (name) => new Queue(name, { prefix: QUEUE_PREFIX, connection }),
+  return resolveFeedbackBurstQueueNames(queueConstants).map(
+    (name) =>
+      new Queue(name, { prefix: queueConstants.QUEUE_PREFIX, connection }),
   );
 }
 

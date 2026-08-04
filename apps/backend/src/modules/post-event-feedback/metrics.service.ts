@@ -18,6 +18,8 @@ export const FEEDBACK_EXTRACT_OUTCOMES = [
   "skipped_human_control",
   /** Promised a human, or read something the bot must not answer. */
   "skipped_awaiting_human",
+  "skipped_campaign_inactive",
+  "skipped_consent_withdrawn",
   "skipped_cursor",
   /** The burst is still going; the run queued behind this one will read it. */
   "skipped_still_typing",

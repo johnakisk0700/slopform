@@ -147,6 +147,11 @@ interface CampaignContextProps {
  * kind of question. The summary keeps the only frame on this band; a second
  * border around the venue would make two cards out of one thought.
  *
+ * One line on both ends, at the same size and the same muted weight. The venue
+ * used to be a two-line block here, so `items-center` centred a 42px stack
+ * against a 20px row and neither end agreed with the other; `VenueCompact` is
+ * now a single line and the two share a centre line exactly.
+ *
  * Nothing at all when there is no venue and no exception: a launched campaign
  * with everything running states itself with silence, and the transcript gets
  * the row back.

@@ -31,8 +31,9 @@ import {
   getPostEventFeedbackQuestionSet,
   renderPostEventFeedbackCopy,
   resolveCampaignCopy,
-  type PostEventFeedbackQuestionSetCopy,
 } from "../question-set.js";
+import { FeedbackConversationWakeupService } from "../reconciliation/wakeup.service.js";
+import { FeedbackCampaignResumeRepairService } from "./resume-repair.service.js";
 
 export class FeedbackCampaignNotFoundError extends Error {
   constructor(id: string) {
@@ -72,7 +73,7 @@ export class FeedbackCampaignParticipantNotEligibleError extends Error {
 /**
  * Staff-facing campaign application service (WP7). Owns launch, the pause /
  * resume / close kill switch, and the D17 start-conversation action. Outbound
- * intro rows go through `message_outbox`; WP6's relay sends them.
+ * intro rows go through `message_outbox`; the direct dispatcher sends them.
  */
 @Injectable()
 export class PostEventFeedbackCampaignService {
@@ -87,6 +88,8 @@ export class PostEventFeedbackCampaignService {
     private readonly audit: AuditRepository,
     private readonly outboundTranscript: FeedbackOutboundTranscriptService,
     private readonly outboundLog: FeedbackOutboundLogService,
+    private readonly wakeups: FeedbackConversationWakeupService,
+    private readonly resumeRepairs: FeedbackCampaignResumeRepairService,
   ) {}
 
   async get(campaignId: string): Promise<FeedbackCampaignView> {
@@ -195,11 +198,6 @@ export class PostEventFeedbackCampaignService {
           });
           return created;
         });
-    const copy = resolveCampaignCopy(
-      campaign.questions,
-      campaign.questionSetVersion,
-    );
-
     // One attendee's phone conflict must not abandon the launch. The partial
     // unique index allows a single open conversation per number, so a stale row
     // — or two attendees sharing a handset — used to throw out of this loop and
@@ -213,9 +211,8 @@ export class PostEventFeedbackCampaignService {
       let result;
       try {
         result = await this.ensureConversationAndIntro({
-          campaign,
+          campaignId: campaign.id,
           attendee,
-          copy,
           launchedAt,
           actorId,
           requestId,
@@ -282,13 +279,20 @@ export class PostEventFeedbackCampaignService {
     actorId: string,
     requestId: string,
   ): Promise<FeedbackCampaignView> {
-    const campaign = await this.requireCampaign(campaignId);
-    if (campaign.status === "closed") {
-      const summaries = await this.conversations.listForCampaign(campaign.id);
-      return toCampaignView(campaign, summaries.length, 0);
-    }
-
     const updated = await this.database.transaction(async (transaction) => {
+      // Status validation belongs under the row lock. A pause/resume request
+      // that read an older state must never overwrite a close that committed
+      // while it was waiting for this transaction.
+      const campaign = await this.campaigns.findCampaignByIdForUpdate(
+        transaction,
+        campaignId,
+      );
+      if (!campaign) {
+        throw new FeedbackCampaignNotFoundError(campaignId);
+      }
+      if (campaign.status === "closed") {
+        return campaign;
+      }
       const next = await this.campaigns.updateCampaignStatus(
         transaction,
         campaign.id,
@@ -297,10 +301,20 @@ export class PostEventFeedbackCampaignService {
       if (!next) {
         throw new FeedbackCampaignNotFoundError(campaignId);
       }
+      // STOP and campaign close share this campaign row lock. If STOP wins,
+      // MongoDB already names the one acknowledgement that remains owed; if
+      // close wins, its cancellation commits before STOP can insert anything.
+      // Either order preserves exactly the anchored row and no generic system
+      // message exception leaks through the kill switch.
+      const preservedStopAcknowledgements =
+        await this.conversations.listStopTerminalOutboxIdsForCampaign(
+          campaign.id,
+        );
       const cancelledOutboxCount =
         await this.outbox.cancelQueuedOutboxForCampaign(
           transaction,
           campaign.id,
+          preservedStopAcknowledgements,
         );
       await this.audit.append(transaction, {
         actorType: "admin",
@@ -351,14 +365,9 @@ export class PostEventFeedbackCampaignService {
       );
     }
 
-    const snapshot = resolveCampaignCopy(
-      campaign.questions,
-      campaign.questionSetVersion,
-    );
     const result = await this.ensureConversationAndIntro({
-      campaign,
+      campaignId: campaign.id,
       attendee,
-      copy: snapshot,
       launchedAt: new Date(),
       actorId,
       requestId,
@@ -382,22 +391,28 @@ export class PostEventFeedbackCampaignService {
     actorId: string,
     requestId: string,
   ): Promise<FeedbackCampaignView> {
-    const campaign = await this.requireCampaign(campaignId);
-    if (campaign.status === "closed") {
-      throw new FeedbackCampaignMutationNotAllowedError(
-        "A closed campaign cannot change status",
-      );
-    }
-    if (campaign.status === to) {
-      const summaries = await this.conversations.listForCampaign(campaign.id);
-      return toCampaignView(campaign, summaries.length, 0);
-    }
-
+    const resumeDueAt = to === "launched" ? new Date() : undefined;
     const updated = await this.database.transaction(async (transaction) => {
+      const campaign = await this.campaigns.findCampaignByIdForUpdate(
+        transaction,
+        campaignId,
+      );
+      if (!campaign) {
+        throw new FeedbackCampaignNotFoundError(campaignId);
+      }
+      if (campaign.status === "closed") {
+        throw new FeedbackCampaignMutationNotAllowedError(
+          "A closed campaign cannot change status",
+        );
+      }
+      if (campaign.status === to) {
+        return campaign;
+      }
       const next = await this.campaigns.updateCampaignStatus(
         transaction,
         campaign.id,
         to,
+        resumeDueAt ? { resumeDueAt } : undefined,
       );
       if (!next) {
         throw new FeedbackCampaignNotFoundError(campaignId);
@@ -417,14 +432,19 @@ export class PostEventFeedbackCampaignService {
       return next;
     });
 
+    if (to === "launched") {
+      // The status transaction persisted a resume generation first. This
+      // immediate repair is only a latency optimization; maintenance can
+      // complete the exact same idempotent hand-off after any crash here.
+      await this.resumeRepairs.repairCampaign(updated.id, requestId);
+    }
     const summaries = await this.conversations.listForCampaign(updated.id);
     return toCampaignView(updated, summaries.length, 0);
   }
 
   private async ensureConversationAndIntro(input: {
-    readonly campaign: FeedbackCampaignRow;
+    readonly campaignId: string;
     readonly attendee: FeedbackEligibleAttendee;
-    readonly copy: PostEventFeedbackQuestionSetCopy;
     readonly launchedAt: Date;
     readonly actorId: string;
     readonly requestId: string;
@@ -437,42 +457,61 @@ export class PostEventFeedbackCampaignService {
   }> {
     const displayName =
       input.attendee.preferredName?.trim() || input.attendee.emailNormalized;
-    const questionSet = getPostEventFeedbackQuestionSet(
-      input.campaign.questionSetVersion,
-    );
-    const goals = buildFeedbackConversationGoals(
-      input.copy,
-      questionSet.version,
-    );
-    const creation = await this.conversations.createFromLaunch({
-      campaignId: input.campaign.id,
-      respondentParticipantId: input.attendee.participantId,
-      phoneAtLaunch: input.attendee.phoneE164,
-      launchedAt: input.launchedAt,
-      goals,
-    });
+    const { creation, intro } = await this.database.transaction(
+      async (transaction) => {
+        // This lock orders launch/start against the kill switch across the
+        // complete producer boundary. If close won, no Mongo conversation is
+        // created. If this producer won, close waits and then cancels the intro
+        // row committed here. Holding a short PostgreSQL transaction over one
+        // idempotent Mongo create is deliberate cross-store serialization; no
+        // provider or queue call occurs while the lock is held.
+        const campaign = await this.campaigns.findCampaignByIdForUpdate(
+          transaction,
+          input.campaignId,
+        );
+        if (!campaign) {
+          throw new FeedbackCampaignNotFoundError(input.campaignId);
+        }
+        if (campaign.status === "closed") {
+          throw new FeedbackCampaignMutationNotAllowedError(
+            "Cannot start a conversation on a closed campaign",
+          );
+        }
 
-    // A STOP-closed conversation is returned as-is and must never get a new
-    // intro (D6 / D17).
-    if (
-      !creation.created &&
-      creation.conversation.lifecycle.state === "closed"
-    ) {
-      return {
-        conversation: creation.conversation,
-        created: false,
-        introEnqueued: false,
-      };
-    }
+        const copy = resolveCampaignCopy(
+          campaign.questions,
+          campaign.questionSetVersion,
+        );
+        const questionSet = getPostEventFeedbackQuestionSet(
+          campaign.questionSetVersion,
+        );
+        const goals = buildFeedbackConversationGoals(copy, questionSet.version);
+        const creation = await this.conversations.createFromLaunch({
+          campaignId: campaign.id,
+          respondentParticipantId: input.attendee.participantId,
+          phoneAtLaunch: input.attendee.phoneE164,
+          launchedAt: input.launchedAt,
+          goals,
+        });
 
-    let introEnqueued = false;
-    if (creation.conversation.lifecycle.state === "open") {
-      const intro = await this.database.transaction(async (transaction) => {
+        // A STOP-closed conversation is returned as-is and must never get a
+        // new intro (D6 / D17).
+        if (
+          !creation.created &&
+          creation.conversation.lifecycle.state === "closed"
+        ) {
+          return { creation, intro: undefined };
+        }
+
+        if (creation.conversation.lifecycle.state !== "open") {
+          return { creation, intro: undefined };
+        }
+
         const enqueued = await this.outbox.insertOutboxIfAbsent(transaction, {
           conversationId: creation.conversation._id,
-          campaignId: input.campaign.id,
+          campaignId: campaign.id,
           kind: "intro",
-          body: renderPostEventFeedbackCopy(input.copy.intro, displayName),
+          body: renderPostEventFeedbackCopy(copy.intro, displayName),
           dedupeKey: createFeedbackIntroDedupeKey(creation.conversation._id),
         });
         await this.outboundLog.record(transaction, {
@@ -494,7 +533,7 @@ export class PostEventFeedbackCampaignService {
             entityId: creation.conversation._id,
             requestId: input.requestId,
             context: {
-              campaignId: input.campaign.id,
+              campaignId: campaign.id,
               participantId: input.attendee.participantId,
               introOutboxId: enqueued.row.id,
               introInserted: enqueued.inserted,
@@ -502,15 +541,30 @@ export class PostEventFeedbackCampaignService {
           });
         }
 
-        return enqueued;
-      });
+        return { creation, intro: enqueued };
+      },
+    );
 
+    let introEnqueued = false;
+    if (intro) {
       // Runs whether or not this call inserted the row: a launch that crashed
       // between the committed intro and the MongoDB append repairs itself here
       // on replay, and an already-recorded intro is an idempotent no-op.
       await this.outboundTranscript.record(intro.row, input.launchedAt);
 
       introEnqueued = intro.inserted;
+    }
+
+    if (
+      creation.conversation.lifecycle.state === "open" &&
+      (creation.created || !creation.conversation.work?.nextActionAt)
+    ) {
+      await this.wakeups.schedule({
+        conversationId: creation.conversation._id,
+        nextActionAt: input.launchedAt,
+        correlationId: input.requestId,
+        at: input.launchedAt,
+      });
     }
 
     return {

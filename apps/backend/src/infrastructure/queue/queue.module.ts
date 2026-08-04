@@ -9,8 +9,11 @@ import {
   QUEUE_WORKER_CONFIG,
   ASSISTANT_QUEUE,
   EMAIL_QUEUE,
+  FEEDBACK_CONVERSATION_QUEUE,
   FEEDBACK_INGRESS_QUEUE,
+  FEEDBACK_MAINTENANCE_QUEUE,
   FEEDBACK_QUEUE,
+  FEEDBACK_SUMMARY_QUEUE,
   REFERENCE_QUEUE,
 } from "./queue.constants.js";
 import { QueueHealthService } from "./queue-health.service.js";
@@ -23,15 +26,12 @@ import {
 /**
  * Retry, backoff and retention for every job this deployment enqueues.
  *
- * Both registrations share it because both produce work. The worker is the
- * producer of `feedback.extract.v1` and `feedback.deliver.v1` — the two jobs
- * that call a paid provider and an external API, and therefore the two most
- * likely to fail transiently. When only the API-side registration carried a
- * policy, those two were enqueued with no `attempts` at all, and a single
- * timeout or 503 was terminal on the first try.
+ * Producer and worker registrations share it because workers also publish
+ * successor and repair wake-ups after durable intent is committed. The legacy
+ * feedback V1 drain uses the same policy until those consumers are removed.
  *
- * A per-`add` option still wins, which is how the outbox relay keeps its
- * deliberate `attempts: 1` (`OUTBOX_RELAY_JOB_OPTIONS`).
+ * A per-`add` option still wins. The email outbox relay uses that escape hatch
+ * for its deliberate at-most-once enqueue contract.
  */
 const DEFAULT_JOB_OPTIONS = {
   attempts: 5,
@@ -86,6 +86,18 @@ export function createQueueWorkerOptions(
       configKey: QUEUE_PRODUCER_CONFIG,
     }),
     BullModule.registerQueue({
+      name: FEEDBACK_CONVERSATION_QUEUE,
+      configKey: QUEUE_PRODUCER_CONFIG,
+    }),
+    BullModule.registerQueue({
+      name: FEEDBACK_SUMMARY_QUEUE,
+      configKey: QUEUE_PRODUCER_CONFIG,
+    }),
+    BullModule.registerQueue({
+      name: FEEDBACK_MAINTENANCE_QUEUE,
+      configKey: QUEUE_PRODUCER_CONFIG,
+    }),
+    BullModule.registerQueue({
       name: REFERENCE_QUEUE,
       configKey: QUEUE_PRODUCER_CONFIG,
     }),
@@ -117,6 +129,18 @@ export class QueueModule {}
     }),
     BullModule.registerQueue({
       name: FEEDBACK_INGRESS_QUEUE,
+      configKey: QUEUE_WORKER_CONFIG,
+    }),
+    BullModule.registerQueue({
+      name: FEEDBACK_CONVERSATION_QUEUE,
+      configKey: QUEUE_WORKER_CONFIG,
+    }),
+    BullModule.registerQueue({
+      name: FEEDBACK_SUMMARY_QUEUE,
+      configKey: QUEUE_WORKER_CONFIG,
+    }),
+    BullModule.registerQueue({
+      name: FEEDBACK_MAINTENANCE_QUEUE,
       configKey: QUEUE_WORKER_CONFIG,
     }),
     BullModule.registerQueue({

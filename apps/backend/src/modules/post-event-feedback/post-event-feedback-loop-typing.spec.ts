@@ -37,8 +37,9 @@ const SCENARIOS: readonly FeedbackScenario[] = [
   // ── A. How people type ────────────────────────────────────────────────────
   {
     // S02. Twenty-five seconds between sentences is ordinary human typing. Two
-    // fragments land inside the 45-second leading-edge window and the third
-    // lands just outside it, so the person is still answered twice mid-thought.
+    // Every adjacent fragment lands inside the 45-second rolling window, even
+    // though the whole thought takes longer. The due time follows the newest
+    // fragment, so the person is answered only after they actually go quiet.
     id: "slow_typist",
     title: "answers a thought typed slowly once, not once per sentence",
     // One scripted turn, because there is now one run: a run that comes due

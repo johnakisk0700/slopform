@@ -33,6 +33,7 @@ import {
 
 import type { FeedbackConversationDetailDtoOutput } from "../../../api/generated/model/feedbackConversationDetailDtoOutput";
 import type { FeedbackConversationDetailDtoOutputMessagesItem } from "../../../api/generated/model/feedbackConversationDetailDtoOutputMessagesItem";
+import type { FeedbackCampaignDtoOutputStatus } from "../../../api/generated/model/feedbackCampaignDtoOutputStatus";
 import {
   closedConversationLine,
   formatExactTimestamp,
@@ -54,6 +55,14 @@ import {
 } from "../../../features/feedback/labels";
 import { SIMULATOR_MESSAGE_MAX_LENGTH } from "../../../features/feedback/simulator";
 import { staffCloseSummary } from "../../../features/feedback/staffClose";
+import {
+  createSimulatorMessageDraft,
+  createStaffMessageDraft,
+  editSimulatorMessageDraft,
+  editStaffMessageDraft,
+  settleSimulatorMessageDraft,
+  settleStaffMessageDraft,
+} from "../../../features/feedback/staffMessageDraft";
 import { JtsLiveIndicator } from "../../ui/JtsLiveIndicator";
 import { ReadingStatus } from "./ConversationDetails";
 import { FeedbackBadges } from "./FeedbackBadges";
@@ -323,14 +332,16 @@ function TranscriptMessage({
 
 interface ConversationTranscriptProps {
   conversation: FeedbackConversationDetailDtoOutput;
+  /** Current campaign state, so intentional pauses do not read as lost work. */
+  campaignStatus: FeedbackCampaignDtoOutputStatus | null;
   /** Sends as staff — only offered while the server says control is human. */
-  onStaffSend: (text: string) => Promise<void>;
+  onStaffSend: (text: string, clientMessageId: string) => Promise<boolean>;
   staffSendPending: boolean;
   /**
    * Present only when the backend's dev simulator answers for this phone,
    * which is how the screen learns the transport is simulated (U2).
    */
-  onSimulatedReply?: (text: string) => Promise<void>;
+  onSimulatedReply?: (text: string, idempotencyKey: string) => Promise<boolean>;
   simulatedReplyPending?: boolean;
   actionError: string | null;
   /** True while the conversation query is refetching, for the live mark. */
@@ -361,6 +372,7 @@ interface ConversationTranscriptProps {
  */
 export function ConversationTranscript({
   conversation,
+  campaignStatus,
   onStaffSend,
   staffSendPending,
   onSimulatedReply,
@@ -374,8 +386,10 @@ export function ConversationTranscript({
   const staffInputId = useId();
   const simulatorInputId = useId();
 
-  const [staffText, setStaffText] = useState("");
-  const [simulatedText, setSimulatedText] = useState("");
+  const [staffDraft, setStaffDraft] = useState(createStaffMessageDraft);
+  const [simulatorDraft, setSimulatorDraft] = useState(
+    createSimulatorMessageDraft,
+  );
   const endRef = useRef<HTMLDivElement>(null);
 
   const name = participantLabel(conversation.respondentDisplayName);
@@ -406,22 +420,28 @@ export function ConversationTranscript({
 
   async function handleStaffSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const text = staffText.trim();
+    const text = staffDraft.text.trim();
     if (text === "") {
       return;
     }
-    await onStaffSend(text);
-    setStaffText("");
+    const submittedClientMessageId = staffDraft.clientMessageId;
+    const succeeded = await onStaffSend(text, submittedClientMessageId);
+    setStaffDraft((current) =>
+      settleStaffMessageDraft(current, submittedClientMessageId, succeeded),
+    );
   }
 
   async function handleSimulatedSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const text = simulatedText.trim();
+    const text = simulatorDraft.text.trim();
     if (text === "" || onSimulatedReply === undefined) {
       return;
     }
-    await onSimulatedReply(text);
-    setSimulatedText("");
+    const submittedIdempotencyKey = simulatorDraft.clientMessageId;
+    const succeeded = await onSimulatedReply(text, submittedIdempotencyKey);
+    setSimulatorDraft((current) =>
+      settleSimulatorMessageDraft(current, submittedIdempotencyKey, succeeded),
+    );
   }
 
   return (
@@ -531,7 +551,10 @@ export function ConversationTranscript({
                 exactly when a reply has just arrived — the moment «why has the
                 answer not appeared yet» gets asked. */}
             <div className="mt-4 flex justify-center">
-              <ReadingStatus conversation={conversation} />
+              <ReadingStatus
+                conversation={conversation}
+                campaignStatus={campaignStatus}
+              />
             </div>
           </>
         )}
@@ -583,8 +606,12 @@ export function ConversationTranscript({
             </label>
             <Input
               id={staffInputId}
-              value={staffText}
-              onChange={(change) => setStaffText(change.target.value)}
+              value={staffDraft.text}
+              onChange={(change) =>
+                setStaffDraft((current) =>
+                  editStaffMessageDraft(current, change.target.value),
+                )
+              }
               placeholder={`Reply to ${name} as staff…`}
               maxLength={SIMULATOR_MESSAGE_MAX_LENGTH}
               disabled={staffSendPending}
@@ -592,7 +619,7 @@ export function ConversationTranscript({
             />
             <Button
               type="submit"
-              isDisabled={staffSendPending || staffText.trim() === ""}
+              isDisabled={staffSendPending || staffDraft.text.trim() === ""}
             >
               <Send aria-hidden="true" className="size-4" />
               {staffSendPending ? "Sending…" : "Send"}
@@ -620,8 +647,12 @@ export function ConversationTranscript({
             </label>
             <Input
               id={simulatorInputId}
-              value={simulatedText}
-              onChange={(change) => setSimulatedText(change.target.value)}
+              value={simulatorDraft.text}
+              onChange={(change) =>
+                setSimulatorDraft((current) =>
+                  editSimulatorMessageDraft(current, change.target.value),
+                )
+              }
               placeholder={`Reply as ${name} — simulated…`}
               maxLength={SIMULATOR_MESSAGE_MAX_LENGTH}
               disabled={simulatedReplyPending}
@@ -631,7 +662,9 @@ export function ConversationTranscript({
               type="submit"
               size="sm"
               variant="secondary"
-              isDisabled={simulatedReplyPending || simulatedText.trim() === ""}
+              isDisabled={
+                simulatedReplyPending || simulatorDraft.text.trim() === ""
+              }
             >
               {simulatedReplyPending ? "Injecting…" : "Inject"}
             </Button>

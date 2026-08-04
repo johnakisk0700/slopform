@@ -52,7 +52,7 @@ interface OutboxHistoryListProps {
  *
  * Same restraint as the queue list: no live region (rows arrive on every
  * poll), one `aria-current` selection, and opening a row is what spends the
- * single Redis lookup.
+ * single opened-row detail read. Both the list and detail are PostgreSQL-only.
  */
 export function OutboxHistoryList({
   items,

@@ -215,19 +215,32 @@ describe("the disclosure animation", () => {
 
   it("is only worn by disclosures whose body carries its own padding", () => {
     // `overflow: hidden` clips the body mid-slide, and it clips a focus ring
-    // sitting flush against the content box with it. These two bodies have
-    // padding; `VenueGoogleSelection`'s Place ID body does not and is left
-    // native on purpose.
-    const wearers = [
+    // sitting flush against the content box with it. The campaign body owns
+    // padding directly; both bodies passed through the assistant disclosure
+    // do too. The outbox explanation is no longer a disclosure at all: durable
+    // dispatch state replaced the old missing-retry-history note.
+    const campaignSummary = readAdminFile(
       "src/components/admin/feedback/CampaignSummary.tsx",
-      "src/components/admin/feedback/OutboxMessageDetails.tsx",
-    ];
-    for (const path of wearers) {
-      expect(readAdminFile(path)).toContain("jts-disclosure");
-    }
+    );
+    expect(campaignSummary).toContain("jts-disclosure");
+    expect(campaignSummary).toContain("px-4 py-3");
     expect(
-      readAdminFile("src/components/admin/events/VenueGoogleSelection.tsx"),
-    ).not.toContain("jts-disclosure");
+      readAdminFile(
+        "src/components/admin/assistant/AssistantActivityDisclosure.tsx",
+      ),
+    ).toContain("jts-disclosure");
+    for (const path of [
+      "src/components/admin/assistant/AssistantReasoningCard.tsx",
+      "src/components/admin/assistant/AssistantToolCallCard.tsx",
+    ]) {
+      expect(readAdminFile(path)).toContain("px-2.5 py-2");
+    }
+    for (const path of [
+      "src/components/admin/events/VenueGoogleSelection.tsx",
+      "src/components/admin/feedback/OutboxMessageDetails.tsx",
+    ]) {
+      expect(readAdminFile(path)).not.toContain("jts-disclosure");
+    }
   });
 });
 

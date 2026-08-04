@@ -50,10 +50,20 @@ describe("buildFinishedEvent", () => {
       result: result({
         model: "openai/gpt-5.6-luna",
         treatment: "prova",
+        fixtureSlot: 4,
         config: {
           reasoningEffort: "xhigh",
           attentionReasoningEffort: "high",
           serviceTier: null,
+        },
+        transport: {
+          mode: "simulated",
+          profile: {
+            faultMode: "mixed",
+            faultPercent: 20,
+            seed: "canary-7",
+            maxDelayMs: 4_000,
+          },
         },
         liveGuests: {
           mode: "deterministic_silence",
@@ -67,6 +77,7 @@ describe("buildFinishedEvent", () => {
     });
 
     assert.equal(event.treatment, "prova");
+    assert.equal(event.fixtureSlot, 4);
     assert.deepEqual(event.config, {
       reasoningEffort: "xhigh",
       attentionReasoningEffort: "high",
@@ -77,6 +88,26 @@ describe("buildFinishedEvent", () => {
       total: 6,
       substituted: 6,
     });
+    assert.deepEqual(event.transport, {
+      mode: "simulated",
+      profile: {
+        faultMode: "mixed",
+        faultPercent: 20,
+        seed: "canary-7",
+        maxDelayMs: 4_000,
+      },
+    });
+  });
+
+  it("treats pre-slot run results as the historical slot 0", () => {
+    const event = buildFinishedEvent({
+      result: result(),
+      stamp: "s",
+      reportPath: "report/feedback-burst-s.html",
+      revision: { commit: null, dirty: null },
+    });
+
+    assert.equal(event.fixtureSlot, 0);
   });
 
   it("keeps the report path relative so a run is not stamped with a laptop", () => {
@@ -114,6 +145,89 @@ describe("buildFinishedEvent", () => {
     assert.equal(event.conversations[2].passed, false);
     assert.equal(event.conversations[0].lifecycle, "closed");
     assert.equal(event.conversations[0].closedBecause, "completed");
+  });
+
+  it("keeps compact assertion and delivery failures in the tracked summary", () => {
+    const event = buildFinishedEvent({
+      result: result({
+        campaigns: [
+          {
+            conversations: [
+              conversation({
+                passed: false,
+                expectations: [
+                  {
+                    label: "lifecycle",
+                    expected: "closed",
+                    actual: "open",
+                    passed: false,
+                  },
+                  {
+                    label: "optedIn",
+                    expected: "true",
+                    actual: "true",
+                    passed: true,
+                  },
+                  {
+                    label: "μηνύματα που έφτασαν",
+                    expected: "3–3",
+                    actual: "1",
+                    passed: false,
+                  },
+                ],
+              }),
+              conversation({
+                personaId: "paid-observation",
+                expectations: [
+                  {
+                    label: "observation: lifecycle",
+                    expected: "closed",
+                    actual: "open",
+                    passed: false,
+                  },
+                  {
+                    label: "μηνύματα που έφτασαν",
+                    expected: "2–2",
+                    actual: "1",
+                    passed: false,
+                  },
+                ],
+              }),
+            ],
+          },
+        ],
+      }),
+      stamp: "s",
+      reportPath: "report/feedback-burst-s.html",
+      revision: { commit: null, dirty: null },
+    });
+
+    assert.deepEqual(event.assertions, {
+      total: 4,
+      failed: 3,
+      conversationsFailed: 2,
+    });
+    assert.deepEqual(event.observations, { total: 1, mismatched: 1 });
+    assert.deepEqual(event.delivery, { conversations: 2, mismatched: 2 });
+    assert.deepEqual(event.conversations[0].failedAssertions, [
+      "lifecycle",
+      "μηνύματα που έφτασαν",
+    ]);
+    assert.deepEqual(event.conversations[0].delivery, {
+      expected: "3–3",
+      actual: "1",
+      passed: false,
+      graded: true,
+    });
+    assert.deepEqual(event.conversations[1].assertions, {
+      total: 1,
+      failed: 1,
+    });
+    assert.deepEqual(event.conversations[1].observations, {
+      total: 1,
+      mismatched: 1,
+    });
+    assert.equal(event.conversations[1].delivery.graded, true);
   });
 
   it("survives a run that produced no campaigns at all", () => {

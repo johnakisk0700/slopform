@@ -16,7 +16,7 @@ import { Link } from "react-router";
 
 import type { FeedbackOutboxMessageDeliveryDtoOutput } from "../../../api/generated/model/feedbackOutboxMessageDeliveryDtoOutput";
 import {
-  deliverJobLines,
+  deliveryActivityLines,
   outboundConversationStateFacts,
   outboundDecisionFacts,
   outboundDeliveryTimeline,
@@ -203,7 +203,10 @@ function DeliveryTimeline({
 }: {
   message: FeedbackOutboxMessageDeliveryDtoOutput;
 }) {
-  const steps = outboundDeliveryTimeline(message);
+  const steps = outboundDeliveryTimeline({
+    message,
+    dispatch: message.dispatch,
+  });
 
   return (
     <ol className="m-0 flex flex-col gap-0">
@@ -258,26 +261,18 @@ function DeliveryTimeline({
 /**
  * What has happened to one outbound message.
  *
- * Two halves, kept visibly apart because their reliability is not the same.
- * PostgreSQL's half is durable and complete — the message itself, what happened
- * to it and when, then the decision that wrote it and the conversation state
- * that decision was made against, which is the only record of why this message
- * exists at all. The queue's half is a live read of a job that exists only
- * while it is queued or running — delivery jobs carry `attempts: 1` with
- * immediate `removeOnComplete` / `removeOnFail` — so it says «άγνωστο»
- * whenever the job is gone and states which indistinguishable situations
- * produced that, instead of dressing absence up as a verdict.
+ * The pane is PostgreSQL all the way down: message, timeline, decision log and
+ * durable dispatch activity.
  *
- * There is no spinner anywhere in here. A dead worker and a busy one look
- * identical from Redis, so the pane gives a state and a time or admits it does
- * not know.
+ * There is no spinner anywhere in here. Durable claims publish their deadline,
+ * not worker liveness.
  */
 export function OutboxMessageDetails({
   message,
   isRefreshing,
 }: OutboxMessageDetailsProps) {
   const headingId = useId();
-  const job = deliverJobLines(message);
+  const activity = deliveryActivityLines(message.dispatch);
   const providerReading = outboxProviderReadingBadge(message.deliveryStatus);
   const parked = message.campaignStatus !== "launched";
 
@@ -353,8 +348,7 @@ export function OutboxMessageDetails({
         </DetailSection>
 
         {/* Durable PostgreSQL, written in the same transaction as the row, so
-            it belongs on this side of the pane's reliability line — beside the
-            row's own facts and above the live queue read. */}
+            the decision appears before delivery activity. */}
         <DetailSection icon={ScrollText} title="Why this was sent">
           {message.log === null ? (
             <p className="text-sm text-ink-muted">{OUTBOX_LOG_ABSENT_COPY}</p>
@@ -389,13 +383,13 @@ export function OutboxMessageDetails({
           </DetailSection>
         )}
 
-        <DetailSection icon={ServerCog} title="Delivery job">
+        <DetailSection icon={ServerCog} title="Dispatch activity">
           <div
             className={clsx(
               "rounded-md px-3 py-2",
-              job.tone === "danger"
+              activity.tone === "danger"
                 ? "border border-danger/35 bg-danger-soft"
-                : job.tone === "pending"
+                : activity.tone === "pending"
                   ? "border border-warning-border bg-warning-soft"
                   : "border border-border-subtle bg-surface-sunken",
             )}
@@ -403,62 +397,50 @@ export function OutboxMessageDetails({
             <p
               className={clsx(
                 "text-sm font-bold",
-                job.tone === "danger"
+                activity.tone === "danger"
                   ? "text-danger"
-                  : job.tone === "pending"
+                  : activity.tone === "pending"
                     ? "text-warning"
                     : "text-ink",
               )}
             >
-              {job.state}
+              {activity.state}
             </p>
             <p
               className={clsx(
                 "mt-1 text-sm",
-                job.tone === "danger" ? "text-danger" : "text-ink-muted",
+                activity.tone === "danger" ? "text-danger" : "text-ink-muted",
               )}
             >
-              {job.explanation}
+              {activity.explanation}
             </p>
-            {job.timing ? (
-              <p className="mt-1 text-sm text-ink-muted">{job.timing}</p>
+            {activity.timing ? (
+              <p className="mt-1 text-sm text-ink-muted">{activity.timing}</p>
             ) : null}
-            {job.attempt ? (
-              <p className="mt-1 text-sm text-ink-muted">{job.attempt}</p>
+            {activity.attempt ? (
+              <p className="mt-1 text-sm text-ink-muted">{activity.attempt}</p>
             ) : null}
-            {job.failure ? (
-              <p className="mt-2 text-sm font-semibold text-danger">
-                {job.failure}
+            {activity.recordedReason ? (
+              <p
+                className={clsx(
+                  "mt-2 text-sm font-semibold",
+                  activity.tone === "danger" ? "text-danger" : "text-ink-muted",
+                )}
+              >
+                {activity.recordedReason}
               </p>
             ) : null}
           </div>
-
-          {/* The honest limit of this pane, folded away.
-              It is five lines an operator needs once — the first time
-              «άγνωστο» surprises them — and had been paying for that once on
-              every single row they opened. It sits directly under the state it
-              explains, which is where the question gets asked. */}
-          <details className="jts-disclosure mt-2 text-xs text-ink-subtle">
-            <summary className="cursor-pointer font-semibold text-ink-muted hover:text-ink">
-              Why there is no retry history
-            </summary>
-            <p className="mt-1.5">
-              Retry history is not stored anywhere. The outbox table keeps no
-              attempt counter, and the delivery job is removed from Redis the
-              moment it ends, so a job that has finished or was lost is
-              «άγνωστο» — not proof that nothing happened.
-            </p>
-          </details>
         </DetailSection>
 
         <DetailSection icon={Route} title="Where it belongs">
           {/* Only when it is a fact worth reading. A sentence saying the
-              campaign is running and the relay will get to this row was
+              campaign is running and dispatch will get to this row was
               printed on every opened row, which taught operators to skip the
               paragraph that matters on the rows where it is not running. */}
           {parked ? (
             <p className="mb-3 text-sm text-ink-muted">
-              The campaign is {message.campaignStatus}, so the relay leaves this
+              The campaign is {message.campaignStatus}, so dispatch leaves this
               row where it is.
             </p>
           ) : null}
@@ -483,8 +465,8 @@ export function OutboxMessageDetails({
           </div>
         </DetailSection>
 
-        {/* Every id, in one strip at the bottom.
-            They were three labelled rows among the facts, competing with the
+        {/* Provider ids, in one strip at the bottom.
+            They were labelled rows among the facts, competing with the
             times and the decision for the reader's attention — and not one of
             them is read on this screen. They exist to be pasted somewhere else,
             so they are grouped by that purpose and put where a reader arrives
@@ -495,11 +477,6 @@ export function OutboxMessageDetails({
           className="bg-surface-sunken"
         >
           <div className="flex flex-wrap gap-x-4 gap-y-2">
-            <IdentifierChip
-              label="Job"
-              value={message.job.id}
-              copyLabel="job id"
-            />
             <IdentifierChip
               label="Provider log"
               value={message.providerLogId}
@@ -559,7 +536,7 @@ export function OutboxMessageDetailsEmpty() {
       </p>
       <p className="mt-1 max-w-[44ch] text-sm text-ink-muted">
         The list beside this reads only PostgreSQL. Opening a row is what shows
-        the message itself, why it was written, and its live job state.
+        the message itself, why it was written, and its dispatch state.
       </p>
     </section>
   );

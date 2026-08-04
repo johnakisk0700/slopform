@@ -378,18 +378,28 @@ const SCENARIOS: readonly FeedbackScenario[] = [
     title: "treats an emoji-only message as ordinary text and asks again",
     script: [
       { next: "event_score", reply: "Χαχα! Βάλε μας κι έναν βαθμό 1-5 😄" },
+      {
+        next: "event_score",
+        reply: "Ένα νούμερο 1 ως 5 φτάνει, και τελειώσαμε 🙂",
+      },
     ],
     steps: [
       { kind: "inbound", text: "👍" },
       { kind: "wait", after: "settles" },
+      { kind: "inbound", text: "😍", after: "2m" },
+      { kind: "wait", after: "settles" },
     ],
     expect: {
       answers: [],
-      // Not the media path: no flag, and the 👍 is in the transcript.
+      // Neither turn is media, and the punctuation-free second ask must not be
+      // mistaken for a withdrawal that skips the ladder and calls an operator.
       needsAttention: false,
+      lifecycle: "open",
       transcript: [
         { who: "bot", kind: "intro" },
         { who: "participant", text: "👍" },
+        { who: "bot", kind: "reply" },
+        { who: "participant", text: "😍" },
         { who: "bot", kind: "reply" },
       ],
     },
@@ -494,13 +504,13 @@ const SCENARIOS: readonly FeedbackScenario[] = [
     },
   },
   {
-    // The same request while the campaign is paused. The kill switch means the
-    // participant hears nothing — so the operator alert is the only thing that
-    // makes the promise good, and it must still be raised.
+    // The same words while the campaign is already paused. No model work runs,
+    // so the testimony remains unread until resume; pretending we detected a
+    // handoff here would hide a paid classification behind the kill switch.
     id: "asks_for_a_human_while_paused",
-    title: "still calls an operator when a paused campaign forbids answering",
+    title: "defers handoff classification until the campaign resumes",
     seed: { campaign: "paused" },
-    script: [{ handoff: true }],
+    script: [],
     steps: [
       {
         kind: "inbound",
@@ -510,8 +520,8 @@ const SCENARIOS: readonly FeedbackScenario[] = [
     ],
     expect: {
       received: [],
-      needsAttention: true,
-      alerts: [{ reason: "extraction_safety_signal", detail: ["handoff"] }],
+      needsAttention: false,
+      alerts: [],
     },
   },
   {

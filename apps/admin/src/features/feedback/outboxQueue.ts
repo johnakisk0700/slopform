@@ -1,7 +1,7 @@
 import type { FeedbackConversationDetailDtoOutputGoalsItemStatus } from "../../api/generated/model/feedbackConversationDetailDtoOutputGoalsItemStatus";
 import type { FeedbackOutboxHistoryDtoOutputItemsItemStatus } from "../../api/generated/model/feedbackOutboxHistoryDtoOutputItemsItemStatus";
 import type { FeedbackOutboxMessageDeliveryDtoOutput } from "../../api/generated/model/feedbackOutboxMessageDeliveryDtoOutput";
-import type { FeedbackOutboxMessageDeliveryDtoOutputJobState } from "../../api/generated/model/feedbackOutboxMessageDeliveryDtoOutputJobState";
+import type { FeedbackOutboxMessageDeliveryDtoOutputDispatch } from "../../api/generated/model/feedbackOutboxMessageDeliveryDtoOutputDispatch";
 import type { FeedbackOutboxMessageDeliveryDtoOutputLog } from "../../api/generated/model/feedbackOutboxMessageDeliveryDtoOutputLog";
 import type { FeedbackOutboxMessageDeliveryDtoOutputLogConversationState } from "../../api/generated/model/feedbackOutboxMessageDeliveryDtoOutputLogConversationState";
 import type { FeedbackOutboxMessageDeliveryDtoOutputLogConversationStateControlSource } from "../../api/generated/model/feedbackOutboxMessageDeliveryDtoOutputLogConversationStateControlSource";
@@ -25,12 +25,12 @@ import {
  * How long a message has been waiting, as the one number this screen exists to
  * show.
  *
- * The thresholds come from the mechanism, not from taste. The outbox relay runs
- * every 5 seconds, so anything under 15 seconds has had at most two chances to
- * be picked up and is simply in flight. Past 15 seconds it has missed three
- * relay passes, which means something is holding a worker slot. The 2026-07-27
- * rehearsal sat at 147 seconds, so a minute is already the shape of that
- * incident rather than a slow moment.
+ * The thresholds come from the mechanism, not from taste. The dispatcher scans
+ * every second, while provider pacing and transport still add real latency.
+ * Anything under 15 seconds is ordinary in-flight headroom. Past that, a
+ * launched row has survived at least fifteen claim scans; at a minute it has
+ * the shape of the 147-second backlog seen in the 2026-07-27 rehearsal rather
+ * than a merely slow moment.
  */
 export const OUTBOX_WAITING_SLOW_SECONDS = 15;
 export const OUTBOX_WAITING_STALLED_SECONDS = 60;
@@ -39,7 +39,7 @@ export const OUTBOX_WAITING_STALLED_SECONDS = 60;
  * How a row's age should read.
  *
  * `parked` is the one that matters most. A row whose campaign is not `launched`
- * is not late — the relay is deliberately refusing to lease it, and `held` rows
+ * is not late — dispatch is deliberately refusing to claim it, and `held` rows
  * are never leased at all. Colouring those red would teach an operator that red
  * means nothing, so age stops carrying urgency the moment the system is doing
  * exactly what it was told.
@@ -47,7 +47,7 @@ export const OUTBOX_WAITING_STALLED_SECONDS = 60;
 export type OutboxWaitingTone = "parked" | "fresh" | "slow" | "stalled";
 
 export function outboxWaitingTone(item: {
-  status: FeedbackOutboxQueueDtoOutputItemsItemStatus;
+  status: OutboxQueueState;
   campaignStatus: FeedbackOutboxQueueDtoOutputItemsItemCampaignStatus;
   waitingSeconds: number;
 }): OutboxWaitingTone {
@@ -85,7 +85,7 @@ export function formatWaiting(seconds: number): string {
  * the normal case, and `formatWaiting` would print all three of those gaps as
  * `0s` — three zeros in a column whose only job is to show that nothing was
  * slow. Past a minute the milliseconds have stopped meaning anything and the
- * queue's own compact form takes over.
+ * screen's compact form takes over.
  */
 export function formatDelta(milliseconds: number): string {
   const total = Math.max(0, milliseconds);
@@ -112,30 +112,38 @@ export function describeWaiting(seconds: number): string {
     : `${minutePart} ${rest} ${rest === 1 ? "second" : "seconds"}`;
 }
 
-const OUTBOX_STATUS_LABELS: Record<
-  FeedbackOutboxQueueDtoOutputItemsItemStatus,
-  string
-> = {
+export type OutboxQueueState = FeedbackOutboxQueueDtoOutputItemsItemStatus;
+
+const OUTBOX_STATUS_BADGES = {
   pending: "Queued",
+  claimed: "Claimed",
+  attempting: "Sending",
+  ambiguous: "Reconciliation required",
   sending: "Sending",
   held: "Held",
-};
+} as const satisfies Record<OutboxQueueState, string>;
 
 /**
  * The row's own status as a labelled badge.
  *
- * `pending` reads as "Queued" rather than "Pending" because the relay has not
- * taken it yet — from the participant's side nothing has started. Tone is
+ * `pending` reads as "Queued" rather than "Pending" because dispatch has not
+ * claimed it yet — from the participant's side nothing has started. Tone is
  * reinforcement; the word carries the meaning.
  */
-export function outboxStatusBadge(
-  status: FeedbackOutboxQueueDtoOutputItemsItemStatus,
-): FeedbackBadge {
+export function outboxStatusBadge(status: OutboxQueueState): FeedbackBadge {
   return {
     key: "outbox-status",
-    label: OUTBOX_STATUS_LABELS[status],
+    label: OUTBOX_STATUS_BADGES[status],
     tone:
-      status === "held" ? "warning" : status === "sending" ? "info" : "neutral",
+      status === "ambiguous"
+        ? "danger"
+        : status === "held"
+          ? "warning"
+          : status === "sending" ||
+              status === "claimed" ||
+              status === "attempting"
+            ? "info"
+            : "neutral",
   };
 }
 
@@ -156,132 +164,139 @@ export function outboxKindLabel(
   return OUTBOX_KIND_LABELS[kind];
 }
 
-/**
- * What Redis said about the delivery job, in words.
- *
- * «άγνωστο» is the Greek the extraction status block already uses for a queue
- * fact that cannot be recovered, and it is the honest label here far more often
- * than it looks: delivery jobs carry `attempts: 1` with immediate
- * `removeOnComplete` / `removeOnFail`, so the job exists only while it is
- * actually queued or running.
- */
-const JOB_STATE_LABELS: Record<
-  FeedbackOutboxMessageDeliveryDtoOutputJobState,
-  string
-> = {
-  waiting: "Waiting for a worker",
-  "waiting-children": "Waiting for a worker",
-  prioritized: "Waiting for a worker",
-  delayed: "Delayed",
-  active: "Being sent now",
-  completed: "Finished",
-  failed: "Failed",
-  unknown: "άγνωστο",
-};
+export type OutboxDispatchState =
+  FeedbackOutboxMessageDeliveryDtoOutputDispatch["state"];
 
-export function deliverJobStateLabel(
-  state: FeedbackOutboxMessageDeliveryDtoOutputJobState,
-): string {
-  return JOB_STATE_LABELS[state];
-}
+/** Durable dispatcher facts; no Redis job identity or private claim token. */
+export type OutboxDispatchStatus =
+  FeedbackOutboxMessageDeliveryDtoOutputDispatch;
 
-export interface DeliverJobLines {
-  /** The state, always present, `«άγνωστο»` included. */
+export interface DeliveryActivityLines {
+  /** Durable dispatcher state, always present. */
   state: string;
-  /**
-   * Why that state is what it is — including, for `unknown`, which mutually
-   * indistinguishable situations produced it. Never a diagnosis we cannot make.
-   */
+  /** What the state means for delivery and recovery. */
   explanation: string;
   /** Attempt line, or null when nothing durable records an attempt. */
   attempt: string | null;
-  /** A time, when there is one to give: due, started, or nothing. */
+  /** Claim deadline or provider-attempt start, when one exists. */
   timing: string | null;
-  failure: string | null;
+  /** Last durable reason/error, labelled for display when present. */
+  recordedReason: string | null;
   tone: "none" | "pending" | "danger";
 }
 
 /**
- * The opened row's job block, written so that no line can be read as a claim
- * the system cannot support.
- *
- * There is no attempts table. `message_outbox` has no attempt counter, no
- * `message_outbox_attempts` exists, and BullMQ's own counter restarts because
- * the job id is re-added on the next relay lease. So "how many times has this
- * been tried" is answered with the one durable fact there is: whether a
- * provider call left its id behind.
+ * Operator copy over PostgreSQL dispatch state.
  */
-export function deliverJobLines(
-  message: FeedbackOutboxMessageDeliveryDtoOutput,
+export function deliveryActivityLines(
+  dispatch: OutboxDispatchStatus,
   now: Date = new Date(),
-): DeliverJobLines {
-  const job = message.job;
-  const providerAttempted =
-    message.providerLogId !== null || message.providerMessageId !== null;
-
-  const attempt = providerAttempted
-    ? "A provider call was made — its id is recorded, so recovery reconciles instead of sending again."
-    : job.attemptsMade === null
-      ? null
-      : `Attempt ${job.attemptsMade + 1} of ${job.attemptsAllowed ?? 1}. BullMQ retries delivery no further; PostgreSQL owns recovery.`;
-
-  // One clock for the whole pane. The row's own times are read to the
-  // millisecond, and a job line an operator compares them against — «picked up
-  // at» against «row last changed» — cannot be a minute wide or the comparison
-  // is the formatting's, not the system's.
-  let timing: string | null = null;
-  if (job.dueAt !== null) {
-    timing = `Runs at ${formatPreciseTimestamp(job.dueAt, now)}.`;
-  } else if (job.startedAt !== null) {
-    timing = `Picked up at ${formatPreciseTimestamp(job.startedAt, now)}.`;
-  } else if (job.enqueuedAt !== null) {
-    timing = `Queued at ${formatPreciseTimestamp(job.enqueuedAt, now)}.`;
-  } else if (message.reclaimAt !== null) {
-    // No job and no times, but the row is leased: the relay's recovery horizon
-    // is the only real time left to give, and it is better than a spinner.
-    timing = `The relay reclaims this row at ${formatPreciseTimestamp(message.reclaimAt, now)} if nothing reports back.`;
-  }
+): DeliveryActivityLines {
+  const copy = DURABLE_DISPATCH_COPY[dispatch.state];
+  const attempt = dispatchAttemptLine(dispatch);
+  const timing =
+    dispatch.state === "claimed" && dispatch.claimExpiresAt
+      ? `The safe claim expires at ${formatPreciseTimestamp(dispatch.claimExpiresAt, now)} and may then be reclaimed.`
+      : dispatch.sendStartedAt &&
+          (dispatch.state === "attempting" ||
+            dispatch.state === "ambiguous" ||
+            dispatch.state === "sent" ||
+            dispatch.state === "failed")
+        ? `Provider attempt started at ${formatPreciseTimestamp(dispatch.sendStartedAt, now)}.`
+        : null;
 
   return {
-    state: deliverJobStateLabel(job.state),
-    explanation: jobExplanation(message),
+    ...copy,
     attempt,
     timing,
-    failure: job.failedReason,
-    tone:
-      job.state === "failed" || message.deliveryStatus === "error"
-        ? "danger"
-        : job.state === "unknown" && message.status === "sending"
-          ? "pending"
-          : "none",
+    recordedReason: dispatch.lastError
+      ? `Recorded reason: ${dispatch.lastError}`
+      : null,
   };
 }
 
-function jobExplanation(
-  message: FeedbackOutboxMessageDeliveryDtoOutput,
-): string {
-  if (message.job.state !== "unknown") {
-    return "Read live from the delivery queue.";
+function dispatchAttemptLine(dispatch: OutboxDispatchStatus): string {
+  if (dispatch.attemptCount === 1) {
+    return "1 provider attempt is recorded durably.";
   }
-  if (message.status === "held") {
-    return "A held row is never handed to the relay, so no delivery job exists for it.";
+  if (dispatch.attemptCount > 1) {
+    return `${dispatch.attemptCount} provider attempts are recorded durably.`;
   }
-  if (message.status === "pending") {
-    return message.campaignStatus === "launched"
-      ? "Nothing is queued yet — the relay leases pending rows every few seconds."
-      : "The campaign is not running, so the relay leaves this row alone.";
+  if (
+    dispatch.state === "sending" ||
+    dispatch.state === "sent" ||
+    (dispatch.state === "ambiguous" &&
+      dispatch.lastError === "legacy_sending_cutover_ambiguous")
+  ) {
+    return "This pre-cutover row has no durable attempt count.";
   }
-  if (message.status === "sending") {
-    return "The row is leased but Redis holds no job for it. Retention removal, a finished job and a lost one look the same here.";
-  }
-  return "This row is finished, and its job was removed when it ended.";
+  return "No provider attempt is recorded.";
 }
 
-const OUTBOX_HISTORY_STATUS_LABELS: Record<
-  FeedbackOutboxHistoryDtoOutputItemsItemStatus,
-  string
-> = {
+const DURABLE_DISPATCH_COPY = {
+  pending: {
+    state: "Pending",
+    explanation:
+      "The durable row is waiting to be claimed when current state allows.",
+    tone: "none",
+  },
+  claimed: {
+    state: "Claimed",
+    explanation:
+      "A dispatcher holds a safe lease; no provider attempt has started yet.",
+    tone: "none",
+  },
+  attempting: {
+    state: "Attempting delivery",
+    explanation:
+      "The provider attempt has started. This row is not automatically reclaimed or resent from here.",
+    tone: "pending",
+  },
+  ambiguous: {
+    state: "Needs reconciliation",
+    explanation:
+      "The provider may have accepted this message. Automatic resend is blocked until the outcome is reconciled.",
+    tone: "danger",
+  },
+  sending: {
+    state: "Legacy delivery",
+    explanation:
+      "A pre-cutover delivery worker may still own this row. The dispatcher observes it but does not reclaim it as pending work.",
+    tone: "pending",
+  },
+  sent: {
+    state: "Sent",
+    explanation: "A successful provider send is recorded durably.",
+    tone: "none",
+  },
+  failed: {
+    state: "Failed",
+    explanation:
+      "Dispatch ended with a definitive failure and will not retry automatically.",
+    tone: "danger",
+  },
+  held: {
+    state: "Held",
+    explanation: "This row is deliberately parked and is not dispatchable.",
+    tone: "none",
+  },
+  cancelled: {
+    state: "Cancelled",
+    explanation: "This row was cancelled before delivery.",
+    tone: "none",
+  },
+} as const satisfies Record<
+  OutboxDispatchState,
+  Pick<DeliveryActivityLines, "state" | "explanation" | "tone">
+>;
+
+export type OutboxHistoryState = FeedbackOutboxHistoryDtoOutputItemsItemStatus;
+
+const OUTBOX_HISTORY_STATUS_LABELS: Record<OutboxHistoryState, string> = {
   pending: "Queued",
+  claimed: "Claimed",
+  attempting: "Sending",
+  ambiguous: "Reconciliation required",
   sending: "Sending",
   held: "Held",
   sent: "Sent",
@@ -291,24 +306,26 @@ const OUTBOX_HISTORY_STATUS_LABELS: Record<
 
 /**
  * The history row's status badge. Terminal rows are the point of this list, so
- * `sent` earns the quiet success tone and `failed` the loud one; the three
- * undelivered statuses keep exactly the queue list's colouring so the same
+ * `sent` earns the quiet success tone and `failed` the loud one; undelivered
+ * statuses keep exactly the queue list's colouring so the same
  * word never changes meaning between the two views.
  */
 export function outboxHistoryStatusBadge(
-  status: FeedbackOutboxHistoryDtoOutputItemsItemStatus,
+  status: OutboxHistoryState,
 ): FeedbackBadge {
   return {
     key: "outbox-status",
     label: OUTBOX_HISTORY_STATUS_LABELS[status],
     tone:
-      status === "failed"
+      status === "failed" || status === "ambiguous"
         ? "danger"
         : status === "sent"
           ? "success"
           : status === "held"
             ? "warning"
-            : status === "sending"
+            : status === "sending" ||
+                status === "claimed" ||
+                status === "attempting"
               ? "info"
               : "neutral",
   };
@@ -322,7 +339,7 @@ export function outboxHistoryStatusBadge(
  * operator asks next and could not answer at all until now: «why was this
  * written, and what did the system think was going on». It is durable
  * PostgreSQL, written in the same transaction as the outbox row, so it sits
- * beside the row's own facts rather than with the live job read.
+ * beside the row's own facts as part of the same durable record.
  */
 export type OutboundDecisionLog =
   NonNullable<FeedbackOutboxMessageDeliveryDtoOutputLog>;
@@ -671,13 +688,26 @@ export interface OutboundDeliveryStep {
   terminal: boolean;
 }
 
+interface DeliveryTimelineMessage {
+  createdAt: string;
+  updatedAt: string;
+  sentAt: string | null;
+  deliveredAt: string | null;
+  readAt: string | null;
+  playedAt: string | null;
+  status: OutboxHistoryState;
+}
+
+export interface DeliveryTimelineInput {
+  message: DeliveryTimelineMessage;
+  dispatch: OutboxDispatchStatus;
+}
+
 /**
  * What actually happened to this message, in order, with the gaps.
  *
- * `updatedAt` earns a place only where it means something nameable: the lease
- * on a `sending` row, and the moment a `failed` or `cancelled` row stopped. On
- * every other row it is a column that changes for reasons the screen has no
- * word for, which is exactly what made it noise in the old stack.
+ * `sendStartedAt` marks the irreversible provider boundary and `updatedAt` is
+ * used only for a terminal state with no more specific timestamp.
  *
  * The steps are sorted by their own instant rather than trusted in the order
  * they are assembled — a row that failed after a provider call has an
@@ -685,18 +715,11 @@ export interface OutboundDeliveryStep {
  * other way round would invent a negative gap.
  */
 export function outboundDeliveryTimeline(
-  message: Pick<
-    FeedbackOutboxMessageDeliveryDtoOutput,
-    | "createdAt"
-    | "updatedAt"
-    | "sentAt"
-    | "deliveredAt"
-    | "readAt"
-    | "playedAt"
-    | "status"
-  >,
+  input: DeliveryTimelineInput,
   now: Date = new Date(),
 ): OutboundDeliveryStep[] {
+  const message = input.message;
+  const dispatchState = input.dispatch.state;
   const candidates: {
     key: string;
     label: string;
@@ -710,9 +733,9 @@ export function outboundDeliveryTimeline(
       terminal: false,
     },
     {
-      key: "leased",
-      label: "Leased by the relay",
-      iso: message.status === "sending" ? message.updatedAt : null,
+      key: "attempt-started",
+      label: "Provider attempt started",
+      iso: input.dispatch.sendStartedAt,
       terminal: false,
     },
     { key: "sent", label: "Sent", iso: message.sentAt, terminal: false },
@@ -727,13 +750,19 @@ export function outboundDeliveryTimeline(
     {
       key: "failed",
       label: "Failed",
-      iso: message.status === "failed" ? message.updatedAt : null,
+      iso: dispatchState === "failed" ? message.updatedAt : null,
+      terminal: true,
+    },
+    {
+      key: "ambiguous",
+      label: "Needs reconciliation",
+      iso: dispatchState === "ambiguous" ? message.updatedAt : null,
       terminal: true,
     },
     {
       key: "cancelled",
       label: "Cancelled",
-      iso: message.status === "cancelled" ? message.updatedAt : null,
+      iso: dispatchState === "cancelled" ? message.updatedAt : null,
       terminal: true,
     },
   ];
@@ -878,8 +907,6 @@ export function isOutboxHistoryStatus(
 
 export interface OutboxQueueSummary {
   total: number;
-  pending: number;
-  sending: number;
   held: number;
   /** Age of the oldest waiting message; null when nothing is waiting. */
   oldestWaitingSeconds: number | null;
@@ -897,8 +924,6 @@ export function outboxQueueSummary(
   const tones = view.items.map((item) => outboxWaitingTone(item));
   return {
     total: view.counts.total,
-    pending: view.counts.pending,
-    sending: view.counts.sending,
     held: view.counts.held,
     oldestWaitingSeconds: view.items[0]?.waitingSeconds ?? null,
     worstTone: tones.includes("stalled")

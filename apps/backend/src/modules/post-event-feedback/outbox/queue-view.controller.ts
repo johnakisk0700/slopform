@@ -27,9 +27,9 @@ import {
  * Read-only observability for outbound feedback messages.
  *
  * Every operation is `GET`. Nothing here retries, cancels or re-enqueues
- * anything: the queue, the relay, the delivery service and the extractor are
- * untouched by this controller, which exists so an operator can see what they
- * are doing without a hand-written Redis script.
+ * anything: the dispatcher and extractor are untouched by this controller,
+ * which exists so an operator can inspect durable state without a hand-written
+ * database query.
  */
 @ApiTags("feedback-outbox")
 @Controller("feedback/outbox")
@@ -37,9 +37,7 @@ export class PostEventFeedbackOutboxController {
   constructor(private readonly queueView: FeedbackOutboxQueueViewService) {}
 
   /**
-   * The polled list. PostgreSQL and one batched MongoDB read only — a Redis
-   * lookup per row on a five-second poll is a load amplifier, so queue state
-   * belongs to `getFeedbackOutboxMessage` and the row an operator opened.
+   * The polled list. PostgreSQL and one batched MongoDB read only.
    */
   @Get("queue")
   @ApiOperation({ operationId: "listFeedbackOutboxQueue" })
@@ -73,9 +71,9 @@ export class PostEventFeedbackOutboxController {
   }
 
   /**
-   * One opened row. Carries the decision log when `message_outbox_log` has a
-   * row for it; the queue list never joins that table, and the history list
-   * takes only its one-word origin.
+   * One opened row. Carries durable dispatcher facts and the decision log when
+   * `message_outbox_log` has a row for it; the queue list never joins that
+   * table, and the history list takes only its one-word origin.
    */
   @Get(":outboxId")
   @ApiOperation({ operationId: "getFeedbackOutboxMessage" })

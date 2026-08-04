@@ -1,14 +1,11 @@
-import { randomUUID } from "node:crypto";
-
-import { InjectQueue } from "@nestjs/bullmq";
 import { Injectable } from "@nestjs/common";
-import type { Queue } from "bullmq";
 import {
   FEEDBACK_EXTRACTION_ORIGIN_STAFF,
   type FeedbackAnswerRow,
   type FeedbackCampaignRow,
   type FeedbackExtractionMeta,
   type FeedbackNoteRow,
+  type MessageOutboxRow,
   type ParticipantRow,
 } from "@join-the-six/database";
 
@@ -20,20 +17,23 @@ import {
   type FeedbackAnswerCorrection,
 } from "../extraction/answer-corrections.js";
 import { FeedbackResultsRepository } from "../extraction/results.repository.js";
+import { FeedbackConversationExecutionFenceRepository } from "../extraction/execution-fence.repository.js";
 import {
   contradictedPostEventFeedbackQuestionKeys,
   isScoredPostEventFeedbackQuestion,
 } from "../question-set.js";
 import { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
 import { FeedbackOutboundLogService } from "../outbox/outbound-log.service.js";
-import { FEEDBACK_QUEUE } from "../../../infrastructure/queue/queue.constants.js";
 import {
   FeedbackConversationCapacityError,
   FeedbackConversationNotFoundError,
   FeedbackConversationRepository,
   FeedbackConversationTransitionError,
 } from "../post-event-feedback-conversation.repository.js";
-import type { FeedbackConversationDocument } from "../post-event-feedback-conversation.document.js";
+import {
+  resolveFeedbackConversationWork,
+  type FeedbackConversationDocument,
+} from "../post-event-feedback-conversation.document.js";
 import { EventsRepository } from "../../events/events.repository.js";
 import { EventsService } from "../../events/events.service.js";
 import { ParticipantsRepository } from "../../participants/participants.repository.js";
@@ -42,47 +42,56 @@ import {
   conversationCapabilities,
   deliveryFor,
   displayNameFor,
+  toAutomationView,
   toAnswerView,
+  toExtractionView,
   toListItem,
   toNoteView,
 } from "./conversation.view.js";
-import {
-  inspectFeedbackExtractJobs,
-  unreadParticipantSeqs,
-} from "./inspect-extract-jobs.js";
 import { FeedbackCampaignNotFoundError } from "../campaign/campaign.service.js";
 import { PostEventFeedbackCampaignSummaryService } from "../summary/summary.service.js";
-import type {
-  AddFeedbackConversationAnswerInput,
-  AddFeedbackConversationNoteInput,
-  CloseFeedbackConversationInput,
-  CorrectFeedbackConversationAnswerInput,
-  FeedbackAnswerView,
-  FeedbackAnswerWithdrawalView,
-  FeedbackCampaignConversationsView,
-  FeedbackCampaignResultsQuery,
-  FeedbackConversationCorrelationId,
-  FeedbackConversationDetailView,
-  FeedbackConversationExtractionView,
-  FeedbackConversationPrincipal,
-  FeedbackConversationResultsView,
-  FeedbackNoteView,
-} from "./conversation.schemas.js";
 import {
-  createFeedbackExtractJobId,
-  createFeedbackExtractParkedJobId,
-  FEEDBACK_EXTRACT_QUIET_WINDOW_MS,
-  FEEDBACK_JOB_NAMES,
-  FEEDBACK_JOB_SCHEMA_VERSION,
-  feedbackExtractJobDataSchema,
-  type FeedbackJobData,
-  type FeedbackJobName,
-} from "../jobs.schemas.js";
+  createFeedbackStaffMessageDedupeKey,
+  type AddFeedbackConversationAnswerInput,
+  type AddFeedbackConversationNoteInput,
+  type CloseFeedbackConversationInput,
+  type CorrectFeedbackConversationAnswerInput,
+  type FeedbackAnswerView,
+  type FeedbackAnswerWithdrawalView,
+  type FeedbackCampaignConversationsView,
+  type FeedbackCampaignResultsQuery,
+  type FeedbackConversationCorrelationId,
+  type FeedbackConversationDetailView,
+  type FeedbackConversationPrincipal,
+  type FeedbackConversationResultsView,
+  type FeedbackNoteView,
+  type SendFeedbackStaffMessageInput,
+} from "./conversation.schemas.js";
+import { FeedbackConversationWakeupService } from "../reconciliation/wakeup.service.js";
 
 export class FeedbackConversationActionNotAllowedError extends Error {
   constructor(message: string) {
     super(message);
     this.name = FeedbackConversationActionNotAllowedError.name;
+  }
+}
+
+function assertExactStaffMessageReplay(
+  row: MessageOutboxRow,
+  conversation: FeedbackConversationDocument,
+  input: SendFeedbackStaffMessageInput,
+  actorId: FeedbackConversationPrincipal,
+): void {
+  if (
+    row.conversationId !== conversation._id ||
+    row.campaignId !== conversation.campaignId ||
+    row.kind !== "staff" ||
+    row.body !== input.text ||
+    row.createdByStaff !== actorId
+  ) {
+    throw new FeedbackConversationActionNotAllowedError(
+      "A staff message client id cannot be reused for different content or actor",
+    );
   }
 }
 
@@ -111,13 +120,11 @@ export class FeedbackAttentionReasonNotFoundError extends Error {
  * Staff-facing conversation inbox read model and actions (WP7b). Capability
  * flags are computed server-side so the admin UI does not hardcode transition
  * rules; staff sends only create `message_outbox` rows (kind `staff`) for the
- * WP6 relay.
+ * direct outbox dispatcher.
  */
 @Injectable()
 export class PostEventFeedbackConversationService {
   constructor(
-    @InjectQueue(FEEDBACK_QUEUE)
-    private readonly queue: Queue<FeedbackJobData, void, FeedbackJobName>,
     private readonly database: DatabaseService,
     private readonly campaigns: FeedbackCampaignRepository,
     private readonly results: FeedbackResultsRepository,
@@ -130,6 +137,8 @@ export class PostEventFeedbackConversationService {
     private readonly outboundTranscript: FeedbackOutboundTranscriptService,
     private readonly outboundLog: FeedbackOutboundLogService,
     private readonly summaries: PostEventFeedbackCampaignSummaryService,
+    private readonly executionFences: FeedbackConversationExecutionFenceRepository,
+    private readonly wakeups: FeedbackConversationWakeupService,
   ) {}
 
   async listForCampaign(
@@ -234,14 +243,20 @@ export class PostEventFeedbackConversationService {
     }
 
     const at = new Date();
-    const transition = await this.conversations.takeOver({
-      conversationId: conversation._id,
-      source: "staff_action",
-      at,
-    });
+    const transition = await this.database.transaction(async (transaction) => {
+      await this.results.lockConversation(transaction, conversation._id);
+      const current = await this.conversations.takeOver({
+        conversationId: conversation._id,
+        source: "staff_action",
+        at,
+      });
 
-    if (transition.changed) {
-      await this.database.transaction(async (transaction) => {
+      if (current.changed) {
+        const cancelledOutboxCount =
+          await this.outbox.cancelQueuedAutomatedOutboxForConversation(
+            transaction,
+            conversation._id,
+          );
         await this.audit.append(transaction, {
           actorType: "admin",
           actorId,
@@ -249,10 +264,15 @@ export class PostEventFeedbackConversationService {
           entityType: "feedback_conversation",
           entityId: conversation._id,
           requestId,
-          context: { campaignId, controlSource: "staff_action" },
+          context: {
+            campaignId,
+            controlSource: "staff_action",
+            cancelledOutboxCount,
+          },
         });
-      });
-    }
+      }
+      return current;
+    });
 
     return this.toDetailView(transition.conversation);
   }
@@ -268,24 +288,30 @@ export class PostEventFeedbackConversationService {
       conversationId,
     );
     const capabilities = conversationCapabilities(conversation);
-    if (!capabilities.canResumeBot) {
+    const replayOfCompletedResume =
+      conversation.lifecycle.state === "open" &&
+      conversation.control.mode === "bot" &&
+      conversation.control.source === "staff_action";
+    if (!capabilities.canResumeBot && !replayOfCompletedResume) {
       throw new FeedbackConversationActionNotAllowedError(
         "Resume bot is only available while the conversation is open under human control",
       );
     }
 
     const at = new Date();
-    let transition;
-    try {
-      transition = await this.conversations.resumeBot({
-        conversationId: conversation._id,
-        at,
-      });
-    } catch (error) {
-      if (error instanceof FeedbackConversationTransitionError) {
-        throw new FeedbackConversationActionNotAllowedError(error.message);
+    let transition = { changed: false, conversation };
+    if (!replayOfCompletedResume) {
+      try {
+        transition = await this.conversations.resumeBot({
+          conversationId: conversation._id,
+          at,
+        });
+      } catch (error) {
+        if (error instanceof FeedbackConversationTransitionError) {
+          throw new FeedbackConversationActionNotAllowedError(error.message);
+        }
+        throw error;
       }
-      throw error;
     }
 
     if (transition.changed) {
@@ -300,47 +326,27 @@ export class PostEventFeedbackConversationService {
           context: { campaignId },
         });
       });
-
-      // Anything the participant said while a person held the conversation is
-      // sitting behind the extraction cursor: those runs correctly stood down
-      // on `skipped_human_control` and nothing re-queues them. Handing back
-      // without this, the answer waits for a brand-new message that may never
-      // come — «τελικά βάλε 4, όχι 3» simply never lands.
-      await this.enqueueExtractionForUnreadTestimony(
-        transition.conversation,
-        requestId,
-      );
     }
+
+    // `resumeBot` wrote the generation and any unread-testimony due time in the
+    // same MongoDB statement as control. Redis is only a wake-up. Calling this
+    // on an already-resumed replay repairs a crash or queue failure after that
+    // statement without incrementing the generation a second time.
+    await this.enqueueCurrentWork(transition.conversation, requestId, at);
 
     return this.toDetailView(transition.conversation);
   }
 
-  private async enqueueExtractionForUnreadTestimony(
+  private async enqueueCurrentWork(
     conversation: FeedbackConversationDocument,
     correlationId: string,
+    now: Date,
   ): Promise<void> {
-    const latestSeq = conversation.messages
-      .filter((message) => message.actor === "participant")
-      .reduce((highest, message) => Math.max(highest, message.seq), 0);
-    if (latestSeq <= conversation.extraction.cursorSeq) {
-      return;
-    }
-
-    const data = feedbackExtractJobDataSchema.parse({
-      schemaVersion: FEEDBACK_JOB_SCHEMA_VERSION,
+    await this.wakeups.ensureQueued({
       conversationId: conversation._id,
+      work: resolveFeedbackConversationWork(conversation.work),
       correlationId,
-    });
-    // The same deterministic id and quiet window the materializer uses, so a
-    // resume that races an inbound message collapses onto one run.
-    await this.queue.add(FEEDBACK_JOB_NAMES.extractV1, data, {
-      jobId: createFeedbackExtractJobId(conversation._id, latestSeq),
-      delay: FEEDBACK_EXTRACT_QUIET_WINDOW_MS,
-      attempts: 5,
-      backoff: { type: "exponential", delay: 1_000 },
-      removeOnComplete: 1_000,
-      removeOnFail: 5_000,
-      stackTraceLimit: 10,
+      now,
     });
   }
 
@@ -393,15 +399,20 @@ export class PostEventFeedbackConversationService {
       reason: input.reason,
       note: input.note ?? null,
     };
-    const transition = await this.conversations.close({
-      conversationId: conversation._id,
-      reason: "cancelled",
-      at,
-      staffClose,
-    });
+    const transition = await this.database.transaction(async (transaction) => {
+      // Total-order the close against the dispatcher's final provider-entry
+      // marker. Without the shared lock, staff could close after the final
+      // Mongo guard but before transport entry and a queued bot reply would
+      // still leave after the operator had shut the conversation.
+      await this.outbox.lockConversation(transaction, conversation._id);
+      const current = await this.conversations.close({
+        conversationId: conversation._id,
+        reason: "cancelled",
+        at,
+        staffClose,
+      });
 
-    if (transition.changed) {
-      await this.database.transaction(async (transaction) => {
+      if (current.changed) {
         await this.outbox.cancelQueuedOutboxForConversation(
           transaction,
           conversation._id,
@@ -420,8 +431,11 @@ export class PostEventFeedbackConversationService {
             ...(staffClose.note ? { staffNote: staffClose.note } : {}),
           },
         });
-      });
+      }
+      return current;
+    });
 
+    if (transition.changed) {
       await this.summaries.notifyIfLastConversationClosed(
         campaignId,
         requestId,
@@ -501,40 +515,74 @@ export class PostEventFeedbackConversationService {
   }
 
   /**
-   * Staff send under human control only. Creates a `kind=staff` outbox row for
-   * the WP6 relay and appends the actor-labelled transcript entry correlated by
-   * `outboxId` so the detail read model can surface delivery state.
+   * Staff send under human control only. A client UUID gives the exact draft a
+   * durable identity; an admitted replay repairs its actor-labelled transcript
+   * entry by `outboxId` without writing another log or audit event.
    */
   async sendStaffMessage(
     campaignId: string,
     conversationId: string,
-    text: string,
+    input: SendFeedbackStaffMessageInput,
     actorId: FeedbackConversationPrincipal,
     requestId: FeedbackConversationCorrelationId,
   ): Promise<FeedbackConversationDetailView> {
-    const conversation = await this.requireConversationInCampaign(
-      campaignId,
+    const dedupeKey = createFeedbackStaffMessageDedupeKey(
       conversationId,
+      input.clientMessageId,
     );
-    const capabilities = conversationCapabilities(conversation);
-    if (!capabilities.canSendStaffMessage) {
-      throw new FeedbackConversationActionNotAllowedError(
-        "Staff send is only available while the conversation is open under human control",
-      );
-    }
-
-    const at = new Date();
-    const dedupeKey = `feedback-staff-${conversation._id}-${randomUUID()}`;
-
     const outbox = await this.database.transaction(async (transaction) => {
+      // Keep the same total order as provider entry: conversation first,
+      // campaign second. Reversing these two turns campaign close versus send
+      // into a textbook two-lock deadlock once either path grows another fence.
+      await this.outbox.lockConversation(transaction, conversationId);
+      const campaign = await this.campaigns.findCampaignByIdForUpdate(
+        transaction,
+        campaignId,
+      );
+      if (!campaign) {
+        throw new FeedbackCampaignNotFoundError(campaignId);
+      }
+
+      // MongoDB is authoritative for lifecycle/control. The optimistic screen
+      // read is deliberately irrelevant here: close/takeover may have won
+      // while the HTTP request was travelling to us.
+      const conversation = await this.conversations.findById(conversationId);
+      if (!conversation || conversation.campaignId !== campaign.id) {
+        throw new FeedbackConversationNotFoundError(conversationId);
+      }
+
+      // An already-admitted identity is allowed to finish its exact replay
+      // after close, pause or a hand-back won later. The row is the durable
+      // fact that this request passed the guards once; rejecting it now would
+      // turn a lost HTTP response into an invitation to mint a second send.
+      const replay = await this.outbox.findOutboxByDedupeKey(
+        dedupeKey,
+        transaction,
+      );
+      if (replay) {
+        assertExactStaffMessageReplay(replay, conversation, input, actorId);
+        return replay;
+      }
+
+      if (
+        campaign.status !== "launched" ||
+        conversation.lifecycle.state !== "open" ||
+        conversation.control.mode !== "human"
+      ) {
+        throw new FeedbackConversationActionNotAllowedError(
+          "Staff send requires a launched campaign and an open conversation under human control",
+        );
+      }
+
       const inserted = await this.outbox.insertOutboxIfAbsent(transaction, {
         conversationId: conversation._id,
         campaignId: conversation.campaignId,
         kind: "staff",
-        body: text,
+        body: input.text,
         dedupeKey,
         createdByStaff: actorId,
       });
+      assertExactStaffMessageReplay(inserted.row, conversation, input, actorId);
       await this.outboundLog.record(transaction, {
         outbox: inserted,
         conversation,
@@ -544,19 +592,21 @@ export class PostEventFeedbackConversationService {
         },
         correlationId: requestId,
       });
-      await this.audit.append(transaction, {
-        actorType: "admin",
-        actorId,
-        action: "feedback_conversation.staff_message_enqueued",
-        entityType: "feedback_conversation",
-        entityId: conversation._id,
-        requestId,
-        context: {
-          campaignId,
-          outboxId: inserted.row.id,
-          dedupeKey,
-        },
-      });
+      if (inserted.inserted) {
+        await this.audit.append(transaction, {
+          actorType: "admin",
+          actorId,
+          action: "feedback_conversation.staff_message_enqueued",
+          entityType: "feedback_conversation",
+          entityId: conversation._id,
+          requestId,
+          context: {
+            campaignId,
+            outboxId: inserted.row.id,
+            dedupeKey,
+          },
+        });
+      }
       return inserted.row;
     });
 
@@ -564,7 +614,11 @@ export class PostEventFeedbackConversationService {
     // `outboxId`, and it cancels the row when the transcript cannot hold the
     // message. Staff sends are synchronous, so the refusal is surfaced to the
     // operator instead of being left for a background retry.
-    const recorded = await this.outboundTranscript.record(outbox, at);
+    const recorded = await this.outboundTranscript.record(
+      outbox,
+      outbox.createdAt,
+      requestId,
+    );
     if (recorded.outcome === "cancelled") {
       throw new FeedbackConversationCapacityError();
     }
@@ -1122,10 +1176,12 @@ export class PostEventFeedbackConversationService {
   private async toDetailView(
     conversation: FeedbackConversationDocument,
   ): Promise<FeedbackConversationDetailView> {
-    const [displayNames, outboxRows, extraction] = await Promise.all([
+    const [displayNames, outboxRows, activeLease] = await Promise.all([
       this.resolveDisplayNames([conversation.respondentParticipantId]),
       this.outbox.listOutboxByConversation(conversation._id),
-      this.toExtractionView(conversation),
+      this.database.transaction((transaction) =>
+        this.executionFences.findActiveLease(transaction, conversation._id),
+      ),
     ]);
     const outboxById = new Map(outboxRows.map((row) => [row.id, row]));
 
@@ -1165,7 +1221,8 @@ export class PostEventFeedbackConversationService {
         at: message.at.toISOString(),
         delivery: deliveryFor(message.outboxId, outboxById),
       })),
-      extraction,
+      extraction: toExtractionView(conversation),
+      automation: toAutomationView(conversation, activeLease),
       needsAttention: conversation.needsAttention,
       attentionReasons: conversation.attentionReasons.map((reason) => ({
         id: reason.id,
@@ -1186,86 +1243,6 @@ export class PostEventFeedbackConversationService {
         : null,
       capabilities: conversationCapabilities(conversation),
     };
-  }
-
-  /**
-   * Document fields plus a single Redis lookup for extract jobs covering the
-   * unread window. Detail-only: the polled list must not do this per row.
-   *
-   * Failure is reported from a retained failed job, or — when the job has
-   * already aged out of Redis — from a durable note with
-   * `origin: deterministic_fallback`. The fallback does not advance the
-   * cursor, so unread testimony plus that note is still the unrepaired
-   * failure; inventing "idle" because the queue row is gone would hide it.
-   *
-   * A conversation parked on a provider incident is the one case where a retained
-   * failed job is *not* the news. Its positional job did fail, and a retry is
-   * queued five minutes out with nothing for a human to do in between, so
-   * reporting failure here would render «η ανάγνωση απέτυχε · απάντησε η
-   * εναλλακτική διαδικασία» about a run where no fallback answered anybody. The
-   * park is reported through the fields that already say it honestly — the queued
-   * retry and its due time.
-   */
-  private async toExtractionView(
-    conversation: FeedbackConversationDocument,
-  ): Promise<FeedbackConversationExtractionView> {
-    const unreadSeqs = unreadParticipantSeqs(conversation);
-    const parked = conversation.extraction.parkedSince !== null;
-    const [jobs, notes] = await Promise.all([
-      inspectFeedbackExtractJobs(
-        this.queue,
-        conversation._id,
-        unreadSeqs,
-        this.parkedRetryJobIds(conversation, unreadSeqs),
-      ),
-      unreadSeqs.length > 0
-        ? this.results.listNotesByConversation(conversation._id)
-        : Promise.resolve([]),
-    ]);
-    const fallbackRecorded = notes.some(
-      (note) => note.extractionMeta.origin === "deterministic_fallback",
-    );
-    const lastRunFailed =
-      !parked && (jobs.failedReason !== null || fallbackRecorded);
-
-    return {
-      unreadParticipantMessages: unreadSeqs.length,
-      lastRunAt: conversation.extraction.lastRunAt?.toISOString() ?? null,
-      model: conversation.extraction.model,
-      nextRunAt: jobs.nextExtractionAt?.toISOString() ?? null,
-      runInFlight: jobs.active,
-      runQueued: jobs.pending,
-      lastRunFailed,
-      failedReason: lastRunFailed ? jobs.failedReason : null,
-    };
-  }
-
-  /**
-   * The id of the retry a parked conversation is currently waiting on.
-   *
-   * Derived, not searched: the park counter is on the document and the newest
-   * unread participant seq is the position the parked run was reading, which is
-   * exactly the pair the fallback used to enqueue it. An empty list for every
-   * conversation that is not parked keeps the Redis lookup the same size it was.
-   */
-  private parkedRetryJobIds(
-    conversation: FeedbackConversationDocument,
-    unreadSeqs: readonly number[],
-  ): readonly string[] {
-    const latestUnread = unreadSeqs.at(-1);
-    if (
-      conversation.extraction.parkedSince === null ||
-      latestUnread === undefined
-    ) {
-      return [];
-    }
-    return [
-      createFeedbackExtractParkedJobId(
-        conversation._id,
-        latestUnread,
-        conversation.extraction.parkedRuns,
-      ),
-    ];
   }
 
   private async toResultsView(

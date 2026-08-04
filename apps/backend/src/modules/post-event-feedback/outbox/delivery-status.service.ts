@@ -48,39 +48,54 @@ export class MessageOutboxDeliveryStatusService {
       return { outcome: "unmatched" };
     }
 
-    const nextStatus = coalesceDeliveryStatus(row.deliveryStatus, input.status);
-    if (nextStatus === row.deliveryStatus) {
+    const appliedStatus = await this.database.transaction(
+      async (transaction): Promise<MessageOutboxDeliveryStatus | null> => {
+        await this.repository.lockConversation(transaction, row.conversationId);
+        const current =
+          (await this.repository.findOutboxByProviderMessageId(
+            input.providerMessageId,
+            transaction,
+          )) ?? row;
+        const nextStatus = coalesceDeliveryStatus(
+          current.deliveryStatus,
+          input.status,
+        );
+        if (nextStatus === current.deliveryStatus) return null;
+
+        const timestamps = deliveryTimestampFields(
+          nextStatus,
+          input.occurredAt,
+          current,
+        );
+        await this.repository.updateOutboxDelivery(transaction, current.id, {
+          deliveryStatus: nextStatus,
+          ...(current.status === "pending" ||
+          current.status === "claimed" ||
+          current.status === "attempting" ||
+          current.status === "ambiguous" ||
+          current.status === "sending" ||
+          current.status === "sent"
+            ? {
+                status:
+                  nextStatus === "error"
+                    ? ("failed" as const)
+                    : ("sent" as const),
+              }
+            : {}),
+          ...timestamps,
+        });
+        return nextStatus;
+      },
+    );
+    if (!appliedStatus) {
       return { outcome: "unchanged", outboxId: row.id };
     }
-
-    const timestamps = deliveryTimestampFields(
-      nextStatus,
-      input.occurredAt,
-      row,
-    );
-
-    await this.database.transaction(async (transaction) => {
-      await this.repository.updateOutboxDelivery(transaction, row.id, {
-        deliveryStatus: nextStatus,
-        ...(row.status === "pending" ||
-        row.status === "sending" ||
-        row.status === "sent"
-          ? {
-              status:
-                nextStatus === "error"
-                  ? ("failed" as const)
-                  : ("sent" as const),
-            }
-          : {}),
-        ...timestamps,
-      });
-    });
 
     this.logger.log({
       event: "feedback.outbox.status_updated",
       correlationId,
       outboxId: row.id,
-      deliveryStatus: nextStatus,
+      deliveryStatus: appliedStatus,
     });
 
     return { outcome: "updated", outboxId: row.id };

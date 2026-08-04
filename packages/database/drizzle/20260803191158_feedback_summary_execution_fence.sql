@@ -1,0 +1,6 @@
+ALTER TABLE "feedback_campaign_summaries" ADD COLUMN "execution_epoch" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "feedback_campaign_summaries" ADD COLUMN "claim_token" uuid;--> statement-breakpoint
+ALTER TABLE "feedback_campaign_summaries" ADD COLUMN "claim_expires_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "feedback_campaign_summaries" ADD CONSTRAINT "feedback_campaign_summaries_execution_epoch_check" CHECK ("feedback_campaign_summaries"."execution_epoch" >= 0);--> statement-breakpoint
+ALTER TABLE "feedback_campaign_summaries" ADD CONSTRAINT "feedback_campaign_summaries_claim_pair_check" CHECK (("feedback_campaign_summaries"."claim_token" is null) = ("feedback_campaign_summaries"."claim_expires_at" is null));--> statement-breakpoint
+ALTER TABLE "feedback_campaign_summaries" ADD CONSTRAINT "feedback_campaign_summaries_terminal_claim_check" CHECK ("feedback_campaign_summaries"."status" = 'pending' or ("feedback_campaign_summaries"."claim_token" is null and "feedback_campaign_summaries"."claim_expires_at" is null));

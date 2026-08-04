@@ -263,14 +263,19 @@ const SCENARIOS: readonly FeedbackScenario[] = [
     },
   },
   {
-    // Two consecutive permanent failures: each run still files operator evidence,
-    // but neither repeats a question the failed extraction may have answered.
+    // The first permanent failure hands the conversation to a person. A later
+    // participant message is preserved, but must not silently start a second
+    // model retry ladder while that handoff is still standing.
     id: "silent_fallback_across_consecutive_dead_runs",
     title:
-      "stays silent while preserving evidence across consecutive dead runs",
+      "stays silent and stops buying model calls after a permanent dead run",
     script: [{ fails: "refuses" }],
     expectedJobFailures: [
-      { job: "feedback.extract.v1", kind: "refuses", count: 10 },
+      {
+        job: "feedback.reconcile-conversation.v2",
+        kind: "refuses",
+        count: 5,
+      },
     ],
     steps: [
       { kind: "inbound", text: "ήταν όλα καλά" },
@@ -279,10 +284,7 @@ const SCENARIOS: readonly FeedbackScenario[] = [
       { kind: "wait", after: "settles" },
     ],
     expect: {
-      notes: [
-        { type: "general", about: null },
-        { type: "general", about: null },
-      ],
+      notes: [{ type: "general", about: null }],
       needsAttention: true,
       receivedCount: { fallback: 0 },
     },

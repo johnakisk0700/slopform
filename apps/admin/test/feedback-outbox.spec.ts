@@ -12,17 +12,9 @@ import { beforeAll, describe, expect, it } from "vitest";
  * type program while vitest still exercises the shipped implementation.
  */
 
-type QueueStatus = "pending" | "sending" | "held";
+type QueueStatus =
+  "pending" | "claimed" | "attempting" | "ambiguous" | "sending" | "held";
 type CampaignStatus = "launched" | "paused" | "closed";
-type JobState =
-  | "waiting"
-  | "waiting-children"
-  | "prioritized"
-  | "delayed"
-  | "active"
-  | "completed"
-  | "failed"
-  | "unknown";
 
 interface TestQueueItem {
   id: string;
@@ -30,26 +22,6 @@ interface TestQueueItem {
   campaignStatus: CampaignStatus;
   waitingSeconds: number;
   kind: "intro" | "reply" | "reminder" | "staff" | "system";
-}
-
-interface TestMessage {
-  status: QueueStatus | "sent" | "failed" | "cancelled";
-  campaignStatus: CampaignStatus;
-  deliveryStatus: string | null;
-  providerLogId: string | null;
-  providerMessageId: string | null;
-  reclaimAt: string | null;
-  job: {
-    id: string;
-    state: JobState;
-    attemptsMade: number | null;
-    attemptsAllowed: number | null;
-    enqueuedAt: string | null;
-    dueAt: string | null;
-    startedAt: string | null;
-    finishedAt: string | null;
-    failedReason: string | null;
-  };
 }
 
 interface TestConversationState {
@@ -105,20 +77,27 @@ interface OutboxQueueModule {
     status: QueueStatus | "sent" | "failed" | "cancelled",
   ) => { label: string; tone: string };
   outboxKindLabel: (kind: TestQueueItem["kind"]) => string;
-  deliverJobStateLabel: (state: JobState) => string;
-  deliverJobLines: (
-    message: TestMessage,
+  deliveryActivityLines: (
+    dispatch: TestDispatch,
     now?: Date,
   ) => {
     state: string;
     explanation: string;
     attempt: string | null;
     timing: string | null;
-    failure: string | null;
+    recordedReason: string | null;
     tone: "none" | "pending" | "danger";
   };
   outboxQueueSummary: (view: {
-    counts: { pending: number; sending: number; held: number; total: number };
+    counts: {
+      pending: number;
+      claimed: number;
+      attempting: number;
+      ambiguous: number;
+      sending: number;
+      held: number;
+      total: number;
+    };
     items: TestQueueItem[];
   }) => {
     total: number;
@@ -127,15 +106,7 @@ interface OutboxQueueModule {
   };
   formatDelta: (milliseconds: number) => string;
   outboundDeliveryTimeline: (
-    message: {
-      status: HistoryStatus;
-      createdAt: string;
-      updatedAt: string;
-      sentAt: string | null;
-      deliveredAt: string | null;
-      readAt: string | null;
-      playedAt: string | null;
-    },
+    input: { message: TestTimelineMessage; dispatch: TestDispatch },
     now?: Date,
   ) => {
     key: string;
@@ -158,8 +129,35 @@ interface OutboxQueueModule {
   isOutboxHistoryStatus: (value: string | null) => boolean;
 }
 
+interface TestDispatch {
+  state:
+    | "pending"
+    | "claimed"
+    | "attempting"
+    | "ambiguous"
+    | "sending"
+    | "sent"
+    | "failed"
+    | "held"
+    | "cancelled";
+  claimExpiresAt: string | null;
+  sendStartedAt: string | null;
+  attemptCount: number;
+  lastError: string | null;
+}
+
 type RangeKey = "hour" | "today" | "week" | "all";
 type HistoryStatus = QueueStatus | "sent" | "failed" | "cancelled";
+
+interface TestTimelineMessage {
+  status: HistoryStatus;
+  createdAt: string;
+  updatedAt: string;
+  sentAt: string | null;
+  deliveredAt: string | null;
+  readAt: string | null;
+  playedAt: string | null;
+}
 
 interface PollingModule {
   OUTBOX_QUEUE_POLL_INTERVAL_MS: number;
@@ -202,28 +200,22 @@ function item(overrides: Partial<TestQueueItem> = {}): TestQueueItem {
   };
 }
 
-function message(overrides: Partial<TestMessage> = {}): TestMessage {
+function dispatch(overrides: Partial<TestDispatch> = {}): TestDispatch {
   return {
-    status: "pending",
-    campaignStatus: "launched",
-    deliveryStatus: null,
-    providerLogId: null,
-    providerMessageId: null,
-    reclaimAt: null,
-    job: {
-      id: "feedback-deliver-v1-abc",
-      state: "unknown",
-      attemptsMade: null,
-      attemptsAllowed: null,
-      enqueuedAt: null,
-      dueAt: null,
-      startedAt: null,
-      finishedAt: null,
-      failedReason: null,
-      ...overrides.job,
-    },
+    state: "pending",
+    claimExpiresAt: null,
+    sendStartedAt: null,
+    attemptCount: 0,
+    lastError: null,
     ...overrides,
   };
+}
+
+function deliveryTimeline(message: TestTimelineMessage, now?: Date) {
+  return outbox.outboundDeliveryTimeline(
+    { message, dispatch: dispatch({ state: message.status }) },
+    now,
+  );
 }
 
 function conversationState(
@@ -287,8 +279,9 @@ describe("age is the number that matters", () => {
     );
   });
 
-  it("takes its thresholds from the relay's own five-second pass", () => {
-    // Under 15s a row has had at most two chances to be leased.
+  it("leaves provider pacing headroom before it raises an incident tone", () => {
+    // The dispatcher scans each second, but claiming, pacing and transport all
+    // take real time. Fifteen seconds is headroom, not a count of scan passes.
     expect(outbox.OUTBOX_WAITING_SLOW_SECONDS).toBe(15);
     expect(outbox.OUTBOX_WAITING_STALLED_SECONDS).toBe(60);
     expect(
@@ -341,6 +334,18 @@ describe("what a row says about itself", () => {
     expect(outbox.outboxStatusBadge("sending")).toMatchObject({
       label: "Sending",
     });
+    expect(outbox.outboxStatusBadge("claimed")).toMatchObject({
+      label: "Claimed",
+      tone: "info",
+    });
+    expect(outbox.outboxStatusBadge("attempting")).toMatchObject({
+      label: "Sending",
+      tone: "info",
+    });
+    expect(outbox.outboxStatusBadge("ambiguous")).toMatchObject({
+      label: "Reconciliation required",
+      tone: "danger",
+    });
     expect(outbox.outboxStatusBadge("held")).toMatchObject({
       label: "Held",
       tone: "warning",
@@ -355,7 +360,15 @@ describe("what a row says about itself", () => {
 
   it("reports the real backlog and the oldest age from the head of the list", () => {
     const summary = outbox.outboxQueueSummary({
-      counts: { pending: 300, sending: 2, held: 4, total: 306 },
+      counts: {
+        pending: 300,
+        claimed: 0,
+        attempting: 0,
+        ambiguous: 0,
+        sending: 2,
+        held: 4,
+        total: 306,
+      },
       items: [item({ waitingSeconds: 147 }), item({ waitingSeconds: 4 })],
     });
 
@@ -367,120 +380,103 @@ describe("what a row says about itself", () => {
   it("has no oldest age when nothing is waiting", () => {
     expect(
       outbox.outboxQueueSummary({
-        counts: { pending: 0, sending: 0, held: 0, total: 0 },
+        counts: {
+          pending: 0,
+          claimed: 0,
+          attempting: 0,
+          ambiguous: 0,
+          sending: 0,
+          held: 0,
+          total: 0,
+        },
         items: [],
       }).oldestWaitingSeconds,
     ).toBeNull();
   });
 });
 
-describe("the delivery job, honestly", () => {
-  it("says «άγνωστο» for a job Redis no longer holds", () => {
-    expect(outbox.deliverJobStateLabel("unknown")).toBe("άγνωστο");
-    expect(outbox.deliverJobLines(message()).state).toBe("άγνωστο");
-  });
-
-  it("explains why a queued row has no job instead of implying a fault", () => {
-    const lines = outbox.deliverJobLines(message({ status: "pending" }));
-
-    expect(lines.explanation).toContain("relay leases pending rows");
-    expect(lines.tone).toBe("none");
-  });
-
-  it("states that a held row is never handed to the relay at all", () => {
-    expect(
-      outbox.deliverJobLines(message({ status: "held" })).explanation,
-    ).toContain("never handed to the relay");
-  });
-
-  it("names the paused campaign rather than blaming the queue", () => {
-    expect(
-      outbox.deliverJobLines(
-        message({ status: "pending", campaignStatus: "paused" }),
-      ).explanation,
-    ).toContain("campaign is not running");
-  });
-
-  it("admits the three indistinguishable cases for a leased row with no job", () => {
-    const lines = outbox.deliverJobLines(
-      message({
-        status: "sending",
-        reclaimAt: "2026-07-27T11:47:00.000Z",
-      }),
-    );
-
-    expect(lines.explanation).toContain("look the same");
-    // Not a spinner: the relay's recovery horizon is a real time to give.
-    expect(lines.timing).toContain("reclaims this row");
-    expect(lines.tone).toBe("pending");
-  });
-
-  it("shows a due time for a delayed job rather than a spinner", () => {
-    const lines = outbox.deliverJobLines(
-      message({
-        status: "sending",
-        job: {
-          ...message().job,
-          state: "delayed",
-          dueAt: "2026-07-27T11:41:04.000Z",
-        },
+describe("the durable dispatcher, honestly", () => {
+  it("distinguishes a safe claim from a provider attempt", () => {
+    const lines = outbox.deliveryActivityLines(
+      dispatch({
+        state: "claimed",
+        claimExpiresAt: "2026-07-27T11:47:00.000Z",
       }),
       new Date("2026-07-27T11:41:00.000Z"),
     );
 
-    expect(lines.state).toBe("Delayed");
-    expect(lines.timing).toContain("Runs at");
+    expect(lines.state).toBe("Claimed");
+    expect(lines.explanation).toContain("no provider attempt");
+    expect(lines.timing).toContain("may then be reclaimed");
   });
 
-  it("shows failure as failure, with its reason", () => {
-    const lines = outbox.deliverJobLines(
-      message({
-        status: "sending",
-        job: {
-          ...message().job,
-          state: "failed",
-          attemptsMade: 1,
-          attemptsAllowed: 1,
-          failedReason: "wasender_session_unavailable",
-        },
+  it("never promises automatic reclaim after the provider attempt starts", () => {
+    const lines = outbox.deliveryActivityLines(
+      dispatch({
+        state: "attempting",
+        sendStartedAt: "2026-07-27T11:41:00.000Z",
+        attemptCount: 1,
       }),
     );
 
-    expect(lines.state).toBe("Failed");
-    expect(lines.failure).toBe("wasender_session_unavailable");
+    expect(lines.explanation).toContain(
+      "not automatically reclaimed or resent",
+    );
+    expect(lines.attempt).toContain("recorded durably");
+  });
+
+  it("blocks blind resend when the provider outcome is ambiguous", () => {
+    const lines = outbox.deliveryActivityLines(
+      dispatch({
+        state: "ambiguous",
+        sendStartedAt: "2026-07-27T11:41:00.000Z",
+        attemptCount: 1,
+        lastError: "transport_timeout",
+      }),
+    );
+
+    expect(lines.state).toBe("Needs reconciliation");
+    expect(lines.explanation).toContain("Automatic resend is blocked");
+    expect(lines.recordedReason).toBe("Recorded reason: transport_timeout");
     expect(lines.tone).toBe("danger");
   });
 
-  it("answers 'how many attempts' with the only durable fact there is", () => {
-    // No attempts table exists, and BullMQ's counter restarts when the relay
-    // re-adds the same job id. A recorded provider id is the whole evidence.
-    const attempted = outbox.deliverJobLines(
-      message({ status: "sending", providerMessageId: "wa-9" }),
-    );
-    expect(attempted.attempt).toContain("A provider call was made");
-    expect(attempted.attempt).toContain("reconciles");
+  it("keeps bridge-only sending visible without treating it as reclaimable", () => {
+    const lines = outbox.deliveryActivityLines(dispatch({ state: "sending" }));
 
-    const notAttempted = outbox.deliverJobLines(
-      message({
-        status: "sending",
-        job: {
-          ...message().job,
-          state: "active",
-          attemptsMade: 0,
-          attemptsAllowed: 1,
-        },
-      }),
-    );
-    expect(notAttempted.attempt).toContain("Attempt 1 of 1");
-    expect(notAttempted.attempt).toContain("PostgreSQL owns recovery");
+    expect(lines.state).toBe("Legacy delivery");
+    expect(lines.explanation).toContain("does not reclaim it");
+    expect(lines.attempt).toContain("pre-cutover");
+    expect(lines.timing).toBeNull();
   });
 
-  it("treats a delivery error as danger even when the job looks fine", () => {
-    expect(
-      outbox.deliverJobLines(
-        message({ status: "sending", deliveryStatus: "error" }),
-      ).tone,
-    ).toBe("danger");
+  it("does not turn a zero backfilled counter into proof that an old send never happened", () => {
+    const lines = outbox.deliveryActivityLines(
+      dispatch({ state: "sent", attemptCount: 0 }),
+    );
+
+    expect(lines.attempt).toContain("pre-cutover");
+    expect(lines.attempt).not.toContain("has started");
+  });
+
+  it("maps every remaining durable state without consulting a job", () => {
+    for (const [state, label, tone] of [
+      ["pending", "Pending", "none"],
+      ["sent", "Sent", "none"],
+      ["failed", "Failed", "danger"],
+      ["held", "Held", "none"],
+      ["cancelled", "Cancelled", "none"],
+    ] as const) {
+      const lines = outbox.deliveryActivityLines(
+        dispatch({
+          state,
+          attemptCount: state === "sent" || state === "failed" ? 1 : 0,
+          lastError: state === "failed" ? "provider_rejected" : null,
+        }),
+      );
+
+      expect(lines).toMatchObject({ state: label, tone });
+    }
   });
 });
 
@@ -777,15 +773,15 @@ describe("why the row was written", () => {
     );
     expect(details).toContain("OUTBOX_LOG_ABSENT_COPY");
     expect(details).toContain("message.log === null");
-    // The decision is durable PostgreSQL, so it sits above the live queue read.
+    // The durable decision sits above the durable dispatch activity.
     expect(details.indexOf("Why this was sent")).toBeLessThan(
-      details.indexOf('title="Delivery job"'),
+      details.indexOf('title="Dispatch activity"'),
     );
   });
 });
 
 describe("polling policy", () => {
-  it("matches the relay's own pass, on both the list and the opened row", () => {
+  it("samples queue and opened-row state every five seconds", () => {
     expect(polling.OUTBOX_QUEUE_POLL_INTERVAL_MS).toBe(5_000);
     expect(polling.OUTBOX_MESSAGE_POLL_INTERVAL_MS).toBe(5_000);
   });
@@ -799,6 +795,9 @@ describe("the history half", () => {
   it("names every status a row can ever reach, reusing the queue's words", () => {
     for (const [status, label] of [
       ["pending", "Queued"],
+      ["claimed", "Claimed"],
+      ["attempting", "Sending"],
+      ["ambiguous", "Reconciliation required"],
       ["sending", "Sending"],
       ["held", "Held"],
       ["sent", "Sent"],
@@ -1007,7 +1006,7 @@ describe("the opened row, after the rebrand", () => {
   });
 
   it("draws the gaps between the steps, not six absolute times", () => {
-    const timeline = outbox.outboundDeliveryTimeline({
+    const timeline = deliveryTimeline({
       status: "sent",
       createdAt: "2026-07-27T11:41:00.000Z",
       updatedAt: "2026-07-27T11:41:00.400Z",
@@ -1042,7 +1041,7 @@ describe("the opened row, after the rebrand", () => {
   });
 
   it("omits steps that did not happen instead of printing em dashes", () => {
-    const timeline = outbox.outboundDeliveryTimeline({
+    const timeline = deliveryTimeline({
       status: "pending",
       createdAt: "2026-07-27T11:41:00.000Z",
       updatedAt: "2026-07-27T11:41:00.000Z",
@@ -1057,10 +1056,10 @@ describe("the opened row, after the rebrand", () => {
   });
 
   it("names `updatedAt` only where it means something", () => {
-    // On a `sending` row it is the relay's lease; on a terminal row it is the
-    // moment the row stopped. Everywhere else it is a column that changes for
-    // reasons the screen has no word for, which is what made it noise.
-    const leased = outbox.outboundDeliveryTimeline({
+    // A bridge-only `sending` row has no trustworthy provider-boundary time;
+    // on a terminal row `updatedAt` is the moment the row stopped. Everywhere
+    // else it changes for reasons the screen has no word for.
+    const bridge = deliveryTimeline({
       status: "sending",
       createdAt: "2026-07-27T11:41:00.000Z",
       updatedAt: "2026-07-27T11:41:02.000Z",
@@ -1069,12 +1068,9 @@ describe("the opened row, after the rebrand", () => {
       readAt: null,
       playedAt: null,
     });
-    expect(leased.map((step) => step.label)).toEqual([
-      "Written",
-      "Leased by the relay",
-    ]);
+    expect(bridge.map((step) => step.label)).toEqual(["Written"]);
 
-    const failed = outbox.outboundDeliveryTimeline({
+    const failed = deliveryTimeline({
       status: "failed",
       createdAt: "2026-07-27T11:41:00.000Z",
       updatedAt: "2026-07-27T11:41:09.000Z",
@@ -1085,7 +1081,7 @@ describe("the opened row, after the rebrand", () => {
     });
     expect(failed.at(-1)).toMatchObject({ label: "Failed", terminal: true });
 
-    const sent = outbox.outboundDeliveryTimeline({
+    const sent = deliveryTimeline({
       status: "sent",
       createdAt: "2026-07-27T11:41:00.000Z",
       updatedAt: "2026-07-27T11:41:30.000Z",
@@ -1097,11 +1093,37 @@ describe("the opened row, after the rebrand", () => {
     expect(sent.map((step) => step.label)).toEqual(["Written", "Sent"]);
   });
 
+  it("draws the durable attempt boundary and ambiguous stop without a relay step", () => {
+    const timeline = outbox.outboundDeliveryTimeline({
+      message: {
+        status: "ambiguous",
+        createdAt: "2026-07-27T11:41:00.000Z",
+        updatedAt: "2026-07-27T11:41:09.000Z",
+        sentAt: null,
+        deliveredAt: null,
+        readAt: null,
+        playedAt: null,
+      },
+      dispatch: dispatch({
+        state: "ambiguous",
+        sendStartedAt: "2026-07-27T11:41:02.000Z",
+        attemptCount: 1,
+      }),
+    });
+
+    expect(timeline.map((step) => step.label)).toEqual([
+      "Written",
+      "Provider attempt started",
+      "Needs reconciliation",
+    ]);
+    expect(timeline.at(-1)?.terminal).toBe(true);
+  });
+
   it("orders by the instants themselves, never by how they were assembled", () => {
     // A row that failed after a provider call has an `updatedAt` later than
     // its `sentAt`; printing them the other way round would invent a negative
     // gap out of correct data.
-    const timeline = outbox.outboundDeliveryTimeline({
+    const timeline = deliveryTimeline({
       status: "failed",
       createdAt: "2026-07-27T11:41:00.000Z",
       updatedAt: "2026-07-27T11:41:05.000Z",
@@ -1141,33 +1163,30 @@ describe("the opened row, after the rebrand", () => {
       "src/components/admin/feedback/OutboxMessageDetails.tsx",
     );
 
-    // «The campaign is running, so the relay leases this row as soon as it
-    // can» on every opened row taught operators to skip the paragraph that
-    // matters on the rows where it is not running.
+    // Generic healthy-state copy taught operators to skip the paragraph that
+    // matters on the rows where the campaign is not running.
     expect(details).not.toContain(
       "the relay leases this row as soon as it can",
     );
     expect(details).toContain("parked ? (");
-    // And the retry-history limit is folded away: five lines needed once, that
-    // had been charging rent on every row.
-    expect(details).toContain("<details");
-    expect(details).toContain("Why there is no retry history");
+    expect(details).toContain("message.dispatch");
+    expect(details).not.toContain("Why there is no retry history");
+    expect(details).not.toContain("message.job");
   });
 
-  it("groups every id by the purpose they share — being pasted elsewhere", () => {
+  it("groups provider ids by the purpose they share — being pasted elsewhere", () => {
     const details = readAdminFile(
       "src/components/admin/feedback/OutboxMessageDetails.tsx",
     );
 
     expect(details).toContain('title="Identifiers"');
-    // Three labelled rows competing with the times and the decision, for
-    // values nobody reads on this screen.
+    expect(details).not.toContain('label="Job"');
     const identifiersAt = details.indexOf('title="Identifiers"');
     expect(identifiersAt).toBeGreaterThan(
       details.indexOf('title="Why this was sent"'),
     );
     expect(identifiersAt).toBeGreaterThan(
-      details.indexOf('title="Delivery job"'),
+      details.indexOf('title="Dispatch activity"'),
     );
   });
 });
@@ -1217,19 +1236,21 @@ describe("fitting a laptop screen", () => {
 });
 
 describe("the load constraint the screen exists under", () => {
-  it("reads queue state only for the row an operator opened", () => {
+  it("reads detailed durable state only for the row an operator opened", () => {
     const page = readAdminFile("src/routes/FeedbackOutboxPage.tsx");
 
-    // The polled list hook must not be the one that inspects Redis, and the
-    // per-row hook must be gated on a selection.
+    // Both endpoints read PostgreSQL, and the heavier per-row detail remains
+    // gated on a selection.
     expect(page).toContain("useListFeedbackOutboxQueue");
     expect(page).toContain("useGetFeedbackOutboxMessage");
     expect(page).toContain("enabled: selectedId !== null");
     expect(page).toContain('from "../api/generated/feedback-outbox"');
+    expect(page).toContain("dispatch record");
+    expect(page).not.toContain("delivery job");
     expect(page).not.toContain("ofetch");
   });
 
-  it("keeps the backend list free of any per-row queue lookup", () => {
+  it("keeps every backend page read free of ephemeral queue inspection", () => {
     const service = readFileSync(
       fileURLToPath(
         new URL(
@@ -1240,13 +1261,14 @@ describe("the load constraint the screen exists under", () => {
       "utf8",
     );
 
+    expect(service).not.toContain("getJob");
+    expect(service).not.toContain("inspectFeedbackDeliverJob");
+
     const listBody = service.slice(
       service.indexOf("async listQueue("),
       service.indexOf("async getMessageDelivery("),
     );
 
-    expect(listBody).not.toContain("getJob");
-    expect(listBody).not.toContain("inspectFeedbackDeliverJob");
     expect(listBody).toContain("listUndeliveredOutbox");
     // One batched conversation read for the whole page, never one per row.
     expect(listBody).toContain("listRespondentsByIds");
@@ -1278,9 +1300,10 @@ describe("the load constraint the screen exists under", () => {
       "src/components/admin/feedback/OutboxMessageDetails.tsx",
     );
 
-    expect(details).toContain("job.state");
-    expect(details).toContain("job.timing");
-    expect(details).toContain("άγνωστο");
+    expect(details).toContain("activity.state");
+    expect(details).toContain("activity.timing");
+    expect(details).toContain("message.dispatch");
+    expect(details).not.toContain("message.job");
     expect(details).not.toContain("aria-busy");
     expect(details).not.toContain("animate-pulse");
   });

@@ -14,7 +14,7 @@ export function foldGreekAccents(text: string): string {
  * The STOP matcher uses it too. It once did not, on the reasoning that stripping
  * punctuation would widen the command rather than normalise it — and the result
  * was that `ΣΤΟΠ!`, `stop.` and `STOP!!!` all failed to stop anything while the
- * reminder sweep stayed armed. An exclamation mark is how an annoyed person
+ * reminder planner stayed armed. An exclamation mark is how an annoyed person
  * types it; the folded form is the only honest comparison.
  */
 export function foldPostEventFeedbackText(text: string): string {

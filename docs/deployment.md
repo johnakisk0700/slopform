@@ -29,6 +29,7 @@ flowchart LR
   Worker --> DB
   Worker --> Mongo
   Worker --> AI["OpenRouter / OpenAI"]
+  Worker --> WhatsApp["Wasender when enabled"]
   Migrate["One-shot migration"] --> DB
   Migrate -. "must succeed" .-> API
   Migrate -. "must succeed" .-> Worker
@@ -198,11 +199,22 @@ production profile is an explicit rehearsal: `TRANSPORT_MODE=simulated`,
 `FEEDBACK_PRODUCTION_REHEARSAL_ENABLED=true` and
 `FEEDBACK_EXTRACTION_STUB=false`. It makes real, billable model calls but writes
 outbound messages only to `feedback_sim_outbound`. The initial paid treatment is
-direct-OpenAI Terra with extraction/classification `medium` and the conditional
-participant-facing rewrite at `low`; the worker attestation rejects a partial
-restart with different controls. Both Wasender files stay
-empty and its webhook stays off. The environment validator rejects any mixed
-profile instead of quietly enabling network delivery.
+direct-OpenAI Luna with extraction/classification and the conditional
+participant-facing rewrite all at `medium`; Terra is reserved for campaign
+summaries. The worker attestation rejects a partial
+restart with different model or simulated-transport controls. The baseline
+fault profile is `none` / `0%` / seed `1` / zero latency. An intentional fault
+run first stops every feedback worker, isolates or drains unrelated simulated
+outbox work, sets the mode and percentage, then starts the API and every worker
+with one identical profile. Do not use a rolling profile change: attestation
+guards rehearsal preflight, not rows a mixed fleet may already dispatch. The
+catalog and `feedback:simulate` output must show that exact profile before paid
+ingress is written, and the runner requires `--confirm-transport-faults` in
+addition to any paid-run confirmation. The profile applies to every simulated
+outbound in that deployment, so do not overlap rehearsals that require
+different transport outcomes. Both Wasender files stay
+empty and its webhook stays off. The environment validator rejects incoherent
+transport/profile combinations instead of quietly enabling network delivery.
 
 Do not move secret values back into Compose environment metadata. PostgreSQL
 uses its native password-file contract, Redis reads its
@@ -279,7 +291,27 @@ worker additionally owns a lazy, five-connection PostgreSQL advisory-lock pool;
 it is separate specifically so lock waiters cannot consume the repository pool.
 Budget the combined maximum of 25 PostgreSQL connections before scaling either
 process; raising one service's pool in isolation is not capacity planning. Each
-process also owns a MongoDB pool capped at ten connections.
+process also owns a MongoDB pool capped at ten connections. Every feedback
+worker replica runs one non-overlapping, one-second PostgreSQL outbox poll;
+`SKIP LOCKED` distributes rows safely, but replica count still multiplies empty
+poll traffic and must be included in database capacity measurements.
+
+The production worker has an eight-minute stop grace. Feedback conversation and
+campaign-summary execution leases last seven minutes and direct outbox claims
+last two; this lets a normal deploy finish in-flight provider work or lose its
+fence before Docker sends `SIGKILL`. A hard kill remains recoverable: due
+MongoDB work and pending summary attempts survive, pre-send `claimed` rows
+expire safely, and post-marker `attempting` rows become `ambiguous` rather than
+being sent twice.
+
+The first deployment of the state-driven feedback orchestrator is a
+**non-rolling worker cutover**. The existing single `worker` Compose service is
+replaced in place: Docker finishes or stops the old container before starting
+the new one. Do not temporarily scale old and new worker images side by side.
+An old V1 summary worker cannot honor the new PostgreSQL execution claim, so no
+lock added by the new binary can make that overlap safe. The compatibility
+consumer converts retained Redis jobs after the replacement; it is a drain
+bridge, not a blue/green-worker protocol.
 
 ## Build and deploy
 
@@ -331,9 +363,17 @@ variables shown by `pnpm prod help`.
 
 A requested scope is fully built before any running application container is
 replaced. Backend activation starts or verifies PostgreSQL, MongoDB and Redis,
-runs exactly one foreground migration container, waits for API readiness, then
-starts the worker. Web activation waits for the loopback API before replacing
-the SPA. A full deploy installs and validates the dedicated
+runs exactly one foreground migration container, then explicitly stops the old
+worker and waits for its shutdown grace **before** replacing the API. Only after
+the new API is ready does it start the new worker. That brief worker outage is
+the compatibility barrier for feedback's V1-to-V2 cutover: a new API may write
+MongoDB `work` and direct-dispatch states the old worker cannot parse or fence.
+If API readiness fails, the worker deliberately remains stopped; the new HTTP
+edge may retain durable ingress while an operator inspects and retries, but an
+old binary must not consume it. Preserve this ordering for any future migration
+whose old worker cannot honor a new writer contract.
+Web activation waits for the loopback API before replacing the SPA. A full
+deploy installs and validates the dedicated
 `slopform.example.com` native nginx vhost; partial deploys leave the shared edge
 alone. A partial deploy also requires its `compose.prod.yaml` to be
 byte-identical to the active contract; any Compose change requires `deploy

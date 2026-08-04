@@ -1,6 +1,5 @@
 import { Logger } from "@nestjs/common";
 import type { AppTransaction } from "@join-the-six/database";
-import type { Queue } from "bullmq";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { DatabaseService } from "../../../infrastructure/database/database.service.js";
@@ -9,11 +8,8 @@ import {
   PostEventFeedbackIngressService,
 } from "./ingress.service.js";
 import type { FeedbackIngressRepository } from "./ingress.repository.js";
-import {
-  FEEDBACK_OBSERVED_TEXT_HARD_LIMIT,
-  type FeedbackJobData,
-  type FeedbackJobName,
-} from "../jobs.schemas.js";
+import type { FeedbackMaterializeWakeupService } from "./materialize-wakeup.service.js";
+import { FEEDBACK_OBSERVED_TEXT_HARD_LIMIT } from "../jobs.schemas.js";
 
 const ingressId = "b1c9e0a4-2c65-4a29-9a2e-2d0a3f2e1b77";
 const observed = {
@@ -31,7 +27,7 @@ describe("PostEventFeedbackIngressService", () => {
   });
 
   it("performs one durable insert and one deterministic enqueue", async () => {
-    const { service, repository, queue } = createService({ inserted: true });
+    const { service, repository, wakeups } = createService({ inserted: true });
 
     await expect(
       service.recordObservedMessage(observed, "correlation-1"),
@@ -49,19 +45,14 @@ describe("PostEventFeedbackIngressService", () => {
         observedAt: observed.observedAt,
       },
     );
-    expect(queue.add).toHaveBeenCalledWith(
-      "feedback.materialize.v1",
-      {
-        schemaVersion: 1,
-        ingressId,
-        correlationId: "correlation-1",
-      },
-      { jobId: `feedback-materialize-v1-${ingressId}` },
-    );
+    expect(wakeups.ensurePendingQueued).toHaveBeenCalledWith({
+      ingressId,
+      correlationId: "correlation-1",
+    });
   });
 
   it("re-enqueues a redelivered message that the unique constraint deduplicated", async () => {
-    const { service, repository, queue } = createService({ inserted: false });
+    const { service, repository, wakeups } = createService({ inserted: false });
 
     await expect(
       service.recordObservedMessage(observed, "correlation-2"),
@@ -69,8 +60,8 @@ describe("PostEventFeedbackIngressService", () => {
 
     expect(repository.insertIngressIfAbsent).toHaveBeenCalledTimes(1);
     // The first delivery may have crashed before the enqueue, so a redelivery
-    // must still queue. The job id keeps it from running twice.
-    expect(queue.add).toHaveBeenCalledTimes(1);
+    // must still reconcile the wake-up. The job id keeps it from running twice.
+    expect(wakeups.ensurePendingQueued).toHaveBeenCalledTimes(1);
   });
 
   it("records a redelivery whose words changed as its own observation", async () => {
@@ -99,7 +90,7 @@ describe("PostEventFeedbackIngressService", () => {
   it("refuses to acknowledge a message it could not queue", async () => {
     const { service } = createService({
       inserted: true,
-      queueError: new Error("redis unavailable"),
+      wakeupError: new Error("redis unavailable"),
     });
 
     await expect(
@@ -125,13 +116,13 @@ describe("PostEventFeedbackIngressService", () => {
 
 function createService(options: {
   inserted: boolean;
-  queueError?: Error;
+  wakeupError?: Error;
   /** What the already-stored row holds. Differing text is an edit, not a duplicate. */
   storedText?: string | null;
 }): {
   service: PostEventFeedbackIngressService;
   repository: { insertIngressIfAbsent: ReturnType<typeof vi.fn> };
-  queue: { add: ReturnType<typeof vi.fn> };
+  wakeups: { ensurePendingQueued: ReturnType<typeof vi.fn> };
 } {
   const repository = {
     insertIngressIfAbsent: vi.fn().mockResolvedValue({
@@ -143,12 +134,10 @@ function createService(options: {
       inserted: options.inserted,
     }),
   };
-  const queue = {
-    add: options.queueError
-      ? vi.fn().mockRejectedValue(options.queueError)
-      : vi
-          .fn()
-          .mockResolvedValue({ id: `feedback-materialize-v1-${ingressId}` }),
+  const wakeups = {
+    ensurePendingQueued: options.wakeupError
+      ? vi.fn().mockRejectedValue(options.wakeupError)
+      : vi.fn().mockResolvedValue(`feedback-materialize-v1-${ingressId}`),
   };
   const database = {
     transaction: async <T>(work: (tx: AppTransaction) => Promise<T>) =>
@@ -157,11 +146,11 @@ function createService(options: {
 
   return {
     service: new PostEventFeedbackIngressService(
-      queue as unknown as Queue<FeedbackJobData, void, FeedbackJobName>,
+      wakeups as unknown as FeedbackMaterializeWakeupService,
       database as unknown as DatabaseService,
       repository as unknown as FeedbackIngressRepository,
     ),
     repository,
-    queue,
+    wakeups,
   };
 }

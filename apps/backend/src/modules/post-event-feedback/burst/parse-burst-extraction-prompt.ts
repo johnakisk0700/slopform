@@ -62,23 +62,66 @@ export function parseBurstExtractionPrompt(
     })
     .filter((id): id is string => id !== null);
 
-  const transcript = linesAfterHeader(userPrompt, "ΣΥΝΟΜΙΛΙΑ")
-    .map((line) => {
-      const match = TRANSCRIPT_LINE.exec(line);
-      if (!match?.groups) {
-        return null;
-      }
-      return {
+  const transcript = scanTranscript(userPrompt);
+
+  return { respondent, candidates, newMessageIds, transcript };
+}
+
+/**
+ * Parse the final transcript section without treating message line breaks as
+ * section delimiters.
+ *
+ * `formatTranscript` renders stored text verbatim. Application-owned replies
+ * can therefore contain a blank line before a safety assurance, and participant
+ * messages may be multiline too. The generic section reader must stop at blank
+ * lines for every earlier prompt block; using it here used to truncate the
+ * transcript at that assurance and hide every later participant turn from the
+ * deterministic rehearsal stub.
+ */
+function scanTranscript(prompt: string): ParsedBurstTranscriptMessage[] {
+  const lines = prompt.split("\n");
+  const start = lines.findIndex((line) => line.trim() === "ΣΥΝΟΜΙΛΙΑ");
+  if (start < 0) {
+    return [];
+  }
+
+  const messages: ParsedBurstTranscriptMessage[] = [];
+  let current:
+    | (Omit<ParsedBurstTranscriptMessage, "text"> & {
+        readonly textLines: string[];
+      })
+    | undefined;
+
+  const flush = (): void => {
+    if (!current) {
+      return;
+    }
+    messages.push({
+      seq: current.seq,
+      occurredAt: current.occurredAt,
+      id: current.id,
+      actor: current.actor,
+      text: current.textLines.join("\n"),
+    });
+  };
+
+  for (const line of lines.slice(start + 1)) {
+    const match = TRANSCRIPT_LINE.exec(line);
+    if (match?.groups) {
+      flush();
+      current = {
         seq: Number(match.groups["seq"]),
         occurredAt: match.groups["occurredAt"]!,
         id: match.groups["id"]!,
         actor: match.groups["actor"]!,
-        text: match.groups["text"]!,
+        textLines: [match.groups["text"]!],
       };
-    })
-    .filter((entry): entry is ParsedBurstTranscriptMessage => entry !== null);
-
-  return { respondent, candidates, newMessageIds, transcript };
+      continue;
+    }
+    current?.textLines.push(line);
+  }
+  flush();
+  return messages;
 }
 
 function parseCandidateLines(lines: readonly string[]): ParsedBurstCandidate[] {

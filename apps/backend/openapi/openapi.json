@@ -2765,6 +2765,44 @@
             "maxItems": 50,
             "type": "array"
           },
+          "automation": {
+            "additionalProperties": false,
+            "properties": {
+              "claimExpiresAt": {
+                "format": "date-time",
+                "nullable": true,
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                "type": "string"
+              },
+              "nextActionAt": {
+                "format": "date-time",
+                "nullable": true,
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                "type": "string"
+              },
+              "revision": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "state": {
+                "enum": [
+                  "idle",
+                  "scheduled",
+                  "running",
+                  "parked"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "state",
+              "nextActionAt",
+              "revision",
+              "claimExpiresAt"
+            ],
+            "type": "object"
+          },
           "campaignId": {
             "format": "uuid",
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
@@ -2833,38 +2871,17 @@
           "extraction": {
             "additionalProperties": false,
             "properties": {
-              "failedReason": {
-                "maxLength": 500,
-                "minLength": 1,
-                "nullable": true,
-                "type": "string"
-              },
               "lastRunAt": {
                 "format": "date-time",
                 "nullable": true,
                 "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
                 "type": "string"
               },
-              "lastRunFailed": {
-                "type": "boolean"
-              },
               "model": {
                 "maxLength": 200,
                 "minLength": 1,
                 "nullable": true,
                 "type": "string"
-              },
-              "nextRunAt": {
-                "format": "date-time",
-                "nullable": true,
-                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
-                "type": "string"
-              },
-              "runInFlight": {
-                "type": "boolean"
-              },
-              "runQueued": {
-                "type": "boolean"
               },
               "unreadParticipantMessages": {
                 "maximum": 9007199254740991,
@@ -2875,12 +2892,7 @@
             "required": [
               "unreadParticipantMessages",
               "lastRunAt",
-              "model",
-              "nextRunAt",
-              "runInFlight",
-              "runQueued",
-              "lastRunFailed",
-              "failedReason"
+              "model"
             ],
             "type": "object"
           },
@@ -3064,6 +3076,9 @@
                       "enum": [
                         "pending",
                         "held",
+                        "claimed",
+                        "attempting",
+                        "ambiguous",
                         "sending",
                         "sent",
                         "failed",
@@ -3221,6 +3236,7 @@
           "goals",
           "messages",
           "extraction",
+          "automation",
           "needsAttention",
           "attentionReasons",
           "remindedAt",
@@ -3685,6 +3701,9 @@
                   "enum": [
                     "pending",
                     "held",
+                    "claimed",
+                    "attempting",
+                    "ambiguous",
                     "sending",
                     "sent",
                     "failed",
@@ -3801,6 +3820,56 @@
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
             "type": "string"
           },
+          "dispatch": {
+            "additionalProperties": false,
+            "properties": {
+              "attemptCount": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "claimExpiresAt": {
+                "format": "date-time",
+                "nullable": true,
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                "type": "string"
+              },
+              "lastError": {
+                "maxLength": 2000,
+                "minLength": 1,
+                "nullable": true,
+                "type": "string"
+              },
+              "sendStartedAt": {
+                "format": "date-time",
+                "nullable": true,
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                "type": "string"
+              },
+              "state": {
+                "enum": [
+                  "pending",
+                  "held",
+                  "claimed",
+                  "attempting",
+                  "ambiguous",
+                  "sending",
+                  "sent",
+                  "failed",
+                  "cancelled"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "state",
+              "claimExpiresAt",
+              "sendStartedAt",
+              "attemptCount",
+              "lastError"
+            ],
+            "type": "object"
+          },
           "eventTitle": {
             "maxLength": 200,
             "minLength": 1,
@@ -3810,83 +3879,6 @@
             "format": "uuid",
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
             "type": "string"
-          },
-          "job": {
-            "additionalProperties": false,
-            "properties": {
-              "attemptsAllowed": {
-                "maximum": 9007199254740991,
-                "minimum": 1,
-                "nullable": true,
-                "type": "integer"
-              },
-              "attemptsMade": {
-                "maximum": 9007199254740991,
-                "minimum": 0,
-                "nullable": true,
-                "type": "integer"
-              },
-              "dueAt": {
-                "format": "date-time",
-                "nullable": true,
-                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
-                "type": "string"
-              },
-              "enqueuedAt": {
-                "format": "date-time",
-                "nullable": true,
-                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
-                "type": "string"
-              },
-              "failedReason": {
-                "maxLength": 500,
-                "minLength": 1,
-                "nullable": true,
-                "type": "string"
-              },
-              "finishedAt": {
-                "format": "date-time",
-                "nullable": true,
-                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
-                "type": "string"
-              },
-              "id": {
-                "maxLength": 200,
-                "minLength": 1,
-                "type": "string"
-              },
-              "startedAt": {
-                "format": "date-time",
-                "nullable": true,
-                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
-                "type": "string"
-              },
-              "state": {
-                "enum": [
-                  "waiting",
-                  "waiting-children",
-                  "prioritized",
-                  "delayed",
-                  "active",
-                  "completed",
-                  "failed",
-                  "unknown"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "id",
-              "state",
-              "attemptsMade",
-              "attemptsAllowed",
-              "enqueuedAt",
-              "dueAt",
-              "startedAt",
-              "finishedAt",
-              "failedReason"
-            ],
-            "type": "object"
           },
           "kind": {
             "enum": [
@@ -3911,6 +3903,11 @@
                   "control": {
                     "additionalProperties": false,
                     "properties": {
+                      "changedAt": {
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                        "type": "string"
+                      },
                       "mode": {
                         "enum": [
                           "bot",
@@ -4015,6 +4012,15 @@
                   "needsAttention": {
                     "type": "boolean"
                   },
+                  "participantIngressIds": {
+                    "items": {
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "type": "string"
+                    },
+                    "maxItems": 150,
+                    "type": "array"
+                  },
                   "reminderCount": {
                     "maximum": 9007199254740991,
                     "minimum": 0,
@@ -4024,6 +4030,33 @@
                     "maximum": 9007199254740991,
                     "minimum": 0,
                     "type": "integer"
+                  },
+                  "work": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "campaignResumeGeneration": {
+                        "maximum": 9007199254740991,
+                        "minimum": 0,
+                        "nullable": true,
+                        "type": "integer"
+                      },
+                      "executionEpoch": {
+                        "maximum": 9007199254740991,
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "revision": {
+                        "maximum": 9007199254740991,
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "revision",
+                      "executionEpoch",
+                      "campaignResumeGeneration"
+                    ],
+                    "type": "object"
                   }
                 },
                 "required": [
@@ -4345,12 +4378,6 @@
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
             "type": "string"
           },
-          "reclaimAt": {
-            "format": "date-time",
-            "nullable": true,
-            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
-            "type": "string"
-          },
           "respondentDisplayName": {
             "maxLength": 200,
             "minLength": 1,
@@ -4367,6 +4394,9 @@
             "enum": [
               "pending",
               "held",
+              "claimed",
+              "attempting",
+              "ambiguous",
               "sending",
               "sent",
               "failed",
@@ -4408,8 +4438,7 @@
           "playedAt",
           "providerLogId",
           "providerMessageId",
-          "reclaimAt",
-          "job",
+          "dispatch",
           "log"
         ],
         "type": "object"
@@ -4420,6 +4449,21 @@
           "counts": {
             "additionalProperties": false,
             "properties": {
+              "ambiguous": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "attempting": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "claimed": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
               "held": {
                 "maximum": 9007199254740991,
                 "minimum": 0,
@@ -4443,6 +4487,9 @@
             },
             "required": [
               "pending",
+              "claimed",
+              "attempting",
+              "ambiguous",
               "sending",
               "held",
               "total"
@@ -4535,6 +4582,9 @@
                 "status": {
                   "enum": [
                     "pending",
+                    "claimed",
+                    "attempting",
+                    "ambiguous",
                     "sending",
                     "held"
                   ],
@@ -5003,6 +5053,11 @@
       "SendFeedbackStaffMessageDto": {
         "additionalProperties": false,
         "properties": {
+          "clientMessageId": {
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+            "type": "string"
+          },
           "text": {
             "maxLength": 4096,
             "minLength": 1,
@@ -5010,6 +5065,7 @@
           }
         },
         "required": [
+          "clientMessageId",
           "text"
         ],
         "type": "object"
@@ -6952,6 +7008,9 @@
               "enum": [
                 "pending",
                 "held",
+                "claimed",
+                "attempting",
+                "ambiguous",
                 "sending",
                 "sent",
                 "failed",

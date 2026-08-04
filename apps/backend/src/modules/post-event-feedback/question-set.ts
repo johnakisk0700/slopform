@@ -115,7 +115,7 @@ const POST_EVENT_FEEDBACK_QUESTION_SET_V1_COPY = {
   // No thanks, because there is nothing to thank him for. No question, because
   // he has answered that four times. No apology, because he did nothing wrong.
   // The promise is one we actually keep: the conversation closes, and the
-  // reminder sweep does not wake a closed one.
+  // conversation planner does not remind a closed one.
   declined: "Κανένα πρόβλημα, δεν θα σε ξαναρωτήσουμε. Καλή συνέχεια! 🙂",
   stop_ack: "Έγινε, δεν θα ξαναλάβεις μηνύματα από εμάς σε αυτό το νούμερο.",
   reminder:

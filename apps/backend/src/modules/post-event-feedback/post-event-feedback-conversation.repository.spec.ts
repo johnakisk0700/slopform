@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 
 import type { Collection } from "mongodb";
 import { MongoServerError } from "mongodb";
@@ -37,50 +38,431 @@ const reasonId = "7a1b2c3d-4e5f-4a6b-8c9d-0e1f2a3b4c5d";
 const secondReasonId = "8b2c3d4e-5f6a-4b7c-9d8e-1f2a3b4c5d6e";
 
 describe("FeedbackConversationRepository", () => {
-  it("selects only open bot conversations with unread participant testimony for recovery", async () => {
-    const parkedAfter = new Date("2026-08-03T06:00:00.000Z");
-    const unread = feedbackConversation({
-      messages: [botMessage(1), participantMessage(2)],
-      extraction: {
-        cursorSeq: 1,
-        lastRunAt: null,
-        model: null,
-        usage: null,
-        serviceTier: null,
-        parkedSince: null,
-        parkedRuns: 0,
-        parkedNoticeSentAt: null,
-      },
+  it("marks durable work due by atomically advancing its revision", async () => {
+    const nextActionAt = new Date("2026-07-25T10:06:00.000Z");
+    const updated = feedbackConversation({
+      work: { revision: 4, nextActionAt, executionEpoch: 2 },
     });
-    const toArray = vi.fn().mockResolvedValue([unread]);
+    const collection = collectionMock({
+      findOneAndUpdate: vi.fn().mockResolvedValue(updated),
+    });
+    const repository = createRepository(collection);
+
+    await expect(
+      repository.markWorkDue({
+        conversationId,
+        nextActionAt,
+        at: repliedAt,
+      }),
+    ).resolves.toMatchObject({
+      changed: true,
+      work: { revision: 4, nextActionAt, executionEpoch: 2 },
+    });
+    expect(collection.findOneAndUpdate).toHaveBeenCalledWith(
+      {
+        _id: conversationId,
+        schemaVersion: 2,
+        purpose: "post_event_feedback",
+      },
+      [
+        {
+          $set: {
+            "work.revision": {
+              $add: [{ $ifNull: ["$work.revision", 0] }, 1],
+            },
+            "work.nextActionAt": nextActionAt,
+            "work.executionEpoch": {
+              $ifNull: ["$work.executionEpoch", 0],
+            },
+            updatedAt: { $max: ["$updatedAt", repliedAt] },
+          },
+        },
+      ],
+      { returnDocument: "after" },
+    );
+  });
+
+  it("marks every open campaign conversation due without a list limit", async () => {
+    const nextActionAt = new Date("2026-07-25T10:06:00.000Z");
+    const updateMany = vi.fn().mockResolvedValue({ modifiedCount: 731 });
+    const repository = createRepository(collectionMock({ updateMany }));
+
+    await expect(
+      repository.markCampaignWorkDue({
+        campaignId,
+        generation: 3,
+        nextActionAt,
+        at: repliedAt,
+      }),
+    ).resolves.toBe(731);
+    expect(updateMany).toHaveBeenCalledWith(
+      {
+        schemaVersion: 2,
+        purpose: "post_event_feedback",
+        campaignId,
+        "lifecycle.state": "open",
+        $or: [
+          { "work.campaignResumeGeneration": { $exists: false } },
+          { "work.campaignResumeGeneration": { $lt: 3 } },
+        ],
+      },
+      [
+        {
+          $set: {
+            "work.revision": {
+              $add: [{ $ifNull: ["$work.revision", 0] }, 1],
+            },
+            "work.nextActionAt": {
+              $max: [
+                { $ifNull: ["$work.nextActionAt", nextActionAt] },
+                nextActionAt,
+              ],
+            },
+            "work.executionEpoch": {
+              $ifNull: ["$work.executionEpoch", 0],
+            },
+            "work.campaignResumeGeneration": 3,
+            updatedAt: { $max: ["$updatedAt", repliedAt] },
+          },
+        },
+      ],
+    );
+  });
+
+  it("seeds one bounded legacy batch without overwriting concurrent work", async () => {
+    const firstId = conversationId;
+    const secondId = "7f0f2f8a-2b73-5a02-9d0a-3f0b8f5b1c22";
+    const toArray = vi
+      .fn()
+      .mockResolvedValue([{ _id: firstId }, { _id: secondId }]);
+    const limit = vi.fn().mockReturnValue({ toArray });
+    const sort = vi.fn().mockReturnValue({ limit });
+    const find = vi.fn().mockReturnValue({ sort });
+    const updateMany = vi.fn().mockResolvedValue({ modifiedCount: 1 });
+    const repository = createRepository(collectionMock({ find, updateMany }));
+
+    await expect(
+      repository.seedMissingWork({ dueAt: repliedAt, limit: 100 }),
+    ).resolves.toBe(1);
+
+    const missingWorkFilter = {
+      schemaVersion: 2,
+      purpose: "post_event_feedback",
+      "lifecycle.state": "open",
+      "control.mode": "bot",
+      awaitingHuman: { $ne: true },
+      work: { $exists: false },
+    };
+    expect(find).toHaveBeenCalledWith(missingWorkFilter, {
+      projection: { _id: 1 },
+    });
+    expect(sort).toHaveBeenCalledWith({ _id: 1 });
+    expect(limit).toHaveBeenCalledWith(100);
+    expect(updateMany).toHaveBeenCalledWith(
+      { ...missingWorkFilter, _id: { $in: [firstId, secondId] } },
+      {
+        $set: {
+          work: {
+            revision: 1,
+            nextActionAt: repliedAt,
+            executionEpoch: 0,
+          },
+        },
+      },
+    );
+  });
+
+  it("does not write when no legacy conversation needs a work seed", async () => {
+    const toArray = vi.fn().mockResolvedValue([]);
+    const limit = vi.fn().mockReturnValue({ toArray });
+    const sort = vi.fn().mockReturnValue({ limit });
+    const find = vi.fn().mockReturnValue({ sort });
+    const updateMany = vi.fn();
+    const repository = createRepository(collectionMock({ find, updateMany }));
+
+    await expect(
+      repository.seedMissingWork({ dueAt: repliedAt, limit: 100 }),
+    ).resolves.toBe(0);
+    expect(updateMany).not.toHaveBeenCalled();
+  });
+
+  it("repairs the bounded V1 cursor-first handoff crash without overriding staff resume", async () => {
+    const secondId = "7f0f2f8a-2b73-5a02-9d0a-3f0b8f5b1c22";
+    const toArray = vi
+      .fn()
+      .mockResolvedValue([{ _id: conversationId }, { _id: secondId }]);
+    const limit = vi.fn().mockReturnValue({ toArray });
+    const sort = vi.fn().mockReturnValue({ limit });
+    const find = vi.fn().mockReturnValue({ sort });
+    const updateMany = vi.fn().mockResolvedValue({ modifiedCount: 2 });
+    const repository = createRepository(collectionMock({ find, updateMany }));
+
+    await expect(
+      repository.repairLegacyAwaitingHuman({ at: repliedAt, limit: 100 }),
+    ).resolves.toBe(2);
+
+    const [filter, options] = find.mock.calls[0] as [
+      Record<string, unknown>,
+      Record<string, unknown>,
+    ];
+    expect(filter).toMatchObject({
+      schemaVersion: 2,
+      purpose: "post_event_feedback",
+      "lifecycle.state": "open",
+      "control.mode": "bot",
+      "control.source": { $ne: "staff_action" },
+      awaitingHuman: { $ne: true },
+    });
+    expect(options).toEqual({ projection: { _id: 1 } });
+    expect(sort).toHaveBeenCalledWith({ _id: 1 });
+    expect(limit).toHaveBeenCalledWith(100);
+    const serialized = JSON.stringify(filter);
+    for (const evidence of [
+      "handoff",
+      "unfinished_questionnaire",
+      "hostile_to_bot",
+      "undelivered_message",
+      "urgent_human_follow_up",
+    ]) {
+      expect(serialized).toContain(evidence);
+    }
+    expect(serialized).toContain("$extraction.cursorSeq");
+    expect(serialized).toContain("$$message.seq");
+
+    expect(updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        _id: { $in: [conversationId, secondId] },
+        "control.source": { $ne: "staff_action" },
+        awaitingHuman: { $ne: true },
+      }),
+      {
+        $set: { awaitingHuman: true },
+        $max: { updatedAt: repliedAt },
+      },
+    );
+  });
+
+  it("admits only a due exact revision under a strictly newer execution epoch", async () => {
+    const dueAt = new Date("2026-07-25T10:04:00.000Z");
+    const updated = feedbackConversation({
+      work: { revision: 3, nextActionAt: dueAt, executionEpoch: 8 },
+    });
+    const collection = collectionMock({
+      findOneAndUpdate: vi.fn().mockResolvedValue(updated),
+    });
+    const repository = createRepository(collection);
+
+    const result = await repository.beginWorkExecution({
+      conversationId,
+      revision: 3,
+      epoch: 8,
+      at: repliedAt,
+    });
+
+    expect(result).toMatchObject({
+      changed: true,
+      work: { revision: 3, nextActionAt: dueAt, executionEpoch: 8 },
+    });
+    expect(collection.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        "work.nextActionAt": { $lte: repliedAt },
+        $expr: {
+          $and: [
+            { $eq: [{ $ifNull: ["$work.revision", 0] }, 3] },
+            { $lt: [{ $ifNull: ["$work.executionEpoch", 0] }, 8] },
+          ],
+        },
+      }),
+      [
+        {
+          $set: {
+            "work.revision": 3,
+            "work.executionEpoch": 8,
+          },
+        },
+      ],
+      { returnDocument: "after" },
+    );
+  });
+
+  it("does not admit an execution after a message advanced the revision", async () => {
+    const newerDue = new Date("2026-07-25T10:06:30.000Z");
+    const current = feedbackConversation({
+      work: { revision: 4, nextActionAt: newerDue, executionEpoch: 7 },
+    });
+    const collection = collectionMock({
+      findOneAndUpdate: vi.fn().mockResolvedValue(null),
+      findOne: vi.fn().mockResolvedValue(current),
+    });
+    const repository = createRepository(collection);
+
+    await expect(
+      repository.beginWorkExecution({
+        conversationId,
+        revision: 3,
+        epoch: 8,
+        at: repliedAt,
+      }),
+    ).resolves.toMatchObject({
+      changed: false,
+      work: { revision: 4, nextActionAt: newerDue, executionEpoch: 7 },
+    });
+  });
+
+  it("settles its snapshot without erasing a newer revision's rolling schedule", async () => {
+    const newerDue = new Date("2026-07-25T10:07:00.000Z");
+    const current = feedbackConversation({
+      work: { revision: 6, nextActionAt: newerDue, executionEpoch: 11 },
+    });
+    const collection = collectionMock({
+      findOneAndUpdate: vi.fn().mockResolvedValue(current),
+    });
+    const repository = createRepository(collection);
+
+    await expect(
+      repository.settleWorkExecution({
+        conversationId,
+        revision: 5,
+        epoch: 11,
+        nextActionAt: null,
+        at: repliedAt,
+      }),
+    ).resolves.toMatchObject({
+      changed: true,
+      work: { revision: 6, nextActionAt: newerDue, executionEpoch: 11 },
+    });
+    expect(collection.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        "work.executionEpoch": 11,
+        "work.revision": { $gte: 5 },
+      }),
+      [
+        {
+          $set: {
+            "work.revision": {
+              $cond: [
+                {
+                  $and: [{ $eq: ["$work.revision", 5] }, { $ne: [null, null] }],
+                },
+                { $add: ["$work.revision", 1] },
+                "$work.revision",
+              ],
+            },
+            "work.nextActionAt": {
+              $cond: [
+                { $eq: ["$work.revision", 5] },
+                null,
+                "$work.nextActionAt",
+              ],
+            },
+          },
+        },
+      ],
+      { returnDocument: "after" },
+    );
+  });
+
+  it("advances the revision when settlement schedules a successor wake-up", async () => {
+    const nextActionAt = new Date("2026-07-25T10:07:00.000Z");
+    const rescheduled = feedbackConversation({
+      work: { revision: 6, nextActionAt, executionEpoch: 11 },
+    });
+    const collection = collectionMock({
+      findOneAndUpdate: vi.fn().mockResolvedValue(rescheduled),
+    });
+    const repository = createRepository(collection);
+
+    await expect(
+      repository.settleWorkExecution({
+        conversationId,
+        revision: 5,
+        epoch: 11,
+        nextActionAt,
+        at: repliedAt,
+      }),
+    ).resolves.toMatchObject({
+      changed: true,
+      work: { revision: 6, nextActionAt, executionEpoch: 11 },
+    });
+    const [, update] = collection.findOneAndUpdate.mock.calls[0] as [
+      unknown,
+      [{ $set: Record<string, unknown> }],
+    ];
+    expect(update[0].$set["work.revision"]).toEqual({
+      $cond: [
+        {
+          $and: [{ $eq: ["$work.revision", 5] }, { $ne: [nextActionAt, null] }],
+        },
+        { $add: ["$work.revision", 1] },
+        "$work.revision",
+      ],
+    });
+  });
+
+  it("lists due work oldest-first, including terminal rows that need a cheap settlement", async () => {
+    const dueAt = new Date("2026-07-25T11:00:00.000Z");
+    const closed = feedbackConversation({
+      lifecycle: { state: "closed", reason: "completed", closedAt: repliedAt },
+      work: { revision: 2, nextActionAt: repliedAt, executionEpoch: 1 },
+    });
+    const toArray = vi.fn().mockResolvedValue([closed]);
+    const limit = vi.fn().mockReturnValue({ toArray });
+    const sort = vi.fn().mockReturnValue({ limit });
+    const find = vi.fn().mockReturnValue({ sort });
+    const repository = createRepository(collectionMock({ find }));
+
+    await expect(repository.listDueWork({ dueAt, limit: 25 })).resolves.toEqual(
+      [closed],
+    );
+    expect(find).toHaveBeenCalledWith({
+      schemaVersion: 2,
+      purpose: "post_event_feedback",
+      "work.nextActionAt": { $lte: dueAt },
+    });
+    expect(sort).toHaveBeenCalledWith({ "work.nextActionAt": 1, _id: 1 });
+    expect(limit).toHaveBeenCalledWith(25);
+  });
+
+  it("continues a due-work scan after the exact date and conversation key", async () => {
+    const dueAt = new Date("2026-07-25T11:00:00.000Z");
+    const cursor = {
+      nextActionAt: repliedAt,
+      conversationId: "0f0f2f8a-2b73-5a02-9d0a-3f0b8f5b1c20",
+    };
+    const toArray = vi.fn().mockResolvedValue([]);
     const limit = vi.fn().mockReturnValue({ toArray });
     const sort = vi.fn().mockReturnValue({ limit });
     const find = vi.fn().mockReturnValue({ sort });
     const repository = createRepository(collectionMock({ find }));
 
     await expect(
-      repository.listOpenBotConversationsWithUnreadParticipantMessages({
-        limit: 50,
-        parkedAfter,
+      repository.listDueWork({
+        dueAt,
+        limit: 100,
+        campaignId,
+        after: cursor,
       }),
-    ).resolves.toEqual([unread]);
+    ).resolves.toEqual([]);
 
-    expect(find).toHaveBeenCalledWith(
-      expect.objectContaining({
-        schemaVersion: 2,
-        purpose: "post_event_feedback",
-        "lifecycle.state": "open",
-        "control.mode": "bot",
-        awaitingHuman: false,
-        $or: [
-          { "extraction.parkedSince": null },
-          { "extraction.parkedSince": { $gt: parkedAfter } },
-        ],
-        $expr: expect.any(Object),
-      }),
-    );
-    expect(sort).toHaveBeenCalledWith({ updatedAt: 1, _id: 1 });
-    expect(limit).toHaveBeenCalledWith(50);
+    expect(find).toHaveBeenCalledWith({
+      schemaVersion: 2,
+      purpose: "post_event_feedback",
+      campaignId,
+      $or: [
+        {
+          "work.nextActionAt": {
+            $gt: cursor.nextActionAt,
+            $lte: dueAt,
+          },
+        },
+        {
+          "work.nextActionAt": cursor.nextActionAt,
+          _id: { $gt: cursor.conversationId },
+        },
+      ],
+    });
+    expect(sort).toHaveBeenCalledWith({ "work.nextActionAt": 1, _id: 1 });
+    expect(limit).toHaveBeenCalledWith(100);
   });
 
   it("projects durable extraction accounting for a campaign set in one read", async () => {
@@ -182,6 +564,7 @@ describe("FeedbackConversationRepository", () => {
           parkedRuns: 0,
           parkedNoticeSentAt: null,
         },
+        work: { revision: 0, nextActionAt: null, executionEpoch: 0 },
         needsAttention: false,
         attentionReasons: [],
       }),
@@ -208,7 +591,30 @@ describe("FeedbackConversationRepository", () => {
         name: "feedback_conversation_campaign_updated_idx",
         key: { campaignId: 1, updatedAt: -1 },
       },
+      {
+        name: "feedback_conversation_work_due_idx",
+        key: { "work.nextActionAt": 1, _id: 1 },
+        partialFilterExpression: {
+          purpose: "post_event_feedback",
+          "work.nextActionAt": { $type: "date" },
+        },
+      },
     ]);
+  });
+
+  it("keeps the due-work index name aligned with fresh-volume provisioning", () => {
+    const mongoInit = readFileSync(
+      new URL(
+        "../../../../../docker/mongo-init/10-app-user.js",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+
+    expect(mongoInit).toContain('name: "feedback_conversation_work_due_idx"');
+    expect(mongoInit).not.toContain(
+      'name: "feedback_conversation_due_work_idx"',
+    );
   });
 
   it("replays a launch idempotently and never recreates a stopped conversation", async () => {
@@ -255,6 +661,82 @@ describe("FeedbackConversationRepository", () => {
         launchedAt,
       }),
     ).rejects.toBeInstanceOf(FeedbackConversationPhoneConflictError);
+  });
+
+  it("authorizes only the terminal outbox id paired to its own conversation", async () => {
+    const otherConversationId = "f0562a6b-d334-43f0-a029-43298a559ac0";
+    const otherOutboxId = "14b0d0f3-8cf0-4420-ae96-8eb77a21915e";
+    const find = vi.fn().mockReturnValue({
+      toArray: vi.fn().mockResolvedValue([
+        {
+          _id: conversationId,
+          lifecycle: {
+            state: "closed",
+            terminalOutboxId: outboxId,
+          },
+        },
+      ]),
+    });
+    const collection = collectionMock({ find } as never);
+    const repository = createRepository(collection);
+
+    await expect(
+      repository.listCurrentTerminalOutboxIds([
+        { conversationId, outboxId },
+        // The id exists in the batch but belongs to no returned lifecycle.
+        { conversationId: otherConversationId, outboxId: otherOutboxId },
+        // Cross-pairing the first lifecycle with the other row stays invalid.
+        { conversationId, outboxId: otherOutboxId },
+      ]),
+    ).resolves.toEqual([outboxId]);
+
+    expect(find).toHaveBeenCalledWith(
+      expect.objectContaining({
+        _id: { $in: [conversationId, otherConversationId] },
+        "lifecycle.state": "closed",
+        "lifecycle.terminalOutboxId": {
+          $in: [outboxId, otherOutboxId],
+        },
+      }),
+      {
+        projection: {
+          _id: 1,
+          "lifecycle.state": 1,
+          "lifecycle.terminalOutboxId": 1,
+        },
+      },
+    );
+  });
+
+  it("projects exact STOP terminal ids for campaign-close preservation", async () => {
+    const find = vi.fn().mockReturnValue({
+      toArray: vi.fn().mockResolvedValue([
+        {
+          lifecycle: {
+            state: "closed",
+            reason: "stopped",
+            terminalOutboxId: outboxId,
+          },
+        },
+      ]),
+    });
+    const repository = createRepository(collectionMock({ find } as never));
+
+    await expect(
+      repository.listStopTerminalOutboxIdsForCampaign(campaignId),
+    ).resolves.toEqual([outboxId]);
+    expect(find).toHaveBeenCalledWith(
+      expect.objectContaining({
+        campaignId,
+        "lifecycle.state": "closed",
+        "lifecycle.reason": "stopped",
+      }),
+      expect.objectContaining({
+        projection: expect.objectContaining({
+          "lifecycle.terminalOutboxId": 1,
+        }),
+      }),
+    );
   });
 
   it("resolves inbound traffic through the open-phone index", async () => {
@@ -486,6 +968,7 @@ describe("FeedbackConversationRepository", () => {
       expect.objectContaining({
         _id: conversationId,
         "control.mode": "bot",
+        "lifecycle.state": "open",
       }),
       {
         $set: {
@@ -522,6 +1005,63 @@ describe("FeedbackConversationRepository", () => {
     ).resolves.toEqual(expect.objectContaining({ changed: false }));
   });
 
+  it("atomically clears due work without advancing its revision when awaiting human", async () => {
+    const awaiting = feedbackConversation({
+      awaitingHuman: true,
+      work: {
+        revision: 7,
+        nextActionAt: null,
+        executionEpoch: 3,
+        campaignResumeGeneration: 2,
+      },
+    });
+    const findOneAndUpdate = vi.fn().mockResolvedValue(awaiting);
+    const repository = createRepository(collectionMock({ findOneAndUpdate }));
+
+    await expect(
+      repository.markAwaitingHuman({ conversationId, at: repliedAt }),
+    ).resolves.toMatchObject({
+      changed: true,
+      conversation: {
+        awaitingHuman: true,
+        work: {
+          revision: 7,
+          nextActionAt: null,
+          executionEpoch: 3,
+          campaignResumeGeneration: 2,
+        },
+      },
+    });
+
+    expect(findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        _id: conversationId,
+        "lifecycle.state": "open",
+        "control.mode": "bot",
+        $or: [
+          { awaitingHuman: { $ne: true } },
+          { "work.nextActionAt": { $type: "date" } },
+        ],
+      }),
+      [
+        {
+          $set: {
+            awaitingHuman: true,
+            work: {
+              $cond: [
+                { $eq: [{ $type: "$work" }, "missing"] },
+                "$$REMOVE",
+                { $mergeObjects: ["$work", { nextActionAt: null }] },
+              ],
+            },
+            updatedAt: { $max: ["$updatedAt", repliedAt] },
+          },
+        },
+      ],
+      { returnDocument: "after" },
+    );
+  });
+
   it("never resumes bot control on a closed conversation", async () => {
     const stopped = feedbackConversation({
       lifecycle: { state: "closed", reason: "stopped", closedAt: repliedAt },
@@ -546,9 +1086,76 @@ describe("FeedbackConversationRepository", () => {
     );
   });
 
+  it("resumes control and creates unread work in one generation-fenced update", async () => {
+    const resumed = feedbackConversation({
+      control: { mode: "bot", source: "staff_action", changedAt: repliedAt },
+      messages: [botMessage(1), participantMessage(2)],
+      extraction: {
+        cursorSeq: 1,
+        lastRunAt: null,
+        model: null,
+        usage: null,
+        serviceTier: null,
+        parkedSince: null,
+        parkedRuns: 0,
+        parkedNoticeSentAt: null,
+      },
+      work: { revision: 8, nextActionAt: repliedAt, executionEpoch: 4 },
+    });
+    const findOneAndUpdate = vi.fn().mockResolvedValue(resumed);
+    const repository = createRepository(collectionMock({ findOneAndUpdate }));
+
+    await expect(
+      repository.resumeBot({ conversationId, at: repliedAt }),
+    ).resolves.toMatchObject({
+      changed: true,
+      conversation: {
+        control: { mode: "bot", source: "staff_action" },
+        work: { revision: 8, nextActionAt: repliedAt, executionEpoch: 4 },
+      },
+    });
+
+    expect(findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        _id: conversationId,
+        "control.mode": "human",
+        "lifecycle.state": "open",
+      }),
+      expect.any(Array),
+      { returnDocument: "after" },
+    );
+    const update = findOneAndUpdate.mock.calls[0]?.[1] as Array<{
+      $set: Record<string, unknown>;
+    }>;
+    expect(update[0]?.$set).toMatchObject({
+      control: { mode: "bot", source: "staff_action", changedAt: repliedAt },
+      awaitingHuman: false,
+      "work.revision": {
+        $add: [{ $ifNull: ["$work.revision", 0] }, 1],
+      },
+      "work.executionEpoch": { $ifNull: ["$work.executionEpoch", 0] },
+      updatedAt: { $max: ["$updatedAt", repliedAt] },
+    });
+    expect(update[0]?.$set["work.nextActionAt"]).toEqual({
+      $cond: [
+        expect.objectContaining({ $gt: expect.any(Array) }),
+        repliedAt,
+        { $ifNull: ["$work.nextActionAt", null] },
+      ],
+    });
+    expect(JSON.stringify(update[0]?.$set["work.nextActionAt"])).toContain(
+      "participant",
+    );
+  });
+
   it("lets STOP override a softer terminal reason but never the reverse", async () => {
     const stopped = feedbackConversation({
-      lifecycle: { state: "closed", reason: "stopped", closedAt: repliedAt },
+      lifecycle: {
+        state: "closed",
+        reason: "stopped",
+        closedAt: repliedAt,
+        terminalOutboxId: outboxId,
+      },
     });
     const collection = collectionMock({
       findOneAndUpdate: vi.fn().mockResolvedValue(stopped),
@@ -556,7 +1163,12 @@ describe("FeedbackConversationRepository", () => {
     const repository = createRepository(collection);
 
     await expect(
-      repository.close({ conversationId, reason: "stopped", at: repliedAt }),
+      repository.close({
+        conversationId,
+        reason: "stopped",
+        at: repliedAt,
+        terminalOutboxId: outboxId,
+      }),
     ).resolves.toEqual(expect.objectContaining({ changed: true }));
     expect(collection.findOneAndUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -568,6 +1180,7 @@ describe("FeedbackConversationRepository", () => {
             state: "closed",
             reason: "stopped",
             closedAt: repliedAt,
+            terminalOutboxId: outboxId,
           },
           // STOP clears any earlier staff close reason so "abusive" cannot
           // survive a consent withdrawal that superseded it.
@@ -799,6 +1412,283 @@ describe("FeedbackConversationRepository", () => {
       outputTokens: usageIncrement("outputTokens", 80),
       totalTokens: usageIncrement("totalTokens", 380),
     });
+  });
+
+  it("fences an ordinary paid cursor advance by the exact Mongo work generation", async () => {
+    const advanced = feedbackConversation({
+      messages: [botMessage(1), participantMessage(2)],
+      work: { revision: 7, nextActionAt: repliedAt, executionEpoch: 3 },
+      extraction: {
+        cursorSeq: 2,
+        lastRunAt: repliedAt,
+        model: "google/gemini-3.6-flash",
+        usage: { inputTokens: 300, outputTokens: 80, totalTokens: 380 },
+        serviceTier: null,
+        parkedSince: null,
+        parkedRuns: 0,
+        parkedNoticeSentAt: null,
+      },
+    });
+    const collection = collectionMock({
+      findOneAndUpdate: vi.fn().mockResolvedValue(advanced),
+    });
+    const repository = createRepository(collection);
+
+    await repository.advanceCursor({
+      conversationId,
+      toSeq: 2,
+      at: repliedAt,
+      model: "google/gemini-3.6-flash",
+      usage: { inputTokens: 300, outputTokens: 80, totalTokens: 380 },
+      workRevision: 7,
+      executionEpoch: 3,
+    });
+
+    expect(collection.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        "extraction.cursorSeq": { $lt: 2 },
+        "work.revision": 7,
+        "work.executionEpoch": 3,
+      }),
+      expect.anything(),
+      { returnDocument: "after" },
+    );
+  });
+
+  it("atomically advances awaiting-human rows left with a stale cursor", async () => {
+    const awaiting = feedbackConversation({
+      messages: [botMessage(1), participantMessage(2)],
+      awaitingHuman: true,
+      extraction: {
+        cursorSeq: 2,
+        lastRunAt: repliedAt,
+        model: "google/gemini-3.6-flash",
+        usage: { inputTokens: 300, outputTokens: 80, totalTokens: 380 },
+        serviceTier: null,
+        parkedSince: null,
+        parkedRuns: 0,
+        parkedNoticeSentAt: null,
+      },
+    });
+    const collection = collectionMock({
+      findOneAndUpdate: vi.fn().mockResolvedValue(awaiting),
+    });
+    const repository = createRepository(collection);
+
+    await expect(
+      repository.advanceCursorAndMarkAwaitingHuman({
+        conversationId,
+        toSeq: 2,
+        at: repliedAt,
+        model: "google/gemini-3.6-flash",
+        serviceTier: null,
+        usage: { inputTokens: 300, outputTokens: 80, totalTokens: 380 },
+        workRevision: 3,
+        executionEpoch: 4,
+      }),
+    ).resolves.toEqual(expect.objectContaining({ changed: true }));
+
+    expect(collection.findOneAndUpdate).toHaveBeenCalledTimes(1);
+    const [filter, update, options] = collection.findOneAndUpdate.mock
+      .calls[0] as [
+      Record<string, unknown>,
+      [{ $set: Record<string, unknown> }],
+      Record<string, unknown>,
+    ];
+    expect(filter).toMatchObject({
+      _id: conversationId,
+      "lifecycle.state": "open",
+      "control.mode": "bot",
+    });
+    expect(filter).not.toHaveProperty("extraction.cursorSeq");
+    expect(JSON.stringify(filter.$expr)).toContain("work.revision");
+    expect(JSON.stringify(filter.$expr)).toContain("participant");
+    expect(update[0].$set).toMatchObject({
+      "extraction.cursorSeq": {
+        $max: ["$extraction.cursorSeq", 2],
+      },
+      "extraction.usage": {
+        $cond: [
+          { $lt: ["$extraction.cursorSeq", 2] },
+          {
+            inputTokens: usageIncrement("inputTokens", 300),
+            outputTokens: usageIncrement("outputTokens", 80),
+            totalTokens: usageIncrement("totalTokens", 380),
+          },
+          "$extraction.usage",
+        ],
+      },
+      awaitingHuman: true,
+    });
+    expect(options).toEqual({ returnDocument: "after" });
+    // Replays may already have raised the brake; it must not exclude the
+    // accounting/cursor repair from the same atomic statement.
+    expect(filter).not.toHaveProperty("awaitingHuman");
+  });
+
+  it("admits a newer work revision only when the same execution has newer testimony", async () => {
+    const updated = feedbackConversation({
+      messages: [botMessage(1), participantMessage(2), participantMessage(3)],
+      awaitingHuman: true,
+      work: { revision: 4, nextActionAt: repliedAt, executionEpoch: 7 },
+      extraction: {
+        cursorSeq: 2,
+        lastRunAt: repliedAt,
+        model: "google/gemini-3.6-flash",
+        usage: { inputTokens: 300, outputTokens: 80, totalTokens: 380 },
+        serviceTier: null,
+        parkedSince: null,
+        parkedRuns: 0,
+        parkedNoticeSentAt: null,
+      },
+    });
+    const findOneAndUpdate = vi.fn().mockResolvedValue(updated);
+    const repository = createRepository(collectionMock({ findOneAndUpdate }));
+
+    await repository.advanceCursorAndMarkAwaitingHuman({
+      conversationId,
+      toSeq: 2,
+      at: repliedAt,
+      model: "google/gemini-3.6-flash",
+      serviceTier: null,
+      usage: { inputTokens: 300, outputTokens: 80, totalTokens: 380 },
+      workRevision: 3,
+      executionEpoch: 7,
+    });
+
+    const filter = findOneAndUpdate.mock.calls[0]?.[0] as {
+      $expr: unknown;
+    };
+    const admission = JSON.stringify(filter.$expr);
+    expect(admission).toContain('"$gt":[{"$ifNull":["$work.revision",0]},3]');
+    expect(admission).toContain(
+      '"$eq":[{"$ifNull":["$work.executionEpoch",0]},7]',
+    );
+    expect(admission).toContain('"$$message.actor","participant"');
+    expect(admission).toContain('"$$message.seq",2');
+  });
+
+  it("advances the snapshot cursor and closes only when no newer participant message exists", async () => {
+    const closed = feedbackConversation({
+      messages: [botMessage(1), participantMessage(2)],
+      lifecycle: {
+        state: "closed",
+        reason: "completed",
+        closedAt: repliedAt,
+        terminalOutboxId: outboxId,
+      },
+      extraction: {
+        cursorSeq: 2,
+        lastRunAt: repliedAt,
+        model: "google/gemini-3.6-flash",
+        usage: { inputTokens: 300, outputTokens: 80, totalTokens: 380 },
+        serviceTier: null,
+        parkedSince: null,
+        parkedRuns: 0,
+        parkedNoticeSentAt: null,
+      },
+    });
+    const collection = collectionMock({
+      findOneAndUpdate: vi.fn().mockResolvedValue(closed),
+    });
+    const repository = createRepository(collection);
+
+    await expect(
+      repository.advanceCursorAndClose({
+        conversationId,
+        toSeq: 2,
+        reason: "completed",
+        terminalOutboxId: outboxId,
+        at: repliedAt,
+        model: "google/gemini-3.6-flash",
+        serviceTier: null,
+        usage: { inputTokens: 300, outputTokens: 80, totalTokens: 380 },
+        workRevision: 3,
+        executionEpoch: 4,
+      }),
+    ).resolves.toEqual(expect.objectContaining({ changed: true }));
+
+    expect(collection.findOneAndUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        _id: conversationId,
+        "lifecycle.state": "open",
+        "control.mode": "bot",
+        awaitingHuman: { $ne: true },
+        "work.revision": 3,
+        "work.executionEpoch": 4,
+        $expr: {
+          $and: [
+            { $lte: [2, { $size: "$messages" }] },
+            {
+              $eq: [
+                {
+                  $size: {
+                    $filter: {
+                      input: "$messages",
+                      as: "message",
+                      cond: {
+                        $and: [
+                          { $eq: ["$$message.actor", "participant"] },
+                          { $gt: ["$$message.seq", 2] },
+                        ],
+                      },
+                    },
+                  },
+                },
+                0,
+              ],
+            },
+          ],
+        },
+      }),
+      [
+        {
+          $set: expect.objectContaining({
+            "extraction.cursorSeq": {
+              $max: ["$extraction.cursorSeq", 2],
+            },
+            lifecycle: {
+              state: "closed",
+              reason: "completed",
+              closedAt: repliedAt,
+              terminalOutboxId: outboxId,
+            },
+          }),
+        },
+      ],
+      { returnDocument: "after" },
+    );
+  });
+
+  it("leaves the conversation open when the terminal snapshot was superseded", async () => {
+    const current = feedbackConversation({
+      messages: [botMessage(1), participantMessage(2), participantMessage(3)],
+    });
+    const collection = collectionMock({
+      findOneAndUpdate: vi.fn().mockResolvedValue(null),
+      findOne: vi.fn().mockResolvedValue(current),
+    });
+    const repository = createRepository(collection);
+
+    await expect(
+      repository.advanceCursorAndClose({
+        conversationId,
+        toSeq: 2,
+        reason: "completed",
+        terminalOutboxId: outboxId,
+        at: repliedAt,
+        model: "google/gemini-3.6-flash",
+        serviceTier: null,
+        usage: { inputTokens: 300, outputTokens: 80, totalTokens: 380 },
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        changed: false,
+        conversation: expect.objectContaining({
+          lifecycle: expect.objectContaining({ state: "open" }),
+        }),
+      }),
+    );
   });
 
   it("writes an unreported component as a literal null the sums can never leave", async () => {
@@ -1321,6 +2211,71 @@ describe("FeedbackConversationRepository", () => {
     expect(projection["messageCount"]).toEqual({ $size: "$messages" });
   });
 
+  it("groups lifecycle statistics for a bounded campaign repair page", async () => {
+    const secondCampaignId = "7d7d6817-e24d-43d6-92f4-b82990a61cc3";
+    const cursor = {
+      toArray: vi.fn().mockResolvedValue([
+        {
+          _id: campaignId,
+          totalCount: 3,
+          openCount: 0,
+          latestClosedAt: repliedAt,
+        },
+      ]),
+    };
+    const collection = collectionMock({
+      aggregate: vi.fn().mockReturnValue(cursor),
+    });
+    const repository = createRepository(collection);
+
+    await expect(
+      repository.listLifecycleStatsForCampaigns([
+        campaignId,
+        secondCampaignId,
+        campaignId,
+      ]),
+    ).resolves.toEqual([
+      {
+        campaignId,
+        totalCount: 3,
+        openCount: 0,
+        latestClosedAt: repliedAt,
+      },
+    ]);
+
+    expect(collection.aggregate).toHaveBeenCalledWith([
+      {
+        $match: {
+          schemaVersion: 2,
+          purpose: "post_event_feedback",
+          campaignId: { $in: [campaignId, secondCampaignId] },
+        },
+      },
+      {
+        $group: {
+          _id: "$campaignId",
+          totalCount: { $sum: 1 },
+          openCount: {
+            $sum: {
+              $cond: [{ $eq: ["$lifecycle.state", "open"] }, 1, 0],
+            },
+          },
+          latestClosedAt: { $max: "$lifecycle.closedAt" },
+        },
+      },
+    ]);
+  });
+
+  it("does not open MongoDB for an empty lifecycle-statistics page", async () => {
+    const collection = collectionMock({});
+    const repository = createRepository(collection);
+
+    await expect(
+      repository.listLifecycleStatsForCampaigns([]),
+    ).resolves.toEqual([]);
+    expect(collection.aggregate).not.toHaveBeenCalled();
+  });
+
   it("raises the badge and records why, anchored on the message to open", async () => {
     const collection = collectionMock({
       findOneAndUpdate: vi.fn().mockResolvedValue(
@@ -1511,6 +2466,7 @@ function collectionMock(
   readonly findOne: ReturnType<typeof vi.fn>;
   readonly findOneAndUpdate: ReturnType<typeof vi.fn>;
   readonly insertOne: ReturnType<typeof vi.fn>;
+  readonly updateMany: ReturnType<typeof vi.fn>;
   readonly updateOne: ReturnType<typeof vi.fn>;
 } {
   return {
@@ -1519,6 +2475,7 @@ function collectionMock(
     findOne: vi.fn().mockResolvedValue(null),
     findOneAndUpdate: vi.fn().mockResolvedValue(null),
     insertOne: vi.fn().mockResolvedValue({ acknowledged: true }),
+    updateMany: vi.fn().mockResolvedValue({ modifiedCount: 0 }),
     updateOne: vi.fn().mockResolvedValue({ matchedCount: 1, modifiedCount: 1 }),
     ...overrides,
   } as unknown as Collection<FeedbackConversationDocument> & {
@@ -1527,6 +2484,7 @@ function collectionMock(
     readonly findOne: ReturnType<typeof vi.fn>;
     readonly findOneAndUpdate: ReturnType<typeof vi.fn>;
     readonly insertOne: ReturnType<typeof vi.fn>;
+    readonly updateMany: ReturnType<typeof vi.fn>;
     readonly updateOne: ReturnType<typeof vi.fn>;
   };
 }

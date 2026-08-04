@@ -2,12 +2,14 @@ import { randomUUID } from "node:crypto";
 
 import { Logger } from "@nestjs/common";
 import type { AppTransaction } from "@join-the-six/database";
-import type { Queue } from "bullmq";
-import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
 import type { DatabaseService } from "../../../infrastructure/database/database.service.js";
-import type { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
+import {
+  FeedbackConversationCapacityError,
+  type FeedbackConversationRepository,
+} from "../post-event-feedback-conversation.repository.js";
 import {
   FEEDBACK_CONVERSATION_MESSAGE_MAX_STORED_TEXT_LENGTH,
   buildFeedbackConversationGoals,
@@ -22,7 +24,6 @@ import {
   FakeAudit,
   FakeDatabase,
   FakeParticipants,
-  FakeQueue,
   noopSummaries,
 } from "../post-event-feedback-doubles.harness.js";
 import { PostEventFeedbackMaterializer } from "./materialize.service.js";
@@ -35,11 +36,11 @@ import type { FeedbackCampaignRepository } from "../campaign/campaign.repository
 import type { FeedbackIngressRepository } from "./ingress.repository.js";
 import type { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
 import {
+  createFeedbackReconcileConversationJobId,
   FEEDBACK_EXTRACT_QUIET_WINDOW_MS,
   createFeedbackEditedProviderMessageId,
-  type FeedbackJobData,
-  type FeedbackJobName,
 } from "../jobs.schemas.js";
+import type { FeedbackConversationWakeupService } from "../reconciliation/wakeup.service.js";
 
 const campaignId = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 const respondentParticipantId = "9f3c1a52-6e2b-4b4a-9a17-2cb2a6d13a55";
@@ -82,7 +83,7 @@ describe("PostEventFeedbackMaterializer", () => {
       chatJid,
     });
     expect(harness.metrics.count("ignored_unmatched")).toBe(1);
-    expect(harness.queue.added).toHaveLength(0);
+    expect(harness.wakeups.schedule).not.toHaveBeenCalled();
     expect(harness.audit.events).toHaveLength(0);
   });
 
@@ -97,7 +98,7 @@ describe("PostEventFeedbackMaterializer", () => {
     expect(result).toMatchObject({
       outcome: "inbound_materialized",
       conversationId,
-      extractJobId: `feedback-extract-v1-${conversationId}-1`,
+      extractJobId: createFeedbackReconcileConversationJobId(conversationId, 1),
     });
     expect(harness.conversations.transcript(conversationId)).toEqual([
       {
@@ -112,16 +113,78 @@ describe("PostEventFeedbackMaterializer", () => {
       processingStatus: "materialized",
       matchedConversationId: conversationId,
     });
-    // The quiet window is part of the enqueue contract, not an incidental
-    // option: without it the run opens on the first fragment of a typed thought.
-    expect(harness.queue.added).toEqual([
-      {
-        name: "feedback.extract.v1",
-        data: { schemaVersion: 1, conversationId, correlationId },
-        jobId: `feedback-extract-v1-${conversationId}-1`,
-        delay: FEEDBACK_EXTRACT_QUIET_WINDOW_MS,
-      },
-    ]);
+    // The rolling quiet window is durable conversation intent. The wake-up
+    // service owns the disposable V2 job derived from the resulting revision.
+    expect(harness.wakeups.schedule).toHaveBeenCalledWith({
+      conversationId,
+      nextActionAt: new Date(
+        observedAt.getTime() + FEEDBACK_EXTRACT_QUIET_WINDOW_MS,
+      ),
+      correlationId,
+      at: observedAt,
+    });
+  });
+
+  it("retracts stale automation but preserves the exact handoff, system and staff commitments", async () => {
+    const ordinaryReplyId = harness.repository.seedOutbox({
+      kind: "reply",
+      body: "Παλιότερη απάντηση",
+    });
+    const reminderId = harness.repository.seedOutbox({
+      kind: "reminder",
+      body: "Μια παλιότερη υπενθύμιση",
+    });
+    const handoffId = harness.repository.seedOutbox({
+      kind: "reply",
+      body: "Θα σε αναλάβει άνθρωπος",
+    });
+    const systemId = harness.repository.seedOutbox({
+      kind: "system",
+      body: "Ρητή δέσμευση συστήματος",
+    });
+    const staffId = harness.repository.seedOutbox({
+      kind: "staff",
+      body: "Μήνυμα χειριστή",
+    });
+    const conversation = harness.conversations.get(conversationId);
+    conversation.awaitingHuman = true;
+    conversation.messages.push({
+      id: randomUUID(),
+      seq: 1,
+      actor: "bot",
+      text: "Θα σε αναλάβει άνθρωπος",
+      providerMessageId: null,
+      ingressId: null,
+      outboxId: handoffId,
+      at: new Date("2026-07-25T10:04:00.000Z"),
+    });
+    const lockConversation = vi.spyOn(harness.repository, "lockConversation");
+    const ingressId = harness.repository.seedIngress({ text: "Μια διόρθωση" });
+
+    await harness.materializer.materialize({ ingressId, correlationId });
+
+    expect(lockConversation).toHaveBeenCalledWith(
+      expect.anything(),
+      conversationId,
+    );
+    expect(
+      harness.repository.outbox.find((row) => row.id === ordinaryReplyId),
+    ).toMatchObject({
+      status: "cancelled",
+      lastError: "superseded_by_newer_testimony",
+    });
+    expect(
+      harness.repository.outbox.find((row) => row.id === reminderId)?.status,
+    ).toBe("cancelled");
+    expect(
+      harness.repository.outbox.find((row) => row.id === handoffId)?.status,
+    ).toBe("pending");
+    expect(
+      harness.repository.outbox.find((row) => row.id === systemId)?.status,
+    ).toBe("pending");
+    expect(
+      harness.repository.outbox.find((row) => row.id === staffId)?.status,
+    ).toBe("pending");
   });
 
   it("replays a duplicate delivery without duplicating transcript or jobs", async () => {
@@ -135,7 +198,7 @@ describe("PostEventFeedbackMaterializer", () => {
 
     expect(replay.outcome).toBe("already_processed");
     expect(harness.conversations.transcript(conversationId)).toHaveLength(1);
-    expect(harness.queue.added).toHaveLength(1);
+    expect(harness.wakeups.schedule).toHaveBeenCalledTimes(1);
     expect(harness.metrics.count("already_processed")).toBe(1);
   });
 
@@ -152,7 +215,7 @@ describe("PostEventFeedbackMaterializer", () => {
       "inbound_materialized",
     ]);
     expect(harness.conversations.transcript(conversationId)).toHaveLength(1);
-    expect(harness.queue.added).toHaveLength(1);
+    expect(harness.wakeups.schedule).toHaveBeenCalledTimes(2);
     expect(harness.repository.ingress.get(ingressId)?.processingStatus).toBe(
       "materialized",
     );
@@ -182,10 +245,26 @@ describe("PostEventFeedbackMaterializer", () => {
     expect(
       harness.conversations.transcript(conversationId).map((m) => m.text),
     ).toEqual(["Και ο Κώστας ήταν τέλειος", "Πέρασα πολύ ωραία"]);
-    expect(harness.queue.added.map((job) => job.jobId)).toEqual([
-      `feedback-extract-v1-${conversationId}-1`,
-      `feedback-extract-v1-${conversationId}-2`,
-    ]);
+    expect(harness.wakeups.schedule).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        conversationId,
+        nextActionAt: new Date(
+          new Date("2026-07-25T10:07:00.000Z").getTime() +
+            FEEDBACK_EXTRACT_QUIET_WINDOW_MS,
+        ),
+      }),
+    );
+    expect(harness.wakeups.schedule).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        conversationId,
+        nextActionAt: new Date(
+          new Date("2026-07-25T10:06:00.000Z").getTime() +
+            FEEDBACK_EXTRACT_QUIET_WINDOW_MS,
+        ),
+      }),
+    );
   });
 
   it("applies STOP before any extraction and closes the conversation for good", async () => {
@@ -212,6 +291,9 @@ describe("PostEventFeedbackMaterializer", () => {
       dedupeKey: `feedback-stop-ack-${conversationId}`,
     });
     expect(
+      harness.conversations.get(conversationId).lifecycle.terminalOutboxId,
+    ).toBe(harness.repository.outbox[1]?.id);
+    expect(
       harness.participants.rows.get(respondentParticipantId)
         ?.postEventFeedbackWhatsappOptIn,
     ).toBe(false);
@@ -219,7 +301,29 @@ describe("PostEventFeedbackMaterializer", () => {
       "participant.feedback_whatsapp_opt_in_changed",
       "feedback_conversation.stopped",
     ]);
-    expect(harness.queue.added).toHaveLength(0);
+    expect(harness.wakeups.schedule).not.toHaveBeenCalled();
+  });
+
+  it("anchors the STOP acknowledgement after an older send is already ambiguous", async () => {
+    const oldOutboxId = harness.repository.seedOutbox({
+      kind: "reply",
+      body: "Παλιότερη ερώτηση",
+      status: "ambiguous",
+    });
+    const ingressId = harness.repository.seedIngress({ text: "STOP" });
+
+    await harness.materializer.materialize({ ingressId, correlationId });
+
+    const acknowledgement = harness.repository.outbox.find(
+      (row) => row.kind === "system",
+    );
+    expect(
+      harness.repository.outbox.find((row) => row.id === oldOutboxId)?.status,
+    ).toBe("ambiguous");
+    expect(acknowledgement?.status).toBe("pending");
+    expect(
+      harness.conversations.get(conversationId).lifecycle.terminalOutboxId,
+    ).toBe(acknowledgement?.id);
   });
 
   it("writes one stop_ack log for the STOP acknowledgement", async () => {
@@ -336,9 +440,12 @@ describe("PostEventFeedbackMaterializer", () => {
       expect(result).toMatchObject({
         outcome: "inbound_materialized",
         conversationId,
-        extractJobId: `feedback-extract-v1-${conversationId}-1`,
+        extractJobId: createFeedbackReconcileConversationJobId(
+          conversationId,
+          1,
+        ),
       });
-      expect(harness.queue.added).toHaveLength(1);
+      expect(harness.wakeups.schedule).toHaveBeenCalledTimes(1);
       expect(harness.conversations.transcript(conversationId)).toMatchObject([
         {
           seq: 1,
@@ -381,6 +488,71 @@ describe("PostEventFeedbackMaterializer", () => {
       sentAt: observedAt,
     });
     expect(harness.conversations.transcript(conversationId)).toHaveLength(0);
+    expect(harness.conversations.get(conversationId).control.mode).toBe("bot");
+  });
+
+  it("resolves an attempting row by exact provider id and clears its live lease", async () => {
+    const startedAt = new Date("2026-07-28T09:59:59.000Z");
+    const outboxId = harness.repository.seedOutbox({
+      kind: "reply",
+      body: "Δικό μας μήνυμα",
+      status: "attempting",
+      providerMessageId: "provider-message-1",
+      claimToken: "118234ec-14f8-4c2a-90f3-330a092e4f60",
+      claimExpiresAt: new Date("2026-07-28T10:02:00.000Z"),
+      sendStartedAt: startedAt,
+      attemptCount: 1,
+      lastError: "dispatch_lease_expired_after_send_start",
+    });
+    const ingressId = harness.repository.seedIngress({
+      direction: "outbound",
+      text: "Provider-normalized copy",
+    });
+
+    await expect(
+      harness.materializer.materialize({ ingressId, correlationId }),
+    ).resolves.toMatchObject({
+      outcome: "outbound_correlated",
+      correlatedOutboxId: outboxId,
+    });
+    expect(harness.repository.outbox[0]).toMatchObject({
+      status: "sent",
+      providerMessageId: "provider-message-1",
+      claimExpiresAt: null,
+      sendStartedAt: startedAt,
+      attemptCount: 1,
+      lastError: null,
+    });
+  });
+
+  it("resolves an ambiguous row through the exact-body fallback", async () => {
+    const outboxId = harness.repository.seedOutbox({
+      kind: "reply",
+      body: "Ίδιο ακριβώς σώμα",
+      status: "ambiguous",
+      claimToken: "118234ec-14f8-4c2a-90f3-330a092e4f60",
+      claimExpiresAt: null,
+      sendStartedAt: new Date("2026-07-28T09:59:59.000Z"),
+      attemptCount: 1,
+      lastError: "transport_unknown:timeout",
+    });
+    const ingressId = harness.repository.seedIngress({
+      direction: "outbound",
+      text: "Ίδιο ακριβώς σώμα",
+    });
+
+    await expect(
+      harness.materializer.materialize({ ingressId, correlationId }),
+    ).resolves.toMatchObject({
+      outcome: "outbound_correlated",
+      correlatedOutboxId: outboxId,
+    });
+    expect(harness.repository.outbox[0]).toMatchObject({
+      status: "sent",
+      providerMessageId: "provider-message-1",
+      claimExpiresAt: null,
+      lastError: null,
+    });
     expect(harness.conversations.get(conversationId).control.mode).toBe("bot");
   });
 
@@ -462,6 +634,8 @@ describe("PostEventFeedbackMaterializer", () => {
   });
 
   it("treats an uncorrelated outbound as external channel activity", async () => {
+    harness.repository.seedOutbox({ kind: "reply", body: "stale bot reply" });
+    harness.repository.seedOutbox({ kind: "staff", body: "queued by staff" });
     const ingressId = harness.repository.seedIngress({
       direction: "outbound",
       text: "Γεια σου, σου τηλεφωνώ αύριο",
@@ -486,12 +660,37 @@ describe("PostEventFeedbackMaterializer", () => {
         outboxId: null,
       },
     ]);
+    expect(harness.repository.outbox.map((row) => row.status)).toEqual([
+      "cancelled",
+      "pending",
+    ]);
     expect(harness.audit.events).toEqual([
       expect.objectContaining({
         action: "feedback_conversation.external_outbound_observed",
         entityId: conversationId,
+        context: expect.objectContaining({ cancelledOutboxCount: 1 }),
       }),
     ]);
+  });
+
+  it("does not body-correlate external staff copy to a provably unsent row", async () => {
+    harness.repository.seedOutbox({
+      kind: "reply",
+      body: "Ίδιο κείμενο",
+      status: "pending",
+    });
+    const ingressId = harness.repository.seedIngress({
+      direction: "outbound",
+      text: "Ίδιο κείμενο",
+    });
+
+    await expect(
+      harness.materializer.materialize({ ingressId, correlationId }),
+    ).resolves.toMatchObject({ outcome: "outbound_external", conversationId });
+    expect(harness.repository.outbox[0]?.status).toBe("cancelled");
+    expect(harness.conversations.get(conversationId).control.mode).toBe(
+      "human",
+    );
   });
 
   it("flags an inbound without usable text instead of dropping it", async () => {
@@ -507,7 +706,36 @@ describe("PostEventFeedbackMaterializer", () => {
       "failed",
     );
     expect(harness.conversations.get(conversationId).needsAttention).toBe(true);
-    expect(harness.queue.added).toHaveLength(0);
+    expect(harness.wakeups.schedule).not.toHaveBeenCalled();
+  });
+
+  it("cancels every retractable bot row when transcript capacity hands off to a person", async () => {
+    harness.repository.seedOutbox({
+      kind: "reply",
+      body: "stale bot question",
+    });
+    harness.repository.seedOutbox({ kind: "staff", body: "queued by staff" });
+    vi.spyOn(harness.conversations, "appendMessage").mockRejectedValueOnce(
+      new FeedbackConversationCapacityError(),
+    );
+    const ingressId = harness.repository.seedIngress({ text: "Δεν χωράει" });
+
+    await expect(
+      harness.materializer.materialize({ ingressId, correlationId }),
+    ).resolves.toMatchObject({
+      outcome: "inbound_not_materialized",
+      conversationId,
+    });
+
+    expect(harness.conversations.get(conversationId).awaitingHuman).toBe(true);
+    expect(harness.repository.outbox.map((row) => row.status)).toEqual([
+      "cancelled",
+      "pending",
+    ]);
+    expect(harness.repository.ingress.get(ingressId)).toMatchObject({
+      processingStatus: "failed",
+      matchedConversationId: conversationId,
+    });
   });
 
   it("writes one media_notice log carrying the ingress id", async () => {
@@ -723,6 +951,11 @@ interface FakeOutboxRow {
   providerMessageId: string | null;
   deliveryStatus: string | null;
   sentAt: Date | null;
+  claimToken: string | null;
+  claimExpiresAt: Date | null;
+  sendStartedAt: Date | null;
+  attemptCount: number;
+  lastError: string | null;
 }
 
 interface FakeOutboxLogRow {
@@ -758,7 +991,12 @@ interface FakeConversation {
   campaignId: string;
   respondentParticipantId: string;
   phoneAtLaunch: string;
-  lifecycle: { state: string; reason: string | null; closedAt: Date | null };
+  lifecycle: {
+    state: string;
+    reason: string | null;
+    closedAt: Date | null;
+    terminalOutboxId?: string | null;
+  };
   control: { mode: string; source: string; changedAt: Date };
   goals: { key: string; ordinal: number; prompt: string; status: string }[];
   messages: FakeMessage[];
@@ -792,6 +1030,10 @@ class FakeFeedbackRepository {
   >();
   private providerMessageSequence = 0;
 
+  lockConversation(): Promise<void> {
+    return Promise.resolve();
+  }
+
   seedIngress(
     overrides: Partial<FakeIngressRow> & { text: string | null },
   ): string {
@@ -822,6 +1064,11 @@ class FakeFeedbackRepository {
       providerMessageId: null,
       deliveryStatus: null,
       sentAt: null,
+      claimToken: null,
+      claimExpiresAt: null,
+      sendStartedAt: null,
+      attemptCount: 0,
+      lastError: null,
       ...overrides,
     };
     this.outbox.push(row);
@@ -870,9 +1117,79 @@ class FakeFeedbackRepository {
     for (const row of this.outbox) {
       if (
         row.conversationId === id &&
-        (row.status === "pending" || row.status === "held")
+        (row.status === "pending" ||
+          row.status === "held" ||
+          row.status === "claimed")
       ) {
         row.status = "cancelled";
+        cancelled += 1;
+      }
+    }
+    return cancelled;
+  }
+
+  async cancelQueuedOutboxForConversationExceptId(
+    _transaction: AppTransaction,
+    id: string,
+    authorizedOutboxId: string | null,
+  ): Promise<number> {
+    let cancelled = 0;
+    for (const row of this.outbox) {
+      if (
+        row.conversationId === id &&
+        row.id !== authorizedOutboxId &&
+        (row.status === "pending" ||
+          row.status === "held" ||
+          row.status === "claimed")
+      ) {
+        row.status = "cancelled";
+        cancelled += 1;
+      }
+    }
+    return cancelled;
+  }
+
+  async cancelQueuedAutomatedOutboxForConversation(
+    _transaction: AppTransaction,
+    id: string,
+  ): Promise<number> {
+    let cancelled = 0;
+    for (const row of this.outbox) {
+      if (
+        row.conversationId === id &&
+        row.kind !== "staff" &&
+        (row.status === "pending" ||
+          row.status === "held" ||
+          row.status === "claimed")
+      ) {
+        row.status = "cancelled";
+        cancelled += 1;
+      }
+    }
+    return cancelled;
+  }
+
+  async cancelQueuedSupersededAutomationForConversation(
+    _transaction: AppTransaction,
+    id: string,
+    preservedOutboxIds: readonly string[] = [],
+  ): Promise<number> {
+    const preserved = new Set(preservedOutboxIds);
+    let cancelled = 0;
+    for (const row of this.outbox) {
+      if (
+        row.conversationId === id &&
+        !preserved.has(row.id) &&
+        row.kind !== "system" &&
+        row.kind !== "staff" &&
+        row.sendStartedAt === null &&
+        (row.status === "pending" ||
+          row.status === "held" ||
+          row.status === "claimed")
+      ) {
+        row.status = "cancelled";
+        row.claimExpiresAt = null;
+        row.lastError = "superseded_by_newer_testimony";
         cancelled += 1;
       }
     }
@@ -888,9 +1205,20 @@ class FakeFeedbackRepository {
     return this.campaigns.get(id);
   }
 
+  async findCampaignByIdForShare(
+    _transaction: AppTransaction,
+    id: string,
+  ): Promise<
+    | { id: string; status: string; questions: Record<string, unknown> }
+    | undefined
+  > {
+    return this.campaigns.get(id);
+  }
+
   async insertOutboxIfAbsent(
     _transaction: AppTransaction,
     input: {
+      id?: string;
       conversationId: string;
       campaignId: string;
       kind: string;
@@ -905,11 +1233,16 @@ class FakeFeedbackRepository {
       return { row: structuredCloneRow(existing)!, inserted: false };
     }
     const row: FakeOutboxRow = {
-      id: randomUUID(),
+      id: input.id ?? randomUUID(),
       status: "pending",
       providerMessageId: null,
       deliveryStatus: null,
       sentAt: null,
+      claimToken: null,
+      claimExpiresAt: null,
+      sendStartedAt: null,
+      attemptCount: 0,
+      lastError: null,
       ...input,
     };
     this.outbox.push(row);
@@ -979,7 +1312,7 @@ class FakeFeedbackRepository {
           row.conversationId === id &&
           row.body === body &&
           !row.providerMessageId &&
-          ["pending", "sending", "sent"].includes(row.status),
+          ["attempting", "ambiguous", "sending", "sent"].includes(row.status),
       ),
     );
   }
@@ -1007,6 +1340,12 @@ class FakeFeedbackRepository {
     }
     if (input.status !== undefined) {
       row.status = input.status;
+      if (["sent", "failed", "cancelled"].includes(input.status)) {
+        row.claimExpiresAt = null;
+      }
+      if (input.status === "sent") {
+        row.lastError = null;
+      }
     }
     return structuredCloneRow(row);
   }
@@ -1115,6 +1454,7 @@ class FakeConversations {
     conversationId: string;
     reason: string;
     at: Date;
+    terminalOutboxId?: string | null;
   }): Promise<{ changed: boolean; conversation: FakeConversation }> {
     const conversation = this.get(input.conversationId);
     const closable =
@@ -1128,6 +1468,7 @@ class FakeConversations {
       state: "closed",
       reason: input.reason,
       closedAt: input.at,
+      terminalOutboxId: input.terminalOutboxId ?? null,
     };
     return { changed: true, conversation };
   }
@@ -1147,6 +1488,15 @@ class FakeConversations {
       changedAt: input.at,
     };
     return { changed: true, conversation };
+  }
+
+  async markAwaitingHuman(input: {
+    conversationId: string;
+  }): Promise<{ changed: boolean; conversation: FakeConversation }> {
+    const conversation = this.get(input.conversationId);
+    const changed = !conversation.awaitingHuman;
+    conversation.awaitingHuman = true;
+    return { changed, conversation };
   }
 
   /** Idempotent on kind + message, exactly as the Mongo guard filter is. */
@@ -1181,7 +1531,9 @@ interface Harness {
   conversations: FakeConversations;
   participants: FakeParticipants;
   audit: FakeAudit;
-  queue: FakeQueue;
+  wakeups: {
+    schedule: ReturnType<typeof vi.fn>;
+  };
   metrics: PostEventFeedbackMetrics;
 }
 
@@ -1190,8 +1542,17 @@ function createHarness(): Harness {
   const conversations = new FakeConversations();
   const participants = new FakeParticipants();
   const audit = new FakeAudit();
-  const queue = new FakeQueue();
   const metrics = new PostEventFeedbackMetrics();
+  let workRevision = 0;
+  const wakeups = {
+    schedule: vi.fn(
+      async (input: { conversationId: string }): Promise<string> =>
+        createFeedbackReconcileConversationJobId(
+          input.conversationId,
+          (workRevision += 1),
+        ),
+    ),
+  };
 
   repository.campaigns.set(campaignId, {
     id: campaignId,
@@ -1234,7 +1595,6 @@ function createHarness(): Harness {
 
   const database = new FakeDatabase();
   const materializer = new PostEventFeedbackMaterializer(
-    queue as unknown as Queue<FeedbackJobData, void, FeedbackJobName>,
     database as unknown as DatabaseService,
     repository as unknown as FeedbackCampaignRepository,
     repository as unknown as FeedbackIngressRepository,
@@ -1252,6 +1612,7 @@ function createHarness(): Harness {
       repository as unknown as FeedbackOutboundLogRepository,
     ),
     noopSummaries(),
+    wakeups as unknown as FeedbackConversationWakeupService,
   );
 
   return {
@@ -1260,7 +1621,7 @@ function createHarness(): Harness {
     conversations,
     participants,
     audit,
-    queue,
+    wakeups,
     metrics,
   };
 }

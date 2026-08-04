@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { EVENT_VENUE_PRICE_LEVELS } from "@join-the-six/database";
 
+import { feedbackSimulatedTransportProfileSchema } from "../../../infrastructure/config/feedback-simulated-transport.js";
 import { FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH } from "../post-event-feedback-conversation.document.js";
 import { FEEDBACK_OBSERVED_TEXT_HARD_LIMIT } from "../jobs.schemas.js";
 import { assistantModelSchema } from "../../assistant/assistant.schemas.js";
@@ -260,6 +261,8 @@ export const feedbackSimulatorCatalogResponseSchema = z
       FEEDBACK_EXTRACTION_REASONING_EFFORTS,
     ),
     activeServiceTier: z.enum(FEEDBACK_EXTRACTION_SERVICE_TIERS).nullable(),
+    activeTransportMode: z.literal("simulated"),
+    activeSimulatedTransport: feedbackSimulatedTransportProfileSchema,
     workerAttestation: feedbackWorkerAttestationSchema,
     availableModels: z.array(assistantModelSchema).min(1),
     quietWindowMs: z.number().int().positive(),

@@ -51,6 +51,13 @@ export type FeedbackOutboundTranscriptResult =
       readonly reason: FeedbackOutboundTranscriptRejection;
     };
 
+export type FeedbackOutboundTranscriptDispatchFence = {
+  readonly claimToken: string;
+};
+
+export type FeedbackOutboundTranscriptDispatchResult =
+  FeedbackOutboundTranscriptResult | { readonly outcome: "claim_lost" };
+
 /** The `message_outbox` columns a transcript entry is derived from. */
 export type FeedbackOutboundTranscriptRow = Pick<
   MessageOutboxRow,
@@ -75,9 +82,9 @@ export class UnsupportedMessageOutboxKindError extends Error {
  * the participant, and the extraction prompt's "full actor-labelled transcript"
  * carries no bot turns.
  *
- * Callers: campaign launch / start-conversation (intro), the reminder sweep,
+ * Callers: campaign launch / start-conversation (intro), conversation reminder,
  * extraction (reply, closing and handoff copy), the materializer (STOP
- * acknowledgement), the staff inbox send, and the WP6 delivery job as the
+ * acknowledgement), the staff inbox send, and the direct dispatcher as the
  * forward repair described below.
  */
 @Injectable()
@@ -100,13 +107,13 @@ export class FeedbackOutboundTranscriptService {
    * **Crash repair.** A crash between the PostgreSQL commit and this append
    * leaves a row with no transcript entry. Because the append is idempotent by
    * `outboxId`, every producer repairs forward by simply running again — launch
-   * replay and `startConversation` re-resolve the intro row, the reminder sweep
-   * re-selects a conversation whose `remindedAt` is still null, and an
+   * replay and `startConversation` re-resolve the intro row, reconciliation
+   * derives the same reminder ordinal while its counter is unchanged, and an
    * extraction retry replays the whole run behind its dedupe keys. The STOP
    * acknowledgement is the one producer that cannot replay (its ingress row is
-   * already terminal), so the delivery job calls this method again before it
-   * sends. That also makes the general invariant hold: nothing is transmitted
-   * to a participant that the transcript did not record.
+   * already terminal), so the direct dispatcher calls this method again before
+   * it sends. That also makes the general invariant hold: nothing is
+   * transmitted to a participant that the transcript did not record.
    *
    * **Body source.** Always the stored row's body, never the text a caller
    * proposed. A replayed extraction may generate different reply wording while
@@ -124,7 +131,19 @@ export class FeedbackOutboundTranscriptService {
     row: FeedbackOutboundTranscriptRow,
     at: Date,
     correlationId?: string,
-  ): Promise<FeedbackOutboundTranscriptResult> {
+  ): Promise<FeedbackOutboundTranscriptResult>;
+  async record(
+    row: FeedbackOutboundTranscriptRow,
+    at: Date,
+    correlationId: string | undefined,
+    dispatchFence: FeedbackOutboundTranscriptDispatchFence,
+  ): Promise<FeedbackOutboundTranscriptDispatchResult>;
+  async record(
+    row: FeedbackOutboundTranscriptRow,
+    at: Date,
+    correlationId?: string,
+    dispatchFence?: FeedbackOutboundTranscriptDispatchFence,
+  ): Promise<FeedbackOutboundTranscriptDispatchResult> {
     const actor = resolveTranscriptActor(row.kind);
     const text = row.body.trim();
 
@@ -133,7 +152,13 @@ export class FeedbackOutboundTranscriptService {
       // WhatsApp text body — stops at 4 096. Failing forever would make the job
       // a poison pill, so the row is cancelled and flagged like a full
       // transcript.
-      return this.cancel(row, at, "body_too_long", correlationId);
+      return this.cancel(
+        row,
+        at,
+        "body_too_long",
+        correlationId,
+        dispatchFence,
+      );
     }
 
     try {
@@ -152,7 +177,13 @@ export class FeedbackOutboundTranscriptService {
       if (!(error instanceof FeedbackConversationCapacityError)) {
         throw error;
       }
-      return this.cancel(row, at, "transcript_capacity", correlationId);
+      return this.cancel(
+        row,
+        at,
+        "transcript_capacity",
+        correlationId,
+        dispatchFence,
+      );
     }
   }
 
@@ -161,14 +192,28 @@ export class FeedbackOutboundTranscriptService {
     at: Date,
     reason: FeedbackOutboundTranscriptRejection,
     correlationId: string | undefined,
-  ): Promise<FeedbackOutboundTranscriptResult> {
-    await this.database.transaction(async (transaction) => {
-      await this.repository.updateOutboxStatus(
-        transaction,
+    dispatchFence: FeedbackOutboundTranscriptDispatchFence | undefined,
+  ): Promise<FeedbackOutboundTranscriptDispatchResult> {
+    if (dispatchFence) {
+      const cancelled = await this.repository.finishDispatchClaimBeforeAttempt(
         row.id,
+        dispatchFence.claimToken,
         "cancelled",
+        at,
+        reason,
       );
-    });
+      if (!cancelled) {
+        return { outcome: "claim_lost" };
+      }
+    } else {
+      await this.database.transaction(async (transaction) => {
+        await this.repository.updateOutboxStatus(
+          transaction,
+          row.id,
+          "cancelled",
+        );
+      });
+    }
 
     // `appendMessage` names the capacity path itself (`transcript_full`); an
     // oversized body never reached it, so the reason is raised here instead.

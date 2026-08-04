@@ -18,6 +18,7 @@ import {
   FEEDBACK_EXTRACTION_DEFAULT_MODEL,
   FEEDBACK_EXTRACTION_MAX_OUTPUT_TOKENS,
   FEEDBACK_EXTRACTION_THINKING_MAX_OUTPUT_TOKENS,
+  FEEDBACK_SUMMARY_ONLY_MODEL,
   DEFAULT_FEEDBACK_REPLY_REASONING_EFFORT,
   FeedbackExtractionGenerationError,
   feedbackAttentionClassificationMaxOutputTokens,
@@ -40,10 +41,15 @@ describe("feedback extraction model selection", () => {
     expect(FEEDBACK_EXTRACTION_DEFAULT_MODEL).toBe("google/gemini-3.6-flash");
   });
 
-  it("accepts any model in the shared provider registry", () => {
-    for (const id of Object.keys(ASSISTANT_MODEL_ADAPTERS)) {
+  it("accepts registered models except the summary-only Terra model", () => {
+    for (const id of Object.keys(ASSISTANT_MODEL_ADAPTERS).filter(
+      (candidate) => candidate !== FEEDBACK_SUMMARY_ONLY_MODEL,
+    )) {
       expect(resolveFeedbackExtractionModel(id)).toBe(id);
     }
+    expect(() =>
+      resolveFeedbackExtractionModel(FEEDBACK_SUMMARY_ONLY_MODEL),
+    ).toThrow(/Terra is reserved for FEEDBACK_SUMMARY_MODEL/u);
   });
 
   it("refuses an unregistered model instead of quietly using the default", () => {

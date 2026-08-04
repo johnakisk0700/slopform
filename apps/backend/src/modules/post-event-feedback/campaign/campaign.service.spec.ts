@@ -17,6 +17,7 @@ import type { FeedbackOutboundLogRepository } from "../outbox/outbound-log.repos
 import { FeedbackOutboundLogService } from "../outbox/outbound-log.service.js";
 import {
   FeedbackCampaignLaunchNotAllowedError,
+  FeedbackCampaignMutationNotAllowedError,
   PostEventFeedbackCampaignService,
 } from "./campaign.service.js";
 import type { FeedbackCampaignRepository } from "./campaign.repository.js";
@@ -26,6 +27,8 @@ import {
   POST_EVENT_FEEDBACK_QUESTION_SET_V1,
   buildPostEventFeedbackQuestionLaunchSnapshot,
 } from "../question-set.js";
+import type { FeedbackConversationWakeupService } from "../reconciliation/wakeup.service.js";
+import type { FeedbackCampaignResumeRepairService } from "./resume-repair.service.js";
 
 const eventId = "7c57f3b8-2b13-48f5-8730-18ac71f490cd";
 const campaignId = "89eccaa5-9ce6-4dcf-a630-5e35e4ec6f0d";
@@ -59,6 +62,9 @@ const campaignRow: FeedbackCampaignRow = {
   questionSetVersion: 2,
   questions: buildPostEventFeedbackQuestionLaunchSnapshot(),
   status: "launched",
+  resumeGeneration: 0,
+  resumeAppliedGeneration: 0,
+  resumeDueAt: null,
   launchedAt: new Date("2026-07-25T00:00:00.000Z"),
   launchedBy: "admin-1",
   createdAt: new Date("2026-07-25T00:00:00.000Z"),
@@ -335,6 +341,7 @@ describe("PostEventFeedbackCampaignService", () => {
   it("starts a late V1 conversation with V1 goals and frozen copy", async () => {
     const { service, repository, conversations } = createService();
     repository.findCampaignById.mockResolvedValue(legacyCampaignRow);
+    repository.findCampaignByIdForUpdate.mockResolvedValue(legacyCampaignRow);
     repository.listEligibleAttendeesForEvent.mockResolvedValue([eligible]);
     conversations.createFromLaunch.mockResolvedValue({
       created: true,
@@ -380,8 +387,8 @@ describe("PostEventFeedbackCampaignService", () => {
   });
 
   it("pauses and resumes the campaign kill switch", async () => {
-    const { service, repository, auditAppend } = createService();
-    repository.findCampaignById
+    const { service, repository, auditAppend, resumeRepairs } = createService();
+    repository.findCampaignByIdForUpdate
       .mockResolvedValueOnce(campaignRow)
       .mockResolvedValueOnce({ ...campaignRow, status: "paused" });
     repository.updateCampaignStatus
@@ -402,6 +409,120 @@ describe("PostEventFeedbackCampaignService", () => {
       expect.anything(),
       expect.objectContaining({ action: "feedback_campaign.resumed" }),
     );
+    expect(repository.updateCampaignStatus).toHaveBeenNthCalledWith(
+      2,
+      expect.anything(),
+      campaignId,
+      "launched",
+      { resumeDueAt: expect.any(Date) },
+    );
+    expect(resumeRepairs.repairCampaign).toHaveBeenCalledWith(
+      campaignId,
+      "req-2",
+    );
+  });
+
+  it("repairs a replayed resume through the campaign-wide durable boundary", async () => {
+    const { service, repository, conversations, resumeRepairs } =
+      createService();
+    repository.findCampaignById.mockResolvedValue(campaignRow);
+    conversations.listForCampaign.mockResolvedValue(
+      Array.from({ length: 100 }, () => ({})),
+    );
+
+    await expect(
+      service.resume(campaignId, "admin-1", "req-retry"),
+    ).resolves.toMatchObject({ status: "launched" });
+
+    expect(repository.updateCampaignStatus).not.toHaveBeenCalled();
+    expect(resumeRepairs.repairCampaign).toHaveBeenCalledOnce();
+    expect(resumeRepairs.repairCampaign).toHaveBeenCalledWith(
+      campaignId,
+      "req-retry",
+    );
+  });
+
+  it("does not let a stale resume reopen a campaign that closed first", async () => {
+    const { service, repository, resumeRepairs } = createService();
+    repository.findCampaignByIdForUpdate.mockResolvedValue({
+      ...campaignRow,
+      status: "closed",
+    });
+
+    await expect(
+      service.resume(campaignId, "admin-1", "req-stale-resume"),
+    ).rejects.toBeInstanceOf(FeedbackCampaignMutationNotAllowedError);
+
+    expect(repository.updateCampaignStatus).not.toHaveBeenCalled();
+    expect(resumeRepairs.repairCampaign).not.toHaveBeenCalled();
+  });
+
+  it("preserves only lifecycle-anchored STOP acknowledgements on campaign close", async () => {
+    const stopAckOutboxId = "14b0d0f3-8cf0-4420-ae96-8eb77a21915e";
+    const { service, repository, conversations } = createService();
+    repository.updateCampaignStatus.mockResolvedValue({
+      ...campaignRow,
+      status: "closed",
+    });
+    conversations.listStopTerminalOutboxIdsForCampaign.mockResolvedValue([
+      stopAckOutboxId,
+    ]);
+
+    await expect(
+      service.close(campaignId, "admin-1", "req-close"),
+    ).resolves.toMatchObject({ status: "closed" });
+
+    expect(
+      conversations.listStopTerminalOutboxIdsForCampaign,
+    ).toHaveBeenCalledWith(campaignId);
+    expect(repository.cancelQueuedOutboxForCampaign).toHaveBeenCalledWith(
+      expect.anything(),
+      campaignId,
+      [stopAckOutboxId],
+    );
+  });
+
+  it("rechecks a closed campaign under lock before creating a conversation", async () => {
+    const { service, repository, conversations } = createService();
+    let releaseLock!: (campaign: FeedbackCampaignRow) => void;
+    repository.findCampaignByIdForUpdate.mockReturnValue(
+      new Promise<FeedbackCampaignRow>((resolve) => {
+        releaseLock = resolve;
+      }),
+    );
+
+    const pending = service.startConversation(
+      campaignId,
+      participantId,
+      "admin-1",
+      "req-close-race",
+    );
+    await vi.waitFor(() =>
+      expect(repository.findCampaignByIdForUpdate).toHaveBeenCalledOnce(),
+    );
+    expect(conversations.createFromLaunch).not.toHaveBeenCalled();
+
+    releaseLock({ ...campaignRow, status: "closed" });
+    await expect(pending).rejects.toBeInstanceOf(
+      FeedbackCampaignMutationNotAllowedError,
+    );
+    expect(conversations.createFromLaunch).not.toHaveBeenCalled();
+    expect(repository.insertOutboxIfAbsent).not.toHaveBeenCalled();
+  });
+
+  it("stops a replayed launch before the next attendee when close wins", async () => {
+    const { service, repository, conversations } = createService();
+    repository.findCampaignByEventId.mockResolvedValue(campaignRow);
+    repository.findCampaignByIdForUpdate.mockResolvedValue({
+      ...campaignRow,
+      status: "closed",
+    });
+
+    await expect(
+      service.launch(eventId, "admin-1", "req-launch-close-race"),
+    ).rejects.toBeInstanceOf(FeedbackCampaignMutationNotAllowedError);
+    expect(conversations.createFromLaunch).not.toHaveBeenCalled();
+    expect(repository.insertOutboxIfAbsent).not.toHaveBeenCalled();
   });
 
   it("lists campaigns newest-first with conversation progress counts", async () => {
@@ -526,6 +647,7 @@ function createService(): {
   repository: {
     findCampaignByEventId: ReturnType<typeof vi.fn>;
     findCampaignById: ReturnType<typeof vi.fn>;
+    findCampaignByIdForUpdate: ReturnType<typeof vi.fn>;
     listCampaignsNewestFirst: ReturnType<typeof vi.fn>;
     createCampaign: ReturnType<typeof vi.fn>;
     updateCampaignStatus: ReturnType<typeof vi.fn>;
@@ -537,7 +659,14 @@ function createService(): {
   conversations: {
     createFromLaunch: ReturnType<typeof vi.fn>;
     listForCampaign: ReturnType<typeof vi.fn>;
+    listStopTerminalOutboxIdsForCampaign: ReturnType<typeof vi.fn>;
     appendMessage: ReturnType<typeof vi.fn>;
+  };
+  wakeups: {
+    schedule: ReturnType<typeof vi.fn>;
+  };
+  resumeRepairs: {
+    repairCampaign: ReturnType<typeof vi.fn>;
   };
   events: {
     findById: ReturnType<typeof vi.fn>;
@@ -548,6 +677,7 @@ function createService(): {
   const repository = {
     findCampaignByEventId: vi.fn().mockResolvedValue(undefined),
     findCampaignById: vi.fn().mockResolvedValue(campaignRow),
+    findCampaignByIdForUpdate: vi.fn().mockResolvedValue(campaignRow),
     listCampaignsNewestFirst: vi.fn().mockResolvedValue([]),
     createCampaign: vi.fn(),
     updateCampaignStatus: vi.fn(),
@@ -562,9 +692,21 @@ function createService(): {
   const conversations = {
     createFromLaunch: vi.fn(),
     listForCampaign: vi.fn().mockResolvedValue([]),
+    listStopTerminalOutboxIdsForCampaign: vi.fn().mockResolvedValue([]),
     appendMessage: vi
       .fn()
       .mockResolvedValue({ appended: true, message: {}, conversation: {} }),
+  };
+  const wakeups = {
+    schedule: vi.fn().mockResolvedValue("feedback-reconcile-test"),
+  };
+  const resumeRepairs = {
+    repairCampaign: vi.fn().mockResolvedValue({
+      examined: 0,
+      applied: 0,
+      conversationsMarked: 0,
+      wakeupsPublished: 0,
+    }),
   };
   const events = {
     findById: vi.fn().mockResolvedValue(finishedEvent),
@@ -592,9 +734,13 @@ function createService(): {
       new FeedbackOutboundLogService(
         repository as unknown as FeedbackOutboundLogRepository,
       ),
+      wakeups as unknown as FeedbackConversationWakeupService,
+      resumeRepairs as unknown as FeedbackCampaignResumeRepairService,
     ),
     repository,
     conversations,
+    wakeups,
+    resumeRepairs,
     events,
     auditAppend,
   };

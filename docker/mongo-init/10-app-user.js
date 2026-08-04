@@ -54,5 +54,13 @@ applicationDatabase.runCommand({
       name: "feedback_conversation_campaign_updated_idx",
       key: { campaignId: 1, updatedAt: -1 },
     },
+    {
+      name: "feedback_conversation_work_due_idx",
+      key: { "work.nextActionAt": 1, _id: 1 },
+      partialFilterExpression: {
+        purpose: "post_event_feedback",
+        "work.nextActionAt": { $type: "date" },
+      },
+    },
   ],
 });

@@ -203,6 +203,51 @@ describe("parseBurstExtractionPrompt", () => {
       },
     ]);
   });
+
+  it("keeps later turns visible after a multiline bot safety assurance", () => {
+    const prompt = buildFeedbackExtractionPrompt({
+      context: context({
+        messages: [
+          {
+            id: "msg-bot-1",
+            seq: 1,
+            actor: "bot",
+            occurredAt: "2026-07-27T10:00:00.000Z",
+            text: "Λυπάμαι που ένιωσες έτσι.\n\nΤο προώθησα ήδη στην ομάδα μας.",
+          },
+          {
+            id: "msg-p-2",
+            seq: 2,
+            actor: "participant",
+            occurredAt: "2026-07-27T10:02:00.000Z",
+            text: "δεύτερο μήνυμα\nμε συνέχεια",
+          },
+        ],
+        newParticipantMessageIds: ["msg-p-2"],
+      }),
+      copy: COPY,
+    });
+
+    const parsed = parseBurstExtractionPrompt(prompt.user);
+
+    expect(parsed.transcript).toEqual([
+      {
+        seq: 1,
+        occurredAt: "2026-07-27T10:00:00.000Z",
+        id: "msg-bot-1",
+        actor: "bot",
+        text: "Λυπάμαι που ένιωσες έτσι.\n\nΤο προώθησα ήδη στην ομάδα μας.",
+      },
+      {
+        seq: 2,
+        occurredAt: "2026-07-27T10:02:00.000Z",
+        id: "msg-p-2",
+        actor: "participant",
+        text: "δεύτερο μήνυμα\nμε συνέχεια",
+      },
+    ]);
+    expect(parsed.newMessageIds).toEqual(["msg-p-2"]);
+  });
 });
 
 describe("resolveCite", () => {

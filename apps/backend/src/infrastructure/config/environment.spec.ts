@@ -49,6 +49,10 @@ describe("validateEnvironment", () => {
     expect(environment.FEEDBACK_PRODUCTION_REHEARSAL_ENABLED).toBe(false);
     expect(environment.FEEDBACK_SIMULATOR_ENABLED).toBe(false);
     expect(environment.FEEDBACK_EXTRACTION_STUB).toBe(false);
+    expect(environment.FEEDBACK_SIMULATED_TRANSPORT_FAULT_MODE).toBe("none");
+    expect(environment.FEEDBACK_SIMULATED_TRANSPORT_FAULT_PERCENT).toBe(0);
+    expect(environment.FEEDBACK_SIMULATED_TRANSPORT_SEED).toBe("1");
+    expect(environment.FEEDBACK_SIMULATED_TRANSPORT_MAX_DELAY_MS).toBe(0);
     expect(environment.FEEDBACK_REMINDER_AFTER_HOURS).toBe(24);
     expect(environment.FEEDBACK_EXPIRE_AFTER_HOURS).toBe(72);
     expect(environment.FEEDBACK_INGRESS_PENDING_RECOVERY_MINUTES).toBe(5);
@@ -267,6 +271,53 @@ describe("validateEnvironment", () => {
     ).toThrow(
       /FEEDBACK_EXTRACTION_STUB requires FEEDBACK_SIMULATOR_ENABLED=true/,
     );
+  });
+
+  it("validates one coherent simulated transport fault treatment", () => {
+    expect(
+      validateEnvironment({
+        ...requiredEnvironment,
+        TRANSPORT_MODE: "simulated",
+        FEEDBACK_SIMULATED_TRANSPORT_FAULT_MODE: "mixed",
+        FEEDBACK_SIMULATED_TRANSPORT_FAULT_PERCENT: "25",
+        FEEDBACK_SIMULATED_TRANSPORT_SEED: "canary-7",
+        FEEDBACK_SIMULATED_TRANSPORT_MAX_DELAY_MS: "5000",
+      }),
+    ).toMatchObject({
+      FEEDBACK_SIMULATED_TRANSPORT_FAULT_MODE: "mixed",
+      FEEDBACK_SIMULATED_TRANSPORT_FAULT_PERCENT: 25,
+      FEEDBACK_SIMULATED_TRANSPORT_SEED: "canary-7",
+      FEEDBACK_SIMULATED_TRANSPORT_MAX_DELAY_MS: 5_000,
+    });
+
+    expect(() =>
+      validateEnvironment({
+        ...requiredEnvironment,
+        FEEDBACK_SIMULATED_TRANSPORT_FAULT_MODE: "mixed",
+        FEEDBACK_SIMULATED_TRANSPORT_FAULT_PERCENT: "0",
+      }),
+    ).toThrow(/Fault percent must be greater than 0/);
+    expect(() =>
+      validateEnvironment({
+        ...requiredEnvironment,
+        FEEDBACK_SIMULATED_TRANSPORT_FAULT_MODE: "none",
+        FEEDBACK_SIMULATED_TRANSPORT_FAULT_PERCENT: "1",
+      }),
+    ).toThrow(/Fault percent must be 0/);
+    expect(() =>
+      validateEnvironment({
+        ...requiredEnvironment,
+        TRANSPORT_MODE: "wasender",
+        FEEDBACK_SIMULATED_TRANSPORT_FAULT_MODE: "reject",
+        FEEDBACK_SIMULATED_TRANSPORT_FAULT_PERCENT: "100",
+      }),
+    ).toThrow(/require TRANSPORT_MODE=simulated/);
+    expect(() =>
+      validateEnvironment({
+        ...requiredEnvironment,
+        FEEDBACK_SIMULATED_TRANSPORT_SEED: "not a safe seed",
+      }),
+    ).toThrow(/log-safe simulator seed/);
   });
 
   it("rejects paths and empty entries in WEB_ORIGIN", () => {

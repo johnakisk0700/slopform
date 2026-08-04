@@ -1,29 +1,27 @@
-import { InjectQueue } from "@nestjs/bullmq";
 import { Injectable, Logger } from "@nestjs/common";
 import type {
   AppTransaction,
   MessageOutboxRow,
   ProviderMessageIngressRow,
 } from "@join-the-six/database";
-import type { Queue } from "bullmq";
-
 import { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
 import { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
 import { FeedbackIngressRepository } from "./ingress.repository.js";
 import { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
 import { FeedbackOutboundLogService } from "../outbox/outbound-log.service.js";
-import { FEEDBACK_QUEUE } from "../../../infrastructure/queue/queue.constants.js";
 import {
   FeedbackConversationCapacityError,
   FeedbackConversationRepository,
 } from "../post-event-feedback-conversation.repository.js";
 import {
   FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH,
+  deriveFeedbackStopAckOutboxId,
   type FeedbackConversationDocument,
 } from "../post-event-feedback-conversation.document.js";
 import { ParticipantsRepository } from "../../participants/participants.repository.js";
 import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
+import { currentAwaitingHumanCommitmentOutboxId } from "../outbox/current-commitment.js";
 import { coalesceDeliveryStatus } from "../outbox/delivery-status.js";
 import {
   PostEventFeedbackMetrics,
@@ -37,16 +35,11 @@ import {
 } from "../question-set.js";
 import { matchesPostEventFeedbackStopCommand } from "../matching/stop-command.js";
 import {
-  createFeedbackExtractJobId,
   FEEDBACK_EXTRACT_QUIET_WINDOW_MS,
-  FEEDBACK_JOB_NAMES,
-  FEEDBACK_JOB_SCHEMA_VERSION,
-  feedbackExtractJobDataSchema,
   isFeedbackEditedProviderMessageId,
-  type FeedbackJobData,
-  type FeedbackJobName,
 } from "../jobs.schemas.js";
 import { PostEventFeedbackCampaignSummaryService } from "../summary/summary.service.js";
+import { FeedbackConversationWakeupService } from "../reconciliation/wakeup.service.js";
 
 export class PostEventFeedbackIngressNotFoundError extends Error {
   constructor(ingressId: string) {
@@ -85,8 +78,6 @@ export class PostEventFeedbackMaterializer {
   private readonly logger = new Logger(PostEventFeedbackMaterializer.name);
 
   constructor(
-    @InjectQueue(FEEDBACK_QUEUE)
-    private readonly queue: Queue<FeedbackJobData, void, FeedbackJobName>,
     private readonly database: DatabaseService,
     private readonly campaigns: FeedbackCampaignRepository,
     private readonly ingress: FeedbackIngressRepository,
@@ -98,6 +89,7 @@ export class PostEventFeedbackMaterializer {
     private readonly outboundTranscript: FeedbackOutboundTranscriptService,
     private readonly outboundLog: FeedbackOutboundLogService,
     private readonly summaries: PostEventFeedbackCampaignSummaryService,
+    private readonly wakeups: FeedbackConversationWakeupService,
   ) {}
 
   async materialize(
@@ -323,8 +315,8 @@ export class PostEventFeedbackMaterializer {
 
     const stopRequested = matchesPostEventFeedbackStopCommand(text);
     const rendered = fitToTranscript(text);
-    let latestSeq: number;
     let writtenMessageId: string;
+    let materializedConversation: FeedbackConversationDocument;
 
     try {
       const appended = await this.conversations.appendMessage({
@@ -335,8 +327,8 @@ export class PostEventFeedbackMaterializer {
         providerMessageId: ingress.providerMessageId,
         ingressId: ingress.id,
       });
-      latestSeq = appended.conversation.messages.length;
       writtenMessageId = appended.message.id;
+      materializedConversation = appended.conversation;
     } catch (error) {
       if (!(error instanceof FeedbackConversationCapacityError)) {
         throw error;
@@ -407,16 +399,38 @@ export class PostEventFeedbackMaterializer {
     // replays the whole job, whereas the reverse order would lose the run.
     const extractJobId = await this.enqueueExtraction(
       conversation._id,
-      latestSeq,
       correlationId,
+      ingress.observedAt,
     );
 
-    await this.withPendingIngress(ingress.id, async (transaction) => {
-      await this.ingress.updateIngressProcessing(transaction, ingress.id, {
-        processingStatus: "materialized",
-        matchedConversationId: conversation._id,
-      });
-    });
+    const currentHandoffOutboxId = currentAwaitingHumanCommitmentOutboxId(
+      materializedConversation,
+    );
+    const terminalOutboxId =
+      materializedConversation.lifecycle.state === "closed"
+        ? (materializedConversation.lifecycle.terminalOutboxId ?? null)
+        : null;
+    await this.withPendingIngress(
+      ingress.id,
+      async (transaction) => {
+        // A participant turn supersedes questionnaire copy that has not crossed
+        // provider entry. Hold the same mutex as the dispatcher's final marker,
+        // while retaining only exact Mongo-authorized handoff/terminal promises
+        // plus system and staff rows (which the repository excludes by kind).
+        await this.outbox.cancelQueuedSupersededAutomationForConversation(
+          transaction,
+          conversation._id,
+          [currentHandoffOutboxId, terminalOutboxId].filter(
+            (id): id is string => id !== null,
+          ),
+        );
+        await this.ingress.updateIngressProcessing(transaction, ingress.id, {
+          processingStatus: "materialized",
+          matchedConversationId: conversation._id,
+        });
+      },
+      conversation._id,
+    );
 
     return this.complete(
       {
@@ -445,56 +459,20 @@ export class PostEventFeedbackMaterializer {
      */
     stopMessageId: string | null,
   ): Promise<MaterializeFeedbackIngressResult> {
-    const closed = await this.conversations.close({
-      conversationId: conversation._id,
-      reason: "stopped",
-      at: ingress.observedAt,
-    });
-
-    await this.summaries.notifyIfLastConversationClosed(
-      conversation.campaignId,
-      correlationId,
-      closed.changed,
-    );
-
-    // Somebody who opts out without having answered a single question is the
-    // shape of a number that changed hands: a stranger is being asked about a
-    // dinner they were never at. It is also how a bad phone match and a
-    // genuinely annoyed recipient look, and all three are worth one glance.
-    //
-    // Measured on goals rather than on messages, because the stranger does
-    // reply — «ποιος είσαι ρε φίλε;» is a message and is not an answer. An
-    // opt-out *after* answering is the ordinary healthy ending and is not
-    // flagged: an inbox that fills up with every STOP is an inbox nobody reads.
-    const answeredNothing = conversation.goals.every(
-      (goal) => goal.status !== "answered",
-    );
-    if (answeredNothing) {
-      // Named for the fact, not for a verdict on it. «Wrong number» is the
-      // likeliest of the three explanations and still a guess, and a reason that
-      // guesses is a reason an operator learns to disbelieve.
-      await this.conversations.raiseAttention({
-        conversationId: conversation._id,
-        kind: "stopped_without_answers",
-        messageId: stopMessageId,
-        at: ingress.observedAt,
-      });
-    }
-
     const applied = await this.withPendingIngress(
       ingress.id,
       async (transaction) => {
-        const cancelledOutboxCount =
-          await this.outbox.cancelQueuedOutboxForConversation(
-            transaction,
-            conversation._id,
-          );
-
-        const campaign = await this.campaigns.findCampaignById(
-          conversation.campaignId,
+        // The acknowledgement row exists before the lifecycle CAS so MongoDB
+        // can authorize its exact id. If this transaction later rolls back,
+        // the open lifecycle cannot make the uncommitted row visible; if the
+        // cross-store close commits first and PostgreSQL fails, ingress replay
+        // recreates the same row through its dedupe key.
+        const campaign = await this.campaigns.findCampaignByIdForShare(
           transaction,
+          conversation.campaignId,
         );
         const stopAck = await this.outbox.insertOutboxIfAbsent(transaction, {
+          id: deriveFeedbackStopAckOutboxId(conversation._id),
           conversationId: conversation._id,
           campaignId: conversation.campaignId,
           kind: "system",
@@ -504,6 +482,36 @@ export class PostEventFeedbackMaterializer {
           ).stop_ack.slice(0, FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH),
           dedupeKey: createFeedbackStopAckDedupeKey(conversation._id),
         });
+        const closed = await this.conversations.close({
+          conversationId: conversation._id,
+          reason: "stopped",
+          at: ingress.observedAt,
+          terminalOutboxId: stopAck.row.id,
+        });
+
+        // Somebody who opts out without having answered a single question is
+        // the shape of a number that changed hands: a stranger is being asked
+        // about a dinner they were never at. The reason is durable and
+        // idempotent, so holding the shared conversation lock across this Mongo
+        // write and the PostgreSQL cancellation is safe on replay.
+        const answeredNothing = conversation.goals.every(
+          (goal) => goal.status !== "answered",
+        );
+        if (answeredNothing) {
+          await this.conversations.raiseAttention({
+            conversationId: conversation._id,
+            kind: "stopped_without_answers",
+            messageId: stopMessageId,
+            at: ingress.observedAt,
+          });
+        }
+
+        const cancelledOutboxCount =
+          await this.outbox.cancelQueuedOutboxForConversationExceptId(
+            transaction,
+            conversation._id,
+            stopAck.row.id,
+          );
         await this.outboundLog.record(transaction, {
           outbox: stopAck,
           conversation,
@@ -541,18 +549,24 @@ export class PostEventFeedbackMaterializer {
           matchedConversationId: conversation._id,
         });
 
-        return stopAck.row;
+        return { stopAck: stopAck.row, closed: closed.changed };
       },
+      conversation._id,
     );
 
     if (applied) {
+      await this.summaries.notifyIfLastConversationClosed(
+        conversation.campaignId,
+        correlationId,
+        applied.closed,
+      );
       // Appends are allowed on a closed conversation: the transcript records
       // what actually happened, and the acknowledgement is observed after the
       // closure. A crash here cannot be repaired by a replay — the fence above
       // already marked the ingress row terminal — so the WP6 delivery job
       // re-runs this same idempotent append before it sends.
       await this.outboundTranscript.record(
-        applied,
+        applied.stopAck,
         ingress.observedAt,
         correlationId,
       );
@@ -562,7 +576,7 @@ export class PostEventFeedbackMaterializer {
       {
         outcome: "inbound_stopped",
         conversationId: conversation._id,
-        ...(applied ? { stopAckOutboxId: applied.id } : {}),
+        ...(applied ? { stopAckOutboxId: applied.stopAck.id } : {}),
       },
       correlationId,
     );
@@ -618,25 +632,32 @@ export class PostEventFeedbackMaterializer {
     const correlated = await this.findCorrelatedOutbox(ingress, conversation);
 
     if (correlated) {
-      await this.withPendingIngress(ingress.id, async (transaction) => {
-        await this.outbox.updateOutboxDelivery(transaction, correlated.id, {
-          deliveryStatus: coalesceDeliveryStatus(
-            correlated.deliveryStatus,
-            "sent",
-          ),
-          providerMessageId: ingress.providerMessageId,
-          sentAt: correlated.sentAt ?? ingress.observedAt,
-          ...(correlated.status === "pending" ||
-          correlated.status === "sending" ||
-          correlated.status === "sent"
-            ? { status: "sent" as const }
-            : {}),
-        });
-        await this.ingress.updateIngressProcessing(transaction, ingress.id, {
-          processingStatus: "materialized",
-          matchedConversationId: correlated.conversationId,
-        });
-      });
+      await this.withPendingIngress(
+        ingress.id,
+        async (transaction) => {
+          await this.outbox.updateOutboxDelivery(transaction, correlated.id, {
+            deliveryStatus: coalesceDeliveryStatus(
+              correlated.deliveryStatus,
+              "sent",
+            ),
+            providerMessageId: ingress.providerMessageId,
+            sentAt: correlated.sentAt ?? ingress.observedAt,
+            ...(correlated.status === "pending" ||
+            correlated.status === "claimed" ||
+            correlated.status === "attempting" ||
+            correlated.status === "ambiguous" ||
+            correlated.status === "sending" ||
+            correlated.status === "sent"
+              ? { status: "sent" as const }
+              : {}),
+          });
+          await this.ingress.updateIngressProcessing(transaction, ingress.id, {
+            processingStatus: "materialized",
+            matchedConversationId: correlated.conversationId,
+          });
+        },
+        correlated.conversationId,
+      );
 
       return this.complete(
         {
@@ -654,56 +675,67 @@ export class PostEventFeedbackMaterializer {
       return this.ignoreUnmatched(ingress, correlationId);
     }
 
-    const takeover = await this.conversations.takeOver({
-      conversationId: conversation._id,
-      source: "external_outbound",
-      at: ingress.observedAt,
-    });
-
-    const text = ingress.text?.trim() ?? "";
-    if (text.length > 0) {
-      try {
-        await this.conversations.appendMessage({
+    await this.withPendingIngress(
+      ingress.id,
+      async (transaction) => {
+        const takeover = await this.conversations.takeOver({
           conversationId: conversation._id,
-          actor: "staff",
-          text,
+          source: "external_outbound",
           at: ingress.observedAt,
-          providerMessageId: ingress.providerMessageId,
-          ingressId: ingress.id,
         });
-      } catch (error) {
-        if (!(error instanceof FeedbackConversationCapacityError)) {
-          throw error;
-        }
-        this.logger.warn({
-          event: "feedback.materialize.transcript_capacity",
-          correlationId,
-          ingressId: ingress.id,
-          conversationId: conversation._id,
-        });
-      }
-    }
+        const cancelledOutboxCount = takeover.changed
+          ? await this.outbox.cancelQueuedAutomatedOutboxForConversation(
+              transaction,
+              conversation._id,
+            )
+          : 0;
 
-    await this.withPendingIngress(ingress.id, async (transaction) => {
-      await this.audit.append(transaction, {
-        actorType: "system",
-        actorId: "wasender_observation",
-        action: "feedback_conversation.external_outbound_observed",
-        entityType: "feedback_conversation",
-        entityId: conversation._id,
-        requestId: correlationId,
-        context: {
-          ingressId: ingress.id,
-          campaignId: conversation.campaignId,
-          providerMessageId: ingress.providerMessageId,
-          controlChanged: takeover.changed,
-        },
-      });
-      await this.ingress.updateIngressProcessing(transaction, ingress.id, {
-        processingStatus: "materialized",
-        matchedConversationId: conversation._id,
-      });
-    });
+        const text = ingress.text?.trim() ?? "";
+        if (text.length > 0) {
+          try {
+            await this.conversations.appendMessage({
+              conversationId: conversation._id,
+              actor: "staff",
+              text,
+              at: ingress.observedAt,
+              providerMessageId: ingress.providerMessageId,
+              ingressId: ingress.id,
+            });
+          } catch (error) {
+            if (!(error instanceof FeedbackConversationCapacityError)) {
+              throw error;
+            }
+            this.logger.warn({
+              event: "feedback.materialize.transcript_capacity",
+              correlationId,
+              ingressId: ingress.id,
+              conversationId: conversation._id,
+            });
+          }
+        }
+
+        await this.audit.append(transaction, {
+          actorType: "system",
+          actorId: "wasender_observation",
+          action: "feedback_conversation.external_outbound_observed",
+          entityType: "feedback_conversation",
+          entityId: conversation._id,
+          requestId: correlationId,
+          context: {
+            ingressId: ingress.id,
+            campaignId: conversation.campaignId,
+            providerMessageId: ingress.providerMessageId,
+            controlChanged: takeover.changed,
+            cancelledOutboxCount,
+          },
+        });
+        await this.ingress.updateIngressProcessing(transaction, ingress.id, {
+          processingStatus: "materialized",
+          matchedConversationId: conversation._id,
+        });
+      },
+      conversation._id,
+    );
 
     return this.complete(
       { outcome: "outbound_external", conversationId: conversation._id },
@@ -713,7 +745,7 @@ export class PostEventFeedbackMaterializer {
 
   /**
    * The provider message id is authoritative once a send recorded it. Before
-   * that — an ambiguous send, or a relay that crashed after the provider
+   * that — an ambiguous send, or a legacy delivery that crashed after the provider
    * accepted it — the fallback is the oldest unlinked row of the resolved
    * conversation with the exact same body. A provider id belonging to a
    * different conversation is not a match and is left to the takeover rule.
@@ -757,12 +789,12 @@ export class PostEventFeedbackMaterializer {
     // No anchor either way: nothing was appended, so there is no transcript line
     // to link to. The reason is about a message the transcript does not contain,
     // which is precisely what the operator has to be told.
-    await this.conversations.raiseAttention({
+    const attention = {
       conversationId: conversation._id,
       kind: reason === "empty_body" ? "unreadable_message" : "transcript_full",
       messageId: null,
       at: ingress.observedAt,
-    });
+    } as const;
 
     // Say something, once. A body we cannot read used to produce pure silence:
     // the questionnaire simply stopped answering, so somebody dictating from
@@ -772,28 +804,41 @@ export class PostEventFeedbackMaterializer {
     // Only for `empty_body`. A full transcript is our problem, not theirs, and
     // asking them to retype something we simply have no room for would be a
     // lie about why we went quiet.
-    const notice =
-      reason === "empty_body"
-        ? await this.sendMediaNotice(ingress, conversation, correlationId)
-        : { inserted: false };
-
-    // A full transcript is the one case where the bot genuinely cannot carry
-    // on: it has nowhere to record what was just said, so the next question
-    // would be asked into a thread that no longer remembers the answer. Hand it
-    // to a person instead of continuing to look healthy while dropping words.
+    let notice = { inserted: false };
     if (reason === "transcript_capacity") {
-      await this.conversations.markAwaitingHuman({
-        conversationId: conversation._id,
-        at: ingress.observedAt,
-      });
+      // A full transcript disables the bot. Take the dispatcher's shared mutex
+      // across that Mongo transition and the durable ingress fence so it cannot
+      // slip between the final state read and provider-entry marker. A replay
+      // that lost the PostgreSQL commit repeats idempotent Mongo writes.
+      await this.withPendingIngress(
+        ingress.id,
+        async (transaction) => {
+          await this.conversations.raiseAttention(attention);
+          await this.conversations.markAwaitingHuman({
+            conversationId: conversation._id,
+            at: ingress.observedAt,
+          });
+          await this.outbox.cancelQueuedAutomatedOutboxForConversation(
+            transaction,
+            conversation._id,
+          );
+          await this.ingress.updateIngressProcessing(transaction, ingress.id, {
+            processingStatus: "failed",
+            matchedConversationId: conversation._id,
+          });
+        },
+        conversation._id,
+      );
+    } else {
+      await this.conversations.raiseAttention(attention);
+      notice = await this.sendMediaNotice(ingress, conversation, correlationId);
+      await this.withPendingIngress(ingress.id, (transaction) =>
+        this.ingress.updateIngressProcessing(transaction, ingress.id, {
+          processingStatus: "failed",
+          matchedConversationId: conversation._id,
+        }),
+      );
     }
-
-    await this.withPendingIngress(ingress.id, (transaction) =>
-      this.ingress.updateIngressProcessing(transaction, ingress.id, {
-        processingStatus: "failed",
-        matchedConversationId: conversation._id,
-      }),
-    );
 
     this.logger.warn({
       event: "feedback.materialize.inbound_not_materialized",
@@ -875,22 +920,17 @@ export class PostEventFeedbackMaterializer {
    */
   private async enqueueExtraction(
     conversationId: string,
-    latestSeq: number,
     correlationId: string,
+    observedAt: Date,
   ): Promise<string> {
-    const data = feedbackExtractJobDataSchema.parse({
-      schemaVersion: FEEDBACK_JOB_SCHEMA_VERSION,
+    return this.wakeups.schedule({
       conversationId,
+      nextActionAt: new Date(
+        observedAt.getTime() + FEEDBACK_EXTRACT_QUIET_WINDOW_MS,
+      ),
       correlationId,
+      at: observedAt,
     });
-    const jobId = createFeedbackExtractJobId(conversationId, latestSeq);
-
-    await this.queue.add(FEEDBACK_JOB_NAMES.extractV1, data, {
-      jobId,
-      delay: FEEDBACK_EXTRACT_QUIET_WINDOW_MS,
-    });
-
-    return jobId;
   }
 
   /**
@@ -904,6 +944,7 @@ export class PostEventFeedbackMaterializer {
       transaction: AppTransaction,
       ingress: ProviderMessageIngressRow,
     ) => Promise<T>,
+    conversationLockId?: string,
   ): Promise<T | undefined> {
     return this.database.transaction(async (transaction) => {
       const row = await this.ingress.findIngressByIdForUpdate(
@@ -912,6 +953,9 @@ export class PostEventFeedbackMaterializer {
       );
       if (!row || row.processingStatus !== "pending") {
         return undefined;
+      }
+      if (conversationLockId) {
+        await this.outbox.lockConversation(transaction, conversationLockId);
       }
       return work(transaction, row);
     });

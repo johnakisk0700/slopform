@@ -55,17 +55,4 @@ export class FeedbackSimOutboundRepository {
       .where(eq(feedbackSimOutbound.phoneE164, phoneE164))
       .orderBy(asc(feedbackSimOutbound.sentAt), asc(feedbackSimOutbound.id));
   }
-
-  async findSimOutboundById(
-    id: string,
-    executor: DatabaseExecutor = this.database.db,
-  ): Promise<FeedbackSimOutboundRow | undefined> {
-    const [record] = await executor
-      .select()
-      .from(feedbackSimOutbound)
-      .where(eq(feedbackSimOutbound.id, id))
-      .limit(1);
-
-    return record;
-  }
 }

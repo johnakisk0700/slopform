@@ -8,7 +8,6 @@ import {
 import { createZodDto } from "nestjs-zod";
 import { z } from "zod";
 
-import { FEEDBACK_DELIVER_JOB_STATES } from "./inspect-deliver-job.js";
 import { feedbackOutboundDecisionSchema } from "./outbound-log.schemas.js";
 import { outboundConversationSnapshotSchema } from "./outbound-log.snapshot.js";
 import {
@@ -32,7 +31,7 @@ export const feedbackOutboxQueueItemSchema = z
     eventId: z.uuid(),
     eventTitle: z.string().min(1).max(200),
     /**
-     * The relay leases nothing for a campaign that is not `launched`, so this
+     * The dispatcher claims nothing for a campaign that is not `launched`, so this
      * is what separates "the system is behind" from "an operator paused it".
      */
     campaignStatus: z.enum(FEEDBACK_CAMPAIGN_STATUSES),
@@ -64,6 +63,10 @@ export const feedbackOutboxQueueSchema = z
     counts: z
       .object({
         pending: z.number().int().nonnegative(),
+        claimed: z.number().int().nonnegative(),
+        attempting: z.number().int().nonnegative(),
+        ambiguous: z.number().int().nonnegative(),
+        /** Rolling-deploy bridge for rows owned by the retired Bull consumer. */
         sending: z.number().int().nonnegative(),
         held: z.number().int().nonnegative(),
         total: z.number().int().nonnegative(),
@@ -145,36 +148,16 @@ export const feedbackOutboxHistorySchema = z
   })
   .strict();
 
-/**
- * The live BullMQ state of one `feedback.deliver.v1` job.
- *
- * `unknown` is a first-class answer and the ordinary one: delivery jobs carry
- * `attempts: 1` with immediate `removeOnComplete` / `removeOnFail`, so the job
- * exists only between the relay's lease and the consumer's last line. A
- * `pending` row that has not been leased, a job that finished a moment ago and
- * a job that was lost are one indistinguishable read.
- */
-export const feedbackOutboxDeliverJobSchema = z
+/** Durable dispatcher facts safe to expose to an operator. */
+export const feedbackOutboxDispatchSchema = z
   .object({
-    /** The deterministic job id, so an operator can find it in Bull Board. */
-    id: z.string().min(1).max(200),
-    state: z.enum(FEEDBACK_DELIVER_JOB_STATES),
-    /**
-     * BullMQ's attempt counter. It is *not* a delivery attempt history: the
-     * job row is deleted when it terminates and re-added under the same id on
-     * the next relay lease, so this counter restarts at zero each time.
-     */
-    attemptsMade: z.number().int().nonnegative().nullable(),
-    // `.min(1)`, not `.positive()`: a nullable `positive()` emits the JSON
-    // Schema 2020-12 form of `exclusiveMinimum`, which the OpenAPI 3.0
-    // validator orval runs rejects. The bound is identical.
-    attemptsAllowed: z.number().int().min(1).nullable(),
-    enqueuedAt: z.iso.datetime().nullable(),
-    /** When a `delayed` job becomes runnable; null in every other state. */
-    dueAt: z.iso.datetime().nullable(),
-    startedAt: z.iso.datetime().nullable(),
-    finishedAt: z.iso.datetime().nullable(),
-    failedReason: z.string().min(1).max(500).nullable(),
+    state: z.enum(MESSAGE_OUTBOX_STATUSES),
+    /** Safe pre-send claims may be reclaimed after this instant. */
+    claimExpiresAt: z.iso.datetime().nullable(),
+    /** Durable no-return marker; null when no provider attempt is recorded. */
+    sendStartedAt: z.iso.datetime().nullable(),
+    attemptCount: z.number().int().nonnegative(),
+    lastError: z.string().min(1).max(2_000).nullable(),
   })
   .strict();
 
@@ -194,14 +177,8 @@ export const feedbackOutboxMessageLogSchema = z
   .strict();
 
 /**
- * Everything durable about one outbox row, plus the one Redis lookup an opened
- * row is allowed to cost.
- *
- * There is no attempts table: `message_outbox` has no attempt counter and no
- * `message_outbox_attempts` exists. The provider ids below are the only durable
- * evidence that a send was ever tried — the deliver consumer writes them
- * before it can know the outcome, which is exactly why it reconciles against
- * them instead of retrying blindly.
+ * Everything durable about one outbox row. No queue lookup is involved: the
+ * claim, no-return marker, attempt count and failure are PostgreSQL facts.
  */
 export const feedbackOutboxMessageDeliverySchema = z
   .object({
@@ -250,12 +227,7 @@ export const feedbackOutboxMessageDeliverySchema = z
     /** Present once a provider call was made, whatever its outcome. */
     providerLogId: z.string().min(1).max(200).nullable(),
     providerMessageId: z.string().min(1).max(200).nullable(),
-    /**
-     * When the relay reclaims a `sending` row whose job never reported back.
-     * Null unless the row is `sending` — nothing else is on that clock.
-     */
-    reclaimAt: z.iso.datetime().nullable(),
-    job: feedbackOutboxDeliverJobSchema,
+    dispatch: feedbackOutboxDispatchSchema,
     log: feedbackOutboxMessageLogSchema.nullable(),
   })
   .strict();

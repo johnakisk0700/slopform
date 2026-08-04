@@ -21,11 +21,13 @@ import {
   accumulateFeedbackExtractionUsage,
   feedbackConversationDocumentSchema,
   feedbackConversationStoredMessageSchema,
+  resolveFeedbackConversationWork,
   type FeedbackConversationDocument,
   type FeedbackConversationExtractionUsage,
   type FeedbackConversationGoal,
   type FeedbackConversationMessage,
   type FeedbackConversationLifecycleReason,
+  type FeedbackConversationWork,
 } from "./post-event-feedback-conversation.document.js";
 import type { FeedbackOperatorAlertInput } from "./operator-alert.js";
 import type { FeedbackOutboundDecision } from "./outbox/outbound-log.schemas.js";
@@ -113,6 +115,11 @@ export interface FakeOutboxRow {
   readAt: Date | null;
   playedAt: Date | null;
   deliveryUpdatedAt: Date | null;
+  claimToken: string | null;
+  claimExpiresAt: Date | null;
+  sendStartedAt: Date | null;
+  attemptCount: number;
+  lastError: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -218,6 +225,11 @@ export class FakeFeedbackRepository {
       readAt: null,
       playedAt: null,
       deliveryUpdatedAt: null,
+      claimToken: null,
+      claimExpiresAt: null,
+      sendStartedAt: null,
+      attemptCount: 0,
+      lastError: null,
       createdAt: at,
       updatedAt: at,
       ...input,
@@ -231,6 +243,20 @@ export class FakeFeedbackRepository {
     return row ? { ...row } : undefined;
   }
 
+  async findCampaignByIdForShare(
+    _transaction: AppTransaction,
+    id: string,
+  ): Promise<FakeCampaignRow | undefined> {
+    return this.findCampaignById(id);
+  }
+
+  async findCampaignByIdForUpdate(
+    _transaction: AppTransaction,
+    id: string,
+  ): Promise<FakeCampaignRow | undefined> {
+    return this.findCampaignById(id);
+  }
+
   async listAnswersByConversation(id: string): Promise<FakeAnswerRow[]> {
     return this.answers
       .filter((row) => row.conversationId === id)
@@ -241,6 +267,15 @@ export class FakeFeedbackRepository {
     return this.notes
       .filter((row) => row.conversationId === id)
       .map((row) => ({ ...row }));
+  }
+
+  async listOutboxStatusesByIds(
+    outboxIds: readonly string[],
+  ): Promise<{ outboxId: string; status: string }[]> {
+    const selected = new Set(outboxIds);
+    return this.outbox
+      .filter((row) => selected.has(row.id))
+      .map((row) => ({ outboxId: row.id, status: row.status }));
   }
 
   async lockConversation(): Promise<void> {}
@@ -374,6 +409,7 @@ export class FakeFeedbackRepository {
   async insertOutboxIfAbsent(
     _transaction: AppTransaction,
     input: {
+      id?: string;
       conversationId: string;
       campaignId: string;
       kind: string;
@@ -390,6 +426,7 @@ export class FakeFeedbackRepository {
       return { row: { ...existing }, inserted: false };
     }
     const row = this.seedOutbox({
+      ...(input.id ? { id: input.id } : {}),
       conversationId: input.conversationId,
       campaignId: input.campaignId,
       kind: input.kind,
@@ -399,6 +436,35 @@ export class FakeFeedbackRepository {
       createdByStaff: input.createdByStaff ?? null,
     });
     return { row: { ...row }, inserted: true };
+  }
+
+  async resolveLegacyClosingBeforeAnchoredInsert(
+    _transaction: AppTransaction,
+    legacyDedupeKey: string,
+  ): Promise<
+    { outcome: "clear" } | { outcome: "provider_crossed"; row: FakeOutboxRow }
+  > {
+    const legacy = this.outbox.find((row) => row.dedupeKey === legacyDedupeKey);
+    if (
+      !legacy ||
+      legacy.status === "failed" ||
+      legacy.status === "cancelled"
+    ) {
+      return { outcome: "clear" };
+    }
+    if (
+      ["attempting", "ambiguous", "sending", "sent"].includes(legacy.status) ||
+      legacy.sendStartedAt !== null
+    ) {
+      return { outcome: "provider_crossed", row: { ...legacy } };
+    }
+    if (["pending", "held", "claimed"].includes(legacy.status)) {
+      legacy.status = "cancelled";
+      legacy.claimExpiresAt = null;
+      legacy.lastError = "superseded_by_anchored_closing";
+      legacy.updatedAt = this.now();
+    }
+    return { outcome: "clear" };
   }
 
   async insertOutboxLogIfAbsent(
@@ -434,9 +500,13 @@ export class FakeFeedbackRepository {
     return { row: { ...row }, inserted: true };
   }
 
-  async findOutboxById(id: string): Promise<FakeOutboxRow | undefined> {
-    const row = this.outbox.find((candidate) => candidate.id === id);
-    return row ? { ...row } : undefined;
+  async findLogByOutboxId(
+    outboxId: string,
+  ): Promise<FakeOutboxLogRow | undefined> {
+    const row = this.outboxLogs.find(
+      (candidate) => candidate.outboxId === outboxId,
+    );
+    return row ? structuredClone(row) : undefined;
   }
 
   async findOutboxByDedupeKey(
@@ -546,9 +616,105 @@ export class FakeFeedbackRepository {
     for (const row of this.outbox) {
       if (
         row.conversationId === conversationId &&
-        (row.status === "pending" || row.status === "held")
+        (row.status === "pending" ||
+          row.status === "held" ||
+          row.status === "claimed")
       ) {
         row.status = "cancelled";
+        row.updatedAt = this.now();
+        cancelled += 1;
+      }
+    }
+    return cancelled;
+  }
+
+  async cancelQueuedAutomatedOutboxForConversation(
+    _transaction: AppTransaction,
+    conversationId: string,
+    authorizedOutboxId?: string | null,
+  ): Promise<number> {
+    let cancelled = 0;
+    for (const row of this.outbox) {
+      if (
+        row.conversationId === conversationId &&
+        row.id !== authorizedOutboxId &&
+        row.kind !== "staff" &&
+        (row.status === "pending" ||
+          row.status === "held" ||
+          row.status === "claimed")
+      ) {
+        row.status = "cancelled";
+        row.updatedAt = this.now();
+        cancelled += 1;
+      }
+    }
+    return cancelled;
+  }
+
+  async cancelQueuedSupersededAutomationForConversation(
+    _transaction: AppTransaction,
+    conversationId: string,
+    preservedOutboxIds: readonly string[] = [],
+  ): Promise<number> {
+    const preserved = new Set(preservedOutboxIds);
+    let cancelled = 0;
+    for (const row of this.outbox) {
+      if (
+        row.conversationId === conversationId &&
+        !preserved.has(row.id) &&
+        row.kind !== "system" &&
+        row.kind !== "staff" &&
+        row.sendStartedAt === null &&
+        (row.status === "pending" ||
+          row.status === "held" ||
+          row.status === "claimed")
+      ) {
+        row.status = "cancelled";
+        row.claimExpiresAt = null;
+        row.lastError = "superseded_by_newer_testimony";
+        row.updatedAt = this.now();
+        cancelled += 1;
+      }
+    }
+    return cancelled;
+  }
+
+  async cancelQueuedOutboxById(
+    _transaction: AppTransaction,
+    id: string,
+    _lastError?: string,
+  ): Promise<FakeOutboxRow | undefined> {
+    const row = this.outbox.find((candidate) => candidate.id === id);
+    if (
+      !row ||
+      (row.status !== "pending" &&
+        row.status !== "held" &&
+        row.status !== "claimed")
+    ) {
+      return undefined;
+    }
+    row.status = "cancelled";
+    row.updatedAt = this.now();
+    return { ...row };
+  }
+
+  async cancelQueuedOutboxForConversationExceptId(
+    _transaction: AppTransaction,
+    conversationId: string,
+    authorizedOutboxId: string | null,
+  ): Promise<number> {
+    let cancelled = 0;
+    for (const row of this.outbox) {
+      if (
+        row.conversationId === conversationId &&
+        row.id !== authorizedOutboxId &&
+        row.sendStartedAt === null &&
+        (row.status === "pending" ||
+          row.status === "held" ||
+          row.status === "claimed")
+      ) {
+        row.status = "cancelled";
+        row.claimExpiresAt = null;
         row.updatedAt = this.now();
         cancelled += 1;
       }
@@ -559,12 +725,17 @@ export class FakeFeedbackRepository {
   async cancelQueuedOutboxForCampaign(
     _transaction: AppTransaction,
     campaignId: string,
+    preservedOutboxIds: readonly string[] = [],
   ): Promise<number> {
+    const preserved = new Set(preservedOutboxIds);
     let cancelled = 0;
     for (const row of this.outbox) {
       if (
         row.campaignId === campaignId &&
-        (row.status === "pending" || row.status === "held")
+        !preserved.has(row.id) &&
+        (row.status === "pending" ||
+          row.status === "held" ||
+          row.status === "claimed")
       ) {
         row.status = "cancelled";
         row.updatedAt = this.now();
@@ -574,48 +745,341 @@ export class FakeFeedbackRepository {
     return cancelled;
   }
 
-  /** `FOR UPDATE SKIP LOCKED` lease, gated on the campaign kill switch. */
-  async claimOutboxBatch(now: Date, limit = 50): Promise<FakeOutboxRow[]> {
-    const recoveryBefore = now.getTime() - OUTBOX_RECOVERY_MS;
-    const claimable = this.outbox
+  /** Direct-dispatch claim semantics used by the executable loop harness. */
+  async listTerminalDispatchCandidates(
+    limit = 50,
+  ): Promise<{ conversationId: string; outboxId: string }[]> {
+    const liveBlocking = new Set([
+      "pending",
+      "held",
+      "claimed",
+      "attempting",
+      "sending",
+    ]);
+    return this.outbox
       .filter(
         (row) =>
-          row.status === "pending" ||
-          (row.status === "sending" &&
-            row.updatedAt.getTime() <= recoveryBefore),
+          row.kind === "system" &&
+          row.dedupeKey === `feedback-stop-ack-${row.conversationId}` &&
+          (row.status === "pending" ||
+            (row.status === "claimed" &&
+              row.sendStartedAt === null &&
+              (row.claimExpiresAt?.getTime() ?? Number.POSITIVE_INFINITY) <=
+                this.now().getTime())),
       )
+      .filter((row) => {
+        const older = this.outbox.filter(
+          (candidate) =>
+            candidate.conversationId === row.conversationId &&
+            (candidate.createdAt.getTime() < row.createdAt.getTime() ||
+              (candidate.createdAt.getTime() === row.createdAt.getTime() &&
+                candidate.id < row.id)),
+        );
+        return (
+          (this.campaigns.get(row.campaignId)?.status !== "launched" ||
+            older.some((candidate) => candidate.status === "ambiguous")) &&
+          !older.some((candidate) => liveBlocking.has(candidate.status))
+        );
+      })
       .sort(
         (left, right) =>
           left.createdAt.getTime() - right.createdAt.getTime() ||
           left.id.localeCompare(right.id),
       )
       .slice(0, limit)
-      .filter(
-        (row) => this.campaigns.get(row.campaignId)?.status === "launched",
-      );
-
-    for (const row of claimable) {
-      row.status = "sending";
-      row.updatedAt = now;
-    }
-    return claimable.map((row) => ({ ...row }));
+      .map((row) => ({
+        conversationId: row.conversationId,
+        outboxId: row.id,
+      }));
   }
 
-  async releaseOutboxLease(
+  async claimDispatchBatch(
+    now: Date,
+    limit = 4,
+    leaseMs = 2 * 60_000,
+    terminalOutboxIds: readonly string[] = [],
+  ): Promise<FakeOutboxRow[]> {
+    const blocking = new Set([
+      "pending",
+      "held",
+      "claimed",
+      "attempting",
+      "ambiguous",
+      "sending",
+    ]);
+    const authorizedTerminalIds = new Set(terminalOutboxIds);
+    const candidates = this.outbox
+      .filter(
+        (row) =>
+          (this.campaigns.get(row.campaignId)?.status === "launched" ||
+            authorizedTerminalIds.has(row.id)) &&
+          (row.status === "pending" ||
+            (row.status === "claimed" &&
+              row.sendStartedAt === null &&
+              (row.claimExpiresAt?.getTime() ?? Number.POSITIVE_INFINITY) <=
+                now.getTime())),
+      )
+      .filter(
+        (row) =>
+          !this.outbox.some(
+            (older) =>
+              older.conversationId === row.conversationId &&
+              blocking.has(older.status) &&
+              !(
+                older.status === "ambiguous" &&
+                (row.kind === "staff" || authorizedTerminalIds.has(row.id))
+              ) &&
+              (older.createdAt.getTime() < row.createdAt.getTime() ||
+                (older.createdAt.getTime() === row.createdAt.getTime() &&
+                  older.id < row.id)),
+          ),
+      )
+      .sort(
+        (left, right) =>
+          left.createdAt.getTime() - right.createdAt.getTime() ||
+          left.id.localeCompare(right.id),
+      )
+      .slice(0, limit);
+    const claimToken = randomUUID();
+    for (const row of candidates) {
+      row.status = "claimed";
+      row.claimToken = claimToken;
+      row.claimExpiresAt = new Date(now.getTime() + leaseMs);
+      row.sendStartedAt = null;
+      row.lastError = null;
+      row.updatedAt = now;
+    }
+    return candidates.map((row) => ({ ...row }));
+  }
+
+  async renewDispatchClaim(
     id: string,
-    now = this.now(),
+    claimToken: string,
+    now: Date,
+    leaseMs = 2 * 60_000,
+  ): Promise<FakeOutboxRow | undefined> {
+    const row = this.findLiveClaim(id, claimToken);
+    if (!row) return undefined;
+    row.claimExpiresAt = new Date(now.getTime() + leaseMs);
+    row.updatedAt = now;
+    return { ...row };
+  }
+
+  async releaseDispatchClaim(
+    id: string,
+    claimToken: string,
+    now: Date,
+    lastError?: string,
+  ): Promise<FakeOutboxRow | undefined> {
+    const row = this.findLiveClaim(id, claimToken);
+    if (!row) return undefined;
+    row.status = "pending";
+    row.claimToken = null;
+    row.claimExpiresAt = null;
+    row.lastError = lastError ?? null;
+    row.updatedAt = now;
+    return { ...row };
+  }
+
+  async finishDispatchClaimBeforeAttempt(
+    id: string,
+    claimToken: string,
+    status: "failed" | "cancelled",
+    now: Date,
+    lastError: string,
+  ): Promise<FakeOutboxRow | undefined> {
+    const row = this.findLiveClaim(id, claimToken);
+    if (!row) return undefined;
+    row.status = status;
+    row.claimExpiresAt = null;
+    row.lastError = lastError;
+    if (status === "failed") {
+      row.deliveryStatus = "error";
+      row.deliveryUpdatedAt = now;
+    }
+    row.updatedAt = now;
+    return { ...row };
+  }
+
+  async markDispatchAttemptStarted(
+    id: string,
+    claimToken: string,
+    now: Date,
+    leaseMs = 2 * 60_000,
+    authorizedStopOutboxId: string | null = null,
+  ): Promise<FakeOutboxRow | undefined> {
+    const row = this.findLiveClaim(id, claimToken);
+    if (
+      !row ||
+      (row.claimExpiresAt?.getTime() ?? 0) <= now.getTime() ||
+      (this.campaigns.get(row.campaignId)?.status !== "launched" &&
+        authorizedStopOutboxId !== row.id)
+    ) {
+      return undefined;
+    }
+    row.status = "attempting";
+    row.sendStartedAt = now;
+    row.claimExpiresAt = new Date(now.getTime() + leaseMs);
+    row.attemptCount += 1;
+    row.lastError = null;
+    row.updatedAt = now;
+    return { ...row };
+  }
+
+  async markDispatchSent(
+    id: string,
+    claimToken: string,
+    input: {
+      completedAt: Date;
+      providerLogId: string;
+      providerMessageId?: string;
+      deliveryStatus: string;
+      sentAt?: Date | null;
+    },
+  ): Promise<FakeOutboxRow | undefined> {
+    const row = this.findActiveAttempt(id, claimToken);
+    if (!row) return undefined;
+    row.status = "sent";
+    row.claimExpiresAt = null;
+    row.providerLogId = input.providerLogId;
+    row.providerMessageId = input.providerMessageId ?? null;
+    row.deliveryStatus = input.deliveryStatus;
+    row.deliveryUpdatedAt = input.completedAt;
+    row.sentAt = input.sentAt ?? null;
+    row.lastError = null;
+    row.updatedAt = input.completedAt;
+    return { ...row };
+  }
+
+  async markDispatchFailed(
+    id: string,
+    claimToken: string,
+    now: Date,
+    lastError: string,
+  ): Promise<FakeOutboxRow | undefined> {
+    const row = this.findActiveAttempt(id, claimToken);
+    if (!row) return undefined;
+    row.status = "failed";
+    row.claimExpiresAt = null;
+    row.deliveryStatus = "error";
+    row.deliveryUpdatedAt = now;
+    row.lastError = lastError;
+    row.updatedAt = now;
+    return { ...row };
+  }
+
+  async markDispatchAmbiguous(
+    id: string,
+    claimToken: string,
+    now: Date,
+    lastError: string,
+    providerLogId?: string,
+  ): Promise<FakeOutboxRow | undefined> {
+    const row = this.findActiveAttempt(id, claimToken);
+    if (!row) return undefined;
+    row.status = "ambiguous";
+    row.claimExpiresAt = null;
+    row.deliveryStatus = "pending";
+    row.deliveryUpdatedAt = now;
+    row.providerLogId = providerLogId ?? row.providerLogId;
+    row.lastError = lastError;
+    row.updatedAt = now;
+    return { ...row };
+  }
+
+  async findExpiredDispatchAttempts(now: Date): Promise<FakeOutboxRow[]> {
+    return this.outbox
+      .filter(
+        (row) =>
+          row.status === "attempting" &&
+          (row.claimExpiresAt?.getTime() ?? Number.POSITIVE_INFINITY) <=
+            now.getTime(),
+      )
+      .map((row) => ({ ...row }));
+  }
+
+  async quarantineExpiredDispatchAttempt(
+    id: string,
+    claimToken: string,
+  ): Promise<FakeOutboxRow | undefined> {
+    const row = this.findActiveAttempt(id, claimToken, false);
+    if (
+      !row ||
+      (row.claimExpiresAt?.getTime() ?? Number.POSITIVE_INFINITY) >
+        this.now().getTime()
+    ) {
+      return undefined;
+    }
+    return this.quarantine(row, "dispatch_lease_expired_after_send_start");
+  }
+
+  async findStaleLegacySending(
+    now: Date,
+    recoveryMs = OUTBOX_RECOVERY_MS,
+  ): Promise<FakeOutboxRow[]> {
+    const staleBefore = now.getTime() - recoveryMs;
+    return this.outbox
+      .filter(
+        (row) =>
+          row.status === "sending" && row.updatedAt.getTime() <= staleBefore,
+      )
+      .map((row) => ({ ...row }));
+  }
+
+  async quarantineStaleLegacySending(
+    id: string,
+    recoveryMs = OUTBOX_RECOVERY_MS,
   ): Promise<FakeOutboxRow | undefined> {
     const row = this.outbox.find((candidate) => candidate.id === id);
     if (
       !row ||
       row.status !== "sending" ||
-      row.deliveryStatus !== null ||
-      row.providerLogId !== null ||
-      row.providerMessageId !== null
+      row.updatedAt.getTime() > this.now().getTime() - recoveryMs
     ) {
       return undefined;
     }
-    row.status = "pending";
+    row.claimToken = null;
+    row.sendStartedAt = null;
+    row.attemptCount = 0;
+    return this.quarantine(row, "legacy_sending_cutover_ambiguous");
+  }
+
+  private findLiveClaim(
+    id: string,
+    claimToken: string,
+  ): FakeOutboxRow | undefined {
+    return this.outbox.find(
+      (row) =>
+        row.id === id &&
+        row.status === "claimed" &&
+        row.claimToken === claimToken &&
+        row.sendStartedAt === null,
+    );
+  }
+
+  private findActiveAttempt(
+    id: string,
+    claimToken: string,
+    requireLiveLease = true,
+  ): FakeOutboxRow | undefined {
+    return this.outbox.find(
+      (row) =>
+        row.id === id &&
+        row.status === "attempting" &&
+        row.claimToken === claimToken &&
+        row.sendStartedAt !== null &&
+        (!requireLiveLease ||
+          (row.claimExpiresAt?.getTime() ?? 0) > this.now().getTime()),
+    );
+  }
+
+  private quarantine(row: FakeOutboxRow, lastError: string): FakeOutboxRow {
+    const now = this.now();
+    row.status = "ambiguous";
+    row.claimExpiresAt = null;
+    row.deliveryStatus ??= "pending";
+    row.deliveryUpdatedAt ??= now;
+    row.lastError = lastError;
     row.updatedAt = now;
     return { ...row };
   }
@@ -746,15 +1210,21 @@ export class FakeFeedbackRepository {
     return { ...row };
   }
 
-  async listPendingIngressOlderThan(
-    olderThan: Date,
-    limit = 50,
-  ): Promise<FakeIngressRow[]> {
+  async listPendingIngressOlderThan(input: {
+    readonly olderThan: Date;
+    readonly limit?: number;
+    readonly after?: { readonly createdAt: Date; readonly ingressId: string };
+  }): Promise<FakeIngressRow[]> {
+    const limit = input.limit ?? 50;
     return this.ingress
       .filter(
         (row) =>
           row.processingStatus === "pending" &&
-          row.createdAt.getTime() <= olderThan.getTime(),
+          row.createdAt.getTime() <= input.olderThan.getTime() &&
+          (!input.after ||
+            row.createdAt.getTime() > input.after.createdAt.getTime() ||
+            (row.createdAt.getTime() === input.after.createdAt.getTime() &&
+              row.id > input.after.ingressId)),
       )
       .sort(
         (left, right) =>
@@ -882,6 +1352,215 @@ export class FakeFeedbackConversations {
   ): Promise<FeedbackConversationDocument | undefined> {
     const conversation = this.documents.get(id);
     return conversation ? structuredClone(conversation) : undefined;
+  }
+
+  async markWorkDue(input: {
+    conversationId: string;
+    nextActionAt: Date;
+    at: Date;
+  }): Promise<{
+    changed: boolean;
+    conversation: FeedbackConversationDocument;
+    work: FeedbackConversationWork;
+  }> {
+    const conversation = this.require(input.conversationId);
+    const current = resolveFeedbackConversationWork(conversation.work);
+    conversation.work = {
+      ...current,
+      revision: current.revision + 1,
+      nextActionAt: input.nextActionAt,
+    };
+    this.touch(conversation, input.at);
+    this.revalidate(conversation);
+    return {
+      changed: true,
+      conversation: structuredClone(conversation),
+      work: structuredClone(conversation.work),
+    };
+  }
+
+  async seedMissingWork(input: {
+    dueAt: Date;
+    limit?: number;
+  }): Promise<number> {
+    const candidates = [...this.documents.values()]
+      .filter(
+        (conversation) =>
+          conversation.lifecycle.state === "open" &&
+          conversation.control.mode === "bot" &&
+          !conversation.awaitingHuman &&
+          conversation.work === undefined,
+      )
+      .sort((left, right) => left._id.localeCompare(right._id))
+      .slice(0, input.limit ?? 100);
+    for (const conversation of candidates) {
+      conversation.work = {
+        revision: 1,
+        nextActionAt: input.dueAt,
+        executionEpoch: 0,
+      };
+      this.revalidate(conversation);
+    }
+    return candidates.length;
+  }
+
+  async repairLegacyAwaitingHuman(input: {
+    at: Date;
+    limit?: number;
+  }): Promise<number> {
+    const repairableKinds = new Set([
+      "handoff",
+      "unfinished_questionnaire",
+      "hostile_to_bot",
+      "undelivered_message",
+    ]);
+    const candidates = [...this.documents.values()]
+      .filter(
+        (conversation) =>
+          conversation.lifecycle.state === "open" &&
+          conversation.control.mode === "bot" &&
+          conversation.control.source !== "staff_action" &&
+          !conversation.awaitingHuman &&
+          !conversation.messages.some(
+            (message) =>
+              message.actor === "participant" &&
+              message.seq > conversation.extraction.cursorSeq,
+          ) &&
+          (conversation.attentionReasons.some(
+            (reason) =>
+              reason.resolvedAt === null && repairableKinds.has(reason.kind),
+          ) ||
+            conversation.messages.some(
+              (message) =>
+                message.attention?.recommendedAction ===
+                "urgent_human_follow_up",
+            )),
+      )
+      .sort((left, right) => left._id.localeCompare(right._id))
+      .slice(0, input.limit ?? 100);
+    for (const conversation of candidates) {
+      conversation.awaitingHuman = true;
+      this.touch(conversation, input.at);
+      this.revalidate(conversation);
+    }
+    return candidates.length;
+  }
+
+  async listDueWork(input: {
+    dueAt: Date;
+    limit?: number;
+    campaignId?: string;
+    after?: { nextActionAt: Date; conversationId: string };
+  }): Promise<FeedbackConversationDocument[]> {
+    return [...this.documents.values()]
+      .filter((conversation) => {
+        const nextActionAt = conversation.work?.nextActionAt;
+        if (!nextActionAt || nextActionAt > input.dueAt) return false;
+        if (input.campaignId && conversation.campaignId !== input.campaignId) {
+          return false;
+        }
+        return (
+          !input.after ||
+          nextActionAt > input.after.nextActionAt ||
+          (nextActionAt.getTime() === input.after.nextActionAt.getTime() &&
+            conversation._id > input.after.conversationId)
+        );
+      })
+      .sort((left, right) => {
+        const leftAt = left.work?.nextActionAt?.getTime() ?? 0;
+        const rightAt = right.work?.nextActionAt?.getTime() ?? 0;
+        return leftAt - rightAt || left._id.localeCompare(right._id);
+      })
+      .slice(0, input.limit ?? 50)
+      .map((conversation) => structuredClone(conversation));
+  }
+
+  async beginWorkExecution(input: {
+    conversationId: string;
+    revision: number;
+    epoch: number;
+    at: Date;
+  }): Promise<{
+    changed: boolean;
+    conversation: FeedbackConversationDocument;
+    work: FeedbackConversationWork;
+  }> {
+    const conversation = this.require(input.conversationId);
+    const current = resolveFeedbackConversationWork(conversation.work);
+    const changed =
+      current.nextActionAt !== null &&
+      current.nextActionAt <= input.at &&
+      current.revision === input.revision &&
+      current.executionEpoch < input.epoch;
+    if (changed) {
+      conversation.work = { ...current, executionEpoch: input.epoch };
+      this.revalidate(conversation);
+    }
+    return {
+      changed,
+      conversation: structuredClone(conversation),
+      work: structuredClone(resolveFeedbackConversationWork(conversation.work)),
+    };
+  }
+
+  async settleWorkExecution(input: {
+    conversationId: string;
+    revision: number;
+    epoch: number;
+    nextActionAt: Date | null;
+    at: Date;
+  }): Promise<{
+    changed: boolean;
+    conversation: FeedbackConversationDocument;
+    work: FeedbackConversationWork;
+  }> {
+    const conversation = this.require(input.conversationId);
+    const current = resolveFeedbackConversationWork(conversation.work);
+    const changed =
+      current.executionEpoch === input.epoch &&
+      current.revision >= input.revision;
+    if (changed && current.revision === input.revision) {
+      conversation.work = {
+        ...current,
+        revision:
+          input.nextActionAt === null ? current.revision : current.revision + 1,
+        nextActionAt: input.nextActionAt,
+      };
+      this.revalidate(conversation);
+    }
+    return {
+      changed,
+      conversation: structuredClone(conversation),
+      work: structuredClone(resolveFeedbackConversationWork(conversation.work)),
+    };
+  }
+
+  async listCurrentTerminalOutboxIds(
+    candidates: readonly {
+      conversationId: string;
+      outboxId: string;
+    }[],
+  ): Promise<string[]> {
+    return candidates.flatMap((candidate) => {
+      const conversation = this.documents.get(candidate.conversationId);
+      return conversation?.lifecycle.state === "closed" &&
+        conversation.lifecycle.terminalOutboxId === candidate.outboxId
+        ? [candidate.outboxId]
+        : [];
+    });
+  }
+
+  async listStopTerminalOutboxIdsForCampaign(
+    campaignId: string,
+  ): Promise<string[]> {
+    return [...this.documents.values()].flatMap((conversation) =>
+      conversation.campaignId === campaignId &&
+      conversation.lifecycle.state === "closed" &&
+      conversation.lifecycle.reason === "stopped" &&
+      conversation.lifecycle.terminalOutboxId
+        ? [conversation.lifecycle.terminalOutboxId]
+        : [],
+    );
   }
 
   /** D9: the partial unique index only ever matches an **open** conversation. */
@@ -1050,7 +1729,10 @@ export class FakeFeedbackConversations {
     at: Date;
   }): Promise<FakeConversationTransition> {
     const conversation = this.require(input.conversationId);
-    if (conversation.control.mode !== "bot") {
+    if (
+      conversation.control.mode !== "bot" ||
+      conversation.lifecycle.state !== "open"
+    ) {
       return { changed: false, conversation: structuredClone(conversation) };
     }
     conversation.control = {
@@ -1064,7 +1746,7 @@ export class FakeFeedbackConversations {
     return { changed: true, conversation: structuredClone(conversation) };
   }
 
-  /** The bot steps back without giving up control; only a person clears it. */
+  /** The bot steps back and consumes any due wake-up without changing revision. */
   async markAwaitingHuman(input: {
     conversationId: string;
     at: Date;
@@ -1073,10 +1755,15 @@ export class FakeFeedbackConversations {
     if (conversation.lifecycle.state !== "open") {
       return { changed: false, conversation: structuredClone(conversation) };
     }
+    const changed =
+      !conversation.awaitingHuman || conversation.work?.nextActionAt != null;
     conversation.awaitingHuman = true;
+    if (conversation.work) {
+      conversation.work.nextActionAt = null;
+    }
     this.touch(conversation, input.at);
     this.revalidate(conversation);
-    return { changed: true, conversation: structuredClone(conversation) };
+    return { changed, conversation: structuredClone(conversation) };
   }
 
   /**
@@ -1135,6 +1822,22 @@ export class FakeFeedbackConversations {
       changedAt: input.at,
     };
     conversation.awaitingHuman = false;
+    const currentWork = resolveFeedbackConversationWork(conversation.work);
+    const latestParticipantSeq = conversation.messages.reduce(
+      (latest, message) =>
+        message.actor === "participant"
+          ? Math.max(latest, message.seq)
+          : latest,
+      0,
+    );
+    conversation.work = {
+      ...currentWork,
+      revision: currentWork.revision + 1,
+      nextActionAt:
+        latestParticipantSeq > conversation.extraction.cursorSeq
+          ? input.at
+          : currentWork.nextActionAt,
+    };
     this.touch(conversation, input.at);
     this.revalidate(conversation);
     return { changed: true, conversation: structuredClone(conversation) };
@@ -1151,6 +1854,7 @@ export class FakeFeedbackConversations {
     conversationId: string;
     reason: FeedbackConversationLifecycleReason;
     at: Date;
+    terminalOutboxId?: string | null;
   }): Promise<FakeConversationTransition> {
     const conversation = this.require(input.conversationId);
     const allowed =
@@ -1164,6 +1868,7 @@ export class FakeFeedbackConversations {
       state: "closed",
       reason: input.reason,
       closedAt: input.at,
+      terminalOutboxId: input.terminalOutboxId ?? null,
     };
     if (
       conversation.needsAttention &&
@@ -1216,6 +1921,101 @@ export class FakeFeedbackConversations {
       parkedRuns: 0,
       parkedNoticeSentAt: conversation.extraction.parkedNoticeSentAt,
     };
+    this.touch(conversation, input.at);
+    this.revalidate(conversation);
+    return { changed: true, conversation: structuredClone(conversation) };
+  }
+
+  async advanceCursorAndClose(input: {
+    conversationId: string;
+    toSeq: number;
+    reason: "completed" | "declined";
+    terminalOutboxId: string | null;
+    at: Date;
+    model: string;
+    serviceTier: string | null;
+    usage: FeedbackConversationExtractionUsage;
+    workRevision?: number;
+    executionEpoch?: number;
+  }): Promise<FakeConversationTransition> {
+    const conversation = this.require(input.conversationId);
+    if (input.toSeq > conversation.messages.length) {
+      throw new FeedbackConversationTransitionError(
+        "The extraction cursor cannot pass the transcript",
+      );
+    }
+    if (
+      conversation.lifecycle.state !== "open" ||
+      conversation.control.mode !== "bot" ||
+      input.toSeq <= conversation.extraction.cursorSeq ||
+      (input.workRevision !== undefined &&
+        conversation.work?.revision !== input.workRevision) ||
+      (input.executionEpoch !== undefined &&
+        conversation.work?.executionEpoch !== input.executionEpoch) ||
+      conversation.messages.some(
+        (message) =>
+          message.actor === "participant" && message.seq > input.toSeq,
+      )
+    ) {
+      return { changed: false, conversation: structuredClone(conversation) };
+    }
+
+    await this.advanceCursor(input);
+    conversation.lifecycle = {
+      state: "closed",
+      reason: input.reason,
+      closedAt: input.at,
+      terminalOutboxId: input.terminalOutboxId,
+    };
+    this.touch(conversation, input.at);
+    this.revalidate(conversation);
+    return { changed: true, conversation: structuredClone(conversation) };
+  }
+
+  async advanceCursorAndMarkAwaitingHuman(input: {
+    conversationId: string;
+    toSeq: number;
+    at: Date;
+    model: string;
+    serviceTier: string | null;
+    usage: FeedbackConversationExtractionUsage;
+    workRevision?: number;
+    executionEpoch?: number;
+  }): Promise<FakeConversationTransition> {
+    const conversation = this.require(input.conversationId);
+    if (input.toSeq > conversation.messages.length) {
+      throw new FeedbackConversationTransitionError(
+        "The extraction cursor cannot pass the transcript",
+      );
+    }
+    if (
+      conversation.lifecycle.state !== "open" ||
+      conversation.control.mode !== "bot" ||
+      conversation.awaitingHuman ||
+      (input.workRevision !== undefined &&
+        conversation.work?.revision !== input.workRevision) ||
+      (input.executionEpoch !== undefined &&
+        conversation.work?.executionEpoch !== input.executionEpoch)
+    ) {
+      return { changed: false, conversation: structuredClone(conversation) };
+    }
+
+    if (input.toSeq > conversation.extraction.cursorSeq) {
+      conversation.extraction = {
+        cursorSeq: input.toSeq,
+        lastRunAt: input.at,
+        model: input.model,
+        usage: accumulateFeedbackExtractionUsage(
+          conversation.extraction.usage,
+          input.usage,
+        ),
+        serviceTier: input.serviceTier,
+        parkedSince: null,
+        parkedRuns: 0,
+        parkedNoticeSentAt: conversation.extraction.parkedNoticeSentAt,
+      };
+    }
+    conversation.awaitingHuman = true;
     this.touch(conversation, input.at);
     this.revalidate(conversation);
     return { changed: true, conversation: structuredClone(conversation) };
@@ -1339,43 +2139,6 @@ export class FakeFeedbackConversations {
     this.touch(conversation, input.at);
     this.revalidate(conversation);
     return { changed: true, conversation: structuredClone(conversation) };
-  }
-
-  async listOpenDueForReminder(input: {
-    olderThan: Date;
-    maxReminders: number;
-    limit?: number;
-  }): Promise<FeedbackConversationDocument[]> {
-    return this.listOpenOlderThan(input.olderThan, input.limit).filter(
-      (conversation) => conversation.reminderCount < input.maxReminders,
-    );
-  }
-
-  async listOpenDueForExpiry(input: {
-    olderThan: Date;
-    limit?: number;
-  }): Promise<FeedbackConversationDocument[]> {
-    return this.listOpenOlderThan(input.olderThan, input.limit);
-  }
-
-  private listOpenOlderThan(
-    olderThan: Date,
-    limit = 50,
-  ): FeedbackConversationDocument[] {
-    return [...this.documents.values()]
-      .filter(
-        (conversation) =>
-          conversation.lifecycle.state === "open" &&
-          conversation.control.mode === "bot" &&
-          conversation.createdAt.getTime() <= olderThan.getTime(),
-      )
-      .sort(
-        (left, right) =>
-          left.createdAt.getTime() - right.createdAt.getTime() ||
-          left._id.localeCompare(right._id),
-      )
-      .slice(0, limit)
-      .map((conversation) => structuredClone(conversation));
   }
 
   private require(id: string): FeedbackConversationDocument {
@@ -1610,6 +2373,17 @@ export class FakeQueue {
     }
     return { id: options.jobId };
   }
+
+  async getJob(jobId: string): Promise<
+    | {
+        getState: () => Promise<"waiting">;
+      }
+    | undefined
+  > {
+    return this.added.some((job) => job.jobId === jobId)
+      ? { getState: async () => "waiting" }
+      : undefined;
+  }
 }
 
 export class FakeOperatorAlert {
@@ -1673,5 +2447,6 @@ export class RecordingFeedbackTransport implements FeedbackTransport {
 export function noopSummaries(): import("./summary/summary.service.js").PostEventFeedbackCampaignSummaryService {
   return {
     notifyIfLastConversationClosed: async () => undefined,
+    recover: async () => ({ pending: 0, automatic: 0 }),
   } as unknown as import("./summary/summary.service.js").PostEventFeedbackCampaignSummaryService;
 }

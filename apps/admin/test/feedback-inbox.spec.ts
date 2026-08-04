@@ -100,16 +100,23 @@ interface PollingModule {
 }
 
 interface ExtractionStatusModule {
-  extractionStatusLines: (
-    extraction: {
+  readingStatusLines: (
+    input: {
       unreadParticipantMessages: number;
       lastRunAt: string | null;
       model: string | null;
-      nextRunAt: string | null;
-      runInFlight: boolean;
-      runQueued: boolean;
-      lastRunFailed: boolean;
-      failedReason: string | null;
+      automation: {
+        state: "idle" | "scheduled" | "running" | "parked";
+        nextActionAt: string | null;
+        revision: number;
+        claimExpiresAt: string | null;
+      };
+      constraint:
+        | "none"
+        | "conversation_closed"
+        | "human_control"
+        | "campaign_paused"
+        | "campaign_closed";
     },
     now?: Date,
   ) => {
@@ -185,6 +192,24 @@ interface CampaignSummaryModule {
   }) => string | null;
 }
 
+interface StaffMessageDraftModule {
+  createStaffMessageDraft: (createId: () => string) => {
+    readonly text: string;
+    readonly clientMessageId: string;
+  };
+  editStaffMessageDraft: (
+    current: { readonly text: string; readonly clientMessageId: string },
+    text: string,
+    createId: () => string,
+  ) => { readonly text: string; readonly clientMessageId: string };
+  settleStaffMessageDraft: (
+    current: { readonly text: string; readonly clientMessageId: string },
+    submittedClientMessageId: string,
+    succeeded: boolean,
+    createId: () => string,
+  ) => { readonly text: string; readonly clientMessageId: string };
+}
+
 let labels: LabelsModule;
 let view: ConversationViewModule;
 let polling: PollingModule;
@@ -193,6 +218,7 @@ let answerCorrections: AnswerCorrectionsModule;
 let directedAnswers: DirectedAnswersModule;
 let staffClose: StaffCloseModule;
 let campaignSummary: CampaignSummaryModule;
+let staffMessageDraft: StaffMessageDraftModule;
 
 async function loadFeatureModule<T>(relativePath: string): Promise<T> {
   const moduleUrl = new URL(`../${relativePath}`, import.meta.url).href;
@@ -223,6 +249,9 @@ beforeAll(async () => {
   );
   campaignSummary = await loadFeatureModule<CampaignSummaryModule>(
     "src/features/feedback/campaignSummary.ts",
+  );
+  staffMessageDraft = await loadFeatureModule<StaffMessageDraftModule>(
+    "src/features/feedback/staffMessageDraft.ts",
   );
 });
 
@@ -1051,65 +1080,142 @@ describe("extraction status (operator visibility)", () => {
     unreadParticipantMessages: 0,
     lastRunAt: null as string | null,
     model: null as string | null,
-    nextRunAt: null as string | null,
-    runInFlight: false,
-    runQueued: false,
-    lastRunFailed: false,
-    failedReason: null as string | null,
+    automation: {
+      state: "idle" as const,
+      nextActionAt: null as string | null,
+      revision: 17,
+      claimExpiresAt: null as string | null,
+    },
+    constraint: "none" as const,
   };
 
   it("names how far behind the reading is, in Greek", () => {
     expect(
-      extractionStatus.extractionStatusLines({
+      extractionStatus.readingStatusLines({
         ...idle,
         unreadParticipantMessages: 3,
       }).unread,
     ).toBe("3 μηνύματα δεν έχουν διαβαστεί ακόμα.");
     expect(
-      extractionStatus.extractionStatusLines({
+      extractionStatus.readingStatusLines({
         ...idle,
         unreadParticipantMessages: 1,
       }).unread,
     ).toBe("1 μήνυμα δεν έχει διαβαστεί ακόμα.");
   });
 
-  it("shows a due time rather than a spinner when a run is scheduled", () => {
-    const lines = extractionStatus.extractionStatusLines(
+  it("reads scheduling from durable conversation work, not a retained job", () => {
+    const lines = extractionStatus.readingStatusLines(
       {
-        ...idle,
         unreadParticipantMessages: 2,
-        nextRunAt: "2026-07-27T11:47:00.000Z",
-        runQueued: true,
+        lastRunAt: null,
+        model: null,
+        automation: {
+          state: "scheduled",
+          nextActionAt: "2026-07-27T11:47:00.000Z",
+          revision: 18,
+          claimExpiresAt: null,
+        },
+        constraint: "none",
       },
       new Date("2026-07-27T11:00:00.000Z"),
     );
 
-    expect(lines.schedule).toMatch(/^Επόμενη ανάγνωση /);
+    expect(lines.schedule).toMatch(/^Επόμενη αυτόματη ενέργεια /);
     expect(lines.attention).toBe("pending");
   });
 
-  it("shows failure as failure, with the fallback named", () => {
-    const lines = extractionStatus.extractionStatusLines({
-      ...idle,
+  it("shows the durable claim deadline without pretending the worker is alive", () => {
+    const lines = extractionStatus.readingStatusLines(
+      {
+        unreadParticipantMessages: 1,
+        lastRunAt: null,
+        model: "openai/gpt-5-mini",
+        automation: {
+          state: "running",
+          nextActionAt: null,
+          revision: 19,
+          claimExpiresAt: "2026-07-27T11:47:00.000Z",
+        },
+        constraint: "none",
+      },
+      new Date("2026-07-27T11:00:00.000Z"),
+    );
+
+    expect(lines.schedule).toContain("ενεργή ανάθεση έως");
+    expect(lines.schedule).not.toContain("job");
+  });
+
+  it("treats parked work as the failure signal, with or without a retry time", () => {
+    const base = {
       unreadParticipantMessages: 1,
-      lastRunFailed: true,
-      failedReason: "Feedback extraction failed permanently: provider_refusal",
+      lastRunAt: null,
+      model: "openai/gpt-5-mini",
+      constraint: "none" as const,
+    };
+
+    const retrying = extractionStatus.readingStatusLines({
+      ...base,
+      automation: {
+        state: "parked",
+        nextActionAt: "2026-07-27T11:47:00.000Z",
+        revision: 20,
+        claimExpiresAt: null,
+      },
+    });
+    const exhausted = extractionStatus.readingStatusLines({
+      ...base,
+      automation: {
+        state: "parked",
+        nextActionAt: null,
+        revision: 20,
+        claimExpiresAt: null,
+      },
+    });
+
+    expect(retrying.schedule).toContain("επόμενος έλεγχος");
+    expect(exhausted.schedule).toContain("περιμένει ανάκτηση");
+    expect(retrying.attention).toBe("danger");
+    expect(exhausted.attention).toBe("danger");
+  });
+
+  it("marks unread idle durable work as an invariant failure", () => {
+    const lines = extractionStatus.readingStatusLines({
+      unreadParticipantMessages: 1,
+      lastRunAt: null,
+      model: null,
+      automation: {
+        state: "idle",
+        nextActionAt: null,
+        revision: 20,
+        claimExpiresAt: null,
+      },
+      constraint: "none",
     });
 
     expect(lines.schedule).toBe(
-      "Η ανάγνωση απέτυχε · απάντησε η εναλλακτική διαδικασία.",
+      "Δεν έχει προγραμματιστεί επόμενη αυτόματη ενέργεια.",
     );
     expect(lines.attention).toBe("danger");
   });
 
-  it("admits when the queue state is unknown rather than inventing idle", () => {
-    const lines = extractionStatus.extractionStatusLines({
-      ...idle,
-      unreadParticipantMessages: 2,
-    });
+  it("explains current-state stops instead of reporting intentionally idle work as lost", () => {
+    for (const [constraint, copy, attention] of [
+      ["human_control", "χειρίζεται άνθρωπος", "pending"],
+      ["campaign_paused", "καμπάνια είναι σε παύση", "pending"],
+      ["conversation_closed", "συζήτηση έχει κλείσει", "danger"],
+      ["campaign_closed", "καμπάνια έχει κλείσει", "danger"],
+    ] as const) {
+      const lines = extractionStatus.readingStatusLines({
+        ...idle,
+        unreadParticipantMessages: 1,
+        constraint,
+      });
 
-    expect(lines.schedule).toBe("Ώρα επόμενης ανάγνωσης άγνωστη.");
-    expect(lines.attention).toBe("pending");
+      expect(lines.schedule).toContain(copy);
+      expect(lines.attention).toBe(attention);
+      expect(lines.schedule).not.toContain("Δεν έχει προγραμματιστεί");
+    }
   });
 
   it("renders the status block as a polite live region without a spinner", () => {
@@ -1117,7 +1223,9 @@ describe("extraction status (operator visibility)", () => {
       "src/components/admin/feedback/ConversationDetails.tsx",
     );
 
-    expect(details).toContain("extractionStatusLines");
+    expect(details).toContain("readingStatusLines");
+    expect(details).toContain('conversation.control.mode === "human"');
+    expect(details).toContain('campaignStatus === "paused"');
     expect(details).toContain('role="status"');
     expect(details).toContain('aria-live="polite"');
     expect(details).not.toContain("animate-spin");
@@ -1154,10 +1262,33 @@ describe("extraction status (operator visibility)", () => {
     // «Why has that answer not appeared yet» is a question about these
     // messages, so it is answered under them rather than in a reference card
     // three columns away.
-    expect(transcript).toContain("<ReadingStatus conversation={conversation}");
-    expect(readSource("src/routes/FeedbackInboxPage.tsx")).not.toContain(
-      "ReadingStatus",
-    );
+    expect(transcript).toContain("<ReadingStatus");
+    expect(transcript).toContain("campaignStatus={campaignStatus}");
+    const page = readSource("src/routes/FeedbackInboxPage.tsx");
+    expect(page).toContain("campaignStatus={campaign?.status ?? null}");
+    expect(page).not.toContain("ReadingStatus");
+  });
+});
+
+describe("feedback mechanism map", () => {
+  it("documents four queue contracts and the direct outbox dispatcher", () => {
+    const page = readSource("src/routes/FeedbackMechanismPage.tsx");
+
+    for (const contract of [
+      "feedback.materialize.v1",
+      "feedback.reconcile-conversation.v2",
+      "feedback.summarize-campaign.v2",
+      "feedback.maintenance.v2",
+    ]) {
+      expect(page).toContain(contract);
+    }
+
+    expect(page).toContain("dispatcher διαβάζει το μόνιμο outbox απευθείας");
+    expect(page).toContain("ambiguous");
+    expect(page).not.toContain("feedback.extract.v1");
+    expect(page).not.toContain("feedback.relay-outbox.v1");
+    expect(page).not.toContain("feedback.deliver.v1");
+    expect(page).not.toContain("feedback.sweep-reminders.v1");
   });
 });
 
@@ -1555,9 +1686,10 @@ describe("inbox toolbar and orientation", () => {
       '<div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-2 lg:col-span-2 xl:grid-cols-3">',
     );
 
-    // The context row is the exception, and deliberately: it is a caption for
-    // the summary card, not a card of its own.
-    expect(surface).toContain('<div className="flex flex-col gap-2">');
+    // The context row is on that rhythm too. It used to be the one exception,
+    // held `gap-2` under the summary card as its caption; the venue in it is
+    // framed now, so it stands with the cards instead of hanging off one.
+    expect(surface).not.toContain('<div className="flex flex-col gap-2">');
   });
 
   it("keeps the populated inbox inside a narrow SPA viewport", () => {
@@ -1626,6 +1758,104 @@ describe("selection under polling", () => {
       "a",
     );
     expect(view.resolveSelectedConversationId([], "missing")).toBeNull();
+  });
+});
+
+describe("staff composer idempotency", () => {
+  it("keeps the exact text and client id after an unknown or failed send", () => {
+    const empty = staffMessageDraft.createStaffMessageDraft(() => "draft-1");
+    const written = staffMessageDraft.editStaffMessageDraft(
+      empty,
+      "Γεια σου",
+      () => "draft-2",
+    );
+    const failed = staffMessageDraft.settleStaffMessageDraft(
+      written,
+      "draft-2",
+      false,
+      () => "must-not-rotate",
+    );
+
+    expect(failed).toBe(written);
+    expect(failed).toEqual({ text: "Γεια σου", clientMessageId: "draft-2" });
+  });
+
+  it("rotates on edit and only clears the exact successfully sent draft", () => {
+    const written = { text: "Γεια σου", clientMessageId: "draft-1" };
+    const edited = staffMessageDraft.editStaffMessageDraft(
+      written,
+      "Γεια σου ξανά",
+      () => "draft-2",
+    );
+
+    expect(edited.clientMessageId).toBe("draft-2");
+    expect(
+      staffMessageDraft.settleStaffMessageDraft(
+        edited,
+        "draft-1",
+        true,
+        () => "must-not-clear-newer-draft",
+      ),
+    ).toBe(edited);
+    expect(
+      staffMessageDraft.settleStaffMessageDraft(
+        edited,
+        "draft-2",
+        true,
+        () => "draft-3",
+      ),
+    ).toEqual({ text: "", clientMessageId: "draft-3" });
+  });
+
+  it("passes the draft identity through the generated mutation and preserves failures", () => {
+    const page = readSource("src/routes/FeedbackInboxPage.tsx");
+    const transcript = readSource(
+      "src/components/admin/feedback/ConversationTranscript.tsx",
+    );
+
+    expect(page).toContain("data: { clientMessageId, text }");
+    expect(page).toContain("return false");
+    expect(transcript).toContain("settleStaffMessageDraft(");
+    expect(transcript).not.toContain('setStaffText("")');
+  });
+});
+
+describe("simulator composer idempotency", () => {
+  it("keeps one stable inject key until the exact draft succeeds", () => {
+    const facade = readSource("src/lib/feedbackSimulator.ts");
+    const page = readSource("src/routes/FeedbackInboxPage.tsx");
+    const transcript = readSource(
+      "src/components/admin/feedback/ConversationTranscript.tsx",
+    );
+
+    expect(facade).toContain("idempotencyKey: string");
+    expect(facade).toContain("idempotencyKey: variables.idempotencyKey");
+    expect(page).toContain("text: string,\n    idempotencyKey: string,");
+    expect(page).toContain("idempotencyKey,");
+    expect(transcript).toContain("submittedIdempotencyKey");
+    expect(transcript).toContain("settleSimulatorMessageDraft(");
+    expect(transcript).not.toContain('setSimulatedText("")');
+  });
+
+  it("preserves a failed simulator draft and rotates it only after success", () => {
+    const written = { text: "Ήταν τέλεια", clientMessageId: "sim-draft-1" };
+
+    expect(
+      staffMessageDraft.settleStaffMessageDraft(
+        written,
+        "sim-draft-1",
+        false,
+        () => "must-not-rotate",
+      ),
+    ).toBe(written);
+    expect(
+      staffMessageDraft.settleStaffMessageDraft(
+        written,
+        "sim-draft-1",
+        true,
+        () => "sim-draft-2",
+      ),
+    ).toEqual({ text: "", clientMessageId: "sim-draft-2" });
   });
 });
 

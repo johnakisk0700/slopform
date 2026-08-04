@@ -93,6 +93,18 @@ export const feedbackConversationLifecycleSchema = z
     state: z.enum(["open", "closed"]),
     reason: z.enum(FEEDBACK_CONVERSATION_LIFECYCLE_REASONS).nullable(),
     closedAt: z.date().nullable(),
+    /**
+     * The one outbox row allowed to announce a terminal transition. It is
+     * committed in the same MongoDB write as either the extraction cursor and
+     * `completed` / `declined` lifecycle, or the deterministic STOP close. A
+     * PostgreSQL row left behind by a crashed or superseded transition can
+     * therefore never become a second goodbye or opt-out acknowledgement.
+     *
+     * `null` for expiry/cancellation and for documents written before this
+     * fence existed. The default is deliberately conservative: old terminal
+     * documents do not grant an arbitrary legacy row permission to send.
+     */
+    terminalOutboxId: z.uuid().nullable().optional(),
   })
   .strict()
   .superRefine((lifecycle, context) => {
@@ -112,6 +124,19 @@ export const feedbackConversationLifecycleSchema = z
       context.addIssue({
         code: "custom",
         message: "A closed conversation requires a reason and closedAt",
+      });
+    }
+    if (
+      lifecycle.terminalOutboxId &&
+      (lifecycle.state !== "closed" ||
+        (lifecycle.reason !== "completed" &&
+          lifecycle.reason !== "declined" &&
+          lifecycle.reason !== "stopped"))
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "A terminal outbox id belongs only to a completed, declined or stopped lifecycle",
       });
     }
   });
@@ -312,16 +337,16 @@ export const feedbackConversationExtractionSchema = z
      * It is deliberately **not** `needsAttention` and **not** `awaitingHuman`:
      * nobody has to read a parked conversation, and the bot has promised nothing.
      * The operator surface is the campaign's parked count — one number for one
-     * incident — and the detail pane's existing extraction block, which reports
-     * the queued retry through `runQueued` / `nextRunAt`.
+     * incident — and the detail pane's durable automation block, which reports
+     * `parked` together with the aggregate's next action time.
      *
      * Timestamped rather than boolean because two decisions are measured from
      * it: when the participant is owed a word, and when re-queueing gives up.
      */
     parkedSince: z.date().nullable().default(null),
     /**
-     * How many runs have parked since `parkedSince`. Each one queues the next
-     * retry, so this is also the counter that keeps those job ids distinct.
+     * How many runs have parked since `parkedSince`. The reconciler uses this to
+     * report retry progress without relying on retained queue rows.
      */
     parkedRuns: z.number().int().min(0).default(0),
     /**
@@ -335,6 +360,46 @@ export const feedbackConversationExtractionSchema = z
     parkedNoticeSentAt: z.date().nullable().default(null),
   })
   .strict();
+
+/**
+ * Durable scheduling intent for the conversation reconciler.
+ *
+ * MongoDB owns whether the aggregate still wants work; PostgreSQL owns the
+ * execution lease and its fencing token. `executionEpoch` is only the MongoDB
+ * mirror of the epoch PostgreSQL granted, so a stale execution cannot settle a
+ * newer one. Keeping the lease itself out of this document avoids two lock
+ * authorities that can disagree after a crash.
+ *
+ * The field is optional on the enclosing document for the bridge release:
+ * documents written before reconciliation remain readable. New writers persist
+ * the complete object, and maintenance/backfill can mark legacy documents due
+ * without reinterpreting their business state.
+ */
+export const feedbackConversationWorkSchema = z
+  .object({
+    /** Monotonic version of the durable work requested for this aggregate. */
+    revision: z.number().int().min(0),
+    /** Earliest time the current revision should be reconciled, or no intent. */
+    nextActionAt: z.date().nullable(),
+    /** Highest PostgreSQL execution epoch this aggregate has admitted. */
+    executionEpoch: z.number().int().min(0),
+    /**
+     * Highest PostgreSQL campaign-resume generation admitted by this
+     * aggregate. Optional for documents written before durable resume repair.
+     */
+    campaignResumeGeneration: z.number().int().min(0).optional(),
+  })
+  .strict();
+
+export type FeedbackConversationWork = z.infer<
+  typeof feedbackConversationWorkSchema
+>;
+
+export function resolveFeedbackConversationWork(
+  work: FeedbackConversationWork | undefined,
+): FeedbackConversationWork {
+  return work ?? { revision: 0, nextActionAt: null, executionEpoch: 0 };
+}
 
 export const feedbackConversationDocumentSchema = z
   .object({
@@ -352,6 +417,8 @@ export const feedbackConversationDocumentSchema = z
       .array(feedbackConversationStoredMessageSchema)
       .max(FEEDBACK_CONVERSATION_MAX_MESSAGES),
     extraction: feedbackConversationExtractionSchema,
+    /** Optional-on-read bridge; every new conversation writes it explicitly. */
+    work: feedbackConversationWorkSchema.optional(),
     needsAttention: z.boolean(),
     /**
      * Why it is asking for a person, newest last, resolved entries kept.
@@ -641,6 +708,16 @@ export function deriveFeedbackConversationId(
   const namespace = z.uuid().parse(campaignId);
   const name = z.string().trim().min(1).parse(respondentParticipantId);
   return uuidV5(namespace, name);
+}
+
+/**
+ * Stable identity for the STOP acknowledgement across the PostgreSQL/MongoDB
+ * commit gap. If PostgreSQL rolls back after MongoDB records the lifecycle
+ * anchor, ingress replay recreates the same id instead of producing an
+ * acknowledgement the lifecycle can no longer authorize.
+ */
+export function deriveFeedbackStopAckOutboxId(conversationId: string): string {
+  return uuidV5(z.uuid().parse(conversationId), "feedback-stop-ack");
 }
 
 function uuidV5(namespace: string, name: string): string {

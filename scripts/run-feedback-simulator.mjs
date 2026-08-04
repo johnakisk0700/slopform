@@ -67,6 +67,8 @@ async function main() {
           activeAttentionReasoningEffort:
             catalog.activeAttentionReasoningEffort,
           activeServiceTier: catalog.activeServiceTier,
+          activeTransportMode: catalog.activeTransportMode,
+          activeSimulatedTransport: catalog.activeSimulatedTransport,
           workerAttestation: catalog.workerAttestation,
           evalModels: catalog.availableModels,
           timingPolicy: catalog.timingPolicy,
@@ -124,6 +126,8 @@ async function main() {
     replyReasoningEffort: catalog.activeReplyReasoningEffort,
     attentionReasoningEffort: catalog.activeAttentionReasoningEffort,
     serviceTier: catalog.activeServiceTier,
+    transportMode: catalog.activeTransportMode,
+    simulatedTransport: catalog.activeSimulatedTransport,
   };
 
   const selection = {
@@ -185,6 +189,9 @@ async function main() {
       `  classifier:   ${effectiveConfig.attentionReasoningEffort}`,
     );
     console.error(`  service tier: ${effectiveConfig.serviceTier ?? "unset"}`);
+    console.error(
+      `  transport:    ${formatSimulatedTransport(effectiveConfig)}`,
+    );
     console.error(`  scenario:     ${args.scenario}`);
     console.error(`  campaign:     ${args.campaign}`);
     console.error(`  conversation: ${args.conversation}`);
@@ -192,6 +199,19 @@ async function main() {
       "This can make multiple paid provider calls, permanently consumes the clean conversation, and leaves all normal persisted outputs in place.",
     );
     console.error("Re-run with --confirm-paid-run to proceed.");
+    process.exitCode = 2;
+    return;
+  }
+
+  if (
+    simulatedTransportTreatmentIsActive(effectiveConfig) &&
+    !args["confirm-transport-faults"]
+  ) {
+    console.error("Simulated transport fault treatment not confirmed.");
+    console.error(`  transport: ${formatSimulatedTransport(effectiveConfig)}`);
+    console.error(
+      "Re-run with --confirm-transport-faults, or restart API and worker with the baseline none/0/0ms profile.",
+    );
     process.exitCode = 2;
     return;
   }
@@ -212,6 +232,9 @@ async function main() {
     `  classifier:     ${effectiveConfig.attentionReasoningEffort}`,
   );
   console.error(`  service tier:   ${effectiveConfig.serviceTier ?? "unset"}`);
+  console.error(
+    `  transport:      ${formatSimulatedTransport(effectiveConfig)}`,
+  );
   console.error(`  scenario:       ${args.scenario}`);
   console.error(`  campaign:       ${args.campaign}`);
   console.error(`  conversation:   ${args.conversation}`);
@@ -299,8 +322,11 @@ function parseArgs(values) {
       parsed.preflight = true;
       continue;
     }
-    if (value === "--confirm-paid-run") {
-      parsed["confirm-paid-run"] = true;
+    if (
+      value === "--confirm-paid-run" ||
+      value === "--confirm-transport-faults"
+    ) {
+      parsed[value.slice(2)] = true;
       continue;
     }
     if (!value?.startsWith("--")) {
@@ -325,6 +351,22 @@ function positiveInteger(value, name) {
   return parsed;
 }
 
+function formatSimulatedTransport(config) {
+  const profile = config.simulatedTransport;
+  if (!profile || config.transportMode !== "simulated") {
+    return String(config.transportMode ?? "unknown");
+  }
+  return `simulated; fault=${profile.faultMode}@${profile.faultPercent}%; seed=${profile.seed}; max-delay=${profile.maxDelayMs}ms`;
+}
+
+function simulatedTransportTreatmentIsActive(config) {
+  return (
+    config.transportMode === "simulated" &&
+    (config.simulatedTransport?.faultMode !== "none" ||
+      Number(config.simulatedTransport?.maxDelayMs ?? 0) > 0)
+  );
+}
+
 async function requestJson(url, init) {
   const response = await fetch(url, init);
   const payload = await response.json().catch(() => undefined);
@@ -346,20 +388,23 @@ function printUsage() {
     --campaign <campaign-uuid> \\
     --conversation <conversation-uuid> \\
     --scenario <eligible-corpus-id> \\
-    --model <openai/gpt-5.6-terra|qwen/qwen3.7-max> \\
+    --model <openai/gpt-5.6-luna|qwen/qwen3.7-max> \\
     --preflight
 
   pnpm feedback:simulate \\
     --campaign <campaign-uuid> \\
     --conversation <conversation-uuid> \\
     --scenario <eligible-corpus-id> \\
-    --model <openai/gpt-5.6-terra|qwen/qwen3.7-max> \\
+    --model <openai/gpt-5.6-luna|qwen/qwen3.7-max> \\
     --confirm-paid-run
 
 Options:
   --list                 List the active model and eligible scenarios; no writes
   --preflight            Resolve the exact clean baseline and rendered inputs; no writes
   --confirm-paid-run     Required acknowledgement of model cost and permanent data
+  --confirm-transport-faults
+                         Required when the active simulated transport injects
+                         faults or latency; separate from model-cost confirmation
   --correlation-id <id>  Optional stable log ID; generated when omitted
   --api-base <url>       Default: http://localhost:4000/api/v1
   --admin-base <url>     Default: http://localhost:3000
@@ -371,11 +416,15 @@ The API and worker must already be running with:
   FEEDBACK_SIMULATOR_ENABLED=true
   TRANSPORT_MODE=simulated
   FEEDBACK_EXTRACTION_STUB=false
-  FEEDBACK_EXTRACTION_MODEL=openai/gpt-5.6-terra
+  FEEDBACK_EXTRACTION_MODEL=openai/gpt-5.6-luna
   FEEDBACK_EXTRACTION_REASONING_EFFORT=medium
-  FEEDBACK_REPLY_REASONING_EFFORT=low
+  FEEDBACK_REPLY_REASONING_EFFORT=medium
   FEEDBACK_ATTENTION_REASONING_EFFORT=medium
   FEEDBACK_EXTRACTION_SERVICE_TIER=
+  FEEDBACK_SIMULATED_TRANSPORT_FAULT_MODE=none
+  FEEDBACK_SIMULATED_TRANSPORT_FAULT_PERCENT=0
+  FEEDBACK_SIMULATED_TRANSPORT_SEED=1
+  FEEDBACK_SIMULATED_TRANSPORT_MAX_DELAY_MS=0
 
 The command uses the normal ingress/materializer/queue/extractor/outbox path.
 It never cleans up: inspect the persisted conversation and results afterward.`);

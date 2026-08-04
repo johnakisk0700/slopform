@@ -5,6 +5,8 @@ import {
   QueueModule,
   QueueWorkerModule,
 } from "../../infrastructure/queue/queue.module.js";
+import { FeedbackCampaignResumeRepairService } from "../post-event-feedback/campaign/resume-repair.service.js";
+import { FeedbackConversationWakeupService } from "../post-event-feedback/reconciliation/wakeup.service.js";
 import { AssistantHttpModule } from "./assistant-http.module.js";
 import { AssistantWorkerModule } from "./assistant-worker.module.js";
 
@@ -18,5 +20,15 @@ describe("AssistantWorkerModule", () => {
     expect(imports).toContain(QueueWorkerModule);
     expect(imports).not.toContain(QueueModule);
     expect(imports).not.toContain(AssistantHttpModule);
+  });
+
+  it("provides the feedback scheduling collaborators required by assistant tools", () => {
+    const providers = Reflect.getMetadata(
+      MODULE_METADATA.PROVIDERS,
+      AssistantWorkerModule,
+    ) as readonly unknown[];
+
+    expect(providers).toContain(FeedbackConversationWakeupService);
+    expect(providers).toContain(FeedbackCampaignResumeRepairService);
   });
 });

@@ -8,7 +8,7 @@
  */
 const PROVA_CONTROLS = Object.freeze({
   reasoningEffort: "medium",
-  replyReasoningEffort: "low",
+  replyReasoningEffort: "medium",
   attentionReasoningEffort: "medium",
   serviceTier: null,
 });
@@ -17,9 +17,9 @@ export const FEEDBACK_BURST_PROFILES = Object.freeze({
   prova: Object.freeze({
     name: "prova",
     mode: "profile",
-    model: "openai/gpt-5.6-terra",
+    model: "openai/gpt-5.6-luna",
     provider: "openai",
-    providerModelId: "gpt-5.6-terra",
+    providerModelId: "gpt-5.6-luna",
     controls: PROVA_CONTROLS,
   }),
 });
@@ -31,7 +31,7 @@ export const FEEDBACK_BURST_COMPARISONS = Object.freeze({
     model: "qwen/qwen3.7-max",
     provider: "openrouter",
     providerModelId: "qwen/qwen3.7-max",
-    // Keep the reasoning treatment equal to prova. The provider route is the
+    // Keep the reasoning treatment equal to the Luna prova. The provider route is the
     // comparison variable; OpenRouter has no OpenAI service-tier control.
     controls: PROVA_CONTROLS,
   }),

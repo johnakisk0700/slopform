@@ -135,8 +135,8 @@ that looks most like a real one.
    against what each fixture declared. Do not compare the `PASS`/`FAIL` column;
    read the rows.
 
-The active `prova` profile now uses direct-OpenAI `openai/gpt-5.6-terra` with
-medium extraction and attention plus a low-effort participant-facing rewrite.
-That is a new treatment, not a continuation of the historical Luna runs above.
-Until repeated clean runs compare one changed variable at a time, no controlled
-Terra-versus-Luna quality claim is supported.
+The active `prova` profile now uses direct-OpenAI `openai/gpt-5.6-luna` with
+medium extraction, attention and participant-facing rewrite. Terra is reserved
+for campaign summaries. This is a new treatment relative to both the historical
+Luna runs above and the later Terra runs; until repeated clean runs compare one
+changed variable at a time, no controlled quality claim is supported.

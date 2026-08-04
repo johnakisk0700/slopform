@@ -33,6 +33,7 @@
  * @property {string} finishedAt
  * @property {number} durationMs
  * @property {string} model
+ * @property {{mode: string, profile: {faultMode: string, faultPercent: number, seed: string, maxDelayMs: number}}|null} transport
  * @property {{mode: string, total: number, substituted: number}|null} liveGuests
  * @property {boolean} passed
  * @property {BurstCampaignResult[]} campaigns
@@ -245,10 +246,29 @@ function readRun(result) {
     finishedAt: text(source.finishedAt),
     durationMs: Number.isFinite(source.durationMs) ? source.durationMs : null,
     model: text(source.model),
+    transport: readTransport(source.transport),
     liveGuests: readLiveGuests(source.liveGuests),
     passed: source.passed === true,
     campaigns: list(source.campaigns).map(readCampaign),
     findings: list(source.findings).map(readFinding),
+  };
+}
+
+function readTransport(transport) {
+  if (!isObject(transport)) {
+    return null;
+  }
+  const profile = isObject(transport.profile) ? transport.profile : null;
+  return {
+    mode: text(transport.mode),
+    profile: profile
+      ? {
+          faultMode: text(profile.faultMode),
+          faultPercent: nonnegativeInteger(profile.faultPercent),
+          seed: text(profile.seed),
+          maxDelayMs: nonnegativeInteger(profile.maxDelayMs),
+        }
+      : null,
   };
 }
 
@@ -423,6 +443,7 @@ function renderMasthead(run, stats) {
   const meta = [
     metaItem("clock", "Έναρξη", formatTimestamp(run.startedAt)),
     metaItem("spark", "Μοντέλο", run.model === "" ? EMPTY : run.model),
+    metaItem("outbound", "Μεταφορά", formatTransport(run.transport)),
     metaItem("chat", "Ζωντανοί καλεσμένοι", formatLiveGuests(run.liveGuests)),
     metaItem("clock", "Διάρκεια", formatDuration(run.durationMs)),
   ];
@@ -439,6 +460,25 @@ function renderMasthead(run, stats) {
 </div>
 <p class="masthead-note"><span>${escapeHtml(String(stats.campaigns))} καμπάνιες ταυτόχρονα, ${escapeHtml(String(stats.conversations))} συνομιλίες. Το ερώτημα δεν είναι η ταχύτητα· είναι αν ο μηχανισμός μένει σωστός όταν απαντούν όλοι μαζί.</span></p>
 </header>`;
+}
+
+function formatTransport(transport) {
+  if (!transport) {
+    return EMPTY;
+  }
+  if (transport.mode !== "simulated") {
+    return transport.mode || EMPTY;
+  }
+  const profile = transport.profile;
+  if (!profile) {
+    return "simulated · άγνωστο profile";
+  }
+  const faultPercent = profile.faultPercent ?? "?";
+  const latency =
+    profile.maxDelayMs === null || profile.maxDelayMs === 0
+      ? ""
+      : ` · έως ${profile.maxDelayMs} ms`;
+  return `simulated · ${profile.faultMode || "?"}@${faultPercent}%${latency} · seed ${profile.seed || "?"}`;
 }
 
 function formatLiveGuests(liveGuests) {
@@ -985,6 +1025,10 @@ function isObject(value) {
 
 function list(value) {
   return Array.isArray(value) ? value : [];
+}
+
+function nonnegativeInteger(value) {
+  return Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
 
 function text(value) {

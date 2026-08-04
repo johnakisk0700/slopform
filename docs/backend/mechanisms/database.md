@@ -97,7 +97,9 @@ This preserves monotonic context identity across clear/re-add and
 Post-event feedback persistence lives in `feedback_campaigns`,
 `feedback_campaign_summaries`, `feedback_answers`,
 `feedback_answer_withdrawals`, `feedback_notes`, `provider_message_ingress`,
-`message_outbox` and `message_outbox_log`: one campaign per event, answer
+`feedback_conversation_executions`, `feedback_maintenance_checkpoints`,
+`message_outbox` and `message_outbox_log`:
+one campaign per event, answer
 uniqueness with `NULLS NOT DISTINCT` (including null subjects), ingress dedupe on
 `(chat_jid, provider_message_id)`, outbox `dedupe_key` uniqueness, delivery
 columns folded into the outbox, and participant/campaign FKs
@@ -106,6 +108,48 @@ is hard-deleted and leaves a tombstone on the same uniqueness key, which is what
 stops a later extraction run from writing it back. `feedback_answers.matching_hold`
 marks a row no consumer may turn into a seating constraint. See the
 [post-event feedback module](../modules/post-event-feedback.md).
+
+`feedback_campaigns` also owns the repair intent for the PostgreSQL-to-MongoDB
+resume hand-off: monotonic `resume_generation`, its acknowledged
+`resume_applied_generation` and a due timestamp that exists exactly while the
+two differ. Maintenance allocates `(resume_due_at, campaign_id, generation)`
+behind its checkpoint and commits before cross-store work; it then re-locks
+only that exact campaign generation `FOR UPDATE` across the idempotent MongoDB
+bulk admission and PostgreSQL acknowledgement. Pause/close use the same row
+lock and acknowledge any older intent they supersede; Redis never participates
+in this proof.
+
+`feedback_conversation_executions` is not a second conversation state store. It
+holds one monotonic epoch/work revision and nullable lease token/expiry so a
+stale worker cannot commit relational extraction effects. The MongoDB aggregate
+still owns lifecycle and durable due work.
+
+`feedback_maintenance_checkpoints` holds five global bounded-scan fairness
+boundaries: `conversation_due`, `ingress_pending`, `summary_pending`,
+`campaign_resume` and `summary_auto`. A task row is lazily created and locked
+`FOR UPDATE` only while one page is allocated; processing happens after commit.
+Shape checks pair the timestamp/UUID cursor for the first four scans and forbid
+a timestamp on the UUID-only automatic-summary cursor. These rows never mean
+work completed: a crash after allocation skips forward only until the finite
+wrap, while MongoDB work and PostgreSQL ingress/campaign/summary state remain
+authoritative. Partial indexes support pending ingress by `(created_at, id)`,
+pending summaries by `(requested_at, campaign_id)` and campaign resume by
+`(resume_due_at, id)` without turning terminal rows into scan ballast.
+
+`feedback_campaign_summaries` carries its execution fence on the one
+campaign-unique row: a monotonic epoch plus nullable claim token/expiry. The
+campaign row is the stable `FOR UPDATE` key before the first summary row exists,
+so concurrent requests cannot race the unique insert. Only the exact pending
+attempt with a live token can become `ready` or `failed`; terminal rows cannot
+retain claim fields.
+
+Direct feedback dispatch extends `message_outbox` with a claim token/expiry,
+`send_started_at`, attempt count and bounded last error. `claimed` is the only
+lease-expiry state that returns to the claim query. `attempting` expiry becomes
+`ambiguous`; an unknown provider outcome is never converted back to `pending`.
+The partial recovery index covers `pending | claimed | attempting` ordered by
+claim expiry/creation. Legacy `sending` remains readable only for rolling drain
+and is conservatively quarantined after its recovery horizon.
 
 `provider_message_ingress.ingress_order` is a database sequence assigned when
 the durable row is inserted. It is the cross-process FIFO authority for one
@@ -154,6 +198,13 @@ data. Review generated SQL for locks, rewrites, defaults, backfills and
 destructive statements. Use expand/backfill/contract across releases when a
 change cannot safely finish inside one deployment window. Recovery is normally
 a reviewed forward migration.
+
+The feedback orchestration migrations are reader-first: they add nullable
+dispatch fields/defaulted attempt count, the conversation execution-fence
+table, defaulted summary epoch with nullable claim fields and expanded status
+checks before any new worker writes them. V1 `sending` rows remain valid during
+the bridge. New workers stop the old relay schedule and quarantine stale rows at
+runtime; the migration does not fabricate whether a provider call started.
 
 The two initial assistant migrations are an unshipped, same-release
 supersession. The second begins with a fail-closed guard: if the temporary

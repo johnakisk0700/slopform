@@ -315,7 +315,7 @@ export interface CappedOutbound {
  *
  * The count is over *identical bodies*, not over "this goal was asked twice".
  * A differently worded re-ask is the behaviour we want and must survive
- * untouched, and the reminder sweep's nudge is its own copy — neither is equal
+ * untouched, and the planner's reminder nudge is its own copy — neither is equal
  * to `copy[goal]`, so neither is counted and neither is capped.
  */
 export function withCampaignReaskCap(
@@ -427,7 +427,7 @@ function chooseOutbound(
     );
     return {
       body: carriesOpenSafetyFlag ? copy.closing_after_safety : copy.closing,
-      dedupeKey: createFeedbackClosingDedupeKey(conversation._id),
+      dedupeKey: createFeedbackClosingDedupeKey(conversation._id, testimonySeq),
     };
   }
 
@@ -484,7 +484,10 @@ function chooseOutbound(
     return closingNow
       ? {
           body: copy.declined,
-          dedupeKey: createFeedbackClosingDedupeKey(conversation._id),
+          dedupeKey: createFeedbackClosingDedupeKey(
+            conversation._id,
+            testimonySeq,
+          ),
         }
       : undefined;
   }
@@ -552,6 +555,14 @@ const ASKS_IN_THE_IMPERATIVE =
   /(?:^|[^\p{L}])(?:πες|πεις|πεσ|στείλε|στειλε|γράψε|γραψε|πέτα|πετα|δώσε|δωσε|βάλε|βαλε|μοιράσου|ρίξε|ριξε)(?![\p{L}])/iu;
 
 /**
+ * An elliptical ask which names the small answer that is sufficient instead of
+ * using a verb: «Ένα νούμερο 1 ως 5 φτάνει». Keep this deliberately narrower
+ * than `φτάνει` / `αρκεί` alone — «φτάνει πια» is a bow-out, not a question.
+ */
+const ASKS_BY_SUFFICIENCY =
+  /(?:^|[^\p{L}])(?:ένα|ενα|έναν|εναν|ένας|ενας|μία|μια)\s+(?:(?:μόνο|μονο|έστω|εστω)\s+)?(?:νούμερο|νουμερο|αριθμό|αριθμο|αριθμός|αριθμος|όνομα|ονομα|λέξη|λεξη)(?:\s+(?:(?:από|απο)\s+)?\d+\s*(?:ως|έως|εως|-)\s*\d+)?\s+(?:μου\s+)?(?:φτάνει|φτανει|αρκεί|αρκει)(?![\p{L}])/iu;
+
+/**
  * Whether this reply's words are posing a question.
  *
  * Greek questions end with `;` (the Greek-keyboard question mark is ASCII
@@ -566,7 +577,8 @@ function replyPosesQuestion(body: string): boolean {
   return (
     body.includes("?") ||
     body.includes(";") ||
-    ASKS_IN_THE_IMPERATIVE.test(body)
+    ASKS_IN_THE_IMPERATIVE.test(body) ||
+    ASKS_BY_SUFFICIENCY.test(body)
   );
 }
 

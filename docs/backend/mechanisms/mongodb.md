@@ -6,12 +6,24 @@ driver `7.5.0` and MongoDB Community `8.0.28`.
 ## Boundary
 
 MongoDB stores conversation aggregates: owner identity, purpose/channel,
-ordered content, goals, conversation lifecycle and human control. One
+ordered content, goals, conversation lifecycle, human control and durable
+next-action intent. One
 collection, `conversation_threads`, holds two versioned document shapes —
 schema v1 for the admin Assistant and schema v2 for post-event feedback —
 discriminated by `schemaVersion` and `purpose`. PostgreSQL remains
 authoritative for relational business data, audit, outbox and
-delivery/execution projections. Redis remains queue coordination only.
+delivery/execution projections. For post-event feedback, MongoDB stores the
+monotonic work revision and due time while PostgreSQL grants the execution
+lease/epoch; Redis remains a disposable wake-up and rate-limit layer only.
+
+The embedded feedback transcript is deliberately raw: an outbox-backed turn is
+an audit of intent and may remain after PostgreSQL marks the row `cancelled`.
+Detail/UI reads retain it with the joined delivery projection. Model-context
+reads perform one transcript-bounded PostgreSQL status lookup and exclude only
+rows proven never visible (`pending`, `held`, `claimed`, `failed`, `cancelled`).
+Provider-crossed or uncertain rows remain. A missing historical outbox row is
+included for compatibility because absence cannot prove non-delivery. The raw
+array and its sequence numbers remain the cursor authority.
 
 `MongoService` owns one native-driver client per Nest process, constructed
 eagerly with a lazily established and memoized connection. Each
@@ -60,10 +72,13 @@ A fresh volume creates:
 
 - a root user from the Mongo-only root secret;
 - a database-scoped `readWrite` application user from a separate secret;
-- `conversation_threads` plus its four reviewed indexes: the schema-v1
+- `conversation_threads` plus its five reviewed indexes: the schema-v1
   owner/recency and purpose/state indexes, the schema-v2 partial **unique**
   index on `phoneAtLaunch` for open post-event feedback conversations, and the
-  schema-v2 campaign/recency index.
+  schema-v2 campaign/recency and due-work indexes. The due-work index is
+  `(work.nextActionAt, _id)` with a partial date filter, so maintenance can scan
+  durable intent in keyset pages without rereading one oldest prefix or touching
+  every transcript in one pass.
 
 API and worker receive only the application secret. They never receive the root
 secret. The repository idempotently verifies the required indexes on its first
@@ -111,6 +126,31 @@ retries instead of producing a gap. Reaching either bound flags the
 conversation for human attention and fails the append loudly; the durable
 PostgreSQL ingress row still holds the message, so nothing is silently dropped.
 
+The schema-v2 `work` object is optional on read for reader-first rollout and
+fully written on the next schedule: `revision` is monotonic, `nextActionAt` is
+the current durable intent, `executionEpoch` is the highest PostgreSQL epoch
+the aggregate admitted and optional `campaignResumeGeneration` deduplicates the
+cross-store campaign-resume hand-off. Scheduling increments the revision
+atomically. A campaign resume increments it only when that aggregate has not
+already admitted the exact PostgreSQL generation, and preserves a later rolling
+quiet-window timestamp written by a concurrent participant message. Begin
+requires the exact due revision and a newer epoch; settlement requires the same
+epoch and cannot clear a revision that a newer participant message or operator
+transition created meanwhile. A worker crash leaves `nextActionAt` discoverable,
+so maintenance can recreate a missing BullMQ wake-up after the PostgreSQL lease
+expires.
+
+Extraction-driven terminal state records `lifecycle.terminalOutboxId` in the
+same MongoDB update that advances the snapshot cursor and writes
+`completed`/`declined`. The dispatcher permits exactly that row as terminal
+copy; an anchored or fixed legacy closing key is not authority on its own.
+Superseded pre-send rows are cancelled, while a legacy row that may already
+have crossed the provider boundary parks the still-open conversation for human
+review instead of risking a second goodbye. Handoff, duty-of-care, withdrawal
+and hostility exits likewise advance cursor/accounting and set
+`awaitingHuman` in one update, so a crash cannot consume testimony while leaving
+the bot active or park the bot with a stale cursor.
+
 The named volume provides persistence, not backup. The
 [deployment backup/restore runbook](../../deployment.md#coordinated-backup-runbook)
 defines writer quiescing, secret-safe paired PostgreSQL/MongoDB dumps, encrypted
@@ -121,9 +161,10 @@ its matched pair must restore and pass collection/index/owner-read checks.
 ## Tests and references
 
 Focused tests cover lifecycle/readiness without a live server, aggregate
-validation for both schema versions, both index contracts, idempotent
+validation for both schema versions, all index contracts, idempotent
 synchronization and append, exact-attempt fencing, conflicting terminal
-results, transcript capacity and the compact list projections. A booted HTTP
+results, work revision/epoch settlement, transcript capacity and the compact
+list projections. A booted HTTP
 contract test verifies MongoDB in both the readiness response and generated
 OpenAPI, including the safe 503 shape. Compose configuration is validated
 separately. No test suite silently depends on a developer MongoDB instance.
@@ -132,6 +173,7 @@ separately. No test suite silently depends on a developer MongoDB instance.
   [assistant conversation repository](../../../apps/backend/src/modules/conversations/conversation-thread.repository.ts),
   [feedback conversation repository](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-conversation.repository.ts)
   and [Compose initialization](../../../docker/mongo-init/10-app-user.js)
+- [State-driven feedback orchestration](../../decisions/0013-state-driven-feedback-orchestration.md)
 - [MongoDB Node.js driver connections](https://www.mongodb.com/docs/drivers/node/current/connect/connection-options/),
   [connection pools](https://www.mongodb.com/docs/drivers/node/current/connect/connection-options/connection-pools/),
   [document limits](https://www.mongodb.com/docs/manual/reference/limits/)

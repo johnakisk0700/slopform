@@ -20,8 +20,9 @@ This directory is the maintained project memory. Markdown is deliberate: GitHub 
 14. [`decisions/0010-generated-client-not-committed.md`](decisions/0010-generated-client-not-committed.md) — generated admin client is local output, not a committed artifact (supersedes that consequence of ADR 0009)
 15. [`decisions/0011-display-typeface.md`](decisions/0011-display-typeface.md) — Commissioner display face beside Manrope UI/body (supersedes the single-family clause of ADR 0005)
 16. [`decisions/0012-selectable-palettes.md`](decisions/0012-selectable-palettes.md) — six selectable palettes as a second appearance axis (narrows the single-source scope of ADR 0005)
-17. [`deployment.md`](deployment.md) — development containers and production VPS topology
-18. [`agent-readiness.md`](agent-readiness.md) — repeatable extension benchmark and current evidence gaps
+17. [`decisions/0013-state-driven-feedback-orchestration.md`](decisions/0013-state-driven-feedback-orchestration.md) — durable current-state reconciliation and direct fenced outbox dispatch (supersedes the Redis-owned feedback execution consequences of ADR 0008)
+18. [`deployment.md`](deployment.md) — development containers and production VPS topology
+19. [`agent-readiness.md`](agent-readiness.md) — repeatable extension benchmark and current evidence gaps
 
 Area-specific memory:
 

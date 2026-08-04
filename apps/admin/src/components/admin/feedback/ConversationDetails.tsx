@@ -26,6 +26,7 @@ import { Link } from "react-router";
 
 import { useGetParticipant } from "../../../api/generated/participants";
 import type { AddFeedbackConversationNoteDtoNoteType } from "../../../api/generated/model/addFeedbackConversationNoteDtoNoteType";
+import type { FeedbackCampaignDtoOutputStatus } from "../../../api/generated/model/feedbackCampaignDtoOutputStatus";
 import type { FeedbackConversationDetailDtoOutput } from "../../../api/generated/model/feedbackConversationDetailDtoOutput";
 import type { FeedbackConversationResultsDtoOutput } from "../../../api/generated/model/feedbackConversationResultsDtoOutput";
 import { canCorrectAnswerValue } from "../../../features/feedback/answerCorrections";
@@ -34,7 +35,7 @@ import {
   isDirectedQuestion,
   type DirectedQuestionKey,
 } from "../../../features/feedback/directedAnswers";
-import { extractionStatusLines } from "../../../features/feedback/extractionStatus";
+import { readingStatusLines } from "../../../features/feedback/extractionStatus";
 import {
   goalStatusBadge,
   isUnresolvedParticipant,
@@ -813,12 +814,13 @@ export function RespondentPanel({ conversation }: RespondentPanelProps) {
 
 interface ReadingStatusProps {
   conversation: FeedbackConversationDetailDtoOutput;
+  campaignStatus: FeedbackCampaignDtoOutputStatus | null;
 }
 
 /**
  * How far behind the reading of this conversation is (ΑΝΑΓΝΩΣΗ).
  *
- * A feedback conversation is read by a delayed background job, not on arrival,
+ * A feedback conversation is read after durable work becomes due, not on arrival,
  * and this line is the only place that says so. It renders at the end of the
  * messages, inside the transcript's scroll, the way a read receipt ends a
  * thread: it is about these messages, and it answers «why has that answer not
@@ -826,8 +828,27 @@ interface ReadingStatusProps {
  * stays quiet while the reading is current and takes a tinted block only when
  * it is behind or has failed.
  */
-export function ReadingStatus({ conversation }: ReadingStatusProps) {
-  const extractionLines = extractionStatusLines(conversation.extraction);
+export function ReadingStatus({
+  conversation,
+  campaignStatus,
+}: ReadingStatusProps) {
+  const extractionLines = readingStatusLines({
+    unreadParticipantMessages:
+      conversation.extraction.unreadParticipantMessages,
+    lastRunAt: conversation.extraction.lastRunAt,
+    model: conversation.extraction.model,
+    automation: conversation.automation,
+    constraint:
+      conversation.lifecycle.state === "closed"
+        ? "conversation_closed"
+        : conversation.control.mode === "human"
+          ? "human_control"
+          : campaignStatus === "paused"
+            ? "campaign_paused"
+            : campaignStatus === "closed"
+              ? "campaign_closed"
+              : "none",
+  });
   const attention = extractionLines.attention;
 
   return (

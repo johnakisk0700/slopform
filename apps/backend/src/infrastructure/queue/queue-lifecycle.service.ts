@@ -9,8 +9,11 @@ import type { Queue } from "bullmq";
 import {
   ASSISTANT_QUEUE,
   EMAIL_QUEUE,
+  FEEDBACK_CONVERSATION_QUEUE,
   FEEDBACK_INGRESS_QUEUE,
+  FEEDBACK_MAINTENANCE_QUEUE,
   FEEDBACK_QUEUE,
+  FEEDBACK_SUMMARY_QUEUE,
   REFERENCE_QUEUE,
 } from "./queue.constants.js";
 
@@ -44,9 +47,21 @@ export class QueueLifecycleService implements BeforeApplicationShutdown {
     @InjectQueue(EMAIL_QUEUE) email: Queue,
     @InjectQueue(FEEDBACK_QUEUE) feedback: Queue,
     @InjectQueue(FEEDBACK_INGRESS_QUEUE) feedbackIngress: Queue,
+    @InjectQueue(FEEDBACK_CONVERSATION_QUEUE) feedbackConversation: Queue,
+    @InjectQueue(FEEDBACK_SUMMARY_QUEUE) feedbackSummary: Queue,
+    @InjectQueue(FEEDBACK_MAINTENANCE_QUEUE) feedbackMaintenance: Queue,
     @InjectQueue(REFERENCE_QUEUE) reference: Queue,
   ) {
-    this.queues = [assistant, email, feedback, feedbackIngress, reference];
+    this.queues = [
+      assistant,
+      email,
+      feedback,
+      feedbackIngress,
+      feedbackConversation,
+      feedbackSummary,
+      feedbackMaintenance,
+      reference,
+    ];
   }
 
   async beforeApplicationShutdown(): Promise<void> {

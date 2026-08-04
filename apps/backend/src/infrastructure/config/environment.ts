@@ -2,6 +2,13 @@ import { z } from "zod";
 
 import { emptyStringToUndefined, parseUrl } from "./environment-values.js";
 import {
+  feedbackSimulatedTransportFaultModeEnvironmentSchema,
+  feedbackSimulatedTransportFaultPercentEnvironmentSchema,
+  feedbackSimulatedTransportMaxDelayEnvironmentSchema,
+  feedbackSimulatedTransportProfileSchema,
+  feedbackSimulatedTransportSeedEnvironmentSchema,
+} from "./feedback-simulated-transport.js";
+import {
   addProductionMongoIssues,
   parseMongoConnectionString,
 } from "./mongo-connection-string.js";
@@ -270,6 +277,19 @@ export const environmentSchema = observabilityEnvironmentSchema
      */
     FEEDBACK_SIMULATOR_ENABLED: booleanFromEnvironment,
     /**
+     * Deterministic fault treatment for the simulated outbound adapter. The
+     * percentage is sampled from `(seed, outboxId)`, so replicas and restarts
+     * running the same profile make the same decision for the same durable row.
+     */
+    FEEDBACK_SIMULATED_TRANSPORT_FAULT_MODE:
+      feedbackSimulatedTransportFaultModeEnvironmentSchema,
+    FEEDBACK_SIMULATED_TRANSPORT_FAULT_PERCENT:
+      feedbackSimulatedTransportFaultPercentEnvironmentSchema,
+    FEEDBACK_SIMULATED_TRANSPORT_SEED:
+      feedbackSimulatedTransportSeedEnvironmentSchema,
+    FEEDBACK_SIMULATED_TRANSPORT_MAX_DELAY_MS:
+      feedbackSimulatedTransportMaxDelayEnvironmentSchema,
+    /**
      * Rehearsal-only: replace the real extraction model with the deterministic
      * burst stub. Requires `FEEDBACK_SIMULATOR_ENABLED` and a non-production
      * `NODE_ENV` — a scripted model outside the simulator is a silent lie
@@ -462,6 +482,40 @@ export const environmentSchema = observabilityEnvironmentSchema
         code: "custom",
         message: "FEEDBACK_SIMULATOR_ENABLED requires TRANSPORT_MODE=simulated",
         path: ["FEEDBACK_SIMULATOR_ENABLED"],
+      });
+    }
+
+    const simulatedTransportProfile =
+      feedbackSimulatedTransportProfileSchema.safeParse({
+        faultMode: environment.FEEDBACK_SIMULATED_TRANSPORT_FAULT_MODE,
+        faultPercent: environment.FEEDBACK_SIMULATED_TRANSPORT_FAULT_PERCENT,
+        seed: environment.FEEDBACK_SIMULATED_TRANSPORT_SEED,
+        maxDelayMs: environment.FEEDBACK_SIMULATED_TRANSPORT_MAX_DELAY_MS,
+      });
+    if (!simulatedTransportProfile.success) {
+      for (const issue of simulatedTransportProfile.error.issues) {
+        const field = issue.path[0];
+        context.addIssue({
+          code: "custom",
+          message: issue.message,
+          path: [
+            field === "faultPercent"
+              ? "FEEDBACK_SIMULATED_TRANSPORT_FAULT_PERCENT"
+              : "FEEDBACK_SIMULATED_TRANSPORT_FAULT_MODE",
+          ],
+        });
+      }
+    }
+    if (
+      (environment.FEEDBACK_SIMULATED_TRANSPORT_FAULT_MODE !== "none" ||
+        environment.FEEDBACK_SIMULATED_TRANSPORT_MAX_DELAY_MS > 0) &&
+      environment.TRANSPORT_MODE !== "simulated"
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "Simulated transport faults or latency require TRANSPORT_MODE=simulated",
+        path: ["FEEDBACK_SIMULATED_TRANSPORT_FAULT_MODE"],
       });
     }
 

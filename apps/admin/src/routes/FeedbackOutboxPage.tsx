@@ -46,10 +46,10 @@ import { usePageMeta } from "../lib/usePageMeta";
  * people actually come here to read. The queue's count rides on its own tab
  * instead, where it can raise its hand without taking the room.
  *
- * **The list never touches Redis.** Both list endpoints derive every field from
- * PostgreSQL plus one batched conversation read. The queue is consulted exactly
- * once per opened row, by `getFeedbackOutboxMessage` — a page that opened a
- * Redis connection per row would become the outage it was built to observe.
+ * **The page never touches Redis.** Both list endpoints derive every field from
+ * PostgreSQL plus one batched conversation read, and the opened-row detail is
+ * PostgreSQL-only too. Turning an observability page into a queue-inspection
+ * loop would be a fairly committed way to recreate the outage it observes.
  *
  * Nothing here is a live region. Every age changes on every poll by
  * construction, so a polite announcement would fire forever and drown the
@@ -61,7 +61,7 @@ export function FeedbackOutboxPage() {
 
   usePageMeta(
     "Outbound queue",
-    "Every outbound feedback message, what happened to it, and anything still waiting to reach a participant.",
+    "Every outbound feedback message, what happened to it, and any dispatch still unresolved or deliberately held.",
   );
 
   // The two halves of the screen: the history is «everything ever written, and
@@ -228,7 +228,7 @@ export function FeedbackOutboxPage() {
           back={{ to: "/admin/feedback", label: "Back to campaigns" }}
           eyebrow="Post-event feedback"
           title="Outbound queue"
-          description="Everything the bot or an operator has written to a participant. The queue is what has not arrived yet; age is the number that matters there."
+          description="Everything the bot or an operator has written to a participant. The queue is dispatch that remains unresolved or deliberately held; age is the number that matters there."
         />
 
         {/* The queue's three figures, as one line rather than three cards.
@@ -393,7 +393,7 @@ export function FeedbackOutboxPage() {
             </p>
           ) : messageQuery.isPending && selectedId !== null ? (
             <p role="status" className="text-sm text-ink-muted">
-              Reading this message&rsquo;s delivery job…
+              Reading this message&rsquo;s dispatch record…
             </p>
           ) : (
             <OutboxMessageDetailsEmpty />

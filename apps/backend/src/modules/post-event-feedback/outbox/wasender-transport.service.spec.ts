@@ -4,11 +4,10 @@ import {
   WasenderClient,
   WasenderClientError,
 } from "../../../integrations/wasender/wasender.client.js";
-import { FeedbackSessionPacer } from "./session-pacer.js";
 import { WasenderFeedbackTransport } from "./wasender-transport.service.js";
 
 describe("WasenderFeedbackTransport", () => {
-  it("paces before sendText and maps acceptance", async () => {
+  it("maps acceptance and captures post-acceptance provider info", async () => {
     const client = {
       sendText: vi.fn().mockResolvedValue({
         providerLogId: 42,
@@ -29,10 +28,8 @@ describe("WasenderFeedbackTransport", () => {
         providerStatusCode: 2,
       }),
     };
-    const waitTurn = vi.fn().mockResolvedValue({ waitedMs: 12 });
     const transport = new WasenderFeedbackTransport(
       client as unknown as WasenderClient,
-      { waitTurn } as unknown as FeedbackSessionPacer,
     );
 
     await expect(
@@ -47,8 +44,8 @@ describe("WasenderFeedbackTransport", () => {
       providerStatus: "sent",
       providerMessageId: "wamid.1",
     });
-    expect(waitTurn).toHaveBeenCalledTimes(1);
     expect(client.sendText).toHaveBeenCalledTimes(1);
+    expect(client.getMessageInfo).toHaveBeenCalledWith(42);
   });
 
   it("surfaces unknown outcomes without retrying sendText", async () => {
@@ -62,9 +59,6 @@ describe("WasenderFeedbackTransport", () => {
     };
     const transport = new WasenderFeedbackTransport(
       client as unknown as WasenderClient,
-      {
-        waitTurn: vi.fn().mockResolvedValue({ waitedMs: 0 }),
-      } as unknown as FeedbackSessionPacer,
     );
 
     await expect(
@@ -79,6 +73,34 @@ describe("WasenderFeedbackTransport", () => {
     });
     expect(client.sendText).toHaveBeenCalledTimes(1);
     expect(client.getMessageInfo).not.toHaveBeenCalled();
+  });
+
+  it("keeps provider acceptance when the follow-up info is not linked yet", async () => {
+    const client = {
+      sendText: vi.fn().mockResolvedValue({
+        providerLogId: 42,
+        recipient: "306900000001@s.whatsapp.net",
+        providerStatus: "sent",
+      }),
+      getMessageInfo: vi.fn().mockRejectedValue(new Error("not linked yet")),
+    };
+    const transport = new WasenderFeedbackTransport(
+      client as unknown as WasenderClient,
+    );
+
+    await expect(
+      transport.sendText({
+        to: "+306900000001",
+        text: "γεια",
+        outboxId: "66de52a8-1a26-4cbb-b8d1-fcf8bdc2dd51",
+      }),
+    ).resolves.toEqual({
+      outcome: "accepted",
+      providerLogId: "42",
+      providerStatus: "sent",
+    });
+    expect(client.sendText).toHaveBeenCalledTimes(1);
+    expect(client.getMessageInfo).toHaveBeenCalledWith(42);
   });
 
   it("maps non-5xx rejections as not-accepted", async () => {
@@ -98,9 +120,6 @@ describe("WasenderFeedbackTransport", () => {
     };
     const transport = new WasenderFeedbackTransport(
       client as unknown as WasenderClient,
-      {
-        waitTurn: vi.fn().mockResolvedValue({ waitedMs: 0 }),
-      } as unknown as FeedbackSessionPacer,
     );
 
     await expect(

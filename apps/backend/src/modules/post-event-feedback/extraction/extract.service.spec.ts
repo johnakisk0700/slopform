@@ -30,7 +30,11 @@ import {
   FEEDBACK_ANSWER_CORRECTIONS_KEY,
   isCorrectedAnswer,
 } from "./answer-corrections.js";
-import { PostEventFeedbackExtractor } from "./extract.service.js";
+import {
+  FeedbackConversationExecutionGuardError,
+  PostEventFeedbackExtractor,
+} from "./extract.service.js";
+import type { FeedbackConversationExecutionClaim } from "./execution-fence.repository.js";
 import {
   FeedbackExtractionGenerationError,
   type PostEventFeedbackExtractionModel,
@@ -154,6 +158,422 @@ describe("PostEventFeedbackExtractor", () => {
   });
 
   describe("the extraction run", () => {
+    it("revalidates the fenced claim inside every granted provider slot", async () => {
+      const executionClaim: FeedbackConversationExecutionClaim = {
+        conversationId,
+        workRevision: 7,
+        epoch: 3,
+        token: "11111111-1111-4111-8111-111111111111",
+        leaseUntil: new Date(Date.now() + 60_000),
+      };
+      harness.executionFence.isCurrent.mockResolvedValue(false);
+      harness.generation.propose.mockImplementation(
+        async (
+          _prompt: unknown,
+          _questionKeys: unknown,
+          beforeProviderCall?: () => Promise<void>,
+        ) => {
+          await beforeProviderCall?.();
+          return generation({});
+        },
+      );
+      harness.generation.classifyAttention.mockImplementation(
+        async (
+          _messages: unknown,
+          _targetIds: unknown,
+          beforeProviderCall?: () => Promise<void>,
+        ) => {
+          await beforeProviderCall?.();
+          return attentionGeneration([]);
+        },
+      );
+
+      await expect(
+        harness.extractor.extract({
+          conversationId,
+          correlationId,
+          executionClaim,
+        }),
+      ).rejects.toMatchObject({
+        name: FeedbackConversationExecutionGuardError.name,
+        reason: "execution_claim_lost",
+      });
+
+      expect(harness.executionFence.isCurrent).toHaveBeenCalledWith(
+        expect.anything(),
+        executionClaim,
+      );
+      expect(harness.repository.answers).toHaveLength(0);
+      expect(harness.repository.notes).toHaveLength(0);
+      expect(harness.repository.outbox).toHaveLength(0);
+    });
+
+    it("does not buy a model call when a newer fragment advances the Mongo work revision while waiting", async () => {
+      const executionClaim: FeedbackConversationExecutionClaim = {
+        conversationId,
+        workRevision: 7,
+        epoch: 3,
+        token: "11111111-1111-4111-8111-111111111111",
+        leaseUntil: new Date(Date.now() + 60_000),
+      };
+      harness.conversations.get(conversationId).work = {
+        revision: 8,
+        nextActionAt: new Date(),
+        executionEpoch: 3,
+      };
+      harness.generation.propose.mockImplementation(
+        async (
+          _prompt: unknown,
+          _questionKeys: unknown,
+          beforeProviderCall?: () => Promise<void>,
+        ) => {
+          await beforeProviderCall?.();
+          return generation({});
+        },
+      );
+      harness.generation.classifyAttention.mockImplementation(
+        async (
+          _messages: unknown,
+          _targetIds: unknown,
+          beforeProviderCall?: () => Promise<void>,
+        ) => {
+          await beforeProviderCall?.();
+          return attentionGeneration([]);
+        },
+      );
+
+      await expect(
+        harness.extractor.extract({
+          conversationId,
+          correlationId,
+          executionClaim,
+        }),
+      ).rejects.toMatchObject({
+        name: FeedbackConversationExecutionGuardError.name,
+        reason: "authoritative_state_changed",
+      });
+
+      expect(harness.executionFence.isCurrent).toHaveBeenCalledWith(
+        expect.anything(),
+        executionClaim,
+      );
+      expect(harness.repository.answers).toHaveLength(0);
+      expect(harness.repository.notes).toHaveLength(0);
+      expect(harness.repository.outbox).toHaveLength(0);
+    });
+
+    it("keeps paid results but lets takeover-resume successor work suppress the old reply and cursor", async () => {
+      const executionClaim: FeedbackConversationExecutionClaim = {
+        conversationId,
+        workRevision: 7,
+        epoch: 3,
+        token: "11111111-1111-4111-8111-111111111111",
+        leaseUntil: new Date(Date.now() + 60_000),
+      };
+      const live = harness.conversations.get(conversationId);
+      live.work = {
+        revision: 7,
+        nextActionAt: new Date(),
+        executionEpoch: 3,
+      };
+      harness.executionFence.renewWithin.mockResolvedValue(executionClaim);
+      harness.generation.propose.mockImplementation(
+        async (
+          _prompt: unknown,
+          _questionKeys: unknown,
+          beforeProviderCall?: () => Promise<void>,
+        ) => {
+          await beforeProviderCall?.();
+          return generation({
+            answers: [
+              {
+                questionKey: "event_score",
+                valueInt: 5,
+                subjectParticipantId: null,
+                subjectMentionedName: null,
+                sourceMessageIds: ["p1"],
+                confidence: 0.95,
+              },
+            ],
+            nextGoal: "liked",
+          });
+        },
+      );
+      harness.generation.classifyAttention.mockImplementation(
+        async (
+          _messages: unknown,
+          _targetIds: unknown,
+          beforeProviderCall?: () => Promise<void>,
+        ) => {
+          await beforeProviderCall?.();
+          // The person took over and handed control back while this paid call
+          // was running. `mode=bot` is the same value as the snapshot; the
+          // monotonic work/control generation is what makes the ABA visible.
+          live.control = {
+            mode: "bot",
+            source: "staff_action",
+            changedAt: new Date("2026-07-25T10:03:00.000Z"),
+          };
+          live.work = {
+            revision: 8,
+            nextActionAt: new Date("2026-07-25T10:03:00.000Z"),
+            executionEpoch: 3,
+          };
+          return attentionGeneration([]);
+        },
+      );
+
+      await harness.extractor.extract({
+        conversationId,
+        correlationId,
+        executionClaim,
+      });
+
+      // The provider was already paid, so the valid answer remains useful.
+      expect(harness.repository.answers).toEqual([
+        expect.objectContaining({ questionKey: "event_score", valueInt: 5 }),
+      ]);
+      // But the old generation owns neither participant-facing copy nor the
+      // cursor that keeps the successor revision discoverable.
+      expect(harness.repository.outbox).toHaveLength(0);
+      expect(live.messages).toHaveLength(2);
+      expect(live.extraction.cursorSeq).toBe(0);
+      expect(live.work).toMatchObject({ revision: 8, executionEpoch: 3 });
+    });
+
+    it("keeps paid facts but withholds copy when successor work arrives before the optional reply rewrite", async () => {
+      const executionClaim: FeedbackConversationExecutionClaim = {
+        conversationId,
+        workRevision: 7,
+        epoch: 3,
+        token: "11111111-1111-4111-8111-111111111111",
+        leaseUntil: new Date(Date.now() + 60_000),
+      };
+      const live = harness.conversations.get(conversationId);
+      live.work = {
+        revision: 7,
+        nextActionAt: new Date(),
+        executionEpoch: 3,
+      };
+      harness.executionFence.renewWithin.mockResolvedValue(executionClaim);
+      harness.generation.propose.mockResolvedValue(
+        generation({
+          answers: [
+            {
+              questionKey: "event_score",
+              valueInt: 5,
+              subjectParticipantId: null,
+              subjectMentionedName: null,
+              sourceMessageIds: ["p1"],
+              confidence: 0.95,
+            },
+          ],
+          nextGoal: "liked",
+          reply: "Ποιος σου έκανε εντύπωση;",
+        }),
+      );
+      harness.generation.rewriteReply.mockImplementation(
+        async (
+          _prompt: unknown,
+          _draft: string,
+          beforeProviderCall?: () => Promise<void>,
+        ) => {
+          live.work = {
+            revision: 8,
+            nextActionAt: new Date(),
+            executionEpoch: 3,
+          };
+          await beforeProviderCall?.();
+          throw new Error("provider guard should have rejected the rewrite");
+        },
+      );
+
+      await expect(
+        harness.extractor.extract({
+          conversationId,
+          correlationId,
+          executionClaim,
+        }),
+      ).resolves.toMatchObject({ outcome: "extracted", cursorSeq: 2 });
+
+      expect(harness.repository.answers).toEqual([
+        expect.objectContaining({ questionKey: "event_score", valueInt: 5 }),
+      ]);
+      expect(harness.repository.outbox).toHaveLength(0);
+      expect(live.messages).toHaveLength(2);
+      expect(live.extraction.cursorSeq).toBe(0);
+      expect(live.work).toMatchObject({ revision: 8, executionEpoch: 3 });
+    });
+
+    it("quarantines a missing Mongo execution snapshot as an invariant failure", async () => {
+      const executionClaim: FeedbackConversationExecutionClaim = {
+        conversationId,
+        workRevision: 7,
+        epoch: 3,
+        token: "11111111-1111-4111-8111-111111111111",
+        leaseUntil: new Date(Date.now() + 60_000),
+      };
+      harness.conversations.get(conversationId).work = {
+        revision: 7,
+        nextActionAt: new Date(),
+        executionEpoch: 3,
+      };
+      harness.generation.propose.mockImplementation(
+        async (
+          _prompt: unknown,
+          _questionKeys: unknown,
+          beforeProviderCall?: () => Promise<void>,
+        ) => {
+          harness.conversations.documents.delete(conversationId);
+          await beforeProviderCall?.();
+          return generation({});
+        },
+      );
+
+      await expect(
+        harness.extractor.extract({
+          conversationId,
+          correlationId,
+          executionClaim,
+        }),
+      ).rejects.toMatchObject({
+        name: FeedbackConversationExecutionGuardError.name,
+        reason: "execution_invariant_broken",
+      });
+      expect(harness.repository.answers).toHaveLength(0);
+      expect(harness.repository.outbox).toHaveLength(0);
+    });
+
+    it("fences every provider entry in the stable cross-store lock order", async () => {
+      const executionClaim: FeedbackConversationExecutionClaim = {
+        conversationId,
+        workRevision: 7,
+        epoch: 3,
+        token: "11111111-1111-4111-8111-111111111111",
+        leaseUntil: new Date(Date.now() + 60_000),
+      };
+      harness.conversations.get(conversationId).work = {
+        revision: 7,
+        nextActionAt: new Date(),
+        executionEpoch: 3,
+      };
+      harness.executionFence.renewWithin.mockResolvedValue(executionClaim);
+      const phoneLock = vi.spyOn(harness.repository, "lockInboundPhone");
+      const conversationLock = vi.spyOn(harness.repository, "lockConversation");
+      const campaignLock = vi.spyOn(
+        harness.repository,
+        "findCampaignByIdForShare",
+      );
+      const participantLock = vi.spyOn(
+        harness.participants,
+        "findByIdForUpdate",
+      );
+      const inboundCheck = vi.spyOn(
+        harness.repository,
+        "hasInboundBeyondSnapshot",
+      );
+      const conversationRead = vi.spyOn(harness.conversations, "findById");
+      harness.generation.propose.mockImplementation(
+        async (
+          _prompt: unknown,
+          _questionKeys: unknown,
+          beforeProviderCall?: () => Promise<void>,
+        ) => {
+          await beforeProviderCall?.();
+          return generation({});
+        },
+      );
+      harness.generation.classifyAttention.mockImplementation(
+        async (
+          _messages: unknown,
+          _targetIds: unknown,
+          beforeProviderCall?: () => Promise<void>,
+        ) => {
+          await beforeProviderCall?.();
+          return attentionGeneration([]);
+        },
+      );
+
+      await harness.extractor.extract({
+        conversationId,
+        correlationId,
+        executionClaim,
+      });
+
+      const first = (mock: { invocationCallOrder: number[] }) =>
+        mock.invocationCallOrder[0] as number;
+      expect(first(phoneLock.mock)).toBeLessThan(first(conversationLock.mock));
+      expect(first(conversationLock.mock)).toBeLessThan(
+        first(harness.executionFence.isCurrent.mock),
+      );
+      expect(first(harness.executionFence.isCurrent.mock)).toBeLessThan(
+        first(campaignLock.mock),
+      );
+      expect(first(campaignLock.mock)).toBeLessThan(
+        first(participantLock.mock),
+      );
+      expect(first(participantLock.mock)).toBeLessThan(
+        first(inboundCheck.mock),
+      );
+      expect(first(inboundCheck.mock)).toBeLessThan(
+        conversationRead.mock.invocationCallOrder[1] as number,
+      );
+    });
+
+    it("does not enter the provider when durable inbound is ahead of Mongo", async () => {
+      const executionClaim: FeedbackConversationExecutionClaim = {
+        conversationId,
+        workRevision: 7,
+        epoch: 3,
+        token: "11111111-1111-4111-8111-111111111111",
+        leaseUntil: new Date(Date.now() + 60_000),
+      };
+      harness.conversations.get(conversationId).work = {
+        revision: 7,
+        nextActionAt: new Date(),
+        executionEpoch: 3,
+      };
+      harness.repository.newerInboundBeyondSnapshot = true;
+      let providerEntries = 0;
+      harness.generation.propose.mockImplementation(
+        async (
+          _prompt: unknown,
+          _questionKeys: unknown,
+          beforeProviderCall?: () => Promise<void>,
+        ) => {
+          await beforeProviderCall?.();
+          providerEntries += 1;
+          return generation({});
+        },
+      );
+      harness.generation.classifyAttention.mockImplementation(
+        async (
+          _messages: unknown,
+          _targetIds: unknown,
+          beforeProviderCall?: () => Promise<void>,
+        ) => {
+          await beforeProviderCall?.();
+          providerEntries += 1;
+          return attentionGeneration([]);
+        },
+      );
+
+      await expect(
+        harness.extractor.extract({
+          conversationId,
+          correlationId,
+          executionClaim,
+        }),
+      ).rejects.toMatchObject({
+        name: FeedbackConversationExecutionGuardError.name,
+        reason: "authoritative_state_changed",
+      });
+
+      expect(providerEntries).toBe(0);
+      expect(harness.repository.inboundPhoneLocks).not.toEqual([]);
+      expect(harness.executionFence.renewWithin).not.toHaveBeenCalled();
+    });
+
     it("persists answers and notes with the run's model, confidence and candidate ids", async () => {
       harness.generation.propose.mockResolvedValue(
         generation({
@@ -354,6 +774,92 @@ describe("PostEventFeedbackExtractor", () => {
       expect(
         harness.events.listFeedbackCandidatesForRespondent,
       ).toHaveBeenCalledWith(eventId, respondentId);
+    });
+
+    it("hides provably unsent audit-intent turns from both model prompts without moving the raw cursor", async () => {
+      const conversation = harness.conversations.get(conversationId);
+      const at = new Date("2026-07-25T10:02:00.000Z");
+      const outboxTurns = [
+        ["pending", "FILTER_PENDING"],
+        ["held", "FILTER_HELD"],
+        ["claimed", "FILTER_CLAIMED"],
+        ["failed", "FILTER_FAILED"],
+        ["cancelled", "FILTER_CANCELLED"],
+        ["attempting", "KEEP_ATTEMPTING"],
+        ["ambiguous", "KEEP_AMBIGUOUS"],
+        ["sending", "KEEP_LEGACY_SENDING"],
+        ["sent", "KEEP_SENT"],
+      ] as const;
+      conversation.messages = outboxTurns.map(([status, text], index) => {
+        const outboxId = randomUUID();
+        harness.repository.outbox.push({ id: outboxId, status });
+        return {
+          id: `bot-${status}`,
+          seq: index + 1,
+          actor: "bot" as const,
+          text,
+          at,
+          outboxId,
+        };
+      });
+      conversation.messages.push(
+        {
+          id: "historical-bot",
+          seq: 10,
+          actor: "bot",
+          text: "KEEP_MISSING_HISTORICAL_ROW",
+          at,
+          outboxId: randomUUID(),
+        },
+        {
+          id: "participant-current",
+          seq: 11,
+          actor: "participant",
+          text: "KEEP_PARTICIPANT",
+          at,
+        },
+        {
+          id: "system-without-outbox",
+          seq: 12,
+          actor: "system",
+          text: "KEEP_SYSTEM_WITHOUT_OUTBOX",
+          at,
+        },
+      );
+      conversation.extraction.cursorSeq = 0;
+
+      await harness.extractor.extract({ conversationId, correlationId });
+
+      const classifierMessages = harness.generation.classifyAttention.mock
+        .calls[0]?.[0] as readonly { text: string }[];
+      expect(classifierMessages.map(({ text }) => text)).toEqual([
+        "KEEP_ATTEMPTING",
+        "KEEP_AMBIGUOUS",
+        "KEEP_LEGACY_SENDING",
+        "KEEP_SENT",
+        "KEEP_MISSING_HISTORICAL_ROW",
+        "KEEP_PARTICIPANT",
+        "KEEP_SYSTEM_WITHOUT_OUTBOX",
+      ]);
+      const prompt = harness.generation.propose.mock.calls[0]?.[0] as {
+        readonly user: string;
+      };
+      for (const hidden of [
+        "FILTER_PENDING",
+        "FILTER_HELD",
+        "FILTER_CLAIMED",
+        "FILTER_FAILED",
+        "FILTER_CANCELLED",
+      ]) {
+        expect(prompt.user).not.toContain(hidden);
+      }
+      for (const visible of classifierMessages) {
+        expect(prompt.user).toContain(visible.text);
+      }
+      // Filtering is a provider-context projection only. Mongo remains the raw
+      // audit/UI transcript, and the cursor still settles its full sequence.
+      expect(conversation.messages).toHaveLength(12);
+      expect(conversation.extraction.cursorSeq).toBe(12);
     });
 
     describe("venue context", () => {
@@ -616,7 +1122,7 @@ describe("PostEventFeedbackExtractor", () => {
       expect(result.outcome).toBe("completed");
       const closing = harness.repository.outbox[0];
       expect(closing).toMatchObject({
-        dedupeKey: `feedback-closing-${conversationId}`,
+        dedupeKey: `feedback-closing-${conversationId}-2`,
       });
       expect(
         harness.conversations.get(conversationId).messages.at(-1),
@@ -744,7 +1250,7 @@ describe("PostEventFeedbackExtractor", () => {
       );
     });
 
-    it("never sends when opt-in was withdrawn, but still keeps the answers", async () => {
+    it("does not buy a model call after opt-in was withdrawn", async () => {
       harness.participants.rows.set(respondentId, {
         id: respondentId,
         preferredName: null,
@@ -769,9 +1275,14 @@ describe("PostEventFeedbackExtractor", () => {
         }),
       );
 
-      await harness.extractor.extract({ conversationId, correlationId });
+      const result = await harness.extractor.extract({
+        conversationId,
+        correlationId,
+      });
 
-      expect(harness.repository.answers).toHaveLength(1);
+      expect(result.outcome).toBe("skipped_consent_withdrawn");
+      expect(harness.generation.propose).not.toHaveBeenCalled();
+      expect(harness.repository.answers).toHaveLength(0);
       expect(harness.repository.outbox).toHaveLength(0);
     });
   });
@@ -874,7 +1385,7 @@ describe("PostEventFeedbackExtractor", () => {
       expect(harness.repository.outbox).toEqual([]);
     });
 
-    it("still sends the closing copy, because a closed conversation never speaks again", async () => {
+    it("defers closing when newer testimony lands during the model call", async () => {
       harness.conversations.setAllGoals(conversationId, "answered");
       typesDuringTheRun({ reply: null });
 
@@ -883,10 +1394,207 @@ describe("PostEventFeedbackExtractor", () => {
         correlationId,
       });
 
-      expect(result.outcome).toBe("completed");
-      expect(harness.repository.outbox[0]).toMatchObject({
-        dedupeKey: `feedback-closing-${conversationId}`,
+      expect(result.outcome).toBe("extracted");
+      expect(harness.repository.outbox).toEqual([]);
+      expect(harness.conversations.get(conversationId)).toMatchObject({
+        lifecycle: { state: "open", reason: null },
+        extraction: { cursorSeq: 2 },
       });
+    });
+
+    it("defers closing when durable ingress has not reached MongoDB yet", async () => {
+      harness.conversations.setAllGoals(conversationId, "answered");
+      harness.repository.newerInboundBeyondSnapshot = true;
+      harness.generation.propose.mockResolvedValue(generation({ reply: null }));
+
+      const result = await harness.extractor.extract({
+        conversationId,
+        correlationId,
+      });
+
+      expect(result.outcome).toBe("extracted");
+      expect(harness.repository.outbox).toEqual([]);
+      expect(harness.repository.inboundPhoneLocks).toEqual(["+306900000001"]);
+      expect(harness.conversations.get(conversationId)).toMatchObject({
+        lifecycle: { state: "open", reason: null },
+        extraction: { cursorSeq: 2 },
+      });
+    });
+
+    it("loses the terminal CAS when human takeover wins at the final boundary", async () => {
+      harness.conversations.setAllGoals(conversationId, "answered");
+      harness.generation.propose.mockResolvedValue(generation({ reply: null }));
+      harness.conversations.beforeTerminalClose = () => {
+        const conversation = harness.conversations.get(conversationId);
+        conversation.control = {
+          mode: "human",
+          source: "staff_action",
+          changedAt: new Date("2026-07-25T10:06:00.000Z"),
+        };
+      };
+
+      const result = await harness.extractor.extract({
+        conversationId,
+        correlationId,
+      });
+
+      expect(result).toMatchObject({ outcome: "extracted" });
+      expect(result).not.toHaveProperty("outboxId");
+      expect(harness.repository.outbox).toEqual([
+        expect.objectContaining({
+          status: "cancelled",
+          lastError: "terminal_snapshot_superseded",
+        }),
+      ]);
+      expect(harness.conversations.get(conversationId)).toMatchObject({
+        lifecycle: { state: "open", reason: null },
+        control: { mode: "human" },
+        // Takeover superseded the terminal transition without leaving newer
+        // testimony. Keeping the snapshot unread lets a later explicit resume
+        // reconcile the close instead of drifting into reminder/expiry.
+        extraction: { cursorSeq: 0 },
+      });
+    });
+
+    it("mints a fresh terminal row when takeover and resume keep the same testimony", async () => {
+      const firstClaim: FeedbackConversationExecutionClaim = {
+        conversationId,
+        workRevision: 7,
+        epoch: 3,
+        token: "11111111-1111-4111-8111-111111111111",
+        leaseUntil: new Date(Date.now() + 60_000),
+      };
+      const resumedClaim: FeedbackConversationExecutionClaim = {
+        conversationId,
+        workRevision: 8,
+        epoch: 4,
+        token: "22222222-2222-4222-8222-222222222222",
+        leaseUntil: new Date(Date.now() + 60_000),
+      };
+      const conversation = harness.conversations.get(conversationId);
+      conversation.work = {
+        revision: firstClaim.workRevision,
+        nextActionAt: new Date(),
+        executionEpoch: firstClaim.epoch,
+      };
+      harness.executionFence.renewWithin.mockResolvedValue(firstClaim);
+      harness.conversations.setAllGoals(conversationId, "answered");
+      harness.generation.propose.mockResolvedValue(generation({ reply: null }));
+      let takeoverPending = true;
+      harness.conversations.beforeTerminalClose = () => {
+        if (!takeoverPending) return;
+        takeoverPending = false;
+        conversation.control = {
+          mode: "human",
+          source: "staff_action",
+          changedAt: new Date("2026-07-25T10:06:00.000Z"),
+        };
+      };
+
+      await expect(
+        harness.extractor.extract({
+          conversationId,
+          correlationId,
+          executionClaim: firstClaim,
+        }),
+      ).resolves.toMatchObject({ outcome: "extracted" });
+
+      expect(harness.repository.outbox).toEqual([
+        expect.objectContaining({
+          dedupeKey: `feedback-closing-${conversationId}-2-r7`,
+          status: "cancelled",
+          lastError: "terminal_snapshot_superseded",
+        }),
+      ]);
+      expect(conversation).toMatchObject({
+        lifecycle: { state: "open", reason: null },
+        control: { mode: "human" },
+        extraction: { cursorSeq: 0 },
+      });
+
+      // `resumeBot` increments the durable revision, and the next reconciliation
+      // admits a new execution epoch before extraction reloads the aggregate.
+      conversation.control = {
+        mode: "bot",
+        source: "staff_action",
+        changedAt: new Date("2026-07-25T10:07:00.000Z"),
+      };
+      conversation.work = {
+        revision: resumedClaim.workRevision,
+        nextActionAt: new Date(),
+        executionEpoch: resumedClaim.epoch,
+      };
+      harness.executionFence.renewWithin.mockResolvedValue(resumedClaim);
+
+      const resumed = await harness.extractor.extract({
+        conversationId,
+        correlationId: `${correlationId}-resumed`,
+        executionClaim: resumedClaim,
+      });
+
+      expect(resumed).toMatchObject({ outcome: "completed" });
+      expect(harness.repository.outbox).toEqual([
+        expect.objectContaining({
+          dedupeKey: `feedback-closing-${conversationId}-2-r7`,
+          status: "cancelled",
+        }),
+        expect.objectContaining({
+          id: resumed.outboxId,
+          dedupeKey: `feedback-closing-${conversationId}-2-r8`,
+          status: "pending",
+        }),
+      ]);
+      expect(conversation.lifecycle).toMatchObject({
+        state: "closed",
+        reason: "completed",
+        terminalOutboxId: resumed.outboxId,
+      });
+    });
+
+    it("keeps terminal testimony unread when only a control generation supersedes the close", async () => {
+      const executionClaim: FeedbackConversationExecutionClaim = {
+        conversationId,
+        workRevision: 7,
+        epoch: 3,
+        token: "11111111-1111-4111-8111-111111111111",
+        leaseUntil: new Date(Date.now() + 60_000),
+      };
+      const conversation = harness.conversations.get(conversationId);
+      conversation.work = {
+        revision: 7,
+        nextActionAt: new Date(),
+        executionEpoch: 3,
+      };
+      harness.executionFence.renewWithin.mockResolvedValue(executionClaim);
+      harness.conversations.setAllGoals(conversationId, "answered");
+      harness.generation.propose.mockResolvedValue(generation({ reply: null }));
+      harness.conversations.beforeTerminalClose = () => {
+        conversation.work = {
+          revision: 8,
+          nextActionAt: new Date(),
+          executionEpoch: 3,
+        };
+      };
+
+      await expect(
+        harness.extractor.extract({
+          conversationId,
+          correlationId,
+          executionClaim,
+        }),
+      ).resolves.toMatchObject({ outcome: "extracted" });
+
+      expect(conversation).toMatchObject({
+        lifecycle: { state: "open", reason: null },
+        extraction: { cursorSeq: 0 },
+        work: { revision: 8, executionEpoch: 3 },
+      });
+      expect(harness.repository.outbox).toEqual([
+        expect.objectContaining({
+          status: "cancelled",
+          lastError: "terminal_snapshot_superseded",
+        }),
+      ]);
     });
 
     it("still sends the handoff copy, because it promises a human", async () => {
@@ -909,6 +1617,37 @@ describe("PostEventFeedbackExtractor", () => {
   });
 
   describe("completion", () => {
+    it("anchors a model-authored empty-ladder goodbye to the terminal declined commitment", async () => {
+      harness.generation.propose.mockResolvedValue(
+        generation({
+          skippedGoals: POST_EVENT_FEEDBACK_QUESTION_SET_V1.answerQuestions.map(
+            (question) => question.key,
+          ),
+          reply: "Δίκαιο — το ερωτηματολόγιο μόλις έφαγε πόρτα 😅",
+        }),
+      );
+
+      const result = await harness.extractor.extract({
+        conversationId,
+        correlationId,
+      });
+
+      expect(result.outcome).toBe("declined");
+      expect(harness.conversations.get(conversationId).lifecycle).toMatchObject(
+        {
+          state: "closed",
+          reason: "declined",
+          terminalOutboxId: result.outboxId,
+        },
+      );
+      expect(harness.repository.outbox).toEqual([
+        expect.objectContaining({
+          body: "Δίκαιο — το ερωτηματολόγιο μόλις έφαγε πόρτα 😅",
+          dedupeKey: `feedback-closing-${conversationId}-2`,
+        }),
+      ]);
+    });
+
     it("closes as completed and sends the campaign's closing copy once", async () => {
       harness.conversations.setAllGoals(conversationId, "answered");
       harness.conversations.setGoal(conversationId, "avoid", "asked");
@@ -931,9 +1670,128 @@ describe("PostEventFeedbackExtractor", () => {
       expect(harness.repository.outbox).toEqual([
         expect.objectContaining({
           body: POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy.closing,
-          dedupeKey: `feedback-closing-${conversationId}`,
+          dedupeKey: `feedback-closing-${conversationId}-2`,
         }),
       ]);
+    });
+
+    it("locks the terminal CAS and retracts every pre-send row except its winner", async () => {
+      harness.conversations.setAllGoals(conversationId, "answered");
+      harness.conversations.setGoal(conversationId, "avoid", "asked");
+      const staleId = randomUUID();
+      harness.repository.outbox.push({
+        id: staleId,
+        conversationId,
+        campaignId,
+        kind: "reply",
+        body: "Παλιότερη ερώτηση",
+        dedupeKey: `feedback-reply-${conversationId}-1`,
+        status: "claimed",
+        claimExpiresAt: new Date(Date.now() + 60_000),
+        sendStartedAt: null,
+      });
+      harness.generation.propose.mockResolvedValue(
+        generation({ skippedGoals: ["avoid"], reply: "Ευχαριστούμε!" }),
+      );
+      harness.conversations.beforeTerminalClose = () => {
+        // One advisory lock fenced PG persistence; the second was acquired for
+        // the Mongo terminal CAS before this callback runs.
+        expect(harness.repository.locked).toBeGreaterThanOrEqual(2);
+      };
+
+      const result = await harness.extractor.extract({
+        conversationId,
+        correlationId,
+      });
+
+      expect(result.outcome).toBe("completed");
+      expect(harness.repository.outbox).toEqual([
+        expect.objectContaining({ id: staleId, status: "cancelled" }),
+        expect.objectContaining({
+          id: result.outboxId,
+          status: "pending",
+          dedupeKey: `feedback-closing-${conversationId}-2`,
+        }),
+      ]);
+      expect(
+        harness.conversations.get(conversationId).lifecycle.terminalOutboxId,
+      ).toBe(result.outboxId);
+    });
+
+    it("cancels a pending fixed V1 closing row before inserting the anchored close", async () => {
+      harness.conversations.setAllGoals(conversationId, "answered");
+      harness.conversations.setGoal(conversationId, "avoid", "asked");
+      const legacyId = randomUUID();
+      harness.repository.outbox.push({
+        id: legacyId,
+        conversationId,
+        campaignId,
+        kind: "reply",
+        body: "Παλιό ευχαριστώ",
+        dedupeKey: `feedback-closing-${conversationId}`,
+        status: "pending",
+      });
+      harness.generation.propose.mockResolvedValue(
+        generation({ skippedGoals: ["avoid"], reply: "Ευχαριστούμε!" }),
+      );
+
+      const result = await harness.extractor.extract({
+        conversationId,
+        correlationId,
+      });
+
+      expect(result.outcome).toBe("completed");
+      expect(harness.repository.outbox).toHaveLength(2);
+      expect(harness.repository.outbox[0]).toMatchObject({
+        id: legacyId,
+        status: "cancelled",
+        lastError: "superseded_by_anchored_closing",
+      });
+      expect(harness.repository.outbox[1]).toMatchObject({
+        status: "pending",
+        dedupeKey: `feedback-closing-${conversationId}-2`,
+      });
+    });
+
+    it("parks instead of inserting a second goodbye when the fixed V1 close crossed the provider boundary", async () => {
+      harness.conversations.setAllGoals(conversationId, "answered");
+      harness.conversations.setGoal(conversationId, "avoid", "asked");
+      const legacyId = randomUUID();
+      harness.repository.outbox.push({
+        id: legacyId,
+        conversationId,
+        campaignId,
+        kind: "reply",
+        body: "Παλιό ευχαριστώ",
+        dedupeKey: `feedback-closing-${conversationId}`,
+        status: "sending",
+      });
+      harness.generation.propose.mockResolvedValue(
+        generation({ skippedGoals: ["avoid"], reply: "Ευχαριστούμε!" }),
+      );
+
+      const result = await harness.extractor.extract({
+        conversationId,
+        correlationId,
+      });
+
+      expect(result).toMatchObject({ outcome: "extracted" });
+      expect(harness.repository.outbox).toEqual([
+        expect.objectContaining({ id: legacyId, status: "sending" }),
+      ]);
+      expect(harness.conversations.get(conversationId)).toMatchObject({
+        lifecycle: { state: "open", reason: null },
+        awaitingHuman: true,
+        needsAttention: true,
+        attentionReasons: [
+          expect.objectContaining({
+            kind: "undelivered_message",
+            messageId: null,
+            resolvedAt: null,
+          }),
+        ],
+        extraction: { cursorSeq: 2 },
+      });
     });
 
     it("does not close a questionnaire it has just promised to a human", async () => {
@@ -964,6 +1822,61 @@ describe("PostEventFeedbackExtractor", () => {
       expect(conversation.awaitingHuman).toBe(true);
       expect(harness.repository.outbox).toEqual([
         expect.objectContaining({ body: POST_EVENT_FEEDBACK_HANDOFF_REPLY }),
+      ]);
+    });
+
+    it("keeps the handoff brake when a newer fragment advances the work revision", async () => {
+      const executionClaim: FeedbackConversationExecutionClaim = {
+        conversationId,
+        workRevision: 7,
+        epoch: 3,
+        token: "11111111-1111-4111-8111-111111111111",
+        leaseUntil: new Date(Date.now() + 60_000),
+      };
+      const conversation = harness.conversations.get(conversationId);
+      conversation.work = {
+        revision: 7,
+        nextActionAt: new Date(),
+        executionEpoch: 3,
+      };
+      harness.executionFence.renewWithin.mockResolvedValue(executionClaim);
+      harness.generation.propose.mockResolvedValue(
+        generation({ handoff: true, notes: [handoffNote] }),
+      );
+      harness.conversations.beforeAwaitingHuman = async () => {
+        await harness.conversations.appendMessage({
+          conversationId,
+          actor: "participant",
+          text: "και κάτι ακόμη",
+          at: new Date("2026-07-25T10:06:00.000Z"),
+        });
+        conversation.work = {
+          revision: 8,
+          nextActionAt: new Date(),
+          executionEpoch: 3,
+        };
+      };
+
+      await expect(
+        harness.extractor.extract({
+          conversationId,
+          correlationId,
+          executionClaim,
+        }),
+      ).resolves.toMatchObject({ outcome: "handoff", cursorSeq: 2 });
+
+      expect(conversation.awaitingHuman).toBe(true);
+      expect(conversation.extraction.cursorSeq).toBe(2);
+      expect(conversation.messages.at(-1)).toMatchObject({
+        actor: "participant",
+        text: "και κάτι ακόμη",
+        seq: 4,
+      });
+      expect(harness.repository.outbox).toEqual([
+        expect.objectContaining({
+          status: "pending",
+          body: POST_EVENT_FEEDBACK_HANDOFF_REPLY,
+        }),
       ]);
     });
 
@@ -998,8 +1911,12 @@ describe("PostEventFeedbackExtractor", () => {
       expect(harness.repository.outbox).toEqual([
         expect.objectContaining({
           body: "ΟΚ, το πιάνω — το bot αποσύρεται με σκυμμένο κεφάλι",
+          dedupeKey: `feedback-reply-${conversationId}-2`,
         }),
       ]);
+      expect(harness.conversations.get(conversationId).lifecycle.state).toBe(
+        "open",
+      );
       expect(harness.conversations.goalStatuses(conversationId)).toEqual({
         event_score: "answered",
         liked: "skipped",
@@ -1260,8 +2177,10 @@ describe("PostEventFeedbackExtractor", () => {
         }),
       ]);
       expect(
-        harness.repository.outbox.some(
-          (row) => row["dedupeKey"] === `feedback-closing-${conversationId}`,
+        harness.repository.outbox.some((row) =>
+          row["dedupeKey"]
+            ?.toString()
+            .startsWith(`feedback-closing-${conversationId}-`),
         ),
       ).toBe(false);
       // Skip writes no answer row — confirmation later inserts cleanly.
@@ -1298,7 +2217,9 @@ describe("PostEventFeedbackExtractor", () => {
       expect(
         harness.repository.outbox.some(
           (row) =>
-            row["dedupeKey"] === `feedback-closing-${conversationId}` ||
+            row["dedupeKey"]
+              ?.toString()
+              .startsWith(`feedback-closing-${conversationId}-`) ||
             row["body"] === POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy.closing,
         ),
       ).toBe(false);
@@ -1508,6 +2429,42 @@ describe("PostEventFeedbackExtractor", () => {
       );
       expect(harness.repository.outbox[0]).toMatchObject({
         body: POST_EVENT_FEEDBACK_HANDOFF_REPLY,
+      });
+    });
+
+    it("commits the handoff cursor and bot brake through one atomic transition", async () => {
+      const atomicHandoff = vi.spyOn(
+        harness.conversations,
+        "advanceCursorAndMarkAwaitingHuman",
+      );
+      const plainCursor = vi.spyOn(harness.conversations, "advanceCursor");
+      const plainAwaiting = vi.spyOn(
+        harness.conversations,
+        "markAwaitingHuman",
+      );
+      harness.generation.propose.mockResolvedValue(
+        generation({
+          handoff: true,
+          notes: [handoffNote],
+          reply: "Κάποιος θα σου μιλήσει.",
+        }),
+      );
+
+      await harness.extractor.extract({ conversationId, correlationId });
+
+      expect(atomicHandoff).toHaveBeenCalledWith(
+        expect.objectContaining({
+          conversationId,
+          toSeq: 2,
+          model,
+          usage: { inputTokens: 980, outputTokens: 150, totalTokens: 1_130 },
+        }),
+      );
+      expect(plainCursor).not.toHaveBeenCalled();
+      expect(plainAwaiting).not.toHaveBeenCalled();
+      expect(harness.conversations.get(conversationId)).toMatchObject({
+        extraction: { cursorSeq: 2 },
+        awaitingHuman: true,
       });
     });
 
@@ -2155,10 +3112,20 @@ interface FakeConversation {
   campaignId: string;
   respondentParticipantId: string;
   phoneAtLaunch: string;
-  lifecycle: { state: string; reason: string | null; closedAt: Date | null };
+  lifecycle: {
+    state: string;
+    reason: string | null;
+    closedAt: Date | null;
+    terminalOutboxId?: string | null;
+  };
   control: { mode: string; source: string; changedAt: Date };
   goals: FakeGoal[];
   messages: FakeMessage[];
+  work?: {
+    revision: number;
+    nextActionAt: Date | null;
+    executionEpoch: number;
+  };
   extraction: {
     cursorSeq: number;
     lastRunAt: Date | null;
@@ -2233,12 +3200,29 @@ class FakeFeedbackRepository {
     return this.campaigns.get(id);
   }
 
+  async findCampaignByIdForShare(_transaction: AppTransaction, id: string) {
+    return this.findCampaignById(id);
+  }
+
   async listAnswersByConversation(id: string) {
     return this.answers.filter((row) => row.conversationId === id);
   }
 
   async listNotesByConversation(id: string) {
     return this.notes.filter((row) => row.conversationId === id);
+  }
+
+  async listOutboxStatusesByIds(outboxIds: readonly string[]) {
+    const selected = new Set(outboxIds);
+    return this.outbox.flatMap((row) => {
+      const outboxId = row["id"];
+      const status = row["status"];
+      return typeof outboxId === "string" &&
+        typeof status === "string" &&
+        selected.has(outboxId)
+        ? [{ outboxId, status }]
+        : [];
+    });
   }
 
   lockConversation(): Promise<unknown> {
@@ -2389,6 +3373,101 @@ class FakeFeedbackRepository {
     return { row, inserted: true };
   }
 
+  async resolveLegacyClosingBeforeAnchoredInsert(
+    _transaction: AppTransaction,
+    legacyDedupeKey: string,
+  ): Promise<
+    | { outcome: "clear" }
+    | { outcome: "provider_crossed"; row: Record<string, unknown> }
+  > {
+    const legacy = this.outbox.find(
+      (row) => row["dedupeKey"] === legacyDedupeKey,
+    );
+    if (
+      !legacy ||
+      legacy["status"] === "failed" ||
+      legacy["status"] === "cancelled"
+    ) {
+      return { outcome: "clear" };
+    }
+    if (
+      ["attempting", "ambiguous", "sending", "sent"].includes(
+        String(legacy["status"]),
+      ) ||
+      legacy["sendStartedAt"] != null
+    ) {
+      return { outcome: "provider_crossed", row: legacy };
+    }
+    if (["pending", "held", "claimed"].includes(String(legacy["status"]))) {
+      legacy["status"] = "cancelled";
+      legacy["claimExpiresAt"] = null;
+      legacy["lastError"] = "superseded_by_anchored_closing";
+    }
+    return { outcome: "clear" };
+  }
+
+  async cancelQueuedOutboxById(
+    _transaction: AppTransaction,
+    id: string,
+    lastError?: string,
+  ): Promise<Record<string, unknown> | undefined> {
+    const row = this.outbox.find((candidate) => candidate["id"] === id);
+    if (
+      !row ||
+      !["pending", "held", "claimed"].includes(String(row["status"]))
+    ) {
+      return undefined;
+    }
+    row["status"] = "cancelled";
+    row["lastError"] = lastError ?? null;
+    return row;
+  }
+
+  async cancelQueuedOutboxForConversationExceptId(
+    _transaction: AppTransaction,
+    targetConversationId: string,
+    authorizedOutboxId: string | null,
+  ): Promise<number> {
+    let cancelled = 0;
+    for (const row of this.outbox) {
+      if (
+        row["conversationId"] !== targetConversationId ||
+        row["id"] === authorizedOutboxId ||
+        !["pending", "held", "claimed"].includes(String(row["status"])) ||
+        row["sendStartedAt"] != null
+      ) {
+        continue;
+      }
+      row["status"] = "cancelled";
+      row["claimExpiresAt"] = null;
+      cancelled += 1;
+    }
+    return cancelled;
+  }
+
+  async cancelQueuedAutomatedOutboxForConversation(
+    _transaction: AppTransaction,
+    targetConversationId: string,
+    authorizedOutboxId?: string | null,
+  ): Promise<number> {
+    let cancelled = 0;
+    for (const row of this.outbox) {
+      if (
+        row["conversationId"] !== targetConversationId ||
+        row["kind"] === "staff" ||
+        row["id"] === authorizedOutboxId ||
+        !["pending", "held", "claimed"].includes(String(row["status"])) ||
+        row["sendStartedAt"] != null
+      ) {
+        continue;
+      }
+      row["status"] = "cancelled";
+      row["claimExpiresAt"] = null;
+      cancelled += 1;
+    }
+    return cancelled;
+  }
+
   async insertOutboxLogIfAbsent(
     _transaction: AppTransaction,
     input: {
@@ -2425,6 +3504,8 @@ class FakeFeedbackRepository {
 
 class FakeConversations {
   readonly documents = new Map<string, FakeConversation>();
+  beforeTerminalClose?: () => void | Promise<void>;
+  beforeAwaitingHuman?: () => void | Promise<void>;
 
   seed(conversation: FakeConversation): void {
     this.documents.set(conversation._id, conversation);
@@ -2526,9 +3607,17 @@ class FakeConversations {
     model?: string | null;
     serviceTier?: string | null;
     usage?: FeedbackConversationExtractionUsage;
+    workRevision?: number;
+    executionEpoch?: number;
   }): Promise<{ changed: boolean; conversation: FakeConversation }> {
     const conversation = this.get(input.conversationId);
-    if (input.toSeq <= conversation.extraction.cursorSeq) {
+    if (
+      input.toSeq <= conversation.extraction.cursorSeq ||
+      (input.workRevision !== undefined &&
+        conversation.work?.revision !== input.workRevision) ||
+      (input.executionEpoch !== undefined &&
+        conversation.work?.executionEpoch !== input.executionEpoch)
+    ) {
       return { changed: false, conversation };
     }
     conversation.extraction = {
@@ -2546,6 +3635,100 @@ class FakeConversations {
         : (conversation.extraction.usage ?? null),
       serviceTier: input.serviceTier ?? null,
     };
+    return { changed: true, conversation };
+  }
+
+  async advanceCursorAndClose(input: {
+    conversationId: string;
+    toSeq: number;
+    reason: "completed" | "declined";
+    terminalOutboxId: string | null;
+    at: Date;
+    model: string;
+    serviceTier: string | null;
+    usage: FeedbackConversationExtractionUsage;
+    workRevision?: number;
+    executionEpoch?: number;
+  }): Promise<{ changed: boolean; conversation: FakeConversation }> {
+    await this.beforeTerminalClose?.();
+    const conversation = this.get(input.conversationId);
+    const hasNewerTestimony = conversation.messages.some(
+      (message) => message.actor === "participant" && message.seq > input.toSeq,
+    );
+    if (
+      conversation.lifecycle.state !== "open" ||
+      conversation.control.mode !== "bot" ||
+      conversation.awaitingHuman ||
+      hasNewerTestimony ||
+      (input.workRevision !== undefined &&
+        conversation.work?.revision !== input.workRevision) ||
+      (input.executionEpoch !== undefined &&
+        conversation.work?.executionEpoch !== input.executionEpoch)
+    ) {
+      return { changed: false, conversation };
+    }
+    await this.advanceCursor(input);
+    conversation.lifecycle = {
+      state: "closed",
+      reason: input.reason,
+      closedAt: input.at,
+      terminalOutboxId: input.terminalOutboxId,
+    };
+    return { changed: true, conversation };
+  }
+
+  async advanceCursorAndMarkAwaitingHuman(input: {
+    conversationId: string;
+    toSeq: number;
+    at: Date;
+    model: string;
+    serviceTier: string | null;
+    usage: FeedbackConversationExtractionUsage;
+    workRevision?: number;
+    executionEpoch?: number;
+  }): Promise<{ changed: boolean; conversation: FakeConversation }> {
+    await this.beforeAwaitingHuman?.();
+    const conversation = this.get(input.conversationId);
+    const hasNewerTestimony = conversation.messages.some(
+      (message) => message.actor === "participant" && message.seq > input.toSeq,
+    );
+    const workMatches =
+      input.workRevision === undefined ||
+      (conversation.work?.revision === input.workRevision &&
+        (input.executionEpoch === undefined ||
+          conversation.work.executionEpoch === input.executionEpoch));
+    const newerTestimonyOnSameExecution =
+      input.workRevision !== undefined &&
+      input.executionEpoch !== undefined &&
+      (conversation.work?.revision ?? 0) > input.workRevision &&
+      conversation.work?.executionEpoch === input.executionEpoch &&
+      hasNewerTestimony;
+    if (
+      conversation.lifecycle.state !== "open" ||
+      conversation.control.mode !== "bot" ||
+      input.toSeq < conversation.extraction.cursorSeq ||
+      (input.workRevision === undefined &&
+        input.toSeq === conversation.extraction.cursorSeq) ||
+      (!workMatches && !newerTestimonyOnSameExecution)
+    ) {
+      return { changed: false, conversation };
+    }
+    if (input.toSeq > conversation.messages.length) {
+      throw new Error("The extraction cursor cannot pass the transcript");
+    }
+    if (input.toSeq > conversation.extraction.cursorSeq) {
+      conversation.extraction = {
+        cursorSeq: input.toSeq,
+        lastRunAt: input.at,
+        model: input.model,
+        usage: accumulateFeedbackExtractionUsage(
+          conversation.extraction.usage ?? null,
+          input.usage,
+        ),
+        serviceTier: input.serviceTier,
+      };
+    }
+    conversation.awaitingHuman = true;
     return { changed: true, conversation };
   }
 
@@ -2648,6 +3831,11 @@ interface Harness {
     propose: ReturnType<typeof vi.fn>;
     rewriteReply: ReturnType<typeof vi.fn>;
     classifyAttention: ReturnType<typeof vi.fn>;
+  };
+  executionFence: {
+    renewWithin: ReturnType<typeof vi.fn>;
+    isCurrent: ReturnType<typeof vi.fn>;
+    assertCurrent: ReturnType<typeof vi.fn>;
   };
   audit: FakeAudit;
   metrics: PostEventFeedbackMetrics;
@@ -2819,6 +4007,11 @@ function createHarness(): Harness {
   });
 
   const database = new FakeDatabase();
+  const executionFence = {
+    renewWithin: vi.fn().mockResolvedValue(undefined),
+    isCurrent: vi.fn().mockResolvedValue(true),
+    assertCurrent: vi.fn().mockResolvedValue(true),
+  };
   const extractor = new PostEventFeedbackExtractor(
     database as unknown as DatabaseService,
     repository as unknown as FeedbackCampaignRepository,
@@ -2841,6 +4034,7 @@ function createHarness(): Harness {
     ),
     alert,
     noopSummaries(),
+    executionFence as never,
   );
 
   return {
@@ -2850,6 +4044,7 @@ function createHarness(): Harness {
     participants,
     events,
     generation: generationService,
+    executionFence,
     audit,
     metrics,
     alert,

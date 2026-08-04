@@ -42,7 +42,16 @@ describe("buildOutboundConversationSnapshot", () => {
 
     expect(snapshot).toEqual({
       lifecycle: { state: "open", reason: null },
-      control: { mode: "bot", source: "launch" },
+      control: {
+        mode: "bot",
+        source: "launch",
+        changedAt: createdAt.toISOString(),
+      },
+      work: {
+        revision: 7,
+        executionEpoch: 3,
+        campaignResumeGeneration: 2,
+      },
       awaitingHuman: false,
       needsAttention: false,
       unresolvedAttentionCount: 0,
@@ -52,6 +61,7 @@ describe("buildOutboundConversationSnapshot", () => {
       })),
       messageCount: 2,
       latestMessageSeq: 2,
+      participantIngressIds: [conversation.messages[1]!.ingressId!],
       extractionCursorSeq: 2,
       reminderCount: 1,
     });
@@ -95,6 +105,7 @@ describe("buildOutboundConversationSnapshot", () => {
     expect(snapshot.control).toEqual({
       mode: "human",
       source: "staff_action",
+      changedAt: updatedAt.toISOString(),
     });
     expect(outboundConversationSnapshotSchema.parse(snapshot)).toEqual(
       snapshot,
@@ -179,6 +190,12 @@ function conversationDocument(
       parkedSince: null,
       parkedRuns: 0,
       parkedNoticeSentAt: null,
+    },
+    work: {
+      revision: 7,
+      nextActionAt: null,
+      executionEpoch: 3,
+      campaignResumeGeneration: 2,
     },
     needsAttention: false,
     attentionReasons: [],

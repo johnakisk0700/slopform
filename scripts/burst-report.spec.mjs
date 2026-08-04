@@ -155,6 +155,27 @@ describe("renderBurstReport", () => {
     );
   });
 
+  it("stamps the exact simulated transport treatment into the report", () => {
+    const html = renderBurstReport(
+      run({
+        transport: {
+          mode: "simulated",
+          profile: {
+            faultMode: "mixed",
+            faultPercent: 20,
+            seed: "canary-7",
+            maxDelayMs: 4_000,
+          },
+        },
+      }),
+    );
+
+    assert.ok(html.includes("Μεταφορά"));
+    assert.ok(
+      html.includes("simulated · mixed@20% · έως 4000 ms · seed canary-7"),
+    );
+  });
+
   it("shows the pessimistic verdict when the run flag disagrees with its rows", () => {
     const html = renderBurstReport(
       run({

@@ -216,7 +216,7 @@ export class PostEventFeedbackConversationController {
       this.conversations.sendStaffMessage(
         parameters.campaignId,
         parameters.conversationId,
-        input.text,
+        input,
         String(userId),
         String(correlationId),
       ),

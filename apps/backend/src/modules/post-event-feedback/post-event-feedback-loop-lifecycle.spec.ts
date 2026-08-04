@@ -503,31 +503,19 @@ const MACHINERY_FROM_THE_OUTSIDE: readonly FeedbackScenario[] = [
     },
   },
   {
-    // S58. The kill switch. Results are not its business — what a participant
-    // already said is still recorded — but nothing may leave the building while
-    // the campaign is paused.
+    // S58. The kill switch freezes model work as well as outbound delivery.
+    // Testimony stays unread in MongoDB and resume replans it from current state;
+    // paying to classify it while paused would make "pause" decorative.
     id: "campaign_paused_midflow",
-    title: "records answers but sends nothing while the campaign is paused",
+    title: "parks unread testimony without a model call while paused",
     seed: { campaign: "paused" },
-    script: [
-      {
-        answers: [
-          { question: "event_score", value: 5 },
-          { question: "liked", about: "Νίκος" },
-        ],
-        next: "meet_again",
-        reply: "Ευχαριστούμε! Με ποιους θα ήθελες να ξαναβρεθείς;",
-      },
-    ],
+    script: [],
     steps: [
       { kind: "inbound", text: "5 κ ο Νικος πολυ δυνατος" },
       { kind: "wait", after: "settles" },
     ],
     expect: {
-      answers: [
-        { question: "event_score", about: null, value: 5 },
-        { question: "liked", about: "Νίκος", value: null },
-      ],
+      answers: [],
       received: [],
       lifecycle: "open",
     },

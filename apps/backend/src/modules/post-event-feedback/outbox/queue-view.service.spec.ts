@@ -1,10 +1,8 @@
 import type { MessageOutboxLogRow } from "@join-the-six/database";
-import type { Queue } from "bullmq";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ParticipantsRepository } from "../../participants/participants.repository.js";
 import type { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
-import type { FeedbackJobData, FeedbackJobName } from "../jobs.schemas.js";
 import type { FeedbackOutboundLogRepository } from "./outbound-log.repository.js";
 import type { FeedbackOutboxRepository } from "./outbox.repository.js";
 import {
@@ -45,6 +43,11 @@ const outboxRow = {
   readAt: null,
   playedAt: null,
   deliveryUpdatedAt: null,
+  claimToken: null,
+  claimExpiresAt: null,
+  sendStartedAt: null,
+  attemptCount: 0,
+  lastError: null,
   createdAt: new Date("2026-07-27T11:41:00.000Z"),
   updatedAt: new Date("2026-07-27T11:41:00.000Z"),
 };
@@ -100,18 +103,12 @@ function historyRow(index: number) {
 }
 
 function createService(overrides: {
-  queue?: Partial<Queue>;
   outbox?: Partial<FeedbackOutboxRepository>;
   outboundLogs?: Partial<FeedbackOutboundLogRepository>;
   conversations?: Partial<FeedbackConversationRepository>;
   participants?: Partial<ParticipantsRepository>;
 }) {
-  const queue = {
-    getJob: vi.fn().mockResolvedValue(undefined),
-    ...overrides.queue,
-  };
   const service = new FeedbackOutboxQueueViewService(
-    queue as unknown as Queue<FeedbackJobData, void, FeedbackJobName>,
     {
       listUndeliveredOutbox: vi.fn().mockResolvedValue([]),
       countUndeliveredOutboxByStatus: vi.fn().mockResolvedValue(new Map()),
@@ -134,11 +131,11 @@ function createService(overrides: {
       ...overrides.participants,
     } as unknown as ParticipantsRepository,
   );
-  return { service, queue };
+  return { service };
 }
 
 describe("FeedbackOutboxQueueViewService.listQueue", () => {
-  it("never opens the queue, however many rows are waiting", async () => {
+  it("lists a page without asking for per-row delivery details", async () => {
     const rows = Array.from({ length: 25 }, (_entry, index) => ({
       row: {
         ...outboxRow,
@@ -148,21 +145,21 @@ describe("FeedbackOutboxQueueViewService.listQueue", () => {
       eventId: EVENT_ID,
       eventTitle: "Δείπνο Ιουλίου",
     }));
-    const { service, queue } = createService({
+    const findOutboxWithContextById = vi.fn();
+    const { service } = createService({
       outbox: {
         listUndeliveredOutbox: vi.fn().mockResolvedValue(rows),
         countUndeliveredOutboxByStatus: vi
           .fn()
           .mockResolvedValue(new Map([["pending", 25]])),
+        findOutboxWithContextById,
       },
     });
 
     const view = await service.listQueue(NOW);
 
     expect(view.items).toHaveLength(25);
-    // The whole point of the screen: a polled list must not cost one Redis
-    // round trip per row.
-    expect(queue.getJob).not.toHaveBeenCalled();
+    expect(findOutboxWithContextById).not.toHaveBeenCalled();
   });
 
   it("measures age against the server clock and reports the campaign context", async () => {
@@ -253,6 +250,9 @@ describe("FeedbackOutboxQueueViewService.listQueue", () => {
         countUndeliveredOutboxByStatus: vi.fn().mockResolvedValue(
           new Map([
             ["pending", 300],
+            ["claimed", 5],
+            ["attempting", 3],
+            ["ambiguous", 1],
             ["sending", 4],
             ["held", 2],
           ]),
@@ -264,23 +264,26 @@ describe("FeedbackOutboxQueueViewService.listQueue", () => {
 
     expect(view.counts).toEqual({
       pending: 300,
+      claimed: 5,
+      attempting: 3,
+      ambiguous: 1,
       sending: 4,
       held: 2,
-      total: 306,
+      total: 315,
     });
     expect(view.truncated).toBe(true);
   });
 });
 
 describe("FeedbackOutboxQueueViewService.listHistory", () => {
-  it("lists terminal rows with the decision origin, without touching Redis", async () => {
+  it("lists terminal rows with the decision origin", async () => {
     const sentRow = {
       row: { ...outboxRow, status: "sent" as const },
       campaignStatus: "launched" as const,
       eventId: EVENT_ID,
       eventTitle: "Δείπνο Ιουλίου",
     };
-    const { service, queue } = createService({
+    const { service } = createService({
       outbox: {
         listRecentOutbox: vi.fn().mockResolvedValue([sentRow]),
         countOutbox: vi.fn().mockResolvedValue(1),
@@ -302,7 +305,6 @@ describe("FeedbackOutboxQueueViewService.listHistory", () => {
     });
     expect(view.total).toBe(1);
     expect(view.nextCursor).toBeNull();
-    expect(queue.getJob).not.toHaveBeenCalled();
   });
 
   it("marks a row older than the decision log with a null origin", async () => {
@@ -455,25 +457,34 @@ describe("FeedbackOutboxQueueViewService.getMessageDelivery", () => {
     });
   });
 
-  it("spends exactly one queue lookup on the row an operator opened", async () => {
-    const { service, queue } = createService({
+  it("publishes durable dispatcher state for the row an operator opened", async () => {
+    const claimed = {
+      ...outboxRow,
+      status: "claimed" as const,
+      claimToken: "118234ec-14f8-4c2a-90f3-330a092e4f60",
+      claimExpiresAt: new Date("2026-07-27T11:45:00.000Z"),
+    };
+    const { service } = createService({
       outbox: {
         findOutboxWithContextById: vi
           .fn()
-          .mockResolvedValue(withContext(outboxRow)),
+          .mockResolvedValue(withContext(claimed)),
       },
     });
 
     const view = await service.getMessageDelivery(OUTBOX_ID, NOW);
 
-    expect(queue.getJob).toHaveBeenCalledExactlyOnceWith(
-      `feedback-deliver-v1-${OUTBOX_ID}`,
-    );
-    expect(view.job.state).toBe("unknown");
+    expect(view.dispatch).toEqual({
+      state: "claimed",
+      claimExpiresAt: "2026-07-27T11:45:00.000Z",
+      sendStartedAt: null,
+      attemptCount: 0,
+      lastError: null,
+    });
     expect(view.waitingSeconds).toBe(147);
   });
 
-  it("puts a `sending` row on the relay's recovery clock and nothing else", async () => {
+  it("shows the honest legacy sending bridge without fabricating an attempt", async () => {
     const sending = {
       ...outboxRow,
       status: "sending" as const,
@@ -489,7 +500,13 @@ describe("FeedbackOutboxQueueViewService.getMessageDelivery", () => {
 
     const view = await service.getMessageDelivery(OUTBOX_ID, NOW);
 
-    expect(view.reclaimAt).toBe("2026-07-27T11:47:00.000Z");
+    expect(view.dispatch).toEqual({
+      state: "sending",
+      claimExpiresAt: null,
+      sendStartedAt: null,
+      attemptCount: 0,
+      lastError: null,
+    });
 
     const { service: pendingService } = createService({
       outbox: {
@@ -500,7 +517,15 @@ describe("FeedbackOutboxQueueViewService.getMessageDelivery", () => {
     });
     await expect(
       pendingService.getMessageDelivery(OUTBOX_ID, NOW),
-    ).resolves.toMatchObject({ reclaimAt: null });
+    ).resolves.toMatchObject({
+      dispatch: {
+        state: "pending",
+        claimExpiresAt: null,
+        sendStartedAt: null,
+        attemptCount: 0,
+        lastError: null,
+      },
+    });
   });
 
   it("answers for a row that has already been sent", async () => {

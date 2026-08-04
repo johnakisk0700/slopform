@@ -1,15 +1,40 @@
-import type { FeedbackConversationDetailDtoOutputExtraction } from "../../api/generated/model/feedbackConversationDetailDtoOutputExtraction";
+import type { FeedbackConversationDetailDtoOutputAutomation } from "../../api/generated/model/feedbackConversationDetailDtoOutputAutomation";
 import { formatTimestamp } from "./conversationView";
 
 /**
- * Greek copy for the extraction status block in the details pane.
+ * Durable scheduling facts published by the conversation aggregate.
  *
- * The backend reports only what it can prove: unread count from the document,
- * queue fields from retained BullMQ jobs. Absence of a job is left as
- * «άγνωστο» rather than «έτοιμο» — retention, a lost enqueue and "already ran"
- * look identical once the row is gone.
+ * This is deliberately about work the conversation owes, not about whether a
+ * particular Redis job happens to be retained. `revision` is useful for
+ * diagnostics but never becomes a user-facing job id, and claim tokens/epochs
+ * do not cross the HTTP boundary at all.
  */
-export interface ExtractionStatusLines {
+export type ConversationAutomationStatus =
+  FeedbackConversationDetailDtoOutputAutomation;
+
+export type ReadingAutomationConstraint =
+  | "none"
+  | "conversation_closed"
+  | "human_control"
+  | "campaign_paused"
+  | "campaign_closed";
+
+export interface ReadingStatusInput {
+  unreadParticipantMessages: number;
+  lastRunAt: string | null;
+  model: string | null;
+  automation: ConversationAutomationStatus;
+  /** Current state that intentionally forbids new automated work. */
+  constraint: ReadingAutomationConstraint;
+}
+
+/**
+ * Greek copy for the reading-status block in the details pane.
+ *
+ * Scheduling comes from the conversation's durable automation state. Redis
+ * retention and job identity are deliberately outside this operator view.
+ */
+export interface ReadingStatusLines {
   /** Always present: how far behind the reading is, or that it is caught up. */
   unread: string;
   /** Schedule / failure / in-flight line. Null when there is nothing useful to say. */
@@ -20,41 +45,75 @@ export interface ExtractionStatusLines {
   attention: "none" | "pending" | "danger";
 }
 
-export function extractionStatusLines(
-  extraction: FeedbackConversationDetailDtoOutputExtraction,
+export function readingStatusLines(
+  input: ReadingStatusInput,
   now: Date = new Date(),
-): ExtractionStatusLines {
-  const unread =
-    extraction.unreadParticipantMessages === 0
-      ? "Όλα τα μηνύματα έχουν διαβαστεί."
-      : extraction.unreadParticipantMessages === 1
-        ? "1 μήνυμα δεν έχει διαβαστεί ακόμα."
-        : `${extraction.unreadParticipantMessages} μηνύματα δεν έχουν διαβαστεί ακόμα.`;
-
+): ReadingStatusLines {
+  const unread = unreadLine(input.unreadParticipantMessages);
+  const hasUnread = input.unreadParticipantMessages > 0;
   let schedule: string | null = null;
-  let attention: ExtractionStatusLines["attention"] = "none";
+  let attention: ReadingStatusLines["attention"] = "none";
 
-  if (extraction.lastRunFailed) {
-    schedule = "Η ανάγνωση απέτυχε · απάντησε η εναλλακτική διαδικασία.";
-    attention = "danger";
-  } else if (extraction.runInFlight) {
-    // A time, not a spinner: a dead worker looks identical to a busy one.
-    schedule = "Ανάγνωση σε εξέλιξη.";
-    attention = extraction.unreadParticipantMessages > 0 ? "pending" : "none";
-  } else if (extraction.nextRunAt) {
-    schedule = `Επόμενη ανάγνωση ${formatTimestamp(extraction.nextRunAt, now)}.`;
-    attention = extraction.unreadParticipantMessages > 0 ? "pending" : "none";
-  } else if (extraction.runQueued) {
-    schedule = "Ανάγνωση στην ουρά.";
-    attention = extraction.unreadParticipantMessages > 0 ? "pending" : "none";
-  } else if (extraction.unreadParticipantMessages > 0) {
-    schedule = "Ώρα επόμενης ανάγνωσης άγνωστη.";
-    attention = "pending";
-  } else if (extraction.lastRunAt) {
-    schedule = `Τελευταία ανάγνωση ${formatTimestamp(extraction.lastRunAt, now)}.`;
+  if (input.constraint !== "none") {
+    schedule = CONSTRAINT_COPY[input.constraint];
+    attention = hasUnread
+      ? input.constraint === "conversation_closed" ||
+        input.constraint === "campaign_closed"
+        ? "danger"
+        : "pending"
+      : "none";
+  } else {
+    switch (input.automation.state) {
+      case "running":
+        schedule = input.automation.claimExpiresAt
+          ? `Ανάγνωση σε εξέλιξη · ενεργή ανάθεση έως ${formatTimestamp(input.automation.claimExpiresAt, now)}.`
+          : "Ανάγνωση σε εξέλιξη.";
+        attention = hasUnread ? "pending" : "none";
+        break;
+      case "scheduled":
+        schedule = input.automation.nextActionAt
+          ? `Επόμενη αυτόματη ενέργεια ${formatTimestamp(input.automation.nextActionAt, now)}.`
+          : "Η επόμενη αυτόματη ενέργεια έχει προγραμματιστεί.";
+        attention = hasUnread ? "pending" : "none";
+        break;
+      case "parked":
+        schedule = input.automation.nextActionAt
+          ? `Η ανάγνωση έχει παρκάρει · επόμενος έλεγχος ${formatTimestamp(input.automation.nextActionAt, now)}.`
+          : "Η ανάγνωση έχει παρκάρει και περιμένει ανάκτηση.";
+        attention = "danger";
+        break;
+      case "idle":
+        if (hasUnread) {
+          schedule = "Δεν έχει προγραμματιστεί επόμενη αυτόματη ενέργεια.";
+          attention = "danger";
+        } else if (input.lastRunAt) {
+          schedule = `Τελευταία ανάγνωση ${formatTimestamp(input.lastRunAt, now)}.`;
+        }
+        break;
+    }
   }
 
-  const model = extraction.model ? `Μοντέλο: ${extraction.model}` : null;
-
+  const model = input.model ? `Μοντέλο: ${input.model}` : null;
   return { unread, schedule, model, attention };
+}
+
+const CONSTRAINT_COPY: Record<
+  Exclude<ReadingAutomationConstraint, "none">,
+  string
+> = {
+  conversation_closed: "Καμία νέα αυτόματη ενέργεια: η συζήτηση έχει κλείσει.",
+  human_control:
+    "Καμία νέα αυτόματη ενέργεια όσο τη συζήτηση χειρίζεται άνθρωπος.",
+  campaign_paused: "Καμία νέα αυτόματη ενέργεια όσο η καμπάνια είναι σε παύση.",
+  campaign_closed: "Καμία νέα αυτόματη ενέργεια: η καμπάνια έχει κλείσει.",
+};
+
+function unreadLine(unreadParticipantMessages: number): string {
+  if (unreadParticipantMessages === 0) {
+    return "Όλα τα μηνύματα έχουν διαβαστεί.";
+  }
+  if (unreadParticipantMessages === 1) {
+    return "1 μήνυμα δεν έχει διαβαστεί ακόμα.";
+  }
+  return `${unreadParticipantMessages} μηνύματα δεν έχουν διαβαστεί ακόμα.`;
 }

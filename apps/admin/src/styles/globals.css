@@ -424,8 +424,8 @@
 
      `overflow: hidden` clips the body mid-slide, which means the disclosed
      content must carry its own padding — a focus ring sitting flush against the
-     content box's edge would be clipped with it. Both consumers do
-     (`px-4 py-3` on the summary, running text on the outbox note);
+     content box's edge would be clipped with it. Current consumers do
+     (`px-4 py-3` on the summary and padded assistant activity bodies);
      `VenueGoogleSelection`'s Place ID body does not, and is deliberately left
      native rather than given an animation that could crop the ring on its
      input. */

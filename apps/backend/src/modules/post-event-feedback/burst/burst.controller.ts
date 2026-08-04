@@ -77,6 +77,23 @@ export class FeedbackBurstController {
         serviceTier: this.config.get("FEEDBACK_EXTRACTION_SERVICE_TIER", {
           infer: true,
         }),
+        transportMode: this.config.get("TRANSPORT_MODE", { infer: true }),
+        simulatedTransportFaultMode: this.config.get(
+          "FEEDBACK_SIMULATED_TRANSPORT_FAULT_MODE",
+          { infer: true },
+        ),
+        simulatedTransportFaultPercent: this.config.get(
+          "FEEDBACK_SIMULATED_TRANSPORT_FAULT_PERCENT",
+          { infer: true },
+        ),
+        simulatedTransportSeed: this.config.get(
+          "FEEDBACK_SIMULATED_TRANSPORT_SEED",
+          { infer: true },
+        ),
+        simulatedTransportMaxDelayMs: this.config.get(
+          "FEEDBACK_SIMULATED_TRANSPORT_MAX_DELAY_MS",
+          { infer: true },
+        ),
       }),
     );
     return feedbackBurstCatalogResponseSchema.parse({

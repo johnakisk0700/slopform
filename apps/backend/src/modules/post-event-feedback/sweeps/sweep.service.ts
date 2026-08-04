@@ -1,7 +1,6 @@
-import { InjectQueue } from "@nestjs/bullmq";
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import type { Queue } from "bullmq";
+import type { ProviderMessageIngressRow } from "@join-the-six/database";
 
 import type { Environment } from "../../../infrastructure/config/environment.js";
 import { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
@@ -11,9 +10,9 @@ import {
   FEEDBACK_SWEEP_BATCH_SIZE,
   FeedbackIngressRepository,
 } from "../ingress/ingress.repository.js";
+import { FeedbackMaterializeWakeupService } from "../ingress/materialize-wakeup.service.js";
 import { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
 import { FeedbackOutboundLogService } from "../outbox/outbound-log.service.js";
-import { FEEDBACK_INGRESS_QUEUE } from "../../../infrastructure/queue/queue.constants.js";
 import { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
 import type { FeedbackConversationDocument } from "../post-event-feedback-conversation.document.js";
 import { ParticipantsRepository } from "../../participants/participants.repository.js";
@@ -25,27 +24,8 @@ import {
   resolveCampaignCopy,
   type PostEventFeedbackQuestionSetCopy,
 } from "../question-set.js";
-import {
-  createFeedbackMaterializeJobId,
-  FEEDBACK_JOB_NAMES,
-  FEEDBACK_JOB_SCHEMA_VERSION,
-  feedbackMaterializeJobDataSchema,
-  type FeedbackJobData,
-  type FeedbackJobName,
-} from "../jobs.schemas.js";
 import { PostEventFeedbackCampaignSummaryService } from "../summary/summary.service.js";
-
-export type FeedbackReminderSweepResult = {
-  readonly examined: number;
-  readonly reminded: number;
-  readonly skipped: number;
-};
-
-export type FeedbackExpirySweepResult = {
-  readonly examined: number;
-  readonly expired: number;
-  readonly skipped: number;
-};
+import { FeedbackMaintenanceCheckpointRepository } from "./maintenance-checkpoint.repository.js";
 
 export type FeedbackIngressSweepResult = {
   readonly examined: number;
@@ -54,21 +34,18 @@ export type FeedbackIngressSweepResult = {
 };
 
 /**
- * Bounded, idempotent reminder / expiry / ingress-recovery sweeps (WP7). Each
- * item reloads authoritative state before acting; nothing claims exactly-once.
+ * Planner-owned reminder/expiry transitions plus bounded ingress recovery.
+ * Every transition reloads authoritative state; nothing claims exactly-once.
  */
 @Injectable()
 export class PostEventFeedbackSweepService {
   private readonly logger = new Logger(PostEventFeedbackSweepService.name);
 
   constructor(
-    // Recovery re-enqueues materialization, which lives on the ingress queue.
-    // The sweep jobs that call this service are themselves scheduled onto
-    // FEEDBACK_QUEUE by the sweep scheduler; only the produced job moves.
-    @InjectQueue(FEEDBACK_INGRESS_QUEUE)
-    private readonly queue: Queue<FeedbackJobData, void, FeedbackJobName>,
+    private readonly materializeWakeups: FeedbackMaterializeWakeupService,
     private readonly config: ConfigService<Environment, true>,
     private readonly database: DatabaseService,
+    private readonly checkpoints: FeedbackMaintenanceCheckpointRepository,
     private readonly campaigns: FeedbackCampaignRepository,
     private readonly ingress: FeedbackIngressRepository,
     private readonly outbox: FeedbackOutboxRepository,
@@ -79,90 +56,6 @@ export class PostEventFeedbackSweepService {
     private readonly outboundLog: FeedbackOutboundLogService,
     private readonly summaries: PostEventFeedbackCampaignSummaryService,
   ) {}
-
-  async sweepReminders(
-    correlationId: string,
-    now = new Date(),
-  ): Promise<FeedbackReminderSweepResult> {
-    const reminderHours = this.config.get("FEEDBACK_REMINDER_AFTER_HOURS", {
-      infer: true,
-    });
-    const maxReminders = this.config.get("FEEDBACK_MAX_REMINDERS", {
-      infer: true,
-    });
-    // The first rung is the loosest threshold, so it selects every conversation
-    // any rung could be due for. `remindOne` picks the rung.
-    const olderThan = new Date(now.getTime() - reminderHours * 3_600_000);
-    const candidates = await this.conversations.listOpenDueForReminder({
-      olderThan,
-      maxReminders,
-      limit: FEEDBACK_SWEEP_BATCH_SIZE,
-    });
-
-    let reminded = 0;
-    let skipped = 0;
-    for (const candidate of candidates) {
-      const applied = await this.remindOne(candidate, correlationId, now, {
-        reminderHours,
-        maxReminders,
-      });
-      if (applied) {
-        reminded += 1;
-      } else {
-        skipped += 1;
-      }
-    }
-
-    this.logger.log({
-      event: "feedback.sweep.reminders",
-      correlationId,
-      examined: candidates.length,
-      reminded,
-      skipped,
-    });
-
-    return { examined: candidates.length, reminded, skipped };
-  }
-
-  async sweepExpiry(
-    correlationId: string,
-    now = new Date(),
-  ): Promise<FeedbackExpirySweepResult> {
-    const expireHours = this.config.get("FEEDBACK_EXPIRE_AFTER_HOURS", {
-      infer: true,
-    });
-    const olderThan = new Date(now.getTime() - expireHours * 3_600_000);
-    const candidates = await this.conversations.listOpenDueForExpiry({
-      olderThan,
-      limit: FEEDBACK_SWEEP_BATCH_SIZE,
-    });
-
-    let expired = 0;
-    let skipped = 0;
-    for (const candidate of candidates) {
-      const applied = await this.expireOne(
-        candidate,
-        correlationId,
-        now,
-        expireHours,
-      );
-      if (applied) {
-        expired += 1;
-      } else {
-        skipped += 1;
-      }
-    }
-
-    this.logger.log({
-      event: "feedback.sweep.expiry",
-      correlationId,
-      examined: candidates.length,
-      expired,
-      skipped,
-    });
-
-    return { examined: candidates.length, expired, skipped };
-  }
 
   /**
    * Closes WP4's documented gap: `pending` ingress rows whose materialize
@@ -179,29 +72,17 @@ export class PostEventFeedbackSweepService {
       },
     );
     const olderThan = new Date(now.getTime() - minutes * 60_000);
-    const rows = await this.ingress.listPendingIngressOlderThan(
-      olderThan,
-      FEEDBACK_SWEEP_BATCH_SIZE,
-    );
+    const rows = await this.allocatePendingIngressRecoveryPage(olderThan);
 
     let requeued = 0;
     let failed = 0;
     for (const row of rows) {
       try {
-        const data = feedbackMaterializeJobDataSchema.parse({
-          schemaVersion: FEEDBACK_JOB_SCHEMA_VERSION,
+        const jobId = await this.materializeWakeups.ensurePendingQueued({
           ingressId: row.id,
           correlationId: `${correlationId}:${row.id}`,
         });
-        await this.queue.add(FEEDBACK_JOB_NAMES.materializeV1, data, {
-          jobId: createFeedbackMaterializeJobId(row.id),
-          attempts: 5,
-          backoff: { type: "exponential", delay: 1_000 },
-          removeOnComplete: 1_000,
-          removeOnFail: 5_000,
-          stackTraceLimit: 10,
-        });
-        requeued += 1;
+        if (jobId) requeued += 1;
       } catch (error) {
         failed += 1;
         this.logger.error({
@@ -222,6 +103,100 @@ export class PostEventFeedbackSweepService {
     });
 
     return { examined: rows.length, requeued, failed };
+  }
+
+  /**
+   * Allocates one globally fair pending-ingress page before Redis publication.
+   * PostgreSQL owns both the rows and this cursor, so the row lock and keyset
+   * query share one short transaction. Processing starts only after commit: a
+   * dead worker skips forward until the finite wrap instead of pinning every
+   * replica on the same poisonous prefix.
+   */
+  private async allocatePendingIngressRecoveryPage(
+    olderThan: Date,
+  ): Promise<ProviderMessageIngressRow[]> {
+    return this.database.transaction(async (transaction) => {
+      const after = await this.checkpoints.lockPendingIngress(transaction);
+      let rows = await this.ingress.listPendingIngressOlderThan(
+        {
+          olderThan,
+          limit: FEEDBACK_SWEEP_BATCH_SIZE,
+          ...(after ? { after } : {}),
+        },
+        transaction,
+      );
+
+      if (rows.length === 0 && after) {
+        await this.checkpoints.savePendingIngress(transaction, undefined);
+        rows = await this.ingress.listPendingIngressOlderThan(
+          { olderThan, limit: FEEDBACK_SWEEP_BATCH_SIZE },
+          transaction,
+        );
+      }
+      if (rows.length === 0) {
+        return rows;
+      }
+
+      const last = rows.at(-1);
+      if (!last) {
+        throw new Error("Pending-ingress recovery page had no tail");
+      }
+      await this.checkpoints.savePendingIngress(
+        transaction,
+        rows.length < FEEDBACK_SWEEP_BATCH_SIZE
+          ? undefined
+          : { createdAt: last.createdAt, ingressId: last.id },
+      );
+      return rows;
+    });
+  }
+
+  /** Executes the planner's single reminder transition against reloaded state. */
+  async remindConversation(input: {
+    readonly conversationId: string;
+    readonly ordinal: number;
+    readonly correlationId: string;
+    readonly now?: Date;
+  }): Promise<boolean> {
+    const conversation = await this.conversations.findById(
+      input.conversationId,
+    );
+    if (!conversation || conversation.reminderCount + 1 !== input.ordinal) {
+      return false;
+    }
+    return this.remindOne(
+      conversation,
+      input.correlationId,
+      input.now ?? new Date(),
+      {
+        reminderHours: this.config.get("FEEDBACK_REMINDER_AFTER_HOURS", {
+          infer: true,
+        }),
+        maxReminders: this.config.get("FEEDBACK_MAX_REMINDERS", {
+          infer: true,
+        }),
+      },
+    );
+  }
+
+  /** Executes the planner's silent expiry transition against reloaded state. */
+  async expireConversation(input: {
+    readonly conversationId: string;
+    readonly correlationId: string;
+    readonly now?: Date;
+  }): Promise<boolean> {
+    const conversation = await this.conversations.findById(
+      input.conversationId,
+    );
+    if (!conversation) {
+      return false;
+    }
+    return this.expireOne(
+      conversation,
+      input.correlationId,
+      input.now ?? new Date(),
+      this.config.get("FEEDBACK_EXPIRE_AFTER_HOURS", { infer: true }),
+    );
   }
 
   private async remindOne(
@@ -296,6 +271,30 @@ export class PostEventFeedbackSweepService {
       participant.preferredName?.trim() || participant.emailNormalized;
 
     const reminder = await this.database.transaction(async (transaction) => {
+      // The Mongo silence check is only a snapshot. Share the webhook's
+      // per-phone PostgreSQL lock, then reject any durable inbound that was not
+      // in that snapshot. Without this fence a participant can answer between
+      // the check above and this insert and receive «please answer» afterwards.
+      await this.ingress.lockInboundPhone(
+        transaction,
+        conversation.phoneAtLaunch,
+      );
+      const newerInbound = await this.ingress.hasInboundBeyondSnapshot(
+        transaction,
+        {
+          phoneE164: conversation.phoneAtLaunch,
+          conversationId: conversation._id,
+          snapshotIngressIds: conversation.messages.flatMap((message) =>
+            message.actor === "participant" && message.ingressId
+              ? [message.ingressId]
+              : [],
+          ),
+        },
+      );
+      if (newerInbound) {
+        return undefined;
+      }
+
       const enqueued = await this.outbox.insertOutboxIfAbsent(transaction, {
         conversationId: conversation._id,
         campaignId: conversation.campaignId,
@@ -330,11 +329,15 @@ export class PostEventFeedbackSweepService {
       return enqueued;
     });
 
-    // Before `markReminded`, and whether or not this sweep inserted the row: a
+    if (!reminder) {
+      return false;
+    }
+
+    // Before `markReminded`, and whether or not this action inserted the row: a
     // crash between the committed reminder and the append leaves the counter
-    // where it was, so the next sweep re-selects the conversation, recomputes
-    // the same ordinal and repairs the transcript through the same idempotent
-    // `outboxId`. The dedupe key stops it being sent twice.
+    // where it was, so reconciliation derives the same ordinal again and
+    // repairs the transcript through the same idempotent `outboxId`. The dedupe
+    // key stops it being sent twice.
     await this.outboundTranscript.record(reminder.row, now, correlationId);
 
     await this.conversations.markReminded({
@@ -346,36 +349,11 @@ export class PostEventFeedbackSweepService {
   }
 
   private async expireOne(
-    candidate: FeedbackConversationDocument,
+    snapshot: FeedbackConversationDocument,
     correlationId: string,
     now: Date,
     expireHours: number,
   ): Promise<boolean> {
-    const conversation = await this.conversations.findById(candidate._id);
-    if (!conversation) {
-      return false;
-    }
-    if (
-      conversation.lifecycle.state !== "open" ||
-      conversation.control.mode !== "bot"
-    ) {
-      return false;
-    }
-
-    // Silence, not age. Somebody who opened WhatsApp on day three and started
-    // answering is mid conversation; closing them because the campaign is old
-    // shut the door on the rest of what they had to say.
-    if (silenceMs(conversation, now) < expireHours * 3_600_000) {
-      return false;
-    }
-
-    const campaign = await this.campaigns.findCampaignById(
-      conversation.campaignId,
-    );
-    if (!campaign || campaign.status === "closed") {
-      return false;
-    }
-
     // Deliberately no opt-in check. Expiry sends nothing — it closes the
     // conversation and cancels whatever was queued — so withholding it from a
     // participant who opted out protects nobody and costs a great deal: the row
@@ -383,43 +361,122 @@ export class PostEventFeedbackSweepService {
     // the next campaign's `createFromLaunch` throws a phone conflict on that
     // number. An opt-out is a reason to stop messaging somebody, never a reason
     // to leave their conversation open.
-    const closed = await this.conversations.close({
-      conversationId: conversation._id,
-      reason: "expired",
-      at: now,
-    });
-    if (!closed.changed) {
+    const closedCampaignId = await this.database.transaction(
+      async (transaction) => {
+        // Match provider entry's global lock order. Webhook acknowledgement
+        // takes the phone lock before committing ingress; STOP/takeover and the
+        // dispatcher share the conversation lock; pause/close takes an UPDATE
+        // lock on the campaign row. Holding all three makes expiry one ordered
+        // decision instead of three hopeful reads from different stores.
+        await this.ingress.lockInboundPhone(
+          transaction,
+          snapshot.phoneAtLaunch,
+        );
+        await this.outbox.lockConversation(transaction, snapshot._id);
+        const campaign = await this.campaigns.findCampaignByIdForShare(
+          transaction,
+          snapshot.campaignId,
+        );
+
+        // The candidate is only a MongoDB snapshot. A webhook may have durably
+        // accepted a reply or correction before materialization reaches Mongo;
+        // pending ingress counts, and a newly materialized id absent from the
+        // supplied snapshot counts too. The phone lock closes the query/close
+        // gap against the webhook insert.
+        const newerInbound = await this.ingress.hasInboundBeyondSnapshot(
+          transaction,
+          {
+            phoneE164: snapshot.phoneAtLaunch,
+            conversationId: snapshot._id,
+            snapshotIngressIds: participantIngressIds(snapshot),
+          },
+        );
+        if (newerInbound) {
+          return null;
+        }
+
+        // MongoDB is the conversation authority, so reload it only after every
+        // shared fence is held. A takeover, close, resume or newly materialized
+        // participant turn that won before these locks must be visible here.
+        const conversation = await this.conversations.findById(snapshot._id);
+        if (
+          !conversation ||
+          conversation.campaignId !== snapshot.campaignId ||
+          conversation.phoneAtLaunch !== snapshot.phoneAtLaunch ||
+          conversation.lifecycle.state !== "open" ||
+          conversation.control.mode !== "bot"
+        ) {
+          return null;
+        }
+
+        // Silence, not age. Somebody who opened WhatsApp on day three and
+        // started answering is mid-conversation; closing them because the
+        // campaign is old shuts the door on the rest of what they had to say.
+        if (silenceMs(conversation, now) < expireHours * 3_600_000) {
+          return null;
+        }
+
+        // Pause freezes the whole automation loop. The shared campaign lock
+        // pins this status through the close/cancellation transaction, so
+        // pause and expiry now have a defined winner.
+        if (!campaign || campaign.status !== "launched") {
+          return null;
+        }
+
+        // The dispatcher uses this same transaction-scoped conversation mutex
+        // for its final provider-entry marker. Expiry therefore either cancels
+        // a still-safe row first or observes that transport entry already won.
+        const transition = await this.conversations.close({
+          conversationId: conversation._id,
+          reason: "expired",
+          at: now,
+        });
+        if (!transition.changed) {
+          return null;
+        }
+        const cancelledOutboxCount =
+          await this.outbox.cancelQueuedOutboxForConversation(
+            transaction,
+            conversation._id,
+          );
+        await this.audit.append(transaction, {
+          actorType: "system",
+          actorId: "feedback_sweep",
+          action: "feedback_conversation.expired",
+          entityType: "feedback_conversation",
+          entityId: conversation._id,
+          requestId: correlationId,
+          context: {
+            campaignId: conversation.campaignId,
+            cancelledOutboxCount,
+          },
+        });
+        return conversation.campaignId;
+      },
+    );
+    if (!closedCampaignId) {
       return false;
     }
 
-    await this.database.transaction(async (transaction) => {
-      const cancelledOutboxCount =
-        await this.outbox.cancelQueuedOutboxForConversation(
-          transaction,
-          conversation._id,
-        );
-      await this.audit.append(transaction, {
-        actorType: "system",
-        actorId: "feedback_sweep",
-        action: "feedback_conversation.expired",
-        entityType: "feedback_conversation",
-        entityId: conversation._id,
-        requestId: correlationId,
-        context: {
-          campaignId: conversation.campaignId,
-          cancelledOutboxCount,
-        },
-      });
-    });
-
     await this.summaries.notifyIfLastConversationClosed(
-      conversation.campaignId,
+      closedCampaignId,
       correlationId,
       true,
     );
 
     return true;
   }
+}
+
+/** Participant ingress provenance carried by one MongoDB decision snapshot. */
+function participantIngressIds(
+  conversation: FeedbackConversationDocument,
+): string[] {
+  return conversation.messages.flatMap((message) =>
+    message.actor === "participant" && message.ingressId
+      ? [message.ingressId]
+      : [],
+  );
 }
 
 /**

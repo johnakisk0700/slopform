@@ -14,13 +14,14 @@ import { FeedbackOutboundLogService } from "../outbox/outbound-log.service.js";
 import { buildPostEventFeedbackQuestionLaunchSnapshot } from "../question-set.js";
 import type { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
 import type { FeedbackIngressRepository } from "../ingress/ingress.repository.js";
+import type { FeedbackMaterializeWakeupService } from "../ingress/materialize-wakeup.service.js";
 import type { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
 import { PostEventFeedbackSweepService } from "./sweep.service.js";
+import type {
+  FeedbackMaintenanceCheckpointRepository,
+  FeedbackPendingIngressRecoveryCursor,
+} from "./maintenance-checkpoint.repository.js";
 import { noopSummaries } from "../post-event-feedback-doubles.harness.js";
-import {
-  createFeedbackMaterializeJobId,
-  FEEDBACK_JOB_NAMES,
-} from "../jobs.schemas.js";
 
 const conversationId = "6f0f2f8a-2b73-5a02-9d0a-3f0b8f5b1c21";
 const campaignId = "89eccaa5-9ce6-4dcf-a630-5e35e4ec6f0d";
@@ -32,7 +33,6 @@ describe("PostEventFeedbackSweepService", () => {
   it("queues one reminder when there is no participant reply", async () => {
     const { service, conversations, repository, auditAppend } = createService();
     const open = openConversation();
-    conversations.listOpenDueForReminder.mockResolvedValue([open]);
     conversations.findById.mockResolvedValue(open);
     repository.findCampaignById.mockResolvedValue(launchedCampaign());
     repository.insertOutboxIfAbsent.mockResolvedValue({
@@ -46,9 +46,14 @@ describe("PostEventFeedbackSweepService", () => {
       inserted: true,
     });
 
-    const result = await service.sweepReminders("corr-1", ONE_DAY_LATER);
+    const result = await service.remindConversation({
+      conversationId,
+      ordinal: 1,
+      correlationId: "corr-1",
+      now: ONE_DAY_LATER,
+    });
 
-    expect(result).toEqual({ examined: 1, reminded: 1, skipped: 0 });
+    expect(result).toBe(true);
     expect(repository.insertOutboxIfAbsent).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
@@ -73,7 +78,6 @@ describe("PostEventFeedbackSweepService", () => {
   it("writes one reminder log with the due rung when a nudge is enqueued", async () => {
     const { service, conversations, repository } = createService();
     const open = openConversation();
-    conversations.listOpenDueForReminder.mockResolvedValue([open]);
     conversations.findById.mockResolvedValue(open);
     repository.findCampaignById.mockResolvedValue(launchedCampaign());
     repository.insertOutboxIfAbsent.mockResolvedValue({
@@ -87,7 +91,12 @@ describe("PostEventFeedbackSweepService", () => {
       inserted: true,
     });
 
-    await service.sweepReminders("corr-1", ONE_DAY_LATER);
+    await service.remindConversation({
+      conversationId,
+      ordinal: 1,
+      correlationId: "corr-1",
+      now: ONE_DAY_LATER,
+    });
 
     expect(repository.insertOutboxLogIfAbsent).toHaveBeenCalledTimes(1);
     expect(repository.insertOutboxLogIfAbsent).toHaveBeenCalledWith(
@@ -104,14 +113,13 @@ describe("PostEventFeedbackSweepService", () => {
     );
   });
 
-  it("repairs a missing reminder transcript entry on the next sweep", async () => {
+  it("repairs a missing reminder transcript entry on the next reconciliation", async () => {
     const { service, conversations, repository } = createService();
     const open = openConversation();
-    conversations.listOpenDueForReminder.mockResolvedValue([open]);
     conversations.findById.mockResolvedValue(open);
     repository.findCampaignById.mockResolvedValue(launchedCampaign());
-    // The row exists from a sweep that crashed before `markReminded`, so this
-    // sweep re-selects the conversation and finds the same row.
+    // The row exists from reconciliation that crashed before `markReminded`,
+    // so the replay resolves the same planner action and finds the same row.
     repository.insertOutboxIfAbsent.mockResolvedValue({
       row: {
         id: reminderOutboxId,
@@ -123,19 +131,23 @@ describe("PostEventFeedbackSweepService", () => {
       inserted: false,
     });
 
-    const result = await service.sweepReminders("corr-repair", new Date());
+    const result = await service.remindConversation({
+      conversationId,
+      ordinal: 1,
+      correlationId: "corr-repair",
+      now: ONE_DAY_LATER,
+    });
 
-    expect(result.reminded).toBe(0);
+    expect(result).toBe(false);
     expect(conversations.appendMessage).toHaveBeenCalledWith(
       expect.objectContaining({ actor: "bot", outboxId: reminderOutboxId }),
     );
     expect(conversations.markReminded).toHaveBeenCalled();
   });
 
-  it("does not write a duplicate reminder log when the sweep finds the same row", async () => {
+  it("does not write a duplicate reminder log when reconciliation finds the same row", async () => {
     const { service, conversations, repository } = createService();
     const open = openConversation();
-    conversations.listOpenDueForReminder.mockResolvedValue([open]);
     conversations.findById.mockResolvedValue(open);
     repository.findCampaignById.mockResolvedValue(launchedCampaign());
     repository.insertOutboxIfAbsent.mockResolvedValue({
@@ -149,7 +161,12 @@ describe("PostEventFeedbackSweepService", () => {
       inserted: false,
     });
 
-    await service.sweepReminders("corr-repair", new Date());
+    await service.remindConversation({
+      conversationId,
+      ordinal: 1,
+      correlationId: "corr-repair",
+      now: ONE_DAY_LATER,
+    });
 
     expect(repository.insertOutboxLogIfAbsent).not.toHaveBeenCalled();
   });
@@ -172,14 +189,12 @@ describe("PostEventFeedbackSweepService", () => {
         closedAt: new Date(),
       },
     };
-    conversations.listOpenDueForReminder.mockResolvedValue([
-      optedOut,
-      human,
-      closed,
-    ]);
     conversations.findById
       .mockResolvedValueOnce(optedOut)
+      .mockResolvedValueOnce(optedOut)
       .mockResolvedValueOnce(human)
+      .mockResolvedValueOnce(human)
+      .mockResolvedValueOnce(closed)
       .mockResolvedValueOnce(closed);
     repository.findCampaignById.mockResolvedValue(launchedCampaign());
     participants.findById.mockResolvedValue({
@@ -189,9 +204,28 @@ describe("PostEventFeedbackSweepService", () => {
       postEventFeedbackWhatsappOptIn: false,
     });
 
-    const result = await service.sweepReminders("corr-1", new Date());
+    const results = [
+      await service.remindConversation({
+        conversationId,
+        ordinal: 1,
+        correlationId: "corr-opted-out",
+        now: ONE_DAY_LATER,
+      }),
+      await service.remindConversation({
+        conversationId: human._id,
+        ordinal: 1,
+        correlationId: "corr-human",
+        now: ONE_DAY_LATER,
+      }),
+      await service.remindConversation({
+        conversationId: closed._id,
+        ordinal: 1,
+        correlationId: "corr-closed",
+        now: ONE_DAY_LATER,
+      }),
+    ];
 
-    expect(result).toEqual({ examined: 3, reminded: 0, skipped: 3 });
+    expect(results).toEqual([false, false, false]);
     expect(repository.insertOutboxIfAbsent).not.toHaveBeenCalled();
   });
 
@@ -200,7 +234,6 @@ describe("PostEventFeedbackSweepService", () => {
       createService();
     const stuck = openConversation();
     stuck.extraction.parkedSince = CONVERSATION_CREATED_AT;
-    conversations.listOpenDueForReminder.mockResolvedValue([stuck]);
     conversations.findById.mockResolvedValue(stuck);
     repository.findCampaignById.mockResolvedValue(launchedCampaign());
     participants.findById.mockResolvedValue({
@@ -210,35 +243,103 @@ describe("PostEventFeedbackSweepService", () => {
       postEventFeedbackWhatsappOptIn: true,
     });
 
-    const result = await service.sweepReminders("corr-1", ONE_DAY_LATER);
+    const result = await service.remindConversation({
+      conversationId,
+      ordinal: 1,
+      correlationId: "corr-1",
+      now: ONE_DAY_LATER,
+    });
 
     // Their message is sitting unread behind the cursor, quite possibly with our
     // own «δεν έχουμε δει ακόμα το μήνυμά σου» already sent. «Πες μας πώς σου
     // φάνηκε η βραδιά» a day later reads as a machine that lost what they wrote.
-    expect(result).toEqual({ examined: 1, reminded: 0, skipped: 1 });
+    expect(result).toBe(false);
     expect(repository.insertOutboxIfAbsent).not.toHaveBeenCalled();
+  });
+
+  it("drops a reminder when durable inbound lands after the Mongo silence snapshot", async () => {
+    const { service, conversations, repository } = createService();
+    const open = openConversation();
+    conversations.findById.mockResolvedValue(open);
+    repository.findCampaignById.mockResolvedValue(launchedCampaign());
+    repository.hasInboundBeyondSnapshot.mockResolvedValue(true);
+
+    const result = await service.remindConversation({
+      conversationId,
+      ordinal: 1,
+      correlationId: "corr-race",
+      now: ONE_DAY_LATER,
+    });
+
+    expect(result).toBe(false);
+    expect(repository.lockInboundPhone).toHaveBeenCalledWith(
+      expect.anything(),
+      open.phoneAtLaunch,
+    );
+    expect(repository.hasInboundBeyondSnapshot).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        phoneE164: open.phoneAtLaunch,
+        conversationId,
+        snapshotIngressIds: [],
+      },
+    );
+    expect(repository.insertOutboxIfAbsent).not.toHaveBeenCalled();
+    expect(conversations.markReminded).not.toHaveBeenCalled();
   });
 
   it("expires an open bot conversation and cancels queued sends", async () => {
     const { service, conversations, repository, auditAppend } = createService();
     const open = openConversation();
-    conversations.listOpenDueForExpiry.mockResolvedValue([open]);
     conversations.findById.mockResolvedValue(open);
     conversations.close.mockResolvedValue({
       changed: true,
       conversation: open,
     });
-    repository.findCampaignById.mockResolvedValue(launchedCampaign());
+    repository.findCampaignByIdForShare.mockResolvedValue(launchedCampaign());
     repository.cancelQueuedOutboxForConversation.mockResolvedValue(2);
 
-    const result = await service.sweepExpiry("corr-1", THREE_DAYS_LATER);
+    const result = await service.expireConversation({
+      conversationId,
+      correlationId: "corr-1",
+      now: THREE_DAYS_LATER,
+    });
 
-    expect(result).toEqual({ examined: 1, expired: 1, skipped: 0 });
+    expect(result).toBe(true);
     expect(conversations.close).toHaveBeenCalledWith({
       conversationId,
       reason: "expired",
       at: expect.any(Date),
     });
+    expect(repository.lockInboundPhone).toHaveBeenCalledWith(
+      expect.anything(),
+      open.phoneAtLaunch,
+    );
+    expect(repository.lockConversation).toHaveBeenCalledWith(
+      expect.anything(),
+      conversationId,
+    );
+    expect(repository.findCampaignByIdForShare).toHaveBeenCalledWith(
+      expect.anything(),
+      campaignId,
+    );
+    expect(repository.hasInboundBeyondSnapshot).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        phoneE164: open.phoneAtLaunch,
+        conversationId,
+        snapshotIngressIds: [],
+      },
+    );
+    const orderedCalls = [
+      repository.lockInboundPhone.mock.invocationCallOrder[0],
+      repository.lockConversation.mock.invocationCallOrder[0],
+      repository.findCampaignByIdForShare.mock.invocationCallOrder[0],
+      repository.hasInboundBeyondSnapshot.mock.invocationCallOrder[0],
+      conversations.findById.mock.invocationCallOrder[1],
+      conversations.close.mock.invocationCallOrder[0],
+    ];
+    expect(orderedCalls).toEqual([...orderedCalls].sort((a, b) => a! - b!));
     expect(repository.cancelQueuedOutboxForConversation).toHaveBeenCalled();
     expect(auditAppend).toHaveBeenCalledWith(
       expect.anything(),
@@ -246,24 +347,108 @@ describe("PostEventFeedbackSweepService", () => {
     );
   });
 
-  it("skips expiry for human control and already closed conversations", async () => {
+  it("drops expiry when staff takeover wins before the conversation lock", async () => {
     const { service, conversations, repository } = createService();
+    const snapshot = openConversation();
     const human = {
       ...openConversation(),
       control: { mode: "human", source: "staff_action", changedAt: new Date() },
     };
-    conversations.listOpenDueForExpiry.mockResolvedValue([human]);
-    conversations.findById.mockResolvedValue(human);
+    let latest = snapshot;
+    conversations.findById.mockImplementation(async () => latest);
+    repository.lockConversation.mockImplementation(async () => {
+      latest = human;
+    });
+    repository.findCampaignByIdForShare.mockResolvedValue(launchedCampaign());
 
-    const result = await service.sweepExpiry("corr-1", new Date());
+    const result = await service.expireConversation({
+      conversationId,
+      correlationId: "corr-takeover",
+      now: THREE_DAYS_LATER,
+    });
 
-    expect(result).toEqual({ examined: 1, expired: 0, skipped: 1 });
+    expect(result).toBe(false);
+    expect(repository.lockConversation).toHaveBeenCalled();
+    expect(
+      repository.lockConversation.mock.invocationCallOrder[0],
+    ).toBeLessThan(conversations.findById.mock.invocationCallOrder[1]!);
     expect(conversations.close).not.toHaveBeenCalled();
     expect(repository.cancelQueuedOutboxForConversation).not.toHaveBeenCalled();
   });
 
+  it.each(["paused", "closed"] as const)(
+    "freezes expiry while the campaign is %s",
+    async (status) => {
+      const { service, conversations, repository } = createService();
+      const snapshot = openConversation();
+      conversations.findById.mockResolvedValue(snapshot);
+      repository.findCampaignByIdForShare.mockResolvedValue({
+        ...launchedCampaign(),
+        status,
+      });
+
+      const result = await service.expireConversation({
+        conversationId,
+        correlationId: `corr-campaign-${status}`,
+        now: THREE_DAYS_LATER,
+      });
+
+      expect(result).toBe(false);
+      expect(repository.findCampaignByIdForShare).toHaveBeenCalledWith(
+        expect.anything(),
+        campaignId,
+      );
+      expect(conversations.close).not.toHaveBeenCalled();
+      expect(
+        repository.cancelQueuedOutboxForConversation,
+      ).not.toHaveBeenCalled();
+    },
+  );
+
+  it("drops expiry for pending inbound or a correction beyond its Mongo snapshot", async () => {
+    const { service, conversations, repository } = createService();
+    const snapshot = {
+      ...openConversation(),
+      messages: [
+        {
+          id: "da43e49c-fc88-4930-aefd-96c706c4ba7d",
+          seq: 1,
+          actor: "participant",
+          text: "4, και τελικά 5",
+          providerMessageId: "wamid.snapshot",
+          ingressId,
+          outboxId: null,
+          attention: null,
+          at: CONVERSATION_CREATED_AT,
+        },
+      ],
+    };
+    conversations.findById.mockResolvedValue(snapshot);
+    repository.findCampaignByIdForShare.mockResolvedValue(launchedCampaign());
+    repository.hasInboundBeyondSnapshot.mockResolvedValue(true);
+
+    const result = await service.expireConversation({
+      conversationId,
+      correlationId: "corr-new-inbound",
+      now: THREE_DAYS_LATER,
+    });
+
+    expect(result).toBe(false);
+    expect(repository.hasInboundBeyondSnapshot).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        phoneE164: snapshot.phoneAtLaunch,
+        conversationId,
+        snapshotIngressIds: [ingressId],
+      },
+    );
+    expect(conversations.findById).toHaveBeenCalledTimes(1);
+    expect(conversations.close).not.toHaveBeenCalled();
+  });
+
   it("re-enqueues stuck pending ingress rows under the stable job id", async () => {
-    const { service, repository, queue } = createService();
+    const { service, repository, materializeWakeups, checkpoints } =
+      createService();
     const stuckAt = new Date("2026-07-25T00:00:00.000Z");
     repository.listPendingIngressOlderThan.mockResolvedValue([
       {
@@ -280,20 +465,23 @@ describe("PostEventFeedbackSweepService", () => {
 
     expect(result).toEqual({ examined: 1, requeued: 1, failed: 0 });
     expect(repository.listPendingIngressOlderThan).toHaveBeenCalledWith(
-      new Date("2026-07-25T00:05:00.000Z"),
-      50,
+      {
+        olderThan: new Date("2026-07-25T00:05:00.000Z"),
+        limit: 50,
+      },
+      expect.anything(),
     );
-    expect(queue.add).toHaveBeenCalledWith(
-      FEEDBACK_JOB_NAMES.materializeV1,
-      expect.objectContaining({ ingressId }),
-      expect.objectContaining({
-        jobId: createFeedbackMaterializeJobId(ingressId),
-      }),
+    expect(checkpoints.savePendingIngress).toHaveBeenCalledBefore(
+      materializeWakeups.ensurePendingQueued,
     );
+    expect(materializeWakeups.ensurePendingQueued).toHaveBeenCalledWith({
+      ingressId,
+      correlationId: `corr-1:${ingressId}`,
+    });
   });
 
   it("leaves fresh pending ingress rows untouched", async () => {
-    const { service, repository, queue } = createService();
+    const { service, repository, materializeWakeups } = createService();
     repository.listPendingIngressOlderThan.mockResolvedValue([]);
 
     const now = new Date("2026-07-25T00:10:00.000Z");
@@ -301,10 +489,90 @@ describe("PostEventFeedbackSweepService", () => {
 
     expect(result).toEqual({ examined: 0, requeued: 0, failed: 0 });
     expect(repository.listPendingIngressOlderThan).toHaveBeenCalledWith(
-      new Date("2026-07-25T00:05:00.000Z"),
-      50,
+      {
+        olderThan: new Date("2026-07-25T00:05:00.000Z"),
+        limit: 50,
+      },
+      expect.anything(),
     );
-    expect(queue.add).not.toHaveBeenCalled();
+    expect(materializeWakeups.ensurePendingQueued).not.toHaveBeenCalled();
+  });
+
+  it("reports a terminal-job repair race as failed so maintenance retries it", async () => {
+    const { service, repository, materializeWakeups } = createService();
+    repository.listPendingIngressOlderThan.mockResolvedValue([
+      {
+        id: ingressId,
+        processingStatus: "pending",
+        createdAt: new Date("2026-07-25T00:00:00.000Z"),
+      },
+    ]);
+    materializeWakeups.ensurePendingQueued.mockRejectedValue(
+      new Error("terminal removal lost an unresolved race"),
+    );
+
+    await expect(
+      service.sweepIngress("corr-race", new Date("2026-07-25T00:10:00.000Z")),
+    ).resolves.toEqual({ examined: 1, requeued: 0, failed: 1 });
+  });
+
+  it("passes 50 poison rows after an allocated-page crash and wraps finitely", async () => {
+    const { service, repository, materializeWakeups } = createService();
+    const rows = Array.from({ length: 51 }, (_, index) =>
+      pendingIngress(index + 1),
+    );
+    repository.listPendingIngressOlderThan.mockImplementation(
+      async (input: {
+        olderThan: Date;
+        limit: number;
+        after?: FeedbackPendingIngressRecoveryCursor;
+      }) =>
+        rows
+          .filter(
+            (row) =>
+              row.createdAt <= input.olderThan &&
+              (!input.after ||
+                row.createdAt > input.after.createdAt ||
+                (row.createdAt.getTime() === input.after.createdAt.getTime() &&
+                  row.id > input.after.ingressId)),
+          )
+          .slice(0, input.limit),
+    );
+    materializeWakeups.ensurePendingQueued.mockImplementation(
+      async ({ ingressId: candidateId }: { ingressId: string }) => {
+        if (candidateId !== rows[50]?.id) {
+          throw new Error("poison ingress");
+        }
+        return `feedback-materialize-v1-${candidateId}`;
+      },
+    );
+
+    // The process commits allocation of rows 1..50 and dies before publishing.
+    const allocated = await (
+      service as unknown as {
+        allocatePendingIngressRecoveryPage(olderThan: Date): Promise<unknown[]>;
+      }
+    ).allocatePendingIngressRecoveryPage(INGRESS_RECOVERY_CUTOFF);
+    expect(allocated).toHaveLength(50);
+    expect(materializeWakeups.ensurePendingQueued).not.toHaveBeenCalled();
+
+    // A new pass/replica starts beyond that committed page and reaches row 51.
+    await expect(
+      service.sweepIngress("after-crash", INGRESS_RECOVERY_NOW),
+    ).resolves.toEqual({ examined: 1, requeued: 1, failed: 0 });
+    expect(materializeWakeups.ensurePendingQueued).toHaveBeenCalledWith({
+      ingressId: rows[50]?.id,
+      correlationId: `after-crash:${rows[50]?.id}`,
+    });
+
+    materializeWakeups.ensurePendingQueued.mockClear();
+    await expect(
+      service.sweepIngress("after-wrap", INGRESS_RECOVERY_NOW),
+    ).resolves.toEqual({ examined: 50, requeued: 0, failed: 50 });
+    expect(materializeWakeups.ensurePendingQueued).toHaveBeenCalledWith({
+      ingressId: rows[0]?.id,
+      correlationId: `after-wrap:${rows[0]?.id}`,
+    });
   });
 });
 
@@ -313,12 +581,23 @@ const CONVERSATION_CREATED_AT = new Date("2026-07-24T00:00:00.000Z");
 const ONE_DAY_LATER = new Date("2026-07-25T00:00:00.000Z");
 /** Exactly the expiry threshold of silence. */
 const THREE_DAYS_LATER = new Date("2026-07-27T00:00:00.000Z");
+const INGRESS_RECOVERY_NOW = new Date("2026-07-25T00:10:00.000Z");
+const INGRESS_RECOVERY_CUTOFF = new Date("2026-07-25T00:05:00.000Z");
+
+function pendingIngress(ordinal: number) {
+  return {
+    id: `00000000-0000-4000-8000-${String(ordinal).padStart(12, "0")}`,
+    processingStatus: "pending" as const,
+    createdAt: new Date(INGRESS_RECOVERY_CUTOFF.getTime() - 60_000 + ordinal),
+  };
+}
 
 function openConversation() {
   return {
     _id: conversationId,
     campaignId,
     respondentParticipantId: participantId,
+    phoneAtLaunch: "+306900000001",
     lifecycle: { state: "open", reason: null, closedAt: null },
     control: {
       mode: "bot",
@@ -355,8 +634,6 @@ function launchedCampaign() {
 function createService(): {
   service: PostEventFeedbackSweepService;
   conversations: {
-    listOpenDueForReminder: ReturnType<typeof vi.fn>;
-    listOpenDueForExpiry: ReturnType<typeof vi.fn>;
     findById: ReturnType<typeof vi.fn>;
     markReminded: ReturnType<typeof vi.fn>;
     close: ReturnType<typeof vi.fn>;
@@ -364,22 +641,28 @@ function createService(): {
   };
   repository: {
     findCampaignById: ReturnType<typeof vi.fn>;
+    findCampaignByIdForShare: ReturnType<typeof vi.fn>;
     insertOutboxIfAbsent: ReturnType<typeof vi.fn>;
     insertOutboxLogIfAbsent: ReturnType<typeof vi.fn>;
     cancelQueuedOutboxForConversation: ReturnType<typeof vi.fn>;
+    lockConversation: ReturnType<typeof vi.fn>;
     listPendingIngressOlderThan: ReturnType<typeof vi.fn>;
+    lockInboundPhone: ReturnType<typeof vi.fn>;
+    hasInboundBeyondSnapshot: ReturnType<typeof vi.fn>;
   };
   participants: {
     findById: ReturnType<typeof vi.fn>;
   };
-  queue: {
-    add: ReturnType<typeof vi.fn>;
+  materializeWakeups: {
+    ensurePendingQueued: ReturnType<typeof vi.fn>;
+  };
+  checkpoints: {
+    lockPendingIngress: ReturnType<typeof vi.fn>;
+    savePendingIngress: ReturnType<typeof vi.fn>;
   };
   auditAppend: ReturnType<typeof vi.fn>;
 } {
   const conversations = {
-    listOpenDueForReminder: vi.fn().mockResolvedValue([]),
-    listOpenDueForExpiry: vi.fn().mockResolvedValue([]),
     findById: vi.fn(),
     markReminded: vi.fn().mockResolvedValue({ changed: true }),
     close: vi.fn(),
@@ -389,13 +672,17 @@ function createService(): {
   };
   const repository = {
     findCampaignById: vi.fn(),
+    findCampaignByIdForShare: vi.fn(),
     insertOutboxIfAbsent: vi.fn(),
     insertOutboxLogIfAbsent: vi.fn().mockResolvedValue({
       row: { id: "log-1" },
       inserted: true,
     }),
     cancelQueuedOutboxForConversation: vi.fn().mockResolvedValue(0),
+    lockConversation: vi.fn().mockResolvedValue(undefined),
     listPendingIngressOlderThan: vi.fn().mockResolvedValue([]),
+    lockInboundPhone: vi.fn().mockResolvedValue(undefined),
+    hasInboundBeyondSnapshot: vi.fn().mockResolvedValue(false),
   };
   const participants = {
     findById: vi.fn().mockResolvedValue({
@@ -405,7 +692,11 @@ function createService(): {
       postEventFeedbackWhatsappOptIn: true,
     }),
   };
-  const queue = { add: vi.fn().mockResolvedValue({ id: "job-1" }) };
+  const materializeWakeups = {
+    ensurePendingQueued: vi
+      .fn()
+      .mockResolvedValue(`feedback-materialize-v1-${ingressId}`),
+  };
   const auditAppend = vi.fn().mockResolvedValue(undefined);
   const config = {
     get: vi.fn((key: keyof Environment) => {
@@ -421,12 +712,14 @@ function createService(): {
       work({}),
     ),
   };
+  const checkpoints = pendingIngressCheckpointDouble();
 
   return {
     service: new PostEventFeedbackSweepService(
-      queue as never,
+      materializeWakeups as unknown as FeedbackMaterializeWakeupService,
       config as unknown as ConfigService<Environment, true>,
       database as unknown as DatabaseService,
+      checkpoints as unknown as FeedbackMaintenanceCheckpointRepository,
       repository as unknown as FeedbackCampaignRepository,
       repository as unknown as FeedbackIngressRepository,
       repository as unknown as FeedbackOutboxRepository,
@@ -446,7 +739,30 @@ function createService(): {
     conversations,
     repository,
     participants,
-    queue,
+    materializeWakeups,
+    checkpoints,
     auditAppend,
+  };
+}
+
+function pendingIngressCheckpointDouble(
+  initial?: FeedbackPendingIngressRecoveryCursor,
+): {
+  readonly lockPendingIngress: ReturnType<typeof vi.fn>;
+  readonly savePendingIngress: ReturnType<typeof vi.fn>;
+} {
+  let cursor = initial;
+  return {
+    lockPendingIngress: vi.fn().mockImplementation(async () => cursor),
+    savePendingIngress: vi
+      .fn()
+      .mockImplementation(
+        async (
+          _transaction: unknown,
+          next: FeedbackPendingIngressRecoveryCursor | undefined,
+        ) => {
+          cursor = next;
+        },
+      ),
   };
 }

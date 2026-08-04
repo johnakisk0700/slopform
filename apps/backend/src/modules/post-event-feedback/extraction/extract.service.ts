@@ -6,6 +6,7 @@ import type {
   FeedbackExtractionMeta,
   FeedbackNoteType,
   MessageOutboxRow,
+  MessageOutboxStatus,
 } from "@join-the-six/database";
 
 import { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
@@ -67,17 +68,31 @@ import {
 } from "./validate-proposal.js";
 import {
   FeedbackExtractionGenerationError,
+  FeedbackProviderCallGuardError,
   PostEventFeedbackExtractionModel,
   combineFeedbackExtractionUsage,
   type FeedbackExtractionUsage,
 } from "./model.service.js";
 import { FEEDBACK_EXTRACT_QUIET_WINDOW_MS } from "../jobs.schemas.js";
-import type { FeedbackExtractionContext } from "./extraction.schemas.js";
+import {
+  createFeedbackClosingDedupeKey,
+  FEEDBACK_CLOSING_DEDUPE_PREFIX,
+  type FeedbackExtractionContext,
+} from "./extraction.schemas.js";
 import {
   buildFeedbackExtractionPrompt,
   estimatePromptTokens,
 } from "./prompt.js";
 import { PostEventFeedbackCampaignSummaryService } from "../summary/summary.service.js";
+import type { FeedbackConversationExecutionClaim } from "./execution-fence.repository.js";
+import { FeedbackConversationExecutionFence } from "./execution-fence.service.js";
+
+const FEEDBACK_MODEL_VISIBLE_OUTBOX_STATUSES = new Set<MessageOutboxStatus>([
+  "attempting",
+  "ambiguous",
+  "sending",
+  "sent",
+]);
 
 export class PostEventFeedbackConversationNotFoundError extends Error {
   constructor(conversationId: string) {
@@ -93,9 +108,37 @@ export class PostEventFeedbackCampaignNotFoundError extends Error {
   }
 }
 
+export const FEEDBACK_CONVERSATION_EXECUTION_GUARD_REASONS = [
+  "authoritative_state_changed",
+  "execution_claim_lost",
+  "execution_invariant_broken",
+] as const;
+
+export type FeedbackConversationExecutionGuardReason =
+  (typeof FEEDBACK_CONVERSATION_EXECUTION_GUARD_REASONS)[number];
+
+/**
+ * Stops one provider/effects boundary without laundering orchestration state
+ * into a model-generation failure.
+ *
+ * The queue adapter decides terminal behavior from `reason`: an ordinary state
+ * change is a successful supersession, a lost lease remains retryable, and an
+ * impossible cross-store shape is quarantined as unrecoverable.
+ */
+export class FeedbackConversationExecutionGuardError extends FeedbackProviderCallGuardError {
+  constructor(
+    conversationId: string,
+    readonly reason: FeedbackConversationExecutionGuardReason,
+  ) {
+    super(`Feedback execution guard rejected ${conversationId}: ${reason}`);
+    this.name = FeedbackConversationExecutionGuardError.name;
+  }
+}
+
 export interface ExtractFeedbackInput {
   readonly conversationId: string;
   readonly correlationId: string;
+  readonly executionClaim?: FeedbackConversationExecutionClaim;
 }
 
 export interface ExtractFeedbackResult {
@@ -109,14 +152,14 @@ export interface ExtractFeedbackResult {
 }
 
 /**
- * `feedback.extract.v1` — the model turn of the post-event feedback loop.
+ * The model turn selected by conversation reconciliation.
  *
- * The run is serialized per conversation by the queue's deterministic job id
- * (`feedback-extract-v1-<conversationId>-<latestSeq>`) and made replay-safe by
- * the MongoDB extraction cursor. It reloads every authoritative fact, selects
- * candidates **live** from current attendance (D16), asks the model for a
- * proposal, validates that proposal against the domain rules and only then
- * writes anything.
+ * Steady-state runs are serialized by the PostgreSQL execution fence for the
+ * exact MongoDB work revision; the deterministic V1 job identity remains only
+ * in the rollout bridge. The MongoDB extraction cursor makes either path
+ * replay-safe. The run reloads authoritative state, selects candidates **live**
+ * from current attendance (D16), asks the model for a proposal, validates that
+ * proposal against the domain rules and only then writes anything.
  *
  * Store order is PostgreSQL first, MongoDB cursor last, and deliberately so.
  * The cursor is the idempotency fence: advancing it before the results were
@@ -147,6 +190,7 @@ export class PostEventFeedbackExtractor {
     @Inject(FEEDBACK_OPERATOR_ALERT)
     private readonly alert: FeedbackOperatorAlert,
     private readonly summaries: PostEventFeedbackCampaignSummaryService,
+    private readonly executionFence: FeedbackConversationExecutionFence,
   ) {}
 
   async extract(input: ExtractFeedbackInput): Promise<ExtractFeedbackResult> {
@@ -210,6 +254,33 @@ export class PostEventFeedbackExtractor {
     if (!campaign) {
       throw new PostEventFeedbackCampaignNotFoundError(conversation.campaignId);
     }
+    if (campaign.status !== "launched") {
+      return this.complete(
+        {
+          outcome: "skipped_campaign_inactive",
+          conversationId: conversation._id,
+          cursorSeq: conversation.extraction.cursorSeq,
+          answersWritten: 0,
+          notesWritten: 0,
+        },
+        input.correlationId,
+      );
+    }
+    const currentParticipant = await this.participants.findById(
+      conversation.respondentParticipantId,
+    );
+    if (!currentParticipant?.postEventFeedbackWhatsappOptIn) {
+      return this.complete(
+        {
+          outcome: "skipped_consent_withdrawn",
+          conversationId: conversation._id,
+          cursorSeq: conversation.extraction.cursorSeq,
+          answersWritten: 0,
+          notesWritten: 0,
+        },
+        input.correlationId,
+      );
+    }
 
     const context = await this.buildContext(conversation, campaign);
     const copy = resolveCampaignCopy(
@@ -218,17 +289,30 @@ export class PostEventFeedbackExtractor {
     );
     const prompt = buildFeedbackExtractionPrompt({ context, copy });
     const estimatedPromptTokens = estimatePromptTokens(prompt);
+    const executionClaim = input.executionClaim;
+    const beforeProviderCall = executionClaim
+      ? () => this.assertExecutionCurrent(executionClaim, conversation)
+      : undefined;
 
-    const [generated, attention] = await Promise.all([
-      this.generation.propose(
-        prompt,
-        context.goals.map((goal) => goal.key),
-      ),
-      this.generation.classifyAttention(
-        context.messages,
-        context.newParticipantMessageIds,
-      ),
-    ]);
+    const questionKeys = context.goals.map((goal) => goal.key);
+    const [generated, attention] = await Promise.all(
+      beforeProviderCall
+        ? [
+            this.generation.propose(prompt, questionKeys, beforeProviderCall),
+            this.generation.classifyAttention(
+              context.messages,
+              context.newParticipantMessageIds,
+              beforeProviderCall,
+            ),
+          ]
+        : [
+            this.generation.propose(prompt, questionKeys),
+            this.generation.classifyAttention(
+              context.messages,
+              context.newParticipantMessageIds,
+            ),
+          ],
+    );
     this.metrics.recordExtractTokens(
       {
         phase: "feedback_extraction",
@@ -313,8 +397,8 @@ export class PostEventFeedbackExtractor {
     // The two signals that end the questionnaire outright, as opposed to
     // flagging it. Both mean the same thing — from here a person is answering,
     // not the bot — so both hand control over, which is the existing brake:
-    // `skipOutcome` refuses to run under human control and the reminder sweep
-    // refuses to nudge a flagged conversation.
+    // `skipOutcome` refuses to run under human control and the planner refuses
+    // to nudge a flagged conversation.
     const urgentSafety = validated.safetySignals.some(
       (signal) => signal.recommendedAction === "urgent_human_follow_up",
     );
@@ -414,46 +498,71 @@ export class PostEventFeedbackExtractor {
     // effort. Only text the outbound policy would genuinely forward is handed
     // to the low-effort conversational writer. Fixed handoff, safety,
     // questionnaire and closing copy never buys this extra call.
+    let replyRewriteSuperseded = false;
     if (resolvedOutbound?.generatedByModel && validated.reply) {
-      const rewritten = await this.generation.rewriteReply(
-        prompt,
-        validated.reply,
-      );
-      runUsages.push(rewritten.usage);
-      this.metrics.recordExtractTokens(
-        {
-          phase: "feedback_reply",
-          model: rewritten.model,
-          estimatedPromptTokens: rewritten.estimatedPromptTokens,
-          inputTokens: rewritten.usage.inputTokens,
-          outputTokens: rewritten.usage.outputTokens,
-          totalTokens: rewritten.usage.totalTokens,
-        },
-        input.correlationId,
-      );
-      if (rewritten.reply === null) {
-        // Deliberately do not re-resolve with `reply: null`: that path may
-        // manufacture campaign-copy fallback text, including the same question
-        // that just failed. A failed writer means silence for this turn.
-        resolvedOutbound = undefined;
-        this.logger.warn({
-          event: "feedback.extract.reply_withheld",
-          correlationId: input.correlationId,
-          conversationId: conversation._id,
-          reason: "reply_generation_failed",
-        });
-      } else {
-        validated = { ...validated, reply: rewritten.reply };
-        resolvedOutbound = resolveOutbound(
-          conversation,
-          validated,
-          progressClosing,
-          urgentSafety,
-          testimonySeq,
-          copy,
-          recordedStatuses,
-          stoppingForHostility,
+      try {
+        const rewritten = beforeProviderCall
+          ? await this.generation.rewriteReply(
+              prompt,
+              validated.reply,
+              beforeProviderCall,
+            )
+          : await this.generation.rewriteReply(prompt, validated.reply);
+        runUsages.push(rewritten.usage);
+        this.metrics.recordExtractTokens(
+          {
+            phase: "feedback_reply",
+            model: rewritten.model,
+            estimatedPromptTokens: rewritten.estimatedPromptTokens,
+            inputTokens: rewritten.usage.inputTokens,
+            outputTokens: rewritten.usage.outputTokens,
+            totalTokens: rewritten.usage.totalTokens,
+          },
+          input.correlationId,
         );
+        if (rewritten.reply === null) {
+          // Deliberately do not re-resolve with `reply: null`: that path may
+          // manufacture campaign-copy fallback text, including the same question
+          // that just failed. A failed writer means silence for this turn.
+          resolvedOutbound = undefined;
+          this.logger.warn({
+            event: "feedback.extract.reply_withheld",
+            correlationId: input.correlationId,
+            conversationId: conversation._id,
+            reason: "reply_generation_failed",
+          });
+        } else {
+          validated = { ...validated, reply: rewritten.reply };
+          resolvedOutbound = resolveOutbound(
+            conversation,
+            validated,
+            progressClosing,
+            urgentSafety,
+            testimonySeq,
+            copy,
+            recordedStatuses,
+            stoppingForHostility,
+          );
+        }
+      } catch (error) {
+        if (
+          error instanceof FeedbackConversationExecutionGuardError &&
+          error.reason === "authoritative_state_changed"
+        ) {
+          // Extraction and attention have already crossed the provider boundary.
+          // Keep their valid structured results, but do not buy or manufacture
+          // participant-facing copy for a snapshot current state superseded.
+          replyRewriteSuperseded = true;
+          resolvedOutbound = undefined;
+          this.logger.log({
+            event: "feedback.extract.reply_withheld",
+            correlationId: input.correlationId,
+            conversationId: conversation._id,
+            reason: "authoritative_state_changed_before_reply_rewrite",
+          });
+        } else {
+          throw error;
+        }
       }
     }
     const runUsage = combineFeedbackExtractionUsage(runUsages);
@@ -489,18 +598,14 @@ export class PostEventFeedbackExtractor {
       ? await this.reviewBeforeSending({
           conversation,
           cursorSeq,
-          // Only an ordinary conversational reply may be dropped for being
-          // superseded. Completion and handoff are application commitments with
-          // their own copy: the first closes the conversation, after which no
-          // later run can speak at all, and the second promises a human.
-          // Swallowing either leaves the participant waiting for a message that
-          // is never coming.
-          //
-          // The hostility exit line is the third such commitment, and the worst
-          // one to lose: `awaitingHuman` silences every run after this, so a line
-          // dropped for being superseded would leave somebody abusive answered by
-          // nothing at all and no explanation of why the bot went quiet.
-          ordinaryReply,
+          // Ordinary copy and a completion/decline decision are stale when the
+          // participant has already added testimony. Handoff/safety/hostility
+          // commitments survive: those stop automation for a person and do not
+          // claim that the enlarged questionnaire is finished.
+          staleOnNewerTestimony: ordinaryReply || progressClosing,
+          ...(input.executionClaim
+            ? { executionClaim: input.executionClaim }
+            : {}),
         })
       : undefined;
     if (withheld) {
@@ -604,32 +709,59 @@ export class PostEventFeedbackExtractor {
     // this: a withdrawal keeps the conversation open because the bot gave up
     // rather than the participant, hostility keeps it open for an operator, and
     // a STOP is a consent decision rather than an answer to these questions.
-    let closingReason: "completed" | "declined" | null = closingNow
-      ? answeredAnything(conversation, validated)
-        ? "completed"
-        : "declined"
-      : null;
+    let closingReason: "completed" | "declined" | null =
+      closingNow && !(progressClosing && withheld)
+        ? answeredAnything(conversation, validated)
+          ? "completed"
+          : "declined"
+        : null;
+    if (replyRewriteSuperseded) {
+      closingReason = null;
+    }
+    // Resolution deliberately happens before the lifecycle decision: a
+    // model-authored goodbye can still turn out to be a withdrawal and must
+    // retain its ordinary, dispatchable key. Once the final decision is
+    // terminal, however, every flavour of closing copy must join the anchored
+    // closing commitment used by replay suppression and the dispatcher.
+    const outboundForPersistence =
+      closingReason !== null && sentOutbound
+        ? {
+            ...sentOutbound,
+            dedupeKey: createFeedbackClosingDedupeKey(
+              conversation._id,
+              testimonySeq,
+              input.executionClaim?.workRevision,
+            ),
+          }
+        : sentOutbound;
 
     const written = await this.persist({
       conversation,
       campaign,
       context,
       validated,
-      outbound: sentOutbound,
+      outbound: outboundForPersistence,
       ordinaryReply,
       model: generated.model,
       correlationId: input.correlationId,
       closingReason,
       goalStatuses,
+      ...(input.executionClaim ? { executionClaim: input.executionClaim } : {}),
     });
 
-    if (written.outboundSuppressedByNewerIngress) {
+    if (
+      written.outboundSuppressedByNewerIngress ||
+      written.executionSuperseded
+    ) {
+      const suppressionReason = written.executionSuperseded
+        ? "superseded_by_newer_work"
+        : "superseded_by_durable_ingress";
       this.logger.log({
         event: "feedback.extract.outbound_withheld",
         correlationId: input.correlationId,
         conversationId: conversation._id,
         cursorSeq,
-        reason: "superseded_by_durable_ingress",
+        reason: suppressionReason,
       });
       goalStatuses = withAskedGoal(recordedStatuses, undefined);
       withdrew =
@@ -662,34 +794,89 @@ export class PostEventFeedbackExtractor {
         !withdrew &&
         !stoppingForHostility &&
         !hostileWithoutAnswers;
-      closingReason = closesAfterFence
-        ? answeredAnything(conversation, validated)
-          ? "completed"
-          : "declined"
-        : null;
+      // The PostgreSQL ingress fence can see a fragment before MongoDB does.
+      // Persist the valid snapshot results, but never close the conversation
+      // over testimony the run did not read; the newer durable work revision
+      // will reconcile that fragment next.
+      closingReason = closingReason
+        ? null
+        : closesAfterFence
+          ? answeredAnything(conversation, validated)
+            ? "completed"
+            : "declined"
+          : null;
     }
 
-    // Between the PostgreSQL commit and the cursor advance, so a crash replays
-    // the whole run and repairs the transcript through the same `outboxId`. The
-    // stored row's body is used rather than `outbound.body`: a replay may
-    // produce different reply text while `insertOutboxIfAbsent` returns the
-    // row that was actually enqueued and will actually be sent.
-    if (written.outbox) {
+    if (written.outboundSuppressedByLegacyClosing) {
+      this.logger.warn({
+        event: "feedback.extract.legacy_closing_provider_crossed",
+        correlationId: input.correlationId,
+        conversationId: conversation._id,
+      });
+      // The V1 row may already have reached WhatsApp. A second closing message
+      // is forbidden, but treating an uncertain send as a clean completion is
+      // equally dishonest. Keep the aggregate open, consume this testimony and
+      // park it for an operator with the standard undelivered-message reason.
+      closingReason = null;
+    }
+
+    if (
+      input.executionClaim &&
+      !(await this.executionFence.assertCurrent(input.executionClaim))
+    ) {
+      throw new FeedbackConversationExecutionGuardError(
+        conversation._id,
+        "execution_claim_lost",
+      );
+    }
+
+    if (written.outboundSuppressedByLegacyClosing) {
+      const at = new Date();
+      await this.conversations.raiseAttention({
+        conversationId: conversation._id,
+        kind: "undelivered_message",
+        messageId: null,
+        at,
+      });
+    }
+
+    // Nonterminal copy is recorded before the cursor, so a crash replays and
+    // repairs the same outbox id. Terminal copy waits for the atomic MongoDB
+    // close below; the dispatcher applies the same lifecycle guard, so a row
+    // can never announce completion while the aggregate is still open.
+    let effectiveOutbox = written.outbox;
+    if (effectiveOutbox && closingReason === null) {
       await this.outboundTranscript.record(
-        written.outbox,
+        effectiveOutbox,
         new Date(),
         input.correlationId,
       );
     }
 
-    const closed = await this.applyConversationState({
+    const terminalReason = closingReason;
+    const state = await this.applyConversationState({
       conversation,
       validated,
       goalStatuses,
       closingReason,
+      terminalOutboxId:
+        closingReason !== null ? (effectiveOutbox?.id ?? null) : null,
       dutyOfCare,
       withdrew,
       hostility,
+      awaitingHuman:
+        written.outboundSuppressedByLegacyClosing ||
+        dutyOfCare ||
+        withdrew ||
+        hostility === "stopped",
+      handoffOutboxId:
+        closingReason === null &&
+        (written.outboundSuppressedByLegacyClosing ||
+          dutyOfCare ||
+          withdrew ||
+          hostility === "stopped")
+          ? (effectiveOutbox?.id ?? null)
+          : null,
       hostileTurn,
       priorHostileTurns: conversation.hostileTurns,
       newestParticipantMessageId:
@@ -701,12 +888,34 @@ export class PostEventFeedbackExtractor {
       usage: runUsage,
       serviceTier: this.generation.serviceTier ?? null,
       correlationId: input.correlationId,
+      workSuperseded: written.executionSuperseded || replyRewriteSuperseded,
+      ...(input.executionClaim ? { executionClaim: input.executionClaim } : {}),
     });
+
+    if (effectiveOutbox && terminalReason !== null) {
+      if (state.terminalCommitted) {
+        await this.outboundTranscript.record(
+          effectiveOutbox,
+          new Date(),
+          input.correlationId,
+        );
+      } else {
+        await this.database.transaction((transaction) =>
+          this.outbox.cancelQueuedOutboxById(
+            transaction,
+            effectiveOutbox!.id,
+            "terminal_snapshot_superseded",
+          ),
+        );
+        effectiveOutbox = undefined;
+        closingReason = null;
+      }
+    }
 
     await this.summaries.notifyIfLastConversationClosed(
       conversation.campaignId,
       input.correlationId,
-      closed,
+      state.closedNow,
     );
 
     return this.complete(
@@ -720,7 +929,7 @@ export class PostEventFeedbackExtractor {
         cursorSeq,
         answersWritten: written.answersWritten,
         notesWritten: written.notesWritten,
-        ...(written.outbox ? { outboxId: written.outbox.id } : {}),
+        ...(effectiveOutbox ? { outboxId: effectiveOutbox.id } : {}),
         model: generated.model,
       },
       input.correlationId,
@@ -760,14 +969,14 @@ export class PostEventFeedbackExtractor {
   /**
    * The burst is not over yet, so this run stands down for the one behind it.
    *
-   * The quiet window is leading-edge: the *first* message of a burst starts a
-   * clock, and every message after it starts another. Somebody typing a
-   * fragment every twenty-five seconds therefore had a run come due while they
-   * were still mid-thought, and got a reply per fragment — the exact behaviour
-   * the window was added to stop, just moved along by one gap.
+   * Native V2 work already moves one durable due time after every fragment.
+   * This check remains as a defensive fence for retained V1 wake-ups and work
+   * scheduled by an older binary, whose fixed due time may arrive while the
+   * participant is still typing.
    *
-   * Deferring here converts the fixed window into a real settle: a run only
-   * proceeds once nothing new has arrived for a full window. It costs nothing,
+   * Deferring an early wake converts that old fixed window into a real settle:
+   * a run only proceeds once nothing new has arrived for a full window. It
+   * costs nothing,
    * because the message that made this run early has already queued a run of
    * its own, further out, and that one reads everything this one would have.
    *
@@ -792,23 +1001,49 @@ export class PostEventFeedbackExtractor {
     // D16: selected now, from current attendance. The conversation stores no
     // candidate list, so «ξεχάσαμε τη Ρούλα» reaches this turn as soon as
     // attendance is corrected.
-    const [candidates, acceptedAnswers, acceptedNotes, participant, venue] =
-      await Promise.all([
-        this.events.listFeedbackCandidatesForRespondent(
-          campaign.eventId,
-          conversation.respondentParticipantId,
-        ),
-        this.results.listAnswersByConversation(conversation._id),
-        this.results.listNotesByConversation(conversation._id),
-        this.participants.findById(conversation.respondentParticipantId),
-        this.events.getFeedbackVenueContext(campaign.eventId),
-      ]);
+    const transcriptOutboxIds = conversation.messages.flatMap((message) =>
+      message.outboxId ? [message.outboxId] : [],
+    );
+    const [
+      candidates,
+      acceptedAnswers,
+      acceptedNotes,
+      participant,
+      venue,
+      outboxStatuses,
+    ] = await Promise.all([
+      this.events.listFeedbackCandidatesForRespondent(
+        campaign.eventId,
+        conversation.respondentParticipantId,
+      ),
+      this.results.listAnswersByConversation(conversation._id),
+      this.results.listNotesByConversation(conversation._id),
+      this.participants.findById(conversation.respondentParticipantId),
+      this.events.getFeedbackVenueContext(campaign.eventId),
+      this.outbox.listOutboxStatusesByIds(transcriptOutboxIds),
+    ]);
+    const outboxStatusById = new Map(
+      outboxStatuses.map(({ outboxId, status }) => [outboxId, status]),
+    );
+    const modelVisibleMessages = conversation.messages.filter((message) => {
+      if (message.actor === "participant" || !message.outboxId) return true;
+
+      const status = outboxStatusById.get(message.outboxId);
+      // Compatibility rule: an absent PostgreSQL row cannot prove that a
+      // historical turn was never delivered, so it stays model-visible. Only
+      // a present pre-send/failed/cancelled row is strong enough to remove the
+      // Mongo audit-intent turn from provider context.
+      return (
+        status === undefined ||
+        FEEDBACK_MODEL_VISIBLE_OUTBOX_STATUSES.has(status)
+      );
+    });
 
     return {
       respondentParticipantId: conversation.respondentParticipantId,
       respondentDisplayName: participant?.preferredName?.trim() || null,
       candidates: candidates.items,
-      messages: conversation.messages.map((message) => ({
+      messages: modelVisibleMessages.map((message) => ({
         id: message.id,
         seq: message.seq,
         actor: message.actor,
@@ -876,11 +1111,43 @@ export class PostEventFeedbackExtractor {
   private async reviewBeforeSending(input: {
     readonly conversation: FeedbackConversationDocument;
     readonly cursorSeq: number;
-    readonly ordinaryReply: boolean;
+    readonly staleOnNewerTestimony: boolean;
+    readonly executionClaim?: FeedbackConversationExecutionClaim;
   }): Promise<string | undefined> {
     const current = await this.conversations.findById(input.conversation._id);
     if (!current) {
+      if (input.executionClaim) {
+        throw new FeedbackConversationExecutionGuardError(
+          input.conversation._id,
+          "execution_invariant_broken",
+        );
+      }
       return "conversation_missing";
+    }
+    if (input.executionClaim) {
+      const guardReason = executionSnapshotGuardReason(
+        current,
+        input.conversation,
+        input.executionClaim,
+      );
+      if (
+        guardReason === "execution_claim_lost" ||
+        guardReason === "execution_invariant_broken"
+      ) {
+        throw new FeedbackConversationExecutionGuardError(
+          input.conversation._id,
+          guardReason,
+        );
+      }
+      if (guardReason === "authoritative_state_changed") {
+        if (current.lifecycle.state !== "open") {
+          return "conversation_closed";
+        }
+        if (current.control.mode !== "bot") {
+          return "human_control";
+        }
+        return "superseded_by_newer_work";
+      }
     }
     if (current.lifecycle.state !== "open") {
       return "conversation_closed";
@@ -897,7 +1164,7 @@ export class PostEventFeedbackExtractor {
     }
 
     if (
-      input.ordinaryReply &&
+      input.staleOnNewerTestimony &&
       current.messages.some(
         (message) =>
           message.actor === "participant" && message.seq > input.cursorSeq,
@@ -906,6 +1173,100 @@ export class PostEventFeedbackExtractor {
       return "superseded_by_newer_testimony";
     }
     return undefined;
+  }
+
+  /**
+   * Rechecked inside the provider limiter's granted slot, before billing.
+   *
+   * This transaction is the durable provider-entry boundary. In one stable lock
+   * order it fences inbound ingress, conversation control, campaign lifecycle,
+   * consent and the execution token, then performs the last Mongo state read.
+   * A mutation that began before this boundary blocks and invalidates the call;
+   * one that begins after it is, by definition, later than provider entry. The
+   * transaction commits before the network request and is never held over model
+   * latency.
+   */
+  private async assertExecutionCurrent(
+    claim: FeedbackConversationExecutionClaim,
+    snapshot: FeedbackConversationDocument,
+  ): Promise<void> {
+    if (claim.conversationId !== snapshot._id) {
+      throw new FeedbackConversationExecutionGuardError(
+        snapshot._id,
+        "execution_invariant_broken",
+      );
+    }
+    await this.database.transaction(async (transaction) => {
+      // Match webhook ingress first: a fragment already being acknowledged
+      // commits before we inspect the durable row; a later fragment waits until
+      // this provider-entry decision commits.
+      await this.ingress.lockInboundPhone(transaction, snapshot.phoneAtLaunch);
+      // STOP, takeover, close and awaiting-human transitions use this namespace.
+      // It is deliberately second everywhere this method composes both locks.
+      await this.results.lockConversation(transaction, snapshot._id);
+
+      const executionCurrent = await this.executionFence.isCurrent(
+        transaction,
+        claim,
+      );
+      const campaign = await this.campaigns.findCampaignByIdForShare(
+        transaction,
+        snapshot.campaignId,
+      );
+      const participant = await this.participants.findByIdForUpdate(
+        transaction,
+        snapshot.respondentParticipantId,
+      );
+      const newerInbound = await this.ingress.hasInboundBeyondSnapshot(
+        transaction,
+        {
+          phoneE164: snapshot.phoneAtLaunch,
+          conversationId: snapshot._id,
+          snapshotIngressIds: snapshot.messages.flatMap((message) =>
+            message.actor === "participant" && message.ingressId
+              ? [message.ingressId]
+              : [],
+          ),
+        },
+      );
+      if (!executionCurrent) {
+        throw new FeedbackConversationExecutionGuardError(
+          snapshot._id,
+          "execution_claim_lost",
+        );
+      }
+      if (!campaign || !participant) {
+        throw new FeedbackConversationExecutionGuardError(
+          snapshot._id,
+          "execution_invariant_broken",
+        );
+      }
+      if (
+        campaign.status !== "launched" ||
+        !participant.postEventFeedbackWhatsappOptIn ||
+        newerInbound
+      ) {
+        throw new FeedbackConversationExecutionGuardError(
+          snapshot._id,
+          "authoritative_state_changed",
+        );
+      }
+
+      // Mongo is deliberately last while every PostgreSQL writer fence remains
+      // held. Once this read passes, commit is the provider-entry boundary.
+      const conversation = await this.conversations.findById(snapshot._id);
+      const guardReason = executionSnapshotGuardReason(
+        conversation,
+        snapshot,
+        claim,
+      );
+      if (guardReason) {
+        throw new FeedbackConversationExecutionGuardError(
+          snapshot._id,
+          guardReason,
+        );
+      }
+    });
   }
 
   /**
@@ -923,11 +1284,14 @@ export class PostEventFeedbackExtractor {
     readonly correlationId: string;
     readonly closingReason: "completed" | "declined" | null;
     readonly goalStatuses: readonly GoalStatusUpdate[];
+    readonly executionClaim?: FeedbackConversationExecutionClaim;
   }): Promise<{
     answersWritten: number;
     notesWritten: number;
     outbox?: MessageOutboxRow;
     outboundSuppressedByNewerIngress: boolean;
+    outboundSuppressedByLegacyClosing: boolean;
+    executionSuperseded: boolean;
   }> {
     const candidateIds = input.context.candidates.map(
       (candidate) => candidate.participantId,
@@ -944,7 +1308,10 @@ export class PostEventFeedbackExtractor {
 
     return this.database.transaction(async (transaction) => {
       let outboundSuppressedByNewerIngress = false;
-      if (input.outbound && input.ordinaryReply) {
+      if (
+        input.outbound &&
+        (input.ordinaryReply || input.closingReason !== null)
+      ) {
         await this.ingress.lockInboundPhone(
           transaction,
           input.conversation.phoneAtLaunch,
@@ -983,6 +1350,46 @@ export class PostEventFeedbackExtractor {
       }
 
       await this.results.lockConversation(transaction, input.conversation._id);
+
+      // Match the provider-entry lock order. The execution row is acquired
+      // only after the conversation mutex, so a post-provider commit cannot
+      // deadlock an admission check that already holds that mutex. The lease
+      // still fences relational effects; the Mongo generation below decides
+      // whether this paid snapshot may speak or consume durable successor work.
+      if (
+        input.executionClaim &&
+        !(await this.executionFence.renewWithin(
+          transaction,
+          input.executionClaim,
+        ))
+      ) {
+        throw new FeedbackConversationExecutionGuardError(
+          input.conversation._id,
+          "execution_claim_lost",
+        );
+      }
+
+      const currentConversation = input.executionClaim
+        ? await this.conversations.findById(input.conversation._id)
+        : undefined;
+      const executionGuardReason = input.executionClaim
+        ? executionSnapshotGuardReason(
+            currentConversation,
+            input.conversation,
+            input.executionClaim,
+          )
+        : undefined;
+      if (
+        executionGuardReason === "execution_claim_lost" ||
+        executionGuardReason === "execution_invariant_broken"
+      ) {
+        throw new FeedbackConversationExecutionGuardError(
+          input.conversation._id,
+          executionGuardReason,
+        );
+      }
+      const executionSuperseded =
+        executionGuardReason === "authoritative_state_changed";
 
       let answersWritten = 0;
       for (const answer of input.validated.answers) {
@@ -1101,7 +1508,27 @@ export class PostEventFeedbackExtractor {
       }
 
       let outbox: MessageOutboxRow | undefined;
-      if (input.outbound && !outboundSuppressedByNewerIngress) {
+      let outboundSuppressedByLegacyClosing = false;
+      if (
+        input.outbound &&
+        input.closingReason !== null &&
+        !outboundSuppressedByNewerIngress &&
+        !executionSuperseded
+      ) {
+        const legacyClosing =
+          await this.outbox.resolveLegacyClosingBeforeAnchoredInsert(
+            transaction,
+            `${FEEDBACK_CLOSING_DEDUPE_PREFIX}-${input.conversation._id}`,
+          );
+        outboundSuppressedByLegacyClosing =
+          legacyClosing.outcome === "provider_crossed";
+      }
+      if (
+        input.outbound &&
+        !outboundSuppressedByNewerIngress &&
+        !outboundSuppressedByLegacyClosing &&
+        !executionSuperseded
+      ) {
         const enqueued = await this.outbox.insertOutboxIfAbsent(transaction, {
           conversationId: input.conversation._id,
           campaignId: input.campaign.id,
@@ -1133,6 +1560,8 @@ export class PostEventFeedbackExtractor {
         answersWritten,
         notesWritten,
         outboundSuppressedByNewerIngress,
+        outboundSuppressedByLegacyClosing,
+        executionSuperseded,
         ...(outbox ? { outbox } : {}),
       };
     });
@@ -1147,9 +1576,15 @@ export class PostEventFeedbackExtractor {
     readonly validated: FeedbackExtractionValidationResult;
     readonly goalStatuses: readonly GoalStatusUpdate[];
     readonly closingReason: "completed" | "declined" | null;
+    /** Exact outbox row atomically authorized by an extraction-driven close. */
+    readonly terminalOutboxId: string | null;
     readonly dutyOfCare: boolean;
     readonly withdrew: boolean;
     readonly hostility: FeedbackHostilityRaise;
+    /** This snapshot atomically consumes its cursor and silences the bot. */
+    readonly awaitingHuman: boolean;
+    /** Exact participant-facing commitment allowed to survive the bot brake. */
+    readonly handoffOutboxId: string | null;
     /** Whether this run advances the hostility ladder by one rung. */
     readonly hostileTurn: boolean;
     /** The count this run decided from — the compare-and-set's expected value. */
@@ -1174,9 +1609,14 @@ export class PostEventFeedbackExtractor {
     /** The tier this run bought, or null. Overwrites — it is not a quantity. */
     readonly serviceTier: string | null;
     readonly correlationId: string;
-  }): Promise<boolean> {
+    /** A newer Mongo work/control generation owns the next state transition. */
+    readonly workSuperseded: boolean;
+    readonly executionClaim?: FeedbackConversationExecutionClaim;
+  }): Promise<{
+    readonly closedNow: boolean;
+    readonly terminalCommitted: boolean;
+  }> {
     const at = new Date();
-    let closed = false;
 
     if (input.goalStatuses.length > 0) {
       await this.conversations.updateGoalStatuses({
@@ -1255,17 +1695,150 @@ export class PostEventFeedbackExtractor {
       });
     }
 
-    await this.conversations.advanceCursor({
-      conversationId: input.conversation._id,
-      toSeq: input.cursorSeq,
-      at,
-      model: input.model,
-      serviceTier: input.serviceTier,
-      usage: input.usage,
-    });
+    // Results and operator evidence from the paid snapshot remain useful, but
+    // a takeover/resume or another durable work generation owns the cursor and
+    // every participant-facing transition from here. Leaving the cursor unread
+    // is what keeps that successor discoverable instead of letting this old run
+    // consume it after a human-control ABA.
+    if (input.workSuperseded) {
+      return { closedNow: false, terminalCommitted: false };
+    }
 
-    // After the cursor, so this run's window is closed before the bot goes
-    // quiet — a cursor left behind would strand the testimony this run read.
+    if (input.closingReason) {
+      const closingReason = input.closingReason;
+      const terminal = await this.database.transaction(async (transaction) => {
+        // Total-order the terminal Mongo CAS with the dispatcher's final guard
+        // and marker. If close wins, retract every pre-send row except the exact
+        // closing row the lifecycle authorizes; if dispatch wins, its marker is
+        // already durable before the lifecycle changes.
+        await this.results.lockConversation(
+          transaction,
+          input.conversation._id,
+        );
+        const transition = await this.conversations.advanceCursorAndClose({
+          conversationId: input.conversation._id,
+          toSeq: input.cursorSeq,
+          reason: closingReason,
+          terminalOutboxId: input.terminalOutboxId,
+          at,
+          model: input.model,
+          serviceTier: input.serviceTier,
+          usage: input.usage,
+          ...(input.executionClaim
+            ? {
+                workRevision: input.executionClaim.workRevision,
+                executionEpoch: input.executionClaim.epoch,
+              }
+            : {}),
+        });
+        const committed =
+          transition.changed ||
+          (transition.conversation.lifecycle.state === "closed" &&
+            transition.conversation.lifecycle.reason === closingReason &&
+            transition.conversation.lifecycle.terminalOutboxId ===
+              input.terminalOutboxId);
+        if (committed) {
+          await this.outbox.cancelQueuedOutboxForConversationExceptId(
+            transaction,
+            input.conversation._id,
+            input.terminalOutboxId,
+          );
+        }
+        return { transition, committed };
+      });
+      if (terminal.transition.changed) {
+        return { closedNow: true, terminalCommitted: true };
+      }
+      if (terminal.committed) {
+        return { closedNow: false, terminalCommitted: true };
+      }
+
+      // Only actual newer testimony makes consuming this snapshot safe: it
+      // leaves a later participant turn for the successor to discover. A
+      // control/pause generation change with no newer testimony must keep the
+      // cursor unread, otherwise the successor has nothing from which to repair
+      // the terminal close and can incorrectly remind or expire the thread.
+      if (
+        terminal.transition.conversation.messages.some(
+          (message) =>
+            message.actor === "participant" && message.seq > input.cursorSeq,
+        )
+      ) {
+        await this.conversations.advanceCursor({
+          conversationId: input.conversation._id,
+          toSeq: input.cursorSeq,
+          at,
+          model: input.model,
+          serviceTier: input.serviceTier,
+          usage: input.usage,
+        });
+      }
+      return { closedNow: false, terminalCommitted: false };
+    }
+
+    if (input.awaitingHuman) {
+      await this.database.transaction(async (transaction) => {
+        // Cursor/accounting and the bot brake are one Mongo write under the same
+        // mutex as provider entry. Neither half can survive a crash alone.
+        await this.results.lockConversation(
+          transaction,
+          input.conversation._id,
+        );
+        const transition =
+          await this.conversations.advanceCursorAndMarkAwaitingHuman({
+            conversationId: input.conversation._id,
+            toSeq: input.cursorSeq,
+            at,
+            model: input.model,
+            serviceTier: input.serviceTier,
+            usage: input.usage,
+            ...(input.executionClaim
+              ? {
+                  workRevision: input.executionClaim.workRevision,
+                  executionEpoch: input.executionClaim.epoch,
+                }
+              : {}),
+          });
+        const committed =
+          transition.changed || transition.conversation.awaitingHuman;
+        await this.outbox.cancelQueuedAutomatedOutboxForConversation(
+          transaction,
+          input.conversation._id,
+          committed ? input.handoffOutboxId : null,
+        );
+        if (!committed) {
+          const guardReason = input.executionClaim
+            ? (executionSnapshotGuardReason(
+                transition.conversation,
+                input.conversation,
+                input.executionClaim,
+              ) ?? "execution_invariant_broken")
+            : "authoritative_state_changed";
+          throw new FeedbackConversationExecutionGuardError(
+            input.conversation._id,
+            guardReason,
+          );
+        }
+      });
+    } else {
+      await this.conversations.advanceCursor({
+        conversationId: input.conversation._id,
+        toSeq: input.cursorSeq,
+        at,
+        model: input.model,
+        serviceTier: input.serviceTier,
+        usage: input.usage,
+        ...(input.executionClaim
+          ? {
+              workRevision: input.executionClaim.workRevision,
+              executionEpoch: input.executionClaim.epoch,
+            }
+          : {}),
+      });
+    }
+
+    // The atomic path above closes this run's window in the same write that
+    // makes the bot quiet — neither half can strand the other after a crash.
     //
     // Not `takeOver`: D17 is explicit that a handoff is a promise and control
     // moves when a person presses the button. This is the state between those
@@ -1289,23 +1862,7 @@ export class PostEventFeedbackExtractor {
     // here: the hostility ladder still has rungs left — the questionnaire is
     // finished, but the counter has not reached the exit line — so the bot keeps
     // its voice and only the badge goes up.
-    if (input.dutyOfCare || input.withdrew || input.hostility === "stopped") {
-      await this.conversations.markAwaitingHuman({
-        conversationId: input.conversation._id,
-        at,
-      });
-    }
-
-    if (input.closingReason) {
-      const transition = await this.conversations.close({
-        conversationId: input.conversation._id,
-        reason: input.closingReason,
-        at,
-      });
-      closed = transition.changed;
-    }
-
-    return closed;
+    return { closedNow: false, terminalCommitted: false };
   }
 
   private complete(
@@ -1315,6 +1872,44 @@ export class PostEventFeedbackExtractor {
     this.metrics.recordExtractOutcome(result.outcome, correlationId);
     return result;
   }
+}
+
+/** Classifies the Mongo half of one PostgreSQL execution claim. */
+function executionSnapshotGuardReason(
+  current: FeedbackConversationDocument | undefined,
+  snapshot: FeedbackConversationDocument,
+  claim: FeedbackConversationExecutionClaim,
+): FeedbackConversationExecutionGuardReason | undefined {
+  if (
+    claim.conversationId !== snapshot._id ||
+    !snapshot.work ||
+    !current ||
+    !current.work
+  ) {
+    return "execution_invariant_broken";
+  }
+
+  if (current.work.executionEpoch > claim.epoch) {
+    return "execution_claim_lost";
+  }
+  if (current.work.executionEpoch < claim.epoch) {
+    return "execution_invariant_broken";
+  }
+  if (current.work.revision > claim.workRevision) {
+    return "authoritative_state_changed";
+  }
+  if (current.work.revision < claim.workRevision) {
+    return "execution_invariant_broken";
+  }
+  if (
+    current.lifecycle.state !== "open" ||
+    current.control.mode !== "bot" ||
+    current.awaitingHuman ||
+    current.control.changedAt.getTime() !== snapshot.control.changedAt.getTime()
+  ) {
+    return "authoritative_state_changed";
+  }
+  return undefined;
 }
 
 /**

@@ -31,7 +31,7 @@ interface OutboxQueueListProps {
  * How each age reads.
  *
  * Only two tiers raise their voice, and `parked` deliberately lowers it: a row
- * the relay is refusing to lease because its campaign is paused is doing what
+ * dispatch is refusing to claim because its campaign is paused is doing what
  * it was told, and colouring that like an incident would teach an operator that
  * the colour means nothing.
  */
@@ -51,7 +51,8 @@ const WAITING_EMPHASIS: Record<OutboxWaitingTone, string> = {
 };
 
 /**
- * Outbound messages that have not reached the participant, oldest first.
+ * Outbound messages whose dispatch is unresolved or deliberately held, oldest
+ * first.
  *
  * The age is the subject of the screen, so it is the one column with its own
  * scale: an operator has to tell five seconds from three minutes without
@@ -121,8 +122,7 @@ export function OutboxQueueList({
           />
           <p className="text-sm font-semibold text-ink">Nothing is waiting</p>
           <p className="mt-1 text-sm text-ink-muted">
-            Every outbound feedback message has either reached the participant
-            or been cancelled.
+            No outbound feedback message is awaiting or blocked in dispatch.
           </p>
         </div>
       ) : null}

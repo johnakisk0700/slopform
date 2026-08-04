@@ -6,6 +6,7 @@ import { ConfigService } from "@nestjs/config";
 import type { Queue } from "bullmq";
 
 import type { Environment } from "../../../infrastructure/config/environment.js";
+import { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import { isFeedbackSimulatorEnabled } from "../../../infrastructure/config/enabled-modules.js";
 import { FEEDBACK_QUEUE } from "../../../infrastructure/queue/queue.constants.js";
 import { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
@@ -17,6 +18,7 @@ import type { AssistantModel } from "../../assistant/assistant.schemas.js";
 import { phoneE164ToChatJid } from "../../../integrations/wasender/wasender.jid.js";
 import { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
 import { FeedbackResultsRepository } from "../extraction/results.repository.js";
+import { FeedbackConversationExecutionFenceRepository } from "../extraction/execution-fence.repository.js";
 import { FeedbackIngressRepository } from "../ingress/ingress.repository.js";
 import { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
 import { FeedbackSimOutboundRepository } from "./sim-outbound.repository.js";
@@ -46,12 +48,11 @@ import {
 import { getPostEventFeedbackQuestionSet } from "../question-set.js";
 import {
   boundObservedMessageText,
-  createFeedbackExtractJobId,
   FEEDBACK_EXTRACT_QUIET_WINDOW_MS,
   type FeedbackJobData,
   type FeedbackJobName,
 } from "../jobs.schemas.js";
-import { toRunView } from "./run-status.js";
+import { feedbackSimulatorDurableAutomation, toRunView } from "./run-status.js";
 import {
   attestFeedbackWorkers,
   resolveFeedbackWorkerControlProfile,
@@ -66,7 +67,7 @@ const FEEDBACK_SIMULATOR_NON_MODEL_SCENARIO_IDS = new Set([
   "discloses_as_the_very_last_thing",
 ]);
 export const FEEDBACK_SIMULATOR_EVAL_MODELS = [
-  "openai/gpt-5.6-terra",
+  "openai/gpt-5.6-luna",
   "qwen/qwen3.7-max",
 ] as const satisfies readonly AssistantModel[];
 
@@ -94,13 +95,6 @@ interface FeedbackSimulatorRunRecord {
   readonly rubric: FeedbackSimulatorRunView["rubric"];
   readonly ingressIds: string[];
   injectionError: string | null;
-}
-
-interface FeedbackSimulatorExtractionJobs {
-  readonly active: boolean;
-  readonly pending: boolean;
-  readonly failedReason: string | null;
-  readonly nextExtractionAt: Date | null;
 }
 
 export class FeedbackSimulatorScenarioNotFoundError extends Error {
@@ -132,6 +126,8 @@ export class FeedbackSimulatorService {
   constructor(
     @InjectQueue(FEEDBACK_QUEUE)
     private readonly queue: Queue<FeedbackJobData, void, FeedbackJobName>,
+    private readonly database: DatabaseService,
+    private readonly executionFences: FeedbackConversationExecutionFenceRepository,
     private readonly config: ConfigService<Environment, true>,
     private readonly ingress: PostEventFeedbackIngressService,
     private readonly campaigns: FeedbackCampaignRepository,
@@ -156,6 +152,8 @@ export class FeedbackSimulatorService {
       activeReplyReasoningEffort: activeProfile.replyReasoningEffort,
       activeAttentionReasoningEffort: activeProfile.attentionReasoningEffort,
       activeServiceTier: activeProfile.serviceTier,
+      activeTransportMode: "simulated",
+      activeSimulatedTransport: activeProfile.simulatedTransport,
       workerAttestation,
       availableModels: [...FEEDBACK_SIMULATOR_EVAL_MODELS],
       quietWindowMs: FEEDBACK_EXTRACT_QUIET_WINDOW_MS,
@@ -640,21 +638,35 @@ export class FeedbackSimulatorService {
       throw new FeedbackSimulatorRunNotFoundError(runId);
     }
 
-    const [conversation, ingressRows, answers, notes, outbox, simulatedSends] =
-      await Promise.all([
-        this.conversations.findById(run.conversationId),
-        Promise.all(
-          run.ingressIds.map((ingressId) =>
-            this.ingressRepository.findIngressById(ingressId),
-          ),
+    const [
+      conversation,
+      ingressRows,
+      answers,
+      notes,
+      outbox,
+      simulatedSends,
+      activeLease,
+    ] = await Promise.all([
+      this.conversations.findById(run.conversationId),
+      Promise.all(
+        run.ingressIds.map((ingressId) =>
+          this.ingressRepository.findIngressById(ingressId),
         ),
-        this.results.listAnswersByConversation(run.conversationId),
-        this.results.listNotesByConversation(run.conversationId),
-        this.outbox.listOutboxByConversation(run.conversationId),
-        this.simOutbound.listSimOutboundByPhoneE164(run.phoneE164),
-      ]);
+      ),
+      this.results.listAnswersByConversation(run.conversationId),
+      this.results.listNotesByConversation(run.conversationId),
+      this.outbox.listOutboxByConversation(run.conversationId),
+      this.simOutbound.listSimOutboundByPhoneE164(run.phoneE164),
+      this.database.transaction((transaction) =>
+        this.executionFences.findActiveLease(transaction, run.conversationId),
+      ),
+    ]);
 
-    const extractionJobs = await this.inspectExtractionJobs(run);
+    const automation = feedbackSimulatorDurableAutomation({
+      conversation,
+      activeLease,
+      targetCursorSeq: run.targetCursorSeq,
+    });
     return toRunView({
       run,
       conversation,
@@ -663,7 +675,7 @@ export class FeedbackSimulatorService {
       notes,
       outbox,
       simulatedSends,
-      extractionJobs,
+      automation,
     });
   }
 
@@ -762,6 +774,23 @@ export class FeedbackSimulatorService {
       serviceTier: this.config.get("FEEDBACK_EXTRACTION_SERVICE_TIER", {
         infer: true,
       }),
+      transportMode: this.config.get("TRANSPORT_MODE", { infer: true }),
+      simulatedTransportFaultMode: this.config.get(
+        "FEEDBACK_SIMULATED_TRANSPORT_FAULT_MODE",
+        { infer: true },
+      ),
+      simulatedTransportFaultPercent: this.config.get(
+        "FEEDBACK_SIMULATED_TRANSPORT_FAULT_PERCENT",
+        { infer: true },
+      ),
+      simulatedTransportSeed: this.config.get(
+        "FEEDBACK_SIMULATED_TRANSPORT_SEED",
+        { infer: true },
+      ),
+      simulatedTransportMaxDelayMs: this.config.get(
+        "FEEDBACK_SIMULATED_TRANSPORT_MAX_DELAY_MS",
+        { infer: true },
+      ),
     });
   }
 
@@ -842,63 +871,17 @@ export class FeedbackSimulatorService {
     }
     this.runs.set(run.id, run);
   }
-
-  private async inspectExtractionJobs(
-    run: FeedbackSimulatorRunRecord,
-  ): Promise<FeedbackSimulatorExtractionJobs> {
-    const jobIds = Array.from({ length: run.totalMessages }, (_entry, index) =>
-      createFeedbackExtractJobId(
-        run.conversationId,
-        run.baselineMessageCount + index + 1,
-      ),
-    );
-    const jobs = await Promise.all(
-      jobIds.map((jobId) => this.queue.getJob(jobId)),
-    );
-    const states = await Promise.all(
-      jobs.map((job) => (job ? job.getState() : Promise.resolve("unknown"))),
-    );
-
-    const active = states.includes("active");
-    const pending = states.some((state) =>
-      ["delayed", "waiting", "waiting-children", "prioritized"].includes(state),
-    );
-    const failedIndex = states.findIndex((state) => state === "failed");
-    const failedReason =
-      failedIndex === -1
-        ? null
-        : boundedErrorMessage(
-            jobs[failedIndex]?.failedReason,
-            "The extraction job failed.",
-          );
-    const delayedTimes = jobs.flatMap((job, index) => {
-      if (!job || states[index] !== "delayed") {
-        return [];
-      }
-      return [new Date(job.timestamp + Number(job.opts.delay ?? 0))];
-    });
-
-    return {
-      active,
-      pending,
-      failedReason,
-      nextExtractionAt:
-        delayedTimes.length === 0
-          ? null
-          : delayedTimes.reduce((earliest, candidate) =>
-              candidate < earliest ? candidate : earliest,
-            ),
-    };
-  }
 }
 
 export function isFeedbackSimulatorSingleTurnScenario(
   scenario: Pick<PostEventFeedbackRealModelCorpusCase, "messages">,
 ): boolean {
-  const elapsedAfterFirstMessage = scenario.messages
+  // Production moves the due time after every fragment. A scenario therefore
+  // belongs to one model turn while every adjacent gap stays inside the quiet
+  // window; its cumulative typing time is irrelevant.
+  return scenario.messages
     .slice(1)
-    .reduce((elapsed, message) => elapsed + message.afterMs, 0);
-  return elapsedAfterFirstMessage < FEEDBACK_EXTRACT_QUIET_WINDOW_MS;
+    .every((message) => message.afterMs < FEEDBACK_EXTRACT_QUIET_WINDOW_MS);
 }
 
 function isFeedbackSimulatorEligibleScenario(

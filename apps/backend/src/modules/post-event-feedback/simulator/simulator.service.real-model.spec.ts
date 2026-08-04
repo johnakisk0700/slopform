@@ -4,7 +4,10 @@ import { describe, expect, it, vi } from "vitest";
 import type { ConfigService } from "@nestjs/config";
 
 import type { Environment } from "../../../infrastructure/config/environment.js";
+import type { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import type { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
+import type { FeedbackConversationDocument } from "../post-event-feedback-conversation.document.js";
+import type { FeedbackConversationExecutionFenceRepository } from "../extraction/execution-fence.repository.js";
 import type { EventsRepository } from "../../events/events.repository.js";
 import type { EventsService } from "../../events/events.service.js";
 import type { ParticipantsRepository } from "../../participants/participants.repository.js";
@@ -16,7 +19,7 @@ import {
   renderFeedbackSimulatorTemplate,
 } from "./simulator.service.js";
 import { startFeedbackSimulatorRunSchema } from "./simulator.schemas.js";
-import { runStage } from "./run-status.js";
+import { feedbackSimulatorDurableAutomation, runStage } from "./run-status.js";
 import type { PostEventFeedbackIngressService } from "../ingress/ingress.service.js";
 import type { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
 import type { FeedbackResultsRepository } from "../extraction/results.repository.js";
@@ -57,7 +60,7 @@ describe("real-model feedback simulator", () => {
       campaignId,
       conversationId,
       scenarioId: "greeklish",
-      expectedModel: "openai/gpt-5.6-terra",
+      expectedModel: "openai/gpt-5.6-luna",
     };
 
     expect(startFeedbackSimulatorRunSchema.safeParse(selection).success).toBe(
@@ -80,7 +83,7 @@ describe("real-model feedback simulator", () => {
           campaignId,
           conversationId,
           scenarioId: "greeklish",
-          expectedModel: "openai/gpt-5.6-terra",
+          expectedModel: "openai/gpt-5.6-luna",
           confirmPaidRun: false,
         } as never,
         correlationId,
@@ -101,7 +104,7 @@ describe("real-model feedback simulator", () => {
           campaignId,
           conversationId,
           scenarioId: "greeklish",
-          expectedModel: "openai/gpt-5.6-terra",
+          expectedModel: "openai/gpt-5.6-luna",
           confirmPaidRun: true,
         },
         correlationId,
@@ -114,27 +117,34 @@ describe("real-model feedback simulator", () => {
     expect(harness.ingress.recordObservedMessage).not.toHaveBeenCalled();
   });
 
-  it("exposes only the two agreed models and clean single-window scenarios", async () => {
+  it("exposes only the two agreed models and clean rolling-window scenarios", async () => {
     const { service } = createHarness();
     const catalog = await service.getCatalog();
 
     expect(catalog.availableModels).toEqual([
-      "openai/gpt-5.6-terra",
+      "openai/gpt-5.6-luna",
       "qwen/qwen3.7-max",
     ]);
     expect(catalog).toMatchObject({
-      activeModel: "openai/gpt-5.6-terra",
+      activeModel: "openai/gpt-5.6-luna",
       activeExtractionReasoningEffort: "medium",
-      activeReplyReasoningEffort: "low",
-      activeAttentionReasoningEffort: "none",
+      activeReplyReasoningEffort: "medium",
+      activeAttentionReasoningEffort: "medium",
       activeServiceTier: null,
+      activeTransportMode: "simulated",
+      activeSimulatedTransport: {
+        faultMode: "none",
+        faultPercent: 0,
+        seed: "1",
+        maxDelayMs: 0,
+      },
       workerAttestation: {
         status: "verified",
         registeredWorkerCount: 1,
       },
     });
     expect(catalog.timingPolicy).toBe("single_quiet_window_batch");
-    expect(catalog.scenarios).toHaveLength(23);
+    expect(catalog.scenarios).toHaveLength(24);
     const scoreFollowUpIntents = [
       "ask_event_score",
       "ask_table_fit",
@@ -154,12 +164,14 @@ describe("real-model feedback simulator", () => {
     ).toEqual([...scoreFollowUpIntents].sort());
     expect(catalog.scenarios.map((scenario) => scenario.id)).not.toEqual(
       expect.arrayContaining([
-        "slow_typist",
         "changes_the_score",
         "number_changed_owner",
         "refuses_a_question",
         "discloses_as_the_very_last_thing",
       ]),
+    );
+    expect(catalog.scenarios.map((scenario) => scenario.id)).toContain(
+      "slow_typist",
     );
   });
 
@@ -172,11 +184,44 @@ describe("real-model feedback simulator", () => {
     });
 
     await expect(service.getCatalog()).resolves.toMatchObject({
-      activeModel: "openai/gpt-5.6-terra",
+      activeModel: "openai/gpt-5.6-luna",
       activeExtractionReasoningEffort: "high",
       activeReplyReasoningEffort: "medium",
       activeAttentionReasoningEffort: "low",
       activeServiceTier: "priority",
+    });
+  });
+
+  it("publishes and attests the exact simulated transport treatment", async () => {
+    const { service } = createHarness({
+      FEEDBACK_SIMULATED_TRANSPORT_FAULT_MODE: "mixed",
+      FEEDBACK_SIMULATED_TRANSPORT_FAULT_PERCENT: 20,
+      FEEDBACK_SIMULATED_TRANSPORT_SEED: "canary-7",
+      FEEDBACK_SIMULATED_TRANSPORT_MAX_DELAY_MS: 4_000,
+    });
+
+    await expect(service.getCatalog()).resolves.toMatchObject({
+      activeTransportMode: "simulated",
+      activeSimulatedTransport: {
+        faultMode: "mixed",
+        faultPercent: 20,
+        seed: "canary-7",
+        maxDelayMs: 4_000,
+      },
+      workerAttestation: {
+        status: "verified",
+        observedProfiles: [
+          {
+            transportMode: "simulated",
+            simulatedTransport: {
+              faultMode: "mixed",
+              faultPercent: 20,
+              seed: "canary-7",
+              maxDelayMs: 4_000,
+            },
+          },
+        ],
+      },
     });
   });
 
@@ -190,13 +235,13 @@ describe("real-model feedback simulator", () => {
     await expect(service.getCatalog()).resolves.toMatchObject({
       activeModel: "qwen/qwen3.7-max",
       activeExtractionReasoningEffort: "high",
-      activeReplyReasoningEffort: "low",
-      activeAttentionReasoningEffort: "none",
+      activeReplyReasoningEffort: "medium",
+      activeAttentionReasoningEffort: "medium",
       activeServiceTier: null,
     });
   });
 
-  it("uses cumulative leading-edge time instead of per-message gaps", () => {
+  it("uses adjacent message gaps for the rolling quiet window", () => {
     expect(
       isFeedbackSimulatorSingleTurnScenario({
         messages: [
@@ -205,16 +250,62 @@ describe("real-model feedback simulator", () => {
           { afterMs: 25_000, textTemplate: "three" },
         ],
       }),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       isFeedbackSimulatorSingleTurnScenario({
         messages: [
           { afterMs: 0, textTemplate: "one" },
           { afterMs: 20_000, textTemplate: "two" },
-          { afterMs: 20_000, textTemplate: "three" },
+          { afterMs: 50_000, textTemplate: "three" },
         ],
       }),
-    ).toBe(true);
+    ).toBe(false);
+  });
+
+  it("derives rehearsal scheduling and failure from durable state", () => {
+    const nextActionAt = new Date("2026-07-26T10:01:45.000Z");
+    const conversation = {
+      extraction: { cursorSeq: 1 },
+      work: { revision: 7, nextActionAt, executionEpoch: 4 },
+      attentionReasons: [],
+    } as unknown as FeedbackConversationDocument;
+
+    expect(
+      feedbackSimulatorDurableAutomation({
+        conversation,
+        activeLease: undefined,
+        targetCursorSeq: 2,
+      }),
+    ).toEqual({
+      active: false,
+      pending: true,
+      failedReason: null,
+      nextExtractionAt: nextActionAt,
+    });
+    expect(
+      feedbackSimulatorDurableAutomation({
+        conversation,
+        activeLease: { claimExpiresAt: new Date("2026-07-26T10:08:45.000Z") },
+        targetCursorSeq: 2,
+      }),
+    ).toMatchObject({ active: true, pending: true });
+
+    const failed = {
+      ...conversation,
+      attentionReasons: [
+        {
+          kind: "extraction_failed",
+          resolvedAt: null,
+        },
+      ],
+    } as unknown as FeedbackConversationDocument;
+    expect(
+      feedbackSimulatorDurableAutomation({
+        conversation: failed,
+        activeLease: undefined,
+        targetCursorSeq: 2,
+      }),
+    ).toMatchObject({ failedReason: expect.stringContaining("fallback") });
   });
 
   it("renders live candidate names and rejects unresolved slots", () => {
@@ -238,7 +329,7 @@ describe("real-model feedback simulator", () => {
         campaignId,
         conversationId,
         scenarioId: "greeklish",
-        expectedModel: "openai/gpt-5.6-terra",
+        expectedModel: "openai/gpt-5.6-luna",
       },
       correlationId,
     );
@@ -254,9 +345,9 @@ describe("real-model feedback simulator", () => {
         status: "verified",
         observedProfiles: [
           {
-            model: "openai/gpt-5.6-terra",
+            model: "openai/gpt-5.6-luna",
             provider: "openai",
-            providerModelId: "gpt-5.6-terra",
+            providerModelId: "gpt-5.6-luna",
           },
         ],
       },
@@ -287,7 +378,7 @@ describe("real-model feedback simulator", () => {
         campaignId,
         conversationId,
         scenarioId: "greeklish",
-        expectedModel: "openai/gpt-5.6-terra",
+        expectedModel: "openai/gpt-5.6-luna",
         confirmPaidRun: true,
       },
       correlationId,
@@ -319,7 +410,7 @@ describe("real-model feedback simulator", () => {
             campaignId,
             conversationId,
             scenarioId: "greeklish",
-            expectedModel: "openai/gpt-5.6-terra",
+            expectedModel: "openai/gpt-5.6-luna",
             confirmPaidRun: true,
           },
           correlationId,
@@ -341,7 +432,7 @@ describe("real-model feedback simulator", () => {
         campaignId,
         conversationId,
         scenarioId: "greeklish",
-        expectedModel: "openai/gpt-5.6-terra",
+        expectedModel: "openai/gpt-5.6-luna",
       },
       correlationId,
     );
@@ -355,7 +446,7 @@ describe("real-model feedback simulator", () => {
           campaignId,
           conversationId,
           scenarioId: "greeklish",
-          expectedModel: "openai/gpt-5.6-terra",
+          expectedModel: "openai/gpt-5.6-luna",
           confirmPaidRun: true,
         },
         correlationId,
@@ -369,7 +460,7 @@ describe("real-model feedback simulator", () => {
     const harness = createHarness();
     const staleProfile = resolveFeedbackWorkerControlProfile({
       extractionStub: true,
-      model: "openai/gpt-5.6-terra",
+      model: "openai/gpt-5.6-luna",
       extractionReasoningEffort: undefined,
       replyReasoningEffort: undefined,
       attentionReasoningEffort: undefined,
@@ -384,7 +475,7 @@ describe("real-model feedback simulator", () => {
         campaignId,
         conversationId,
         scenarioId: "greeklish",
-        expectedModel: "openai/gpt-5.6-terra",
+        expectedModel: "openai/gpt-5.6-luna",
       },
       correlationId,
     );
@@ -402,7 +493,7 @@ describe("real-model feedback simulator", () => {
           campaignId,
           conversationId,
           scenarioId: "greeklish",
-          expectedModel: "openai/gpt-5.6-terra",
+          expectedModel: "openai/gpt-5.6-luna",
           confirmPaidRun: true,
         },
         correlationId,
@@ -422,7 +513,7 @@ describe("real-model feedback simulator", () => {
           campaignId,
           conversationId,
           scenarioId: "greeklish",
-          expectedModel: "openai/gpt-5.6-terra",
+          expectedModel: "openai/gpt-5.6-luna",
         },
         correlationId,
       ),
@@ -441,7 +532,7 @@ describe("real-model feedback simulator", () => {
           campaignId,
           conversationId,
           scenarioId: "greeklish",
-          expectedModel: "openai/gpt-5.6-terra",
+          expectedModel: "openai/gpt-5.6-luna",
         },
         correlationId,
       ),
@@ -457,7 +548,7 @@ describe("real-model feedback simulator", () => {
           campaignId,
           conversationId,
           scenarioId: "greeklish",
-          expectedModel: "openai/gpt-5.6-terra",
+          expectedModel: "openai/gpt-5.6-luna",
         },
         correlationId,
       ),
@@ -518,7 +609,7 @@ describe("real-model feedback simulator", () => {
       FEEDBACK_PRODUCTION_REHEARSAL_ENABLED: true,
     });
     await expect(rehearsal.service.getCatalog()).resolves.toMatchObject({
-      activeModel: "openai/gpt-5.6-terra",
+      activeModel: "openai/gpt-5.6-luna",
     });
   });
 });
@@ -598,7 +689,9 @@ function createHarness(
       ingressId: null;
     }>,
     extraction: { cursorSeq: 0, lastRunAt: null, model: null },
+    work: { revision: 0, nextActionAt: null, executionEpoch: 0 },
     needsAttention: false,
+    attentionReasons: [],
   };
   const intro = {
     id: introOutboxId,
@@ -685,9 +778,10 @@ function createHarness(
     NODE_ENV: "test",
     FEEDBACK_SIMULATOR_ENABLED: true,
     TRANSPORT_MODE: "simulated",
-    FEEDBACK_EXTRACTION_MODEL: "openai/gpt-5.6-terra",
+    FEEDBACK_EXTRACTION_MODEL: "openai/gpt-5.6-luna",
     FEEDBACK_EXTRACTION_REASONING_EFFORT: "medium",
-    FEEDBACK_REPLY_REASONING_EFFORT: "low",
+    FEEDBACK_REPLY_REASONING_EFFORT: "medium",
+    FEEDBACK_ATTENTION_REASONING_EFFORT: "medium",
     ...environment,
   };
   const expectedProfile = resolveFeedbackWorkerControlProfile({
@@ -703,6 +797,13 @@ function createHarness(
       values.FEEDBACK_ATTENTION_REASONING_EFFORT,
     ),
     serviceTier: optionalString(values.FEEDBACK_EXTRACTION_SERVICE_TIER),
+    transportMode: optionalString(values.TRANSPORT_MODE),
+    simulatedTransportFaultMode: values.FEEDBACK_SIMULATED_TRANSPORT_FAULT_MODE,
+    simulatedTransportFaultPercent:
+      values.FEEDBACK_SIMULATED_TRANSPORT_FAULT_PERCENT,
+    simulatedTransportSeed: values.FEEDBACK_SIMULATED_TRANSPORT_SEED,
+    simulatedTransportMaxDelayMs:
+      values.FEEDBACK_SIMULATED_TRANSPORT_MAX_DELAY_MS,
   });
   const queue = {
     getJob: vi.fn().mockResolvedValue(undefined),
@@ -715,10 +816,20 @@ function createHarness(
   const config = {
     get: vi.fn((key: keyof typeof values) => values[key]),
   };
+  const database = {
+    transaction: vi.fn(async (work: (transaction: never) => Promise<unknown>) =>
+      work({} as never),
+    ),
+  };
+  const executionFences = {
+    findActiveLease: vi.fn().mockResolvedValue(undefined),
+  };
 
   return {
     service: new FeedbackSimulatorService(
       queue as unknown as Queue<FeedbackJobData, void, FeedbackJobName>,
+      database as unknown as DatabaseService,
+      executionFences as unknown as FeedbackConversationExecutionFenceRepository,
       config as unknown as ConfigService<Environment, true>,
       ingress as unknown as PostEventFeedbackIngressService,
       repository as unknown as FeedbackCampaignRepository,

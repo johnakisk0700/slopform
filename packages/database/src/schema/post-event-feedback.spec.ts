@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 
+import { sql } from "drizzle-orm";
 import { getTableConfig, PgDialect } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
 
@@ -7,6 +8,8 @@ import {
   feedbackAnswers,
   feedbackAnswerWithdrawals,
   feedbackCampaigns,
+  feedbackCampaignSummaries,
+  feedbackMaintenanceCheckpoints,
   feedbackNotes,
   messageOutbox,
   providerMessageIngress,
@@ -15,6 +18,80 @@ import {
 const dialect = new PgDialect();
 
 describe("post-event feedback database constraints", () => {
+  it("pairs durable maintenance checkpoint cursors by scan shape", () => {
+    const config = getTableConfig(feedbackMaintenanceCheckpoints);
+    const columns = new Map(
+      config.columns.map((column) => [column.name, column]),
+    );
+    const checks = new Map(
+      config.checks.map((check) => [
+        check.name,
+        dialect.sqlToQuery(check.value).sql,
+      ]),
+    );
+
+    expect(columns.get("task")?.primary).toBe(true);
+    expect(columns.get("cursor_at")?.notNull).toBe(false);
+    expect(columns.get("cursor_id")?.notNull).toBe(false);
+    expect(checks.get("feedback_maintenance_checkpoints_task_check")).toContain(
+      "conversation_due",
+    );
+    expect(checks.get("feedback_maintenance_checkpoints_task_check")).toContain(
+      "ingress_pending",
+    );
+    expect(checks.get("feedback_maintenance_checkpoints_task_check")).toContain(
+      "summary_pending",
+    );
+    expect(checks.get("feedback_maintenance_checkpoints_task_check")).toContain(
+      "campaign_resume",
+    );
+    expect(
+      checks.get("feedback_maintenance_checkpoints_cursor_shape_check"),
+    ).toContain("summary_auto");
+    expect(
+      checks.get("feedback_maintenance_checkpoints_cursor_shape_check"),
+    ).toContain("cursor_at");
+
+    const migration = readFileSync(
+      new URL(
+        "../../drizzle/20260803204714_feedback_maintenance_scan_checkpoints.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    expect(migration).toContain(
+      'CREATE TABLE "feedback_maintenance_checkpoints"',
+    );
+    expect(migration).toContain('"task" text PRIMARY KEY NOT NULL');
+    expect(migration).not.toMatch(/^INSERT /mu);
+
+    const ingressMigration = readFileSync(
+      new URL(
+        "../../drizzle/20260803212625_feedback_ingress_recovery_checkpoint.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    expect(ingressMigration).toContain("'ingress_pending'");
+    expect(ingressMigration).toContain(
+      'CREATE INDEX "provider_message_ingress_pending_recovery_idx"',
+    );
+
+    const fairnessMigration = readFileSync(
+      new URL(
+        "../../drizzle/20260803215114_feedback_maintenance_fairness_checkpoints.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    expect(fairnessMigration).toContain("'summary_pending'");
+    expect(fairnessMigration).toContain("'campaign_resume'");
+    expect(fairnessMigration).toContain(
+      'CREATE INDEX "feedback_campaign_summaries_pending_recovery_idx"',
+    );
+    expect(fairnessMigration).not.toMatch(/^INSERT /mu);
+  });
+
   it("uniquely scopes one campaign per event and restricts event deletes", () => {
     const config = getTableConfig(feedbackCampaigns);
     const indexes = new Map(
@@ -32,6 +109,102 @@ describe("post-event feedback database constraints", () => {
       ),
     ).toEqual(["event_id"]);
     expect(eventFk?.onDelete).toBe("restrict");
+  });
+
+  it("keeps one checked durable resume generation on the campaign row", () => {
+    const config = getTableConfig(feedbackCampaigns);
+    const columns = new Map(
+      config.columns.map((column) => [column.name, column]),
+    );
+    const checks = new Map(
+      config.checks.map((check) => [
+        check.name,
+        dialect.sqlToQuery(check.value).sql,
+      ]),
+    );
+    const indexes = new Map(
+      config.indexes.map((index) => [index.config.name, index]),
+    );
+
+    expect(columns.get("resume_generation")?.default).toBe(0);
+    expect(columns.get("resume_applied_generation")?.default).toBe(0);
+    expect(columns.get("resume_due_at")?.notNull).toBe(false);
+    expect(checks.get("feedback_campaigns_resume_generation_check")).toContain(
+      "resume_applied_generation",
+    );
+    expect(checks.get("feedback_campaigns_resume_intent_pair_check")).toContain(
+      "resume_due_at",
+    );
+    expect(indexes.has("feedback_campaigns_resume_pending_idx")).toBe(true);
+
+    const migration = readFileSync(
+      new URL(
+        "../../drizzle/20260803204136_feedback_campaign_resume_repair_intent.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    expect(migration).toContain(
+      'ADD COLUMN "resume_generation" integer DEFAULT 0 NOT NULL',
+    );
+    expect(migration).toContain(
+      'ADD COLUMN "resume_applied_generation" integer DEFAULT 0 NOT NULL',
+    );
+    expect(migration).toContain(
+      'CREATE INDEX "feedback_campaigns_resume_pending_idx"',
+    );
+  });
+
+  it("fences campaign summaries with a paired live claim and monotonic epoch", () => {
+    const config = getTableConfig(feedbackCampaignSummaries);
+    const columns = new Map(
+      config.columns.map((column) => [column.name, column]),
+    );
+    const checks = new Map(
+      config.checks.map((check) => [
+        check.name,
+        dialect.sqlToQuery(check.value).sql,
+      ]),
+    );
+    const indexes = new Map(
+      config.indexes.map((index) => [index.config.name, index]),
+    );
+
+    expect(columns.get("execution_epoch")?.notNull).toBe(true);
+    expect(columns.get("execution_epoch")?.default).toBe(0);
+    expect(columns.get("claim_token")?.notNull).toBe(false);
+    expect(columns.get("claim_expires_at")?.notNull).toBe(false);
+    expect(
+      checks.get("feedback_campaign_summaries_claim_pair_check"),
+    ).toContain("is null");
+    expect(
+      checks.get("feedback_campaign_summaries_terminal_claim_check"),
+    ).toContain("status");
+    const pendingRecoveryIndex = indexes.get(
+      "feedback_campaign_summaries_pending_recovery_idx",
+    );
+    expect(
+      pendingRecoveryIndex?.config.columns.map((column) =>
+        "name" in column ? column.name : undefined,
+      ),
+    ).toEqual(["requested_at", "campaign_id"]);
+    expect(
+      dialect.sqlToQuery(pendingRecoveryIndex?.config.where ?? sql``).sql,
+    ).toContain("status");
+
+    const migration = readFileSync(
+      new URL(
+        "../../drizzle/20260803191158_feedback_summary_execution_fence.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    expect(migration).toContain(
+      'ADD COLUMN "execution_epoch" integer DEFAULT 0 NOT NULL',
+    );
+    expect(migration).toContain('ADD COLUMN "claim_token" uuid');
+    expect(migration).toContain('ADD COLUMN "claim_expires_at"');
+    expect(migration).not.toMatch(/^UPDATE /mu);
   });
 
   it("enforces answer uniqueness with NULLS NOT DISTINCT including null subjects", () => {
@@ -146,6 +319,9 @@ describe("post-event feedback database constraints", () => {
     const fifoIndex = indexes.get(
       "provider_message_ingress_processing_order_idx",
     );
+    const recoveryIndex = indexes.get(
+      "provider_message_ingress_pending_recovery_idx",
+    );
     const ingressOrder = config.columns.find(
       (column) => column.name === "ingress_order",
     );
@@ -169,6 +345,16 @@ describe("post-event feedback database constraints", () => {
         "name" in column ? column.name : undefined,
       ),
     ).toEqual(["processing_status", "ingress_order"]);
+    expect(
+      recoveryIndex?.config.columns.map((column) =>
+        "name" in column ? column.name : undefined,
+      ),
+    ).toEqual(["created_at", "id"]);
+    expect(
+      recoveryIndex?.config.where
+        ? dialect.sqlToQuery(recoveryIndex.config.where).sql
+        : undefined,
+    ).toContain("processing_status");
     expect(
       checks.get("provider_message_ingress_unmatched_text_check"),
     ).toContain("ignored_unmatched");

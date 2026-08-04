@@ -16,6 +16,10 @@ const FEEDBACK_RUNTIME_ENVIRONMENT_KEYS = [
   "FEEDBACK_REPLY_REASONING_EFFORT",
   "FEEDBACK_REMINDER_AFTER_HOURS",
   "FEEDBACK_SIMULATOR_ENABLED",
+  "FEEDBACK_SIMULATED_TRANSPORT_FAULT_MODE",
+  "FEEDBACK_SIMULATED_TRANSPORT_FAULT_PERCENT",
+  "FEEDBACK_SIMULATED_TRANSPORT_MAX_DELAY_MS",
+  "FEEDBACK_SIMULATED_TRANSPORT_SEED",
   "FEEDBACK_SUMMARY_MODEL",
   "FEEDBACK_SUMMARY_REASONING_EFFORT",
 ] as const;
@@ -51,4 +55,26 @@ describe("feedback environment launch surfaces", () => {
       );
     }
   });
+
+  it.each([".env.production.example", "apps/backend/.env.example"])(
+    "pins Luna medium for conversation work and Terra xhigh only for summaries in %s",
+    (path) => {
+      const contents = repositoryFile(path);
+
+      expect(contents).toMatch(
+        /^FEEDBACK_EXTRACTION_MODEL=openai\/gpt-5\.6-luna$/mu,
+      );
+      expect(contents).toMatch(
+        /^FEEDBACK_EXTRACTION_REASONING_EFFORT=medium$/mu,
+      );
+      expect(contents).toMatch(/^FEEDBACK_REPLY_REASONING_EFFORT=medium$/mu);
+      expect(contents).toMatch(
+        /^FEEDBACK_ATTENTION_REASONING_EFFORT=medium$/mu,
+      );
+      expect(contents).toMatch(
+        /^FEEDBACK_SUMMARY_MODEL=openai\/gpt-5\.6-terra$/mu,
+      );
+      expect(contents).toMatch(/^FEEDBACK_SUMMARY_REASONING_EFFORT=xhigh$/mu);
+    },
+  );
 });

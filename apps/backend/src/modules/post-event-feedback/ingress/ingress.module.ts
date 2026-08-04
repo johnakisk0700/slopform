@@ -5,6 +5,7 @@ import { QueueModule } from "../../../infrastructure/queue/queue.module.js";
 import { MessageOutboxDeliveryStatusService } from "../outbox/delivery-status.service.js";
 import { PostEventFeedbackCoreModule } from "../core.module.js";
 import { PostEventFeedbackIngressService } from "./ingress.service.js";
+import { FeedbackMaterializeWakeupService } from "./materialize-wakeup.service.js";
 
 /**
  * The HTTP-side half of the feedback pipeline: one durable ingress write and
@@ -15,6 +16,7 @@ import { PostEventFeedbackIngressService } from "./ingress.service.js";
 @Module({
   imports: [DatabaseModule, QueueModule, PostEventFeedbackCoreModule],
   providers: [
+    FeedbackMaterializeWakeupService,
     PostEventFeedbackIngressService,
     MessageOutboxDeliveryStatusService,
   ],

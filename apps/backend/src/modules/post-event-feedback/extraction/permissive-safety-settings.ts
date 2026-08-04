@@ -12,7 +12,7 @@ import type { AssistantModelAdapter } from "../../assistant/assistant-models.js"
  *
  * Scope matters. This is applied by
  * [`PostEventFeedbackExtractionModel`](./model.service.ts)
- * to the model instance it builds for `feedback.extract.v1`, and to nothing
+ * to the model instance it builds for feedback extraction, and to nothing
  * else. The assistant feature constructs its own provider clients from the same
  * registry and is untouched, so relaxing extraction cannot relax a chat surface
  * a participant or staff member talks to.

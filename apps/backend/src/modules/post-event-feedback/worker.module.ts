@@ -13,15 +13,16 @@ import {
   FEEDBACK_OPERATOR_ALERT,
   LoggingFeedbackOperatorAlert,
 } from "./operator-alert.js";
-import { FeedbackOutboxSchedulerService } from "./outbox/relay-scheduler.service.js";
+import { FeedbackOutboxDispatcherLoop } from "./outbox/dispatcher-loop.service.js";
+import { MessageOutboxDispatcherService } from "./outbox/dispatcher.service.js";
 import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
 import { FeedbackSweepSchedulerService } from "./sweeps/sweep-scheduler.service.js";
+import { PostEventFeedbackMaintenanceService } from "./sweeps/maintenance.service.js";
+import { PostEventFeedbackMaintenanceProcessor } from "./sweeps/maintenance.processor.js";
 import {
   FEEDBACK_TRANSPORT,
   type FeedbackTransport,
 } from "./outbox/transport.js";
-import { MessageOutboxDeliveryService } from "./outbox/deliver.service.js";
-import { MessageOutboxRelayService } from "./outbox/relay.service.js";
 import { PostEventFeedbackCoreModule } from "./core.module.js";
 import { createFeedbackExtractionModel } from "./burst/create-feedback-extraction-model.js";
 import { BURST_PERSONAS } from "./burst/burst-personas.js";
@@ -29,7 +30,9 @@ import { PostEventFeedbackExtractionFallback } from "./extraction/fallback.servi
 import { FeedbackConversationExecutionLimiter } from "./extraction/execution-limiter.service.js";
 import { PostEventFeedbackExtractionModel } from "./extraction/model.service.js";
 import { PostEventFeedbackExtractor } from "./extraction/extract.service.js";
+import { FeedbackConversationExecutionFence } from "./extraction/execution-fence.service.js";
 import { PostEventFeedbackMaterializer } from "./ingress/materialize.service.js";
+import { FeedbackMaterializeWakeupService } from "./ingress/materialize-wakeup.service.js";
 import {
   FeedbackMaterializationLimiter,
   PostEventFeedbackMaterializationCoordinator,
@@ -38,11 +41,19 @@ import { PostEventFeedbackMetrics } from "./metrics.service.js";
 import { PostEventFeedbackIngressProcessor } from "./ingress/ingress.processor.js";
 import { PostEventFeedbackProcessor } from "./processor.js";
 import { PostEventFeedbackSweepService } from "./sweeps/sweep.service.js";
-import { FeedbackExtractionRecoveryService } from "./sweeps/extraction-recovery.service.js";
 import { PostEventFeedbackCampaignSummaryService } from "./summary/summary.service.js";
+import { PostEventFeedbackSummaryProcessor } from "./summary/summary.processor.js";
 import { DisabledFeedbackTransport } from "./outbox/disabled-transport.service.js";
 import { SimulatedFeedbackTransport } from "./outbox/simulated-transport.service.js";
 import { WasenderFeedbackTransport } from "./outbox/wasender-transport.service.js";
+import {
+  FEEDBACK_SEND_LIMITER,
+  FeedbackSendLimiterService,
+} from "./outbox/session-pacer.js";
+import { FeedbackConversationWakeupService } from "./reconciliation/wakeup.service.js";
+import { FeedbackConversationReconcileService } from "./reconciliation/reconcile.service.js";
+import { FeedbackConversationReconcileProcessor } from "./reconciliation/reconcile.processor.js";
+import { FeedbackCampaignResumeRepairService } from "./campaign/resume-repair.service.js";
 
 export function createFeedbackTransport(
   mode: Environment["TRANSPORT_MODE"],
@@ -63,11 +74,11 @@ export function createFeedbackTransport(
 }
 
 /**
- * The worker-side half: the `feedback` queue consumer and every store it needs
- * to reload authoritative state. It uses the worker queue registration to
- * publish `feedback.extract.v1` and `feedback.deliver.v1`, the same
- * worker-side producer boundary the email outbox relay uses; HTTP never
- * publishes those jobs.
+ * The worker-side half: immediate ingress materialization, durable conversation
+ * reconciliation, campaign summaries, one maintenance repair pass and direct
+ * PostgreSQL outbox dispatch. BullMQ carries identifier-only wake-ups; it does
+ * not own conversation or delivery state. V1 feedback consumers remain only to
+ * drain jobs created before the reader-first cutover.
  *
  * `EventsCoreModule` is imported for one reason: extraction selects candidates
  * live through `EventsService.listFeedbackCandidatesForRespondent`, the single
@@ -77,7 +88,7 @@ export function createFeedbackTransport(
  * The model provider and the transport adapter both live here, so the HTTP
  * process holds neither a provider client nor a sender for this feature. The
  * two halves meet only through `message_outbox`: extraction inserts a row and
- * the relay leases it.
+ * the direct dispatcher token-claims it.
  */
 @Module({
   imports: [
@@ -100,6 +111,11 @@ export function createFeedbackTransport(
     },
     PostEventFeedbackExtractionFallback,
     FeedbackConversationExecutionLimiter,
+    FeedbackConversationExecutionFence,
+    FeedbackConversationWakeupService,
+    FeedbackCampaignResumeRepairService,
+    FeedbackConversationReconcileService,
+    FeedbackConversationReconcileProcessor,
     {
       provide: PostEventFeedbackExtractionModel,
       inject: [ConfigService, ProviderCallLimiter],
@@ -109,17 +125,24 @@ export function createFeedbackTransport(
       ) => createFeedbackExtractionModel(config, BURST_PERSONAS, providerCalls),
     },
     PostEventFeedbackExtractor,
+    FeedbackMaterializeWakeupService,
     PostEventFeedbackMaterializer,
     FeedbackMaterializationLimiter,
     PostEventFeedbackMaterializationCoordinator,
     PostEventFeedbackMetrics,
-    MessageOutboxRelayService,
-    MessageOutboxDeliveryService,
-    FeedbackOutboxSchedulerService,
+    MessageOutboxDispatcherService,
+    FeedbackOutboxDispatcherLoop,
+    FeedbackSendLimiterService,
+    {
+      provide: FEEDBACK_SEND_LIMITER,
+      useExisting: FeedbackSendLimiterService,
+    },
     FeedbackSweepSchedulerService,
+    PostEventFeedbackMaintenanceService,
+    PostEventFeedbackMaintenanceProcessor,
     PostEventFeedbackSweepService,
-    FeedbackExtractionRecoveryService,
     PostEventFeedbackCampaignSummaryService,
+    PostEventFeedbackSummaryProcessor,
     DisabledFeedbackTransport,
     SimulatedFeedbackTransport,
     {

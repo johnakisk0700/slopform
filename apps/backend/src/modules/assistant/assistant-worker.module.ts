@@ -6,9 +6,11 @@ import { QueueWorkerModule } from "../../infrastructure/queue/queue.module.js";
 import { EventsCoreModule } from "../events/events-core.module.js";
 import { ParticipantsCoreModule } from "../participants/participants-core.module.js";
 import { PostEventFeedbackCoreModule } from "../post-event-feedback/core.module.js";
+import { FeedbackCampaignResumeRepairService } from "../post-event-feedback/campaign/resume-repair.service.js";
 import { PostEventFeedbackCampaignService } from "../post-event-feedback/campaign/campaign.service.js";
 import { PostEventFeedbackConversationService } from "../post-event-feedback/inbox/conversation.service.js";
 import { FeedbackOutboundTranscriptService } from "../post-event-feedback/outbox/outbound-transcript.service.js";
+import { FeedbackConversationWakeupService } from "../post-event-feedback/reconciliation/wakeup.service.js";
 import { PostEventFeedbackCampaignSummaryService } from "../post-event-feedback/summary/summary.service.js";
 import { AssistantGenerationService } from "./assistant-generation.service.js";
 import { AssistantRecoveryService } from "./assistant-recovery.service.js";
@@ -45,6 +47,8 @@ import { AssistantToolsService } from "./tools/assistant-tools.service.js";
      * path the worker topology has taken before rather than inventing one.
      */
     FeedbackOutboundTranscriptService,
+    FeedbackConversationWakeupService,
+    FeedbackCampaignResumeRepairService,
     PostEventFeedbackCampaignService,
     PostEventFeedbackConversationService,
     PostEventFeedbackCampaignSummaryService,

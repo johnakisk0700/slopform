@@ -16,7 +16,7 @@ import {
 } from "../attention.js";
 
 /**
- * The structured proposal contract for `feedback.extract.v1`.
+ * The structured proposal contract for feedback conversation extraction.
  *
  * The model proposes; it never persists, sends or decides consent. Every field
  * here is re-validated against the durable transcript, the live D16 candidate
@@ -738,9 +738,51 @@ export function createFeedbackReplyDedupeKey(
   return `${FEEDBACK_REPLY_DEDUPE_PREFIX}-${conversationId}-${testimonySeq}`;
 }
 
-/** A conversation completes once; its closing copy is sent once. */
-export function createFeedbackClosingDedupeKey(conversationId: string): string {
-  return `${FEEDBACK_CLOSING_DEDUPE_PREFIX}-${conversationId}`;
+/**
+ * One closing decision per testimony snapshot and durable work generation.
+ *
+ * A participant fragment may supersede a terminal decision after its outbox
+ * row was written but before MongoDB can close the aggregate. Anchoring the key
+ * lets that stale row be cancelled without occupying the identity needed by a
+ * later, valid close. Human takeover can do the same without adding testimony;
+ * resume advances `work.revision`, so the resumed run needs a fresh identity
+ * even though its last participant sequence is unchanged. A retry of one work
+ * revision still derives the same key, independently of its execution epoch.
+ *
+ * `workRevision` is optional only for retained V2 callers and pure outbound
+ * resolution. The production extraction seam always supplies it after the
+ * final lifecycle decision has been made.
+ */
+export function createFeedbackClosingDedupeKey(
+  conversationId: string,
+  testimonySeq: number,
+  workRevision?: number,
+): string {
+  const testimonyIdentity = `${FEEDBACK_CLOSING_DEDUPE_PREFIX}-${conversationId}-${testimonySeq}`;
+  return workRevision === undefined
+    ? testimonyIdentity
+    : `${testimonyIdentity}-r${workRevision}`;
+}
+
+/** Accepts generation-bearing V3, testimony-only V2 and fixed V1 identities. */
+export function isFeedbackClosingDedupeKey(
+  conversationId: string,
+  dedupeKey: string,
+): boolean {
+  const legacy = `${FEEDBACK_CLOSING_DEDUPE_PREFIX}-${conversationId}`;
+  if (dedupeKey === legacy) return true;
+  const suffix = dedupeKey.slice(legacy.length + 1);
+  const anchored = /^(\d+)(?:-r(\d+))?$/u.exec(suffix);
+  if (!dedupeKey.startsWith(`${legacy}-`) || !anchored) return false;
+  const testimonySeq = Number(anchored[1]);
+  const workRevision =
+    anchored[2] === undefined ? undefined : Number(anchored[2]);
+  return (
+    Number.isSafeInteger(testimonySeq) &&
+    testimonySeq > 0 &&
+    (workRevision === undefined ||
+      (Number.isSafeInteger(workRevision) && workRevision >= 0))
+  );
 }
 
 /** Same testimony anchor as the reply key, for the same replay reason. */

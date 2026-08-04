@@ -162,16 +162,13 @@ Adding or changing an endpoint:
 3. Consume the new hook in the admin app. Do not write a Zod schema for a
    response that the document already describes.
 
-Queue-derived fields on a read model are allowed only when the endpoint is not
-polled as a collection. `getFeedbackConversation` may inspect BullMQ for the
-selected conversation's extract job, and `getFeedbackOutboxMessage` for the one
-opened outbox row's deliver job; `listFeedbackCampaignConversations` and
-`listFeedbackOutboxQueue` and `listFeedbackOutboxHistory` must not — a Redis
-lookup per row on a five- or ten-second poll is a load amplifier, and any list
-signal has to come from data already loaded for the row. The rule extends past
-Redis: a collection endpoint must not do a per-row MongoDB read either, which is
-why both outbox lists resolve a whole page of respondents through one batched
-`listRespondentsByIds`.
+Feedback operator read models do not derive business state from BullMQ at all.
+`getFeedbackConversation` projects automation from MongoDB work plus an active
+PostgreSQL execution lease; `getFeedbackOutboxMessage` projects dispatch from
+PostgreSQL claim/send markers. Redis retention or loss must not rewrite an
+operator's story. The list rule extends past Redis: a collection endpoint must
+not do a per-row MongoDB read either, which is why both outbox lists resolve a
+whole page of respondents through one batched `listRespondentsByIds`.
 
 **A collection over an append-only table is paged by keyset, not offset.**
 `message_outbox` is written to while an operator reads it, so `OFFSET` repeats
@@ -182,9 +179,9 @@ page cannot describe a different set of rows. A cursor the server did not write
 rewinds to the newest page instead of answering 400: it arrives from a URL a
 person can edit, and the endpoint only reads.
 
-An observability endpoint publishes absence as absence. Where a queue lookup
-cannot distinguish retention removal from a job that never existed, the field
-stays `null` or `unknown` and the screen owns the wording; see
+An observability endpoint publishes absence as absence. A nullable durable
+claim, provider id or delivery timestamp stays nullable; it is not backfilled
+from queue state or optimistic UI wording. See
 [the outbound queue](../../frontend/feedback-outbound-queue.md).
 
 The generated Zod schemas exist for values that leave the typed path — a form
@@ -209,9 +206,11 @@ pattern for ordinary CRUD.
 - `pnpm api:check` runs between `docs:check` and `typecheck` in `pnpm check`, so
   the compiler, linter and tests always read a current client. Admin Turbo tasks
   also depend on `api:generate`.
-- Emitting opens no port and contacts no dependency: `NestFactory.create()` only
-  instantiates providers, and `onModuleInit` — which opens the database pool —
-  never runs.
+- Emitting opens no port and requires no live dependency. Some instantiated
+  queue clients attempt an eager Redis connection and may log `ECONNREFUSED`
+  when local Redis is absent; document generation must still complete without
+  dependency reachability. `onModuleInit`, which opens the database pool, does
+  not run.
 
 ## Decisions and references
 

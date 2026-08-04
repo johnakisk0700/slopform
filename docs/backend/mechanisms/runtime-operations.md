@@ -67,8 +67,9 @@ hooks before the application loads those libraries.
   `authorizedParties`. Production mounts the secret only into the API process.
 - `OPENROUTER_API_KEY` and `OPENAI_API_KEY` are optional bounded credentials.
 - `FEEDBACK_EXTRACTION_MODEL` optionally overrides the post-event feedback
-  extraction model. It must name a registered adapter; an unknown id fails at
-  worker start rather than silently using the default.
+  extraction model. It must name a permitted registered adapter; Terra is
+  summary-only, and either it or an unknown id fails at worker start rather than
+  silently using the default.
   The key for the exact selected model is required: OpenRouter currently serves
   Gemini and Qwen, while OpenAI direct serves Luna and Terra. The HTTP process
   validates provider availability but never substitutes a model. Calls occur
@@ -80,7 +81,7 @@ hooks before the application loads those libraries.
   `FEEDBACK_ATTENTION_REASONING_EFFORT` controls the
   separately billed classifier and defaults to explicit `none`.
   `FEEDBACK_EXTRACTION_SERVICE_TIER` reaches direct OpenAI adapters only,
-  including the Terra evaluation route.
+  including the Luna paid-rehearsal route.
   `FEEDBACK_SUMMARY_MODEL` and `FEEDBACK_SUMMARY_REASONING_EFFORT` configure the
   separate campaign-summary call, which defaults to direct-OpenAI Terra at
   `xhigh`. Turbo and both Compose launch paths forward these values instead of
@@ -106,14 +107,28 @@ hooks before the application loads those libraries.
   the configured real model and incur their normal provider cost; outbound messages end in
   `feedback_sim_outbound`, never the Wasender network.
   Real-model runs still use the worker-wide `FEEDBACK_EXTRACTION_MODEL` and
-  reasoning settings, and require `--confirm-paid-run`. The documented Terra
-  rehearsal profile is extraction/classifier `medium` with reply writer `low`;
+  reasoning settings, and require `--confirm-paid-run`. The documented Luna
+  rehearsal profile uses `medium` for extraction, classifier and reply writer;
   it is an
   explicit paid treatment, not a change to the Gemini production default.
   The feedback worker registers a versioned, non-secret fingerprint of that
   complete profile in its BullMQ worker name. Simulator and burst preflight
   reject absent, legacy, malformed, mixed or API-mismatched workers before any
-  paid ingress is seeded.
+  paid ingress is seeded. The same attestation includes `TRANSPORT_MODE` and
+  the complete simulated-transport treatment. Fault rehearsal is configured
+  process-wide with `FEEDBACK_SIMULATED_TRANSPORT_FAULT_MODE`, its integer
+  `..._FAULT_PERCENT`, a non-secret log-safe `..._SEED`, and
+  `..._MAX_DELAY_MS` (0–30,000). A mode other than `none` requires a non-zero
+  percentage; faults or latency require simulated transport. Decisions are a
+  stable hash of seed and outbox id rather than process-local randomness, so
+  replicas with the same profile agree on the same durable row. Changing the
+  profile requires stopping every feedback worker, isolating or draining
+  unrelated simulated outbox work, and then starting all replicas identically;
+  worker attestation is preflight evidence, not a dispatch fence during a
+  rolling restart. The profile applies to every simulated send in that
+  API/worker deployment, and both headless runners require
+  `--confirm-transport-faults` before any run write when a fault or latency
+  treatment is active. The flag does not fence already-due outbox rows.
   `FEEDBACK_EXTRACTION_STUB=true` replaces the worker extraction model with the
   deterministic burst script for multi-campaign rehearsal. It requires the
   simulator gate and is refused in production — a scripted model outside the
@@ -189,7 +204,11 @@ Queue connections settle in the earlier `beforeApplicationShutdown` phase so a
 signal that arrives while a connection is still opening cannot leave a Redis
 command outliving its client ([queues](queues.md)).
 Deployment grace must still exceed bounded database work and normal active-job
-duration; signal handling does not make interrupted side effects atomic.
+duration; signal handling does not make interrupted side effects atomic. The
+production worker grace is eight minutes, deliberately longer than the
+post-event feedback conversation's seven-minute execution lease. Its direct
+outbox loop stops taking batches and drains the active pass during shutdown;
+lease/token recovery still decides the result after an ungraceful stop.
 
 ## Tests and release smokes
 

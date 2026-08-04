@@ -45,7 +45,6 @@ export const DEFAULT_CANDIDATES = [
   "Κώστας Γ.",
 ] as const;
 
-export const RELAY_JOB_ID = "feedback-relay-outbox-v1";
 export const MAX_DRAIN_STEPS = 100_000;
 export const TEST_STAFF_ID = "staff-loop-harness";
 

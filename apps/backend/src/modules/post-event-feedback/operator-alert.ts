@@ -33,7 +33,7 @@ export const FEEDBACK_OPERATOR_ALERT = Symbol("FEEDBACK_OPERATOR_ALERT");
 export const FEEDBACK_OPERATOR_ALERT_REASONS = [
   /** The model itself signalled safety content or asked for a human. */
   "extraction_safety_signal",
-  /** `feedback.extract.v1` failed permanently and the fallback took over. */
+  /** Conversation extraction failed permanently and the fallback took over. */
   "extraction_failed",
 ] as const;
 

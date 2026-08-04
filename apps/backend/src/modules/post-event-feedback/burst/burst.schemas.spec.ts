@@ -63,7 +63,7 @@ describe("feedback burst accounting schemas", () => {
         {
           conversationId: "9f3c1a52-6e2b-4b4a-9a17-2cb2a6d13a55",
           extraction: {
-            model: "openai/gpt-5.6-terra",
+            model: "openai/gpt-5.6-luna",
             usage: {
               inputTokens: 1_200,
               outputTokens: 200,

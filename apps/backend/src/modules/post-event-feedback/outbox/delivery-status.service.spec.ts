@@ -11,6 +11,7 @@ describe("MessageOutboxDeliveryStatusService", () => {
     const repository = {
       findOutboxByProviderMessageId: vi.fn().mockResolvedValue({
         id: outboxId,
+        conversationId: "7c57f3b8-2b13-48f5-8730-18ac71f490cd",
         status: "sent",
         deliveryStatus: "sent",
         sentAt: new Date("2026-07-25T00:00:00.000Z"),
@@ -18,6 +19,7 @@ describe("MessageOutboxDeliveryStatusService", () => {
         readAt: null,
         playedAt: null,
       }),
+      lockConversation: vi.fn().mockResolvedValue(undefined),
       updateOutboxDelivery: vi.fn().mockResolvedValue(undefined),
     };
     const database = {
@@ -56,6 +58,7 @@ describe("MessageOutboxDeliveryStatusService", () => {
     const repository = {
       findOutboxByProviderMessageId: vi.fn().mockResolvedValue({
         id: outboxId,
+        conversationId: "7c57f3b8-2b13-48f5-8730-18ac71f490cd",
         status: "sent",
         deliveryStatus: "read",
         sentAt: new Date("2026-07-25T00:00:00.000Z"),
@@ -63,10 +66,16 @@ describe("MessageOutboxDeliveryStatusService", () => {
         readAt: new Date("2026-07-25T00:02:00.000Z"),
         playedAt: null,
       }),
+      lockConversation: vi.fn().mockResolvedValue(undefined),
       updateOutboxDelivery: vi.fn(),
     };
+    const database = {
+      transaction: vi.fn(async (work: (tx: unknown) => Promise<unknown>) =>
+        work({}),
+      ),
+    };
     const service = new MessageOutboxDeliveryStatusService(
-      { transaction: vi.fn() } as unknown as DatabaseService,
+      database as unknown as DatabaseService,
       repository as unknown as FeedbackOutboxRepository,
     );
 
@@ -81,6 +90,47 @@ describe("MessageOutboxDeliveryStatusService", () => {
       ),
     ).resolves.toEqual({ outcome: "unchanged", outboxId });
     expect(repository.updateOutboxDelivery).not.toHaveBeenCalled();
+  });
+
+  it("resolves an ambiguous attempt from a provider status observation", async () => {
+    const repository = {
+      findOutboxByProviderMessageId: vi.fn().mockResolvedValue({
+        id: outboxId,
+        conversationId: "7c57f3b8-2b13-48f5-8730-18ac71f490cd",
+        status: "ambiguous",
+        deliveryStatus: "pending",
+        sentAt: null,
+        deliveredAt: null,
+        readAt: null,
+        playedAt: null,
+      }),
+      lockConversation: vi.fn().mockResolvedValue(undefined),
+      updateOutboxDelivery: vi.fn().mockResolvedValue(undefined),
+    };
+    const database = {
+      transaction: vi.fn(async (work: (tx: unknown) => Promise<unknown>) =>
+        work({}),
+      ),
+    };
+    const service = new MessageOutboxDeliveryStatusService(
+      database as unknown as DatabaseService,
+      repository as unknown as FeedbackOutboxRepository,
+    );
+
+    await service.applyStatusChange(
+      {
+        providerMessageId: "wamid.1",
+        status: "sent",
+        occurredAt: new Date("2026-07-25T00:01:00.000Z"),
+      },
+      "correlation-1",
+    );
+
+    expect(repository.updateOutboxDelivery).toHaveBeenCalledWith(
+      expect.anything(),
+      outboxId,
+      expect.objectContaining({ deliveryStatus: "sent", status: "sent" }),
+    );
   });
 
   it("reports unmatched provider message ids without writing", async () => {

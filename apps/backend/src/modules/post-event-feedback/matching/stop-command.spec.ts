@@ -26,7 +26,7 @@ describe("post-event feedback STOP matcher", () => {
   it("matches a command however it is punctuated", () => {
     // The old matcher compared whole strings without folding punctuation, so
     // every one of these left the conversation open, the opt-in true and the
-    // reminder sweep armed. An exclamation mark is how an annoyed person types
+    // reminder planner armed. An exclamation mark is how an annoyed person types
     // it.
     expect(matchesPostEventFeedbackStopCommand("ΣΤΟΠ!")).toBe(true);
     expect(matchesPostEventFeedbackStopCommand("stop.")).toBe(true);

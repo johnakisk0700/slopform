@@ -1,11 +1,8 @@
-import { InjectQueue } from "@nestjs/bullmq";
 import { Inject, Injectable, Logger } from "@nestjs/common";
-import type { Queue } from "bullmq";
 import type { FeedbackExtractionMeta } from "@join-the-six/database";
 
 import { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
 import { DatabaseService } from "../../../infrastructure/database/database.service.js";
-import { FEEDBACK_QUEUE } from "../../../infrastructure/queue/queue.constants.js";
 import { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
 import { FeedbackResultsRepository } from "./results.repository.js";
 import { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
@@ -31,17 +28,12 @@ import {
 import {
   FEEDBACK_EXTRACTION_PARK_MAX_MS,
   FEEDBACK_EXTRACTION_PARK_RETRY_MS,
-  FEEDBACK_JOB_NAMES,
-  FEEDBACK_JOB_SCHEMA_VERSION,
-  createFeedbackExtractParkedJobId,
-  feedbackExtractJobDataSchema,
-  type FeedbackJobData,
-  type FeedbackJobName,
 } from "../jobs.schemas.js";
 import {
   foldPostEventFeedbackText,
   foldedTextContainsAtWordStart,
 } from "../matching/fold-text.js";
+import { FeedbackConversationWakeupService } from "../reconciliation/wakeup.service.js";
 
 export interface FeedbackExtractionFallbackInput {
   readonly conversationId: string;
@@ -65,7 +57,7 @@ export interface FeedbackExtractionParkResult {
 }
 
 /**
- * What happens when `feedback.extract.v1` dies for good.
+ * What happens when a conversation reconciliation cannot extract safely.
  *
  * The failure this exists for is not hypothetical: a participant described
  * sexual harassment, the provider refused to emit structured output, the job
@@ -106,10 +98,6 @@ export class PostEventFeedbackExtractionFallback {
   );
 
   constructor(
-    // The park path queues its own next attempt, because the queue's five-attempt
-    // ladder is spent in twenty seconds and an outage is not.
-    @InjectQueue(FEEDBACK_QUEUE)
-    private readonly queue: Queue<FeedbackJobData, void, FeedbackJobName>,
     private readonly database: DatabaseService,
     private readonly campaigns: FeedbackCampaignRepository,
     private readonly results: FeedbackResultsRepository,
@@ -121,6 +109,7 @@ export class PostEventFeedbackExtractionFallback {
     private readonly outboundLog: FeedbackOutboundLogService,
     @Inject(FEEDBACK_OPERATOR_ALERT)
     private readonly alert: FeedbackOperatorAlert,
+    private readonly wakeups: FeedbackConversationWakeupService,
   ) {}
 
   async apply(
@@ -146,6 +135,7 @@ export class PostEventFeedbackExtractionFallback {
       // attention so the dead job is visible and stop there: a note with no
       // source message would have no provenance, and an acknowledgement would
       // answer a message nobody sent.
+      await this.parkForHuman(conversation, new Date());
       await this.raiseAttention(conversation, input, [], null);
       return { applied: false };
     }
@@ -154,6 +144,7 @@ export class PostEventFeedbackExtractionFallback {
       conversation.campaignId,
     );
     if (!campaign) {
+      await this.parkForHuman(conversation, new Date());
       await this.raiseAttention(conversation, input, [], testimony.id);
       return { applied: false };
     }
@@ -168,6 +159,9 @@ export class PostEventFeedbackExtractionFallback {
     );
 
     const written = await this.database.transaction(async (transaction) => {
+      // Same advisory key as the dispatcher's final provider-entry marker.
+      // The bot brake and cancellation therefore either win before transport,
+      // or observe a row that has already crossed the irreversible boundary.
       await this.results.lockConversation(transaction, conversation._id);
 
       // The per-testimony fence absorbs replays of the same dead run. The row is
@@ -194,6 +188,21 @@ export class PostEventFeedbackExtractionFallback {
         },
         correlationId: input.correlationId,
       });
+
+      // Run on replays too. This repairs both cross-store crash orders: Mongo
+      // may already say awaiting-human while the PostgreSQL transaction rolled
+      // back, or the durable fence may exist while the former processor died
+      // before setting the bot brake. Older queued questions are not the
+      // fallback's participant-facing commitment and must never exploit the
+      // dispatcher's handoff exception.
+      await this.conversations.markAwaitingHuman({
+        conversationId: conversation._id,
+        at: new Date(),
+      });
+      await this.outbox.cancelQueuedAutomatedOutboxForConversation(
+        transaction,
+        conversation._id,
+      );
       if (!fenced.inserted) {
         return { replayed: true as const, note: null };
       }
@@ -236,6 +245,10 @@ export class PostEventFeedbackExtractionFallback {
       return { note, replayed: false as const };
     });
 
+    // Re-raise on replay as an idempotent repair for a crash after the
+    // PostgreSQL fence committed but before Mongo attention was projected.
+    await this.raiseAttention(conversation, input, [input.cause], testimony.id);
+
     if (written.replayed) {
       // No outbox id to name. The fence row exists, but it is a cancelled
       // system row that will never be delivered, and reporting it as the
@@ -244,8 +257,6 @@ export class PostEventFeedbackExtractionFallback {
       // sent it.
       return { applied: false };
     }
-
-    await this.raiseAttention(conversation, input, [input.cause], testimony.id);
 
     this.logger.warn({
       event: "feedback.extract.fallback_applied",
@@ -459,33 +470,16 @@ export class PostEventFeedbackExtractionFallback {
     if (at.getTime() - since.getTime() >= FEEDBACK_EXTRACTION_PARK_MAX_MS) {
       return undefined;
     }
-    const latestSeq = latestParticipantMessage(conversation)?.seq;
-    if (latestSeq === undefined) {
+    if (!latestParticipantMessage(conversation)) {
       return undefined;
     }
 
-    const data = feedbackExtractJobDataSchema.parse({
-      schemaVersion: FEEDBACK_JOB_SCHEMA_VERSION,
+    return this.wakeups.schedule({
       conversationId: conversation._id,
+      nextActionAt: new Date(at.getTime() + FEEDBACK_EXTRACTION_PARK_RETRY_MS),
       correlationId: input.correlationId,
+      at,
     });
-    const jobId = createFeedbackExtractParkedJobId(
-      conversation._id,
-      latestSeq,
-      conversation.extraction.parkedRuns,
-    );
-    // One attempt, because this *is* the retry and the next one is queued by the
-    // next park. `removeOnFail` keeps a long outage from leaving one retained
-    // failed job per five minutes per conversation in Redis.
-    await this.queue.add(FEEDBACK_JOB_NAMES.extractV1, data, {
-      jobId,
-      delay: FEEDBACK_EXTRACTION_PARK_RETRY_MS,
-      attempts: 1,
-      removeOnComplete: true,
-      removeOnFail: true,
-      stackTraceLimit: 10,
-    });
-    return jobId;
   }
 
   /**
@@ -518,6 +512,23 @@ export class PostEventFeedbackExtractionFallback {
         detail,
       });
     }
+  }
+
+  private async parkForHuman(
+    conversation: FeedbackConversationDocument,
+    at: Date,
+  ): Promise<void> {
+    await this.database.transaction(async (transaction) => {
+      await this.results.lockConversation(transaction, conversation._id);
+      await this.conversations.markAwaitingHuman({
+        conversationId: conversation._id,
+        at,
+      });
+      await this.outbox.cancelQueuedAutomatedOutboxForConversation(
+        transaction,
+        conversation._id,
+      );
+    });
   }
 }
 

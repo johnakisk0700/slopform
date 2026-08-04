@@ -1,7 +1,7 @@
 # Wasender transport and webhook boundary
 
 Status: transport adapter, opt-in HTTP edge, durable ingress consumer and
-paced outbound feedback transport implemented. Last verified: **2026-07-27**
+direct fenced outbound dispatcher implemented. Last verified: **2026-08-03**
 against the official Wasender API documentation. The implementation uses Node 24
 `fetch`, not the pre-1.0 Wasender Node SDK.
 
@@ -31,6 +31,14 @@ sending goes through the injectable `FeedbackTransport` port switched by
 `TRANSPORT_MODE` (`disabled`, `simulated` or `wasender`); AI output never calls
 Wasender directly.
 
+`FeedbackTransport` exposes one operation, `sendText`. It has no second
+unpaced-send method and no provider-info lookup. The direct dispatcher obtains
+the deployment-wide Redis slot and commits its provider-entry marker before it
+calls that method. The Wasender adapter is therefore a raw provider mapping;
+after acceptance it still performs one best-effort internal
+`WasenderClient.getMessageInfo` lookup to capture the WhatsApp id when it is
+already available.
+
 ## Contract
 
 `WasenderClient` is exported from a controller-free client module for worker
@@ -47,7 +55,7 @@ conditionally adds the provider module to the worker graph and requires
 `WASENDER_SESSION_API_KEY` there; the HTTP graph never receives that credential
 and its shared configuration can validate Wasender mode without it.
 `TRANSPORT_MODE=disabled` has no provider dependency and deterministically
-returns `not-accepted / transport_disabled`; the ordinary delivery consumer
+returns `not-accepted / transport_disabled`; the direct outbox dispatcher
 marks the outbox row failed and raises its undelivered-message attention reason,
 so disabled traffic is visible and is never stockpiled for a surprise later send.
 `TRANSPORT_MODE=simulated` (default) uses a durable PostgreSQL outbound sink
@@ -56,6 +64,21 @@ so disabled traffic is visible and is never stockpiled for a surprise later send
 published OpenAPI composition). The explicit production rehearsal gate may
 enable that Clerk-protected surface with real model calls while forbidding the
 Wasender client and webhook.
+
+The simulated adapter can apply an explicitly configured, deterministic
+provider treatment without changing the Wasender adapter: known rejection,
+known rate limiting, unknown outcome with no acceptance evidence, unknown
+outcome after a sink write, or a seeded mix, plus bounded latency. A sink row
+means simulated provider acceptance only; it does not pretend `delivered` or
+`read`. The unknown-after-accept mode deliberately leaves both a sink row and
+an `ambiguous` outbox row, reproducing the dangerous reality in which the
+message may exist remotely but automatic retry is unsafe.
+
+This is one process-wide transport profile, not a property of a simulator run.
+Every simulated outbound is eligible while it is active, including campaign
+intros and operator-authored messages. Different simultaneous treatments
+therefore need separate deployments; the admin UI intentionally has no global
+fault toggle.
 
 When `WASENDER_WEBHOOK_ENABLED=true`, Wasender can call
 `POST /api/v1/webhooks/wasender`. The route is public with respect to Clerk but
@@ -98,7 +121,7 @@ answered with 503 so the provider may redeliver; the committed row stays
 flowchart LR
   WP["WordPress"] --> Wasender["Existing Wasender session"]
   Participant["Participant WhatsApp"] <--> Wasender
-  Worker["Feedback worker"] -->|"sendText + pacing"| Wasender
+  Worker["Feedback direct dispatcher"] -->|"Redis-paced, fenced sendText"| Wasender
   Wasender --> Hook["Signed webhook endpoint"]
   Hook --> Normalized["Normalized transport events"]
   Normalized --> Store["Ingress row + materialize job"]
@@ -112,17 +135,16 @@ flowchart LR
 The HTTP path authenticates, validates and durably records plus enqueues an
 observed event before acknowledging it. Status updates patch outbox delivery
 columns directly. The worker resolves the conversation, applies STOP, appends
-the transcript, extracts structured results, correlates delivery and relays the
-outbox through the transport port. Extraction and sending stay separated by
+the transcript, extracts structured results, correlates delivery and dispatches
+the outbox directly from PostgreSQL through the transport port. Extraction and sending stay separated by
 `message_outbox`: AI output inserts a row and never calls Wasender directly.
 
 ## Invariants
 
 - The WordPress and backend clients share one session, API-key rotation and
   provider rate/concurrency limits. Neither side may assume it is the sole
-  sender. Outbound feedback sends wait on a shared-session pacer (minimum
-  interval + jitter) and campaign intro/reminder jobs are staggered in the
-  relay batch.
+  sender. Outbound feedback starts wait on one deployment-wide Redis limiter;
+  adding worker replicas does not multiply session throughput.
 - Provider IDs and event status transitions are untrusted inputs. The ingress
   table deduplicates by `(chat_jid, provider_message_id)` and the consumer
   tolerates duplicate and out-of-order delivery.
@@ -159,35 +181,50 @@ optional retry delay and delivery outcome:
   is `unknown` because the provider may have accepted it;
 - reads carry `not-applicable` delivery outcome.
 
-Callers must not blindly retry an `unknown` send. The outbox reconciles instead:
-the deliver consumer parks the row with `delivery_status=pending`, keeps any
-`provider_log_id`, and on reclaim calls `getMessageInfo` before considering
-another send. An observed outbound that carries no known provider message id is
+Callers must not blindly retry an `unknown` send. Immediately before transport,
+the dispatcher token-fences an `attempting` row with `send_started_at`. An
+unknown result changes it to terminal `ambiguous`, keeps any `provider_log_id`
+and excludes it from automatic claims. An observed outbound that carries no
+known provider message id is
 also matched to the oldest unlinked row of that conversation with the same body,
 which marks it sent rather than sending it twice. A 429 can use `Retry-After`;
 Wasender's documentation is inconsistent about whether `X-RateLimit-Reset` is a
 delta or Unix timestamp, so the adapter accepts either form defensively.
 
+The simulator mirrors these classifications rather than inventing nicer ones.
+`reject` and `rate-limit` return `not-accepted` and therefore become terminal
+`failed` rows under today's dispatcher policy. The adapter returns a
+`Retry-After` hint for the simulated 429, but the dispatcher currently neither
+persists nor schedules it; only the classified failure survives.
+`unknown-before-accept` writes no sink row, while `unknown-after-accept` writes
+the sink then returns `unknown`; both become `ambiguous`. Stable bounded latency happens after the durable
+`attempting` marker, so stopping a worker during it exercises the same expiry
+quarantine as a slow real provider.
+
 Webhook payload documentation also disagrees on whether `data.messages` is an
 object or array. The parser accepts both, but rejects unsupported event names or
 invalid consumed fields.
 
-`WASENDER_WEBHOOK_ENABLED` stays `false` by default. The durable consumer and
-outbox relay now exist, so enabling it is a deliberate operational decision:
+`WASENDER_WEBHOOK_ENABLED` stays `false` by default. Durable ingress and direct
+outbox dispatch now exist, so enabling it is a deliberate operational decision:
 the staging acceptance pack (linked-client outbound observation, provider retry
 behavior, session disconnect, ambiguous sends) and the consent/legal gate still
 come first.
 
 ## Configuration and operations
 
-| Variable                                | Process | Contract                                                                                                                                                                                                                               |
-| --------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `TRANSPORT_MODE`                        | both    | `disabled`, `simulated` (development default), or `wasender`; only Wasender mode composes the provider client and requires its session key. HTTP reads it too, to decide module composition and to gate the burst and simulator routes |
-| `FEEDBACK_SIMULATOR_ENABLED`            | API     | Defaults false; mounts Clerk-protected inject/thread and rehearsal routes only with simulated transport                                                                                                                                |
-| `FEEDBACK_PRODUCTION_REHEARSAL_ENABLED` | both    | Defaults false; production-only exception requiring simulated transport + simulator, real model, and no Wasender credential or webhook                                                                                                 |
-| `WASENDER_SESSION_API_KEY`              | worker  | Optional session-scoped bearer key; required by worker composition only when `TRANSPORT_MODE=wasender`                                                                                                                                 |
-| `WASENDER_WEBHOOK_ENABLED`              | API     | Defaults false; mounts the public route only when explicitly true; forbidden by the production rehearsal gate                                                                                                                          |
-| `WASENDER_WEBHOOK_SECRET`               | API     | Required with the route; 32–512 chars, exact shared secret                                                                                                                                                                             |
+| Variable                                     | Process | Contract                                                                                                                                                                                                                               |
+| -------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TRANSPORT_MODE`                             | both    | `disabled`, `simulated` (development default), or `wasender`; only Wasender mode composes the provider client and requires its session key. HTTP reads it too, to decide module composition and to gate the burst and simulator routes |
+| `FEEDBACK_SIMULATOR_ENABLED`                 | API     | Defaults false; mounts Clerk-protected inject/thread and rehearsal routes only with simulated transport                                                                                                                                |
+| `FEEDBACK_PRODUCTION_REHEARSAL_ENABLED`      | both    | Defaults false; production-only exception requiring simulated transport + simulator, real model, and no Wasender credential or webhook                                                                                                 |
+| `FEEDBACK_SIMULATED_TRANSPORT_FAULT_MODE`    | both    | `none`, `reject`, `rate-limit`, `unknown-before-accept`, `unknown-after-accept`, or `mixed`; non-`none` requires a positive percentage                                                                                                 |
+| `FEEDBACK_SIMULATED_TRANSPORT_FAULT_PERCENT` | both    | Integer `0..100`; stable selection per `(seed, outbox id)`, not a process-local counter                                                                                                                                                |
+| `FEEDBACK_SIMULATED_TRANSPORT_SEED`          | both    | Non-secret log-safe seed, included in worker attestation so all replicas and the API must agree                                                                                                                                        |
+| `FEEDBACK_SIMULATED_TRANSPORT_MAX_DELAY_MS`  | both    | Stable per-row delay from `0..30,000` ms; requires simulated transport when non-zero                                                                                                                                                   |
+| `WASENDER_SESSION_API_KEY`                   | worker  | Optional session-scoped bearer key; required by worker composition only when `TRANSPORT_MODE=wasender`                                                                                                                                 |
+| `WASENDER_WEBHOOK_ENABLED`                   | API     | Defaults false; mounts the public route only when explicitly true; forbidden by the production rehearsal gate                                                                                                                          |
+| `WASENDER_WEBHOOK_SECRET`                    | API     | Required with the route; 32–512 chars, exact shared secret                                                                                                                                                                             |
 
 Normal Wasender production mounts separate secret files into the worker and API.
 Production rehearsal mounts no Wasender secret and never composes either
@@ -201,8 +238,9 @@ actual HMAC header would correctly fail with 401 and requires a reviewed contrac
 change.
 
 The provider recommends controlled concurrency and publishes per-session rate
-limits. Feedback sends serialize through the shared-session pacer rather than
-launching one promise per participant.
+limits. Feedback send starts pass through the deployment-wide Redis limiter
+rather than launching one promise per participant or multiplying capacity per
+worker replica.
 
 ## Tests
 
@@ -213,8 +251,9 @@ HTTP 200/400/401 behavior, OpenAPI and the disabled-by-default 404 contract.
 Controller tests add the dispatch contract: one ingress call per observed
 personal message, no durable write for group traffic, status events applied to
 outbox delivery columns, a signature rejected before the durable boundary, and
-503 when the message could not be queued. Transport tests cover pacing bounds
-and unknown-outcome no-retry.
+503 when the message could not be queued. Transport/dispatcher tests cover
+deployment-wide pacing, token loss, the pre-send marker and unknown-outcome
+quarantine.
 
 ## Sources and official references
 
@@ -227,6 +266,7 @@ and unknown-outcome no-retry.
   [Feedback transport port](../../../apps/backend/src/modules/post-event-feedback/outbox/transport.ts),
   [Wasender adapter](../../../apps/backend/src/modules/post-event-feedback/outbox/wasender-transport.service.ts),
   [simulated sink](../../../apps/backend/src/modules/post-event-feedback/outbox/simulated-transport.service.ts),
+  [direct dispatcher](../../../apps/backend/src/modules/post-event-feedback/outbox/dispatcher.service.ts),
   [ingress service](../../../apps/backend/src/modules/post-event-feedback/ingress/ingress.service.ts)
   and the [post-event feedback module](../modules/post-event-feedback.md) that
   owns everything past the normalized event

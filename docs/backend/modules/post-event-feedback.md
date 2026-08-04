@@ -1,11 +1,13 @@
 # Post-event feedback conversations
 
 Status: architecture accepted in
-[ADR 0008](../../decisions/0008-post-event-feedback-conversations.md);
+[ADR 0008](../../decisions/0008-post-event-feedback-conversations.md) with
+state-driven execution accepted in
+[ADR 0013](../../decisions/0013-state-driven-feedback-orchestration.md);
 **WP0 product contract**, **WP1 stub events**, **WP2 PostgreSQL persistence**,
 **WP3 Mongo conversation schema v2**, **WP4 ingress + materialization**,
-**WP5 extraction + reply loop**, **WP6 outbox relay + transport**, **WP7
-campaign service + schedulers**, **WP7b staff conversation inbox HTTP** and
+**WP5 extraction + reply loop**, **WP6 direct outbox dispatch + transport**,
+**WP7 campaign service + reconciliation**, **WP7b staff conversation inbox HTTP** and
 **WP8 simulated transport + production rehearsal** are landed, as is the
 **WP9** admin
 conversations UI it serves
@@ -19,7 +21,7 @@ content now travels the ordinary pipeline as visible notes.
 
 ## Purpose and boundary
 
-This module will collect structured post-event feedback through one WhatsApp
+This module collects structured post-event feedback through one WhatsApp
 conversation per eligible participant. It owns campaign eligibility, directed
 answers and side notes, AI extraction validation, human control and the admin
 views that navigate the same feedback by event or participant.
@@ -45,22 +47,24 @@ Typed repository methods live per table under
 [`outbox/outbox.repository.ts`](../../../apps/backend/src/modules/post-event-feedback/outbox/outbox.repository.ts)
 (`FeedbackOutboxRepository`), and
 [`simulator/sim-outbound.repository.ts`](../../../apps/backend/src/modules/post-event-feedback/simulator/sim-outbound.repository.ts)
-(`FeedbackSimOutboundRepository`). The paused-campaign kill switch stays inside
-`FeedbackOutboxRepository.claimOutboxBatch`, which reads campaign status through
-`FeedbackCampaignRepository.findCampaignById` on the same transaction.
+(`FeedbackSimOutboundRepository`). The direct claim query joins campaign state,
+and the dispatcher reloads campaign plus conversation immediately before its
+send marker; pause, terminal lifecycle and human control therefore fence both
+claim and provider entry.
 There is no `message_deliveries` table and nothing references `event_attendees`.
 
-| Table                         | Authority rules                                                                                                                                                                                                                                                                                                                                                                                                              |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `feedback_campaigns`          | `event_id` **UNIQUE** (one campaign per event); `question_set_version` + `questions` jsonb copy at launch; status `launched\|paused\|closed`; event FK `ON DELETE RESTRICT`                                                                                                                                                                                                                                                  |
-| `feedback_campaign_summaries` | One row per campaign (`campaign_id` **UNIQUE**); latest AI narrative with status `pending\|ready\|failed`, trigger `manual\|all_closed`, `attempt` incremented on each request; `is_partial` when open conversations remained at request time; body ≤ 50 000 chars markdown                                                                                                                                                  |
-| `feedback_answers`            | Directed edge; optional `subject_participant_id`; `value_int` for scores; `source_message_ids uuid[]`, non-empty unless `extraction_meta.origin = 'staff'` (an operator's own answer quotes nothing); `extraction_meta` jsonb (model, confidence, **candidate IDs of the run** per D12); `matching_hold boolean not null default false` — [a statement, not an instruction](#an-avoid-row-is-a-statement-not-an-instruction) |
-| Answer uniqueness             | `UNIQUE NULLS NOT DISTINCT (conversation_id, question_key, subject_participant_id)` so subjectless scores cannot duplicate on replay                                                                                                                                                                                                                                                                                         |
-| `feedback_answer_withdrawals` | One tombstone per answer slot an operator emptied, on the **same** `UNIQUE NULLS NOT DISTINCT (conversation_id, question_key, subject_participant_id)` key; `answer_id` with no FK (the row it names is deleted on purpose); never updated, so no `updated_at`, and deleted in exactly one case — an operator recording their own answer for the same slot                                                                   |
-| `feedback_notes`              | Same directionality; `note_type` `activity_interest\|general`; text ≤ 500 chars; subject **NULLABLE** (D18 unknown-name degradation); status `new\|dismissed`; `source_message_ids` non-empty unless `extraction_meta.origin = 'staff'`                                                                                                                                                                                      |
-| `provider_message_ingress`    | Durable webhook ack + dedupe; `UNIQUE(chat_jid, provider_message_id)`; `text` nullable (metadata-only when `ignored_unmatched`, D10); statuses `pending\|materialized\|ignored_unmatched\|failed`                                                                                                                                                                                                                            |
-| `message_outbox`              | Reply/intro/reminder/staff/system; status includes `held`; `dedupe_key` **UNIQUE**; delivery columns folded in (`delivery_status`, provider ids, sent/delivered/read/played timestamps) — no separate deliveries                                                                                                                                                                                                             |
-| `message_outbox_log`          | Append-only decision log: exactly one row per **inserted** outbox row, written in the same transaction as the enqueue; `outbox_id` **UNIQUE**; `origin` bounded to the nine enqueue sites; `decision` and `conversation_state` jsonb capture what was decided and the conversation at that moment; never updated, so no `updated_at`                                                                                         |
+| Table                              | Authority rules                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `feedback_campaigns`               | `event_id` **UNIQUE** (one campaign per event); `question_set_version` + `questions` jsonb copy at launch; status `launched\|paused\|closed`; event FK `ON DELETE RESTRICT`                                                                                                                                                                                                                                                  |
+| `feedback_campaign_summaries`      | One row per campaign (`campaign_id` **UNIQUE**); latest AI narrative with status `pending\|ready\|failed`, trigger `manual\|all_closed`, `attempt` incremented on each serialized request; monotonic execution epoch plus nullable claim token/expiry fence provider entry and terminal writes; `is_partial` when open conversations remained at request time; body ≤ 50 000 chars markdown                                  |
+| `feedback_answers`                 | Directed edge; optional `subject_participant_id`; `value_int` for scores; `source_message_ids uuid[]`, non-empty unless `extraction_meta.origin = 'staff'` (an operator's own answer quotes nothing); `extraction_meta` jsonb (model, confidence, **candidate IDs of the run** per D12); `matching_hold boolean not null default false` — [a statement, not an instruction](#an-avoid-row-is-a-statement-not-an-instruction) |
+| Answer uniqueness                  | `UNIQUE NULLS NOT DISTINCT (conversation_id, question_key, subject_participant_id)` so subjectless scores cannot duplicate on replay                                                                                                                                                                                                                                                                                         |
+| `feedback_answer_withdrawals`      | One tombstone per answer slot an operator emptied, on the **same** `UNIQUE NULLS NOT DISTINCT (conversation_id, question_key, subject_participant_id)` key; `answer_id` with no FK (the row it names is deleted on purpose); never updated, so no `updated_at`, and deleted in exactly one case — an operator recording their own answer for the same slot                                                                   |
+| `feedback_notes`                   | Same directionality; `note_type` `activity_interest\|general`; text ≤ 500 chars; subject **NULLABLE** (D18 unknown-name degradation); status `new\|dismissed`; `source_message_ids` non-empty unless `extraction_meta.origin = 'staff'`                                                                                                                                                                                      |
+| `provider_message_ingress`         | Durable webhook ack + dedupe; `UNIQUE(chat_jid, provider_message_id)`; `text` nullable (metadata-only when `ignored_unmatched`, D10); statuses `pending\|materialized\|ignored_unmatched\|failed`                                                                                                                                                                                                                            |
+| `feedback_conversation_executions` | One PostgreSQL execution fence per Mongo conversation: monotonic epoch/work revision plus nullable opaque lease token/expiry; no product lifecycle or transcript data                                                                                                                                                                                                                                                        |
+| `message_outbox`                   | Reply/intro/reminder/staff/system; statuses `pending`, `claimed`, `attempting`, `ambiguous`, legacy `sending`, `sent`, `failed`, `held`, `cancelled`; `dedupe_key` **UNIQUE**; claim expiry, send-start marker, attempt/error and delivery columns folded in — no separate deliveries                                                                                                                                        |
+| `message_outbox_log`               | Append-only decision log: exactly one row per **inserted** outbox row, written in the same transaction as the enqueue; `outbox_id` **UNIQUE**; `origin` bounded to the nine enqueue sites; `decision` and `conversation_state` jsonb capture what was decided and the conversation at that moment; never updated, so no `updated_at`                                                                                         |
 
 All participant and campaign foreign keys use `ON DELETE RESTRICT` (D18).
 `conversation_id` / `matched_conversation_id` are Mongo conversation UUIDs with
@@ -93,14 +97,14 @@ no PostgreSQL FK. Repository helpers:
 One completed event may create one campaign. Each eligible respondent has at
 most one active conversation in that campaign.
 
-| Record                     | Authority  | Contract                                                                      |
-| -------------------------- | ---------- | ----------------------------------------------------------------------------- |
-| Stub `events` / attendance | PostgreSQL | Upstream WP1 facts; candidates selected live (D16)                            |
-| `FeedbackCampaign`         | PostgreSQL | Event, question-set version, launch copy snapshot, lifecycle                  |
-| `FeedbackConversation`     | MongoDB    | Schema v2: transcript, goals, lifecycle × control, phone at launch, attention |
-| `FeedbackAnswer`           | PostgreSQL | Directed normalized question result with message provenance                   |
-| `FeedbackNote`             | PostgreSQL | Directed bounded side note with message provenance                            |
-| Provider ingress/outbox    | PostgreSQL | Deduplication, audit and delivery/recovery boundary                           |
+| Record                     | Authority  | Contract                                                                                               |
+| -------------------------- | ---------- | ------------------------------------------------------------------------------------------------------ |
+| Stub `events` / attendance | PostgreSQL | Upstream WP1 facts; candidates selected live (D16)                                                     |
+| `FeedbackCampaign`         | PostgreSQL | Event, question-set version, launch copy snapshot, lifecycle                                           |
+| `FeedbackConversation`     | MongoDB    | Schema v2: transcript, goals, lifecycle × control, phone, attention and durable work revision/due time |
+| `FeedbackAnswer`           | PostgreSQL | Directed normalized question result with message provenance                                            |
+| `FeedbackNote`             | PostgreSQL | Directed bounded side note with message provenance                                                     |
+| Provider ingress/outbox    | PostgreSQL | Deduplication, audit, execution fence and delivery/recovery boundary                                   |
 
 There is no PostgreSQL campaign-recipient projection. The conversation document
 carries the recipient's phone at launch and its own state, and the admin list
@@ -240,7 +244,7 @@ The row's `kind` is the only thing that decides the actor:
 | Outbox `kind` | Actor   | Producer                                        |
 | ------------- | ------- | ----------------------------------------------- |
 | `intro`       | `bot`   | Campaign launch / `startConversation`           |
-| `reminder`    | `bot`   | Reminder sweep                                  |
+| `reminder`    | `bot`   | Conversation reconciliation planner             |
 | `reply`       | `bot`   | Extraction reply, closing copy and handoff copy |
 | `system`      | `bot`   | STOP acknowledgement (materializer)             |
 | `staff`       | `staff` | Staff inbox send                                |
@@ -263,16 +267,16 @@ transcript entry. It repairs forward two ways:
 
 - **The producer runs again.** Launch replay and `startConversation` re-resolve
   the intro row through `insertOutboxIfAbsent` and append whether or not this
-  call inserted it; the reminder sweep re-selects a conversation whose
-  `remindedAt` is still null (the append runs before `markReminded` for exactly
-  that reason); an extraction retry replays the whole run behind its dedupe
-  keys.
-- **The delivery job reconciles.** The STOP acknowledgement is the one producer
-  that cannot replay — its ingress row is marked terminal in the same
-  transaction that inserts the row — so `MessageOutboxDeliveryService` calls the
-  same idempotent append before `sendText`. That also establishes the general
-  invariant: nothing is transmitted to a participant that the transcript did not
-  record.
+  call inserted it; the next reconciliation derives the same reminder ordinal
+  while `reminderCount` is unchanged (the append runs before `markReminded` for
+  exactly that reason); an extraction retry replays the whole run behind its
+  dedupe keys.
+- **The direct dispatcher reconciles.** The STOP acknowledgement is the one
+  producer that cannot replay — its ingress row is marked terminal in the same
+  transaction that inserts the row — so the dispatcher calls the same
+  idempotent append before obtaining its Redis send slot and entering
+  `sendText`. That also establishes the general invariant: nothing is
+  transmitted to a participant that the transcript did not record.
 
 The transcript entry always uses the **stored row's** body, never the text the
 caller proposed. A replayed extraction may generate different reply wording
@@ -313,6 +317,19 @@ accepted. Bot jobs must reload control immediately before enqueueing an
 outbound reply. An observed outbound message without a matching outbox record
 also changes control to human and records external channel activity. The system
 does not infer the sender's staff identity.
+
+A staff send carries a required client-generated UUID. Its durable identity is
+`feedback-staff-<conversationId>-<clientMessageId>`, not the HTTP request id.
+The write transaction takes the conversation advisory lock and then the
+campaign row lock — the same order as provider entry — before reloading MongoDB.
+A fresh identity is admitted only for the exact campaign while it is launched
+and the conversation is open under human control. Close/pause/takeover therefore
+either wins before the insert or observes the admitted outbox row. An exact
+replay may return that row after a later state transition and repairs the
+transcript idempotently by `outboxId`; it writes neither a second decision log
+nor a second audit event. Reusing the UUID with different text or a different
+staff actor is rejected rather than pretending the old row contains the new
+request.
 
 Resuming bot control is explicit. The first implementation may provide the
 actor-labelled human exchange to the model because it can contain useful
@@ -400,13 +417,12 @@ notes and source identities require explicit authorization and product/privacy
 review.
 
 The outbound queue is a third, read-only view over the same data:
-`listFeedbackOutboxQueue` publishes every `message_outbox` row still `pending`,
-`sending` or `held` with its age, conversation, campaign and kind, and
-`getFeedbackOutboxMessage` adds the live BullMQ state of that one row's
-`feedback.deliver.v1` job. Both are `GET` and change nothing. The list is
-PostgreSQL plus one batched respondent read and never touches Redis; the queue
-lookup happens only for a row an operator opened. Its honesty limits — the
-absent attempt history and why `unknown` is the ordinary job state — are owned by
+`listFeedbackOutboxQueue` publishes every undelivered `message_outbox` row with
+its age, durable dispatch state, conversation, campaign and kind.
+`getFeedbackOutboxMessage` adds claim expiry, send-start timestamp, attempt
+count and last error from PostgreSQL. Both are `GET`, change nothing and never
+touch Redis. `ambiguous` means provider entry happened or cannot be ruled out;
+it is not an invitation to retry. The operator semantics are owned by
 [the screen contract](../../frontend/feedback-outbound-queue.md).
 
 ### The outbound decision log
@@ -448,45 +464,75 @@ never joins the table; `listFeedbackOutboxHistory` (the newest rows of any
 status, so delivered messages stay reachable after the queue drains) takes only
 the one-word `origin` per row, in a single batched read.
 
-## WP5 extraction and reply loop (implemented)
+## State-driven conversation reconciliation and extraction (implemented)
 
 [`PostEventFeedbackExtractor`](../../../apps/backend/src/modules/post-event-feedback/extraction/extract.service.ts)
-is the consumer of `feedback.extract.v1`. It is serialized per conversation by
-the deterministic job id and made replay-safe by the MongoDB extraction cursor.
+is invoked by the
+[`FeedbackConversationReconcileService`](../../../apps/backend/src/modules/post-event-feedback/reconciliation/reconcile.service.ts).
+MongoDB owns `{ revision, nextActionAt, executionEpoch }`; the BullMQ V2 job is
+only a wake-up for one revision. PostgreSQL grants the execution lease/token,
+and the extraction cursor plus relational uniqueness make replay safe.
 
 ### One run
 
 ```mermaid
 sequenceDiagram
-  participant Queue as feedback queue
-  participant Run as Extractor
+  participant Queue as feedback-conversation queue
+  participant Run as Reconciler
   participant Mongo as MongoDB
   participant Events as EventsService
   participant Model as Provider
   participant PG as PostgreSQL
 
-  Queue-->>Run: feedback.extract.v1(conversationId)
-  Run->>Mongo: reload conversation
-  Note over Run: closed / human / cursor ≥ latestSeq → skip
+  participant Fence as PostgreSQL execution fence
+
+  Queue-->>Run: reconcile(conversationId, revision)
+  Run->>Fence: claim revision → epoch + token
+  Run->>Mongo: begin exact due revision
+  Run->>Mongo: reload current conversation
+  Note over Run: plan one action or successor time
   Run->>Events: live D16 candidates + feedback venue snapshot
   Run->>PG: campaign + already accepted answers/notes
   par extraction and attention classification
+    Run->>PG: phone + conversation locks; token + campaign + consent + inbound fence
+    Run->>Mongo: final revision/lifecycle/control/awaiting read
     Run->>Model: full transcript → answers, notes, reply
+    Run->>PG: repeat provider-entry fence per granted classifier batch
+    Run->>Mongo: final revision/lifecycle/control/awaiting read
     Run->>Model: 6 prior turns + new burst → incident per target ID
   end
   Run->>Run: domain validation (provenance, subjects, replay)
   Run->>PG: fence durable inbound rows beyond the Mongo snapshot
   Run->>PG: if venue supplied, share-lock event + fence revision
-  Note over Run,PG: mismatch or disabled → rollback + retryable failure
-  Run->>PG: answers, notes, audit, one outbox row
+  Note over Run,PG: state change → superseded; claim loss → retry; invariant → quarantine
+  Run->>PG: token-fenced answers, notes, audit, one outbox row
   Run->>Mongo: transcribe the outbound reply (actor bot, by outboxId)
   Run->>Mongo: goals, attention, cursor, close(completed)
+  Run->>Mongo: settle or preserve newer revision
+  Run->>Fence: release claim
 ```
 
-The three cheap exits are reloaded state, not queue assumptions: the job may
-have waited behind a STOP, a staff takeover or a newer run. A transcript that
-gained no `actor: participant` message advances the cursor and returns without
-calling the model at all.
+Cheap exits are reloaded state, not queue assumptions: closed lifecycle, human
+control, campaign pause/close, consent withdrawal, `awaitingHuman`, a covered
+cursor or a newer revision all avoid a model call. The planner also owns the
+rolling quiet window, reminders, expiry and parked-provider retry, and chooses
+at most one of them per execution. A state transition during the run increments
+the durable revision; the old token cannot clear or commit for the new one.
+After a provider slot is granted, each model request establishes a short
+provider-entry transaction: phone lock, conversation lock, live execution
+token, campaign share lock, participant consent lock, durable-ingress fence and
+then the final Mongo state read. It commits before the network request. This
+turns the slow-typist check into an ordered boundary without holding database
+locks for model latency: earlier fragments suppress billing, later fragments
+belong to the successor revision.
+
+The guard result is tagged because these cases have different recovery
+semantics. A newer authoritative state is ordinary `superseded` completion and
+does not consume a BullMQ retry. A lost PostgreSQL claim is transient ownership
+loss and remains retryable. A missing or backwards execution projection is an
+unrecoverable invariant failure retained for diagnosis. None of those three may
+run extraction fallback or write participant-facing failure evidence; only an
+explicit model-generation failure owns that path.
 
 ### What the model is given and what it may return
 
@@ -497,6 +543,17 @@ remain visible to both extraction and attention classification. The extraction
 proposal is `goals`, `notes[]`, `nextGoal`, `reply`, `handoff`, `confidence`;
 its full transcript also carries the campaign's question copy snapshot, **live**
 D16 candidates and already-accepted results.
+
+MongoDB keeps outbound transcript entries as the raw audit/UI history, including
+an intent that was later cancelled before provider entry. Before either model
+call, extraction resolves every outbox id in that bounded 150-message aggregate
+with one PostgreSQL projection. `pending`, `held`, `claimed`, `failed` and
+`cancelled` prove the participant did not receive the turn and are omitted from
+model context; `attempting`, `ambiguous`, legacy `sending` and `sent` may have
+been visible and remain. Participant turns and messages without an outbox id
+are unchanged. A missing historical PostgreSQL row also remains: absence is not
+evidence that an old participant never saw it. This projection neither mutates
+MongoDB nor renumbers/shortens the extraction cursor window.
 
 `goals` carries one **required** verdict per questionnaire goal — `answered`
 with a list of that goal's answers, `declined` with the words that declined it,
@@ -584,7 +641,7 @@ invalidate work that never saw it.
 The fence ends at the durable outbox commit. For an extraction outbox row, the
 decision log records the supplied revision (`null` means venue-blind), but a
 later venue edit does not rewrite, cancel or regenerate the existing body or its
-transcript entry. Relay retries send the stored body. The new venue applies only
+transcript entry. Dispatcher retries send the stored body. The new venue applies only
 to later extraction runs.
 
 ### Validation before any persistence or send
@@ -600,6 +657,7 @@ to later extraction runs.
 | In V1, an unasked `liked` / `meet_again` is not declined beside an answer | Skip refused (`declined_before_asked`); the run asks that question |
 | Lifecycle ∧ control ∧ opt-in permit a reply                               | Reply suppressed, results still persisted                          |
 | Durable inbound exists beyond the model's MongoDB snapshot                | Ordinary reply suppressed; results and cursor still persist        |
+| Work/control generation changed during the paid call                      | Outbound suppressed; results persist; successor keeps the cursor   |
 | Classifier incident result                                                | Nothing suppressed; annotate target message + attention + audit    |
 | Explicit `handoff`                                                        | Neutral handoff copy replaces the reply; notes still recorded      |
 | A `handoff` that recorded nothing over testimony still holding an answer  | The **whole run** is failed (`handoff_discards_testimony`)         |
@@ -687,8 +745,9 @@ only way to explain later why a subject was — or was not — resolvable.
 answered`, derived from stored **and** newly written answers so a replay repairs
   them; `asked` is taken only from an outbound that actually poses a question
   (campaign re-ask, or a model reply whose words include `?` / `;` or a Greek
-  imperative ask such as «πες μου» / «στείλε»), never from a bare `nextGoal` on
-  a statement — otherwise a withdrawal marks the next rung asked and
+  imperative ask such as «πες μου» / «στείλε», or the narrow elliptical form
+  «ένα νούμερο 1 ως 5 φτάνει»), never from a bare `nextGoal` on a statement —
+  notably, «φτάνει πια» remains a withdrawal — otherwise a withdrawal marks the next rung asked and
   `reminder_followup` restates a question nobody posed. The doubt is spent
   towards "it asked": under-reading an ask also trips the withdrawal net below,
   which closes the conversation, while over-reading one costs a restated
@@ -733,7 +792,7 @@ answered`, derived from stored **and** newly written answers so a replay repairs
   are inbox work, not pages.
 
 Extraction stops at the outbox row. The
-[WP6 relay](#wp6-outbox-relay-and-transport-implemented) leases it and sends it
+[direct dispatcher](#direct-outbox-dispatch-and-transport-implemented) claims it and sends it
 through `FeedbackTransport`, so a model proposal reaches a participant only
 after a durable PostgreSQL row survived domain validation. The two halves share
 no in-process call.
@@ -774,7 +833,7 @@ that distinction is the whole safety of it:
 - a re-ask the **model** worded differently is the behaviour 11δ asks for and is
   never counted — the personas that get two differently phrased re-asks and stay
   open are untouched;
-- the reminder sweep's nudge restates the open question **inside**
+- the planner's reminder nudge restates the open question **inside**
   `reminder_followup`'s own wrapper, so it is never equal to the campaign copy
   and never spends a rung;
 - the assurance-bearing and ending copies carry no `askedGoal` at all, so none of
@@ -1008,14 +1067,29 @@ same reason a clean replay of a finished run now exits at
 past the cursor, but only with the bot's own turn, so no model call is made and
 nothing is written.
 
+Outbound resolution happens before the final lifecycle decision. Immediately
+before persistence, any outbound whose final `closingReason` is non-null is
+normalized to the generation-bearing
+`feedback-closing-<conversationId>-<lastParticipantSeq>-r<workRevision>` key,
+including a model-authored goodbye for an empty ladder that closes as
+`declined`. The Mongo work revision changes on an explicit bot resume, so a
+terminal row cancelled by takeover cannot occupy the identity needed to close
+the same unread testimony after control returns. PostgreSQL execution epoch is
+deliberately absent: retrying one durable revision must reuse its row. Retained
+testimony-only and fixed closing keys remain recognizable during drain. A
+non-question goodbye with a non-null `nextGoal` is a bot withdrawal instead: it
+stays open and keeps its ordinary `feedback-reply-…` key, so it is dispatchable
+rather than masquerading as an authorized terminal commitment.
+
 ### Model, configuration and cost
 
 The provider boundary is the assistant's registry (`assistant-models.ts`), so
 extraction cannot invent a provider mapping or substitute a model when a key is
 missing. `FEEDBACK_EXTRACTION_MODEL` selects the model and defaults to
 `google/gemini-3.6-flash` (D12); an unregistered id fails at worker start rather
-than quietly using the default. Terra is the selected paid-rehearsal target and
-`openai/gpt-5.6-terra` routes through OpenAI direct, so reasoning effort and
+than quietly using the default. Terra is additionally rejected at this boundary
+and reserved for `FEEDBACK_SUMMARY_MODEL`. Luna is the selected paid-rehearsal target and
+`openai/gpt-5.6-luna` routes through OpenAI direct, so reasoning effort and
 service tier remain explicit request controls. Changing that treatment does not
 change the production default. Provider clients live in the worker module only.
 
@@ -1024,7 +1098,7 @@ extraction call — `none`, `low`, `medium`, `high`, `xhigh` or `max`, spelled f
 whichever provider the registry chose. **Unset is not `none`.** Unset sends no
 reasoning field at all and leaves the provider on its own default; `none`
 overrides it. The default is unset, so a campaign that never asked for thinking
-behaves exactly as it did before the setting existed. Terra is deliberately
+behaves exactly as it did before the setting existed. Luna is deliberately
 routed through OpenAI direct. The wider effort vocabulary remains based on the
 direct Luna probe where `max` was accepted by the Responses API on 2026-07-31.
 
@@ -1047,6 +1121,13 @@ the provider-free prompt context, may change tone and wording, and may not chang
 the question, facts or commitments. If it fails or returns invalid text, answers
 and notes still persist but the turn sends **nothing**; the application does not
 re-resolve a null reply into fallback question copy.
+
+The rewrite repeats the execution guard immediately before its own provider
+entry. If authoritative state changed after the extraction and attention calls,
+the third call is skipped and their valid structured results are retained, but
+the superseded run writes no reply and does not advance the old cursor. Claim
+loss or an execution invariant is not swallowed at this seam; it follows the
+retry/quarantine split above.
 
 The attention classifier has **its own budget, `FEEDBACK_ATTENTION_REASONING_EFFORT`,
 over the same vocabulary, defaulting to `none`.** It was pinned there until
@@ -1071,7 +1152,7 @@ claimed the fast lane had been bought. Unset omits the field and leaves the
 account's own tier in force. `flex` trades latency for a lower rate; `priority`
 is OpenAI's paid fast mode at roughly **twice the standard token price**, charged
 per token on every call rather than as a flat fee. It is therefore part of the
-direct-OpenAI Terra configuration and must stay empty unless tier latency is the
+direct-OpenAI Luna configuration and must stay empty unless tier latency is the
 thing being measured.
 
 Extraction additionally sends **permissive safety thresholds** on its own call
@@ -1309,8 +1390,10 @@ operator.
 ### Deterministic fallback for a dead run
 
 [`PostEventFeedbackExtractionFallback.apply`](../../../apps/backend/src/modules/post-event-feedback/extraction/fallback.service.ts)
-runs when `feedback.extract.v1` fails permanently for a reason that is **not** a
-provider incident — a rejection of this request, or the last attempt spent. A run
+runs only when reconciliation throws the explicit
+`FeedbackExtractionGenerationError` classification and extraction fails
+permanently for a reason that is **not** a provider incident — a rejection of
+this request, or the last V2 job attempt spent. A run
 whose handoff was refused as
 [`handoff_discards_testimony`](#validation-before-any-persistence-or-send)
 arrives the same way: it is retryable on purpose, so the fallback applies only
@@ -1319,8 +1402,9 @@ once no attempt has managed to read the testimony. It leaves three things behind
 1. `needsAttention` plus one audit event carrying a bounded cause class
    (`provider_refusal | validation_failed | unknown` — `provider_error` reaches
    `park` instead, and `apply` stays cause-agnostic so the routing lives in one
-   place). The same class is thrown as the `UnrecoverableError` message, so it is
-   visible in BullMQ's `failedReason` and not only in the audit table. HTTP
+   place). The same class is thrown as the `UnrecoverableError` message for
+   worker logs and job quarantine; operator state remains the durable attention
+   record. HTTP
    failures append only their safe status (`http_429`, `http_503`, and so on).
    The one structured account fault above appends its fixed application-owned
    code, which distinguishes empty credit from TPM pressure without retaining
@@ -1329,8 +1413,8 @@ once no attempt has managed to read the testimony. It leaves three things behind
    generic text — «Η αυτόματη ανάλυση δεν ολοκληρώθηκε — δείτε τη συζήτηση.».
    Nothing was extracted, so nothing may be characterised. The text names the
    failure rather than the content for exactly that reason: a run reaches the
-   fallback for any permanent failure, and the earlier wording asserted a
-   possible offensive reference about text nothing had read.
+   fallback for any classified permanent extraction failure, and the earlier
+   wording asserted a possible offensive reference about text nothing had read.
 3. **No bot message.** The failed run did not successfully understand the
    participant's latest testimony. Re-appending the current unanswered goal can
    therefore repeat the exact question they just answered. The operator still
@@ -1357,17 +1441,26 @@ Idempotency uses one fence:
   absorbs replays of the same dead run so the note, audit event and operator
   alert are not duplicated.
 
+The bot brake and durable schedule stop in one MongoDB transition:
+`awaitingHuman` becomes true and `work.nextActionAt` becomes null without
+advancing `work.revision`. The transition remains eligible when a replay finds
+`awaitingHuman` already true but an older due time still present, repairing the
+cross-store crash state rather than declaring the flag sufficient. Maintenance
+therefore has no successor wake-up to publish and leaves the exact failed BullMQ
+job available under its bounded seven-day retention.
+
 ### Parking a provider incident
 
 [`PostEventFeedbackExtractionFallback.park`](../../../apps/backend/src/modules/post-event-feedback/extraction/fallback.service.ts)
 is what a terminal `provider_error` gets instead. It writes **no note, no
 outbound, no attention reason and no operator alert**. It records three fields on
-the conversation's `extraction` sub-document and queues the next attempt:
+the conversation's `extraction` sub-document and schedules durable conversation
+work:
 
 | Field                | Meaning                                                                    |
 | -------------------- | -------------------------------------------------------------------------- |
 | `parkedSince`        | when the **first** park happened; the clock the notice is measured against |
-| `parkedRuns`         | how many runs have parked since; also what keeps retry job ids distinct    |
+| `parkedRuns`         | how many runs have parked since; the next planner retry ordinal            |
 | `parkedNoticeSentAt` | when the participant was told, once                                        |
 
 `parkExtraction` is an aggregation-pipeline update, so «keep the old start,
@@ -1376,25 +1469,21 @@ conversation concurrently agree on the start and both get counted. Recomputing
 the start per failing run would push the half-hour threshold away exactly as fast
 as the outage lasted, and the participant would never be told anything.
 
-**The retry ladder.** The queue's own ladder is five attempts of exponential
-backoff from one second — spent inside twenty seconds, which is a blip, not an
-outage. Worse, a non-retryable provider fault (a `402`, a wrong key, an unknown
-model) never gets even that. So each park queues one `feedback.extract.v1` of its
-own, `FEEDBACK_EXTRACTION_PARK_RETRY_MS` (5 minutes) out, under
-`feedback-extract-v1-<conversationId>-<latestSeq>-parked-<parkedRuns>` with
-`attempts: 1` and `removeOnFail: true`. A distinct id per run is required, not
-cosmetic: BullMQ refuses a second `add` for an id it still holds, and while a
-parked run is executing it holds its own. When the provider recovers, the next
-wake-up reads the testimony properly and `advanceCursor` clears the park in the
-same write that moves the cursor — so the park is defined by exactly one fact,
-«the last run could not read this conversation».
+**The retry ladder.** BullMQ's five exponential attempts handle short transient
+failures. A terminal provider incident parks the aggregate; the current-state
+planner derives `parkedSince/updatedAt + FEEDBACK_EXTRACTION_PARK_RETRY_MS` and
+settles that timestamp as the next MongoDB work revision. Its V2 job ID contains
+the revision, so the executing job never blocks its successor. If enqueue fails,
+maintenance republishes the same durable revision. When the provider recovers,
+`advanceCursor` clears the park in the same write that moves the cursor — the
+park still means exactly one fact, «the last run could not read this
+conversation».
 
-`FEEDBACK_EXTRACTION_PARK_MAX_MS` (6 hours) is the ceiling on re-queueing, so a
+`FEEDBACK_EXTRACTION_PARK_MAX_MS` (6 hours) is the ceiling on rescheduling, so a
 fault nobody is repairing stops billing a request every five minutes. Reaching it
 changes nothing the participant sees: the conversation stays parked and stays
-counted. A closed conversation is not re-queued either — the run would exit on
-`skipped_closed`, and queueing certain no-ops makes the queue lie about what is
-outstanding.
+counted. A closed conversation's next planner pass settles its work to idle;
+maintenance therefore does not preserve a permanent due row.
 
 **The half-hour notice.** After
 `FEEDBACK_EXTRACTION_PARK_NOTICE_AFTER_MS` (30 minutes) of being parked, the next
@@ -1435,7 +1524,7 @@ notice is also withheld while the conversation is closed,
 under human control or `awaitingHuman` — the bot has no floor in any of those, and
 none of the three is left worse off by our silence.
 
-**The reminder sweep stands down** for a parked conversation. Their message is
+**The reminder planner action stands down** for a parked conversation. Their message is
 sitting unread, quite possibly with our own «δεν έχουμε δει ακόμα το μήνυμά σου»
 already sent, and «πες μας πώς σου φάνηκε η βραδιά» a day later reads as a machine
 that lost what they wrote and is asking again from the top. The park normally
@@ -1509,23 +1598,24 @@ settings are attached to Google models only. No test calls a provider.
 D13's own coverage sits alongside it: the independent classifier requiring
 exact target-message coverage without suppressing notes or answers, the
 materializer leaving inbound text unclassified before extraction, the fallback
-writing exactly one note + one acknowledgement + one audit event and nothing on
+writing exactly one note + one audit event and nothing on
 replay, unique-name subject resolution versus two-name ambiguity, the alert
-firing once per `false → true` transition, and the processor surfacing each
-bounded cause class in `failedReason`.
+firing once per `false → true` transition, and the processor classifying each
+bounded failure cause.
 
 The two treatments of a dead run are tested as a pair, because the value is in
 the split. On the park side: each of `401`–`404` classified as the provider's
 fault and `400` / `422` still as a refusal, the status read through a `RetryError`
 wrapper, a park writing no note, no outbound, no attention reason and no alert,
-each successive park getting its own retry job id while `parkedSince` stays put,
+each successive park getting a newer durable work revision while `parkedSince` stays put,
 the half-hour notice firing once and never twice, never before the threshold,
 never while a person holds the conversation and never when the deterministic
-fallback has already spoken, the six-hour ceiling stopping the re-queue while the
-conversation stays parked, and the reminder sweep standing down. On the unchanged
-side: a `provider_refusal` still reaching `apply` with the same
-`failedReason`, and the processor never parking a refusal, a validation failure or
-an unrecognised throw.
+fallback has already spoken, the six-hour ceiling stopping rescheduling while the
+conversation stays parked, and the reminder planner action standing down. On the unchanged
+side: a `provider_refusal` still reaching `apply` with the same bounded cause,
+the processor never parking a refusal or validation failure, and an unrecognised
+throw — including exhausted planning, reminder, expiry and settlement failures —
+entering neither `apply` nor `park`.
 
 Two guards on what a run may write to an answer row have their own tests: a run
 that classifies respondent-source abuse writes `matching_hold` on the answers
@@ -1541,22 +1631,41 @@ that the section its failure message sends people to still exists.
 
 ## Failure and recovery
 
-No worker remains alive while waiting for a reply. Bounded jobs reload durable
-state and are safe to retry.
+No worker remains alive while waiting for a reply. Bounded wake-ups reload
+durable state; MongoDB due work and PostgreSQL pending rows repair lost Redis
+coordination.
 
-Durable acknowledgement, cross-store replay, ambiguous-send reconciliation and
-the outbox relay now exist (WP4/WP6), and extraction is replay-safe behind the
-cursor and the unique keys (WP5). Webhook activation still waits on the staging
+Durable acknowledgement, cross-store replay, revision/epoch fencing and direct
+outbox ambiguity quarantine now exist. Extraction is replay-safe behind the
+execution token, cursor and unique keys. Webhook activation still waits on the staging
 acceptance and consent gates, not on missing recovery machinery. Nothing claims
 exactly-once: replay repairs forward, and a stalled job can repeat an idempotent
 step — for extraction that means repeating a model call, which costs money but
 writes nothing twice.
 
 A run that cannot succeed at all is no longer a silent loss. Terminal
-`feedback.extract.v1` failures hand off to the
+reconciliation extraction failures hand off to the
 [deterministic fallback](#deterministic-fallback-for-a-dead-run), which records
-attention, one ordinary note and one acknowledgement, and puts the bounded cause
-class into the queue's `failedReason`.
+attention and one ordinary note, then marks the conversation for human handling.
+Provider incidents instead remain visibly parked on a durable successor time.
+Exhausting the shared reconciliation job does not itself prove extraction
+failed: planning reads, reminder/expiry actions and MongoDB settlement can all
+throw from the same processor. Those infrastructure/action failures stay ordinary
+failed wake-ups, leave durable MongoDB work discoverable to maintenance, and
+never create fallback notes, human handoff or false extraction-failure evidence.
+
+Expected state change is not a failure at all: reconciliation returns
+`superseded` and releases the claim without settling from its stale snapshot. A
+newer Mongo revision is queued normally; when the invalidating state lived only
+in PostgreSQL, the unchanged due intent remains discoverable to maintenance for
+a cheap current-state pass.
+Execution claim loss is rethrown so BullMQ can retry it; an execution invariant
+is marked unrecoverable and retained. Its exact versioned failed-reason marker
+prevents maintenance from recreating that same current revision while the job
+is retained; newer revisions use new job IDs, and ordinary failed wake-ups stay
+recoverable. Both guard failures explicitly bypass fallback. This separation
+prevents a takeover or a slow typist's newer fragment from becoming a seven-day
+red job — or, worse, a fabricated message to the participant.
 
 The initial operating assumption is that `messages.upsert` observes manual
 outbound messages from the primary WhatsApp application and other linked
@@ -1650,15 +1759,15 @@ anything.
 [`PostEventFeedbackMaterializer`](../../../apps/backend/src/modules/post-event-feedback/ingress/materialize.service.ts)
 reloads the ingress row and decides one outcome per delivery:
 
-| Situation                          | Outcome                    | Effects                                                                                                                            |
-| ---------------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| Row already terminal               | `already_processed`        | Nothing; this is the replay path                                                                                                   |
-| Phone matches no open conversation | `ignored_unmatched`        | Body dropped, metadata kept, counter incremented, never AI-processed (D10)                                                         |
-| Inbound STOP                       | `inbound_stopped`          | Close `stopped`, cancel queued outbox, withdraw opt-in, audit, exactly one `stop_ack` outbox row transcribed as `actor: bot` (D14) |
-| Inbound reply                      | `inbound_materialized`     | Idempotent transcript append, then one `feedback.extract.v1` for the newest transcript position                                    |
-| Inbound without usable text        | `inbound_not_materialized` | `needsAttention`, ingress `failed`; the durable row keeps the provider metadata for an operator                                    |
-| Outbound matching an outbox row    | `outbound_correlated`      | Delivery columns only — the outbox owns that message's transcript entry, so nothing is appended twice                              |
-| Outbound matching an open thread   | `outbound_external`        | Take over to human control, append the observed staff message, audit external channel activity (D17)                               |
+| Situation                                 | Outcome                    | Effects                                                                                                                            |
+| ----------------------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Row already terminal                      | `already_processed`        | Nothing; this is the replay path                                                                                                   |
+| Phone matches no open/closed conversation | `ignored_unmatched`        | Body retained in durable ingress for operator/privacy handling, never attributed or AI-processed (D10 amended)                     |
+| Inbound STOP                              | `inbound_stopped`          | Close `stopped`, cancel queued outbox, withdraw opt-in, audit, exactly one `stop_ack` outbox row transcribed as `actor: bot` (D14) |
+| Inbound reply                             | `inbound_materialized`     | Idempotent transcript append, then one durable conversation revision due after the rolling quiet window                            |
+| Inbound without usable text               | `inbound_not_materialized` | `needsAttention`, ingress `failed`; the durable row keeps the provider metadata for an operator                                    |
+| Outbound matching an outbox row           | `outbound_correlated`      | Delivery columns only — the outbox owns that message's transcript entry, so nothing is appended twice                              |
+| Outbound matching an open thread          | `outbound_external`        | Take over to human control, append the observed staff message, audit external channel activity (D17)                               |
 
 Conversation resolution is the Mongo `findOpenByPhone` lookup backed by the
 partial unique index (D9). Nothing infers which event or person an unmatched
@@ -1676,12 +1785,16 @@ or blank. A campaign launched before a copy key existed therefore sends that
 default instead of nothing.
 
 An observed outbound is correlated first by provider message id and then by the
-oldest unlinked outbox row of that conversation with the same body. That
-reconciliation is what keeps an ambiguous send from being sent twice. Delivery
-status is never downgraded by a later observation. Outbound correlation by
-provider message id also runs when no open conversation matched, so the STOP
-acknowledgement — sent to a conversation that just closed — records its delivery
-instead of counting as unrelated traffic.
+oldest exact-body row whose transport may actually have been entered
+(`attempting`, `ambiguous`, legacy `sending`, or `sent` without an id).
+`pending` and `claimed` are deliberately excluded from body fallback: an
+external staff message with identical text must trigger takeover, not be
+misreported as our unsent bot row. Provider evidence promotes correlated active
+or ambiguous rows to `sent`, clears the live lease/error and makes a late
+dispatcher completion lose its status-and-token CAS. Delivery status is never
+downgraded. Provider-id correlation also runs when no open conversation matched,
+so the STOP acknowledgement records delivery instead of counting as unrelated
+traffic.
 
 ### Why this order is replay-safe
 
@@ -1698,7 +1811,8 @@ sequenceDiagram
   Queue-->>Worker: at least once
   Worker->>PG: reload ingress
   Worker->>Mongo: resolve, close or append (idempotent)
-  Worker->>Queue: feedback.extract.v1 when a participant replied
+  Worker->>Mongo: increment work revision + replace rolling due time
+  Worker->>Queue: reconcile V2 wake-up for that revision
   Worker->>PG: fenced transaction marks the row terminal
 ```
 
@@ -1707,8 +1821,10 @@ idempotent, so a crash replays into a no-op. The fence is a
 `SELECT ... FOR UPDATE` on the ingress row inside the transaction that performs
 the PostgreSQL side effects, which is what makes concurrent duplicate executions
 collapse to a single audit event, a single cancellation and a single
-acknowledgement. Extraction is enqueued before the fence for the same reason:
-the reverse order would lose the run instead of repeating it.
+acknowledgement. Conversation intent is persisted and its wake-up is published
+before the ingress row becomes terminal for the same reason: the reverse order
+would lose the run. A crash after the MongoDB schedule but before `Queue.add`
+leaves due work for maintenance; a replay publishes the latest revision again.
 
 Before any of those steps, the worker takes a deployment-wide PostgreSQL session
 advisory lock on a digest of the row's phone (or `chatJid` fallback). It then drains durable pending
@@ -1724,26 +1840,33 @@ operation already in flight when only the lock connection fails relies on the
 Mongo append CAS and durable idempotency guards on replay.
 
 A row committed by the edge whose enqueue never succeeded stays `pending` and
-is recovered by a provider redelivery **or** by the WP7 ingress recovery sweep,
+is recovered by a provider redelivery **or** by the V2 maintenance pass,
 which re-enqueues `feedback.materialize.v1` to `feedback-ingress` under the same
 stable job id for rows older than `FEEDBACK_INGRESS_PENDING_RECOVERY_MINUTES`
-(default 5). A second reconciliation closes the later failure window: on worker
-startup and every five minutes it scans MongoDB for open bot conversations with
-participant messages beyond `extraction.cursorSeq`, checks the positional and
-parked BullMQ jobs, and recreates the stable latest-sequence job only when no
-viable execution exists. Capped parks are excluded before the bounded scan, and
-a lost parked retry is recreated as the same single-attempt five-minute rung.
-Redis persistence is useful; the Mongo cursor is the business source of truth.
+(default 5). Recovery allocates `(created_at, id)` keyset pages of 50 behind the
+row-locked `ingress_pending` PostgreSQL checkpoint, commits the boundary before
+publishing jobs and wraps finitely. A worker dying after allocation or a page
+of poison rows may delay that page until the wrap, but cannot starve newer
+eligible ingress indefinitely. This global scan order is only fair page
+allocation; the materialization coordinator still serializes each phone/chat
+and drains it by `ingress_order`.
+
+Both webhook and maintenance recheck that the row is still pending, leave a
+live deterministic job alone, and remove a retained completed or failed copy
+before re-adding; an unresolved removal race stays failed so the next pass
+tries again. The same maintenance execution scans MongoDB's due-work index in
+100-row keyset pages, up to 500 rows per global pass, and recreates a missing
+revision wake-up. Redis persistence is useful; the MongoDB work revision/due
+time is the scheduling authority and the extraction cursor remains the proof of
+which testimony has been processed.
 
 ### Boundaries this package deliberately keeps
 
-Reminders, expiry and campaign launch live in WP7. `feedback.extract.v1` has a
-fixed name, payload and job id so materialization can enqueue it; WP5 replaced
-the recording stub with the real consumer without changing any of them, and
-that consumer has its own section below. Sending is likewise not this package's
-job: extraction only ever **inserts** `message_outbox` rows and the WP6 relay
-leases and sends them. Delivery-status webhooks (`messages.update`) update
-outbox delivery columns through WP6.
+Reminders, expiry, parked retry and extraction are planner actions behind the
+same conversation V2 contract. Sending is likewise not materialization's job:
+extraction only ever **inserts** `message_outbox` rows and the direct dispatcher
+claims them. Delivery-status webhooks (`messages.update`) update outbox delivery
+columns independently.
 
 Materialization and extraction outcomes are counted in a process-local counter
 surfaced as structured log events, alongside per-run extraction token usage. The
@@ -1762,44 +1885,126 @@ downgraded, and the external-outbound takeover. Process
 composition tests keep the consumer out of the HTTP graph and the producer edge
 gated with the webhook route.
 
-## WP6 outbox relay and transport (implemented)
+## Direct outbox dispatch and transport (implemented)
 
-The email-style lease relay for `message_outbox`, plus the injectable outbound
-transport boundary.
+[`MessageOutboxDispatcherService`](../../../apps/backend/src/modules/post-event-feedback/outbox/dispatcher.service.ts)
+polls PostgreSQL directly; there is no steady-state feedback relay or delivery
+job. Each one-second non-overlapping pass first quarantines expired attempts,
+then claims up to four launched-campaign rows using `FOR UPDATE SKIP LOCKED`.
+Only the oldest unresolved row per conversation is eligible, including when a
+different replica has that row locked, and claims from one conversation execute
+serially in-process. Different conversations retain four lanes so a slow
+provider call does not age unrelated claims. The Redis limiter still serializes
+actual send starts across every lane and replica. This proves FIFO per
+conversation id, not across separate historical conversations that happen to
+share a phone; PostgreSQL does not store `phoneAtLaunch`.
 
-### Relay and deliver
+The durable state machine is:
 
-[`MessageOutboxRelayService`](../../../apps/backend/src/modules/post-event-feedback/outbox/relay.service.ts)
-leases due rows with `FOR UPDATE SKIP LOCKED`:
+| State                           | Meaning and recovery                                                                                 |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `pending`                       | Durable send intent, available to claim                                                              |
+| `claimed`                       | Opaque token + two-minute lease; provider has not been entered, so expiry is safely reclaimable      |
+| `attempting`                    | Token-fenced `send_started_at` and incremented attempt count; provider call may have happened        |
+| `ambiguous`                     | Unknown outcome after provider entry, or honest legacy `sending` cutover; never automatically resent |
+| `sent` / `failed` / `cancelled` | Terminal accepted, explicit rejection or state-guard cancellation                                    |
+| `held`                          | Explicit durable/supervised park; never selected automatically                                       |
+| `sending`                       | V1 rolling-deploy bridge only; no new producer writes it                                             |
 
-- `pending` rows are claimed into `sending`;
-- `held` rows are never leased (D5 supervised mode stays a config away);
-- stale `sending` rows past a five-minute recovery horizon are reclaimed so a
-  lost BullMQ job can be republished under the same
-  `feedback-deliver-v1-<outboxId>` key.
+Retained `feedback.relay-outbox.v1` and `feedback.deliver.v1` jobs are
+validation-only drains. They never invoke the retired relay/delivery services
+and never call the provider; the worker module no longer registers those
+services. Pending rows belong only to the direct dispatcher. Legacy `sending`
+cannot safely return to pending because the old job recorded no provider-entry
+marker, so the recovery pass quarantines it instead.
 
-A five-second scheduler publishes `feedback.relay-outbox.v1`. Campaign
-`intro`/`reminder` jobs in the same batch receive a staggered BullMQ delay.
-STOP/expiry cancellations flip `pending` and `held` rows to `cancelled` through
-the existing repository helper; a deliver job that finds `cancelled` or `held`
-exits without sending.
+The closing-copy cutover also fences the old fixed
+`feedback-closing-<conversationId>` identity against testimony-only V2 and
+generation-bearing V3 identities.
+A fixed row still before provider entry is cancelled inside the same
+PostgreSQL transaction before the anchored row is inserted. If the fixed row is
+`attempting`, `ambiguous`, `sending` or `sent`, the anchored row is suppressed:
+the conversation remains open, advances its processed testimony, and is parked
+with `undelivered_message` attention for an operator. This deliberately prefers
+one uncertain goodbye over two certain ones.
 
-[`MessageOutboxDeliveryService`](../../../apps/backend/src/modules/post-event-feedback/outbox/deliver.service.ts)
-reloads the conversation phone, ensures the row's transcript entry exists (the
-idempotent forward repair described in
-[outbound transcript entries](#outbound-transcript-entries)) and then sends
-through `FeedbackTransport`. An unknown provider outcome parks the row
-(`delivery_status=pending`, keep any `provider_log_id`) and never calls send
-again: recovery reconciles via `getMessageInfo` or waits for the WP4 upsert
-body-correlation path.
+Before the send marker, the dispatcher reloads campaign, conversation lifecycle
+and control, current participant consent and `awaitingHuman`, records the
+outbound transcript idempotently and waits for the deployment-wide Redis
+limiter. Redis grants only a current slot: an early caller sleeps and competes
+again on wake-up instead of owning a future slot. A token-fenced heartbeat keeps
+the PostgreSQL-clock lease alive during that wait, followed by a final renewal.
+
+The no-return preparation first takes the webhook's phone advisory lock and
+then the same PostgreSQL conversation advisory lock used by extraction
+terminal/awaiting transitions, STOP, staff/external takeover, staff close,
+silent expiry, transcript-capacity handoff and provider observations. It also
+share-locks the campaign row: dispatchers for one campaign remain parallel,
+while pause/close status updates cannot slip between the final read and marker.
+It reloads MongoDB and participant consent, then compares an ordinary
+extraction reply's immutable `message_outbox_log.conversation_state` with both
+the current participant sequence and every durable inbound row for the launch
+phone. It also requires the exact control generation (`mode`, `source`,
+`changedAt`), execution epoch and campaign-resume generation captured by that
+snapshot. This closes human-control and pause/resume ABA without treating the
+normal work-revision N→N+1 reminder settlement as stale. A pending ingress
+therefore cancels stale copy even before MongoDB materializes it. Historical
+ordinary-reply logs without those generation fields fail closed. Only after
+those checks does it commit the `attempting` marker;
+the raw provider call is the only fallible step after it. A pause releases the
+claim for resume, a closed campaign cancels it and a missing campaign fails it,
+except that the exact MongoDB-anchored STOP acknowledgement remains owed
+through pause or close. The final guard passes that exact id to the token-fenced
+provider-entry update; `markDispatchAttemptStarted` otherwise still requires
+campaign status `launched`, so a STOP-shaped impostor cannot exploit the
+exception. The current post-cursor bot
+commitment may still send under `awaitingHuman`; stale bot rows may not. A
+completion/decline row must match the exact MongoDB
+`lifecycle.terminalOutboxId`, not merely look like closing copy. The winning
+terminal CAS retracts every still-pre-send row except that exact winner under
+the same lock. Cursor/accounting and `awaitingHuman` likewise move in one Mongo
+write, so a crash cannot consume testimony while leaving the bot active or
+silence the bot behind a stale cursor. STOP stores its deterministic
+acknowledgement id in `lifecycle.terminalOutboxId`; the dedupe key alone grants
+nothing, while the exact row retains the consent exception.
+
+Normal inbound materialization uses that same conversation mutex to cancel
+pre-send reply/intro/reminder rows made obsolete by the new turn. It preserves
+only the exact current handoff and lifecycle terminal ids; `system` and `staff`
+rows are categorically outside this cancellation. Outbox-backed transcript
+turns remain an audit of intent, so a row transcribed before the final guard may
+remain in MongoDB, but the detail projection joins its durable `cancelled`
+status and never labels it delivered.
+
+An accepted result becomes `sent`, an explicit rejection becomes `failed`, and
+every exception or provider-unknown result becomes `ambiguous`. Before an
+ambiguity transaction commits, the dispatcher parks open bot automation on
+`awaitingHuman` and raises durable `undelivered_message` attention. Expired
+attempts and stale V1 `sending` rows take the same conservative projection.
+Later provider evidence can promote the PostgreSQL row to `sent`, but does not
+automatically dismiss attention or resume the bot; that is deliberately a human
+decision. An explicit staff row may pass an older `ambiguous` row after takeover
+without resolving it, and therefore may observe either provider reality. The
+only automated FIFO exception is the exact lifecycle-anchored STOP
+acknowledgement; it still cannot pass any live/pre-send row. Ambiguity parking
+preserves that row when STOP won the shared lock first, while the opposite lock
+order cancels the older queue before STOP creates and anchors the acknowledgement.
+
+STOP/expiry/takeover cancellation flips unsent `pending`, `held` and
+token-owned `claimed` rows with no send marker to `cancelled`. It never touches
+`attempting`, `sending` or `ambiguous`. A stale V1 `sending` row is quarantined
+after five minutes without fabricating `send_started_at` or an attempt count,
+because relay ownership alone does not prove whether its old delivery job
+crossed the provider boundary. The opaque claim token is never exposed through
+HTTP.
 
 ### Transport boundary
 
-| `TRANSPORT_MODE` | Adapter                                                                                                             |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `disabled`       | Provider-free deterministic rejection; attempted rows fail visibly and are never sent later                         |
-| `simulated`      | Durable PostgreSQL `feedback_sim_outbound` sink; inject/read HTTP when its simulator gate permits                   |
-| `wasender`       | `WasenderClient.sendText` behind a shared-session pacer (minimum interval + jitter); worker-only session key needed |
+| `TRANSPORT_MODE` | Adapter                                                                                                          |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `disabled`       | Provider-free deterministic rejection; attempted rows fail visibly and are never sent later                      |
+| `simulated`      | Durable PostgreSQL `feedback_sim_outbound` sink; inject/read HTTP when its simulator gate permits                |
+| `wasender`       | Raw `WasenderClient.sendText` after the deployment-wide Redis send-start limiter; worker-only session key needed |
 
 No simulator HTTP inject/read endpoints are part of WP6; WP8 adds them behind
 `FEEDBACK_SIMULATOR_ENABLED` (off by default, excluded from the published
@@ -1811,12 +2016,13 @@ The webhook edge applies status events to the correlated outbox row's delivery
 columns (never downgrading). Unmatched provider message ids are a counted
 no-op until an accepted send or upsert correlation has stored the id.
 
-### WP6 tests
+### Dispatch tests
 
-Lease / stable job-id idempotency, campaign stagger, session pacing bounds,
-unknown-outcome no-retry, cancel-on-STOP statuses, delivery-status upgrade
-without downgrade, the transcript repair running before `sendText`, and the
-full-transcript case cancelling instead of sending.
+Focused tests cover `SKIP LOCKED` claims, token compare-and-set transitions,
+lease expiry before and after the send marker, honest V1 quarantine,
+deployment-wide pacing, unknown-outcome no-retry, cancel-on-STOP, delivery
+upgrade without downgrade, transcript repair before transport and guard changes
+while pacing.
 
 ## WP8 simulated transport and production rehearsal (implemented)
 
@@ -1838,6 +2044,24 @@ inserts one row into `feedback_sim_outbound` (no foreign keys — simulator-only
 traffic, simplest replay/query shape). The outbox `provider_log_id` is the sink
 row primary key; `provider_message_id` is `sim-<uuid>`.
 
+The same adapter owns deterministic fault injection. Its process-wide profile
+is `{ faultMode, faultPercent, seed, maxDelayMs }`; the stable decision hashes
+`(seed, outboxId)`, so replicas running the same profile do not diverge because
+of claim order. Supported faults are known rejection, known rate limit, unknown
+without acceptance evidence and response loss after acceptance;
+`mixed` selects among them. The last mode writes `feedback_sim_outbound` and
+then returns `unknown`, deliberately yielding a sink-visible send beside an
+`ambiguous` outbox row. That is provider acceptance, not delivery/read proof.
+The run status treats ambiguity as a terminal failed rehearsal instead of
+polling `delivering_simulated_outbox` forever.
+
+The profile applies to every simulated outbound while those processes are
+running: intros, bot replies, staff messages and terminal acknowledgements are
+all eligible. It is deliberately not mutable per run. Use an exact `100%` mode
+for one forced branch or a named seeded percentage for a soak, and isolate
+concurrent rehearsals at the deployment/process level when they need different
+transport realities.
+
 ### Simulator HTTP surface and headless real-model evaluation
 
 When `FEEDBACK_SIMULATOR_ENABLED=true`, `TRANSPORT_MODE=simulated`, and either
@@ -1849,7 +2073,7 @@ the HTTP process mounts
 | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `POST /dev/feedback/simulator/inject`    | Existing manual composer path: `ObservedProviderMessage` → normal durable ingress. `text` is bounded by what an inbound may durably hold (`FEEDBACK_OBSERVED_TEXT_HARD_LIMIT`), not by the 4 096-character send limit, and `null` injects a bodyless inbound — a voice note, photo or reaction.              |
 | `GET /dev/feedback/simulator/thread`     | Existing manual composer read: merge ingress rows and `feedback_sim_outbound` for one phone.                                                                                                                                                                                                                 |
-| `GET /dev/feedback/simulator/catalog`    | Read the configured model, effective extraction/reply/attention reasoning and OpenAI service tier, the parsed live-worker attestation, the two permitted eval models (`openai/gpt-5.6-terra`, `qwen/qwen3.7-max`) and corpus cases eligible from a clean intro baseline.                                     |
+| `GET /dev/feedback/simulator/catalog`    | Read the configured model, effective extraction/reply/attention reasoning, OpenAI service tier, active simulated-transport profile, parsed live-worker attestation, the two permitted eval models (`openai/gpt-5.6-luna`, `qwen/qwen3.7-max`) and corpus cases eligible from a clean intro baseline.         |
 | `POST /dev/feedback/simulator/preflight` | Read-only validation of a finished event with feedback-enabled venue, launched campaign, clean open bot conversation, sent intro in the simulated sink, pending goals, cursor 0, opt-in and candidate capacity; resolves exact live bindings, messages, provider-free venue snapshot and worker attestation. |
 | `POST /dev/feedback/simulator/runs`      | Explicitly confirmed paid run. Repairs a missing intro transcript idempotently, then writes scenario messages through normal ingress; it never supplies a per-run model override.                                                                                                                            |
 | `GET /dev/feedback/simulator/runs/:id`   | Poll ordinary ingress, Mongo cursor/model, results, run-created outbox rows and their simulated sink rows.                                                                                                                                                                                                   |
@@ -1868,7 +2092,10 @@ production) swaps the worker's `PostEventFeedbackExtractionModel` for
 at module construction and logs one unmistakable warning. The stub answers from
 the persona catalogue by parsing the rendered Greek prompt so a concurrent
 rehearsal isolates mechanism defects from model defects. Usage token counts are
-always `null` so nothing later reads them as billing.
+always `null` so nothing later reads them as billing. Its transcript parser
+reconstructs verbatim multiline message bodies through the end of the prompt;
+blank lines inside application-owned safety copy or participant testimony do
+not hide a later scripted turn.
 
 The published `openapi.json` keeps `FEEDBACK_SIMULATOR_ENABLED=false`, so these
 routes stay out of the generated admin client. The admin product screen is not
@@ -1878,13 +2105,18 @@ Before a paid run, both API and worker use the same explicit treatment:
 
 ```dotenv
 FEEDBACK_EXTRACTION_STUB=false
-FEEDBACK_EXTRACTION_MODEL=openai/gpt-5.6-terra
+FEEDBACK_EXTRACTION_MODEL=openai/gpt-5.6-luna
 FEEDBACK_EXTRACTION_REASONING_EFFORT=medium
-FEEDBACK_REPLY_REASONING_EFFORT=low
+FEEDBACK_REPLY_REASONING_EFFORT=medium
 FEEDBACK_ATTENTION_REASONING_EFFORT=medium
+FEEDBACK_SIMULATED_TRANSPORT_FAULT_MODE=none
+FEEDBACK_SIMULATED_TRANSPORT_FAULT_PERCENT=0
+FEEDBACK_SIMULATED_TRANSPORT_SEED=1
+FEEDBACK_SIMULATED_TRANSPORT_MAX_DELAY_MS=0
 ```
 
-This treatment uses Terra through OpenAI direct. Leave
+This treatment uses Luna through OpenAI direct. Terra is reserved for the
+independent campaign-summary path. Leave
 `FEEDBACK_EXTRACTION_SERVICE_TIER` unset unless the service tier itself is the
 variable under test; silently buying `priority` changes both cost and latency.
 The burst runner names this exact treatment `prova`; it is not an alias for
@@ -1892,7 +2124,8 @@ whatever model controls happen to be in the environment. Qwen is reachable only
 through the explicit `--comparison qwen` path, with the same reasoning efforts
 and no OpenAI service tier.
 The simulator catalog exposes the effective extraction, reply and classifier
-efforts, service tier and parsed BullMQ worker profile. Both headless runners
+efforts, service tier, simulated transport treatment and parsed BullMQ worker
+profile. Both headless runners
 resolve requested controls through the built worker code and compare them with
 the running API and every registered feedback worker before any paid write.
 Absent, legacy/malformed, mixed-profile or API-mismatched workers fail closed;
@@ -1907,6 +2140,23 @@ Simulator started/terminal records repeat the preflight's
 provider-free venue snapshot and revision, so two model treatments are not
 compared after an invisible venue change. An OpenAI service tier is reported as
 `null` for OpenRouter routes because it is not an effective provider option.
+The fault profile is environment-wide by design: changing it requires an API
+and worker restart. Attestation catches a partial restart at preflight, but it
+is not a dispatcher fence: stop every feedback worker before changing profiles,
+isolate or drain unrelated simulated outbox work, then start every worker with
+the same profile. It is shown read-only in the headless runner; the admin inbox
+does not mutate global chaos state while other rehearsals may be running. Any
+active fault or non-zero latency also requires the separate
+`--confirm-transport-faults` CLI flag; model cost confirmation does not
+implicitly approve a fault treatment.
+
+For a burst that targets reply delivery faults, run `feedback:burst --seed-only`
+under `none / 0% / 0ms` first, stop all feedback workers, change the profile,
+restart API and workers, verify the catalog, then run with
+`--confirm-transport-faults`. Intro readiness is keyed by the current
+conversation's exact intro outbox id, never merely by reserved phone. A fresh
+faulted launch that rejects an intro therefore fails immediately and honestly;
+an old sink row cannot launder it.
 
 Run the headless tool against an already-running local API and worker:
 
@@ -1916,14 +2166,23 @@ pnpm feedback:simulate \
   --campaign <campaign-uuid> \
   --conversation <conversation-uuid> \
   --scenario <eligible-corpus-id> \
-  --model openai/gpt-5.6-terra \
+  --model openai/gpt-5.6-luna \
   --preflight
 pnpm feedback:simulate \
   --campaign <campaign-uuid> \
   --conversation <conversation-uuid> \
   --scenario <eligible-corpus-id> \
-  --model openai/gpt-5.6-terra \
+  --model openai/gpt-5.6-luna \
   --confirm-paid-run
+
+# Add this only after the catalog shows the intentional fault/latency profile.
+pnpm feedback:simulate \
+  --campaign <campaign-uuid> \
+  --conversation <conversation-uuid> \
+  --scenario <eligible-corpus-id> \
+  --model openai/gpt-5.6-luna \
+  --confirm-paid-run \
+  --confirm-transport-faults
 ```
 
 The multi-campaign burst rehearsal drives every persona at once — currently
@@ -1940,6 +2199,13 @@ pnpm feedback:burst
 # unless enabled and separately confirmed below.
 pnpm feedback:burst \
   --profile prova \
+  --confirm-paid-run
+
+# Fresh production-safe corpus after slot 0 has already been consumed. A slot is
+# durable rehearsal data, not a cleanup target; choose an unused number.
+pnpm feedback:burst \
+  --profile prova \
+  --fixture-slot 1 \
   --confirm-paid-run
 
 # Long production runs may use a browser-refreshed Clerk token file. The runner
@@ -1961,11 +2227,22 @@ pnpm feedback:burst \
   --confirm-paid-run
 ```
 
-`pnpm feedback:burst` seeds participants through `@join-the-six/database` on the
-reserved phone block `+3069000<cc><pp>`, creates one finished event per
-catalogue campaign (draft → scheduled → finished), and assigns every new seat to
-table 1. New events include the catalogue's operator-confirmed Google venue in
-their ordinary `POST /events` request. For a reused event the runner reads the
+`pnpm feedback:burst` seeds participants through `@join-the-six/database` in a
+bounded fixture slot. Slot 0 is the historical identity:
+`+3069000<cc><pp>`, `burst.<campaign>.<persona>@burst.jointhesix.local` and the
+catalogue event title. Explicit slots 1–9 deterministically use
+`+306900<slot><cc><pp>`, a `burst.slot<slot>...` email and a
+`[burst slot <slot>]` event-title suffix. Persona ids, campaign slugs, messages,
+expectations and report grading stay canonical. The runner validates the
+published slot-0 phone formula and uniqueness of every derived phone, email and
+title before its first database write; it also refuses when a derived phone and
+email already belong to different participant rows rather than attempting a
+merge. Retained Redis failures are admitted to a nonzero slot's report only when
+their conversation id belongs to that slot, so old rehearsal debris cannot fail
+a fresh namespace. It then creates one finished event per catalogue campaign (draft →
+scheduled → finished), and assigns every new seat to table 1. New events include
+the catalogue's operator-confirmed Google venue in their ordinary `POST /events`
+request. For a reused event the runner reads the
 detail and replaces an absent or drifted venue through `PATCH /events/:id`; in
 both paths it requires an exact venue read-back and a positive server-owned
 `contextRevision` before launching via `launchFeedbackCampaign`. It then drives
@@ -1975,10 +2252,12 @@ With `--seed-only`, it stops after every intro has been delivered and every
 conversation has been mapped. That mode makes no participant, cursor-agent or
 provider-model call, rejects `--live-guests`, and exists to create the clean
 baseline copied by the guarded production-data workflow before the real run.
-It never cleans up. Settlement polling keeps the configured deadline as an outer
-bound, but stops early when the settled set and every conversation's message
-count are unchanged for several polls after the quiet-settle threshold — and
-names the unsettled personas so a quiet stop is never mistaken for success.
+It never cleans up. Input-quiescence polling keeps the configured deadline as
+an outer bound, but stops early when the set whose injections are both ingested
+and past the quiet threshold, plus every conversation's message count, stays
+unchanged for several polls. The CLI deliberately says `ingested + quiet`, not
+`settled`: this is only the bound for collecting a stable snapshot. Per-persona
+expectations and queue findings separately decide whether that snapshot passed.
 For a long authenticated production run, `--token-file` (or
 `CLERK_BEARER_TOKEN_FILE`) is mutually exclusive with the static token option
 and is read before every HTTP request. The external refresher owns atomic token
@@ -1994,8 +2273,13 @@ their one-shot random identity and are never silently retried by the runner.
 Stub mode refuses to start unless the burst catalogue
 reports `extractionStub: true` and the registered feedback workers attest the
 same stub/model/control profile as the API; paid mode
-treats per-persona semantic expectations as observations and keeps the
-cross-cutting correctness checks as hard failures.
+treats per-persona semantic expectations as observations. Outbound delivery
+remains a hard assertion in both modes; a model being nondeterministic does not
+make silence acceptable. Cross-cutting correctness checks remain hard failures.
+Nonzero fixture slots fail closed in stub mode: the deterministic extractor is
+certified against the published slot-0 corpus only. They require `--profile prova`
+or the explicit Qwen comparison and therefore retain the ordinary paid
+confirmation gate.
 
 The burst catalogue is calibrated only for question-set V2. A reused campaign
 is rejected from its database row if `questionSetVersion !== 2`. Every launch or
@@ -2040,11 +2324,18 @@ are deliberate:
 - **A live guest is graded on almost nothing.** Its lifecycle, its consent,
   whether it raised the attention flag and every answer it gave are things it
   decided at run time, not promises the application made, so `buildExpectations`
-  keeps only one assertion for it: the bot said something, and did not flood
-  anybody. Everything else appears in the conversation panel as observation. The
-  same reason makes a live conversation settle on quiet alone — waiting for it to
-  reach an expected lifecycle would hold its campaign open to the deadline and
-  then report the campaign as unsettled.
+  keeps only the two mechanical assertions the harness can honestly make: an
+  enabled guest injected at least one message, and the bot replied without
+  flooding anybody. A cursor-agent failure or empty first response is therefore
+  a hard failed row instead of an intro-only false pass. Deterministic silence
+  owes only the intro. Once an enabled live guest injects testimony, its
+  effective outbound minimum becomes intro plus one reply per injected turn, so
+  timing out after an unanswered message cannot pass on the intro alone.
+  Everything else appears in the conversation panel as observation. The
+  same reason makes a live conversation become input-quiescent on ingestion plus
+  quiet alone — waiting for it to reach an expected lifecycle would hold its
+  campaign open to the deadline and then misreport an expectation mismatch as
+  an ingestion stall.
 - **The registers are mutually incompatible.** Terse and accentless, chatty and
   ironic, formal plural, greeklish, monosyllabic, warm and over-sharing. One
   reply cannot suit all six, so a bot that sends essentially the same message to
@@ -2079,8 +2370,9 @@ The paid command requires the literal confirmation flag, sends a stable
 respondent and correlation identifiers, the exact rendered batch/rubric, plus
 inbox/results links. The normal
 PostgreSQL/MongoDB/Redis worker path remains the source of truth:
-ingress → materialization → delayed extraction → answer/note/outbox writes →
-relay → `feedback_sim_outbound`. No real WhatsApp adapter is reachable.
+ingress → materialization → rolling conversation reconciliation →
+answer/note/outbox writes → direct dispatcher → `feedback_sim_outbound`. No real
+WhatsApp adapter is reachable.
 Preflight reports whether a worker registration is visible through the feedback
 queue but remains useful when the worker is stopped, so inspecting readiness
 cannot wake sweep jobs. Confirmed start hard-blocks before intro repair or
@@ -2090,8 +2382,8 @@ One logical run is not necessarily one invoice line: it makes one extraction
 call plus one or more attention-classification calls (classification batches at
 ten new participant messages). The confirmation covers all of them.
 
-The runner deliberately exposes only corpus cases that fit one leading-edge
-45-second window and whose rubric is valid from the clean intro baseline.
+The runner deliberately exposes only corpus cases whose complete batch fits one
+rolling quiet-window execution and whose rubric is valid from the clean intro baseline.
 Multi-turn, later-goal and deterministic ingress cases are rejected instead of
 being crushed into a misleading burst. A confirmed run permanently consumes
 the conversation and performs no cleanup; use a separate conversation with an
@@ -2127,26 +2419,34 @@ today's. So: stop the stack, `pnpm --filter @join-the-six/database build`, then
 `pnpm check` or `pnpm build` at the root: they regenerate the admin API client
 and will break a running admin dev server.
 
-**2. The previous rehearsal's campaigns must be gone.** The runner refuses to
-reuse a campaign whose conversations have moved past the clean intro-only
-baseline, and it never cleans up after itself. `pnpm feedback:burst:reset --yes` is
-that step. It prints its plan and does nothing without `--yes`, every statement
-is scoped to the reserved phone block, and it clears the Redis failed **and**
-completed sets — without that, the previous run's failures are reported as this
-one's. Its plan and transaction cover every `ON DELETE RESTRICT` campaign child:
-answers, answer-withdrawal tombstones, notes, campaign summaries, outbox rows and
-their decision logs. A source-reading script test compares that list with the
-schema so a new child table cannot quietly make cleanup fail. It deliberately
-keeps `participants`, `events` and `audit_events`. Mongo cleanup uses the same
+**2. The selected fixture slot must be clean.** The runner refuses to reuse a
+campaign in that slot whose conversations have moved past the clean intro-only
+baseline, and it never cleans up after itself. In production, select an unused
+slot from 1–9; this preserves every previous campaign and avoids pretending that
+deleting evidence is a rehearsal primitive. Locally, `pnpm
+feedback:burst:reset --yes` resets historical slot 0. It prints its plan and
+does nothing without `--yes`, every statement is scoped to that historical
+reserved phone block, and it clears the Redis failed **and**
+completed sets from the legacy drain, ingress-materialization and V2
+conversation-reconciliation queues — without that, the previous run's failures
+are reported as this one's. Its plan and transaction cover every
+`ON DELETE RESTRICT` campaign child: answers, answer-withdrawal tombstones,
+notes, campaign summaries, outbox rows and their decision logs. It also removes
+the V2 execution-fence rows selected through those outboxes before deleting the
+selector. A source-reading script test compares the child list with the schema
+so a new child table cannot quietly make cleanup fail. It deliberately keeps
+`participants`, `events` and `audit_events`. Mongo cleanup uses the same
 reserved phone range rather than campaign ids, so retrying after a PostgreSQL →
 Mongo partial failure still finds the orphaned threads. Before any write, reset
 also refuses queued, active or one-shot delayed feedback jobs; only the known
 delayed repeat schedulers may remain while API and workers are stopped. The
-simulator gate suppresses automatic and manual campaign summaries, and turns a
-stale summary job into a terminal `disabled_in_simulator` row without touching
-the provider. A deterministic run is therefore provider-free, while the named
-rehearsal treatment cannot be silently contaminated by a campaign-summary call
-that its report does not count.
+simulator gate suppresses automatic campaign summaries and turns a retained
+automatic summary job into a terminal `disabled_in_simulator` row without
+touching the provider. An admin may still explicitly press **Generate** or
+**Refresh** after a rehearsal; that durable `manual` trigger is admitted to the
+summary worker and incurs the configured summary-model cost. A deterministic
+run therefore stays provider-free unless an operator deliberately requests the
+independent campaign summary, which the burst report does not count.
 
 For a literal clean local feedback UI,
 `pnpm feedback:burst:reset --all-feedback` previews the broader local-only scope
@@ -2202,17 +2502,21 @@ read once, while each summary is a few kilobytes and is the only thing a later
 run can be compared against. It records the commit the run measured and whether
 the working tree was dirty, which is what makes **committing before a paid run
 part of the procedure rather than tidiness**: a run from a dirty tree is recorded
-as `dirty` and is evidence about nothing anybody can reproduce.
+as `dirty` and is evidence about nothing anybody can reproduce. The compact
+summary also records total/failed assertion counts, per-conversation failed
+assertion labels and the expected/actual outbound-delivery row. `findings` is
+reserved for cross-cutting failures such as queue jobs, duplicate delivery and
+cross-conversation citations; an empty array is not a synonym for zero failed
+persona assertions.
 [The rehearsal history](post-event-feedback-rehearsal-history.md) explains what
 learning that cost.
 
 ### WP8 tests
 
-Integration coverage runs intro delivery → inject reply → materialize →
-`feedback.extract.v1` enqueue (extraction execution remains WP5) and asserts the
-resulting transcript holds both sides. Focused real-model-runner tests cover
-read-only preflight, paid confirmation, live candidate rendering, cumulative
-leading-edge eligibility, production rejection without the explicit rehearsal
+Integration coverage runs intro dispatch → inject reply → materialize → durable
+conversation schedule and asserts the resulting transcript holds both sides.
+Focused real-model-runner tests cover read-only preflight, paid confirmation,
+live candidate rendering, cumulative rolling-window eligibility, production rejection without the explicit rehearsal
 gate, failed extraction precedence and completion only after the run-created
 outbox reaches the simulated sink. They use fakes and never call a provider.
 Composition tests assert production needs the rehearsal gate for the HTTP
@@ -2454,23 +2758,28 @@ message the transcript cannot record is never sent either.
 
 ### Repository contract
 
-| Method                   | Contract                                                                                                            |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| `createFromLaunch`       | Deterministic `_id`; idempotent; reports `created`; phone conflict is explicit                                      |
-| `findById`               | Full document for a detail read                                                                                     |
-| `findOpenByPhone`        | Inbound resolution (D9), backed by the partial unique index                                                         |
-| `listForCampaign`        | Compact campaign-grouped summaries; no transcripts in list reads                                                    |
-| `listOpenDueForReminder` | Approximate D11 reminder candidates; sweep reloads authoritative state                                              |
-| `listOpenDueForExpiry`   | Approximate D11 expiry candidates; sweep reloads authoritative state                                                |
-| `appendMessage`          | Contiguous `seq`, idempotent by provenance, cap/byte guard                                                          |
-| `mergeMessageAttention`  | Additive model categories; recommended action and confidence only strengthen                                        |
-| `takeOver` / `resumeBot` | Explicit control transitions with a recorded source                                                                 |
-| `close`                  | Terminal reason; STOP overrides softer reasons; nothing reopens; lowers the badge only when no reason is unresolved |
-| `advanceCursor`          | Monotonic extraction cursor bounded by the transcript                                                               |
-| `updateGoalStatuses`     | Monotonic goal ladder `pending < asked < skipped < answered`                                                        |
-| `raiseAttention`         | The only way to raise the badge: a named reason, idempotent on `kind` + `messageId`                                 |
-| `resolveAttentionReason` | Dismisses one reason; lowers the badge only when it was the last unresolved one                                     |
-| `markReminded`           | Idempotent D11 reminder stamp (`remindedAt`)                                                                        |
+| Method                   | Contract                                                                                                                      |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| `createFromLaunch`       | Deterministic `_id`; idempotent; reports `created`; phone conflict is explicit                                                |
+| `findById`               | Full document for a detail read                                                                                               |
+| `findOpenByPhone`        | Inbound resolution (D9), backed by the partial unique index                                                                   |
+| `listForCampaign`        | Compact campaign-grouped summaries; no transcripts in list reads                                                              |
+| `appendMessage`          | Contiguous `seq`, idempotent by provenance, cap/byte guard                                                                    |
+| `mergeMessageAttention`  | Additive model categories; recommended action and confidence only strengthen                                                  |
+| `takeOver` / `resumeBot` | Explicit control transitions with a recorded source                                                                           |
+| `markAwaitingHuman`      | Set the bot brake and clear due work atomically without advancing revision; replay repairs a stale due time                   |
+| `close`                  | Terminal reason; STOP overrides softer reasons; nothing reopens; lowers the badge only when no reason is unresolved           |
+| `advanceCursor`          | Monotonic extraction cursor bounded by the transcript                                                                         |
+| `updateGoalStatuses`     | Monotonic goal ladder `pending < asked < skipped < answered`                                                                  |
+| `raiseAttention`         | The only way to raise the badge: a named reason, idempotent on `kind` + `messageId`                                           |
+| `resolveAttentionReason` | Dismisses one reason; lowers the badge only when it was the last unresolved one                                               |
+| `markReminded`           | Idempotent D11 reminder stamp (`remindedAt`)                                                                                  |
+| `markWorkDue`            | Atomically advances one durable work revision and replaces its schedule                                                       |
+| `markCampaignWorkDue`    | Marks every open conversation in one resumed campaign due without using the bounded admin list                                |
+| `beginWorkExecution`     | Admits one exact due revision only under a newer PostgreSQL execution epoch                                                   |
+| `settleWorkExecution`    | Preserves newer intent; clears work or schedules a successor under revision N+1                                               |
+| `listDueWork`            | Bounded oldest-first durable work recovery with an optional `(nextActionAt, conversationId)` keyset cursor and campaign scope |
+| `seedMissingWork`        | Bounded CAS-safe rollout seed for open bot-controlled legacy documents with no `work`                                         |
 
 Every method validates the resulting document with Zod, and every transition
 reports whether it actually changed state so callers can write exactly one
@@ -2482,10 +2791,11 @@ audit event.
 | --------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | `feedback_conversation_open_phone_unique_idx` | Partial **unique** `phoneAtLaunch` where purpose is post-event feedback and lifecycle is open (D9) |
 | `feedback_conversation_campaign_updated_idx`  | `campaignId` + recency for the grouped admin list                                                  |
+| `feedback_conversation_work_due_idx`          | Partial `(work.nextActionAt, _id)` scan for durable oldest-due recovery                            |
 
 The partial filter is what makes phone→conversation resolution unambiguous: a
 second open conversation for the same number is rejected by the database, not
-by a hopeful application check. The repository verifies both indexes on first
+by a hopeful application check. The repository verifies all three indexes on first
 use, and [Compose provisioning](../../../docker/mongo-init/10-app-user.js)
 creates them on a fresh volume.
 
@@ -2494,7 +2804,7 @@ creates them on a fresh volume.
 Reply sending belongs to the outbox/relay path; that path also owns every
 outbound transcript entry through
 [`FeedbackOutboundTranscriptService`](#outbound-transcript-entries).
-Campaign launch, reminders, expiry sweeps and ingress recovery live in
+Campaign launch, planner-owned reminders and expiry, and ingress recovery live in
 [WP7](#wp7-campaign-service-and-schedulers-implemented). Staff inbox HTTP
 (list/detail/results reads, takeover/resume/close/staff-send and note
 review-status, with per-conversation capability flags) lives in
@@ -2525,41 +2835,94 @@ One consequence of outbound entries occupying sequence numbers: a participant's
 reply no longer lands at `seq 1`. The bot intro is `seq 1`, so the first reply
 is `seq 2` and the deterministic extract job id follows it.
 
-Webhook ingestion, the `feedback` queue and the outbox relay landed in WP4/WP6
-on top of it, and extraction advances the cursor and the goals in WP5.
-Campaign launch, reminders, expiry and ingress recovery landed in WP7. Staff
+Webhook ingestion, the conversation V2 queue and direct outbox dispatcher build
+on it, and extraction advances the cursor and goals behind a PostgreSQL fence.
+Campaign launch, reminders, expiry and durable-intent recovery are state-driven.
+Staff
 inbox read/action HTTP (list/detail/results, takeover/resume/close/staff-send,
 capability flags) landed in WP7b. The admin UI remains WP9.
 
-## WP7 campaign service and schedulers (implemented)
+## Campaign service and current-state scheduling (implemented)
 
-Staff HTTP under `/feedback/campaigns` plus bounded BullMQ sweep jobs.
+Staff HTTP under `/feedback/campaigns`, one conversation planner and one bounded
+maintenance job.
 
 ### Launch and kill switch
 
 [`PostEventFeedbackCampaignService`](../../../apps/backend/src/modules/post-event-feedback/campaign/campaign.service.ts)
 owns the application boundary:
 
-| Action              | Gate / effect                                                                                                                                                                                                                                                                                                                                                                                                          |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `launch`            | Event `finished` ∧ ≥1 eligible (present ∧ opt-in ∧ `phone_e164`); creates the campaign with the WP0 question launch snapshot; one Mongo conversation per eligible attendee via `createFromLaunch` (deterministic `_id`); one `intro` outbox row per new open conversation (`dedupe_key = feedback-intro-<conversationId>`), transcribed as `actor: bot`. Replay creates nothing new and repairs a missing intro entry. |
-| `pause` / `resume`  | Status `paused` ↔ `launched`. Pause stops the relay from leasing that campaign's rows and suppresses extraction replies (`replyAllowed` requires `status=launched`).                                                                                                                                                                                                                                                   |
-| `close`             | Kill switch: status `closed`, cancel queued outbox for the campaign. Open conversations are left for STOP / expiry / staff close (D17).                                                                                                                                                                                                                                                                                |
-| `startConversation` | D17 create-if-missing for one eligible participant; never recreates a STOP-closed conversation; enqueues intro only when a new open conversation was created.                                                                                                                                                                                                                                                          |
+| Action              | Gate / effect                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `launch`            | Event `finished` ∧ ≥1 eligible (present ∧ opt-in ∧ `phone_e164`); creates the campaign with the WP0 question launch snapshot; one Mongo conversation per eligible attendee via `createFromLaunch` (deterministic `_id`); one `intro` outbox row per new open conversation (`dedupe_key = feedback-intro-<conversationId>`), transcribed as `actor: bot`. Replay creates nothing new and repairs a missing intro entry.            |
+| `pause` / `resume`  | Status `paused` ↔ `launched`. Pause prevents direct claims and makes the conversation planner idle; a claim already pacing is released to `pending`. Resume commits a new PostgreSQL generation with the status, idempotently admits it into every open Mongo conversation, publishes one bounded first batch and leaves the rest discoverable to maintenance. A replay or autonomous repair closes either cross-store crash gap. |
+| `close`             | Kill switch: status `closed`, cancel queued outbox for the campaign except exact STOP acknowledgements already named by MongoDB lifecycle. STOP and close share the campaign row lock, so the opposite order inserts the acknowledgement only after cancellation. Open conversations are left for STOP / expiry / staff close (D17).                                                                                              |
+| `startConversation` | D17 create-if-missing for one eligible participant; never recreates a STOP-closed conversation; enqueues intro only when a new open conversation was created.                                                                                                                                                                                                                                                                     |
 
-Every mutation writes an audit event. Intros are not sent by HTTP — WP6's
-relay leases them with stagger.
+Every mutation writes an audit event. Intros are not sent by HTTP — the direct
+dispatcher claims their committed outbox rows.
 
-### Reminder, expiry and ingress recovery
+### Reminder, expiry and durable recovery
 
 [`PostEventFeedbackSweepService`](../../../apps/backend/src/modules/post-event-feedback/sweeps/sweep.service.ts)
-runs as bounded BullMQ jobs every five minutes:
+exposes idempotent single-conversation reminder and expiry actions, but the
+planner decides when to call them:
 
-| Job                           | Contract                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `feedback.sweep-reminders.v1` | A ladder of up to `FEEDBACK_MAX_REMINDERS` (default 2) nudges: nudge _N_ falls due after _N_ × `FEEDBACK_REMINDER_AFTER_HOURS` (default 24) of **participant silence**, so the defaults send at 24h and 48h. Silence runs from the participant's own newest message, or from launch if they never wrote; our outbound never resets it. `reminderCount` is the ladder state and `markReminded` advances it under a compare-and-set, so concurrent sweeps cannot double-nudge. Transcribed as `actor: bot` before `markReminded`, so a crash between the two repairs on the next sweep under the same per-ordinal `dedupe_key`. Skips closed / human / opted-out / inactive campaign, **and any conversation with `needsAttention`** — a conversation waiting for a person must not be chased by a machine. |
-| `feedback.sweep-expiry.v1`    | At `FEEDBACK_EXPIRE_AFTER_HOURS` (default 72) of the same **silence** measure → `close(expired)` + cancel queued outbox. Same skip set except attention: expiry sends nothing and releases the `phoneAtLaunch` unique index, so withholding it only strands the row.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `feedback.sweep-ingress.v1`   | Re-enqueues `feedback.materialize.v1` for `pending` ingress rows older than `FEEDBACK_INGRESS_PENDING_RECOVERY_MINUTES` (default 5) under the existing stable job id. It then reconciles MongoDB conversations whose participant sequence is ahead of `extraction.cursorSeq`: viable waiting/delayed/active positional or parked jobs are kept; a missing/terminal identity is recreated at the latest unread sequence after the remaining quiet window. A lost parked retry stays on the single-attempt five-minute ladder. The same reconciliation attempts once at worker startup. Closed, human-controlled, awaiting-human and intentionally parked-beyond-six-hours rows are excluded before the bounded scan.                                                                                       |
+| Planner action | Contract                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `remind`       | Up to `FEEDBACK_MAX_REMINDERS` (default 2). Rung N is due after N × `FEEDBACK_REMINDER_AFTER_HOURS` (default 24) of participant silence. `markReminded` compare-and-set plus an ordinal outbox dedupe key prevents double nudges. Closed, human, opted-out, inactive-campaign, awaiting-human and attention conversations are not reminded.                                                                                                                    |
+| `expire`       | At `FEEDBACK_EXPIRE_AFTER_HOURS` (default 72) of the same silence measure, close `expired` and cancel queued outbox. A paused campaign freezes expiry as well; resume replans from current durable state. The final decision runs under phone → conversation → shared-campaign PostgreSQL locks, rejects pending or newly materialized inbound beyond the planner's MongoDB snapshot, then reloads MongoDB last and revalidates open bot control plus silence. |
+| `wait`         | Persist the exact next quiet/reminder/expiry/park timestamp as a new work revision, then publish its disposable wake-up.                                                                                                                                                                                                                                                                                                                                       |
+
+Expiry is intentionally silent and does not re-check participant opt-in: it
+sends no new copy and releases the open-phone uniqueness held by a stale
+conversation. The ordered final fence gives takeover, campaign pause/close and
+webhook acknowledgement a defined winner. If any of them committed first,
+expiry skips; if expiry won, later inbound is retained against the now-closed
+conversation by the ordinary late-message path rather than being mistaken for
+three days of silence.
+
+One repeatable `feedback.maintenance.v2` job repairs four durable sources in
+parallel but isolates their failures: old pending ingress rows, unapplied
+PostgreSQL campaign-resume generations, due MongoDB work revisions, and pending
+plus missing/stale campaign-summary intent. It does not
+scan separately for
+reminder, expiry and extraction candidates; those are consequences of one
+conversation state. During the V1 drain, each ordinary due scan first repairs
+at most 100 open bot conversations from the old cursor-first handoff crash: no
+participant turn may remain beyond the cursor, durable unresolved handoff/
+unfinished/hostile/undelivered or urgent-follow-up evidence must exist, and a
+`staff_action` resume is never overwritten. It then seeds at most 100 legacy
+conversations whose optional rollout `work` field is still absent. Both bridges
+recheck their filters during update; the seed does not touch `updatedAt`, so
+concurrent work wins and inbox recency is not falsified.
+
+Native due work is read in keyset pages of 100, capped at 500 documents per
+global pass. Page allocation locks the PostgreSQL `conversation_due`
+maintenance-checkpoint row across the indexed MongoDB read, advances the shared
+boundary and commits before Redis publication. Replicas therefore cannot keep
+rescanning one stable prefix; process death may postpone an allocated page only
+until the finite wrap because the actual work remains in MongoDB. Campaign
+resume marks every open conversation under one generation, publishes at most
+one 100-row page immediately and leaves the remainder to maintenance.
+
+Resume-intent repair has its own durable fairness boundary. Maintenance reads
+`(resume_due_at, campaign_id, generation)` in pages of 50 while holding only the
+`campaign_resume` checkpoint row, advances that boundary and commits. It then
+opens one transaction per candidate, re-locks the exact campaign generation,
+admits it idempotently into MongoDB and acknowledges it in PostgreSQL. The
+allocator never drags a campaign lock across MongoDB; a pause, later generation
+or earlier acknowledgement makes the allocated item stale, and a poisonous
+item is reported without blocking the rest of the page. One pass examines at
+most 100 intents, with finite wrap for pages skipped by a crash.
+
+Pending ingress uses the same allocator shape against PostgreSQL: the
+`ingress_pending` checkpoint row-lock allocates one indexed `(created_at, id)`
+page of 50 and commits before queue publication. It prevents a permanently bad
+first page from starving its successors across replicas and restarts. The
+checkpoint does not consume ingress state, and finite wrap revisits a page lost
+after allocation. Route-level FIFO remains separate and authoritative in the
+materialization coordinator, which drains each phone/chat by `ingress_order`.
 
 ### Staff HTTP contract
 
@@ -2580,7 +2943,7 @@ runs as bounded BullMQ jobs every five minutes:
 When every conversation in a campaign is closed, or when staff explicitly
 requests one, [`PostEventFeedbackCampaignSummaryService`](../../../apps/backend/src/modules/post-event-feedback/summary/summary.service.ts)
 writes a narrative digest of the campaign's answers and notes to
-`feedback_campaign_summaries`. Generation runs on `feedback.summarize-campaign.v1`
+`feedback_campaign_summaries`. Generation runs on `feedback.summarize-campaign.v2`
 via OpenAI direct (`FEEDBACK_SUMMARY_MODEL`, default `openai/gpt-5.6-terra`)
 at `FEEDBACK_SUMMARY_REASONING_EFFORT`, which defaults to `xhigh` — the most
 expensive setting in the repository, chosen deliberately and worth knowing
@@ -2588,10 +2951,49 @@ before running a campaign summary. The effort is persisted on the row, so a
 summary is repriceable from itself.
 A partial summary is flagged when any conversation was still open at request
 time (`isPartial`, `openConversationCount`). Automatic enqueue happens from
-extraction close, staff close, STOP materialization and expiry sweep via
+extraction close, staff close, STOP materialization and conversation expiry via
 `notifyIfLastConversationClosed`; manual POST uses trigger `manual`. Retryable
-provider failures leave the row at `pending` so BullMQ can retry; permanent
-failures mark `failed`.
+provider failures leave the row at `pending` so BullMQ can retry; maintenance
+recreates a missing V2 attempt wake-up, and permanent failures mark `failed`.
+Pending-row repair uses the partial `(requested_at, campaign_id)` index and the
+global `summary_pending` checkpoint in pages of 50. The checkpoint advances and
+commits before BullMQ inspection/publication, so even a full oldest page whose
+jobs are already waiting/delayed/active cannot hide row 51 forever. Enqueue
+failures are isolated per summary, and finite wrap revisits a page lost after
+allocation; the checkpoint never consumes the PostgreSQL pending attempt.
+Because MongoDB close and PostgreSQL summary intent cannot be one transaction,
+maintenance also keyset-scans campaigns in bounded pages and loads their MongoDB
+lifecycle counts in one batch. The `summary_auto` PostgreSQL maintenance
+checkpoint row-lock allocates each page across replicas; the checkpoint commits
+before MongoDB evaluation and per-campaign reconstruction, so one poisonous
+campaign is reported but cannot pin the page or starve its successors. It
+reconstructs `all_closed` intent when at least one conversation exists, all are
+closed, and the stored summary predates the latest close. This repairs a crash
+immediately after extraction, STOP, staff or expiry committed the last close,
+and refreshes an older manual/partial summary after a later conversation
+finishes.
+
+Simulator-backed rehearsals suppress those automatic requests, including
+retained `all_closed` jobs, so the measured Luna treatment cannot silently add
+a Terra call. The staff POST remains available: its durable `manual` trigger is
+the explicit authorization to generate or refresh the summary after the run.
+
+Requests lock the campaign row before reading or creating its summary, including
+the first request when no summary row exists. A non-replay request counts open
+MongoDB conversations while still holding that lock and writes the count plus
+summary intent before releasing it. Conversation launch/start holds the same
+campaign lock across its MongoDB create, so either the summary snapshot commits
+first or it observes the newly open thread; it cannot persist a false
+`all_closed`/final snapshot behind a conversation that already won the lock.
+Concurrent summary callers observe one pending attempt rather than racing the
+unique key. Execution uses a seven-minute PostgreSQL epoch/token lease with a
+one-minute heartbeat. The worker renews inside the global provider slot
+immediately before the five-minute call; only that live token may mark `ready`
+or `failed`. A BullMQ stall or duplicate sees the busy lease and delays itself
+without consuming an attempt. This prevents concurrent duplicate spend in the
+current worker fleet. It does not invent provider idempotency: a process crash
+after the provider accepted a request but before PostgreSQL records the result
+can still require a paid retry.
 
 The summary prompt names the four V2 experience dimensions separately, labels
 historical `liked` rows as V1 evidence, and treats `avoid` only as a no-rematch
@@ -2615,11 +3017,13 @@ repaired on replay, start-conversation never recreates STOP-closed threads,
 pause/resume audit, `listFeedbackCampaigns` projection + progress counts
 (newest first), reminder/expiry edge cases (opted-out, human control,
 already closed) plus the reminder's transcript entry and its replay repair,
-ingress recovery (stuck row re-enqueued, fresh pending untouched), extraction
-intent recovery (missing/terminal job recreated, viable and bounded-parked jobs
-left alone), coordinator retry without duplicate settled rows, cross-replica session locking, lease skip
-for paused campaigns, and process composition (HTTP module in the API graph,
-sweeps in the worker only).
+ingress recovery (stuck row re-enqueued, fresh pending untouched), due-work
+recovery under the exact revision, coordinator retry without duplicate settled
+rows, cross-replica session locking, paused-campaign planner/dispatcher guards,
+summary recovery and process composition (HTTP module in the API graph,
+reconciliation/maintenance in the worker only), including pending-summary and
+campaign-resume prefix fairness, crash-after-allocation wrap and exact-generation
+re-lock.
 
 ## WP7b staff conversation inbox HTTP (implemented)
 
@@ -2645,21 +3049,21 @@ flowchart LR
   Action["Take over / resume / close / staff send"] --> Mongo
   Action --> Outbox["message_outbox kind=staff"]
   Action --> Audit["audit_events"]
-  Outbox --> Relay["WP6 relay"]
+  Outbox --> Dispatcher["Direct PostgreSQL dispatcher"]
 ```
 
 ### Actions
 
-| Action             | Gate                                                    | Effect                                                                                           |
-| ------------------ | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| Take over          | open ∧ control=bot                                      | `takeOver(staff_action)` + audit                                                                 |
-| Resume bot         | open ∧ control=human                                    | `resumeBot` + audit                                                                              |
-| Close              | open (STOP-closed rejected; other closed is idempotent) | `close(cancelled)` with required staff reason + optional note, cancel queued outbox, audit (D17) |
-| Staff send         | open ∧ control=human                                    | Insert `kind=staff` outbox (WP6 sends), append transcript with `outboxId`, audit                 |
-| Add note           | conversation exists; subject ∈ live D16 candidates      | Insert `feedback_notes` with staff provenance + audit                                            |
-| Note review status | note exists                                             | `new` ↔ `dismissed` + audit                                                                      |
-| Correct an answer  | answer ∈ this conversation ∧ scored question            | Edit `value_int` in place, append `extraction_meta.corrections`, audit                           |
-| Withdraw an answer | answer ∈ this conversation                              | Delete the row, audit carrying the whole row                                                     |
+| Action             | Gate                                                                                 | Effect                                                                                                                   |
+| ------------------ | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| Take over          | open ∧ control=bot                                                                   | `takeOver(staff_action)` + audit                                                                                         |
+| Resume bot         | open ∧ control=human                                                                 | `resumeBot` + audit                                                                                                      |
+| Close              | open (STOP-closed rejected; other closed is idempotent)                              | `close(cancelled)` with required staff reason + optional note, cancel queued outbox, audit (D17)                         |
+| Staff send         | fresh UUID: campaign launched ∧ open ∧ control=human; exact admitted UUID may replay | Conversation lock → campaign lock; deterministic `kind=staff` outbox, idempotent transcript repair, audit only on insert |
+| Add note           | conversation exists; subject ∈ live D16 candidates                                   | Insert `feedback_notes` with staff provenance + audit                                                                    |
+| Note review status | note exists                                                                          | `new` ↔ `dismissed` + audit                                                                                              |
+| Correct an answer  | answer ∈ this conversation ∧ scored question                                         | Edit `value_int` in place, append `extraction_meta.corrections`, audit                                                   |
+| Withdraw an answer | answer ∈ this conversation                                                           | Delete the row, audit carrying the whole row                                                                             |
 
 Staff close keeps the lifecycle reason as `cancelled`. The operator's why —
 `abusive | unresponsive | handled_offline | duplicate | other`, plus an optional
@@ -2928,25 +3332,16 @@ the «answered with no answer row» case a withdrawal already produces.
 | `PATCH`  | `/feedback/notes/:noteId/review-status`                                                             | `updateFeedbackNoteReviewStatus`             |
 
 `getFeedbackConversation` includes an `extraction` object so the operator can
-see how far behind the delayed extract job is: unread participant turns beyond
-`cursorSeq` (document alone), `nextRunAt` / `runInFlight` / `runQueued` from
-retained BullMQ jobs for those seqs, `lastRunFailed` from a retained failed job
-**or** a durable note with `origin: deterministic_fallback` while unread
-testimony remains (Redis retention would otherwise hide the failure), plus
-document `lastRunAt` and `model`. **Only the detail endpoint may touch Redis
-for this** — the polled conversation list must not look up a job per row. A
-missing job with no fallback note is reported as null/false fields, never as a
-confident "idle": retention removal, a lost enqueue and "already ran" remain
-indistinguishable once both signals are gone.
-
-A conversation [parked on a provider incident](#parking-a-provider-incident) is
-the one case where a retained failed job is not the news. Its positional job did
-fail, and its successor is queued under
-`feedback-extract-v1-<conversationId>-<latestSeq>-parked-<parkedRuns>` — derived
-from the document, never searched for — so `runQueued` and `nextRunAt` report the
-retry and `lastRunFailed` / `failedReason` are suppressed. There is nothing for a
-human to do in the meantime, and «η ανάγνωση απέτυχε · απάντησε η εναλλακτική
-διαδικασία» would be false: no fallback answered anybody.
+show unread participant turns beyond `cursorSeq`, durable `lastRunAt` and model.
+Its sibling `automation` object is the only execution indicator:
+`idle | scheduled | running | parked`, plus MongoDB `revision`, nullable
+`nextActionAt` and the active PostgreSQL `claimExpiresAt`. `running` means some
+execution still owns a non-expired lease for the conversation; `nextActionAt`
+may simultaneously name a newer revision created by a participant message.
+`parked` comes from the durable conversation, and `scheduled` from its due time.
+Claim tokens and epochs never
+leave the backend. Neither detail nor list reads Redis, so retention cannot
+rewrite the operator's story.
 
 `listFeedbackCampaignConversations` reports `campaign.extractionParkedCount` beside
 `needsAttentionCount` — the one campaign-level report of a provider incident.

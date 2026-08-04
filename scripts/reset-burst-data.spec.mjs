@@ -82,6 +82,29 @@ test("burst reset preserves reusable seed identities and the audit ledger", () =
   assert.match(resetSource, /refuses NODE_ENV=production/u);
 });
 
+test("burst reset removes V2 conversation execution fences before their outbox scope", () => {
+  assert.match(
+    resetSource,
+    /union all select 'feedback_conversation_executions'/u,
+  );
+  const executionDeleteAt = resetSource.indexOf(
+    "delete from feedback_conversation_executions where",
+  );
+  const outboxDeleteAt = resetSource.indexOf(
+    "delete from message_outbox where",
+  );
+  assert.notEqual(executionDeleteAt, -1);
+  assert.ok(executionDeleteAt < outboxDeleteAt);
+
+  for (const arguments_ of [[], ["--all-feedback"]]) {
+    const scope = resolveResetScope(arguments_);
+    assert.match(
+      scope.conversationIdsSql,
+      /select distinct conversation_id from message_outbox where campaign_id in/u,
+    );
+  }
+});
+
 test("Mongo cleanup remains retryable after PostgreSQL campaign deletion", () => {
   assert.match(resetSource, /phoneAtLaunch:\{\$gte:[\s\S]*\$lt:/u);
   assert.doesNotMatch(

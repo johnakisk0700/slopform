@@ -225,41 +225,52 @@ export function FeedbackInboxPage() {
     }
   }
 
-  async function handleStaffSend(text: string) {
+  async function handleStaffSend(
+    text: string,
+    clientMessageId: string,
+  ): Promise<boolean> {
     setActionError(null);
     if (selectedId === null) {
-      return;
+      return false;
     }
     try {
       const updated = await sendStaffMessage.mutateAsync({
         campaignId,
         conversationId: selectedId,
-        data: { text },
+        data: { clientMessageId, text },
       });
       await applyConversationResult(updated);
+      return true;
     } catch (cause) {
       setActionError(
         apiErrorMessage(cause, "The message could not be queued."),
       );
+      return false;
     }
   }
 
-  async function handleSimulatedReply(text: string) {
+  async function handleSimulatedReply(
+    text: string,
+    idempotencyKey: string,
+  ): Promise<boolean> {
     setActionError(null);
     if (conversation === undefined) {
-      return;
+      return false;
     }
     try {
       await injectSimulatorMessage.mutateAsync({
         phoneE164: conversation.phoneAtLaunch,
         text,
+        idempotencyKey,
       });
       await Promise.all([detailQuery.refetch(), resultsQuery.refetch()]);
       await invalidateCampaign();
+      return true;
     } catch (cause) {
       setActionError(
         apiErrorMessage(cause, "The simulated message could not be injected."),
       );
+      return false;
     }
   }
 
@@ -528,18 +539,19 @@ export function FeedbackInboxPage() {
           — header to surface — is larger, because that boundary is the one that
           separates the page's nameplate from its work. */}
       <div className="flex flex-col gap-4">
-        {/* The standing facts about this campaign, as one band: where the
-            dinner was and what is wrong, then the summary generated from it.
-            These two sit closer than a card gap because the row is a caption
-            for the card, not a card of its own. */}
-        <div className="flex flex-col gap-2">
-          <CampaignContext
-            campaign={campaign}
-            venue={eventQuery.data?.venue ?? null}
-            simulatorAvailable={simulatorAvailable}
-          />
-          <CampaignSummary campaignId={campaignId} />
-        </div>
+        {/* The standing facts about this campaign — where the dinner was and
+            what is wrong — then the summary generated from it. The context row
+            used to sit `gap-2` under the title as a caption for the summary
+            card. The venue in it is framed now, and two frames 8px apart read
+            as one panel that has been cut in half, so the row joins the screen's
+            rhythm: every bordered thing here is the same distance from the next
+            one. */}
+        <CampaignContext
+          campaign={campaign}
+          venue={eventQuery.data?.venue ?? null}
+          simulatorAvailable={simulatorAvailable}
+        />
+        <CampaignSummary campaignId={campaignId} />
 
         {/* Two panes on top — triage beside the thread — and the conversation's
             detail broken into a strip of small cards under them. Each pane is
@@ -576,7 +588,9 @@ export function FeedbackInboxPage() {
           <div className="min-h-0 min-w-0">
             {conversation ? (
               <ConversationTranscript
+                key={conversation.id}
                 conversation={conversation}
+                campaignStatus={campaign?.status ?? null}
                 onStaffSend={handleStaffSend}
                 staffSendPending={sendStaffMessage.isPending}
                 {...(simulatorAvailable

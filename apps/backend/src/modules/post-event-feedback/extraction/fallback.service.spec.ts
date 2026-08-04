@@ -2,8 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { Logger } from "@nestjs/common";
 import type { AppTransaction } from "@join-the-six/database";
-import type { Queue } from "bullmq";
-import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
 import type { DatabaseService } from "../../../infrastructure/database/database.service.js";
@@ -27,17 +26,15 @@ import {
   createFeedbackExtractionParkedNoticeDedupeKey,
 } from "./extraction.schemas.js";
 import {
+  createFeedbackReconcileConversationJobId,
   FEEDBACK_EXTRACTION_PARK_MAX_MS,
   FEEDBACK_EXTRACTION_PARK_RETRY_MS,
-  FEEDBACK_JOB_NAMES,
-  createFeedbackExtractParkedJobId,
-  type FeedbackJobData,
-  type FeedbackJobName,
 } from "../jobs.schemas.js";
 import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "../question-set.js";
 import type { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
 import type { FeedbackResultsRepository } from "./results.repository.js";
 import type { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
+import type { FeedbackConversationWakeupService } from "../reconciliation/wakeup.service.js";
 
 const campaignId = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 const eventId = "6b1d2f43-2f6a-4a1f-9f39-0f2c1f6c9a10";
@@ -47,6 +44,8 @@ const kostasOne = "1b2c3d4e-0000-4000-8000-000000000001";
 const kostasTwo = "1b2c3d4e-0000-4000-8000-000000000002";
 const eleni = "1b2c3d4e-0000-4000-8000-000000000003";
 const correlationId = "correlation-1";
+const firstIngressId = "27ec56f4-011d-46d7-9ed9-4a55fa1d07da";
+const secondIngressId = "855589be-fc1d-460d-9524-4b3754521a91";
 
 const disclosure = "Ο Κώστας μας έδειχνε dickpics όλο το βράδυ";
 
@@ -76,6 +75,7 @@ describe("PostEventFeedbackExtractionFallback", () => {
       kind: "system",
     });
     expect(harness.audit.events).toHaveLength(1);
+    expect(harness.conversations.get(conversationId).awaitingHuman).toBe(true);
 
     expect(harness.repository.notes[0]).toMatchObject({
       noteType: "general",
@@ -176,7 +176,7 @@ describe("PostEventFeedbackExtractionFallback", () => {
       seq: 3,
       actor: "participant",
       text: "Και ο Νίκος ήταν ωραίος",
-      ingressId: "ingress-2",
+      ingressId: secondIngressId,
       outboxId: null,
       at: new Date("2026-07-26T12:01:00.000Z"),
     });
@@ -219,6 +219,52 @@ describe("PostEventFeedbackExtractionFallback", () => {
     expect(harness.alert.raised).toHaveLength(1);
     expect(harness.conversations.transcript(conversationId)).toHaveLength(1);
     expect(harness.repository.outboxLogs).toHaveLength(1);
+  });
+
+  it("repairs an already-awaiting replay without publishing successor work", async () => {
+    const conversation = harness.conversations.get(conversationId);
+    const revision = conversation.work.revision;
+    conversation.awaitingHuman = true;
+    conversation.work.nextActionAt = new Date("2026-07-26T12:00:45.000Z");
+
+    await harness.fallback.apply({
+      conversationId,
+      correlationId,
+      cause: "validation_failed",
+    });
+
+    expect(conversation.awaitingHuman).toBe(true);
+    expect(conversation.work).toMatchObject({
+      revision,
+      nextActionAt: null,
+      executionEpoch: 3,
+      campaignResumeGeneration: 2,
+    });
+    expect(harness.wakeups.schedule).not.toHaveBeenCalled();
+  });
+
+  it("cancels an older queued bot question before parking for a person", async () => {
+    harness.repository.outbox.push({
+      id: randomUUID(),
+      conversationId,
+      campaignId,
+      kind: "reply",
+      body: "stale question",
+      dedupeKey: "stale-question",
+      status: "pending",
+    });
+
+    await harness.fallback.apply({
+      conversationId,
+      correlationId,
+      cause: "provider_refusal",
+    });
+
+    expect(
+      harness.repository.outbox.find(
+        (row) => row.dedupeKey === "stale-question",
+      )?.status,
+    ).toBe("cancelled");
   });
 
   describe("subject resolution (D16 candidates, D18 degradation)", () => {
@@ -355,7 +401,7 @@ describe("PostEventFeedbackExtractionFallback", () => {
       seq: 3,
       actor: "participant",
       text: "Και ο Νίκος ήταν ωραίος",
-      ingressId: "ingress-2",
+      ingressId: secondIngressId,
       outboxId: null,
       at: new Date("2026-07-26T12:01:00.000Z"),
     });
@@ -411,18 +457,24 @@ describe("PostEventFeedbackExtractionFallback", () => {
         cause: "provider_error",
       });
 
-      const expectedId = createFeedbackExtractParkedJobId(conversationId, 1, 1);
+      const expectedId = createFeedbackReconcileConversationJobId(
+        conversationId,
+        1,
+      );
       expect(result.retryJobId).toBe(expectedId);
-      expect(harness.queue.added).toHaveLength(1);
-      expect(harness.queue.added[0]).toMatchObject({
-        name: FEEDBACK_JOB_NAMES.extractV1,
-        options: {
-          jobId: expectedId,
-          delay: FEEDBACK_EXTRACTION_PARK_RETRY_MS,
-          // This *is* the retry; the next one is queued by the next park.
-          attempts: 1,
-        },
+      expect(harness.wakeups.schedule).toHaveBeenCalledWith({
+        conversationId,
+        nextActionAt: expect.any(Date),
+        correlationId,
+        at: expect.any(Date),
       });
+      const scheduled = harness.wakeups.schedule.mock.calls[0]?.[0] as {
+        nextActionAt: Date;
+        at: Date;
+      };
+      expect(scheduled.nextActionAt.getTime() - scheduled.at.getTime()).toBe(
+        FEEDBACK_EXTRACTION_PARK_RETRY_MS,
+      );
     });
 
     it("gives each successive park its own job id and keeps the start time", async () => {
@@ -440,12 +492,12 @@ describe("PostEventFeedbackExtractionFallback", () => {
         cause: "provider_error",
       });
 
-      // A stable id would be refused by BullMQ while the parked run still holds
-      // it, so the counter is what keeps the ladder moving.
+      // Every durable schedule advances the conversation work revision, so a
+      // retained earlier wake-up cannot suppress the next parked retry.
       expect(second.retryJobId).toBe(
-        createFeedbackExtractParkedJobId(conversationId, 1, 2),
+        createFeedbackReconcileConversationJobId(conversationId, 2),
       );
-      expect(harness.queue.added).toHaveLength(2);
+      expect(harness.wakeups.schedule).toHaveBeenCalledTimes(2);
       // And the clock the notice is measured against does not restart.
       expect(
         harness.conversations.get(conversationId).extraction.parkedSince,
@@ -566,7 +618,7 @@ describe("PostEventFeedbackExtractionFallback", () => {
       });
 
       expect(result.retryJobId).toBeUndefined();
-      expect(harness.queue.added).toHaveLength(0);
+      expect(harness.wakeups.schedule).not.toHaveBeenCalled();
       // Still parked, still counted at campaign level, still nobody's inbox row.
       expect(
         harness.conversations.get(conversationId).extraction.parkedSince,
@@ -589,7 +641,7 @@ describe("PostEventFeedbackExtractionFallback", () => {
       // lie about what is outstanding.
       expect(result.parked).toBe(true);
       expect(result.retryJobId).toBeUndefined();
-      expect(harness.queue.added).toHaveLength(0);
+      expect(harness.wakeups.schedule).not.toHaveBeenCalled();
     });
 
     it("parks nothing when the conversation is gone", async () => {
@@ -602,7 +654,7 @@ describe("PostEventFeedbackExtractionFallback", () => {
       });
 
       expect(result.parked).toBe(false);
-      expect(harness.queue.added).toHaveLength(0);
+      expect(harness.wakeups.schedule).not.toHaveBeenCalled();
       expect(harness.audit.events).toHaveLength(0);
     });
   });
@@ -638,7 +690,13 @@ interface FakeConversation {
   goals: { key: string; ordinal: number; prompt: string; status: string }[];
   messages: FakeMessage[];
   lifecycle: { state: "open" | "closed"; reason: string | null };
-  control: { mode: "bot" | "human"; source: string };
+  control: { mode: "bot" | "human"; source: string; changedAt: Date };
+  work: {
+    revision: number;
+    nextActionAt: Date | null;
+    executionEpoch: number;
+    campaignResumeGeneration?: number;
+  };
   awaitingHuman: boolean;
   needsAttention: boolean;
   extractionFallbackAckSent: boolean;
@@ -790,6 +848,24 @@ class FakeFeedbackRepository {
       row.status = status;
     }
   }
+
+  async cancelQueuedAutomatedOutboxForConversation(
+    _transaction: AppTransaction,
+    targetConversationId: string,
+  ): Promise<number> {
+    let cancelled = 0;
+    for (const row of this.outbox) {
+      if (
+        row.conversationId === targetConversationId &&
+        row.kind !== "staff" &&
+        ["pending", "held", "claimed"].includes(row.status)
+      ) {
+        row.status = "cancelled";
+        cancelled += 1;
+      }
+    }
+    return cancelled;
+  }
 }
 
 class FakeConversations {
@@ -892,6 +968,17 @@ class FakeConversations {
     return { changed: true, conversation };
   }
 
+  async markAwaitingHuman(input: {
+    conversationId: string;
+  }): Promise<{ changed: boolean; conversation: FakeConversation }> {
+    const conversation = this.get(input.conversationId);
+    const changed =
+      !conversation.awaitingHuman || conversation.work.nextActionAt !== null;
+    conversation.awaitingHuman = true;
+    conversation.work.nextActionAt = null;
+    return { changed, conversation };
+  }
+
   /** Keeps the first park's start and counts the run, as the pipeline update does. */
   async parkExtraction(input: {
     conversationId: string;
@@ -916,29 +1003,6 @@ class FakeConversations {
   }
 }
 
-/**
- * Enough of BullMQ to see what the park queued: an `add` for an id already held
- * is a no-op, exactly as the real queue treats one.
- */
-class FakeQueue {
-  readonly added: {
-    name: string;
-    data: unknown;
-    options: { jobId?: string; delay?: number; attempts?: number };
-  }[] = [];
-
-  async add(
-    name: string,
-    data: unknown,
-    options: { jobId?: string; delay?: number; attempts?: number } = {},
-  ): Promise<{ id: string | undefined }> {
-    if (!this.added.some((job) => job.options.jobId === options.jobId)) {
-      this.added.push({ name, data, options });
-    }
-    return { id: options.jobId };
-  }
-}
-
 interface Harness {
   fallback: PostEventFeedbackExtractionFallback;
   repository: FakeFeedbackRepository;
@@ -946,7 +1010,9 @@ interface Harness {
   events: FakeEvents;
   audit: FakeAudit;
   alert: { raised: FeedbackOperatorAlertInput[] };
-  queue: FakeQueue;
+  wakeups: {
+    schedule: ReturnType<typeof vi.fn>;
+  };
 }
 
 function createHarness(): Harness {
@@ -1000,13 +1066,23 @@ function createHarness(): Harness {
         seq: 1,
         actor: "participant",
         text: disclosure,
-        ingressId: "ingress-1",
+        ingressId: firstIngressId,
         outboxId: null,
         at: new Date("2026-07-26T12:00:00.000Z"),
       },
     ],
     lifecycle: { state: "open", reason: null },
-    control: { mode: "bot", source: "launch" },
+    control: {
+      mode: "bot",
+      source: "launch",
+      changedAt: new Date("2026-07-26T11:55:00.000Z"),
+    },
+    work: {
+      revision: 7,
+      nextActionAt: null,
+      executionEpoch: 3,
+      campaignResumeGeneration: 2,
+    },
     awaitingHuman: false,
     needsAttention: false,
     extractionFallbackAckSent: false,
@@ -1021,9 +1097,17 @@ function createHarness(): Harness {
   });
 
   const database = new FakeDatabase();
-  const queue = new FakeQueue();
+  let workRevision = 0;
+  const wakeups = {
+    schedule: vi.fn(
+      async (input: { conversationId: string }): Promise<string> =>
+        createFeedbackReconcileConversationJobId(
+          input.conversationId,
+          (workRevision += 1),
+        ),
+    ),
+  };
   const fallback = new PostEventFeedbackExtractionFallback(
-    queue as unknown as Queue<FeedbackJobData, void, FeedbackJobName>,
     database as unknown as DatabaseService,
     repository as unknown as FeedbackCampaignRepository,
     repository as unknown as FeedbackResultsRepository,
@@ -1040,7 +1124,16 @@ function createHarness(): Harness {
       repository as unknown as FeedbackOutboundLogRepository,
     ),
     alert,
+    wakeups as unknown as FeedbackConversationWakeupService,
   );
 
-  return { fallback, repository, conversations, events, audit, alert, queue };
+  return {
+    fallback,
+    repository,
+    conversations,
+    events,
+    audit,
+    alert,
+    wakeups,
+  };
 }

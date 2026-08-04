@@ -3,7 +3,7 @@
  *
  * Switched by `TRANSPORT_MODE`:
  * - `disabled` → deterministic local rejection; no provider is reachable
- * - `wasender` → paced Wasender session client
+ * - `wasender` → raw Wasender session client; the dispatcher owns pacing
  * - `simulated` → durable PostgreSQL sink (`feedback_sim_outbound`) plus
  *   inject/read HTTP endpoints when the simulator policy permits them
  */
@@ -33,14 +33,6 @@ export type FeedbackTransportSendResult =
       readonly providerLogId?: string;
     };
 
-export type FeedbackTransportMessageInfo = {
-  readonly providerLogId: string;
-  readonly providerMessageId: string;
-  readonly status:
-    "error" | "pending" | "sent" | "delivered" | "read" | "played";
-  readonly occurredAt: Date;
-};
-
 /**
  * Injectable port. Callers must never blindly retry an `unknown` send outcome;
  * reconcile through stored provider IDs / status first.
@@ -49,12 +41,4 @@ export interface FeedbackTransport {
   sendText(
     input: FeedbackTransportSendInput,
   ): Promise<FeedbackTransportSendResult>;
-
-  /**
-   * Optional provider reconciliation. Simulated transport has nothing to look
-   * up; Wasender uses `getMessageInfo`.
-   */
-  getMessageInfo?(
-    providerLogId: string,
-  ): Promise<FeedbackTransportMessageInfo | undefined>;
 }

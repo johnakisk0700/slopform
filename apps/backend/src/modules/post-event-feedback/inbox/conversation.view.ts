@@ -7,19 +7,74 @@ import {
 } from "@join-the-six/database";
 
 import { latestAnswerCorrection } from "../extraction/answer-corrections.js";
-import type {
-  FeedbackConversationLifecycleReason,
-  FeedbackConversationSummary,
+import {
+  resolveFeedbackConversationWork,
+  type FeedbackConversationDocument,
+  type FeedbackConversationLifecycleReason,
+  type FeedbackConversationSummary,
 } from "../post-event-feedback-conversation.document.js";
 import type {
   FeedbackAnswerView,
   FeedbackCampaignConversationsView,
+  FeedbackConversationAutomationView,
   FeedbackConversationCapabilities,
   FeedbackConversationDetailView,
+  FeedbackConversationExtractionView,
   FeedbackConversationResultsView,
   FeedbackNoteOrigin,
   FeedbackNoteView,
 } from "./conversation.schemas.js";
+
+export interface FeedbackConversationActiveLeaseView {
+  readonly claimExpiresAt: Date;
+}
+
+/** Extraction facts derived solely from the Mongo-authoritative aggregate. */
+export function toExtractionView(
+  conversation: FeedbackConversationDocument,
+): FeedbackConversationExtractionView {
+  return {
+    unreadParticipantMessages: conversation.messages.filter(
+      (message) =>
+        message.actor === "participant" &&
+        message.seq > conversation.extraction.cursorSeq,
+    ).length,
+    lastRunAt: conversation.extraction.lastRunAt?.toISOString() ?? null,
+    model: conversation.extraction.model,
+  };
+}
+
+/**
+ * One coherent automation projection from durable scheduling and execution.
+ *
+ * A live claim takes precedence because work is executing even if another
+ * participant message advanced MongoDB's revision in the meantime. A provider
+ * park then outranks its future retry schedule; `nextActionAt` still says when
+ * that retry (or eventual expiry) is due.
+ */
+export function toAutomationView(
+  conversation: FeedbackConversationDocument,
+  activeLease: FeedbackConversationActiveLeaseView | undefined,
+): FeedbackConversationAutomationView {
+  const work = resolveFeedbackConversationWork(conversation.work);
+  const state: FeedbackConversationAutomationView["state"] = activeLease
+    ? "running"
+    : conversation.extraction.parkedSince !== null
+      ? "parked"
+      : work.nextActionAt
+        ? "scheduled"
+        : "idle";
+
+  return {
+    state,
+    nextActionAt: work.nextActionAt?.toISOString() ?? null,
+    revision: work.revision,
+    claimExpiresAt:
+      state === "running" && activeLease
+        ? activeLease.claimExpiresAt.toISOString()
+        : null,
+  };
+}
 
 /** Capability flags the admin UI trusts instead of hardcoding transition rules. */
 export function conversationCapabilities(conversation: {

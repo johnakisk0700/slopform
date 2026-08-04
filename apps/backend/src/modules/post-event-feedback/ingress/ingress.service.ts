@@ -1,19 +1,11 @@
-import { InjectQueue } from "@nestjs/bullmq";
 import { Injectable, Logger } from "@nestjs/common";
-import type { Queue } from "bullmq";
 
 import { DatabaseService } from "../../../infrastructure/database/database.service.js";
-import { FEEDBACK_INGRESS_QUEUE } from "../../../infrastructure/queue/queue.constants.js";
 import { FeedbackIngressRepository } from "./ingress.repository.js";
+import { FeedbackMaterializeWakeupService } from "./materialize-wakeup.service.js";
 import {
   createFeedbackEditedProviderMessageId,
-  createFeedbackMaterializeJobId,
-  FEEDBACK_JOB_NAMES,
-  FEEDBACK_JOB_SCHEMA_VERSION,
-  feedbackMaterializeJobDataSchema,
   observedProviderMessageSchema,
-  type FeedbackJobData,
-  type FeedbackJobName,
   type ObservedProviderMessage,
 } from "../jobs.schemas.js";
 
@@ -42,10 +34,7 @@ export class PostEventFeedbackIngressService {
   private readonly logger = new Logger(PostEventFeedbackIngressService.name);
 
   constructor(
-    // The ingress queue, not the feedback queue: this enqueue must not land
-    // behind a model call. See FEEDBACK_INGRESS_QUEUE for what that cost.
-    @InjectQueue(FEEDBACK_INGRESS_QUEUE)
-    private readonly queue: Queue<FeedbackJobData, void, FeedbackJobName>,
+    private readonly materializeWakeups: FeedbackMaterializeWakeupService,
     private readonly database: DatabaseService,
     private readonly repository: FeedbackIngressRepository,
   ) {}
@@ -67,9 +56,10 @@ export class PostEventFeedbackIngressService {
       }),
     );
 
-    // A redelivery still enqueues: the first delivery may have crashed between
-    // the committed row and the queue. The deterministic job id suppresses the
-    // duplicate while it is in Redis, and materialization is itself idempotent.
+    // A redelivery still reconciles the wake-up: the first delivery may have
+    // crashed between the committed row and Redis. The shared boundary leaves
+    // a live job alone, replaces a retained terminal job only while this row is
+    // pending, and materialization itself remains idempotent.
     await this.enqueueMaterialize(row.id, correlationId);
 
     this.logger.log({
@@ -128,19 +118,11 @@ export class PostEventFeedbackIngressService {
     ingressId: string,
     correlationId: string,
   ): Promise<void> {
-    const data = feedbackMaterializeJobDataSchema.parse({
-      schemaVersion: FEEDBACK_JOB_SCHEMA_VERSION,
-      ingressId,
-      correlationId,
-    });
-
     try {
-      const job = await this.queue.add(FEEDBACK_JOB_NAMES.materializeV1, data, {
-        jobId: createFeedbackMaterializeJobId(ingressId),
+      await this.materializeWakeups.ensurePendingQueued({
+        ingressId,
+        correlationId,
       });
-      if (!job.id) {
-        throw new Error("BullMQ returned a job without an id");
-      }
     } catch (error) {
       // The row is already committed, so nothing is lost: it stays `pending`
       // and is replayed by a provider redelivery. Refusing to acknowledge is

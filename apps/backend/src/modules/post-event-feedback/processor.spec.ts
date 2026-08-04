@@ -4,21 +4,15 @@ import { UnrecoverableError } from "bullmq";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { ConversationPersistenceError } from "../conversations/conversation-persistence.errors.js";
-import type { PostEventFeedbackExtractionFallback } from "./extraction/fallback.service.js";
-import { FeedbackExtractionGenerationError } from "./extraction/model.service.js";
-import {
-  PostEventFeedbackConversationNotFoundError,
-  type PostEventFeedbackExtractor,
-} from "./extraction/extract.service.js";
 import { PostEventFeedbackIngressNotFoundError } from "./ingress/materialize.service.js";
 import type { PostEventFeedbackMaterializationCoordinator } from "./ingress/materialization-coordinator.service.js";
-import type { MessageOutboxDeliveryService } from "./outbox/deliver.service.js";
-import type { MessageOutboxRelayService } from "./outbox/relay.service.js";
+import type { FeedbackConversationWakeupService } from "./reconciliation/wakeup.service.js";
 import {
   FEEDBACK_WORKER_CONCURRENCY,
   PostEventFeedbackProcessor,
 } from "./processor.js";
 import {
+  createFeedbackDeliverJobId,
   createFeedbackMaterializeJobId,
   createFeedbackSummarizeCampaignJobId,
   FEEDBACK_JOB_NAMES,
@@ -121,68 +115,97 @@ describe("PostEventFeedbackProcessor", () => {
     );
   });
 
-  it("routes an extraction job to the extractor, not the materializer", async () => {
+  it("converts a retained extraction job into durable V2 work without model entry", async () => {
     const materializer = { materialize: vi.fn() };
-    const extractor = {
-      extract: vi.fn().mockResolvedValue({
-        outcome: "extracted",
-        conversationId,
-        cursorSeq: 1,
-        answersWritten: 1,
-        notesWritten: 0,
-      }),
+    const wakeups = {
+      schedule: vi.fn().mockResolvedValue("feedback-reconcile-v2-job"),
     };
-    const processor = createProcessor(materializer, extractor);
+    const processor = createProcessor(materializer, wakeups);
 
     await processor.process(createExtractJob());
 
-    expect(extractor.extract).toHaveBeenCalledWith({
-      schemaVersion: 1,
+    expect(wakeups.schedule).toHaveBeenCalledWith({
       conversationId,
+      nextActionAt: expect.any(Date),
       correlationId: "correlation-1",
     });
     expect(materializer.materialize).not.toHaveBeenCalled();
   });
 
-  it("does not retry an extraction whose conversation is gone", async () => {
-    const extractor = {
-      extract: vi
-        .fn()
-        .mockRejectedValue(
-          new PostEventFeedbackConversationNotFoundError(conversationId),
-        ),
-    };
-    const processor = createProcessor({ materialize: vi.fn() }, extractor);
+  it("discards a retained relay wake-up after validating its envelope", async () => {
+    const processor = createProcessor({ materialize: vi.fn() });
 
-    await expect(processor.process(createExtractJob())).rejects.toBeInstanceOf(
-      UnrecoverableError,
+    await processor.process(
+      createJob(
+        { schemaVersion: 1, correlationId: "legacy-relay" },
+        FEEDBACK_JOB_NAMES.relayOutboxV1,
+        FEEDBACK_JOB_NAMES.relayOutboxV1,
+      ),
     );
   });
 
-  it("does not retry a permanent provider failure", async () => {
-    const extractor = {
-      extract: vi
-        .fn()
-        .mockRejectedValue(
-          new FeedbackExtractionGenerationError("provider_unavailable", false),
-        ),
-    };
-    const processor = createProcessor({ materialize: vi.fn() }, extractor);
+  it("discards a retained delivery job without entering a delivery service", async () => {
+    const processor = createProcessor({ materialize: vi.fn() });
+    const outboxId = "39f8136d-bde4-4600-8e63-1602270b3574";
 
-    await expect(processor.process(createExtractJob())).rejects.toBeInstanceOf(
-      UnrecoverableError,
+    await processor.process(
+      createJob(
+        {
+          schemaVersion: 1,
+          outboxId,
+          correlationId: "legacy-delivery",
+        },
+        FEEDBACK_JOB_NAMES.deliverV1,
+        createFeedbackDeliverJobId(outboxId),
+      ),
     );
   });
 
-  it("retries a transient provider failure", async () => {
-    const transient = new FeedbackExtractionGenerationError(
-      "extraction_failed",
-      true,
-    );
-    const extractor = { extract: vi.fn().mockRejectedValue(transient) };
-    const processor = createProcessor({ materialize: vi.fn() }, extractor);
+  it("rejects a retained delivery job whose id does not match its row", async () => {
+    const processor = createProcessor({ materialize: vi.fn() });
+    const outboxId = "39f8136d-bde4-4600-8e63-1602270b3574";
 
-    await expect(processor.process(createExtractJob())).rejects.toBe(transient);
+    await expect(
+      processor.process(
+        createJob(
+          {
+            schemaVersion: 1,
+            outboxId,
+            correlationId: "legacy-delivery",
+          },
+          FEEDBACK_JOB_NAMES.deliverV1,
+          "hand-made-delivery-id",
+        ),
+      ),
+    ).rejects.toBeInstanceOf(UnrecoverableError);
+  });
+
+  it.each([
+    FEEDBACK_JOB_NAMES.sweepRemindersV1,
+    FEEDBACK_JOB_NAMES.sweepExpiryV1,
+  ])("converts retained %s work into current-state recovery", async (name) => {
+    const wakeups = {
+      schedule: vi.fn(),
+      recoverDue: vi.fn().mockResolvedValue({ examined: 0, queued: 0 }),
+    };
+    const sweeps = {
+      sweepIngress: vi.fn(),
+    };
+    const processor = createProcessor(
+      { materialize: vi.fn() },
+      wakeups,
+      sweeps,
+    );
+
+    await processor.process(
+      createJob(
+        { schemaVersion: 1, correlationId: "legacy-sweep" },
+        name,
+        name,
+      ),
+    );
+
+    expect(wakeups.recoverDue).toHaveBeenCalledWith("legacy-sweep");
   });
 
   it("does not retry unsupported job names", async () => {
@@ -194,273 +217,19 @@ describe("PostEventFeedbackProcessor", () => {
     ).rejects.toBeInstanceOf(UnrecoverableError);
   });
 
-  describe("terminal extraction failure", () => {
-    it("applies the fallback and names the cause in the failure reason", async () => {
-      const extractor = {
-        extract: vi
-          .fn()
-          .mockRejectedValue(
-            new FeedbackExtractionGenerationError(
-              "provider_rejected",
-              false,
-              "provider_refusal",
-            ),
-          ),
-      };
-      const fallback = { apply: vi.fn().mockResolvedValue({ applied: true }) };
-      const processor = createProcessor(
-        { materialize: vi.fn() },
-        extractor,
-        fallback,
-      );
-
-      // The message becomes BullMQ's `failedReason`, which is where an operator
-      // reading the queue sees the class without opening the audit table.
-      await expect(processor.process(createExtractJob())).rejects.toThrow(
-        "Feedback extraction failed permanently: provider_refusal",
-      );
-      expect(fallback.apply).toHaveBeenCalledWith({
-        conversationId,
-        correlationId: "correlation-1",
-        cause: "provider_refusal",
-      });
-    });
-
-    it("applies the fallback once the last attempt is spent", async () => {
-      const extractor = {
-        extract: vi
-          .fn()
-          .mockRejectedValue(
-            new FeedbackExtractionGenerationError(
-              "extraction_failed",
-              true,
-              "validation_failed",
-            ),
-          ),
-      };
-      const fallback = { apply: vi.fn().mockResolvedValue({ applied: true }) };
-      const processor = createProcessor(
-        { materialize: vi.fn() },
-        extractor,
-        fallback,
-      );
-
-      await expect(
-        processor.process(createExtractJob({ attemptsMade: 4, attempts: 5 })),
-      ).rejects.toThrow(
-        "Feedback extraction failed permanently: validation_failed",
-      );
-      expect(fallback.apply).toHaveBeenCalledWith(
-        expect.objectContaining({ cause: "validation_failed" }),
-      );
-    });
-
-    it("leaves a retryable failure alone while attempts remain", async () => {
-      const transient = new FeedbackExtractionGenerationError(
-        "extraction_failed",
-        true,
-        "provider_error",
-      );
-      const extractor = { extract: vi.fn().mockRejectedValue(transient) };
-      const fallback = { apply: vi.fn() };
-      const processor = createProcessor(
-        { materialize: vi.fn() },
-        extractor,
-        fallback,
-      );
-
-      await expect(
-        processor.process(createExtractJob({ attemptsMade: 1, attempts: 5 })),
-      ).rejects.toBe(transient);
-      expect(fallback.apply).not.toHaveBeenCalled();
-    });
-
-    it("classifies an unrecognised failure as unknown", async () => {
-      const extractor = {
-        extract: vi.fn().mockRejectedValue(new Error("mongo went away")),
-      };
-      const fallback = { apply: vi.fn().mockResolvedValue({ applied: true }) };
-      const processor = createProcessor(
-        { materialize: vi.fn() },
-        extractor,
-        fallback,
-      );
-
-      await expect(
-        processor.process(createExtractJob({ attemptsMade: 4, attempts: 5 })),
-      ).rejects.toThrow("Feedback extraction failed permanently: unknown");
-    });
-
-    it("does not attempt a fallback for a conversation that no longer exists", async () => {
-      const extractor = {
-        extract: vi
-          .fn()
-          .mockRejectedValue(
-            new PostEventFeedbackConversationNotFoundError(conversationId),
-          ),
-      };
-      const fallback = { apply: vi.fn() };
-      const processor = createProcessor(
-        { materialize: vi.fn() },
-        extractor,
-        fallback,
-      );
-
-      await expect(
-        processor.process(createExtractJob()),
-      ).rejects.toBeInstanceOf(UnrecoverableError);
-      expect(fallback.apply).not.toHaveBeenCalled();
-    });
-
-    it("parks a provider incident instead of speaking and flagging", async () => {
-      // The regression that matters in the other direction: an exhausted balance
-      // is not retryable, so before this it reached the fallback on attempt one
-      // and every affected conversation apologised to its participant and queued
-      // an operator for a fault none of them had caused.
-      const extractor = {
-        extract: vi
-          .fn()
-          .mockRejectedValue(
-            new FeedbackExtractionGenerationError(
-              "provider_rejected",
-              false,
-              "provider_error",
-            ),
-          ),
-      };
-      const fallback = {
-        apply: vi.fn(),
-        park: vi.fn().mockResolvedValue({ parked: true }),
-      };
-      const processor = createProcessor(
-        { materialize: vi.fn() },
-        extractor,
-        fallback,
-      );
-
-      // «Parked», not «failed permanently»: a successor job is already queued, so
-      // the queue's own `failedReason` must not read as a dead end.
-      await expect(processor.process(createExtractJob())).rejects.toThrow(
-        "Feedback extraction parked on the provider: provider_error",
-      );
-      expect(fallback.park).toHaveBeenCalledWith({
-        conversationId,
-        correlationId: "correlation-1",
-        cause: "provider_error",
-      });
-      expect(fallback.apply).not.toHaveBeenCalled();
-    });
-
-    it("parks a retryable provider incident only once its attempts are spent", async () => {
-      const extractor = {
-        extract: vi
-          .fn()
-          .mockRejectedValue(
-            new FeedbackExtractionGenerationError(
-              "extraction_failed",
-              true,
-              "provider_error",
-            ),
-          ),
-      };
-      const fallback = {
-        apply: vi.fn(),
-        park: vi.fn().mockResolvedValue({ parked: true }),
-      };
-      const processor = createProcessor(
-        { materialize: vi.fn() },
-        extractor,
-        fallback,
-      );
-
-      await expect(
-        processor.process(createExtractJob({ attemptsMade: 4, attempts: 5 })),
-      ).rejects.toThrow("Feedback extraction parked on the provider");
-      expect(fallback.park).toHaveBeenCalledTimes(1);
-      expect(fallback.apply).not.toHaveBeenCalled();
-    });
-
-    it("still falls back and flags for a refusal, exactly as before", async () => {
-      // The load-bearing regression. A provider refusal is something about this
-      // conversation, so the participant is answered and a person is queued —
-      // unchanged by the park path existing.
-      const extractor = {
-        extract: vi
-          .fn()
-          .mockRejectedValue(
-            new FeedbackExtractionGenerationError(
-              "extraction_failed",
-              true,
-              "provider_refusal",
-            ),
-          ),
-      };
-      const fallback = {
-        apply: vi.fn().mockResolvedValue({ applied: true }),
-        park: vi.fn(),
-      };
-      const processor = createProcessor(
-        { materialize: vi.fn() },
-        extractor,
-        fallback,
-      );
-
-      await expect(
-        processor.process(createExtractJob({ attemptsMade: 4, attempts: 5 })),
-      ).rejects.toThrow(
-        "Feedback extraction failed permanently: provider_refusal",
-      );
-      expect(fallback.apply).toHaveBeenCalledWith({
-        conversationId,
-        correlationId: "correlation-1",
-        cause: "provider_refusal",
-      });
-      expect(fallback.park).not.toHaveBeenCalled();
-    });
-
-    it("keeps the original diagnosis when the fallback itself fails", async () => {
-      const extractor = {
-        extract: vi
-          .fn()
-          .mockRejectedValue(
-            new FeedbackExtractionGenerationError(
-              "provider_rejected",
-              false,
-              "provider_refusal",
-            ),
-          ),
-      };
-      const fallback = {
-        apply: vi.fn().mockRejectedValue(new Error("postgres unavailable")),
-      };
-      const processor = createProcessor(
-        { materialize: vi.fn() },
-        extractor,
-        fallback,
-      );
-
-      await expect(processor.process(createExtractJob())).rejects.toThrow(
-        "Feedback extraction failed permanently: provider_refusal",
-      );
-    });
-  });
-
-  it("runs a valid summarize-campaign job through the summary service", async () => {
-    const summaries = { run: vi.fn().mockResolvedValue(undefined) };
+  it("converts a retained summary job into its durable V2 attempt", async () => {
+    const summaries = {
+      convertLegacyWakeup: vi
+        .fn()
+        .mockResolvedValue("feedback-summarize-v2-job"),
+    };
     const processor = new PostEventFeedbackProcessor(
       { materialize: vi.fn() } as never,
-      { relay: vi.fn() } as never,
-      { deliver: vi.fn() } as never,
-      { extract: vi.fn() } as never,
       {
-        sweepReminders: vi.fn(),
-        sweepExpiry: vi.fn(),
         sweepIngress: vi.fn(),
       } as never,
-      { recover: vi.fn() } as never,
-      { apply: vi.fn(), park: vi.fn() } as never,
       summaries as never,
-      { run: vi.fn((_id, work) => work()) } as never,
+      { schedule: vi.fn() } as never,
     );
 
     const data = {
@@ -474,35 +243,33 @@ describe("PostEventFeedbackProcessor", () => {
       createJob(data, FEEDBACK_JOB_NAMES.summarizeCampaignV1, jobId),
     );
 
-    expect(summaries.run).toHaveBeenCalledWith(data, jobId);
+    expect(summaries.convertLegacyWakeup).toHaveBeenCalledWith({
+      campaignId,
+      attempt: 1,
+      correlationId: "correlation-summary",
+    });
   });
 });
 
 function createProcessor(
   materializer: { materialize: ReturnType<typeof vi.fn> },
-  extractor: { extract: ReturnType<typeof vi.fn> } = { extract: vi.fn() },
-  fallback: {
-    apply: ReturnType<typeof vi.fn>;
-    park?: ReturnType<typeof vi.fn>;
+  wakeups: {
+    schedule: ReturnType<typeof vi.fn>;
+    recoverDue?: ReturnType<typeof vi.fn>;
   } = {
-    apply: vi.fn().mockResolvedValue({ applied: true }),
-    park: vi.fn().mockResolvedValue({ parked: true }),
+    schedule: vi.fn().mockResolvedValue("feedback-reconcile-v2-job"),
+  },
+  sweeps: {
+    sweepIngress: ReturnType<typeof vi.fn>;
+  } = {
+    sweepIngress: vi.fn(),
   },
 ): PostEventFeedbackProcessor {
   return new PostEventFeedbackProcessor(
     materializer as unknown as PostEventFeedbackMaterializationCoordinator,
-    { relay: vi.fn() } as unknown as MessageOutboxRelayService,
-    { deliver: vi.fn() } as unknown as MessageOutboxDeliveryService,
-    extractor as unknown as PostEventFeedbackExtractor,
-    {
-      sweepReminders: vi.fn(),
-      sweepExpiry: vi.fn(),
-      sweepIngress: vi.fn(),
-    } as never,
-    { recover: vi.fn() } as never,
-    fallback as unknown as PostEventFeedbackExtractionFallback,
-    { run: vi.fn() } as never,
-    { run: vi.fn((_id, work) => work()) } as never,
+    sweeps as never,
+    { convertLegacyWakeup: vi.fn() } as never,
+    wakeups as unknown as FeedbackConversationWakeupService,
   );
 }
 

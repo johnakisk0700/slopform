@@ -1,7 +1,9 @@
 import { Injectable } from "@nestjs/common";
+import { randomUUID } from "node:crypto";
 import {
   events,
   feedbackCampaigns,
+  MESSAGE_OUTBOX_STATUSES,
   messageOutbox,
   type AppTransaction,
   type FeedbackCampaignStatus,
@@ -16,32 +18,104 @@ import {
   count,
   desc,
   eq,
+  exists,
+  gt,
   gte,
   inArray,
   isNull,
   lt,
   lte,
+  ne,
+  notInArray,
+  notExists,
   or,
+  sql,
   type SQL,
 } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
+import { z } from "zod";
 
 import { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
+import { FEEDBACK_CONVERSATION_MAX_MESSAGES } from "../post-event-feedback-conversation.document.js";
 
 /** Stale `sending` rows older than this are reclaimed for re-enqueue / reconcile. */
 export const FEEDBACK_OUTBOX_RECOVERY_MS = 5 * 60_000;
 export const FEEDBACK_OUTBOX_BATCH_SIZE = 50;
+export const FEEDBACK_OUTBOX_LEGACY_AMBIGUOUS_ERROR =
+  "legacy_sending_cutover_ambiguous";
+const messageOutboxStatusSchema = z.enum(MESSAGE_OUTBOX_STATUSES);
+
+/**
+ * A small parallel lane count per replica.
+ *
+ * Claims share one lease start, so a large sequential batch can age its tail
+ * before those rows even reach the provider-start limiter. Four lanes keep the
+ * claim-to-marker interval bounded while replicas still scale horizontally.
+ */
+export const FEEDBACK_OUTBOX_DISPATCH_BATCH_SIZE = 4;
+/** Longer than one bounded provider call plus normal deployment-wide pacing. */
+export const FEEDBACK_OUTBOX_DISPATCH_LEASE_MS = 2 * 60_000;
+/** Renews twice before a healthy pre-send lease reaches PostgreSQL expiry. */
+export const FEEDBACK_OUTBOX_DISPATCH_HEARTBEAT_MS = Math.floor(
+  FEEDBACK_OUTBOX_DISPATCH_LEASE_MS / 3,
+);
+/** Every state in which an older row can still affect participant reality. */
+export const FEEDBACK_OUTBOX_FIFO_BLOCKING_STATUSES = [
+  "pending",
+  "held",
+  "claimed",
+  "attempting",
+  "ambiguous",
+  "sending",
+] as const satisfies readonly MessageOutboxStatus[];
+
+/** FIFO states an exact terminal row may never pass. */
+export const FEEDBACK_OUTBOX_FIFO_LIVE_BLOCKING_STATUSES = [
+  "pending",
+  "held",
+  "claimed",
+  "attempting",
+  "sending",
+] as const satisfies readonly MessageOutboxStatus[];
+
+export type FeedbackOutboxClaimedRow = MessageOutboxRow & {
+  readonly status: "claimed";
+  readonly claimToken: string;
+  readonly claimExpiresAt: Date;
+  readonly sendStartedAt: null;
+};
+
+export interface FeedbackOutboxTerminalCandidate {
+  readonly conversationId: string;
+  readonly outboxId: string;
+}
+
+export interface FeedbackOutboxStatusProjection {
+  readonly outboxId: string;
+  readonly status: MessageOutboxStatus;
+}
+
+export type FeedbackLegacyClosingResolution =
+  | { readonly outcome: "clear" }
+  | {
+      readonly outcome: "provider_crossed";
+      readonly row: MessageOutboxRow;
+    };
 
 /**
  * The statuses that mean "written down, but the participant does not have it".
  *
- * `sent`, `failed` and `cancelled` are all terminal — nobody is waiting on
- * them any more — so the observability read model is exactly these three.
- * `held` and `pending` are both parked rather than moving; only `sending` has
- * been handed to the relay.
+ * `sent`, `failed` and `cancelled` are business-terminal. `ambiguous` is
+ * execution-terminal but still undelivered: only provider evidence or an
+ * operator may resolve it. `pending`, `claimed`, `attempting` and legacy
+ * `sending` expose the active dispatcher/relay states; `held` is parked.
  */
 export const FEEDBACK_OUTBOX_UNDELIVERED_STATUSES = [
   "pending",
+  "claimed",
+  "attempting",
+  "ambiguous",
   "sending",
   "held",
 ] as const satisfies readonly MessageOutboxStatus[];
@@ -111,6 +185,16 @@ export class FeedbackOutboxRepository {
     private readonly campaigns: FeedbackCampaignRepository,
   ) {}
 
+  /** Shared mutex for Mongo control transitions and the provider-entry CAS. */
+  lockConversation(
+    transaction: AppTransaction,
+    conversationId: string,
+  ): Promise<unknown> {
+    return transaction.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`feedback-conversation:${conversationId}`}, 0))`,
+    );
+  }
+
   /**
    * Enqueues an outbound message. Duplicate `dedupe_key` inserts are ignored
    * and the existing row is returned.
@@ -118,6 +202,7 @@ export class FeedbackOutboxRepository {
   async insertOutboxIfAbsent(
     transaction: AppTransaction,
     input: {
+      readonly id?: string;
       readonly conversationId: string;
       readonly campaignId: string;
       readonly kind: MessageOutboxKind;
@@ -130,6 +215,7 @@ export class FeedbackOutboxRepository {
     const [inserted] = await transaction
       .insert(messageOutbox)
       .values({
+        ...(input.id ? { id: input.id } : {}),
         conversationId: input.conversationId,
         campaignId: input.campaignId,
         kind: input.kind,
@@ -161,17 +247,88 @@ export class FeedbackOutboxRepository {
     return { row: existing, inserted: false };
   }
 
-  async findOutboxById(
-    id: string,
+  /**
+   * One bounded PostgreSQL projection for the Mongo transcript's outbox ids.
+   *
+   * The aggregate schema caps its entire transcript at the same limit, so this
+   * is one small indexed lookup rather than one query per bot turn. A missing
+   * result is intentionally distinguishable from every outbox status; old
+   * Mongo turns can predate the retained PostgreSQL row.
+   */
+  async listOutboxStatusesByIds(
+    outboxIds: readonly string[],
     executor: DatabaseExecutor = this.database.db,
-  ): Promise<MessageOutboxRow | undefined> {
-    const [record] = await executor
+  ): Promise<FeedbackOutboxStatusProjection[]> {
+    const boundedIds = [...new Set(outboxIds)].slice(
+      0,
+      FEEDBACK_CONVERSATION_MAX_MESSAGES,
+    );
+    if (boundedIds.length === 0) return [];
+
+    const rows = await executor
+      .select({ outboxId: messageOutbox.id, status: messageOutbox.status })
+      .from(messageOutbox)
+      .where(inArray(messageOutbox.id, boundedIds));
+    return rows.map((row) => ({
+      outboxId: row.outboxId,
+      status: messageOutboxStatusSchema.parse(row.status),
+    }));
+  }
+
+  /**
+   * Retires the fixed V1 closing identity before an anchored V2 close is
+   * inserted, or reports that the old row has crossed the provider boundary.
+   *
+   * The row lock makes the decision atomic with the caller's anchored insert.
+   * A pre-send row is safe to cancel. `sending` is deliberately treated as
+   * crossed because the V1 relay recorded no send marker; guessing that it did
+   * not send is exactly how duplicate closing copy escapes during rollout.
+   */
+  async resolveLegacyClosingBeforeAnchoredInsert(
+    transaction: AppTransaction,
+    legacyDedupeKey: string,
+  ): Promise<FeedbackLegacyClosingResolution> {
+    const [legacy] = await transaction
       .select()
       .from(messageOutbox)
-      .where(eq(messageOutbox.id, id))
-      .limit(1);
+      .where(eq(messageOutbox.dedupeKey, legacyDedupeKey))
+      .limit(1)
+      .for("update");
+    if (
+      !legacy ||
+      legacy.status === "failed" ||
+      legacy.status === "cancelled"
+    ) {
+      return { outcome: "clear" };
+    }
 
-    return record;
+    const providerCrossed =
+      legacy.status === "attempting" ||
+      legacy.status === "ambiguous" ||
+      legacy.status === "sending" ||
+      legacy.status === "sent" ||
+      legacy.sendStartedAt !== null;
+    if (providerCrossed) {
+      return { outcome: "provider_crossed", row: legacy };
+    }
+
+    if (
+      legacy.status === "pending" ||
+      legacy.status === "held" ||
+      legacy.status === "claimed"
+    ) {
+      await transaction
+        .update(messageOutbox)
+        .set({
+          status: "cancelled",
+          claimExpiresAt: null,
+          lastError: "superseded_by_anchored_closing",
+          updatedAt: sql`clock_timestamp()`,
+        })
+        .where(eq(messageOutbox.id, legacy.id));
+    }
+
+    return { outcome: "clear" };
   }
 
   /**
@@ -241,7 +398,9 @@ export class FeedbackOutboxRepository {
   /**
    * Correlates an observed outbound message that carries no provider message id
    * yet: the oldest not-yet-linked row of that conversation with the exact same
-   * body. Cancelled and held rows are excluded because they were never sent.
+   * body, but only after provider entry happened or cannot be ruled out.
+   * `pending`/`claimed` prove our transport was not entered; treating an
+   * identical staff message as ours there would suppress takeover.
    */
   async findUnlinkedOutboxByConversationAndBody(
     conversationId: string,
@@ -256,7 +415,12 @@ export class FeedbackOutboxRepository {
           eq(messageOutbox.conversationId, conversationId),
           eq(messageOutbox.body, body),
           isNull(messageOutbox.providerMessageId),
-          inArray(messageOutbox.status, ["pending", "sending", "sent"]),
+          inArray(messageOutbox.status, [
+            "attempting",
+            "ambiguous",
+            "sending",
+            "sent",
+          ]),
         ),
       )
       .orderBy(asc(messageOutbox.createdAt), asc(messageOutbox.id))
@@ -322,7 +486,17 @@ export class FeedbackOutboxRepository {
           : {}),
         ...(input.readAt !== undefined ? { readAt: input.readAt } : {}),
         ...(input.playedAt !== undefined ? { playedAt: input.playedAt } : {}),
-        ...(input.status !== undefined ? { status: input.status } : {}),
+        ...(input.status !== undefined
+          ? {
+              status: input.status,
+              ...(input.status === "sent" ||
+              input.status === "failed" ||
+              input.status === "cancelled"
+                ? { claimExpiresAt: null }
+                : {}),
+              ...(input.status === "sent" ? { lastError: null } : {}),
+            }
+          : {}),
       })
       .where(eq(messageOutbox.id, id))
       .returning();
@@ -336,11 +510,139 @@ export class FeedbackOutboxRepository {
   ): Promise<number> {
     const cancelled = await transaction
       .update(messageOutbox)
-      .set({ status: "cancelled", updatedAt: new Date() })
+      .set({
+        status: "cancelled",
+        claimExpiresAt: null,
+        updatedAt: new Date(),
+      })
       .where(
         and(
           eq(messageOutbox.conversationId, conversationId),
-          inArray(messageOutbox.status, ["pending", "held"]),
+          cancellablePreSendOutbox(),
+        ),
+      )
+      .returning({ id: messageOutbox.id });
+
+    return cancelled.length;
+  }
+
+  /**
+   * Cancels every still-retractable row except the exact terminal row that won
+   * the Mongo lifecycle CAS.
+   *
+   * The caller holds the shared conversation advisory lock while committing
+   * that CAS. Keeping the cancellation in the same lock interval gives a
+   * completed conversation one outbound authority instead of leaving older
+   * claimed replies to discover the close one by one in the dispatcher.
+   * `authorizedOutboxId = null` means the terminal transition intentionally
+   * has no closing copy, so every retractable row is cancelled.
+   */
+  async cancelQueuedOutboxForConversationExceptId(
+    transaction: AppTransaction,
+    conversationId: string,
+    authorizedOutboxId: string | null,
+  ): Promise<number> {
+    const cancelled = await transaction
+      .update(messageOutbox)
+      .set({
+        status: "cancelled",
+        claimExpiresAt: null,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(messageOutbox.conversationId, conversationId),
+          ...(authorizedOutboxId === null
+            ? []
+            : [ne(messageOutbox.id, authorizedOutboxId)]),
+          cancellablePreSendOutbox(),
+        ),
+      )
+      .returning({ id: messageOutbox.id });
+
+    return cancelled.length;
+  }
+
+  /** Cancels one exact row only while transport entry is still impossible. */
+  async cancelQueuedOutboxById(
+    transaction: AppTransaction,
+    id: string,
+    lastError?: string,
+  ): Promise<MessageOutboxRow | undefined> {
+    const [cancelled] = await transaction
+      .update(messageOutbox)
+      .set({
+        status: "cancelled",
+        claimExpiresAt: null,
+        ...(lastError !== undefined ? { lastError } : {}),
+        updatedAt: new Date(),
+      })
+      .where(and(eq(messageOutbox.id, id), cancellablePreSendOutbox()))
+      .returning();
+
+    return cancelled;
+  }
+
+  /** Cancels bot-owned work on takeover while preserving queued staff sends. */
+  async cancelQueuedAutomatedOutboxForConversation(
+    transaction: AppTransaction,
+    conversationId: string,
+    authorizedOutboxId?: string | null,
+  ): Promise<number> {
+    const cancelled = await transaction
+      .update(messageOutbox)
+      .set({
+        status: "cancelled",
+        claimExpiresAt: null,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(messageOutbox.conversationId, conversationId),
+          sql`${messageOutbox.kind} <> 'staff'`,
+          ...(authorizedOutboxId
+            ? [ne(messageOutbox.id, authorizedOutboxId)]
+            : []),
+          cancellablePreSendOutbox(),
+        ),
+      )
+      .returning({ id: messageOutbox.id });
+
+    return cancelled.length;
+  }
+
+  /**
+   * Retracts automation made obsolete by a newly materialized participant turn.
+   *
+   * `system` and `staff` are explicit commitments, not questionnaire chatter.
+   * The caller also supplies the exact Mongo-authorized terminal/handoff ids;
+   * every other reply, intro or reminder is safe to retire only while it is
+   * still before the provider-entry marker.
+   */
+  async cancelQueuedSupersededAutomationForConversation(
+    transaction: AppTransaction,
+    conversationId: string,
+    preservedOutboxIds: readonly string[] = [],
+  ): Promise<number> {
+    const preserved = [
+      ...new Set(preservedOutboxIds.map((id) => z.uuid().parse(id))),
+    ];
+    const cancelled = await transaction
+      .update(messageOutbox)
+      .set({
+        status: "cancelled",
+        claimExpiresAt: null,
+        lastError: "superseded_by_newer_testimony",
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(messageOutbox.conversationId, conversationId),
+          notInArray(messageOutbox.kind, ["system", "staff"]),
+          ...(preserved.length > 0
+            ? [notInArray(messageOutbox.id, preserved)]
+            : []),
+          cancellablePreSendOutbox(),
         ),
       )
       .returning({ id: messageOutbox.id });
@@ -351,14 +653,25 @@ export class FeedbackOutboxRepository {
   async cancelQueuedOutboxForCampaign(
     transaction: AppTransaction,
     campaignId: string,
+    preservedOutboxIds: readonly string[] = [],
   ): Promise<number> {
+    const preserved = [
+      ...new Set(preservedOutboxIds.map((id) => z.uuid().parse(id))),
+    ];
     const cancelled = await transaction
       .update(messageOutbox)
-      .set({ status: "cancelled", updatedAt: new Date() })
+      .set({
+        status: "cancelled",
+        claimExpiresAt: null,
+        updatedAt: new Date(),
+      })
       .where(
         and(
           eq(messageOutbox.campaignId, campaignId),
-          inArray(messageOutbox.status, ["pending", "held"]),
+          ...(preserved.length > 0
+            ? [notInArray(messageOutbox.id, preserved)]
+            : []),
+          cancellablePreSendOutbox(),
         ),
       )
       .returning({ id: messageOutbox.id });
@@ -514,92 +827,632 @@ export class FeedbackOutboxRepository {
   }
 
   /**
-   * Leases due outbox rows with `FOR UPDATE SKIP LOCKED`. `held` rows are never
-   * selected. Rows whose campaign is not `launched` (paused/closed kill switch)
-   * stay pending so resume can lease them later. Stale `sending` rows past the
-   * recovery horizon are reclaimed so a lost BullMQ job can be republished; the
-   * deliver consumer reconciles before ever calling send again.
+   * Claims due rows directly for a dispatcher replica.
+   *
+   * The campaign join keeps paused/closed rows out of the candidate limit and
+   * `FOR UPDATE OF message_outbox SKIP LOCKED` lets replicas walk one backlog
+   * without either double-claiming a row or serializing on the campaign row.
+   * Only a `claimed` row with no send marker may be reclaimed after expiry.
    */
-  async claimOutboxBatch(
-    now: Date,
+  async listTerminalDispatchCandidates(
     limit = FEEDBACK_OUTBOX_BATCH_SIZE,
-    recoveryMs = FEEDBACK_OUTBOX_RECOVERY_MS,
-  ): Promise<MessageOutboxRow[]> {
-    return this.database.transaction(async (transaction) => {
-      const recoveryBefore = new Date(now.getTime() - recoveryMs);
-      const candidates = await transaction
-        .select()
-        .from(messageOutbox)
-        .where(
+  ): Promise<FeedbackOutboxTerminalCandidate[]> {
+    const boundedLimit = Math.min(
+      Math.max(1, limit),
+      FEEDBACK_OUTBOX_BATCH_SIZE,
+    );
+    const olderOutbox = alias(messageOutbox, "older_terminal_outbox");
+
+    const rows = await this.database.db
+      .select({
+        conversationId: messageOutbox.conversationId,
+        outboxId: messageOutbox.id,
+      })
+      .from(messageOutbox)
+      .innerJoin(
+        feedbackCampaigns,
+        eq(feedbackCampaigns.id, messageOutbox.campaignId),
+      )
+      .where(
+        and(
+          // This is only a bounded discovery hint. MongoDB grants authority by
+          // exact lifecycle id before the claim query receives any exception.
+          eq(messageOutbox.kind, "system"),
+          sql`${messageOutbox.dedupeKey} = 'feedback-stop-ack-' || ${messageOutbox.conversationId}::text`,
           or(
             eq(messageOutbox.status, "pending"),
             and(
-              eq(messageOutbox.status, "sending"),
-              lte(messageOutbox.updatedAt, recoveryBefore),
+              eq(messageOutbox.status, "claimed"),
+              lte(messageOutbox.claimExpiresAt, sql`clock_timestamp()`),
+              isNull(messageOutbox.sendStartedAt),
+            ),
+          ),
+          or(
+            ne(feedbackCampaigns.status, "launched"),
+            exists(
+              this.database.db
+                .select({ id: olderOutbox.id })
+                .from(olderOutbox)
+                .where(
+                  and(
+                    eq(
+                      olderOutbox.conversationId,
+                      messageOutbox.conversationId,
+                    ),
+                    eq(olderOutbox.status, "ambiguous"),
+                    or(
+                      lt(olderOutbox.createdAt, messageOutbox.createdAt),
+                      and(
+                        eq(olderOutbox.createdAt, messageOutbox.createdAt),
+                        lt(olderOutbox.id, messageOutbox.id),
+                      ),
+                    ),
+                  ),
+                ),
+            ),
+          ),
+          notExists(
+            this.database.db
+              .select({ id: olderOutbox.id })
+              .from(olderOutbox)
+              .where(
+                and(
+                  eq(olderOutbox.conversationId, messageOutbox.conversationId),
+                  inArray(
+                    olderOutbox.status,
+                    FEEDBACK_OUTBOX_FIFO_LIVE_BLOCKING_STATUSES,
+                  ),
+                  or(
+                    lt(olderOutbox.createdAt, messageOutbox.createdAt),
+                    and(
+                      eq(olderOutbox.createdAt, messageOutbox.createdAt),
+                      lt(olderOutbox.id, messageOutbox.id),
+                    ),
+                  ),
+                ),
+              ),
+          ),
+        ),
+      )
+      .orderBy(asc(messageOutbox.createdAt), asc(messageOutbox.id))
+      .limit(boundedLimit);
+
+    return rows;
+  }
+
+  async claimDispatchBatch(
+    _now: Date,
+    limit = FEEDBACK_OUTBOX_DISPATCH_BATCH_SIZE,
+    leaseMs = FEEDBACK_OUTBOX_DISPATCH_LEASE_MS,
+    terminalOutboxIds: readonly string[] = [],
+  ): Promise<FeedbackOutboxClaimedRow[]> {
+    const boundedLimit = Math.min(
+      Math.max(1, limit),
+      FEEDBACK_OUTBOX_BATCH_SIZE,
+    );
+    if (!Number.isInteger(leaseMs) || leaseMs < 1) {
+      throw new Error("Feedback outbox dispatch lease must be positive");
+    }
+    const authorizedTerminalIds = [
+      ...new Set(terminalOutboxIds.map((id) => z.uuid().parse(id))),
+    ];
+
+    const claimToken = randomUUID();
+    const claimExpiresAt = sql<Date>`clock_timestamp() + (${leaseMs} * interval '1 millisecond')`;
+    const olderOutbox = alias(messageOutbox, "older_message_outbox");
+
+    return this.database.transaction(async (transaction) => {
+      const candidates = await transaction
+        .select({ row: messageOutbox })
+        .from(messageOutbox)
+        .innerJoin(
+          feedbackCampaigns,
+          eq(feedbackCampaigns.id, messageOutbox.campaignId),
+        )
+        .where(
+          and(
+            authorizedTerminalIds.length > 0
+              ? or(
+                  eq(feedbackCampaigns.status, "launched"),
+                  inArray(messageOutbox.id, authorizedTerminalIds),
+                )
+              : eq(feedbackCampaigns.status, "launched"),
+            or(
+              eq(messageOutbox.status, "pending"),
+              and(
+                eq(messageOutbox.status, "claimed"),
+                lte(messageOutbox.claimExpiresAt, sql`clock_timestamp()`),
+                isNull(messageOutbox.sendStartedAt),
+              ),
+            ),
+            // Only the oldest unresolved row of a conversation may be claimed.
+            // The correlated read still sees an older row when another replica
+            // has it locked, so `SKIP LOCKED` cannot leapfrog that row.
+            notExists(
+              transaction
+                .select({ id: olderOutbox.id })
+                .from(olderOutbox)
+                .where(
+                  and(
+                    eq(
+                      olderOutbox.conversationId,
+                      messageOutbox.conversationId,
+                    ),
+                    inArray(
+                      olderOutbox.status,
+                      FEEDBACK_OUTBOX_FIFO_BLOCKING_STATUSES,
+                    ),
+                    // Human takeover and the exact terminal lifecycle winner
+                    // must not deadlock behind an uncertainty with no automatic
+                    // resolution path. Neither may pass a live/pre-send row.
+                    or(
+                      ne(olderOutbox.status, "ambiguous"),
+                      and(
+                        ne(messageOutbox.kind, "staff"),
+                        ...(authorizedTerminalIds.length > 0
+                          ? [
+                              notInArray(
+                                messageOutbox.id,
+                                authorizedTerminalIds,
+                              ),
+                            ]
+                          : []),
+                      ),
+                    ),
+                    or(
+                      lt(olderOutbox.createdAt, messageOutbox.createdAt),
+                      and(
+                        eq(olderOutbox.createdAt, messageOutbox.createdAt),
+                        lt(olderOutbox.id, messageOutbox.id),
+                      ),
+                    ),
+                  ),
+                ),
             ),
           ),
         )
         .orderBy(asc(messageOutbox.createdAt), asc(messageOutbox.id))
-        .limit(limit)
-        .for("update", { skipLocked: true });
+        .limit(boundedLimit)
+        .for("update", { of: messageOutbox, skipLocked: true });
 
       if (candidates.length === 0) {
         return [];
       }
 
-      const claimable: MessageOutboxRow[] = [];
-      for (const candidate of candidates) {
-        const campaign = await this.campaigns.findCampaignById(
-          candidate.campaignId,
-          transaction,
-        );
-        if (campaign?.status === "launched") {
-          claimable.push(candidate);
-        }
-      }
-
-      if (claimable.length === 0) {
-        return [];
-      }
-
-      return transaction
+      const candidateIds = candidates.map(({ row }) => row.id);
+      const claimed = await transaction
         .update(messageOutbox)
-        .set({ status: "sending", updatedAt: now })
-        .where(
-          inArray(
-            messageOutbox.id,
-            claimable.map((candidate) => candidate.id),
-          ),
-        )
+        .set({
+          status: "claimed",
+          claimToken,
+          claimExpiresAt,
+          sendStartedAt: null,
+          lastError: null,
+          updatedAt: sql`clock_timestamp()`,
+        })
+        .where(inArray(messageOutbox.id, candidateIds))
         .returning();
+      const byId = new Map(claimed.map((row) => [row.id, row]));
+
+      return candidateIds.flatMap((id) => {
+        const row = byId.get(id);
+        if (
+          !row ||
+          row.status !== "claimed" ||
+          !row.claimToken ||
+          !row.claimExpiresAt ||
+          row.sendStartedAt !== null
+        ) {
+          return [];
+        }
+        return [row as FeedbackOutboxClaimedRow];
+      });
     });
   }
 
   /**
-   * Returns a leased row to `pending` after a failed enqueue, but only when no
-   * provider attempt has been recorded. An unknown-outcome attempt stays in
-   * `sending` so recovery reconciles instead of releasing it for a blind retry.
+   * Releases only the live pre-send claim owned by `claimToken`.
+   *
+   * Redis/pacing, transcript and state-check failures happen before the send
+   * marker, so this transition is safe to retry. A stale owner cannot release
+   * a claim that another replica has already reclaimed.
    */
-  async releaseOutboxLease(
+  async releaseDispatchClaim(
     id: string,
-    now = new Date(),
+    claimToken: string,
+    now: Date,
+    lastError?: string,
+    executor: DatabaseExecutor = this.database.db,
   ): Promise<MessageOutboxRow | undefined> {
-    const [record] = await this.database.db
+    const [record] = await executor
       .update(messageOutbox)
-      .set({ status: "pending", updatedAt: now })
+      .set({
+        status: "pending",
+        claimToken: null,
+        claimExpiresAt: null,
+        lastError: lastError ?? null,
+        updatedAt: now,
+      })
       .where(
         and(
           eq(messageOutbox.id, id),
-          eq(messageOutbox.status, "sending"),
-          isNull(messageOutbox.deliveryStatus),
-          isNull(messageOutbox.providerLogId),
-          isNull(messageOutbox.providerMessageId),
+          eq(messageOutbox.status, "claimed"),
+          eq(messageOutbox.claimToken, claimToken),
+          isNull(messageOutbox.sendStartedAt),
         ),
       )
       .returning();
 
     return record;
   }
+
+  /**
+   * Renews one exact pre-send token after deployment-wide pacing.
+   *
+   * The old expiry is deliberately not a predicate: a long global wait may
+   * outlive the initial lease. The opaque token is the fence. If another
+   * replica reclaimed first its token changed and this update loses; if this
+   * update locks first, a waiting `SKIP LOCKED` claimant re-evaluates the now
+   * live lease and leaves the row alone.
+   */
+  async renewDispatchClaim(
+    id: string,
+    claimToken: string,
+    _now: Date,
+    leaseMs = FEEDBACK_OUTBOX_DISPATCH_LEASE_MS,
+  ): Promise<MessageOutboxRow | undefined> {
+    if (!Number.isInteger(leaseMs) || leaseMs < 1) {
+      throw new Error("Feedback outbox dispatch lease must be positive");
+    }
+    const [record] = await this.database.db
+      .update(messageOutbox)
+      .set({
+        claimExpiresAt: sql`clock_timestamp() + (${leaseMs} * interval '1 millisecond')`,
+        updatedAt: sql`clock_timestamp()`,
+      })
+      .where(
+        and(
+          eq(messageOutbox.id, id),
+          eq(messageOutbox.status, "claimed"),
+          eq(messageOutbox.claimToken, claimToken),
+          isNull(messageOutbox.sendStartedAt),
+        ),
+      )
+      .returning();
+
+    return record;
+  }
+
+  /**
+   * The durable no-return boundary immediately before the provider call.
+   * Anything after this CAS may have reached the provider and must never fall
+   * back to `pending` merely because the worker disappeared. Campaign state
+   * must still be `launched`, except when the final MongoDB guard passes the
+   * exact STOP acknowledgement id being marked; a mismatched id grants no
+   * capability.
+   */
+  async markDispatchAttemptStarted(
+    id: string,
+    claimToken: string,
+    _now: Date,
+    leaseMs = FEEDBACK_OUTBOX_DISPATCH_LEASE_MS,
+    authorizedStopOutboxId: string | null = null,
+    executor: DatabaseExecutor = this.database.db,
+  ): Promise<MessageOutboxRow | undefined> {
+    if (!Number.isInteger(leaseMs) || leaseMs < 1) {
+      throw new Error("Feedback outbox dispatch lease must be positive");
+    }
+    const stopAuthorization = z.uuid().nullable().parse(authorizedStopOutboxId);
+    const exactStopAuthorization = stopAuthorization === id ? id : null;
+    const [record] = await executor
+      .update(messageOutbox)
+      .set({
+        status: "attempting",
+        sendStartedAt: sql`clock_timestamp()`,
+        claimExpiresAt: sql`clock_timestamp() + (${leaseMs} * interval '1 millisecond')`,
+        attemptCount: sql`${messageOutbox.attemptCount} + 1`,
+        lastError: null,
+        updatedAt: sql`clock_timestamp()`,
+      })
+      .where(
+        and(
+          eq(messageOutbox.id, id),
+          eq(messageOutbox.status, "claimed"),
+          eq(messageOutbox.claimToken, claimToken),
+          gt(messageOutbox.claimExpiresAt, sql`clock_timestamp()`),
+          isNull(messageOutbox.sendStartedAt),
+          exists(
+            this.database.db
+              .select({ id: feedbackCampaigns.id })
+              .from(feedbackCampaigns)
+              .where(
+                and(
+                  eq(feedbackCampaigns.id, messageOutbox.campaignId),
+                  exactStopAuthorization
+                    ? or(
+                        eq(feedbackCampaigns.status, "launched"),
+                        eq(messageOutbox.id, exactStopAuthorization),
+                      )
+                    : eq(feedbackCampaigns.status, "launched"),
+                ),
+              )
+              .for("share"),
+          ),
+        ),
+      )
+      .returning();
+
+    return record;
+  }
+
+  /** Marks a pre-send claim terminal without allowing a stale owner to win. */
+  async finishDispatchClaimBeforeAttempt(
+    id: string,
+    claimToken: string,
+    status: "failed" | "cancelled",
+    now: Date,
+    lastError: string,
+    executor: DatabaseExecutor = this.database.db,
+  ): Promise<MessageOutboxRow | undefined> {
+    const [record] = await executor
+      .update(messageOutbox)
+      .set({
+        status,
+        claimExpiresAt: null,
+        lastError,
+        ...(status === "failed"
+          ? { deliveryStatus: "error", deliveryUpdatedAt: now }
+          : {}),
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(messageOutbox.id, id),
+          eq(messageOutbox.status, "claimed"),
+          eq(messageOutbox.claimToken, claimToken),
+          isNull(messageOutbox.sendStartedAt),
+        ),
+      )
+      .returning();
+
+    return record;
+  }
+
+  async markDispatchSent(
+    id: string,
+    claimToken: string,
+    input: {
+      readonly completedAt: Date;
+      readonly providerLogId: string;
+      readonly providerMessageId?: string;
+      readonly deliveryStatus: Exclude<MessageOutboxDeliveryStatus, "error">;
+      readonly sentAt?: Date | null;
+      readonly deliveredAt?: Date | null;
+      readonly readAt?: Date | null;
+      readonly playedAt?: Date | null;
+    },
+  ): Promise<MessageOutboxRow | undefined> {
+    const [record] = await this.database.db
+      .update(messageOutbox)
+      .set({
+        status: "sent",
+        claimExpiresAt: null,
+        providerLogId: input.providerLogId,
+        ...(input.providerMessageId
+          ? { providerMessageId: input.providerMessageId }
+          : {}),
+        deliveryStatus: input.deliveryStatus,
+        deliveryUpdatedAt: input.completedAt,
+        ...(input.sentAt !== undefined ? { sentAt: input.sentAt } : {}),
+        ...(input.deliveredAt !== undefined
+          ? { deliveredAt: input.deliveredAt }
+          : {}),
+        ...(input.readAt !== undefined ? { readAt: input.readAt } : {}),
+        ...(input.playedAt !== undefined ? { playedAt: input.playedAt } : {}),
+        lastError: null,
+        updatedAt: input.completedAt,
+      })
+      .where(activeDispatchAttempt(id, claimToken))
+      .returning();
+
+    return record;
+  }
+
+  async markDispatchFailed(
+    id: string,
+    claimToken: string,
+    now: Date,
+    lastError: string,
+  ): Promise<MessageOutboxRow | undefined> {
+    const [record] = await this.database.db
+      .update(messageOutbox)
+      .set({
+        status: "failed",
+        claimExpiresAt: null,
+        deliveryStatus: "error",
+        deliveryUpdatedAt: now,
+        lastError,
+        updatedAt: now,
+      })
+      .where(activeDispatchAttempt(id, claimToken))
+      .returning();
+
+    return record;
+  }
+
+  async markDispatchAmbiguous(
+    id: string,
+    claimToken: string,
+    now: Date,
+    lastError: string,
+    providerLogId?: string,
+    executor: DatabaseExecutor = this.database.db,
+  ): Promise<MessageOutboxRow | undefined> {
+    const [record] = await executor
+      .update(messageOutbox)
+      .set({
+        status: "ambiguous",
+        claimExpiresAt: null,
+        deliveryStatus: "pending",
+        deliveryUpdatedAt: now,
+        ...(providerLogId ? { providerLogId } : {}),
+        lastError,
+        updatedAt: now,
+      })
+      .where(activeDispatchAttempt(id, claimToken))
+      .returning();
+
+    return record;
+  }
+
+  /** Finds bounded post-marker attempts whose PostgreSQL lease has expired. */
+  async findExpiredDispatchAttempts(
+    _now: Date,
+    limit = FEEDBACK_OUTBOX_BATCH_SIZE,
+  ): Promise<MessageOutboxRow[]> {
+    return this.database.db
+      .select()
+      .from(messageOutbox)
+      .where(
+        and(
+          eq(messageOutbox.status, "attempting"),
+          lte(messageOutbox.claimExpiresAt, sql`clock_timestamp()`),
+        ),
+      )
+      .orderBy(asc(messageOutbox.createdAt), asc(messageOutbox.id))
+      .limit(Math.min(Math.max(1, limit), FEEDBACK_OUTBOX_BATCH_SIZE));
+  }
+
+  /**
+   * Quarantines one expired post-marker attempt after its conversation has been
+   * parked for human review. The token and database-clock expiry are repeated
+   * in the CAS so a provider observation or live renewal wins cleanly.
+   */
+  async quarantineExpiredDispatchAttempt(
+    id: string,
+    claimToken: string,
+    executor: DatabaseExecutor = this.database.db,
+  ): Promise<MessageOutboxRow | undefined> {
+    const [record] = await executor
+      .update(messageOutbox)
+      .set({
+        status: "ambiguous",
+        claimExpiresAt: null,
+        deliveryStatus: "pending",
+        deliveryUpdatedAt: sql`clock_timestamp()`,
+        lastError: "dispatch_lease_expired_after_send_start",
+        updatedAt: sql`clock_timestamp()`,
+      })
+      .where(
+        and(
+          eq(messageOutbox.id, id),
+          eq(messageOutbox.status, "attempting"),
+          eq(messageOutbox.claimToken, claimToken),
+          lte(messageOutbox.claimExpiresAt, sql`clock_timestamp()`),
+        ),
+      )
+      .returning();
+
+    return record;
+  }
+
+  /**
+   * Retires stale rows owned by the legacy relay/deliver path.
+   *
+   * `sending` proves only that the relay handed the row to BullMQ; it cannot
+   * prove whether the old consumer entered the provider call. Releasing one to
+   * `pending` could duplicate a WhatsApp message, while inventing a send marker
+   * would turn uncertainty into fake evidence. The explicit legacy ambiguous
+   * shape therefore records no token, start time or attempt count and is never
+   * selected by the direct dispatcher.
+   */
+  async findStaleLegacySending(
+    _now: Date,
+    recoveryMs = FEEDBACK_OUTBOX_RECOVERY_MS,
+    limit = FEEDBACK_OUTBOX_BATCH_SIZE,
+  ): Promise<MessageOutboxRow[]> {
+    if (!Number.isInteger(recoveryMs) || recoveryMs < 1) {
+      throw new Error("Feedback outbox recovery horizon must be positive");
+    }
+    return this.database.db
+      .select()
+      .from(messageOutbox)
+      .where(
+        and(
+          eq(messageOutbox.status, "sending"),
+          lte(
+            messageOutbox.updatedAt,
+            sql`clock_timestamp() - (${recoveryMs} * interval '1 millisecond')`,
+          ),
+        ),
+      )
+      .orderBy(asc(messageOutbox.createdAt), asc(messageOutbox.id))
+      .limit(Math.min(Math.max(1, limit), FEEDBACK_OUTBOX_BATCH_SIZE));
+  }
+
+  /** Quarantines one still-stale V1 row after its conversation is parked. */
+  async quarantineStaleLegacySending(
+    id: string,
+    recoveryMs = FEEDBACK_OUTBOX_RECOVERY_MS,
+    executor: DatabaseExecutor = this.database.db,
+  ): Promise<MessageOutboxRow | undefined> {
+    if (!Number.isInteger(recoveryMs) || recoveryMs < 1) {
+      throw new Error("Feedback outbox recovery horizon must be positive");
+    }
+    const [record] = await executor
+      .update(messageOutbox)
+      .set({
+        status: "ambiguous",
+        claimToken: null,
+        claimExpiresAt: null,
+        sendStartedAt: null,
+        attemptCount: 0,
+        deliveryStatus: sql`coalesce(${messageOutbox.deliveryStatus}, 'pending')`,
+        deliveryUpdatedAt: sql`coalesce(${messageOutbox.deliveryUpdatedAt}, clock_timestamp())`,
+        lastError: FEEDBACK_OUTBOX_LEGACY_AMBIGUOUS_ERROR,
+        updatedAt: sql`clock_timestamp()`,
+      })
+      .where(
+        and(
+          eq(messageOutbox.id, id),
+          eq(messageOutbox.status, "sending"),
+          lte(
+            messageOutbox.updatedAt,
+            sql`clock_timestamp() - (${recoveryMs} * interval '1 millisecond')`,
+          ),
+        ),
+      )
+      .returning();
+
+    return record;
+  }
+}
+
+function activeDispatchAttempt(id: string, claimToken: string): SQL {
+  return and(
+    eq(messageOutbox.id, id),
+    eq(messageOutbox.status, "attempting"),
+    eq(messageOutbox.claimToken, claimToken),
+    gt(messageOutbox.claimExpiresAt, sql`clock_timestamp()`),
+  ) as SQL;
+}
+
+/**
+ * Rows that provably have not entered transport.
+ *
+ * A `claimed` row carries an owner token, but cancellation wins by changing its
+ * status under the row lock before `claimed -> attempting`; the old owner then
+ * loses its token-and-status CAS. `attempting` and legacy `sending` are excluded
+ * because provider entry may already have happened.
+ */
+function cancellablePreSendOutbox(): SQL {
+  return or(
+    inArray(messageOutbox.status, ["pending", "held"]),
+    and(
+      eq(messageOutbox.status, "claimed"),
+      isNull(messageOutbox.sendStartedAt),
+    ),
+  ) as SQL;
 }
 
 /**

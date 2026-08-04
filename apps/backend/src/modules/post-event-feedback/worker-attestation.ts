@@ -1,5 +1,10 @@
 import { z } from "zod";
 
+import {
+  feedbackSimulatedTransportProfileSchema,
+  resolveFeedbackSimulatedTransportProfile,
+} from "../../infrastructure/config/feedback-simulated-transport.js";
+
 import { assistantModelAdapter } from "../assistant/assistant-models.js";
 import { assistantModelSchema } from "../assistant/assistant.schemas.js";
 import {
@@ -12,7 +17,7 @@ import {
   resolveFeedbackReplyReasoningEffort,
 } from "./extraction/model.service.js";
 
-export const FEEDBACK_WORKER_ATTESTATION_VERSION = 2 as const;
+export const FEEDBACK_WORKER_ATTESTATION_VERSION = 3 as const;
 export const FEEDBACK_WORKER_ATTESTATION_STATUSES = [
   "verified",
   "absent",
@@ -21,7 +26,7 @@ export const FEEDBACK_WORKER_ATTESTATION_STATUSES = [
 ] as const;
 
 const FEEDBACK_WORKER_REGISTRATION_PREFIX =
-  "jts-feedback-worker-attestation-v2.";
+  "jts-feedback-worker-attestation-v3.";
 const BULLMQ_NAMED_WORKER_SEPARATOR = ":w:";
 
 export const feedbackWorkerControlProfileSchema = z
@@ -37,6 +42,8 @@ export const feedbackWorkerControlProfileSchema = z
     replyReasoningEffort: z.enum(FEEDBACK_EXTRACTION_REASONING_EFFORTS),
     attentionReasoningEffort: z.enum(FEEDBACK_EXTRACTION_REASONING_EFFORTS),
     serviceTier: z.enum(FEEDBACK_EXTRACTION_SERVICE_TIERS).nullable(),
+    transportMode: z.enum(["disabled", "simulated", "wasender"]),
+    simulatedTransport: feedbackSimulatedTransportProfileSchema,
   })
   .strict();
 
@@ -65,6 +72,11 @@ interface FeedbackWorkerControlInput {
   readonly replyReasoningEffort: string | undefined;
   readonly attentionReasoningEffort: string | undefined;
   readonly serviceTier: string | undefined;
+  readonly transportMode?: string | undefined;
+  readonly simulatedTransportFaultMode?: unknown;
+  readonly simulatedTransportFaultPercent?: unknown;
+  readonly simulatedTransportSeed?: unknown;
+  readonly simulatedTransportMaxDelayMs?: unknown;
 }
 
 interface BullMqWorkerInfo {
@@ -104,6 +116,16 @@ export function resolveFeedbackWorkerControlProfile(
     ),
     serviceTier:
       adapter.provider === "openai" ? (configuredServiceTier ?? null) : null,
+    transportMode: z
+      .enum(["disabled", "simulated", "wasender"])
+      .default("simulated")
+      .parse(emptyToUndefined(input.transportMode)),
+    simulatedTransport: resolveFeedbackSimulatedTransportProfile({
+      faultMode: input.simulatedTransportFaultMode,
+      faultPercent: input.simulatedTransportFaultPercent,
+      seed: input.simulatedTransportSeed,
+      maxDelayMs: input.simulatedTransportMaxDelayMs,
+    }),
   });
 }
 
@@ -126,7 +148,7 @@ export function parseFeedbackWorkerRegistrationName(
   registrationName: string,
 ): FeedbackWorkerControlProfile {
   if (!registrationName.startsWith(FEEDBACK_WORKER_REGISTRATION_PREFIX)) {
-    throw new Error("Feedback worker registration has no v2 attestation");
+    throw new Error("Feedback worker registration has no v3 attestation");
   }
 
   const encoded = registrationName.slice(
@@ -197,7 +219,7 @@ export function attestFeedbackWorkers(
       malformedWorkerCount,
       observedProfiles: uniqueProfiles,
       issue:
-        "At least one registered feedback worker has no valid v2 control attestation. Restart every feedback worker from the current build before running a rehearsal.",
+        "At least one registered feedback worker has no valid v3 control attestation. Restart every feedback worker from the current build before running a rehearsal.",
     };
   }
   if (uniqueProfiles.length !== 1) {
@@ -207,7 +229,7 @@ export function attestFeedbackWorkers(
       malformedWorkerCount: 0,
       observedProfiles: uniqueProfiles,
       issue:
-        "Registered feedback workers disagree on their model/provider control profile. Restart every feedback worker with one identical treatment before running a rehearsal.",
+        "Registered feedback workers disagree on their model/provider/transport control profile. Restart every feedback worker with one identical treatment before running a rehearsal.",
     };
   }
 
@@ -219,7 +241,7 @@ export function attestFeedbackWorkers(
       malformedWorkerCount: 0,
       observedProfiles: uniqueProfiles,
       issue:
-        "The registered feedback worker control profile disagrees with the running API configuration. Restart both processes with the same model controls before running a rehearsal.",
+        "The registered feedback worker control profile disagrees with the running API configuration. Restart both processes with the same model and transport controls before running a rehearsal.",
     };
   }
 
@@ -259,6 +281,19 @@ export function createFeedbackWorkerRegistrationNameFromEnvironment(
       ),
       serviceTier: emptyToUndefined(
         environment.FEEDBACK_EXTRACTION_SERVICE_TIER,
+      ),
+      transportMode: emptyToUndefined(environment.TRANSPORT_MODE),
+      simulatedTransportFaultMode: emptyToUndefined(
+        environment.FEEDBACK_SIMULATED_TRANSPORT_FAULT_MODE,
+      ),
+      simulatedTransportFaultPercent: emptyToUndefined(
+        environment.FEEDBACK_SIMULATED_TRANSPORT_FAULT_PERCENT,
+      ),
+      simulatedTransportSeed: emptyToUndefined(
+        environment.FEEDBACK_SIMULATED_TRANSPORT_SEED,
+      ),
+      simulatedTransportMaxDelayMs: emptyToUndefined(
+        environment.FEEDBACK_SIMULATED_TRANSPORT_MAX_DELAY_MS,
       ),
     }),
   );

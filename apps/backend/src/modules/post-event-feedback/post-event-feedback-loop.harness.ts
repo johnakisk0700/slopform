@@ -21,17 +21,27 @@ import { FeedbackOutboundLogService } from "./outbox/outbound-log.service.js";
 import type { FeedbackOutboundLogRepository } from "./outbox/outbound-log.repository.js";
 import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
 import type { FeedbackTransport } from "./outbox/transport.js";
-import { MessageOutboxDeliveryService } from "./outbox/deliver.service.js";
-import { MessageOutboxRelayService } from "./outbox/relay.service.js";
+import { MessageOutboxDispatcherService } from "./outbox/dispatcher.service.js";
 import { PostEventFeedbackExtractionFallback } from "./extraction/fallback.service.js";
-import type { PostEventFeedbackExtractionModel } from "./extraction/model.service.js";
+import {
+  FeedbackExtractionGenerationError,
+  isFeedbackProviderIncident,
+  type PostEventFeedbackExtractionModel,
+} from "./extraction/model.service.js";
 import {
   POST_EVENT_FEEDBACK_FALLBACK_ACK,
   POST_EVENT_FEEDBACK_HANDOFF_REPLY,
   POST_EVENT_FEEDBACK_HOSTILITY_STOP_REPLY,
 } from "./extraction/extraction.schemas.js";
-import { PostEventFeedbackExtractor } from "./extraction/extract.service.js";
+import {
+  PostEventFeedbackCampaignNotFoundError,
+  PostEventFeedbackConversationNotFoundError,
+  PostEventFeedbackExtractor,
+} from "./extraction/extract.service.js";
+import type { FeedbackConversationExecutionFenceRepository } from "./extraction/execution-fence.repository.js";
+import type { FeedbackConversationExecutionFence } from "./extraction/execution-fence.service.js";
 import { PostEventFeedbackIngressService } from "./ingress/ingress.service.js";
+import { FeedbackMaterializeWakeupService } from "./ingress/materialize-wakeup.service.js";
 import { PostEventFeedbackConversationService } from "./inbox/conversation.service.js";
 import {
   FakeAudit,
@@ -63,7 +73,6 @@ import {
   renderPostEventFeedbackCopy,
 } from "./question-set.js";
 import { PostEventFeedbackIngressProcessor } from "./ingress/ingress.processor.js";
-import { PostEventFeedbackProcessor } from "./processor.js";
 import type { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
 import type { FeedbackResultsRepository } from "./extraction/results.repository.js";
 import type { FeedbackIngressRepository } from "./ingress/ingress.repository.js";
@@ -71,11 +80,14 @@ import type { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
 import { PostEventFeedbackSweepService } from "./sweeps/sweep.service.js";
 import {
   FEEDBACK_JOB_NAMES,
-  FEEDBACK_JOB_SCHEMA_VERSION,
+  FEEDBACK_JOB_SCHEMA_VERSION_V2,
   boundObservedMessageText,
   type FeedbackJobData,
   type FeedbackJobName,
 } from "./jobs.schemas.js";
+import { FeedbackConversationReconcileService } from "./reconciliation/reconcile.service.js";
+import { FeedbackConversationWakeupService } from "./reconciliation/wakeup.service.js";
+import { PostEventFeedbackMaintenanceService } from "./sweeps/maintenance.service.js";
 import { FEEDBACK_SWEEP_EVERY_MS } from "./sweeps/sweep-scheduler.service.js";
 import {
   ScriptedExtractionModel,
@@ -91,7 +103,6 @@ import {
   FEEDBACK_RECEIVED_KINDS,
   MAX_DRAIN_STEPS,
   PERSON_IDS,
-  RELAY_JOB_ID,
   TEST_STAFF_ID,
   parseDuration,
   type ExpectedJobFailure,
@@ -142,10 +153,11 @@ export {
  * provider participates.
  *
  * The whole loop runs for real — ingress, materializer, extractor, validation,
- * the deterministic fallback, the outbox relay, delivery, the sweeps and the
- * BullMQ processor with its retry classification. Only five things are faked,
- * and each is a genuine boundary: the two stores, the queue, the WhatsApp
- * transport and the model provider (`post-event-feedback-doubles.harness.ts`).
+ * the deterministic fallback, direct outbox dispatch, maintenance and the V2
+ * reconciliation wake-up with its retry classification. Only five things are
+ * faked, and each is a genuine boundary: the two stores, the queue, the
+ * WhatsApp transport and the model provider
+ * (`post-event-feedback-doubles.harness.ts`).
  *
  * ## What a scenario may say
  *
@@ -529,6 +541,36 @@ export async function createFeedbackLoopHarness(
     void,
     FeedbackJobName
   >;
+  let conversationDueCursor:
+    | { readonly nextActionAt: Date; readonly conversationId: string }
+    | undefined;
+  let pendingIngressCursor:
+    { readonly createdAt: Date; readonly ingressId: string } | undefined;
+  const maintenanceCheckpoints = {
+    lockConversationDue: async () => conversationDueCursor,
+    saveConversationDue: async (
+      _transaction: unknown,
+      cursor:
+        | { readonly nextActionAt: Date; readonly conversationId: string }
+        | undefined,
+    ) => {
+      conversationDueCursor = cursor;
+    },
+    lockPendingIngress: async () => pendingIngressCursor,
+    savePendingIngress: async (
+      _transaction: unknown,
+      cursor:
+        { readonly createdAt: Date; readonly ingressId: string } | undefined,
+    ) => {
+      pendingIngressCursor = cursor;
+    },
+  };
+  const conversationWakeups = new FeedbackConversationWakeupService(
+    queuePort,
+    conversations as unknown as FeedbackConversationRepository,
+    database as unknown as DatabaseService,
+    maintenanceCheckpoints as never,
+  );
   const outboundTranscript = new FeedbackOutboundTranscriptService(
     database as unknown as DatabaseService,
     repository as unknown as FeedbackOutboxRepository,
@@ -539,7 +581,6 @@ export async function createFeedbackLoopHarness(
   );
   const summaries = noopSummaries();
   const staffConversations = new PostEventFeedbackConversationService(
-    queuePort,
     database as unknown as DatabaseService,
     repository as unknown as FeedbackCampaignRepository,
     repository as unknown as FeedbackResultsRepository,
@@ -552,9 +593,17 @@ export async function createFeedbackLoopHarness(
     outboundTranscript,
     outboundLog,
     summaries as never,
+    {
+      findActiveLease: vi.fn().mockResolvedValue(undefined),
+    } as unknown as FeedbackConversationExecutionFenceRepository,
+    conversationWakeups as unknown as FeedbackConversationWakeupService,
+  );
+  const materializeWakeups = new FeedbackMaterializeWakeupService(
+    queuePort,
+    repository as unknown as FeedbackIngressRepository,
   );
   const ingress = new PostEventFeedbackIngressService(
-    queuePort,
+    materializeWakeups,
     database as unknown as DatabaseService,
     repository as unknown as FeedbackIngressRepository,
   );
@@ -563,7 +612,6 @@ export async function createFeedbackLoopHarness(
   // ordering and delay, not slot contention — but the class that handles a
   // materialize job is the class that handles it in the deployment.
   const materializer = new PostEventFeedbackMaterializer(
-    queuePort,
     database as unknown as DatabaseService,
     repository as unknown as FeedbackCampaignRepository,
     repository as unknown as FeedbackIngressRepository,
@@ -575,6 +623,7 @@ export async function createFeedbackLoopHarness(
     outboundTranscript,
     outboundLog,
     summaries as never,
+    conversationWakeups as unknown as FeedbackConversationWakeupService,
   );
   const materializationCoordinator =
     new PostEventFeedbackMaterializationCoordinator(
@@ -603,71 +652,147 @@ export async function createFeedbackLoopHarness(
     outboundLog,
     alerts as FeedbackOperatorAlert,
     summaries as never,
-  );
-  const processor = new PostEventFeedbackProcessor(
-    materializationCoordinator,
-    new MessageOutboxRelayService(
-      queuePort,
-      repository as unknown as FeedbackOutboxRepository,
-    ),
-    new MessageOutboxDeliveryService(
-      database as unknown as DatabaseService,
-      repository as unknown as FeedbackCampaignRepository,
-      repository as unknown as FeedbackOutboxRepository,
-      conversations as unknown as FeedbackConversationRepository,
-      outboundTranscript,
-      transport as FeedbackTransport,
-    ),
-    extractor,
-    new PostEventFeedbackSweepService(
-      queuePort,
-      config,
-      database as unknown as DatabaseService,
-      repository as unknown as FeedbackCampaignRepository,
-      repository as unknown as FeedbackIngressRepository,
-      repository as unknown as FeedbackOutboxRepository,
-      conversations as unknown as FeedbackConversationRepository,
-      participants as unknown as ParticipantsRepository,
-      audit as unknown as AuditRepository,
-      outboundTranscript,
-      outboundLog,
-      summaries as never,
-    ),
-    { recover: async () => undefined } as never,
-    new PostEventFeedbackExtractionFallback(
-      queuePort,
-      database as unknown as DatabaseService,
-      repository as unknown as FeedbackCampaignRepository,
-      repository as unknown as FeedbackResultsRepository,
-      repository as unknown as FeedbackOutboxRepository,
-      conversations as unknown as FeedbackConversationRepository,
-      events as unknown as EventsService,
-      audit as unknown as AuditRepository,
-      outboundTranscript,
-      outboundLog,
-      alerts as FeedbackOperatorAlert,
-    ),
-    summaries as never,
     {
-      run: (_conversationId: string, work: () => Promise<unknown>) => work(),
+      renewWithin: async (_transaction: unknown, claim: unknown) => claim,
+      isCurrent: async () => true,
+      assertCurrent: async () => true,
     } as never,
   );
+  const sweepService = new PostEventFeedbackSweepService(
+    materializeWakeups,
+    config,
+    database as unknown as DatabaseService,
+    maintenanceCheckpoints as never,
+    repository as unknown as FeedbackCampaignRepository,
+    repository as unknown as FeedbackIngressRepository,
+    repository as unknown as FeedbackOutboxRepository,
+    conversations as unknown as FeedbackConversationRepository,
+    participants as unknown as ParticipantsRepository,
+    audit as unknown as AuditRepository,
+    outboundTranscript,
+    outboundLog,
+    summaries as never,
+  );
+  const extractionFallback = new PostEventFeedbackExtractionFallback(
+    database as unknown as DatabaseService,
+    repository as unknown as FeedbackCampaignRepository,
+    repository as unknown as FeedbackResultsRepository,
+    repository as unknown as FeedbackOutboxRepository,
+    conversations as unknown as FeedbackConversationRepository,
+    events as unknown as EventsService,
+    audit as unknown as AuditRepository,
+    outboundTranscript,
+    outboundLog,
+    alerts as FeedbackOperatorAlert,
+    conversationWakeups as unknown as FeedbackConversationWakeupService,
+  );
+  let executionEpoch = 0;
+  const executionFence = {
+    tryClaim: async (claimedConversationId: string, workRevision: number) => ({
+      conversationId: claimedConversationId,
+      workRevision,
+      epoch: (executionEpoch += 1),
+      token: "00000000-0000-4000-8000-000000000001",
+      leaseUntil: new Date(nowMs + 7 * 60_000),
+    }),
+    startHeartbeat: () => ({ stop: async () => undefined }),
+    release: async () => true,
+  };
+  const reconciler = new FeedbackConversationReconcileService(
+    config,
+    repository as unknown as FeedbackCampaignRepository,
+    participants as unknown as ParticipantsRepository,
+    conversations as unknown as FeedbackConversationRepository,
+    executionFence as unknown as FeedbackConversationExecutionFence,
+    extractor,
+    sweepService,
+    conversationWakeups,
+  );
+  const maintenance = new PostEventFeedbackMaintenanceService(
+    sweepService,
+    { recover: async () => undefined } as never,
+    conversationWakeups,
+    summaries,
+  );
+  const executeConversationJob = async (job: QueuedJob): Promise<void> => {
+    const data = job.data as {
+      schemaVersion: 2;
+      conversationId: string;
+      revision: number;
+      correlationId: string;
+    };
 
-  const sweepData = {
-    schemaVersion: FEEDBACK_JOB_SCHEMA_VERSION,
-    correlationId: "sweep",
+    model.beginRun(data.conversationId);
+    try {
+      await reconciler.reconcile(data);
+    } catch (error) {
+      if (
+        error instanceof PostEventFeedbackConversationNotFoundError ||
+        error instanceof PostEventFeedbackCampaignNotFoundError
+      ) {
+        throw error;
+      }
+      const permanent =
+        error instanceof FeedbackExtractionGenerationError && !error.retryable;
+      const exhausted = job.attemptsMade + 1 >= job.attempts;
+      if (!permanent && !exhausted) {
+        throw error;
+      }
+      const cause =
+        error instanceof FeedbackExtractionGenerationError
+          ? error.failureCause
+          : "unknown";
+      if (isFeedbackProviderIncident(error)) {
+        await extractionFallback.park({
+          conversationId: data.conversationId,
+          correlationId: data.correlationId,
+          cause,
+        });
+      } else {
+        await extractionFallback.apply({
+          conversationId: data.conversationId,
+          correlationId: data.correlationId,
+          cause,
+        });
+        const settled = conversations.get(data.conversationId);
+        if (settled.work?.revision === data.revision) {
+          settled.work = { ...settled.work, nextActionAt: null };
+          settled.updatedAt = now();
+        }
+      }
+      throw new UnrecoverableError(
+        isFeedbackProviderIncident(error)
+          ? `Feedback extraction parked on the provider: ${cause}`
+          : `Feedback extraction failed permanently: ${cause}`,
+      );
+    }
+  };
+  const dispatcher = new MessageOutboxDispatcherService(
+    database as unknown as DatabaseService,
+    repository as unknown as FeedbackCampaignRepository,
+    repository as unknown as FeedbackOutboxRepository,
+    repository as unknown as FeedbackIngressRepository,
+    repository as unknown as FeedbackOutboundLogRepository,
+    conversations as unknown as FeedbackConversationRepository,
+    participants as unknown as ParticipantsRepository,
+    outboundTranscript,
+    transport as FeedbackTransport,
+    { waitTurn: async () => ({ waitedMs: 0 }) },
+  );
+
+  const maintenanceData = {
+    schemaVersion: FEEDBACK_JOB_SCHEMA_VERSION_V2,
+    correlationId: "maintenance",
   } as const;
   const repeatables: Repeatable[] = [
-    FEEDBACK_JOB_NAMES.sweepRemindersV1,
-    FEEDBACK_JOB_NAMES.sweepExpiryV1,
-    FEEDBACK_JOB_NAMES.sweepIngressV1,
-  ].map((name) => ({
-    id: name,
-    name,
-    data: sweepData,
-    everyMs: FEEDBACK_SWEEP_EVERY_MS,
-    nextAt: FEEDBACK_LOOP_START.getTime() + FEEDBACK_SWEEP_EVERY_MS,
-  }));
+    {
+      id: FEEDBACK_JOB_NAMES.maintenanceV2,
+      name: FEEDBACK_JOB_NAMES.maintenanceV2,
+      data: maintenanceData,
+      everyMs: FEEDBACK_SWEEP_EVERY_MS,
+      nextAt: FEEDBACK_LOOP_START.getTime() + FEEDBACK_SWEEP_EVERY_MS,
+    },
+  ];
 
   const failures: {
     job: string;
@@ -680,27 +805,30 @@ export async function createFeedbackLoopHarness(
   const runJob = async (job: QueuedJob): Promise<void> => {
     for (;;) {
       try {
-        if (job.name === FEEDBACK_JOB_NAMES.extractV1) {
-          model.beginRun(
-            (job.data as { conversationId: string }).conversationId,
+        if (job.name === FEEDBACK_JOB_NAMES.materializeV1) {
+          await ingressProcessor.process({
+            id: job.id,
+            name: job.name,
+            data: job.data,
+            attemptsMade: job.attemptsMade,
+            opts: { attempts: job.attempts },
+          } as unknown as Job<FeedbackJobData, void, FeedbackJobName>);
+        } else if (job.name === FEEDBACK_JOB_NAMES.reconcileConversationV2) {
+          await executeConversationJob(job);
+        } else if (job.name === FEEDBACK_JOB_NAMES.maintenanceV2) {
+          const correlationId = (job.data as { correlationId: string })
+            .correlationId;
+          await maintenance.run(correlationId);
+        } else {
+          throw new UnrecoverableError(
+            `Unsupported feedback loop job: ${job.name}`,
           );
         }
-        const target =
-          job.name === FEEDBACK_JOB_NAMES.materializeV1
-            ? ingressProcessor
-            : processor;
-        await target.process({
-          id: job.id,
-          name: job.name,
-          data: job.data,
-          attemptsMade: job.attemptsMade,
-          opts: { attempts: job.attempts },
-        } as unknown as Job<FeedbackJobData, void, FeedbackJobName>);
         return;
       } catch (error) {
         job.attemptsMade += 1;
         const kind =
-          job.name === FEEDBACK_JOB_NAMES.extractV1
+          job.name === FEEDBACK_JOB_NAMES.reconcileConversationV2
             ? model.takeEmittedFailure()
             : undefined;
         failures.push({
@@ -719,19 +847,6 @@ export async function createFeedbackLoopHarness(
   };
 
   const drainTo = async (target: number): Promise<void> => {
-    let relayOffered = false;
-    const offerRelay = async (): Promise<void> => {
-      relayOffered = true;
-      await queue.add(
-        FEEDBACK_JOB_NAMES.relayOutboxV1,
-        {
-          schemaVersion: FEEDBACK_JOB_SCHEMA_VERSION,
-          correlationId: RELAY_JOB_ID,
-        },
-        { jobId: RELAY_JOB_ID, attempts: 1 },
-      );
-    };
-
     for (let guard = 0; guard < MAX_DRAIN_STEPS; guard += 1) {
       const job = queue.earliestDue(target);
       const repeat = repeatables
@@ -742,31 +857,12 @@ export async function createFeedbackLoopHarness(
         repeat?.nextAt ?? Number.POSITIVE_INFINITY,
       );
 
-      if (nextAt === Number.POSITIVE_INFINITY) {
-        if (relayOffered) {
-          break;
-        }
-        await offerRelay();
-        continue;
-      }
-      // The relay is not scheduled by anything a scenario controls, so it gets
-      // its chance whenever the clock is about to move: an outbox row written
-      // at 24h is delivered at 24h, not whenever the next job happens to land.
-      if (nextAt > nowMs && !relayOffered) {
-        await offerRelay();
-        continue;
-      }
-
-      setNow(Math.max(nowMs, nextAt));
-      if (job && job.runAt <= nextAt) {
+      if (job && job.runAt <= nowMs && job.runAt <= nextAt) {
         queue.take(job.id);
         await runJob(job);
-        if (job.name !== FEEDBACK_JOB_NAMES.relayOutboxV1) {
-          relayOffered = false;
-        }
         continue;
       }
-      if (repeat) {
+      if (repeat && repeat.nextAt <= nowMs) {
         const fired: QueuedJob = {
           id: `${repeat.id}:${repeat.nextAt}`,
           name: repeat.name,
@@ -778,8 +874,20 @@ export async function createFeedbackLoopHarness(
         };
         repeat.nextAt += repeat.everyMs;
         await runJob(fired);
-        relayOffered = false;
+        continue;
       }
+
+      // The production loop polls PostgreSQL directly. Drain every claimable
+      // batch before advancing the scenario clock so an outbox row written at
+      // 24h is sent at 24h, not whenever a later BullMQ wake-up happens to run.
+      const dispatched = await dispatcher.dispatchBatch(now());
+      if (dispatched.claimedCount > 0 || dispatched.quarantinedCount > 0) {
+        continue;
+      }
+      if (nextAt === Number.POSITIVE_INFINITY) {
+        break;
+      }
+      setNow(Math.max(nowMs, nextAt));
     }
     setNow(target);
   };
@@ -841,7 +949,10 @@ export async function createFeedbackLoopHarness(
         await staffConversations.sendStaffMessage(
           CAMPAIGN_ID,
           conversationId,
-          action.text,
+          {
+            clientMessageId: `00000000-0000-4000-8000-${String(observedCounter).padStart(12, "0")}`,
+            text: action.text,
+          },
           TEST_STAFF_ID,
           requestId,
         );

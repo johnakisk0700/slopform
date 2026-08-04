@@ -10,8 +10,8 @@
  * cross-cutting correctness checks. Writes an HTML report via renderBurstReport.
  *
  * Seed identity (idempotent re-find):
- * - Participants are keyed by the reserved phone block `+3069000<cc><pp>`.
- * - Events are keyed by the catalogue campaign title (exact match).
+ * - Participants are keyed by `+306900<slot><cc><pp>`; slot 0 is historical.
+ * - Events are keyed by the slot-qualified catalogue title (exact match).
  * Re-running must not create a second copy. A prior campaign whose conversations
  * have already left the clean intro-only baseline (any participant message, or
  * any closed conversation) is refused rather than silently continued.
@@ -33,9 +33,23 @@ import {
 } from "./burst-artefacts.mjs";
 import { createFeedbackBurstHeaders } from "./feedback-burst-auth.mjs";
 import {
+  buildFeedbackBurstDeliveryExpectation,
+  buildFeedbackBurstLiveGuestExerciseExpectation,
+  gradeFeedbackBurstExpectations,
+} from "./feedback-burst-expectations.mjs";
+import { assessFeedbackBurstIntroReadiness } from "./feedback-burst-intro-readiness.mjs";
+import { resolveFeedbackBurstQueueNames } from "./feedback-burst-queues.mjs";
+import {
   createFeedbackBurstIdempotencyKey,
   requestFeedbackBurstJson as requestJson,
 } from "./feedback-burst-http.mjs";
+import {
+  assertFeedbackBurstFixtureSlotMode,
+  feedbackBurstFailedJobBelongsToSlot,
+  feedbackBurstParticipantSeedEmail,
+  namespaceFeedbackBurstCatalog,
+  resolveFeedbackBurstFixtureSlot,
+} from "./feedback-burst-fixture-slot.mjs";
 import {
   assertFeedbackBurstLiveGuestCallAllowed,
   assertFeedbackBurstLiveGuestTreatment,
@@ -63,6 +77,7 @@ const {
   feedbackNotes,
   feedbackSimOutbound,
   feedbackCampaigns,
+  messageOutbox,
   events,
 } = await import("../packages/database/dist/index.js");
 const { BURST_CAMPAIGNS } =
@@ -71,7 +86,7 @@ const { BURST_PERSONAS } =
   await import("../apps/backend/dist/modules/post-event-feedback/burst/burst-personas.js");
 const burstConversationCount = BURST_PERSONAS.length;
 const burstCampaignCount = BURST_CAMPAIGNS.length;
-const { asc, eq, inArray } = require("drizzle-orm");
+const { and, asc, eq, inArray, or } = require("drizzle-orm");
 
 const REQUEST_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 const STUB_MODEL_ID = "stub/burst-rehearsal";
@@ -89,12 +104,11 @@ const INTRO_WAIT_MS = 120_000;
 // where genuinely nothing moves anywhere for sixty seconds is caught by the
 // stall detector below and gives back most of the clock.
 const DEFAULT_DEADLINE_MS = 30 * 60 * 1_000;
-// Settlement can still flip after the quiet window with no new messages — the
-// settle rule itself waits `QUIET_WINDOW_MS + 5s` after the last inject. Count
-// stalls only once every unsettled row is past that, then give up after a few
-// unchanged polls. Without this a single stuck conversation burns the full
-// fifteen-minute deadline; a shorter blind timer would cut off a slow but
-// healthy extraction that is still producing replies.
+// Input quiescence can still flip after the quiet window with no new messages —
+// the rule itself waits `QUIET_WINDOW_MS + 5s` after the last inject. Count
+// stalls only once every row is past that, then give up after a few unchanged
+// polls. This is deliberately not a product-success verdict: expectation rows
+// and queue findings grade what the pipeline produced after inputs went quiet.
 // Sixty seconds, not fifteen. The fingerprint covers every conversation, so a
 // stall means nothing moved anywhere — but at the tail of a run only one or two
 // are left, and both may be inside a single extraction call. A paid model call
@@ -161,11 +175,17 @@ async function main() {
   let treatment;
   let liveGuestsEnabled;
   let seedOnly;
+  let fixtureSlot;
   try {
     args = parseArgs(process.argv.slice(2));
     treatment = resolveFeedbackBurstTreatment(args);
     liveGuestsEnabled = resolveFeedbackBurstLiveGuests(args);
     seedOnly = resolveFeedbackBurstSeedOnly(args, liveGuestsEnabled);
+    fixtureSlot = resolveFeedbackBurstFixtureSlot(args["fixture-slot"]);
+    assertFeedbackBurstFixtureSlotMode({
+      fixtureSlot,
+      stubMode: treatment === null,
+    });
     assertFeedbackBurstLiveGuestTreatment(liveGuestsEnabled, treatment);
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
@@ -223,9 +243,19 @@ async function main() {
     }
   }
 
-  const catalog = await requestJson(`${apiBase}/dev/feedback/burst/catalog`, {
-    headers,
-  });
+  const publishedCatalog = await requestJson(
+    `${apiBase}/dev/feedback/burst/catalog`,
+    { headers },
+  );
+  const catalog = namespaceFeedbackBurstCatalog(publishedCatalog, fixtureSlot);
+  const simulatorCatalog = await requestJson(
+    `${apiBase}/dev/feedback/simulator/catalog`,
+    { headers },
+  );
+  const simulatedTransport = {
+    mode: simulatorCatalog.activeTransportMode,
+    profile: simulatorCatalog.activeSimulatedTransport,
+  };
   const providerConversationCount = catalog.personas.filter(
     (persona) => liveGuestsEnabled || !persona.liveModel,
   ).length;
@@ -236,10 +266,6 @@ async function main() {
   };
 
   if (treatment) {
-    const simulatorCatalog = await requestJson(
-      `${apiBase}/dev/feedback/simulator/catalog`,
-      { headers },
-    );
     if (simulatorCatalog.activeModel !== paidModel) {
       console.error(
         `Paid mode requested ${paidModel}, but the running API resolved ${simulatorCatalog.activeModel}.`,
@@ -299,15 +325,29 @@ async function main() {
     return;
   }
 
+  if (
+    simulatedTransportTreatmentIsActive(simulatedTransport) &&
+    !args["confirm-transport-faults"]
+  ) {
+    console.error("Simulated transport fault treatment not confirmed.");
+    console.error(`  transport: ${JSON.stringify(simulatedTransport)}`);
+    console.error(
+      "Re-run with --confirm-transport-faults, or restart API and worker with the baseline none/0/0ms profile.",
+    );
+    process.exitCode = 2;
+    return;
+  }
+
   if (treatment && !args["confirm-paid-run"] && !seedOnly) {
     console.error("Paid real-model burst rehearsal not confirmed.");
     console.error(`  treatment:      ${treatment.name}`);
     console.error(`  model:          ${paidModel}`);
+    console.error(`  fixture slot:   ${fixtureSlot}`);
     console.error(
       `  provider-driven:${String(providerConversationCount).padStart(4, " ")}`,
     );
     console.error(
-      `The ${providerConversationCount} personas with testimony can make extraction, attention-classification, and conditional reply-rewrite provider calls. The run permanently consumes the seeded campaigns and leaves all normal persisted outputs in place.`,
+      `The ${providerConversationCount} personas with testimony can make extraction, attention-classification, and conditional reply-rewrite provider calls. The run permanently consumes fixture slot ${fixtureSlot} and leaves all normal persisted outputs in place.`,
     );
     console.error("Re-run with --confirm-paid-run to proceed.");
     process.exitCode = 2;
@@ -340,11 +380,13 @@ async function main() {
     console.error(`  treatment:      ${treatment.name}`);
   }
   console.error(`  conversations:  ${burstConversationCount}`);
+  console.error(`  fixture slot:   ${fixtureSlot}`);
   console.error(`  correlation ID: ${correlationId}`);
   console.error(`  deadline:       ${deadlineMs}ms`);
   if (runConfig) {
     console.error(`  controls:       ${JSON.stringify(runConfig)}`);
   }
+  console.error(`  transport:      ${JSON.stringify(simulatedTransport)}`);
 
   console.log(
     JSON.stringify({
@@ -352,7 +394,9 @@ async function main() {
       model: modelLabel,
       treatment: treatment?.name ?? null,
       config: runConfig,
+      transport: simulatedTransport,
       liveGuests: liveGuestRun,
+      fixtureSlot,
       correlationId,
       // The catalogue the running API serves, not the constants this script
       // imported. They are the same source compiled twice, and today they
@@ -382,6 +426,7 @@ async function main() {
       catalog,
       apiBase,
       headers,
+      fixtureSlot,
     });
     for (const row of seeded.personas) {
       byPersonaId.set(row.persona.id, {
@@ -434,13 +479,6 @@ async function main() {
       console.error(`  ${campaign.slug}: campaign ${launched.id}`);
     }
 
-    console.error("Waiting for intro delivery into the simulated sink…");
-    await waitForIntros({
-      db: client.db,
-      catalog,
-      timeoutMs: INTRO_WAIT_MS,
-    });
-
     for (const campaign of seeded.campaigns) {
       const listed = await requestJson(
         `${apiBase}/feedback/campaigns/${campaign.campaignId}/conversations`,
@@ -472,6 +510,18 @@ async function main() {
       }
     }
 
+    console.error("Waiting for current intro outboxes in the simulated sink…");
+    await waitForIntros({
+      db: client.db,
+      targets: [...byPersonaId.values()].map((entry) => ({
+        phoneE164: entry.persona.phoneE164,
+        conversationId: entry.conversationId,
+      })),
+      timeoutMs: INTRO_WAIT_MS,
+      faultTreatmentActive:
+        simulatedTransportTreatmentIsActive(simulatedTransport),
+    });
+
     if (seedOnly) {
       console.log(
         JSON.stringify({
@@ -479,6 +529,8 @@ async function main() {
           model: modelLabel,
           treatment: treatment?.name ?? null,
           config: runConfig,
+          transport: simulatedTransport,
+          fixtureSlot,
           correlationId,
           campaignCount: seeded.campaigns.length,
           conversationCount: byPersonaId.size,
@@ -510,7 +562,7 @@ async function main() {
       ),
     );
     console.error(
-      `All injects finished in ${Math.round((Date.now() - driveStarted) / 1000)}s; polling for settlement…`,
+      `All injects finished in ${Math.round((Date.now() - driveStarted) / 1000)}s; polling for ingested + quiet inputs…`,
     );
 
     const deadlineAt = Date.now() + deadlineMs;
@@ -527,45 +579,52 @@ async function main() {
         byPersonaId,
         byCampaignSlug,
         db: client.db,
+        liveGuestsEnabled,
       });
-      const unsettled = snapshot.conversations.filter((row) => !row.settled);
-      const line = `settled ${snapshot.conversations.length - unsettled.length}/${snapshot.conversations.length}${
-        unsettled.length > 0
-          ? ` (waiting: ${unsettled
+      const notIngestedAndQuiet = snapshot.conversations.filter(
+        (row) => !row.ingestedAndQuiet,
+      );
+      const line = `ingested + quiet ${snapshot.conversations.length - notIngestedAndQuiet.length}/${snapshot.conversations.length}${
+        notIngestedAndQuiet.length > 0
+          ? ` (waiting: ${notIngestedAndQuiet
               .slice(0, 5)
               .map((row) => row.personaId)
-              .join(", ")}${unsettled.length > 5 ? "…" : ""})`
+              .join(", ")}${notIngestedAndQuiet.length > 5 ? "…" : ""})`
           : ""
       }`;
       console.error(line);
-      if (unsettled.length === 0) {
+      if (notIngestedAndQuiet.length === 0) {
         break;
       }
       if (Date.now() >= deadlineAt) {
         timedOut = true;
-        console.error("Deadline reached with unsettled conversations.");
+        console.error(
+          "Deadline reached before every input was ingested + quiet.",
+        );
         break;
       }
-      // Fingerprint settled membership and every conversation's message count.
-      // Lifecycle-only thrash without a new message or a newly settled row is
-      // exactly the stuck case this exit is for.
+      // Fingerprint input-quiescent membership and every conversation's message
+      // count. Lifecycle-only thrash without a new message or newly quiescent
+      // row is exactly the stuck case this exit is for.
       const progressKey = snapshot.conversations
         .map(
           (row) =>
-            `${row.personaId}:${row.settled ? "1" : "0"}:${row.messageCount}`,
+            `${row.personaId}:${row.ingestedAndQuiet ? "1" : "0"}:${row.messageCount}`,
         )
         .sort()
         .join("|");
-      const waitingOnQuiet = unsettled.some((row) => !row.quietElapsed);
+      const waitingOnQuiet = notIngestedAndQuiet.some(
+        (row) => !row.quietElapsed,
+      );
       if (!waitingOnQuiet && progressKey === previousProgressKey) {
         unchangedPolls += 1;
         if (unchangedPolls >= STALL_POLLS) {
           gaveUpEarly = true;
           console.error(
-            `Gave up early: no settlement progress for ${STALL_POLLS} polls (~${(STALL_POLLS * POLL_MS) / 1_000}s) with nothing in flight.`,
+            `Gave up early: no ingestion/quiet progress for ${STALL_POLLS} polls (~${(STALL_POLLS * POLL_MS) / 1_000}s) with nothing in flight.`,
           );
           console.error(
-            `Unsettled personas: ${unsettled.map((row) => row.personaId).join(", ")}`,
+            `Not ingested + quiet: ${notIngestedAndQuiet.map((row) => row.personaId).join(", ")}`,
           );
           break;
         }
@@ -584,6 +643,7 @@ async function main() {
       byPersonaId,
       byCampaignSlug,
       db: client.db,
+      liveGuestsEnabled,
     });
 
     const findings = [
@@ -593,11 +653,11 @@ async function main() {
       ...(timedOut || gaveUpEarly
         ? findCampaignsNotTerminal(finalSnapshot, byCampaignSlug, {
             when: gaveUpEarly
-              ? "when settlement gave up early"
+              ? "when ingestion/quiet polling gave up early"
               : "at the deadline",
           })
         : []),
-      ...(await findFailedJobs(finalSnapshot)),
+      ...(await findFailedJobs(finalSnapshot, fixtureSlot)),
     ];
 
     if (stubMode) {
@@ -669,7 +729,9 @@ async function main() {
       model: modelLabel,
       treatment: treatment?.name ?? null,
       config: runConfig,
+      transport: simulatedTransport,
       liveGuests: liveGuestRun,
+      fixtureSlot,
       passed: !anyConversationFailed && findings.length === 0,
       campaigns: campaignResults,
       findings,
@@ -718,13 +780,18 @@ async function main() {
 
 /**
  * Seed participants through Drizzle, events/attendance through the staff HTTP
- * surface. Participants use the reserved phone block; events use catalogue
- * titles. See file header for the idempotency rules.
+ * surface. Participants use the selected reserved phone slot; events use the
+ * corresponding slot-qualified catalogue titles. See file header for the
+ * idempotency rules.
  */
-async function seedWorld({ db, catalog, apiBase, headers }) {
+async function seedWorld({ db, catalog, apiBase, headers, fixtureSlot }) {
   const personaRows = [];
   for (const persona of catalog.personas) {
-    const participantId = await upsertBurstParticipant(db, persona);
+    const participantId = await upsertBurstParticipant(
+      db,
+      persona,
+      fixtureSlot,
+    );
     personaRows.push({ persona, participantId });
   }
 
@@ -761,13 +828,23 @@ async function seedWorld({ db, catalog, apiBase, headers }) {
   return { personas: personaRows, campaigns };
 }
 
-async function upsertBurstParticipant(db, persona) {
-  const email = `burst.${persona.campaign}.${String(persona.ordinal).padStart(2, "0")}@burst.jointhesix.local`;
+async function upsertBurstParticipant(db, persona, fixtureSlot) {
+  const email = feedbackBurstParticipantSeedEmail(persona, fixtureSlot);
   const existing = await db
     .select()
     .from(participants)
-    .where(eq(participants.phoneE164, persona.phoneE164))
-    .limit(1);
+    .where(
+      or(
+        eq(participants.phoneE164, persona.phoneE164),
+        eq(participants.emailNormalized, email),
+      ),
+    )
+    .limit(2);
+  if (existing.length > 1) {
+    throw new Error(
+      `Fixture phone ${persona.phoneE164} and email ${email} resolve to different participants; refuse to merge identities`,
+    );
+  }
   if (existing[0]) {
     const row = existing[0];
     // The email is the seat; the name is whichever persona currently sits in
@@ -776,6 +853,11 @@ async function upsertBurstParticipant(db, persona) {
     // — and refusing it left an orphan that blocked every later run with a
     // message about a participant nobody could find. A *different* email on a
     // reserved phone is the case this guard is really for, and still refuses.
+    if (row.phoneE164 !== persona.phoneE164) {
+      throw new Error(
+        `Fixture email ${email} already belongs to participant ${row.id} on another phone; refuse to overwrite`,
+      );
+    }
     if (row.emailNormalized !== email) {
       throw new Error(
         `Reserved phone ${persona.phoneE164} already belongs to a different participant (${row.id}); refuse to overwrite`,
@@ -1005,29 +1087,52 @@ async function assertReusableCampaign(apiBase, headers, campaignId) {
   }
 }
 
-async function waitForIntros({ db, catalog, timeoutMs }) {
-  const phones = catalog.personas.map((persona) => persona.phoneE164);
+async function waitForIntros({ db, targets, timeoutMs, faultTreatmentActive }) {
+  const conversationIds = targets.map((target) => target.conversationId);
   const deadline = Date.now() + timeoutMs;
   while (true) {
-    const rows = await db
+    const introRows = await db
       .select()
-      .from(feedbackSimOutbound)
-      .where(inArray(feedbackSimOutbound.phoneE164, phones));
-    const byPhone = new Map();
-    for (const row of rows) {
-      const list = byPhone.get(row.phoneE164) ?? [];
-      list.push(row);
-      byPhone.set(row.phoneE164, list);
-    }
-    const missing = phones.filter(
-      (phone) => (byPhone.get(phone) ?? []).length === 0,
-    );
-    if (missing.length === 0) {
+      .from(messageOutbox)
+      .where(
+        and(
+          eq(messageOutbox.kind, "intro"),
+          inArray(messageOutbox.conversationId, conversationIds),
+        ),
+      );
+    const outboxIds = introRows.map((row) => row.id);
+    const sinkRows =
+      outboxIds.length === 0
+        ? []
+        : await db
+            .select({ outboxId: feedbackSimOutbound.outboxId })
+            .from(feedbackSimOutbound)
+            .where(inArray(feedbackSimOutbound.outboxId, outboxIds));
+    const readiness = assessFeedbackBurstIntroReadiness({
+      targets,
+      introRows,
+      sinkRows,
+    });
+    if (readiness.ready) {
       return;
     }
-    if (Date.now() >= deadline) {
+    if (readiness.terminal.length > 0) {
+      const details = readiness.terminal
+        .map((row) => `${row.phoneE164}:${row.reason}`)
+        .join(", ");
+      const baselineHint = faultTreatmentActive
+        ? " Seed an intro-only baseline under none/0/0ms, stop every feedback worker, then restart API and workers with the intended fault profile."
+        : "";
       throw new Error(
-        `Timed out waiting for intro delivery. Missing phones: ${missing.join(", ")}`,
+        `Current intro outbox reached a terminal state: ${details}.${baselineHint}`,
+      );
+    }
+    if (Date.now() >= deadline) {
+      const details = readiness.pending
+        .map((row) => `${row.phoneE164}:${row.reason}`)
+        .join(", ");
+      throw new Error(
+        `Timed out waiting for current intro delivery. Pending: ${details}`,
       );
     }
     await sleep(2_000);
@@ -1083,7 +1188,7 @@ async function askLiveGuest({ live, transcript, liveGuestCallsConfirmed }) {
  *
  * The turn cap is what makes the run terminate. A live guest will chat happily
  * past the end of the questionnaire, and a conversation that never goes quiet
- * fails settlement for its whole campaign.
+ * fails the harness's input-quiescence bound for its whole campaign.
  *
  * The cap is not the only exit, and it used to be. The bot's closing message is
  * itself a new bot turn, so a guest that only watches for one answers it — into
@@ -1266,6 +1371,7 @@ async function collectSnapshot({
   byPersonaId,
   byCampaignSlug,
   db,
+  liveGuestsEnabled,
 }) {
   const campaignStatusById = new Map();
   const conversations = [];
@@ -1357,13 +1463,17 @@ async function collectSnapshot({
         modelCalls: countModelCalls(answerRows, noteRows),
       };
 
-      const expectations = buildExpectations(persona, actual, received);
+      const expectations = buildExpectations(persona, actual, received, {
+        injectedCount: entry.injected.length,
+        liveGuestsEnabled,
+      });
       // Text sent after a STOP is deliberately not retained — the campaign
       // keeps metadata only once somebody has opted out, because not storing is
       // reversible and storing is not. Requiring it in the transcript therefore
       // asks for something the product must never do: the run reported
       // `lost_participant_text` for a message we correctly discarded, failed on
-      // it, and burned its whole settlement deadline waiting for it to appear.
+      // it, and burned the whole input-quiescence deadline waiting for it to
+      // appear.
       //
       // Narrow on purpose. Only `stopped` suppresses retention; a conversation
       // closed as completed or expired still records what arrives afterwards,
@@ -1374,7 +1484,7 @@ async function collectSnapshot({
           : undefined;
       const injectCaughtUp = entry.injected.every((injected) => {
         // A bodyless inbound has no transcript representation by design, so
-        // waiting for one to appear would never settle.
+        // waiting for one to appear would never become input-quiescent.
         if (injected.text === null) {
           return true;
         }
@@ -1397,9 +1507,9 @@ async function collectSnapshot({
       // lifecycle, which quietly redefined every expectation mismatch as a
       // stall: a model that legally ended somewhere else — Χαρά asked the
       // 9δ-mandated question her script could not answer, Πάνος took the S70
-      // hostile fork instead of S69 — could never settle, burned the stall
-      // detector, and surfaced as `campaign_not_terminal`, the exact finding
-      // shape of a dead system. Ten of the first fourteen ledgered runs
+      // hostile fork instead of S69 — could never become quiescent, burned the
+      // stall detector, and surfaced as `campaign_not_terminal`, the exact
+      // finding shape of a dead system. Ten of the first fourteen ledgered runs
       // "FAILED" that way, and the 2026-07-31 corpus audit traced every one of
       // runs 10–12's instances to a fixture, not a stall.
       //
@@ -1414,7 +1524,7 @@ async function collectSnapshot({
           (persona.expect.lifecycle === "open" ||
             actual.closedBecause === persona.expect.closedBecause)
         );
-      const settled = injectCaughtUp && quietElapsed;
+      const ingestedAndQuiet = injectCaughtUp && quietElapsed;
 
       conversations.push({
         personaId: persona.id,
@@ -1443,7 +1553,7 @@ async function collectSnapshot({
         observedModel,
         messageCount: detail.messages.length,
         quietElapsed,
-        settled,
+        ingestedAndQuiet,
         lifecycleDiverged,
         adminBase,
       });
@@ -1487,18 +1597,27 @@ function countModelCalls(answerRows, noteRows) {
  * renders the lifecycle, the consent, the attention badge and every recorded
  * answer as observation rather than verdict.
  */
-function buildExpectations(persona, actual, received) {
+function buildExpectations(
+  persona,
+  actual,
+  received,
+  { injectedCount = 0, liveGuestsEnabled = false } = {},
+) {
   const { expect } = persona;
-  const deliveredRow = {
-    label: "μηνύματα που έφτασαν",
-    expected: `${expect.minReceived}–${expect.maxReceived}`,
-    actual: String(received.length),
-    passed:
-      received.length >= expect.minReceived &&
-      received.length <= expect.maxReceived,
-  };
+  const deliveredRow = buildFeedbackBurstDeliveryExpectation({
+    minReceived: expect.minReceived,
+    maxReceived: expect.maxReceived,
+    liveModel: Boolean(persona.liveModel),
+    injectedCount,
+    receivedCount: received.length,
+  });
   if (persona.liveModel) {
-    return [deliveredRow];
+    return liveGuestsEnabled
+      ? [
+          buildFeedbackBurstLiveGuestExerciseExpectation({ injectedCount }),
+          deliveredRow,
+        ]
+      : [deliveredRow];
   }
 
   const expectations = [
@@ -1580,13 +1699,7 @@ function formatAnswer(answer) {
 }
 
 function toConversationResult(row, { stubMode, adminBase, campaignId }) {
-  const expectations = row.expectations.map((expectation) => ({
-    ...expectation,
-    // Paid mode: semantic expectations are observations, not failures.
-    passed: stubMode ? expectation.passed : true,
-  }));
-  const semanticFailed =
-    stubMode && row.expectations.some((expectation) => !expectation.passed);
+  const graded = gradeFeedbackBurstExpectations(row.expectations, { stubMode });
   return {
     personaId: row.personaId,
     displayName: row.displayName,
@@ -1595,13 +1708,8 @@ function toConversationResult(row, { stubMode, adminBase, campaignId }) {
     phoneE164: row.phoneE164,
     conversationId: row.conversationId,
     adminUrl: `${adminBase}/admin/feedback/${encodeURIComponent(campaignId)}?conversation=${encodeURIComponent(row.conversationId)}`,
-    passed: !semanticFailed,
-    expectations: stubMode
-      ? row.expectations
-      : row.expectations.map((expectation) => ({
-          ...expectation,
-          label: `observation: ${expectation.label}`,
-        })),
+    passed: graded.passed,
+    expectations: graded.expectations,
     received: row.received,
     transcript: row.transcript,
     actual: row.actual,
@@ -1689,7 +1797,7 @@ function findLostParticipantText(snapshot, byPersonaId) {
   const findings = [];
   for (const conversation of snapshot.conversations) {
     const entry = byPersonaId.get(conversation.personaId);
-    // Same rule as the settle check: after STOP the campaign keeps metadata
+    // Same rule as the input-quiescence check: after STOP the campaign keeps metadata
     // only, so text sent afterwards is discarded on purpose and is not a loss.
     // Reporting it as one sent us hunting a data-loss bug that was the product
     // honouring an opt-out.
@@ -1733,12 +1841,12 @@ function findCampaignsNotTerminal(
       (row) =>
         row.campaignId === campaign.campaignId &&
         row.actual.lifecycle === "open" &&
-        !row.settled,
+        !row.ingestedAndQuiet,
     );
     if (open.length > 0) {
       findings.push({
         kind: "campaign_not_terminal",
-        detail: `Campaign ${campaign.slug} still had ${open.length} unsettled open conversation(s) ${when}`,
+        detail: `Campaign ${campaign.slug} still had ${open.length} open conversation(s) whose inputs were not ingested + quiet ${when}`,
         conversationIds: open.map((row) => row.conversationId),
       });
     }
@@ -1746,7 +1854,7 @@ function findCampaignsNotTerminal(
   return findings;
 }
 
-async function findFailedJobs(snapshot) {
+async function findFailedJobs(snapshot, fixtureSlot) {
   const redisUrl = String(process.env.REDIS_URL ?? "").trim();
   if (!redisUrl) {
     return [];
@@ -1755,20 +1863,19 @@ async function findFailedJobs(snapshot) {
     path.join(repositoryRoot, "apps/backend/package.json"),
   );
   const { Queue } = backendRequire("bullmq");
-  // Both values come from the backend so this cannot drift again. Naming the
+  // Queue names and prefix come from the backend so this cannot drift again. Naming the
   // queue without its prefix read `bull:feedback:*` — a key space the app never
   // writes — so every run before 2026-07-27 reported zero failed jobs because
   // it was looking somewhere empty, not because none had failed.
-  const { FEEDBACK_INGRESS_QUEUE, FEEDBACK_QUEUE, QUEUE_PREFIX } =
+  const queueConstants =
     await import("../apps/backend/dist/infrastructure/queue/queue.constants.js");
-  // Both queues, because the loop spans both: a message that never reached the
-  // transcript fails on `feedback-ingress`, and reading only `feedback` would
-  // report the run as clean while its inbound messages were being buried.
-  const queues = [FEEDBACK_QUEUE, FEEDBACK_INGRESS_QUEUE].map(
+  // The path spans legacy drain, ingress materialization and V2 conversation
+  // reconciliation. Omitting any one can turn a failed run into `findings: []`.
+  const queues = resolveFeedbackBurstQueueNames(queueConstants).map(
     (name) =>
       new Queue(name, {
         connection: redisConnectionFromUrl(redisUrl),
-        prefix: QUEUE_PREFIX,
+        prefix: queueConstants.QUEUE_PREFIX,
       }),
   );
   try {
@@ -1781,16 +1888,16 @@ async function findFailedJobs(snapshot) {
     const findings = [];
     for (const job of failed) {
       const conversationId = job.data?.conversationId;
-      const relevant =
-        typeof conversationId === "string" &&
-        conversationIds.has(conversationId);
       const reason = String(job.failedReason ?? "");
-      if (!relevant && !reason.includes("exhausted")) {
-        // Keep burst-scoped noise down: only report failures tied to this run's
-        // conversations, or script-exhaustion which names a persona.
-        if (!reason.includes("Scripted burst persona")) {
-          continue;
-        }
+      if (
+        !feedbackBurstFailedJobBelongsToSlot({
+          fixtureSlot,
+          conversationId,
+          currentConversationIds: conversationIds,
+          failedReason: reason,
+        })
+      ) {
+        continue;
       }
       const ids =
         typeof conversationId === "string" &&
@@ -1851,6 +1958,7 @@ function parseArgs(values) {
     }
     if (
       value === "--confirm-paid-run" ||
+      value === "--confirm-transport-faults" ||
       value === "--seed-only" ||
       value === "--live-guests" ||
       value === "--confirm-live-guests"
@@ -1878,6 +1986,14 @@ function positiveInteger(value, name) {
     throw new Error(`--${name} must be a positive integer`);
   }
   return parsed;
+}
+
+function simulatedTransportTreatmentIsActive(transport) {
+  return (
+    transport.mode === "simulated" &&
+    (transport.profile?.faultMode !== "none" ||
+      Number(transport.profile?.maxDelayMs ?? 0) > 0)
+  );
 }
 
 function sleep(ms) {
@@ -1992,20 +2108,26 @@ function printUsage() {
 
   pnpm feedback:burst \\
     --profile prova \\
+    --fixture-slot 1 \\
     --confirm-paid-run
 
 Options:
-  --profile prova        Exact paid profile: direct OpenAI Terra, extraction and
-                         attention medium, reply rewrite low, service tier unset.
+  --profile prova        Exact paid profile: direct OpenAI Luna, extraction,
+                         attention and reply rewrite medium; service tier unset.
                          Omit for stub mode.
   --comparison qwen      Explicit Qwen/OpenRouter comparison using the same efforts.
   --confirm-paid-run     Required acknowledgement of extraction/classifier model cost
+  --confirm-transport-faults
+                         Required when simulated delivery injects faults or latency
   --seed-only            Launch intro-only campaigns, map all conversations, then stop.
                          Makes no participant or provider-model calls.
   --live-guests          Enable cursor-agent calls for the six unscripted personas.
                          Requires a paid profile/comparison; stub cannot read them.
                          Omit to substitute deterministic silence.
   --confirm-live-guests  Separate acknowledgement required with --live-guests
+  --fixture-slot <0-9>   Non-destructive seed namespace; default 0 preserves the
+                         historical phones, emails and event titles. Slots 1–9
+                         require paid mode and are each permanently consumable.
   --correlation-id <id>  Optional stable log ID; generated when omitted
   --api-base <url>       Default: http://localhost:4000/api/v1
   --admin-base <url>     Default: http://localhost:3000
@@ -2020,13 +2142,24 @@ The API and worker must already be running with:
   FEEDBACK_EXTRACTION_STUB=true          # default free mode
   # prova instead requires exactly:
   FEEDBACK_EXTRACTION_STUB=false
-  FEEDBACK_EXTRACTION_MODEL=openai/gpt-5.6-terra
+  FEEDBACK_EXTRACTION_MODEL=openai/gpt-5.6-luna
   FEEDBACK_EXTRACTION_REASONING_EFFORT=medium
-  FEEDBACK_REPLY_REASONING_EFFORT=low
+  FEEDBACK_REPLY_REASONING_EFFORT=medium
   FEEDBACK_ATTENTION_REASONING_EFFORT=medium
   FEEDBACK_EXTRACTION_SERVICE_TIER=      # unset
+  FEEDBACK_SIMULATED_TRANSPORT_FAULT_MODE=none
+  FEEDBACK_SIMULATED_TRANSPORT_FAULT_PERCENT=0
+  FEEDBACK_SIMULATED_TRANSPORT_SEED=1
+  FEEDBACK_SIMULATED_TRANSPORT_MAX_DELAY_MS=0
 
-Seed identity is the reserved phone block +3069000<cc><pp> and the catalogue
-event titles. The command never cleans up: inspect the persisted campaigns,
-conversations and report afterward.`);
+For a reply-path fault rehearsal, first run --seed-only under the baseline
+none/0/0ms profile. Then stop every feedback worker, restart the API and all
+workers with one identical fault profile, verify the catalog, and run with
+--confirm-transport-faults. A fresh faulted launch may legitimately fail an
+intro and will stop immediately instead of accepting an old sink row by phone.
+
+Seed identity is +306900<slot><cc><pp>, a slot-specific participant email and a
+slot-qualified event title. Persona ids and campaign slugs stay canonical. The
+command never cleans up: inspect the persisted campaigns, conversations and
+report afterward.`);
 }

@@ -7,7 +7,6 @@ import type {
   MessageOutboxRow,
   ParticipantRow,
 } from "@join-the-six/database";
-import type { Queue } from "bullmq";
 import { describe, expect, it, vi } from "vitest";
 
 import type { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
@@ -20,7 +19,6 @@ import {
   buildFeedbackConversationGoals,
   type FeedbackConversationDocument,
 } from "../post-event-feedback-conversation.document.js";
-import type { FeedbackJobData, FeedbackJobName } from "../jobs.schemas.js";
 import type { EventsRepository } from "../../events/events.repository.js";
 import type { EventsService } from "../../events/events.service.js";
 import type { ParticipantsRepository } from "../../participants/participants.repository.js";
@@ -30,12 +28,15 @@ import { FeedbackOutboundLogService } from "../outbox/outbound-log.service.js";
 import { noopSummaries } from "../post-event-feedback-doubles.harness.js";
 import { buildPostEventFeedbackQuestionLaunchSnapshot } from "../question-set.js";
 import type { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
+import type { FeedbackConversationExecutionFenceRepository } from "../extraction/execution-fence.repository.js";
 import type { FeedbackResultsRepository } from "../extraction/results.repository.js";
 import type { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
+import type { FeedbackConversationWakeupService } from "../reconciliation/wakeup.service.js";
 import { conversationCapabilities } from "./conversation.view.js";
 import {
   addFeedbackConversationAnswerSchema,
   closeFeedbackConversationSchema,
+  createFeedbackStaffMessageDedupeKey,
   feedbackConversationMessageSchema,
   sendFeedbackStaffMessageSchema,
 } from "./conversation.schemas.js";
@@ -58,6 +59,7 @@ const conversationId = "6f0f2f8a-2b73-5a02-9d0a-3f0b8f5b1c21";
 const noteId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const answerId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
 const outboxId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+const clientMessageId = "77777777-7777-4777-8777-777777777777";
 const reasonId = "99999999-9999-4999-8999-999999999901";
 const secondReasonId = "99999999-9999-4999-8999-999999999902";
 const attentionMessageId = "11111111-1111-4111-8111-111111111199";
@@ -68,6 +70,9 @@ const campaignRow: FeedbackCampaignRow = {
   questionSetVersion: 1,
   questions: buildPostEventFeedbackQuestionLaunchSnapshot(1),
   status: "launched",
+  resumeGeneration: 0,
+  resumeAppliedGeneration: 0,
+  resumeDueAt: null,
   launchedAt: new Date("2026-07-25T00:00:00.000Z"),
   launchedBy: "admin-1",
   createdAt: new Date("2026-07-25T00:00:00.000Z"),
@@ -133,9 +138,25 @@ describe("feedbackConversationMessageSchema", () => {
     // stored, writing by what can actually leave the building.
     expect(
       sendFeedbackStaffMessageSchema.safeParse({
+        clientMessageId,
         text: "α".repeat(FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH + 1),
       }).success,
     ).toBe(false);
+    expect(
+      sendFeedbackStaffMessageSchema.safeParse({ text: "Γεια σου" }).success,
+    ).toBe(false);
+    expect(
+      sendFeedbackStaffMessageSchema.safeParse({
+        clientMessageId: "not-a-uuid",
+        text: "Γεια σου",
+      }).success,
+    ).toBe(false);
+    expect(
+      sendFeedbackStaffMessageSchema.safeParse({
+        clientMessageId,
+        text: "Γεια σου",
+      }).success,
+    ).toBe(true);
   });
 });
 
@@ -252,9 +273,10 @@ describe("PostEventFeedbackConversationService", () => {
     });
   });
 
-  it("reports a parked conversation as waiting on the model, not as a failed run", async () => {
-    const { service, conversations, queue, repository } = createService();
+  it("reports a parked conversation from durable work without inspecting Redis", async () => {
+    const { service, conversations, wakeups, repository } = createService();
     const at = new Date("2026-07-27T10:00:00.000Z");
+    const nextActionAt = new Date("2026-07-27T10:10:00.000Z");
     conversations.findById.mockResolvedValue(
       openConversation({
         messages: [
@@ -280,41 +302,25 @@ describe("PostEventFeedbackConversationService", () => {
           parkedRuns: 3,
           parkedNoticeSentAt: null,
         },
+        work: { revision: 4, nextActionAt, executionEpoch: 3 },
       }),
-    );
-    repository.listNotesByConversation.mockResolvedValue([]);
-    // The positional job is the one that died; the parked retry is the one that
-    // matters, and it is delayed under its own id.
-    queue.getJob.mockImplementation(async (jobId: string) =>
-      jobId.endsWith("-parked-3")
-        ? {
-            timestamp: Date.parse("2026-07-27T10:05:00.000Z"),
-            opts: { delay: 300_000 },
-            getState: vi.fn().mockResolvedValue("delayed"),
-            failedReason: undefined,
-          }
-        : {
-            timestamp: Date.parse("2026-07-27T10:00:00.000Z"),
-            opts: { delay: 0 },
-            getState: vi.fn().mockResolvedValue("failed"),
-            failedReason: "Feedback extraction parked on the provider",
-          },
     );
 
     const result = await service.get(campaignId, conversationId);
 
-    // Not `lastRunFailed`: the admin renders that as «απάντησε η εναλλακτική
-    // διαδικασία», and for a parked conversation no fallback answered anybody.
-    expect(result.extraction).toMatchObject({
+    expect(result.extraction).toEqual({
       unreadParticipantMessages: 1,
-      nextRunAt: "2026-07-27T10:10:00.000Z",
-      runQueued: true,
-      lastRunFailed: false,
-      failedReason: null,
+      lastRunAt: null,
+      model: null,
     });
-    expect(queue.getJob).toHaveBeenCalledWith(
-      `feedback-extract-v1-${conversationId}-1-parked-3`,
-    );
+    expect(result.automation).toEqual({
+      state: "parked",
+      nextActionAt: nextActionAt.toISOString(),
+      revision: 4,
+      claimExpiresAt: null,
+    });
+    expect(wakeups.schedule).not.toHaveBeenCalled();
+    expect(repository.listNotesByConversation).not.toHaveBeenCalled();
   });
 
   it("rejects staff send while the conversation is under bot control", async () => {
@@ -325,7 +331,7 @@ describe("PostEventFeedbackConversationService", () => {
       service.sendStaffMessage(
         campaignId,
         conversationId,
-        "Γεια σου",
+        { clientMessageId, text: "Γεια σου" },
         "admin-1",
         "req-1",
       ),
@@ -333,9 +339,10 @@ describe("PostEventFeedbackConversationService", () => {
     expect(repository.insertOutboxIfAbsent).not.toHaveBeenCalled();
   });
 
-  it("reports unread testimony and delayed extract job state on the detail view", async () => {
-    const { service, conversations, queue } = createService();
+  it("reports unread testimony and scheduled automation from Mongo work", async () => {
+    const { service, conversations, wakeups } = createService();
     const at = new Date("2026-07-27T10:00:00.000Z");
+    const nextActionAt = new Date("2026-07-27T10:01:45.000Z");
     conversations.findById.mockResolvedValue(
       openConversation({
         messages: [
@@ -383,14 +390,9 @@ describe("PostEventFeedbackConversationService", () => {
           parkedRuns: 0,
           parkedNoticeSentAt: null,
         },
+        work: { revision: 7, nextActionAt, executionEpoch: 4 },
       }),
     );
-    queue.getJob.mockResolvedValue({
-      timestamp: Date.parse("2026-07-27T10:01:00.000Z"),
-      opts: { delay: 45_000 },
-      getState: vi.fn().mockResolvedValue("delayed"),
-      failedReason: undefined,
-    });
 
     const result = await service.get(campaignId, conversationId);
 
@@ -398,18 +400,41 @@ describe("PostEventFeedbackConversationService", () => {
       unreadParticipantMessages: 2,
       lastRunAt: null,
       model: null,
-      nextRunAt: "2026-07-27T10:01:45.000Z",
-      runInFlight: false,
-      runQueued: true,
-      lastRunFailed: false,
-      failedReason: null,
     });
-    expect(queue.getJob).toHaveBeenCalledWith(
-      `feedback-extract-v1-${conversationId}-2`,
+    expect(result.automation).toEqual({
+      state: "scheduled",
+      nextActionAt: nextActionAt.toISOString(),
+      revision: 7,
+      claimExpiresAt: null,
+    });
+    expect(wakeups.schedule).not.toHaveBeenCalled();
+  });
+
+  it("reports a live PostgreSQL lease as running without exposing its fence", async () => {
+    const { service, conversations, executionFences } = createService();
+    const nextActionAt = new Date("2026-07-27T10:01:45.000Z");
+    const claimExpiresAt = new Date("2026-07-27T10:08:45.000Z");
+    conversations.findById.mockResolvedValue(
+      openConversation({
+        work: { revision: 8, nextActionAt, executionEpoch: 41 },
+      }),
     );
-    expect(queue.getJob).toHaveBeenCalledWith(
-      `feedback-extract-v1-${conversationId}-3`,
-    );
+    executionFences.findActiveLease.mockResolvedValue({
+      claimExpiresAt,
+      token: "must-not-leak",
+      epoch: 41,
+    });
+
+    const result = await service.get(campaignId, conversationId);
+
+    expect(result.automation).toEqual({
+      state: "running",
+      nextActionAt: nextActionAt.toISOString(),
+      revision: 8,
+      claimExpiresAt: claimExpiresAt.toISOString(),
+    });
+    expect(result.automation).not.toHaveProperty("token");
+    expect(result.automation).not.toHaveProperty("epoch");
   });
 
   it("enqueues a staff outbox row and appends the transcript under human control", async () => {
@@ -459,7 +484,7 @@ describe("PostEventFeedbackConversationService", () => {
     const result = await service.sendStaffMessage(
       campaignId,
       conversationId,
-      "Γεια σου",
+      { clientMessageId, text: "Γεια σου" },
       "admin-1",
       "req-1",
     );
@@ -469,8 +494,27 @@ describe("PostEventFeedbackConversationService", () => {
       expect.objectContaining({
         kind: "staff",
         body: "Γεια σου",
+        dedupeKey: createFeedbackStaffMessageDedupeKey(
+          conversationId,
+          clientMessageId,
+        ),
         createdByStaff: "admin-1",
       }),
+    );
+    expect(repository.lockConversation).toHaveBeenCalledWith(
+      expect.anything(),
+      conversationId,
+    );
+    expect(
+      repository.lockConversation.mock.invocationCallOrder[0],
+    ).toBeLessThan(
+      repository.findCampaignByIdForUpdate.mock.invocationCallOrder[0]!,
+    );
+    expect(
+      repository.findCampaignByIdForUpdate.mock.invocationCallOrder[0],
+    ).toBeLessThan(conversations.findById.mock.invocationCallOrder[0]!);
+    expect(conversations.findById.mock.invocationCallOrder[0]).toBeLessThan(
+      repository.insertOutboxIfAbsent.mock.invocationCallOrder[0]!,
     );
     // The staff send goes through the same outbound-transcript path as the bot
     // producers; only the row's `kind` makes this turn `staff`.
@@ -541,7 +585,7 @@ describe("PostEventFeedbackConversationService", () => {
     await service.sendStaffMessage(
       campaignId,
       conversationId,
-      "Γεια σου",
+      { clientMessageId, text: "Γεια σου" },
       "admin-1",
       "req-1",
     );
@@ -559,6 +603,307 @@ describe("PostEventFeedbackConversationService", () => {
         },
       }),
     );
+  });
+
+  it("replays one client message id without duplicate log or audit and repairs the transcript", async () => {
+    const { service, conversations, repository, auditAppend } = createService();
+    const human = openConversation({
+      control: {
+        mode: "human",
+        source: "staff_action",
+        changedAt: new Date("2026-07-25T00:30:00.000Z"),
+      },
+    });
+    const successor = {
+      ...human,
+      lifecycle: {
+        state: "closed" as const,
+        reason: "cancelled" as const,
+        closedAt: new Date("2026-07-25T00:32:00.000Z"),
+      },
+      staffClose: { reason: "handled_offline" as const, note: null },
+    };
+    const staffMessage = {
+      id: randomMessageId(),
+      seq: 1,
+      actor: "staff" as const,
+      text: "Γεια σου",
+      providerMessageId: null,
+      ingressId: null,
+      outboxId,
+      at: outboxRow().createdAt,
+    };
+    repository.findCampaignByIdForUpdate.mockResolvedValue({
+      ...campaignRow,
+      status: "closed",
+    });
+    conversations.findById.mockResolvedValue(successor);
+    repository.findOutboxByDedupeKey.mockResolvedValue(outboxRow());
+    conversations.appendMessage.mockResolvedValue({
+      appended: true,
+      message: staffMessage,
+      conversation: { ...successor, messages: [staffMessage] },
+    });
+    repository.listOutboxByConversation.mockResolvedValue([outboxRow()]);
+
+    await expect(
+      service.sendStaffMessage(
+        campaignId,
+        conversationId,
+        { clientMessageId, text: "Γεια σου" },
+        "admin-1",
+        "retry-request",
+      ),
+    ).resolves.toMatchObject({
+      messages: [expect.objectContaining({ outboxId })],
+    });
+
+    expect(repository.findOutboxByDedupeKey).toHaveBeenCalledWith(
+      createFeedbackStaffMessageDedupeKey(conversationId, clientMessageId),
+      expect.anything(),
+    );
+    expect(repository.insertOutboxIfAbsent).not.toHaveBeenCalled();
+    expect(repository.insertOutboxLogIfAbsent).not.toHaveBeenCalled();
+    expect(auditAppend).not.toHaveBeenCalled();
+    expect(conversations.appendMessage).toHaveBeenCalledWith({
+      conversationId,
+      actor: "staff",
+      outboxId,
+      text: "Γεια σου",
+      at: outboxRow().createdAt,
+    });
+  });
+
+  it.each([
+    {
+      label: "different body",
+      text: "Άλλο κείμενο",
+      actorId: "admin-1",
+    },
+    {
+      label: "different actor",
+      text: "Γεια σου",
+      actorId: "admin-2",
+    },
+  ])("rejects one client message id reused by a $label", async (attempt) => {
+    const { service, conversations, repository, auditAppend } = createService();
+    const successor = openConversation({
+      lifecycle: {
+        state: "closed",
+        reason: "cancelled",
+        closedAt: new Date("2026-07-25T00:32:00.000Z"),
+      },
+      control: {
+        mode: "human",
+        source: "staff_action",
+        changedAt: new Date("2026-07-25T00:30:00.000Z"),
+      },
+    });
+    repository.findCampaignByIdForUpdate.mockResolvedValue({
+      ...campaignRow,
+      status: "closed",
+    });
+    conversations.findById.mockResolvedValue(successor);
+    repository.findOutboxByDedupeKey.mockResolvedValue(outboxRow());
+
+    await expect(
+      service.sendStaffMessage(
+        campaignId,
+        conversationId,
+        { clientMessageId, text: attempt.text },
+        attempt.actorId,
+        "conflicting-replay",
+      ),
+    ).rejects.toThrow(
+      "A staff message client id cannot be reused for different content or actor",
+    );
+
+    expect(repository.insertOutboxIfAbsent).not.toHaveBeenCalled();
+    expect(repository.insertOutboxLogIfAbsent).not.toHaveBeenCalled();
+    expect(auditAppend).not.toHaveBeenCalled();
+    expect(conversations.appendMessage).not.toHaveBeenCalled();
+  });
+
+  it("rejects staff send when campaign close won the row lock", async () => {
+    const { service, conversations, repository } = createService();
+    repository.findCampaignByIdForUpdate.mockResolvedValue({
+      ...campaignRow,
+      status: "closed",
+    });
+    conversations.findById.mockResolvedValue(
+      openConversation({
+        control: {
+          mode: "human",
+          source: "staff_action",
+          changedAt: new Date("2026-07-25T00:30:00.000Z"),
+        },
+      }),
+    );
+
+    await expect(
+      service.sendStaffMessage(
+        campaignId,
+        conversationId,
+        { clientMessageId, text: "Γεια σου" },
+        "admin-1",
+        "campaign-close-won",
+      ),
+    ).rejects.toBeInstanceOf(FeedbackConversationActionNotAllowedError);
+
+    expect(repository.insertOutboxIfAbsent).not.toHaveBeenCalled();
+  });
+
+  it("does not enqueue when conversation close wins after the screen read", async () => {
+    const { service, conversations, repository, database, auditAppend } =
+      createService();
+    const human = openConversation({
+      control: {
+        mode: "human",
+        source: "staff_action",
+        changedAt: new Date("2026-07-25T00:30:00.000Z"),
+      },
+    });
+    const closed = {
+      ...human,
+      lifecycle: {
+        state: "closed" as const,
+        reason: "cancelled" as const,
+        closedAt: new Date("2026-07-25T00:32:00.000Z"),
+      },
+      staffClose: { reason: "handled_offline" as const, note: null },
+    };
+    let current: FeedbackConversationDocument = human;
+    const closeEntered = deferred<void>();
+    const releaseClose = deferred<void>();
+    serializeTransactions(database);
+    conversations.findById.mockImplementation(async () => current);
+    conversations.close.mockImplementation(async () => {
+      closeEntered.resolve(undefined);
+      await releaseClose.promise;
+      current = closed;
+      return { changed: true, conversation: closed };
+    });
+
+    const closing = service.close(
+      campaignId,
+      conversationId,
+      { reason: "handled_offline" },
+      "admin-1",
+      "close-first",
+    );
+    await closeEntered.promise;
+    const sending = expect(
+      service.sendStaffMessage(
+        campaignId,
+        conversationId,
+        { clientMessageId, text: "Προλαβαίνει;" },
+        "admin-1",
+        "send-second",
+      ),
+    ).rejects.toBeInstanceOf(FeedbackConversationActionNotAllowedError);
+    releaseClose.resolve(undefined);
+
+    await closing;
+    await sending;
+    expect(conversations.findById).toHaveBeenCalledTimes(2);
+    expect(repository.insertOutboxIfAbsent).not.toHaveBeenCalled();
+    expect(
+      auditAppend.mock.calls.filter(
+        ([, input]) =>
+          (input as { action?: string }).action ===
+          "feedback_conversation.staff_message_enqueued",
+      ),
+    ).toHaveLength(0);
+  });
+
+  it("lets an admitted staff send commit before a waiting conversation close", async () => {
+    const { service, conversations, repository, database, auditAppend } =
+      createService();
+    const human = openConversation({
+      control: {
+        mode: "human",
+        source: "staff_action",
+        changedAt: new Date("2026-07-25T00:30:00.000Z"),
+      },
+    });
+    const closed = {
+      ...human,
+      lifecycle: {
+        state: "closed" as const,
+        reason: "cancelled" as const,
+        closedAt: new Date("2026-07-25T00:32:00.000Z"),
+      },
+      staffClose: { reason: "handled_offline" as const, note: null },
+    };
+    const staffMessage = {
+      id: randomMessageId(),
+      seq: 1,
+      actor: "staff" as const,
+      text: "Προλαβαίνει",
+      providerMessageId: null,
+      ingressId: null,
+      outboxId,
+      at: outboxRow().createdAt,
+    };
+    let current: FeedbackConversationDocument = human;
+    const insertEntered = deferred<void>();
+    const releaseInsert = deferred<void>();
+    serializeTransactions(database);
+    conversations.findById.mockImplementation(async () => current);
+    repository.insertOutboxIfAbsent.mockImplementation(async () => {
+      insertEntered.resolve(undefined);
+      await releaseInsert.promise;
+      return {
+        row: { ...outboxRow(), body: "Προλαβαίνει" },
+        inserted: true,
+      };
+    });
+    conversations.appendMessage.mockResolvedValue({
+      appended: true,
+      message: staffMessage,
+      conversation: { ...human, messages: [staffMessage] },
+    });
+    conversations.close.mockImplementation(async () => {
+      current = closed;
+      return { changed: true, conversation: closed };
+    });
+    repository.listOutboxByConversation.mockResolvedValue([
+      { ...outboxRow(), body: "Προλαβαίνει", status: "cancelled" },
+    ]);
+
+    const sending = service.sendStaffMessage(
+      campaignId,
+      conversationId,
+      { clientMessageId, text: "Προλαβαίνει" },
+      "admin-1",
+      "send-first",
+    );
+    await insertEntered.promise;
+    const closing = service.close(
+      campaignId,
+      conversationId,
+      { reason: "handled_offline" },
+      "admin-1",
+      "close-second",
+    );
+    releaseInsert.resolve(undefined);
+
+    await expect(sending).resolves.toMatchObject({
+      messages: [expect.objectContaining({ outboxId })],
+    });
+    await closing;
+    expect(repository.insertOutboxIfAbsent).toHaveBeenCalledTimes(1);
+    expect(repository.cancelQueuedOutboxForConversation).toHaveBeenCalledWith(
+      expect.anything(),
+      conversationId,
+    );
+    expect(
+      auditAppend.mock.calls.filter(
+        ([, input]) =>
+          (input as { action?: string }).action ===
+          "feedback_conversation.staff_message_enqueued",
+      ),
+    ).toHaveLength(1);
   });
 
   it("cancels the staff row and refuses the send when the transcript is full", async () => {
@@ -584,7 +929,7 @@ describe("PostEventFeedbackConversationService", () => {
       service.sendStaffMessage(
         campaignId,
         conversationId,
-        "Γεια σου",
+        { clientMessageId, text: "Γεια σου" },
         "admin-1",
         "req-1",
       ),
@@ -646,6 +991,13 @@ describe("PostEventFeedbackConversationService", () => {
         note: "Called them back",
       },
     });
+    expect(repository.lockConversation).toHaveBeenCalledWith(
+      expect.anything(),
+      conversationId,
+    );
+    expect(
+      repository.lockConversation.mock.invocationCallOrder[0],
+    ).toBeLessThan(conversations.close.mock.invocationCallOrder[0]!);
     expect(repository.cancelQueuedOutboxForConversation).toHaveBeenCalled();
     expect(auditAppend).toHaveBeenCalledWith(
       expect.anything(),
@@ -758,8 +1110,23 @@ describe("PostEventFeedbackConversationService", () => {
   });
 
   it("takes over from bot and resumes bot under human control", async () => {
-    const { service, conversations, auditAppend } = createService();
-    const open = openConversation();
+    const { service, conversations, repository, auditAppend, wakeups } =
+      createService();
+    const open = openConversation({
+      messages: [
+        {
+          id: randomMessageId(),
+          seq: 1,
+          actor: "participant",
+          text: "Τελικά βάλε 4",
+          providerMessageId: "provider-1",
+          ingressId: "ingress-1",
+          outboxId: null,
+          attention: null,
+          at: new Date("2026-07-25T00:20:00.000Z"),
+        },
+      ],
+    });
     const human = {
       ...open,
       control: {
@@ -775,10 +1142,16 @@ describe("PostEventFeedbackConversationService", () => {
       changed: true,
       conversation: human,
     });
+    const resumedAt = new Date("2026-07-25T00:31:00.000Z");
+    const resumedConversation = {
+      ...open,
+      work: { revision: 1, nextActionAt: resumedAt, executionEpoch: 0 },
+    };
     conversations.resumeBot.mockResolvedValue({
       changed: true,
-      conversation: open,
+      conversation: resumedConversation,
     });
+    repository.cancelQueuedAutomatedOutboxForConversation.mockResolvedValue(2);
 
     const taken = await service.takeOver(
       campaignId,
@@ -792,22 +1165,85 @@ describe("PostEventFeedbackConversationService", () => {
       canResumeBot: true,
       canSendStaffMessage: true,
     });
+    expect(
+      repository.cancelQueuedAutomatedOutboxForConversation,
+    ).toHaveBeenCalledWith(expect.anything(), conversationId);
 
-    const resumed = await service.resumeBot(
+    const resumedView = await service.resumeBot(
       campaignId,
       conversationId,
       "admin-1",
       "req-2",
     );
-    expect(resumed.control.mode).toBe("bot");
+    expect(resumedView.control.mode).toBe("bot");
     expect(auditAppend).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ action: "feedback_conversation.taken_over" }),
+      expect.objectContaining({
+        action: "feedback_conversation.taken_over",
+        context: {
+          campaignId,
+          controlSource: "staff_action",
+          cancelledOutboxCount: 2,
+        },
+      }),
     );
     expect(auditAppend).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ action: "feedback_conversation.bot_resumed" }),
     );
+    expect(wakeups.ensureQueued).toHaveBeenCalledWith({
+      conversationId,
+      work: resumedConversation.work,
+      correlationId: "req-2",
+      now: expect.any(Date),
+    });
+  });
+
+  it("repairs queue publication when resume already committed in MongoDB", async () => {
+    const { service, conversations, wakeups, auditAppend } = createService();
+    const human = openConversation({
+      control: {
+        mode: "human",
+        source: "staff_action",
+        changedAt: new Date("2026-07-25T00:30:00.000Z"),
+      },
+    });
+    const dueAt = new Date("2026-07-25T00:31:00.000Z");
+    const resumed = openConversation({
+      control: { mode: "bot", source: "staff_action", changedAt: dueAt },
+      work: { revision: 9, nextActionAt: dueAt, executionEpoch: 4 },
+    });
+    conversations.findById
+      .mockResolvedValueOnce(human)
+      .mockResolvedValueOnce(resumed);
+    conversations.resumeBot.mockResolvedValue({
+      changed: true,
+      conversation: resumed,
+    });
+    wakeups.ensureQueued
+      .mockRejectedValueOnce(new Error("redis unavailable"))
+      .mockResolvedValueOnce("feedback-reconcile-v2-repaired");
+
+    await expect(
+      service.resumeBot(
+        campaignId,
+        conversationId,
+        "admin-1",
+        "resume-request",
+      ),
+    ).rejects.toThrow("redis unavailable");
+    await expect(
+      service.resumeBot(
+        campaignId,
+        conversationId,
+        "admin-1",
+        "resume-request",
+      ),
+    ).resolves.toMatchObject({ control: { mode: "bot" } });
+
+    expect(conversations.resumeBot).toHaveBeenCalledTimes(1);
+    expect(wakeups.ensureQueued).toHaveBeenCalledTimes(2);
+    expect(auditAppend).toHaveBeenCalledTimes(1);
   });
 
   it("lists campaign results with resolved display names", async () => {
@@ -1791,7 +2227,15 @@ function outboxRow(): MessageOutboxRow {
     kind: "staff",
     body: "Γεια σου",
     status: "pending",
-    dedupeKey: `feedback-staff-${conversationId}-1`,
+    attemptCount: 0,
+    claimToken: null,
+    claimExpiresAt: null,
+    sendStartedAt: null,
+    lastError: null,
+    dedupeKey: createFeedbackStaffMessageDedupeKey(
+      conversationId,
+      clientMessageId,
+    ),
     createdByStaff: "admin-1",
     providerLogId: null,
     providerMessageId: null,
@@ -1865,18 +2309,45 @@ function randomMessageId(): string {
   return "11111111-1111-4111-8111-111111111111";
 }
 
+function serializeTransactions(database: {
+  readonly transaction: ReturnType<typeof vi.fn>;
+}): void {
+  let tail = Promise.resolve<unknown>(undefined);
+  database.transaction.mockImplementation(
+    (work: (transaction: AppTransaction) => Promise<unknown>) => {
+      const result = tail.then(() => work({} as AppTransaction));
+      tail = result.catch(() => undefined);
+      return result;
+    },
+  );
+}
+
+function deferred<T>(): {
+  readonly promise: Promise<T>;
+  resolve(value: T): void;
+} {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
 function createService(): {
   service: PostEventFeedbackConversationService;
-  queue: {
-    add: ReturnType<typeof vi.fn>;
-    getJob: ReturnType<typeof vi.fn>;
+  wakeups: {
+    schedule: ReturnType<typeof vi.fn>;
+    ensureQueued: ReturnType<typeof vi.fn>;
   };
   repository: {
     findCampaignById: ReturnType<typeof vi.fn>;
+    findCampaignByIdForUpdate: ReturnType<typeof vi.fn>;
+    findOutboxByDedupeKey: ReturnType<typeof vi.fn>;
     insertOutboxIfAbsent: ReturnType<typeof vi.fn>;
     insertOutboxLogIfAbsent: ReturnType<typeof vi.fn>;
     listOutboxByConversation: ReturnType<typeof vi.fn>;
     cancelQueuedOutboxForConversation: ReturnType<typeof vi.fn>;
+    cancelQueuedAutomatedOutboxForConversation: ReturnType<typeof vi.fn>;
     updateOutboxStatus: ReturnType<typeof vi.fn>;
     listAnswersByConversation: ReturnType<typeof vi.fn>;
     listNotesByConversation: ReturnType<typeof vi.fn>;
@@ -1908,11 +2379,19 @@ function createService(): {
   participants: {
     findByIds: ReturnType<typeof vi.fn>;
   };
+  executionFences: {
+    findActiveLease: ReturnType<typeof vi.fn>;
+  };
   auditAppend: ReturnType<typeof vi.fn>;
+  database: {
+    transaction: ReturnType<typeof vi.fn>;
+  };
 } {
   const transaction = {} as AppTransaction;
   const repository = {
     findCampaignById: vi.fn().mockResolvedValue(campaignRow),
+    findCampaignByIdForUpdate: vi.fn().mockResolvedValue(campaignRow),
+    findOutboxByDedupeKey: vi.fn().mockResolvedValue(undefined),
     insertOutboxIfAbsent: vi.fn(),
     insertOutboxLogIfAbsent: vi.fn().mockResolvedValue({
       row: { id: "log-1" },
@@ -1920,6 +2399,7 @@ function createService(): {
     }),
     listOutboxByConversation: vi.fn().mockResolvedValue([]),
     cancelQueuedOutboxForConversation: vi.fn().mockResolvedValue(0),
+    cancelQueuedAutomatedOutboxForConversation: vi.fn().mockResolvedValue(0),
     updateOutboxStatus: vi.fn(),
     listAnswersByConversation: vi.fn().mockResolvedValue([]),
     listNotesByConversation: vi.fn().mockResolvedValue([]),
@@ -1956,19 +2436,21 @@ function createService(): {
   const participants = {
     findByIds: vi.fn().mockResolvedValue([participantRow()]),
   };
+  const executionFences = {
+    findActiveLease: vi.fn().mockResolvedValue(undefined),
+  };
   const auditAppend = vi.fn().mockResolvedValue(undefined);
   const database = {
     transaction: vi.fn(async (work: (tx: AppTransaction) => Promise<unknown>) =>
       work(transaction),
     ),
   };
-  const queue = {
-    add: vi.fn().mockResolvedValue({ id: "job" }),
-    getJob: vi.fn().mockResolvedValue(null),
+  const wakeups = {
+    schedule: vi.fn().mockResolvedValue("feedback-reconcile-v2-test"),
+    ensureQueued: vi.fn().mockResolvedValue("feedback-reconcile-v2-test"),
   };
 
   const service = new PostEventFeedbackConversationService(
-    queue as unknown as Queue<FeedbackJobData, void, FeedbackJobName>,
     database as unknown as DatabaseService,
     repository as unknown as FeedbackCampaignRepository,
     repository as unknown as FeedbackResultsRepository,
@@ -1987,15 +2469,19 @@ function createService(): {
       repository as unknown as FeedbackOutboundLogRepository,
     ),
     noopSummaries(),
+    executionFences as unknown as FeedbackConversationExecutionFenceRepository,
+    wakeups as unknown as FeedbackConversationWakeupService,
   );
 
   return {
     service,
-    queue,
+    wakeups,
     repository,
     eventsService,
     conversations,
     participants,
+    executionFences,
     auditAppend,
+    database,
   };
 }

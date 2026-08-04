@@ -479,6 +479,12 @@ production_activate_scope() {
 
   case $scope in
     all | backend)
+      # Compatibility barrier: stop the old reader before the new API can
+      # persist a schema or dispatch state it does not understand. Compose's
+      # explicit stop waits for the worker grace period and `unless-stopped`
+      # does not resurrect it. If API readiness fails, leave the worker stopped
+      # so an old binary cannot consume work written by the new API.
+      "${production_compose[@]}" stop worker
       "${production_compose[@]}" up -d --no-build --no-deps --wait --wait-timeout "$wait_timeout" api
       production_wait_for_url api "$api_url"
       "${production_compose[@]}" up -d --no-build --no-deps --wait --wait-timeout "$wait_timeout" worker

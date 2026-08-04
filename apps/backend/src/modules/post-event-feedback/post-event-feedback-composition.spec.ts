@@ -1,4 +1,9 @@
-import { MODULE_METADATA } from "@nestjs/common/constants.js";
+import { getQueueToken } from "@nestjs/bullmq";
+import {
+  MODULE_METADATA,
+  OPTIONAL_DEPS_METADATA,
+  SELF_DECLARED_DEPS_METADATA,
+} from "@nestjs/common/constants.js";
 import { describe, expect, it } from "vitest";
 
 import { IS_PUBLIC_ROUTE } from "../../infrastructure/auth/public.decorator.js";
@@ -8,21 +13,25 @@ import {
   QueueModule,
   QueueWorkerModule,
 } from "../../infrastructure/queue/queue.module.js";
+import { FEEDBACK_QUEUE } from "../../infrastructure/queue/queue.constants.js";
 import { EventsCoreModule } from "../events/events-core.module.js";
 import { FeedbackBurstController } from "./burst/burst.controller.js";
-import { FeedbackOutboxSchedulerService } from "./outbox/relay-scheduler.service.js";
+import { FeedbackOutboxDispatcherLoop } from "./outbox/dispatcher-loop.service.js";
 import { DisabledFeedbackTransport } from "./outbox/disabled-transport.service.js";
 import type { SimulatedFeedbackTransport } from "./outbox/simulated-transport.service.js";
 import { FeedbackSweepSchedulerService } from "./sweeps/sweep-scheduler.service.js";
-import { MessageOutboxDeliveryService } from "./outbox/deliver.service.js";
 import { MessageOutboxDeliveryStatusService } from "./outbox/delivery-status.service.js";
-import { MessageOutboxRelayService } from "./outbox/relay.service.js";
 import { PostEventFeedbackExtractionModel } from "./extraction/model.service.js";
 import { PostEventFeedbackExtractor } from "./extraction/extract.service.js";
+import { PostEventFeedbackExtractionFallback } from "./extraction/fallback.service.js";
+import { FeedbackConversationExecutionLimiter } from "./extraction/execution-limiter.service.js";
 import { PostEventFeedbackHttpModule } from "./http.module.js";
 import { PostEventFeedbackIngressModule } from "./ingress/ingress.module.js";
 import { PostEventFeedbackIngressService } from "./ingress/ingress.service.js";
+import { FeedbackMaterializeWakeupService } from "./ingress/materialize-wakeup.service.js";
 import { PostEventFeedbackMaterializer } from "./ingress/materialize.service.js";
+import { PostEventFeedbackCampaignService } from "./campaign/campaign.service.js";
+import { PostEventFeedbackConversationService } from "./inbox/conversation.service.js";
 import { PostEventFeedbackSweepService } from "./sweeps/sweep.service.js";
 import { FeedbackSimulatorController } from "./simulator/simulator.controller.js";
 import {
@@ -30,6 +39,8 @@ import {
   PostEventFeedbackWorkerModule,
 } from "./worker.module.js";
 import { PostEventFeedbackProcessor } from "./processor.js";
+import { FeedbackConversationReconcileProcessor } from "./reconciliation/reconcile.processor.js";
+import { FeedbackConversationWakeupService } from "./reconciliation/wakeup.service.js";
 
 function providerToken(provider: unknown): unknown {
   if (
@@ -107,15 +118,74 @@ describe("post-event feedback process composition", () => {
     ) as readonly unknown[];
 
     expect(ingressProviders).toContain(PostEventFeedbackIngressService);
+    expect(ingressProviders).toContain(FeedbackMaterializeWakeupService);
     expect(ingressProviders).toContain(MessageOutboxDeliveryStatusService);
     expect(workerProviders).toContain(PostEventFeedbackProcessor);
+    expect(workerProviders).toContain(FeedbackConversationReconcileProcessor);
+    expect(workerProviders).toContain(FeedbackConversationExecutionLimiter);
+    expect(workerProviders).toContain(FeedbackConversationWakeupService);
     expect(workerProviders).toContain(PostEventFeedbackMaterializer);
-    expect(workerProviders).toContain(MessageOutboxRelayService);
-    expect(workerProviders).toContain(MessageOutboxDeliveryService);
-    expect(workerProviders).toContain(FeedbackOutboxSchedulerService);
+    expect(workerProviders).toContain(FeedbackMaterializeWakeupService);
+    expect(workerProviders).toContain(FeedbackOutboxDispatcherLoop);
     expect(workerProviders).toContain(FeedbackSweepSchedulerService);
     expect(workerProviders).toContain(PostEventFeedbackSweepService);
     expect(workerProviders).not.toContain(PostEventFeedbackIngressService);
+  });
+
+  it("requires the rollout bridge on both model-bearing queue paths", () => {
+    const legacyParameters = Reflect.getMetadata(
+      "design:paramtypes",
+      PostEventFeedbackProcessor,
+    ) as readonly unknown[];
+    const reconcileParameters = Reflect.getMetadata(
+      "design:paramtypes",
+      FeedbackConversationReconcileProcessor,
+    ) as readonly unknown[];
+
+    // Retained V1 jobs must convert through the V2 scheduling boundary; V2
+    // executions temporarily share the Redis mutex understood by an already
+    // active old binary before obtaining the PostgreSQL commit fence.
+    expect(legacyParameters).toContain(FeedbackConversationWakeupService);
+    expect(reconcileParameters).toContain(FeedbackConversationExecutionLimiter);
+  });
+
+  it("requires durable V2 wakeups at every conversation-work producer", () => {
+    const producers = [
+      PostEventFeedbackMaterializer,
+      PostEventFeedbackExtractionFallback,
+      PostEventFeedbackConversationService,
+      PostEventFeedbackCampaignService,
+    ];
+
+    for (const producer of producers) {
+      const parameterTypes = (Reflect.getMetadata(
+        "design:paramtypes",
+        producer,
+      ) ?? []) as readonly unknown[];
+      const optionalParameters = (Reflect.getMetadata(
+        OPTIONAL_DEPS_METADATA,
+        producer,
+      ) ?? []) as readonly number[];
+      const explicitDependencies = (Reflect.getMetadata(
+        SELF_DECLARED_DEPS_METADATA,
+        producer,
+      ) ?? []) as readonly { param: unknown }[];
+      const wakeupIndex = parameterTypes.lastIndexOf(
+        FeedbackConversationWakeupService,
+      );
+
+      expect(wakeupIndex).toBeGreaterThanOrEqual(0);
+      expect(optionalParameters).not.toContain(wakeupIndex);
+      expect(explicitDependencies.map(({ param }) => param)).not.toContain(
+        getQueueToken(FEEDBACK_QUEUE),
+      );
+    }
+
+    const httpProviders = Reflect.getMetadata(
+      MODULE_METADATA.PROVIDERS,
+      PostEventFeedbackHttpModule,
+    ) as readonly unknown[];
+    expect(httpProviders).toContain(FeedbackConversationWakeupService);
   });
 
   it("keeps production simulator composition fail-closed without its rehearsal gate", () => {

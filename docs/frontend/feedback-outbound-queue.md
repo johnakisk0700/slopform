@@ -2,11 +2,12 @@
 
 Status: accepted. Verified 2026-07-27 in real Chrome over the DevTools Protocol
 (light and dark, 1600×1000); re-verified 2026-08-02 against the running dev
-server at 1440×820 and 1280×800 after the history rebuild.
+server at 1440×820 and 1280×800 after the history rebuild. Durable-dispatch
+indicator contract and generated DTO cutover completed 2026-08-03.
 
 The operator surface for every outbound post-event feedback message: what was
-sent and why, and what has not arrived yet. It is the admin half of the
-`message_outbox` relay documented in
+sent and why, and what dispatch has not resolved yet. It is the admin half of the
+PostgreSQL `message_outbox` dispatcher documented in
 [`backend/mechanisms/queues.md`](../backend/mechanisms/queues.md).
 
 ## Why it exists
@@ -22,15 +23,15 @@ vocabulary the rest of the admin uses: a person, a campaign, and an age.
 
 It **reports**. Nothing on it retries, cancels, promotes or re-enqueues
 anything; all three endpoints are `GET` — the queue, the history and the single
-message — and the queue, the relay, the delivery service and the extractor are
+message — and the queue, the dispatcher and the extractor are
 untouched.
 
 It **does** own: which statuses count as "not delivered", the age thresholds and
-their tones, the status and job-state vocabulary, the honesty copy for a job
-Redis cannot account for, the polling cadence, and the decision not to announce.
+their tones, durable dispatch vocabulary, the polling cadence, and the decision
+not to announce.
 
-It **does not** own: whether a row is sent (the relay decides), retry policy
-(`OUTBOX_RELAY_JOB_OPTIONS` and the five-minute `sending` recovery horizon), or
+It **does not** own: whether a row is sent (the dispatcher decides), claim and
+ambiguous-send policy, or
 the `«άγνωστος συμμετέχων»` rule, which it inherits from
 [the conversations screen](feedback-conversations.md).
 
@@ -56,7 +57,7 @@ would leave both «Feedback & safety» and «Outbound queue» carrying
 | --------------------------- | ------------------------------------------------ | --------------- |
 | `listFeedbackOutboxQueue`   | PostgreSQL + one batched MongoDB respondent read | 5 s, both views |
 | `listFeedbackOutboxHistory` | PostgreSQL + one batched MongoDB respondent read | 10 s, page 1    |
-| `getFeedbackOutboxMessage`  | PostgreSQL + **one** BullMQ `getJob`             | 5 s             |
+| `getFeedbackOutboxMessage`  | PostgreSQL                                       | 5 s             |
 
 All three are consumed through the generated hooks
 ([api-contract](../backend/mechanisms/api-contract.md)).
@@ -72,7 +73,7 @@ something is stuck behind them.
 | `src/components/admin/feedback/OutboxQueueList.tsx`      | The waiting list, its ages and its empty state                      |
 | `src/components/admin/feedback/OutboxHistoryList.tsx`    | The log, its rows and its pager                                     |
 | `src/components/admin/feedback/OutboxHistoryToolbar.tsx` | The range and status filters                                        |
-| `src/components/admin/feedback/OutboxMessageDetails.tsx` | The opened row: the message, the timeline, the log, the live job    |
+| `src/components/admin/feedback/OutboxMessageDetails.tsx` | The opened row: the message, timeline, log and dispatch activity    |
 | `src/routes/FeedbackOutboxPage.tsx`                      | The queue strip, the filters, the cursor stack, selection, wiring   |
 
 `features/feedback/outboxQueue.ts` has no React imports, so its rules are
@@ -80,33 +81,36 @@ unit-tested directly in `apps/admin/test/feedback-outbox.spec.ts`.
 
 ## The load constraint
 
-**The list must not do a Redis lookup per row.** A polled list that opens a queue
-connection for every message turns an observability page into the outage it was
-meant to observe.
+**The page does not read Redis.** Queue rows, history and one opened message are
+PostgreSQL reads plus the existing batched MongoDB respondent lookup. A
+polled observability page must not inspect one ephemeral job per row, and the
+direct dispatcher no longer has a delivery job to inspect anyway.
 
-Of the two allowed shapes — one batched call for the whole page, or a deferred
-call per opened row — this screen **defers**. The list is derived from
-PostgreSQL alone; the single `getJob` happens only for the row an operator
-opened, which is the same allowance
-[api-contract](../backend/mechanisms/api-contract.md) already grants
-`getFeedbackConversation` for its extract job. The bound is therefore one job
-lookup per five seconds regardless of how long the queue is, and it is enforced
-in two places: `apps/backend/src/modules/post-event-feedback/outbox/queue-view.service.spec.ts`
-asserts that a 25-row list never calls `getJob`, and the admin spec asserts the
-list half of the service names no queue call at all.
+The detail DTO publishes this durable block:
 
-A batched queue-wide read was considered and left out. `getJobCounts` would say
-whether any worker is alive, which the deferred read cannot — but it is a second
-Redis dependency on the page's own load path for a fact readiness already
-monitors, and every row an operator opens answers it for that row.
+```text
+dispatch {
+  state: pending | claimed | attempting | ambiguous |
+         sending (bridge) | sent | failed | held | cancelled
+  claimExpiresAt
+  sendStartedAt
+  attemptCount
+  lastError
+}
+```
+
+The claim token never crosses the API boundary. `claimed` is the only safely
+reclaimable state; `attempting` means a provider call may have started, and
+`ambiguous` blocks automatic resend. `deliveryActivityLines` owns this copy.
+`attemptCount = 0` on a pre-cutover `sending` or `sent` row means the counter did
+not exist for that send, not that no provider call happened; the detail pane
+states that limit instead of laundering a migration default into evidence.
 
 ```mermaid
 flowchart LR
   list["listFeedbackOutboxQueue\n(polled 5s)"] --> pg[(PostgreSQL\nmessage_outbox + campaign + event)]
   list --> mongo[(MongoDB\none $in respondent read)]
-  list -.->|"never"| redis[(Redis)]
   row["getFeedbackOutboxMessage\n(one opened row)"] --> pg
-  row -->|"one getJob"| redis
 ```
 
 ## What the list shows
@@ -119,7 +123,7 @@ sorts by it. Everything else on a row answers "and who does that affect".
 | Name   | One `line-clamp-1` line; D18 italic fallback through `ParticipantName`                                             |
 | Age    | Right-aligned `tabular-nums`, toned and weighted (below)                                                           |
 | Line 2 | Kind `·` event title. The phone number left this row when the column ran out of width; it is on the opened message |
-| Chips  | The row's own status, plus «Campaign paused» when the relay is refusing it                                         |
+| Chips  | The row's own status, plus «Campaign paused» when dispatch is deliberately blocked                                 |
 
 That anatomy is the **queue** row. A history row differs: it leads with the
 decision-log origin, and it carries the status badge alone — «Campaign paused»
@@ -127,14 +131,15 @@ is a live condition and cannot apply to something already sent.
 
 ### Age tones come from the mechanism
 
-The relay pass is 5 seconds, so:
+The dispatcher scans every second. Provider pacing and transport still add real
+latency, so the operator thresholds intentionally leave headroom:
 
-| Tone      | When                                                  | Reads as         |
-| --------- | ----------------------------------------------------- | ---------------- |
-| `fresh`   | under 15 s — at most two relay passes                 | `text-ink`       |
-| `slow`    | 15–60 s — three passes missed, something holds a slot | `text-warning`   |
-| `stalled` | 60 s and over — the shape of the 2026-07-27 incident  | `text-danger`    |
-| `parked`  | `held`, or any campaign that is not `launched`        | `text-ink-muted` |
+| Tone      | When                                                                | Reads as         |
+| --------- | ------------------------------------------------------------------- | ---------------- |
+| `fresh`   | under 15 s — ordinary claim, pacing and send headroom               | `text-ink`       |
+| `slow`    | 15–60 s — a launched row survived at least fifteen dispatcher scans | `text-warning`   |
+| `stalled` | 60 s and over — the shape of the 2026-07-27 incident                | `text-danger`    |
+| `parked`  | `held`, or any campaign that is not `launched`                      | `text-ink-muted` |
 
 `parked` is the important one. A paused campaign's rows are never leased and
 `held` rows never are either, so an hour of age there is obedience, not an
@@ -153,8 +158,10 @@ instead of implying that the cap is the backlog.
 ## Queue and history are one page, two questions — and history is the front door
 
 The screen carries a History/Queue toggle (`?view=queue`). The queue is «who is
-waiting right now»: only `pending`/`sending`/`held` rows, ages measured on the
-server, and it empties itself the moment delivery is healthy. The history is
+waiting right now»: `pending`, `claimed`, `attempting`, `ambiguous`, bridge-only
+`sending`, and `held` rows, with ages measured on the server. It empties itself
+the moment delivery is healthy, except that `ambiguous` deliberately remains
+until reconciliation. The history is
 «everything ever written, and why»: rows of any status, each leading with the
 decision log's one-word `origin` (kind is the fallback for rows older than the
 log), with `sent` in the quiet success tone and `failed` in the loud one.
@@ -222,10 +229,10 @@ Paging alone answers none of the questions people bring to a log — «the failu
 was somewhere in the last four thousand rows» is not an answer, it is the same
 problem with a button. So the history carries two filters and no date pickers.
 
-| Control | Options                            | Why                                           |
-| ------- | ---------------------------------- | --------------------------------------------- |
-| Range   | Last hour · Today · 7 days · All   | The questions people actually ask a log       |
-| Status  | Any, then the six the table allows | «Show me the failures» is why logs get opened |
+| Control | Options                                 | Why                                           |
+| ------- | --------------------------------------- | --------------------------------------------- |
+| Range   | Last hour · Today · 7 days · All        | The questions people actually ask a log       |
+| Status  | Any, then every status the table allows | «Show me the failures» is why logs get opened |
 
 A pair of date pickers would make the common case cost six interactions; the day
 a genuinely arbitrary range is needed it belongs here as a third control, not as
@@ -298,13 +305,11 @@ written, leased and sent inside the same second is the normal case, and
 `formatWaiting` would print all three of those gaps as `0s` — three zeros in a
 column whose only job is to show that nothing was slow.
 
-`updatedAt` earns a step only where it means something nameable: the lease on a
-`sending` row, and the moment a `failed` or `cancelled` row stopped. Anywhere
-else it is a column that changes for reasons the screen has no word for, which
-is what made it noise. Steps are sorted by their own instant rather than by the
-order they are assembled — a row that failed after a provider call has an
-`updatedAt` later than its `sentAt`, and printing them the other way round would
-invent a negative gap out of correct data.
+`claimExpiresAt` names the safe claim horizon and `sendStartedAt` names the
+irreversible boundary. `updatedAt` earns a step only for a terminal transition
+that has no more specific timestamp. Steps are sorted by their own instant
+rather than by assembly order, so a failed or reconciled row cannot print a
+negative gap out of correct data.
 
 The row's two statuses became one badge and, sometimes, a second. The durable
 row status is the truth and carries the vocabulary. The provider's own reading
@@ -350,29 +355,30 @@ none of them, and each moved rather than vanished:
 | ------------------------------------------ | ----------------------------------------------- |
 | Three ids as labelled fact rows            | One «Identifiers» strip at the foot of the pane |
 | A paragraph saying the campaign is running | Printed only when it is **not** running         |
-| Five lines on the missing retry history    | A `<details>` under the state that prompts it   |
+| Ephemeral job/retry diagnostics            | Durable dispatch activity                       |
 
 The ids are not read on this screen; they exist to be pasted somewhere else, so
 they are grouped by that purpose and placed where a reader arrives only when
 they went looking. The campaign sentence was true on every healthy row, which
 taught operators to skip the paragraph that matters on the rows where it is not.
-The retry-history limit is needed once — the first time «άγνωστο» surprises
-someone — and it now sits directly under the state that raises the question.
+For direct-dispatch rows, durable `attemptCount` answers how many provider
+attempts started without pretending to be a full per-attempt audit log. Legacy
+rows say when that counter was not available.
 
 ## Failure and loading states
 
 - The list owns its loading, empty and error states; the error is `role="alert"`.
-- A selection that leaves the queue (the message reached the participant between
+- A selection that leaves the queue (dispatch reached a terminal state between
   two polls) falls away rather than pinning a stale pane.
 - `getFeedbackOutboxMessage` accepts **any** outbox status, so a row that has
   just been sent explains itself instead of answering 404.
-- `queryClient` retries are off repo-wide, so the one bounded "Reading this
-  message's delivery job…" line always resolves or becomes an error.
+- `queryClient` retries are off repo-wide, so a detail failure resolves visibly
+  rather than hiding behind a browser retry loop.
 - A history page keeps the previous one on screen while the next loads
   (`placeholderData`), so the list never blinks to an empty state between two
   clicks of «Older».
-- **No spinner anywhere states progress.** A dead worker and a busy one look
-  identical from Redis; the pane gives a state and a time, or «άγνωστο».
+- **No spinner anywhere states progress.** The pane gives durable state and a
+  claim/attempt time. It never converts a valid claim into a liveness claim.
 
 ## Accessibility
 
@@ -406,32 +412,30 @@ someone — and it now sits directly under the state that raises the question.
   page itself does not scroll), heading order `h1 → h2 list → h2 message → h3
 sections`, and exactly one `aria-current` row with a message open.
 
-## Extension
+## Remaining limit
 
-The honest gap this screen exposes is that **the system does not durably record
-delivery attempts.** Everything an operator would want for a post-incident
-question — how many times this message was tried, when, and why each attempt
-failed — lives only as BullMQ job state that `removeOnComplete` /
-`removeOnFail` deletes immediately. Closing it means a durable attempt log
-(a `message_outbox_attempts` table written by the deliver consumer, or an
-attempt counter plus last-failure columns on `message_outbox`), which is a
-migration and a change to the delivery path — not something an observability
-screen may invent. Until then, «άγνωστο» is the correct word.
+`attemptCount`, `sendStartedAt` and `lastError` are durable for direct-dispatch
+attempts, but they are not a full per-attempt ledger. They answer whether and
+how many new-path provider attempts started and why the latest transition
+stopped. Pre-cutover terminal rows retain no equivalent counter. If incident
+review later needs every attempt's start, finish and response, that requires an
+append-only attempts table; the screen must not reconstruct one from aggregate
+columns.
 
 ## Tests
 
 `apps/admin/test/feedback-outbox.spec.ts` covers the age thresholds against the
-relay's own pass, that a parked row never takes an urgent tone, the compact and
+dispatcher tick, that a parked row never takes an urgent tone, the compact and
 spoken age formats, the status and kind vocabulary, the summary's real totals and
-oldest age, every branch of the job copy (including all three «άγνωστο» cases and
-the reclaim time instead of a spinner), the attempt answer, the polling policy,
+oldest age, safe `claimed` recovery, the `attempting` no-reclaim boundary,
+`ambiguous` as blocked resend, durable attempt/error copy, the polling policy,
 the absence of any live region, the generated-hook boundary, that the backend
 list path names no queue call, the route/navigation registration, and that the
 screen colours itself from tokens alone. A «why the row was written» block
 covers the decision-log facts per origin, that no confidence is invented when
 the model reported none, the verbatim passthrough of an unrecognised failure
 cause, the conversation-state wording, the predates-the-log statement, and
-that both log sections render above «Delivery job».
+that both log sections render above «Dispatch activity».
 
 Three blocks cover the rebuild. **Paging the log** asserts the cursor walk, the
 absence of any page number, that only the newest page polls, and that a filter
@@ -443,15 +447,16 @@ of claiming an empty table. **The opened row** asserts the body and the header
 facts, the timeline's deltas and its sub-second scale, that steps which did not
 happen are omitted, that `updatedAt` appears only where it is nameable, that
 steps sort by instant so no negative gap can be printed, the provider-reading
-rule, and that the campaign paragraph and the retry-history note stopped being
-unconditional. **Fitting a laptop screen** pins the `lg` breakpoint, the absence
+rule, that the campaign paragraph is conditional, and that retry-history copy
+and legacy job identity are absent. **Fitting a laptop screen** pins the `lg`
+breakpoint, the absence
 of `max-h-[78vh]`, and that the panes take the viewport.
 
-Backend: `inspect-deliver-job.spec.ts` covers the job read (state, due time,
-bounded failure reason, a missing job as `unknown`, and an unrecognised BullMQ
-state as `unknown`); `queue-view.service.spec.ts` covers the no-Redis list
-invariant, server-measured ages, the D18-shaped fallback, capped totals, the
-single opened-row lookup, the reclaim horizon and a already-sent row, the
+Backend: `dispatcher.repository.spec.ts` and `dispatcher.service.spec.ts` cover
+safe claim, the pre-send marker, durable attempt counts and ambiguous outcomes;
+`queue-view.service.spec.ts` covers the no-Redis read invariant,
+server-measured ages, the D18-shaped fallback, capped totals, the durable
+dispatch block and an already-sent row, the
 decision log on the opened row — present, absent, and unreadable-jsonb-as-null —
 the message, person and event the pane names a row by, and the paging contract:
 the read-one-past-the-page cursor, the end of the log, continuing from the
@@ -464,13 +469,10 @@ and five malformed inputs that must produce `null` rather than a predicate.
 
 - [ADR 0008](../decisions/0008-post-event-feedback-conversations.md) — post-event
   feedback conversations
-- [`queues.md`](../backend/mechanisms/queues.md) — the relay, the deliver job
-  contract and its retention
+- [`queues.md`](../backend/mechanisms/queues.md) — the four feedback contracts
+  and direct outbox dispatcher
 - [`api-contract.md`](../backend/mechanisms/api-contract.md) — the rule this
   screen's list obeys
 - [`feedback-conversations.md`](feedback-conversations.md) — the inbox it links
   into, and the D18 fallback it inherits
 - [`theming.md`](theming.md) — tokens
-- [BullMQ auto-removal](https://docs.bullmq.io/guide/queues/auto-removal-of-jobs)
-  and [job ids](https://docs.bullmq.io/guide/jobs/job-ids) (5.80.10, verified
-  2026-07-27)

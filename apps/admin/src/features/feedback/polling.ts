@@ -26,17 +26,16 @@ export const CAMPAIGN_SUMMARY_POLL_INTERVAL_MS = 5_000;
 /**
  * The outbound queue list.
  *
- * Matched to the relay's own 5-second pass, because a faster poll cannot show
- * anything new and a slower one lets an age drift further than the number it
- * claims to be. It is also the resolution of every age on that screen: the
- * server measures them, so the interval is how stale the oldest one can get.
+ * Five seconds samples the dispatcher's one-second scans without hammering an
+ * operator-only GET. It is also the display resolution of every age on that
+ * screen: the server measures them, so the interval is how stale the oldest
+ * visible value can get.
  */
 export const OUTBOX_QUEUE_POLL_INTERVAL_MS = 5_000;
 
 /**
- * The one opened outbound message, which is also the only place this feature
- * reads Redis. One row on screen means one job lookup per tick, whatever the
- * queue's length.
+ * One opened outbound message. Its activity block is durable PostgreSQL state,
+ * so this cadence is about operator freshness rather than queue inspection.
  */
 export const OUTBOX_MESSAGE_POLL_INTERVAL_MS = 5_000;
 

@@ -1,53 +1,27 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
 
 import {
   WasenderClient,
   WasenderClientError,
 } from "../../../integrations/wasender/wasender.client.js";
-import {
-  FeedbackSessionPacer,
-  FEEDBACK_SEND_JITTER_MS,
-  FEEDBACK_SEND_MIN_INTERVAL_MS,
-} from "./session-pacer.js";
 import type {
   FeedbackTransport,
-  FeedbackTransportMessageInfo,
   FeedbackTransportSendInput,
   FeedbackTransportSendResult,
 } from "./transport.js";
 
 /**
- * Wasender-backed transport. Every send waits on the shared-session pacer
- * before calling `sendText`. Unknown provider outcomes are returned to the
- * caller for reconciliation — this adapter never retries.
+ * Raw Wasender-backed transport. The dispatcher owns deployment-wide pacing
+ * and the durable provider-entry marker; this adapter maps one provider call
+ * and never retries an unknown outcome.
  */
 @Injectable()
 export class WasenderFeedbackTransport implements FeedbackTransport {
-  private readonly logger = new Logger(WasenderFeedbackTransport.name);
-  private readonly pacer: FeedbackSessionPacer;
-
-  constructor(
-    private readonly client: WasenderClient,
-    pacer?: FeedbackSessionPacer,
-  ) {
-    this.pacer =
-      pacer ??
-      new FeedbackSessionPacer({
-        minIntervalMs: FEEDBACK_SEND_MIN_INTERVAL_MS,
-        jitterMs: FEEDBACK_SEND_JITTER_MS,
-      });
-  }
+  constructor(private readonly client: WasenderClient) {}
 
   async sendText(
     input: FeedbackTransportSendInput,
   ): Promise<FeedbackTransportSendResult> {
-    const paced = await this.pacer.waitTurn();
-    this.logger.log({
-      event: "feedback.transport.wasender.paced",
-      outboxId: input.outboxId,
-      waitedMs: paced.waitedMs,
-    });
-
     try {
       const result = await this.client.sendText({
         to: input.to,
@@ -91,34 +65,6 @@ export class WasenderFeedbackTransport implements FeedbackTransport {
         outcome: "unknown",
         reason: error.kind,
       };
-    }
-  }
-
-  async getMessageInfo(
-    providerLogId: string,
-  ): Promise<FeedbackTransportMessageInfo | undefined> {
-    const numericId = Number(providerLogId);
-    if (!Number.isInteger(numericId) || numericId <= 0) {
-      return undefined;
-    }
-
-    try {
-      const info = await this.client.getMessageInfo(numericId);
-      return {
-        providerLogId: String(info.providerLogId),
-        providerMessageId: info.providerMessageId,
-        status: info.status,
-        occurredAt: new Date(info.occurredAt),
-      };
-    } catch (error) {
-      if (
-        error instanceof WasenderClientError &&
-        error.deliveryOutcome === "not-applicable" &&
-        error.statusCode === 404
-      ) {
-        return undefined;
-      }
-      throw error;
     }
   }
 }
