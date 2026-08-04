@@ -13,25 +13,29 @@ export function buildFeedbackBurstDeliveryExpectation({
   maxReceived,
   liveModel,
   paidModel,
-  stoppedForHandoff,
+  replyObligationWaived,
   injectedCount,
   receivedCount,
 }) {
-  // Deterministic stub runs retain the fixture's exact dialogue bounds. A paid
-  // model may legitimately consolidate a stale intermediate question after a
-  // newer inbound advances the conversation revision; that is the state-driven
-  // loop doing its job, not a dropped send. Paid scripted rows therefore keep
-  // the essential mechanism bound (intro + at least one current-state reply)
-  // and the fixture's anti-flood maximum.
+  // Deterministic stub runs retain the fixture's exact dialogue bounds — the
+  // stub sends every scripted message before any handoff can suppress one, so
+  // a shortfall there is always a real drop and the waiver never applies. A
+  // paid model may legitimately consolidate a stale intermediate question
+  // after a newer inbound advances the conversation revision; that is the
+  // state-driven loop doing its job, not a dropped send. Paid scripted rows
+  // therefore keep the essential mechanism bound (intro + at least one
+  // current-state reply) and the fixture's anti-flood maximum.
   //
   // A live guest normally owes intro + one outbound for every injected turn.
-  // When the last turn raises a silent human handoff, however, awaitingHuman is
-  // itself the terminal product response and no bot message is owed for that
-  // final inject.
+  // When a pending human handoff waives the reply obligation, however, the
+  // silence is itself the terminal product response: the last inject owes no
+  // bot message, and a paid scripted row may end one reply short when
+  // awaitingHuman froze the automation mid-script. The maximum is untouched
+  // in every branch — a handoff excuses silence, never flooding.
   const effectiveMinimum = liveModel
-    ? Math.max(minReceived, injectedCount + (stoppedForHandoff ? 0 : 1))
+    ? Math.max(minReceived, injectedCount + (replyObligationWaived ? 0 : 1))
     : paidModel
-      ? Math.min(minReceived, 2)
+      ? Math.max(1, Math.min(minReceived, replyObligationWaived ? 1 : 2))
       : minReceived;
   return {
     label: FEEDBACK_BURST_DELIVERY_LABEL,

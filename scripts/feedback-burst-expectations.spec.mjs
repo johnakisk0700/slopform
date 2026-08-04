@@ -17,7 +17,7 @@ describe("buildFeedbackBurstDeliveryExpectation", () => {
         maxReceived: 40,
         liveModel: true,
         paidModel: true,
-        stoppedForHandoff: false,
+        replyObligationWaived: false,
         injectedCount,
         receivedCount,
       });
@@ -41,7 +41,7 @@ describe("buildFeedbackBurstDeliveryExpectation", () => {
         maxReceived: 3,
         liveModel: false,
         paidModel: false,
-        stoppedForHandoff: false,
+        replyObligationWaived: false,
         injectedCount: 6,
         receivedCount: 2,
       }),
@@ -61,7 +61,7 @@ describe("buildFeedbackBurstDeliveryExpectation", () => {
         maxReceived: 4,
         liveModel: false,
         paidModel: true,
-        stoppedForHandoff: false,
+        replyObligationWaived: false,
         injectedCount: 6,
         receivedCount: 3,
       }),
@@ -78,7 +78,7 @@ describe("buildFeedbackBurstDeliveryExpectation", () => {
         maxReceived: 4,
         liveModel: false,
         paidModel: true,
-        stoppedForHandoff: false,
+        replyObligationWaived: false,
         injectedCount: 6,
         receivedCount: 1,
       }).passed,
@@ -90,7 +90,7 @@ describe("buildFeedbackBurstDeliveryExpectation", () => {
         maxReceived: 4,
         liveModel: false,
         paidModel: true,
-        stoppedForHandoff: false,
+        replyObligationWaived: false,
         injectedCount: 6,
         receivedCount: 5,
       }).passed,
@@ -104,13 +104,62 @@ describe("buildFeedbackBurstDeliveryExpectation", () => {
       maxReceived: 40,
       liveModel: true,
       paidModel: true,
-      stoppedForHandoff: true,
+      replyObligationWaived: true,
       injectedCount: 7,
       receivedCount: 7,
     });
 
     assert.equal(result.expected, "7–40");
     assert.equal(result.passed, true);
+  });
+
+  it("waives the live reply obligation on unresolved handoff attention while keeping the ceiling", () => {
+    const expectation = (receivedCount) =>
+      buildFeedbackBurstDeliveryExpectation({
+        minReceived: 1,
+        maxReceived: 40,
+        liveModel: true,
+        paidModel: true,
+        replyObligationWaived: true,
+        injectedCount: 7,
+        receivedCount,
+      });
+
+    assert.equal(expectation(7).expected, "7–40");
+    assert.equal(expectation(7).passed, true);
+    assert.equal(expectation(41).passed, false);
+  });
+
+  it("lets a paid scripted persona end one reply short when a handoff waived the obligation", () => {
+    const expectation = (receivedCount) =>
+      buildFeedbackBurstDeliveryExpectation({
+        minReceived: 2,
+        maxReceived: 2,
+        liveModel: false,
+        paidModel: true,
+        replyObligationWaived: true,
+        injectedCount: 2,
+        receivedCount,
+      });
+
+    assert.equal(expectation(1).expected, "1–2");
+    assert.equal(expectation(1).passed, true);
+    assert.equal(expectation(3).passed, false);
+  });
+
+  it("never grants the waiver to a deterministic stub run", () => {
+    const result = buildFeedbackBurstDeliveryExpectation({
+      minReceived: 2,
+      maxReceived: 2,
+      liveModel: false,
+      paidModel: false,
+      replyObligationWaived: true,
+      injectedCount: 2,
+      receivedCount: 1,
+    });
+
+    assert.equal(result.expected, "2–2");
+    assert.equal(result.passed, false);
   });
 });
 

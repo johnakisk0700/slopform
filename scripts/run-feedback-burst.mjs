@@ -32,7 +32,10 @@ import {
   writeRunSummary,
 } from "./burst-artefacts.mjs";
 import { createFeedbackBurstHeaders } from "./feedback-burst-auth.mjs";
-import { feedbackBurstLiveGuestStopReason } from "./feedback-burst-live-guest.mjs";
+import {
+  feedbackBurstLiveGuestStopReason,
+  feedbackBurstReplySuppressedByHandoff,
+} from "./feedback-burst-live-guest.mjs";
 import { feedbackBurstOutboundInFlight } from "./feedback-burst-settlement.mjs";
 import {
   buildFeedbackBurstDeliveryExpectation,
@@ -1505,7 +1508,14 @@ async function collectSnapshot({
       const expectations = buildExpectations(persona, actual, received, {
         injectedCount: entry.injected.length,
         liveGuestsEnabled,
-        stoppedForHandoff: entry.liveStoppedForHandoff,
+        // The guest loop only learns about a handoff while it is still
+        // injecting; a scripted persona frozen by awaitingHuman or a live
+        // guest that timed out with unresolved safety reasons never sets
+        // liveStoppedForHandoff, so the snapshot re-derives the waiver from
+        // the conversation detail itself.
+        replyObligationWaived:
+          entry.liveStoppedForHandoff ||
+          feedbackBurstReplySuppressedByHandoff(detail),
         stubMode,
       });
       // Text sent after a STOP is deliberately not retained — the campaign
@@ -1656,7 +1666,7 @@ function buildExpectations(
   {
     injectedCount = 0,
     liveGuestsEnabled = false,
-    stoppedForHandoff = false,
+    replyObligationWaived = false,
     stubMode = true,
   } = {},
 ) {
@@ -1666,7 +1676,7 @@ function buildExpectations(
     maxReceived: expect.maxReceived,
     liveModel: Boolean(persona.liveModel),
     paidModel: !stubMode,
-    stoppedForHandoff,
+    replyObligationWaived,
     injectedCount,
     receivedCount: received.length,
   });
