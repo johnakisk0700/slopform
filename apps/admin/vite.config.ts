@@ -24,17 +24,24 @@ export default defineConfig({
             {
               name: "auth",
               test: /node_modules[\\/]@clerk[\\/]/,
-              includeDependenciesRecursively: false,
+              includeDependenciesRecursively: true,
             },
             {
               name: "ui",
               test: /node_modules[\\/]@heroui[\\/]/,
-              includeDependenciesRecursively: false,
+              // Recursive on purpose. Non-recursive grouping let HeroUI's own
+              // dependencies (react-stately's ToastQueue among them) land in
+              // whichever app chunk referenced them first, so this chunk
+              // imported the entry and route chunks back — a cycle that left
+              // bindings uninitialized while this chunk's top level ran
+              // (`new ToastQueue` threw «ze is not a constructor» and the
+              // admin never booted).
+              includeDependenciesRecursively: true,
             },
             {
               name: "markdown",
               test: /node_modules[\\/](?:highlight\.js|react-markdown|rehype-[^\\/]+|remark-[^\\/]+|unified)[\\/]/,
-              includeDependenciesRecursively: false,
+              includeDependenciesRecursively: true,
             },
           ],
         },
