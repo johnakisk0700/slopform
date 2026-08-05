@@ -115,27 +115,28 @@ function ContactEmail({ email }: { email: string }) {
   const { copied, copyValue } = useCopyFeedback();
 
   return (
-    <Button
-      variant="ghost"
-      onPress={() => void copyValue(email)}
-      aria-label={copied ? "Copied email" : "Copy email"}
-      title={email}
-      className={`${contactPillClassName} h-auto min-h-0 cursor-pointer font-normal hover:bg-surface-sunken hover:text-primary data-[hovered=true]:bg-surface-sunken`}
-    >
-      <AtSign
-        aria-hidden="true"
-        className="size-3.5 shrink-0 text-ink-subtle"
-      />
-      <span className="truncate">{email}</span>
-      {copied ? (
-        <Check aria-hidden="true" className="size-3.5 shrink-0 text-primary" />
-      ) : (
-        <Copy
+    <span title={email} className="inline-flex max-w-full">
+      <Button
+        variant="ghost"
+        onPress={() => void copyValue(email)}
+        aria-label={copied ? "Copied email" : "Copy email"}
+        className={`${contactPillClassName} h-auto min-h-0 cursor-pointer font-normal hover:bg-surface-sunken hover:text-primary data-[hovered=true]:bg-surface-sunken`}
+      >
+        <AtSign
           aria-hidden="true"
           className="size-3.5 shrink-0 text-ink-subtle"
         />
-      )}
-    </Button>
+        <span className="truncate">{email}</span>
+        {copied ? (
+          <Check aria-hidden="true" className="size-3.5 shrink-0 text-primary" />
+        ) : (
+          <Copy
+            aria-hidden="true"
+            className="size-3.5 shrink-0 text-ink-subtle"
+          />
+        )}
+      </Button>
+    </span>
   );
 }
 
@@ -156,21 +157,22 @@ function ContactPhone({ phone }: { phone: string }) {
       >
         {phone}
       </a>
-      <Button
-        isIconOnly
-        variant="ghost"
-        size="sm"
-        onPress={() => void copyValue(phone)}
-        aria-label={copied ? "Copied phone" : "Copy phone"}
-        title={phone}
-        className="size-6 min-h-6 min-w-6 shrink-0 text-ink-subtle hover:bg-transparent hover:text-primary data-[hovered=true]:bg-transparent"
-      >
-        {copied ? (
-          <Check aria-hidden="true" className="size-3.5 text-primary" />
-        ) : (
-          <Copy aria-hidden="true" className="size-3.5" />
-        )}
-      </Button>
+      <span title={phone} className="inline-flex shrink-0">
+        <Button
+          isIconOnly
+          variant="ghost"
+          size="sm"
+          onPress={() => void copyValue(phone)}
+          aria-label={copied ? "Copied phone" : "Copy phone"}
+          className="size-6 min-h-6 min-w-6 shrink-0 text-ink-subtle hover:bg-transparent hover:text-primary data-[hovered=true]:bg-transparent"
+        >
+          {copied ? (
+            <Check aria-hidden="true" className="size-3.5 text-primary" />
+          ) : (
+            <Copy aria-hidden="true" className="size-3.5" />
+          )}
+        </Button>
+      </span>
     </span>
   );
 }

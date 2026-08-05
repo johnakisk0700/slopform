@@ -91,18 +91,19 @@ export function ConversationAttention({
                   {label}
                 </p>
               ) : (
-                <Button
-                  variant="ghost"
-                  onPress={() => showMessage(anchor)}
-                  title={label}
-                  className="h-auto min-h-0 min-w-0 max-w-full truncate rounded-xs px-0 py-0 text-left text-sm font-normal text-ink underline decoration-warning-border decoration-1 underline-offset-2 hover:bg-transparent hover:decoration-warning data-[hovered=true]:bg-transparent"
-                >
-                  <span className="truncate">{label}</span>
-                  <span className="sr-only">
-                    {" "}
-                    Show the message that caused it.
-                  </span>
-                </Button>
+                <span title={label} className="min-w-0 max-w-full">
+                  <Button
+                    variant="ghost"
+                    onPress={() => showMessage(anchor)}
+                    className="h-auto min-h-0 min-w-0 max-w-full truncate rounded-xs px-0 py-0 text-left text-sm font-normal text-ink underline decoration-warning-border decoration-1 underline-offset-2 hover:bg-transparent hover:decoration-warning data-[hovered=true]:bg-transparent"
+                  >
+                    <span className="truncate">{label}</span>
+                    <span className="sr-only">
+                      {" "}
+                      Show the message that caused it.
+                    </span>
+                  </Button>
+                </span>
               )}
             </span>
             {/* No xs size in HeroUI — compact the sm ghost down to the row
