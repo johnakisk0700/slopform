@@ -59,10 +59,17 @@ campaign pause/resume/close/launch. One documented transport exception:
 
 `CampaignSummary` under `CampaignHeader` loads
 `GET /feedback/campaigns/:campaignId/summary` and regenerates via
-`POST …/summary`. Polls only while `pending`. Ready v2 `document`: score /
-directed-edge strip; tinted `wentWell` / `wentWrong`; bulleted `curiosities`,
-`gossip` (nested, closed by default, omitted when empty), `actions`. Legacy
-markdown when `document` is null → `AssistantMarkdown`. Backend contract:
+`POST …/summary`. Polls only while `pending`. Ready v3 `document`: score /
+directed-edge strip (score rows wear a per-metric Lucide glyph); `wentWell` /
+`wentWrong` as quiet `bg-surface` cards with a 3px left marker + status icon
+(Greek titles «Τι πήγε καλά» / «Τι στράβωσε»). Each finding is
+`{ text, weight }` — `SignalLow`/`Medium`/`High` glyph and soft green/red wash
+that intensifies for `high` (v4; older bodies project to `medium`). Themeable
+rose HeroUI `Accordion` `gossip` drawer under them (`bg-rose-soft` /
+`text-rose` / `border-rose-border`, closed by default, omitted when empty, nail
+emoji, animated chevron/panel); bulleted `curiosities` and `actions`. Outer
+campaign shell is HeroUI `Disclosure`. Legacy markdown when `document` is null
+→ `AssistantMarkdown`. Backend contract:
 [Campaign summary](../backend/modules/post-event-feedback.md#campaign-summary).
 
 `pending` is durable intent, not activity — never «Generating…» from status

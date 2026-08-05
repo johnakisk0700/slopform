@@ -47,10 +47,22 @@ one-off page logic explicit; delete scaffolding for APIs that do not exist.
 
 ## Select components deliberately
 
+**HeroUI first for interactive UI.** Buttons, menus, dialogs, drawers, selects,
+tabs, tables, toasts, disclosures/accordions, and anything else with open/close,
+focus, keyboard or motion behaviour come from `@heroui/react` so motion, focus
+rings and a11y match the rest of the panel. Do **not** hand-roll native
+`<details>`, custom dialogs, or home-grown expand/collapse when HeroUI already
+ships the pattern (`Accordion` for a group, `Disclosure` for a single panel).
+Style the HeroUI slots with tokens; do not reimplement the behaviour.
+
 1. Reuse a matching `Jts*` component.
-2. Otherwise use a HeroUI primitive directly.
-3. Compose a documented `Jts*` only for a real repeated pattern (a11y, loading/empty/error, pagination).
-4. Use semantic HTML/CSS for content and layout.
+2. Otherwise use the HeroUI primitive — read installed declarations
+   (`node_modules/@heroui/react/dist/…`) and
+   [heroui.com docs](https://www.heroui.com/docs/react/components) before use.
+3. Compose a documented `Jts*` only for a real repeated pattern (a11y,
+   loading/empty/error, pagination) that HeroUI does not already own.
+4. Semantic HTML/CSS only for inert content and layout (headings, lists, grids),
+   not for interactive chrome HeroUI covers.
 
 Pages own columns, cell formatting, filters, row actions and API calls. Shared
 components do not hide fetching or domain rules. Do not wrap HeroUI merely to

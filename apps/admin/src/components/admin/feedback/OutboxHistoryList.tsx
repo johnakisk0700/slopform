@@ -1,3 +1,4 @@
+import { Button } from "@heroui/react";
 import { clsx } from "clsx";
 import {
   ArrowUpToLine,
@@ -231,14 +232,15 @@ export function OutboxHistoryList({
           {atNewest ? (
             <span className="text-xs text-ink-subtle">Newest page</span>
           ) : (
-            <button
-              type="button"
-              onClick={onNewest}
-              className="inline-flex cursor-pointer items-center gap-1.5 text-xs font-semibold text-primary underline-offset-2 hover:underline"
+            <Button
+              variant="ghost"
+              size="sm"
+              onPress={onNewest}
+              className="h-auto min-h-0 gap-1.5 px-0 py-0 text-xs font-semibold text-primary underline-offset-2 hover:bg-transparent hover:underline data-[hovered=true]:bg-transparent"
             >
               <ArrowUpToLine aria-hidden="true" className="size-3.5" />
               Jump to newest
-            </button>
+            </Button>
           )}
         </nav>
       ) : null}
@@ -263,20 +265,16 @@ function PageButton({
   const glyph = <Icon aria-hidden="true" className="size-3.5 shrink-0" />;
 
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={clsx(
-        "inline-flex items-center gap-1 rounded-sm border border-border px-2 py-1 text-xs font-semibold transition-colors",
-        disabled
-          ? "cursor-not-allowed text-ink-subtle opacity-60"
-          : "cursor-pointer bg-surface text-ink hover:border-primary hover:text-primary",
-      )}
+    <Button
+      variant="secondary"
+      size="sm"
+      onPress={onClick}
+      isDisabled={disabled}
+      className="h-auto min-h-0 gap-1 px-2 py-1 text-xs font-semibold"
     >
       {iconTrailing ? null : glyph}
       {label}
       {iconTrailing ? glyph : null}
-    </button>
+    </Button>
   );
 }

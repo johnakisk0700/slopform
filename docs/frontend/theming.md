@@ -52,6 +52,7 @@ Consume the semantic layer; never hardcode primitives.
 | `--jts-color-accent`, `--jts-color-link` | Warm secondary (copper), links |
 | `--jts-color-focus`, `--jts-focus-ring` | Focus outline and ring |
 | `--jts-color-success`/`-warning`/`-danger`/`-info` (+ `-soft`/`-border`) | Status: fg, fill, border |
+| `--jts-color-rose` (+ `-soft`/`-border`) | Decorative pink tea tint (gossip); not a FeedbackBadge tone |
 | `--jts-color-sidebar-*` | Sidebar nav states (composed from above) |
 
 Non-colour scales: `--jts-space-{1..24}`, `--jts-radius-{xs..xl,pill,circle}`,

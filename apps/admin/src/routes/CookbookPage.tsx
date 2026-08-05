@@ -422,6 +422,18 @@ const STATUS_SPECIMENS: readonly StatusSpecimen[] = [
       "--jts-color-info-border",
     ],
   },
+  {
+    tone: "Rose",
+    meaning: "Gossip tea tint — decorative, not a badge tone",
+    fg: "text-rose",
+    soft: "border-rose-border bg-rose-soft text-rose",
+    solid: "bg-rose text-canvas",
+    tokens: [
+      "--jts-color-rose",
+      "--jts-color-rose-soft",
+      "--jts-color-rose-border",
+    ],
+  },
 ];
 
 function SwatchGrid({ swatches }: { swatches: readonly Swatch[] }) {

@@ -2,48 +2,77 @@ import { z } from "zod";
 
 import type { FeedbackCampaignSummaryMetrics } from "./summary-metrics.js";
 
-export const FEEDBACK_CAMPAIGN_SUMMARY_DOCUMENT_VERSION = 3 as const;
+export const FEEDBACK_CAMPAIGN_SUMMARY_DOCUMENT_VERSION = 4 as const;
 
 /**
- * Hard ceiling per narrative list. Room for a messy night (~10); beyond that
- * the accordion stops being scannable and the model is padding.
+ * Hard ceilings per narrative list — not a shared pool. Gossip and wentWrong
+ * get the room; the rest stay short so the model spends colour on the tea.
  */
-const LIST_ITEM_MAX = 10;
+export const FEEDBACK_SUMMARY_LIST_ITEM_MAX = {
+  gossip: 10,
+  wentWrong: 10,
+  wentWell: 5,
+  curiosities: 5,
+  actions: 5,
+} as const;
+
+/** How loud a well/wrong line should read on the accordion. */
+export const FEEDBACK_SUMMARY_FINDING_WEIGHTS = [
+  "low",
+  "medium",
+  "high",
+] as const;
+
+export type FeedbackSummaryFindingWeight =
+  (typeof FEEDBACK_SUMMARY_FINDING_WEIGHTS)[number];
 
 const listItemSchema = z.string().trim().min(1).max(280);
+
+export const feedbackSummaryFindingItemSchema = z
+  .object({
+    text: listItemSchema,
+    weight: z.enum(FEEDBACK_SUMMARY_FINDING_WEIGHTS).describe(
+      "How loud this line should read: low = quiet aside, medium = normal callout, high = punchy — reserve high for clear wins (wentWell) or real harm / sharp complaints (wentWrong). Prefer medium; do not mark every line high.",
+    ),
+  })
+  .strict();
+
+export type FeedbackSummaryFindingItem = z.infer<
+  typeof feedbackSummaryFindingItemSchema
+>;
 
 /** What the model is asked to fill. Metrics stay out — they are counted. */
 export const feedbackCampaignSummaryNarrativeSchema = z
   .object({
     curiosities: z
       .array(listItemSchema)
-      .max(LIST_ITEM_MAX)
+      .max(FEEDBACK_SUMMARY_LIST_ITEM_MAX.curiosities)
       .describe(
-        "Αξιοπερίεργα: up to 10 odd or notable patterns not already in wentWell/wentWrong — surprising skews, single-voice remarks worth keeping (labelled as one voice), funny-but-not-harmful quirks. Prefer collecting distinct items that stand; empty when nothing stands. Do not pad.",
+        "Αξιοπερίεργα: up to 5 odd patterns not already in wentWell/wentWrong/gossip — surprising skews, single-voice quirks. Keep short; spend colour on gossip. Empty when nothing stands. Do not pad.",
       ),
     gossip: z
       .array(listItemSchema)
-      .max(LIST_ITEM_MAX)
+      .max(FEEDBACK_SUMMARY_LIST_ITEM_MAX.gossip)
       .describe(
-        "Κουτσομπολιό: up to 10 social-tea lines — who people named in a chatty way, table chemistry, spicy-but-not-harmful quotes. Prefer collecting distinct juicy items when the evidence has them. Never put racism, abuse, or conduct flags here (those stay in wentWrong). Empty when nothing juicy. Do not pad.",
+        "Κουτσομπολιό: up to 10 juicy social-tea lines in stand-up observational voice — who clicked with whom, table chemistry, spicy-but-harmless quotes and the night's silly drama, grounded in evidence. Never put racism, abuse, or conduct flags here (those stay in wentWrong). Empty only when there is truly no tea. Do not pad.",
       ),
     actions: z
       .array(listItemSchema)
-      .max(LIST_ITEM_MAX)
+      .max(FEEDBACK_SUMMARY_LIST_ITEM_MAX.actions)
       .describe(
-        "Up to 10 concrete actions for the next dinner: seating, follow-up on a stated interest, who wants to see whom again. Empty when the data does not support an action — do not invent work.",
+        "Up to 5 concrete actions for the next dinner. Empty when the data does not support an action — do not invent work. Prefer fewer sharp items over a long list.",
       ),
     wentWell: z
-      .array(listItemSchema)
-      .max(LIST_ITEM_MAX)
+      .array(feedbackSummaryFindingItemSchema)
+      .max(FEEDBACK_SUMMARY_LIST_ITEM_MAX.wentWell)
       .describe(
-        "Up to 10 brief lines on what went well, grounded in high scores, praise in notes, and meet-again intent. Prefer collecting distinct positives when they stand. Empty when nothing supports a claim. Do not pad.",
+        "Up to 5 brief findings on what went well (high scores, praise, meet-again). Each item is `{ text, weight }` with weight low|medium|high. Keep text terse — gossip owns the colourful budget. high only for standout wins with clear evidence; default medium. Empty when nothing supports a claim. Do not pad.",
       ),
     wentWrong: z
-      .array(listItemSchema)
-      .max(LIST_ITEM_MAX)
+      .array(feedbackSummaryFindingItemSchema)
+      .max(FEEDBACK_SUMMARY_LIST_ITEM_MAX.wentWrong)
       .describe(
-        "Up to 10 everyday Greek lines on what went wrong — collect distinct situations: low scores, complaints, flagged notes, unresolved attention. When evidence shows racism or abuse of another guest, name it plainly and keep it here. A bare avoid with no such evidence stays a no-rematch preference. Prefer completeness over brevity when situations differ. Empty when nothing supports a claim. Do not pad.",
+        "Up to 10 everyday Greek findings on what went wrong — collect distinct situations: low scores, complaints, flagged notes, unresolved attention. Each item is `{ text, weight }` with weight low|medium|high. high for racism, abuse, or sharp multi-voice harm; medium for ordinary complaints; low for mild / single-voice asides. A bare avoid with no harm evidence stays a no-rematch preference at low or medium. Prefer completeness over brevity when situations differ. Empty when nothing supports a claim. Do not pad.",
       ),
     missing: z
       .string()
@@ -102,11 +131,19 @@ export const feedbackCampaignSummaryDocumentSchema = z
   .object({
     version: z.literal(FEEDBACK_CAMPAIGN_SUMMARY_DOCUMENT_VERSION),
     metrics: feedbackCampaignSummaryMetricsSchema,
-    curiosities: z.array(listItemSchema).max(LIST_ITEM_MAX),
-    gossip: z.array(listItemSchema).max(LIST_ITEM_MAX),
-    actions: z.array(listItemSchema).max(LIST_ITEM_MAX),
-    wentWell: z.array(listItemSchema).max(LIST_ITEM_MAX),
-    wentWrong: z.array(listItemSchema).max(LIST_ITEM_MAX),
+    curiosities: z
+      .array(listItemSchema)
+      .max(FEEDBACK_SUMMARY_LIST_ITEM_MAX.curiosities),
+    gossip: z.array(listItemSchema).max(FEEDBACK_SUMMARY_LIST_ITEM_MAX.gossip),
+    actions: z
+      .array(listItemSchema)
+      .max(FEEDBACK_SUMMARY_LIST_ITEM_MAX.actions),
+    wentWell: z
+      .array(feedbackSummaryFindingItemSchema)
+      .max(FEEDBACK_SUMMARY_LIST_ITEM_MAX.wentWell),
+    wentWrong: z
+      .array(feedbackSummaryFindingItemSchema)
+      .max(FEEDBACK_SUMMARY_LIST_ITEM_MAX.wentWrong),
     missing: z.string().trim().min(1).max(280).nullable(),
   })
   .strict();
@@ -127,6 +164,34 @@ const feedbackCampaignSummaryDocumentV2Schema = z
     missing: z.string().trim().min(1).max(280).nullable(),
   })
   .strict();
+
+/** Plain-string findings before weight — projected to medium on read. */
+const feedbackCampaignSummaryDocumentV3Schema = z
+  .object({
+    version: z.literal(3),
+    metrics: feedbackCampaignSummaryMetricsSchema,
+    curiosities: z
+      .array(listItemSchema)
+      .max(FEEDBACK_SUMMARY_LIST_ITEM_MAX.curiosities),
+    gossip: z.array(listItemSchema).max(FEEDBACK_SUMMARY_LIST_ITEM_MAX.gossip),
+    actions: z
+      .array(listItemSchema)
+      .max(FEEDBACK_SUMMARY_LIST_ITEM_MAX.actions),
+    wentWell: z
+      .array(listItemSchema)
+      .max(FEEDBACK_SUMMARY_LIST_ITEM_MAX.wentWell),
+    wentWrong: z
+      .array(listItemSchema)
+      .max(FEEDBACK_SUMMARY_LIST_ITEM_MAX.wentWrong),
+    missing: z.string().trim().min(1).max(280).nullable(),
+  })
+  .strict();
+
+function asMediumFindings(
+  lines: readonly string[],
+): FeedbackSummaryFindingItem[] {
+  return lines.map((text) => ({ text, weight: "medium" as const }));
+}
 
 export function buildFeedbackCampaignSummaryDocument(input: {
   readonly metrics: FeedbackCampaignSummaryMetrics;
@@ -151,9 +216,9 @@ export function serializeFeedbackCampaignSummaryDocument(
 }
 
 /**
- * Structured v3 bodies parse; v2 bodies with `highlights` project into
- * curiosities (gossip empty) so an already-generated row still renders until
- * refresh. Legacy markdown returns null for the old renderer.
+ * Structured v4 bodies parse; v3 plain-string findings and v2 `highlights`
+ * project forward so an already-generated row still renders until refresh.
+ * Legacy markdown returns null for the old renderer.
  */
 export function parseFeedbackCampaignSummaryDocument(
   body: string | null | undefined,
@@ -171,6 +236,19 @@ export function parseFeedbackCampaignSummaryDocument(
     if (current.success) {
       return current.data;
     }
+    const v3 = feedbackCampaignSummaryDocumentV3Schema.safeParse(raw);
+    if (v3.success) {
+      return feedbackCampaignSummaryDocumentSchema.parse({
+        version: FEEDBACK_CAMPAIGN_SUMMARY_DOCUMENT_VERSION,
+        metrics: v3.data.metrics,
+        curiosities: v3.data.curiosities,
+        gossip: v3.data.gossip,
+        actions: v3.data.actions,
+        wentWell: asMediumFindings(v3.data.wentWell),
+        wentWrong: asMediumFindings(v3.data.wentWrong),
+        missing: v3.data.missing,
+      });
+    }
     const legacy = feedbackCampaignSummaryDocumentV2Schema.safeParse(raw);
     if (!legacy.success) {
       return null;
@@ -181,8 +259,8 @@ export function parseFeedbackCampaignSummaryDocument(
       curiosities: legacy.data.highlights,
       gossip: [],
       actions: legacy.data.actions,
-      wentWell: legacy.data.wentWell,
-      wentWrong: legacy.data.wentWrong,
+      wentWell: asMediumFindings(legacy.data.wentWell),
+      wentWrong: asMediumFindings(legacy.data.wentWrong),
       missing: legacy.data.missing,
     });
   } catch {

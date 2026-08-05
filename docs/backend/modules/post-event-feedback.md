@@ -919,10 +919,14 @@ Simulator suppresses automatic requests; staff POST remains.
 Execution: campaign row lock → seven-minute PG lease + heartbeat; concurrency 3.
 Read model publishes `executionEpoch` + `claimExpiresAt` (not `claimToken`).
 Score averages/distributions/directed counts are deterministic from answer rows.
-Model returns versioned JSON document v3 (`curiosities`, `gossip`, `actions`,
-`wentWell`, `wentWrong`, optional `missing`). No participant rankings; `avoid`
-is no-rematch preference unless attention evidence says otherwise. Event detail
-exposes nullable `feedbackCampaignId`.
+Model returns versioned JSON document v4 (`curiosities`, `gossip`, `actions`,
+`wentWell`/`wentWrong` as `{ text, weight: low|medium|high }[]`, optional
+`missing`) with per-field list ceilings (`gossip`/`wentWrong` 10,
+`wentWell`/`curiosities`/`actions` 5). Stored v2/v3 bodies project forward on
+read (`weight: medium` for plain strings). Gossip voice is observational
+stand-up over harmless table drama; harm stays in `wentWrong` at high weight.
+No participant rankings; `avoid` is no-rematch preference unless attention
+evidence says otherwise. Event detail exposes nullable `feedbackCampaignId`.
 
 ## WP7b staff conversation inbox HTTP (implemented)
 

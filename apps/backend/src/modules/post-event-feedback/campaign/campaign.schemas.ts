@@ -7,6 +7,11 @@ import {
   FEEDBACK_CAMPAIGN_SUMMARY_TRIGGERS,
 } from "@join-the-six/database";
 
+import {
+  FEEDBACK_SUMMARY_FINDING_WEIGHTS,
+  FEEDBACK_SUMMARY_LIST_ITEM_MAX,
+} from "../summary/summary-document.js";
+
 export const feedbackCampaignStatusSchema = z.enum(FEEDBACK_CAMPAIGN_STATUSES);
 
 export const launchFeedbackCampaignSchema = z
@@ -120,15 +125,21 @@ const feedbackCampaignSummaryDirectedMetricSchema = z
   })
   .strict();
 
+const feedbackCampaignSummaryFindingItemSchema = z
+  .object({
+    text: z.string().min(1).max(280),
+    weight: z.enum(FEEDBACK_SUMMARY_FINDING_WEIGHTS),
+  })
+  .strict();
+
 /**
- * Parsed v3 campaign summary. Null when the stored body is legacy markdown or
+ * Parsed v4 campaign summary. Null when the stored body is legacy markdown or
  * the row has no body yet — the accordion falls back to the raw `body`. The
- * read path projects older v2 `highlights` bodies into `curiosities` before
- * this schema sees them.
+ * read path projects older v2/v3 bodies forward before this schema sees them.
  */
 export const feedbackCampaignSummaryDocumentSchema = z
   .object({
-    version: z.literal(3),
+    version: z.literal(4),
     metrics: z
       .object({
         questionSetVersion: z.union([z.literal(1), z.literal(2)]),
@@ -136,11 +147,21 @@ export const feedbackCampaignSummaryDocumentSchema = z
         directed: z.array(feedbackCampaignSummaryDirectedMetricSchema).max(8),
       })
       .strict(),
-    curiosities: z.array(z.string().min(1).max(280)).max(10),
-    gossip: z.array(z.string().min(1).max(280)).max(10),
-    actions: z.array(z.string().min(1).max(280)).max(10),
-    wentWell: z.array(z.string().min(1).max(280)).max(10),
-    wentWrong: z.array(z.string().min(1).max(280)).max(10),
+    curiosities: z
+      .array(z.string().min(1).max(280))
+      .max(FEEDBACK_SUMMARY_LIST_ITEM_MAX.curiosities),
+    gossip: z
+      .array(z.string().min(1).max(280))
+      .max(FEEDBACK_SUMMARY_LIST_ITEM_MAX.gossip),
+    actions: z
+      .array(z.string().min(1).max(280))
+      .max(FEEDBACK_SUMMARY_LIST_ITEM_MAX.actions),
+    wentWell: z
+      .array(feedbackCampaignSummaryFindingItemSchema)
+      .max(FEEDBACK_SUMMARY_LIST_ITEM_MAX.wentWell),
+    wentWrong: z
+      .array(feedbackCampaignSummaryFindingItemSchema)
+      .max(FEEDBACK_SUMMARY_LIST_ITEM_MAX.wentWrong),
     missing: z.string().min(1).max(280).nullable(),
   })
   .strict();

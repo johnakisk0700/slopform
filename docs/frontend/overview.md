@@ -9,7 +9,7 @@ and a copper note for the snapshot age.
 
 ## Behaviour
 
-- Header **Refresh** lives in `JtsPageHeader` `actions` (top-right). It calls
+- Header **Refresh** lives in `JtsPageHeader` `actions` (bottom-right). It calls
   `refetch()`; the glyph spins while a background refresh is in flight.
 - Stats: scheduled events, participants (with feedback-contactable detail),
   conversations needing attention, undelivered outbound messages. The four

@@ -85,6 +85,9 @@ const REQUIRED_TOKENS = [
   "--jts-color-info",
   "--jts-color-info-soft",
   "--jts-color-info-border",
+  "--jts-color-rose",
+  "--jts-color-rose-soft",
+  "--jts-color-rose-border",
   "--jts-color-highlight",
   "--jts-color-highlight-text",
   // The sidebar is the largest single colour surface on screen, so a palette
@@ -138,6 +141,7 @@ const PAIRS: [string, string][] = [
   ["--jts-color-text-muted", "--jts-color-surface-sunken"],
   ["--jts-color-primary", "--jts-color-surface"],
   ["--jts-color-primary", "--jts-color-primary-soft"],
+  ["--jts-color-rose", "--jts-color-rose-soft"],
 ];
 
 describe("palettes.css", () => {
@@ -278,6 +282,34 @@ describe("palettes.css", () => {
           contrastRatio(brand, tone(block, "surface-strong")),
           `${id}/${theme}: active numeral on sidebar`,
         ).toBeGreaterThanOrEqual(AA);
+      }
+    }
+  });
+
+  it("keeps rose readable as tea tint and clear of danger and brand", () => {
+    // Decorative soft card (gossip), not a FeedbackBadge tone — so it skips the
+    // badge ΔE-12 row, but still must clear AA on its soft fill and stay
+    // tellable from coral danger and the theme's primary.
+    for (const id of OVERRIDE_PALETTES) {
+      for (const theme of ["light", "dark"] as const) {
+        const block = paletteBlock(id, theme);
+        const rose = tone(block, "rose");
+        expect(
+          contrastRatio(rose, tone(block, "rose-soft")),
+          `${id}/${theme}: rose label on its own tint`,
+        ).toBeGreaterThanOrEqual(AA);
+        expect(
+          contrastRatio(tone(block, "canvas"), rose),
+          `${id}/${theme}: canvas label on solid rose`,
+        ).toBeGreaterThanOrEqual(AA);
+        expect(
+          deltaE(rose, tone(block, "danger")),
+          `${id}/${theme}: rose ${rose} vs danger`,
+        ).toBeGreaterThanOrEqual(PRIMARY_STATUS_FLOOR);
+        expect(
+          deltaE(rose, tone(block, "primary")),
+          `${id}/${theme}: rose ${rose} vs primary`,
+        ).toBeGreaterThanOrEqual(PRIMARY_STATUS_FLOOR);
       }
     }
   });

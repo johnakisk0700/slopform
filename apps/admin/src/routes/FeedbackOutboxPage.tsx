@@ -1,3 +1,4 @@
+import { ToggleButton, ToggleButtonGroup } from "@heroui/react";
 import { clsx } from "clsx";
 import { Hourglass, Pause, SendHorizontal } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
@@ -264,52 +265,54 @@ export function FeedbackOutboxPage() {
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div
-          role="group"
+        <ToggleButtonGroup
           aria-label="History or queue"
-          className="flex w-fit items-center gap-1 rounded-md border border-border bg-surface p-1"
+          selectionMode="single"
+          disallowEmptySelection
+          isDetached
+          selectedKeys={[view]}
+          onSelectionChange={(keys) => {
+            const [next] = keys;
+            if (next === "history" || next === "queue") {
+              selectView(next);
+            }
+          }}
         >
-          {(
-            [
-              ["history", "History", null],
-              ["queue", "Queue", summary?.total ?? null],
-            ] as const
-          ).map(([value, label, count]) => (
-            <button
-              key={value}
-              type="button"
-              aria-pressed={view === value}
-              onClick={() => selectView(value)}
+          <ToggleButton
+            id="history"
+            size="sm"
+            className="justify-center gap-2 rounded-md border border-border bg-transparent px-3 text-sm font-semibold text-ink data-[selected]:border-primary-border data-[selected]:bg-primary-soft data-[selected]:text-primary"
+          >
+            History
+          </ToggleButton>
+          <ToggleButton
+            id="queue"
+            size="sm"
+            className="justify-center gap-2 rounded-md border border-border bg-transparent px-3 text-sm font-semibold text-ink data-[selected]:border-primary-border data-[selected]:bg-primary-soft data-[selected]:text-primary"
+          >
+            Queue
+            {/* The backlog follows its own tab, so leaving the queue does not
+                mean losing sight of it. Zero is drawn quietly rather than
+                hidden: a badge that vanishes teaches nothing, while «0»
+                states that the question was asked and answered. */}
+            <span
               className={clsx(
-                "flex cursor-pointer items-center gap-2 rounded-sm px-3 py-1 text-sm font-semibold transition-colors",
-                view === value
-                  ? "bg-primary-soft text-primary"
-                  : "text-ink-muted hover:text-ink",
+                "rounded-full px-1.5 py-px text-xs font-bold tabular-nums",
+                (summary?.total ?? 0) === 0
+                  ? "bg-surface-sunken text-ink-subtle"
+                  : "bg-warning-soft text-warning",
               )}
             >
-              {label}
-              {/* The backlog follows its own tab, so leaving the queue does not
-                  mean losing sight of it. Zero is drawn quietly rather than
-                  hidden: a badge that vanishes teaches nothing, while «0»
-                  states that the question was asked and answered. */}
-              {count === null ? null : (
-                <span
-                  className={clsx(
-                    "rounded-full px-1.5 py-px text-xs font-bold tabular-nums",
-                    count === 0
-                      ? "bg-surface-sunken text-ink-subtle"
-                      : "bg-warning-soft text-warning",
-                  )}
-                >
-                  <span aria-hidden="true">{count}</span>
-                  <span className="sr-only">
-                    {count === 1 ? "1 message" : `${count} messages`} waiting
-                  </span>
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
+              <span aria-hidden="true">{summary?.total ?? 0}</span>
+              <span className="sr-only">
+                {(summary?.total ?? 0) === 1
+                  ? "1 message"
+                  : `${summary?.total ?? 0} messages`}{" "}
+                waiting
+              </span>
+            </span>
+          </ToggleButton>
+        </ToggleButtonGroup>
 
         {view === "history" ? (
           <OutboxHistoryToolbar
@@ -404,7 +407,7 @@ export function FeedbackOutboxPage() {
   );
 }
 
-/** One figure of the queue strip: a glyph, a micro-caps label and a number. */
+/** One figure of the queue strip: micro-caps label, then glyph + number. */
 function QueueFigure({
   icon: Icon,
   label,
@@ -417,25 +420,23 @@ function QueueFigure({
   urgent?: boolean;
 }) {
   return (
-    <div className="flex min-w-[6.5rem] items-center gap-2.5 px-4 py-2.5">
-      <Icon
-        aria-hidden="true"
+    <div className="flex min-w-[6.5rem] flex-col gap-1 px-4 py-2.5">
+      <dt className="m-0 jts-overline text-ink-muted">{label}</dt>
+      <dd
         className={clsx(
-          "size-4 shrink-0",
-          urgent ? "text-warning" : "text-ink-subtle",
+          "m-0 flex items-center gap-2 text-lg leading-none font-extrabold tabular-nums",
+          urgent ? "text-warning" : "text-ink",
         )}
-      />
-      <div className="min-w-0">
-        <dt className="m-0 jts-overline text-ink-muted">{label}</dt>
-        <dd
+      >
+        <Icon
+          aria-hidden="true"
           className={clsx(
-            "m-0 text-lg leading-tight font-extrabold tabular-nums",
-            urgent ? "text-warning" : "text-ink",
+            "size-4 shrink-0",
+            urgent ? "text-warning" : "text-ink-subtle",
           )}
-        >
-          {value}
-        </dd>
-      </div>
+        />
+        <span>{value}</span>
+      </dd>
     </div>
   );
 }

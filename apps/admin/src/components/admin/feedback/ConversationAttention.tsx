@@ -1,5 +1,5 @@
-import { Button } from "@heroui/react";
-import { ChevronDown, TriangleAlert } from "lucide-react";
+import { Button, Disclosure } from "@heroui/react";
+import { TriangleAlert } from "lucide-react";
 import { useId } from "react";
 
 import type { FeedbackConversationDetailDtoOutput } from "../../../api/generated/model/feedbackConversationDetailDtoOutput";
@@ -91,18 +91,18 @@ export function ConversationAttention({
                   {label}
                 </p>
               ) : (
-                <button
-                  type="button"
-                  onClick={() => showMessage(anchor)}
+                <Button
+                  variant="ghost"
+                  onPress={() => showMessage(anchor)}
                   title={label}
-                  className="min-w-0 truncate rounded-xs text-left text-sm text-ink underline decoration-warning-border decoration-1 underline-offset-2 hover:decoration-warning"
+                  className="h-auto min-h-0 min-w-0 max-w-full truncate rounded-xs px-0 py-0 text-left text-sm font-normal text-ink underline decoration-warning-border decoration-1 underline-offset-2 hover:bg-transparent hover:decoration-warning data-[hovered=true]:bg-transparent"
                 >
-                  {label}
+                  <span className="truncate">{label}</span>
                   <span className="sr-only">
                     {" "}
                     Show the message that caused it.
                   </span>
-                </button>
+                </Button>
               )}
             </span>
             {/* No xs size in HeroUI — compact the sm ghost down to the row
@@ -145,22 +145,25 @@ export function ConversationAttention({
         Why this needs attention
       </h3>
       {collapsed ? (
-        <details className="jts-disclosure group">
-          <summary className="flex min-h-7 cursor-pointer list-none items-center gap-1.5 text-sm text-ink marker:content-none [&::-webkit-details-marker]:hidden">
-            <ChevronDown
-              aria-hidden="true"
-              className="size-3.5 shrink-0 text-warning transition-transform duration-200 group-open:rotate-180"
-            />
-            <TriangleAlert
-              aria-hidden="true"
-              className="size-3.5 shrink-0 text-warning"
-            />
-            <span className="font-medium">
-              {unresolved.length} things need attention
-            </span>
-          </summary>
-          <div className="pt-0.5">{reasonList}</div>
-        </details>
+        <Disclosure>
+          <Disclosure.Heading>
+            <Disclosure.Trigger className="flex min-h-7 w-full cursor-pointer items-center gap-1.5 px-0 py-0 text-left text-sm text-ink hover:bg-transparent data-[hovered=true]:bg-transparent data-[pressed=true]:bg-transparent">
+              <Disclosure.Indicator className="ml-0 size-3.5 text-warning" />
+              <TriangleAlert
+                aria-hidden="true"
+                className="size-3.5 shrink-0 text-warning"
+              />
+              <span className="font-medium">
+                {unresolved.length} things need attention
+              </span>
+            </Disclosure.Trigger>
+          </Disclosure.Heading>
+          <Disclosure.Content>
+            <Disclosure.Body className="p-0 pt-0.5 text-ink">
+              {reasonList}
+            </Disclosure.Body>
+          </Disclosure.Content>
+        </Disclosure>
       ) : (
         reasonList
       )}

@@ -118,7 +118,7 @@ function QueueRow({
       <li className="first:pt-0 last:pb-0">
         <Link
           to={to}
-          className="flex items-center gap-3 py-3 text-inherit no-underline focus-visible:outline-none"
+          className="-mx-1 flex items-center gap-3 rounded-md px-1 py-3 text-inherit no-underline transition-colors hover:bg-surface-sunken focus-visible:bg-surface-sunken focus-visible:outline-none"
         >
           {body}
         </Link>
@@ -273,7 +273,9 @@ export function OverviewPage() {
         description="A dinner is six strangers and a hundred small decisions. This is where the decisions get made."
         actions={
           <Button
-            variant="outline"
+            size="sm"
+            variant="secondary"
+            className="shrink-0"
             onPress={() => {
               void overviewQuery.refetch();
             }}

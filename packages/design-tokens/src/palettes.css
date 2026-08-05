@@ -88,6 +88,9 @@
   --jts-color-info: #4a5966;
   --jts-color-info-soft: #eceef1;
   --jts-color-info-border: #4a596652;
+  --jts-color-rose: #b82462;
+  --jts-color-rose-soft: #ffe6f2;
+  --jts-color-rose-border: #b8246252;
   --jts-color-highlight: #e0eef8;
   --jts-color-highlight-text: #073f6b;
   --jts-color-sidebar-active-index: #63b3f0;
@@ -132,6 +135,9 @@
   --jts-color-info: #93a7bb;
   --jts-color-info-soft: #202931;
   --jts-color-info-border: #93a7bb52;
+  --jts-color-rose: #ff8ab8;
+  --jts-color-rose-soft: #4a2438;
+  --jts-color-rose-border: #ff8ab852;
   --jts-color-highlight: #12354f;
   --jts-color-highlight-text: #b5dffc;
   --jts-color-sidebar-active-index: #63b3f0;
@@ -176,6 +182,9 @@
   --jts-color-info: #4a5560;
   --jts-color-info-soft: #eceef0;
   --jts-color-info-border: #4a556052;
+  --jts-color-rose: #c0286a;
+  --jts-color-rose-soft: #ffe8f2;
+  --jts-color-rose-border: #c0286a52;
   --jts-color-highlight: #e7e7e5;
   --jts-color-highlight-text: #0a0a09;
   --jts-color-sidebar-active-index: #e6e6e3;
@@ -220,6 +229,9 @@
   --jts-color-info: #9aa7b4;
   --jts-color-info-soft: #23282d;
   --jts-color-info-border: #9aa7b452;
+  --jts-color-rose: #ff8ab8;
+  --jts-color-rose-soft: #4a2438;
+  --jts-color-rose-border: #ff8ab852;
   --jts-color-highlight: #353534;
   --jts-color-highlight-text: #ffffff;
   --jts-color-sidebar-active-index: #e6e6e3;
@@ -264,6 +276,9 @@
   --jts-color-info: #205ea6;
   --jts-color-info-soft: #e1eceb;
   --jts-color-info-border: #205ea652;
+  --jts-color-rose: #c02872;
+  --jts-color-rose-soft: #ffe6f4;
+  --jts-color-rose-border: #c0287252;
   --jts-color-highlight: #d9f0e9;
   --jts-color-highlight-text: #0d4d47;
   --jts-color-sidebar-active-index: #4ec7b3;
@@ -308,6 +323,9 @@
   --jts-color-info: #66a0c8;
   --jts-color-info-soft: #1d2b3c;
   --jts-color-info-border: #66a0c852;
+  --jts-color-rose: #ff8ec0;
+  --jts-color-rose-soft: #4a2436;
+  --jts-color-rose-border: #ff8ec052;
   --jts-color-highlight: #173a35;
   --jts-color-highlight-text: #a8e8db;
   --jts-color-sidebar-active-index: #4ec7b3;
@@ -352,6 +370,9 @@
   --jts-color-info: #5b6270;
   --jts-color-info-soft: #eff0f2;
   --jts-color-info-border: #5b627052;
+  --jts-color-rose: #b02870;
+  --jts-color-rose-soft: #ffe6f2;
+  --jts-color-rose-border: #b0287052;
   --jts-color-highlight: #f9e9df;
   --jts-color-highlight-text: #6d351a;
   --jts-color-sidebar-active-index: #e0a583;
@@ -396,6 +417,10 @@
   --jts-color-info: #b0b4ba;
   --jts-color-info-soft: #303133;
   --jts-color-info-border: #b0b4ba52;
+  /* Magenta-leaning so it stays clear of linen's pink danger. */
+  --jts-color-rose: #e090d8;
+  --jts-color-rose-soft: #3a2438;
+  --jts-color-rose-border: #e090d852;
   --jts-color-highlight: #462c20;
   --jts-color-highlight-text: #f0d5c5;
   --jts-color-sidebar-active-index: #e0a583;
@@ -440,6 +465,10 @@
   --jts-color-info: #4b5b86;
   --jts-color-info-soft: #eaedf5;
   --jts-color-info-border: #4b5b8652;
+  /* Peachy Rosé Pine rose family — clear of love-crimson danger. */
+  --jts-color-rose: #b04840;
+  --jts-color-rose-soft: #ffe8e6;
+  --jts-color-rose-border: #b0484052;
   --jts-color-highlight: #ece4f5;
   --jts-color-highlight-text: #472f64;
   --jts-color-sidebar-active-index: #c4a7e7;
@@ -484,6 +513,10 @@
   --jts-color-info: #a3b3e8;
   --jts-color-info-soft: #262f4a;
   --jts-color-info-border: #a3b3e852;
+  /* Rosé Pine rose, not love — love is already danger here. */
+  --jts-color-rose: #ffa0a8;
+  --jts-color-rose-soft: #4a2a30;
+  --jts-color-rose-border: #ffa0a852;
   --jts-color-highlight: #453d58;
   --jts-color-highlight-text: #e5d6f7;
   --jts-color-sidebar-active-index: #c4a7e7;

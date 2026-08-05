@@ -1,6 +1,5 @@
-import { clsx } from "clsx";
+import { ListBox, Select, ToggleButton, ToggleButtonGroup } from "@heroui/react";
 import { CalendarRange, Filter } from "lucide-react";
-import { useId } from "react";
 
 import type { FeedbackOutboxHistoryDtoOutputItemsItemStatus } from "../../../api/generated/model/feedbackOutboxHistoryDtoOutputItemsItemStatus";
 import {
@@ -19,6 +18,11 @@ interface OutboxHistoryToolbarProps {
   onStatusChange: (status: OutboxHistoryStatusFilter) => void;
 }
 
+/** Matches `FeedbackCampaignsPage` / `AdminUserMenu` segmented chips. */
+const CHOICE_CHIP =
+  "justify-center rounded-md border border-border bg-transparent px-2.5 text-xs font-semibold text-ink " +
+  "data-[selected]:border-primary-border data-[selected]:bg-primary-soft data-[selected]:text-primary";
+
 /**
  * How far back the history reaches, and which rows of it count.
  *
@@ -33,9 +37,9 @@ interface OutboxHistoryToolbarProps {
  * interactions; the day a genuine arbitrary range is needed, it belongs here as
  * a third control rather than as the price of the first two.
  *
- * The range is segmented and the status is a `select`: four options that are
- * one scale read best side by side, while seven unordered ones would be a wall
- * of chips wider than the list they filter.
+ * The range is a HeroUI segmented group and the status a Select: four options
+ * that are one scale read best side by side, while seven unordered ones would
+ * be a wall of chips wider than the list they filter.
  */
 export function OutboxHistoryToolbar({
   range,
@@ -43,59 +47,80 @@ export function OutboxHistoryToolbar({
   onRangeChange,
   onStatusChange,
 }: OutboxHistoryToolbarProps) {
-  const statusId = useId();
-
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <div
-        role="group"
-        aria-label="How far back"
-        className="flex items-center gap-1 rounded-md border border-border bg-surface p-1"
-      >
+    <div className="flex flex-wrap items-center gap-5">
+      <div className="flex items-center gap-1.5">
         <CalendarRange
           aria-hidden="true"
-          className="ml-1 size-3.5 shrink-0 text-ink-subtle"
+          className="size-3.5 shrink-0 text-ink-subtle"
         />
-        {OUTBOX_HISTORY_RANGES.map((option) => (
-          <button
-            key={option.key}
-            type="button"
-            aria-pressed={range === option.key}
-            onClick={() => onRangeChange(option.key)}
-            className={clsx(
-              "cursor-pointer rounded-sm px-2.5 py-1 text-xs font-semibold whitespace-nowrap transition-colors",
-              range === option.key
-                ? "bg-primary-soft text-primary"
-                : "text-ink-muted hover:text-ink",
-            )}
-          >
-            {option.label}
-          </button>
-        ))}
+        <ToggleButtonGroup
+          aria-label="How far back"
+          selectionMode="single"
+          disallowEmptySelection
+          isDetached
+          selectedKeys={[range]}
+          onSelectionChange={(keys) => {
+            const [next] = keys;
+            if (
+              next === "hour" ||
+              next === "today" ||
+              next === "week" ||
+              next === "all"
+            ) {
+              onRangeChange(next);
+            }
+          }}
+        >
+          {OUTBOX_HISTORY_RANGES.map((option) => (
+            <ToggleButton
+              key={option.key}
+              id={option.key}
+              size="sm"
+              className={CHOICE_CHIP}
+            >
+              {option.label}
+            </ToggleButton>
+          ))}
+        </ToggleButtonGroup>
       </div>
 
-      <div className="flex items-center gap-1.5 rounded-md border border-border bg-surface px-2 py-1">
+      <div className="flex items-center gap-1.5">
         <Filter
           aria-hidden="true"
           className="size-3.5 shrink-0 text-ink-subtle"
         />
-        <label htmlFor={statusId} className="sr-only">
-          Filter by status
-        </label>
-        <select
-          id={statusId}
-          value={status}
-          onChange={(event) =>
-            onStatusChange(event.target.value as OutboxHistoryStatusFilter)
-          }
-          className="cursor-pointer bg-transparent py-0.5 pr-1 text-xs font-semibold text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+        <Select
+          aria-label="Filter by status"
+          selectedKey={status}
+          onSelectionChange={(key) => {
+            const next = String(key ?? "any");
+            const match = OUTBOX_HISTORY_STATUS_FILTERS.find(
+              (option) => option.key === next,
+            );
+            if (match) {
+              onStatusChange(match.key);
+            }
+          }}
         >
-          {OUTBOX_HISTORY_STATUS_FILTERS.map((option) => (
-            <option key={option.key} value={option.key}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+          <Select.Trigger className="min-h-8 min-w-[9rem] rounded-md border border-border bg-transparent px-2.5 text-xs font-semibold text-ink shadow-none">
+            <Select.Value />
+            <Select.Indicator />
+          </Select.Trigger>
+          <Select.Popover>
+            <ListBox>
+              {OUTBOX_HISTORY_STATUS_FILTERS.map((option) => (
+                <ListBox.Item
+                  key={option.key}
+                  id={option.key}
+                  textValue={option.label}
+                >
+                  {option.label}
+                </ListBox.Item>
+              ))}
+            </ListBox>
+          </Select.Popover>
+        </Select>
       </div>
     </div>
   );

@@ -1,3 +1,4 @@
+import { buttonVariants } from "@heroui/react";
 import { Link } from "react-router";
 
 import { BrandLockup } from "../components/admin/BrandLockup";
@@ -52,7 +53,7 @@ export function ErrorPage() {
           </p>
           <Link
             to="/admin"
-            className="inline-flex min-h-[2.75rem] items-center rounded-md bg-primary px-[1.1rem] py-[0.65rem] font-bold text-primary-contrast no-underline hover:bg-primary-hover"
+            className={`${buttonVariants({ variant: "primary" })} no-underline`}
           >
             Return to control center
           </Link>

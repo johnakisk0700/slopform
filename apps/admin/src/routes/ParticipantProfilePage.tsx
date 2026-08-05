@@ -1,4 +1,4 @@
-import { Avatar, Checkbox, Chip } from "@heroui/react";
+import { Avatar, Button, Checkbox, Chip } from "@heroui/react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
 import type { LucideIcon } from "lucide-react";
@@ -115,12 +115,12 @@ function ContactEmail({ email }: { email: string }) {
   const { copied, copyValue } = useCopyFeedback();
 
   return (
-    <button
-      type="button"
-      onClick={() => void copyValue(email)}
+    <Button
+      variant="ghost"
+      onPress={() => void copyValue(email)}
       aria-label={copied ? "Copied email" : "Copy email"}
       title={email}
-      className={`${contactPillClassName} cursor-pointer hover:text-primary`}
+      className={`${contactPillClassName} h-auto min-h-0 cursor-pointer font-normal hover:bg-surface-sunken hover:text-primary data-[hovered=true]:bg-surface-sunken`}
     >
       <AtSign
         aria-hidden="true"
@@ -135,7 +135,7 @@ function ContactEmail({ email }: { email: string }) {
           className="size-3.5 shrink-0 text-ink-subtle"
         />
       )}
-    </button>
+    </Button>
   );
 }
 
@@ -156,19 +156,21 @@ function ContactPhone({ phone }: { phone: string }) {
       >
         {phone}
       </a>
-      <button
-        type="button"
-        onClick={() => void copyValue(phone)}
+      <Button
+        isIconOnly
+        variant="ghost"
+        size="sm"
+        onPress={() => void copyValue(phone)}
         aria-label={copied ? "Copied phone" : "Copy phone"}
         title={phone}
-        className="inline-flex shrink-0 cursor-pointer text-ink-subtle transition-colors hover:text-primary"
+        className="size-6 min-h-6 min-w-6 shrink-0 text-ink-subtle hover:bg-transparent hover:text-primary data-[hovered=true]:bg-transparent"
       >
         {copied ? (
           <Check aria-hidden="true" className="size-3.5 text-primary" />
         ) : (
           <Copy aria-hidden="true" className="size-3.5" />
         )}
-      </button>
+      </Button>
     </span>
   );
 }

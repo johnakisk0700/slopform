@@ -49,7 +49,7 @@ const narrativeObject = {
   curiosities: ["Κάποιος βαθμολόγησε 1 τη συζήτηση και 5 τη βραδιά."],
   gossip: ["Δύο φωνές είπαν ότι ο Νίκος «έκλεψε» το τραπέζι."],
   actions: ["Seat the two meet-again pairs together next time."],
-  wentWell: ["Overall scores stayed high."],
+  wentWell: [{ text: "Overall scores stayed high.", weight: "medium" }],
   wentWrong: [],
   missing: null,
 };
@@ -1163,7 +1163,7 @@ describe("PostEventFeedbackCampaignSummaryService", () => {
         expect.anything(),
         expect.objectContaining({
           claim: expect.objectContaining({ campaignId, attempt: 1 }),
-          body: expect.stringContaining('"version":3'),
+          body: expect.stringContaining('"version":4'),
         }),
       );
     },

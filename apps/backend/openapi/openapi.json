@@ -2657,7 +2657,7 @@
                   "minLength": 1,
                   "type": "string"
                 },
-                "maxItems": 10,
+                "maxItems": 5,
                 "type": "array"
               },
               "curiosities": {
@@ -2666,7 +2666,7 @@
                   "minLength": 1,
                   "type": "string"
                 },
-                "maxItems": 10,
+                "maxItems": 5,
                 "type": "array"
               },
               "gossip": {
@@ -2816,24 +2816,60 @@
               },
               "version": {
                 "enum": [
-                  3
+                  4
                 ],
                 "type": "number"
               },
               "wentWell": {
                 "items": {
-                  "maxLength": 280,
-                  "minLength": 1,
-                  "type": "string"
+                  "additionalProperties": false,
+                  "properties": {
+                    "text": {
+                      "maxLength": 280,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "weight": {
+                      "enum": [
+                        "low",
+                        "medium",
+                        "high"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "text",
+                    "weight"
+                  ],
+                  "type": "object"
                 },
-                "maxItems": 10,
+                "maxItems": 5,
                 "type": "array"
               },
               "wentWrong": {
                 "items": {
-                  "maxLength": 280,
-                  "minLength": 1,
-                  "type": "string"
+                  "additionalProperties": false,
+                  "properties": {
+                    "text": {
+                      "maxLength": 280,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "weight": {
+                      "enum": [
+                        "low",
+                        "medium",
+                        "high"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "text",
+                    "weight"
+                  ],
+                  "type": "object"
                 },
                 "maxItems": 10,
                 "type": "array"

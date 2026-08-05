@@ -11,7 +11,7 @@ export interface JtsPageHeaderProps {
   title: string;
   /** Muted supporting sentence under the title marker. */
   description?: string;
-  /** Optional actions (buttons, links) rendered top-right of the header. */
+  /** Optional actions (buttons, links) rendered bottom-right of the header. */
   actions?: ReactNode;
 }
 
@@ -24,8 +24,10 @@ export interface JtsPageHeaderProps {
  * actions row on a third. Ordering is the header's business; where a route
  * goes is the route's.
  *
- * Actions sit top-right of the header row so a Refresh / primary control stays
- * where operators reach for it, without competing with the title stack.
+ * Actions sit bottom-right of the full header row — trailing edge of the page
+ * content, baseline with the description — so a Refresh / primary control stays
+ * where operators reach for it without competing with the title stack or
+ * floating mid-column under a reading-width cap.
  */
 export function JtsPageHeader({
   back,
@@ -35,7 +37,7 @@ export function JtsPageHeader({
   actions,
 }: JtsPageHeaderProps) {
   return (
-    <header className="flex w-full max-w-[58rem] items-start justify-between gap-4">
+    <header className="flex w-full items-end justify-between gap-4">
       <div className="flex min-w-0 flex-1 flex-col items-start">
         {back ? (
           <div className="mb-2">
@@ -59,7 +61,7 @@ export function JtsPageHeader({
         ) : null}
       </div>
       {actions ? (
-        <div className="mt-0 flex shrink-0 flex-wrap items-start justify-end gap-3">
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-3">
           {actions}
         </div>
       ) : null}

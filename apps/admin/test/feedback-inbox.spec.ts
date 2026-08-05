@@ -1167,7 +1167,9 @@ describe("attention reasons (why a conversation wants a person)", () => {
     // off the first screen, which is the defect the disclosure exists to end.
     expect(block).toContain("const COLLAPSE_AFTER = 2");
     expect(block).toContain("unresolved.length > COLLAPSE_AFTER");
-    expect(block).toContain("<details");
+    expect(block).toContain("Disclosure");
+    expect(block).toContain("Disclosure.Indicator");
+    expect(block).not.toContain("<details");
     expect(block).toContain("things need attention");
   });
 
@@ -2355,18 +2357,38 @@ describe("campaign summary copy", () => {
     expect(component).toContain("How it felt");
     expect(component).toContain("bg-primary");
     expect(component).toContain("bg-surface-sunken");
-    expect(component).toContain("bg-success-soft");
-    expect(component).toContain("bg-danger-soft");
+    // Well/wrong are quiet surface cards with a 3px left marker; intensity is
+    // per-row via weight (SignalLow/Medium/High) + soft fills.
+    expect(component).toContain("border-l-[3px] border-l-success");
+    expect(component).toContain("border-l-[3px] border-l-danger");
+    expect(component).toContain("bg-surface");
+    expect(component).toContain("FINDING_WEIGHT_GLYPHS");
+    expect(component).toContain("SignalHigh");
+    expect(component).toContain("findingRowClass");
+    expect(component).toContain("SCORE_METRIC_GLYPHS");
+    expect(component).toContain("bg-rose-soft");
+    expect(component).toContain("text-rose");
+    expect(component).toContain("border-rose-border");
     expect(component).toContain("bg-warning-soft");
     expect(component).toContain("Who people named");
-    expect(component).toContain("What went well");
-    expect(component).toContain("What went wrong");
+    expect(component).toContain("Τι πήγε καλά");
+    expect(component).toContain("Τι στράβωσε");
+    expect(component).not.toContain("What went well");
+    expect(component).not.toContain("What went wrong");
     expect(component).toContain("Αξιοπερίεργα");
     expect(component).toContain("GossipDrawer");
-    expect(component).toContain("Drama");
+    expect(component).toContain("Accordion");
+    expect(component).toContain("Accordion.Indicator");
+    expect(component).toContain("Disclosure");
+    expect(component).toContain("Disclosure.Indicator");
+    expect(component).not.toContain("jts-disclosure");
+    expect(component).toContain("💅");
+    expect(component).not.toContain("Drama");
     expect(component).toContain("Κουτσομπολιό");
     expect(component).toContain("BulletList");
     expect(component).toContain("list-disc");
+    expect(component).toContain("ActionList");
+    expect(component).toContain("ChevronRight");
     expect(component).toContain("document.curiosities");
     expect(component).toContain("document.gossip");
     expect(component).not.toContain("What stood out");
@@ -2382,7 +2404,7 @@ describe("campaign summary copy", () => {
     // needs an explicit zero-minimum track or a long summary widens the inner
     // track past the mobile card while the document itself stays 375px wide.
     expect(component).toContain(
-      'className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5 border-t border-border px-4 py-5 sm:px-5"',
+      'className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5 border-t border-border px-4 py-5 text-ink sm:px-5"',
     );
     expect(component).toContain(
       'className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5"',

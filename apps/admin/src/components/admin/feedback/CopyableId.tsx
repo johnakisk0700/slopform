@@ -1,3 +1,4 @@
+import { Button } from "@heroui/react";
 import { clsx } from "clsx";
 import { Check, Copy } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -65,13 +66,13 @@ export function CopyableId({ value, label, className }: CopyableIdProps) {
   }
 
   return (
-    <button
-      type="button"
+    <Button
+      variant="ghost"
       title={value}
       aria-label={copied ? `Copied ${label}` : `Copy ${label}`}
-      onClick={() => void copyValue()}
+      onPress={() => void copyValue()}
       className={clsx(
-        "inline-flex max-w-full cursor-pointer items-center gap-1 rounded-sm border border-border-subtle bg-surface-sunken px-1.5 py-px font-mono text-xs text-ink transition-colors hover:border-border hover:text-primary",
+        "inline-flex h-auto min-h-0 max-w-full items-center gap-1 rounded-sm border border-border-subtle bg-surface-sunken px-1.5 py-px font-mono text-xs font-normal text-ink hover:border-border hover:bg-surface-sunken hover:text-primary data-[hovered=true]:bg-surface-sunken",
         className,
       )}
     >
@@ -81,6 +82,6 @@ export function CopyableId({ value, label, className }: CopyableIdProps) {
       ) : (
         <Copy aria-hidden="true" className="size-3 shrink-0 text-ink-subtle" />
       )}
-    </button>
+    </Button>
   );
 }

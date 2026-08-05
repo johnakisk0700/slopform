@@ -867,7 +867,8 @@ describe("the history half", () => {
     expect(queueHook).toContain("OUTBOX_QUEUE_POLL_INTERVAL_MS");
     // Zero is drawn quietly rather than hidden — a badge that vanishes states
     // nothing, while «0» states the question was asked and answered.
-    expect(page).toContain("count === 0");
+    expect(page).toContain("(summary?.total ?? 0) === 0");
+    expect(page).toContain("ToggleButtonGroup");
   });
 });
 
@@ -937,6 +938,9 @@ describe("narrowing the log", () => {
       "src/components/admin/feedback/OutboxHistoryToolbar.tsx",
     );
     expect(toolbar).not.toContain('type="date"');
+    // Range and status are separate groups — wider between them than inside.
+    expect(toolbar).toContain('className="flex flex-wrap items-center gap-5"');
+    expect(toolbar).toContain('className="flex items-center gap-1.5"');
   });
 
   it("measures a range against the operator's own clock, not the server's", () => {
@@ -1232,6 +1236,10 @@ describe("fitting a laptop screen", () => {
     // doing the work.
     expect(page).not.toContain("<JtsStat");
     expect(page).toContain("QueueFigure");
+    // Label above; glyph shares the value line so the strip reads as three
+    // compact figures rather than three icon-beside-stack cells.
+    expect(page).toContain("flex-col gap-1");
+    expect(page).toContain("flex items-center gap-2 text-lg");
   });
 });
 

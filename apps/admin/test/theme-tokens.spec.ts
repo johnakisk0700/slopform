@@ -184,6 +184,11 @@ const pairs: [string, string, string][] = [
     "--jts-color-primary-soft",
     "soft accent chip label on its tint",
   ],
+  [
+    "--jts-color-rose",
+    "--jts-color-rose-soft",
+    "gossip tea label on its tint",
+  ],
 ];
 
 describe("design tokens contrast", () => {
@@ -259,6 +264,26 @@ describe("house theme legibility", () => {
           contrastRatio(colour(vars, "accent"), colour(vars, "surface")),
           "accent as label ink on surface",
         ).toBeGreaterThanOrEqual(AA);
+      });
+
+      it("keeps rose readable as tea tint and clear of danger and brand", () => {
+        const rose = colour(vars, "rose");
+        expect(
+          contrastRatio(rose, colour(vars, "rose-soft")),
+          "rose label on its own tint",
+        ).toBeGreaterThanOrEqual(AA);
+        expect(
+          contrastRatio(colour(vars, "canvas"), rose),
+          "canvas label on solid rose",
+        ).toBeGreaterThanOrEqual(AA);
+        expect(
+          deltaE(rose, colour(vars, "danger")),
+          `rose ${rose} vs danger`,
+        ).toBeGreaterThanOrEqual(PRIMARY_STATUS_FLOOR);
+        expect(
+          deltaE(rose, colour(vars, "primary")),
+          `rose ${rose} vs primary`,
+        ).toBeGreaterThanOrEqual(PRIMARY_STATUS_FLOOR);
       });
 
       it("lights the sidebar numeral with the theme's dark primary", () => {

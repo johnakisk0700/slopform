@@ -211,6 +211,12 @@
     var(--jts-slate-600) 26%,
     transparent
   );
+  /* Rose — decorative soft tint (gossip tea), not a FeedbackBadge tone.
+     Candy blush soft + lively magenta-pink ink, clear of wine primary and
+     coral danger. Flat hexes: no wine primitive is both playful and AA-safe. */
+  --jts-color-rose: #c22e5c;
+  --jts-color-rose-soft: #ffe8f0;
+  --jts-color-rose-border: color-mix(in srgb, #c22e5c 28%, transparent);
 
   /* Selection / highlight */
   --jts-color-highlight: var(--jts-wine-100);
@@ -447,6 +453,10 @@
     var(--jts-slate-300) 30%,
     transparent
   );
+  /* Rose — hot candy pink on a blush dark fill; clear of lifted wine primary. */
+  --jts-color-rose: #ff6aa8;
+  --jts-color-rose-soft: #4a1e32;
+  --jts-color-rose-border: color-mix(in srgb, #ff6aa8 30%, transparent);
 
   /* Selection / highlight */
   --jts-color-highlight: color-mix(

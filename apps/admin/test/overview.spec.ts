@@ -25,7 +25,15 @@ describe("OverviewPage", () => {
   it("keeps Refresh in the page header actions slot", () => {
     expect(page).toContain('aria-label="Refresh overview"');
     expect(page).toContain("RefreshCw");
+    expect(page).toContain('size="sm"');
+    expect(page).toContain('variant="secondary"');
     expect(page).toContain("actions=");
+    expect(page).not.toContain("mt-5 shrink-0");
+  });
+
+  it("gives operator-queue links a hover wash", () => {
+    expect(page).toContain("hover:bg-surface-sunken");
+    expect(page).toContain("transition-colors");
   });
 
   it("surfaces real operator metrics, not bookings fiction", () => {
@@ -55,12 +63,13 @@ describe("JtsStat responsive density", () => {
 });
 
 describe("JtsPageHeader actions placement", () => {
-  it("anchors actions to the top-right of the header row", () => {
+  it("anchors actions to the bottom-right of the full-width header row", () => {
     const header = readAdminFile("src/components/ui/JtsPageHeader.tsx");
     expect(header).toContain(
-      'className="flex w-full max-w-[58rem] items-start justify-between gap-4"',
+      'className="flex w-full items-end justify-between gap-4"',
     );
-    expect(header).toContain("shrink-0 flex-wrap items-start justify-end");
+    expect(header).toContain("shrink-0 flex-wrap items-center justify-end");
+    expect(header).not.toContain("max-w-[58rem]");
     expect(header).not.toContain("mt-3 flex flex-wrap gap-3");
   });
 });
