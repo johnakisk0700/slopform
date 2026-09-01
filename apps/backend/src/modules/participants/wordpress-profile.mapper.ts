@@ -6,7 +6,7 @@ import {
   PARTICIPANT_NEIGHBORHOODS,
   type ParticipantInterestRow,
   type ParticipantRow,
-} from "@join-the-six/database";
+} from "@slopform/database";
 
 import {
   canonicalParticipantProfileSchema,

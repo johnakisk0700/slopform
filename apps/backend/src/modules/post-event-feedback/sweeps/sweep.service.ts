@@ -1,6 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import type { ProviderMessageIngressRow } from "@join-the-six/database";
+import type { ProviderMessageIngressRow } from "@slopform/database";
 
 import type { Environment } from "../../../infrastructure/config/environment.js";
 import { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";

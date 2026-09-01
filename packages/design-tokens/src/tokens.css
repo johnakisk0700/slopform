@@ -1,5 +1,5 @@
 /* =============================================================================
-   Join The Six — Design Tokens
+   Slopform — Design Tokens
    -----------------------------------------------------------------------------
    The single, framework-neutral source of truth for every colour, type, space,
    radius, shadow and motion value in the admin panel.
@@ -251,7 +251,7 @@
   --jts-font-display:
     "Commissioner Variable", "Commissioner", var(--jts-font-sans);
   /* The wordmark, and nothing else. It sets one fixed Latin string —
-     "Join The Six" — so unlike sans and display it carries no Greek
+     "Slopform" — so unlike sans and display it carries no Greek
      requirement, which is what let a geometric face be chosen to answer the
      round product mark beside it. Never use it for UI copy. */
   --jts-font-brand: "Sora Variable", "Sora", var(--jts-font-display);

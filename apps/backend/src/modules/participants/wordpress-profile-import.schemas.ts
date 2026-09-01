@@ -2,7 +2,7 @@ import {
   PARTICIPANT_AGE_BANDS,
   PARTICIPANT_INTERESTS,
   PARTICIPANT_NEIGHBORHOODS,
-} from "@join-the-six/database";
+} from "@slopform/database";
 import { z } from "zod";
 
 export const WORDPRESS_PROFILE_IMPORT_SCHEMA_VERSION = 1;

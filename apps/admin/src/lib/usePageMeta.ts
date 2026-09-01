@@ -1,11 +1,11 @@
 import { useEffect } from "react";
 
-const SITE_NAME = "Join The Six";
+const SITE_NAME = "Slopform";
 
 /**
  * Sets the document title and meta description for the current view.
  *
- * The title renders as `"<title> · Join The Six"`, collapsing to the bare
+ * The title renders as `"<title> · Slopform"`, collapsing to the bare
  * site name when `title` is empty. `robots` is declared globally in
  * `index.html`, so this hook never touches it.
  *

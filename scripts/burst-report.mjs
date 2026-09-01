@@ -452,7 +452,7 @@ function renderMasthead(run, stats) {
 <div class="masthead-brand">
 <span class="brand-mark" aria-hidden="true"></span>
 <span>
-<span class="kicker">Join The Six</span>
+<span class="kicker">Slopform</span>
 <span class="masthead-title">Ανατροφοδότηση μετά την εκδήλωση — πρόβα ριπής</span>
 </span>
 </div>

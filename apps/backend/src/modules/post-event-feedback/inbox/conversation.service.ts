@@ -7,7 +7,7 @@ import {
   type FeedbackNoteRow,
   type MessageOutboxRow,
   type ParticipantRow,
-} from "@join-the-six/database";
+} from "@slopform/database";
 
 import { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
 import { DatabaseService } from "../../../infrastructure/database/database.service.js";

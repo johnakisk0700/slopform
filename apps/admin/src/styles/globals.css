@@ -1,7 +1,7 @@
 /* =============================================================================
-   Join The Six admin — global stylesheet and the design-token bridge.
+   Slopform admin — global stylesheet and the design-token bridge.
    -----------------------------------------------------------------------------
-   Single source of truth: `@join-the-six/design-tokens/tokens.css` (--jts-*).
+   Single source of truth: `@slopform/design-tokens/tokens.css` (--jts-*).
    This file makes everything else consume it:
 
    1. HeroUI v3 is CSS-first: its components read base tokens (--surface,
@@ -30,12 +30,12 @@
 @import "@fontsource-variable/manrope/wght.css";
 @import "@fontsource-variable/commissioner/wght.css";
 /* Latin only, and only ever the wordmark: the unicode-range on each face means
-   a page that renders "Join The Six" fetches the latin file and nothing else. */
+   a page that renders "Slopform" fetches the latin file and nothing else. */
 @import "@fontsource-variable/sora/wght.css";
-@import "@join-the-six/design-tokens/tokens.css";
+@import "@slopform/design-tokens/tokens.css";
 /* After tokens.css on purpose: a palette re-paints the semantic layer, and its
    dark block must sit later in the cascade than `:root.dark`. */
-@import "@join-the-six/design-tokens/palettes.css";
+@import "@slopform/design-tokens/palettes.css";
 
 @custom-variant dark (&:is(.dark *));
 

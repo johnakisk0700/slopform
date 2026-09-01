@@ -13,7 +13,7 @@ interface AssistantActivityDisclosureProps {
 }
 
 /**
- * The Notes AI activity chip, adapted only to Join The Six theme tokens.
+ * The Notes AI activity chip, adapted only to Slopform theme tokens.
  * Tool calls and reasoning deliberately share this exact summary row so their
  * baseline, padding and collapsed height cannot drift independently again.
  */

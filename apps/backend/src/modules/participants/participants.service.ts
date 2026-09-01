@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import type { ParticipantRow } from "@join-the-six/database";
+import type { ParticipantRow } from "@slopform/database";
 
 import { AuditRepository } from "../../infrastructure/audit/audit.repository.js";
 import { DatabaseService } from "../../infrastructure/database/database.service.js";

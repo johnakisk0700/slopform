@@ -12,24 +12,24 @@ Source: [`JtsDataTable.tsx`](../../../apps/admin/src/components/ui/JtsDataTable.
 
 Generic over row type `T`.
 
-| Prop | Type | Contract |
-| ---- | ---- | -------- |
-| `rows` | `readonly T[]` | Required. Presentation only — page fetches and shapes. |
-| `columns` | `ColumnDef<T>[]` | Required. Page-supplied TanStack column defs. |
-| `getRowId` | `(row: T, index) => string` | Required. Stable identity for sort/pagination keys. |
-| `title` | `string` | Required. Visible `h2` and table accessible name. |
-| `description` | `string \| null` | Optional caption; `aria-describedby`. |
-| `loading` | `boolean` | Labelled skeleton in place of rows (`aria-busy`). |
-| `error` | `string \| null` | Blocking error (no rows) or stale-data warning (rows present). |
-| `emptyTitle` | `string` | Ready-but-empty heading. Default `"Nothing to show yet"`. |
-| `emptyDescription` | `string` | Ready-but-empty copy. |
-| `emptyIcon` | `ReactNode` | Optional empty mark; defaults to CSS six-dot motif. |
-| `paginator` | `boolean` | Client pagination; hidden while unnecessary. |
-| `pageSize` | `number` | Initial page size. Default `10`. |
-| `rowsPerPageOptions` | `number[]` | Footer page-size choices. Default `[10, 25, 50]`. |
-| `toolbarEnd` | `ReactNode` | Page-owned actions, right of the title. |
-| `emptyActions` | `ReactNode` | Domain recovery for empty state. |
-| `errorActions` | `ReactNode` | Domain recovery for error state. |
+| Prop                 | Type                        | Contract                                                       |
+| -------------------- | --------------------------- | -------------------------------------------------------------- |
+| `rows`               | `readonly T[]`              | Required. Presentation only — page fetches and shapes.         |
+| `columns`            | `ColumnDef<T>[]`            | Required. Page-supplied TanStack column defs.                  |
+| `getRowId`           | `(row: T, index) => string` | Required. Stable identity for sort/pagination keys.            |
+| `title`              | `string`                    | Required. Visible `h2` and table accessible name.              |
+| `description`        | `string \| null`            | Optional caption; `aria-describedby`.                          |
+| `loading`            | `boolean`                   | Labelled skeleton in place of rows (`aria-busy`).              |
+| `error`              | `string \| null`            | Blocking error (no rows) or stale-data warning (rows present). |
+| `emptyTitle`         | `string`                    | Ready-but-empty heading. Default `"Nothing to show yet"`.      |
+| `emptyDescription`   | `string`                    | Ready-but-empty copy.                                          |
+| `emptyIcon`          | `ReactNode`                 | Optional empty mark; defaults to CSS six-dot motif.            |
+| `paginator`          | `boolean`                   | Client pagination; hidden while unnecessary.                   |
+| `pageSize`           | `number`                    | Initial page size. Default `10`.                               |
+| `rowsPerPageOptions` | `number[]`                  | Footer page-size choices. Default `[10, 25, 50]`.              |
+| `toolbarEnd`         | `ReactNode`                 | Page-owned actions, right of the title.                        |
+| `emptyActions`       | `ReactNode`                 | Domain recovery for empty state.                               |
+| `errorActions`       | `ReactNode`                 | Domain recovery for error state.                               |
 
 ### Column contract (page-owned)
 
@@ -75,9 +75,9 @@ flowchart TD
 - Client-side, single-column sort in local `SortingState`, bridged to HeroUI
   `sortDescriptor` / `onSortChange`. Active headers tint `text-primary`.
 - Client pagination only when `paginator` is set. Footer (rows-per-page `Select`
-  + compact `Pagination`) hidden unless multi-page or row count exceeds the
-  smallest page-size option. Page numbers windowed: first, last, ±1 around
-  current, with ellipses.
+  - compact `Pagination`) hidden unless multi-page or row count exceeds the
+    smallest page-size option. Page numbers windowed: first, last, ±1 around
+    current, with ellipses.
 
 ## Accessibility
 

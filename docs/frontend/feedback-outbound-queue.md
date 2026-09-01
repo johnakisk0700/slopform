@@ -8,13 +8,13 @@ messages: waiting rows, history and one opened message. Dispatcher ownership:
 
 It **reports**. No retry, cancel, promote or re-enqueue — three `GET`s only.
 
-| Owns                                                         | Does not own                                                                 |
-| ------------------------------------------------------------ | ---------------------------------------------------------------------------- |
+| Owns                                                                                            | Does not own                                                                                            |
+| ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | «Not delivered» statuses, age thresholds/tones, dispatch copy, polling, no live-region announce | Whether a row is sent; claim / ambiguous-send policy; D18 (inherits [inbox](feedback-conversations.md)) |
 
-| Route             | View                 | Owns                                |
-| ----------------- | -------------------- | ----------------------------------- |
-| `/admin/outbound` | `FeedbackOutboxPage` | Queue + history, filters, open row  |
+| Route             | View                 | Owns                               |
+| ----------------- | -------------------- | ---------------------------------- |
+| `/admin/outbound` | `FeedbackOutboxPage` | Queue + history, filters, open row |
 
 URL: `?message=<outboxId>`, `?range=`, `?status=`, `?view=queue`. Cursor stays
 in component state (not the URL). Route is **not** under `/admin/feedback/` so
@@ -22,25 +22,25 @@ in component state (not the URL). Route is **not** under `/admin/feedback/` so
 
 ## Contract
 
-| Operation                   | Reads                                            | Polled                    |
-| --------------------------- | ------------------------------------------------ | ------------------------- |
-| `listFeedbackOutboxQueue`   | PostgreSQL + batched MongoDB respondents         | 3 s, both views           |
-| `listFeedbackOutboxHistory` | PostgreSQL + batched MongoDB respondents         | 5 s, newest page only     |
-| `getFeedbackOutboxMessage`  | PostgreSQL                                       | 3 s                       |
+| Operation                   | Reads                                    | Polled                |
+| --------------------------- | ---------------------------------------- | --------------------- |
+| `listFeedbackOutboxQueue`   | PostgreSQL + batched MongoDB respondents | 3 s, both views       |
+| `listFeedbackOutboxHistory` | PostgreSQL + batched MongoDB respondents | 5 s, newest page only |
+| `getFeedbackOutboxMessage`  | PostgreSQL                               | 3 s                   |
 
 Generated hooks only
 ([api-contract](../backend/mechanisms/api-contract.md)). Queue query is **not**
 gated on the visible view — its count badges the History tab.
 
-| File                                                     | Owns                                              |
-| -------------------------------------------------------- | ------------------------------------------------- |
-| `src/features/feedback/outboxQueue.ts`                   | Ages, deltas, timeline, ranges, vocabulary, copy  |
-| `src/features/feedback/polling.ts`                       | Three intervals                                   |
-| `src/components/admin/feedback/OutboxQueueList.tsx`      | Waiting list                                      |
-| `src/components/admin/feedback/OutboxHistoryList.tsx`    | Log + pager                                       |
-| `src/components/admin/feedback/OutboxHistoryToolbar.tsx` | Range + status filters                            |
-| `src/components/admin/feedback/OutboxMessageDetails.tsx` | Opened row                                        |
-| `src/routes/FeedbackOutboxPage.tsx`                      | Wiring, selection, cursor stack                   |
+| File                                                     | Owns                                             |
+| -------------------------------------------------------- | ------------------------------------------------ |
+| `src/features/feedback/outboxQueue.ts`                   | Ages, deltas, timeline, ranges, vocabulary, copy |
+| `src/features/feedback/polling.ts`                       | Three intervals                                  |
+| `src/components/admin/feedback/OutboxQueueList.tsx`      | Waiting list                                     |
+| `src/components/admin/feedback/OutboxHistoryList.tsx`    | Log + pager                                      |
+| `src/components/admin/feedback/OutboxHistoryToolbar.tsx` | Range + status filters                           |
+| `src/components/admin/feedback/OutboxMessageDetails.tsx` | Opened row                                       |
+| `src/routes/FeedbackOutboxPage.tsx`                      | Wiring, selection, cursor stack                  |
 
 Rules unit-tested in `apps/admin/test/feedback-outbox.spec.ts`.
 
@@ -67,21 +67,21 @@ flowchart LR
 
 Age is the subject; endpoint sorts by it.
 
-| Part   | Queue                                                                 | History                                      |
-| ------ | --------------------------------------------------------------------- | -------------------------------------------- |
-| Lead   | Name (`line-clamp-1`; D18 via `ParticipantName`)                      | Decision-log `origin` (kind fallback)        |
-| Age    | Right `tabular-nums`, toned                                           | —                                            |
-| Line 2 | Kind · event title (phone on opened message)                          | Same pattern without live pause chip         |
-| Chips  | Status + «Campaign paused» when dispatch blocked                      | Status alone                                 |
+| Part   | Queue                                            | History                               |
+| ------ | ------------------------------------------------ | ------------------------------------- |
+| Lead   | Name (`line-clamp-1`; D18 via `ParticipantName`) | Decision-log `origin` (kind fallback) |
+| Age    | Right `tabular-nums`, toned                      | —                                     |
+| Line 2 | Kind · event title (phone on opened message)     | Same pattern without live pause chip  |
+| Chips  | Status + «Campaign paused» when dispatch blocked | Status alone                          |
 
 ### Age tones
 
-| Tone      | When                                              | Class            |
-| --------- | ------------------------------------------------- | ---------------- |
-| `fresh`   | under 15 s                                        | `text-ink`       |
-| `slow`    | 15–60 s                                           | `text-warning`   |
-| `stalled` | ≥ 60 s                                            | `text-danger`    |
-| `parked`  | `held`, or campaign not `launched`                | `text-ink-muted` |
+| Tone      | When                               | Class            |
+| --------- | ---------------------------------- | ---------------- |
+| `fresh`   | under 15 s                         | `text-ink`       |
+| `slow`    | 15–60 s                            | `text-warning`   |
+| `stalled` | ≥ 60 s                             | `text-danger`    |
+| `parked`  | `held`, or campaign not `launched` | `text-ink-muted` |
 
 Seconds stay visible to the hour (`2m 27s`). Cap 200 rows; endpoint publishes
 real per-status totals so the cap is not mistaken for the backlog. Summary count
@@ -89,10 +89,10 @@ carries **no** tone.
 
 ## Queue vs history
 
-| View    | Default URL     | Rows                                              | Selection                                      |
-| ------- | --------------- | ------------------------------------------------- | ---------------------------------------------- |
-| History | bare `/admin/outbound` | Any status; `sent` quiet, `failed` loud     | Kept across pages (fetch by id)                |
-| Queue   | `?view=queue`   | `pending` / `claimed` / `attempting` / `ambiguous` / bridge `sending` / `held` | Cleared when row leaves waiting |
+| View    | Default URL            | Rows                                                                           | Selection                       |
+| ------- | ---------------------- | ------------------------------------------------------------------------------ | ------------------------------- |
+| History | bare `/admin/outbound` | Any status; `sent` quiet, `failed` loud                                        | Kept across pages (fetch by id) |
+| Queue   | `?view=queue`          | `pending` / `claimed` / `attempting` / `ambiguous` / bridge `sending` / `held` | Cleared when row leaves waiting |
 
 Queue badge on the History tab carries the waiting count (including quiet `0`).
 `ambiguous` stays until reconciliation even when delivery is otherwise healthy.

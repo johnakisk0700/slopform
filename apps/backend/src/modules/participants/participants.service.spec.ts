@@ -1,4 +1,4 @@
-import type { AppTransaction, ParticipantRow } from "@join-the-six/database";
+import type { AppTransaction, ParticipantRow } from "@slopform/database";
 import { describe, expect, it, vi } from "vitest";
 
 import type { AuditRepository } from "../../infrastructure/audit/audit.repository.js";

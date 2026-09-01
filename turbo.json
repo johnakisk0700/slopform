@@ -4,7 +4,7 @@
   "tasks": {
     "api:generate": {
       "cache": true,
-      "dependsOn": ["@join-the-six/backend#openapi:emit"],
+      "dependsOn": ["@slopform/backend#openapi:emit"],
       "outputs": ["src/api/generated/**"]
     },
     "build": {
@@ -16,7 +16,7 @@
       ],
       "outputs": ["dist/**"]
     },
-    "@join-the-six/admin#build": {
+    "@slopform/admin#build": {
       "dependsOn": ["^build", "api:generate"],
       "env": [
         "VITE_API_BASE",
@@ -25,14 +25,14 @@
       ],
       "outputs": ["dist/**"]
     },
-    "@join-the-six/design-tokens#build": {
+    "@slopform/design-tokens#build": {
       "outputs": []
     },
     "dev": {
       "cache": false,
       "persistent": true
     },
-    "@join-the-six/backend#dev": {
+    "@slopform/backend#dev": {
       "cache": false,
       "passThroughEnv": [
         "API_HOST",
@@ -84,7 +84,7 @@
       ],
       "persistent": true
     },
-    "@join-the-six/admin#dev": {
+    "@slopform/admin#dev": {
       "cache": false,
       "passThroughEnv": [
         "VITE_API_BASE",
@@ -97,7 +97,7 @@
     "lint": {
       "dependsOn": ["^build"]
     },
-    "@join-the-six/admin#lint": {
+    "@slopform/admin#lint": {
       "dependsOn": ["^build", "api:generate"]
     },
     "openapi:emit": {
@@ -109,14 +109,14 @@
       "dependsOn": ["^build"],
       "outputs": []
     },
-    "@join-the-six/admin#test": {
+    "@slopform/admin#test": {
       "dependsOn": ["^build", "api:generate"],
       "outputs": []
     },
     "typecheck": {
       "dependsOn": ["^build"]
     },
-    "@join-the-six/admin#typecheck": {
+    "@slopform/admin#typecheck": {
       "dependsOn": ["^build", "api:generate"]
     }
   }

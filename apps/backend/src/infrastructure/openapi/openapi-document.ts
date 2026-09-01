@@ -15,8 +15,8 @@ import { cleanupOpenApiDoc } from "nestjs-zod";
  * output, so nothing here may depend on the clock, the environment or hash
  * ordering: every object key is sorted before serialization.
  */
-const OPENAPI_TITLE = "Join The Six API";
-const OPENAPI_DESCRIPTION = "Operations API for Join The Six";
+const OPENAPI_TITLE = "Slopform API";
+const OPENAPI_DESCRIPTION = "Operations API for Slopform";
 const OPENAPI_VERSION = "1.0.0";
 export const OPENAPI_JSON_ROUTE = "api/openapi.json";
 export const OPENAPI_YAML_ROUTE = "api/openapi.yaml";

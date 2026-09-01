@@ -1,8 +1,5 @@
 import type { ConfigService } from "@nestjs/config";
-import type {
-  AssistantThreadRow,
-  AssistantTurnRow,
-} from "@join-the-six/database";
+import type { AssistantThreadRow, AssistantTurnRow } from "@slopform/database";
 import { describe, expect, it, vi } from "vitest";
 
 import type { Environment } from "../../infrastructure/config/environment.js";

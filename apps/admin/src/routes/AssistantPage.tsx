@@ -187,7 +187,7 @@ function clearLiveTurn(
 export function AssistantPage() {
   usePageMeta(
     "AI assistant",
-    "Durable AI conversations for Join The Six event operations.",
+    "Durable AI conversations for Slopform event operations.",
   );
 
   const navigate = useNavigate();

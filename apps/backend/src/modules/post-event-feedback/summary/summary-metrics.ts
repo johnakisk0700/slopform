@@ -1,7 +1,7 @@
 import type {
   FeedbackAnswerQuestionKey,
   FeedbackAnswerRow,
-} from "@join-the-six/database";
+} from "@slopform/database";
 
 import type {
   PostEventFeedbackAnswerQuestionDefinition,

@@ -5,7 +5,7 @@ import {
   type ProviderMessageDirection,
   type ProviderMessageIngressRow,
   type ProviderMessageProcessingStatus,
-} from "@join-the-six/database";
+} from "@slopform/database";
 import {
   and,
   asc,

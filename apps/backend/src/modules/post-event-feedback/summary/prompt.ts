@@ -2,7 +2,7 @@ import type {
   FeedbackAnswerRow,
   FeedbackNoteRow,
   ParticipantRow,
-} from "@join-the-six/database";
+} from "@slopform/database";
 
 import type { PostEventFeedbackAttentionReason } from "../attention.js";
 import { displayNameFor } from "../inbox/conversation.view.js";

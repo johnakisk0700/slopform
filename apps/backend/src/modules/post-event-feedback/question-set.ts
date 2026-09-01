@@ -3,7 +3,7 @@ import {
   FEEDBACK_NOTE_TYPES,
   type FeedbackAnswerQuestionKey,
   type FeedbackNoteType,
-} from "@join-the-six/database";
+} from "@slopform/database";
 
 import { FEEDBACK_CONVERSATION_MESSAGE_MAX_STORED_TEXT_LENGTH } from "./post-event-feedback-conversation.document.js";
 

@@ -9,13 +9,13 @@ Source: [`JtsPageHeader.tsx`](../../../apps/admin/src/components/ui/JtsPageHeade
 
 ## Contract
 
-| Prop | Type | Contract |
-| ---- | ---- | -------- |
-| `title` | `string` | Required. The page's only `h1`; carries the six-dot mark beneath. |
-| `back` | `{ to: string; label: string }?` | `JtsBackLink` above the eyebrow. Detail screens only. |
-| `eyebrow` | `string?` | Tracked wine micro-caps kicker above the title. |
-| `description` | `string?` | Muted supporting sentence under the title (max ~65ch). |
-| `actions` | `ReactNode?` | Route-owned controls/links bottom-right of the full-width header row. |
+| Prop          | Type                             | Contract                                                              |
+| ------------- | -------------------------------- | --------------------------------------------------------------------- |
+| `title`       | `string`                         | Required. The page's only `h1`; carries the six-dot mark beneath.     |
+| `back`        | `{ to: string; label: string }?` | `JtsBackLink` above the eyebrow. Detail screens only.                 |
+| `eyebrow`     | `string?`                        | Tracked wine micro-caps kicker above the title.                       |
+| `description` | `string?`                        | Muted supporting sentence under the title (max ~65ch).                |
+| `actions`     | `ReactNode?`                     | Route-owned controls/links bottom-right of the full-width header row. |
 
 Mark = `jts-title-mark` in `globals.css`: six 3px dots, five
 `--jts-color-primary` + sixth `--jts-color-accent`. Static; means "page title".

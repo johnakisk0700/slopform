@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import type { AppTransaction, AuditEventInsert } from "@join-the-six/database";
+import type { AppTransaction, AuditEventInsert } from "@slopform/database";
 
 import { ConversationPersistenceError } from "../conversations/conversation-persistence.errors.js";
 import type { EventFeedbackVenueSnapshot } from "../events/event-venue.js";

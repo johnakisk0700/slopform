@@ -2,7 +2,7 @@ import type {
   FeedbackAnswerRow,
   FeedbackNoteRow,
   ParticipantRow,
-} from "@join-the-six/database";
+} from "@slopform/database";
 import { describe, expect, it } from "vitest";
 
 import {

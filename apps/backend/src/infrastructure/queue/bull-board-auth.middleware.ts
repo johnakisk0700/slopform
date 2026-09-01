@@ -65,6 +65,6 @@ function setDashboardSecurityHeaders(response: Response): void {
 }
 
 function denyAccess(response: Response): void {
-  response.setHeader("www-authenticate", 'Basic realm="Join The Six queues"');
+  response.setHeader("www-authenticate", 'Basic realm="Slopform queues"');
   response.sendStatus(401);
 }

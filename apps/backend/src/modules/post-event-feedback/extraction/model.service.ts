@@ -2,7 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
-import type { FeedbackAnswerQuestionKey } from "@join-the-six/database";
+import type { FeedbackAnswerQuestionKey } from "@slopform/database";
 import {
   APICallError,
   NoObjectGeneratedError,

@@ -9,7 +9,7 @@ import {
   participants,
   type EventStatus,
   type FeedbackCampaignStatus,
-} from "@join-the-six/database";
+} from "@slopform/database";
 import { and, asc, count, eq, isNull, sql } from "drizzle-orm";
 
 import { DatabaseService } from "../../infrastructure/database/database.service.js";

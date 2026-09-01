@@ -14,7 +14,7 @@ import type {
   FeedbackCampaignRow,
   FeedbackCampaignSummaryRow,
   FeedbackCampaignSummaryTrigger,
-} from "@join-the-six/database";
+} from "@slopform/database";
 
 import { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
 import { ProviderCallLimiter } from "../../../infrastructure/ai/provider-call-limiter.js";

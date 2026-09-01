@@ -1,4 +1,4 @@
-import type { FeedbackExtractionMeta } from "@join-the-six/database";
+import type { FeedbackExtractionMeta } from "@slopform/database";
 import { describe, expect, it } from "vitest";
 
 import {

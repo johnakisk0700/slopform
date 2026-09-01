@@ -10,7 +10,7 @@ import {
   type AppDatabase,
   type AppTransaction,
   type DatabaseClient,
-} from "@join-the-six/database";
+} from "@slopform/database";
 
 import type { Environment } from "../config/environment.js";
 import { withReadinessTimeout } from "../readiness.js";

@@ -4,7 +4,7 @@ import type {
   AppTransaction,
   FeedbackCampaignRow,
   MessageOutboxRow,
-} from "@join-the-six/database";
+} from "@slopform/database";
 
 import { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import { ParticipantsRepository } from "../../participants/participants.repository.js";

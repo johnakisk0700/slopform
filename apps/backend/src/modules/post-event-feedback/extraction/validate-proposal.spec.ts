@@ -1,4 +1,4 @@
-import type { FeedbackAnswerQuestionKey } from "@join-the-six/database";
+import type { FeedbackAnswerQuestionKey } from "@slopform/database";
 import { describe, expect, it } from "vitest";
 
 import { validateFeedbackExtractionProposal } from "./validate-proposal.js";

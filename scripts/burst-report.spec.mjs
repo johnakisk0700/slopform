@@ -244,10 +244,10 @@ describe("renderBurstReport", () => {
       run({
         campaigns: [
           campaign({
-            adminUrl: "https://admin.jointhesix.gr/admin/feedback/c1",
+            adminUrl: "https://slopform.example.com/admin/feedback/c1",
             conversations: [
               conversation({
-                adminUrl: "https://admin.jointhesix.gr/admin/feedback/c1?x=1",
+                adminUrl: "https://slopform.example.com/admin/feedback/c1?x=1",
               }),
             ],
           }),
@@ -265,7 +265,7 @@ describe("renderBurstReport", () => {
     assert.ok(!/@import/u.test(html));
     assert.ok(!/url\(/u.test(html));
     // The admin links themselves are still there.
-    assert.ok(html.includes("https://admin.jointhesix.gr/admin/feedback/c1"));
+    assert.ok(html.includes("https://slopform.example.com/admin/feedback/c1"));
   });
 
   it("refuses to turn a non-http adminUrl into a link", () => {

@@ -12,13 +12,13 @@ Source: [`JtsStat.tsx`](../../../apps/admin/src/components/ui/JtsStat.tsx)
 
 ## Contract
 
-| Prop | Type | Contract |
-| ---- | ---- | -------- |
-| `label` | `string` | Required. Micro-caps `dt`. |
-| `value` | `string \| number` | Required. Big tabular `dd` figure. |
-| `detail` | `string?` | Optional explanatory `dd` beneath the value. |
-| `tone` | `"success" \| "warning"?` | Toned left marker, value and glyph; wine marker when omitted. |
-| `icon` | `LucideIcon?` | Decorative top-right glyph, `aria-hidden`. |
+| Prop     | Type                      | Contract                                                      |
+| -------- | ------------------------- | ------------------------------------------------------------- |
+| `label`  | `string`                  | Required. Micro-caps `dt`.                                    |
+| `value`  | `string \| number`        | Required. Big tabular `dd` figure.                            |
+| `detail` | `string?`                 | Optional explanatory `dd` beneath the value.                  |
+| `tone`   | `"success" \| "warning"?` | Toned left marker, value and glyph; wine marker when omitted. |
+| `icon`   | `LucideIcon?`             | Decorative top-right glyph, `aria-hidden`.                    |
 
 `tone` selects the vertical 3px `border-l` marker: wine default,
 `border-l-success` / `border-l-warning` when toned (value + icon match). Neutral

@@ -16,13 +16,13 @@ graph, bridge and appearance axes.
 
 ## Purpose and boundary
 
-| Owner | Owns |
-| ----- | ---- |
-| `packages/design-tokens/src/tokens.css` | Shared visual values and the house theme (Join The Six). Framework-neutral. A colour added only here is correct in one theme of six. |
-| `packages/design-tokens/src/palettes.css` | The five override themes (`data-palette` on `<html>`): flat resolved hexes for the **semantic colour layer only**. |
-| `apps/admin/src/styles/globals.css` | The **bridge**: HeroUI + Tailwind consume tokens. Owns no colours. |
-| `apps/admin/src/lib/useTheme.ts` + `index.html` pre-paint | Light/dark/system → `dark` class on `<html>`. |
-| `apps/admin/src/lib/usePalette.ts` + same pre-paint | Theme id → `data-palette` on `<html>`. |
+| Owner                                                     | Owns                                                                                                                                                                                   |
+| --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/design-tokens/src/tokens.css`                   | Shared visual values and the default house theme (operator label **Slopform**; palette id `join-the-six`). Framework-neutral. A colour added only here is correct in one theme of six. |
+| `packages/design-tokens/src/palettes.css`                 | The five override themes (`data-palette` on `<html>`): flat resolved hexes for the **semantic colour layer only**.                                                                     |
+| `apps/admin/src/styles/globals.css`                       | The **bridge**: HeroUI + Tailwind consume tokens. Owns no colours.                                                                                                                     |
+| `apps/admin/src/lib/useTheme.ts` + `index.html` pre-paint | Light/dark/system → `dark` class on `<html>`.                                                                                                                                          |
+| `apps/admin/src/lib/usePalette.ts` + same pre-paint       | Theme id → `data-palette` on `<html>`.                                                                                                                                                 |
 
 Components use bridge utilities (`bg-canvas`, `text-ink-muted`, `bg-accent`, …).
 If a needed semantic is missing, add a token — do not hardcode.
@@ -31,29 +31,29 @@ If a needed semantic is missing, add a token — do not hardcode.
 
 Consume the semantic layer; never hardcode primitives.
 
-| Layer | Example | Use |
-| ----- | ------- | --- |
-| Primitive | `--jts-wine-700`, `--jts-clay-300` | Defining semantics only. Not in components. |
-| Semantic | `--jts-color-primary`, `--jts-color-text` | Everything you build. Carries light/dark. |
-| Scale | `--jts-space-4`, `--jts-radius-lg` | Layout, rhythm, type, shadow, z, motion. |
+| Layer     | Example                                   | Use                                         |
+| --------- | ----------------------------------------- | ------------------------------------------- |
+| Primitive | `--jts-wine-700`, `--jts-clay-300`        | Defining semantics only. Not in components. |
+| Semantic  | `--jts-color-primary`, `--jts-color-text` | Everything you build. Carries light/dark.   |
+| Scale     | `--jts-space-4`, `--jts-radius-lg`        | Layout, rhythm, type, shadow, z, motion.    |
 
 ### Semantic colour tokens
 
-| Token | Meaning |
-| ----- | ------- |
-| `--jts-color-canvas` | App background |
-| `--jts-color-surface` | Card / panel background |
-| `--jts-color-surface-raised` / `-sunken` | Inputs & overlays / insets, table stripes |
-| `--jts-color-surface-strong` | Inverse (wine sidebar) |
-| `--jts-color-border` / `-subtle` / `-strong` | Hairlines and dividers |
-| `--jts-color-text` / `-muted` / `-subtle` | Body / secondary / tertiary |
-| `--jts-color-text-on-strong` | Text on the wine sidebar |
-| `--jts-color-primary` (`-hover`/`-active`/`-soft`/`-contrast`) | Brand actions & emphasis |
-| `--jts-color-accent`, `--jts-color-link` | Warm secondary (copper), links |
-| `--jts-color-focus`, `--jts-focus-ring` | Focus outline and ring |
-| `--jts-color-success`/`-warning`/`-danger`/`-info` (+ `-soft`/`-border`) | Status: fg, fill, border |
-| `--jts-color-rose` (+ `-soft`/`-border`) | Decorative pink tea tint (gossip); not a FeedbackBadge tone |
-| `--jts-color-sidebar-*` | Sidebar nav states (composed from above) |
+| Token                                                                    | Meaning                                                     |
+| ------------------------------------------------------------------------ | ----------------------------------------------------------- |
+| `--jts-color-canvas`                                                     | App background                                              |
+| `--jts-color-surface`                                                    | Card / panel background                                     |
+| `--jts-color-surface-raised` / `-sunken`                                 | Inputs & overlays / insets, table stripes                   |
+| `--jts-color-surface-strong`                                             | Inverse (wine sidebar)                                      |
+| `--jts-color-border` / `-subtle` / `-strong`                             | Hairlines and dividers                                      |
+| `--jts-color-text` / `-muted` / `-subtle`                                | Body / secondary / tertiary                                 |
+| `--jts-color-text-on-strong`                                             | Text on the wine sidebar                                    |
+| `--jts-color-primary` (`-hover`/`-active`/`-soft`/`-contrast`)           | Brand actions & emphasis                                    |
+| `--jts-color-accent`, `--jts-color-link`                                 | Warm secondary (copper), links                              |
+| `--jts-color-focus`, `--jts-focus-ring`                                  | Focus outline and ring                                      |
+| `--jts-color-success`/`-warning`/`-danger`/`-info` (+ `-soft`/`-border`) | Status: fg, fill, border                                    |
+| `--jts-color-rose` (+ `-soft`/`-border`)                                 | Decorative pink tea tint (gossip); not a FeedbackBadge tone |
+| `--jts-color-sidebar-*`                                                  | Sidebar nav states (composed from above)                    |
 
 Non-colour scales: `--jts-space-{1..24}`, `--jts-radius-{xs..xl,pill,circle}`,
 `--jts-shadow-{xs,sm,md,lg}`, `--jts-z-{base..max}`,
@@ -94,16 +94,19 @@ Operator **Theme** group × Appearance = 6×2 grid. Axes never mix. Each theme
 owns its own primary, accent, link, focus and status tones — not a field wash
 over a fixed wine brand.
 
-| Theme | Field | Brand | Accent |
-| ----- | ----- | ----- | ------ |
-| Join The Six | warm rosewood paper (default) | wine | copper |
-| Graphite | cool neutral | azure | violet |
-| Noir | greyscale | ink | violet |
-| Amphora | Flexoki ink on paper | teal | orange |
-| Linen | Radix Colors sand | copper | indigo |
-| Iris | Rosé Pine | iris | foam |
+| Theme    | Field                         | Brand  | Accent |
+| -------- | ----------------------------- | ------ | ------ |
+| Slopform | warm rosewood paper (default) | wine   | copper |
+| Graphite | cool neutral                  | azure  | violet |
+| Noir     | greyscale                     | ink    | violet |
+| Amphora  | Flexoki ink on paper          | teal   | orange |
+| Linen    | Radix Colors sand             | copper | indigo |
+| Iris     | Rosé Pine                     | iris   | foam   |
 
-- **Join The Six** = absence of `data-palette` (`tokens.css`). Overrides live in
+- **Slopform** (house wine) = absence of `data-palette` (`tokens.css`). The
+  palette **id** remains `join-the-six` — a leftover compatibility ID, not the
+  public product name ([ADR 0014](../decisions/0014-public-slopform-identity.md)).
+  Overrides live in
   `palettes.css` as flat hexes; type, space, radius, shadows and primitives stay
   shared.
 - Light blocks are scoped `:not(.dark)` so they tie with `:root.dark` on
@@ -122,14 +125,14 @@ Gated by `apps/admin/test/palettes.spec.ts` (five overrides) and
 `theme-tokens.spec.ts` (house); floors in
 `apps/admin/test/colour-metrics.ts` (CIEDE2000, not hex `!==`).
 
-| Rule | Floor |
-| ---- | ----- |
-| Twelve AA text/background pairs, both modes | 4.5:1 |
-| Each badge tone on its `-soft` tint; `canvas` on its solid | 4.5:1 |
-| `accent` as label ink on `surface` | 4.5:1 |
-| Badge tones (`info` `success` `warning` `danger` `accent`) pairwise | ΔE 12 |
-| `primary` against each status tone | ΔE 10 |
-| Brand colour and sidebar slab, across themes | distinct |
+| Rule                                                                | Floor    |
+| ------------------------------------------------------------------- | -------- |
+| Twelve AA text/background pairs, both modes                         | 4.5:1    |
+| Each badge tone on its `-soft` tint; `canvas` on its solid          | 4.5:1    |
+| `accent` as label ink on `surface`                                  | 4.5:1    |
+| Badge tones (`info` `success` `warning` `danger` `accent`) pairwise | ΔE 12    |
+| `primary` against each status tone                                  | ΔE 10    |
+| Brand colour and sidebar slab, across themes                        | distinct |
 
 **Sidebar numeral.** `--jts-color-sidebar-active-index` is the theme's **dark
 primary** in both modes (the slab is always dark). Matches
@@ -178,11 +181,11 @@ tone / `Jts*` lands on the cookbook in the same change. Contract:
 Three Fontsource variable families
 ([ADR 0011](../decisions/0011-display-typeface.md)):
 
-| Face | Token / utility | Use |
-| ---- | --------------- | --- |
-| Manrope | `--jts-font-sans` | UI and body (Latin + Greek) |
-| Commissioner | `--jts-font-display` / `font-display` | Display headings (Latin + Greek) |
-| Sora | `--jts-font-brand` / `font-brand` | Wordmark only — [`BrandLockup`](../../apps/admin/src/components/admin/BrandLockup.tsx); never UI copy |
+| Face         | Token / utility                       | Use                                                                                                   |
+| ------------ | ------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Manrope      | `--jts-font-sans`                     | UI and body (Latin + Greek)                                                                           |
+| Commissioner | `--jts-font-display` / `font-display` | Display headings (Latin + Greek)                                                                      |
+| Sora         | `--jts-font-brand` / `font-brand`     | Wordmark only — [`BrandLockup`](../../apps/admin/src/components/admin/BrandLockup.tsx); never UI copy |
 
 Scanned/compared numbers: `tabular-nums`. `font-mono` → `--jts-font-mono`
 (machine strings only: ids, model names, ms timestamps — never prose).
@@ -208,7 +211,7 @@ Scanned/compared numbers: `tabular-nums`. `font-mono` → `--jts-font-mono`
 - `dark` on `<html>` is the only dark-mode signal; `data-palette` is the only
   theme signal.
 - No glows, blurred circles, gradient washes or pulsing dots. Flat accents only.
-- Logo: `BrandLockup` / `BrandMark` (SVG five-people + empty chair, `currentColor`).
+- Logo: `BrandLockup` / `BrandMark` (SVG form/chat mark, `currentColor`).
   Mark wears brand on its slab (`text-sidebar-active-index` on inverse,
   `text-primary` on paper); wordmark keeps surface foreground. CSS `.brand-mark`
   is decorative only; one static `.status-dot` is the environment indicator.
@@ -221,16 +224,16 @@ Scanned/compared numbers: `tabular-nums`. `font-mono` → `--jts-font-mono`
 
 ## Tests
 
-| Spec / script | Guards |
-| ------------- | ------ |
+| Spec / script                                      | Guards                                                                                               |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | `packages/design-tokens/scripts/verify-tokens.mjs` | Required names; palette blocks parse, cover semantics in flat hexes, light numeral with dark primary |
-| `apps/admin/test/colour-metrics.ts` | Shared WCAG + CIEDE2000 floors |
-| `theme-tokens.spec.ts` | House AA pairs, tone separation, lit numeral |
-| `theme-switch.spec.ts` | `resolveTheme`, pre-paint, `@custom-variant dark`, `--accent` bridge, `useTheme` exports |
-| `page-chrome.spec.ts` | Title mark, `JtsBackLink`, route gap / full-height grammar, `.jts-disclosure` |
-| `palettes.spec.ts` | Override cover, `:not(.dark)`, AA + ΔE + numeral, id-list wiring |
-| `delivery-shell.spec.ts` | Pre-paint script, robots meta, `#main-content` |
-| `cookbook.spec.ts` | DEV gates, gallery token names, no literal colour |
+| `apps/admin/test/colour-metrics.ts`                | Shared WCAG + CIEDE2000 floors                                                                       |
+| `theme-tokens.spec.ts`                             | House AA pairs, tone separation, lit numeral                                                         |
+| `theme-switch.spec.ts`                             | `resolveTheme`, pre-paint, `@custom-variant dark`, `--accent` bridge, `useTheme` exports             |
+| `page-chrome.spec.ts`                              | Title mark, `JtsBackLink`, route gap / full-height grammar, `.jts-disclosure`                        |
+| `palettes.spec.ts`                                 | Override cover, `:not(.dark)`, AA + ΔE + numeral, id-list wiring                                     |
+| `delivery-shell.spec.ts`                           | Pre-paint script, robots meta, `#main-content`                                                       |
+| `cookbook.spec.ts`                                 | DEV gates, gallery token names, no literal colour                                                    |
 
 ## References
 

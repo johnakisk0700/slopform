@@ -5,7 +5,7 @@ import {
   FEEDBACK_NOTE_TYPES,
   MESSAGE_OUTBOX_DELIVERY_STATUSES,
   MESSAGE_OUTBOX_STATUSES,
-} from "@join-the-six/database";
+} from "@slopform/database";
 import { createZodDto } from "nestjs-zod";
 import { z } from "zod";
 

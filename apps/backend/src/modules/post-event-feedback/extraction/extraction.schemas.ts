@@ -3,7 +3,7 @@ import {
   FEEDBACK_NOTE_TYPES,
   type FeedbackAnswerQuestionKey,
   type FeedbackNoteType,
-} from "@join-the-six/database";
+} from "@slopform/database";
 import { z } from "zod";
 
 import type { EventFeedbackVenueContext } from "../../events/event-venue.js";

@@ -31,9 +31,11 @@ const listItemSchema = z.string().trim().min(1).max(280);
 export const feedbackSummaryFindingItemSchema = z
   .object({
     text: listItemSchema,
-    weight: z.enum(FEEDBACK_SUMMARY_FINDING_WEIGHTS).describe(
-      "How loud this line should read: low = quiet aside, medium = normal callout, high = punchy — reserve high for clear wins (wentWell) or real harm / sharp complaints (wentWrong). Prefer medium; do not mark every line high.",
-    ),
+    weight: z
+      .enum(FEEDBACK_SUMMARY_FINDING_WEIGHTS)
+      .describe(
+        "How loud this line should read: low = quiet aside, medium = normal callout, high = punchy — reserve high for clear wins (wentWell) or real harm / sharp complaints (wentWrong). Prefer medium; do not mark every line high.",
+      ),
   })
   .strict();
 

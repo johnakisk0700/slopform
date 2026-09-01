@@ -28,18 +28,18 @@ It does not own transport policy (`apps/admin/src/lib/api.ts`, see
 
 ## Contract
 
-| Artifact                            | Produced by                                  | Consumed by                                  |
-| ----------------------------------- | -------------------------------------------- | -------------------------------------------- |
-| `apps/backend/openapi/openapi.json` | `pnpm openapi:emit`                          | orval, contract review, external integrators |
-| `src/api/generated/<tag>.ts`        | `pnpm api:generate` (gitignored)             | admin routes and components                  |
-| `src/api/generated/model/*.ts`      | `pnpm api:generate` (gitignored)             | request/response types                       |
+| Artifact                            | Produced by                                  | Consumed by                                    |
+| ----------------------------------- | -------------------------------------------- | ---------------------------------------------- |
+| `apps/backend/openapi/openapi.json` | `pnpm openapi:emit`                          | orval, contract review, external integrators   |
+| `src/api/generated/<tag>.ts`        | `pnpm api:generate` (gitignored)             | admin routes and components                    |
+| `src/api/generated/model/*.ts`      | `pnpm api:generate` (gitignored)             | request/response types                         |
 | `src/api/generated/zod/*.zod.ts`    | `pnpm api:generate` (gitignored)             | validation of values that leave the typed path |
-| `/api/openapi.json` (runtime)       | `createHttpApplication()` outside production | Swagger UI at `/api/docs`, inspection        |
+| `/api/openapi.json` (runtime)       | `createHttpApplication()` outside production | Swagger UI at `/api/docs`, inspection          |
 
-| Command             | Effect                                                                 |
-| ------------------- | ---------------------------------------------------------------------- |
-| `pnpm openapi:emit` | Builds the backend through Turbo, rewrites the committed document      |
-| `pnpm api:generate` | Emits the document and regenerates the admin client                    |
+| Command             | Effect                                                                  |
+| ------------------- | ----------------------------------------------------------------------- |
+| `pnpm openapi:emit` | Builds the backend through Turbo, rewrites the committed document       |
+| `pnpm api:generate` | Emits the document and regenerates the admin client                     |
 | `pnpm api:check`    | Regenerates and fails when `openapi.json` changed; part of `pnpm check` |
 
 Every operation declares `@ApiOperation({ operationId })` in lower camel case.
@@ -53,16 +53,16 @@ form is rejected by test.
 Event create/update DTOs and list/detail responses publish one nested nullable
 `venue`. Participant event history reuses the same view.
 
-| Field             | Contract                                                                      |
-| ----------------- | ----------------------------------------------------------------------------- |
-| `provider`        | Required literal `google`                                                     |
-| `placeId`         | Required, trimmed, non-empty; no arbitrary max length                         |
-| `label`           | Required operator-confirmed display label                                     |
-| `type`, `area`    | Optional trimmed context                                                      |
-| `priceLevel`      | Optional `free\|inexpensive\|moderate\|expensive\|very_expensive`             |
-| `priceRange`      | Optional `{ startMinor, endMinor?, currencyCode }` (exact minor units)        |
-| `useInFeedback`   | Required boolean intent flag                                                  |
-| `contextRevision` | Positive server-owned integer; only on a non-null response venue              |
+| Field             | Contract                                                               |
+| ----------------- | ---------------------------------------------------------------------- |
+| `provider`        | Required literal `google`                                              |
+| `placeId`         | Required, trimmed, non-empty; no arbitrary max length                  |
+| `label`           | Required operator-confirmed display label                              |
+| `type`, `area`    | Optional trimmed context                                               |
+| `priceLevel`      | Optional `free\|inexpensive\|moderate\|expensive\|very_expensive`      |
+| `priceRange`      | Optional `{ startMinor, endMinor?, currencyCode }` (exact minor units) |
+| `useInFeedback`   | Required boolean intent flag                                           |
+| `contextRevision` | Positive server-owned integer; only on a non-null response venue       |
 
 `startMinor` is non-negative; optional `endMinor` cannot precede it;
 `currencyCode` is three uppercase letters. Optional fields are omitted, not
@@ -118,13 +118,13 @@ flowchart LR
 
 ## Failure states
 
-| Situation                                   | Behavior                                                                                        |
-| ------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| Controller changed, artifact not regenerated | `pnpm api:check` regenerates, lists the diff and fails; `pnpm test` fails too                   |
-| Generated client edited by hand              | Next generation overwrites it                                                                   |
-| Operation without explicit `operationId`     | OpenAPI document test fails                                                                     |
-| Backend unbuildable                          | `pnpm api:check` fails without touching the artifact                                            |
-| Request fails at runtime                     | Hook reports `isError`; the screen owns denial/retry/failure                                    |
+| Situation                                    | Behavior                                                                      |
+| -------------------------------------------- | ----------------------------------------------------------------------------- |
+| Controller changed, artifact not regenerated | `pnpm api:check` regenerates, lists the diff and fails; `pnpm test` fails too |
+| Generated client edited by hand              | Next generation overwrites it                                                 |
+| Operation without explicit `operationId`     | OpenAPI document test fails                                                   |
+| Backend unbuildable                          | `pnpm api:check` fails without touching the artifact                          |
+| Request fails at runtime                     | Hook reports `isError`; the screen owns denial/retry/failure                  |
 
 `pnpm api:check` leaves regenerated files in place: review and commit
 `openapi.json`, never hand-edit generated output.

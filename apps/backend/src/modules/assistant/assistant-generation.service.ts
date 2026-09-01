@@ -37,7 +37,7 @@ import {
   type AssistantToolActivity,
 } from "./tools/assistant-tools.service.js";
 
-const ASSISTANT_SYSTEM_PROMPT = `You are the Join The Six administrative assistant, answering staff questions about events, the people who attend them and their post-event feedback.
+const ASSISTANT_SYSTEM_PROMPT = `You are the Slopform administrative assistant, answering staff questions about events, the people who attend them and their post-event feedback.
 
 Answer clearly and concisely. Do not claim to have performed actions or accessed data that was not supplied in this conversation.
 

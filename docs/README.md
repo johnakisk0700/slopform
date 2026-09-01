@@ -1,7 +1,9 @@
 # Engineering handbook
 
-Maintained project memory. Markdown stays deliberate: GitHub renders it, diffs
-stay clean, and agents can cite stable sections.
+Maintained project memory for **Slopform**. Markdown stays deliberate: GitHub
+renders it, diffs stay clean, and agents can cite stable sections. Public
+identity and leftover Join The Six compatibility IDs:
+[ADR 0014](decisions/0014-public-slopform-identity.md).
 
 ## Read in this order
 
@@ -24,8 +26,9 @@ Core handbooks, then ADRs in number order, then ops and the readiness record:
 15. [`decisions/0011-display-typeface.md`](decisions/0011-display-typeface.md) — Commissioner + Manrope _(narrows 0005)_
 16. [`decisions/0012-selectable-palettes.md`](decisions/0012-selectable-palettes.md) — palette axis _(narrows 0005)_
 17. [`decisions/0013-state-driven-feedback-orchestration.md`](decisions/0013-state-driven-feedback-orchestration.md) — state reconciliation + outbox _(supersedes Redis execution from 0008)_
-18. [`deployment.md`](deployment.md) — local containers and production VPS
-19. [`agent-readiness.md`](agent-readiness.md) — dated extension benchmark _(repeat after material architecture change)_
+18. [`decisions/0014-public-slopform-identity.md`](decisions/0014-public-slopform-identity.md) — public Slopform name; leftover Join The Six IDs
+19. [`deployment.md`](deployment.md) — local containers and example VPS layout
+20. [`agent-readiness.md`](agent-readiness.md) — dated extension benchmark _(repeat after material architecture change)_
 
 ## Area index
 
@@ -84,7 +87,12 @@ and [Actions secure-use](https://docs.github.com/en/actions/reference/security/s
 
 ## Current delivery target
 
-One audited vertical slice before broad CRUD:
+The realized operator loop is:
+
+`campaign + questions → WhatsApp conversation → extraction → outbox → review → summary`
+
+The longer dinner-product slice from the Join The Six era remains the domain
+direction, not a claim that every entity is live CRUD:
 
 `participant → booking → payment ledger → event/table assignment → attendance → feedback`
 

@@ -18,7 +18,7 @@ const COPY: Record<
     eyebrow: "Access denied",
     title: "This profile is not an admin",
     detail:
-      "Your Clerk session is valid, but the backend has not authorized this profile for Join The Six.",
+      "Your Clerk session is valid, but the backend has not authorized this profile for Slopform.",
   },
   failed: {
     eyebrow: "Authentication unavailable",
@@ -58,7 +58,7 @@ export function AuthStatusScreen({
           className="mb-6"
           wordmark={
             <span className="text-xs font-extrabold uppercase tracking-caps text-ink-muted">
-              Join The Six
+              Slopform
             </span>
           }
         />

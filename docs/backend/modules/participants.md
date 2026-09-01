@@ -53,12 +53,12 @@ approved.
 
 Staff-only under Clerk admin guard:
 
-| Method  | Path                                                | Effect                                     |
-| ------- | --------------------------------------------------- | ------------------------------------------ |
-| `GET`   | `/api/v1/participants`                              | List profiles (capped)                     |
-| `GET`   | `/api/v1/participants/:id`                          | Single profile                             |
-| `GET`   | `/api/v1/participants/:id/events`                   | Event history (newest first)               |
-| `PATCH` | `/api/v1/participants/:id/feedback-whatsapp-opt-in` | Toggle opt-in + audit when value changes   |
+| Method  | Path                                                | Effect                                   |
+| ------- | --------------------------------------------------- | ---------------------------------------- |
+| `GET`   | `/api/v1/participants`                              | List profiles (capped)                   |
+| `GET`   | `/api/v1/participants/:id`                          | Single profile                           |
+| `GET`   | `/api/v1/participants/:id/events`                   | Event history (newest first)             |
+| `PATCH` | `/api/v1/participants/:id/feedback-whatsapp-opt-in` | Toggle opt-in + audit when value changes |
 
 `listParticipantEvents` joins `event_attendees` → `events`. Items:
 `eventId`, `title`, `startsAt`, event `status`, `present`, `tableNo`, and the
@@ -73,7 +73,7 @@ HTTP signup. Admin UI: `/admin/participants/:id`.
 ```mermaid
 flowchart LR
   WP["WordPress jts_profile"] -->|"Tools > Export"| WXR["Restricted WXR/XML"]
-  WP -->|"WP-CLI exporter"| JSON["Restricted JSON v1"]
+  WP -->|"operator-produced JSON v1"| JSON["Restricted JSON v1"]
   WXR --> File["Auto-detected input"]
   JSON --> File
   File -->|"dry-run"| Validate["Validate and normalize"]
@@ -85,16 +85,9 @@ flowchart LR
 ```
 
 Preferred path with current access: WordPress **Tools > Export > Profiles**
-(CLI auto-detects WXR). When WP-CLI is available:
-
-```bash
-umask 077
-wp eval-file /path/to/export-jts-profiles.php > /restricted/jts-profiles.json
-```
-
-Exporter:
-[`scripts/wordpress/export-jts-profiles.php`](../../../scripts/wordpress/export-jts-profiles.php).
-Fake envelope:
+(CLI auto-detects WXR). This public tree does not include a live-site WP-CLI
+dump recipe. Import still accepts WXR or a versioned JSON v1 envelope matching
+the fake example
 [`example-jts-profiles.json`](../../../scripts/wordpress/example-jts-profiles.json).
 
 Keep real exports under ignored `secrets/wordpress/`; never commit them.

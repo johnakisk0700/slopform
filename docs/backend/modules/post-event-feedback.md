@@ -13,20 +13,20 @@ Policy answers the application may append:
 
 ## Status
 
-| Work package | Status |
-| ------------ | ------ |
-| WP0 product contract (question sets, STOP matcher, fixtures) | Landed |
-| WP1 stub events / attendance | Landed (upstream) |
-| WP2 PostgreSQL persistence | Landed |
-| WP3 Mongo schema v2 | Landed |
-| WP4 ingress + materialization | Landed |
-| WP5 extraction + reply loop | Landed |
-| WP6 direct outbox dispatch + transport | Landed |
-| WP7 campaign service + reconciliation | Landed |
-| WP7b staff conversation inbox HTTP | Landed |
-| WP8 simulated transport + production rehearsal | Landed |
-| WP9 admin conversations UI | Landed |
-| WP12 / 12b / 12c staff notes, corrections, recorded answers | Landed |
+| Work package                                                 | Status            |
+| ------------------------------------------------------------ | ----------------- |
+| WP0 product contract (question sets, STOP matcher, fixtures) | Landed            |
+| WP1 stub events / attendance                                 | Landed (upstream) |
+| WP2 PostgreSQL persistence                                   | Landed            |
+| WP3 Mongo schema v2                                          | Landed            |
+| WP4 ingress + materialization                                | Landed            |
+| WP5 extraction + reply loop                                  | Landed            |
+| WP6 direct outbox dispatch + transport                       | Landed            |
+| WP7 campaign service + reconciliation                        | Landed            |
+| WP7b staff conversation inbox HTTP                           | Landed            |
+| WP8 simulated transport + production rehearsal               | Landed            |
+| WP9 admin conversations UI                                   | Landed            |
+| WP12 / 12b / 12c staff notes, corrections, recorded answers  | Landed            |
 
 Landing narrative, plan amendments and rehearsal archaeology live in
 [`docs/history/`](../../history/) — notably
@@ -61,29 +61,29 @@ Repositories: `campaign/`, `extraction/results.repository.ts`, `ingress/`,
 `outbox/`, `simulator/sim-outbound.repository.ts`. No `message_deliveries` table;
 nothing references `event_attendees`.
 
-| Table | Authority rules |
-| ----- | --------------- |
-| `feedback_campaigns` | `event_id` **UNIQUE**; `question_set_version` + `questions` jsonb at launch; status `launched\|paused\|closed`; event FK `ON DELETE RESTRICT` |
-| `feedback_campaign_summaries` | One row per campaign; status `pending\|ready\|failed`; trigger `manual\|all_closed`; monotonic epoch + claim fence; `is_partial`; body ≤ 50 000 chars |
-| `feedback_answers` | Directed edge; optional `subject_participant_id`; `value_int` for scores; `source_message_ids` non-empty unless `extraction_meta.origin = 'staff'`; `extraction_meta` (model, confidence, **candidate IDs of the run** — D12); `matching_hold boolean not null default false` — [statement, not instruction](#an-avoid-row-is-a-statement-not-an-instruction) |
-| Answer uniqueness | `UNIQUE NULLS NOT DISTINCT (conversation_id, question_key, subject_participant_id)` |
-| `feedback_answer_withdrawals` | Tombstone on the same uniqueness key; `answer_id` with no FK; never updated; deleted only when an operator records their own answer for that slot |
-| `feedback_notes` | Directed; `note_type` `activity_interest\|general`; text ≤ 500; subject **NULLABLE** (D18); status `new\|dismissed`; `source_message_ids` non-empty unless staff origin |
-| `provider_message_ingress` | Webhook ack + dedupe; `UNIQUE(chat_jid, provider_message_id)`; statuses `pending\|materialized\|ignored_unmatched\|failed` |
-| `feedback_conversation_executions` | Per-conversation PostgreSQL execution fence (epoch/work revision + lease); no product lifecycle/transcript |
-| `message_outbox` | `pending\|claimed\|attempting\|ambiguous\|sending\|sent\|failed\|held\|cancelled`; `dedupe_key` **UNIQUE**; claim/send/attempt/delivery columns folded in |
-| `message_outbox_log` | Append-only; one row per **inserted** outbox row, same transaction; `outbox_id` **UNIQUE**; never updated |
+| Table                              | Authority rules                                                                                                                                                                                                                                                                                                                                               |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `feedback_campaigns`               | `event_id` **UNIQUE**; `question_set_version` + `questions` jsonb at launch; status `launched\|paused\|closed`; event FK `ON DELETE RESTRICT`                                                                                                                                                                                                                 |
+| `feedback_campaign_summaries`      | One row per campaign; status `pending\|ready\|failed`; trigger `manual\|all_closed`; monotonic epoch + claim fence; `is_partial`; body ≤ 50 000 chars                                                                                                                                                                                                         |
+| `feedback_answers`                 | Directed edge; optional `subject_participant_id`; `value_int` for scores; `source_message_ids` non-empty unless `extraction_meta.origin = 'staff'`; `extraction_meta` (model, confidence, **candidate IDs of the run** — D12); `matching_hold boolean not null default false` — [statement, not instruction](#an-avoid-row-is-a-statement-not-an-instruction) |
+| Answer uniqueness                  | `UNIQUE NULLS NOT DISTINCT (conversation_id, question_key, subject_participant_id)`                                                                                                                                                                                                                                                                           |
+| `feedback_answer_withdrawals`      | Tombstone on the same uniqueness key; `answer_id` with no FK; never updated; deleted only when an operator records their own answer for that slot                                                                                                                                                                                                             |
+| `feedback_notes`                   | Directed; `note_type` `activity_interest\|general`; text ≤ 500; subject **NULLABLE** (D18); status `new\|dismissed`; `source_message_ids` non-empty unless staff origin                                                                                                                                                                                       |
+| `provider_message_ingress`         | Webhook ack + dedupe; `UNIQUE(chat_jid, provider_message_id)`; statuses `pending\|materialized\|ignored_unmatched\|failed`                                                                                                                                                                                                                                    |
+| `feedback_conversation_executions` | Per-conversation PostgreSQL execution fence (epoch/work revision + lease); no product lifecycle/transcript                                                                                                                                                                                                                                                    |
+| `message_outbox`                   | `pending\|claimed\|attempting\|ambiguous\|sending\|sent\|failed\|held\|cancelled`; `dedupe_key` **UNIQUE**; claim/send/attempt/delivery columns folded in                                                                                                                                                                                                     |
+| `message_outbox_log`               | Append-only; one row per **inserted** outbox row, same transaction; `outbox_id` **UNIQUE**; never updated                                                                                                                                                                                                                                                     |
 
 All participant/campaign FKs: `ON DELETE RESTRICT` (D18). Conversation ids are
 Mongo UUIDs with no PostgreSQL FK.
 
-| Helper | Behaviour |
-| ------ | --------- |
-| `insertIngressIfAbsent` / `insertOutboxIfAbsent` | `ON CONFLICT DO NOTHING` |
-| `insertAnswerIfAbsent` | `ON CONFLICT DO UPDATE`; writes nothing on a withdrawal tombstone; skips operator-corrected rows (`extraction_meta ? 'corrections'`); merges provenance; accumulates `matching_hold` |
-| Operator correction/withdrawal/staff-answer helpers | `findAnswerById`, `updateAnswerValue`, `deleteAnswer`, `recordAnswerWithdrawal`, `insertStaffAnswer`, `deleteAnswerWithdrawal` |
-| `findIngressByIdForUpdate` | Materialization fence |
-| `findUnlinkedOutboxByConversationAndBody` | Observed-outbound correlation |
+| Helper                                              | Behaviour                                                                                                                                                                            |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `insertIngressIfAbsent` / `insertOutboxIfAbsent`    | `ON CONFLICT DO NOTHING`                                                                                                                                                             |
+| `insertAnswerIfAbsent`                              | `ON CONFLICT DO UPDATE`; writes nothing on a withdrawal tombstone; skips operator-corrected rows (`extraction_meta ? 'corrections'`); merges provenance; accumulates `matching_hold` |
+| Operator correction/withdrawal/staff-answer helpers | `findAnswerById`, `updateAnswerValue`, `deleteAnswer`, `recordAnswerWithdrawal`, `insertStaffAnswer`, `deleteAnswerWithdrawal`                                                       |
+| `findIngressByIdForUpdate`                          | Materialization fence                                                                                                                                                                |
+| `findUnlinkedOutboxByConversationAndBody`           | Observed-outbound correlation                                                                                                                                                        |
 
 Pause, terminal lifecycle and human control fence both claim and provider entry:
 the dispatcher reloads campaign + conversation immediately before its send marker.
@@ -93,13 +93,13 @@ the dispatcher reloads campaign + conversation immediately before its send marke
 One finished event → one campaign. Each eligible respondent → at most one
 conversation in that campaign.
 
-| Record | Authority | Contract |
-| ------ | --------- | -------- |
-| Stub `events` / attendance | PostgreSQL | Upstream facts; candidates selected live (D16) |
-| `FeedbackCampaign` | PostgreSQL | Event, question-set version, launch copy snapshot, lifecycle |
-| `FeedbackConversation` | MongoDB | Schema v2: transcript, goals, lifecycle × control, phone, attention, work revision/due |
-| `FeedbackAnswer` / `FeedbackNote` | PostgreSQL | Directed results with message provenance |
-| Ingress / outbox / execution fence | PostgreSQL | Dedupe, audit, delivery/recovery |
+| Record                             | Authority  | Contract                                                                               |
+| ---------------------------------- | ---------- | -------------------------------------------------------------------------------------- |
+| Stub `events` / attendance         | PostgreSQL | Upstream facts; candidates selected live (D16)                                         |
+| `FeedbackCampaign`                 | PostgreSQL | Event, question-set version, launch copy snapshot, lifecycle                           |
+| `FeedbackConversation`             | MongoDB    | Schema v2: transcript, goals, lifecycle × control, phone, attention, work revision/due |
+| `FeedbackAnswer` / `FeedbackNote`  | PostgreSQL | Directed results with message provenance                                               |
+| Ingress / outbox / execution fence | PostgreSQL | Dedupe, audit, delivery/recovery                                                       |
 
 No PostgreSQL campaign-recipient projection. Phone and state live on the Mongo
 document; admin lists use compact Mongo projections.
@@ -121,14 +121,14 @@ and extractable; `liked` is not reinterpreted as a V2 question.
 
 V2 (current), in order:
 
-| Key | Answer | Signal |
-| --- | ------ | ------ |
-| `event_score` | int 1–5 | Overall experience |
-| `table_fit` | int 1–5 | Group/table fit |
-| `participation_ease` | int 1–5 | Ease of joining the conversation |
-| `conversation_balance` | int 1–5 | Room to contribute |
-| `meet_again` | zero or more subjects | Positive future-contact intent |
-| `avoid` | zero or more subjects | Confidential no-rematch preference — not misconduct proof |
+| Key                    | Answer                | Signal                                                    |
+| ---------------------- | --------------------- | --------------------------------------------------------- |
+| `event_score`          | int 1–5               | Overall experience                                        |
+| `table_fit`            | int 1–5               | Group/table fit                                           |
+| `participation_ease`   | int 1–5               | Ease of joining the conversation                          |
+| `conversation_balance` | int 1–5               | Room to contribute                                        |
+| `meet_again`           | zero or more subjects | Positive future-contact intent                            |
+| `avoid`                | zero or more subjects | Confidential no-rematch preference — not misconduct proof |
 
 V2 removes `liked`. Numeric answers are subjectless. Consumer rules:
 
@@ -178,10 +178,10 @@ Both directions reach the transcript — see
 Every `message_outbox` row is also recorded in Mongo by
 [`FeedbackOutboundTranscriptService`](../../../apps/backend/src/modules/post-event-feedback/outbox/outbound-transcript.service.ts).
 
-| Outbox `kind` | Actor | Producer |
-| ------------- | ----- | -------- |
-| `intro` / `reminder` / `reply` / `system` | `bot` | Launch, planner, extraction, STOP ack |
-| `staff` | `staff` | Staff inbox send |
+| Outbox `kind`                             | Actor   | Producer                              |
+| ----------------------------------------- | ------- | ------------------------------------- |
+| `intro` / `reminder` / `reply` / `system` | `bot`   | Launch, planner, extraction, STOP ack |
+| `staff`                                   | `staff` | Staff inbox send                      |
 
 `system` maps to `bot` because schema v2 reserves `actor: system` for entries
 with **no** transport provenance; outbox-backed rows always carry `outboxId`.
@@ -207,24 +207,24 @@ not an infinite poison job.
 Product surface: lifecycle `open | closed`; control `bot | human`; current goal;
 terminal reason when closed. Processing/delivery statuses live elsewhere.
 
-| Rule | Detail |
-| ---- | ------ |
-| Takeover | Control → human before staff send accepted |
-| Bot enqueue | Reload control immediately before outbound |
-| External outbound | Unmatched observed outbound → human control; no inferred staff identity |
-| Staff send identity | Client UUID; durable key `feedback-staff-<conversationId>-<clientMessageId>` |
-| Staff send locks | Conversation advisory lock then campaign row lock; admit only launched + open + human |
-| Resume | Explicit; only participant statements materialize feedback |
-| STOP | Deterministic, either control mode |
+| Rule                | Detail                                                                                |
+| ------------------- | ------------------------------------------------------------------------------------- |
+| Takeover            | Control → human before staff send accepted                                            |
+| Bot enqueue         | Reload control immediately before outbound                                            |
+| External outbound   | Unmatched observed outbound → human control; no inferred staff identity               |
+| Staff send identity | Client UUID; durable key `feedback-staff-<conversationId>-<clientMessageId>`          |
+| Staff send locks    | Conversation advisory lock then campaign row lock; admit only launched + open + human |
+| Resume              | Explicit; only participant statements materialize feedback                            |
+| STOP                | Deterministic, either control mode                                                    |
 
 ## AI extraction
 
 Two parallel structured calls:
 
-| Call | Input | Output |
-| ---- | ----- | ------ |
+| Call       | Input                                                                                   | Output                                                                                       |
+| ---------- | --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
 | Extraction | Full actor-labelled transcript, question copy, live candidates, goals, accepted results | `goals` (required verdict per goal), `notes[]`, `nextGoal`, `reply`, `handoff`, `confidence` |
-| Attention | Six prior messages + new participant burst | Exactly one result per new participant message ID |
+| Attention  | Six prior messages + new participant burst                                              | Exactly one result per new participant message ID                                            |
 
 Neither call supplies UI copy/icons. Application verifies provenance,
 participant-only sources, cursor-window citation, allowed keys/types, live
@@ -326,12 +326,12 @@ Cheap exits (no model): closed, human control, campaign pause/close, consent
 withdrawn, `awaitingHuman`, covered cursor, newer revision. Planner owns quiet
 window, reminders, expiry, parked retry — at most one action per execution.
 
-| Guard tag | Recovery |
-| --------- | -------- |
-| `superseded` | Ordinary completion; no BullMQ retry; no fallback |
-| Claim loss | Retryable |
-| Missing/backwards execution projection | Unrecoverable quarantine |
-| Model-generation failure | Owns fallback / park path |
+| Guard tag                              | Recovery                                          |
+| -------------------------------------- | ------------------------------------------------- |
+| `superseded`                           | Ordinary completion; no BullMQ retry; no fallback |
+| Claim loss                             | Retryable                                         |
+| Missing/backwards execution projection | Unrecoverable quarantine                          |
+| Model-generation failure               | Owns fallback / park path                         |
 
 After a provider slot, each model request opens a short provider-entry
 transaction (phone + conversation locks, live token, campaign share lock,
@@ -360,23 +360,23 @@ venue-blind).
 
 ### Validation before any persistence or send
 
-| Rule | Effect |
-| ---- | ------ |
-| Source in this conversation | Reject `unknown_source_message` |
-| Source `actor: participant` | Reject `non_participant_source` |
-| Allowed question key / note type | Reject at Zod + rules |
-| V2 scores subjectless int 1–5 | Reject |
-| Subject current candidate ≠ respondent | Answer dropped; note subjectless + flagged (D18) |
-| Already recorded | Skip |
-| V1 unasked `liked`/`meet_again` declined beside an answer | Refuse skip (`declined_before_asked`); ask that question |
-| Lifecycle ∧ control ∧ opt-in | Reply suppressed; results may still persist |
-| Durable inbound beyond model Mongo snapshot | Ordinary reply suppressed |
-| Work/control generation changed during paid call | Outbound suppressed; successor keeps cursor |
-| Classifier incident | Annotate + attention; nothing suppressed |
-| Explicit `handoff` | Neutral handoff copy; notes still recorded |
-| Handoff that recorded nothing over testimony still holding an answer | Whole run fails (`handoff_discards_testimony`) |
-| Venue disabled / revision mismatch | Whole transaction rolls back; retryable |
-| Operator-corrected slot | Refuse (`answer_corrected_by_operator`); raise `answer_revision` |
+| Rule                                                                 | Effect                                                           |
+| -------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| Source in this conversation                                          | Reject `unknown_source_message`                                  |
+| Source `actor: participant`                                          | Reject `non_participant_source`                                  |
+| Allowed question key / note type                                     | Reject at Zod + rules                                            |
+| V2 scores subjectless int 1–5                                        | Reject                                                           |
+| Subject current candidate ≠ respondent                               | Answer dropped; note subjectless + flagged (D18)                 |
+| Already recorded                                                     | Skip                                                             |
+| V1 unasked `liked`/`meet_again` declined beside an answer            | Refuse skip (`declined_before_asked`); ask that question         |
+| Lifecycle ∧ control ∧ opt-in                                         | Reply suppressed; results may still persist                      |
+| Durable inbound beyond model Mongo snapshot                          | Ordinary reply suppressed                                        |
+| Work/control generation changed during paid call                     | Outbound suppressed; successor keeps cursor                      |
+| Classifier incident                                                  | Annotate + attention; nothing suppressed                         |
+| Explicit `handoff`                                                   | Neutral handoff copy; notes still recorded                       |
+| Handoff that recorded nothing over testimony still holding an answer | Whole run fails (`handoff_discards_testimony`)                   |
+| Venue disabled / revision mismatch                                   | Whole transaction rolls back; retryable                          |
+| Operator-corrected slot                                              | Refuse (`answer_corrected_by_operator`); raise `answer_revision` |
 
 D18 asymmetric: notes keep text + flag; answers without a resolved subject drop.
 Re-proposed different value = revision via upsert; same value = `already_recorded`.
@@ -414,11 +414,11 @@ Extraction stops at the outbox; the
 Each goal owns two fixed wordings (campaign copy + `_reask` variant). After both
 are spent → send nothing on that path, raise `unfinished_questionnaire`. Scope:
 
-| Body kind | Compare against |
-| --------- | --------------- |
-| Campaign wordings | Whole bot transcript |
-| Model-written | Last bot message only (consecutive repeat) |
-| Reminder nudge | Inside `reminder_followup` wrapper — never spends a wording |
+| Body kind         | Compare against                                             |
+| ----------------- | ----------------------------------------------------------- |
+| Campaign wordings | Whole bot transcript                                        |
+| Model-written     | Last bot message only (consecutive repeat)                  |
+| Reminder nudge    | Inside `reminder_followup` wrapper — never spends a wording |
 
 Does not close, settle or take control.
 
@@ -430,23 +430,23 @@ No bare `needsAttention` setter. Every raise goes through `raiseAttention`
 taxonomy in
 [`attention.ts`](../../../apps/backend/src/modules/post-event-feedback/attention.ts).
 
-| Situation | `kind` |
-| --------- | ------ |
-| Classified safety (others reported) | `safety` |
-| Respondent is the source | `respondent_conduct` |
-| Explicit handoff | `handoff` |
-| D18 subjectless note | `unattributed_note` |
-| Answer revision / operator-corrected conflict | `answer_revision` |
-| Bot withdrew / re-ask cap spent | `unfinished_questionnaire` |
-| Unanswered data-handling question | `unanswered_data_question` |
-| Dead-run fallback | `extraction_failed` |
-| Unreadable inbound (media) | `unreadable_message` |
-| Truncated/edited redelivery | `transcript_mismatch` |
-| Transcript full | `transcript_full` |
-| Send failed / body too long | `undelivered_message` |
-| Message after close | `post_closure_message` |
-| STOP with no answers | `stopped_without_answers` |
-| Classifier hostility to us | `hostile_to_bot` |
+| Situation                                     | `kind`                     |
+| --------------------------------------------- | -------------------------- |
+| Classified safety (others reported)           | `safety`                   |
+| Respondent is the source                      | `respondent_conduct`       |
+| Explicit handoff                              | `handoff`                  |
+| D18 subjectless note                          | `unattributed_note`        |
+| Answer revision / operator-corrected conflict | `answer_revision`          |
+| Bot withdrew / re-ask cap spent               | `unfinished_questionnaire` |
+| Unanswered data-handling question             | `unanswered_data_question` |
+| Dead-run fallback                             | `extraction_failed`        |
+| Unreadable inbound (media)                    | `unreadable_message`       |
+| Truncated/edited redelivery                   | `transcript_mismatch`      |
+| Transcript full                               | `transcript_full`          |
+| Send failed / body too long                   | `undelivered_message`      |
+| Message after close                           | `post_closure_message`     |
+| STOP with no answers                          | `stopped_without_answers`  |
+| Classifier hostility to us                    | `hostile_to_bot`           |
 
 Kinds with no anchor stand once until dismissed. Advancing any goal to `answered`
 on a closed/stopped conversation resolves `stopped_without_answers` as
@@ -454,14 +454,14 @@ on a closed/stopped conversation resolves `stopped_without_answers` as
 
 ### The hostility ladder
 
-| Piece | Where |
-| ----- | ----- |
-| Signal | `hostileToUs` on classifier (separate from safety categories) |
-| Counter | `hostileTurns` on conversation (per **run**, not per message) |
-| Threshold | `FEEDBACK_CALM_REPLIES_BEFORE_HOSTILITY_STOP` = 3 |
-| Exit line | `POST_EVENT_FEEDBACK_HOSTILITY_STOP_REPLY` |
-| Silence | `awaitingHuman` |
-| Badge | `hostile_to_bot` |
+| Piece     | Where                                                         |
+| --------- | ------------------------------------------------------------- |
+| Signal    | `hostileToUs` on classifier (separate from safety categories) |
+| Counter   | `hostileTurns` on conversation (per **run**, not per message) |
+| Threshold | `FEEDBACK_CALM_REPLIES_BEFORE_HOSTILITY_STOP` = 3             |
+| Exit line | `POST_EVENT_FEEDBACK_HOSTILITY_STOP_REPLY`                    |
+| Silence   | `awaitingHuman`                                               |
+| Badge     | `hostile_to_bot`                                              |
 
 `hostileToUs` never becomes a safety category, never sets `matching_hold`, never
 pages. A run with any safety signal neither ticks the counter nor stops. Nothing
@@ -473,11 +473,11 @@ as `completed` (`answeredAnything` shared with closing copy). See
 
 Empty ladder that settles with nothing recorded:
 
-| Field | Value |
-| ----- | ----- |
-| `lifecycle.reason` | `declined` (not `stopped` / `expired`) |
-| Reply | `copy.declined` only when model would otherwise send silence |
-| Attention | None |
+| Field              | Value                                                        |
+| ------------------ | ------------------------------------------------------------ |
+| `lifecycle.reason` | `declined` (not `stopped` / `expired`)                       |
+| Reply              | `copy.declined` only when model would otherwise send silence |
+| Attention          | None                                                         |
 
 Distinct from withdrawal (bot gave up → stays open), hostility (operator), STOP
 (consent).
@@ -497,12 +497,12 @@ Provider registry: `assistant-models.ts`. `FEEDBACK_EXTRACTION_MODEL` defaults
 `google/gemini-3.6-flash` (D12); unregistered fails at worker start. Terra
 reserved for `FEEDBACK_SUMMARY_MODEL`.
 
-| Env | Role |
-| --- | ---- |
-| `FEEDBACK_EXTRACTION_REASONING_EFFORT` | Extraction thinking; unset ≠ `none` (omits field) |
-| `FEEDBACK_REPLY_REASONING_EFFORT` | Conditional rewrite of forwardable drafts; default `low` |
-| `FEEDBACK_ATTENTION_REASONING_EFFORT` | Classifier; default `none` (unset means `none`) |
-| `FEEDBACK_EXTRACTION_SERVICE_TIER` | OpenAI direct only: `default\|flex\|priority` |
+| Env                                    | Role                                                     |
+| -------------------------------------- | -------------------------------------------------------- |
+| `FEEDBACK_EXTRACTION_REASONING_EFFORT` | Extraction thinking; unset ≠ `none` (omits field)        |
+| `FEEDBACK_REPLY_REASONING_EFFORT`      | Conditional rewrite of forwardable drafts; default `low` |
+| `FEEDBACK_ATTENTION_REASONING_EFFORT`  | Classifier; default `none` (unset means `none`)          |
+| `FEEDBACK_EXTRACTION_SERVICE_TIER`     | OpenAI direct only: `default\|flex\|priority`            |
 
 Effort above `none` raises `maxOutputTokens` (reasoning shares the output
 budget). Rewrite failure: answers/notes persist, turn sends **nothing**. Google
@@ -514,14 +514,14 @@ Token usage logged per call type.
 
 ## D13 — safety content travels the ordinary pipeline
 
-| Concern | Rule |
-| ------- | ---- |
-| Notes | Safety-flavoured statements → ordinary `feedback_notes`; nothing suppressed |
-| Handoff | Attention ≠ participant handoff; only explicit request swaps neutral copy |
-| Operator signal | `needsAttention` + audit + bounded message metadata; no separate incident record |
-| Classification owner | Independent contextual model call only; no keyword classifier |
-| Provider failure | Content/refusal → fallback; **provider incident** → park (no note/alert) |
-| Restricted reporting | `safety_reports` deferred; this module writes none |
+| Concern              | Rule                                                                             |
+| -------------------- | -------------------------------------------------------------------------------- |
+| Notes                | Safety-flavoured statements → ordinary `feedback_notes`; nothing suppressed      |
+| Handoff              | Attention ≠ participant handoff; only explicit request swaps neutral copy        |
+| Operator signal      | `needsAttention` + audit + bounded message metadata; no separate incident record |
+| Classification owner | Independent contextual model call only; no keyword classifier                    |
+| Provider failure     | Content/refusal → fallback; **provider incident** → park (no note/alert)         |
+| Restricted reporting | `safety_reports` deferred; this module writes none                               |
 
 Classifier sees six prior + new burst. Older turns disambiguate but cannot receive
 new classifications later. Crude banter alone is not a safety signal.
@@ -552,11 +552,11 @@ Appended by `extract.service` when **all** hold:
 consumer. There is no matching consumer today — document the contract before one
 exists.
 
-| Marker | Role |
-| ------ | ---- |
+| Marker                                                                                                                                           | Role                                                                                |
+| ------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
 | [`feedback-answers-consumer-boundary.spec.ts`](../../../apps/backend/src/modules/post-event-feedback/feedback-answers-consumer-boundary.spec.ts) | Fails if `feedback_answers` is referenced outside this module / schema / migrations |
-| `matching_hold` | Sticky boolean set when a cited message is respondent-source in the same run |
-| This section | Why / how to consume |
+| `matching_hold`                                                                                                                                  | Sticky boolean set when a cited message is respondent-source in the same run        |
+| This section                                                                                                                                     | Why / how to consume                                                                |
 
 Hold is sticky on upsert (`or`). Abuse in a later burst than the answer it
 explains may leave the earlier row unheld. No operator UI to set/clear the hold.
@@ -564,10 +564,10 @@ explains may leave the earlier row unheld. No operator UI to set/clear the hold.
 
 ### Two kinds of dead run
 
-| Kind | `failureCause` | Treatment |
-| ---- | -------------- | --------- |
+| Kind                   | `failureCause`                             | Treatment                                                        |
+| ---------------------- | ------------------------------------------ | ---------------------------------------------------------------- |
 | Conversation / request | `provider_refusal`, `validation_failed`, … | [Deterministic fallback](#deterministic-fallback-for-a-dead-run) |
-| Provider / account | `provider_error` | [Park](#parking-a-provider-incident) |
+| Provider / account     | `provider_error`                           | [Park](#parking-a-provider-incident)                             |
 
 `provider_error` only where code can point at the provider: missing client,
 retryable `APICallError`, or
@@ -598,10 +598,10 @@ clears `work.nextActionAt` without advancing revision.
 [`park`](../../../apps/backend/src/modules/post-event-feedback/extraction/fallback.service.ts):
 **no note, outbound, attention reason or alert**.
 
-| Field | Meaning |
-| ----- | ------- |
-| `parkedSince` | First park clock |
-| `parkedRuns` | Park count / retry ordinal |
+| Field                | Meaning                      |
+| -------------------- | ---------------------------- |
+| `parkedSince`        | First park clock             |
+| `parkedRuns`         | Park count / retry ordinal   |
 | `parkedNoticeSentAt` | Participant notice sent once |
 
 Planner retries via `FEEDBACK_EXTRACTION_PARK_RETRY_MS`; ceiling
@@ -630,14 +630,14 @@ No worker waits live for a reply. Bounded wake-ups reload durable state; Mongo d
 work and PostgreSQL pending rows repair lost Redis coordination. Nothing claims
 exactly-once: replay repairs forward (may re-bill a model call).
 
-| Failure | Treatment |
-| ------- | --------- |
-| Terminal extraction (non-provider) | Fallback note + attention |
-| Provider incident | Park + durable retry |
+| Failure                                   | Treatment                                     |
+| ----------------------------------------- | --------------------------------------------- |
+| Terminal extraction (non-provider)        | Fallback note + attention                     |
+| Provider incident                         | Park + durable retry                          |
 | Planning/reminder/expiry/settlement throw | Ordinary failed wake-up; no fallback evidence |
-| `superseded` | Release claim; no settle from stale snapshot |
-| Execution claim loss | Rethrow for BullMQ retry |
-| Execution invariant | Unrecoverable; bypasses fallback |
+| `superseded`                              | Release claim; no settle from stale snapshot  |
+| Execution claim loss                      | Rethrow for BullMQ retry                      |
+| Execution invariant                       | Unrecoverable; bypasses fallback              |
 
 Staging must prove `messages.upsert` observes primary-phone / WhatsApp Web
 outbound before activation; otherwise restrict staff sends to a single-writer path.
@@ -654,12 +654,12 @@ outbound before activation; otherwise restrict staff sends to a single-writer pa
 
 ## Product artifacts and database ops
 
-| Artifact | Source | Contract |
-| -------- | ------ | -------- |
-| Question sets V1+V2 | `packages/database` + `question-set.ts` | `CURRENT_POST_EVENT_FEEDBACK_QUESTION_SET_VERSION` = `2` |
-| Campaign copy | `resolveCampaignCopy` | Per-key merge over versioned defaults |
-| STOP matcher (D14) | `matching/stop-command.ts` | Commands (whole message), courtesy suffixes, phrases (word-boundary anywhere) |
-| Extraction fixtures | `post-event-feedback-fixtures.ts` | Typed Greek transcripts + expected outcomes |
+| Artifact            | Source                                  | Contract                                                                      |
+| ------------------- | --------------------------------------- | ----------------------------------------------------------------------------- |
+| Question sets V1+V2 | `packages/database` + `question-set.ts` | `CURRENT_POST_EVENT_FEEDBACK_QUESTION_SET_VERSION` = `2`                      |
+| Campaign copy       | `resolveCampaignCopy`                   | Per-key merge over versioned defaults                                         |
+| STOP matcher (D14)  | `matching/stop-command.ts`              | Commands (whole message), courtesy suffixes, phrases (word-boundary anywhere) |
+| Extraction fixtures | `post-event-feedback-fixtures.ts`       | Typed Greek transcripts + expected outcomes                                   |
 
 Ops: package constraint tests for uniqueness/RESTRICT; apply migrations with the
 database package migrator before runtime use.
@@ -673,15 +673,15 @@ Never reads a conversation or calls a model.
 
 ### The materialize job
 
-| Situation | Outcome | Effects |
-| --------- | ------- | ------- |
-| Already terminal | `already_processed` | Replay no-op |
-| No matching conversation | `ignored_unmatched` | Body retained; not AI-processed (D10) |
-| STOP | `inbound_stopped` | Close `stopped`, cancel queued outbox, withdraw opt-in, one `stop_ack` (D14) |
-| Inbound reply | `inbound_materialized` | Idempotent append + quiet-window revision |
-| No usable text | `inbound_not_materialized` | Attention; ingress `failed` |
-| Outbound ↔ outbox | `outbound_correlated` | Delivery columns only |
-| Outbound ↔ open thread | `outbound_external` | Take over + append (D17) |
+| Situation                | Outcome                    | Effects                                                                      |
+| ------------------------ | -------------------------- | ---------------------------------------------------------------------------- |
+| Already terminal         | `already_processed`        | Replay no-op                                                                 |
+| No matching conversation | `ignored_unmatched`        | Body retained; not AI-processed (D10)                                        |
+| STOP                     | `inbound_stopped`          | Close `stopped`, cancel queued outbox, withdraw opt-in, one `stop_ack` (D14) |
+| Inbound reply            | `inbound_materialized`     | Idempotent append + quiet-window revision                                    |
+| No usable text           | `inbound_not_materialized` | Attention; ingress `failed`                                                  |
+| Outbound ↔ outbox        | `outbound_correlated`      | Delivery columns only                                                        |
+| Outbound ↔ open thread   | `outbound_external`        | Take over + append (D17)                                                     |
 
 Phone resolution: `findOpenByPhone` + partial unique index (D9). STOP before any
 model, either control mode. Outbound body fallback excludes `pending`/`claimed`.
@@ -701,15 +701,15 @@ polls PostgreSQL (no steady-state relay). One-second pass: quarantine expired
 attempts, claim up to four launched rows (`FOR UPDATE SKIP LOCKED`), oldest
 unresolved per conversation, Redis limiter across replicas.
 
-| State | Meaning |
-| ----- | ------- |
-| `pending` | Claimable |
-| `claimed` | Lease; reclaimable before provider entry |
-| `attempting` | Provider may have been entered |
-| `ambiguous` | Unknown after entry; never auto-resent |
-| `sent` / `failed` / `cancelled` | Terminal |
-| `held` | Explicit park |
-| `sending` | Legacy bridge only |
+| State                           | Meaning                                  |
+| ------------------------------- | ---------------------------------------- |
+| `pending`                       | Claimable                                |
+| `claimed`                       | Lease; reclaimable before provider entry |
+| `attempting`                    | Provider may have been entered           |
+| `ambiguous`                     | Unknown after entry; never auto-resent   |
+| `sent` / `failed` / `cancelled` | Terminal                                 |
+| `held`                          | Explicit park                            |
+| `sending`                       | Legacy bridge only                       |
 
 Before send marker: phone lock → conversation lock → campaign share lock;
 reload Mongo + consent; ordinary replies compare
@@ -721,11 +721,11 @@ ack is the only automated FIFO exception through pause/close.
 
 ### Transport boundary
 
-| `TRANSPORT_MODE` | Adapter |
-| ---------------- | ------- |
-| `disabled` | Deterministic rejection |
-| `simulated` | `feedback_sim_outbound` sink (+ WP8 HTTP when gated) |
-| `wasender` | `WasenderClient.sendText` after Redis limiter |
+| `TRANSPORT_MODE` | Adapter                                              |
+| ---------------- | ---------------------------------------------------- |
+| `disabled`       | Deterministic rejection                              |
+| `simulated`      | `feedback_sim_outbound` sink (+ WP8 HTTP when gated) |
+| `wasender`       | `WasenderClient.sendText` after Redis limiter        |
 
 `messages.update` upgrades delivery columns only; unmatched ids are counted
 no-ops.
@@ -737,11 +737,11 @@ Local-first (D2): `TRANSPORT_MODE=simulated` + durable sink. Production requires
 transport, Clerk, real models (billable), no stub/Wasender session/webhook.
 Outbound stays in the sink.
 
-| Surface | Purpose |
-| ------- | ------- |
-| `POST/GET …/simulator/inject|thread|catalog|preflight|runs` | Manual inject + paid headless eval |
-| `GET …/burst/catalog|accounting` | Rehearsal catalogue + token ledger |
-| `FEEDBACK_EXTRACTION_STUB` | Scripted model (simulator gate; refused in production) |
+| Surface                                          | Purpose                                                                               |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| `POST/GET …/simulator/inject                     | thread                                                                                | catalog                            | preflight | runs` | Manual inject + paid headless eval |
+| `GET …/burst/catalog                             | accounting`                                                                           | Rehearsal catalogue + token ledger |
+| `FEEDBACK_EXTRACTION_STUB`                       | Scripted model (simulator gate; refused in production)                                |
 | `pnpm feedback:simulate` / `pnpm feedback:burst` | Headless runners (`prova` profile, fixture slots 0–9, `--seed-only`, `--live-guests`) |
 
 Fault profile is process-wide (`faultMode`/`percent`/`seed`/`maxDelayMs`);
@@ -813,12 +813,12 @@ Lifecycle ⊥ control. First close wins except `stopped` overrides softer reason
 Contiguous `seq` under `$size` fence. Idempotent by `ingressId` / `outboxId` /
 stable `id`. Conflicting replay rejected.
 
-| Actor | Required provenance |
-| ----- | ------------------- |
-| `participant` | `ingressId` |
-| `bot` | `outboxId` |
-| `staff` | `outboxId` or `ingressId` (external) |
-| `system` | neither; stable `id` |
+| Actor         | Required provenance                  |
+| ------------- | ------------------------------------ |
+| `participant` | `ingressId`                          |
+| `bot`         | `outboxId`                           |
+| `staff`       | `outboxId` or `ingressId` (external) |
+| `system`      | neither; stable `id`                 |
 
 Only participant messages carry `attention`. `mergeMessageAttention` is additive.
 
@@ -843,26 +843,26 @@ additionally cancels the outbox row.
 
 ### Repository contract
 
-| Method | Contract |
-| ------ | -------- |
-| `createFromLaunch` | Deterministic `_id`; idempotent |
-| `findOpenByPhone` | Inbound resolution (D9) |
-| `listForCampaign` | Compact summaries, no transcripts |
-| `appendMessage` | Contiguous seq, provenance idempotency, cap |
-| `mergeMessageAttention` | Additive strengthen only |
-| `takeOver` / `resumeBot` / `close` | Explicit transitions |
-| `markAwaitingHuman` | Brake + clear due without revision bump |
-| `advanceCursor` / `updateGoalStatuses` | Monotonic |
-| `raiseAttention` / `resolveAttentionReason` | Named badge |
-| `markReminded` / `markWorkDue` / `beginWorkExecution` / `settleWorkExecution` / `listDueWork` | Durable work |
+| Method                                                                                        | Contract                                    |
+| --------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| `createFromLaunch`                                                                            | Deterministic `_id`; idempotent             |
+| `findOpenByPhone`                                                                             | Inbound resolution (D9)                     |
+| `listForCampaign`                                                                             | Compact summaries, no transcripts           |
+| `appendMessage`                                                                               | Contiguous seq, provenance idempotency, cap |
+| `mergeMessageAttention`                                                                       | Additive strengthen only                    |
+| `takeOver` / `resumeBot` / `close`                                                            | Explicit transitions                        |
+| `markAwaitingHuman`                                                                           | Brake + clear due without revision bump     |
+| `advanceCursor` / `updateGoalStatuses`                                                        | Monotonic                                   |
+| `raiseAttention` / `resolveAttentionReason`                                                   | Named badge                                 |
+| `markReminded` / `markWorkDue` / `beginWorkExecution` / `settleWorkExecution` / `listDueWork` | Durable work                                |
 
 ### Indexes
 
-| Index | Purpose |
-| ----- | ------- |
+| Index                                         | Purpose                        |
+| --------------------------------------------- | ------------------------------ |
 | `feedback_conversation_open_phone_unique_idx` | Partial unique open phone (D9) |
-| `feedback_conversation_campaign_updated_idx` | Campaign list |
-| `feedback_conversation_work_due_idx` | Due-work recovery |
+| `feedback_conversation_campaign_updated_idx`  | Campaign list                  |
+| `feedback_conversation_work_due_idx`          | Due-work recovery              |
 
 <a id="wp7-campaign-service-and-schedulers-implemented"></a>
 
@@ -873,20 +873,20 @@ job.
 
 ### Launch and kill switch
 
-| Action | Gate / effect |
-| ------ | ------------- |
-| `launch` | Finished event ∧ ≥1 eligible; campaign + Mongo conversations + intro outbox per new open thread |
-| `pause` / `resume` | Status toggle; pause idles planner/claims; resume admits generation + bounded wake batch |
-| `close` | Cancel queued outbox except exact STOP acks; leave conversations for STOP/expiry/staff |
-| `startConversation` | D17 create-if-missing; never recreates STOP-closed |
+| Action              | Gate / effect                                                                                   |
+| ------------------- | ----------------------------------------------------------------------------------------------- |
+| `launch`            | Finished event ∧ ≥1 eligible; campaign + Mongo conversations + intro outbox per new open thread |
+| `pause` / `resume`  | Status toggle; pause idles planner/claims; resume admits generation + bounded wake batch        |
+| `close`             | Cancel queued outbox except exact STOP acks; leave conversations for STOP/expiry/staff          |
+| `startConversation` | D17 create-if-missing; never recreates STOP-closed                                              |
 
 ### Reminder, expiry and durable recovery
 
-| Planner action | Contract |
-| -------------- | -------- |
-| `remind` | Up to `FEEDBACK_MAX_REMINDERS` (2); rung N after N × `FEEDBACK_REMINDER_AFTER_HOURS` (24) silence; skip closed/human/opt-out/inactive/awaiting/attention |
-| `expire` | `FEEDBACK_EXPIRE_AFTER_HOURS` (72); silent close `expired`; fenced against pending inbound |
-| `wait` | Persist next quiet/reminder/expiry/park timestamp as new work revision |
+| Planner action | Contract                                                                                                                                                 |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `remind`       | Up to `FEEDBACK_MAX_REMINDERS` (2); rung N after N × `FEEDBACK_REMINDER_AFTER_HOURS` (24) silence; skip closed/human/opt-out/inactive/awaiting/attention |
+| `expire`       | `FEEDBACK_EXPIRE_AFTER_HOURS` (72); silent close `expired`; fenced against pending inbound                                                               |
+| `wait`         | Persist next quiet/reminder/expiry/park timestamp as new work revision                                                                                   |
 
 `feedback.maintenance.v2` repairs pending ingress, unapplied resume generations,
 due Mongo work, pending/stale summary intent — keyset pages + PostgreSQL
@@ -895,17 +895,17 @@ candidates.
 
 ### Staff HTTP contract
 
-| Method | Path | `operationId` |
-| ------ | ---- | ------------- |
-| `GET` | `/feedback/campaigns` | `listFeedbackCampaigns` |
-| `POST` | `/feedback/campaigns/launch` | `launchFeedbackCampaign` |
-| `GET` | `/feedback/campaigns/:campaignId` | `getFeedbackCampaign` |
-| `POST` | `/feedback/campaigns/:campaignId/pause` | `pauseFeedbackCampaign` |
-| `POST` | `/feedback/campaigns/:campaignId/resume` | `resumeFeedbackCampaign` |
-| `POST` | `/feedback/campaigns/:campaignId/close` | `closeFeedbackCampaign` |
-| `POST` | `/feedback/campaigns/:campaignId/conversations/start` | `startFeedbackConversation` |
-| `GET` | `/feedback/campaigns/:campaignId/summary` | `getFeedbackCampaignSummary` |
-| `POST` | `/feedback/campaigns/:campaignId/summary` | `requestFeedbackCampaignSummary` |
+| Method | Path                                                  | `operationId`                    |
+| ------ | ----------------------------------------------------- | -------------------------------- |
+| `GET`  | `/feedback/campaigns`                                 | `listFeedbackCampaigns`          |
+| `POST` | `/feedback/campaigns/launch`                          | `launchFeedbackCampaign`         |
+| `GET`  | `/feedback/campaigns/:campaignId`                     | `getFeedbackCampaign`            |
+| `POST` | `/feedback/campaigns/:campaignId/pause`               | `pauseFeedbackCampaign`          |
+| `POST` | `/feedback/campaigns/:campaignId/resume`              | `resumeFeedbackCampaign`         |
+| `POST` | `/feedback/campaigns/:campaignId/close`               | `closeFeedbackCampaign`          |
+| `POST` | `/feedback/campaigns/:campaignId/conversations/start` | `startFeedbackConversation`      |
+| `GET`  | `/feedback/campaigns/:campaignId/summary`             | `getFeedbackCampaignSummary`     |
+| `POST` | `/feedback/campaigns/:campaignId/summary`             | `requestFeedbackCampaignSummary` |
 
 ### Campaign summary
 
@@ -933,22 +933,22 @@ evidence says otherwise. Event detail exposes nullable `feedbackCampaignId`.
 [`PostEventFeedbackConversationService`](../../../apps/backend/src/modules/post-event-feedback/inbox/conversation.service.ts):
 list/detail/results + capability-gated actions. No extraction/relay changes.
 
-| Concern | Contract |
-| ------- | -------- |
+| Concern                 | Contract                                                                               |
+| ----------------------- | -------------------------------------------------------------------------------------- |
 | List / detail / results | Compact projections; full transcript with outbox delivery join; filtered answers/notes |
-| Display names | Server-resolved; `null` for dangling ids (D18) |
-| Capabilities | `canTakeOver`, `canResumeBot`, `canClose`, `canSendStaffMessage` |
+| Display names           | Server-resolved; `null` for dangling ids (D18)                                         |
+| Capabilities            | `canTakeOver`, `canResumeBot`, `canClose`, `canSendStaffMessage`                       |
 
 ### Actions
 
-| Action | Gate | Effect |
-| ------ | ---- | ------ |
-| Take over / resume | open + appropriate control | Control transition + audit |
-| Close | open (STOP-closed rejected) | `close(cancelled)` + `staffClose` + cancel queued outbox |
-| Staff send | launched ∧ open ∧ human (UUID replay ok) | `kind=staff` outbox + transcript |
-| Add note | conversation exists; subject ∈ D16 | Staff-provenance note |
-| Note review | note exists | `new` ↔ `dismissed` |
-| Correct / withdraw answer | answer in conversation | See WP12b |
+| Action                    | Gate                                     | Effect                                                   |
+| ------------------------- | ---------------------------------------- | -------------------------------------------------------- |
+| Take over / resume        | open + appropriate control               | Control transition + audit                               |
+| Close                     | open (STOP-closed rejected)              | `close(cancelled)` + `staffClose` + cancel queued outbox |
+| Staff send                | launched ∧ open ∧ human (UUID replay ok) | `kind=staff` outbox + transcript                         |
+| Add note                  | conversation exists; subject ∈ D16       | Staff-provenance note                                    |
+| Note review               | note exists                              | `new` ↔ `dismissed`                                      |
+| Correct / withdraw answer | answer in conversation                   | See WP12b                                                |
 
 Staff close keeps lifecycle `cancelled`; operator why lives in `staffClose`.
 
@@ -962,10 +962,10 @@ citations only for staff origin. Read model publishes derived
 
 ### Operator corrections to recorded answers (WP12b)
 
-| Operation | Asserts |
-| --------- | ------- |
+| Operation     | Asserts                                  |
+| ------------- | ---------------------------------------- |
 | `PATCH` value | Wrong number written; int questions only |
-| `DELETE` | Claim should not exist |
+| `DELETE`      | Claim should not exist                   |
 
 Correction: edit in place; append `extraction_meta.corrections`
 (`{ at, by, from, to, note? }`). Withdrawal: delete row +
@@ -989,16 +989,16 @@ fills. Idempotent on the slot. Leaves Mongo goals alone. Not capability-gated.
 
 ### Staff HTTP contract (inbox)
 
-| Method | Path | `operationId` |
-| ------ | ---- | ------------- |
-| `GET` | `…/conversations` | `listFeedbackCampaignConversations` |
-| `GET` | `…/conversations/:conversationId` | `getFeedbackConversation` |
-| `GET` | `…/conversations/:conversationId/results` | `listFeedbackConversationResults` |
-| `GET` | `…/results` | `listFeedbackCampaignResults` |
-| `POST` | `…/take-over` / `resume-bot` / `close` / `messages` / `notes` / `answers` | see OpenAPI |
-| `POST` | `…/attention-reasons/:reasonId/resolve` | `resolveFeedbackConversationAttentionReason` |
-| `PATCH`/`DELETE` | `…/answers/:answerId` | correct / withdraw |
-| `PATCH` | `/feedback/notes/:noteId/review-status` | `updateFeedbackNoteReviewStatus` |
+| Method           | Path                                                                      | `operationId`                                |
+| ---------------- | ------------------------------------------------------------------------- | -------------------------------------------- |
+| `GET`            | `…/conversations`                                                         | `listFeedbackCampaignConversations`          |
+| `GET`            | `…/conversations/:conversationId`                                         | `getFeedbackConversation`                    |
+| `GET`            | `…/conversations/:conversationId/results`                                 | `listFeedbackConversationResults`            |
+| `GET`            | `…/results`                                                               | `listFeedbackCampaignResults`                |
+| `POST`           | `…/take-over` / `resume-bot` / `close` / `messages` / `notes` / `answers` | see OpenAPI                                  |
+| `POST`           | `…/attention-reasons/:reasonId/resolve`                                   | `resolveFeedbackConversationAttentionReason` |
+| `PATCH`/`DELETE` | `…/answers/:answerId`                                                     | correct / withdraw                           |
+| `PATCH`          | `/feedback/notes/:noteId/review-status`                                   | `updateFeedbackNoteReviewStatus`             |
 
 Detail includes `extraction` (cursor/model/unread) and `automation`
 (`idle|scheduled|running|parked` + revision / `nextActionAt` / `claimExpiresAt`).

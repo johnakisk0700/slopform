@@ -1,5 +1,11 @@
 # Containers and VPS deployment
 
+Example layout for a **private** Slopform instance. Committed hosts are
+`slopform.example.com`, RFC 5737 documentation addresses (`203.0.113.10`) and
+`/opt/slopform`. They are not a public production service and must not be
+copied as a live DNS zone. Public identity:
+[ADR 0014](decisions/0014-public-slopform-identity.md).
+
 ## Delivery model
 
 Root `Dockerfile` targets: `development` (toolchain; source mounted), `web`
@@ -34,26 +40,29 @@ Production networks: `edge`, internal `data`, worker `egress`. Web cannot reach
 PostgreSQL/MongoDB/Redis. App and migrate images: unprivileged `node`,
 `read_only`, dropped caps, Docker init, in-memory `/tmp`.
 
-## Domain and Clerk edge
+## Domain and Clerk edge (example)
 
-Papaki zone (verified 2026-08-02; public DNS, not secrets):
+Committed examples only. Replace the documentation address and hostname in a
+real private deploy; do not publish registrar, tenant or live-zone values.
 
-| Name              | Type  | Value                                |
-| ----------------- | ----- | ------------------------------------ |
-| `jointhesix`      | A     | `203.0.113.10`                      |
-| `clerk`           | CNAME | `frontend-api.clerk.services.`       |
-| `accounts`        | CNAME | `accounts.clerk.services.`           |
-| `clkmail`         | CNAME | `mail.ols43sxiepbv.clerk.services.`  |
-| `clk._domainkey`  | CNAME | `dkim1.ols43sxiepbv.clerk.services.` |
-| `clk2._domainkey` | CNAME | `dkim2.ols43sxiepbv.clerk.services.` |
+| Name       | Type  | Value                          |
+| ---------- | ----- | ------------------------------ |
+| `@`        | A     | `203.0.113.10`                 |
+| `clerk`    | CNAME | `frontend-api.clerk.services.` |
+| `accounts` | CNAME | `accounts.clerk.services.`     |
+
+Clerk mail and DKIM CNAMEs come from the dedicated Clerk dashboard; do not
+commit a real tenant hostname.
 
 - Cert: `/etc/letsencrypt/live/slopform.example.com/` via `/var/www/certbot`;
-  Certbot timer renews. Do not overwrite apex/`www` `example.com` vhosts.
-- Clerk app **Join The Six**: primary `example.com`, only
-  `slopform.example.com` subdomain, **Restricted**, email codes. Google OAuth
-  off until real production credentials exist; primary email locked.
-- Invitations and the three stable `user_*` allowlist entries are launch ops,
-  not committed values. Do not share the `notes_ai` Clerk tenant.
+  Certbot timer renews. Do not overwrite apex/`www` `example.com` vhosts that
+  other host sites may use.
+- Dedicated Clerk application for this operator surface: example primary
+  `example.com`, only the `slopform.example.com` app hostname, **Restricted**,
+  email codes. Google OAuth off until real production credentials exist. Do not
+  reuse another product's Clerk tenant.
+- Invitations and `user_*` allowlist entries are operator secrets, not
+  committed values.
 
 ## Development
 
@@ -154,28 +163,30 @@ summaries.
 
 **Credential boundaries** — never put secrets in Compose env metadata:
 
-| Consumer                         | Secrets                                                                 |
-| -------------------------------- | ----------------------------------------------------------------------- |
-| Postgres                         | password file                                                           |
-| Redis                            | password file at startup                                                |
-| Mongo init                       | root secret (fresh volumes only)                                        |
-| API / worker                     | app Mongo secret; AI keys (API resolves availability; worker calls)     |
-| API only                         | Clerk secret                                                            |
-| Native nginx / web               | none                                                                    |
-| Bull Board                       | password file only when enabled                                         |
+| Consumer           | Secrets                                                             |
+| ------------------ | ------------------------------------------------------------------- |
+| Postgres           | password file                                                       |
+| Redis              | password file at startup                                            |
+| Mongo init         | root secret (fresh volumes only)                                    |
+| API / worker       | app Mongo secret; AI keys (API resolves availability; worker calls) |
+| API only           | Clerk secret                                                        |
+| Native nginx / web | none                                                                |
+| Bull Board         | password file only when enabled                                     |
 
 Mongo secret-file change ≠ user rotation: alter DB password first, update file,
-recreate API/worker, verify readiness. Shared Wasender session with WordPress:
-copy session key into the worker file and coordinate rotation. WordPress
-credentials are independent.
+recreate API/worker, verify readiness. If another client (historically
+WordPress) shares the same Wasender session, copy the session key into the
+worker file and coordinate rotation. WordPress credentials stay independent and
+are not part of this public tree.
 
 **Web build args** (public, not secrets; rebuild web on change):
 `VITE_CLERK_PUBLISHABLE_KEY` (must match API `CLERK_PUBLISHABLE_KEY`), optional
 `VITE_GOOGLE_MAPS_API_KEY`. Restrict Maps key to deployed/local admin referrers
 and Maps JS / Places (New) / Places UI Kit / Maps Embed only. Without a key,
 saved venues and deep-links work; live search/photos/details stay off.
-`CLERK_ADMIN_USER_IDS` is API runtime config (no SPA rebuild). Exactly three
-shareholder `user_*` subjects in production.
+`CLERK_ADMIN_USER_IDS` is API runtime config (no SPA rebuild). The example
+production profile uses three placeholder `user_*` subjects; operators set
+their own allowlist.
 
 **Maps persistence gate:** prototype seeds Place ID plus Google name/address/
 type into editable fields. Capturing Place Name outside the session is
@@ -319,7 +330,7 @@ writers. Failure leaves writers stopped and keeps the pre-import backup; no
 automatic data rollback. `seal` is one-way (host marker; no unseal CLI).
 
 Snapshot preserves ownership: `user_localdev` Assistant threads stay invisible
-to production shareholders — rewrite ownership only via an explicit reviewed
+to production allowlist subjects — rewrite ownership only via an explicit reviewed
 migration. Volumes ≠ backup; losing Mongo loses authoritative conversation
 history even if Postgres projection survives.
 
@@ -402,7 +413,8 @@ GitHub Actions: `pnpm check`, then one Buildx Bake graph tags all targets with
 the commit SHA and builds the four production images (shared expensive stages).
 CI does not deploy and does not receive production credentials. Next step when
 a registry exists: publish SHA images in CI, VPS pulls immutables. A production
-self-hosted runner must never run untrusted PR jobs.
+self-hosted runner must never run untrusted PR jobs. The example layout is a
+private instance, not a public hosted service.
 
 ## Pinned toolchain
 

@@ -40,33 +40,10 @@ export function SignInLayout({ children }: { children: ReactNode }) {
       className="grid min-h-screen bg-canvas lg:grid-cols-[minmax(0,0.95fr)_minmax(30rem,1fr)]"
     >
       <section className="relative hidden overflow-hidden border-r border-sidebar-border bg-sidebar p-12 text-sidebar-fg lg:flex lg:flex-col lg:justify-between">
-        {/* The mark at the size it was drawn to be read at. It is five people
-            and an empty chair around a table — the one image this product has
-            that means something — and at 40px in a corner none of that is
-            visible.
-
-            Whole, not bled off a corner. Cropping was the first attempt and it
-            was wrong for this particular mark: the composition is radial, so a
-            corner of it is six circles and no table, which reads as blobs
-            rather than as the thing the company is named after. If it is on the
-            page at all it has to be the whole figure.
-
-            Quarter-turn anticlockwise, centred on the panel's vertical axis and
-            set so the figure's base lands exactly on the divider — the mark
-            stands on the seam between the two halves of the screen instead of
-            floating in the middle of one of them. The turn is what makes that
-            possible: upright, the base is the bottom edge and would have to sit
-            on the footer.
-
-            The «no glows, gradient washes, blurred circles» rule in the cookbook
-            governs the operator screens, where every mark on the canvas has to
-            be a status somebody can act on. This is the unauthenticated shell:
-            nobody is triaging here, there is no data to compete with, and the
-            only thing on screen worth looking at before the form is the brand.
-            A few percent of the slab's brand tint (`sidebar-active-index` —
-            the same hue the corner lockup and the lit nav numeral wear), so it
-            is a change in the surface rather than an object on it — and it is
-            `aria-hidden`, like every other instance of the mark. */}
+        {/* The oversized form/chat outline gives the unauthenticated slab one
+            quiet brand shape without competing with the sign-in card. It uses
+            the same surface-owned currentColor contract as the small mark and
+            remains decorative. */}
         <BrandMark className="pointer-events-none absolute top-1/2 right-0 size-[34rem] -translate-y-1/2 -rotate-90 text-sidebar-active-index opacity-[0.06]" />
 
         <div className="relative">
@@ -85,7 +62,7 @@ export function SignInLayout({ children }: { children: ReactNode }) {
               it already knows they are at a sign-in; what they cannot see is
               what the workspace is for. */}
           <p className="mt-4 font-display text-4xl font-extrabold leading-tight tracking-tight">
-            Six seats, one table, and everything it takes to fill them.
+            The form is texting you now.
           </p>
           <ul className="mt-9 grid gap-6">
             {WORKSPACE_AREAS.map(({ icon: Icon, title, detail }) => (
@@ -115,37 +92,13 @@ export function SignInLayout({ children }: { children: ReactNode }) {
         className="grid place-items-center p-6 sm:p-10"
       >
         <div className="w-full max-w-md">
-          {/* The logo is the title.
-
-              This column used to open with an overline, an `h1` reading «Sign
-              in» wearing the six-dot mark, and a two-line paragraph — three
-              blocks of type before the one button anyone came here to press,
-              on a page whose entire content is that button. And the word it
-              spent the `h1` on is the word already printed on the button
-              underneath.
-
-              So the heading is the brand: the mark at a size where the five
-              people and the empty chair are legible, over the wordmark. On a
-              product's own front door the product's name is the honest title,
-              and it makes the logo the largest thing on the page instead of
-              the smallest.
-
-              The six-dot mark went with the old heading, and not only because
-              the heading did. Those dots are five in the primary and a sixth
-              in the accent — the table with the seat still open, which is the
-              logo's own idea in abstract. Directly above the literal mark it
-              was the same sentence twice.
-
-              The page still owns its `h1`, which is why Clerk's card header
-              stays hidden: one title on screen from the first paint, not one
-              that arrives late above another. The screen-reader half names the
-              page rather than the company, because «Join The Six» alone would
-              not tell somebody navigating by heading which of this product's
-              screens they had landed on. */}
+          {/* The logo is the visible title. The screen-reader suffix names the
+              route, and Clerk's own card heading stays hidden so the page owns
+              one stable h1 from first paint. */}
           <h1 className="flex flex-col items-center gap-3 text-center">
             <BrandMark className="size-16 text-primary" />
             <span className="font-brand text-2xl font-extrabold tracking-tight text-ink">
-              Join The Six
+              Slopform
             </span>
             <span className="sr-only"> — admin sign in</span>
           </h1>

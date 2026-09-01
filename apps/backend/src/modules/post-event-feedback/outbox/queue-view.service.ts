@@ -1,5 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
-import type { MessageOutboxLogRow } from "@join-the-six/database";
+import type { MessageOutboxLogRow } from "@slopform/database";
 
 import { ParticipantsRepository } from "../../participants/participants.repository.js";
 import { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";

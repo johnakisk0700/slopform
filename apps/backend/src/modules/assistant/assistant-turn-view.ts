@@ -1,4 +1,4 @@
-import type { AssistantTurnRow } from "@join-the-six/database";
+import type { AssistantTurnRow } from "@slopform/database";
 
 import type { AssistantConversationSnapshot } from "../conversations/conversation-thread.repository.js";
 import type {

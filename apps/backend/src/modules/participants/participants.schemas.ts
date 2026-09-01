@@ -1,4 +1,4 @@
-import { EVENT_STATUSES } from "@join-the-six/database";
+import { EVENT_STATUSES } from "@slopform/database";
 import { createZodDto } from "nestjs-zod";
 import { z } from "zod";
 

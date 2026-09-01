@@ -1,7 +1,8 @@
 # Admin authentication and authorization
 
-Status: implemented Clerk vertical slice; production admission is restricted to
-three shareholder identities. Verified 2026-08-02 with `@clerk/react` 6.12.6 and
+Status: implemented Clerk vertical slice; production admission is an explicit
+Clerk `user_*` allowlist (example profile uses three placeholders). Verified
+2026-08-02 with `@clerk/react` 6.12.6 and
 `@clerk/express` 2.1.44.
 
 Local development uses an explicit auth bypass while the operator allowlist is
@@ -83,31 +84,30 @@ sequenceDiagram
 
 ## Production tenant
 
-Use a dedicated Join The Six Clerk application. Reusing another product's
-keys would reuse its users and auth policy; the backend allowlist reduces blast
-radius but is not a separate identity tenant.
+Use a dedicated Clerk application for this operator surface. Reusing another
+product's keys would reuse its users and auth policy; the backend allowlist
+reduces blast radius but is not a separate identity tenant.
 
-Admission model:
+Admission model (example private instance, not a public SaaS):
 
 1. Set the production instance to **Restricted** sign-up.
-2. Keep verified email OTP available. Google sign-in uses the existing
+2. Keep verified email OTP available. Google sign-in uses a dedicated
    `example.com` Google Cloud web OAuth client with a separate active secret stored
    only in Google Cloud and Clerk. Redirect URI:
    `https://clerk.example.com/v1/oauth_callback`. A Clerk provider marked "setup
    required" must stay disabled.
-3. Invite exactly the three shareholder emails held in the private operator
-   record. Do not commit that list.
+3. Invite only the operators who belong on the allowlist. Do not commit emails.
 4. Disable self-service primary email changes.
 5. After acceptance, add the stable `user_*` subjects to `CLERK_ADMIN_USER_IDS`.
 
 Invitation creates the account; the server allowlist grants API access. Clerk
-Organizations are not part of this deployment (three equal operators).
+Organizations are not part of this deployment (equal operators on one list).
 
 Hobby has no email allowlist. Normal path: invite → copy `user_*` into the
 private production env → `pnpm prod deploy backend`. Pre-acceptance alternative:
-create a passwordless Clerk user via Backend API with the exact shareholder
+create a passwordless Clerk user via Backend API with the exact operator
 email; a later Google login with the same verified address links to it. Keep
-restricted mode on. Do not commit OAuth credentials, shareholder emails or
+restricted mode on. Do not commit OAuth credentials, operator emails or
 production user IDs.
 
 Test: uninvited identity, secondary/changed email, pending invitation, revoked

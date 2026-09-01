@@ -8,9 +8,9 @@ Source: [`JtsBackLink.tsx`](../../../apps/admin/src/components/ui/JtsBackLink.ts
 
 ## Contract
 
-| Prop | Type | Contract |
-| ---- | ---- | -------- |
-| `to` | `string` | Required. Destination route. |
+| Prop       | Type        | Contract                                                   |
+| ---------- | ----------- | ---------------------------------------------------------- |
+| `to`       | `string`    | Required. Destination route.                               |
 | `children` | `ReactNode` | Required. Label: `Back to <place>`, destination's wording. |
 
 ## Invariants

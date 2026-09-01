@@ -3,7 +3,7 @@ import {
   feedbackSimOutbound,
   type AppTransaction,
   type FeedbackSimOutboundRow,
-} from "@join-the-six/database";
+} from "@slopform/database";
 import { asc, eq } from "drizzle-orm";
 
 import { DatabaseService } from "../../../infrastructure/database/database.service.js";

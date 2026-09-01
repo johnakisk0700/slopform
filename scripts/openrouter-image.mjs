@@ -397,7 +397,7 @@ async function runImagesApi({ apiKey, args, prompt }) {
       "Content-Type": "application/json",
       "HTTP-Referer":
         process.env.OPENROUTER_SITE_URL || "http://localhost:5173",
-      "X-Title": process.env.OPENROUTER_APP_NAME || "join-the-six",
+      "X-Title": process.env.OPENROUTER_APP_NAME || "slopform",
     },
     body: JSON.stringify(requestBody),
   });
@@ -462,7 +462,7 @@ async function runChatCompletionsApi({ apiKey, args, prompt }) {
         "Content-Type": "application/json",
         "HTTP-Referer":
           process.env.OPENROUTER_SITE_URL || "http://localhost:5173",
-        "X-Title": process.env.OPENROUTER_APP_NAME || "join-the-six",
+        "X-Title": process.env.OPENROUTER_APP_NAME || "slopform",
       },
       body: JSON.stringify(requestBody),
     },

@@ -5,7 +5,7 @@ import {
   FEEDBACK_CAMPAIGN_STATUSES,
   FEEDBACK_CAMPAIGN_SUMMARY_STATUSES,
   FEEDBACK_CAMPAIGN_SUMMARY_TRIGGERS,
-} from "@join-the-six/database";
+} from "@slopform/database";
 
 import {
   FEEDBACK_SUMMARY_FINDING_WEIGHTS,

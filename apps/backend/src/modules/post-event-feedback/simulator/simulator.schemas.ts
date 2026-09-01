@@ -1,7 +1,7 @@
 import { createZodDto } from "nestjs-zod";
 import { z } from "zod";
 
-import { EVENT_VENUE_PRICE_LEVELS } from "@join-the-six/database";
+import { EVENT_VENUE_PRICE_LEVELS } from "@slopform/database";
 
 import { feedbackSimulatedTransportProfileSchema } from "../../../infrastructure/config/feedback-simulated-transport.js";
 import { FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH } from "../post-event-feedback-conversation.document.js";

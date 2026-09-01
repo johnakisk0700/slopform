@@ -6,7 +6,7 @@ import type {
   FeedbackNoteRow,
   MessageOutboxRow,
   ParticipantRow,
-} from "@join-the-six/database";
+} from "@slopform/database";
 import { describe, expect, it, vi } from "vitest";
 
 import type { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";

@@ -206,7 +206,9 @@ function ScoreRangeRow({ score }: { score: ScoredMetric }) {
       </span>
       <div className="grid min-w-0 gap-1.5">
         <div className="flex items-baseline justify-between gap-3">
-          <span className="min-w-0 truncate text-sm text-ink">{score.label}</span>
+          <span className="min-w-0 truncate text-sm text-ink">
+            {score.label}
+          </span>
           <span className="shrink-0 font-display text-base font-extrabold tabular-nums text-ink">
             {score.average}
             <span className="text-sm font-semibold text-ink-subtle">
@@ -351,7 +353,10 @@ function GossipDrawer({ items }: { items: readonly string[] }) {
   }
 
   return (
-    <Accordion hideSeparator className="min-w-0 overflow-hidden rounded-lg bg-rose-soft">
+    <Accordion
+      hideSeparator
+      className="min-w-0 overflow-hidden rounded-lg bg-rose-soft"
+    >
       <Accordion.Item id="gossip">
         <Accordion.Heading>
           <Accordion.Trigger className="w-full gap-3 px-4 py-3.5 text-ink hover:bg-transparent sm:px-5 data-[hovered=true]:bg-transparent data-[pressed=true]:bg-transparent">
@@ -471,9 +476,7 @@ function TintedFindingCard({
 /** Next steps lead with a small chevron — forward motion, not a bullet dump. */
 function ActionList({ items }: { items: readonly string[] }) {
   if (items.length === 0) {
-    return (
-      <SectionEmpty>No concrete next steps from this round.</SectionEmpty>
-    );
+    return <SectionEmpty>No concrete next steps from this round.</SectionEmpty>;
   }
 
   return (

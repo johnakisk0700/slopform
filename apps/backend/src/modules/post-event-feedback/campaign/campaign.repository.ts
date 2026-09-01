@@ -13,7 +13,7 @@ import {
   type FeedbackCampaignStatus,
   type FeedbackCampaignSummaryRow,
   type FeedbackCampaignSummaryTrigger,
-} from "@join-the-six/database";
+} from "@slopform/database";
 import { and, asc, desc, eq, gt, isNotNull, lt, or, sql } from "drizzle-orm";
 
 import { currentDatabaseTime } from "../../../infrastructure/database/database-time.js";

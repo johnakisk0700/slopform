@@ -1,4 +1,4 @@
-import type { EventRow } from "@join-the-six/database";
+import type { EventRow } from "@slopform/database";
 
 import { eventVenueSchema, type EventVenueView } from "./events.schemas.js";
 

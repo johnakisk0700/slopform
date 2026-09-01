@@ -1,4 +1,4 @@
-import type { MessageOutboxDeliveryStatus } from "@join-the-six/database";
+import type { MessageOutboxDeliveryStatus } from "@slopform/database";
 
 const MESSAGE_OUTBOX_DELIVERY_STATUS_RANK: Record<
   MessageOutboxDeliveryStatus,

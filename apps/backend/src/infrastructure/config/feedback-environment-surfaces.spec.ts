@@ -32,8 +32,7 @@ describe("feedback environment launch surfaces", () => {
     const turbo = JSON.parse(repositoryFile("turbo.json")) as {
       tasks: Record<string, { passThroughEnv?: string[] }>;
     };
-    const passed =
-      turbo.tasks["@join-the-six/backend#dev"]?.passThroughEnv ?? [];
+    const passed = turbo.tasks["@slopform/backend#dev"]?.passThroughEnv ?? [];
 
     expect(passed).toEqual(
       expect.arrayContaining([...FEEDBACK_RUNTIME_ENVIRONMENT_KEYS]),

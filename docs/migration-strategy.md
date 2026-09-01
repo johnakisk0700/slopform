@@ -2,18 +2,22 @@
 
 ## Position
 
-WordPress is a live prototype, migration source and possible temporary Viva
-checkout host. It is not the canonical schema for the new application. Migrate
-meaning, provenance and reconciliation state — not `wp_posts` / `wp_postmeta` /
-serialized blobs one-for-one.
+WordPress was the Join The Six live prototype, a migration source and a possible
+temporary Viva checkout host. It is not the canonical schema for Slopform, and
+this public tree does not include a live-site export recipe or WordPress
+credentials. Migrate meaning, provenance and reconciliation state — not
+`wp_posts` / `wp_postmeta` / serialized blobs one-for-one.
 
 The runtime deploys no WordPress adapter and carries no WordPress URL or
 credentials. Profile migration uses one-shot WXR/XML or versioned JSON
-export/import. Add runtime configuration only with an adapter that validates and
-consumes it; dormant secrets are not an integration strategy.
+export/import that an operator produces themselves. Add runtime configuration
+only with an adapter that validates and consumes it; dormant secrets are not an
+integration strategy.
 
-Factual source inventory:
-[`evidence/wordpress-audit-2026-07-22.md`](evidence/wordpress-audit-2026-07-22.md).
+Decision record:
+[`decisions/0002-wordpress-boundary.md`](decisions/0002-wordpress-boundary.md).
+Private WordPress audit evidence is not in this public tree
+([evidence index](evidence/README.md)).
 
 ## Sequence
 
@@ -48,8 +52,10 @@ Factual source inventory:
 Operational CLI path (not an HTTP route). Canonical mapping, invariants and
 commands: [participant module](backend/modules/participants.md).
 
-1. Export `jts_profile` as WXR/XML (admin Tools > Export) or restricted JSON v1
-   via [`export-jts-profiles.php`](../scripts/wordpress/export-jts-profiles.php).
+1. Export `jts_profile` as WXR/XML from WordPress **Tools > Export** (or an
+   equivalent operator-produced JSON v1 envelope). The public tree does not
+   include a live-site WP-CLI dump recipe; a fake envelope is
+   [`scripts/wordpress/example-jts-profiles.json`](../scripts/wordpress/example-jts-profiles.json).
 2. `pnpm import:wordpress-profiles --file=<path>` (dry-run default; no DB).
 3. Reconcile totals against WordPress; resolve rejects/conflicts.
 4. Migrate, then `--apply`. Replay until every accepted row reports `unchanged`.
@@ -78,6 +84,7 @@ and raw evidence for traceability; build target tables around product invariants
 
 - Fresh WXR at cutover, or read-only database/WP-CLI access
 - Viva transaction export/API for reconciliation
-- Current Next.js repository and deployment configuration
-- Confirmation whether `ebisu` is staging, pilot production or both
+- Current public-site repository and deployment configuration, if that site is
+  still the payment/intake owner
+- Confirmation which WordPress environment is the migration source
 - Approved retention/consent rules and canonical status lifecycle

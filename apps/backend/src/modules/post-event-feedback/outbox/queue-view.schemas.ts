@@ -4,7 +4,7 @@ import {
   MESSAGE_OUTBOX_KINDS,
   MESSAGE_OUTBOX_LOG_ORIGINS,
   MESSAGE_OUTBOX_STATUSES,
-} from "@join-the-six/database";
+} from "@slopform/database";
 import { createZodDto } from "nestjs-zod";
 import { z } from "zod";
 

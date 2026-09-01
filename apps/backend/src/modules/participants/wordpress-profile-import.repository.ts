@@ -6,7 +6,7 @@ import {
   type AppTransaction,
   type ParticipantRow,
   type ParticipantSourceRecordRow,
-} from "@join-the-six/database";
+} from "@slopform/database";
 import { and, eq } from "drizzle-orm";
 
 import type { CanonicalWordpressProfile } from "./wordpress-profile-import.schemas.js";

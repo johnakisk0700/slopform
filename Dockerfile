@@ -47,13 +47,13 @@ RUN --network=none pnpm build
 FROM build AS backend-package
 RUN --network=none --mount=type=cache,id=pnpm-store,target=/pnpm/store,sharing=locked \
   pnpm --config.inject-workspace-packages=true \
-    --filter @join-the-six/backend deploy --prod --offline /opt/backend
+    --filter @slopform/backend deploy --prod --offline /opt/backend
 
 FROM dependencies AS database-package
 COPY packages/database/drizzle packages/database/drizzle
 RUN --network=none --mount=type=cache,id=pnpm-store,target=/pnpm/store,sharing=locked \
   pnpm --config.inject-workspace-packages=true \
-    --filter @join-the-six/database deploy --prod --offline /opt/database
+    --filter @slopform/database deploy --prod --offline /opt/database
 
 FROM ${NODE_IMAGE} AS runtime
 ENV NODE_ENV=production

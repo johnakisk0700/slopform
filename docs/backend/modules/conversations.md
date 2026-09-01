@@ -24,10 +24,10 @@ Both aggregates share `conversation_threads`, discriminated by `schemaVersion`
 `admin_assistant`; v2 filters `schemaVersion: 2, purpose: "post_event_feedback"`.
 No v1 document is reinterpreted, migrated or rewritten here.
 
-| Version | Purpose               | Owning repository                    | Shape                                                |
-| ------- | --------------------- | ------------------------------------ | ---------------------------------------------------- |
-| 1       | `admin_assistant`     | `ConversationThreadRepository`       | Turns, goals, `state`, `humanTakeover`               |
-| 2       | `post_event_feedback` | `FeedbackConversationRepository`     | Messages, lifecycle × control (feedback module)      |
+| Version | Purpose               | Owning repository                | Shape                                           |
+| ------- | --------------------- | -------------------------------- | ----------------------------------------------- |
+| 1       | `admin_assistant`     | `ConversationThreadRepository`   | Turns, goals, `state`, `humanTakeover`          |
+| 2       | `post_event_feedback` | `FeedbackConversationRepository` | Messages, lifecycle × control (feedback module) |
 
 Schema v1 still validates a `post_event_feedback` purpose from before v2 existed.
 Nothing writes it; feedback conversations are created only as schema-v2

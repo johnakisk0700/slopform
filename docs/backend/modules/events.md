@@ -157,9 +157,9 @@ Venue context is read live per extraction run and fenced by `contextRevision`.
 ## Operations and tests
 
 ```bash
-pnpm --filter @join-the-six/database db:generate --name=<name>
-pnpm --filter @join-the-six/database test
-pnpm --filter @join-the-six/backend test
+pnpm --filter @slopform/database db:generate --name=<name>
+pnpm --filter @slopform/database test
+pnpm --filter @slopform/backend test
 ```
 
 Focused coverage: schema/migration, venue mapping and revision, D16 helper,

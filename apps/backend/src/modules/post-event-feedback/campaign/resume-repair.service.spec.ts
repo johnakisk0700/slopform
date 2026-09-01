@@ -1,8 +1,5 @@
 import { Logger } from "@nestjs/common";
-import type {
-  AppTransaction,
-  FeedbackCampaignRow,
-} from "@join-the-six/database";
+import type { AppTransaction, FeedbackCampaignRow } from "@slopform/database";
 import { describe, expect, it, vi } from "vitest";
 
 import type { DatabaseService } from "../../../infrastructure/database/database.service.js";

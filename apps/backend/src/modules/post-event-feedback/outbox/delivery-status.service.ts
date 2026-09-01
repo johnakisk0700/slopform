@@ -1,5 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
-import type { MessageOutboxDeliveryStatus } from "@join-the-six/database";
+import type { MessageOutboxDeliveryStatus } from "@slopform/database";
 
 import { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import {

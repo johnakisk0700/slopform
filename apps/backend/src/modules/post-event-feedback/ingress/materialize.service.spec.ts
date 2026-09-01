@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { Logger } from "@nestjs/common";
-import type { AppTransaction } from "@join-the-six/database";
+import type { AppTransaction } from "@slopform/database";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";

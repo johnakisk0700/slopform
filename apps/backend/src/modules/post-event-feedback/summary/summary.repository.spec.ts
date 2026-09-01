@@ -1,7 +1,7 @@
 import {
   type AppTransaction,
   type FeedbackCampaignSummaryRow,
-} from "@join-the-six/database";
+} from "@slopform/database";
 import type { SQL } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { describe, expect, it, vi } from "vitest";

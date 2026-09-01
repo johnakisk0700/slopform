@@ -250,7 +250,7 @@ function buildAttentionQueue(data: OverviewDtoOutput): QueueItem[] {
 export function OverviewPage() {
   usePageMeta(
     "Operations control",
-    "Private Join The Six event operations workspace.",
+    "Private Slopform event operations workspace.",
   );
 
   const overviewQuery = useGetOverview({

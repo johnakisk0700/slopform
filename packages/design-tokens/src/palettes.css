@@ -1,15 +1,15 @@
 /* =============================================================================
-   Join The Six — Themes
+   Slopform — Themes
    -----------------------------------------------------------------------------
    The selectable fields of the admin panel. `tokens.css` is the default theme
-   (Join The Six, the house wine); each block below repaints the SEMANTIC
+   (palette id `join-the-six`, the house wine); each block below repaints the SEMANTIC
    COLOUR LAYER ONLY, keyed by `data-palette` on <html>. Everything else — type,
    space, radius, shadows, motion, the primitives — is shared and lives in
    tokens.css.
 
    Two independent signals, never more:
      • .dark on <html>          — the only dark-mode signal (unchanged)
-     • data-palette on <html>   — which field is painted (absent = Join The Six)
+     • data-palette on <html>   — which field is painted (absent = house wine)
    The light block is scoped :not(.dark) because it ties with `:root.dark` on
    specificity and this file imports after tokens.css — without the guard the
    theme's light values would win in dark mode.

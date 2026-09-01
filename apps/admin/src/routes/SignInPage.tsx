@@ -92,7 +92,7 @@ export function SignInPage() {
 
   usePageMeta(
     "Admin sign in",
-    "Secure sign in for the Join The Six administration panel.",
+    "Secure sign in for the Slopform administration panel.",
   );
 
   if (isSignedIn) {

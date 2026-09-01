@@ -33,7 +33,7 @@ import { QueueModule } from "./queue.module.js";
         }),
         boardOptions: {
           uiConfig: {
-            boardTitle: "Join The Six queues",
+            boardTitle: "Slopform queues",
             hideRedisDetails: true,
           },
         },

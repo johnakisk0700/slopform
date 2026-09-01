@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import type { AppTransaction, MessageOutboxRow } from "@join-the-six/database";
+import type { AppTransaction, MessageOutboxRow } from "@slopform/database";
 
 import type { FeedbackConversationDocument } from "../post-event-feedback-conversation.document.js";
 import { FeedbackOutboundLogRepository } from "./outbound-log.repository.js";

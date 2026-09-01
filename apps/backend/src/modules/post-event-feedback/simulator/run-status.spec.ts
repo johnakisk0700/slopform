@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type {
   MessageOutboxRow,
   ProviderMessageIngressRow,
-} from "@join-the-six/database";
+} from "@slopform/database";
 
 import { createFeedbackClosingDedupeKey } from "../extraction/extraction.schemas.js";
 import type { FeedbackConversationDocument } from "../post-event-feedback-conversation.document.js";

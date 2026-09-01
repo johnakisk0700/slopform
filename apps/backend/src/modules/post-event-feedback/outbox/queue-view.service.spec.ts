@@ -1,4 +1,4 @@
-import type { MessageOutboxLogRow } from "@join-the-six/database";
+import type { MessageOutboxLogRow } from "@slopform/database";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ParticipantsRepository } from "../../participants/participants.repository.js";

@@ -128,7 +128,10 @@ function ContactEmail({ email }: { email: string }) {
         />
         <span className="truncate">{email}</span>
         {copied ? (
-          <Check aria-hidden="true" className="size-3.5 shrink-0 text-primary" />
+          <Check
+            aria-hidden="true"
+            className="size-3.5 shrink-0 text-primary"
+          />
         ) : (
           <Copy
             aria-hidden="true"

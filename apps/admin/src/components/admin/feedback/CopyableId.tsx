@@ -77,7 +77,10 @@ export function CopyableId({ value, label, className }: CopyableIdProps) {
         {copied ? (
           <Check aria-hidden="true" className="size-3 shrink-0 text-primary" />
         ) : (
-          <Copy aria-hidden="true" className="size-3 shrink-0 text-ink-subtle" />
+          <Copy
+            aria-hidden="true"
+            className="size-3 shrink-0 text-ink-subtle"
+          />
         )}
       </Button>
     </span>

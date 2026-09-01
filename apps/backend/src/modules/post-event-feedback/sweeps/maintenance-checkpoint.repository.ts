@@ -4,7 +4,7 @@ import {
   type AppTransaction,
   type FeedbackMaintenanceCheckpointRow,
   type FeedbackMaintenanceCheckpointTask,
-} from "@join-the-six/database";
+} from "@slopform/database";
 import { eq, sql } from "drizzle-orm";
 
 export interface FeedbackConversationRecoveryCursor {

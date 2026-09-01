@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import type { AppTransaction, EventStatus } from "@join-the-six/database";
+import type { AppTransaction, EventStatus } from "@slopform/database";
 
 import { AuditRepository } from "../../infrastructure/audit/audit.repository.js";
 import { DatabaseService } from "../../infrastructure/database/database.service.js";

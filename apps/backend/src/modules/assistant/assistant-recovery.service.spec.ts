@@ -1,4 +1,4 @@
-import type { AssistantTurnRow } from "@join-the-six/database";
+import type { AssistantTurnRow } from "@slopform/database";
 import type { Queue } from "bullmq";
 import { describe, expect, it, vi } from "vitest";
 

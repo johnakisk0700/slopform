@@ -1,4 +1,4 @@
-import type { FeedbackExtractionMeta } from "@join-the-six/database";
+import type { FeedbackExtractionMeta } from "@slopform/database";
 
 /**
  * An operator's correction to a recorded answer, kept on the answer row itself.

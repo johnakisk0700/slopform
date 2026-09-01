@@ -53,16 +53,16 @@ Retry/resume reuse persisted model, effort and tier — never re-infer.
 
 Clerk authentication; ownership from the verified subject only.
 
-| Operation | Route | Notes |
-| --------- | ----- | ----- |
-| Create | `POST /api/v1/assistant/threads` | Body `{ requestId, model?, effort?, serviceTier?, content }` → full thread |
-| List | `GET /api/v1/assistant/threads` | 50 most recently updated owned summaries |
-| Read | `GET /api/v1/assistant/threads/:id` | Owned thread, ordered turns |
-| Append | `POST /api/v1/assistant/threads/:id/turns` | Same body → new turn |
-| Branch | `POST /api/v1/assistant/threads/:id/branches` | Same body + `sourceTurnId` → new thread with immutable prefix |
-| Poll | `GET …/turns/:turnId` | Authoritative turn state |
-| Stream | `GET …/turns/:turnId/stream` | Authenticated best-effort SSE; polling remains authoritative |
-| Retry | `POST …/turns/:turnId/retry` | Latest failed turn only; same id, next attempt |
+| Operation | Route                                         | Notes                                                                      |
+| --------- | --------------------------------------------- | -------------------------------------------------------------------------- |
+| Create    | `POST /api/v1/assistant/threads`              | Body `{ requestId, model?, effort?, serviceTier?, content }` → full thread |
+| List      | `GET /api/v1/assistant/threads`               | 50 most recently updated owned summaries                                   |
+| Read      | `GET /api/v1/assistant/threads/:id`           | Owned thread, ordered turns                                                |
+| Append    | `POST /api/v1/assistant/threads/:id/turns`    | Same body → new turn                                                       |
+| Branch    | `POST /api/v1/assistant/threads/:id/branches` | Same body + `sourceTurnId` → new thread with immutable prefix              |
+| Poll      | `GET …/turns/:turnId`                         | Authoritative turn state                                                   |
+| Stream    | `GET …/turns/:turnId/stream`                  | Authenticated best-effort SSE; polling remains authoritative               |
+| Retry     | `POST …/turns/:turnId/retry`                  | Latest failed turn only; same id, next attempt                             |
 
 `requestId` is a client UUID, unique per owner. Identical replay of
 owner/UUID/operation/model/effort/serviceTier/content returns the existing

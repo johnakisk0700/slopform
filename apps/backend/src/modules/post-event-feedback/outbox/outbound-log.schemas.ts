@@ -1,4 +1,4 @@
-import type { MessageOutboxLogOrigin } from "@join-the-six/database";
+import type { MessageOutboxLogOrigin } from "@slopform/database";
 import { z } from "zod";
 
 /**

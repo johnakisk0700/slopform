@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import type { AssistantTurnRow } from "@join-the-six/database";
+import type { AssistantTurnRow } from "@slopform/database";
 
 import type { Environment } from "../../infrastructure/config/environment.js";
 import {

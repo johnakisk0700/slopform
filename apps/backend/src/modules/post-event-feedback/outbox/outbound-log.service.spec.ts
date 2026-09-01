@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import type { MessageOutboxRow } from "@join-the-six/database";
+import type { MessageOutboxRow } from "@slopform/database";
 import { describe, expect, it } from "vitest";
 
 import {

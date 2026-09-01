@@ -5,7 +5,7 @@ import {
   feedbackConversationExecutions,
   type AppTransaction,
   type FeedbackConversationExecutionRow,
-} from "@join-the-six/database";
+} from "@slopform/database";
 import { and, eq, gt, sql } from "drizzle-orm";
 
 import { currentDatabaseTime } from "../../../infrastructure/database/database-time.js";

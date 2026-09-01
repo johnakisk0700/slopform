@@ -11,11 +11,11 @@ Hysteresis:
 
 ## Contract
 
-| Prop | Type | Contract |
-| ---- | ---- | -------- |
-| `active` | `boolean` | Required. Pass TanStack Query `isFetching`. Component owns show/hide delay. |
-| `label` | `string` | Required. Always-present, visually hidden sentence naming the pane's refresh. |
-| `className` | `string?` | Layout only (placement in a header row). |
+| Prop        | Type      | Contract                                                                      |
+| ----------- | --------- | ----------------------------------------------------------------------------- |
+| `active`    | `boolean` | Required. Pass TanStack Query `isFetching`. Component owns show/hide delay.   |
+| `label`     | `string`  | Required. Always-present, visually hidden sentence naming the pane's refresh. |
+| `className` | `string?` | Layout only (placement in a header row).                                      |
 
 ## Invariants
 

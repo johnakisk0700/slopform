@@ -7,7 +7,7 @@ source "$repository_root/scripts/production-common.sh"
 
 usage() {
   cat <<'EOF'
-Join The Six production operator
+Slopform production operator
 
 Usage:
   scripts/prod.sh deploy [all|admin|backend]

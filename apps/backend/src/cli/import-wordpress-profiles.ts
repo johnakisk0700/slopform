@@ -3,7 +3,7 @@ import "dotenv/config";
 import { readFile, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 
-import { createDatabase } from "@join-the-six/database";
+import { createDatabase } from "@slopform/database";
 
 import {
   WordpressProfileImportService,

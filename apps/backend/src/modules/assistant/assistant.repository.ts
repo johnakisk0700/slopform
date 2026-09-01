@@ -6,7 +6,7 @@ import {
   type AppTransaction,
   type AssistantThreadRow,
   type AssistantTurnRow,
-} from "@join-the-six/database";
+} from "@slopform/database";
 import { and, asc, desc, eq, inArray, lt, max, sql } from "drizzle-orm";
 
 import { DatabaseService } from "../../infrastructure/database/database.service.js";

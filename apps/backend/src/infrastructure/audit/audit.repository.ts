@@ -3,7 +3,7 @@ import {
   auditEvents,
   type AuditEventInsert,
   type AppTransaction,
-} from "@join-the-six/database";
+} from "@slopform/database";
 
 @Injectable()
 export class AuditRepository {

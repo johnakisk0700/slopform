@@ -1,21 +1,36 @@
-# Join The Six
+# Slopform
 
-Production foundation for the private Join The Six administration and operator application.
+The form is texting you now.
 
-Public marketing, registration and participant-facing journeys live in the
-existing Next.js application at `legacy.example.com`; they are deliberately outside
-this repository.
+Slopform is a private operator system for conversational research. Operators
+configure a campaign and its questions. AI-guided WhatsApp conversations collect
+the answers. An admin surface manages delivery, transcripts, human review,
+outbox state, retries, idempotency, queues and summaries.
+
+This repository is the source tree for that system, published as a portfolio
+codebase. It is not a public SaaS and does not claim users or traction. The
+committed defaults use simulated delivery; real WhatsApp egress is
+configuration-gated, and campaign eligibility requires an operator-managed
+participant opt-in. Legal and provider approval remain deployment gates rather
+than claims made by this repository.
+
+The stack was originally built as the Join The Six operator application.
+Historical ADRs, guest fixtures and participant-facing policy copy keep that
+context. Public documentation and committed deploy examples use Slopform
+([ADR 0014](docs/decisions/0014-public-slopform-identity.md)).
 
 ## Stack
 
-- `apps/admin`: private React, HeroUI and Tailwind administration panel
+- `apps/admin`: private React, HeroUI and Tailwind operator panel
 - `apps/backend`: NestJS modular monolith with separate API and worker processes
 - `packages/database`: PostgreSQL schema and versioned Drizzle migrations
 - MongoDB for authoritative owner-scoped conversation threads and ordered turns
 - Redis and BullMQ for observable background jobs
 - pnpm workspaces and Turborepo on Node.js 24 LTS
 
-WordPress remains a temporary, isolated integration and migration boundary. It is not the schema for the new product.
+WordPress remains a documented historical migration boundary from the Join The
+Six era. It is not the schema for this product, and this tree does not include a
+live-site export recipe or WordPress credentials.
 
 ## Start locally
 
@@ -40,9 +55,10 @@ pnpm feedback:burst
 `pnpm feedback:burst` seeds six finished events, launches thirty-six concurrent
 post-event feedback conversations, and writes
 `report/feedback-burst-<timestamp>.html`. Default mode is the free deterministic
-stub (`FEEDBACK_EXTRACTION_STUB=true`); the frozen direct-OpenAI Luna medium treatment
-needs `--profile prova --confirm-paid-run`. Qwen is a separately labelled
-`--comparison qwen` run; a free-form `--model` is rejected. It never cleans up.
+stub (`FEEDBACK_EXTRACTION_STUB=true`); the frozen direct-OpenAI Luna medium
+treatment needs `--profile prova --confirm-paid-run`. Qwen is a separately
+labelled `--comparison qwen` run; a free-form `--model` is rejected. It never
+cleans up. Burst HTML and other `report/` output stay gitignored.
 
 To run the application processes in containers too:
 
@@ -60,12 +76,16 @@ Run the full repository check with:
 pnpm check
 ```
 
-## Production
+## Example production layout
 
-Production is served at `https://slopform.example.com` and keeps native nginx as
-the shared VPS TLS edge. Docker runs separate
-`web`, `api`, `worker` and one-shot `migrate` images plus PostgreSQL, MongoDB and
-Redis; application ports bind to loopback only.
+Committed deploy examples use `slopform.example.com`, RFC 5737 documentation
+addresses such as `203.0.113.10`, and `/opt/slopform`. They describe how an
+operator would run a **private** instance behind native nginx. They are not a
+public production service and must not be copied as if they were a live zone.
+
+Native nginx owns 80/443. Docker runs separate `web`, `api`, `worker` and
+one-shot `migrate` images plus PostgreSQL, MongoDB and Redis; application ports
+bind to loopback only.
 
 One operator interface owns release transfer, component deploys, rollback,
 status/logs and the temporary pre-launch data-import window:
@@ -81,7 +101,7 @@ pnpm prod data status
 
 It deploys only a clean committed `HEAD`, transfers that exact tree as an
 immutable release over SSH and never sends local secrets or Docker volumes.
-Initial configuration, restricted Clerk setup, repeatable PostgreSQL/MongoDB
+Example configuration, restricted Clerk setup, repeatable PostgreSQL/MongoDB
 promotion, `data seal`, nginx cutover and rollback are documented in
 [`docs/deployment.md`](docs/deployment.md). Do not replace the phased command
 with a blanket `docker compose up`; that can recreate application processes
@@ -89,9 +109,15 @@ before the migration gate has succeeded.
 
 ## Documentation
 
-Start at [`docs/README.md`](docs/README.md). The existing read-only WordPress evidence is in [`wordpress-audit-2026-07-22.md`](docs/evidence/wordpress-audit-2026-07-22.md).
+Start at [`docs/README.md`](docs/README.md). Dated evidence is indexed from
+[`docs/evidence/README.md`](docs/evidence/README.md). Public identity and the
+legacy identifiers this tree deliberately keeps are in
+[ADR 0014](docs/decisions/0014-public-slopform-identity.md).
 
 Unresolved engineering work is tracked in [`TODO.md`](TODO.md); dated evidence
 and completed plans are not active task lists.
 
-Do not add business entities or WordPress mappings from memory. Update the relevant contract or migration map first, then implement a vertical slice.
+Do not add business entities or WordPress mappings from memory. Update the
+relevant contract or migration map first, then implement a vertical slice.
+
+This repository does not currently select or ship a software license.

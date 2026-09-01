@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { messageOutbox } from "@join-the-six/database";
+import { messageOutbox } from "@slopform/database";
 import type { SQL } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 

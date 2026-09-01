@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
-import type { FeedbackExtractionMeta } from "@join-the-six/database";
+import type { FeedbackExtractionMeta } from "@slopform/database";
 
 import { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
 import { DatabaseService } from "../../../infrastructure/database/database.service.js";

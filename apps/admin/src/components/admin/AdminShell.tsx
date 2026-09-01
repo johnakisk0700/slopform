@@ -238,7 +238,7 @@ export function AdminShell() {
                         taglineClassName="text-ink-muted"
                         wordmark={
                           <Drawer.Heading className="font-display text-[1.3rem] leading-none font-extrabold tracking-tight">
-                            Join The Six
+                            Slopform
                           </Drawer.Heading>
                         }
                       />
@@ -259,7 +259,7 @@ export function AdminShell() {
             </Drawer>
 
             <div>
-              <p className="jts-overline text-ink-muted">Join The Six</p>
+              <p className="jts-overline text-ink-muted">Slopform</p>
               <strong className="text-sm font-bold">Control center</strong>
             </div>
           </div>

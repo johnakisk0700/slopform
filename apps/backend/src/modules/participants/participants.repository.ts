@@ -7,7 +7,7 @@ import {
   type EventRow,
   type EventStatus,
   type ParticipantRow,
-} from "@join-the-six/database";
+} from "@slopform/database";
 import { asc, desc, eq, inArray } from "drizzle-orm";
 
 import { DatabaseService } from "../../infrastructure/database/database.service.js";

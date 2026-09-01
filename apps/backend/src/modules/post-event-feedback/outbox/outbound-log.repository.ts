@@ -4,7 +4,7 @@ import {
   type AppTransaction,
   type MessageOutboxLogOrigin,
   type MessageOutboxLogRow,
-} from "@join-the-six/database";
+} from "@slopform/database";
 import { eq, inArray } from "drizzle-orm";
 
 import { DatabaseService } from "../../../infrastructure/database/database.service.js";

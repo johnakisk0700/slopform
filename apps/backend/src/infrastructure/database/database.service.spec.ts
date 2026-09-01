@@ -1,6 +1,6 @@
 import type { ConfigService } from "@nestjs/config";
 import { Logger } from "@nestjs/common";
-import type { AppDatabase, DatabaseClient } from "@join-the-six/database";
+import type { AppDatabase, DatabaseClient } from "@slopform/database";
 import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 

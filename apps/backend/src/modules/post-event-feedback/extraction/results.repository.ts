@@ -11,7 +11,7 @@ import {
   type FeedbackNoteRow,
   type FeedbackNoteStatus,
   type FeedbackNoteType,
-} from "@join-the-six/database";
+} from "@slopform/database";
 import { and, asc, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 
 import { DatabaseService } from "../../../infrastructure/database/database.service.js";

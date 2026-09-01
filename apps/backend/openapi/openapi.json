@@ -6037,8 +6037,8 @@
   },
   "info": {
     "contact": {},
-    "description": "Operations API for Join The Six",
-    "title": "Join The Six API",
+    "description": "Operations API for Slopform",
+    "title": "Slopform API",
     "version": "1.0.0"
   },
   "openapi": "3.0.0",

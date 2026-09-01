@@ -1113,7 +1113,9 @@ describe("attention reasons (why a conversation wants a person)", () => {
     // Wide: 16px air. Narrow: clear AdminShell's sticky `min-h-[4.5rem]` bar
     // (72px) plus the same air, or the cited message lands under the header.
     expect(reveal).toContain("PANE_TOP_INSET_WIDE_PX = 16");
-    expect(reveal).toContain("PANE_TOP_INSET_NARROW_PX = 72 + PANE_TOP_INSET_WIDE_PX");
+    expect(reveal).toContain(
+      "PANE_TOP_INSET_NARROW_PX = 72 + PANE_TOP_INSET_WIDE_PX",
+    );
     expect(reveal).toContain('behavior: "smooth"');
     expect(reveal).toContain("jts-message-flash");
     expect(styles).toContain("@keyframes jts-message-flash");

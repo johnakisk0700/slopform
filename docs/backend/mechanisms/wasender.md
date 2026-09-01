@@ -7,10 +7,12 @@ pre-1.0 Wasender Node SDK.
 
 ## Purpose and boundary
 
-Wasender is the transport adapter for the existing WhatsApp session. WordPress
-keeps using that same session; this backend is another client, not its
-replacement. This boundary owns authenticated provider calls, bounded response
-validation, webhook authentication and normalization of provider payloads.
+Wasender is the transport adapter for an existing WhatsApp session. In the Join
+The Six era WordPress could share that session as another client; this backend
+is still a client, not a replacement for WhatsApp itself. This public tree does
+not pair a live WordPress install with production Wasender. This boundary owns
+authenticated provider calls, bounded response validation, webhook
+authentication and normalization of provider payloads.
 
 It does not own conversations, participant matching, AI feedback state, retries,
 consent, a staff inbox or an admin UI. The webhook controller lives in the
@@ -74,11 +76,11 @@ Provider `sessionId` is never copied into normalized events (Wasender's status
 example labels it as the session API key). Top-level envelopes are strict;
 nested WhatsApp objects tolerate unknown fields while validating consumed ones.
 
-| Event                                   | Handling                                                                                    |
-| --------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `message.observed`, personal chat       | Durable ingress write + materialize enqueue; `recordedCount`                                |
-| `message.observed`, group or newsletter | Never stored; `skippedCount`                                                                |
-| `message.status-changed`                | Updates delivery columns on correlated `message_outbox`; `deferredCount`                    |
+| Event                                   | Handling                                                                 |
+| --------------------------------------- | ------------------------------------------------------------------------ |
+| `message.observed`, personal chat       | Durable ingress write + materialize enqueue; `recordedCount`             |
+| `message.observed`, group or newsletter | Never stored; `skippedCount`                                             |
+| `message.status-changed`                | Updates delivery columns on correlated `message_outbox`; `deferredCount` |
 
 Text is trimmed and bounded to `FEEDBACK_OBSERVED_TEXT_HARD_LIMIT` (64,000) —
 far above WhatsApp's 4096 send limit. Unqueueable messages answer 503 so the
@@ -160,18 +162,18 @@ acceptance pack and consent/legal gate first.
 
 ## Configuration and operations
 
-| Variable                                     | Process | Contract                                                                                                                                          |
-| -------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `TRANSPORT_MODE`                             | both    | `disabled`, `simulated` (dev default), or `wasender`; only Wasender mode composes the provider client and requires its session key                |
-| `FEEDBACK_SIMULATOR_ENABLED`                 | API     | Defaults false; mounts Clerk-protected inject/thread and rehearsal routes only with simulated transport                                           |
-| `FEEDBACK_PRODUCTION_REHEARSAL_ENABLED`      | both    | Defaults false; production-only exception requiring simulated transport + simulator, real model, and no Wasender credential or webhook            |
-| `FEEDBACK_SIMULATED_TRANSPORT_FAULT_MODE`    | both    | `none`, `reject`, `rate-limit`, `unknown-before-accept`, `unknown-after-accept`, or `mixed`; non-`none` requires a positive percentage            |
-| `FEEDBACK_SIMULATED_TRANSPORT_FAULT_PERCENT` | both    | Integer `0..100`; stable selection per `(seed, outbox id)`                                                                                        |
-| `FEEDBACK_SIMULATED_TRANSPORT_SEED`          | both    | Non-secret log-safe seed; included in worker attestation so replicas and API must agree                                                           |
-| `FEEDBACK_SIMULATED_TRANSPORT_MAX_DELAY_MS`  | both    | Stable per-row delay `0..30_000` ms; requires simulated transport when non-zero                                                                   |
-| `WASENDER_SESSION_API_KEY`                   | worker  | Required by worker composition only when `TRANSPORT_MODE=wasender`                                                                                |
-| `WASENDER_WEBHOOK_ENABLED`                   | API     | Defaults false; mounts the public route only when true; forbidden by production rehearsal                                                         |
-| `WASENDER_WEBHOOK_SECRET`                    | API     | Required with the route; 32–512 chars, exact shared secret                                                                                        |
+| Variable                                     | Process | Contract                                                                                                                               |
+| -------------------------------------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `TRANSPORT_MODE`                             | both    | `disabled`, `simulated` (dev default), or `wasender`; only Wasender mode composes the provider client and requires its session key     |
+| `FEEDBACK_SIMULATOR_ENABLED`                 | API     | Defaults false; mounts Clerk-protected inject/thread and rehearsal routes only with simulated transport                                |
+| `FEEDBACK_PRODUCTION_REHEARSAL_ENABLED`      | both    | Defaults false; production-only exception requiring simulated transport + simulator, real model, and no Wasender credential or webhook |
+| `FEEDBACK_SIMULATED_TRANSPORT_FAULT_MODE`    | both    | `none`, `reject`, `rate-limit`, `unknown-before-accept`, `unknown-after-accept`, or `mixed`; non-`none` requires a positive percentage |
+| `FEEDBACK_SIMULATED_TRANSPORT_FAULT_PERCENT` | both    | Integer `0..100`; stable selection per `(seed, outbox id)`                                                                             |
+| `FEEDBACK_SIMULATED_TRANSPORT_SEED`          | both    | Non-secret log-safe seed; included in worker attestation so replicas and API must agree                                                |
+| `FEEDBACK_SIMULATED_TRANSPORT_MAX_DELAY_MS`  | both    | Stable per-row delay `0..30_000` ms; requires simulated transport when non-zero                                                        |
+| `WASENDER_SESSION_API_KEY`                   | worker  | Required by worker composition only when `TRANSPORT_MODE=wasender`                                                                     |
+| `WASENDER_WEBHOOK_ENABLED`                   | API     | Defaults false; mounts the public route only when true; forbidden by production rehearsal                                              |
+| `WASENDER_WEBHOOK_SECRET`                    | API     | Required with the route; 32–512 chars, exact shared secret                                                                             |
 
 Normal Wasender production mounts separate secret files into worker and API.
 Production rehearsal mounts no Wasender secret. The webhook URL must be the

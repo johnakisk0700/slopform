@@ -48,7 +48,7 @@ else
   exec 9>"$deployment_lock"
 
   if ! flock --nonblock 9; then
-    echo "Another Join The Six production operation holds $deployment_lock" >&2
+    echo "Another Slopform production operation holds $deployment_lock" >&2
     exit 1
   fi
 

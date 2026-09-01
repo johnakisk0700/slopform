@@ -16,18 +16,18 @@ ownership, compatibility pins, env and test recipes.
 Package manifests pin exact versions. Upgrade coupled foundations together and
 rerun focused integration smokes, not just the compiler.
 
-| Area               | Versions                                                                                   | Constraint                                                               |
-| ------------------ | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------ |
-| Runtime and tools  | Node `>=24.11 <25`; TypeScript `6.0.3`; `@types/node` `24.13.3`; Vitest `4.1.10`           | Production stays on Node 24 LTS; TypeScript 7 is not the stable line.    |
-| Nest and HTTP      | Nest `11.1.28`; Express `5.2.1`; config `4.0.4`; Swagger `11.4.6`                          | Keep Nest core/platform patches aligned; Express comes from the platform. |
+| Area               | Versions                                                                                   | Constraint                                                                 |
+| ------------------ | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------- |
+| Runtime and tools  | Node `>=24.11 <25`; TypeScript `6.0.3`; `@types/node` `24.13.3`; Vitest `4.1.10`           | Production stays on Node 24 LTS; TypeScript 7 is not the stable line.      |
+| Nest and HTTP      | Nest `11.1.28`; Express `5.2.1`; config `4.0.4`; Swagger `11.4.6`                          | Keep Nest core/platform patches aligned; Express comes from the platform.  |
 | Persistence        | Drizzle ORM `0.45.2`; Kit `0.31.10`; `pg` `8.22.0`; MongoDB driver `7.5.0`                 | PostgreSQL for relational guarantees; MongoDB for conversation aggregates. |
-| Queues             | `@nestjs/bullmq` `11.0.4`; BullMQ `5.80.10`; Bull Board `8.1.2`                            | BullMQ OSS only; all Bull Board packages share one version.              |
-| Contracts and edge | Zod `4.4.3`; `nestjs-zod` `5.4.0`; Helmet `8.3.0`                                          | Zod is the single runtime/API contract source.                           |
-| Authentication     | Clerk Express `2.1.44`                                                                     | Session verification plus a server-owned admin allowlist.                |
-| Logging            | Pino `10.3.1`; `pino-http` `11.0.0`; `nestjs-pino` `4.6.1`; `pino-pretty` `13.1.3`         | Pretty output is development-only.                                       |
-| Telemetry          | OTel API `1.9.1`; SDK/exporter `0.220.0`; auto-instrumentations `0.78.0`; Sentry `10.67.0` | Configure OTLP or Sentry, never both; keep the OTel `0.220` cohort.      |
-| Runtime peers      | `dotenv` `17.4.2`; `reflect-metadata` `0.2.2`; RxJS `7.8.2`                                | Direct deps because the runtime imports them.                            |
-| AI generation      | AI SDK `7.0.35`; OpenAI provider `4.0.18`; OpenRouter provider `3.0.0`                     | Provider calls only in the worker; SDK retries off — BullMQ owns retry.  |
+| Queues             | `@nestjs/bullmq` `11.0.4`; BullMQ `5.80.10`; Bull Board `8.1.2`                            | BullMQ OSS only; all Bull Board packages share one version.                |
+| Contracts and edge | Zod `4.4.3`; `nestjs-zod` `5.4.0`; Helmet `8.3.0`                                          | Zod is the single runtime/API contract source.                             |
+| Authentication     | Clerk Express `2.1.44`                                                                     | Session verification plus a server-owned admin allowlist.                  |
+| Logging            | Pino `10.3.1`; `pino-http` `11.0.0`; `nestjs-pino` `4.6.1`; `pino-pretty` `13.1.3`         | Pretty output is development-only.                                         |
+| Telemetry          | OTel API `1.9.1`; SDK/exporter `0.220.0`; auto-instrumentations `0.78.0`; Sentry `10.67.0` | Configure OTLP or Sentry, never both; keep the OTel `0.220` cohort.        |
+| Runtime peers      | `dotenv` `17.4.2`; `reflect-metadata` `0.2.2`; RxJS `7.8.2`                                | Direct deps because the runtime imports them.                              |
+| AI generation      | AI SDK `7.0.35`; OpenAI provider `4.0.18`; OpenRouter provider `3.0.0`                     | Provider calls only in the worker; SDK retries off — BullMQ owns retry.    |
 
 Registry/license scan dated **2026-07-22** found only permissive licenses and no
 production advisory; recheck on every upgrade.
@@ -113,16 +113,16 @@ rules: [api-contract](backend/mechanisms/api-contract.md).
 
 ## Mechanism contracts
 
-| Mechanism                                                          | Owns                                                         |
-| ------------------------------------------------------------------ | ------------------------------------------------------------ |
-| [Database](backend/mechanisms/database.md)                         | Pool, transactions, schema/migrations, test data             |
-| [MongoDB](backend/mechanisms/mongodb.md)                           | Conversation-store connection, indexes, limits, backup       |
-| [Queues](backend/mechanisms/queues.md)                             | Connections, envelopes, retry/retention, outbox, ops         |
-| [Runtime operations](backend/mechanisms/runtime-operations.md)     | HTTP edge, config, logging, tracing, startup/shutdown        |
-| [Authentication](backend/mechanisms/authentication.md)             | Clerk sessions, private-by-default guard, staff auth         |
-| [API contract](backend/mechanisms/api-contract.md)                 | OpenAPI emission, operation naming, generated admin client   |
-| [Wasender](backend/mechanisms/wasender.md)                         | WhatsApp client, signed webhook, normalized transport events |
-| [Module inventory](backend/modules/README.md)                      | Durable product module boundaries                            |
+| Mechanism                                                      | Owns                                                         |
+| -------------------------------------------------------------- | ------------------------------------------------------------ |
+| [Database](backend/mechanisms/database.md)                     | Pool, transactions, schema/migrations, test data             |
+| [MongoDB](backend/mechanisms/mongodb.md)                       | Conversation-store connection, indexes, limits, backup       |
+| [Queues](backend/mechanisms/queues.md)                         | Connections, envelopes, retry/retention, outbox, ops         |
+| [Runtime operations](backend/mechanisms/runtime-operations.md) | HTTP edge, config, logging, tracing, startup/shutdown        |
+| [Authentication](backend/mechanisms/authentication.md)         | Clerk sessions, private-by-default guard, staff auth         |
+| [API contract](backend/mechanisms/api-contract.md)             | OpenAPI emission, operation naming, generated admin client   |
+| [Wasender](backend/mechanisms/wasender.md)                     | WhatsApp client, signed webhook, normalized transport events |
+| [Module inventory](backend/modules/README.md)                  | Durable product module boundaries                            |
 
 Spanning invariants:
 
@@ -170,18 +170,18 @@ Start both with `dev`, or `dev:http` / `dev:worker`. Production:
 watch compilation stays incremental.
 
 ```bash
-pnpm --filter @join-the-six/database db:generate --name=<meaningful_name>
-pnpm --filter @join-the-six/database db:check
-pnpm --filter @join-the-six/database db:migrate
+pnpm --filter @slopform/database db:generate --name=<meaningful_name>
+pnpm --filter @slopform/database db:check
+pnpm --filter @slopform/database db:migrate
 
-pnpm --filter @join-the-six/database lint
-pnpm --filter @join-the-six/database typecheck
-pnpm --filter @join-the-six/database test
-pnpm --filter @join-the-six/database build
-pnpm --filter @join-the-six/backend lint
-pnpm --filter @join-the-six/backend typecheck
-pnpm --filter @join-the-six/backend test
-pnpm --filter @join-the-six/backend build
+pnpm --filter @slopform/database lint
+pnpm --filter @slopform/database typecheck
+pnpm --filter @slopform/database test
+pnpm --filter @slopform/database build
+pnpm --filter @slopform/backend lint
+pnpm --filter @slopform/backend typecheck
+pnpm --filter @slopform/backend test
+pnpm --filter @slopform/backend build
 ```
 
 ### Test recipes

@@ -1,4 +1,4 @@
-import type { FeedbackAnswerQuestionKey } from "@join-the-six/database";
+import type { FeedbackAnswerQuestionKey } from "@slopform/database";
 
 import type { FeedbackConversationDocument } from "./post-event-feedback-conversation.document.js";
 import type { FakeFeedbackConversations } from "./post-event-feedback-doubles.harness.js";

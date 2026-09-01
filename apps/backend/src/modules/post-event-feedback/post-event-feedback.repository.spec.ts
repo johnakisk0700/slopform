@@ -7,7 +7,7 @@ import {
   feedbackAnswerWithdrawals,
   messageOutbox,
   providerMessageIngress,
-} from "@join-the-six/database";
+} from "@slopform/database";
 
 import type { DatabaseService } from "../../infrastructure/database/database.service.js";
 import { FeedbackResultsRepository } from "./extraction/results.repository.js";

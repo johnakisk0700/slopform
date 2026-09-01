@@ -44,7 +44,7 @@ importers:
       '@internationalized/date':
         specifier: ^3.12.2
         version: 3.12.2
-      '@join-the-six/design-tokens':
+      '@slopform/design-tokens':
         specifier: workspace:*
         version: link:../../packages/design-tokens
       '@tanstack/react-query':
@@ -174,9 +174,6 @@ importers:
       '@clerk/express':
         specifier: 2.1.44
         version: 2.1.44(express@5.2.1)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      '@join-the-six/database':
-        specifier: workspace:*
-        version: link:../../packages/database
       '@nestjs/bullmq':
         specifier: 11.0.4
         version: 11.0.4(@nestjs/common@11.1.28(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.28)(bullmq@5.80.10)
@@ -213,6 +210,9 @@ importers:
       '@sentry/nestjs':
         specifier: 10.67.0
         version: 10.67.0(@nestjs/common@11.1.28(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.28)(@opentelemetry/core@2.10.0(@opentelemetry/api@1.9.1))(@opentelemetry/exporter-trace-otlp-http@0.220.0(@opentelemetry/api@1.9.1))
+      '@slopform/database':
+        specifier: workspace:*
+        version: link:../../packages/database
       ai:
         specifier: 7.0.35
         version: 7.0.35(zod@4.4.3)

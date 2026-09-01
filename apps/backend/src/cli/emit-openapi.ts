@@ -8,14 +8,13 @@ import { OPENAPI_EMIT_ENVIRONMENT } from "../infrastructure/openapi/openapi-docu
  * Writes the published OpenAPI document to `apps/backend/openapi/openapi.json`.
  *
  * The document is built with `SwaggerModule.createDocument()` from the real
- * `createHttpApplication()` composition, so the committed artifact and the
- * document the running process serves at `/api/openapi.json` cannot drift. No
- * port is opened and no dependency is contacted: `NestFactory.create()` only
- * instantiates providers, and `onModuleInit` — which opens the database pool —
- * never runs because the application is never initialized.
+ * `HttpAppModule` graph, so the committed artifact and the document the running
+ * process serves at `/api/openapi.json` cannot drift. Nest preview mode scans
+ * that graph without instantiating controllers or providers, so no port is
+ * opened and no dependency is contacted.
  *
  * Run it from the repository root with `pnpm openapi:emit` (Turbo builds the
- * backend first) or with `pnpm --filter @join-the-six/backend openapi:emit`
+ * backend first) or with `pnpm --filter @slopform/backend openapi:emit`
  * against a current `dist/`.
  */
 const OUTPUT_URL = new URL("../../openapi/openapi.json", import.meta.url);
@@ -32,12 +31,21 @@ async function emitOpenApiDocument(): Promise<string> {
   Logger.overrideLogger(false);
 
   // Imported after the environment is fixed: the module graph reads it eagerly.
-  const [{ createHttpApplication }, openapi] = await Promise.all([
-    import("../bootstrap-http.js"),
-    import("../infrastructure/openapi/openapi-document.js"),
-  ]);
+  const [{ NestFactory }, { HttpAppModule }, { HTTP_API_PREFIX }, openapi] =
+    await Promise.all([
+      import("@nestjs/core"),
+      import("../http-app.module.js"),
+      import("../infrastructure/config/http-policy.js"),
+      import("../infrastructure/openapi/openapi-document.js"),
+    ]);
 
-  const app = await createHttpApplication();
+  const app = await NestFactory.create(HttpAppModule, {
+    abortOnError: false,
+    bodyParser: false,
+    logger: false,
+    preview: true,
+  });
+  app.setGlobalPrefix(HTTP_API_PREFIX);
 
   try {
     const contents = openapi.serializeOpenApiDocument(
@@ -55,8 +63,6 @@ async function emitOpenApiDocument(): Promise<string> {
 try {
   const outputPath = await emitOpenApiDocument();
   process.stdout.write(`OpenAPI document written to ${outputPath}\n`);
-  // Producer queue clients keep their Redis sockets scheduled; leave explicitly.
-  process.exit(0);
 } catch (error) {
   process.stderr.write(
     `Failed to emit the OpenAPI document: ${error instanceof Error ? error.message : String(error)}\n`,

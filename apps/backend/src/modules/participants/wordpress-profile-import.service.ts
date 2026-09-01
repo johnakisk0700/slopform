@@ -3,7 +3,7 @@ import type {
   ParticipantInterestRow,
   ParticipantRow,
   ParticipantSourceRecordRow,
-} from "@join-the-six/database";
+} from "@slopform/database";
 
 import { participantMatchesProfile } from "./wordpress-profile.mapper.js";
 import { WordpressProfileImportRepository } from "./wordpress-profile-import.repository.js";

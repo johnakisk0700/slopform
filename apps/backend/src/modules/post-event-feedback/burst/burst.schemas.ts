@@ -1,7 +1,7 @@
 import { createZodDto } from "nestjs-zod";
 import { z } from "zod";
 
-import { FEEDBACK_ANSWER_QUESTION_KEYS } from "@join-the-six/database";
+import { FEEDBACK_ANSWER_QUESTION_KEYS } from "@slopform/database";
 
 import { eventVenueInputSchema } from "../../events/events.schemas.js";
 import { FEEDBACK_OBSERVED_TEXT_HARD_LIMIT } from "../jobs.schemas.js";

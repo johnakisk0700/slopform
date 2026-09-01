@@ -1,4 +1,4 @@
-import type { FeedbackAnswerRow } from "@join-the-six/database";
+import type { FeedbackAnswerRow } from "@slopform/database";
 import { describe, expect, it } from "vitest";
 
 import {

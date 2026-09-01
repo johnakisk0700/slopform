@@ -1,4 +1,4 @@
-import type { AppTransaction } from "@join-the-six/database";
+import type { AppTransaction } from "@slopform/database";
 import { sql } from "drizzle-orm";
 
 /**

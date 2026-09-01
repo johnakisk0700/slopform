@@ -24,7 +24,7 @@ export interface PaletteOption {
 
 /** Display order. The house theme leads because it is the default. */
 export const PALETTES: readonly PaletteOption[] = [
-  { id: "join-the-six", label: "Join The Six", origin: "the house wine" },
+  { id: "join-the-six", label: "Slopform", origin: "the house wine" },
   { id: "graphite", label: "Graphite", origin: "cool neutral under steel" },
   {
     id: "noir",

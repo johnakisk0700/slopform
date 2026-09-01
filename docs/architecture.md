@@ -4,21 +4,31 @@ Boundary map only. Runtime detail lives in the handbooks linked below.
 
 ## Core idea
 
+**Slopform** is a private operator system: staff configure a research campaign
+and questions, AI-guided WhatsApp conversations collect answers, and the admin
+surface manages delivery, transcripts, review, outbox state, retries,
+idempotency, queues and summaries. It is not a public SaaS or an anonymous
+bulk-messaging interface. Public name:
+[ADR 0014](decisions/0014-public-slopform-identity.md).
+
 Modular monolith: private React admin (`apps/admin`) + NestJS backend
 (`apps/backend`) as separate HTTP and BullMQ worker processes sharing modules
 and contracts. PostgreSQL owns relational business, audit, outbox and delivery.
 MongoDB owns conversation aggregates and ordered turns. Redis is disposable
 queue coordination, not a business source of truth.
 
-Public site, registration and participant journeys stay on the existing Next.js
-app at `legacy.example.com` (outside this repo). Integration only via a future
-explicit API contract — shared branding is not shared runtime. WordPress remains
-a temporary checkout/migration source behind a future narrow adapter; this repo
-carries no WordPress URL, token or webhook secret until that contract exists.
+The participant channel for this product is WhatsApp (Wasender, gated by an
+operator-managed participant opt-in). This
+tree was originally the Join The Six operator stack; a separate Next.js public
+site and WordPress checkout lived outside the repo
+([ADR 0004](decisions/0004-admin-only-boundary.md),
+[ADR 0002](decisions/0002-wordpress-boundary.md)). Those remain historical
+ownership decisions. WordPress is still an offline migration source (WXR / JSON
+import); this repo carries no WordPress URL, token or webhook secret.
 
 ```mermaid
 flowchart LR
-  Staff["Staff browser"] --> Web["React SPA\nprivate admin panel"]
+  Staff["Staff browser"] --> Web["React SPA\noperator admin"]
   Web --> Clerk["Clerk identity"]
   Web --> API["Nest HTTP API"]
   API --> Clerk
@@ -28,29 +38,28 @@ flowchart LR
   Redis --> Worker["Nest BullMQ worker"]
   Worker --> DB
   Worker --> Mongo
-  Worker --> Providers["Email / messaging providers"]
-  API -. "future narrow adapter" .-> WP["WordPress\ntemporary checkout + migration source"]
-  WP --> Viva["Viva checkout"]
-  Participant["Participant browser"] --> Public["Existing Next.js\nlegacy.example.com"]
-  Public -. "future explicit API contract" .-> API
+  Worker --> WhatsApp["Wasender when enabled"]
+  Participant["Participant phone"] --> WhatsApp
+  WP["WordPress\nhistorical migration source"] -. "offline import" .-> API
   API --> Obs["Logs / traces / errors"]
   Worker --> Obs
 ```
 
 ## Repository boundaries
 
-| Location                 | Owns                                                                                | Must not own                                                                   |
-| ------------------------ | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `apps/admin`             | Staff routes, shell, presentation, typed API consumption                            | Public website, registration UI, business invariants, direct DB access         |
-| `apps/backend`           | HTTP contracts, use cases, authorization, jobs, integrations                        | UI state or provider-specific domain models                                    |
-| `packages/database`      | PostgreSQL schema, migrations, DB client primitives                                 | Request/response DTOs or UI types                                              |
-| `packages/design-tokens` | Shared visual tokens                                                                | Business data or backend dependencies                                          |
+| Location                 | Owns                                                         | Must not own                                                                  |
+| ------------------------ | ------------------------------------------------------------ | ----------------------------------------------------------------------------- |
+| `apps/admin`             | Staff routes, shell, presentation, typed API consumption     | Public marketing site, registration UI, business invariants, direct DB access |
+| `apps/backend`           | HTTP contracts, use cases, authorization, jobs, integrations | UI state or provider-specific domain models                                   |
+| `packages/database`      | PostgreSQL schema, migrations, DB client primitives          | Request/response DTOs or UI types                                             |
+| `packages/design-tokens` | Shared visual tokens                                         | Business data or backend dependencies                                         |
 
 ## Deployment units
 
 `web` (Caddy SPA behind native nginx), `api`, `worker`, `migrate`, `postgres`,
-`mongo`, `redis`. Topology, env/secret boundaries, deploy/rollback and backup:
-[deployment.md](deployment.md).
+`mongo`, `redis`. Topology, env/secret boundaries, deploy/rollback and backup
+use example hosts only (`slopform.example.com`, RFC 5737 addresses,
+`/opt/slopform`): [deployment.md](deployment.md).
 
 ## Domain direction
 
@@ -81,18 +90,20 @@ confirmed. Cutover path: [migration-strategy.md](migration-strategy.md),
 
 - Microservices / event bus, CQRS/event sourcing, generic repository framework,
   a second CMS, Viber.
-- ~~Automated WhatsApp before durable consent/conversation/audit/retry~~ —
-  **gate satisfied**, not waived. Wasender is opt-in via
-  `TRANSPORT_MODE=wasender` ([wasender](backend/mechanisms/wasender.md),
+- Automated WhatsApp has durable conversation, audit, outbox/retry and
+  participant-eligibility gates. Legal consent evidence and provider approval
+  remain deployment responsibilities; `TRANSPORT_MODE=wasender` merely enables
+  the adapter ([wasender](backend/mechanisms/wasender.md),
   [post-event feedback](backend/modules/post-event-feedback.md)).
 
 ## Read next
 
-| Concern                         | Doc                                                                                      |
-| ------------------------------- | ---------------------------------------------------------------------------------------- |
-| Nest, pools, jobs, observability | [backend.md](backend.md)                                                                |
-| Admin UI, theming, components    | [frontend.md](frontend.md), [components](frontend/components/README.md)                  |
-| Containers / VPS                 | [deployment.md](deployment.md)                                                           |
-| Feedback orchestration           | [ADR 0013](decisions/0013-state-driven-feedback-orchestration.md)                        |
+| Concern                          | Doc                                                                                                              |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Nest, pools, jobs, observability | [backend.md](backend.md)                                                                                         |
+| Admin UI, theming, components    | [frontend.md](frontend.md), [components](frontend/components/README.md)                                          |
+| Containers / VPS                 | [deployment.md](deployment.md)                                                                                   |
+| Feedback orchestration           | [ADR 0013](decisions/0013-state-driven-feedback-orchestration.md)                                                |
 | Generated HTTP client            | [ADR 0009](decisions/0009-generated-api-client.md), [ADR 0010](decisions/0010-generated-client-not-committed.md) |
-| Handbook index                   | [docs/README.md](README.md)                                                              |
+| Public identity                  | [ADR 0014](decisions/0014-public-slopform-identity.md)                                                           |
+| Handbook index                   | [docs/README.md](README.md)                                                                                      |

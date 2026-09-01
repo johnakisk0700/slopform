@@ -2,7 +2,7 @@ import type {
   AppTransaction,
   FeedbackCampaignRow,
   FeedbackCampaignSummaryRow,
-} from "@join-the-six/database";
+} from "@slopform/database";
 import type { ConfigService } from "@nestjs/config";
 import { generateObject } from "ai";
 import type { Queue } from "bullmq";

@@ -123,9 +123,9 @@ The TypeScript schema is the source of truth; reviewed SQL is the deployment
 artifact.
 
 ```bash
-pnpm --filter @join-the-six/database db:generate --name=<meaningful_name>
-pnpm --filter @join-the-six/database db:check
-pnpm --filter @join-the-six/database db:migrate
+pnpm --filter @slopform/database db:generate --name=<meaningful_name>
+pnpm --filter @slopform/database db:check
+pnpm --filter @slopform/database db:migrate
 ```
 
 `db:generate` and `db:check` need no database; `db:migrate` does. `db:check`

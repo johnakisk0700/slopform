@@ -61,7 +61,7 @@ describe("createBullBoardAuthMiddleware", () => {
     expect(next).not.toHaveBeenCalled();
     expect(setHeader).toHaveBeenCalledWith(
       "www-authenticate",
-      'Basic realm="Join The Six queues"',
+      'Basic realm="Slopform queues"',
     );
     expect(sendStatus).toHaveBeenCalledWith(401);
   });

@@ -10,8 +10,8 @@ edits can be judged without touring the product. Instrument, not product —
 reports; fetches nothing; changes nothing. Theme/palette axes:
 [theming.md](theming.md).
 
-| Route | View | Owns |
-| ----- | ---- | ---- |
+| Route             | View           | Owns                          |
+| ----------------- | -------------- | ----------------------------- |
 | `/admin/cookbook` | `CookbookPage` | Gallery + sample content only |
 
 ## Development-only gate
@@ -32,14 +32,14 @@ import of the module exists.
 
 Anchors, section `id`s and heading `id`s derive from one `SECTIONS` list.
 
-| # | Section | Shows |
-| - | ------- | ----- |
-| 01 | Colour tokens | Canvas/surface, borders, ink, brand, copper/link/focus, sidebar, status fg/soft+border/solid |
-| 02 | Typography | Manrope + Commissioner (Latin/Greek), weights, tracking, `jts-overline`, tabular figures, `font-mono`. Sora only via BrandLockup in §06 |
-| 03 | HeroUI components | Button, Chip, Input, TextArea, Select, Slider, ToggleButton, Popover, Modal, Drawer, Toast, Avatar, ListBox, ScrollShadow, Pagination, Table |
-| 04 | Jts components | `JtsPageHeader` specimen, `JtsBackLink`, `JtsStat` tones, `JtsDataTable` + paginator, `JtsLiveIndicator` |
-| 05 | Feedback vocabulary | `FeedbackBadges`, `CopyableId`, `ProviderMark`, timestamp pill, confidence bar |
-| 06 | Motifs & rules | `BrandLockup`/`BrandMark`, title mark, 3px marker, `.brand-mark`, `.status-dot`, radius/shadow, invariants |
+| #   | Section             | Shows                                                                                                                                        |
+| --- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| 01  | Colour tokens       | Canvas/surface, borders, ink, brand, copper/link/focus, sidebar, status fg/soft+border/solid                                                 |
+| 02  | Typography          | Manrope + Commissioner (Latin/Greek), weights, tracking, `jts-overline`, tabular figures, `font-mono`. Sora only via BrandLockup in §06      |
+| 03  | HeroUI components   | Button, Chip, Input, TextArea, Select, Slider, ToggleButton, Popover, Modal, Drawer, Toast, Avatar, ListBox, ScrollShadow, Pagination, Table |
+| 04  | Jts components      | `JtsPageHeader` specimen, `JtsBackLink`, `JtsStat` tones, `JtsDataTable` + paginator, `JtsLiveIndicator`                                     |
+| 05  | Feedback vocabulary | `FeedbackBadges`, `CopyableId`, `ProviderMark`, timestamp pill, confidence bar                                                               |
+| 06  | Motifs & rules      | `BrandLockup`/`BrandMark`, title mark, 3px marker, `.brand-mark`, `.status-dot`, radius/shadow, invariants                                   |
 
 Conventions:
 
@@ -65,12 +65,12 @@ tone, `Jts*`, first use of a HeroUI primitive). Use literal class strings
 
 ## Files
 
-| File | Owns |
-| ---- | ---- |
-| `apps/admin/src/routes/CookbookPage.tsx` | Gallery, frames, sample data |
-| `apps/admin/src/App.tsx` | DEV route gate |
-| `apps/admin/src/components/admin/AdminNavigation.tsx` | `DEV_NAV_ITEMS` |
-| `apps/admin/test/cookbook.spec.ts` | Gates, no-literal-colour, token names, imported specimens |
+| File                                                  | Owns                                                      |
+| ----------------------------------------------------- | --------------------------------------------------------- |
+| `apps/admin/src/routes/CookbookPage.tsx`              | Gallery, frames, sample data                              |
+| `apps/admin/src/App.tsx`                              | DEV route gate                                            |
+| `apps/admin/src/components/admin/AdminNavigation.tsx` | `DEV_NAV_ITEMS`                                           |
+| `apps/admin/test/cookbook.spec.ts`                    | Gates, no-literal-colour, token names, imported specimens |
 
 ## References
 

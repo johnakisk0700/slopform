@@ -13,7 +13,7 @@ UI overlay, 1.2s poll and `ofetch` stream consume:
 ## Why this is not a one-line port
 
 `notes_ai` runs `streamText` inside the HTTP request and treats SSE as a
-best-effort accelerator over a durable thread. Join The Six kept the durable
+best-effort accelerator over a durable thread. This codebase kept the durable
 half (queued turn, BullMQ worker, idempotent replay, attempt fencing, retry)
 and restored the accelerator in two stages: A over the existing poll, B over
 Redis SSE. Three local constraints block copying the source shape:

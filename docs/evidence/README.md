@@ -7,12 +7,17 @@ current code.
 Each file is fixed to its date. If reality has moved, take new evidence rather
 than editing the old — an amended observation is no longer an observation.
 
-| Record                                                                   | What was examined                                                                      |
-| ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------- |
-| [WordPress audit](wordpress-audit-2026-07-22.md)                         | The live WordPress install and its plugins, read-only, 2026-07-22                      |
-| [Notion MVP review](notion-mvp-review-2026-07-24.md)                     | The Notion scope: 12 epics, 96 tasks, reviewed against what the repo had already built |
-| [architecture recommendation](architecture-recommendation-2026-07-24.md) | WordPress versus custom versus hybrid, argued from the two records above               |
-| [feedback open issues](post-event-feedback-open-issues-2026-07-29.md)    | What was open, unproven or undecided in the post-event feedback loop when work stopped |
+| Record                                                                | What was examined                                                                                      |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| [feedback open issues](post-event-feedback-open-issues-2026-07-29.md) | What was open, unproven or undecided in the post-event feedback loop when that work paused, 2026-07-29 |
+
+Earlier private evidence records (a live WordPress audit, a Notion MVP review
+and an architecture recommendation that argued from those two) are **not** in
+this public tree. They informed the original Join The Six platform and
+WordPress-boundary decisions; those decisions remain in
+[`../decisions/`](../decisions/0001-platform.md). Do not reconstruct the removed
+files from memory.
 
 What was decided in response lives in
-[`../decisions/`](../decisions/0001-platform.md).
+[`../decisions/`](../decisions/0001-platform.md). Public naming of this
+repository is [ADR 0014](../decisions/0014-public-slopform-identity.md).

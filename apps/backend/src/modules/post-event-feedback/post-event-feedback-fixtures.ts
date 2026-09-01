@@ -1,7 +1,7 @@
 import type {
   FeedbackAnswerQuestionKey,
   FeedbackNoteType,
-} from "@join-the-six/database";
+} from "@slopform/database";
 import type { PostEventFeedbackQuestionSetVersion } from "./question-set.js";
 
 export type PostEventFeedbackFixtureActor =

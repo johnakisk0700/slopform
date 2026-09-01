@@ -4,7 +4,7 @@ import { defineConfig } from "orval";
  * Generates the admin API client from the backend contract.
  *
  * Input: `apps/backend/openapi/openapi.json`, written by
- * `pnpm --filter @join-the-six/backend openapi:emit`. Never edit the output;
+ * `pnpm --filter @slopform/backend openapi:emit`. Never edit the output;
  * run `pnpm api:generate` from the repository root, which regenerates the
  * document first. `pnpm api:check` fails the repository check when the
  * committed output no longer matches the contract.

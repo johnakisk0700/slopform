@@ -65,7 +65,7 @@ import { PostEventFeedbackMetrics } from "./metrics.service.js";
 import type {
   FeedbackAnswerQuestionKey,
   FeedbackNoteType,
-} from "@join-the-six/database";
+} from "@slopform/database";
 import {
   CURRENT_POST_EVENT_FEEDBACK_QUESTION_SET_VERSION,
   createFeedbackIntroDedupeKey,

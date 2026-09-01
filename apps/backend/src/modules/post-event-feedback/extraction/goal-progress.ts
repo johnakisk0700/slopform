@@ -1,4 +1,4 @@
-import type { FeedbackAnswerQuestionKey } from "@join-the-six/database";
+import type { FeedbackAnswerQuestionKey } from "@slopform/database";
 
 import type { FeedbackConversationGoal } from "../post-event-feedback-conversation.document.js";
 import type {

@@ -11,7 +11,7 @@
  * It spends money. Run it deliberately, after changing the model table or the
  * tool schemas, not on every commit:
  *
- *   pnpm --filter @join-the-six/backend exec node dist/cli/assistant-tools-smoke.js
+ *   pnpm --filter @slopform/backend exec node dist/cli/assistant-tools-smoke.js
  *
  * A model that answers in prose instead of calling the tool has failed the
  * check: flip its `supportsTools` to false rather than hoping the next prompt

@@ -27,15 +27,15 @@ flowchart LR
 
 ## HTTP policy
 
-| Policy       | Contract                                                                                                                                                                                         |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Namespace    | `/api/v1`; introduce route versioning only when majors coexist.                                                                                                                                  |
-| Bodies       | JSON and URL-encoded: 100 KiB; URL-encoded: at most 100 parameters.                                                                                                                              |
-| Node parsing | Headers: 10 seconds; full request receipt: 30 seconds; at most 100 headers.                                                                                                                      |
-| CORS         | Credentialed, exact validated `WEB_ORIGIN` list, 10-minute preflight cache; HTTPS-only origins in production.                                                                                    |
-| Headers      | Production Helmet defaults including CSP/HSTS; local/test disable those two for Swagger. `x-powered-by` is off.                                                                                  |
-| Proxy        | `trust proxy=false`; forwarded metadata never drives authorization.                                                                                                                              |
-| API docs     | `/api/docs` and `/api/openapi.{json,yaml}` outside production; absent in production. Same document committed as `apps/backend/openapi/openapi.json`; see [API contract](api-contract.md).       |
+| Policy       | Contract                                                                                                                                                                                  |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Namespace    | `/api/v1`; introduce route versioning only when majors coexist.                                                                                                                           |
+| Bodies       | JSON and URL-encoded: 100 KiB; URL-encoded: at most 100 parameters.                                                                                                                       |
+| Node parsing | Headers: 10 seconds; full request receipt: 30 seconds; at most 100 headers.                                                                                                               |
+| CORS         | Credentialed, exact validated `WEB_ORIGIN` list, 10-minute preflight cache; HTTPS-only origins in production.                                                                             |
+| Headers      | Production Helmet defaults including CSP/HSTS; local/test disable those two for Swagger. `x-powered-by` is off.                                                                           |
+| Proxy        | `trust proxy=false`; forwarded metadata never drives authorization.                                                                                                                       |
+| API docs     | `/api/docs` and `/api/openapi.{json,yaml}` outside production; absent in production. Same document committed as `apps/backend/openapi/openapi.json`; see [API contract](api-contract.md). |
 
 `HTTP_API_PREFIX` drives both routing and liveness suppression. The 30-second
 request timeout bounds receipt, not handler execution — PostgreSQL, MongoDB,

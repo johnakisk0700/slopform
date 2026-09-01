@@ -1,5 +1,5 @@
 import { Logger } from "@nestjs/common";
-import type { MessageOutboxRow } from "@join-the-six/database";
+import type { MessageOutboxRow } from "@slopform/database";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { DatabaseService } from "../../../infrastructure/database/database.service.js";

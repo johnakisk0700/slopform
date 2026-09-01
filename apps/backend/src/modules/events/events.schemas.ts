@@ -1,10 +1,7 @@
 import { createZodDto } from "nestjs-zod";
 import { z } from "zod";
 
-import {
-  EVENT_STATUSES,
-  EVENT_VENUE_PRICE_LEVELS,
-} from "@join-the-six/database";
+import { EVENT_STATUSES, EVENT_VENUE_PRICE_LEVELS } from "@slopform/database";
 
 export const EVENT_STATUS_TRANSITIONS = {
   draft: ["scheduled", "cancelled"],

@@ -127,7 +127,7 @@ Structure, reusable `Jts*` contracts, token/bridge vocabulary or measured
 delivery constraints → update `docs/frontend/theming.md` and/or the focused
 `docs/frontend/components/` contract in the same change.
 
-Before handoff: `pnpm --filter @join-the-six/admin typecheck`, `lint`, `test`
+Before handoff: `pnpm --filter @slopform/admin typecheck`, `lint`, `test`
 and `build`. Shared conventions → `pnpm check`. Backend endpoint change →
 `pnpm api:generate` first; commit regenerated contract with the change
 (`pnpm check` fails on drift).

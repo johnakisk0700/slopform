@@ -1,7 +1,7 @@
 import type {
   FeedbackAnswerQuestionKey,
   FeedbackNoteType,
-} from "@join-the-six/database";
+} from "@slopform/database";
 
 import type { EventVenueInput } from "../../events/events.schemas.js";
 import type {

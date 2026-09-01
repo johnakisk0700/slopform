@@ -58,7 +58,7 @@ test("destructive commands reject missing domain confirmations before connectivi
   assert.equal(push.status, 1);
   assert.match(
     push.stderr,
-    /CONFIRM_PRODUCTION_DATA_PUSH=jointhesix\.argko\.gr/,
+    /CONFIRM_PRODUCTION_DATA_PUSH=slopform\.example\.com/,
   );
   assert.doesNotMatch(push.stderr, /SSH private key/);
 
@@ -76,7 +76,7 @@ test("destructive commands reject missing domain confirmations before connectivi
   assert.equal(seal.status, 1);
   assert.match(
     seal.stderr,
-    /CONFIRM_SEAL_DATA_IMPORT_WINDOW=jointhesix\.argko\.gr/,
+    /CONFIRM_SEAL_DATA_IMPORT_WINDOW=slopform\.example\.com/,
   );
   assert.doesNotMatch(seal.stderr, /SSH private key/);
 });

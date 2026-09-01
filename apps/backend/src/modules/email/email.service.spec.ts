@@ -1,4 +1,4 @@
-import type { AppTransaction, EmailDeliveryRow } from "@join-the-six/database";
+import type { AppTransaction, EmailDeliveryRow } from "@slopform/database";
 import { describe, expect, it, vi } from "vitest";
 
 import type { AuditRepository } from "../../infrastructure/audit/audit.repository.js";

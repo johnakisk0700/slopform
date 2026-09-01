@@ -3,7 +3,7 @@ import {
   referenceRecords,
   type AppTransaction,
   type ReferenceRecordRow,
-} from "@join-the-six/database";
+} from "@slopform/database";
 import { eq } from "drizzle-orm";
 
 import { DatabaseService } from "../../infrastructure/database/database.service.js";

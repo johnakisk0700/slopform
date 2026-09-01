@@ -4,7 +4,7 @@ import {
   type FeedbackNoteRow,
   type MessageOutboxRow,
   type ParticipantRow,
-} from "@join-the-six/database";
+} from "@slopform/database";
 
 import { latestAnswerCorrection } from "../extraction/answer-corrections.js";
 import {

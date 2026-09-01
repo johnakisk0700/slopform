@@ -1,6 +1,6 @@
 import { Injectable, Logger, type OnModuleDestroy } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { createDatabase, type DatabaseClient } from "@join-the-six/database";
+import { createDatabase, type DatabaseClient } from "@slopform/database";
 import { createHash } from "node:crypto";
 
 import type { Environment } from "../../../infrastructure/config/environment.js";

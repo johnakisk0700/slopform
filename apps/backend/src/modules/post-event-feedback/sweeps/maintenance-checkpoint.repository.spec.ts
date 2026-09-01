@@ -1,7 +1,7 @@
 import type {
   AppTransaction,
   FeedbackMaintenanceCheckpointRow,
-} from "@join-the-six/database";
+} from "@slopform/database";
 import { describe, expect, it, vi } from "vitest";
 
 import { FeedbackMaintenanceCheckpointRepository } from "./maintenance-checkpoint.repository.js";

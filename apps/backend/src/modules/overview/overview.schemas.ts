@@ -2,7 +2,7 @@ import {
   EVENT_STATUSES,
   FEEDBACK_CAMPAIGN_STATUSES,
   FEEDBACK_CAMPAIGN_SUMMARY_STATUSES,
-} from "@join-the-six/database";
+} from "@slopform/database";
 import { createZodDto } from "nestjs-zod";
 import { z } from "zod";
 

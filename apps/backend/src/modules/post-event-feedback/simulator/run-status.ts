@@ -4,7 +4,7 @@ import type {
   FeedbackSimOutboundRow,
   MessageOutboxRow,
   ProviderMessageIngressRow,
-} from "@join-the-six/database";
+} from "@slopform/database";
 
 import type { AssistantModel } from "../../assistant/assistant.schemas.js";
 import { assistantModelSchema } from "../../assistant/assistant.schemas.js";

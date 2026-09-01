@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   FEEDBACK_ANSWER_QUESTION_KEYS,
   FEEDBACK_NOTE_TYPES,
-} from "@join-the-six/database";
+} from "@slopform/database";
 import {
   getPostEventFeedbackQuestionSet,
   isPostEventFeedbackAnswerQuestionKey,

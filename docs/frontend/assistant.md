@@ -19,7 +19,7 @@ mechanics:
 
 Chat composition is a deliberate port of `notes_ai` (narrow message column,
 ink-wash user turns, full-width assistant prose, docked composer, compact model
-popover, quiet thinking, memoized Markdown) with Join The Six semantic tokens
+popover, quiet thinking, memoized Markdown) with house semantic tokens (`--jts-*`)
 and native shell/Clerk/HeroUI. It is the one edge-to-edge route inside
 `AdminShell` (no ordinary page card/header). On narrow screens the shell is
 `100dvh` so the reply-height observer never measures a content-sized scroller.

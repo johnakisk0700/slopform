@@ -2,12 +2,13 @@
 
 Status: accepted admin-only foundation, verified 2026-07-25.
 
-`apps/admin` is the private Join The Six administration panel: a React 19 SPA
+`apps/admin` is the private Slopform operator panel: a React 19 SPA
 (Clerk 6, HeroUI v3, Tailwind CSS v4, TanStack Query/Table, React Router 7,
 Vite). It replaced the retired Nuxt/PrimeVue client (historical;
-[ADR 0006](decisions/0006-react-admin-runtime.md)). Public journeys stay on the
-Next.js product at `legacy.example.com`
-([ADR 0004](decisions/0004-admin-only-boundary.md)).
+[ADR 0006](decisions/0006-react-admin-runtime.md)). Historical Join The Six
+public journeys lived on a separate Next.js site
+([ADR 0004](decisions/0004-admin-only-boundary.md)). Public identity:
+[ADR 0014](decisions/0014-public-slopform-identity.md).
 
 Editing rules live in [`apps/admin/AGENTS.md`](../apps/admin/AGENTS.md). This
 page maps ownership, routes, transport and delivery constraints, and points at
@@ -15,23 +16,23 @@ focused contracts.
 
 ## Start here
 
-| Task                               | Location                                      | First reference                                              |
-| ---------------------------------- | --------------------------------------------- | ------------------------------------------------------------ |
-| Add an admin route                 | `apps/admin/src/routes/`                      | `OverviewPage.tsx` + route table in `App.tsx`                |
-| Overview landing                   | `routes/OverviewPage.tsx`                     | [Overview](frontend/overview.md)                             |
-| AI assistant                       | `routes/AssistantPage.tsx`                    | [Assistant](frontend/assistant.md)                           |
-| Feedback inbox                     | `routes/FeedbackInboxPage.tsx`                | [Feedback conversations](frontend/feedback-conversations.md) |
-| Outbound queue                     | `routes/FeedbackOutboxPage.tsx`               | [Outbound queue](frontend/feedback-outbound-queue.md)        |
-| Domain schema / pure helper        | `features/<domain>/`                          | `features/event/eventStatus.ts`                              |
-| Domain UI                          | `components/admin/`                           | `AdminNavigation.tsx`                                        |
-| Shared UI                          | `components/ui/`                              | [Component inventory](frontend/components/README.md)         |
-| HeroUI primitive                   | Owning route or component                     | `@heroui/react`                                              |
-| Call a backend endpoint            | `api/generated/`                              | [API contract](backend/mechanisms/api-contract.md)           |
-| Transport / env policy             | `lib/api.ts`, `lib/env.ts`                    | Env table below                                              |
-| Regenerate API client              | `pnpm api:generate` (root)                    | [API contract](backend/mechanisms/api-contract.md)           |
-| Theme / dark mode / tokens         | `useTheme.ts`, `globals.css`, design-tokens   | [Theming](frontend/theming.md)                               |
-| Routing / redirect / 404           | `App.tsx`                                     | Route table below                                            |
-| Dev proxy / build                  | `vite.config.ts`                              | Delivery constraints below                                   |
+| Task                        | Location                                    | First reference                                              |
+| --------------------------- | ------------------------------------------- | ------------------------------------------------------------ |
+| Add an admin route          | `apps/admin/src/routes/`                    | `OverviewPage.tsx` + route table in `App.tsx`                |
+| Overview landing            | `routes/OverviewPage.tsx`                   | [Overview](frontend/overview.md)                             |
+| AI assistant                | `routes/AssistantPage.tsx`                  | [Assistant](frontend/assistant.md)                           |
+| Feedback inbox              | `routes/FeedbackInboxPage.tsx`              | [Feedback conversations](frontend/feedback-conversations.md) |
+| Outbound queue              | `routes/FeedbackOutboxPage.tsx`             | [Outbound queue](frontend/feedback-outbound-queue.md)        |
+| Domain schema / pure helper | `features/<domain>/`                        | `features/event/eventStatus.ts`                              |
+| Domain UI                   | `components/admin/`                         | `AdminNavigation.tsx`                                        |
+| Shared UI                   | `components/ui/`                            | [Component inventory](frontend/components/README.md)         |
+| HeroUI primitive            | Owning route or component                   | `@heroui/react`                                              |
+| Call a backend endpoint     | `api/generated/`                            | [API contract](backend/mechanisms/api-contract.md)           |
+| Transport / env policy      | `lib/api.ts`, `lib/env.ts`                  | Env table below                                              |
+| Regenerate API client       | `pnpm api:generate` (root)                  | [API contract](backend/mechanisms/api-contract.md)           |
+| Theme / dark mode / tokens  | `useTheme.ts`, `globals.css`, design-tokens | [Theming](frontend/theming.md)                               |
+| Routing / redirect / 404    | `App.tsx`                                   | Route table below                                            |
+| Dev proxy / build           | `vite.config.ts`                            | Delivery constraints below                                   |
 
 Imports are explicit (no filename discovery). Shared components use the `Jts*`
 prefix: one file, named export matching the filename; export types only when a
@@ -39,24 +40,24 @@ consumer needs them.
 
 ## Product and route boundary
 
-| Route                                 | Behavior                                                                                      |
-| ------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `/sign-in/*`                          | Clerk sign-in frame (page `h1`, form placeholder while loading, service-failure state)        |
-| `/`                                   | Protected redirect to `/admin`                                                                |
-| `/admin`                              | Clerk + backend admin check → Overview ([contract](frontend/overview.md))                     |
-| `/admin/assistant`                    | New AI conversation                                                                           |
-| `/admin/assistant/:threadId`          | Durable thread resume (`assistant/:threadId?` in `App.tsx`)                                   |
-| `/admin/events`                       | Stub event list and create                                                                    |
-| `/admin/events/:eventId`              | Edit, status transitions, attendance                                                          |
-| `/admin/participants`                 | List + feedback WhatsApp opt-in                                                               |
-| `/admin/participants/:id`             | Profile, Preferences opt-in, dinner history                                                   |
-| `/admin/feedback`                     | Campaign picker                                                                               |
-| `/admin/feedback/:campaignId`         | Three-pane inbox                                                                              |
-| `/admin/feedback/:campaignId/results` | Campaign answers and notes                                                                    |
-| `/admin/outbound`                     | Outbound queue (not under `feedback/`, so nav `aria-current` stays unambiguous)               |
-| `/admin/docs/feedback`                | Operator map (`FeedbackMechanismPage`)                                                        |
-| `/admin/cookbook`                     | **Dev only** — `import.meta.env.DEV` gallery ([contract](frontend/admin-cookbook.md))         |
-| `*`                                   | Standalone 404 (`ErrorPage.tsx`)                                                              |
+| Route                                 | Behavior                                                                               |
+| ------------------------------------- | -------------------------------------------------------------------------------------- |
+| `/sign-in/*`                          | Clerk sign-in frame (page `h1`, form placeholder while loading, service-failure state) |
+| `/`                                   | Protected redirect to `/admin`                                                         |
+| `/admin`                              | Clerk + backend admin check → Overview ([contract](frontend/overview.md))              |
+| `/admin/assistant`                    | New AI conversation                                                                    |
+| `/admin/assistant/:threadId`          | Durable thread resume (`assistant/:threadId?` in `App.tsx`)                            |
+| `/admin/events`                       | Stub event list and create                                                             |
+| `/admin/events/:eventId`              | Edit, status transitions, attendance                                                   |
+| `/admin/participants`                 | List + feedback WhatsApp opt-in                                                        |
+| `/admin/participants/:id`             | Profile, Preferences opt-in, dinner history                                            |
+| `/admin/feedback`                     | Campaign picker                                                                        |
+| `/admin/feedback/:campaignId`         | Three-pane inbox                                                                       |
+| `/admin/feedback/:campaignId/results` | Campaign answers and notes                                                             |
+| `/admin/outbound`                     | Outbound queue (not under `feedback/`, so nav `aria-current` stays unambiguous)        |
+| `/admin/docs/feedback`                | Operator map (`FeedbackMechanismPage`)                                                 |
+| `/admin/cookbook`                     | **Dev only** — `import.meta.env.DEV` gallery ([contract](frontend/admin-cookbook.md))  |
+| `*`                                   | Standalone 404 (`ErrorPage.tsx`)                                                       |
 
 `noindex, nofollow` is one static meta in `index.html` for the whole SPA. Do not
 add `/join`, `/register`, `/feedback`, marketing or public legal routes here.
@@ -192,9 +193,9 @@ reference consumer.
 Exactly **two** direct-transport exceptions (enforced by
 `apps/admin/test/feedback-inbox.spec.ts`):
 
-| Exception | Why | Contract |
-| --------- | --- | -------- |
-| Assistant | SSE + polling beyond response shape | [assistant.md](frontend/assistant.md) |
+| Exception                                           | Why                                                                 | Contract                                                        |
+| --------------------------------------------------- | ------------------------------------------------------------------- | --------------------------------------------------------------- |
+| Assistant                                           | SSE + polling beyond response shape                                 | [assistant.md](frontend/assistant.md)                           |
 | Dev feedback simulator (`lib/feedbackSimulator.ts`) | Outside production under `TRANSPORT_MODE=simulated`; not in OpenAPI | [feedback-conversations.md](frontend/feedback-conversations.md) |
 
 Not patterns to copy. A third entry means a product endpoint bypassed the client.
@@ -205,11 +206,11 @@ not persist (Overview event dialog is the reference).
 
 ## CSS, tokens, fonts and motion
 
-| Owner                                   | Responsibility                                                         |
-| --------------------------------------- | ---------------------------------------------------------------------- |
-| `packages/design-tokens/src/tokens.css` | `--jts-*`; light + `:root.dark` flip                                   |
-| `apps/admin/src/styles/globals.css`     | HeroUI overrides, `@theme inline`, base layer, sanctioned motifs       |
-| Markup                                  | Semantic utilities only — no raw hex, no default Tailwind palette      |
+| Owner                                   | Responsibility                                                    |
+| --------------------------------------- | ----------------------------------------------------------------- |
+| `packages/design-tokens/src/tokens.css` | `--jts-*`; light + `:root.dark` flip                              |
+| `apps/admin/src/styles/globals.css`     | HeroUI overrides, `@theme inline`, base layer, sanctioned motifs  |
+| Markup                                  | Semantic utilities only — no raw hex, no default Tailwind palette |
 
 `globals.css` header documents the layering. Sanctioned classes: `.skip-link`,
 `.brand-mark`, `.status-dot`. Fonts / wordmark: [ADR 0011](decisions/0011-display-typeface.md).
@@ -250,10 +251,10 @@ Engines: Node `>=24.11 <25`, pnpm `>=10.33 <11`.
 ## Verification
 
 ```bash
-pnpm --filter @join-the-six/admin lint
-pnpm --filter @join-the-six/admin typecheck
-pnpm --filter @join-the-six/admin test
-pnpm --filter @join-the-six/admin build
+pnpm --filter @slopform/admin lint
+pnpm --filter @slopform/admin typecheck
+pnpm --filter @slopform/admin test
+pnpm --filter @slopform/admin build
 ```
 
 `pnpm check` runs those plus `pnpm api:check`. Vitest (node, no DOM) covers

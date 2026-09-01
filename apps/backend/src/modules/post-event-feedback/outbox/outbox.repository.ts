@@ -11,7 +11,7 @@ import {
   type MessageOutboxKind,
   type MessageOutboxRow,
   type MessageOutboxStatus,
-} from "@join-the-six/database";
+} from "@slopform/database";
 import {
   and,
   asc,

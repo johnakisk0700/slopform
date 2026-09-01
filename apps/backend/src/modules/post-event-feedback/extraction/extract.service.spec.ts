@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { Logger } from "@nestjs/common";
-import type { AppTransaction } from "@join-the-six/database";
+import type { AppTransaction } from "@slopform/database";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
@@ -41,7 +41,7 @@ import {
 } from "./model.service.js";
 import { PostEventFeedbackMetrics } from "../metrics.service.js";
 import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "../question-set.js";
-import type { FeedbackAnswerQuestionKey } from "@join-the-six/database";
+import type { FeedbackAnswerQuestionKey } from "@slopform/database";
 import {
   POST_EVENT_FEEDBACK_HANDOFF_REPLY,
   POST_EVENT_FEEDBACK_SAFETY_ASSURANCE,

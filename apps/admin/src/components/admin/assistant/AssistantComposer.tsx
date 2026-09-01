@@ -110,7 +110,7 @@ export function AssistantComposer({
               placeholder={
                 isBlocked
                   ? "Retry the failed turn or start a new conversation"
-                  : "Ask anything about Join The Six operations…"
+                  : "Ask anything about Slopform operations…"
               }
               // Two fixed rows that scroll, exactly like the source composer: a
               // drag handle here would resize a box the page docks against.

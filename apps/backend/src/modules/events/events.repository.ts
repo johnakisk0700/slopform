@@ -9,7 +9,7 @@ import {
   type EventStatus,
   type EventVenuePriceLevel,
   type EventVenueProvider,
-} from "@join-the-six/database";
+} from "@slopform/database";
 import { and, asc, count, eq, sql } from "drizzle-orm";
 
 import { DatabaseService } from "../../infrastructure/database/database.service.js";

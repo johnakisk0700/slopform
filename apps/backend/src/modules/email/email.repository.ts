@@ -10,7 +10,7 @@ import {
   type EmailDeliveryAttemptRow,
   type EmailDeliveryRow,
   type EmailOutboxEventRow,
-} from "@join-the-six/database";
+} from "@slopform/database";
 import { and, asc, desc, eq, inArray, lte, or, sql } from "drizzle-orm";
 
 import { DatabaseService } from "../../infrastructure/database/database.service.js";

@@ -184,11 +184,7 @@ const pairs: [string, string, string][] = [
     "--jts-color-primary-soft",
     "soft accent chip label on its tint",
   ],
-  [
-    "--jts-color-rose",
-    "--jts-color-rose-soft",
-    "gossip tea label on its tint",
-  ],
+  ["--jts-color-rose", "--jts-color-rose-soft", "gossip tea label on its tint"],
 ];
 
 describe("design tokens contrast", () => {

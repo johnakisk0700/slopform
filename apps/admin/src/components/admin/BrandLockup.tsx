@@ -33,13 +33,13 @@ interface BrandLockupProps {
 }
 
 /**
- * Product logo + “Join The Six” wordmark. Use on shell, sign-in, error and auth
+ * Product logo + “Slopform” wordmark. Use on shell, sign-in, error and auth
  * status. The CSS six-dot `.brand-mark` remains a decorative motif only.
  */
 export function BrandLockup({
   surface = "default",
   to,
-  ariaLabel = "Join The Six admin home",
+  ariaLabel = "Slopform admin home",
   className,
   wordmark,
   wordmarkClassName,
@@ -56,7 +56,7 @@ export function BrandLockup({
         wordmarkClassName ?? "text-[1.3rem]",
       )}
     >
-      Join The Six
+      Slopform
     </span>
   );
 

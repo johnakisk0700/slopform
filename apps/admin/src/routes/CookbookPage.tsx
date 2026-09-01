@@ -504,7 +504,7 @@ const TYPE_STEPS: readonly TypeStep[] = [
   {
     token: "--jts-text-3xl",
     utility: "text-[length:var(--jts-text-3xl)]",
-    sample: "Join The Six",
+    sample: "Slopform",
   },
   {
     token: "--jts-text-2xl",
@@ -1761,7 +1761,7 @@ export function CookbookPage() {
 
           <Specimen
             label="Brand lockup"
-            note="SVG mark (five people + empty chair) via currentColor + the Sora wordmark (`font-brand`, the wordmark's own face — never UI copy). The mark takes the theme brand on its slab (`sidebar-active-index` on strong, `primary` on paper); the wordmark inherits the parent tone. With a tagline the mark steps up to 40px and both lines set solid, so the three parts read as one block."
+            note="SVG form/chat mark via currentColor + the Sora wordmark (`font-brand`, the wordmark's own face — never UI copy). The mark takes the theme brand on its slab (`sidebar-active-index` on strong, `primary` on paper); the wordmark inherits the parent tone. With a tagline the mark steps up to 40px and both lines set solid, so the three parts read as one block."
             className="grid gap-4"
           >
             <div className="rounded-md bg-sidebar px-4 py-3 text-sidebar-fg">

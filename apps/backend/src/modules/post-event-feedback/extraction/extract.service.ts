@@ -7,7 +7,7 @@ import type {
   FeedbackNoteType,
   MessageOutboxRow,
   MessageOutboxStatus,
-} from "@join-the-six/database";
+} from "@slopform/database";
 
 import { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
 import { isCorrectedAnswer } from "./answer-corrections.js";

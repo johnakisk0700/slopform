@@ -1,4 +1,4 @@
-import { messageOutbox, type MessageOutboxRow } from "@join-the-six/database";
+import { messageOutbox, type MessageOutboxRow } from "@slopform/database";
 import type { SQL } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { PgDialect } from "drizzle-orm/pg-core";
