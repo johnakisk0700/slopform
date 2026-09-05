@@ -7,7 +7,7 @@ import { FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH } from "./post-event-feed
 
 /**
  * Versioned feedback queue contracts. Payloads are identifier-only: processors
- * reload authoritative PostgreSQL/MongoDB state, so jobs never carry
+ * reload authoritative PostgreSQL state, so jobs never carry
  * participant text, phone numbers or provider credentials. V1 names remain for
  * rolling-deploy drain; steady state is materialize V1 plus the three V2 names.
  */
@@ -155,7 +155,7 @@ export function createFeedbackMaterializeJobId(ingressId: string): string {
  * finished thought.
  *
  * It is a rolling debounce. Every participant append atomically increments the
- * MongoDB work revision and replaces `nextActionAt` with this delay from the
+ * conversation work revision and replaces `nextActionAt` with this delay from the
  * newest observed message. Old BullMQ wake-ups are not removed; their revision
  * simply fails the begin compare-and-set. This avoids remove/re-add races and
  * buys one call after a slow typist actually stops, not one per pause.

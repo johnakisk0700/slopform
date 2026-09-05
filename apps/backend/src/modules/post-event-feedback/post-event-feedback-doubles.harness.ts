@@ -16,7 +16,7 @@ import {
   FeedbackConversationTransitionError,
 } from "./post-event-feedback-conversation.repository.js";
 import {
-  FEEDBACK_CONVERSATION_MAX_DOCUMENT_BYTES,
+  FEEDBACK_CONVERSATION_MAX_MESSAGES_BYTES,
   FEEDBACK_CONVERSATION_MAX_MESSAGES,
   accumulateFeedbackExtractionUsage,
   feedbackConversationDocumentSchema,
@@ -46,7 +46,8 @@ import {
 } from "./attention.js";
 
 /**
- * The faked seams of the post-event feedback loop: the two stores, the
+ * The faked seams of the post-event feedback loop: the conversation row and
+ * relational tables, the
  * participant/event/audit reads they hang off, the transport and the operator
  * alert. Everything else in the loop runs for real — see
  * `post-event-feedback-loop.harness.ts`, which is the file scenario authors
@@ -72,6 +73,14 @@ const GOAL_STATUS_RANK: Record<FeedbackConversationGoal["status"], number> = {
 export const FEEDBACK_TEST_DEFAULT_JOB_ATTEMPTS = 5;
 
 const TRANSACTION = { fake: "transaction" } as unknown as AppTransaction;
+export const FAKE_FEEDBACK_TRANSACTION: AppTransaction = TRANSACTION;
+
+function leadingInput<T>(
+  transactionOrInput: AppTransaction | T,
+  maybeInput?: T,
+): T {
+  return (maybeInput ?? transactionOrInput) as T;
+}
 
 /**
  * Serialises work on a promise tail exactly as the existing module specs do, so
@@ -1274,7 +1283,7 @@ export interface FakeConversationAppend {
 }
 
 /**
- * The MongoDB side: one schema-v2 aggregate per conversation, validated against
+ * In-memory conversation store used by workflow specs. Validated against
  * the real document schema after every mutation so contiguous `seq`, unique
  * provenance and the cursor bound cannot silently drift.
  */
@@ -1297,13 +1306,25 @@ export class FakeFeedbackConversations {
     return conversation;
   }
 
-  async createFromLaunch(input: {
-    campaignId: string;
-    respondentParticipantId: string;
-    phoneAtLaunch: string;
-    launchedAt: Date;
-    goals?: readonly FeedbackConversationGoal[];
-  }): Promise<FakeConversationCreation> {
+  async createFromLaunch(
+    transactionOrInput:
+      | AppTransaction
+      | {
+          campaignId: string;
+          respondentParticipantId: string;
+          phoneAtLaunch: string;
+          launchedAt: Date;
+          goals?: readonly FeedbackConversationGoal[];
+        },
+    maybeInput?: {
+      campaignId: string;
+      respondentParticipantId: string;
+      phoneAtLaunch: string;
+      launchedAt: Date;
+      goals?: readonly FeedbackConversationGoal[];
+    },
+  ): Promise<FakeConversationCreation> {
+    const input = leadingInput(transactionOrInput, maybeInput);
     const existing = [...this.documents.values()].find(
       (candidate) =>
         candidate.campaignId === input.campaignId &&
@@ -1349,20 +1370,38 @@ export class FakeFeedbackConversations {
 
   async findById(
     id: string,
+    _transaction?: AppTransaction,
   ): Promise<FeedbackConversationDocument | undefined> {
     const conversation = this.documents.get(id);
     return conversation ? structuredClone(conversation) : undefined;
   }
 
-  async markWorkDue(input: {
-    conversationId: string;
-    nextActionAt: Date;
-    at: Date;
-  }): Promise<{
+  async findByIdForUpdate(
+    _transaction: AppTransaction,
+    id: string,
+  ): Promise<FeedbackConversationDocument | undefined> {
+    return this.findById(id);
+  }
+
+  async markWorkDue(
+    transactionOrInput:
+      | AppTransaction
+      | {
+          conversationId: string;
+          nextActionAt: Date;
+          at: Date;
+        },
+    maybeInput?: {
+      conversationId: string;
+      nextActionAt: Date;
+      at: Date;
+    },
+  ): Promise<{
     changed: boolean;
     conversation: FeedbackConversationDocument;
     work: FeedbackConversationWork;
   }> {
+    const input = leadingInput(transactionOrInput, maybeInput);
     const conversation = this.require(input.conversationId);
     const current = resolveFeedbackConversationWork(conversation.work);
     conversation.work = {
@@ -1379,79 +1418,45 @@ export class FakeFeedbackConversations {
     };
   }
 
-  async seedMissingWork(input: {
-    dueAt: Date;
-    limit?: number;
-  }): Promise<number> {
-    const candidates = [...this.documents.values()]
-      .filter(
-        (conversation) =>
-          conversation.lifecycle.state === "open" &&
-          conversation.control.mode === "bot" &&
-          !conversation.awaitingHuman &&
-          conversation.work === undefined,
-      )
-      .sort((left, right) => left._id.localeCompare(right._id))
-      .slice(0, input.limit ?? 100);
-    for (const conversation of candidates) {
+  async markCampaignWorkDue(
+    _transaction: AppTransaction,
+    input: {
+      campaignId: string;
+      nextActionAt: Date;
+      at: Date;
+    },
+  ): Promise<number> {
+    let count = 0;
+    for (const conversation of this.documents.values()) {
+      if (
+        conversation.campaignId !== input.campaignId ||
+        conversation.lifecycle.state !== "open"
+      ) {
+        continue;
+      }
+      const current = resolveFeedbackConversationWork(conversation.work);
       conversation.work = {
-        revision: 1,
-        nextActionAt: input.dueAt,
-        executionEpoch: 0,
+        ...current,
+        revision: current.revision + 1,
+        nextActionAt: input.nextActionAt,
+        campaignResumeGeneration: (current.campaignResumeGeneration ?? 0) + 1,
       };
-      this.revalidate(conversation);
-    }
-    return candidates.length;
-  }
-
-  async repairLegacyAwaitingHuman(input: {
-    at: Date;
-    limit?: number;
-  }): Promise<number> {
-    const repairableKinds = new Set([
-      "handoff",
-      "unfinished_questionnaire",
-      "hostile_to_bot",
-      "undelivered_message",
-    ]);
-    const candidates = [...this.documents.values()]
-      .filter(
-        (conversation) =>
-          conversation.lifecycle.state === "open" &&
-          conversation.control.mode === "bot" &&
-          conversation.control.source !== "staff_action" &&
-          !conversation.awaitingHuman &&
-          !conversation.messages.some(
-            (message) =>
-              message.actor === "participant" &&
-              message.seq > conversation.extraction.cursorSeq,
-          ) &&
-          (conversation.attentionReasons.some(
-            (reason) =>
-              reason.resolvedAt === null && repairableKinds.has(reason.kind),
-          ) ||
-            conversation.messages.some(
-              (message) =>
-                message.attention?.recommendedAction ===
-                "urgent_human_follow_up",
-            )),
-      )
-      .sort((left, right) => left._id.localeCompare(right._id))
-      .slice(0, input.limit ?? 100);
-    for (const conversation of candidates) {
-      conversation.awaitingHuman = true;
       this.touch(conversation, input.at);
       this.revalidate(conversation);
+      count += 1;
     }
-    return candidates.length;
+    return count;
   }
 
-  async listDueWork(input: {
-    dueAt: Date;
-    limit?: number;
-    campaignId?: string;
-    after?: { nextActionAt: Date; conversationId: string };
-  }): Promise<FeedbackConversationDocument[]> {
+  async listDueWork(
+    input: {
+      dueAt: Date;
+      limit?: number;
+      campaignId?: string;
+      after?: { nextActionAt: Date; conversationId: string };
+    },
+    _transaction?: AppTransaction,
+  ): Promise<FeedbackConversationDocument[]> {
     return [...this.documents.values()]
       .filter((conversation) => {
         const nextActionAt = conversation.work?.nextActionAt;
@@ -1475,50 +1480,32 @@ export class FakeFeedbackConversations {
       .map((conversation) => structuredClone(conversation));
   }
 
-  async beginWorkExecution(input: {
-    conversationId: string;
-    revision: number;
-    epoch: number;
-    at: Date;
-  }): Promise<{
+  async settleWorkExecution(
+    transactionOrInput:
+      | AppTransaction
+      | {
+          conversationId: string;
+          revision: number;
+          epoch: number;
+          nextActionAt: Date | null;
+          at: Date;
+        },
+    maybeInput?: {
+      conversationId: string;
+      revision: number;
+      epoch: number;
+      nextActionAt: Date | null;
+      at: Date;
+    },
+  ): Promise<{
     changed: boolean;
     conversation: FeedbackConversationDocument;
     work: FeedbackConversationWork;
   }> {
+    const input = leadingInput(transactionOrInput, maybeInput);
     const conversation = this.require(input.conversationId);
     const current = resolveFeedbackConversationWork(conversation.work);
-    const changed =
-      current.nextActionAt !== null &&
-      current.nextActionAt <= input.at &&
-      current.revision === input.revision &&
-      current.executionEpoch < input.epoch;
-    if (changed) {
-      conversation.work = { ...current, executionEpoch: input.epoch };
-      this.revalidate(conversation);
-    }
-    return {
-      changed,
-      conversation: structuredClone(conversation),
-      work: structuredClone(resolveFeedbackConversationWork(conversation.work)),
-    };
-  }
-
-  async settleWorkExecution(input: {
-    conversationId: string;
-    revision: number;
-    epoch: number;
-    nextActionAt: Date | null;
-    at: Date;
-  }): Promise<{
-    changed: boolean;
-    conversation: FeedbackConversationDocument;
-    work: FeedbackConversationWork;
-  }> {
-    const conversation = this.require(input.conversationId);
-    const current = resolveFeedbackConversationWork(conversation.work);
-    const changed =
-      current.executionEpoch === input.epoch &&
-      current.revision >= input.revision;
+    const changed = current.revision >= input.revision;
     if (changed && current.revision === input.revision) {
       conversation.work = {
         ...current,
@@ -1540,6 +1527,7 @@ export class FakeFeedbackConversations {
       conversationId: string;
       outboxId: string;
     }[],
+    _transaction?: AppTransaction,
   ): Promise<string[]> {
     return candidates.flatMap((candidate) => {
       const conversation = this.documents.get(candidate.conversationId);
@@ -1552,6 +1540,7 @@ export class FakeFeedbackConversations {
 
   async listStopTerminalOutboxIdsForCampaign(
     campaignId: string,
+    _transaction?: AppTransaction,
   ): Promise<string[]> {
     return [...this.documents.values()].flatMap((conversation) =>
       conversation.campaignId === campaignId &&
@@ -1566,6 +1555,7 @@ export class FakeFeedbackConversations {
   /** D9: the partial unique index only ever matches an **open** conversation. */
   async findOpenByPhone(
     phoneAtLaunch: string,
+    _transaction?: AppTransaction,
   ): Promise<FeedbackConversationDocument | undefined> {
     const conversation = [...this.documents.values()].find(
       (candidate) =>
@@ -1577,6 +1567,7 @@ export class FakeFeedbackConversations {
 
   async findLatestClosedByPhone(
     phoneAtLaunch: string,
+    _transaction?: AppTransaction,
   ): Promise<FeedbackConversationDocument | undefined> {
     // Newest first, mirroring the real `sort: { updatedAt: -1 }`.
     const conversation = [...this.documents.values()]
@@ -1591,22 +1582,39 @@ export class FakeFeedbackConversations {
 
   async listForCampaign(
     campaignId: string,
+    _limit?: number,
+    _transaction?: AppTransaction,
   ): Promise<FeedbackConversationDocument[]> {
     return [...this.documents.values()]
       .filter((candidate) => candidate.campaignId === campaignId)
       .map((candidate) => structuredClone(candidate));
   }
 
-  async appendMessage(input: {
-    conversationId: string;
-    actor: FeedbackConversationMessage["actor"];
-    text: string;
-    at: Date;
-    id?: string;
-    providerMessageId?: string | null;
-    ingressId?: string | null;
-    outboxId?: string | null;
-  }): Promise<FakeConversationAppend> {
+  async appendMessage(
+    transactionOrInput:
+      | AppTransaction
+      | {
+          conversationId: string;
+          actor: FeedbackConversationMessage["actor"];
+          text: string;
+          at: Date;
+          id?: string;
+          providerMessageId?: string | null;
+          ingressId?: string | null;
+          outboxId?: string | null;
+        },
+    maybeInput?: {
+      conversationId: string;
+      actor: FeedbackConversationMessage["actor"];
+      text: string;
+      at: Date;
+      id?: string;
+      providerMessageId?: string | null;
+      ingressId?: string | null;
+      outboxId?: string | null;
+    },
+  ): Promise<FakeConversationAppend> {
+    const input = leadingInput(transactionOrInput, maybeInput);
     const conversation = this.require(input.conversationId);
     const keys = [input.id, input.ingressId, input.outboxId].filter(
       (value): value is string => Boolean(value),
@@ -1678,14 +1686,27 @@ export class FakeFeedbackConversations {
     };
   }
 
-  async mergeMessageAttention(input: {
-    conversationId: string;
-    messageId: string;
-    categories: readonly PostEventFeedbackSafetyCategory[];
-    recommendedAction: PostEventFeedbackRecommendedAction;
-    confidence: number;
-    at: Date;
-  }): Promise<FakeConversationTransition> {
+  async mergeMessageAttention(
+    transactionOrInput:
+      | AppTransaction
+      | {
+          conversationId: string;
+          messageId: string;
+          categories: readonly PostEventFeedbackSafetyCategory[];
+          recommendedAction: PostEventFeedbackRecommendedAction;
+          confidence: number;
+          at: Date;
+        },
+    maybeInput?: {
+      conversationId: string;
+      messageId: string;
+      categories: readonly PostEventFeedbackSafetyCategory[];
+      recommendedAction: PostEventFeedbackRecommendedAction;
+      confidence: number;
+      at: Date;
+    },
+  ): Promise<FakeConversationTransition> {
+    const input = leadingInput(transactionOrInput, maybeInput);
     const conversation = this.require(input.conversationId);
     const message = conversation.messages.find(
       (candidate) => candidate.id === input.messageId,
@@ -1723,11 +1744,21 @@ export class FakeFeedbackConversations {
     return { changed: true, conversation: structuredClone(conversation) };
   }
 
-  async takeOver(input: {
-    conversationId: string;
-    source: "staff_action" | "external_outbound";
-    at: Date;
-  }): Promise<FakeConversationTransition> {
+  async takeOver(
+    transactionOrInput:
+      | AppTransaction
+      | {
+          conversationId: string;
+          source: "staff_action" | "external_outbound";
+          at: Date;
+        },
+    maybeInput?: {
+      conversationId: string;
+      source: "staff_action" | "external_outbound";
+      at: Date;
+    },
+  ): Promise<FakeConversationTransition> {
+    const input = leadingInput(transactionOrInput, maybeInput);
     const conversation = this.require(input.conversationId);
     if (
       conversation.control.mode !== "bot" ||
@@ -1747,10 +1778,19 @@ export class FakeFeedbackConversations {
   }
 
   /** The bot steps back and consumes any due wake-up without changing revision. */
-  async markAwaitingHuman(input: {
-    conversationId: string;
-    at: Date;
-  }): Promise<FakeConversationTransition> {
+  async markAwaitingHuman(
+    transactionOrInput:
+      | AppTransaction
+      | {
+          conversationId: string;
+          at: Date;
+        },
+    maybeInput?: {
+      conversationId: string;
+      at: Date;
+    },
+  ): Promise<FakeConversationTransition> {
+    const input = leadingInput(transactionOrInput, maybeInput);
     const conversation = this.require(input.conversationId);
     if (conversation.lifecycle.state !== "open") {
       return { changed: false, conversation: structuredClone(conversation) };
@@ -1774,11 +1814,21 @@ export class FakeFeedbackConversations {
    * incremented unconditionally would let the suite pass over a double count
    * production would suffer.
    */
-  async recordHostileTurn(input: {
-    conversationId: string;
-    at: Date;
-    expectedCount: number;
-  }): Promise<FakeConversationTransition> {
+  async recordHostileTurn(
+    transactionOrInput:
+      | AppTransaction
+      | {
+          conversationId: string;
+          at: Date;
+          expectedCount: number;
+        },
+    maybeInput?: {
+      conversationId: string;
+      at: Date;
+      expectedCount: number;
+    },
+  ): Promise<FakeConversationTransition> {
+    const input = leadingInput(transactionOrInput, maybeInput);
     const conversation = this.require(input.conversationId);
     if (conversation.hostileTurns !== input.expectedCount) {
       return { changed: false, conversation: structuredClone(conversation) };
@@ -1789,10 +1839,19 @@ export class FakeFeedbackConversations {
     return { changed: true, conversation: structuredClone(conversation) };
   }
 
-  async markExtractionFallbackAckSent(input: {
-    conversationId: string;
-    at: Date;
-  }): Promise<FakeConversationTransition> {
+  async markExtractionFallbackAckSent(
+    transactionOrInput:
+      | AppTransaction
+      | {
+          conversationId: string;
+          at: Date;
+        },
+    maybeInput?: {
+      conversationId: string;
+      at: Date;
+    },
+  ): Promise<FakeConversationTransition> {
+    const input = leadingInput(transactionOrInput, maybeInput);
     const conversation = this.require(input.conversationId);
     if (conversation.extractionFallbackAckSent) {
       return { changed: false, conversation: structuredClone(conversation) };
@@ -1803,10 +1862,19 @@ export class FakeFeedbackConversations {
     return { changed: true, conversation: structuredClone(conversation) };
   }
 
-  async resumeBot(input: {
-    conversationId: string;
-    at: Date;
-  }): Promise<FakeConversationTransition> {
+  async resumeBot(
+    transactionOrInput:
+      | AppTransaction
+      | {
+          conversationId: string;
+          at: Date;
+        },
+    maybeInput?: {
+      conversationId: string;
+      at: Date;
+    },
+  ): Promise<FakeConversationTransition> {
+    const input = leadingInput(transactionOrInput, maybeInput);
     const conversation = this.require(input.conversationId);
     if (conversation.lifecycle.state === "closed") {
       throw new FeedbackConversationTransitionError(
@@ -1850,12 +1918,25 @@ export class FakeFeedbackConversations {
    * the repository does: an unresolved reason survives a close and is the
    * operator's to dismiss.
    */
-  async close(input: {
-    conversationId: string;
-    reason: FeedbackConversationLifecycleReason;
-    at: Date;
-    terminalOutboxId?: string | null;
-  }): Promise<FakeConversationTransition> {
+  async close(
+    transactionOrInput:
+      | AppTransaction
+      | {
+          conversationId: string;
+          reason: FeedbackConversationLifecycleReason;
+          at: Date;
+          terminalOutboxId?: string | null;
+          staffClose?: FeedbackConversationDocument["staffClose"];
+        },
+    maybeInput?: {
+      conversationId: string;
+      reason: FeedbackConversationLifecycleReason;
+      at: Date;
+      terminalOutboxId?: string | null;
+      staffClose?: FeedbackConversationDocument["staffClose"];
+    },
+  ): Promise<FakeConversationTransition> {
+    const input = leadingInput(transactionOrInput, maybeInput);
     const conversation = this.require(input.conversationId);
     const allowed =
       input.reason === "stopped"
@@ -1870,6 +1951,9 @@ export class FakeFeedbackConversations {
       closedAt: input.at,
       terminalOutboxId: input.terminalOutboxId ?? null,
     };
+    if (input.staffClose) {
+      conversation.staffClose = input.staffClose;
+    }
     if (
       conversation.needsAttention &&
       !conversation.attentionReasons.some(
@@ -1883,14 +1967,27 @@ export class FakeFeedbackConversations {
     return { changed: true, conversation: structuredClone(conversation) };
   }
 
-  async advanceCursor(input: {
-    conversationId: string;
-    toSeq: number;
-    at: Date;
-    model?: string | null;
-    serviceTier?: string | null;
-    usage?: FeedbackConversationExtractionUsage;
-  }): Promise<FakeConversationTransition> {
+  async advanceCursor(
+    transactionOrInput:
+      | AppTransaction
+      | {
+          conversationId: string;
+          toSeq: number;
+          at: Date;
+          model?: string | null;
+          serviceTier?: string | null;
+          usage?: FeedbackConversationExtractionUsage;
+        },
+    maybeInput?: {
+      conversationId: string;
+      toSeq: number;
+      at: Date;
+      model?: string | null;
+      serviceTier?: string | null;
+      usage?: FeedbackConversationExtractionUsage;
+    },
+  ): Promise<FakeConversationTransition> {
+    const input = leadingInput(transactionOrInput, maybeInput);
     const conversation = this.require(input.conversationId);
     if (input.toSeq > conversation.messages.length) {
       throw new FeedbackConversationTransitionError(
@@ -1926,18 +2023,35 @@ export class FakeFeedbackConversations {
     return { changed: true, conversation: structuredClone(conversation) };
   }
 
-  async advanceCursorAndClose(input: {
-    conversationId: string;
-    toSeq: number;
-    reason: "completed" | "declined";
-    terminalOutboxId: string | null;
-    at: Date;
-    model: string;
-    serviceTier: string | null;
-    usage: FeedbackConversationExtractionUsage;
-    workRevision?: number;
-    executionEpoch?: number;
-  }): Promise<FakeConversationTransition> {
+  async advanceCursorAndClose(
+    transactionOrInput:
+      | AppTransaction
+      | {
+          conversationId: string;
+          toSeq: number;
+          reason: "completed" | "declined";
+          terminalOutboxId: string | null;
+          at: Date;
+          model: string;
+          serviceTier: string | null;
+          usage: FeedbackConversationExtractionUsage;
+          workRevision?: number;
+          executionEpoch?: number;
+        },
+    maybeInput?: {
+      conversationId: string;
+      toSeq: number;
+      reason: "completed" | "declined";
+      terminalOutboxId: string | null;
+      at: Date;
+      model: string;
+      serviceTier: string | null;
+      usage: FeedbackConversationExtractionUsage;
+      workRevision?: number;
+      executionEpoch?: number;
+    },
+  ): Promise<FakeConversationTransition> {
+    const input = leadingInput(transactionOrInput, maybeInput);
     const conversation = this.require(input.conversationId);
     if (input.toSeq > conversation.messages.length) {
       throw new FeedbackConversationTransitionError(
@@ -1972,16 +2086,31 @@ export class FakeFeedbackConversations {
     return { changed: true, conversation: structuredClone(conversation) };
   }
 
-  async advanceCursorAndMarkAwaitingHuman(input: {
-    conversationId: string;
-    toSeq: number;
-    at: Date;
-    model: string;
-    serviceTier: string | null;
-    usage: FeedbackConversationExtractionUsage;
-    workRevision?: number;
-    executionEpoch?: number;
-  }): Promise<FakeConversationTransition> {
+  async advanceCursorAndMarkAwaitingHuman(
+    transactionOrInput:
+      | AppTransaction
+      | {
+          conversationId: string;
+          toSeq: number;
+          at: Date;
+          model: string;
+          serviceTier: string | null;
+          usage: FeedbackConversationExtractionUsage;
+          workRevision?: number;
+          executionEpoch?: number;
+        },
+    maybeInput?: {
+      conversationId: string;
+      toSeq: number;
+      at: Date;
+      model: string;
+      serviceTier: string | null;
+      usage: FeedbackConversationExtractionUsage;
+      workRevision?: number;
+      executionEpoch?: number;
+    },
+  ): Promise<FakeConversationTransition> {
+    const input = leadingInput(transactionOrInput, maybeInput);
     const conversation = this.require(input.conversationId);
     if (input.toSeq > conversation.messages.length) {
       throw new FeedbackConversationTransitionError(
@@ -2022,10 +2151,19 @@ export class FakeFeedbackConversations {
   }
 
   /** Keeps the first park's start time and counts every run, as the pipeline does. */
-  async parkExtraction(input: {
-    conversationId: string;
-    at: Date;
-  }): Promise<FakeConversationTransition> {
+  async parkExtraction(
+    transactionOrInput:
+      | AppTransaction
+      | {
+          conversationId: string;
+          at: Date;
+        },
+    maybeInput?: {
+      conversationId: string;
+      at: Date;
+    },
+  ): Promise<FakeConversationTransition> {
+    const input = leadingInput(transactionOrInput, maybeInput);
     const conversation = this.require(input.conversationId);
     conversation.extraction = {
       ...conversation.extraction,
@@ -2037,10 +2175,19 @@ export class FakeFeedbackConversations {
     return { changed: true, conversation: structuredClone(conversation) };
   }
 
-  async markExtractionParkedNoticeSent(input: {
-    conversationId: string;
-    at: Date;
-  }): Promise<FakeConversationTransition> {
+  async markExtractionParkedNoticeSent(
+    transactionOrInput:
+      | AppTransaction
+      | {
+          conversationId: string;
+          at: Date;
+        },
+    maybeInput?: {
+      conversationId: string;
+      at: Date;
+    },
+  ): Promise<FakeConversationTransition> {
+    const input = leadingInput(transactionOrInput, maybeInput);
     const conversation = this.require(input.conversationId);
     if (conversation.extraction.parkedNoticeSentAt !== null) {
       return { changed: false, conversation: structuredClone(conversation) };
@@ -2058,14 +2205,27 @@ export class FakeFeedbackConversations {
    * Rank-up along `pending < asked < skipped < answered`, plus the WP-9δ
    * `skipped → asked` reopen. Mirrors `canTransitionGoalStatus`.
    */
-  async updateGoalStatuses(input: {
-    conversationId: string;
-    statuses: readonly {
-      key: FeedbackConversationGoal["key"];
-      status: FeedbackConversationGoal["status"];
-    }[];
-    at: Date;
-  }): Promise<FakeConversationTransition> {
+  async updateGoalStatuses(
+    transactionOrInput:
+      | AppTransaction
+      | {
+          conversationId: string;
+          statuses: readonly {
+            key: FeedbackConversationGoal["key"];
+            status: FeedbackConversationGoal["status"];
+          }[];
+          at: Date;
+        },
+    maybeInput?: {
+      conversationId: string;
+      statuses: readonly {
+        key: FeedbackConversationGoal["key"];
+        status: FeedbackConversationGoal["status"];
+      }[];
+      at: Date;
+    },
+  ): Promise<FakeConversationTransition> {
+    const input = leadingInput(transactionOrInput, maybeInput);
     const conversation = this.require(input.conversationId);
     let changed = false;
     for (const entry of input.statuses) {
@@ -2089,15 +2249,26 @@ export class FakeFeedbackConversations {
   }
 
   /**
-   * Idempotent on kind + message, the way the Mongo guard filter is: a retried
-   * job must not leave an operator three identical rows to dismiss.
+   * Idempotent on kind + message: a retried job must not leave an operator
+   * three identical rows to dismiss.
    */
-  async raiseAttention(input: {
-    conversationId: string;
-    kind: PostEventFeedbackAttentionReason;
-    messageId: string | null;
-    at: Date;
-  }): Promise<FakeConversationTransition> {
+  async raiseAttention(
+    transactionOrInput:
+      | AppTransaction
+      | {
+          conversationId: string;
+          kind: PostEventFeedbackAttentionReason;
+          messageId: string | null;
+          at: Date;
+        },
+    maybeInput?: {
+      conversationId: string;
+      kind: PostEventFeedbackAttentionReason;
+      messageId: string | null;
+      at: Date;
+    },
+  ): Promise<FakeConversationTransition> {
+    const input = leadingInput(transactionOrInput, maybeInput);
     const conversation = this.require(input.conversationId);
     const standing = conversation.attentionReasons.some(
       (reason) =>
@@ -2122,11 +2293,21 @@ export class FakeFeedbackConversations {
     return { changed: true, conversation: structuredClone(conversation) };
   }
 
-  async markReminded(input: {
-    conversationId: string;
-    at: Date;
-    expectedCount: number;
-  }): Promise<FakeConversationTransition> {
+  async markReminded(
+    transactionOrInput:
+      | AppTransaction
+      | {
+          conversationId: string;
+          at: Date;
+          expectedCount: number;
+        },
+    maybeInput?: {
+      conversationId: string;
+      at: Date;
+      expectedCount: number;
+    },
+  ): Promise<FakeConversationTransition> {
+    const input = leadingInput(transactionOrInput, maybeInput);
     const conversation = this.require(input.conversationId);
     if (
       conversation.lifecycle.state !== "open" ||
@@ -2136,6 +2317,44 @@ export class FakeFeedbackConversations {
     }
     conversation.remindedAt = input.at;
     conversation.reminderCount = input.expectedCount + 1;
+    this.touch(conversation, input.at);
+    this.revalidate(conversation);
+    return { changed: true, conversation: structuredClone(conversation) };
+  }
+
+  async resolveAttentionReason(
+    transactionOrInput:
+      | AppTransaction
+      | {
+          conversationId: string;
+          reasonId: string;
+          resolvedBy: string;
+          at: Date;
+        },
+    maybeInput?: {
+      conversationId: string;
+      reasonId: string;
+      resolvedBy: string;
+      at: Date;
+    },
+  ): Promise<FakeConversationTransition> {
+    const input = leadingInput(transactionOrInput, maybeInput);
+    const conversation = this.require(input.conversationId);
+    const reason = conversation.attentionReasons.find(
+      (candidate) => candidate.id === input.reasonId,
+    );
+    if (!reason || reason.resolvedAt !== null) {
+      return { changed: false, conversation: structuredClone(conversation) };
+    }
+    reason.resolvedAt = input.at;
+    reason.resolvedBy = input.resolvedBy;
+    if (
+      !conversation.attentionReasons.some(
+        (candidate) => candidate.resolvedAt === null,
+      )
+    ) {
+      conversation.needsAttention = false;
+    }
     this.touch(conversation, input.at);
     this.revalidate(conversation);
     return { changed: true, conversation: structuredClone(conversation) };
@@ -2183,12 +2402,9 @@ export class FakeFeedbackConversations {
     if (conversation.messages.length >= FEEDBACK_CONVERSATION_MAX_MESSAGES) {
       return true;
     }
-    // The real repository measures BSON; a UTF-8 byte count of the same content
-    // is the same order of magnitude and needs no BSON dependency here.
     return (
-      Buffer.byteLength(JSON.stringify(conversation)) +
-        Buffer.byteLength(JSON.stringify(message)) >
-      FEEDBACK_CONVERSATION_MAX_DOCUMENT_BYTES
+      Buffer.byteLength(JSON.stringify([...conversation.messages, message])) >
+      FEEDBACK_CONVERSATION_MAX_MESSAGES_BYTES
     );
   }
 }

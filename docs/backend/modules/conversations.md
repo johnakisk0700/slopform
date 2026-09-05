@@ -1,7 +1,9 @@
 # Conversation threads
 
-Status: schema v1 for the admin Assistant. Schema-v2 post-event feedback
-documents share the same MongoDB collection; ownership and shape live in the
+Status: schema v1 for the admin Assistant. Campaign feedback conversations are
+PostgreSQL rows
+([ADR 0015](../../decisions/0015-postgresql-feedback-conversations.md));
+their in-memory aggregate still lives in the
 [post-event feedback module](post-event-feedback.md#schema-v2--post-event-feedback-conversation).
 
 ## Purpose and authority
@@ -14,24 +16,24 @@ fencing, stale-job recovery, queue correlation). Projection content columns are
 compatibility/backfill only — not the API or model-history read source.
 
 This module also keeps the shared collection name
-(`CONVERSATION_THREAD_COLLECTION`) and shared persistence error types both
-aggregates use.
+(`CONVERSATION_THREAD_COLLECTION`) and shared persistence error types. Feedback
+runtime no longer reads that collection.
 
-## Schema versions coexist
+## Schema versions no longer share a runtime store
 
-Both aggregates share `conversation_threads`, discriminated by `schemaVersion`
-**and** `purpose`. Readers never touch each other's documents: v1 queries pin
-`admin_assistant`; v2 filters `schemaVersion: 2, purpose: "post_event_feedback"`.
-No v1 document is reinterpreted, migrated or rewritten here.
+Both shapes historically shared `conversation_threads`, discriminated by
+`schemaVersion` **and** `purpose`. Runtime readers are now split:
 
-| Version | Purpose               | Owning repository                | Shape                                           |
-| ------- | --------------------- | -------------------------------- | ----------------------------------------------- |
-| 1       | `admin_assistant`     | `ConversationThreadRepository`   | Turns, goals, `state`, `humanTakeover`          |
-| 2       | `post_event_feedback` | `FeedbackConversationRepository` | Messages, lifecycle × control (feedback module) |
+| Version | Purpose               | Authority                                     | Shape                                           |
+| ------- | --------------------- | --------------------------------------------- | ----------------------------------------------- |
+| 1       | `admin_assistant`     | `ConversationThreadRepository` / Mongo        | Turns, goals, `state`, `humanTakeover`          |
+| 2       | `post_event_feedback` | `FeedbackConversationRepository` / PostgreSQL | Messages, lifecycle × control (feedback module) |
 
-Schema v1 still validates a `post_event_feedback` purpose from before v2 existed.
-Nothing writes it; feedback conversations are created only as schema-v2
-documents. Removing that branch is a versioned change, not a silent edit.
+Leftover schema-v2 Mongo documents may remain until
+`pnpm import:feedback-conversations`. They are not a runtime fallback. Schema
+v1 still validates a `post_event_feedback` purpose from before v2 existed.
+Nothing writes it. Removing that branch is a versioned change, not a silent
+edit.
 
 ## Schema v1 — assistant aggregate
 
@@ -95,4 +97,5 @@ sequence allocation. No live MongoDB required.
   [Assistant module](assistant.md),
   [post-event feedback](post-event-feedback.md)
 - [ADR 0007](../../decisions/0007-mongodb-conversation-authority.md),
-  [ADR 0008](../../decisions/0008-post-event-feedback-conversations.md)
+  [ADR 0008](../../decisions/0008-post-event-feedback-conversations.md),
+  [ADR 0015](../../decisions/0015-postgresql-feedback-conversations.md)

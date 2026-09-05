@@ -28,42 +28,15 @@ import type {
 } from "./extraction.schemas.js";
 
 /**
- * The whole domain rule set for an extraction run, as one pure function.
- *
- * Nothing here reads a store, calls a provider or writes anything. That is the
- * point: the model's proposal is data until these rules accept it, and the same
- * rules can be replayed offline against the WP0 fixtures. The caller persists
- * only what comes back from here.
- *
- * The rules, in the order the plan states them (§7):
- *
- * 1. source messages must exist in *this* conversation and belong to this run;
- * 2. only `actor: participant` messages may support an extraction;
- * 3. question keys and note types must be allowed by the versioned set;
- * 4. a subject must be in the **current** candidate set and must not be the
- *    respondent — an unresolvable mention degrades (D18), never guesses;
- * 5. nothing already recorded is written twice;
- * 6. lifecycle, control and opt-in decide whether a reply may be produced;
- * 7. a handoff that extracted nothing from testimony that plainly held an answer
- *    is refused, because it is the model giving up rather than duty of care.
- *
- * Note what is *not* a rule any more. D13 as amended routes safety-flavoured
- * content through this same path: a disclosure becomes an ordinary, visible
- * note like any other statement. Suppressing those notes made the worst
- * material the least visible — the operator saw a flag and an empty results
- * pane, and the participant's own words survived nowhere. `safetySignals` now
- * raise attention (the extractor's job) without editing what is recorded.
+ * Pure domain rules for one extraction proposal. No store, provider or write.
+ * Provenance, participant-only sources, live D16 subjects, D18 degradation,
+ * uniqueness, reply permission, and `handoff_discards_testimony`. Safety notes
+ * travel this same path (D13).
  */
 export type FeedbackExtractionValidationResult = ValidatedFeedbackExtraction & {
   /**
-   * A stored answer was proposed again with a **different** value.
-   *
-   * Two situations, one flag, because the operator's question is the same in
-   * both: this conversation now holds two readings of one answer. An ordinary
-   * revision is written — the newest testimony is what the participant means —
-   * and the reason says a value changed under whoever was reading it. A row an
-   * operator corrected is *not* written, and the reason is how they learn the
-   * model disagreed with them.
+   * Stored answer proposed with a different value. Ordinary revisions write;
+   * operator-corrected rows refuse and raise `answer_revision`.
    */
   readonly conflictingAnswerRevision: boolean;
 };
@@ -114,11 +87,8 @@ export function validateFeedbackExtractionProposal(
     verdicts.declined,
     context,
     answeredKeys,
-    // The model's own answered verdicts, not the ones that survived validation.
-    // A replay proposes the same reading and has its answers refused as
-    // `already_recorded`, so accepted answers would make the same proposal skip
-    // a goal the first run kept open — and the participant would be asked a
-    // question and then have it closed underneath them.
+    // Model answered verdicts, not accepted ones. Replay `already_recorded`
+    // must not skip a goal the first run kept open.
     verdicts.answers,
     rejections,
   );
@@ -151,11 +121,7 @@ export function validateFeedbackExtractionProposal(
       trimmedReply,
     ),
     safetySignals,
-    // The caller fails the run on the rejection above, so nothing should reach a
-    // conversation state with this field either way. It is still reported as
-    // false, because a `true` alongside its own rejection is a result that
-    // contradicts itself, and the next reader of this shape should not have to
-    // work out which half of it won.
+    // Rejected handoff is reported false so the result does not contradict itself.
     handoff: proposal.handoff && !abandonedHandoff,
     confidence: proposal.confidence,
     rejections,
@@ -164,14 +130,8 @@ export function validateFeedbackExtractionProposal(
 }
 
 /**
- * Turns the per-goal verdicts back into the two lists the rules below already
- * know how to judge.
- *
- * The wire shape changed to stop the model omitting goals; the rules did not
- * need to change with it, because an `answered` verdict carries exactly the
- * fields an answer proposal always carried. `not_addressed` and
- * `already_settled` produce nothing at all — they are the model saying it
- * looked, which is worth requiring and nothing to record.
+ * Flatten per-goal verdicts into answers + declined keys. `not_addressed` and
+ * `already_settled` record nothing.
  */
 function splitGoalVerdicts(
   goals: FeedbackExtractionProposal["goals"],
@@ -211,9 +171,7 @@ function splitGoalVerdicts(
       continue;
     }
     if (verdict.status === "answered") {
-      // The check the union would have made unnecessary. Claiming a goal is
-      // answered and attaching nothing is not an answer, and saying so is the
-      // difference between a visible fault and a goal that quietly stays open.
+      // `answered` with no answers is a visible fault, not a quiet open goal.
       if (verdict.answers.length === 0) {
         rejections.push({
           scope: "goal",
@@ -349,17 +307,8 @@ function validateAnswers(
       }
       valueInt = proposal.valueInt;
     } else {
-      // A directed answer without a resolved subject asserts nothing, and a
-      // guessed id would assert the wrong thing about a real person. The answer
-      // is dropped; the participant's own words survive through notes, which is
-      // where D18's degradation lives.
-      //
-      // One rescue before dropping it: the name may be the same name in the
-      // other alphabet. «o nikos gamatos» is ordinary Greek WhatsApp, and
-      // comparing raw strings threw away every directed answer a Greeklish
-      // typist gave us. The transliteration match resolves only when exactly
-      // one candidate fits, so it widens who we recognise without ever choosing
-      // between two of them.
+      // Unresolved directed subject: drop the answer (D18 notes keep the words).
+      // Transliteration resolves only when exactly one candidate fits.
       const resolvedId =
         proposal.subjectParticipantId ??
         resolvePostEventFeedbackCandidateByName(
@@ -402,31 +351,20 @@ function validateAnswers(
       const previousValue =
         stored?.valueInt ?? accepted[earlierInRun]?.valueInt ?? null;
 
-      // A repeat of the same value says nothing new, whether it is a replay or
-      // somebody typing «5» twice.
+      // Same value: replay or duplicate.
       if (previousValue === valueInt) {
         reject(stored ? "already_recorded" : "duplicate_in_run");
         continue;
       }
 
-      // A value an operator decided by hand is frozen. Newest-testimony-wins is
-      // the rule between the participant and the model; it is not a rule the
-      // model gets to apply to a person who has already read the transcript and
-      // said what the answer is. So the proposal is refused and
-      // `answer_revision` is raised on it — the same badge a participant's own
-      // revision raises — which puts the disagreement in front of the operator
-      // rather than resolving it silently against them.
+      // Operator-corrected rows are frozen. Newest-testimony-wins does not apply.
       if (stored?.correctedByOperator) {
         conflictingAnswerRevision = true;
         reject("answer_corrected_by_operator");
         continue;
       }
 
-      // A *different* value for the same question is a revision, and the
-      // participant meant the newer one — «βασικά 2, το ξανασκέφτηκα», or a
-      // single message that lands on a number after changing its mind twice.
-      // Dropping it left staff reading the first answer while the bot had
-      // already said it changed it.
+      // Different value: newest testimony wins.
       if (stored) {
         conflictingAnswerRevision = true;
       }
@@ -485,11 +423,7 @@ function validateNotes(
       continue;
     }
 
-    // D18: an unresolvable subject degrades to a subjectless note that keeps
-    // the name in its text and is flagged for review. It never becomes a
-    // guessed participant id.
-    // Same transliteration rescue as the answers path, so a Greeklish note
-    // about a candidate keeps its subject instead of degrading.
+    // D18: unresolvable subject → subjectless flagged note. Same transliteration rescue.
     const proposedId =
       proposal.subjectParticipantId ??
       resolvePostEventFeedbackCandidateByName(
@@ -501,12 +435,7 @@ function validateNotes(
       proposedId &&
       proposedId !== context.respondentParticipantId &&
       candidateIds.has(proposedId);
-    // Talking about themselves is not a failure to find anybody. «η πιο βαρετή
-    // η Μαρία. εγώ δλδ 😂» resolves perfectly — to the respondent, about whom
-    // no directed row may be written — so the joke becomes a subjectless note
-    // and stops there. Flagging it put the respondent's own name in the admin's
-    // "we could not find this person" column, which is simply untrue and sends
-    // somebody looking for a participant who is already on the screen.
+    // Self-reference is not an unresolved name. Subjectless, unflagged.
     const selfReferential =
       proposedId === context.respondentParticipantId ||
       matchesRespondentName(proposal.subjectMentionedName, context);
@@ -523,8 +452,7 @@ function validateNotes(
       subjectParticipantId,
     );
     if (seen.has(identity)) {
-      // `feedback_notes` has no natural unique key, so this content signature is
-      // the note's replay guard together with the extraction cursor.
+      // Note replay guard: content signature + extraction cursor.
       reject(
         context.acceptedNotes.some(
           (note) =>
@@ -558,32 +486,10 @@ function validateNotes(
 }
 
 /**
- * D3 locks every question as skippable. D16 forbids reopening an answered goal,
- * and the same reasoning forbids retroactively skipping one.
- *
- * The third rule is the one that costs a message rather than saving one, and it
- * is here because the alternative costs an answer. `liked` and `meet_again` are
- * one decision said twice, so a single sentence routinely answers both — and the
- * model that has just written the person down under one of them is exactly the
- * model that reports the other as having nothing in it. Prompt rule 7β says so
- * in as many words and the collapse still happens on one run in three: «ο
- * Σωτήρης ήταν οκ, θα τον ξαναέβλεπα άνετα» came back as `meet_again` alone,
- * and «η Μαρία μου άρεσε, μαζί της θα ξαναέβγαινα» closed `liked` as declined
- * and then thanked her for finishing.
- *
- * So a decline of one of those two is refused when both of these hold: the bot
- * has **never asked** that question (`pending`), and this same testimony
- * produced an answer to some other goal. The first half is what bounds the cost
- * — the refusal makes the run ask the question, after which the goal is `asked`
- * and any later decline stands, cited or not, so nobody is asked twice. The
- * second half is what keeps a genuine refusal cheap: somebody who declines the
- * whole questionnaire («δε λέω τίποτα») produces no answers, and every goal they
- * decline is settled on the spot.
- *
- * `avoid` is deliberately outside this: it is the opposite decision to the other
- * two, «κανέναν να αποφύγω» is the commonest honest answer in the questionnaire,
- * and refusing that decline would ask an extra question of nearly everybody who
- * finishes.
+ * Skips. Answered goals never skip (D16). V1: refuse `liked`/`meet_again`
+ * declined while still `pending` if this testimony answered another goal
+ * (`declined_before_asked`). Whole-questionnaire refusal (no answers) stays
+ * cheap. `avoid` is outside the rule.
  */
 function validateSkippedGoals(
   proposals: readonly FeedbackAnswerQuestionKey[],
@@ -627,34 +533,9 @@ function validateSkippedGoals(
 }
 
 /**
- * The one rule about the handoff itself: a run may promise a person, but not
- * instead of reading what it was given.
- *
- * `handoff` used to be the only field the application obeyed without checking.
- * Answers are checked against the transcript, notes are checked, a named subject
- * must be somebody who was actually at the table — and a boolean went straight
- * through to `markAwaitingHuman`, which stops the questionnaire and queues an
- * operator. Twice on 2026-07-27 the model set it on Μαρία Φλερτατζού's «βαζω 5.
- * ο Τάσος ήτανε πολύ ωραίος, θα τον ξαναέβλεπα. κανέναν δε θέλω να αποφύγω»,
- * with nothing extracted and no safety signal raised. Flirting earlier in the
- * conversation is not an incident, that message is four plain answers, and both
- * runs converted it into a lost testimony plus a queued human.
- *
- * The rule is structural rather than a judgement about the message: a handoff
- * that recorded **nothing** — no answer, no note, no safety signal — over
- * testimony that visibly still held an answer we were asking for is the model
- * giving up. Each condition earns its place:
- *
- * - a safety signal means the promise is duty of care and belongs to a person;
- * - an answer or a note means the run did its job and *also* asks for a human,
- *   which is exactly what prompt rules 9 and 10 ask for;
- * - `already_recorded` means this is a replay of a run whose results are already
- *   durable, so the empty accepted lists are the replay guard working, not a
- *   model that read nothing;
- * - and without the last condition the rule would fail the ordinary explicit
- *   request. «Μπορώ να μιλήσω με κάποιον από την ομάδα;» is a handoff that
- *   *correctly* records nothing, because there is nothing in it to record, and
- *   S34 is a documented product contract that must keep working.
+ * Handoff with nothing recorded over testimony that still holds an askable
+ * answer. Safety, an answer/note, or `already_recorded` keep the handoff path.
+ * A plain "speak to a person" with nothing to extract must still work.
  */
 function discardsTestimony(input: {
   readonly handoff: boolean;
@@ -677,21 +558,8 @@ function discardsTestimony(input: {
 }
 
 /**
- * Whether the new testimony plainly carries an answer to a goal that is still
- * open — a score, or the name of somebody at the table.
- *
- * This is the deliberately shallow half of the rule, and it is shallow because
- * anything deeper would be a second extractor with a second opinion. It answers
- * one narrow question: *was there something here that this run should not have
- * walked away from?* A false negative — a give-up over words with no number and
- * no name in them — leaves the handoff standing, which costs an operator one
- * look at a conversation. A false positive costs the run, and the retry it earns
- * is the only thing that can still read the testimony properly, so both errors
- * are survivable and the cheaper one is on the safe side.
- *
- * Both halves are gated on the goal still being open, which is also what makes a
- * replayed handoff harmless: once a score is recorded, the same digit in the same
- * message no longer counts as unspent.
+ * Shallow scan: open goal still has a score or unrecorded candidate name in
+ * new testimony. Replay is harmless once that goal is recorded.
  */
 function holdsUnrecordedAnswer(context: FeedbackExtractionContext): boolean {
   const newTestimony = context.messages
@@ -729,24 +597,14 @@ function holdsUnrecordedAnswer(context: FeedbackExtractionContext): boolean {
   if (scoredOpen) {
     return true;
   }
-  // A name is only unspent while some directed goal can still take it, and only
-  // when nothing has been recorded about that person yet — «τον Νίκο» in a
-  // conversation that already has Νίκος under `liked` is somebody we have
-  // already listened to.
+  // Name is unspent only while a directed goal is open and no answer names them.
   const directedOpen = context.goals.some(
     (goal) => isDirectedPostEventFeedbackQuestion(goal.key) && isOpen(goal.key),
   );
   return directedOpen && mentionsUnrecordedCandidate(newTestimony, context);
 }
 
-/**
- * A standalone digit inside the questionnaire's own range, folded so «5!» and
- * «βάζω 5.» read the same.
- *
- * Bounds come from the question set rather than from a literal here, so a
- * questionnaire that one day scores out of ten does not leave this rule quietly
- * measuring the old range.
- */
+/** Folded standalone digit in the question's int range. */
 function mentionsScore(
   text: string,
   definition: PostEventFeedbackAnswerQuestionDefinition,
@@ -762,15 +620,8 @@ function mentionsScore(
 }
 
 /**
- * Whether the testimony names a current candidate nobody has recorded an answer
- * about yet.
- *
- * The whole message is offered to the same resolver a single mention goes
- * through, so the alphabet the participant wrote in does not decide it and «ο
- * Τασος» still finds Τάσος Γαμωσταυρίδης. The resolver's "exactly one candidate
- * or nobody" rule is left exactly as it stands: two Κώστας at the table resolve
- * to nobody, this rule stays quiet, and the handoff is honoured — which is the
- * direction every other doubt in this file is spent.
+ * Current candidate named and not yet answered. Same resolver as a mention;
+ * ambiguous names stay unresolved and the handoff stands.
  */
 function mentionsUnrecordedCandidate(
   newTestimony: string,
@@ -812,28 +663,9 @@ function resolveReplySuppression(
 }
 
 /**
- * Provenance is the first gate for both answers and notes. Every referenced
- * message must exist in this conversation and be the participant's own words —
- * bot and staff turns are context, never testimony. Beyond that, **at least
- * one** reference must fall inside the current cursor window.
- *
- * That last rule used to demand that *every* reference be new, and it silently
- * ate testimony split across a cursor boundary. WhatsApp is typed, so «τον Νίκο
- * τον βρήκα» / «πολύ καλό, 5» is one ordinary thought. The window that finally
- * carries the score cites both halves, because that is honestly where the score
- * came from — and the whole answer was rejected for saying so, while the same
- * answer citing only the second half passed. The rule punished accurate
- * citation and lost the participant's own words.
- *
- * Requiring one new reference keeps what the rule was actually for: no result
- * may be born without new testimony driving it, so a run cannot spontaneously
- * re-mine the old transcript. Re-extraction of something already stored is a
- * different concern and is already refused twice over — by `already_recorded`
- * here, and by the answer unique constraint and the note content signature in
- * the locked transaction that writes them.
- *
- * The older half stays in `sourceMessageIds`, which is the point: an operator
- * reading the row sees the whole thought rather than its second half.
+ * Provenance: every cited message is this conversation's participant text, and
+ * at least one citation is inside the cursor window. Older citations may stay
+ * so the row shows the whole thought.
  */
 function checkProvenance(
   sourceMessageIds: readonly string[],
@@ -883,12 +715,8 @@ function answerIdentity(
 }
 
 /**
- * Whether a mentioned subject name is the respondent's own.
- *
- * Folded through the same comparison the STOP matcher uses, so accents,
- * casing and punctuation do not decide it. Left-anchored containment rather
- * than equality, because Greek inflects and people write «η Μαρία» where the
- * profile says «Μαρία».
+ * Mention is the respondent's own name (folded STOP matcher; word-start
+ * containment for Greek inflection).
  */
 function matchesRespondentName(
   mentionedName: string | null | undefined,

@@ -27,19 +27,10 @@ export interface BuildFeedbackExtractionPromptInput {
 }
 
 /**
- * Greek-first extraction prompt.
- *
- * The conversation is Greek, so the instructions and the reply are Greek; the
- * structured field names stay English because they are the persisted contract.
- * Everything the model may reason about is in this string — the full
- * actor-labelled transcript, the campaign's question copy snapshot, the live
- * D16 candidate set and the results already accepted — because the model is
- * given no tools and no store access.
- *
- * The candidate block is the only source of participant identity. Ambiguity is
- * handled here rather than in validation: when two candidates share the same
- * written name, application code cannot tell a correct pick from a lucky guess,
- * so the prompt requires a clarifying question instead.
+ * Greek-first extraction prompt; English field names are the persisted
+ * contract. The model has no tools or store: transcript, campaign copy, live
+ * D16 candidates and accepted results are all in this string. Ambiguous names
+ * require a clarifying question — validation must not guess.
  */
 export function buildFeedbackExtractionPrompt(
   input: BuildFeedbackExtractionPromptInput,
@@ -51,12 +42,8 @@ export function buildFeedbackExtractionPrompt(
 }
 
 /**
- * Small second-stage prompt for the text that may actually reach a participant.
- *
- * The medium extraction call owns facts and questionnaire progression. This
- * low-effort call may only rewrite that draft into natural Greek; it receives
- * the same provider-free context so it can match tone and avoid repeating the
- * last bot question, but it is explicitly forbidden to re-decide the result.
+ * Rewrite-only prompt for text the application has already decided to forward.
+ * Must not re-decide facts or questionnaire progression.
  */
 export function buildFeedbackReplyRewritePrompt(input: {
   readonly extractionPrompt: FeedbackExtractionPrompt;
@@ -172,8 +159,7 @@ function buildUserPrompt(input: BuildFeedbackExtractionPromptInput): string {
 function formatVenueContext(
   venue: NonNullable<FeedbackExtractionContext["venue"]>,
 ): string {
-  // JSON string quoting keeps operator-entered line breaks or heading-like text
-  // data inside one value instead of letting it reshape the prompt.
+  // Quote operator text so line breaks cannot reshape the prompt.
   const lines = [`- όνομα: ${JSON.stringify(venue.label)}`];
   if (venue.type) {
     lines.push(`- τύπος: ${JSON.stringify(venue.type)}`);
@@ -230,13 +216,8 @@ function formatQuestions(context: FeedbackExtractionContext): string {
 }
 
 /**
- * Each goal carries the question it stands for, not just its key.
- *
- * The campaign wording lives in its own block above, so a model deciding
- * `liked` had to join two lists to recall that the question asks for a
- * *particularly good* impression rather than any mention of a person. The
- * verdict is written here, so the wording belongs here — and it is the launch
- * snapshot's wording, which is what the participant was actually asked.
+ * Each goal carries the launch-snapshot wording it was asked with, not only
+ * the key.
  */
 function formatGoals(context: FeedbackExtractionContext): string {
   return context.goals
@@ -248,15 +229,8 @@ function formatGoals(context: FeedbackExtractionContext): string {
 }
 
 /**
- * Who is writing.
- *
- * Rule 3 forbids making the respondent the subject of their own answer, and
- * validation refuses it as `subject_is_respondent` — but the prompt never said
- * who the respondent was, so the rule asked the model to avoid a person it
- * could not identify. «Εμένα μου άρεσα, ο καλύτερος ήμουν εγώ» was
- * indistinguishable from naming somebody at the table, and a first name shared
- * with a candidate was worse: the model had every reason to resolve it to the
- * candidate. The id is here because the answer carries ids, not names.
+ * Who is writing. The respondent id is required so self-reference is not
+ * resolved to a same-named candidate.
  */
 function formatRespondent(context: FeedbackExtractionContext): string {
   const name = context.respondentDisplayName?.trim();
@@ -305,14 +279,8 @@ function formatTranscript(context: FeedbackExtractionContext): string {
 }
 
 /**
- * Rough token estimate for the assembled prompt.
- *
- * Input pressure is measured in tokens, not message count (ADR 0008): a
- * fifteen-message thread of long Greek paragraphs costs far more than fifty
- * one-word replies, and a message counter would report the opposite. Greek is
- * multi-byte and tokenizes worse than English, so the divisor is deliberately
- * pessimistic. This is an operational signal for deciding when summarisation
- * becomes necessary — the provider's reported usage is the billing truth.
+ * Pessimistic token estimate for input pressure (ADR 0008). Provider usage is
+ * the billing truth.
  */
 export const FEEDBACK_EXTRACTION_CHARS_PER_TOKEN = 2.5;
 

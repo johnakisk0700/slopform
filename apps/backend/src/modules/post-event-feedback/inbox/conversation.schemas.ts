@@ -165,7 +165,7 @@ export const feedbackConversationExtractionSchema = z
 /**
  * Current durable automation state for one conversation.
  *
- * Scheduling comes from MongoDB's authoritative work revision. `running` is
+ * Scheduling comes from the authoritative conversation work revision. `running` is
  * admitted only by a live PostgreSQL execution lease. The response deliberately
  * publishes neither the lease token nor either store's execution epoch.
  */

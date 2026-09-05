@@ -54,13 +54,8 @@ export type FeedbackExtractionFailureCode =
   (typeof FEEDBACK_EXTRACTION_FAILURE_CODES)[number];
 
 /**
- * The bounded cause vocabulary a permanently failed run reports.
- *
- * The failure code above says what the SDK threw; this says what an operator
- * should conclude. They are separate because the interesting case collapses
- * them: a provider that refuses to emit structured output for a safety
- * disclosure surfaces as an ordinary "no object generated", which is
- * indistinguishable from a schema mishap unless the finish reason is read.
+ * Operator-facing cause, separate from the SDK failure code. A content-filter
+ * finish reason is the only way a "no object" looks different from a schema miss.
  */
 export const FEEDBACK_EXTRACTION_FAILURE_CAUSES = [
   /** The provider declined to answer — a content filter or a hard rejection. */
@@ -76,29 +71,10 @@ export type FeedbackExtractionFailureCause =
   (typeof FEEDBACK_EXTRACTION_FAILURE_CAUSES)[number];
 
 /**
- * HTTP statuses that mean «our side of the arrangement with the provider is
- * broken», not «this conversation defeated the model».
- *
- * They are all *non-retryable*, which is exactly why they need naming. The
- * retryable half of a provider fault (a timeout, a rate-limit 429, a 503)
- * already reaches `provider_error` through `isRetryable`; these do not, and until this list
- * existed every one of them was classified `provider_refusal` — the class that
- * means a human should read the transcript. An exhausted OpenRouter balance
- * therefore looked identical to a content filter stopping on a disclosure, and
- * on 2026-07-27 thirty-six participants were told the analysis of their evening
- * had failed because of our billing.
- *
- * 401 is a wrong or missing key, 402 is out of credit, 403 is a forbidden route
- * or region, 404 is a model id the provider does not serve. OpenAI reports its
- * exhausted credit balance as a retryable 429, so `fromApiCallError` separately
- * recognises the provider's structured `credit_balance_exhausted` code. Every
- * one of these failures is identical for every conversation in the campaign and
- * none is repaired by reading a message — somebody must top up, fix the key or
- * correct the model id, after which the same request succeeds.
- *
- * 400 and 422 are deliberately absent. Those say the provider rejected *this
- * request*, which is the bucket that keeps today's behaviour: fall back once,
- * file a note and ask for a person.
+ * Non-retryable account/route faults (401–404). These are `provider_error`,
+ * not `provider_refusal`: reading the transcript cannot repair them. OpenAI
+ * empty balance arrives as retryable 429 + structured
+ * `credit_balance_exhausted`. 400/422 stay conversation-local refusals.
  */
 export const FEEDBACK_PROVIDER_ACCOUNT_FAULT_STATUS_CODES: readonly number[] = [
   401, 402, 403, 404,
@@ -146,18 +122,8 @@ export class FeedbackExtractionGenerationError extends Error {
 }
 
 /**
- * Whether this failure is the provider's, and therefore everybody's.
- *
- * The single structural question the terminal failure path asks. `provider_error`
- * is not a guess: it is set only where the code can point at the provider — a
- * missing client for the configured route, an `APICallError` the provider marked
- * retryable, or one of the account-fault statuses above. Nothing here reads an
- * error message.
- *
- * Everything else — a content filter, a schema the model never satisfied, a
- * validation refusal, an unrecognised throw — is treated as a fault of *this*
- * conversation's run, because that is the only assumption that keeps a
- * disclosure in front of a person.
+ * Structural provider incident. Never classified from error-message prose.
+ * Conversation-local failures (filter, schema, validation) stay off this path.
  */
 export function isFeedbackProviderIncident(error: unknown): boolean {
   return (
@@ -173,14 +139,8 @@ export interface FeedbackExtractionUsage {
 }
 
 /**
- * What the deterministic rehearsal stub reports as its model id.
- *
- * Deliberately not a registered `AssistantModel`: the id is written verbatim
- * into `extraction.model` on the conversation and onto every result row, and a
- * rehearsal that stamped a real provider id onto rows no provider produced
- * would leave that fiction in the database for whoever reads it next. It is
- * also unresolvable by `resolveProviderModel`, which is what guarantees the
- * marker can never be used to reach OpenRouter.
+ * Stub model id. Not a registered `AssistantModel` and unresolvable by
+ * `resolveProviderModel`, so it cannot reach a provider.
  */
 export const FEEDBACK_EXTRACTION_STUB_MODEL_ID = "stub/burst-rehearsal";
 
@@ -228,25 +188,12 @@ export interface FeedbackAttentionClassificationGenerationResult {
   readonly estimatedPromptTokens: number;
 }
 
-/**
- * Everything the extractor depends on, named so a substitute can be checked.
- *
- * The worker swaps in a deterministic stub for the burst rehearsal, and Nest
- * resolves that at runtime — nothing would otherwise notice if the two drifted
- * apart until a rehearsal died mid-run. Both the real model and the stub
- * `implements` this, so a method added to one and missed by the other is a
- * build error.
- */
+/** Extractor model port. Real provider and rehearsal stub both implement it. */
 export interface FeedbackExtractionModelPort {
   readonly model: FeedbackExtractionModelId;
   /**
-   * The tier these calls buy, `undefined` when they buy none.
-   *
-   * On the port rather than on the result because it is a property of how this
-   * model is configured, not of any one generation — and because the run that
-   * persists it needs it even when a call returned no usage at all. It is priced
-   * downstream: `priority` is OpenAI's fast lane and costs more per token, so a
-   * conversation that omitted it would be costed at the wrong table.
+   * Configured service tier, or undefined. On the port so a no-usage call still
+   * costs at the right table.
    */
   readonly serviceTier: FeedbackExtractionServiceTier | undefined;
   propose(
@@ -264,22 +211,8 @@ export interface FeedbackExtractionModelPort {
 }
 
 /**
- * The thinking budget the extraction call may ask for, in both providers'
- * spellings.
- *
- * Deliberately not the assistant's `low | medium | high`. That enum is persisted
- * on every turn behind the `assistant_turns_effort_check` constraint; this one
- * is persisted nowhere, so widening it costs no migration. `xhigh` and `max`
- * are offered by OpenAI on Luna. The evaluation deliberately uses OpenAI direct
- * so this budget is an explicit request control under our provider contract,
- * not an assumed equivalent through an upstream router.
- *
- * `max` was added on 2026-07-31 after probing the responses API directly:
- * `reasoning: { effort: "max" }` on `gpt-5.6-luna` answered 200 rather than the
- * 400 an unknown effort earns. It is listed here on that evidence alone — the
- * table below was never re-measured at `max`, and there is no reason to expect it
- * to spend *less* than `xhigh` did, so it takes the raised ceiling with every
- * other thinking budget.
+ * Extraction thinking budget. Not the assistant persisted enum. `xhigh`/`max`
+ * take the raised output ceiling with every other non-`none` effort.
  */
 export const FEEDBACK_EXTRACTION_REASONING_EFFORTS = [
   "none",
@@ -313,16 +246,8 @@ export function resolveFeedbackReplyReasoningEffort(
 }
 
 /**
- * `undefined` — the default — means *send no reasoning field at all*, which is
- * what this call did before the setting existed.
- *
- * That distinction is not pedantry. Omitting the field leaves each provider on
- * its own default; sending `none` overrides it. Defaulting the new setting to
- * `none` would therefore have silently changed how the default extraction model
- * (`google/gemini-3.6-flash`, through OpenRouter) behaves on every campaign, to
- * pay for a Luna experiment. An unrecognised value throws at worker start for
- * the same reason `resolveFeedbackExtractionModel` does: the alternative is
- * billing a whole rehearsal under a setting nobody chose.
+ * Unset omits the reasoning field (provider default). Sending `none` overrides
+ * it. Unrecognised values fail at worker start.
  */
 export function resolveFeedbackExtractionReasoningEffort(
   configured: string | undefined,
@@ -342,17 +267,8 @@ export function resolveFeedbackExtractionReasoningEffort(
 }
 
 /**
- * How hard OpenAI is asked to hurry, on the routes where asking is possible.
- *
- * `default` is standard scheduling, `flex` trades latency for a lower rate on
- * work nobody is waiting for, and **`priority` is OpenAI's paid fast lane at
- * roughly twice the standard token price** — a per-token multiplier on both
- * calls, not a flat fee, so it is left unset unless a rehearsal is being timed.
- *
- * The vocabulary is deliberately narrower than the SDK's, which also accepts
- * `auto`. `auto` means «let the account default decide», which is exactly what
- * leaving this unset already does, and having two spellings of the same thing
- * only invites a config that says one and means the other.
+ * OpenAI scheduling. `priority` is a per-token multiplier. Unset ≠ `auto`:
+ * omit the field rather than send a second spelling of the account default.
  */
 export const FEEDBACK_EXTRACTION_SERVICE_TIERS = [
   "default",
@@ -364,11 +280,7 @@ export type FeedbackExtractionServiceTier =
   (typeof FEEDBACK_EXTRACTION_SERVICE_TIERS)[number];
 
 /**
- * Unset omits the field, which is not the same as sending `default`: omitting it
- * leaves the account's own tier in force, while `default` overrides whatever
- * that is. An unrecognised value throws at worker start for the reason every
- * other setting in this file does — a typo that silently degraded to «whatever
- * OpenAI felt like» would be discovered on the invoice.
+ * Unset omits the tier field (account default). Sending `default` overrides it.
  */
 export function resolveFeedbackExtractionServiceTier(
   configured: string | undefined,
@@ -388,25 +300,9 @@ export function resolveFeedbackExtractionServiceTier(
 }
 
 /**
- * One thinking budget and one service tier, spelled for whichever provider the
- * registry chose.
- *
- * The two SDKs disagree on the shape, and a body sent in the wrong one is not an
- * error — it is ignored, and the call quietly runs at the provider's default
- * effort while the log claims otherwise.
- *
- * The service tier is **OpenAI-only, by construction rather than by convention**.
- * There is no `serviceTier` on the OpenRouter provider options: OpenRouter does
- * its own routing between upstreams, so the key would ride along as an ignored
- * extra and every OpenRouter campaign would read as though it had bought the
- * fast lane. Dropping it here is the only place that can be guaranteed, because
- * this is the only function that builds the block.
- *
- * Both keys are conditional spreads rather than `key: undefined`, because
- * `exactOptionalPropertyTypes` is on and, more to the point, an explicit
- * `undefined` is still an own property and would be serialised into the request.
- * When neither applies the whole block is omitted, which is how a call that
- * configures nothing keeps sending no provider options at all.
+ * Provider-shaped reasoning + OpenAI-only service tier. Wrong-shaped options
+ * are ignored (log would lie). Conditional spreads — do not serialise
+ * `undefined`. Omit the whole block when neither applies.
  */
 export function feedbackExtractionProviderOptions(
   model: AssistantModel,
@@ -429,28 +325,8 @@ export function feedbackExtractionProviderOptions(
 export const FEEDBACK_EXTRACTION_MAX_OUTPUT_TOKENS = 2_048;
 
 /**
- * The same ceiling once the model is allowed to think, because **reasoning
- * tokens are spent from this budget**, not from a separate one.
- *
- * Measured against `gpt-5.6-luna` on 2026-07-31 with an eight-line transcript —
- * far shorter than a real one — and a schema of this shape:
- *
- * | effort  | reasoning | total output | result                    |
- * | ------- | --------- | ------------ | ------------------------- |
- * | `none`  | 0         | 427          | completed                 |
- * | `low`   | 90        | 654          | completed                 |
- * | `high`  | 1,466     | 1,956        | completed, 92 to spare    |
- * | `xhigh` | 2,048     | 2,048        | **incomplete, no output** |
- *
- * At `xhigh` the whole 2,048 went on thinking and the model never reached the
- * object. That surfaces as `NoObjectGeneratedError`, which this module maps to a
- * *retryable* failure — so BullMQ pays for the same silence again. `high` cleared
- * it by ninety-two tokens on a transcript a fraction of the real size, which is
- * not a margin.
- *
- * A ceiling is not a charge: a call that thinks for two thousand tokens bills
- * two thousand whatever this says. It only has to be high enough that the answer
- * still fits after the thinking.
+ * Output ceiling when thinking is enabled. Reasoning tokens share this budget;
+ * 2048 at `xhigh` produced no object (`NoObjectGeneratedError`, retryable).
  */
 export const FEEDBACK_EXTRACTION_THINKING_MAX_OUTPUT_TOKENS = 16_384;
 
@@ -466,13 +342,8 @@ export function feedbackExtractionMaxOutputTokens(
 export const FEEDBACK_ATTENTION_CLASSIFICATION_MAX_OUTPUT_TOKENS = 1_024;
 
 /**
- * The same ceiling the extraction call takes once it is allowed to think, and
- * for the same reason: reasoning tokens come out of this budget.
- *
- * It is an alias rather than a second number because there is no separate
- * measurement behind it. The one on record says a 2,048 budget vanished entirely
- * into `xhigh` thinking; a 1,024 budget would vanish sooner, and the classifier
- * would return nothing at all.
+ * Classifier thinking ceiling — same number as extraction. A 1024 budget
+ * vanishes into `xhigh` sooner.
  */
 export const FEEDBACK_ATTENTION_CLASSIFICATION_THINKING_MAX_OUTPUT_TOKENS =
   FEEDBACK_EXTRACTION_THINKING_MAX_OUTPUT_TOKENS;
@@ -486,31 +357,9 @@ export function feedbackAttentionClassificationMaxOutputTokens(
 }
 
 /**
- * The thinking budget for the attention classifier, which **defaults to `none`
- * and is now configurable** through `FEEDBACK_ATTENTION_REASONING_EFFORT`.
- *
- * Until 2026-07-31 this was pinned: the classifier answers a bounded per-message
- * question, so reasoning looked like it bought nothing. Run 11 said otherwise.
- * The judgement the classifier actually gets wrong is *hostility* — whether a
- * message is aimed abusively at us or is a participant describing something that
- * happened to them — and that is not a lookup, it is exactly the kind of reading
- * a thinking budget helps with. The product decision that day was to make it
- * reachable, not to turn it on.
- *
- * **The cost warning stands, and it is the reason the default did not move.**
- * The extraction call runs once per extraction; the classifier runs once per
- * batch of messages, across every conversation in the campaign. Thinking here is
- * multiplied by the whole campaign's message volume, and it is charged whether
- * or not any message in the batch turned out to be interesting. Raise it for a
- * rehearsal you are reading afterwards, not for a live campaign, and expect the
- * bill to scale with participants rather than with runs.
- *
- * Note what the default `none` is *not*: it is not the extraction call's unset,
- * which sends no reasoning field and inherits the provider's own default. `none`
- * is sent explicitly, in the provider's own spelling, because leaving a 1,024
- * ceiling to a provider's undeclared default is how a batch reply gets truncated
- * with nobody able to say why. Setting the variable replaces that `none`; it
- * never returns the call to «field omitted».
+ * Classifier effort. Default is explicit `none` (not "field omitted") so a
+ * 1024 ceiling is not left to an undeclared provider default. Thinking here
+ * multiplies by campaign message volume.
  */
 export const FEEDBACK_ATTENTION_DEFAULT_REASONING_EFFORT: FeedbackExtractionReasoningEffort =
   "none";
@@ -532,11 +381,7 @@ export function resolveFeedbackAttentionReasoningEffort(
   return effort;
 }
 
-/**
- * D12's default. It is deliberately its own constant rather than an alias of
- * the assistant default: the two features choose a model for different reasons,
- * and changing one must not silently change the other.
- */
+/** D12 default. Not an alias of the assistant default. */
 export const FEEDBACK_EXTRACTION_DEFAULT_MODEL: AssistantModel =
   "google/gemini-3.6-flash";
 
@@ -544,11 +389,8 @@ export const FEEDBACK_SUMMARY_ONLY_MODEL: AssistantModel =
   "openai/gpt-5.6-terra";
 
 /**
- * Resolves the configured extraction model against the shared provider
- * registry. An unrecognised id fails at worker start, because the alternative —
- * quietly using the default — would bill and log a model nobody asked for.
- * Terra is deliberately rejected here: feedback summaries own it through their
- * separate configuration, while participant-facing work uses another model.
+ * Registry-resolved extraction model. Unrecognised ids fail at worker start.
+ * Terra is reserved for `FEEDBACK_SUMMARY_MODEL`.
  */
 export function resolveFeedbackExtractionModel(
   configured: string | undefined,
@@ -571,16 +413,8 @@ export function resolveFeedbackExtractionModel(
 }
 
 /**
- * The model boundary for feedback conversation extraction.
- *
- * It reuses the assistant's provider registry — the public model id maps to
- * exactly one provider id — so extraction cannot invent a provider mapping of
- * its own or fall back to a different model when a key is missing. A missing
- * key is a permanent failure, not a substitution.
- *
- * Output is structured and Zod-validated at the boundary. Whatever survives is
- * still only a *proposal*: the domain rules in the validation module decide
- * what may be written.
+ * Extraction provider boundary. Shared registry, no substitution on a missing
+ * key. Output is a proposal until domain validation accepts it.
  */
 @Injectable()
 export class PostEventFeedbackExtractionModel implements FeedbackExtractionModelPort {
@@ -849,10 +683,7 @@ export class PostEventFeedbackExtractionModel implements FeedbackExtractionModel
           "provider_error",
         );
       }
-      // Scoped here on purpose: this provider instance serves
-      // feedback extraction and nothing else, so permissive thresholds cannot
-      // leak into the assistant, which builds its own clients from the same
-      // registry.
+      // Extraction-only client: permissive safety cannot leak to the assistant.
       const settings = resolveFeedbackExtractionProviderSettings(adapter);
       return settings
         ? this.openRouterProvider(adapter.providerModelId, settings)
@@ -887,12 +718,8 @@ function chunk<T>(items: readonly T[], size: number): readonly T[][] {
 }
 
 /**
- * Adds usages component by component, with null absorbing.
- *
- * Exported because the extractor combines the same way across its two phases:
- * one run is an extraction call plus an attention call, and what gets persisted
- * is what the run as a whole cost. A component nobody reported must not read as
- * the sum of the parts that were.
+ * Component-wise usage sum. Null is absorbing — a missing component is not a
+ * smaller bill.
  */
 export function combineFeedbackExtractionUsage(
   usages: readonly FeedbackExtractionUsage[],
@@ -912,16 +739,8 @@ function sumKnown(values: readonly (number | null)[]): number | null {
 }
 
 /**
- * Configuration and schema faults are permanent — retrying repeats the same
- * rejection and the same bill. Timeouts, rate limits and provider 5xx are
- * transient and left to BullMQ.
- *
- * The cause class is derived alongside the code because the two answer
- * different questions. A content filter that stops generation reports the same
- * `extraction_failed` code as a malformed object, but only the finish reason
- * distinguishes "the provider refused to discuss this" from "the model fumbled
- * the schema" — and only the first one means an operator should read the
- * conversation.
+ * Map SDK errors to code + cause. Content-filter finish reasons are
+ * `provider_refusal`; schema misses stay `validation_failed` and retryable.
  */
 export function toGenerationError(
   error: unknown,
@@ -945,10 +764,7 @@ export function toGenerationError(
     );
   }
   if (NoObjectGeneratedError.isInstance(error)) {
-    // The model produced something that is not the agreed shape. One retry can
-    // legitimately fix that, so it stays retryable and BullMQ bounds it. A
-    // `content-filter` finish reason is the exception that matters: the
-    // provider declined, and repeating the same prompt will decline again.
+    // Wrong shape is retryable. `content-filter` is a refusal — retrying repeats it.
     return new FeedbackExtractionGenerationError(
       "extraction_failed",
       true,
@@ -980,16 +796,8 @@ export function toGenerationError(
 }
 
 /**
- * One provider HTTP failure, classified by what would repair it.
- *
- * Retryability decides the *code* (may BullMQ try again), and the status decides
- * the *cause* (who has to do something about it). Those two questions used to
- * share one answer, which is how a 402 became a refusal: not retryable,
- * therefore assumed to be about the message.
- *
- * The status is read from the error the provider actually produced, never from
- * its message text. A string match would be a guess, and the strings differ per
- * provider and change without notice.
+ * Classify one HTTP failure from status/structured body, never from prose.
+ * Retryability is the code; account fault vs refusal is the cause.
  */
 function fromApiCallError(
   error: APICallError,
@@ -999,11 +807,7 @@ function fromApiCallError(
     accountFaultCode !== undefined ||
     (error.statusCode !== undefined &&
       FEEDBACK_PROVIDER_ACCOUNT_FAULT_STATUS_CODES.includes(error.statusCode));
-  // AI SDK marks every HTTP 429 retryable. OpenAI also uses 429 when the credit
-  // balance is empty, which no immediate retry can repair. Make that account
-  // fault permanent for this BullMQ attempt so it parks immediately; the
-  // durable five-minute park ladder remains responsible for recovery after a
-  // top-up.
+  // OpenAI empty balance is 429 + structured quota codes — park, do not retry.
   const retryable = accountFault ? false : error.isRetryable;
   const statusDetail =
     error.statusCode === undefined ? "" : `http_${error.statusCode}`;
@@ -1018,12 +822,7 @@ function fromApiCallError(
 }
 
 /**
- * Returns only fixed, application-owned account-fault names.
- *
- * OpenAI's 2026-08-03 production response used HTTP 429 with
- * `type=insufficient_quota` and `code=credit_balance_exhausted`. Reading the
- * structured body is necessary because the status is shared with ordinary TPM
- * pressure; returning a fixed literal keeps provider prose out of logs.
+ * Structured OpenAI empty-balance codes only. Status 429 is shared with TPM.
  */
 function feedbackProviderAccountFaultCode(
   error: APICallError,
@@ -1052,15 +851,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * A bounded description of an error none of the branches above recognised.
- *
- * `unknown` on its own is a dead end for an operator, and it is not rare: every
- * permanent extraction failure in the 2026-07-27 rehearsal reported it, which
- * left the cause a matter of opinion — a provider content filter, a schema that
- * never validated and a 120-second abort are three different problems with
- * three different fixes, and all three land here. The constructor name and a
- * short message are enough to tell them apart and carry no participant text:
- * the message comes from the SDK or the runtime, not from the transcript.
+ * Bounded unclassified-error detail: constructor name + short SDK/runtime
+ * message. No participant text.
  */
 function describeUnclassifiedError(error: unknown): string {
   const name = error instanceof Error ? error.constructor.name : typeof error;

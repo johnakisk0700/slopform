@@ -53,7 +53,6 @@ import {
 import { FeedbackConversationWakeupService } from "./reconciliation/wakeup.service.js";
 import { FeedbackConversationReconcileService } from "./reconciliation/reconcile.service.js";
 import { FeedbackConversationReconcileProcessor } from "./reconciliation/reconcile.processor.js";
-import { FeedbackCampaignResumeRepairService } from "./campaign/resume-repair.service.js";
 
 export function createFeedbackTransport(
   mode: Environment["TRANSPORT_MODE"],
@@ -113,7 +112,6 @@ export function createFeedbackTransport(
     FeedbackConversationExecutionLimiter,
     FeedbackConversationExecutionFence,
     FeedbackConversationWakeupService,
-    FeedbackCampaignResumeRepairService,
     FeedbackConversationReconcileService,
     FeedbackConversationReconcileProcessor,
     {

@@ -10,6 +10,13 @@ container names, ports or credentials.
 It is strictly a local-development tool. It does not accept remote connection
 strings and is not a production operations interface.
 
+Campaign feedback conversations are PostgreSQL `feedback_conversations`.
+Assistant threads remain Mongo `conversation_threads` with
+`purpose: "admin_assistant"`. One-time copy of leftover schema-v2 feedback
+documents is `pnpm import:feedback-conversations` (dry-run by default; see
+[`scripts/import-feedback-conversations.mjs`](../../../scripts/import-feedback-conversations.mjs)).
+Do not use this helper as a runtime dual-read.
+
 ## Public contract
 
 ```sh
@@ -25,8 +32,11 @@ Examples:
 pnpm db:query postgres \
   'select id, preferred_name from participants order by created_at desc limit 10'
 
+pnpm db:query postgres \
+  'select id, lifecycle_state, needs_attention, jsonb_array_length(messages) as n from feedback_conversations order by updated_at desc limit 10'
+
 pnpm db:query mongo \
-  'db.conversation_threads.findOne({_id: "..."}, {messages: 1, needsAttention: 1})'
+  'db.conversation_threads.findOne({purpose: "admin_assistant"}, {title: 1, state: 1})'
 
 pnpm db:query redis HGETALL feedback:extract:job-id
 ```

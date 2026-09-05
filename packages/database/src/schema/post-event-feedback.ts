@@ -49,7 +49,6 @@ export const FEEDBACK_MAINTENANCE_CHECKPOINT_TASKS = [
   "ingress_pending",
   "summary_auto",
   "summary_pending",
-  "campaign_resume",
 ] as const;
 
 export type FeedbackMaintenanceCheckpointTask =
@@ -116,9 +115,10 @@ export const MESSAGE_OUTBOX_STATUSES = [
 export type MessageOutboxStatus = (typeof MESSAGE_OUTBOX_STATUSES)[number];
 
 /**
- * PostgreSQL execution fence for one Mongo-authoritative feedback conversation.
- * It owns no product state; it only prevents a stale worker from committing
- * relational effects after another worker has taken over the execution lease.
+ * PostgreSQL execution fence for one feedback conversation. Product state
+ * lives on `feedback_conversations`. This table only prevents a stale worker
+ * from committing relational effects after another worker has taken the lease.
+ * No FK to `feedback_conversations` until the one-time import has parents.
  */
 export const feedbackConversationExecutions = pgTable(
   "feedback_conversation_executions",
@@ -161,8 +161,8 @@ export const feedbackConversationExecutions = pgTable(
  * Globally shared fairness cursors for bounded maintenance scans.
  *
  * These rows never prove that business work completed. They only allocate the
- * next keyset page across worker replicas; MongoDB work revisions and campaign
- * lifecycle remain the durable business authorities.
+ * next keyset page across worker replicas; conversation work revisions and
+ * campaign lifecycle remain the durable business authorities.
  */
 export const feedbackMaintenanceCheckpoints = pgTable(
   "feedback_maintenance_checkpoints",
@@ -183,11 +183,11 @@ export const feedbackMaintenanceCheckpoints = pgTable(
   (table) => [
     check(
       "feedback_maintenance_checkpoints_task_check",
-      sql`${table.task} in ('conversation_due', 'ingress_pending', 'summary_auto', 'summary_pending', 'campaign_resume')`,
+      sql`${table.task} in ('conversation_due', 'ingress_pending', 'summary_auto', 'summary_pending')`,
     ),
     check(
       "feedback_maintenance_checkpoints_cursor_shape_check",
-      sql`(${table.task} in ('conversation_due', 'ingress_pending', 'summary_pending', 'campaign_resume') and ((${table.cursorAt} is null and ${table.cursorId} is null) or (${table.cursorAt} is not null and ${table.cursorId} is not null))) or (${table.task} = 'summary_auto' and ${table.cursorAt} is null)`,
+      sql`(${table.task} in ('conversation_due', 'ingress_pending', 'summary_pending') and ((${table.cursorAt} is null and ${table.cursorId} is null) or (${table.cursorAt} is not null and ${table.cursorId} is not null))) or (${table.task} = 'summary_auto' and ${table.cursorAt} is null)`,
     ),
   ],
 );
@@ -249,19 +249,8 @@ export const feedbackCampaigns = pgTable(
     questionSetVersion: integer("question_set_version").notNull(),
     questions: jsonb("questions").$type<FeedbackCampaignQuestions>().notNull(),
     status: text("status").notNull().default("launched"),
-    /**
-     * Monotonic identity of a campaign-wide resume request. PostgreSQL keeps
-     * this repair intent until MongoDB has admitted the same generation for
-     * every open conversation.
-     */
+    /** Invalidates outbound snapshots across a pause/resume cycle. */
     resumeGeneration: integer("resume_generation").notNull().default(0),
-    resumeAppliedGeneration: integer("resume_applied_generation")
-      .notNull()
-      .default(0),
-    resumeDueAt: timestamp("resume_due_at", {
-      withTimezone: true,
-      mode: "date",
-    }),
     launchedAt: timestamp("launched_at", {
       withTimezone: true,
       mode: "date",
@@ -298,20 +287,333 @@ export const feedbackCampaigns = pgTable(
     ),
     check(
       "feedback_campaigns_resume_generation_check",
-      sql`${table.resumeGeneration} >= 0 and ${table.resumeAppliedGeneration} >= 0 and ${table.resumeAppliedGeneration} <= ${table.resumeGeneration}`,
-    ),
-    check(
-      "feedback_campaigns_resume_intent_pair_check",
-      sql`(${table.resumeAppliedGeneration} < ${table.resumeGeneration}) = (${table.resumeDueAt} is not null)`,
+      sql`${table.resumeGeneration} >= 0`,
     ),
     uniqueIndex("feedback_campaigns_event_id_uidx").on(table.eventId),
     index("feedback_campaigns_status_launched_at_idx").on(
       table.status,
       table.launchedAt,
     ),
-    index("feedback_campaigns_resume_pending_idx")
-      .on(table.resumeDueAt, table.id)
-      .where(sql`${table.resumeDueAt} is not null`),
+  ],
+);
+
+export const FEEDBACK_CONVERSATION_LIFECYCLE_STATES = [
+  "open",
+  "closed",
+] as const;
+
+export type FeedbackConversationLifecycleState =
+  (typeof FEEDBACK_CONVERSATION_LIFECYCLE_STATES)[number];
+
+export const FEEDBACK_CONVERSATION_LIFECYCLE_REASONS = [
+  "completed",
+  "declined",
+  "stopped",
+  "expired",
+  "cancelled",
+] as const;
+
+export type FeedbackConversationLifecycleReason =
+  (typeof FEEDBACK_CONVERSATION_LIFECYCLE_REASONS)[number];
+
+export const FEEDBACK_CONVERSATION_CONTROL_MODES = ["bot", "human"] as const;
+
+export type FeedbackConversationControlMode =
+  (typeof FEEDBACK_CONVERSATION_CONTROL_MODES)[number];
+
+export const FEEDBACK_CONVERSATION_CONTROL_SOURCES = [
+  "launch",
+  "staff_action",
+  "external_outbound",
+] as const;
+
+export type FeedbackConversationControlSource =
+  (typeof FEEDBACK_CONVERSATION_CONTROL_SOURCES)[number];
+
+export const FEEDBACK_STAFF_CLOSE_REASONS = [
+  "abusive",
+  "unresponsive",
+  "handled_offline",
+  "duplicate",
+  "other",
+] as const;
+
+export type FeedbackStaffCloseReason =
+  (typeof FEEDBACK_STAFF_CLOSE_REASONS)[number];
+
+export const FEEDBACK_CONVERSATIONS_MAX_MESSAGES = 150;
+export const FEEDBACK_CONVERSATIONS_MAX_GOALS = 10;
+export const FEEDBACK_CONVERSATIONS_MAX_ATTENTION_REASONS = 50;
+export const FEEDBACK_CONVERSATIONS_MAX_MESSAGES_BYTES = 4_194_304;
+
+export type FeedbackConversationStoredMessageAttention = {
+  readonly categories: readonly string[];
+  readonly recommendedAction: string;
+  readonly confidence: number;
+};
+
+export type FeedbackConversationStoredMessage = {
+  readonly id: string;
+  readonly seq: number;
+  readonly actor: "bot" | "participant" | "staff" | "system";
+  readonly text: string;
+  readonly providerMessageId: string | null;
+  readonly ingressId: string | null;
+  readonly outboxId: string | null;
+  readonly attention: FeedbackConversationStoredMessageAttention | null;
+  readonly at: string;
+};
+
+export type FeedbackConversationStoredGoal = {
+  readonly key: string;
+  readonly ordinal: number;
+  readonly prompt: string;
+  readonly status: "pending" | "asked" | "answered" | "skipped";
+};
+
+export type FeedbackConversationStoredAttentionReason = {
+  readonly id: string;
+  readonly kind: string;
+  readonly messageId: string | null;
+  readonly at: string;
+  readonly resolvedAt: string | null;
+  readonly resolvedBy: string | null;
+};
+
+export type FeedbackConversationStoredUsage = {
+  readonly inputTokens: number | null;
+  readonly outputTokens: number | null;
+  readonly totalTokens: number | null;
+};
+
+/**
+ * PostgreSQL authority for one campaign conversation. Scalars are the
+ * query/CAS surface. Transcript, goals, attention and usage stay bounded
+ * JSONB — never a second whole-document copy.
+ */
+export const feedbackConversations = pgTable(
+  "feedback_conversations",
+  {
+    id: uuid("id").primaryKey(),
+    campaignId: uuid("campaign_id").notNull(),
+    respondentParticipantId: uuid("respondent_participant_id").notNull(),
+    phoneAtLaunch: text("phone_at_launch").notNull(),
+    lifecycleState: text("lifecycle_state")
+      .$type<FeedbackConversationLifecycleState>()
+      .notNull(),
+    lifecycleReason: text(
+      "lifecycle_reason",
+    ).$type<FeedbackConversationLifecycleReason | null>(),
+    closedAt: timestamp("closed_at", { withTimezone: true, mode: "date" }),
+    terminalOutboxId: uuid("terminal_outbox_id"),
+    staffCloseReason: text(
+      "staff_close_reason",
+    ).$type<FeedbackStaffCloseReason | null>(),
+    staffCloseNote: text("staff_close_note"),
+    controlMode: text("control_mode")
+      .$type<FeedbackConversationControlMode>()
+      .notNull(),
+    controlSource: text("control_source")
+      .$type<FeedbackConversationControlSource>()
+      .notNull(),
+    controlChangedAt: timestamp("control_changed_at", {
+      withTimezone: true,
+      mode: "date",
+    }).notNull(),
+    needsAttention: boolean("needs_attention").notNull().default(false),
+    awaitingHuman: boolean("awaiting_human").notNull().default(false),
+    hostileTurns: integer("hostile_turns").notNull().default(0),
+    extractionFallbackAckSent: boolean("extraction_fallback_ack_sent")
+      .notNull()
+      .default(false),
+    reminderCount: integer("reminder_count").notNull().default(0),
+    remindedAt: timestamp("reminded_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
+    cursorSeq: integer("cursor_seq").notNull().default(0),
+    extractionLastRunAt: timestamp("extraction_last_run_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
+    extractionModel: text("extraction_model"),
+    extractionServiceTier: text("extraction_service_tier"),
+    parkedSince: timestamp("parked_since", {
+      withTimezone: true,
+      mode: "date",
+    }),
+    parkedRuns: integer("parked_runs").notNull().default(0),
+    parkedNoticeSentAt: timestamp("parked_notice_sent_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
+    workRevision: integer("work_revision").notNull().default(0),
+    workNextActionAt: timestamp("work_next_action_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
+    messages: jsonb("messages")
+      .$type<FeedbackConversationStoredMessage[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    goals: jsonb("goals").$type<FeedbackConversationStoredGoal[]>().notNull(),
+    attentionReasons: jsonb("attention_reasons")
+      .$type<FeedbackConversationStoredAttentionReason[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    extractionUsage: jsonb(
+      "extraction_usage",
+    ).$type<FeedbackConversationStoredUsage | null>(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.campaignId],
+      foreignColumns: [feedbackCampaigns.id],
+      name: "feedback_conversations_campaign_id_feedback_campaigns_id_fk",
+    }).onDelete("restrict"),
+    foreignKey({
+      columns: [table.respondentParticipantId],
+      foreignColumns: [participants.id],
+      name: "feedback_conversations_respondent_participant_id_participants_id_fk",
+    }).onDelete("restrict"),
+    check(
+      "feedback_conversations_phone_at_launch_check",
+      sql`${table.phoneAtLaunch} ~ '^\\+[1-9][0-9]{7,14}$'`,
+    ),
+    check(
+      "feedback_conversations_lifecycle_state_check",
+      sql`${table.lifecycleState} in ('open', 'closed')`,
+    ),
+    check(
+      "feedback_conversations_lifecycle_reason_check",
+      sql`${table.lifecycleReason} is null or ${table.lifecycleReason} in ('completed', 'declined', 'stopped', 'expired', 'cancelled')`,
+    ),
+    check(
+      "feedback_conversations_lifecycle_pair_check",
+      sql`(${table.lifecycleState} = 'open' and ${table.lifecycleReason} is null and ${table.closedAt} is null and ${table.terminalOutboxId} is null) or (${table.lifecycleState} = 'closed' and ${table.lifecycleReason} is not null and ${table.closedAt} is not null)`,
+    ),
+    check(
+      "feedback_conversations_terminal_outbox_check",
+      sql`${table.terminalOutboxId} is null or (${table.lifecycleState} = 'closed' and ${table.lifecycleReason} in ('completed', 'declined', 'stopped'))`,
+    ),
+    check(
+      "feedback_conversations_staff_close_reason_check",
+      sql`${table.staffCloseReason} is null or ${table.staffCloseReason} in ('abusive', 'unresponsive', 'handled_offline', 'duplicate', 'other')`,
+    ),
+    check(
+      "feedback_conversations_staff_close_pair_check",
+      sql`${table.staffCloseNote} is null or ${table.staffCloseReason} is not null`,
+    ),
+    check(
+      "feedback_conversations_staff_close_note_length_check",
+      sql`${table.staffCloseNote} is null or char_length(btrim(${table.staffCloseNote})) between 1 and 500`,
+    ),
+    check(
+      "feedback_conversations_control_mode_check",
+      sql`${table.controlMode} in ('bot', 'human')`,
+    ),
+    check(
+      "feedback_conversations_control_source_check",
+      sql`${table.controlSource} in ('launch', 'staff_action', 'external_outbound')`,
+    ),
+    check(
+      "feedback_conversations_control_pair_check",
+      sql`${table.controlMode} <> 'human' or ${table.controlSource} <> 'launch'`,
+    ),
+    check(
+      "feedback_conversations_hostile_turns_check",
+      sql`${table.hostileTurns} between 0 and 150`,
+    ),
+    check(
+      "feedback_conversations_reminder_count_check",
+      sql`${table.reminderCount} between 0 and 10`,
+    ),
+    check(
+      "feedback_conversations_cursor_seq_check",
+      sql`${table.cursorSeq} >= 0`,
+    ),
+    check(
+      "feedback_conversations_extraction_model_length_check",
+      sql`${table.extractionModel} is null or char_length(btrim(${table.extractionModel})) between 1 and 200`,
+    ),
+    check(
+      "feedback_conversations_extraction_service_tier_length_check",
+      sql`${table.extractionServiceTier} is null or char_length(btrim(${table.extractionServiceTier})) between 1 and 50`,
+    ),
+    check(
+      "feedback_conversations_parked_runs_check",
+      sql`${table.parkedRuns} >= 0`,
+    ),
+    check(
+      "feedback_conversations_work_revision_check",
+      sql`${table.workRevision} >= 0`,
+    ),
+    check(
+      "feedback_conversations_updated_at_check",
+      sql`${table.updatedAt} >= ${table.createdAt}`,
+    ),
+    check(
+      "feedback_conversations_messages_array_check",
+      sql`jsonb_typeof(${table.messages}) = 'array'`,
+    ),
+    check(
+      "feedback_conversations_messages_length_check",
+      sql`jsonb_array_length(${table.messages}) <= 150`,
+    ),
+    check(
+      "feedback_conversations_messages_size_check",
+      sql`pg_column_size(${table.messages}) <= 4194304`,
+    ),
+    check(
+      "feedback_conversations_goals_array_check",
+      sql`jsonb_typeof(${table.goals}) = 'array'`,
+    ),
+    check(
+      "feedback_conversations_goals_length_check",
+      sql`jsonb_array_length(${table.goals}) between 1 and 10`,
+    ),
+    check(
+      "feedback_conversations_attention_reasons_array_check",
+      sql`jsonb_typeof(${table.attentionReasons}) = 'array'`,
+    ),
+    check(
+      "feedback_conversations_attention_reasons_length_check",
+      sql`jsonb_array_length(${table.attentionReasons}) <= 50`,
+    ),
+    check(
+      "feedback_conversations_extraction_usage_object_check",
+      sql`${table.extractionUsage} is null or jsonb_typeof(${table.extractionUsage}) = 'object'`,
+    ),
+    uniqueIndex("feedback_conversations_campaign_respondent_uidx").on(
+      table.campaignId,
+      table.respondentParticipantId,
+    ),
+    uniqueIndex("feedback_conversations_open_phone_uidx")
+      .on(table.phoneAtLaunch)
+      .where(sql`${table.lifecycleState} = 'open'`),
+    index("feedback_conversations_campaign_updated_idx").on(
+      table.campaignId,
+      table.updatedAt,
+    ),
+    index("feedback_conversations_work_due_idx")
+      .on(table.workNextActionAt, table.id)
+      .where(sql`${table.workNextActionAt} is not null`),
+    index("feedback_conversations_closed_phone_idx")
+      .on(table.phoneAtLaunch, table.updatedAt)
+      .where(sql`${table.lifecycleState} = 'closed'`),
+    index("feedback_conversations_attention_updated_idx")
+      .on(table.updatedAt)
+      .where(sql`${table.needsAttention} is true`),
+    index("feedback_conversations_lifecycle_state_idx").on(
+      table.lifecycleState,
+      table.updatedAt,
+    ),
   ],
 );
 
@@ -924,6 +1226,9 @@ export const messageOutboxLog = pgTable(
 );
 
 export type FeedbackCampaignRow = typeof feedbackCampaigns.$inferSelect;
+export type FeedbackConversationRow = typeof feedbackConversations.$inferSelect;
+export type FeedbackConversationInsert =
+  typeof feedbackConversations.$inferInsert;
 export type FeedbackConversationExecutionRow =
   typeof feedbackConversationExecutions.$inferSelect;
 export type FeedbackMaintenanceCheckpointRow =

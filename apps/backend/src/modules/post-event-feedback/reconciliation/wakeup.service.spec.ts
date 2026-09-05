@@ -44,6 +44,11 @@ describe("FeedbackConversationWakeupService", () => {
       createFeedbackReconcileConversationJobId(conversationId, 4),
     );
 
+    expect(conversations.markWorkDue).toHaveBeenCalledWith(expect.anything(), {
+      conversationId,
+      nextActionAt: due,
+      at: now,
+    });
     expect(conversations.markWorkDue).toHaveBeenCalledBefore(queue.add);
     expect(queue.add).toHaveBeenCalledWith(
       FEEDBACK_JOB_NAMES.reconcileConversationV2,
@@ -128,68 +133,21 @@ describe("FeedbackConversationWakeupService", () => {
     expect(queue.add).not.toHaveBeenCalled();
   });
 
-  it("bootstraps one bounded legacy batch before recovering due revisions", async () => {
+  it("recovers due revisions without seeding or repairing a second store", async () => {
     const { service, conversations } = createService();
-    conversations.seedMissingWork.mockResolvedValue(100);
 
     await expect(service.recoverDue("maintenance", now)).resolves.toEqual({
       examined: 0,
       queued: 0,
     });
 
-    expect(conversations.seedMissingWork).toHaveBeenCalledBefore(
-      conversations.listDueWork,
+    expect(conversations.listDueWork).toHaveBeenCalledWith(
+      {
+        dueAt: now,
+        limit: 100,
+      },
+      expect.anything(),
     );
-    expect(conversations.repairLegacyAwaitingHuman).toHaveBeenCalledBefore(
-      conversations.seedMissingWork,
-    );
-    expect(conversations.repairLegacyAwaitingHuman).toHaveBeenCalledWith({
-      at: now,
-      limit: 100,
-    });
-    expect(conversations.seedMissingWork).toHaveBeenCalledWith({
-      dueAt: now,
-      limit: 100,
-    });
-    expect(conversations.listDueWork).toHaveBeenCalledWith({
-      dueAt: now,
-      limit: 100,
-    });
-  });
-
-  it("still recovers native V2 work when compatibility seeding fails", async () => {
-    const { service, conversations } = createService();
-    conversations.seedMissingWork.mockRejectedValue(
-      new Error("legacy bootstrap query failed"),
-    );
-
-    await expect(service.recoverDue("maintenance", now)).resolves.toEqual({
-      examined: 0,
-      queued: 0,
-    });
-
-    expect(conversations.listDueWork).toHaveBeenCalledWith({
-      dueAt: now,
-      limit: 100,
-    });
-  });
-
-  it("still recovers native V2 work when the cursor-first bridge fails", async () => {
-    const { service, conversations } = createService();
-    conversations.repairLegacyAwaitingHuman.mockRejectedValue(
-      new Error("legacy repair query failed"),
-    );
-
-    await expect(service.recoverDue("maintenance", now)).resolves.toEqual({
-      examined: 0,
-      queued: 0,
-    });
-
-    expect(conversations.seedMissingWork).toHaveBeenCalledOnce();
-    expect(conversations.listDueWork).toHaveBeenCalledWith({
-      dueAt: now,
-      limit: 100,
-    });
   });
 
   it("keyset-pages beyond an oldest prefix whose wake-ups are already live", async () => {
@@ -210,14 +168,18 @@ describe("FeedbackConversationWakeupService", () => {
       queued: 101,
     });
 
-    expect(conversations.listDueWork).toHaveBeenNthCalledWith(2, {
-      dueAt: now,
-      limit: 100,
-      after: {
-        nextActionAt: firstPage[99]?.work?.nextActionAt,
-        conversationId: firstPage[99]?._id,
+    expect(conversations.listDueWork).toHaveBeenNthCalledWith(
+      2,
+      {
+        dueAt: now,
+        limit: 100,
+        after: {
+          nextActionAt: firstPage[99]?.work?.nextActionAt,
+          conversationId: firstPage[99]?._id,
+        },
       },
-    });
+      expect.anything(),
+    );
     expect(ensureQueued).toHaveBeenCalledWith(
       expect.objectContaining({ conversationId: beyondFirstPage._id }),
     );
@@ -249,14 +211,18 @@ describe("FeedbackConversationWakeupService", () => {
     });
 
     expect(conversations.listDueWork).toHaveBeenCalledTimes(10);
-    expect(conversations.listDueWork).toHaveBeenNthCalledWith(6, {
-      dueAt: now,
-      limit: 100,
-      after: {
-        nextActionAt: dueConversation(500).work.nextActionAt,
-        conversationId: dueConversation(500)._id,
+    expect(conversations.listDueWork).toHaveBeenNthCalledWith(
+      6,
+      {
+        dueAt: now,
+        limit: 100,
+        after: {
+          nextActionAt: dueConversation(500).work.nextActionAt,
+          conversationId: dueConversation(500)._id,
+        },
       },
-    });
+      expect.anything(),
+    );
   });
 
   it("shares its durable checkpoint across worker replicas", async () => {
@@ -281,14 +247,17 @@ describe("FeedbackConversationWakeupService", () => {
     await first.service.recoverDue("replica-a", now);
     await second.service.recoverDue("replica-b", now);
 
-    expect(second.conversations.listDueWork).toHaveBeenCalledWith({
-      dueAt: now,
-      limit: 100,
-      after: {
-        nextActionAt: dueConversation(500).work.nextActionAt,
-        conversationId: dueConversation(500)._id,
+    expect(second.conversations.listDueWork).toHaveBeenCalledWith(
+      {
+        dueAt: now,
+        limit: 100,
+        after: {
+          nextActionAt: dueConversation(500).work.nextActionAt,
+          conversationId: dueConversation(500)._id,
+        },
       },
-    });
+      expect.anything(),
+    );
   });
 
   it("advances the checkpoint before publishing and isolates item failures", async () => {
@@ -336,8 +305,6 @@ function createService(
   };
   const conversations = {
     markWorkDue: vi.fn(),
-    repairLegacyAwaitingHuman: vi.fn().mockResolvedValue(0),
-    seedMissingWork: vi.fn().mockResolvedValue(0),
     listDueWork: vi.fn().mockResolvedValue([]),
   };
   const transaction = {} as AppTransaction;

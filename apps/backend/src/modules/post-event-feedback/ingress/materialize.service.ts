@@ -17,7 +17,9 @@ import {
 import {
   FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH,
   deriveFeedbackStopAckOutboxId,
+  resolveFeedbackConversationWork,
   type FeedbackConversationDocument,
+  type FeedbackConversationWork,
 } from "../post-event-feedback-conversation.document.js";
 import { ParticipantsRepository } from "../../participants/participants.repository.js";
 import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
@@ -63,15 +65,16 @@ export interface MaterializeFeedbackIngressResult {
 
 /**
  * The durable consumer behind the webhook (D7). It reloads every authoritative
- * fact, resolves the conversation through the Mongo partial unique index (D9),
+ * fact, resolves the conversation through the open-phone unique index (D9),
  * keeps unmatched shared-session traffic metadata-only (D10), applies STOP
  * deterministically before any AI (D14) and correlates observed outbound
  * messages to the outbox, treating an uncorrelated one as external channel
  * activity (D17).
  *
- * Every step is replay-safe. Cross-store work always moves forward — MongoDB
- * first, then the PostgreSQL fence that marks the ingress row terminal — so a
- * crash re-runs an idempotent no-op instead of losing or duplicating an effect.
+ * Every side effect of one ingress row commits in a single transaction. Queue
+ * publication and campaign-summary notifications happen after that commit.
+ * The session routing lock still serializes FIFO drain across rows; it is not
+ * a global FIFO.
  */
 @Injectable()
 export class PostEventFeedbackMaterializer {
@@ -170,67 +173,73 @@ export class PostEventFeedbackMaterializer {
     const text = ingress.text?.trim() ?? "";
 
     if (text.length > 0 && matchesPostEventFeedbackStopCommand(text)) {
-      return this.applyStop(ingress, conversation, correlationId, null);
+      return this.applyStop(ingress, conversation, correlationId);
     }
 
     const retainsText = conversation.lifecycle.reason !== "stopped";
-    let writtenMessageId: string | null = null;
-    if (retainsText && text.length > 0) {
-      try {
-        const appended = await this.conversations.appendMessage({
-          conversationId: conversation._id,
-          actor: "participant",
-          text: fitToTranscript(text).text,
-          at: ingress.observedAt,
-          providerMessageId: ingress.providerMessageId,
-          ingressId: ingress.id,
-        });
-        writtenMessageId = appended.message.id;
-      } catch (error) {
-        if (!(error instanceof FeedbackConversationCapacityError)) {
-          throw error;
+    await this.withPendingIngress(
+      ingress.id,
+      async (transaction) => {
+        let writtenMessageId: string | null = null;
+        if (retainsText && text.length > 0) {
+          try {
+            const appended = await this.conversations.appendMessage(
+              transaction,
+              {
+                conversationId: conversation._id,
+                actor: "participant",
+                text: fitToTranscript(text).text,
+                at: ingress.observedAt,
+                providerMessageId: ingress.providerMessageId,
+                ingressId: ingress.id,
+              },
+            );
+            writtenMessageId = appended.message.id;
+          } catch (error) {
+            if (!(error instanceof FeedbackConversationCapacityError)) {
+              throw error;
+            }
+            this.logger.warn({
+              event: "feedback.materialize.transcript_capacity",
+              correlationId,
+              ingressId: ingress.id,
+              conversationId: conversation._id,
+            });
+          }
         }
-        this.logger.warn({
-          event: "feedback.materialize.transcript_capacity",
-          correlationId,
-          ingressId: ingress.id,
+
+        // Anchored on the turn that was just written, because the whole reason
+        // this path raises at all is that nobody is watching a closed
+        // conversation and this is the message they need to read. A STOP-closed
+        // thread keeps no text, so there is nothing to link to.
+        await this.conversations.raiseAttention(transaction, {
           conversationId: conversation._id,
+          kind: "post_closure_message",
+          messageId: writtenMessageId,
+          at: ingress.observedAt,
         });
-      }
-    }
-
-    // Anchored on the turn that was just written, because the whole reason this
-    // path raises at all is that nobody is watching a closed conversation and
-    // this is the message they need to read. A STOP-closed thread keeps no text,
-    // so there is nothing to link to and the reason says so.
-    await this.conversations.raiseAttention({
-      conversationId: conversation._id,
-      kind: "post_closure_message",
-      messageId: writtenMessageId,
-      at: ingress.observedAt,
-    });
-
-    await this.withPendingIngress(ingress.id, async (transaction) => {
-      await this.audit.append(transaction, {
-        actorType: "participant",
-        actorId: conversation.respondentParticipantId,
-        action: "feedback_conversation.post_closure_message",
-        entityType: "feedback_conversation",
-        entityId: conversation._id,
-        requestId: correlationId,
-        context: {
-          ingressId: ingress.id,
-          campaignId: conversation.campaignId,
-          closedBecause: conversation.lifecycle.reason,
-          textRetained: retainsText,
-        },
-      });
-      await this.ingress.updateIngressProcessing(transaction, ingress.id, {
-        processingStatus: "materialized",
-        matchedConversationId: conversation._id,
-        ...(retainsText ? {} : { text: null }),
-      });
-    });
+        await this.audit.append(transaction, {
+          actorType: "participant",
+          actorId: conversation.respondentParticipantId,
+          action: "feedback_conversation.post_closure_message",
+          entityType: "feedback_conversation",
+          entityId: conversation._id,
+          requestId: correlationId,
+          context: {
+            ingressId: ingress.id,
+            campaignId: conversation.campaignId,
+            closedBecause: conversation.lifecycle.reason,
+            textRetained: retainsText,
+          },
+        });
+        await this.ingress.updateIngressProcessing(transaction, ingress.id, {
+          processingStatus: "materialized",
+          matchedConversationId: conversation._id,
+          ...(retainsText ? {} : { text: null }),
+        });
+      },
+      conversation._id,
+    );
 
     this.logger.log({
       event: "feedback.materialize.post_closure",
@@ -314,21 +323,89 @@ export class PostEventFeedbackMaterializer {
     }
 
     const stopRequested = matchesPostEventFeedbackStopCommand(text);
-    const rendered = fitToTranscript(text);
-    let writtenMessageId: string;
-    let materializedConversation: FeedbackConversationDocument;
+    if (stopRequested) {
+      return this.applyStop(ingress, conversation, correlationId);
+    }
 
+    const rendered = fitToTranscript(text);
+    let materialized: { work: FeedbackConversationWork } | undefined;
     try {
-      const appended = await this.conversations.appendMessage({
-        conversationId: conversation._id,
-        actor: "participant",
-        text: rendered.text,
-        at: ingress.observedAt,
-        providerMessageId: ingress.providerMessageId,
-        ingressId: ingress.id,
-      });
-      writtenMessageId = appended.message.id;
-      materializedConversation = appended.conversation;
+      materialized = await this.withPendingIngress(
+        ingress.id,
+        async (transaction) => {
+          const appended = await this.conversations.appendMessage(transaction, {
+            conversationId: conversation._id,
+            actor: "participant",
+            text: rendered.text,
+            at: ingress.observedAt,
+            providerMessageId: ingress.providerMessageId,
+            ingressId: ingress.id,
+          });
+
+          if (rendered.truncated) {
+            await this.conversations.raiseAttention(transaction, {
+              conversationId: conversation._id,
+              kind: "transcript_mismatch",
+              messageId: appended.message.id,
+              at: ingress.observedAt,
+            });
+            this.logger.warn({
+              event: "feedback.materialize.transcript_truncated",
+              correlationId,
+              ingressId: ingress.id,
+              conversationId: conversation._id,
+              originalLength: text.length,
+            });
+          }
+
+          // An edited redelivery reaches the transcript as its own turn, so both
+          // versions are readable. Which one the participant meant is a judgement
+          // for a person. Same reason kind as a truncation: both say the
+          // transcript is not what arrived.
+          if (isFeedbackEditedProviderMessageId(ingress.providerMessageId)) {
+            await this.conversations.raiseAttention(transaction, {
+              conversationId: conversation._id,
+              kind: "transcript_mismatch",
+              messageId: appended.message.id,
+              at: ingress.observedAt,
+            });
+            this.logger.warn({
+              event: "feedback.materialize.edited_redelivery",
+              correlationId,
+              ingressId: ingress.id,
+              conversationId: conversation._id,
+            });
+          }
+
+          const due = await this.conversations.markWorkDue(transaction, {
+            conversationId: conversation._id,
+            nextActionAt: new Date(
+              ingress.observedAt.getTime() + FEEDBACK_EXTRACT_QUIET_WINDOW_MS,
+            ),
+            at: ingress.observedAt,
+          });
+          const currentHandoffOutboxId = currentAwaitingHumanCommitmentOutboxId(
+            appended.conversation,
+          );
+          const terminalOutboxId =
+            appended.conversation.lifecycle.state === "closed"
+              ? (appended.conversation.lifecycle.terminalOutboxId ?? null)
+              : null;
+          await this.outbox.cancelQueuedSupersededAutomationForConversation(
+            transaction,
+            conversation._id,
+            [currentHandoffOutboxId, terminalOutboxId].filter(
+              (id): id is string => id !== null,
+            ),
+          );
+          await this.ingress.updateIngressProcessing(transaction, ingress.id, {
+            processingStatus: "materialized",
+            matchedConversationId: conversation._id,
+          });
+          return { work: due.work };
+        },
+        conversation._id,
+      );
     } catch (error) {
       if (!(error instanceof FeedbackConversationCapacityError)) {
         throw error;
@@ -341,136 +418,56 @@ export class PostEventFeedbackMaterializer {
       );
     }
 
-    // The whole message is in the ingress row; only the rendered copy was cut.
-    // Saying so is the point — a truncation nobody is told about reads in the
-    // admin as the complete message, and the part that did not fit is the part
-    // people build up to.
-    if (rendered.truncated) {
-      await this.conversations.raiseAttention({
-        conversationId: conversation._id,
-        kind: "transcript_mismatch",
-        messageId: writtenMessageId,
-        at: ingress.observedAt,
-      });
-      this.logger.warn({
-        event: "feedback.materialize.transcript_truncated",
+    if (!materialized) {
+      return this.complete(
+        { outcome: "already_processed", conversationId: conversation._id },
         correlationId,
-        ingressId: ingress.id,
-        conversationId: conversation._id,
-        originalLength: text.length,
-      });
-    }
-
-    // An edited redelivery reaches the transcript as its own turn, so both
-    // versions are readable. Which one the participant meant is a judgement for
-    // a person — «ο Κώστας ήταν χάλια» corrected to «ο Κώστας τελικά ήταν οκ»
-    // is about a real participant, and neither silently overwriting the first
-    // nor silently keeping it is ours to decide.
-    //
-    // Same reason kind as a truncation on purpose: both say the transcript is
-    // not what arrived, and the operator does the same thing about either —
-    // open this message and read what the participant actually sent. A message
-    // that was both cut and edited is therefore one row to dismiss, not two.
-    if (isFeedbackEditedProviderMessageId(ingress.providerMessageId)) {
-      await this.conversations.raiseAttention({
-        conversationId: conversation._id,
-        kind: "transcript_mismatch",
-        messageId: writtenMessageId,
-        at: ingress.observedAt,
-      });
-      this.logger.warn({
-        event: "feedback.materialize.edited_redelivery",
-        correlationId,
-        ingressId: ingress.id,
-        conversationId: conversation._id,
-      });
-    }
-
-    if (stopRequested) {
-      return this.applyStop(
-        ingress,
-        conversation,
-        correlationId,
-        writtenMessageId,
       );
     }
 
-    // Enqueued before the ingress row becomes terminal: a crash in between
-    // replays the whole job, whereas the reverse order would lose the run.
-    const extractJobId = await this.enqueueExtraction(
+    const extractJobId = await this.publishWakeup(
       conversation._id,
+      materialized.work,
       correlationId,
       ingress.observedAt,
-    );
-
-    const currentHandoffOutboxId = currentAwaitingHumanCommitmentOutboxId(
-      materializedConversation,
-    );
-    const terminalOutboxId =
-      materializedConversation.lifecycle.state === "closed"
-        ? (materializedConversation.lifecycle.terminalOutboxId ?? null)
-        : null;
-    await this.withPendingIngress(
-      ingress.id,
-      async (transaction) => {
-        // A participant turn supersedes questionnaire copy that has not crossed
-        // provider entry. Hold the same mutex as the dispatcher's final marker,
-        // while retaining only exact Mongo-authorized handoff/terminal promises
-        // plus system and staff rows (which the repository excludes by kind).
-        await this.outbox.cancelQueuedSupersededAutomationForConversation(
-          transaction,
-          conversation._id,
-          [currentHandoffOutboxId, terminalOutboxId].filter(
-            (id): id is string => id !== null,
-          ),
-        );
-        await this.ingress.updateIngressProcessing(transaction, ingress.id, {
-          processingStatus: "materialized",
-          matchedConversationId: conversation._id,
-        });
-      },
-      conversation._id,
     );
 
     return this.complete(
       {
         outcome: "inbound_materialized",
         conversationId: conversation._id,
-        extractJobId,
+        ...(extractJobId ? { extractJobId } : {}),
       },
       correlationId,
     );
   }
 
   /**
-   * D14: STOP is deterministic, checked before any model call and effective in
-   * both control modes. The conversation closes first so no writer can speak
-   * again, then PostgreSQL cancels queued sends, records the single
-   * acknowledgement, withdraws the opt-in and audits the whole transition.
+   * D14: STOP is deterministic in both control modes. Consent, close, ack,
+   * outbox cancel and ingress settlement share one transaction. Campaign SHARE
+   * precedes conversation-row writes so resume cannot deadlock.
    */
   private async applyStop(
     ingress: ProviderMessageIngressRow,
     conversation: FeedbackConversationDocument,
     correlationId: string,
-    /**
-     * The transcript turn carrying the STOP, when there is one. A STOP that
-     * arrives after closure is never written to the transcript, so that path
-     * has nothing to anchor on and passes `null` rather than inventing a link.
-     */
-    stopMessageId: string | null,
   ): Promise<MaterializeFeedbackIngressResult> {
+    const text = ingress.text?.trim() ?? "";
     const applied = await this.withPendingIngress(
       ingress.id,
       async (transaction) => {
-        // The acknowledgement row exists before the lifecycle CAS so MongoDB
-        // can authorize its exact id. If this transaction later rolls back,
-        // the open lifecycle cannot make the uncommitted row visible; if the
-        // cross-store close commits first and PostgreSQL fails, ingress replay
-        // recreates the same row through its dedupe key.
         const campaign = await this.campaigns.findCampaignByIdForShare(
           transaction,
           conversation.campaignId,
         );
+        const stopMessageId = await this.appendStopTurnIfCapacityAllows(
+          transaction,
+          ingress,
+          conversation,
+          text,
+          correlationId,
+        );
+
         const stopAck = await this.outbox.insertOutboxIfAbsent(transaction, {
           id: deriveFeedbackStopAckOutboxId(conversation._id),
           conversationId: conversation._id,
@@ -482,23 +479,18 @@ export class PostEventFeedbackMaterializer {
           ).stop_ack.slice(0, FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH),
           dedupeKey: createFeedbackStopAckDedupeKey(conversation._id),
         });
-        const closed = await this.conversations.close({
+        const closed = await this.conversations.close(transaction, {
           conversationId: conversation._id,
           reason: "stopped",
           at: ingress.observedAt,
           terminalOutboxId: stopAck.row.id,
         });
 
-        // Somebody who opts out without having answered a single question is
-        // the shape of a number that changed hands: a stranger is being asked
-        // about a dinner they were never at. The reason is durable and
-        // idempotent, so holding the shared conversation lock across this Mongo
-        // write and the PostgreSQL cancellation is safe on replay.
         const answeredNothing = conversation.goals.every(
           (goal) => goal.status !== "answered",
         );
         if (answeredNothing) {
-          await this.conversations.raiseAttention({
+          await this.conversations.raiseAttention(transaction, {
             conversationId: conversation._id,
             kind: "stopped_without_answers",
             messageId: stopMessageId,
@@ -521,6 +513,21 @@ export class PostEventFeedbackMaterializer {
           },
           correlationId,
         });
+        const recorded = await this.outboundTranscript.record(
+          transaction,
+          stopAck.row,
+          ingress.observedAt,
+          correlationId,
+        );
+        if (recorded.outcome === "cancelled") {
+          this.logger.warn({
+            event: "feedback.materialize.stop_ack_transcript_cancelled",
+            correlationId,
+            ingressId: ingress.id,
+            conversationId: conversation._id,
+            reason: recorded.reason,
+          });
+        }
 
         const optInWithdrawn = await this.withdrawFeedbackOptIn(
           transaction,
@@ -560,16 +567,6 @@ export class PostEventFeedbackMaterializer {
         correlationId,
         applied.closed,
       );
-      // Appends are allowed on a closed conversation: the transcript records
-      // what actually happened, and the acknowledgement is observed after the
-      // closure. A crash here cannot be repaired by a replay — the fence above
-      // already marked the ingress row terminal — so the WP6 delivery job
-      // re-runs this same idempotent append before it sends.
-      await this.outboundTranscript.record(
-        applied.stopAck,
-        ingress.observedAt,
-        correlationId,
-      );
     }
 
     return this.complete(
@@ -580,6 +577,68 @@ export class PostEventFeedbackMaterializer {
       },
       correlationId,
     );
+  }
+
+  /**
+   * Optional STOP append. Capacity is not a consent failure: keep raw ingress,
+   * retain `transcript_full`, and still close/opt-out. Other errors abort.
+   */
+  private async appendStopTurnIfCapacityAllows(
+    transaction: AppTransaction,
+    ingress: ProviderMessageIngressRow,
+    conversation: FeedbackConversationDocument,
+    text: string,
+    correlationId: string,
+  ): Promise<string | null> {
+    if (conversation.lifecycle.state !== "open" || text.length === 0) {
+      return null;
+    }
+
+    const rendered = fitToTranscript(text);
+    try {
+      const appended = await this.conversations.appendMessage(transaction, {
+        conversationId: conversation._id,
+        actor: "participant",
+        text: rendered.text,
+        at: ingress.observedAt,
+        providerMessageId: ingress.providerMessageId,
+        ingressId: ingress.id,
+      });
+      if (rendered.truncated) {
+        await this.conversations.raiseAttention(transaction, {
+          conversationId: conversation._id,
+          kind: "transcript_mismatch",
+          messageId: appended.message.id,
+          at: ingress.observedAt,
+        });
+      }
+      if (isFeedbackEditedProviderMessageId(ingress.providerMessageId)) {
+        await this.conversations.raiseAttention(transaction, {
+          conversationId: conversation._id,
+          kind: "transcript_mismatch",
+          messageId: appended.message.id,
+          at: ingress.observedAt,
+        });
+      }
+      return appended.message.id;
+    } catch (error) {
+      if (!(error instanceof FeedbackConversationCapacityError)) {
+        throw error;
+      }
+      await this.conversations.raiseAttention(transaction, {
+        conversationId: conversation._id,
+        kind: "transcript_full",
+        messageId: null,
+        at: ingress.observedAt,
+      });
+      this.logger.warn({
+        event: "feedback.materialize.transcript_capacity",
+        correlationId,
+        ingressId: ingress.id,
+        conversationId: conversation._id,
+      });
+      return null;
+    }
   }
 
   private async withdrawFeedbackOptIn(
@@ -678,7 +737,7 @@ export class PostEventFeedbackMaterializer {
     await this.withPendingIngress(
       ingress.id,
       async (transaction) => {
-        const takeover = await this.conversations.takeOver({
+        const takeover = await this.conversations.takeOver(transaction, {
           conversationId: conversation._id,
           source: "external_outbound",
           at: ingress.observedAt,
@@ -693,7 +752,7 @@ export class PostEventFeedbackMaterializer {
         const text = ingress.text?.trim() ?? "";
         if (text.length > 0) {
           try {
-            await this.conversations.appendMessage({
+            await this.conversations.appendMessage(transaction, {
               conversationId: conversation._id,
               actor: "staff",
               text,
@@ -806,15 +865,12 @@ export class PostEventFeedbackMaterializer {
     // lie about why we went quiet.
     let notice = { inserted: false };
     if (reason === "transcript_capacity") {
-      // A full transcript disables the bot. Take the dispatcher's shared mutex
-      // across that Mongo transition and the durable ingress fence so it cannot
-      // slip between the final state read and provider-entry marker. A replay
-      // that lost the PostgreSQL commit repeats idempotent Mongo writes.
+      // Commit the bot brake and failed ingress under the dispatcher's mutex.
       await this.withPendingIngress(
         ingress.id,
         async (transaction) => {
-          await this.conversations.raiseAttention(attention);
-          await this.conversations.markAwaitingHuman({
+          await this.conversations.raiseAttention(transaction, attention);
+          await this.conversations.markAwaitingHuman(transaction, {
             conversationId: conversation._id,
             at: ingress.observedAt,
           });
@@ -830,14 +886,31 @@ export class PostEventFeedbackMaterializer {
         conversation._id,
       );
     } else {
-      await this.conversations.raiseAttention(attention);
-      notice = await this.sendMediaNotice(ingress, conversation, correlationId);
-      await this.withPendingIngress(ingress.id, (transaction) =>
-        this.ingress.updateIngressProcessing(transaction, ingress.id, {
-          processingStatus: "failed",
-          matchedConversationId: conversation._id,
-        }),
-      );
+      notice = (await this.withPendingIngress(
+        ingress.id,
+        async (transaction) => {
+          // Campaign SHARE before the conversation-row attention write.
+          // Resume takes campaign FOR UPDATE then updates conversation rows;
+          // the inverse deadlocks. `sendMediaNotice` re-takes the same SHARE.
+          await this.campaigns.findCampaignByIdForShare(
+            transaction,
+            conversation.campaignId,
+          );
+          await this.conversations.raiseAttention(transaction, attention);
+          const sent = await this.sendMediaNotice(
+            transaction,
+            ingress,
+            conversation,
+            correlationId,
+          );
+          await this.ingress.updateIngressProcessing(transaction, ingress.id, {
+            processingStatus: "failed",
+            matchedConversationId: conversation._id,
+          });
+          return sent;
+        },
+        conversation._id,
+      )) ?? { inserted: false };
     }
 
     this.logger.warn({
@@ -864,11 +937,13 @@ export class PostEventFeedbackMaterializer {
    * burst of voice notes materializing in parallel.
    */
   private async sendMediaNotice(
+    transaction: AppTransaction,
     ingress: ProviderMessageIngressRow,
     conversation: FeedbackConversationDocument,
     correlationId: string,
   ): Promise<{ inserted: boolean }> {
-    const campaign = await this.campaigns.findCampaignById(
+    const campaign = await this.campaigns.findCampaignByIdForShare(
+      transaction,
       conversation.campaignId,
     );
     // The kill switch still governs: a paused campaign says nothing at all.
@@ -876,33 +951,31 @@ export class PostEventFeedbackMaterializer {
       return { inserted: false };
     }
 
-    const notice = await this.database.transaction(async (transaction) => {
-      const result = await this.outbox.insertOutboxIfAbsent(transaction, {
-        conversationId: conversation._id,
-        campaignId: conversation.campaignId,
-        kind: "system",
-        body: resolveCampaignCopy(
-          campaign.questions,
-          campaign.questionSetVersion,
-        ).cannot_read_media.slice(
-          0,
-          FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH,
-        ),
-        dedupeKey: createFeedbackMediaNoticeDedupeKey(conversation._id),
-      });
-      await this.outboundLog.record(transaction, {
-        outbox: result,
-        conversation,
-        decision: {
-          origin: "media_notice",
-          sourceIngressId: ingress.id,
-        },
-        correlationId,
-      });
-      return result;
+    const notice = await this.outbox.insertOutboxIfAbsent(transaction, {
+      conversationId: conversation._id,
+      campaignId: conversation.campaignId,
+      kind: "system",
+      body: resolveCampaignCopy(
+        campaign.questions,
+        campaign.questionSetVersion,
+      ).cannot_read_media.slice(
+        0,
+        FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH,
+      ),
+      dedupeKey: createFeedbackMediaNoticeDedupeKey(conversation._id),
+    });
+    await this.outboundLog.record(transaction, {
+      outbox: notice,
+      conversation,
+      decision: {
+        origin: "media_notice",
+        sourceIngressId: ingress.id,
+      },
+      correlationId,
     });
     if (notice.inserted) {
       await this.outboundTranscript.record(
+        transaction,
         notice.row,
         ingress.observedAt,
         correlationId,
@@ -912,24 +985,21 @@ export class PostEventFeedbackMaterializer {
   }
 
   /**
-   * The one place a model turn is born, and therefore the one place the quiet
-   * window belongs. Everything upstream of here — the webhook, the ingress row,
-   * this materialization — stays immediate on purpose: those are the durable
-   * writes that fill the transcript while the window runs, so delaying them
-   * would leave the window with nothing to collect.
+   * Publishes the quiet-window wake-up after the ingress transaction committed
+   * the due revision. Redis is disposable; maintenance rediscovers the same
+   * work column.
    */
-  private async enqueueExtraction(
+  private async publishWakeup(
     conversationId: string,
+    work: FeedbackConversationWork,
     correlationId: string,
-    observedAt: Date,
-  ): Promise<string> {
-    return this.wakeups.schedule({
+    now: Date,
+  ): Promise<string | undefined> {
+    return this.wakeups.ensureQueued({
       conversationId,
-      nextActionAt: new Date(
-        observedAt.getTime() + FEEDBACK_EXTRACT_QUIET_WINDOW_MS,
-      ),
+      work: resolveFeedbackConversationWork(work),
       correlationId,
-      at: observedAt,
+      now,
     });
   }
 

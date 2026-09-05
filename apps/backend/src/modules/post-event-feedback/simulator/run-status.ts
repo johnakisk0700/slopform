@@ -226,7 +226,7 @@ export function toRunView({
  * Rehearsal progress from the same durable state the operator screen reads.
  *
  * BullMQ wake-ups are intentionally absent: retention can delete one and a
- * missing enqueue is repaired from MongoDB. PostgreSQL's live lease is the
+ * missing enqueue is repaired from the conversation row. PostgreSQL's live lease is the
  * only execution signal. A deterministic fallback is durable as an unresolved
  * `extraction_failed` attention reason, so the runner can terminate instead of
  * waiting forever for a failed V1 job that no longer exists.

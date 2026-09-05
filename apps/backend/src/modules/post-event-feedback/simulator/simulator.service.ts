@@ -485,10 +485,13 @@ export class FeedbackSimulatorService {
         ? []
         : [intro];
       for (const intro of missingIntroRows) {
-        const repair = await this.outboundTranscript.record(
-          intro,
-          intro.createdAt,
-          correlationId,
+        const repair = await this.database.transaction((transaction) =>
+          this.outboundTranscript.record(
+            transaction,
+            intro,
+            intro.createdAt,
+            correlationId,
+          ),
         );
         if (repair.outcome === "cancelled") {
           throw new FeedbackSimulatorRunRejectedError(

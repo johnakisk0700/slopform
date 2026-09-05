@@ -7,23 +7,23 @@ files add area rules; they never cancel this one.
 
 `docs/` is the project's memory. Do not read it end to end — find your row.
 
-| Changing                      | Read first                                                                                                                                                     |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| any HTTP endpoint or DTO      | [api-contract](docs/backend/mechanisms/api-contract.md)                                                                                                        |
-| anything under `apps/admin`   | [apps/admin/AGENTS.md](apps/admin/AGENTS.md), then [frontend](docs/frontend.md)                                                                                |
-| anything under `apps/backend` | [apps/backend/AGENTS.md](apps/backend/AGENTS.md), then [backend](docs/backend.md)                                                                              |
-| post-event feedback           | [the module](docs/backend/modules/post-event-feedback.md), and [its scenarios](docs/backend/modules/post-event-feedback-scenarios.md) before touching the loop |
-| the AI assistant              | [assistant module](docs/backend/modules/assistant.md), [assistant screen](docs/frontend/assistant.md)                                                          |
-| queues, jobs, retries         | [queues](docs/backend/mechanisms/queues.md)                                                                                                                    |
-| conversation storage          | [mongodb](docs/backend/mechanisms/mongodb.md), [ADR 0007](docs/decisions/0007-mongodb-conversation-authority.md)                                               |
-| sign-in or authorization      | [authentication](docs/backend/mechanisms/authentication.md)                                                                                                    |
-| WhatsApp delivery             | [wasender](docs/backend/mechanisms/wasender.md)                                                                                                                |
-| colors, spacing, type         | [theming](docs/frontend/theming.md) — never hardcode a value a token owns                                                                                      |
-| a reusable `Jts*` component   | [component inventory](docs/frontend/components/README.md)                                                                                                      |
-| schema or migrations          | [database](docs/backend/mechanisms/database.md)                                                                                                                |
-| local data, by hand           | [local-data-query](docs/backend/mechanisms/local-data-query.md) — read it before writing anything                                                              |
-| containers or the VPS         | [deployment](docs/deployment.md)                                                                                                                               |
-| shutdown, health, logging     | [runtime-operations](docs/backend/mechanisms/runtime-operations.md)                                                                                            |
+| Changing                      | Read first                                                                                                                                                           |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| any HTTP endpoint or DTO      | [api-contract](docs/backend/mechanisms/api-contract.md)                                                                                                              |
+| anything under `apps/admin`   | [apps/admin/AGENTS.md](apps/admin/AGENTS.md), then [frontend](docs/frontend.md)                                                                                      |
+| anything under `apps/backend` | [apps/backend/AGENTS.md](apps/backend/AGENTS.md), then [backend](docs/backend.md)                                                                                    |
+| post-event feedback           | [the module](docs/backend/modules/post-event-feedback.md), and [its scenarios](docs/backend/modules/post-event-feedback-scenarios.md) before touching the loop       |
+| the AI assistant              | [assistant module](docs/backend/modules/assistant.md), [assistant screen](docs/frontend/assistant.md)                                                                |
+| queues, jobs, retries         | [queues](docs/backend/mechanisms/queues.md)                                                                                                                          |
+| conversation storage          | [database](docs/backend/mechanisms/database.md), [mongodb](docs/backend/mechanisms/mongodb.md), [ADR 0015](docs/decisions/0015-postgresql-feedback-conversations.md) |
+| sign-in or authorization      | [authentication](docs/backend/mechanisms/authentication.md)                                                                                                          |
+| WhatsApp delivery             | [wasender](docs/backend/mechanisms/wasender.md)                                                                                                                      |
+| colors, spacing, type         | [theming](docs/frontend/theming.md) — never hardcode a value a token owns                                                                                            |
+| a reusable `Jts*` component   | [component inventory](docs/frontend/components/README.md)                                                                                                            |
+| schema or migrations          | [database](docs/backend/mechanisms/database.md)                                                                                                                      |
+| local data, by hand           | [local-data-query](docs/backend/mechanisms/local-data-query.md) — read it before writing anything                                                                    |
+| containers or the VPS         | [deployment](docs/deployment.md)                                                                                                                                     |
+| shutdown, health, logging     | [runtime-operations](docs/backend/mechanisms/runtime-operations.md)                                                                                                  |
 
 Two directories are records, not instructions. **Never build from them.**
 [`docs/history/`](docs/history/README.md) holds plans already carried out —

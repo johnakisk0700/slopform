@@ -63,20 +63,11 @@ export class FeedbackResultsRepository {
   constructor(private readonly database: DatabaseService) {}
 
   /**
-   * Removes answers about one person that the answer just written contradicts.
+   * Removes answers about one person that the new answer contradicts.
    *
-   * The uniqueness key is per (conversation, question, subject), so moving
-   * somebody from `liked` to `avoid` writes a second row and keeps the first:
-   * staff then read that the participant both liked Κώστας and asked never to
-   * meet him again, with nothing to break the tie. Only the participant's
-   * newest position is true, and this is what makes it the only one on file.
-   *
-   * A row a human corrected is left alone. This is the one place in the module
-   * that hard-deletes an answer the model did not write, and the delete is
-   * driven by the model: a later run accepting `avoid` for somebody would
-   * otherwise erase an operator's corrected `liked` row with no trace on the
-   * row at all. Freezing means the model may stop agreeing with a human, not
-   * that it may delete them.
+   * Uniqueness is per (conversation, question, subject), so a move between
+   * lists would otherwise leave both rows. Operator-corrected rows are frozen:
+   * the model may disagree, it may not delete them.
    */
   async deleteContradictedAnswers(
     transaction: AppTransaction,
@@ -117,14 +108,8 @@ export class FeedbackResultsRepository {
       readonly matchingHold?: boolean;
     },
   ): Promise<FeedbackAnswerRow | undefined> {
-    // The second half of the withdrawal freeze, and the reason the tombstone
-    // table exists. A withdrawal is a hard delete, so without this a later run
-    // citing new testimony about the same question and subject inserts the
-    // answer straight back and the operator's decision is undone with nothing
-    // anywhere saying it happened. Read here rather than guarded in SQL because
-    // the row being frozen does not exist to carry a predicate; safe against a
-    // withdrawal landing mid-run because both paths hold the conversation
-    // advisory lock for the whole transaction.
+    // Withdrawal tombstone: the deleted row cannot carry a SQL freeze
+    // predicate. Both paths hold the conversation advisory lock.
     const withdrawn = await this.findAnswerWithdrawal(transaction, {
       conversationId: input.conversationId,
       questionKey: input.questionKey,
@@ -147,25 +132,11 @@ export class FeedbackResultsRepository {
         extractionMeta: input.extractionMeta,
         matchingHold: input.matchingHold ?? false,
       })
-      // People change their minds — «βασικά 2, το ξανασκέφτηκα» — and an answer
-      // that cannot be revised turned that into silence: the second value was
-      // dropped, the bot said it had noted the change, and staff read the first
-      // one forever. The newest reading of a question wins, which is what the
-      // participant means by saying it again.
-      //
-      // Replay-safe: the same run rewrites the same values, and two runs on one
-      // conversation are serialized by the advisory lock while the extraction
-      // cursor stops an older run from re-reading messages a newer one has
-      // already closed. So "newest write" and "newest testimony" agree.
-      //
-      // Two things the update is not allowed to do. It may not overwrite a row
-      // an operator corrected — `setWhere` skips those, so the conflicting
-      // insert writes nothing and the correction stands even if a run built its
-      // context before the correction landed. And it may not drop the
-      // `corrections` array while updating a row that is *not* frozen, so the
-      // new provenance is merged over the old blob with that key carried
-      // across; replacing `extraction_meta` wholesale would leave the audit
-      // table as the only record that a human had ever touched the row.
+      // Newest testimony wins. Replay-safe: same run rewrites the same values;
+      // the advisory lock serializes runs; the cursor stops an older run from
+      // re-reading closed messages. `setWhere` skips operator-corrected rows.
+      // Merge provenance and keep `corrections` — do not replace
+      // `extraction_meta` wholesale.
       .onConflictDoUpdate({
         target: [
           feedbackAnswers.conversationId,
@@ -177,11 +148,7 @@ export class FeedbackResultsRepository {
           valueInt: input.valueInt ?? null,
           sourceMessageIds: [...input.sourceMessageIds],
           extractionMeta: sql`${sql.raw(`excluded.${feedbackAnswers.extractionMeta.name}`)} || case when ${feedbackAnswers.extractionMeta} ? ${CORRECTIONS_KEY} then jsonb_build_object(${CORRECTIONS_KEY}, ${feedbackAnswers.extractionMeta} -> ${CORRECTIONS_KEY}) else '{}'::jsonb end`,
-          // Sticky, in the direction that cannot lose the hold: once a run has
-          // found the respondent abusing the person an answer is about, a later
-          // burst restating the same answer in polite words does not make it
-          // honourable. `false or true` and `true or false` both stay held, and
-          // only a migration could ever clear one.
+          // Sticky OR: a later polite restatement cannot clear a hold.
           matchingHold: sql`${feedbackAnswers.matchingHold} or ${sql.raw(`excluded.${feedbackAnswers.matchingHold.name}`)}`,
         },
       })
@@ -215,14 +182,8 @@ export class FeedbackResultsRepository {
   }
 
   /**
-   * An operator's correction to a recorded value.
-   *
-   * The row is edited in place; `extractionMeta` is supplied by the caller with
-   * the correction already appended, so `model`, `confidence` and
-   * `candidateIds` from the run that proposed the value survive on the row.
-   * `sourceMessageIds` is untouched: the correction reads the same testimony
-   * differently, and rewriting the citation would claim evidence that does not
-   * exist.
+   * Operator value correction. Caller supplies `extractionMeta` with the
+   * correction already appended so run provenance survives. Citations stay.
    */
   async updateAnswerValue(
     transaction: AppTransaction,
@@ -246,17 +207,8 @@ export class FeedbackResultsRepository {
   }
 
   /**
-   * Withdraws one answer entirely.
-   *
-   * A hard delete, as `deleteContradictedAnswers` already is: a soft-deleted row
-   * would still occupy the `NULLS NOT DISTINCT` uniqueness key and would have to
-   * be filtered out of every read of this table, where one omission puts a claim
-   * an operator retracted back in front of staff. The whole row goes into the
-   * audit context before it goes, which is where a withdrawal is answerable.
-   *
-   * The caller records a tombstone in the same transaction
-   * (`recordAnswerWithdrawal`). Without it the delete says nothing about being
-   * deliberate and a later run simply writes the answer back.
+   * Hard-deletes one answer. Soft-delete would occupy the uniqueness key and
+   * leak into reads. Caller writes the tombstone in the same transaction.
    */
   async deleteAnswer(
     transaction: AppTransaction,
@@ -271,12 +223,8 @@ export class FeedbackResultsRepository {
   }
 
   /**
-   * Marks one answer slot as decided-empty by a human.
-   *
-   * `onConflictDoNothing` on the slot key rather than an error: two operators
-   * withdrawing the same answer a second apart are one decision, and the second
-   * request has nothing to add. The first tombstone is the one that names who
-   * decided, and re-withdrawing is impossible anyway once the row is gone.
+   * Marks one answer slot decided-empty. `onConflictDoNothing` on the slot:
+   * concurrent withdrawals are one decision.
    */
   async recordAnswerWithdrawal(
     transaction: AppTransaction,
@@ -312,16 +260,8 @@ export class FeedbackResultsRepository {
   }
 
   /**
-   * Lifts the tombstone off one slot, for the one caller allowed to: an
-   * operator recording an answer of their own there.
-   *
-   * The freeze exists so a later extraction run cannot quietly undo a human
-   * decision. It was never meant to stop the human from changing their mind, and
-   * leaving the tombstone in place would do exactly that — the `+` on the slot
-   * somebody had just cleared would refuse forever, with the reason invisible.
-   * The withdrawal is still on file in `audit_events`, followed by the
-   * `feedback_answer.staff_recorded` event that replaced it, so the order of the
-   * two decisions is recoverable in the only place that keeps decisions.
+   * Lifts the tombstone so a staff-recorded answer can occupy the slot.
+   * Extraction still cannot undo a withdrawal; `audit_events` keeps the order.
    */
   async deleteAnswerWithdrawal(
     transaction: AppTransaction,
@@ -336,18 +276,9 @@ export class FeedbackResultsRepository {
   }
 
   /**
-   * An answer an operator recorded by hand.
-   *
-   * A plain insert, unlike `insertAnswerIfAbsent`: there is no conflict to
-   * resolve because the caller has already read the slot behind the conversation
-   * lock and refuses when it is taken, and no tombstone to consult because the
-   * caller lifts it. `sourceMessageIds` is empty — nothing was said, an operator
-   * knew it — and the table permits that for `origin: staff` alone.
-   *
-   * `matchingHold` is deliberately not a parameter. The hold means "an
-   * extraction run found the respondent abusing the person this row is about",
-   * which is a finding about testimony; a row with no testimony behind it cannot
-   * carry one.
+   * Staff-recorded answer. Plain insert behind the conversation lock; caller
+   * lifts any tombstone. Empty citations are allowed only for `origin: staff`.
+   * No `matchingHold` — that is a finding about testimony.
    */
   async insertStaffAnswer(
     transaction: AppTransaction,

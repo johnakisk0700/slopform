@@ -93,29 +93,6 @@ describe("FeedbackMaintenanceCheckpointRepository", () => {
     });
   });
 
-  it("maps campaign-resume due-at/campaign-id onto the timed cursor", async () => {
-    const locked = checkpointTransaction(
-      checkpointRow({ task: "campaign_resume", cursorAt, cursorId }),
-    );
-    const repository = new FeedbackMaintenanceCheckpointRepository();
-
-    await expect(
-      repository.lockCampaignResume(locked.transaction),
-    ).resolves.toEqual({ dueAt: cursorAt, campaignId: cursorId });
-    expect(locked.values).toHaveBeenCalledWith({ task: "campaign_resume" });
-    expect(locked.forUpdate).toHaveBeenCalledWith("update");
-
-    await repository.saveCampaignResume(locked.transaction, {
-      dueAt: cursorAt,
-      campaignId: cursorId,
-    });
-    expect(locked.set).toHaveBeenCalledWith({
-      cursorAt,
-      cursorId,
-      updatedAt: expect.anything(),
-    });
-  });
-
   it("fails closed if a conversation checkpoint violates its paired shape", async () => {
     const { transaction } = checkpointTransaction(
       checkpointRow({

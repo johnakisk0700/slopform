@@ -80,12 +80,10 @@ export class FeedbackConversationExecutionFence {
   }
 
   /**
-   * Keeps a paid conversation execution fenced while it waits for provider
-   * capacity and while multi-batch classification runs.
-   *
-   * The heartbeat never grants ownership: every renewal is token/epoch/revision
-   * conditional in PostgreSQL. A failed renewal is logged and later provider
-   * entry/persistence still performs its own authoritative `isCurrent` check.
+   * Renews the paid-execution lease while waiting on provider capacity or
+   * multi-batch classification. Renewal never grants ownership: it is
+   * token/epoch/revision conditional. Provider entry and persistence still
+   * call `isCurrent`.
    */
   startHeartbeat(
     claim: FeedbackConversationExecutionClaim,

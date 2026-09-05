@@ -24,7 +24,8 @@ context. Public documentation and committed deploy examples use Slopform
 - `apps/admin`: private React, HeroUI and Tailwind operator panel
 - `apps/backend`: NestJS modular monolith with separate API and worker processes
 - `packages/database`: PostgreSQL schema and versioned Drizzle migrations
-- MongoDB for authoritative owner-scoped conversation threads and ordered turns
+- MongoDB for authoritative admin Assistant threads and ordered turns
+- PostgreSQL for campaign feedback conversations, audit, outbox and delivery
 - Redis and BullMQ for observable background jobs
 - pnpm workspaces and Turborepo on Node.js 24 LTS
 
@@ -50,7 +51,12 @@ Useful local commands once the stack is up:
 ```bash
 pnpm feedback:simulate --list
 pnpm feedback:burst
+pnpm import:feedback-conversations
 ```
+
+`pnpm import:feedback-conversations` is an offline dry-run of leftover
+schema-v2 Mongo feedback documents onto `feedback_conversations`. It does not
+delete Mongo. `--apply` also requires `--acknowledge-quiesced-writers`.
 
 `pnpm feedback:burst` seeds six finished events, launches thirty-six concurrent
 post-event feedback conversations, and writes

@@ -10,6 +10,7 @@ import type { FeedbackConversationRepository } from "./post-event-feedback-conve
 import {
   buildFeedbackConversationGoals,
   deriveFeedbackConversationId,
+  resolveFeedbackConversationWork,
   type FeedbackConversationGoal,
 } from "./post-event-feedback-conversation.document.js";
 import type { EventsRepository } from "../events/events.repository.js";
@@ -155,7 +156,8 @@ export {
  * The whole loop runs for real — ingress, materializer, extractor, validation,
  * the deterministic fallback, direct outbox dispatch, maintenance and the V2
  * reconciliation wake-up with its retry classification. Only five things are
- * faked, and each is a genuine boundary: the two stores, the queue, the
+ * faked, and each is a genuine boundary: the conversation and relational
+ * repositories, the queue, the
  * WhatsApp transport and the model provider
  * (`post-event-feedback-doubles.harness.ts`).
  *
@@ -571,8 +573,24 @@ export async function createFeedbackLoopHarness(
     database as unknown as DatabaseService,
     maintenanceCheckpoints as never,
   );
+  // Seeded rows are already-launched conversations. Production writes due
+  // work in the same launch transaction and publishes the wakeup after
+  // commit. The removed seedMissingWork helper used to invent that intent
+  // during maintenance; silence scenarios must start with the same durable
+  // due column launch would have left.
+  const seededLaunch = conversations.get(conversationId);
+  if (
+    seededLaunch.lifecycle.state === "open" &&
+    seededLaunch.control.mode === "bot"
+  ) {
+    await conversationWakeups.schedule({
+      conversationId,
+      nextActionAt: FEEDBACK_LOOP_START,
+      correlationId: "seed-launch",
+      at: FEEDBACK_LOOP_START,
+    });
+  }
   const outboundTranscript = new FeedbackOutboundTranscriptService(
-    database as unknown as DatabaseService,
     repository as unknown as FeedbackOutboxRepository,
     conversations as unknown as FeedbackConversationRepository,
   );
@@ -687,22 +705,41 @@ export async function createFeedbackLoopHarness(
     conversationWakeups as unknown as FeedbackConversationWakeupService,
   );
   let executionEpoch = 0;
+  const executionClaims = {
+    tryClaim: async (
+      _transaction: unknown,
+      input: { conversationId: string; workRevision: number },
+    ) => {
+      const epoch = (executionEpoch += 1);
+      const conversation = conversations.documents.get(input.conversationId);
+      if (conversation) {
+        conversation.work = {
+          ...resolveFeedbackConversationWork(conversation.work),
+          executionEpoch: epoch,
+        };
+      }
+      return {
+        conversationId: input.conversationId,
+        workRevision: input.workRevision,
+        epoch,
+        token: "00000000-0000-4000-8000-000000000001",
+        leaseUntil: new Date(nowMs + 7 * 60_000),
+      };
+    },
+  };
   const executionFence = {
-    tryClaim: async (claimedConversationId: string, workRevision: number) => ({
-      conversationId: claimedConversationId,
-      workRevision,
-      epoch: (executionEpoch += 1),
-      token: "00000000-0000-4000-8000-000000000001",
-      leaseUntil: new Date(nowMs + 7 * 60_000),
-    }),
+    isCurrent: async () => true,
     startHeartbeat: () => ({ stop: async () => undefined }),
     release: async () => true,
   };
   const reconciler = new FeedbackConversationReconcileService(
     config,
+    database as unknown as DatabaseService,
     repository as unknown as FeedbackCampaignRepository,
     participants as unknown as ParticipantsRepository,
     conversations as unknown as FeedbackConversationRepository,
+    repository as unknown as FeedbackOutboxRepository,
+    executionClaims as unknown as FeedbackConversationExecutionFenceRepository,
     executionFence as unknown as FeedbackConversationExecutionFence,
     extractor,
     sweepService,
@@ -710,7 +747,6 @@ export async function createFeedbackLoopHarness(
   );
   const maintenance = new PostEventFeedbackMaintenanceService(
     sweepService,
-    { recover: async () => undefined } as never,
     conversationWakeups,
     summaries,
   );

@@ -49,8 +49,11 @@ export class ParticipantsRepository {
       .limit(500);
   }
 
-  async findById(id: string): Promise<ParticipantRow | undefined> {
-    const [row] = await this.database.db
+  async findById(
+    id: string,
+    transaction?: AppTransaction,
+  ): Promise<ParticipantRow | undefined> {
+    const [row] = await (transaction ?? this.database.db)
       .select()
       .from(participants)
       .where(eq(participants.id, id))

@@ -1,21 +1,13 @@
 import type { FeedbackExtractionMeta } from "@slopform/database";
 
 /**
- * An operator's correction to a recorded answer, kept on the answer row itself.
+ * Operator corrections appended on the answer row.
  *
- * The row is edited in place and the correction is **appended** to
- * `extraction_meta.corrections`. That keeps three things true at once with no
- * migration: readers of `feedback_answers` need no filter and cannot
- * double-count a superseded row (the uniqueness key is `NULLS NOT DISTINCT` on
- * conversation/question/subject, so a superseding row cannot coexist with the
- * row it supersedes); what the *model* proposed survives, because `model`,
- * `confidence` and `candidateIds` from the original run are left exactly where
- * they are and only this array is added; and `source_message_ids` still cites
- * the testimony the answer came from, which is honest — a correction is the
- * same testimony read differently, not new evidence.
- *
- * `audit_events` carries the same before/after and is the durable log. This
- * array is what the row can say for itself.
+ * Edit in place and append `extraction_meta.corrections`: uniqueness stays
+ * `NULLS NOT DISTINCT` on conversation/question/subject (no second row), the
+ * original `model` / `confidence` / `candidateIds` stay, and
+ * `source_message_ids` still cites the same testimony. `audit_events` is the
+ * durable before/after log.
  */
 export const FEEDBACK_ANSWER_CORRECTIONS_KEY = "corrections";
 
@@ -30,12 +22,8 @@ export interface FeedbackAnswerCorrection {
 }
 
 /**
- * Corrections on a row, newest last, ignoring anything that does not read as a
- * correction.
- *
- * `extraction_meta` is an open jsonb record, so this is a parse and not a cast:
- * a blob nobody wrote through `appendAnswerCorrection` must not be able to make
- * the results endpoint 500 on a shape it did not expect.
+ * Corrections on a row, newest last. Parses open jsonb — a foreign blob must
+ * not 500 the results endpoint.
  */
 export function readAnswerCorrections(
   extractionMeta: Readonly<Record<string, unknown>>,
@@ -50,12 +38,8 @@ export function readAnswerCorrections(
 }
 
 /**
- * Whether a human has decided this row's value.
- *
- * This is the freeze predicate: extraction refuses to overwrite a row it
- * answers `true` for, and raises `answer_revision` instead so the operator
- * adjudicates again. Deliberately the presence of *any* recorded correction,
- * not a separate flag, so the fact and its history cannot drift apart.
+ * Freeze predicate: any recorded correction blocks overwrite; extraction
+ * raises `answer_revision` instead. Presence of the array is the flag.
  */
 export function isCorrectedAnswer(
   extractionMeta: Readonly<Record<string, unknown>>,
@@ -71,13 +55,7 @@ export function latestAnswerCorrection(
   return corrections.at(-1) ?? null;
 }
 
-/**
- * Appends one correction, leaving every key the extraction run wrote intact.
- *
- * Append and never overwrite: two operators correcting the same score a week
- * apart are two decisions, and the second one replacing the first would erase
- * the fact that anybody disagreed.
- */
+/** Appends one correction; never overwrites earlier decisions or run metadata. */
 export function appendAnswerCorrection(
   extractionMeta: FeedbackExtractionMeta,
   correction: FeedbackAnswerCorrection,

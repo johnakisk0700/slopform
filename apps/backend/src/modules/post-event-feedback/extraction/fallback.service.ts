@@ -57,39 +57,11 @@ export interface FeedbackExtractionParkResult {
 }
 
 /**
- * What happens when a conversation reconciliation cannot extract safely.
- *
- * The failure this exists for is not hypothetical: a participant described
- * sexual harassment, the provider refused to emit structured output, the job
- * exhausted its attempts and **nothing** was recorded — no note, no attention
- * flag, no audit trail, and a conversation frozen mid-question. The worst
- * message in the campaign produced the least evidence.
- *
- * So a permanently failed run still leaves three things behind, deterministic
- * and model-free:
- *
- * 1. `needsAttention` plus one audit event carrying a bounded cause class;
- * 2. one ordinary `feedback_notes` row — the same table, status and admin view
- *    as any other note, because D13 (amended) says safety material is visible
- *    feedback, not a separate incident record;
- * 3. no participant-facing message. The failed run did not understand the
- *    testimony, so repeating the current prompt can ask for information the
- *    participant just supplied. Silence plus an operator flag is safer than a
- *    confident-looking duplicate question.
- *
- * It fabricates nothing. The note text is generic (nothing was extracted, so
- * nothing may be characterised), `extraction_meta` records
- * `origin: deterministic_fallback` with no model or confidence, and the note is
- * directed at a person only when exactly one current candidate name appears in
- * the message — otherwise it stays subjectless under D18.
- *
- * **`apply` is not for every dead run.** It answers the question «what did this
- * conversation defeat us with», and that question only makes sense when the
- * answer is about this conversation: a content filter, a schema nothing
- * satisfied, a validation refusal. A provider incident is not that — it is one
- * fault shared by every open conversation at once — and it goes to `park`
- * instead, which speaks to nobody and asks for nobody. The processor decides
- * which, from the failure's own structure.
+ * Deterministic fallback for a conversation-local dead run (refusal, schema,
+ * validation). Leaves attention, a generic note (`origin:
+ * deterministic_fallback`), and no bot message — re-asking the open goal would
+ * repeat a just-supplied answer. Subject only when exactly one current D16 name
+ * matches (else D18 subjectless). Provider incidents go to `park` instead.
  */
 @Injectable()
 export class PostEventFeedbackExtractionFallback {
@@ -119,8 +91,7 @@ export class PostEventFeedbackExtractionFallback {
       input.conversationId,
     );
     if (!conversation) {
-      // The job is already failing; a missing conversation is not a second
-      // failure to raise, just nothing left to repair.
+      // Already failing; a missing conversation is nothing left to repair.
       this.logger.warn({
         event: "feedback.extract.fallback_conversation_missing",
         correlationId: input.correlationId,
@@ -131,12 +102,8 @@ export class PostEventFeedbackExtractionFallback {
 
     const testimony = latestParticipantMessage(conversation);
     if (!testimony) {
-      // No participant turn means the run never had testimony to lose. Raise
-      // attention so the dead job is visible and stop there: a note with no
-      // source message would have no provenance, and an acknowledgement would
-      // answer a message nobody sent.
-      await this.parkForHuman(conversation, new Date());
-      await this.raiseAttention(conversation, input, [], null);
+      // No testimony: raise attention only. A note would have no provenance.
+      await this.parkForHuman(conversation, input, null);
       return { applied: false };
     }
 
@@ -144,8 +111,7 @@ export class PostEventFeedbackExtractionFallback {
       conversation.campaignId,
     );
     if (!campaign) {
-      await this.parkForHuman(conversation, new Date());
-      await this.raiseAttention(conversation, input, [], testimony.id);
+      await this.parkForHuman(conversation, input, testimony.id);
       return { applied: false };
     }
 
@@ -159,13 +125,11 @@ export class PostEventFeedbackExtractionFallback {
     );
 
     const written = await this.database.transaction(async (transaction) => {
-      // Same advisory key as the dispatcher's final provider-entry marker.
-      // The bot brake and cancellation therefore either win before transport,
-      // or observe a row that has already crossed the irreversible boundary.
+      // Same advisory key as dispatcher provider-entry. Brake/cancel either
+      // win before transport or observe a row already past that boundary.
       await this.results.lockConversation(transaction, conversation._id);
 
-      // The per-testimony fence absorbs replays of the same dead run. The row is
-      // never delivered; it exists so note, audit and alert are not duplicated.
+      // Per-testimony cancelled fence: replay must not duplicate note/audit/alert.
       const fenced = await this.outbox.insertOutboxIfAbsent(transaction, {
         conversationId: conversation._id,
         campaignId: campaign.id,
@@ -177,8 +141,7 @@ export class PostEventFeedbackExtractionFallback {
           testimony.seq,
         ),
       });
-      // Before the early return: the log belongs in this transaction even when
-      // the fence was already present and the rest of the write path is skipped.
+      // Log in this transaction even when the fence already existed.
       await this.outboundLog.record(transaction, {
         outbox: fenced,
         conversation,
@@ -189,13 +152,8 @@ export class PostEventFeedbackExtractionFallback {
         correlationId: input.correlationId,
       });
 
-      // Run on replays too. This repairs both cross-store crash orders: Mongo
-      // may already say awaiting-human while the PostgreSQL transaction rolled
-      // back, or the durable fence may exist while the former processor died
-      // before setting the bot brake. Older queued questions are not the
-      // fallback's participant-facing commitment and must never exploit the
-      // dispatcher's handoff exception.
-      await this.conversations.markAwaitingHuman({
+      // Cancel queued questions before setting the human handoff.
+      await this.conversations.markAwaitingHuman(transaction, {
         conversationId: conversation._id,
         at: new Date(),
       });
@@ -203,8 +161,18 @@ export class PostEventFeedbackExtractionFallback {
         transaction,
         conversation._id,
       );
+      const attention = await this.conversations.raiseAttention(transaction, {
+        conversationId: conversation._id,
+        kind: "extraction_failed",
+        messageId: testimony.id,
+        at: new Date(),
+      });
       if (!fenced.inserted) {
-        return { replayed: true as const, note: null };
+        return {
+          replayed: true as const,
+          note: null,
+          attentionChanged: attention.changed,
+        };
       }
 
       const note = await this.results.insertNote(transaction, {
@@ -242,19 +210,19 @@ export class PostEventFeedbackExtractionFallback {
         },
       });
 
-      return { note, replayed: false as const };
+      return {
+        note,
+        replayed: false as const,
+        attentionChanged: attention.changed,
+      };
     });
 
-    // Re-raise on replay as an idempotent repair for a crash after the
-    // PostgreSQL fence committed but before Mongo attention was projected.
-    await this.raiseAttention(conversation, input, [input.cause], testimony.id);
+    await this.notifyAttention(conversation, input, written.attentionChanged, [
+      input.cause,
+    ]);
 
     if (written.replayed) {
-      // No outbox id to name. The fence row exists, but it is a cancelled
-      // system row that will never be delivered, and reporting it as the
-      // fallback's outbox would read as «we sent this» to every caller and log
-      // line downstream. The ack, if one was ever sent, belongs to the run that
-      // sent it.
+      // Fence exists but is cancelled and never delivered — do not report it.
       return { applied: false };
     }
 
@@ -275,33 +243,16 @@ export class PostEventFeedbackExtractionFallback {
   }
 
   /**
-   * What happens instead when the provider, not the conversation, is the problem.
-   *
-   * Nothing is said to the participant, nothing is filed, and no attention is
-   * raised. A provider incident is one event: an exhausted balance, an
-   * unreachable route, a model id nobody serves. Treating each affected
-   * conversation as its own failure produced the 2026-07-27 inbox, where all
-   * thirty-six rows demanded a human for a fault none of them had caused and all
-   * thirty-six participants were told the analysis of their evening had failed.
-   *
-   * What it does instead is keep trying and keep count. The conversation is
-   * parked — a durable state the campaign summary counts once and the detail
-   * pane reads as «waiting on the model» — and the next attempt is queued five
-   * minutes out, because the queue's own ladder is twenty seconds long and this
-   * class of fault is repaired in minutes. When somebody tops the account up, the
-   * next wake-up reads the testimony properly and the park clears itself.
-   *
-   * The one thing it will say is the half-hour notice, and only once. See
-   * `POST_EVENT_FEEDBACK_EXTRACTION_PARKED_NOTICE` for every constraint on that
-   * sentence; the decision to send it is the owner's, over two hours and over
-   * never.
+   * Provider incident: no note, outbound, attention or alert. Park and retry;
+   * campaign summary counts parked conversations once. One half-hour notice
+   * at most — see `POST_EVENT_FEEDBACK_EXTRACTION_PARKED_NOTICE`.
    */
   async park(
     input: FeedbackExtractionFallbackInput,
   ): Promise<FeedbackExtractionParkResult> {
     const existing = await this.conversations.findById(input.conversationId);
     if (!existing) {
-      // The job is already failing and there is nothing left to park.
+      // Already failing; nothing left to park.
       this.logger.warn({
         event: "feedback.extract.park_conversation_missing",
         correlationId: input.correlationId,
@@ -311,18 +262,13 @@ export class PostEventFeedbackExtractionFallback {
     }
 
     const at = new Date();
-    const parked = await this.conversations.parkExtraction({
-      conversationId: input.conversationId,
-      at,
-    });
-    const conversation = parked.conversation;
-    const since = conversation.extraction.parkedSince ?? at;
-
-    // The audit row is the durable per-conversation record of the incident, and
-    // it is the only per-conversation effect: an operator alert here would page
-    // once per affected conversation, which is the fan-out this whole path
-    // exists to stop.
-    await this.database.transaction(async (transaction) => {
+    const parked = await this.database.transaction(async (transaction) => {
+      const transition = await this.conversations.parkExtraction(transaction, {
+        conversationId: input.conversationId,
+        at,
+      });
+      const conversation = transition.conversation;
+      const since = conversation.extraction.parkedSince ?? at;
       await this.audit.append(transaction, {
         actorType: "system",
         actorId: "feedback_extraction",
@@ -337,7 +283,9 @@ export class PostEventFeedbackExtractionFallback {
           parkedSince: since.toISOString(),
         },
       });
+      return { conversation, since };
     });
+    const { conversation, since } = parked;
 
     const notice = await this.sendParkedNotice(conversation, input, since, at);
     const retryJobId = await this.queueParkedRetry(
@@ -367,17 +315,9 @@ export class PostEventFeedbackExtractionFallback {
   }
 
   /**
-   * The half-hour sentence, sent at most once and only while the bot still has
-   * the floor.
-   *
-   * The threshold is measured from `parkedSince` rather than from the
-   * participant's last message on purpose: a second message during the same
-   * outage must not postpone the apology for the first one, which is exactly what
-   * measuring silence would do.
-   *
-   * It yields to the legacy `extractionFallbackAckSent` flag. Older deployments
-   * may already have sent that deterministic line, and a second machine apology
-   * for the same silence is one too many. New extraction failures stay silent.
+   * Half-hour notice, at most once, only while the bot still has the floor.
+   * Clock starts at `parkedSince` (a later message must not postpone it).
+   * Yields to legacy `extractionFallbackAckSent`.
    */
   private async sendParkedNotice(
     conversation: FeedbackConversationDocument,
@@ -392,10 +332,7 @@ export class PostEventFeedbackExtractionFallback {
     ) {
       return undefined;
     }
-    // A closed conversation, one a person is holding, and one waiting for a
-    // person are all conversations the bot must not speak in. The park does not
-    // change that, and none of the three is left worse off by our silence: two
-    // have a human, and the third has ended.
+    // Closed, human-controlled, or awaiting-human: the bot must not speak.
     if (
       conversation.lifecycle.state !== "open" ||
       conversation.control.mode !== "bot" ||
@@ -427,36 +364,30 @@ export class PostEventFeedbackExtractionFallback {
         },
         correlationId: input.correlationId,
       });
+      await this.conversations.markExtractionParkedNoticeSent(transaction, {
+        conversationId: conversation._id,
+        at,
+      });
+      if (result.inserted) {
+        await this.outboundTranscript.record(
+          transaction,
+          result.row,
+          at,
+          input.correlationId,
+        );
+      }
       return result;
-    });
-    // Marked whether or not this run inserted the row: if a concurrent parked run
-    // got there first, the send has happened and the ledger should say so.
-    await this.conversations.markExtractionParkedNoticeSent({
-      conversationId: conversation._id,
-      at,
     });
     if (!enqueued.inserted) {
       return undefined;
     }
-    // Same forward-repair contract as every other outbound: PostgreSQL is
-    // durable first, and the transcript entry is idempotent by `outboxId`.
-    await this.outboundTranscript.record(enqueued.row, at, input.correlationId);
     return enqueued.row.id;
   }
 
   /**
-   * Queues the next attempt, which is the whole of «the retry ladder still runs».
-   *
-   * Bounded by `FEEDBACK_EXTRACTION_PARK_MAX_MS` so a fault nobody is repairing
-   * — a model id that does not exist, a key that will never be replaced — stops
-   * billing a request every five minutes. Reaching the ceiling changes nothing
-   * the participant sees; the conversation stays parked and stays counted.
-   *
-   * A closed conversation is not re-queued: the run would exit on
-   * `skipped_closed` anyway, and enqueueing work that is certain to do nothing
-   * makes the queue lie about what is outstanding. Human control is deliberately
-   * *not* excluded — the person may hand back, and the resume path re-queues from
-   * the cursor exactly as it does today.
+   * Next parked retry, bounded by `FEEDBACK_EXTRACTION_PARK_MAX_MS`. Closed
+   * conversations are not re-queued. Human control is not excluded: resume
+   * re-queues from the cursor.
    */
   private async queueParkedRetry(
     conversation: FeedbackConversationDocument,
@@ -482,28 +413,13 @@ export class PostEventFeedbackExtractionFallback {
     });
   }
 
-  /**
-   * The badge, named. `extraction_failed` is what the operator has to act on:
-   * this burst produced no structured answers, so whatever the participant said
-   * in it is theirs to read and record by hand.
-   *
-   * Anchored on the testimony the dead run was reading, which is the message
-   * they will want open. A run that never had a participant turn has nothing to
-   * point at and says so with a null anchor rather than guessing.
-   */
-  private async raiseAttention(
+  private async notifyAttention(
     conversation: FeedbackConversationDocument,
     input: FeedbackExtractionFallbackInput,
+    changed: boolean,
     detail: readonly string[],
-    messageId: string | null,
   ): Promise<void> {
-    const attention = await this.conversations.raiseAttention({
-      conversationId: conversation._id,
-      kind: "extraction_failed",
-      messageId,
-      at: new Date(),
-    });
-    if (attention.changed) {
+    if (changed) {
       await this.alert.raise({
         conversationId: conversation._id,
         campaignId: conversation.campaignId,
@@ -516,11 +432,13 @@ export class PostEventFeedbackExtractionFallback {
 
   private async parkForHuman(
     conversation: FeedbackConversationDocument,
-    at: Date,
+    input: FeedbackExtractionFallbackInput,
+    messageId: string | null,
   ): Promise<void> {
-    await this.database.transaction(async (transaction) => {
+    const at = new Date();
+    const attention = await this.database.transaction(async (transaction) => {
       await this.results.lockConversation(transaction, conversation._id);
-      await this.conversations.markAwaitingHuman({
+      await this.conversations.markAwaitingHuman(transaction, {
         conversationId: conversation._id,
         at,
       });
@@ -528,17 +446,20 @@ export class PostEventFeedbackExtractionFallback {
         transaction,
         conversation._id,
       );
+      return this.conversations.raiseAttention(transaction, {
+        conversationId: conversation._id,
+        kind: "extraction_failed",
+        messageId,
+        at,
+      });
     });
+    await this.notifyAttention(conversation, input, attention.changed, []);
   }
 }
 
 /**
- * D12's provenance contract, minus everything that would be a lie. No model ran
- * to completion and no confidence was reported, so neither field is present —
- * an absent field is honest, a zero would read as a real low-confidence
- * extraction. The candidate ids of the run are still recorded, because under
- * D16's live selection they are the only way to explain later why a name was or
- * was not resolvable.
+ * Fallback provenance: no model or confidence (absent, not zero). Candidate
+ * ids of this run stay so D16 resolution remains explainable.
  */
 function buildFallbackExtractionMeta(input: {
   readonly cause: FeedbackExtractionFailureCause;
@@ -549,24 +470,14 @@ function buildFallbackExtractionMeta(input: {
     origin: "deterministic_fallback",
     cause: input.cause,
     candidateIds: [...input.candidateIds],
-    // D18: a fallback that could not name a subject is flagged for the same
-    // reason a degraded extraction note is — a human has to finish the job.
+    // D18: unnamed subject is flagged for a human to finish.
     ...(input.subjectResolved ? {} : { flaggedForReview: true }),
   };
 }
 
 /**
- * Direct the note only when the message names exactly one current candidate.
- *
- * Two candidates called «Κώστας» cannot be told apart by application code —
- * both ids are valid, so a correct pick and a lucky guess are the same move.
- * The extraction prompt handles that by asking a clarifying question; a
- * deterministic fallback has no such option, so it degrades to a subjectless
- * note (D18) rather than asserting something about a real person.
- *
- * Matching is on the full display name *or* its first token, folded, so
- * «ο Κώστας» matches «Κώστας Παπαδόπουλος» — which is also precisely what makes
- * two Κώστας rows ambiguous instead of silently picking the first.
+ * Subject only when exactly one current candidate name (full or first token,
+ * folded) matches. Two same first names stay subjectless (D18) — no guess.
  */
 function resolveUniqueNamedSubject(
   text: string,

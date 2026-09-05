@@ -36,6 +36,7 @@
     "feedback:burst:ledger": "node scripts/burst-ledger.mjs",
     "feedback:burst:transcript": "dotenv -e .env -- node scripts/burst-transcript.mjs",
     "feedback:simulate": "node scripts/run-feedback-simulator.mjs",
+    "import:feedback-conversations": "pnpm --filter @slopform/database build && pnpm --filter @slopform/backend build && dotenv -e .env -- node scripts/import-feedback-conversations.mjs",
     "import:wordpress-profiles": "pnpm --filter @slopform/database build && pnpm --filter @slopform/backend build && dotenv -e .env -- pnpm --filter @slopform/backend import:wordpress-profiles --",
     "infra:down": "docker compose down",
     "infra:logs": "docker compose logs --follow postgres mongo redis",
@@ -45,7 +46,8 @@
     "prod": "bash scripts/prod.sh",
     "test": "turbo run test",
     "test:scripts": "node --test \"scripts/*.spec.mjs\"",
-    "typecheck": "turbo run typecheck"
+    "typecheck": "turbo run typecheck",
+    "test:feedback:postgres": "turbo run test:postgres --filter=@slopform/backend"
   },
   "devDependencies": {
     "dotenv-cli": "11.0.0",

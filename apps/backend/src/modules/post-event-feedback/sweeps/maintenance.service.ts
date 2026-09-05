@@ -3,10 +3,9 @@ import { Injectable, Logger } from "@nestjs/common";
 import { PostEventFeedbackSweepService } from "./sweep.service.js";
 import { PostEventFeedbackCampaignSummaryService } from "../summary/summary.service.js";
 import { FeedbackConversationWakeupService } from "../reconciliation/wakeup.service.js";
-import { FeedbackCampaignResumeRepairService } from "../campaign/resume-repair.service.js";
 
 export type FeedbackMaintenanceSubtask =
-  "ingress" | "campaign-resumes" | "conversations" | "summaries";
+  "ingress" | "conversations" | "summaries";
 
 export interface FeedbackMaintenanceResult {
   readonly completed: readonly FeedbackMaintenanceSubtask[];
@@ -25,7 +24,6 @@ export class PostEventFeedbackMaintenanceService {
 
   constructor(
     private readonly sweeps: PostEventFeedbackSweepService,
-    private readonly campaignResumes: FeedbackCampaignResumeRepairService,
     private readonly conversations: FeedbackConversationWakeupService,
     private readonly summaries: PostEventFeedbackCampaignSummaryService,
   ) {}
@@ -36,7 +34,6 @@ export class PostEventFeedbackMaintenanceService {
       () => Promise<unknown>,
     ][] = [
       ["ingress", () => this.sweeps.sweepIngress(correlationId)],
-      ["campaign-resumes", () => this.campaignResumes.recover(correlationId)],
       ["conversations", () => this.conversations.recoverDue(correlationId)],
       ["summaries", () => this.summaries.recover(correlationId)],
     ];

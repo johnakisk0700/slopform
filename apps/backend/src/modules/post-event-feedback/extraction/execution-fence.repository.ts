@@ -26,10 +26,8 @@ export interface FeedbackConversationActiveExecutionLease {
 @Injectable()
 export class FeedbackConversationExecutionFenceRepository {
   /**
-   * Reads the live lease without selecting its fencing token or epoch.
-   *
-   * PostgreSQL's clock decides expiry, matching claim and renewal semantics;
-   * application clock skew cannot make a dead execution look active.
+   * Live lease without fencing token or epoch. Expiry uses PostgreSQL's clock
+   * so application skew cannot make a dead execution look active.
    */
   async findActiveLease(
     transaction: AppTransaction,

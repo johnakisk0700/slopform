@@ -1,8 +1,11 @@
 import { Injectable, Logger } from "@nestjs/common";
 
-import type { MessageOutboxKind, MessageOutboxRow } from "@slopform/database";
+import type {
+  AppTransaction,
+  MessageOutboxKind,
+  MessageOutboxRow,
+} from "@slopform/database";
 
-import { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import {
   FeedbackConversationCapacityError,
   FeedbackConversationRepository,
@@ -68,74 +71,32 @@ export class UnsupportedMessageOutboxKindError extends Error {
   }
 }
 
-/**
- * The single writer of outbound transcript entries.
- *
- * Plan §6 requires actor-labelled messages with `outboxId` provenance, and §7
- * puts every outbound message behind `message_outbox`. This service is the one
- * place that joins the two: whenever a row is created for a conversation, the
- * same text lands in the MongoDB transcript with the actor the row's `kind`
- * implies. Without it the transcript is one-sided — the admin pane shows only
- * the participant, and the extraction prompt's "full actor-labelled transcript"
- * carries no bot turns.
- *
- * Callers: campaign launch / start-conversation (intro), conversation reminder,
- * extraction (reply, closing and handoff copy), the materializer (STOP
- * acknowledgement), the staff inbox send, and the direct dispatcher as the
- * forward repair described below.
- */
+/** Writes the stored outbox body and its actor in the producer's transaction. */
 @Injectable()
 export class FeedbackOutboundTranscriptService {
   private readonly logger = new Logger(FeedbackOutboundTranscriptService.name);
 
   constructor(
-    private readonly database: DatabaseService,
     private readonly repository: FeedbackOutboxRepository,
     private readonly conversations: FeedbackConversationRepository,
   ) {}
 
-  /**
-   * Records one outbound row in the transcript.
-   *
-   * **Store order.** PostgreSQL first, MongoDB second, exactly like the rest of
-   * this module: the durable outbox row is what actually causes a send, so it
-   * must never depend on a MongoDB write succeeding first.
-   *
-   * **Crash repair.** A crash between the PostgreSQL commit and this append
-   * leaves a row with no transcript entry. Because the append is idempotent by
-   * `outboxId`, every producer repairs forward by simply running again — launch
-   * replay and `startConversation` re-resolve the intro row, reconciliation
-   * derives the same reminder ordinal while its counter is unchanged, and an
-   * extraction retry replays the whole run behind its dedupe keys. The STOP
-   * acknowledgement is the one producer that cannot replay (its ingress row is
-   * already terminal), so the direct dispatcher calls this method again before
-   * it sends. That also makes the general invariant hold: nothing is
-   * transmitted to a participant that the transcript did not record.
-   *
-   * **Body source.** Always the stored row's body, never the text a caller
-   * proposed. A replayed extraction may generate different reply wording while
-   * `insertOutboxIfAbsent` returns the row that was already enqueued and will
-   * actually be sent; appending the fresh wording would be rejected as a
-   * conflicting replay of the same `outboxId`.
-   *
-   * **Capacity.** Nothing is silently dropped. A transcript that cannot hold
-   * the message (the 150-message cap or the BSON backstop) already raises
-   * `needsAttention` inside the repository; here the outbox row is additionally
-   * **cancelled**, because a message that cannot be recorded must not be sent —
-   * a one-sided transcript is the exact failure this path exists to prevent.
-   */
+  /** A message that cannot be recorded is cancelled before dispatch. */
   async record(
+    transaction: AppTransaction,
     row: FeedbackOutboundTranscriptRow,
     at: Date,
     correlationId?: string,
   ): Promise<FeedbackOutboundTranscriptResult>;
   async record(
+    transaction: AppTransaction,
     row: FeedbackOutboundTranscriptRow,
     at: Date,
     correlationId: string | undefined,
     dispatchFence: FeedbackOutboundTranscriptDispatchFence,
   ): Promise<FeedbackOutboundTranscriptDispatchResult>;
   async record(
+    transaction: AppTransaction,
     row: FeedbackOutboundTranscriptRow,
     at: Date,
     correlationId?: string,
@@ -145,11 +106,8 @@ export class FeedbackOutboundTranscriptService {
     const text = row.body.trim();
 
     if (text.length > FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH) {
-      // `message_outbox` accepts 10 000 characters; a transcript entry — and a
-      // WhatsApp text body — stops at 4 096. Failing forever would make the job
-      // a poison pill, so the row is cancelled and flagged like a full
-      // transcript.
       return this.cancel(
+        transaction,
         row,
         at,
         "body_too_long",
@@ -159,7 +117,7 @@ export class FeedbackOutboundTranscriptService {
     }
 
     try {
-      const appended = await this.conversations.appendMessage({
+      const appended = await this.conversations.appendMessage(transaction, {
         conversationId: row.conversationId,
         actor,
         text,
@@ -175,6 +133,7 @@ export class FeedbackOutboundTranscriptService {
         throw error;
       }
       return this.cancel(
+        transaction,
         row,
         at,
         "transcript_capacity",
@@ -185,6 +144,7 @@ export class FeedbackOutboundTranscriptService {
   }
 
   private async cancel(
+    transaction: AppTransaction,
     row: FeedbackOutboundTranscriptRow,
     at: Date,
     reason: FeedbackOutboundTranscriptRejection,
@@ -198,30 +158,21 @@ export class FeedbackOutboundTranscriptService {
         "cancelled",
         at,
         reason,
+        transaction,
       );
       if (!cancelled) {
         return { outcome: "claim_lost" };
       }
     } else {
-      await this.database.transaction(async (transaction) => {
-        await this.repository.updateOutboxStatus(
-          transaction,
-          row.id,
-          "cancelled",
-        );
-      });
+      await this.repository.updateOutboxStatus(
+        transaction,
+        row.id,
+        "cancelled",
+      );
     }
 
-    // `appendMessage` names the capacity path itself (`transcript_full`); an
-    // oversized body never reached it, so the reason is raised here instead.
-    //
-    // It is the *same* reason as a send the provider refused for good, because
-    // the operator's position is identical either way: the bot decided to say
-    // something, the row is cancelled, and the participant will never see it —
-    // so somebody has to reach them by hand. Why it did not go out is on the
-    // outbox row for whoever wants it.
     if (reason === "body_too_long") {
-      await this.conversations.raiseAttention({
+      await this.conversations.raiseAttention(transaction, {
         conversationId: row.conversationId,
         kind: "undelivered_message",
         messageId: null,

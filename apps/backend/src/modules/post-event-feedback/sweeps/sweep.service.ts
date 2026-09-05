@@ -271,7 +271,7 @@ export class PostEventFeedbackSweepService {
       participant.preferredName?.trim() || participant.emailNormalized;
 
     const reminder = await this.database.transaction(async (transaction) => {
-      // The Mongo silence check is only a snapshot. Share the webhook's
+      // The conversation silence check is only a snapshot. Share the webhook's
       // per-phone PostgreSQL lock, then reject any durable inbound that was not
       // in that snapshot. Without this fence a participant can answer between
       // the check above and this insert and receive «please answer» afterwards.
@@ -326,26 +326,24 @@ export class PostEventFeedbackSweepService {
           },
         });
       }
+      const recorded = await this.outboundTranscript.record(
+        transaction,
+        enqueued.row,
+        now,
+        correlationId,
+      );
+      if (recorded.outcome === "cancelled") {
+        return undefined;
+      }
+      await this.conversations.markReminded(transaction, {
+        conversationId: conversation._id,
+        at: now,
+        expectedCount: conversation.reminderCount,
+      });
       return enqueued;
     });
 
-    if (!reminder) {
-      return false;
-    }
-
-    // Before `markReminded`, and whether or not this action inserted the row: a
-    // crash between the committed reminder and the append leaves the counter
-    // where it was, so reconciliation derives the same ordinal again and
-    // repairs the transcript through the same idempotent `outboxId`. The dedupe
-    // key stops it being sent twice.
-    await this.outboundTranscript.record(reminder.row, now, correlationId);
-
-    await this.conversations.markReminded({
-      conversationId: conversation._id,
-      at: now,
-      expectedCount: conversation.reminderCount,
-    });
-    return reminder.inserted;
+    return reminder?.inserted ?? false;
   }
 
   private async expireOne(
@@ -378,11 +376,11 @@ export class PostEventFeedbackSweepService {
           snapshot.campaignId,
         );
 
-        // The candidate is only a MongoDB snapshot. A webhook may have durably
-        // accepted a reply or correction before materialization reaches Mongo;
-        // pending ingress counts, and a newly materialized id absent from the
-        // supplied snapshot counts too. The phone lock closes the query/close
-        // gap against the webhook insert.
+        // The candidate is only a decision snapshot. A webhook may have
+        // durably accepted a reply or correction before materialization
+        // reaches the conversation row; pending ingress counts, and a newly
+        // materialized id absent from the supplied snapshot counts too. The
+        // phone lock closes the query/close gap against the webhook insert.
         const newerInbound = await this.ingress.hasInboundBeyondSnapshot(
           transaction,
           {
@@ -395,10 +393,13 @@ export class PostEventFeedbackSweepService {
           return null;
         }
 
-        // MongoDB is the conversation authority, so reload it only after every
-        // shared fence is held. A takeover, close, resume or newly materialized
-        // participant turn that won before these locks must be visible here.
-        const conversation = await this.conversations.findById(snapshot._id);
+        // Reload the conversation only after every shared fence is held. A
+        // takeover, close, resume or newly materialized participant turn that
+        // won before these locks must be visible here.
+        const conversation = await this.conversations.findById(
+          snapshot._id,
+          transaction,
+        );
         if (
           !conversation ||
           conversation.campaignId !== snapshot.campaignId ||
@@ -426,7 +427,7 @@ export class PostEventFeedbackSweepService {
         // The dispatcher uses this same transaction-scoped conversation mutex
         // for its final provider-entry marker. Expiry therefore either cancels
         // a still-safe row first or observes that transport entry already won.
-        const transition = await this.conversations.close({
+        const transition = await this.conversations.close(transaction, {
           conversationId: conversation._id,
           reason: "expired",
           at: now,
@@ -468,7 +469,7 @@ export class PostEventFeedbackSweepService {
   }
 }
 
-/** Participant ingress provenance carried by one MongoDB decision snapshot. */
+/** Participant ingress provenance carried by one decision snapshot. */
 function participantIngressIds(
   conversation: FeedbackConversationDocument,
 ): string[] {

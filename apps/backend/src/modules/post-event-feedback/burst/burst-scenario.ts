@@ -24,7 +24,7 @@ import type { FeedbackConversationLifecycleReason } from "../post-event-feedback
  * conversation list reads as the scenario catalogue and a failure is
  * identifiable without cross-referencing a table. That naming is load-bearing,
  * not decoration: the display name is the only scenario label that survives
- * into MongoDB, the outbox and the report.
+ * into the conversation, the outbox and the report.
  *
  * Every dinner past the third exists so the table stays a Six: growing an
  * existing campaign would rewrite every persona's candidate list in it, and the

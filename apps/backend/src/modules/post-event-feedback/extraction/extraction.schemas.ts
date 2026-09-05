@@ -16,36 +16,17 @@ import {
 } from "../attention.js";
 
 /**
- * The structured proposal contract for feedback conversation extraction.
- *
- * The model proposes; it never persists, sends or decides consent. Every field
- * here is re-validated against the durable transcript, the live D16 candidate
- * set and the already-accepted results before anything is written, so a
- * hallucinated participant id or a fabricated message reference is a rejected
- * proposal rather than a directed edge in the database.
- *
- * Fields are nullable rather than optional and every object is `strict()`:
- * provider structured-output modes require a closed schema with all keys
- * present, and a missing key would otherwise be indistinguishable from an
- * explicit "nothing to report".
+ * Structured extraction proposal. The model never persists, sends or decides
+ * consent. Fields are nullable and objects are `strict()` so a missing key is
+ * not "nothing to report".
  */
 
 /** Bounds keep one malformed generation from becoming a large write batch. */
 export const FEEDBACK_EXTRACTION_MAX_ANSWERS = 8;
 export const FEEDBACK_EXTRACTION_MAX_NOTES = 5;
 /**
- * A guard against a runaway generation, not a statement about how many messages
- * a thought may span.
- *
- * It was 10, which a real burst clears easily: somebody typing in fragments can
- * put a dozen messages inside one quiet window, and an answer that honestly
- * cites all of them failed schema validation, exhausted its retries, and landed
- * in the deterministic fallback — which files a generic note over a complaint
- * about where the tables were. A tighter number does not buy accuracy; it
- * converts accurate citation into a run that could not be read at all.
- *
- * Widening the quiet window puts more fragments in a window, so this bound has
- * to stay ahead of it. The transcript cap (150) is the real ceiling.
+ * Citation-list ceiling, not a thought-span limit. Stay ahead of the quiet
+ * window; the transcript cap (150) is the real ceiling.
  */
 export const FEEDBACK_EXTRACTION_MAX_SOURCE_MESSAGES = 40;
 /** Matches the `feedback_notes` text check constraint. */
@@ -53,11 +34,7 @@ export const FEEDBACK_EXTRACTION_NOTE_MAX_LENGTH = 500;
 export const FEEDBACK_EXTRACTION_REPLY_MAX_LENGTH = 1_000;
 export const FEEDBACK_EXTRACTION_MENTION_MAX_LENGTH = 120;
 
-/**
- * Transcript message ids are UUIDs in production, but the validator only ever
- * checks membership of the referenced conversation, which is strictly stronger
- * than a format check and lets the offline fixture eval use readable ids.
- */
+/** Membership in this conversation is the real check; fixtures may use readable ids. */
 const messageReferenceSchema = z.string().trim().min(1).max(64);
 
 const sourceMessageIdsSchema = z
@@ -92,22 +69,8 @@ export const feedbackExtractionAnswerProposalSchema = z
   );
 
 /**
- * One verdict per questionnaire goal — the shape that stopped the model
- * omitting things.
- *
- * The answers used to be a free array: "give me the answers you found". An
- * array of one is valid JSON, so a message that plainly answered three goals
- * could come back with one and nothing in the output looked empty, because
- * there was no slot to be empty. The only thing asking for exhaustiveness was
- * English inside a `.describe()`, and on 2026-07-27 Luna read «βαζω 3. η Λιτσα
- * περασε, θα την ξαναεβλεπα. κανεναν οχι», returned the score alone, and then
- * asked about the person it had just been told about.
- *
- * A required key per goal removes the option rather than arguing against it: no
- * conforming response exists that has not said something about `liked`. This
- * forces consideration, not correctness — `not_addressed` can still be wrong —
- * but a wrong field is visible and assertable, where a missing array element is
- * neither.
+ * One required verdict per goal. A free answers array could omit goals without
+ * looking empty; `not_addressed` is still allowed but visible.
  */
 const goalAnswerSchema = z
   .object({
@@ -130,32 +93,15 @@ export const FEEDBACK_EXTRACTION_GOAL_STATUSES = [
 ] as const;
 
 /**
- * Flat on purpose, not a discriminated union.
- *
- * A union is the natural way to say this and the provider will not take it: a
- * strict `response_format` rejects the schema outright with «In
- * context=('properties','goals','properties','event_score'), 'oneOf' is not
- * permitted», which is how the first attempt at this shape failed every call on
- * 2026-07-27. So the discriminator is an enum and the payloads are always-present
- * collections that stay empty when they do not apply. `validate-proposal` checks
- * the combination the union would have made unrepresentable.
+ * Flat enum + always-present collections. Providers reject `oneOf` in
+ * `response_format`; `validate-proposal` checks the combinations.
  */
 const goalVerdictSchema = z
   .object({
     status: z.enum(FEEDBACK_EXTRACTION_GOAL_STATUSES),
-    /**
-     * A list, because one goal legitimately holds several directed answers:
-     * «ο Νίκος, η Ελένη και η Άννα μου άρεσαν» is three `liked` edges from one
-     * sentence, and the questionnaire exists to build that graph. Empty unless
-     * `status` is `answered`.
-     */
+    /** Directed answers for this goal. Empty unless `status` is `answered`. */
     answers: z.array(goalAnswerSchema).max(FEEDBACK_EXTRACTION_MAX_ANSWERS),
-    /**
-     * The words that declined it, and empty unless `status` is `declined`. D3
-     * makes every question skippable, which is exactly why a skip needs
-     * provenance: without it, "they didn't want to say" is indistinguishable
-     * from the model not having looked.
-     */
+    /** Decline citations. Empty unless `status` is `declined`. */
     declinedSourceMessageIds: z
       .array(messageReferenceSchema)
       .max(FEEDBACK_EXTRACTION_MAX_SOURCE_MESSAGES),
@@ -230,9 +176,7 @@ export interface FeedbackExtractionProposal {
 }
 
 /**
- * Builds the provider schema from the goals durably stored on the conversation.
- * A V1 campaign therefore requires exactly its four verdicts, while V2 requires
- * exactly its six. No version is padded with fictional `already_settled` keys.
+ * Provider schema from the conversation's stored goals. No fictional padding.
  */
 export function createFeedbackExtractionProposalSchema(
   questionKeys: readonly FeedbackAnswerQuestionKey[],
@@ -285,21 +229,12 @@ export function createFeedbackExtractionProposalSchema(
     .strict() as unknown as z.ZodType<FeedbackExtractionProposal>;
 }
 
-/**
- * Compatibility schema for V1 fixtures and callers without a durable campaign.
- * Production model generation always uses the per-conversation factory above.
- */
+/** V1 fixture / no-campaign compatibility. Production uses the factory above. */
 export const feedbackExtractionProposalSchema =
   createFeedbackExtractionProposalSchema(FEEDBACK_EXTRACTION_V1_GOAL_KEYS);
 
 /**
- * Builds a complete verdict set from the goals a caller has something to say
- * about, defaulting the rest to `not_addressed`.
- *
- * Every producer that is not a real model — the scripted burst stub, the loop
- * harness, the fixtures — describes a turn as "these goals were answered". They
- * should not each have to spell out the goals that were not, and a hand-written
- * literal is exactly where a missing key would creep back in.
+ * Completes a verdict set, defaulting unmentioned goals to `not_addressed`.
  */
 export function feedbackExtractionGoalVerdicts(
   input: {
@@ -354,9 +289,7 @@ export function feedbackExtractionGoalVerdicts(
       declinedSourceMessageIds: [...decline.sourceMessageIds],
     };
   }
-  // Answers last, and grouped: a goal that is both answered and declined is
-  // answered, which is the reading that keeps testimony rather than discarding
-  // it, and several answers to one goal accumulate rather than overwrite.
+  // Answers last and grouped: answered wins over declined; accumulate.
   for (const answer of input.answered ?? []) {
     const existing = verdicts[answer.questionKey];
     verdicts[answer.questionKey] = {
@@ -409,13 +342,7 @@ export interface FeedbackExtractionAcceptedAnswerView {
   readonly questionKey: FeedbackAnswerQuestionKey;
   readonly subjectParticipantId: string | null;
   readonly valueInt: number | null;
-  /**
-   * An operator decided this value by hand, so the run may not replace it.
-   *
-   * Stated per row rather than read from `extraction_meta` here, because the
-   * rules are a pure function of this context: the freeze is a fact about the
-   * stored answer, not a jsonb lookup validation is allowed to perform.
-   */
+  /** Operator freeze. Stated on the row; validation does not read jsonb. */
   readonly correctedByOperator: boolean;
 }
 
@@ -426,9 +353,7 @@ export interface FeedbackExtractionAcceptedNoteView {
 }
 
 /**
- * Everything validation is allowed to consult. It is a plain value so the rule
- * set can be evaluated offline against the WP0 fixtures without a database, a
- * queue or a model provider.
+ * Everything validation may consult. A plain value so the rules run offline.
  */
 export interface FeedbackExtractionContext {
   readonly respondentParticipantId: string;
@@ -468,51 +393,23 @@ export const FEEDBACK_EXTRACTION_REJECTION_REASONS = [
   "subject_is_respondent",
   "duplicate_in_run",
   "already_recorded",
-  /**
-   * The stored row carries an operator's correction, so the newer reading does
-   * not win. The run raises `answer_revision` instead and a human adjudicates.
-   */
+  /** Operator-corrected row: refuse overwrite and raise `answer_revision`. */
   "answer_corrected_by_operator",
   "unknown_goal",
   /** A proposal bypassed the per-conversation schema and omitted a real goal. */
   "missing_goal_verdict",
-  /**
-   * `status: "answered"` with nothing in `answers`. A discriminated union would
-   * have made this unrepresentable; a strict `response_format` refuses unions,
-   * so the combination is checked here instead of being trusted.
-   */
+  /** `answered` with an empty `answers` list. */
   "empty_answered_verdict",
   /**
-   * `liked` or `meet_again` declined while the bot has never asked it, in a run
-   * that recorded an answer from the same testimony. The participant said
-   * something we could keep and the model closed a question nobody put to them
-   * — which is what «ο Σωτήρης ήταν οκ, θα τον ξαναέβλεπα άνετα» looks like
-   * when only `meet_again` survives it.
+   * V1: `liked`/`meet_again` declined while still `pending` in a run that
+   * recorded another answer from the same testimony.
    */
   "declined_before_asked",
   /**
-   * `handoff: true` from a run that recorded nothing at all, over testimony that
-   * still visibly held an answer the questionnaire was asking for.
-   *
-   * Every other thing the model proposes is checked against the transcript
-   * before the application acts on it; the handoff was a bare boolean that went
-   * straight through to `markAwaitingHuman`. Μαρία Φλερτατζού wrote «βαζω 5. ο
-   * Τάσος ήτανε πολύ ωραίος, θα τον ξαναέβλεπα. κανέναν δε θέλω να αποφύγω» —
-   * four goals answered in one sentence — and the run came back with no answers,
-   * no notes, no safety signal and a request for a human. Her testimony was lost
-   * and an operator was queued to read a flirt.
-   *
-   * A handoff that has extracted nothing and raised nothing, from words that
-   * plainly carried a score or named somebody at the table, is the model giving
-   * up rather than duty of care. Naming it here makes the run fail, which is
-   * what buys the retry that can still read her answers — and, if no attempt
-   * ever does, the deterministic fallback that files a note and points a person
-   * at the conversation without promising her a phone call nobody ordered.
-   *
-   * It deliberately does **not** fire on a handoff that carries an answer, a
-   * note or a safety signal, nor on one whose testimony held nothing to extract:
-   * «μπορώ να μιλήσω με κάποιον από την ομάδα;» is a request for a person and
-   * nothing else, and it must go on working exactly as it does today.
+   * Handoff with nothing recorded over testimony that still holds an askable
+   * answer. Fails the run so retry (then fallback) can still read it. Does not
+   * fire when an answer, note, safety signal or `already_recorded` is present,
+   * nor on a plain "speak to a person" with nothing to extract.
    */
   "handoff_discards_testimony",
 ] as const;
@@ -522,9 +419,7 @@ export type FeedbackExtractionRejectionReason =
 
 export interface FeedbackExtractionRejection {
   /**
-   * `handoff` is the one scope that is not a row the run wanted to write. It is
-   * a property of the whole proposal, so a rejection in that scope condemns the
-   * run rather than one of its results.
+   * `handoff` rejects the whole run, not one result row.
    */
   readonly scope: "answer" | "note" | "safety_signal" | "goal" | "handoff";
   readonly reason: FeedbackExtractionRejectionReason;
@@ -580,136 +475,45 @@ export interface ValidatedFeedbackExtraction {
 }
 
 /**
- * Neutral acknowledgement for an explicit handoff (D13).
- *
- * It deliberately lives outside the versioned question set: §5 locks the
- * questionnaire copy keys, and this text is not a question. It promises a human
- * follow-up and nothing else — no advice, no triage, no minimisation.
+ * Neutral explicit-handoff copy (D13). Not a questionnaire key.
  */
 export const POST_EVENT_FEEDBACK_HANDOFF_REPLY =
   "Σε ευχαριστούμε που μας το είπες. Κάποιος από την ομάδα μας θα επικοινωνήσει μαζί σου προσωπικά.";
 
 /**
- * Appended to whatever the run decided to say, when the classifier reports an
- * incident that has actually been **described** — so somebody who has just told
- * us they were treated badly is told what happened with it.
- *
- * Ειρήνη Καταγγελού described being touched under the table. The bot answered
- * warmly, the flag went up, an alert reached staff — and she was told none of
- * it. From where she sat she had handed something hard to a questionnaire that
- * moved on to the next question.
- *
- * Rule 11ε forbids the *model* from promising a human, and still does: a
- * promise it invents is one nobody has to keep. This sentence is the
- * application's, so the promise is made by the code that keeps it.
- *
- * The gate lives in `withSafetyAssurance` and is narrower than "a run raised a
- * signal", which is what it used to be: the signal must not be respondent-source
- * — the line must never reach the person who *is* the incident — and it must
- * cite a message the classifier marked `incidentDescribed`. An announcement
- * («θα σας πω κάτι») raises the flag and earns nothing, because there is nothing
- * to have forwarded yet. Said once per conversation, read off the transcript
- * rather than off a flag, so "once" means the sentence reached their phone.
+ * Application-owned assurance. Gate is `withSafetyAssurance`: non-respondent-
+ * source + `incidentDescribed`, not already on the transcript, not handoff copy.
  */
 export const POST_EVENT_FEEDBACK_SAFETY_ASSURANCE =
   "Το προώθησα ήδη στην ομάδα μας και κάποιος θα σου μιλήσει προσωπικά.";
 
 /**
- * The last thing the bot says to somebody who has only ever sworn at it.
- *
- * Sent once, on the run where the hostility counter passes
- * `FEEDBACK_CALM_REPLIES_BEFORE_HOSTILITY_STOP`, and it is the bot's own exit
- * line rather than an answer to anything. Μπάμπης Διπλογαμωσταυρίδης opted in
- * and then spent four clusters on «άντε γαμήσου ρε μαλακισμένο μποτ»; the loop
- * kept answering him calmly because nothing in it could count, and a machine
- * that absorbs a fourth round of abuse and asks for a score again is not being
- * patient, it is being a machine.
- *
- * It says «we» cannot continue and «I» am stopping, in that order, on purpose:
- * the first half is about the conversation and not about him, so it is not a
- * verdict on a person we would then have to defend, and the second half is the
- * bot owning the decision instead of implying he asked for it. He did not ask —
- * that is why `optedIn` and the open lifecycle both stay untouched, and why this
- * is not the STOP acknowledgement.
- *
- * The 🍌 is the owner's and is deliberate. It is the same register as the
- * campaign's own copy (`closing` ends on 🙌, `cannot_read_media` on 🙈) and it
- * is what keeps the line from reading as a formal sanction.
+ * Application-owned hostility exit line. Sent once when the counter passes
+ * `FEEDBACK_CALM_REPLIES_BEFORE_HOSTILITY_STOP`. Not STOP: `optedIn` and
+ * lifecycle stay open.
  */
 export const POST_EVENT_FEEDBACK_HOSTILITY_STOP_REPLY =
   "Δεν μπορούμε να συνεχίσουμε κουβέντα έτσι, εγώ σταματάω 🍌";
 
 /**
- * The acknowledgement half of the deterministic fallback reply.
- *
- * It is the first sentence of the handoff copy above, reused verbatim rather
- * than newly authored: the fallback runs when the model could not speak, which
- * is the worst moment to invent tone. The run appends the campaign's own
- * current goal question after it, so the participant gets an acknowledgement
- * plus the question the bot was already asking — and the conversation does not
- * stall in silence.
+ * First sentence of the handoff copy, reused as the fallback acknowledgement.
  */
 export const POST_EVENT_FEEDBACK_FALLBACK_ACK =
   "Σε ευχαριστούμε που μας το είπες.";
 
 /**
- * The generic note a permanently failed run files (D13, amended).
- *
- * Bounded, non-clinical and deliberately content-free: nothing was extracted,
- * so the note may not characterise what was said. It points an operator at the
- * conversation, which is the only honest thing it can do.
- *
- * It used to read «Πιθανή προσβλητική/ευαίσθητη αναφορά», which is a
- * characterisation — the exact thing the paragraph above forbids — and one the
- * system has no grounds for. A run reaches here for any permanent failure, and
- * `failureCause` is `unknown` for every failure this provider produces, so the
- * note asserted possible offensiveness about text nothing had read. Observed in
- * a rehearsal: a participant who wrote that somebody was pleasant company had
- * «possible offensive reference» filed against her name.
+ * Generic fallback note (D13). Content-free: nothing was extracted, so nothing
+ * may be characterised.
  */
 export const POST_EVENT_FEEDBACK_FALLBACK_NOTE_TEXT =
   "Η αυτόματη ανάλυση δεν ολοκληρώθηκε — δείτε τη συζήτηση.";
 
-/**
- * How long a conversation may sit parked on a provider incident before the
- * participant is told something.
- *
- * Thirty minutes, decided by the owner over two hours and over never. Long
- * enough that any ordinary retry ladder has had its chance and the sentence is
- * not sent about a blip; short enough that somebody who answered at midnight is
- * not left until morning believing they were ignored.
- */
+/** Park notice delay: after ordinary retries, before overnight silence. */
 export const FEEDBACK_EXTRACTION_PARK_NOTICE_AFTER_MS = 30 * 60_000;
 
 /**
- * The one sentence a parked conversation says, half an hour in.
- *
- * Application copy, like the handoff and safety-assurance lines above and for
- * the same reason: no model composed it, so it cannot drift, and it is sent by
- * the code that knows the run is stuck rather than by one that is guessing.
- *
- * Every clause is a constraint rather than a flourish:
- *
- * - It names no cause. The incident it covers is usually ours — an exhausted
- *   balance, a wrong model id, a provider outage — and on 2026-07-27 thirty-six
- *   people were effectively sent a message about our accounting. «κάτι κόλλησε
- *   από τη δική μας πλευρά» puts the fault on us and stops there. No billing, no
- *   credit, no quota, no provider, and nothing that reads as the participant's
- *   fault.
- * - It says their message is unread, not lost. «δεν το έχουμε δει ακόμα» is the
- *   truth — it is sitting in the transcript behind a cursor — and it is also the
- *   version that does not make somebody re-type a disclosure they worked up to.
- * - It promises no person and no time. Rule 11ε forbids the model from saying
- *   somebody will make contact; this is the application speaking, but the
- *   promise would still be one nobody has to keep, because a parked conversation
- *   deliberately raises no attention. «Θα σου απαντήσουμε» is a promise the
- *   system itself keeps: the retry that answers is already queued.
- * - It says nothing about what we do with what they told us — rule 11στ — so no
- *   sentence here can become an accidental data-handling commitment.
- *
- * Sent at most once per conversation, ever. A parked conversation wakes up every
- * few minutes and a second identical apology six hours later is not care, it is
- * a stuck recording.
+ * One parked-conversation notice. No cause, person, time or data-handling
+ * claim. Sent at most once per conversation.
  */
 export const POST_EVENT_FEEDBACK_EXTRACTION_PARKED_NOTICE =
   "Συγγνώμη, κάτι κόλλησε από τη δική μας πλευρά και δεν έχουμε δει ακόμα το μήνυμά σου. Θα σου απαντήσουμε.";
@@ -722,14 +526,8 @@ export const FEEDBACK_HOSTILITY_STOP_DEDUPE_PREFIX = "feedback-hostility-stop";
 export const FEEDBACK_PARKED_DEDUPE_PREFIX = "feedback-parked";
 
 /**
- * One outbound per conversation per answered testimony position. A replayed run
- * derives the same anchor from the same transcript, so the unique `dedupe_key`
- * absorbs it instead of sending a second message.
- *
- * The anchor is the **last participant message's** `seq`, not the transcript
- * length: the run appends its own reply to the transcript, so a length-based
- * key would change between the original run and a replay that already sees
- * that reply — and a changed key is a second WhatsApp message.
+ * One outbound per conversation per last-participant `seq`. Length would change
+ * after this run appends its reply and mint a second WhatsApp message.
  */
 export function createFeedbackReplyDedupeKey(
   conversationId: string,
@@ -739,19 +537,9 @@ export function createFeedbackReplyDedupeKey(
 }
 
 /**
- * One closing decision per testimony snapshot and durable work generation.
- *
- * A participant fragment may supersede a terminal decision after its outbox
- * row was written but before MongoDB can close the aggregate. Anchoring the key
- * lets that stale row be cancelled without occupying the identity needed by a
- * later, valid close. Human takeover can do the same without adding testimony;
- * resume advances `work.revision`, so the resumed run needs a fresh identity
- * even though its last participant sequence is unchanged. A retry of one work
- * revision still derives the same key, independently of its execution epoch.
- *
- * `workRevision` is optional only for retained V2 callers and pure outbound
- * resolution. The production extraction seam always supplies it after the
- * final lifecycle decision has been made.
+ * Closing identity includes `workRevision` so a takeover-cancelled terminal
+ * does not block resume. Execution epoch is deliberately absent. Optional
+ * revision is for retained V2 / pure outbound resolution only.
  */
 export function createFeedbackClosingDedupeKey(
   conversationId: string,
@@ -794,14 +582,8 @@ export function createFeedbackHandoffDedupeKey(
 }
 
 /**
- * Per conversation, not per testimony — unlike the reply and handoff keys above.
- *
- * The bot bows out of a conversation exactly once, so this is closing copy in
- * shape even though it is not a completion. `awaitingHuman` already stops the
- * next run before it reaches a provider, which means the second send this fences
- * against is not a later turn but a replay of the same run: the counter's
- * compare-and-set has by then already been applied, so a replay recomputes the
- * same decision from the same snapshot and must land on the same key.
+ * One hostility-stop send per conversation. Replay of the same run must reuse
+ * this key after the counter CAS has already applied.
  */
 export function createFeedbackHostilityStopDedupeKey(
   conversationId: string,
@@ -809,23 +591,14 @@ export function createFeedbackHostilityStopDedupeKey(
   return `${FEEDBACK_HOSTILITY_STOP_DEDUPE_PREFIX}-${conversationId}`;
 }
 
-/**
- * At most one fallback acknowledgement per conversation. The per-testimony fence
- * (`createFeedbackFallbackDedupeKey`) still absorbs replays of the same dead run;
- * this key is what stops a second participant message during an outage from
- * enqueueing the same apology again.
- */
+/** One fallback ack per conversation. Per-testimony fence absorbs same-run replay. */
 export function createFeedbackFallbackAckDedupeKey(
   conversationId: string,
 ): string {
   return `${FEEDBACK_FALLBACK_DEDUPE_PREFIX}-${conversationId}-ack`;
 }
 
-/**
- * Per-testimony fence for a dead run's operator effects. The cancelled `system`
- * row is never delivered; it exists so a replayed job does not file a second
- * note or audit event for the same testimony.
- */
+/** Cancelled per-testimony fence: replay must not file a second note/audit. */
 export function createFeedbackFallbackDedupeKey(
   conversationId: string,
   testimonySeq: number,
@@ -834,13 +607,8 @@ export function createFeedbackFallbackDedupeKey(
 }
 
 /**
- * One parked-conversation notice, ever, per conversation.
- *
- * Keyed on the conversation alone and deliberately not on a testimony position:
- * the sentence is about our silence, not about one message, and somebody who
- * writes twice during the same outage has not earned a second apology. The
- * document's `extraction.parkedNoticeSentAt` makes the decision once; this makes
- * the send once even if that write is lost between the two.
+ * One parked notice per conversation, not per testimony. Complements
+ * `parkedNoticeSentAt` if that write is lost.
  */
 export function createFeedbackExtractionParkedNoticeDedupeKey(
   conversationId: string,

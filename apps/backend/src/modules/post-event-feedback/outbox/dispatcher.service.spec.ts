@@ -405,12 +405,15 @@ describe("MessageOutboxDispatcherService", () => {
     expect(
       harness.repository.cancelQueuedAutomatedOutboxForConversation,
     ).toHaveBeenCalledWith(harness.transaction, conversationId, null);
-    expect(harness.conversations.raiseAttention).toHaveBeenCalledWith({
-      conversationId,
-      kind: "undelivered_message",
-      messageId: null,
-      at: expect.any(Date),
-    });
+    expect(harness.conversations.raiseAttention).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        conversationId,
+        kind: "undelivered_message",
+        messageId: null,
+        at: expect.any(Date),
+      },
+    );
     expect(harness.transport.sendText).not.toHaveBeenCalled();
   });
 
@@ -455,10 +458,13 @@ describe("MessageOutboxDispatcherService", () => {
       "42",
       harness.transaction,
     );
-    expect(harness.conversations.markAwaitingHuman).toHaveBeenCalledWith({
-      conversationId,
-      at: expect.any(Date),
-    });
+    expect(harness.conversations.markAwaitingHuman).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        conversationId,
+        at: expect.any(Date),
+      },
+    );
     expect(
       harness.repository.cancelQueuedAutomatedOutboxForConversation,
     ).toHaveBeenCalledWith(harness.transaction, conversationId, null);
@@ -611,10 +617,12 @@ describe("MessageOutboxDispatcherService", () => {
       harness.transaction,
     );
     expect(harness.ingress.hasInboundBeyondSnapshot).not.toHaveBeenCalled();
-    // Deliberately exposes the remaining projection seam: Mongo keeps the bot
-    // audit-intent turn even though PostgreSQL proves it never crossed provider
-    // entry. Extraction input must filter that turn by the durable outbox state.
+    // Deliberately exposes the remaining projection seam: the conversation
+    // transcript keeps the bot audit-intent turn even though the outbox row
+    // proves it never crossed provider entry. Extraction input must filter
+    // that turn by the durable outbox state.
     expect(harness.outboundTranscript.record).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({ id: outboxId }),
       expect.any(Date),
       outboxId,
@@ -1101,7 +1109,7 @@ describe("MessageOutboxDispatcherService", () => {
     expect(closing.transport.sendText).toHaveBeenCalledTimes(1);
   });
 
-  it("cancels an anchored closing row that MongoDB did not record as winner", async () => {
+  it("cancels an anchored closing row that the conversation did not record as winner", async () => {
     const harness = createHarness({
       claims: [
         claimedRow({
@@ -1122,7 +1130,7 @@ describe("MessageOutboxDispatcherService", () => {
     expect(harness.transport.sendText).not.toHaveBeenCalled();
   });
 
-  it("does not send canonical terminal copy before MongoDB commits closure", async () => {
+  it("does not send canonical terminal copy before the conversation commits closure", async () => {
     const harness = createHarness({
       claims: [
         claimedRow({

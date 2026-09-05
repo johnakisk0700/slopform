@@ -22,11 +22,11 @@ in component state (not the URL). Route is **not** under `/admin/feedback/` so
 
 ## Contract
 
-| Operation                   | Reads                                    | Polled                |
-| --------------------------- | ---------------------------------------- | --------------------- |
-| `listFeedbackOutboxQueue`   | PostgreSQL + batched MongoDB respondents | 3 s, both views       |
-| `listFeedbackOutboxHistory` | PostgreSQL + batched MongoDB respondents | 5 s, newest page only |
-| `getFeedbackOutboxMessage`  | PostgreSQL                               | 3 s                   |
+| Operation                   | Reads                                         | Polled                |
+| --------------------------- | --------------------------------------------- | --------------------- |
+| `listFeedbackOutboxQueue`   | PostgreSQL + batched conversation respondents | 3 s, both views       |
+| `listFeedbackOutboxHistory` | PostgreSQL + batched conversation respondents | 5 s, newest page only |
+| `getFeedbackOutboxMessage`  | PostgreSQL                                    | 3 s                   |
 
 Generated hooks only
 ([api-contract](../backend/mechanisms/api-contract.md)). Queue query is **not**
@@ -46,7 +46,8 @@ Rules unit-tested in `apps/admin/test/feedback-outbox.spec.ts`.
 
 ## Load constraint
 
-**No Redis reads.** PostgreSQL + batched MongoDB respondent lookup only. Detail
+**No Redis reads.** PostgreSQL outbox plus batched `listRespondentsByIds`
+from `feedback_conversations` only. Detail
 publishes durable `dispatch` (`pending | claimed | attempting | ambiguous |
 sending` bridge | `sent | failed | held | cancelled`) with
 `claimExpiresAt` / `sendStartedAt` / `attemptCount` / `lastError`. Claim token
@@ -59,7 +60,7 @@ not exist — pane states that limit. Policy detail:
 ```mermaid
 flowchart LR
   list["listFeedbackOutboxQueue"] --> pg[(PostgreSQL)]
-  list --> mongo[(MongoDB respondents)]
+  list --> respondents[(Conversation respondents)]
   row["getFeedbackOutboxMessage"] --> pg
 ```
 

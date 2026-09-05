@@ -20,8 +20,9 @@
  * previous run's failures would be reported as the next run's if left behind.
  *
  * `--all-feedback` widens the local-only scope to every post-event feedback
- * campaign and thread while still preserving events, participants, assistant
- * conversations and audit. Prints the plan and exits unless `--yes` is passed.
+ * campaign and conversation row while still preserving events, participants,
+ * assistant MongoDB threads and audit. Prints the plan and exits unless
+ * `--yes` is passed. This script never deletes MongoDB documents.
  */
 
 import { spawnSync } from "node:child_process";
@@ -38,7 +39,6 @@ const repositoryRoot = path.resolve(
 
 /** The block `burstPhoneE164` allocates. Nothing outside it is ever touched. */
 const RESERVED_PHONE_PREFIX = "+3069000";
-const RESERVED_PHONE_UPPER_BOUND = "+3069001";
 
 const NON_TERMINAL_QUEUE_STATES = [
   "wait",
@@ -90,6 +90,7 @@ async function main() {
     union all select 'feedback_answers', count(*)::int from feedback_answers where campaign_id in (${scope.campaignIdsSql})
     union all select 'feedback_campaign_summaries', count(*)::int from feedback_campaign_summaries where campaign_id in (${scope.campaignIdsSql})
     union all select 'feedback_conversation_executions', count(*)::int from feedback_conversation_executions where conversation_id in (${scope.conversationIdsSql})
+    union all select 'feedback_conversations', count(*)::int from feedback_conversations where id in (${scope.conversationIdsSql})
     union all select 'feedback_notes', count(*)::int from feedback_notes where campaign_id in (${scope.campaignIdsSql})
     union all select 'message_outbox', count(*)::int from message_outbox where campaign_id in (${scope.campaignIdsSql})
     union all select 'message_outbox_log', count(*)::int from message_outbox_log where campaign_id in (${scope.campaignIdsSql})
@@ -99,14 +100,6 @@ async function main() {
 
   console.log(`Postgres (${scope.label}):`);
   console.log(plan.trim());
-
-  // Scope Mongo independently of PostgreSQL. If PostgreSQL commits and Mongo
-  // is temporarily unavailable, a retry must still find and remove the same
-  // threads after their campaign rows are gone.
-  const threadCount = queryMongo(
-    `db.conversation_threads.countDocuments(${scope.mongoFilter})`,
-  ).trim();
-  console.log(`\nMongo ${scope.mongoLabel}: ${threadCount}`);
 
   const queues = await openFeedbackQueues();
   const unsafeQueueJobs = [];
@@ -150,14 +143,12 @@ async function main() {
     delete from feedback_sim_outbound where ${scope.simOutboundPredicate};
     delete from message_outbox_log where campaign_id in (${scope.campaignIdsSql});
     delete from message_outbox where campaign_id in (${scope.campaignIdsSql});
+    delete from feedback_conversations where id in (${scope.conversationIdsSql});
 
     delete from feedback_campaigns where id in (${scope.campaignIdsSql});
     delete from provider_message_ingress where ${scope.ingressPredicate};
     commit;`);
   console.log(`\nPostgres: ${scope.deletedLabel} removed.`);
-
-  writeMongo(`db.conversation_threads.deleteMany(${scope.mongoFilter})`);
-  console.log(`Mongo: ${scope.mongoLabel} removed.`);
 
   for (const queue of queues) {
     // Only the terminal sets. `delayed` holds the recurring relay and sweeps,
@@ -174,11 +165,9 @@ export function resolveResetScope(arguments_) {
     return {
       label: "all local post-event feedback",
       campaignIdsSql: ALL_FEEDBACK_CAMPAIGN_IDS,
-      conversationIdsSql: `select distinct conversation_id from message_outbox where campaign_id in (${ALL_FEEDBACK_CAMPAIGN_IDS})`,
+      conversationIdsSql: feedbackConversationIdsSql(ALL_FEEDBACK_CAMPAIGN_IDS),
       simOutboundPredicate: "true",
       ingressPredicate: "true",
-      mongoFilter: '{purpose:"post_event_feedback"}',
-      mongoLabel: "post-event feedback conversation_threads",
       deletedLabel: "all local post-event feedback rows",
       applyFlags: "--all-feedback --yes",
     };
@@ -187,14 +176,22 @@ export function resolveResetScope(arguments_) {
   return {
     label: "scoped to the reserved phone block",
     campaignIdsSql: BURST_CAMPAIGN_IDS,
-    conversationIdsSql: `select distinct conversation_id from message_outbox where campaign_id in (${BURST_CAMPAIGN_IDS})`,
+    conversationIdsSql: feedbackConversationIdsSql(BURST_CAMPAIGN_IDS),
     simOutboundPredicate: `phone_e164 like '${RESERVED_PHONE_PREFIX}%'`,
     ingressPredicate: `phone_e164 like '${RESERVED_PHONE_PREFIX}%'`,
-    mongoFilter: `{phoneAtLaunch:{$gte:${JSON.stringify(RESERVED_PHONE_PREFIX)},$lt:${JSON.stringify(RESERVED_PHONE_UPPER_BOUND)}}}`,
-    mongoLabel: "conversation_threads in the reserved phone block",
     deletedLabel: "burst rows",
     applyFlags: "--yes",
   };
+}
+
+/**
+ * Conversations owned by the campaign scope, plus leftover outbox / fence
+ * ids from a half-finished rehearsal that never landed a conversation row.
+ */
+function feedbackConversationIdsSql(campaignIdsSql) {
+  return `select id from feedback_conversations where campaign_id in (${campaignIdsSql})
+    union
+    select distinct conversation_id from message_outbox where campaign_id in (${campaignIdsSql})`;
 }
 
 async function inspectQueueForReset(queue) {
@@ -271,14 +268,6 @@ function queryPostgres(sql) {
 
 function writePostgres(sql) {
   return runQueryTool(["--write", "postgres", sql]);
-}
-
-function queryMongo(expression) {
-  return runQueryTool(["mongo", expression]);
-}
-
-function writeMongo(expression) {
-  return runQueryTool(["--write", "mongo", expression]);
 }
 
 /**

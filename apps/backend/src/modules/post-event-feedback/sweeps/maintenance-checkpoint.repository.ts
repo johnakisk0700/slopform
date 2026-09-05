@@ -22,11 +22,6 @@ export interface FeedbackPendingSummaryRecoveryCursor {
   readonly campaignId: string;
 }
 
-export interface FeedbackCampaignResumeRecoveryCursor {
-  readonly dueAt: Date;
-  readonly campaignId: string;
-}
-
 const CONVERSATION_DUE_TASK =
   "conversation_due" as const satisfies FeedbackMaintenanceCheckpointTask;
 const INGRESS_PENDING_TASK =
@@ -35,16 +30,16 @@ const SUMMARY_AUTO_TASK =
   "summary_auto" as const satisfies FeedbackMaintenanceCheckpointTask;
 const SUMMARY_PENDING_TASK =
   "summary_pending" as const satisfies FeedbackMaintenanceCheckpointTask;
-const CAMPAIGN_RESUME_TASK =
-  "campaign_resume" as const satisfies FeedbackMaintenanceCheckpointTask;
 
 /**
  * PostgreSQL-owned fairness checkpoints for bounded maintenance scans.
  *
  * The caller owns the transaction and keeps the row lock only while allocating
  * one page. Processing happens after commit. A crashed allocator may therefore
- * skip its page until the finite wrap, but durable Mongo/PostgreSQL intent is
- * never consumed by this cursor and cannot be lost.
+ * skip its page until the finite wrap, but durable work columns are
+ * never consumed by this cursor and cannot be lost. Campaign resume no
+ * longer uses a checkpoint: status and open-row due revisions commit
+ * together.
  */
 @Injectable()
 export class FeedbackMaintenanceCheckpointRepository {
@@ -119,31 +114,6 @@ export class FeedbackMaintenanceCheckpointRepository {
   ): Promise<void> {
     await this.save(transaction, SUMMARY_PENDING_TASK, {
       cursorAt: cursor?.requestedAt ?? null,
-      cursorId: cursor?.campaignId ?? null,
-    });
-  }
-
-  async lockCampaignResume(
-    transaction: AppTransaction,
-  ): Promise<FeedbackCampaignResumeRecoveryCursor | undefined> {
-    const cursor = await this.lockTimedCursor(
-      transaction,
-      CAMPAIGN_RESUME_TASK,
-      "Campaign-resume",
-    );
-    if (!cursor) return undefined;
-    return {
-      dueAt: cursor.cursorAt,
-      campaignId: cursor.cursorId,
-    };
-  }
-
-  async saveCampaignResume(
-    transaction: AppTransaction,
-    cursor: FeedbackCampaignResumeRecoveryCursor | undefined,
-  ): Promise<void> {
-    await this.save(transaction, CAMPAIGN_RESUME_TASK, {
-      cursorAt: cursor?.dueAt ?? null,
       cursorId: cursor?.campaignId ?? null,
     });
   }

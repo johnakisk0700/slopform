@@ -66,13 +66,28 @@ describe("PostEventFeedbackSweepService", () => {
       expect.anything(),
       expect.objectContaining({ action: "feedback_conversation.reminded" }),
     );
-    expect(conversations.appendMessage).toHaveBeenCalledWith({
-      conversationId,
-      actor: "bot",
-      text: "Μια μικρή υπενθύμιση",
-      at: expect.any(Date),
-      outboxId: reminderOutboxId,
-    });
+    expect(conversations.appendMessage).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        conversationId,
+        actor: "bot",
+        text: "Μια μικρή υπενθύμιση",
+        at: expect.any(Date),
+        outboxId: reminderOutboxId,
+      },
+    );
+    const reminderTx = repository.insertOutboxIfAbsent.mock.calls[0]?.[0];
+    expect(conversations.appendMessage).toHaveBeenCalledWith(
+      reminderTx,
+      expect.objectContaining({ outboxId: reminderOutboxId }),
+    );
+    expect(conversations.markReminded).toHaveBeenCalledWith(
+      reminderTx,
+      expect.objectContaining({
+        conversationId,
+        expectedCount: 0,
+      }),
+    );
   });
 
   it("writes one reminder log with the due rung when a nudge is enqueued", async () => {
@@ -140,6 +155,7 @@ describe("PostEventFeedbackSweepService", () => {
 
     expect(result).toBe(false);
     expect(conversations.appendMessage).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({ actor: "bot", outboxId: reminderOutboxId }),
     );
     expect(conversations.markReminded).toHaveBeenCalled();
@@ -257,7 +273,7 @@ describe("PostEventFeedbackSweepService", () => {
     expect(repository.insertOutboxIfAbsent).not.toHaveBeenCalled();
   });
 
-  it("drops a reminder when durable inbound lands after the Mongo silence snapshot", async () => {
+  it("drops a reminder when durable inbound lands after the conversation silence snapshot", async () => {
     const { service, conversations, repository } = createService();
     const open = openConversation();
     conversations.findById.mockResolvedValue(open);
@@ -306,7 +322,7 @@ describe("PostEventFeedbackSweepService", () => {
     });
 
     expect(result).toBe(true);
-    expect(conversations.close).toHaveBeenCalledWith({
+    expect(conversations.close).toHaveBeenCalledWith(expect.anything(), {
       conversationId,
       reason: "expired",
       at: expect.any(Date),
@@ -343,6 +359,15 @@ describe("PostEventFeedbackSweepService", () => {
     expect(repository.cancelQueuedOutboxForConversation).toHaveBeenCalled();
     expect(auditAppend).toHaveBeenCalledWith(
       expect.anything(),
+      expect.objectContaining({ action: "feedback_conversation.expired" }),
+    );
+    const expireTx = conversations.close.mock.calls[0]?.[0];
+    expect(repository.cancelQueuedOutboxForConversation).toHaveBeenCalledWith(
+      expireTx,
+      conversationId,
+    );
+    expect(auditAppend).toHaveBeenCalledWith(
+      expireTx,
       expect.objectContaining({ action: "feedback_conversation.expired" }),
     );
   });
@@ -405,7 +430,7 @@ describe("PostEventFeedbackSweepService", () => {
     },
   );
 
-  it("drops expiry for pending inbound or a correction beyond its Mongo snapshot", async () => {
+  it("drops expiry for pending inbound or a correction beyond its decision snapshot", async () => {
     const { service, conversations, repository } = createService();
     const snapshot = {
       ...openConversation(),
@@ -707,9 +732,10 @@ function createService(): {
       return undefined;
     }),
   };
+  let transactionSeq = 0;
   const database = {
     transaction: vi.fn(async (work: (tx: unknown) => Promise<unknown>) =>
-      work({}),
+      work({ n: ++transactionSeq }),
     ),
   };
   const checkpoints = pendingIngressCheckpointDouble();
@@ -727,7 +753,6 @@ function createService(): {
       participants as unknown as ParticipantsRepository,
       { append: auditAppend } as unknown as AuditRepository,
       new FeedbackOutboundTranscriptService(
-        database as unknown as DatabaseService,
         repository as unknown as FeedbackOutboxRepository,
         conversations as unknown as FeedbackConversationRepository,
       ),

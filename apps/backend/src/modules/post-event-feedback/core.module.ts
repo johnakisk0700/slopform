@@ -1,7 +1,6 @@
 import { Module } from "@nestjs/common";
 
 import { DatabaseModule } from "../../infrastructure/database/database.module.js";
-import { MongoModule } from "../../infrastructure/mongo/mongo.module.js";
 import { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
 import { FeedbackResultsRepository } from "./extraction/results.repository.js";
 import { FeedbackConversationExecutionFenceRepository } from "./extraction/execution-fence.repository.js";
@@ -14,7 +13,7 @@ import { FeedbackSimOutboundRepository } from "./simulator/sim-outbound.reposito
 import { FeedbackMaintenanceCheckpointRepository } from "./sweeps/maintenance-checkpoint.repository.js";
 
 @Module({
-  imports: [DatabaseModule, MongoModule],
+  imports: [DatabaseModule],
   providers: [
     FeedbackCampaignRepository,
     FeedbackConversationRepository,

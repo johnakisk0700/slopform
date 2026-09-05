@@ -18,7 +18,6 @@ import { FeedbackOutboxQueueViewService } from "./outbox/queue-view.service.js";
 import { PostEventFeedbackCoreModule } from "./core.module.js";
 import { PostEventFeedbackCampaignSummaryService } from "./summary/summary.service.js";
 import { FeedbackConversationWakeupService } from "./reconciliation/wakeup.service.js";
-import { FeedbackCampaignResumeRepairService } from "./campaign/resume-repair.service.js";
 
 @Module({
   imports: [
@@ -44,7 +43,6 @@ import { FeedbackCampaignResumeRepairService } from "./campaign/resume-repair.se
     PostEventFeedbackConversationService,
     PostEventFeedbackCampaignSummaryService,
     FeedbackConversationWakeupService,
-    FeedbackCampaignResumeRepairService,
   ],
   exports: [
     PostEventFeedbackCampaignService,

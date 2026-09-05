@@ -29,7 +29,7 @@ export interface FeedbackConversationActiveLeaseView {
   readonly claimExpiresAt: Date;
 }
 
-/** Extraction facts derived solely from the Mongo-authoritative aggregate. */
+/** Extraction facts derived solely from the conversation aggregate. */
 export function toExtractionView(
   conversation: FeedbackConversationDocument,
 ): FeedbackConversationExtractionView {
@@ -48,7 +48,7 @@ export function toExtractionView(
  * One coherent automation projection from durable scheduling and execution.
  *
  * A live claim takes precedence because work is executing even if another
- * participant message advanced MongoDB's revision in the meantime. A provider
+ * participant message advanced the conversation revision in the meantime. A provider
  * park then outranks its future retry schedule; `nextActionAt` still says when
  * that retry (or eventual expiry) is due.
  */

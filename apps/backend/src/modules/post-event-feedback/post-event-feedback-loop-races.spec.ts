@@ -15,7 +15,7 @@ import {
  * decision to send was re-taken against reloaded state immediately before the
  * outbox insert.
  *
- * These are behavioural tests, not E2E tests. Real MongoDB, PostgreSQL, Redis
+ * These are behavioural tests, not E2E tests. Real PostgreSQL, Redis
  * and WhatsApp are intentionally absent.
  */
 const MODEL_CALL_RACES: readonly FeedbackScenario[] = [

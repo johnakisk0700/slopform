@@ -5,23 +5,26 @@ driver `7.5.0` and MongoDB Community `8.0.28`.
 
 ## Boundary
 
-MongoDB stores conversation aggregates: owner identity, purpose/channel, ordered
-content, goals, lifecycle, human control and durable next-action intent. One
-collection, `conversation_threads`, holds two versioned shapes — schema v1
-(admin Assistant) and schema v2 (post-event feedback) — discriminated by
-`schemaVersion` and `purpose`. PostgreSQL remains authoritative for relational
-business data, audit, outbox and delivery/execution projections. For feedback,
-MongoDB stores monotonic work revision and due time; PostgreSQL grants the
-execution lease/epoch; Redis is wake-up and rate-limit only.
+MongoDB stores **admin Assistant** conversation aggregates: owner identity,
+purpose/channel, ordered turns, goals, lifecycle and human-takeover state.
+Runtime campaign feedback no longer reads or writes this store
+([ADR 0015](../../decisions/0015-postgresql-feedback-conversations.md)).
+`conversation_threads` remains the Assistant collection (schema v1,
+`purpose: admin_assistant`). Leftover schema-v2 `post_event_feedback`
+documents may still exist until an explicit offline import; they are not a
+runtime fallback. PostgreSQL is authoritative for feedback transcript,
+lifecycle, work and accounting, and for relational audit, outbox and
+delivery/execution projections. Redis is wake-up and rate-limit only.
 
-The embedded feedback transcript is deliberately raw: an outbox-backed turn may
-remain after PostgreSQL marks the row `cancelled`. Detail/UI reads retain it with
-the joined delivery projection. Model-context reads perform one
-transcript-bounded PostgreSQL status lookup and exclude only rows proven never
-visible (`pending`, `held`, `claimed`, `failed`, `cancelled`). Provider-crossed
-or uncertain rows remain. A missing historical outbox row is included —
-absence cannot prove non-delivery. The raw array and its sequence numbers remain
-the cursor authority.
+The Assistant embedded transcript stays Mongo-authoritative. Feedback
+transcripts now live as bounded JSONB on `feedback_conversations`. An
+outbox-backed feedback turn may remain after PostgreSQL marks the outbox row
+`cancelled`. Detail/UI reads retain it with the joined delivery projection.
+Model-context reads exclude only rows proven never visible (`pending`, `held`,
+`claimed`, `failed`, `cancelled`). Provider-crossed or uncertain rows remain.
+A missing historical outbox row is included — absence cannot prove
+non-delivery. Feedback sequence numbers on the PostgreSQL row remain the
+cursor authority.
 
 `MongoService` owns one native-driver client per Nest process (eager construct,
 lazy memoized connect). Each conversation repository owns its document version
@@ -46,12 +49,13 @@ Readiness performs only `ping` through the shared one-second application
 deadline and driver command timeout. Concurrent probes share one in-flight
 ping; a timed-out ping is discarded so a later healthy probe can recover. Nest
 shutdown closes the client once. MongoDB is required for API and worker —
-unavailable MongoDB degrades readiness; generation must not continue from a
-stale PostgreSQL content copy.
+unavailable MongoDB degrades readiness because the Assistant still requires
+it; feedback campaign conversations can be read from PostgreSQL. Assistant
+generation must not continue from a stale PostgreSQL content copy.
 
-Summary lists use a narrow projection. The feedback campaign list projects
-counts and last-message metadata through aggregation. Full embedded content
-loads only for thread detail/model-history or an actual PostgreSQL backfill.
+Summary lists use a narrow projection. Assistant list/detail still load
+MongoDB. Feedback campaign lists and due-work scans read PostgreSQL scalars
+and do not load transcripts for counts.
 
 ## Security and provisioning
 
@@ -61,19 +65,18 @@ pinned by exact version and multi-platform digest.
 
 A fresh volume creates a root user (Mongo-only root secret), a database-scoped
 `readWrite` application user (separate secret), and `conversation_threads` with
-seven reviewed indexes:
+the Assistant indexes only:
 
-- schema-v1 owner/recency and purpose/state indexes;
-- schema-v2 partial **unique** index on `phoneAtLaunch` for open feedback
-  conversations;
-- schema-v2 campaign/recency and due-work indexes
-  (`work.nextActionAt`, `_id` with partial date filter);
-- schema-v2 lifecycle state and attention-recency indexes for the admin Overview
-  facet.
+- schema-v1 owner/recency and purpose/state indexes.
 
-API and worker receive only the application secret. The repository idempotently
-verifies required indexes on its first conversation operation, not during
-readiness.
+Obsolete feedback index creation is omitted for new volumes. This file does
+not drop indexes on an already-initialized volume. Feedback open-phone,
+campaign-recency, due-work, lifecycle and attention indexes now live on
+`feedback_conversations`.
+
+API and worker receive only the application secret. The Assistant repository
+idempotently verifies required indexes on its first conversation operation,
+not during readiness.
 
 Compose provisioning and the backend secret entrypoint share one ASCII contract:
 database names 1–63 `[A-Za-z0-9_-]`, application users 1–64
@@ -103,27 +106,22 @@ duplicating old provider executions.
 **Capacity.** BSON limit is 16 MiB. Schema-v1 caps embedded turns at 75; tool
 artifacts additionally cap at 20 calls/turn with 512-character input and
 1,536-character result previews. The Assistant append route enforces the same
-cap inside locked PostgreSQL sequence allocation. Schema-v2 caps the transcript
-at 150 messages of at most 64,000 characters (stored cap, not WhatsApp's 4096
-send limit) with a 4 MiB document backstop measured before each append.
-Sequence allocation is fenced by current array size. Hitting either bound flags
-human attention and fails loudly; the durable PostgreSQL ingress row still holds
-the message.
+cap inside locked PostgreSQL sequence allocation. Feedback transcripts cap at
+150 messages of at most 64,000 characters (stored cap, not WhatsApp's 4096
+send limit) with a 4 MiB `pg_column_size` backstop on the JSONB column.
+Hitting either bound flags human attention and fails loudly; the durable
+PostgreSQL ingress row still holds the message.
 
-**Schema-v2 `work`.** Optional on read for reader-first rollout; fully written
-on the next schedule. `revision` is monotonic; `nextActionAt` is durable intent;
-`executionEpoch` is the highest PostgreSQL epoch admitted; optional
-`campaignResumeGeneration` deduplicates cross-store resume. Scheduling
-increments revision atomically. Begin requires the exact due revision and a
-newer epoch; settlement requires the same epoch and cannot clear a revision that
-a newer participant message or operator transition created. A worker crash leaves
-`nextActionAt` discoverable for maintenance wake-up recreation after the
+**Feedback work after the move.** `work_revision` and `work_next_action_at`
+are conversation-row columns. `executionEpoch` is the fence table only;
+`campaignResumeGeneration` is derived from `feedback_campaigns.resume_generation`
+and is not stored again on the conversation. A worker crash leaves
+`work_next_action_at` discoverable for maintenance wake-up recreation after the
 PostgreSQL lease expires.
 
-Extraction-driven terminal state records `lifecycle.terminalOutboxId` in the
-same update that advances the snapshot cursor and writes `completed`/`declined`.
-Handoff, duty-of-care, withdrawal and hostility exits likewise advance
-cursor/accounting and set `awaitingHuman` in one update.
+Offline import of leftover schema-v2 Mongo documents is
+`pnpm import:feedback-conversations` (dry-run by default). Runtime code does
+not dual-read or dual-write.
 
 The named volume provides persistence, not backup. See the
 [deployment backup/restore runbook](../../deployment.md#coordinated-backup-runbook).
@@ -131,18 +129,18 @@ A backup is not accepted merely because a command exited zero.
 
 ## Tests and references
 
-Focused tests cover lifecycle/readiness without a live server, aggregate
-validation for both schema versions, index contracts, idempotent sync/append,
-exact-attempt fencing, conflicting terminal results, work revision/epoch
-settlement, transcript capacity and compact list projections. A booted HTTP
+Focused tests cover lifecycle/readiness without a live server, Assistant
+aggregate validation, index contracts, idempotent sync/append, exact-attempt
+fencing, conflicting terminal results and compact list projections. Feedback
+row constraints and due-work keysets are PostgreSQL tests. A booted HTTP
 contract test verifies MongoDB in readiness and generated OpenAPI (safe 503
 shape). No test suite silently depends on a developer MongoDB instance.
 
 - [Mongo service](../../../apps/backend/src/infrastructure/mongo/mongo.service.ts),
   [assistant repository](../../../apps/backend/src/modules/conversations/conversation-thread.repository.ts),
-  [feedback repository](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-conversation.repository.ts),
   [Compose init](../../../docker/mongo-init/10-app-user.js)
-- [ADR 0013](../../decisions/0013-state-driven-feedback-orchestration.md)
+- [ADR 0007](../../decisions/0007-mongodb-conversation-authority.md),
+  [ADR 0015](../../decisions/0015-postgresql-feedback-conversations.md)
 - [MongoDB Node.js driver](https://www.mongodb.com/docs/drivers/node/current/connect/connection-options/),
   [document limits](https://www.mongodb.com/docs/manual/reference/limits/),
   [Docker image](https://hub.docker.com/_/mongo)

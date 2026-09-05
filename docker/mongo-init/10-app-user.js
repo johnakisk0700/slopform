@@ -41,41 +41,5 @@ applicationDatabase.runCommand({
       name: "conversation_purpose_state_updated_idx",
       key: { purpose: 1, state: 1, updatedAt: 1 },
     },
-    {
-      name: "feedback_conversation_open_phone_unique_idx",
-      key: { phoneAtLaunch: 1 },
-      unique: true,
-      partialFilterExpression: {
-        purpose: "post_event_feedback",
-        "lifecycle.state": "open",
-      },
-    },
-    {
-      name: "feedback_conversation_campaign_updated_idx",
-      key: { campaignId: 1, updatedAt: -1 },
-    },
-    {
-      name: "feedback_conversation_work_due_idx",
-      key: { "work.nextActionAt": 1, _id: 1 },
-      partialFilterExpression: {
-        purpose: "post_event_feedback",
-        "work.nextActionAt": { $type: "date" },
-      },
-    },
-    {
-      name: "feedback_conversation_lifecycle_state_idx",
-      key: { "lifecycle.state": 1, updatedAt: -1 },
-      partialFilterExpression: {
-        purpose: "post_event_feedback",
-      },
-    },
-    {
-      name: "feedback_conversation_attention_updated_idx",
-      key: { updatedAt: -1 },
-      partialFilterExpression: {
-        purpose: "post_event_feedback",
-        needsAttention: true,
-      },
-    },
   ],
 });

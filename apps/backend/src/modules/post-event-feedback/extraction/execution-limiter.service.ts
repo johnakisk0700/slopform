@@ -37,11 +37,7 @@ export interface FeedbackExecutionRedisClient {
 
 /**
  * Serializes extraction/fallback for one conversation across worker replicas.
- *
- * BullMQ's worker concurrency can therefore serve different people in parallel
- * without letting two due cursor jobs buy the same model call and race their
- * replies. A dead holder blocks that conversation until the lease expires; it
- * never allows a second holder while the first lease is live.
+ * A live lease never admits a second holder; a dead holder blocks until expiry.
  */
 export class RedisFeedbackConversationExecutionLimiter implements OnModuleDestroy {
   constructor(

@@ -116,8 +116,9 @@ and sending stay separated by `message_outbox`.
 - Provider IDs and status transitions are untrusted. Ingress deduplicates by
   `(chat_jid, provider_message_id)`.
 - Phone normalization yields an E.164 candidate, not verified identity.
-  Resolution is a MongoDB lookup against a partial unique index — at most one
-  open conversation; unmatched numbers are never guessed.
+  Resolution is a PostgreSQL lookup against the open-phone partial unique
+  index on `feedback_conversations` — at most one open conversation;
+  unmatched numbers are never guessed.
 - Subscribe to `messages.upsert` and `messages.update`. Enabling
   `messages-personal.received` as well creates duplicate inbound observations;
   do so only with durable deduplication.
@@ -126,8 +127,9 @@ and sending stay separated by `message_outbox`.
   explicitly approved. Unmatched personal inbound text is **kept** as
   `ignored_unmatched` (`feedback.materialize.unmatched_inbound_retained`) — a
   second-number participant is a match failure, not data to erase.
-- Wasender is transport, not system of record. MongoDB owns durable conversation
-  state; PostgreSQL owns business audit, outbox and delivery state.
+- Wasender is transport, not system of record. PostgreSQL owns durable
+  feedback conversation state, business audit, outbox and delivery state.
+  MongoDB owns only admin Assistant threads.
 
 ## Failure and recovery
 

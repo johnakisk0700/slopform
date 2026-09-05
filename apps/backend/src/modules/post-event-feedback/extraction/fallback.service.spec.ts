@@ -902,17 +902,23 @@ class FakeConversations {
     }));
   }
 
-  async findById(id: string): Promise<FakeConversation | undefined> {
+  async findById(
+    id: string,
+    _transaction?: unknown,
+  ): Promise<FakeConversation | undefined> {
     return this.documents.get(id);
   }
 
-  async appendMessage(input: {
-    conversationId: string;
-    actor: string;
-    text: string;
-    at: Date;
-    outboxId?: string | null;
-  }): Promise<{ appended: boolean; conversation: FakeConversation }> {
+  async appendMessage(
+    _transaction: unknown,
+    input: {
+      conversationId: string;
+      actor: string;
+      text: string;
+      at: Date;
+      outboxId?: string | null;
+    },
+  ): Promise<{ appended: boolean; conversation: FakeConversation }> {
     const conversation = this.get(input.conversationId);
     const existing = conversation.messages.find(
       (message) => message.outboxId && message.outboxId === input.outboxId,
@@ -931,12 +937,15 @@ class FakeConversations {
     return { appended: true, conversation };
   }
 
-  /** Idempotent on kind + message, exactly as the Mongo guard filter is. */
-  async raiseAttention(input: {
-    conversationId: string;
-    kind: string;
-    messageId: string | null;
-  }): Promise<{ changed: boolean; conversation: FakeConversation }> {
+  /** Idempotent on kind + message: a retried job must not stack identical rows. */
+  async raiseAttention(
+    _transaction: unknown,
+    input: {
+      conversationId: string;
+      kind: string;
+      messageId: string | null;
+    },
+  ): Promise<{ changed: boolean; conversation: FakeConversation }> {
     const conversation = this.get(input.conversationId);
     const standing = conversation.attentionReasons.some(
       (reason) =>
@@ -956,10 +965,13 @@ class FakeConversations {
     return { changed: true, conversation };
   }
 
-  async markExtractionFallbackAckSent(input: {
-    conversationId: string;
-    at: Date;
-  }): Promise<{ changed: boolean; conversation: FakeConversation }> {
+  async markExtractionFallbackAckSent(
+    _transaction: unknown,
+    input: {
+      conversationId: string;
+      at: Date;
+    },
+  ): Promise<{ changed: boolean; conversation: FakeConversation }> {
     const conversation = this.get(input.conversationId);
     if (conversation.extractionFallbackAckSent) {
       return { changed: false, conversation };
@@ -968,9 +980,12 @@ class FakeConversations {
     return { changed: true, conversation };
   }
 
-  async markAwaitingHuman(input: {
-    conversationId: string;
-  }): Promise<{ changed: boolean; conversation: FakeConversation }> {
+  async markAwaitingHuman(
+    _transaction: unknown,
+    input: {
+      conversationId: string;
+    },
+  ): Promise<{ changed: boolean; conversation: FakeConversation }> {
     const conversation = this.get(input.conversationId);
     const changed =
       !conversation.awaitingHuman || conversation.work.nextActionAt !== null;
@@ -980,20 +995,26 @@ class FakeConversations {
   }
 
   /** Keeps the first park's start and counts the run, as the pipeline update does. */
-  async parkExtraction(input: {
-    conversationId: string;
-    at: Date;
-  }): Promise<{ changed: boolean; conversation: FakeConversation }> {
+  async parkExtraction(
+    _transaction: unknown,
+    input: {
+      conversationId: string;
+      at: Date;
+    },
+  ): Promise<{ changed: boolean; conversation: FakeConversation }> {
     const conversation = this.get(input.conversationId);
     conversation.extraction.parkedSince ??= input.at;
     conversation.extraction.parkedRuns += 1;
     return { changed: true, conversation };
   }
 
-  async markExtractionParkedNoticeSent(input: {
-    conversationId: string;
-    at: Date;
-  }): Promise<{ changed: boolean; conversation: FakeConversation }> {
+  async markExtractionParkedNoticeSent(
+    _transaction: unknown,
+    input: {
+      conversationId: string;
+      at: Date;
+    },
+  ): Promise<{ changed: boolean; conversation: FakeConversation }> {
     const conversation = this.get(input.conversationId);
     if (conversation.extraction.parkedNoticeSentAt !== null) {
       return { changed: false, conversation };
@@ -1116,7 +1137,6 @@ function createHarness(): Harness {
     events as unknown as EventsService,
     audit as unknown as AuditRepository,
     new FeedbackOutboundTranscriptService(
-      database as unknown as DatabaseService,
       repository as unknown as FeedbackOutboxRepository,
       conversations as unknown as FeedbackConversationRepository,
     ),

@@ -10,8 +10,10 @@ Nest HTTP/worker process owns one normal lazy node-postgres pool through
 `DatabaseService`. The feedback worker has one narrow exception: a separate
 five-connection pool holds session advisory locks and never executes repository
 queries. Services choose transaction scope; repositories issue explicit queries
-on the supplied transaction or service handle. Conversation aggregates are
-outside this boundary; see [MongoDB lifecycle](mongodb.md).
+on the supplied transaction or service handle. Admin Assistant conversation
+aggregates stay outside this boundary; see [MongoDB lifecycle](mongodb.md).
+Campaign feedback conversations are PostgreSQL rows; see
+[ADR 0015](../../decisions/0015-postgresql-feedback-conversations.md).
 
 ```mermaid
 flowchart LR
@@ -77,32 +79,39 @@ the same SQL update. Venue audits may retain flags and revision, never label,
 place id or address-like text.
 
 **Post-event feedback.** Persistence spans `feedback_campaigns`,
-`feedback_campaign_summaries`, `feedback_answers`,
+`feedback_conversations`, `feedback_campaign_summaries`, `feedback_answers`,
 `feedback_answer_withdrawals`, `feedback_notes`, `provider_message_ingress`,
 `feedback_conversation_executions`, `feedback_maintenance_checkpoints`,
-`message_outbox` and `message_outbox_log`. One campaign per event; answer
-uniqueness uses `NULLS NOT DISTINCT`; ingress dedupes on
-`(chat_jid, provider_message_id)`; outbox `dedupe_key` is unique. Participant
-and campaign FKs are `ON DELETE RESTRICT` with no references to
-`event_attendees`. A withdrawn answer is hard-deleted and leaves a tombstone on
-the same uniqueness key. See
-[post-event feedback](../modules/post-event-feedback.md).
+`message_outbox` and `message_outbox_log`. One campaign conversation is one
+`feedback_conversations` row: routing, lifecycle, control and durable work are
+scalars; transcript, goals, attention and usage are bounded JSONB. One campaign
+per event; answer uniqueness uses `NULLS NOT DISTINCT`; ingress dedupes on
+`(chat_jid, provider_message_id)`; outbox `dedupe_key` is unique. New
+conversation campaign/respondent FKs are `ON DELETE RESTRICT`. Existing
+execution, answer, note and outbox `conversation_id` values stay without a
+validated FK until import has parents. No references to `event_attendees`. A
+withdrawn answer is hard-deleted and leaves a tombstone on the same uniqueness
+key. See [post-event feedback](../modules/post-event-feedback.md).
 
-Cross-store and fencing invariants agents must not break:
+Fencing invariants agents must not break:
 
-- Campaign resume intent: monotonic `resume_generation`, acknowledged
-  `resume_applied_generation`, and a due timestamp exactly while they differ.
-  Maintenance allocates `(resume_due_at, campaign_id, generation)` behind its
-  checkpoint, commits, then re-locks that exact generation `FOR UPDATE` across
-  MongoDB admission and PostgreSQL acknowledgement. Redis is not part of this
-  proof.
-- `feedback_conversation_executions` holds monotonic epoch/work revision and
-  nullable lease token/expiry so a stale worker cannot commit relational
-  extraction effects. MongoDB still owns lifecycle and durable due work.
-- Maintenance checkpoints: `conversation_due`, `ingress_pending`,
-  `summary_pending`, `campaign_resume`, `summary_auto`. A task row is locked
-  `FOR UPDATE` only while one page is allocated; processing happens after
-  commit. These rows never mean work completed.
+- Campaign `resume_generation` remains the ABA token for immutable outbound
+  logs across pause/resume. Resume updates campaign status and open conversation
+  work columns in one service-owned transaction. The old due/ack pair and
+  campaign-resume repair checkpoint are removed by ADR 0015's migration.
+- `feedback_conversation_executions` holds monotonic epoch, claimed work
+  revision and nullable lease token/expiry. No second epoch is stored on
+  `feedback_conversations`. Heartbeats update the fence only. Admission checks
+  conversation `work_revision` under the same short transaction as `tryClaim`.
+  Settlement validates the live token in the transaction that reads current
+  state and sets the successor schedule; a replaced lease cannot settle even
+  if the work revision is unchanged. Both use the shared conversation mutex.
+- Durable due work is `work_revision` + `work_next_action_at` on the
+  conversation row, including closed rows that still owe a settle pass.
+- Maintenance checkpoints still include `conversation_due`, `ingress_pending`,
+  `summary_pending` and `summary_auto`. A task row is locked `FOR UPDATE` only
+  while one page is allocated; processing happens after commit. These rows
+  never mean work completed.
 - Direct dispatch extends `message_outbox` with claim token/expiry,
   `send_started_at`, attempt count and bounded last error. Only `claimed`
   returns to the claim query on lease expiry; `attempting` expiry becomes
@@ -110,12 +119,20 @@ Cross-store and fencing invariants agents must not break:
 - `provider_message_ingress.ingress_order` is a sequence assigned at insert — the
   cross-process FIFO authority for one conversation. All observations take the
   same transaction-scoped routing advisory lock before sequence allocation.
-  Materialization holds a dedicated session-scoped advisory lock from the
-  worker-only five-connection pool across PostgreSQL/MongoDB work.
+  Materialization may still hold a dedicated session-scoped advisory lock from
+  the worker-only five-connection pool while draining several ingress rows.
 - Email intent creation, outbox publication and admin audit share one
   transaction. Message content and raw recipient stay in the intent table.
 - Domain mutation and `audit_events` share one transaction when audit is
   required. Runtime logs do not replace durable audit.
+
+**Transactions that have landed.** Launch intro + transcript + audit share one
+transaction. Resume updates campaign status, increments `resume_generation`
+and revises open-row due work in the same service-owned transaction. After the
+model returns, extraction persist and conversation cursor/goals/attention
+share one transaction. STOP append, close, opt-out, outbox cancel,
+acknowledgement and ingress settlement share one `AppTransaction`. Alerts and
+BullMQ publication stay after commit.
 
 ## Migration contract
 
@@ -139,9 +156,11 @@ destructive statements. Prefer expand/backfill/contract across releases when a
 change cannot finish safely in one deploy window. Recovery is normally a
 reviewed forward migration.
 
-Feedback orchestration migrations are reader-first: nullable dispatch fields,
+Earlier feedback orchestration migrations were reader-first: nullable dispatch fields,
 execution-fence table, summary epoch/claim fields and expanded status checks
-land before new worker writers. V1 `sending` rows remain valid during the bridge.
+landed before new worker writers. V1 `sending` rows remain valid during the bridge.
+The PostgreSQL conversation cutover requires quiesced writers; follow the
+[feedback cutover procedure](../../deployment.md#feedback-conversation-storage-cutover).
 The two initial assistant migrations are an unshipped same-release supersession;
 the second aborts if temporary `assistant_runs` contains any row. That narrow
 pre-release case does not authorize editing migrations after shared rollout.
@@ -154,8 +173,13 @@ exact-key deletion.
 
 - Unit tests: client defaults, lifecycle, readiness coalescing, timeout.
 - Database package tests include `drizzle-kit check`.
-- Before release, apply migrations twice to disposable PostgreSQL and verify
-  constraints (not yet automated in-repo).
+- `FEEDBACK_POSTGRES_TEST_URL=postgresql://… pnpm test:feedback:postgres`
+  requires an explicitly disposable database, applies migrations, then checks
+  the SQL adapter, concurrent appends, rollback, execution fencing and offline
+  import replay. It never falls back to application `DATABASE_URL` and runs
+  without Turbo caching. Normal `pnpm check` skips these opt-in database cases.
+- Before release, also verify upgrades from the previous schema with populated
+  campaign resume/checkpoint rows; old applied migrations remain immutable.
 - Monitor pool `totalCount`, `idleCount` and `waitingCount` before changing pool
   size; every API and worker replica has its own pool.
 

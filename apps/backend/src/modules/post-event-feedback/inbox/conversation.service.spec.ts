@@ -71,8 +71,6 @@ const campaignRow: FeedbackCampaignRow = {
   questions: buildPostEventFeedbackQuestionLaunchSnapshot(1),
   status: "launched",
   resumeGeneration: 0,
-  resumeAppliedGeneration: 0,
-  resumeDueAt: null,
   launchedAt: new Date("2026-07-25T00:00:00.000Z"),
   launchedBy: "admin-1",
   createdAt: new Date("2026-07-25T00:00:00.000Z"),
@@ -339,7 +337,7 @@ describe("PostEventFeedbackConversationService", () => {
     expect(repository.insertOutboxIfAbsent).not.toHaveBeenCalled();
   });
 
-  it("reports unread testimony and scheduled automation from Mongo work", async () => {
+  it("reports unread testimony and scheduled automation from conversation work", async () => {
     const { service, conversations, wakeups } = createService();
     const at = new Date("2026-07-27T10:00:00.000Z");
     const nextActionAt = new Date("2026-07-27T10:01:45.000Z");
@@ -518,13 +516,16 @@ describe("PostEventFeedbackConversationService", () => {
     );
     // The staff send goes through the same outbound-transcript path as the bot
     // producers; only the row's `kind` makes this turn `staff`.
-    expect(conversations.appendMessage).toHaveBeenCalledWith({
-      conversationId,
-      actor: "staff",
-      outboxId,
-      text: "Γεια σου",
-      at: expect.any(Date),
-    });
+    expect(conversations.appendMessage).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        conversationId,
+        actor: "staff",
+        outboxId,
+        text: "Γεια σου",
+        at: expect.any(Date),
+      },
+    );
     expect(auditAppend).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
@@ -665,13 +666,16 @@ describe("PostEventFeedbackConversationService", () => {
     expect(repository.insertOutboxIfAbsent).not.toHaveBeenCalled();
     expect(repository.insertOutboxLogIfAbsent).not.toHaveBeenCalled();
     expect(auditAppend).not.toHaveBeenCalled();
-    expect(conversations.appendMessage).toHaveBeenCalledWith({
-      conversationId,
-      actor: "staff",
-      outboxId,
-      text: "Γεια σου",
-      at: outboxRow().createdAt,
-    });
+    expect(conversations.appendMessage).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        conversationId,
+        actor: "staff",
+        outboxId,
+        text: "Γεια σου",
+        at: outboxRow().createdAt,
+      },
+    );
   });
 
   it.each([
@@ -982,7 +986,7 @@ describe("PostEventFeedbackConversationService", () => {
       note: "Called them back",
     });
     expect(first.capabilities.canClose).toBe(false);
-    expect(conversations.close).toHaveBeenCalledWith({
+    expect(conversations.close).toHaveBeenCalledWith(expect.anything(), {
       conversationId,
       reason: "cancelled",
       at: expect.any(Date),
@@ -1199,7 +1203,7 @@ describe("PostEventFeedbackConversationService", () => {
     });
   });
 
-  it("repairs queue publication when resume already committed in MongoDB", async () => {
+  it("repairs queue publication when resume already committed the conversation row", async () => {
     const { service, conversations, wakeups, auditAppend } = createService();
     const human = openConversation({
       control: {
@@ -2020,6 +2024,7 @@ describe("PostEventFeedbackConversationService", () => {
     );
 
     expect(conversations.resolveAttentionReason).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({
         conversationId,
         reasonId,
@@ -2463,7 +2468,6 @@ function createService(): {
     participants as unknown as ParticipantsRepository,
     { append: auditAppend } as unknown as AuditRepository,
     new FeedbackOutboundTranscriptService(
-      database as unknown as DatabaseService,
       repository as unknown as FeedbackOutboxRepository,
       conversations as unknown as FeedbackConversationRepository,
     ),

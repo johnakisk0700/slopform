@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * Bounded safety taxonomy shared by model output, MongoDB and the admin read
+ * Bounded safety taxonomy shared by model output, conversation storage and the admin read
  * model.
  *
  * The model selects enum values. Presentation (labels, icons and colour) stays

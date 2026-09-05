@@ -105,10 +105,10 @@ function printThread(thread, name) {
 /**
  * UTC throughout, and never the local format.
  *
- * The driver hands these back as BSON dates, so interpolating one directly
- * prints a locale string with a timezone offset in it, while the run's own log
- * lines and the report are UTC. Reading a transcript means lining its timestamps
- * up against those, and two clocks is one too many.
+ * Postgres JSONB and timestamp columns arrive as ISO strings or Date values.
+ * Interpolating a Date directly prints a locale string with a timezone offset,
+ * while the run's own log lines and the report are UTC. Reading a transcript
+ * means lining its timestamps up against those, and two clocks is one too many.
  */
 function isoOf(value) {
   const at = new Date(value ?? "");

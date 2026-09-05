@@ -9,6 +9,9 @@ lifecycle, control, extraction and delivery:
 
 This screen owns reading and steering conversations. It renders what the read
 models report; it does not own lifecycle, control, extraction or delivery.
+Those views come from PostgreSQL `feedback_conversations` through unchanged
+generated hooks
+([ADR 0015](../decisions/0015-postgresql-feedback-conversations.md)).
 
 | Owns                                                                 | Does not own                                                                                       |
 | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |

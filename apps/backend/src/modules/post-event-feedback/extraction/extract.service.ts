@@ -1,3 +1,4 @@
+import { decideExtractionTurn } from "./turn-decision.js";
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import type {
   AppTransaction,
@@ -20,17 +21,17 @@ import { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
 import { FeedbackResultsRepository } from "./results.repository.js";
 import { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
 import { FeedbackIngressRepository } from "../ingress/ingress.repository.js";
-import { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
+import {
+  FeedbackConversationCapacityError,
+  FeedbackConversationRepository,
+} from "../post-event-feedback-conversation.repository.js";
 import type { FeedbackConversationDocument } from "../post-event-feedback-conversation.document.js";
 import { EventsService } from "../../events/events.service.js";
 import { ParticipantsRepository } from "../../participants/participants.repository.js";
 import { latestParticipantMessage } from "../conversation-reader.js";
 import {
   isCompleting,
-  isWithdrawal,
   resolveGoalStatuses,
-  withAskedGoal,
-  withSettledOpenGoals,
   type GoalStatusUpdate,
 } from "./goal-progress.js";
 import {
@@ -122,8 +123,8 @@ export type FeedbackConversationExecutionGuardReason =
  * into a model-generation failure.
  *
  * The queue adapter decides terminal behavior from `reason`: an ordinary state
- * change is a successful supersession, a lost lease remains retryable, and an
- * impossible cross-store shape is quarantined as unrecoverable.
+ * change is a successful supersession, a lost lease remains retryable, and a
+ * missing or inconsistent execution projection is quarantined as unrecoverable.
  */
 export class FeedbackConversationExecutionGuardError extends FeedbackProviderCallGuardError {
   constructor(
@@ -152,22 +153,8 @@ export interface ExtractFeedbackResult {
 }
 
 /**
- * The model turn selected by conversation reconciliation.
- *
- * Steady-state runs are serialized by the PostgreSQL execution fence for the
- * exact MongoDB work revision; the deterministic V1 job identity remains only
- * in the rollout bridge. The MongoDB extraction cursor makes either path
- * replay-safe. The run reloads authoritative state, selects candidates **live**
- * from current attendance (D16), asks the model for a proposal, validates that
- * proposal against the domain rules and only then writes anything.
- *
- * Store order is PostgreSQL first, MongoDB cursor last, and deliberately so.
- * The cursor is the idempotency fence: advancing it before the results were
- * durable would silently drop them, whereas a crash after the PostgreSQL commit
- * replays into inserts that the unique constraints, the note content signature
- * and the outbox `dedupe_key` all absorb. That costs one repeated model call —
- * a repeated bill, never a duplicated answer or a second WhatsApp message.
- * Nothing here claims exactly-once.
+ * Loads live candidates, calls the model, then validates and commits results,
+ * outbound intent and the consumed cursor together under the execution fence.
  */
 @Injectable()
 export class PostEventFeedbackExtractor {
@@ -218,23 +205,39 @@ export class PostEventFeedbackExtractor {
       );
     }
 
-    // Bot prompts and staff follow-ups are context, never testimony, so a
-    // transcript that gained nothing from the participant needs no model call.
-    // The cursor still advances: those messages are read and settled.
+    // No participant testimony: skip the model; still advance the cursor.
     const pending = conversation.messages.filter(
       (message) => message.seq > conversation.extraction.cursorSeq,
     );
     if (!pending.some((message) => message.actor === "participant")) {
-      await this.conversations.advanceCursor({
-        conversationId: conversation._id,
-        toSeq: cursorSeq,
-        at: new Date(),
-        model: conversation.extraction.model,
-        // Both carried over rather than re-derived: this run called no model, so
-        // it has no model id and no tier of its own, and it must not touch the
-        // token totals the runs that *did* call one paid for. `usage` is left
-        // out entirely — passing null would erase them.
-        serviceTier: conversation.extraction.serviceTier,
+      await this.database.transaction(async (transaction) => {
+        await this.results.lockConversation(transaction, conversation._id);
+        if (
+          input.executionClaim &&
+          !(await this.executionFence.isCurrent(
+            transaction,
+            input.executionClaim,
+          ))
+        ) {
+          throw new FeedbackConversationExecutionGuardError(
+            conversation._id,
+            "execution_claim_lost",
+          );
+        }
+        await this.conversations.advanceCursor(transaction, {
+          conversationId: conversation._id,
+          toSeq: cursorSeq,
+          at: new Date(),
+          model: conversation.extraction.model,
+          // Carry prior model/tier. Omit `usage` — null would erase paid totals.
+          serviceTier: conversation.extraction.serviceTier,
+          ...(input.executionClaim
+            ? {
+                workRevision: input.executionClaim.workRevision,
+                executionEpoch: input.executionClaim.epoch,
+              }
+            : {}),
+        });
       });
       return this.complete(
         {
@@ -336,9 +339,7 @@ export class PostEventFeedbackExtractor {
       input.correlationId,
     );
 
-    // The optional participant-facing rewrite is added later only when the
-    // application would actually forward model text. Keep the paid usages in
-    // one list so the durable total includes that third call when it exists.
+    // Rewrite usage is appended later only if participant text is forwarded.
     const runUsages: FeedbackExtractionUsage[] = [
       generated.usage,
       attention.usage,
@@ -358,21 +359,9 @@ export class PostEventFeedbackExtractor {
       });
     }
 
-    // Every other rejection costs one row and lets the rest of the run stand.
-    // This one condemns the whole run, because there is nothing left of it worth
-    // keeping: the model asked for a human instead of reading a message that
-    // still held an answer, and obeying that would freeze the questionnaire on
-    // `awaitingHuman`, queue an operator, and advance the cursor past the
-    // testimony — which is how Μαρία Φλερτατζού's «βαζω 5. ο Τάσος ήτανε πολύ
-    // ωραίος…» was lost twice in one night.
-    //
-    // Failing here is what buys the retry, and the retry is the only thing that
-    // can still read her answers; a run that continued with `handoff: false`
-    // would close the window on testimony nobody extracted. Retryable and
-    // `validation_failed` for the same reason a malformed object is: the fault is
-    // this generation, another attempt may not repeat it, and if every attempt
-    // does then BullMQ's last one lands in the deterministic fallback, which
-    // files a note and flags the conversation for a person.
+    // `handoff_discards_testimony` fails the whole run (retryable
+    // `validation_failed`). Continuing would freeze `awaitingHuman` and advance
+    // past unread testimony. Exhausted retries land in deterministic fallback.
     if (
       validated.rejections.some(
         (rejection) => rejection.reason === "handoff_discards_testimony",
@@ -385,33 +374,20 @@ export class PostEventFeedbackExtractor {
       );
     }
 
-    // Statuses from what validation accepted — never from the model's nextGoal.
-    // `asked` is applied after resolveOutbound, from the question the outbound
-    // actually carries, so a replaced reply cannot advance the ladder past a
-    // refusal.
+    // Statuses from accepted validation, never `nextGoal`. `asked` waits for
+    // the outbound that actually ships.
     const recordedStatuses = resolveGoalStatuses(
       conversation.goals,
       context,
       validated,
     );
-    // The two signals that end the questionnaire outright, as opposed to
-    // flagging it. Both mean the same thing — from here a person is answering,
-    // not the bot — so both hand control over, which is the existing brake:
-    // `skipOutcome` refuses to run under human control and the planner refuses
-    // to nudge a flagged conversation.
+    // Safety/handoff end bot speech. `skipOutcome` and the planner honour that.
     const urgentSafety = validated.safetySignals.some(
       (signal) => signal.recommendedAction === "urgent_human_follow_up",
     );
     const dutyOfCare = validated.handoff || urgentSafety;
-    // The hostility ladder, decided from the stored count plus this run rather
-    // than from a re-read of the document.
-    //
-    // Deriving it here — before anything is written — is what makes a replay
-    // agree with the original: the cursor has not moved, so a replayed run reads
-    // the same snapshot, classifies the same messages, computes the same rung and
-    // resolves the same dedupe key. Reading the counter back after incrementing
-    // it would make the decision depend on how many times the job had already
-    // run, which is exactly the fact a replay must not be able to observe.
+    // Hostility from stored count plus this run, before writes. Replay must
+    // not observe an incremented counter.
     const hostileTurn = countsAsHostileTurn({
       hostileMessageIds: attention.hostileMessageIds,
       safetySignalCount: validated.safetySignals.length,
@@ -422,66 +398,22 @@ export class PostEventFeedbackExtractor {
       hostileTurns,
       safetySignalCount: validated.safetySignals.length,
     });
-    // A hostile turn that never got a single answer out of anybody.
-    //
-    // Computed here, above the outbound, because the ending *sentence* and the
-    // ending *word* are one judgement rather than two. Everything it needs is
-    // already known at this point and none of it moves afterwards: `hostileTurn`
-    // three lines up, and `answeredAnything` over the stored goals plus this
-    // run's accepted answers — neither of which the goal settling further down
-    // can change.
-    //
-    // It used to be computed after the outbound had already been chosen, and the
-    // two halves duly disagreed. In paid rehearsal run 11 (2026-07-31,
-    // openai/gpt-5.6-luna) Πάνος Μούλαρος refused three times and civilly — «δε
-    // λεω τιποτα», «ασε με ρε φιλε», «ειπα δε λεω» — and the classifier judged
-    // the middle one hostile. The lifecycle then did the right thing and stayed
-    // `open` with `reason: null`, because a hostile turn with nothing behind it
-    // is for an operator to read, not for us to file as finished. He was
-    // nonetheless sent «Κανένα πρόβλημα, δεν θα σε ξαναρωτήσουμε. Καλή συνέχεια!
-    // 🙂» — a written promise never to ask again, out of a conversation left in
-    // precisely the state that permits asking again. Whichever way the operator
-    // went next, one of those two was a lie.
-    //
-    // So it is one const, read by `progressClosing` immediately below and by
-    // `closingNow` further down, and the sentence and the stored word cannot
-    // drift apart again.
+    // Hostile turn with no answers. Shared by copy (`progressClosing`) and
+    // lifecycle (`closingNow`) so sentence and stored word cannot drift.
     const hostileWithoutAnswers =
       hostileTurn && !answeredAnything(conversation, validated);
-    // Closing copy is only earned by answers/skips that already finished the
-    // ladder. A withdrawal settles open goals *after* the outbound is chosen,
-    // so the participant still gets the model's goodbye rather than the
-    // campaign thank-you. `closingNow` below then decides from the settled
-    // state, and excludes a withdrawal: settling the goals stops the reminders,
-    // it does not end the conversation.
-    //
-    // `hostileWithoutAnswers` is excluded here and not only there, which is what
-    // withholds Πάνος's «Κανένα πρόβλημα». Where the model wrote no goodbye of
-    // its own the run then says nothing at all, and the silence is the honest
-    // outbound: the conversation stays open, flagged `hostile_to_bot`, and a
-    // person picks it up knowing exactly as much as we have promised. Where the
-    // model did write something, that still goes out untouched — only the two
-    // pieces of ending copy are ever withheld, never the bot's own words.
-    //
-    // The same const reaches `ordinaryReply` below, and that is right rather
-    // than incidental: what survives this gate is now either nothing or an
-    // ordinary conversational reply, and an ordinary reply is exactly the kind
-    // that may be dropped for having been superseded while the model thought.
+    // Closing copy only after the ladder is already finished. Withdrawal
+    // settles goals after outbound so the model's goodbye ships; settling
+    // stops reminders, it does not close. `hostileWithoutAnswers` withholds
+    // campaign ending copy (model text still ships). Survivors are ordinary
+    // replies and may be dropped if superseded.
     const progressClosing =
       isCompleting(conversation.goals, recordedStatuses) &&
       validated.safetySignals.length === 0 &&
       !hostileWithoutAnswers;
-    // Anchored on the participant's own latest message rather than on the
-    // transcript length, because this run appends its reply to that same
-    // transcript: a length-based key would differ on a replay that already sees
-    // the reply, and a different `dedupe_key` is a second WhatsApp message.
-    //
-    // The cap sits between the choice and the assurance, so a question this run
-    // is no longer allowed to ask takes nothing else out with it: there is no
-    // outbound left for the assurance to append to, and a run that also carried
-    // a disclosure still raises its own safety reason and its own alert from the
-    // paths below. Saying the same sentence an eleventh time is not a way to
-    // reassure anybody.
+    // Dedupe on the latest participant message, not transcript length — a
+    // replay that already sees the reply would otherwise send twice. Cap sits
+    // before assurance so a refused re-ask leaves nothing to append to.
     const testimonySeq =
       latestParticipantMessage(conversation)?.seq ?? cursorSeq;
     let resolvedOutbound = resolveOutbound(
@@ -494,10 +426,7 @@ export class PostEventFeedbackExtractor {
       recordedStatuses,
       stoppingForHostility,
     );
-    // Extraction decides facts and progression at the configured medium
-    // effort. Only text the outbound policy would genuinely forward is handed
-    // to the low-effort conversational writer. Fixed handoff, safety,
-    // questionnaire and closing copy never buys this extra call.
+    // Low-effort rewrite only for text the outbound policy would forward.
     let replyRewriteSuperseded = false;
     if (resolvedOutbound?.generatedByModel && validated.reply) {
       try {
@@ -521,9 +450,7 @@ export class PostEventFeedbackExtractor {
           input.correlationId,
         );
         if (rewritten.reply === null) {
-          // Deliberately do not re-resolve with `reply: null`: that path may
-          // manufacture campaign-copy fallback text, including the same question
-          // that just failed. A failed writer means silence for this turn.
+          // Failed rewrite → silence. Do not re-resolve with `reply: null`.
           resolvedOutbound = undefined;
           this.logger.warn({
             event: "feedback.extract.reply_withheld",
@@ -549,9 +476,7 @@ export class PostEventFeedbackExtractor {
           error instanceof FeedbackConversationExecutionGuardError &&
           error.reason === "authoritative_state_changed"
         ) {
-          // Extraction and attention have already crossed the provider boundary.
-          // Keep their valid structured results, but do not buy or manufacture
-          // participant-facing copy for a snapshot current state superseded.
+          // Keep structured results; do not buy copy for a superseded snapshot.
           replyRewriteSuperseded = true;
           resolvedOutbound = undefined;
           this.logger.log({
@@ -567,11 +492,7 @@ export class PostEventFeedbackExtractor {
     }
     const runUsage = combineFeedbackExtractionUsage(runUsages);
     const capped = withCampaignReaskCap(conversation, resolvedOutbound, copy);
-    // Policy answers ride between the cap and the assurance: the cap decides
-    // whether anything goes out at all, and the assurance stays the message's
-    // last word — a promise about a disclosure outranks a sentence about
-    // paperwork. Both appends survive each other by construction; each dedupes
-    // against the transcript on its own sentence.
+    // Policy between cap and assurance. Assurance last; each sentence dedupes.
     const outbound = withSafetyAssurance(
       conversation,
       validated,
@@ -582,9 +503,7 @@ export class PostEventFeedbackExtractor {
       ),
       new Set(attention.describedIncidentMessageIds),
     );
-    // The questions this run recognised and nobody has decided how to answer —
-    // retention, anonymity, or no match at all. The participant got the model's
-    // deferral; the raise below is what keeps the question alive for a person.
+    // Unanswered data-handling questions stay raised for a person.
     const unansweredDataQuestionMessageIds = [
       ...new Set(
         attention.policyQuestions
@@ -598,10 +517,8 @@ export class PostEventFeedbackExtractor {
       ? await this.reviewBeforeSending({
           conversation,
           cursorSeq,
-          // Ordinary copy and a completion/decline decision are stale when the
-          // participant has already added testimony. Handoff/safety/hostility
-          // commitments survive: those stop automation for a person and do not
-          // claim that the enlarged questionnaire is finished.
+          // Ordinary copy and complete/decline are stale on newer testimony.
+          // Handoff/safety/hostility survive.
           staleOnNewerTestimony: ordinaryReply || progressClosing,
           ...(input.executionClaim
             ? { executionClaim: input.executionClaim }
@@ -617,112 +534,27 @@ export class PostEventFeedbackExtractor {
         reason: withheld,
       });
     }
-    // Asked and withdrawal both key off what will actually reach the phone.
-    // Marking liked asked — or settling the ladder — for a reply that was
-    // withheld is the same class of lie as attaching askedGoal to a statement.
+    // Asked and withdrawal follow what actually ships.
     const sentOutbound = withheld ? undefined : outbound;
-    let goalStatuses = withAskedGoal(recordedStatuses, sentOutbound?.askedGoal);
-    // Prompt rule 7δ already tells the model to decline every open goal when
-    // it withdraws; this is the net when it writes the goodbye, still names a
-    // nextGoal, and forgets the declines. A nextGoal-null statement is a
-    // side-question answer and must not settle. Safety and handoff keep the
-    // ladder open for a human — closing on a disclosure that produced no
-    // structured rows would slam the door.
-    // Not a withdrawal, even though it looks exactly like one from here: the bot
-    // did not run out of things it was willing to say, it decided to stop. The
-    // difference matters downstream — a withdrawal settles every open goal as
-    // skipped, which would record this person as having declined a questionnaire
-    // nobody managed to ask him, and it raises `unfinished_questionnaire` instead
-    // of the reason that says what actually happened.
-    let withdrew =
-      !dutyOfCare &&
-      !stoppingForHostility &&
-      validated.safetySignals.length === 0 &&
-      isWithdrawal({
-        answers: validated.answers,
-        notes: validated.notes,
-        nextGoal: validated.nextGoal,
-        askedGoal: sentOutbound?.askedGoal,
-        outboundSent: sentOutbound !== undefined,
-        repairingStoredResults: validated.rejections.some(
-          (rejection) => rejection.reason === "already_recorded",
-        ),
-      });
-    if (withdrew) {
-      goalStatuses = withSettledOpenGoals(conversation.goals, goalStatuses);
-    }
-    // A disclosure that happens to finish the questionnaire is not a finish
-    // line: closing copy and close() wait for a run that did not raise safety.
-    // Results, attention and the alert still write; only the conversational
-    // ending is deferred so a human can take the thread.
-    //
-    // Neither is a withdrawal a finish line. Μπάμπης Διπλογαμωσταυρίδης swore
-    // at the bot, the bot bowed out, every goal settled — and the conversation
-    // closed as `completed`, so his next message was answered with «Τέλεια,
-    // ευχαριστούμε πολύ! 🙌». A participant who explicitly declines every
-    // question is finished; a bot that gave up on one is not, and a person
-    // should look at it. The ladder stops either way, which is what the settled
-    // goals are for.
-    //
-    // The handoff is the third: `awaitingHuman` says the bot is waiting for a
-    // person, and closing the thread underneath that promise is how «σβήστε
-    // ό,τι σας είπα» was answered with a human's name and then filed as done.
-    //
-    // And the fourth is the one this feature closes. A hostile turn where nothing
-    // was ever answered must not close as `completed`, because that is the word
-    // for a questionnaire somebody finished. Μπάμπης answered nothing; a model
-    // that declines his four open goals on «άντε γαμήσου» has not been told the
-    // questionnaire is over, it has tidied up after somebody who never started
-    // it, and `completed` then records a finished questionnaire that never
-    // happened — in the same column the campaign's response rate is read from.
-    //
-    // `answeredAnything` is the line, not hostility on its own: somebody who
-    // gives us a score and two names and then swears has genuinely completed the
-    // thing, and there is no reason to withhold the word from that.
-    //
-    // `hostileWithoutAnswers` is the one computed above the outbound, not a
-    // second opinion formed down here. That is the whole of the fix for Πάνος:
-    // the copy gate and this word gate now read the same const, so there is no
-    // longer a state in which we say one and store the other.
-    let hostility: FeedbackHostilityRaise = stoppingForHostility
-      ? "stopped"
-      : hostileWithoutAnswers && isCompleting(conversation.goals, goalStatuses)
-        ? "unanswerable"
-        : "none";
-    const closingNow =
-      isCompleting(conversation.goals, goalStatuses) &&
-      validated.safetySignals.length === 0 &&
-      !dutyOfCare &&
-      !withdrew &&
-      !stoppingForHostility &&
-      !hostileWithoutAnswers;
-    // Which ending this is, decided by the same judgement that chooses the copy.
-    //
-    // Πάνος Μούλαρος declined all four questions in three civil messages and was
-    // stored as `completed` — the word for a finished questionnaire, in the
-    // column a campaign's response rate is read from. The thank-you was already
-    // withheld from him by `answeredAnything`, so the sentence he read and the
-    // word we recorded had drifted apart; the only thing that stopped `completed`
-    // was hostility, which makes a polite refusal the one that goes unnoticed.
-    //
-    // The three other endings of an empty ladder stay where they are and are not
-    // this: a withdrawal keeps the conversation open because the bot gave up
-    // rather than the participant, hostility keeps it open for an operator, and
-    // a STOP is a consent decision rather than an answer to these questions.
+    let decided = decideExtractionTurn({
+      conversation,
+      validated,
+      recordedStatuses,
+      askedGoal: sentOutbound?.askedGoal,
+      outboundSent: sentOutbound !== undefined,
+      dutyOfCare,
+      stoppingForHostility,
+      hostileWithoutAnswers,
+    });
+    let { goalStatuses, withdrew, hostility } = decided;
     let closingReason: "completed" | "declined" | null =
-      closingNow && !(progressClosing && withheld)
-        ? answeredAnything(conversation, validated)
-          ? "completed"
-          : "declined"
-        : null;
+      progressClosing && withheld ? null : decided.closingReason;
     if (replyRewriteSuperseded) {
       closingReason = null;
     }
-    // Resolution deliberately happens before the lifecycle decision: a
-    // model-authored goodbye can still turn out to be a withdrawal and must
-    // retain its ordinary, dispatchable key. Once the final decision is
-    // terminal, however, every flavour of closing copy must join the anchored
-    // closing commitment used by replay suppression and the dispatcher.
+    // Resolve the key before lifecycle. A goodbye that is a withdrawal keeps
+    // an ordinary dispatchable key; a terminal close then joins the anchored
+    // closing commitment.
     const outboundForPersistence =
       closingReason !== null && sentOutbound
         ? {
@@ -735,201 +567,204 @@ export class PostEventFeedbackExtractor {
           }
         : sentOutbound;
 
-    const written = await this.persist({
-      conversation,
-      campaign,
-      context,
-      validated,
-      outbound: outboundForPersistence,
-      ordinaryReply,
-      model: generated.model,
-      correlationId: input.correlationId,
-      closingReason,
-      goalStatuses,
-      ...(input.executionClaim ? { executionClaim: input.executionClaim } : {}),
-    });
-
-    if (
-      written.outboundSuppressedByNewerIngress ||
-      written.executionSuperseded
-    ) {
-      const suppressionReason = written.executionSuperseded
-        ? "superseded_by_newer_work"
-        : "superseded_by_durable_ingress";
-      this.logger.log({
-        event: "feedback.extract.outbound_withheld",
-        correlationId: input.correlationId,
-        conversationId: conversation._id,
-        cursorSeq,
-        reason: suppressionReason,
-      });
-      goalStatuses = withAskedGoal(recordedStatuses, undefined);
-      withdrew =
-        !dutyOfCare &&
-        !stoppingForHostility &&
-        validated.safetySignals.length === 0 &&
-        isWithdrawal({
-          answers: validated.answers,
-          notes: validated.notes,
-          nextGoal: validated.nextGoal,
-          askedGoal: undefined,
-          outboundSent: false,
-          repairingStoredResults: validated.rejections.some(
-            (rejection) => rejection.reason === "already_recorded",
-          ),
+    let committed;
+    try {
+      committed = await this.database.transaction(async (transaction) => {
+        const written = await this.persistOn(transaction, {
+          conversation,
+          campaign,
+          context,
+          validated,
+          outbound: outboundForPersistence,
+          ordinaryReply,
+          model: generated.model,
+          correlationId: input.correlationId,
+          closingReason,
+          goalStatuses,
+          ...(input.executionClaim
+            ? { executionClaim: input.executionClaim }
+            : {}),
         });
-      if (withdrew) {
-        goalStatuses = withSettledOpenGoals(conversation.goals, goalStatuses);
-      }
-      hostility = stoppingForHostility
-        ? "stopped"
-        : hostileWithoutAnswers &&
-            isCompleting(conversation.goals, goalStatuses)
-          ? "unanswerable"
-          : "none";
-      const closesAfterFence =
-        isCompleting(conversation.goals, goalStatuses) &&
-        validated.safetySignals.length === 0 &&
-        !dutyOfCare &&
-        !withdrew &&
-        !stoppingForHostility &&
-        !hostileWithoutAnswers;
-      // The PostgreSQL ingress fence can see a fragment before MongoDB does.
-      // Persist the valid snapshot results, but never close the conversation
-      // over testimony the run did not read; the newer durable work revision
-      // will reconcile that fragment next.
-      closingReason = closingReason
-        ? null
-        : closesAfterFence
-          ? answeredAnything(conversation, validated)
-            ? "completed"
-            : "declined"
-          : null;
-    }
 
-    if (written.outboundSuppressedByLegacyClosing) {
-      this.logger.warn({
-        event: "feedback.extract.legacy_closing_provider_crossed",
-        correlationId: input.correlationId,
-        conversationId: conversation._id,
-      });
-      // The V1 row may already have reached WhatsApp. A second closing message
-      // is forbidden, but treating an uncertain send as a clean completion is
-      // equally dishonest. Keep the aggregate open, consume this testimony and
-      // park it for an operator with the standard undelivered-message reason.
-      closingReason = null;
-    }
+        if (
+          written.outboundSuppressedByNewerIngress ||
+          written.executionSuperseded
+        ) {
+          const suppressionReason = written.executionSuperseded
+            ? "superseded_by_newer_work"
+            : "superseded_by_durable_ingress";
+          this.logger.log({
+            event: "feedback.extract.outbound_withheld",
+            correlationId: input.correlationId,
+            conversationId: conversation._id,
+            cursorSeq,
+            reason: suppressionReason,
+          });
+          decided = decideExtractionTurn({
+            conversation,
+            validated,
+            recordedStatuses,
+            askedGoal: undefined,
+            outboundSent: false,
+            dutyOfCare,
+            stoppingForHostility,
+            hostileWithoutAnswers,
+          });
+          goalStatuses = decided.goalStatuses;
+          withdrew = decided.withdrew;
+          hostility = decided.hostility;
+          // Persist paid results; do not close over unread testimony.
+          closingReason = closingReason ? null : decided.closingReason;
+        }
 
-    if (
-      input.executionClaim &&
-      !(await this.executionFence.assertCurrent(input.executionClaim))
-    ) {
-      throw new FeedbackConversationExecutionGuardError(
-        conversation._id,
-        "execution_claim_lost",
-      );
-    }
+        if (written.outboundSuppressedByLegacyClosing) {
+          this.logger.warn({
+            event: "feedback.extract.legacy_closing_provider_crossed",
+            correlationId: input.correlationId,
+            conversationId: conversation._id,
+          });
+          closingReason = null;
+        }
 
-    if (written.outboundSuppressedByLegacyClosing) {
-      const at = new Date();
-      await this.conversations.raiseAttention({
-        conversationId: conversation._id,
-        kind: "undelivered_message",
-        messageId: null,
-        at,
-      });
-    }
-
-    // Nonterminal copy is recorded before the cursor, so a crash replays and
-    // repairs the same outbox id. Terminal copy waits for the atomic MongoDB
-    // close below; the dispatcher applies the same lifecycle guard, so a row
-    // can never announce completion while the aggregate is still open.
-    let effectiveOutbox = written.outbox;
-    if (effectiveOutbox && closingReason === null) {
-      await this.outboundTranscript.record(
-        effectiveOutbox,
-        new Date(),
-        input.correlationId,
-      );
-    }
-
-    const terminalReason = closingReason;
-    const state = await this.applyConversationState({
-      conversation,
-      validated,
-      goalStatuses,
-      closingReason,
-      terminalOutboxId:
-        closingReason !== null ? (effectiveOutbox?.id ?? null) : null,
-      dutyOfCare,
-      withdrew,
-      hostility,
-      awaitingHuman:
-        written.outboundSuppressedByLegacyClosing ||
-        dutyOfCare ||
-        withdrew ||
-        hostility === "stopped",
-      handoffOutboxId:
-        closingReason === null &&
-        (written.outboundSuppressedByLegacyClosing ||
-          dutyOfCare ||
-          withdrew ||
-          hostility === "stopped")
-          ? (effectiveOutbox?.id ?? null)
-          : null,
-      hostileTurn,
-      priorHostileTurns: conversation.hostileTurns,
-      newestParticipantMessageId:
-        context.newParticipantMessageIds.at(-1) ?? null,
-      stalledOnMessageId: capped.stalledOnMessageId,
-      unansweredDataQuestionMessageIds,
-      cursorSeq,
-      model: generated.model,
-      usage: runUsage,
-      serviceTier: this.generation.serviceTier ?? null,
-      correlationId: input.correlationId,
-      workSuperseded: written.executionSuperseded || replyRewriteSuperseded,
-      ...(input.executionClaim ? { executionClaim: input.executionClaim } : {}),
-    });
-
-    if (effectiveOutbox && terminalReason !== null) {
-      if (state.terminalCommitted) {
-        await this.outboundTranscript.record(
-          effectiveOutbox,
-          new Date(),
-          input.correlationId,
-        );
-      } else {
-        await this.database.transaction((transaction) =>
-          this.outbox.cancelQueuedOutboxById(
+        if (
+          input.executionClaim &&
+          !(await this.executionFence.isCurrent(
             transaction,
-            effectiveOutbox!.id,
-            "terminal_snapshot_superseded",
-          ),
-        );
-        effectiveOutbox = undefined;
-        closingReason = null;
+            input.executionClaim,
+          ))
+        ) {
+          throw new FeedbackConversationExecutionGuardError(
+            conversation._id,
+            "execution_claim_lost",
+          );
+        }
+
+        if (written.outboundSuppressedByLegacyClosing) {
+          await this.conversations.raiseAttention(transaction, {
+            conversationId: conversation._id,
+            kind: "undelivered_message",
+            messageId: null,
+            at: new Date(),
+          });
+        }
+
+        let effectiveOutbox = written.outbox;
+        if (effectiveOutbox && closingReason === null) {
+          await this.outboundTranscript.record(
+            transaction,
+            effectiveOutbox,
+            new Date(),
+            input.correlationId,
+          );
+        }
+
+        const terminalReason = closingReason;
+        const state = await this.applyConversationStateOn(transaction, {
+          conversation,
+          validated,
+          goalStatuses,
+          closingReason,
+          terminalOutboxId:
+            closingReason !== null ? (effectiveOutbox?.id ?? null) : null,
+          dutyOfCare,
+          withdrew,
+          hostility,
+          awaitingHuman:
+            written.outboundSuppressedByLegacyClosing ||
+            dutyOfCare ||
+            withdrew ||
+            hostility === "stopped",
+          handoffOutboxId:
+            closingReason === null &&
+            (written.outboundSuppressedByLegacyClosing ||
+              dutyOfCare ||
+              withdrew ||
+              hostility === "stopped")
+              ? (effectiveOutbox?.id ?? null)
+              : null,
+          hostileTurn,
+          priorHostileTurns: conversation.hostileTurns,
+          newestParticipantMessageId:
+            context.newParticipantMessageIds.at(-1) ?? null,
+          stalledOnMessageId: capped.stalledOnMessageId,
+          unansweredDataQuestionMessageIds,
+          cursorSeq,
+          model: generated.model,
+          usage: runUsage,
+          serviceTier: this.generation.serviceTier ?? null,
+          workSuperseded: written.executionSuperseded || replyRewriteSuperseded,
+          ...(input.executionClaim
+            ? { executionClaim: input.executionClaim }
+            : {}),
+        });
+
+        if (effectiveOutbox && terminalReason !== null) {
+          if (state.terminalCommitted) {
+            await this.outboundTranscript.record(
+              transaction,
+              effectiveOutbox,
+              new Date(),
+              input.correlationId,
+            );
+          } else {
+            await this.outbox.cancelQueuedOutboxById(
+              transaction,
+              effectiveOutbox.id,
+              "terminal_snapshot_superseded",
+            );
+            effectiveOutbox = undefined;
+            closingReason = null;
+          }
+        }
+
+        return {
+          written,
+          state,
+          closingReason,
+          effectiveOutbox,
+          raisedIncident: state.raisedIncident,
+        };
+      });
+    } catch (error) {
+      if (!(error instanceof FeedbackConversationCapacityError)) {
+        throw error;
       }
+      return this.brakeAfterTranscriptCapacity(conversation, input);
+    }
+
+    if (committed.raisedIncident) {
+      await this.alert.raise({
+        conversationId: conversation._id,
+        campaignId: conversation.campaignId,
+        reason: "extraction_safety_signal",
+        correlationId: input.correlationId,
+        detail: [
+          ...validated.safetySignals.map(
+            (signal) => `${signal.category}:${signal.recommendedAction}`,
+          ),
+          ...(validated.handoff ? ["handoff"] : []),
+        ],
+      });
     }
 
     await this.summaries.notifyIfLastConversationClosed(
       conversation.campaignId,
       input.correlationId,
-      state.closedNow,
+      committed.state.closedNow,
     );
 
     return this.complete(
       {
-        // A safety signal is no longer an outcome of its own: the run extracted
-        // normally and the flag is what an operator acts on. Only an explicit
-        // handoff changes what the conversation did. Closing is deferred when
-        // this run produced safety signals even if every goal is terminal.
-        outcome: closingReason ?? (validated.handoff ? "handoff" : "extracted"),
+        outcome:
+          committed.closingReason ??
+          (validated.handoff ? "handoff" : "extracted"),
         conversationId: conversation._id,
         cursorSeq,
-        answersWritten: written.answersWritten,
-        notesWritten: written.notesWritten,
-        ...(effectiveOutbox ? { outboxId: effectiveOutbox.id } : {}),
+        answersWritten: committed.written.answersWritten,
+        notesWritten: committed.written.notesWritten,
+        ...(committed.effectiveOutbox
+          ? { outboxId: committed.effectiveOutbox.id }
+          : {}),
         model: generated.model,
       },
       input.correlationId,
@@ -937,9 +772,8 @@ export class PostEventFeedbackExtractor {
   }
 
   /**
-   * The five cheap exits from §7. Each one is reloaded state rather than a
-   * queue assumption, because the job may have waited behind a STOP, a staff
-   * takeover or a newer run for the same conversation.
+   * Cheap exits from reloaded state (STOP, takeover, or a newer run may have
+   * landed while the job waited).
    */
   private skipOutcome(
     conversation: FeedbackConversationDocument,
@@ -951,9 +785,7 @@ export class PostEventFeedbackExtractor {
     if (conversation.control.mode === "human") {
       return "skipped_human_control";
     }
-    // Control is still `bot`, and the bot has still stopped talking: it has
-    // promised a person, or read something it must not answer. The questionnaire
-    // used to resume here on the very next message.
+    // `awaitingHuman` is still bot control; the bot must not resume.
     if (conversation.awaitingHuman) {
       return "skipped_awaiting_human";
     }
@@ -967,24 +799,9 @@ export class PostEventFeedbackExtractor {
   }
 
   /**
-   * The burst is not over yet, so this run stands down for the one behind it.
-   *
-   * Native V2 work already moves one durable due time after every fragment.
-   * This check remains as a defensive fence for retained V1 wake-ups and work
-   * scheduled by an older binary, whose fixed due time may arrive while the
-   * participant is still typing.
-   *
-   * Deferring an early wake converts that old fixed window into a real settle:
-   * a run only proceeds once nothing new has arrived for a full window. It
-   * costs nothing,
-   * because the message that made this run early has already queued a run of
-   * its own, further out, and that one reads everything this one would have.
-   *
-   * Liveness comes from the same fact. The newest message's own run comes due
-   * exactly one window after it arrived, so its check reads `>=` and always
-   * proceeds; only runs with something newer behind them ever defer. The cursor
-   * is deliberately left where it was — a deferred run reads nothing, so it has
-   * no window to close.
+   * Burst not over: stand down. Defensive for V1/old-binary wakes whose due
+   * time can land while the participant is still typing. Newest-message run
+   * always proceeds (`>=`); cursor stays put.
    */
   private stillTyping(conversation: FeedbackConversationDocument): boolean {
     const spokeAt = latestParticipantMessage(conversation)?.at;
@@ -998,9 +815,7 @@ export class PostEventFeedbackExtractor {
     conversation: FeedbackConversationDocument,
     campaign: FeedbackCampaignRow,
   ): Promise<FeedbackExtractionContext> {
-    // D16: selected now, from current attendance. The conversation stores no
-    // candidate list, so «ξεχάσαμε τη Ρούλα» reaches this turn as soon as
-    // attendance is corrected.
+    // D16: candidates from current attendance, not a stored list.
     const transcriptOutboxIds = conversation.messages.flatMap((message) =>
       message.outboxId ? [message.outboxId] : [],
     );
@@ -1029,10 +844,8 @@ export class PostEventFeedbackExtractor {
       if (message.actor === "participant" || !message.outboxId) return true;
 
       const status = outboxStatusById.get(message.outboxId);
-      // Compatibility rule: an absent PostgreSQL row cannot prove that a
-      // historical turn was never delivered, so it stays model-visible. Only
-      // a present pre-send/failed/cancelled row is strong enough to remove the
-      // Mongo audit-intent turn from provider context.
+      // Missing PG outbox row stays model-visible. Only a present
+      // pre-send/failed/cancelled row hides the conversation turn.
       return (
         status === undefined ||
         FEEDBACK_MODEL_VISIBLE_OUTBOX_STATUSES.has(status)
@@ -1070,12 +883,9 @@ export class PostEventFeedbackExtractor {
         subjectParticipantId: note.subjectParticipantId,
       })),
       venue: venue.venue,
-      // A disabled or absent venue was not supplied to the model, so enabling
-      // one later cannot invalidate an otherwise venue-blind run.
+      // No venue in the prompt → later enable cannot invalidate this run.
       venueContextRevision: venue.venue === null ? null : venue.contextRevision,
-      // AI output can never send, change consent or bypass this gate. A paused
-      // or closed campaign is the kill switch: results may still persist, but
-      // no reply is enqueued.
+      // Kill switch: paused/closed campaign persists results but enqueues nothing.
       replyAllowed:
         conversation.lifecycle.state === "open" &&
         conversation.control.mode === "bot" &&
@@ -1085,28 +895,11 @@ export class PostEventFeedbackExtractor {
   }
 
   /**
-   * The last look before anything reaches a phone. Returns why the outbound was
-   * withheld, or `undefined` to send it.
-   *
-   * Everything the run decided with was snapshotted before the provider call,
-   * and that call takes seconds — long enough for staff to take the
-   * conversation over, close it, or for the participant to withdraw consent.
-   * The snapshot cannot see any of that, which is what made these three races
-   * real: the guards at the top of the run were correct and simply too early.
-   *
-   * Every reason but the last silences **every** kind of outbound, closing copy and
-   * handoff included. A thank-you sent into a conversation a colleague has taken
-   * over, or a promise of a human sent to somebody who just asked us to stop
-   * writing, is worse than saying nothing. Only the last reason — the
-   * participant kept typing while the model was thinking — is limited to an
-   * ordinary reply, because there the conversation is healthy and merely has a
-   * newer thought for the next run to answer.
-   *
-   * Only the outbound is ever dropped. Answers, notes and the cursor are written
-   * exactly as they would have been, which is what keeps this safe under
-   * retries: the rule that every run closes the window it opened stays intact.
-   * Every reason is a database read rather than a model judgement, so a replay
-   * of the same job reaches the same conclusion instead of a fresh opinion.
+   * Last look before a phone send. Snapshot is pre-provider; takeover, close
+   * or consent withdraw can land during the call. Every reason but newer
+   * testimony silences all outbound including close/handoff. Newer testimony
+   * drops only an ordinary reply. Answers/notes/cursor still write. Reasons
+   * are DB reads so replay agrees.
    */
   private async reviewBeforeSending(input: {
     readonly conversation: FeedbackConversationDocument;
@@ -1176,15 +969,9 @@ export class PostEventFeedbackExtractor {
   }
 
   /**
-   * Rechecked inside the provider limiter's granted slot, before billing.
-   *
-   * This transaction is the durable provider-entry boundary. In one stable lock
-   * order it fences inbound ingress, conversation control, campaign lifecycle,
-   * consent and the execution token, then performs the last Mongo state read.
-   * A mutation that began before this boundary blocks and invalidates the call;
-   * one that begins after it is, by definition, later than provider entry. The
-   * transaction commits before the network request and is never held over model
-   * latency.
+   * Provider-entry boundary, inside the limiter slot, before billing. Lock
+   * order: ingress, conversation mutex, execution token, campaign, consent;
+   * conversation read last. Commits before the network call.
    */
   private async assertExecutionCurrent(
     claim: FeedbackConversationExecutionClaim,
@@ -1197,12 +984,9 @@ export class PostEventFeedbackExtractor {
       );
     }
     await this.database.transaction(async (transaction) => {
-      // Match webhook ingress first: a fragment already being acknowledged
-      // commits before we inspect the durable row; a later fragment waits until
-      // this provider-entry decision commits.
+      // Ingress first: in-flight ACK commits before we inspect; later waits.
       await this.ingress.lockInboundPhone(transaction, snapshot.phoneAtLaunch);
-      // STOP, takeover, close and awaiting-human transitions use this namespace.
-      // It is deliberately second everywhere this method composes both locks.
+      // Conversation mutex second (STOP / takeover / close / awaiting-human).
       await this.results.lockConversation(transaction, snapshot._id);
 
       const executionCurrent = await this.executionFence.isCurrent(
@@ -1252,9 +1036,12 @@ export class PostEventFeedbackExtractor {
         );
       }
 
-      // Mongo is deliberately last while every PostgreSQL writer fence remains
-      // held. Once this read passes, commit is the provider-entry boundary.
-      const conversation = await this.conversations.findById(snapshot._id);
+      // Conversation row last while the other fences are held. Passing this
+      // read is provider entry.
+      const conversation = await this.conversations.findById(
+        snapshot._id,
+        transaction,
+      );
       const guardReason = executionSnapshotGuardReason(
         conversation,
         snapshot,
@@ -1270,22 +1057,25 @@ export class PostEventFeedbackExtractor {
   }
 
   /**
-   * One PostgreSQL transaction per run, fenced by the conversation advisory
-   * lock so two executions of the same job cannot interleave their inserts.
+   * Writes paid snapshot results and the outbound row on the caller's
+   * transaction. Does not open a nested transaction.
    */
-  private async persist(input: {
-    readonly conversation: FeedbackConversationDocument;
-    readonly campaign: FeedbackCampaignRow;
-    readonly context: FeedbackExtractionContext;
-    readonly validated: FeedbackExtractionValidationResult;
-    readonly outbound: OutboundReply | undefined;
-    readonly ordinaryReply: boolean;
-    readonly model: string;
-    readonly correlationId: string;
-    readonly closingReason: "completed" | "declined" | null;
-    readonly goalStatuses: readonly GoalStatusUpdate[];
-    readonly executionClaim?: FeedbackConversationExecutionClaim;
-  }): Promise<{
+  private async persistOn(
+    transaction: AppTransaction,
+    input: {
+      readonly conversation: FeedbackConversationDocument;
+      readonly campaign: FeedbackCampaignRow;
+      readonly context: FeedbackExtractionContext;
+      readonly validated: FeedbackExtractionValidationResult;
+      readonly outbound: OutboundReply | undefined;
+      readonly ordinaryReply: boolean;
+      readonly model: string;
+      readonly correlationId: string;
+      readonly closingReason: "completed" | "declined" | null;
+      readonly goalStatuses: readonly GoalStatusUpdate[];
+      readonly executionClaim?: FeedbackConversationExecutionClaim;
+    },
+  ): Promise<{
     answersWritten: number;
     notesWritten: number;
     outbox?: MessageOutboxRow;
@@ -1296,330 +1086,311 @@ export class PostEventFeedbackExtractor {
     const candidateIds = input.context.candidates.map(
       (candidate) => candidate.participantId,
     );
-    // An `avoid` given for an abusive reason is still recorded — deciding for
-    // somebody with no trace that we did is worse — but it is a statement, not
-    // an instruction, and it must never reach a seating decision. The hold rides
-    // on the row from the moment it is written, because this run is the only
-    // place that has both the answer and the classification of the message it
-    // cites in hand.
+    // Record abuse-cited `avoid`; hold matching so it never seats.
     const heldMessageIds = respondentSourceMessageIds(
       input.validated.safetySignals,
     );
 
-    return this.database.transaction(async (transaction) => {
-      let outboundSuppressedByNewerIngress = false;
-      if (
-        input.outbound &&
-        (input.ordinaryReply || input.closingReason !== null)
-      ) {
-        await this.ingress.lockInboundPhone(
-          transaction,
-          input.conversation.phoneAtLaunch,
-        );
-        outboundSuppressedByNewerIngress =
-          await this.ingress.hasInboundBeyondSnapshot(transaction, {
-            phoneE164: input.conversation.phoneAtLaunch,
-            conversationId: input.conversation._id,
-            snapshotIngressIds: input.conversation.messages.flatMap(
-              (message) =>
-                message.actor === "participant" && message.ingressId
-                  ? [message.ingressId]
-                  : [],
-            ),
-          });
-      }
-
-      const venueRevision = input.context.venueContextRevision;
-      if (
-        typeof venueRevision === "number" &&
-        !(await this.events.feedbackVenueContextIsCurrent(
-          transaction,
-          input.campaign.eventId,
-          venueRevision,
-        ))
-      ) {
-        // The event row is held under a shared lock through this transaction.
-        // A venue edit that won the race makes this run retry; an edit that
-        // arrives after the lock waits until the context-dependent outbox
-        // decision is durable. No stale model reply is committed in between.
-        throw new FeedbackExtractionGenerationError(
-          "extraction_failed",
-          true,
-          "validation_failed",
-        );
-      }
-
-      await this.results.lockConversation(transaction, input.conversation._id);
-
-      // Match the provider-entry lock order. The execution row is acquired
-      // only after the conversation mutex, so a post-provider commit cannot
-      // deadlock an admission check that already holds that mutex. The lease
-      // still fences relational effects; the Mongo generation below decides
-      // whether this paid snapshot may speak or consume durable successor work.
-      if (
-        input.executionClaim &&
-        !(await this.executionFence.renewWithin(
-          transaction,
-          input.executionClaim,
-        ))
-      ) {
-        throw new FeedbackConversationExecutionGuardError(
-          input.conversation._id,
-          "execution_claim_lost",
-        );
-      }
-
-      const currentConversation = input.executionClaim
-        ? await this.conversations.findById(input.conversation._id)
-        : undefined;
-      const executionGuardReason = input.executionClaim
-        ? executionSnapshotGuardReason(
-            currentConversation,
-            input.conversation,
-            input.executionClaim,
-          )
-        : undefined;
-      if (
-        executionGuardReason === "execution_claim_lost" ||
-        executionGuardReason === "execution_invariant_broken"
-      ) {
-        throw new FeedbackConversationExecutionGuardError(
-          input.conversation._id,
-          executionGuardReason,
-        );
-      }
-      const executionSuperseded =
-        executionGuardReason === "authoritative_state_changed";
-
-      let answersWritten = 0;
-      for (const answer of input.validated.answers) {
-        // «άκυρο, τον Κώστα Π. καλύτερα όχι ξανά» moves a person, it does not
-        // add a second opinion about them. Clearing the questions this one
-        // contradicts is what makes the move a move.
-        if (answer.subjectParticipantId) {
-          await this.results.deleteContradictedAnswers(transaction, {
-            conversationId: input.conversation._id,
-            subjectParticipantId: answer.subjectParticipantId,
-            questionKeys: contradictedPostEventFeedbackQuestionKeys(
-              answer.questionKey,
-              input.context.goals.map((goal) => goal.key),
-            ),
-          });
-        }
-        const inserted = await this.results.insertAnswerIfAbsent(transaction, {
-          campaignId: input.campaign.id,
+    let outboundSuppressedByNewerIngress = false;
+    if (
+      input.outbound &&
+      (input.ordinaryReply || input.closingReason !== null)
+    ) {
+      await this.ingress.lockInboundPhone(
+        transaction,
+        input.conversation.phoneAtLaunch,
+      );
+      outboundSuppressedByNewerIngress =
+        await this.ingress.hasInboundBeyondSnapshot(transaction, {
+          phoneE164: input.conversation.phoneAtLaunch,
           conversationId: input.conversation._id,
-          respondentParticipantId: input.conversation.respondentParticipantId,
-          subjectParticipantId: answer.subjectParticipantId,
-          questionKey: answer.questionKey,
-          valueInt: answer.valueInt,
-          sourceMessageIds: answer.sourceMessageIds,
-          extractionMeta: buildExtractionMeta({
-            model: input.model,
-            confidence: answer.confidence,
-            candidateIds,
-          }),
-          matchingHold: answer.sourceMessageIds.some((messageId) =>
-            heldMessageIds.has(messageId),
+          snapshotIngressIds: input.conversation.messages.flatMap((message) =>
+            message.actor === "participant" && message.ingressId
+              ? [message.ingressId]
+              : [],
           ),
         });
-        if (inserted) {
-          answersWritten += 1;
-        }
-      }
+    }
 
-      // `feedback_notes` has no natural unique key, so the run re-reads what is
-      // already stored inside the same locked transaction. Together with the
-      // cursor that is the note replay guard.
-      const storedNotes = await this.results.listNotesByConversation(
-        input.conversation._id,
+    const venueRevision = input.context.venueContextRevision;
+    if (
+      typeof venueRevision === "number" &&
+      !(await this.events.feedbackVenueContextIsCurrent(
         transaction,
+        input.campaign.eventId,
+        venueRevision,
+      ))
+    ) {
+      // Shared event lock: raced venue edit retries; later edit waits.
+      throw new FeedbackExtractionGenerationError(
+        "extraction_failed",
+        true,
+        "validation_failed",
       );
-      const storedNoteKeys = new Set(
-        storedNotes.map((note) =>
-          noteSignature(
-            note.noteType,
-            note.text,
-            note.subjectParticipantId ?? null,
-          ),
-        ),
-      );
+    }
 
-      let notesWritten = 0;
-      for (const note of input.validated.notes) {
-        const signature = noteSignature(
+    await this.results.lockConversation(transaction, input.conversation._id);
+
+    // Execution after conversation mutex (same order as provider entry).
+    if (
+      input.executionClaim &&
+      !(await this.executionFence.renewWithin(
+        transaction,
+        input.executionClaim,
+      ))
+    ) {
+      throw new FeedbackConversationExecutionGuardError(
+        input.conversation._id,
+        "execution_claim_lost",
+      );
+    }
+
+    const currentConversation = input.executionClaim
+      ? await this.conversations.findById(input.conversation._id, transaction)
+      : undefined;
+    const executionGuardReason = input.executionClaim
+      ? executionSnapshotGuardReason(
+          currentConversation,
+          input.conversation,
+          input.executionClaim,
+        )
+      : undefined;
+    if (
+      executionGuardReason === "execution_claim_lost" ||
+      executionGuardReason === "execution_invariant_broken"
+    ) {
+      throw new FeedbackConversationExecutionGuardError(
+        input.conversation._id,
+        executionGuardReason,
+      );
+    }
+    const executionSuperseded =
+      executionGuardReason === "authoritative_state_changed";
+
+    let answersWritten = 0;
+    for (const answer of input.validated.answers) {
+      // Subject move: delete contradicted keys, do not keep a second opinion.
+      if (answer.subjectParticipantId) {
+        await this.results.deleteContradictedAnswers(transaction, {
+          conversationId: input.conversation._id,
+          subjectParticipantId: answer.subjectParticipantId,
+          questionKeys: contradictedPostEventFeedbackQuestionKeys(
+            answer.questionKey,
+            input.context.goals.map((goal) => goal.key),
+          ),
+        });
+      }
+      const inserted = await this.results.insertAnswerIfAbsent(transaction, {
+        campaignId: input.campaign.id,
+        conversationId: input.conversation._id,
+        respondentParticipantId: input.conversation.respondentParticipantId,
+        subjectParticipantId: answer.subjectParticipantId,
+        questionKey: answer.questionKey,
+        valueInt: answer.valueInt,
+        sourceMessageIds: answer.sourceMessageIds,
+        extractionMeta: buildExtractionMeta({
+          model: input.model,
+          confidence: answer.confidence,
+          candidateIds,
+        }),
+        matchingHold: answer.sourceMessageIds.some((messageId) =>
+          heldMessageIds.has(messageId),
+        ),
+      });
+      if (inserted) {
+        answersWritten += 1;
+      }
+    }
+
+    // Note replay guard: content signature inside the locked transaction.
+    const storedNotes = await this.results.listNotesByConversation(
+      input.conversation._id,
+      transaction,
+    );
+    const storedNoteKeys = new Set(
+      storedNotes.map((note) =>
+        noteSignature(
           note.noteType,
           note.text,
-          note.subjectParticipantId,
+          note.subjectParticipantId ?? null,
+        ),
+      ),
+    );
+
+    let notesWritten = 0;
+    for (const note of input.validated.notes) {
+      const signature = noteSignature(
+        note.noteType,
+        note.text,
+        note.subjectParticipantId,
+      );
+      if (storedNoteKeys.has(signature)) {
+        continue;
+      }
+      storedNoteKeys.add(signature);
+      await this.results.insertNote(transaction, {
+        campaignId: input.campaign.id,
+        conversationId: input.conversation._id,
+        respondentParticipantId: input.conversation.respondentParticipantId,
+        subjectParticipantId: note.subjectParticipantId,
+        noteType: note.noteType,
+        text: note.text,
+        sourceMessageIds: note.sourceMessageIds,
+        extractionMeta: buildExtractionMeta({
+          model: input.model,
+          confidence: note.confidence,
+          candidateIds,
+          flaggedForReview: note.flaggedForReview,
+          unresolvedSubjectName: note.unresolvedSubjectName,
+        }),
+      });
+      notesWritten += 1;
+    }
+
+    // D13: incident audit is look-here, not the words (those are notes).
+    if (isSafetyOrHandoffAttention(input.validated)) {
+      await this.audit.append(transaction, {
+        actorType: "system",
+        actorId: "feedback_extraction",
+        action:
+          input.validated.safetySignals.length > 0
+            ? "feedback_conversation.safety_signalled"
+            : "feedback_conversation.handoff_requested",
+        entityType: "feedback_conversation",
+        entityId: input.conversation._id,
+        requestId: input.correlationId,
+        context: {
+          campaignId: input.conversation.campaignId,
+          model: input.model,
+          confidence: input.validated.confidence,
+          safetySignal: input.validated.safetySignals.length > 0,
+          safetySignals: input.validated.safetySignals.map((signal) => ({
+            category: signal.category,
+            recommendedAction: signal.recommendedAction,
+            sourceMessageIds: [...signal.sourceMessageIds],
+            confidence: signal.confidence,
+          })),
+          handoff: input.validated.handoff,
+        },
+      });
+    }
+
+    let outbox: MessageOutboxRow | undefined;
+    let outboundSuppressedByLegacyClosing = false;
+    if (
+      input.outbound &&
+      input.closingReason !== null &&
+      !outboundSuppressedByNewerIngress &&
+      !executionSuperseded
+    ) {
+      const legacyClosing =
+        await this.outbox.resolveLegacyClosingBeforeAnchoredInsert(
+          transaction,
+          `${FEEDBACK_CLOSING_DEDUPE_PREFIX}-${input.conversation._id}`,
         );
-        if (storedNoteKeys.has(signature)) {
-          continue;
-        }
-        storedNoteKeys.add(signature);
-        await this.results.insertNote(transaction, {
-          campaignId: input.campaign.id,
-          conversationId: input.conversation._id,
-          respondentParticipantId: input.conversation.respondentParticipantId,
-          subjectParticipantId: note.subjectParticipantId,
-          noteType: note.noteType,
-          text: note.text,
-          sourceMessageIds: note.sourceMessageIds,
-          extractionMeta: buildExtractionMeta({
-            model: input.model,
-            confidence: note.confidence,
-            candidateIds,
-            flaggedForReview: note.flaggedForReview,
-            unresolvedSubjectName: note.unresolvedSubjectName,
-          }),
-        });
-        notesWritten += 1;
-      }
+      outboundSuppressedByLegacyClosing =
+        legacyClosing.outcome === "provider_crossed";
+    }
+    if (
+      input.outbound &&
+      !outboundSuppressedByNewerIngress &&
+      !outboundSuppressedByLegacyClosing &&
+      !executionSuperseded
+    ) {
+      const enqueued = await this.outbox.insertOutboxIfAbsent(transaction, {
+        conversationId: input.conversation._id,
+        campaignId: input.campaign.id,
+        kind: "reply",
+        body: input.outbound.body,
+        dedupeKey: input.outbound.dedupeKey,
+      });
+      await this.outboundLog.record(transaction, {
+        outbox: enqueued,
+        conversation: input.conversation,
+        decision: {
+          origin: "extraction_reply",
+          model: input.model,
+          confidence: input.validated.confidence ?? null,
+          closingReason: input.closingReason,
+          askedGoal: input.outbound.askedGoal ?? null,
+          venueContextRevision: input.context.venueContextRevision ?? null,
+          goalStatuses: input.goalStatuses.map(({ key, status }) => ({
+            key,
+            status,
+          })),
+        },
+        correlationId: input.correlationId,
+      });
+      outbox = enqueued.row;
+    }
 
-      // D13 (amended): the audit records that a human should look, not what was
-      // said — the notes above already hold the participant's own words, in the
-      // ordinary place an operator reads them. Flagged-note and revision
-      // attention are quieter: they raise the durable flag without an incident
-      // audit of their own.
-      if (isSafetyOrHandoffAttention(input.validated)) {
-        await this.audit.append(transaction, {
-          actorType: "system",
-          actorId: "feedback_extraction",
-          action:
-            input.validated.safetySignals.length > 0
-              ? "feedback_conversation.safety_signalled"
-              : "feedback_conversation.handoff_requested",
-          entityType: "feedback_conversation",
-          entityId: input.conversation._id,
-          requestId: input.correlationId,
-          context: {
-            campaignId: input.conversation.campaignId,
-            model: input.model,
-            confidence: input.validated.confidence,
-            safetySignal: input.validated.safetySignals.length > 0,
-            safetySignals: input.validated.safetySignals.map((signal) => ({
-              category: signal.category,
-              recommendedAction: signal.recommendedAction,
-              sourceMessageIds: [...signal.sourceMessageIds],
-              confidence: signal.confidence,
-            })),
-            handoff: input.validated.handoff,
-          },
-        });
-      }
-
-      let outbox: MessageOutboxRow | undefined;
-      let outboundSuppressedByLegacyClosing = false;
-      if (
-        input.outbound &&
-        input.closingReason !== null &&
-        !outboundSuppressedByNewerIngress &&
-        !executionSuperseded
-      ) {
-        const legacyClosing =
-          await this.outbox.resolveLegacyClosingBeforeAnchoredInsert(
-            transaction,
-            `${FEEDBACK_CLOSING_DEDUPE_PREFIX}-${input.conversation._id}`,
-          );
-        outboundSuppressedByLegacyClosing =
-          legacyClosing.outcome === "provider_crossed";
-      }
-      if (
-        input.outbound &&
-        !outboundSuppressedByNewerIngress &&
-        !outboundSuppressedByLegacyClosing &&
-        !executionSuperseded
-      ) {
-        const enqueued = await this.outbox.insertOutboxIfAbsent(transaction, {
-          conversationId: input.conversation._id,
-          campaignId: input.campaign.id,
-          kind: "reply",
-          body: input.outbound.body,
-          dedupeKey: input.outbound.dedupeKey,
-        });
-        await this.outboundLog.record(transaction, {
-          outbox: enqueued,
-          conversation: input.conversation,
-          decision: {
-            origin: "extraction_reply",
-            model: input.model,
-            confidence: input.validated.confidence ?? null,
-            closingReason: input.closingReason,
-            askedGoal: input.outbound.askedGoal ?? null,
-            venueContextRevision: input.context.venueContextRevision ?? null,
-            goalStatuses: input.goalStatuses.map(({ key, status }) => ({
-              key,
-              status,
-            })),
-          },
-          correlationId: input.correlationId,
-        });
-        outbox = enqueued.row;
-      }
-
-      return {
-        answersWritten,
-        notesWritten,
-        outboundSuppressedByNewerIngress,
-        outboundSuppressedByLegacyClosing,
-        executionSuperseded,
-        ...(outbox ? { outbox } : {}),
-      };
-    });
+    return {
+      answersWritten,
+      notesWritten,
+      outboundSuppressedByNewerIngress,
+      outboundSuppressedByLegacyClosing,
+      executionSuperseded,
+      ...(outbox ? { outbox } : {}),
+    };
   }
 
   /**
-   * MongoDB last. Goals and attention are repaired forward on a replay; the
-   * cursor advances only once every PostgreSQL effect is durable.
+   * Goals, attention, cursor, terminal close and handoff on the caller's
+   * transaction. Operator alerts are returned for the caller to fire after
+   * commit.
    */
-  private async applyConversationState(input: {
-    readonly conversation: FeedbackConversationDocument;
-    readonly validated: FeedbackExtractionValidationResult;
-    readonly goalStatuses: readonly GoalStatusUpdate[];
-    readonly closingReason: "completed" | "declined" | null;
-    /** Exact outbox row atomically authorized by an extraction-driven close. */
-    readonly terminalOutboxId: string | null;
-    readonly dutyOfCare: boolean;
-    readonly withdrew: boolean;
-    readonly hostility: FeedbackHostilityRaise;
-    /** This snapshot atomically consumes its cursor and silences the bot. */
-    readonly awaitingHuman: boolean;
-    /** Exact participant-facing commitment allowed to survive the bot brake. */
-    readonly handoffOutboxId: string | null;
-    /** Whether this run advances the hostility ladder by one rung. */
-    readonly hostileTurn: boolean;
-    /** The count this run decided from — the compare-and-set's expected value. */
-    readonly priorHostileTurns: number;
-    /** The anchor for a reason this run raised that cites no message itself. */
-    readonly newestParticipantMessageId: string | null;
-    /**
-     * The bot message whose campaign copy the re-ask cap refused to repeat, or
-     * null. Its own anchor, so the raise is filed once rather than once per
-     * message the participant sends afterwards.
-     */
-    readonly stalledOnMessageId: string | null;
-    /**
-     * Messages that asked a data-handling question we have deliberately not
-     * answered. Each earns an `unanswered_data_question` reason on its anchor.
-     */
-    readonly unansweredDataQuestionMessageIds: readonly string[];
-    readonly cursorSeq: number;
-    readonly model: string;
-    /** What this run's two model calls cost, added to the conversation's total. */
-    readonly usage: FeedbackExtractionUsage;
-    /** The tier this run bought, or null. Overwrites — it is not a quantity. */
-    readonly serviceTier: string | null;
-    readonly correlationId: string;
-    /** A newer Mongo work/control generation owns the next state transition. */
-    readonly workSuperseded: boolean;
-    readonly executionClaim?: FeedbackConversationExecutionClaim;
-  }): Promise<{
+  private async applyConversationStateOn(
+    transaction: AppTransaction,
+    input: {
+      readonly conversation: FeedbackConversationDocument;
+      readonly validated: FeedbackExtractionValidationResult;
+      readonly goalStatuses: readonly GoalStatusUpdate[];
+      readonly closingReason: "completed" | "declined" | null;
+      /** Exact outbox row atomically authorized by an extraction-driven close. */
+      readonly terminalOutboxId: string | null;
+      readonly dutyOfCare: boolean;
+      readonly withdrew: boolean;
+      readonly hostility: FeedbackHostilityRaise;
+      /** This snapshot atomically consumes its cursor and silences the bot. */
+      readonly awaitingHuman: boolean;
+      /** Exact participant-facing commitment allowed to survive the bot brake. */
+      readonly handoffOutboxId: string | null;
+      /** Whether this run advances the hostility ladder by one rung. */
+      readonly hostileTurn: boolean;
+      /** The count this run decided from — the compare-and-set's expected value. */
+      readonly priorHostileTurns: number;
+      /** The anchor for a reason this run raised that cites no message itself. */
+      readonly newestParticipantMessageId: string | null;
+      /**
+       * The bot message whose campaign copy the re-ask cap refused to repeat, or
+       * null. Its own anchor, so the raise is filed once rather than once per
+       * message the participant sends afterwards.
+       */
+      readonly stalledOnMessageId: string | null;
+      /**
+       * Messages that asked a data-handling question we have deliberately not
+       * answered. Each earns an `unanswered_data_question` reason on its anchor.
+       */
+      readonly unansweredDataQuestionMessageIds: readonly string[];
+      readonly cursorSeq: number;
+      readonly model: string;
+      /** What this run's two model calls cost, added to the conversation's total. */
+      readonly usage: FeedbackExtractionUsage;
+      /** The tier this run bought, or null. Overwrites — it is not a quantity. */
+      readonly serviceTier: string | null;
+      /** A newer work/control generation owns the next state transition. */
+      readonly workSuperseded: boolean;
+      readonly executionClaim?: FeedbackConversationExecutionClaim;
+    },
+  ): Promise<{
     readonly closedNow: boolean;
     readonly terminalCommitted: boolean;
+    readonly raisedIncident: boolean;
   }> {
     const at = new Date();
 
     if (input.goalStatuses.length > 0) {
-      await this.conversations.updateGoalStatuses({
+      await this.conversations.updateGoalStatuses(transaction, {
         conversationId: input.conversation._id,
         statuses: input.goalStatuses,
         at,
@@ -1629,7 +1400,7 @@ export class PostEventFeedbackExtractor {
     for (const attention of groupSafetySignalsByMessage(
       input.validated.safetySignals,
     )) {
-      await this.conversations.mergeMessageAttention({
+      await this.conversations.mergeMessageAttention(transaction, {
         conversationId: input.conversation._id,
         messageId: attention.messageId,
         categories: attention.categories,
@@ -1639,13 +1410,8 @@ export class PostEventFeedbackExtractor {
       });
     }
 
-    // Before the raise and before the cursor: the ladder is what the next run
-    // reads to decide whether it may still speak, so a crash between here and the
-    // cursor advance has to leave the rung spent rather than free. The
-    // compare-and-set is what stops the replay of that same run spending a second
-    // one.
     if (input.hostileTurn) {
-      await this.conversations.recordHostileTurn({
+      await this.conversations.recordHostileTurn(transaction, {
         conversationId: input.conversation._id,
         at,
         expectedCount: input.priorHostileTurns,
@@ -1662,60 +1428,27 @@ export class PostEventFeedbackExtractor {
     );
     let raisedIncident = false;
     for (const raise of raises) {
-      const attention = await this.conversations.raiseAttention({
+      const attention = await this.conversations.raiseAttention(transaction, {
         conversationId: input.conversation._id,
         kind: raise.kind,
         messageId: raise.messageId,
         at,
       });
-      // The badge is raised with the reason or not at all: a bare flag is what
-      // reached the inbox saying nothing an operator could read or dismiss.
       raisedIncident ||=
         attention.changed &&
         (raise.kind === "safety" || raise.kind === "handoff");
     }
 
-    // Only a newly recorded safety or handoff reason notifies. A flagged
-    // subjectless note or a refused revision is routine operator work — durable
-    // in the inbox, not a page-worthy alert. A replayed run re-raises the same
-    // kind against the same message, gets `changed: false` from the idempotent
-    // write and stays quiet.
-    if (raisedIncident) {
-      await this.alert.raise({
-        conversationId: input.conversation._id,
-        campaignId: input.conversation.campaignId,
-        reason: "extraction_safety_signal",
-        correlationId: input.correlationId,
-        detail: [
-          ...input.validated.safetySignals.map(
-            (signal) => `${signal.category}:${signal.recommendedAction}`,
-          ),
-          ...(input.validated.handoff ? ["handoff"] : []),
-        ],
-      });
-    }
-
-    // Results and operator evidence from the paid snapshot remain useful, but
-    // a takeover/resume or another durable work generation owns the cursor and
-    // every participant-facing transition from here. Leaving the cursor unread
-    // is what keeps that successor discoverable instead of letting this old run
-    // consume it after a human-control ABA.
     if (input.workSuperseded) {
-      return { closedNow: false, terminalCommitted: false };
+      return { closedNow: false, terminalCommitted: false, raisedIncident };
     }
 
     if (input.closingReason) {
       const closingReason = input.closingReason;
-      const terminal = await this.database.transaction(async (transaction) => {
-        // Total-order the terminal Mongo CAS with the dispatcher's final guard
-        // and marker. If close wins, retract every pre-send row except the exact
-        // closing row the lifecycle authorizes; if dispatch wins, its marker is
-        // already durable before the lifecycle changes.
-        await this.results.lockConversation(
-          transaction,
-          input.conversation._id,
-        );
-        const transition = await this.conversations.advanceCursorAndClose({
+      await this.results.lockConversation(transaction, input.conversation._id);
+      const transition = await this.conversations.advanceCursorAndClose(
+        transaction,
+        {
           conversationId: input.conversation._id,
           toSeq: input.cursorSeq,
           reason: closingReason,
@@ -1730,41 +1463,35 @@ export class PostEventFeedbackExtractor {
                 executionEpoch: input.executionClaim.epoch,
               }
             : {}),
-        });
-        const committed =
-          transition.changed ||
-          (transition.conversation.lifecycle.state === "closed" &&
-            transition.conversation.lifecycle.reason === closingReason &&
-            transition.conversation.lifecycle.terminalOutboxId ===
-              input.terminalOutboxId);
-        if (committed) {
-          await this.outbox.cancelQueuedOutboxForConversationExceptId(
-            transaction,
-            input.conversation._id,
-            input.terminalOutboxId,
-          );
-        }
-        return { transition, committed };
-      });
-      if (terminal.transition.changed) {
-        return { closedNow: true, terminalCommitted: true };
+        },
+      );
+      const committed =
+        transition.changed ||
+        (transition.conversation.lifecycle.state === "closed" &&
+          transition.conversation.lifecycle.reason === closingReason &&
+          transition.conversation.lifecycle.terminalOutboxId ===
+            input.terminalOutboxId);
+      if (committed) {
+        await this.outbox.cancelQueuedOutboxForConversationExceptId(
+          transaction,
+          input.conversation._id,
+          input.terminalOutboxId,
+        );
       }
-      if (terminal.committed) {
-        return { closedNow: false, terminalCommitted: true };
+      if (transition.changed) {
+        return { closedNow: true, terminalCommitted: true, raisedIncident };
+      }
+      if (committed) {
+        return { closedNow: false, terminalCommitted: true, raisedIncident };
       }
 
-      // Only actual newer testimony makes consuming this snapshot safe: it
-      // leaves a later participant turn for the successor to discover. A
-      // control/pause generation change with no newer testimony must keep the
-      // cursor unread, otherwise the successor has nothing from which to repair
-      // the terminal close and can incorrectly remind or expire the thread.
       if (
-        terminal.transition.conversation.messages.some(
+        transition.conversation.messages.some(
           (message) =>
             message.actor === "participant" && message.seq > input.cursorSeq,
         )
       ) {
-        await this.conversations.advanceCursor({
+        await this.conversations.advanceCursor(transaction, {
           conversationId: input.conversation._id,
           toSeq: input.cursorSeq,
           at,
@@ -1773,19 +1500,15 @@ export class PostEventFeedbackExtractor {
           usage: input.usage,
         });
       }
-      return { closedNow: false, terminalCommitted: false };
+      return { closedNow: false, terminalCommitted: false, raisedIncident };
     }
 
     if (input.awaitingHuman) {
-      await this.database.transaction(async (transaction) => {
-        // Cursor/accounting and the bot brake are one Mongo write under the same
-        // mutex as provider entry. Neither half can survive a crash alone.
-        await this.results.lockConversation(
+      await this.results.lockConversation(transaction, input.conversation._id);
+      const transition =
+        await this.conversations.advanceCursorAndMarkAwaitingHuman(
           transaction,
-          input.conversation._id,
-        );
-        const transition =
-          await this.conversations.advanceCursorAndMarkAwaitingHuman({
+          {
             conversationId: input.conversation._id,
             toSeq: input.cursorSeq,
             at,
@@ -1798,30 +1521,30 @@ export class PostEventFeedbackExtractor {
                   executionEpoch: input.executionClaim.epoch,
                 }
               : {}),
-          });
-        const committed =
-          transition.changed || transition.conversation.awaitingHuman;
-        await this.outbox.cancelQueuedAutomatedOutboxForConversation(
-          transaction,
-          input.conversation._id,
-          committed ? input.handoffOutboxId : null,
+          },
         );
-        if (!committed) {
-          const guardReason = input.executionClaim
-            ? (executionSnapshotGuardReason(
-                transition.conversation,
-                input.conversation,
-                input.executionClaim,
-              ) ?? "execution_invariant_broken")
-            : "authoritative_state_changed";
-          throw new FeedbackConversationExecutionGuardError(
-            input.conversation._id,
-            guardReason,
-          );
-        }
-      });
+      const committed =
+        transition.changed || transition.conversation.awaitingHuman;
+      await this.outbox.cancelQueuedAutomatedOutboxForConversation(
+        transaction,
+        input.conversation._id,
+        committed ? input.handoffOutboxId : null,
+      );
+      if (!committed) {
+        const guardReason = input.executionClaim
+          ? (executionSnapshotGuardReason(
+              transition.conversation,
+              input.conversation,
+              input.executionClaim,
+            ) ?? "execution_invariant_broken")
+          : "authoritative_state_changed";
+        throw new FeedbackConversationExecutionGuardError(
+          input.conversation._id,
+          guardReason,
+        );
+      }
     } else {
-      await this.conversations.advanceCursor({
+      await this.conversations.advanceCursor(transaction, {
         conversationId: input.conversation._id,
         toSeq: input.cursorSeq,
         at,
@@ -1837,32 +1560,113 @@ export class PostEventFeedbackExtractor {
       });
     }
 
-    // The atomic path above closes this run's window in the same write that
-    // makes the bot quiet — neither half can strand the other after a crash.
-    //
-    // Not `takeOver`: D17 is explicit that a handoff is a promise and control
-    // moves when a person presses the button. This is the state between those
-    // two moments, which the conversation had no way to represent — so the bot
-    // promised a human and then asked about the dinner again on the next
-    // message. The conversation stays open and under bot control; the bot
-    // simply stops speaking until somebody arrives.
-    //
-    // A withdrawal lands in the same state for a different reason: the bot did
-    // not promise anybody, it ran out of things it was willing to say. Leaving
-    // it under bot control with the ladder settled and nothing flagged means
-    // nobody ever looks — the conversation just goes quiet with no answers in
-    // it. Waiting for a person is the honest description of where it is.
-    //
-    // The hostility stop is the third, and it is the only one of the three the
-    // participant was not promised anything by. That is the point: he never asked
-    // us to stop and we are not pretending he did, so the conversation stays open
-    // and his consent stays exactly as he left it — but the bot has said its last
-    // line, and `awaitingHuman` is what makes that true of the next message
-    // instead of only of this one. `unanswerable` deliberately does **not** land
-    // here: the hostility ladder still has rungs left — the questionnaire is
-    // finished, but the counter has not reached the exit line — so the bot keeps
-    // its voice and only the badge goes up.
-    return { closedNow: false, terminalCommitted: false };
+    return { closedNow: false, terminalCommitted: false, raisedIncident };
+  }
+
+  /**
+   * After a persist transaction rejects on transcript capacity, the paid
+   * snapshot is gone. Park the bot so reconcile cannot buy another model
+   * call for a metadata write that cannot succeed.
+   */
+  private async brakeAfterTranscriptCapacity(
+    conversation: FeedbackConversationDocument,
+    input: ExtractFeedbackInput,
+  ): Promise<ExtractFeedbackResult> {
+    this.logger.warn({
+      event: "feedback.extract.transcript_capacity",
+      correlationId: input.correlationId,
+      conversationId: conversation._id,
+    });
+
+    const outcome = await this.database.transaction(async (transaction) => {
+      await this.results.lockConversation(transaction, conversation._id);
+
+      if (input.executionClaim) {
+        if (
+          !(await this.executionFence.renewWithin(
+            transaction,
+            input.executionClaim,
+          ))
+        ) {
+          throw new FeedbackConversationExecutionGuardError(
+            conversation._id,
+            "execution_claim_lost",
+          );
+        }
+      }
+
+      // Campaign resume updates these rows without the conversation mutex.
+      const current = await this.conversations.findByIdForUpdate(
+        transaction,
+        conversation._id,
+      );
+      if (input.executionClaim) {
+        const guardReason = executionSnapshotGuardReason(
+          current,
+          conversation,
+          input.executionClaim,
+        );
+        if (guardReason) {
+          throw new FeedbackConversationExecutionGuardError(
+            conversation._id,
+            guardReason,
+          );
+        }
+      } else {
+        if (!current) {
+          throw new PostEventFeedbackConversationNotFoundError(
+            conversation._id,
+          );
+        }
+        const skipped = this.skipOutcome(current, current.messages.length);
+        if (
+          skipped === "skipped_closed" ||
+          skipped === "skipped_human_control" ||
+          skipped === "skipped_awaiting_human"
+        ) {
+          return skipped;
+        }
+        if (
+          (current.work?.revision ?? 0) !==
+            (conversation.work?.revision ?? 0) ||
+          current.control.changedAt.getTime() !==
+            conversation.control.changedAt.getTime()
+        ) {
+          throw new FeedbackConversationExecutionGuardError(
+            conversation._id,
+            "authoritative_state_changed",
+          );
+        }
+      }
+
+      const at = new Date();
+      await this.conversations.raiseAttention(transaction, {
+        conversationId: conversation._id,
+        kind: "transcript_full",
+        messageId: null,
+        at,
+      });
+      await this.conversations.markAwaitingHuman(transaction, {
+        conversationId: conversation._id,
+        at,
+      });
+      await this.outbox.cancelQueuedAutomatedOutboxForConversation(
+        transaction,
+        conversation._id,
+      );
+      return "skipped_awaiting_human" as const;
+    });
+
+    return this.complete(
+      {
+        outcome,
+        conversationId: conversation._id,
+        cursorSeq: conversation.extraction.cursorSeq,
+        answersWritten: 0,
+        notesWritten: 0,
+      },
+      input.correlationId,
+    );
   }
 
   private complete(
@@ -1874,7 +1678,7 @@ export class PostEventFeedbackExtractor {
   }
 }
 
-/** Classifies the Mongo half of one PostgreSQL execution claim. */
+/** Classifies the conversation half of one PostgreSQL execution claim. */
 function executionSnapshotGuardReason(
   current: FeedbackConversationDocument | undefined,
   snapshot: FeedbackConversationDocument,
@@ -1912,12 +1716,7 @@ function executionSnapshotGuardReason(
   return undefined;
 }
 
-/**
- * D12: every persisted row records the model, its confidence and the exact
- * candidate ids supplied to that run. Under live selection (D16) the candidate
- * set is the only way to explain later why a subject was — or was not —
- * resolvable at the time.
- */
+/** D12: persist model, confidence, and this run's D16 candidate ids. */
 function buildExtractionMeta(input: {
   readonly model: string;
   readonly confidence: number;

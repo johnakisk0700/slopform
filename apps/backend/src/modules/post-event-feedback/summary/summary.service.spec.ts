@@ -66,8 +66,6 @@ const campaignRow: FeedbackCampaignRow = {
   questions: buildPostEventFeedbackQuestionLaunchSnapshot(1),
   status: "launched",
   resumeGeneration: 0,
-  resumeAppliedGeneration: 0,
-  resumeDueAt: null,
   launchedAt: new Date("2026-07-25T00:00:00.000Z"),
   launchedBy: "admin-1",
   createdAt: new Date("2026-07-25T00:00:00.000Z"),
@@ -662,7 +660,7 @@ describe("PostEventFeedbackCampaignSummaryService", () => {
     expect(checkpoints.savePendingSummary).toHaveBeenCalledBefore(queue.add);
   });
 
-  it("reconstructs automatic summary intent after the last Mongo close", async () => {
+  it("reconstructs automatic summary intent after the last conversation close", async () => {
     const { service, campaigns, conversations, queue } = createService();
     const closedAt = new Date("2026-07-25T03:00:00.000Z");
     campaigns.listSummaryRecoveryCandidates.mockResolvedValue([

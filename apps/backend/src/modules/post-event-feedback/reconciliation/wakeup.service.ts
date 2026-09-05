@@ -30,16 +30,14 @@ const LIVE_JOB_STATES = new Set([
 
 export const FEEDBACK_RECONCILIATION_RECOVERY_BATCH_SIZE = 100;
 export const FEEDBACK_RECONCILIATION_RECOVERY_SCAN_LIMIT = 500;
-export const FEEDBACK_RECONCILIATION_BOOTSTRAP_BATCH_SIZE = 100;
-export const FEEDBACK_RECONCILIATION_HANDOFF_REPAIR_BATCH_SIZE = 100;
 
 /**
  * Persists work before publishing its disposable BullMQ wake-up.
  *
- * MongoDB is the authority: a failed `add` leaves discoverable intent, while a
- * duplicate `add` collapses on the revision-derived id. Queue retention can
- * therefore affect observability, never whether the conversation still owes
- * work.
+ * The conversation row is the authority: a failed `add` leaves discoverable
+ * intent, while a duplicate `add` collapses on the revision-derived id. Queue
+ * retention can therefore affect observability, never whether the conversation
+ * still owes work.
  */
 @Injectable()
 export class FeedbackConversationWakeupService {
@@ -60,11 +58,13 @@ export class FeedbackConversationWakeupService {
     readonly at?: Date;
   }): Promise<string> {
     const at = input.at ?? new Date();
-    const transition = await this.conversations.markWorkDue({
-      conversationId: input.conversationId,
-      nextActionAt: input.nextActionAt,
-      at,
-    });
+    const transition = await this.database.transaction((transaction) =>
+      this.conversations.markWorkDue(transaction, {
+        conversationId: input.conversationId,
+        nextActionAt: input.nextActionAt,
+        at,
+      }),
+    );
     const jobId = await this.ensureQueued({
       conversationId: input.conversationId,
       work: transition.work,
@@ -137,50 +137,6 @@ export class FeedbackConversationWakeupService {
     now = new Date(),
     campaignId?: string,
   ): Promise<{ readonly examined: number; readonly queued: number }> {
-    if (!campaignId) {
-      try {
-        const repaired = await this.conversations.repairLegacyAwaitingHuman({
-          at: now,
-          limit: FEEDBACK_RECONCILIATION_HANDOFF_REPAIR_BATCH_SIZE,
-        });
-        if (repaired > 0) {
-          this.logger.log({
-            event: "feedback.reconciliation.legacy_handoff_repaired",
-            correlationId,
-            repaired,
-          });
-        }
-      } catch (error) {
-        // The bridge is independent from native V2 recovery. A bad legacy page
-        // must not hide current due work from this maintenance pass.
-        this.logger.error({
-          event: "feedback.reconciliation.legacy_handoff_repair_failed",
-          correlationId,
-          error: { name: error instanceof Error ? error.name : "Error" },
-        });
-      }
-      try {
-        const seeded = await this.conversations.seedMissingWork({
-          dueAt: now,
-          limit: FEEDBACK_RECONCILIATION_BOOTSTRAP_BATCH_SIZE,
-        });
-        if (seeded > 0) {
-          this.logger.log({
-            event: "feedback.reconciliation.legacy_work_seeded",
-            correlationId,
-            seeded,
-          });
-        }
-      } catch (error) {
-        // Compatibility bootstrap must not block recovery of conversations
-        // that already speak the V2 durable-work contract.
-        this.logger.error({
-          event: "feedback.reconciliation.legacy_work_seed_failed",
-          correlationId,
-          error: { name: error instanceof Error ? error.name : "Error" },
-        });
-      }
-    }
     const scanLimit = campaignId
       ? FEEDBACK_RECONCILIATION_RECOVERY_BATCH_SIZE
       : FEEDBACK_RECONCILIATION_RECOVERY_SCAN_LIMIT;
@@ -226,10 +182,10 @@ export class FeedbackConversationWakeupService {
 
   /**
    * Allocates one globally unique keyset page under a PostgreSQL row lock.
-   * The MongoDB read is deliberately the only cross-store operation inside the
-   * short transaction. The cursor advances before publication, so a worker
-   * crash may defer this page until the finite wrap but can never pin the scan
-   * or consume the Mongo-owned work revision.
+   * The due-work read uses the same transaction as the checkpoint so the
+   * cursor and the page agree. The cursor advances before publication, so a
+   * worker crash may defer this page until the finite wrap but cannot consume
+   * the work revision.
    */
   private async allocateGlobalRecoveryPage(input: {
     readonly dueAt: Date;
@@ -241,21 +197,27 @@ export class FeedbackConversationWakeupService {
   }> {
     return this.database.transaction(async (transaction) => {
       const after = await this.checkpoints.lockConversationDue(transaction);
-      let conversations = await this.conversations.listDueWork({
-        dueAt: input.dueAt,
-        limit: input.limit,
-        ...(after ? { after } : {}),
-      });
+      let conversations = await this.conversations.listDueWork(
+        {
+          dueAt: input.dueAt,
+          limit: input.limit,
+          ...(after ? { after } : {}),
+        },
+        transaction,
+      );
 
       if (conversations.length === 0 && after) {
         await this.checkpoints.saveConversationDue(transaction, undefined);
         if (!input.wrapAtTail) {
           return { conversations: [], reachedTail: true };
         }
-        conversations = await this.conversations.listDueWork({
-          dueAt: input.dueAt,
-          limit: input.limit,
-        });
+        conversations = await this.conversations.listDueWork(
+          {
+            dueAt: input.dueAt,
+            limit: input.limit,
+          },
+          transaction,
+        );
       }
 
       if (conversations.length === 0) {

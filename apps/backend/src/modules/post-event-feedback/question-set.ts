@@ -87,8 +87,7 @@ const POST_EVENT_FEEDBACK_QUESTION_SET_V1_COPY = {
   intro:
     "Γεια σου {name}! Εδώ η ομάδα του Join The Six 🙂 Ελπίζουμε να πέρασες όμορφα. Θα ήθελες να μας πεις 2-3 πράγματα για τη βραδιά; Παίρνει λιγότερο από 2 λεπτά. (Αν δεν θες μηνύματα, γράψε ΣΤΟΠ.)",
   event_score: "Πώς σου φάνηκε συνολικά η βραδιά, από το 1 ως το 5;",
-  // V2-only copy. Keeping every known key in each fallback object makes an old
-  // sparse campaign snapshot readable without weakening the resolved type.
+  // V2-only keys stay present so a sparse snapshot still types as a full copy.
   table_fit:
     "Πόσο καλά ταίριαξε η παρέα με αυτό που ήθελες από τη βραδιά, από το 1 ως το 5;",
   participation_ease:
@@ -101,22 +100,9 @@ const POST_EVENT_FEEDBACK_QUESTION_SET_V1_COPY = {
     "Με ποιους από την παρέα θα ήθελες να ξαναβρεθείς σε επόμενο τραπέζι;",
   avoid:
     "Υπάρχει κάποιος ή κάποια που θα προτιμούσες να μην πετύχεις ξανά; Μένει αυστηρά μεταξύ μας.",
-  // The deterministic second ask, one per goal. `withCampaignReaskCap`
-  // substitutes this wording when the campaign's own words for the goal have
-  // already reached the phone once, so a refused answer earns a re-ask that a
-  // person could plausibly have typed instead of the same sentence twice —
-  // two byte-identical bodies in a row is what the 2026-08-04 slot-2 rehearsal
-  // sent a guest ~70 seconds apart, and the burst grader rightly files that as
-  // `duplicate_outbound`.
-  //
-  // Application copy for the same reason the questions themselves are: this
-  // wording goes out precisely when the model's reply could not be trusted, so
-  // it must be guaranteed not to lie whichever refusal produced it. The
-  // acknowledgement claims only what is always true at that point — the goal
-  // is still open, so nothing usable was kept from the previous message. It
-  // deliberately does not say *why* (a name we could not place, a score out of
-  // range, …), because by the time this fallback fires the reason may be any
-  // of them.
+  // Second approved wording per goal. `withCampaignReaskCap` substitutes this
+  // after the campaign ask has already reached the phone. Application copy:
+  // claims only that the goal is still open, never why the prior reply failed.
   event_score_reask:
     "Συγγνώμη, δεν μπορέσαμε να το κρατήσουμε αυτό ως απάντηση 🙏 Πώς σου φάνηκε συνολικά η βραδιά, από το 1 ως το 5;",
   table_fit_reask:
@@ -133,39 +119,20 @@ const POST_EVENT_FEEDBACK_QUESTION_SET_V1_COPY = {
     "Συγγνώμη, δεν μπορέσαμε να το κρατήσουμε αυτό ως απάντηση 🙏 Υπάρχει κάποιος ή κάποια που θα προτιμούσες να μην πετύχεις ξανά; Μένει αυστηρά μεταξύ μας.",
   closing:
     "Τέλεια, ευχαριστούμε πολύ! Ό,τι άλλο θες να μας πεις, είμαστε εδώ. 🙌",
-  // The same ending in the register the conversation was actually held in.
-  // Sent instead of `closing` while an unresolved safety reason stands: Νίτσα
-  // Κομποσερογιάννη described being pressed for a lift home after saying no
-  // twice, asked what happens next — and got «Τέλεια! 🙌», because the cheerful
-  // ending is application copy and no register rule governs application copy.
-  // No exclamation marks, no emoji, and one commitment the flag mechanism
-  // actually keeps: the reason is already in an operator's inbox and stays
-  // there until a person resolves it.
+  // Closing copy while an unresolved `safety` reason stands. No cheer, no
+  // emoji; the inbox already holds the reason.
   closing_after_safety:
     "Ευχαριστούμε πολύ. Ό,τι μας είπες το έχουμε δει και θα το χειριστούμε με προσοχή. Ό,τι άλλο θες να μας πεις, είμαστε εδώ.",
-  // The ending for somebody who declined every question. Πάνος Μούλαρος wrote
-  // «δε λεω τιποτα» three times and received nothing at all after the intro —
-  // the thank-you is correctly withheld from an empty ladder, and there was
-  // nothing behind it. Silence obeys him, but it also leaves him unsure anybody
-  // read it, and a closed conversation cannot answer whatever he writes next.
-  //
-  // No thanks, because there is nothing to thank him for. No question, because
-  // he has answered that four times. No apology, because he did nothing wrong.
-  // The promise is one we actually keep: the conversation closes, and the
-  // conversation planner does not remind a closed one.
+  // Empty-ladder ending: close without thanks, question, or apology. Planner
+  // does not remind a closed conversation.
   declined: "Κανένα πρόβλημα, δεν θα σε ξαναρωτήσουμε. Καλή συνέχεια! 🙂",
   stop_ack: "Έγινε, δεν θα ξαναλάβεις μηνύματα από εμάς σε αυτό το νούμερο.",
   reminder:
     "Καλημέρα {name}! Αν έχεις 2 λεπτά, θα χαρούμε πολύ να μάθουμε πώς σου φάνηκε η βραδιά 🙂 (Γράψε ΣΤΟΠ αν δεν θες μηνύματα.)",
-  // For somebody who already started. The generic reminder asks them to tell
-  // us about the evening, which reads as "we lost what you sent" to a person
-  // who answered two questions yesterday — so restate the open one instead and
-  // let them answer it directly.
+  // Mid-questionnaire nudge: restate the open goal, do not imply we lost prior answers.
   reminder_followup:
     "Γεια σου {name}! Είχαμε μείνει εδώ 🙂 {question} (Γράψε ΣΤΟΠ αν δεν θες μηνύματα.)",
-  // Somebody answering out loud from the car is not a non-responder, but we
-  // cannot read a voice note yet. Silence let them go on recording answers into
-  // a void and land in the campaign list as somebody who never replied.
+  // Non-text inbound: one notice, or silence looks like they never replied.
   cannot_read_media:
     "Συγγνώμη, δεν μπορούμε ακόμα να ακούσουμε φωνητικά ή να δούμε αρχεία εδώ 🙈 Αν μπορείς, γράψε μας το με λίγες λέξεις!",
 } as const satisfies PostEventFeedbackQuestionSetCopy;
@@ -215,9 +182,7 @@ const POST_EVENT_FEEDBACK_QUESTION_SET_V2_COPY = {
     "Με ποιους από την παρέα θα χαιρόσουν να ξαναβρεθείς σε επόμενο τραπέζι;",
   avoid:
     "Υπάρχει κάποιος ή κάποια με τον οποίο θα προτιμούσες να μη βρεθείς ξανά στο ίδιο τραπέζι; Αρκεί το όνομα· δεν χρειάζεται να εξηγήσεις γιατί.",
-  // The re-ask variants restate the question, so the two whose V2 wording
-  // differs are re-derived here; the rest ask the same words in both versions
-  // and ride in on the spread.
+  // V2 re-asks only where the question wording itself changed.
   meet_again_reask:
     "Συγγνώμη, δεν μπορέσαμε να το κρατήσουμε αυτό ως απάντηση 🙏 Με ποιους από την παρέα θα χαιρόσουν να ξαναβρεθείς σε επόμενο τραπέζι;",
   avoid_reask:
@@ -318,9 +283,7 @@ export function buildPostEventFeedbackQuestionLaunchSnapshot(
 }
 
 /**
- * The campaign's launch copy snapshot owns the wording, so a later copy edit
- * never rewrites a live questionnaire. The versioned constant is the fallback
- * when the snapshot is missing or malformed.
+ * Launch snapshot owns live wording. Versioned constants fill missing keys.
  */
 export function resolveCampaignCopy(
   questions: Record<string, unknown> | undefined,
@@ -375,13 +338,7 @@ export function createFeedbackStopAckDedupeKey(conversationId: string): string {
   return `feedback-stop-ack-${conversationId}`;
 }
 
-/**
- * One "we cannot read that" notice per conversation, not per voice note.
- *
- * Somebody who answers out loud usually sends several in a row; repeating the
- * apology for each one is its own kind of rudeness, and the `dedupe_key` is
- * what makes "once" true even across a burst that materializes in parallel.
- */
+/** One media notice per conversation; the dedupe key absorbs a parallel burst. */
 export function createFeedbackMediaNoticeDedupeKey(
   conversationId: string,
 ): string {
@@ -389,13 +346,8 @@ export function createFeedbackMediaNoticeDedupeKey(
 }
 
 /**
- * One durable key per rung of the nudge ladder.
- *
- * The ordinal is what makes a second reminder possible at all: a single
- * per-conversation key meant the outbox absorbed every nudge after the first as
- * a duplicate, so the ladder could not have more than one rung no matter what
- * the sweep decided. It still guarantees the thing the key is for — a retried
- * or concurrent sweep cannot send rung 2 twice.
+ * One durable key per reminder ordinal. A single per-conversation key would
+ * absorb every later rung; the ordinal still blocks a concurrent double-send.
  */
 export function createFeedbackReminderDedupeKey(
   conversationId: string,
@@ -411,12 +363,8 @@ export function isPostEventFeedbackAnswerQuestionKey(
 }
 
 /**
- * The copy key of a goal's deterministic re-ask variant — the differently
- * worded second ask `withCampaignReaskCap` substitutes when the goal's own
- * campaign copy has already gone out once. A type-level derivation rather than
- * a lookup table, so a new answer question cannot ship without its variant:
- * indexing the copy record with this return type stops compiling until every
- * question key has its `_reask` entry in `POST_EVENT_FEEDBACK_COPY_KEYS`.
+ * Copy key of the goal's `_reask` variant. Type-derived so a new question
+ * cannot ship without its entry in `POST_EVENT_FEEDBACK_COPY_KEYS`.
  */
 export function postEventFeedbackReaskCopyKey(
   goal: FeedbackAnswerQuestionKey,
@@ -424,13 +372,7 @@ export function postEventFeedbackReaskCopyKey(
   return `${goal}_reask`;
 }
 
-/**
- * Whether this question's answer is a number.
- *
- * V1 has one scored goal and V2 has four; the directed goals answer with a
- * person and leave `value_int` null. The distinction decides what an operator
- * correction can mean: there is no number to fix when the answer is who.
- */
+/** Scored questions carry `value_int`; directed questions do not. */
 export function isScoredPostEventFeedbackQuestion(value: string): boolean {
   return (
     isPostEventFeedbackAnswerQuestionKey(value) &&
@@ -439,9 +381,8 @@ export function isScoredPostEventFeedbackQuestion(value: string): boolean {
 }
 
 /**
- * Resolves the semantics of a globally valid key across all shipped versions.
- * Reusing a key with different value semantics is rejected here instead of
- * making validation depend on whichever version happened to be checked first.
+ * Semantics of a key across shipped versions. A key that changes value kind
+ * fails here rather than depending on check order.
  */
 export function getPostEventFeedbackAnswerQuestionDefinition(
   key: FeedbackAnswerQuestionKey,
@@ -473,15 +414,8 @@ export function getPostEventFeedbackAnswerQuestionDefinition(
 }
 
 /**
- * Whether this question's answer agrees with the other directed questions'.
- *
- * `liked` and `meet_again` are one decision said twice: «η Μαρία μου άρεσε,
- * μαζί της θα ξαναέβγαινα» answers both, about one person, in one breath — so
- * these two are exactly where a model that has already written the person down
- * once reports the other goal as unanswered. `avoid` is the opposite decision
- * (`contradictedQuestionKeys` in the extractor is that half) and «κανέναν να
- * αποφύγω» is the commonest honest answer in the questionnaire, so a decline of
- * it is ordinary and must stay cheap. `event_score` is not directed at anybody.
+ * `liked` and `meet_again` are the same directed decision said twice. `avoid`
+ * is the opposite; a decline of it is ordinary.
  */
 export function isAgreeingDirectedPostEventFeedbackQuestion(
   value: string,
@@ -489,14 +423,7 @@ export function isAgreeingDirectedPostEventFeedbackQuestion(
   return value === "liked" || value === "meet_again";
 }
 
-/**
- * The questions whose answer is a person, in the order they are asked.
- *
- * The complement of `isScoredPostEventFeedbackQuestion`, named the other way
- * round because two callers want the list rather than the predicate: the
- * operator's «record an answer» route, which accepts exactly these, and the
- * admin screen that groups people under them.
- */
+/** Directed (person) questions, in questionnaire order. */
 export const FEEDBACK_DIRECTED_ANSWER_QUESTION_KEYS = [
   "liked",
   "meet_again",
@@ -512,19 +439,8 @@ export function isDirectedPostEventFeedbackQuestion(
 }
 
 /**
- * The answers about one person that recording this one contradicts.
- *
- * «άκυρο, τον Κώστα Π. καλύτερα όχι ξανά» moves a person, it does not add a
- * second opinion about them. `avoid` and the two agreeing questions are the same
- * decision with opposite answers — somebody a participant now wants to steer
- * clear of is not somebody who made a good impression — so recording one has to
- * clear the other, and only the newest position stands. `liked` and `meet_again`
- * do not contradict each other (one decision said twice) and `event_score` is
- * directed at nobody, so neither has anything to clear.
- *
- * One rule with two callers, which is why it lives here rather than in either of
- * them: an extraction run reading a change of heart, and an operator recording
- * the same move by hand.
+ * Directed keys that recording this one must clear. `avoid` contradicts
+ * `liked`/`meet_again` and the reverse; those two do not contradict each other.
  */
 export function contradictedPostEventFeedbackQuestionKeys(
   questionKey: FeedbackAnswerQuestionKey,
@@ -561,15 +477,8 @@ export function noteSignature(
 }
 
 /**
- * Fits a body to the transcript, which is bounded, without pretending the rest
- * never existed.
- *
- * The bound is the transcript's *storage* limit, not the 4 096 characters we
- * are allowed to send. Those were once the same number and the cut happened at
- * the webhook edge, so a long message lost its tail before anything durable was
- * written and nobody was told — and the tail is where the thing somebody worked
- * up to saying actually lives. At 64 000 characters this now fires only for a
- * genuinely absurd payload, and still says so.
+ * Fits a body to the transcript storage limit (not the 4096 send cap). Sets
+ * `truncated` when the tail is cut so the cut is visible.
  */
 export function fitToTranscript(text: string): {
   readonly text: string;

@@ -208,9 +208,9 @@ Each feedback worker replica: 1 Hz outbox poll (`SKIP LOCKED`); replica count
 multiplies empty-poll traffic. Never let Postgres be the accidental OOM victim.
 
 **Worker lifecycle:** 8-minute stop grace. Conversation/summary leases 7m;
-direct outbox claims 2m. Hard kill recoverable: due Mongo work and pending
-summaries survive; pre-send `claimed` expires; post-marker `attempting` →
-`ambiguous` (not double-send).
+direct outbox claims 2m. Hard kill recoverable: due conversation work columns
+and pending summaries survive; pre-send `claimed` expires; post-marker
+`attempting` → `ambiguous` (not double-send).
 
 **Feedback V2 cutover is non-rolling:** replace the single `worker` in place.
 Do not run old and new worker images side by side — old V1 cannot honor the new
@@ -253,6 +253,11 @@ Shared lock: `/var/lock/join-the-six-production.lock` (deploy, rollback, edge,
 data). Concurrent ops fail closed. SSH defaults:
 `root@203.0.113.10`, `~/.ssh/id_ed25519`, `IdentitiesOnly=yes`, batch mode,
 bounded connect timeout.
+
+The ADR 0015 feedback-storage cutover needs the explicit quiesced import below
+before ordinary activation; the old backend requires the removed resume columns
+and cannot run against the new schema. A rollback to the old binary also needs
+the matching pre-cutover database backup, since runtime no longer syncs Mongo.
 
 **Activation order (preserve):**
 
@@ -331,8 +336,27 @@ automatic data rollback. `seal` is one-way (host marker; no unseal CLI).
 
 Snapshot preserves ownership: `user_localdev` Assistant threads stay invisible
 to production allowlist subjects — rewrite ownership only via an explicit reviewed
-migration. Volumes ≠ backup; losing Mongo loses authoritative conversation
-history even if Postgres projection survives.
+migration. Volumes ≠ backup. Losing Mongo loses authoritative Assistant
+history even if the Postgres execution projection survives. Campaign feedback
+conversations live in PostgreSQL; leftover schema-v2 Mongo documents are an
+offline import source only
+([ADR 0015](decisions/0015-postgresql-feedback-conversations.md)).
+
+<a id="feedback-conversation-storage-cutover"></a>
+
+**Feedback conversation cutover.** Stop feedback HTTP and worker writers before
+applying the migration: it creates `feedback_conversations` and removes obsolete
+resume-repair columns required by the old binary. Keep writers stopped and run
+`pnpm import:feedback-conversations` (dry-run), then
+`--apply --acknowledge-quiesced-writers`. Import validates schema-v2
+`purpose=post_event_feedback` documents, preserves ids/order/goals/accounting,
+rejects divergent destination rows, and never deletes Mongo. It seeds missing
+legacy schedules, completes interrupted resume scheduling and restores a legacy
+consumed handoff's human brake; explicit staff resume wins. These one-time
+repairs use persisted timestamps so dry-run, apply and replay agree. The
+maintenance wake-up scan finds imported `work_next_action_at` after workers
+resume. Inspect that scan before reopening feedback HTTP traffic. There is no
+runtime dual-read or dual-write. Assistant Mongo recovery is unchanged.
 
 ### Coordinated backup runbook
 
@@ -395,8 +419,9 @@ docker compose --project-name join-the-six-restore \
   'exec mongosh --quiet --username "$MONGODB_APP_USER" --password "$MONGODB_APP_PASSWORD" --authenticationDatabase "$MONGO_INITDB_DATABASE" "$MONGO_INITDB_DATABASE" --eval "const result=db.runCommand({validate:\"conversation_threads\",full:true}); if(!result.valid){quit(2)}; printjson({documents:db.conversation_threads.countDocuments({}),indexes:db.conversation_threads.getIndexes().map(index=>index.name)})"'
 ```
 
-Validate checksums before decrypt, Mongo full validation, seven required
-indexes, counts, Postgres migration state, owner-scoped API reads. Record
+Validate checksums before decrypt, Mongo full validation, Assistant indexes,
+counts, Postgres migration state, owner-scoped API reads, and feedback
+conversation row counts. Record
 elapsed vs RTO; destroy the disposable project.
 
 Production restore: keep API/worker stopped; restore both stores from the same
@@ -405,7 +430,8 @@ stores before any app process. Start API → readiness + owner-scoped reads →
 reconcile Assistant terminal Mongo turns vs Postgres projection → decide
 re-enqueue/fail for queued/running attempts → then start worker. Postgres
 outbox/delivery is authoritative for outbound; never invent delivery completion
-from Mongo.
+from Mongo. Feedback transcripts restore with Postgres; Assistant transcripts
+restore with Mongo.
 
 ## CI boundary
 

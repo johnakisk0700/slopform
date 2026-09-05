@@ -6,7 +6,6 @@ import { QueueWorkerModule } from "../../infrastructure/queue/queue.module.js";
 import { EventsCoreModule } from "../events/events-core.module.js";
 import { ParticipantsCoreModule } from "../participants/participants-core.module.js";
 import { PostEventFeedbackCoreModule } from "../post-event-feedback/core.module.js";
-import { FeedbackCampaignResumeRepairService } from "../post-event-feedback/campaign/resume-repair.service.js";
 import { PostEventFeedbackCampaignService } from "../post-event-feedback/campaign/campaign.service.js";
 import { PostEventFeedbackConversationService } from "../post-event-feedback/inbox/conversation.service.js";
 import { FeedbackOutboundTranscriptService } from "../post-event-feedback/outbox/outbound-transcript.service.js";
@@ -48,7 +47,6 @@ import { AssistantToolsService } from "./tools/assistant-tools.service.js";
      */
     FeedbackOutboundTranscriptService,
     FeedbackConversationWakeupService,
-    FeedbackCampaignResumeRepairService,
     PostEventFeedbackCampaignService,
     PostEventFeedbackConversationService,
     PostEventFeedbackCampaignSummaryService,

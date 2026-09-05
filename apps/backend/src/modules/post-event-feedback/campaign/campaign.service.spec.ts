@@ -28,7 +28,6 @@ import {
   buildPostEventFeedbackQuestionLaunchSnapshot,
 } from "../question-set.js";
 import type { FeedbackConversationWakeupService } from "../reconciliation/wakeup.service.js";
-import type { FeedbackCampaignResumeRepairService } from "./resume-repair.service.js";
 
 const eventId = "7c57f3b8-2b13-48f5-8730-18ac71f490cd";
 const campaignId = "89eccaa5-9ce6-4dcf-a630-5e35e4ec6f0d";
@@ -63,8 +62,6 @@ const campaignRow: FeedbackCampaignRow = {
   questions: buildPostEventFeedbackQuestionLaunchSnapshot(),
   status: "launched",
   resumeGeneration: 0,
-  resumeAppliedGeneration: 0,
-  resumeDueAt: null,
   launchedAt: new Date("2026-07-25T00:00:00.000Z"),
   launchedBy: "admin-1",
   createdAt: new Date("2026-07-25T00:00:00.000Z"),
@@ -127,6 +124,7 @@ describe("PostEventFeedbackCampaignService", () => {
       expect.objectContaining({ questionSetVersion: 2 }),
     );
     expect(conversations.createFromLaunch).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({
         campaignId,
         respondentParticipantId: participantId,
@@ -145,13 +143,63 @@ describe("PostEventFeedbackCampaignService", () => {
       expect.objectContaining({ action: "feedback_campaign.launched" }),
     );
     // The intro is a bot turn in the transcript, correlated to its outbox row.
-    expect(conversations.appendMessage).toHaveBeenCalledWith({
-      conversationId,
-      actor: "bot",
-      text: introOutboxRow().body,
-      at: expect.any(Date),
-      outboxId: introOutboxId,
+    expect(conversations.appendMessage).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        conversationId,
+        actor: "bot",
+        text: introOutboxRow().body,
+        at: expect.any(Date),
+        outboxId: introOutboxId,
+      },
+    );
+  });
+
+  it("commits per-attendee create, intro, transcript and due work on one transaction", async () => {
+    const { service, repository, conversations, wakeups, auditAppend } =
+      createService();
+    repository.findCampaignByEventId.mockResolvedValue(undefined);
+    repository.createCampaign.mockResolvedValue(campaignRow);
+    repository.insertOutboxIfAbsent.mockResolvedValue({
+      row: introOutboxRow(),
+      inserted: true,
     });
+    conversations.createFromLaunch.mockResolvedValue({
+      created: true,
+      conversation: openConversation(),
+    });
+    conversations.listForCampaign.mockResolvedValue([{ id: conversationId }]);
+
+    await service.launch(eventId, "admin-1", "req-atomic");
+
+    const attendeeTx = conversations.createFromLaunch.mock.calls[0]?.[0];
+    expect(attendeeTx).toBeDefined();
+    expect(repository.insertOutboxIfAbsent).toHaveBeenCalledWith(
+      attendeeTx,
+      expect.objectContaining({ kind: "intro" }),
+    );
+    expect(repository.insertOutboxLogIfAbsent).toHaveBeenCalledWith(
+      attendeeTx,
+      expect.anything(),
+    );
+    expect(conversations.appendMessage).toHaveBeenCalledWith(
+      attendeeTx,
+      expect.objectContaining({ outboxId: introOutboxId }),
+    );
+    expect(conversations.markWorkDue).toHaveBeenCalledWith(
+      attendeeTx,
+      expect.objectContaining({ conversationId }),
+    );
+    expect(auditAppend).toHaveBeenCalledWith(
+      attendeeTx,
+      expect.objectContaining({ action: "feedback_conversation.created" }),
+    );
+    expect(wakeups.ensureQueued).toHaveBeenCalledWith(
+      expect.objectContaining({ conversationId }),
+    );
+    expect(conversations.markWorkDue.mock.invocationCallOrder[0]).toBeLessThan(
+      wakeups.ensureQueued.mock.invocationCallOrder[0]!,
+    );
   });
 
   it("writes one campaign_intro log when the intro is freshly enqueued", async () => {
@@ -235,11 +283,11 @@ describe("PostEventFeedbackCampaignService", () => {
     repository.findCampaignByEventId.mockResolvedValue(undefined);
     repository.createCampaign.mockResolvedValue(campaignRow);
     conversations.createFromLaunch.mockRejectedValue(
-      new Error("mongo is unreachable"),
+      new Error("conversation store is unreachable"),
     );
 
     await expect(service.launch(eventId, "admin-1", "req-1")).rejects.toThrow(
-      "mongo is unreachable",
+      "conversation store is unreachable",
     );
   });
 
@@ -250,8 +298,8 @@ describe("PostEventFeedbackCampaignService", () => {
       created: false,
       conversation: openConversation(),
     });
-    // The row already exists: the first launch crashed between the PostgreSQL
-    // commit and the MongoDB append.
+    // The row already exists: the first launch crashed after the outbox
+    // insert and before the transcript entry was recorded.
     repository.insertOutboxIfAbsent.mockResolvedValue({
       row: introOutboxRow(),
       inserted: false,
@@ -261,6 +309,7 @@ describe("PostEventFeedbackCampaignService", () => {
     await service.launch(eventId, "admin-1", "req-replay");
 
     expect(conversations.appendMessage).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({ actor: "bot", outboxId: introOutboxId }),
     );
   });
@@ -360,6 +409,7 @@ describe("PostEventFeedbackCampaignService", () => {
     );
 
     expect(conversations.createFromLaunch).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({
         goals: expect.arrayContaining([
           expect.objectContaining({ key: "event_score", ordinal: 1 }),
@@ -369,7 +419,7 @@ describe("PostEventFeedbackCampaignService", () => {
         ]),
       }),
     );
-    const launchInput = conversations.createFromLaunch.mock.calls[0]?.[0] as {
+    const launchInput = conversations.createFromLaunch.mock.calls[0]?.[1] as {
       goals: { key: string }[];
     };
     expect(launchInput.goals).toHaveLength(4);
@@ -387,7 +437,8 @@ describe("PostEventFeedbackCampaignService", () => {
   });
 
   it("pauses and resumes the campaign kill switch", async () => {
-    const { service, repository, auditAppend, resumeRepairs } = createService();
+    const { service, repository, conversations, auditAppend, wakeups } =
+      createService();
     repository.findCampaignByIdForUpdate
       .mockResolvedValueOnce(campaignRow)
       .mockResolvedValueOnce({ ...campaignRow, status: "paused" });
@@ -414,17 +465,28 @@ describe("PostEventFeedbackCampaignService", () => {
       expect.anything(),
       campaignId,
       "launched",
-      { resumeDueAt: expect.any(Date) },
     );
-    expect(resumeRepairs.repairCampaign).toHaveBeenCalledWith(
-      campaignId,
+    expect(conversations.markCampaignWorkDue).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ campaignId }),
+    );
+    expect(wakeups.recoverDue).toHaveBeenCalledWith(
       "req-2",
+      expect.any(Date),
+      campaignId,
     );
+    const resumeTx = repository.updateCampaignStatus.mock.calls[1]?.[0];
+    expect(conversations.markCampaignWorkDue).toHaveBeenCalledWith(
+      resumeTx,
+      expect.objectContaining({ campaignId }),
+    );
+    expect(
+      conversations.markCampaignWorkDue.mock.invocationCallOrder[0],
+    ).toBeLessThan(wakeups.recoverDue.mock.invocationCallOrder[0]!);
   });
 
-  it("repairs a replayed resume through the campaign-wide durable boundary", async () => {
-    const { service, repository, conversations, resumeRepairs } =
-      createService();
+  it("does not bump due work again when resume finds the campaign already launched", async () => {
+    const { service, repository, conversations, wakeups } = createService();
     repository.findCampaignById.mockResolvedValue(campaignRow);
     conversations.listForCampaign.mockResolvedValue(
       Array.from({ length: 100 }, () => ({})),
@@ -435,15 +497,12 @@ describe("PostEventFeedbackCampaignService", () => {
     ).resolves.toMatchObject({ status: "launched" });
 
     expect(repository.updateCampaignStatus).not.toHaveBeenCalled();
-    expect(resumeRepairs.repairCampaign).toHaveBeenCalledOnce();
-    expect(resumeRepairs.repairCampaign).toHaveBeenCalledWith(
-      campaignId,
-      "req-retry",
-    );
+    expect(conversations.markCampaignWorkDue).not.toHaveBeenCalled();
+    expect(wakeups.recoverDue).not.toHaveBeenCalled();
   });
 
   it("does not let a stale resume reopen a campaign that closed first", async () => {
-    const { service, repository, resumeRepairs } = createService();
+    const { service, repository, conversations, wakeups } = createService();
     repository.findCampaignByIdForUpdate.mockResolvedValue({
       ...campaignRow,
       status: "closed",
@@ -454,7 +513,8 @@ describe("PostEventFeedbackCampaignService", () => {
     ).rejects.toBeInstanceOf(FeedbackCampaignMutationNotAllowedError);
 
     expect(repository.updateCampaignStatus).not.toHaveBeenCalled();
-    expect(resumeRepairs.repairCampaign).not.toHaveBeenCalled();
+    expect(conversations.markCampaignWorkDue).not.toHaveBeenCalled();
+    expect(wakeups.recoverDue).not.toHaveBeenCalled();
   });
 
   it("preserves only lifecycle-anchored STOP acknowledgements on campaign close", async () => {
@@ -474,7 +534,7 @@ describe("PostEventFeedbackCampaignService", () => {
 
     expect(
       conversations.listStopTerminalOutboxIdsForCampaign,
-    ).toHaveBeenCalledWith(campaignId);
+    ).toHaveBeenCalledWith(campaignId, expect.anything());
     expect(repository.cancelQueuedOutboxForCampaign).toHaveBeenCalledWith(
       expect.anything(),
       campaignId,
@@ -661,19 +721,19 @@ function createService(): {
     listForCampaign: ReturnType<typeof vi.fn>;
     listStopTerminalOutboxIdsForCampaign: ReturnType<typeof vi.fn>;
     appendMessage: ReturnType<typeof vi.fn>;
+    markWorkDue: ReturnType<typeof vi.fn>;
+    markCampaignWorkDue: ReturnType<typeof vi.fn>;
   };
   wakeups: {
-    schedule: ReturnType<typeof vi.fn>;
-  };
-  resumeRepairs: {
-    repairCampaign: ReturnType<typeof vi.fn>;
+    ensureQueued: ReturnType<typeof vi.fn>;
+    recoverDue: ReturnType<typeof vi.fn>;
   };
   events: {
     findById: ReturnType<typeof vi.fn>;
   };
   auditAppend: ReturnType<typeof vi.fn>;
 } {
-  const transaction = {} as AppTransaction;
+  let transactionSeq = 0;
   const repository = {
     findCampaignByEventId: vi.fn().mockResolvedValue(undefined),
     findCampaignById: vi.fn().mockResolvedValue(campaignRow),
@@ -693,20 +753,21 @@ function createService(): {
     createFromLaunch: vi.fn(),
     listForCampaign: vi.fn().mockResolvedValue([]),
     listStopTerminalOutboxIdsForCampaign: vi.fn().mockResolvedValue([]),
-    appendMessage: vi
-      .fn()
-      .mockResolvedValue({ appended: true, message: {}, conversation: {} }),
+    appendMessage: vi.fn().mockResolvedValue({
+      appended: true,
+      message: {},
+      conversation: openConversation(),
+    }),
+    markWorkDue: vi.fn().mockResolvedValue({
+      changed: true,
+      conversation: {},
+      work: { revision: 1, nextActionAt: new Date(), executionEpoch: 0 },
+    }),
+    markCampaignWorkDue: vi.fn().mockResolvedValue(1),
   };
   const wakeups = {
-    schedule: vi.fn().mockResolvedValue("feedback-reconcile-test"),
-  };
-  const resumeRepairs = {
-    repairCampaign: vi.fn().mockResolvedValue({
-      examined: 0,
-      applied: 0,
-      conversationsMarked: 0,
-      wakeupsPublished: 0,
-    }),
+    ensureQueued: vi.fn().mockResolvedValue("feedback-reconcile-test"),
+    recoverDue: vi.fn().mockResolvedValue(undefined),
   };
   const events = {
     findById: vi.fn().mockResolvedValue(finishedEvent),
@@ -714,7 +775,7 @@ function createService(): {
   const auditAppend = vi.fn().mockResolvedValue(undefined);
   const database = {
     transaction: vi.fn(async (work: (tx: AppTransaction) => Promise<unknown>) =>
-      work(transaction),
+      work({ n: ++transactionSeq } as unknown as AppTransaction),
     ),
   };
 
@@ -727,7 +788,6 @@ function createService(): {
       events as unknown as EventsRepository,
       { append: auditAppend } as unknown as AuditRepository,
       new FeedbackOutboundTranscriptService(
-        database as unknown as DatabaseService,
         repository as unknown as FeedbackOutboxRepository,
         conversations as unknown as FeedbackConversationRepository,
       ),
@@ -735,12 +795,10 @@ function createService(): {
         repository as unknown as FeedbackOutboundLogRepository,
       ),
       wakeups as unknown as FeedbackConversationWakeupService,
-      resumeRepairs as unknown as FeedbackCampaignResumeRepairService,
     ),
     repository,
     conversations,
     wakeups,
-    resumeRepairs,
     events,
     auditAppend,
   };

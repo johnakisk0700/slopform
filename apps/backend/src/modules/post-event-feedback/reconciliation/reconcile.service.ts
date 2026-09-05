@@ -1,10 +1,18 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import type { AppTransaction } from "@slopform/database";
 
 import type { Environment } from "../../../infrastructure/config/environment.js";
+import { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
-import { FeedbackConversationExecutionFence } from "../extraction/execution-fence.service.js";
-import type { FeedbackConversationExecutionClaim } from "../extraction/execution-fence.repository.js";
+import {
+  FEEDBACK_CONVERSATION_EXECUTION_LEASE_MS,
+  FeedbackConversationExecutionFence,
+} from "../extraction/execution-fence.service.js";
+import {
+  FeedbackConversationExecutionFenceRepository,
+  type FeedbackConversationExecutionClaim,
+} from "../extraction/execution-fence.repository.js";
 import {
   FeedbackConversationExecutionGuardError,
   PostEventFeedbackExtractor,
@@ -16,6 +24,8 @@ import {
   type FeedbackReconcileConversationJobData,
 } from "../jobs.schemas.js";
 import { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
+import { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
+import { resolveFeedbackConversationWork } from "../post-event-feedback-conversation.document.js";
 import { ParticipantsRepository } from "../../participants/participants.repository.js";
 import { PostEventFeedbackSweepService } from "../sweeps/sweep.service.js";
 import {
@@ -39,9 +49,12 @@ export class FeedbackConversationReconcileService {
 
   constructor(
     private readonly config: ConfigService<Environment, true>,
+    private readonly database: DatabaseService,
     private readonly campaigns: FeedbackCampaignRepository,
     private readonly participants: ParticipantsRepository,
     private readonly conversations: FeedbackConversationRepository,
+    private readonly outbox: FeedbackOutboxRepository,
+    private readonly executionClaims: FeedbackConversationExecutionFenceRepository,
     private readonly executionFence: FeedbackConversationExecutionFence,
     private readonly extractor: PostEventFeedbackExtractor,
     private readonly sweeps: PostEventFeedbackSweepService,
@@ -51,28 +64,43 @@ export class FeedbackConversationReconcileService {
   async reconcile(
     input: FeedbackReconcileConversationJobData,
   ): Promise<FeedbackConversationReconcileOutcome> {
-    const claim = await this.executionFence.tryClaim(
-      input.conversationId,
-      input.revision,
-    );
-    if (!claim) {
-      return "claim_busy";
+    const at = new Date();
+    const admitted = await this.database.transaction(async (transaction) => {
+      await this.outbox.lockConversation(transaction, input.conversationId);
+      const conversation = await this.conversations.findByIdForUpdate(
+        transaction,
+        input.conversationId,
+      );
+      if (!conversation) {
+        return { outcome: "conversation_missing" as const };
+      }
+      const work = resolveFeedbackConversationWork(conversation.work);
+      if (
+        work.revision !== input.revision ||
+        work.nextActionAt === null ||
+        work.nextActionAt > at
+      ) {
+        return { outcome: "stale_revision" as const };
+      }
+      const claim = await this.executionClaims.tryClaim(transaction, {
+        conversationId: input.conversationId,
+        workRevision: input.revision,
+        leaseMs: FEEDBACK_CONVERSATION_EXECUTION_LEASE_MS,
+      });
+      if (!claim) {
+        return { outcome: "claim_busy" as const };
+      }
+      return { outcome: "claimed" as const, claim, conversation };
+    });
+
+    if (admitted.outcome !== "claimed") {
+      return admitted.outcome;
     }
 
+    const claim = admitted.claim;
     const heartbeat = this.executionFence.startHeartbeat(claim);
     try {
-      const at = new Date();
-      const begun = await this.conversations.beginWorkExecution({
-        conversationId: input.conversationId,
-        revision: input.revision,
-        epoch: claim.epoch,
-        at,
-      });
-      if (!begun.changed) {
-        return "stale_revision";
-      }
-
-      const initialPlan = await this.plan(begun.conversation, at);
+      const initialPlan = await this.plan(admitted.conversation, at);
       try {
         await this.executeOne(initialPlan, input, claim, at);
       } catch (error) {
@@ -80,34 +108,42 @@ export class FeedbackConversationReconcileService {
           error instanceof FeedbackConversationExecutionGuardError &&
           error.reason === "authoritative_state_changed"
         ) {
-          // New testimony, takeover, pause or cancellation is ordinary
-          // supersession. Do not settle from the obsolete snapshot: either its
-          // transition owns a newer revision or the unchanged due intent stays
-          // discoverable to maintenance. This execution consumes no retry.
           return "superseded";
         }
         throw error;
       }
 
-      const current = await this.conversations.findById(input.conversationId);
       const settledAt = new Date();
-      const nextActionAt = current
-        ? nextActionAtForPlan(await this.plan(current, settledAt), settledAt)
-        : null;
-      const settled = await this.conversations.settleWorkExecution({
-        conversationId: input.conversationId,
-        revision: input.revision,
-        epoch: claim.epoch,
-        nextActionAt,
-        at: settledAt,
+      const settled = await this.database.transaction(async (transaction) => {
+        await this.outbox.lockConversation(transaction, input.conversationId);
+        if (!(await this.executionFence.isCurrent(transaction, claim))) {
+          throw new FeedbackConversationExecutionGuardError(
+            input.conversationId,
+            "execution_claim_lost",
+          );
+        }
+        const current = await this.conversations.findByIdForUpdate(
+          transaction,
+          input.conversationId,
+        );
+        if (!current) return undefined;
+        const nextActionAt = nextActionAtForPlan(
+          await this.plan(current, settledAt, transaction),
+          settledAt,
+        );
+        return this.conversations.settleWorkExecution(transaction, {
+          conversationId: input.conversationId,
+          revision: input.revision,
+          epoch: claim.epoch,
+          nextActionAt,
+          at: settledAt,
+        });
       });
+      if (!settled) return "conversation_missing";
       if (!settled.changed) {
-        return current ? "superseded" : "conversation_missing";
+        return "superseded";
       }
 
-      // A successor schedule receives a new Mongo revision during settlement,
-      // hence a different job id while this job is still active. If Redis is
-      // unavailable, maintenance rediscovers the same durable intent.
       try {
         await this.wakeups.ensureQueued({
           conversationId: input.conversationId,
@@ -138,10 +174,14 @@ export class FeedbackConversationReconcileService {
       typeof deriveFeedbackConversationReconciliationPlan
     >[0]["conversation"],
     now: Date,
+    transaction?: AppTransaction,
   ): Promise<FeedbackConversationReconciliationPlan> {
     const [campaign, participant] = await Promise.all([
-      this.campaigns.findCampaignById(conversation.campaignId),
-      this.participants.findById(conversation.respondentParticipantId),
+      this.campaigns.findCampaignById(conversation.campaignId, transaction),
+      this.participants.findById(
+        conversation.respondentParticipantId,
+        transaction,
+      ),
     ]);
     return deriveFeedbackConversationReconciliationPlan({
       conversation,

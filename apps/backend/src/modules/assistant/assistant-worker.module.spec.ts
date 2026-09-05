@@ -5,7 +5,7 @@ import {
   QueueModule,
   QueueWorkerModule,
 } from "../../infrastructure/queue/queue.module.js";
-import { FeedbackCampaignResumeRepairService } from "../post-event-feedback/campaign/resume-repair.service.js";
+import { PostEventFeedbackCampaignService } from "../post-event-feedback/campaign/campaign.service.js";
 import { FeedbackConversationWakeupService } from "../post-event-feedback/reconciliation/wakeup.service.js";
 import { AssistantHttpModule } from "./assistant-http.module.js";
 import { AssistantWorkerModule } from "./assistant-worker.module.js";
@@ -29,6 +29,6 @@ describe("AssistantWorkerModule", () => {
     ) as readonly unknown[];
 
     expect(providers).toContain(FeedbackConversationWakeupService);
-    expect(providers).toContain(FeedbackCampaignResumeRepairService);
+    expect(providers).toContain(PostEventFeedbackCampaignService);
   });
 });

@@ -2,6 +2,10 @@ import { randomUUID } from "node:crypto";
 
 import { Logger } from "@nestjs/common";
 import type { AppTransaction } from "@slopform/database";
+
+function leadingInput<T>(transactionOrInput: unknown, maybeInput?: T): T {
+  return (maybeInput ?? transactionOrInput) as T;
+}
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
@@ -34,6 +38,7 @@ import {
   FeedbackConversationExecutionGuardError,
   PostEventFeedbackExtractor,
 } from "./extract.service.js";
+import { FeedbackConversationCapacityError } from "../post-event-feedback-conversation.repository.js";
 import type { FeedbackConversationExecutionClaim } from "./execution-fence.repository.js";
 import {
   FeedbackExtractionGenerationError,
@@ -208,7 +213,7 @@ describe("PostEventFeedbackExtractor", () => {
       expect(harness.repository.outbox).toHaveLength(0);
     });
 
-    it("does not buy a model call when a newer fragment advances the Mongo work revision while waiting", async () => {
+    it("does not buy a model call when a newer fragment advances the conversation work revision while waiting", async () => {
       const executionClaim: FeedbackConversationExecutionClaim = {
         conversationId,
         workRevision: 7,
@@ -405,7 +410,7 @@ describe("PostEventFeedbackExtractor", () => {
       expect(live.work).toMatchObject({ revision: 8, executionEpoch: 3 });
     });
 
-    it("quarantines a missing Mongo execution snapshot as an invariant failure", async () => {
+    it("quarantines a missing execution projection as an invariant failure", async () => {
       const executionClaim: FeedbackConversationExecutionClaim = {
         conversationId,
         workRevision: 7,
@@ -444,7 +449,7 @@ describe("PostEventFeedbackExtractor", () => {
       expect(harness.repository.outbox).toHaveLength(0);
     });
 
-    it("fences every provider entry in the stable cross-store lock order", async () => {
+    it("fences every provider entry in the stable lock order", async () => {
       const executionClaim: FeedbackConversationExecutionClaim = {
         conversationId,
         workRevision: 7,
@@ -520,7 +525,7 @@ describe("PostEventFeedbackExtractor", () => {
       );
     });
 
-    it("does not enter the provider when durable inbound is ahead of Mongo", async () => {
+    it("does not enter the provider when unmaterialized ingress is ahead of the transcript", async () => {
       const executionClaim: FeedbackConversationExecutionClaim = {
         conversationId,
         workRevision: 7,
@@ -856,8 +861,9 @@ describe("PostEventFeedbackExtractor", () => {
       for (const visible of classifierMessages) {
         expect(prompt.user).toContain(visible.text);
       }
-      // Filtering is a provider-context projection only. Mongo remains the raw
-      // audit/UI transcript, and the cursor still settles its full sequence.
+      // Filtering is a provider-context projection only. The conversation row
+      // remains the raw audit/UI transcript, and the cursor still settles its
+      // full sequence.
       expect(conversation.messages).toHaveLength(12);
       expect(conversation.extraction.cursorSeq).toBe(12);
     });
@@ -1324,7 +1330,7 @@ describe("PostEventFeedbackExtractor", () => {
       expect(harness.repository.outbox).toEqual([]);
     });
 
-    it("drops the ordinary reply when newer durable ingress has not reached MongoDB yet", async () => {
+    it("drops the ordinary reply when newer durable ingress has not reached the transcript yet", async () => {
       harness.repository.newerInboundBeyondSnapshot = true;
       harness.generation.propose.mockResolvedValue(
         generation({
@@ -1402,7 +1408,7 @@ describe("PostEventFeedbackExtractor", () => {
       });
     });
 
-    it("defers closing when durable ingress has not reached MongoDB yet", async () => {
+    it("defers closing when durable ingress has not reached the transcript yet", async () => {
       harness.conversations.setAllGoals(conversationId, "answered");
       harness.repository.newerInboundBeyondSnapshot = true;
       harness.generation.propose.mockResolvedValue(generation({ reply: null }));
@@ -1421,7 +1427,7 @@ describe("PostEventFeedbackExtractor", () => {
       });
     });
 
-    it("loses the terminal CAS when human takeover wins at the final boundary", async () => {
+    it("loses the terminal close when human takeover wins at the final boundary", async () => {
       harness.conversations.setAllGoals(conversationId, "answered");
       harness.generation.propose.mockResolvedValue(generation({ reply: null }));
       harness.conversations.beforeTerminalClose = () => {
@@ -1675,7 +1681,7 @@ describe("PostEventFeedbackExtractor", () => {
       ]);
     });
 
-    it("locks the terminal CAS and retracts every pre-send row except its winner", async () => {
+    it("locks the terminal close and retracts every pre-send row except its winner", async () => {
       harness.conversations.setAllGoals(conversationId, "answered");
       harness.conversations.setGoal(conversationId, "avoid", "asked");
       const staleId = randomUUID();
@@ -1694,8 +1700,8 @@ describe("PostEventFeedbackExtractor", () => {
         generation({ skippedGoals: ["avoid"], reply: "Ευχαριστούμε!" }),
       );
       harness.conversations.beforeTerminalClose = () => {
-        // One advisory lock fenced PG persistence; the second was acquired for
-        // the Mongo terminal CAS before this callback runs.
+        // Persist already holds the conversation mutex; terminal close
+        // re-takes it before advanceCursorAndClose.
         expect(harness.repository.locked).toBeGreaterThanOrEqual(2);
       };
 
@@ -2453,6 +2459,7 @@ describe("PostEventFeedbackExtractor", () => {
       await harness.extractor.extract({ conversationId, correlationId });
 
       expect(atomicHandoff).toHaveBeenCalledWith(
+        expect.anything(),
         expect.objectContaining({
           conversationId,
           toSeq: 2,
@@ -3004,7 +3011,8 @@ describe("PostEventFeedbackExtractor", () => {
       );
 
       await harness.extractor.extract({ conversationId, correlationId });
-      // The worker died before MongoDB learned the run had finished.
+      // Imported legacy results with a lagging cursor — not a crash the
+      // current persist transaction can leave behind.
       harness.conversations.get(conversationId).extraction.cursorSeq = 0;
 
       const replay = await harness.extractor.extract({
@@ -3056,6 +3064,223 @@ describe("PostEventFeedbackExtractor", () => {
       expect(
         harness.conversations.goalStatuses(conversationId).event_score,
       ).toBe("answered");
+    });
+  });
+
+  describe("transcript capacity after persist", () => {
+    const priorOutboxId = "prior-bot-ask";
+    const successorOutboxId = "successor-bot-ask";
+    const executionClaim: FeedbackConversationExecutionClaim = {
+      conversationId,
+      workRevision: 7,
+      epoch: 3,
+      token: "11111111-1111-4111-8111-111111111111",
+      leaseUntil: new Date(Date.now() + 60_000),
+    };
+
+    function seedPendingReply(id: string): void {
+      harness.repository.outbox.push({
+        id,
+        conversationId,
+        campaignId,
+        kind: "reply",
+        status: "pending",
+        sendStartedAt: null,
+        body: "Πώς σου φάνηκε η βραδιά;",
+        dedupeKey: `feedback-reply-${conversationId}-${id}`,
+      });
+    }
+
+    function rejectMergeWithCapacity(): void {
+      harness.generation.classifyAttention.mockResolvedValue(
+        attentionGeneration([
+          {
+            category: "other_safety",
+            recommendedAction: "review",
+            sourceMessageIds: ["p1"],
+            confidence: 0.9,
+          },
+        ]),
+      );
+      vi.spyOn(
+        harness.conversations,
+        "mergeMessageAttention",
+      ).mockRejectedValue(new FeedbackConversationCapacityError());
+    }
+
+    it("brakes for a human when classifier metadata cannot be stored", async () => {
+      // FakeDatabase does not roll persist writes back. The adapter SQL specs
+      // already prove CapacityError leaves the caller's transaction usable.
+      const conversation = harness.conversations.get(conversationId);
+      const testimony = conversation.messages.find(
+        (message) => message.id === "p1",
+      );
+      conversation.work = {
+        revision: 1,
+        nextActionAt: new Date("2026-07-25T10:05:00.000Z"),
+        executionEpoch: 0,
+      };
+      seedPendingReply(priorOutboxId);
+      rejectMergeWithCapacity();
+
+      const result = await harness.extractor.extract({
+        conversationId,
+        correlationId,
+      });
+
+      expect(result.outcome).toBe("skipped_awaiting_human");
+      expect(result.cursorSeq).toBe(0);
+      expect(conversation.extraction.cursorSeq).toBe(0);
+      expect(conversation.awaitingHuman).toBe(true);
+      expect(conversation.work?.nextActionAt).toBeNull();
+      expect(conversation.attentionReasons).toEqual([
+        expect.objectContaining({
+          kind: "transcript_full",
+          messageId: null,
+          resolvedAt: null,
+        }),
+      ]);
+      expect(testimony).toMatchObject({
+        id: "p1",
+        text: "5! Ο Νίκος ήταν φοβερός. Η βραδιά κύλησε γρήγορα.",
+      });
+      expect(testimony?.attention ?? null).toBeNull();
+      expect(
+        harness.repository.outbox.find((row) => row["id"] === priorOutboxId),
+      ).toMatchObject({ status: "cancelled" });
+
+      const firstModelCalls = harness.generation.propose.mock.calls.length;
+      const firstAttentionCalls =
+        harness.generation.classifyAttention.mock.calls.length;
+      const again = await harness.extractor.extract({
+        conversationId,
+        correlationId,
+      });
+
+      expect(again.outcome).toBe("skipped_awaiting_human");
+      expect(harness.generation.propose).toHaveBeenCalledTimes(firstModelCalls);
+      expect(harness.generation.classifyAttention).toHaveBeenCalledTimes(
+        firstAttentionCalls,
+      );
+      expect(conversation.extraction.cursorSeq).toBe(0);
+      expect(testimony?.text).toBe(
+        "5! Ο Νίκος ήταν φοβερός. Η βραδιά κύλησε γρήγορα.",
+      );
+    });
+
+    it("does not park the bot when persist fails for another reason", async () => {
+      harness.generation.classifyAttention.mockResolvedValue(
+        attentionGeneration([
+          {
+            category: "other_safety",
+            recommendedAction: "review",
+            sourceMessageIds: ["p1"],
+            confidence: 0.9,
+          },
+        ]),
+      );
+      vi.spyOn(
+        harness.conversations,
+        "mergeMessageAttention",
+      ).mockRejectedValue(new Error("relation does not exist"));
+
+      await expect(
+        harness.extractor.extract({ conversationId, correlationId }),
+      ).rejects.toThrow("relation does not exist");
+
+      const conversation = harness.conversations.get(conversationId);
+      expect(conversation.awaitingHuman).toBe(false);
+      expect(conversation.attentionReasons).toEqual([]);
+      expect(conversation.extraction.cursorSeq).toBe(0);
+    });
+
+    it.each([true, false])(
+      "does not silence successor work (execution claim: %s)",
+      async (withClaim) => {
+        const live = harness.conversations.get(conversationId);
+        live.work = {
+          revision: 7,
+          nextActionAt: new Date("2026-07-25T10:05:00.000Z"),
+          executionEpoch: 3,
+        };
+        seedPendingReply(successorOutboxId);
+        harness.executionFence.renewWithin.mockResolvedValue(executionClaim);
+        harness.generation.classifyAttention.mockResolvedValue(
+          attentionGeneration([
+            {
+              category: "other_safety",
+              recommendedAction: "review",
+              sourceMessageIds: ["p1"],
+              confidence: 0.9,
+            },
+          ]),
+        );
+        vi.spyOn(
+          harness.conversations,
+          "mergeMessageAttention",
+        ).mockImplementation(async () => {
+          live.work = {
+            revision: 8,
+            nextActionAt: new Date("2026-07-25T10:06:00.000Z"),
+            executionEpoch: 3,
+          };
+          throw new FeedbackConversationCapacityError();
+        });
+
+        await expect(
+          harness.extractor.extract({
+            conversationId,
+            correlationId,
+            ...(withClaim ? { executionClaim } : {}),
+          }),
+        ).rejects.toMatchObject({
+          name: FeedbackConversationExecutionGuardError.name,
+          reason: "authoritative_state_changed",
+        });
+
+        expect(live.awaitingHuman).toBe(false);
+        expect(live.attentionReasons).toEqual([]);
+        expect(live.extraction.cursorSeq).toBe(0);
+        expect(live.work).toMatchObject({ revision: 8, executionEpoch: 3 });
+        expect(
+          harness.repository.outbox.find(
+            (row) => row["id"] === successorOutboxId,
+          ),
+        ).toMatchObject({ status: "pending" });
+      },
+    );
+
+    it("does not let a lost execution claim silence successor work", async () => {
+      const live = harness.conversations.get(conversationId);
+      live.work = {
+        revision: 7,
+        nextActionAt: new Date("2026-07-25T10:05:00.000Z"),
+        executionEpoch: 3,
+      };
+      seedPendingReply(successorOutboxId);
+      harness.executionFence.renewWithin
+        .mockResolvedValueOnce(executionClaim)
+        .mockResolvedValueOnce(false);
+      rejectMergeWithCapacity();
+
+      await expect(
+        harness.extractor.extract({
+          conversationId,
+          correlationId,
+          executionClaim,
+        }),
+      ).rejects.toMatchObject({
+        name: FeedbackConversationExecutionGuardError.name,
+        reason: "execution_claim_lost",
+      });
+
+      expect(live.awaitingHuman).toBe(false);
+      expect(live.attentionReasons).toEqual([]);
+      expect(
+        harness.repository.outbox.find(
+          (row) => row["id"] === successorOutboxId,
+        ),
+      ).toMatchObject({ status: "pending" });
     });
   });
 
@@ -3142,6 +3367,7 @@ interface FakeConversation {
   }[];
   awaitingHuman: boolean;
   reminderCount: number;
+  hostileTurns?: number;
   extractionFallbackAckSent?: boolean;
 }
 
@@ -3538,23 +3764,37 @@ class FakeConversations {
     }
   }
 
-  async findById(id: string): Promise<FakeConversation | undefined> {
+  async findById(
+    id: string,
+    _transaction?: unknown,
+  ): Promise<FakeConversation | undefined> {
     const conversation = this.documents.get(id);
     return conversation ? structuredClone(conversation) : undefined;
   }
 
+  async findByIdForUpdate(
+    transaction: AppTransaction,
+    id: string,
+  ): Promise<FakeConversation | undefined> {
+    return this.findById(id, transaction);
+  }
+
   /** Idempotent by `outboxId`, like the real repository. */
-  async appendMessage(input: {
-    conversationId: string;
-    actor: FakeMessage["actor"];
-    text: string;
-    at: Date;
-    outboxId?: string | null;
-  }): Promise<{
+  async appendMessage(
+    transactionOrInput: unknown,
+    maybeInput?: {
+      conversationId: string;
+      actor: FakeMessage["actor"];
+      text: string;
+      at: Date;
+      outboxId?: string | null;
+    },
+  ): Promise<{
     appended: boolean;
     message: FakeMessage;
     conversation: FakeConversation;
   }> {
+    const input = leadingInput(transactionOrInput, maybeInput);
     const conversation = this.get(input.conversationId);
     const existing = conversation.messages.find(
       (message) => input.outboxId && message.outboxId === input.outboxId,
@@ -3578,10 +3818,14 @@ class FakeConversations {
    * Rank-up along pending < asked < skipped < answered, plus WP-9δ
    * skipped → asked. Mirrors `canTransitionGoalStatus`.
    */
-  async updateGoalStatuses(input: {
-    conversationId: string;
-    statuses: readonly { key: string; status: FakeGoal["status"] }[];
-  }): Promise<{ changed: boolean; conversation: FakeConversation }> {
+  async updateGoalStatuses(
+    transactionOrInput: unknown,
+    maybeInput: {
+      conversationId: string;
+      statuses: readonly { key: string; status: FakeGoal["status"] }[];
+    },
+  ): Promise<{ changed: boolean; conversation: FakeConversation }> {
+    const input = leadingInput(transactionOrInput, maybeInput);
     const rank = { pending: 0, asked: 1, skipped: 2, answered: 3 } as const;
     const conversation = this.get(input.conversationId);
     let changed = false;
@@ -3600,16 +3844,20 @@ class FakeConversations {
     return { changed, conversation };
   }
 
-  async advanceCursor(input: {
-    conversationId: string;
-    toSeq: number;
-    at: Date;
-    model?: string | null;
-    serviceTier?: string | null;
-    usage?: FeedbackConversationExtractionUsage;
-    workRevision?: number;
-    executionEpoch?: number;
-  }): Promise<{ changed: boolean; conversation: FakeConversation }> {
+  async advanceCursor(
+    transactionOrInput: unknown,
+    maybeInput: {
+      conversationId: string;
+      toSeq: number;
+      at: Date;
+      model?: string | null;
+      serviceTier?: string | null;
+      usage?: FeedbackConversationExtractionUsage;
+      workRevision?: number;
+      executionEpoch?: number;
+    },
+  ): Promise<{ changed: boolean; conversation: FakeConversation }> {
+    const input = leadingInput(transactionOrInput, maybeInput);
     const conversation = this.get(input.conversationId);
     if (
       input.toSeq <= conversation.extraction.cursorSeq ||
@@ -3638,18 +3886,22 @@ class FakeConversations {
     return { changed: true, conversation };
   }
 
-  async advanceCursorAndClose(input: {
-    conversationId: string;
-    toSeq: number;
-    reason: "completed" | "declined";
-    terminalOutboxId: string | null;
-    at: Date;
-    model: string;
-    serviceTier: string | null;
-    usage: FeedbackConversationExtractionUsage;
-    workRevision?: number;
-    executionEpoch?: number;
-  }): Promise<{ changed: boolean; conversation: FakeConversation }> {
+  async advanceCursorAndClose(
+    transactionOrInput: unknown,
+    maybeInput: {
+      conversationId: string;
+      toSeq: number;
+      reason: "completed" | "declined";
+      terminalOutboxId: string | null;
+      at: Date;
+      model: string;
+      serviceTier: string | null;
+      usage: FeedbackConversationExtractionUsage;
+      workRevision?: number;
+      executionEpoch?: number;
+    },
+  ): Promise<{ changed: boolean; conversation: FakeConversation }> {
+    const input = leadingInput(transactionOrInput, maybeInput);
     await this.beforeTerminalClose?.();
     const conversation = this.get(input.conversationId);
     const hasNewerTestimony = conversation.messages.some(
@@ -3667,7 +3919,7 @@ class FakeConversations {
     ) {
       return { changed: false, conversation };
     }
-    await this.advanceCursor(input);
+    await this.advanceCursor(undefined, input);
     conversation.lifecycle = {
       state: "closed",
       reason: input.reason,
@@ -3677,16 +3929,20 @@ class FakeConversations {
     return { changed: true, conversation };
   }
 
-  async advanceCursorAndMarkAwaitingHuman(input: {
-    conversationId: string;
-    toSeq: number;
-    at: Date;
-    model: string;
-    serviceTier: string | null;
-    usage: FeedbackConversationExtractionUsage;
-    workRevision?: number;
-    executionEpoch?: number;
-  }): Promise<{ changed: boolean; conversation: FakeConversation }> {
+  async advanceCursorAndMarkAwaitingHuman(
+    transactionOrInput: unknown,
+    maybeInput: {
+      conversationId: string;
+      toSeq: number;
+      at: Date;
+      model: string;
+      serviceTier: string | null;
+      usage: FeedbackConversationExtractionUsage;
+      workRevision?: number;
+      executionEpoch?: number;
+    },
+  ): Promise<{ changed: boolean; conversation: FakeConversation }> {
+    const input = leadingInput(transactionOrInput, maybeInput);
     await this.beforeAwaitingHuman?.();
     const conversation = this.get(input.conversationId);
     const hasNewerTestimony = conversation.messages.some(
@@ -3732,13 +3988,17 @@ class FakeConversations {
     return { changed: true, conversation };
   }
 
-  /** Idempotent on kind + message, exactly as the Mongo guard filter is. */
-  async raiseAttention(input: {
-    conversationId: string;
-    kind: string;
-    messageId: string | null;
-    at: Date;
-  }): Promise<{ changed: boolean; conversation: FakeConversation }> {
+  /** Idempotent on kind + message: a retried job must not stack identical rows. */
+  async raiseAttention(
+    transactionOrInput: unknown,
+    maybeInput: {
+      conversationId: string;
+      kind: string;
+      messageId: string | null;
+      at: Date;
+    },
+  ): Promise<{ changed: boolean; conversation: FakeConversation }> {
+    const input = leadingInput(transactionOrInput, maybeInput);
     const conversation = this.get(input.conversationId);
     const standing = conversation.attentionReasons.some(
       (reason) =>
@@ -3759,22 +4019,42 @@ class FakeConversations {
     return { changed: true, conversation };
   }
 
-  async markAwaitingHuman(input: {
-    conversationId: string;
-  }): Promise<{ changed: boolean; conversation: FakeConversation }> {
+  async markAwaitingHuman(
+    transactionOrInput: unknown,
+    maybeInput: {
+      conversationId: string;
+    },
+  ): Promise<{ changed: boolean; conversation: FakeConversation }> {
+    const input = leadingInput(transactionOrInput, maybeInput);
     const conversation = this.get(input.conversationId);
-    const changed = conversation.awaitingHuman !== true;
+    if (
+      conversation.lifecycle.state !== "open" ||
+      conversation.control.mode !== "bot"
+    ) {
+      return { changed: false, conversation };
+    }
+    const dueCleared = conversation.work?.nextActionAt == null;
+    if (conversation.awaitingHuman && dueCleared) {
+      return { changed: false, conversation };
+    }
     conversation.awaitingHuman = true;
-    return { changed, conversation };
+    if (conversation.work) {
+      conversation.work = { ...conversation.work, nextActionAt: null };
+    }
+    return { changed: true, conversation };
   }
 
-  async mergeMessageAttention(input: {
-    conversationId: string;
-    messageId: string;
-    categories: readonly string[];
-    recommendedAction: string;
-    confidence: number;
-  }): Promise<{ changed: boolean; conversation: FakeConversation }> {
+  async mergeMessageAttention(
+    transactionOrInput: unknown,
+    maybeInput: {
+      conversationId: string;
+      messageId: string;
+      categories: readonly string[];
+      recommendedAction: string;
+      confidence: number;
+    },
+  ): Promise<{ changed: boolean; conversation: FakeConversation }> {
+    const input = leadingInput(transactionOrInput, maybeInput);
     const conversation = this.get(input.conversationId);
     const message = conversation.messages.find(
       (candidate) => candidate.id === input.messageId,
@@ -3798,11 +4078,27 @@ class FakeConversations {
     return { changed: true, conversation };
   }
 
-  async close(input: {
-    conversationId: string;
-    reason: string;
-    at: Date;
-  }): Promise<{ changed: boolean; conversation: FakeConversation }> {
+  async recordHostileTurn(
+    _transaction: unknown,
+    input: { conversationId: string; at: Date; expectedCount: number },
+  ): Promise<{ changed: boolean; conversation: FakeConversation }> {
+    const conversation = this.get(input.conversationId);
+    if ((conversation.hostileTurns ?? 0) !== input.expectedCount) {
+      return { changed: false, conversation };
+    }
+    conversation.hostileTurns = input.expectedCount + 1;
+    return { changed: true, conversation };
+  }
+
+  async close(
+    transactionOrInput: unknown,
+    maybeInput: {
+      conversationId: string;
+      reason: string;
+      at: Date;
+    },
+  ): Promise<{ changed: boolean; conversation: FakeConversation }> {
+    const input = leadingInput(transactionOrInput, maybeInput);
     const conversation = this.get(input.conversationId);
     if (conversation.lifecycle.state === "closed") {
       return { changed: false, conversation };
@@ -4025,7 +4321,6 @@ function createHarness(): Harness {
     audit as unknown as AuditRepository,
     metrics,
     new FeedbackOutboundTranscriptService(
-      database as unknown as DatabaseService,
       repository as unknown as FeedbackOutboxRepository,
       conversations as unknown as FeedbackConversationRepository,
     ),

@@ -231,11 +231,10 @@ export class MessageOutboxDispatcherService {
       return firstGuard.result;
     }
 
-    const recorded = await this.outboundTranscript.record(
-      claim,
-      new Date(),
-      claim.id,
-      { claimToken: claim.claimToken },
+    const recorded = await this.database.transaction((transaction) =>
+      this.outboundTranscript.record(transaction, claim, new Date(), claim.id, {
+        claimToken: claim.claimToken,
+      }),
     );
     if (recorded.outcome === "cancelled") {
       return { outboxId: claim.id, outcome: "cancelled" };
@@ -262,7 +261,7 @@ export class MessageOutboxDispatcherService {
         firstGuard.phoneAtLaunch,
       );
       // This mutex is shared with STOP/takeover/provider observations. Their
-      // Mongo transition and our final reload+marker therefore have one order:
+      // conversation transition and our final reload+marker therefore have one order:
       // a control change either cancels the claim first, or observes an already
       // committed provider-entry marker that is intentionally no longer safe
       // to cancel.
@@ -467,6 +466,7 @@ export class MessageOutboxDispatcherService {
 
     const conversation = await this.conversations.findById(
       claim.conversationId,
+      transaction,
     );
     if (!conversation) {
       const failed = await this.outbox.finishDispatchClaimBeforeAttempt(
@@ -495,7 +495,7 @@ export class MessageOutboxDispatcherService {
       return settled(claim.id, failed ? "failed" : "claim_lost");
     }
 
-    // Terminal copy is inserted before MongoDB commits the corresponding close.
+    // Terminal copy is inserted before the conversation row commits the close.
     // It must wait for that aggregate transition; otherwise a superseded or
     // failed close can leak a final message into an open conversation.
     if (
@@ -669,10 +669,11 @@ export class MessageOutboxDispatcherService {
   }
 
   /**
-   * Final ordinary-reply fence. The immutable decision log says which Mongo
-   * transcript the model answered; the phone lock makes the PostgreSQL ingress
-   * comparison include every webhook acknowledgement that won before provider
-   * entry, even when materialization has not reached MongoDB yet.
+   * Final ordinary-reply fence. The immutable decision log says which
+   * transcript the model answered; the phone lock makes the ingress
+   * comparison include every webhook acknowledgement that won before
+   * provider entry, even when materialization has not reached the
+   * conversation row yet.
    */
   private async ordinaryExtractionReplyStaleReason(
     claim: FeedbackOutboxClaimedRow,
@@ -687,10 +688,10 @@ export class MessageOutboxDispatcherService {
     if (extraction.state === "invalid") return "outbound_snapshot_invalid";
 
     const snapshotSeq = extraction.snapshot.latestMessageSeq ?? 0;
-    const newerMongoTestimony = conversation.messages.some(
+    const newerTestimony = conversation.messages.some(
       (message) => message.actor === "participant" && message.seq > snapshotSeq,
     );
-    if (newerMongoTestimony) return "superseded_by_newer_testimony";
+    if (newerTestimony) return "superseded_by_newer_testimony";
 
     const snapshotWork = extraction.snapshot.work;
     const snapshotControlChangedAt = extraction.snapshot.control.changedAt;
@@ -814,7 +815,10 @@ export class MessageOutboxDispatcherService {
     transaction: AppTransaction,
   ): Promise<void> {
     const at = new Date();
-    const conversation = await this.conversations.findById(row.conversationId);
+    const conversation = await this.conversations.findById(
+      row.conversationId,
+      transaction,
+    );
     const terminalOutboxId =
       conversation?.lifecycle.state === "closed" &&
       conversation.lifecycle.reason === "stopped"
@@ -838,12 +842,12 @@ export class MessageOutboxDispatcherService {
       conversation.control.mode === "bot" &&
       !conversation.awaitingHuman
     ) {
-      await this.conversations.markAwaitingHuman({
+      await this.conversations.markAwaitingHuman(transaction, {
         conversationId: row.conversationId,
         at,
       });
     }
-    await this.conversations.raiseAttention({
+    await this.conversations.raiseAttention(transaction, {
       conversationId: row.conversationId,
       kind: "undelivered_message",
       messageId: null,
@@ -867,14 +871,16 @@ export class MessageOutboxDispatcherService {
     row: MessageOutboxRow,
   ): Promise<void> {
     try {
-      await this.conversations.raiseAttention({
-        conversationId: row.conversationId,
-        kind: "undelivered_message",
-        messageId: null,
-        at: new Date(),
-      });
+      await this.database.transaction((transaction) =>
+        this.conversations.raiseAttention(transaction, {
+          conversationId: row.conversationId,
+          kind: "undelivered_message",
+          messageId: null,
+          at: new Date(),
+        }),
+      );
     } catch (error) {
-      // The failed outbox row is authoritative. Mongo attention is a useful
+      // The failed outbox row is authoritative. Conversation attention is a useful
       // operator projection, never a reason to replay a rejected provider send.
       this.logger.error({
         event: "feedback.outbox.dispatch_attention_failed",

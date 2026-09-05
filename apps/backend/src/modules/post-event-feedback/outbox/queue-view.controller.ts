@@ -37,7 +37,7 @@ export class PostEventFeedbackOutboxController {
   constructor(private readonly queueView: FeedbackOutboxQueueViewService) {}
 
   /**
-   * The polled list. PostgreSQL and one batched MongoDB read only.
+   * The polled list. PostgreSQL and one batched conversation read only.
    */
   @Get("queue")
   @ApiOperation({ operationId: "listFeedbackOutboxQueue" })

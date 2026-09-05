@@ -273,7 +273,7 @@ narratives are omitted; the executable suite is the live oracle.
 | ------------- | -------------------------------------------------------------------------- |
 | **Pre**       | Staff flipped opt-in off; conversation still open                          |
 | **Expect**    | Stale conversation closes / leaves phone unique index so next launch works |
-| **Invariant** | Expiry vs `feedback_conversation_open_phone_unique_idx`                    |
+| **Invariant** | Expiry vs `feedback_conversations_open_phone_uidx`                         |
 | **Hist**      | 🔴                                                                         |
 
 ## D. Who people talk about
@@ -594,6 +594,10 @@ narratives are omitted; the executable suite is the live oracle.
 | **Invariant** | **Known defect**: final message may remain only in raw ingress        |
 | **Hist**      | ⚠️                                                                    |
 
+STOP at capacity is covered by `ingress/materialize.service.spec.ts`: close,
+consent withdrawal and ingress completion still commit. The raw STOP remains
+in ingress; an acknowledgement that cannot fit the transcript is cancelled.
+
 ### S58 · `campaign_paused_midflow`
 
 |               |                                                                                                 |
@@ -800,13 +804,14 @@ Part 1 ids without a same-named loop row (still catalogue / corpus / ops):
 
 Real-model rubrics:
 `post-event-feedback-real-model-corpus.ts`. Transport-only cases stay fake-backed.
-Loop harness schedules via V2 conversation-revision wake-up + direct PostgreSQL
-dispatcher. Focused reconciliation/planner/fence/dispatcher specs cover
-orchestration wiring.
+Loop harness schedules via conversation-revision wake-up + direct PostgreSQL
+dispatcher. `FakeFeedbackConversations` is an in-memory domain double of the
+typed aggregate — not a Mongo driver and not live PostgreSQL. Focused
+reconciliation/planner/fence/dispatcher specs cover orchestration wiring.
 
 ### What “end-to-end” means
 
-Real services in real order; faked: both databases, queue, clock, model,
+Real services in real order; faked: persistence, queue, clock, model,
 transport, config/alerts. Drive through the **processor** (retry /
 `UnrecoverableError` / fallback). Flow:
 
@@ -822,8 +827,8 @@ flowchart LR
   pg --> dispatch[DirectOutboxDispatcher]
   dispatch --> transport[[RecordingTransport]]
   ext --> model[[ScriptedExtractionModel]]
-  mat --> mongo[(FakeConversations)]
-  ext --> mongo
+  mat --> conv[(FakeFeedbackConversations)]
+  ext --> conv
   mat --> pg[(FakeFeedbackRepository)]
   ext --> pg
   dispatch --> pg
@@ -1020,8 +1025,9 @@ suite under the same name.
 ## Decisions and references
 
 - [ADR 0008](../../decisions/0008-post-event-feedback-conversations.md)
+- [ADR 0015](../../decisions/0015-postgresql-feedback-conversations.md)
 - [`post-event-feedback.md`](post-event-feedback.md) — module contract
-- [`conversations.md`](conversations.md) — schema co-tenancy
+- [`conversations.md`](conversations.md) — Assistant Mongo vs feedback PostgreSQL
 - [`post-event-feedback-loop-plan-2026-07-26.md`](../../history/post-event-feedback-loop-plan-2026-07-26.md) — historical F/WP map
 - Source: `apps/backend/src/modules/post-event-feedback/` (loop harness, doubles,
   corpus, burst personas)

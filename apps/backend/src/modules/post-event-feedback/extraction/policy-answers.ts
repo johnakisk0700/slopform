@@ -1,27 +1,14 @@
 import { z } from "zod";
 
 /**
- * The data-handling questions we recognise, and the sentences we are allowed to
- * answer them with.
+ * Recognised data-handling questions and the sentences we may answer them with.
  *
- * The design is the one agreed in
- * `docs/backend/modules/post-event-feedback-policy-answers.md`, and the split it
- * encodes is the whole point: **the classifier sees the questions, the
- * application owns the answers.** The attention classifier — which already runs
- * on every participant turn — picks an id from this list or `null`; it is shown
- * what each id *asks* and never what we answer. The extraction model is bound by
- * prompt rule 11στ exactly as before: it must never say anything about data
- * handling of its own. The application then appends the approved sentence the
- * way it appends the safety assurance, same text every time.
- *
- * A misclassification under this split answers a neighbouring question with a
- * sentence that is still true. A generated answer to the same question invents
- * policy. That asymmetry is why no model ever holds one of these sentences in
- * context.
- *
- * The wording was approved by the owner on 2026-08-01, verbatim from the draft.
- * The doc is the source of record and `policy-answers.spec.ts` fails when the
- * two drift apart — edit the doc and this file together or not at all.
+ * The classifier sees `asks` only and never the answer text; the application
+ * appends the approved sentence (same shape as the safety assurance). Prompt
+ * rule 11στ still forbids the extraction model from inventing policy. A
+ * neighbouring misclassification stays a true sentence; a generated answer
+ * invents policy. Keep this file aligned with
+ * `docs/backend/modules/post-event-feedback-policy-answers.md`.
  */
 export const POST_EVENT_FEEDBACK_POLICY_QUESTIONS = [
   "what_is_it_for",
@@ -58,26 +45,17 @@ interface PolicyQuestionDefinition {
    */
   readonly asks: string;
   /**
-   * The approved sentence, or `null` for a question we recognise and have
-   * decided not to answer yet. `null` earns today's deferral from the model
-   * plus an `unanswered_data_question` attention reason, so a person sees that
-   * it was asked and the list can grow from evidence.
+   * Approved sentence, or `null` to defer plus raise `unanswered_data_question`.
    */
   readonly answer: string | null;
 }
 
 /**
- * `how_long_kept` and `is_it_anonymous` are deliberately unanswered: both need
- * a decision outside engineering, and a wrong answer about retention is worse
- * than a deferral. `delete_my_data` is unanswered for a different reason — it
- * is a request, not a question, the existing handoff path already owns it
- * (prompt rule 10), and it is excluded from the attention raise below so that
- * path is not flagged twice. `other_data_handling` is the catch-all that turns
- * an unmatched question into a note instead of silence.
- *
- * `affects_next_tables`' second sentence is a claim of fact the owner confirmed
- * on 2026-08-01: a person reviews feedback before the next tables are seated.
- * If seating is ever automated, this entry changes the same day.
+ * `how_long_kept` and `is_it_anonymous` stay unanswered (wrong retention copy
+ * is worse than deferral). `delete_my_data` is a request owned by the handoff
+ * path and is excluded from the raise below so it is not flagged twice.
+ * `other_data_handling` is the unmatched catch-all. `affects_next_tables`
+ * claims a human reviews seating — change it if that becomes automatic.
  */
 export const POST_EVENT_FEEDBACK_POLICY_QUESTION_DEFINITIONS: Record<
   PostEventFeedbackPolicyQuestion,
@@ -137,11 +115,8 @@ export const POST_EVENT_FEEDBACK_POLICY_QUESTION_DEFINITIONS: Record<
 };
 
 /**
- * The questions whose lack of an answer is news an operator should see.
- *
- * Everything with `answer: null` except `delete_my_data`: a deletion request
- * already travels the handoff path with its own flag, and raising a second
- * reason for the same message would be the same news twice.
+ * Unanswered policy questions that should surface for an operator. Everything
+ * with `answer: null` except `delete_my_data` (already on the handoff path).
  */
 export function isUnansweredPolicyQuestion(
   question: PostEventFeedbackPolicyQuestion,

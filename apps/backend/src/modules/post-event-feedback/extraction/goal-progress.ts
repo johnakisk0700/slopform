@@ -12,15 +12,12 @@ export interface GoalStatusUpdate {
 }
 
 /**
- * Answered wins over everything, including a skip proposed in the same run.
- * Goals answered in an earlier run are re-derived rather than remembered, so a
- * replay that finds its answers already stored still repairs the statuses.
+ * Answered wins, including over a skip in the same run. Earlier answers are
+ * re-derived so a replay still repairs statuses.
  *
- * "Asked" is deliberately not decided here. The model proposes a `nextGoal` and
- * a reply in the same breath as the answers it hopes will land; once validation
- * refuses some of those answers, that `nextGoal` is a wish about a world that
- * did not happen. The outbound seam is the only place that knows which question
- * the participant will actually see — mark `asked` from what it returned.
+ * Do not mark `asked` here: the model's `nextGoal` is a wish until validation
+ * and outbound agree. Apply `asked` from the outbound that actually poses the
+ * question.
  */
 export function resolveGoalStatuses(
   goals: readonly FeedbackConversationGoal[],
@@ -48,11 +45,8 @@ export function resolveGoalStatuses(
 }
 
 /**
- * The earliest goal that is still open once this run's recorded updates apply.
- *
- * Completion and the outbound re-ask both need the same answer: what is still
- * owed, in questionnaire order, after the answers and skips that actually
- * survived validation — never after the model's private belief about the ladder.
+ * Earliest still-open goal after this run's recorded updates, in questionnaire
+ * order. Completion and re-ask both use this — never the model's private ladder.
  */
 export function nextOpenGoal(
   goals: readonly FeedbackConversationGoal[],
@@ -69,15 +63,9 @@ export function nextOpenGoal(
 }
 
 /**
- * The goals that owe nothing once this run's recorded updates apply — answered
- * earlier, answered by an answer that survived validation just now, or skipped.
- *
- * The campaign re-ask reads this before repeating a question. A refused
- * *surplus* mention on a goal that already holds its answer is not a question
- * the participant still owes us anything on: in the 2026-08-01 paid rehearsal,
- * Ρούλα Κομποσερίδου had `liked` answered (η Λούλα) and kept mentioning table
- * neighbours who resolved to nobody, and every unresolved name re-sent the
- * `liked` campaign copy to a question she had answered two turns earlier.
+ * Goals that owe nothing after this run's recorded updates (answered or
+ * skipped). The campaign re-ask must not restate a settled goal when a surplus
+ * mention fails to resolve.
  */
 export function settledGoalKeys(
   goals: readonly FeedbackConversationGoal[],
@@ -95,17 +83,11 @@ export function settledGoalKeys(
 }
 
 /**
- * Records that the outbound this run is about to send is asking a particular
- * goal.
+ * Marks the goal this outbound is actually asking.
  *
- * An answered goal stays answered — re-asking something already recorded is
- * the wrong behaviour, and D16 forbids demoting it. A skipped goal is
- * different: prompt rule 9δ banks a skip and then poses a hold question about
- * the same goal on purpose («θέλεις τελικά να σημειώσουμε τον Κώστα ή να
- * μείνει το "κανέναν";»). Leaving it skipped makes `isCompleting` true under
- * that live question, so the thanks-only turn that follows closes the
- * conversation and the confirmation arrives as `post_closure_message`. The
- * bot re-opened the decision; the ladder must show `asked` again.
+ * Answered never demotes (D16). A skipped goal that this send re-opens as a
+ * hold question must return to `asked`, or `isCompleting` is true under a live
+ * question and the confirmation lands as `post_closure_message`.
  */
 export function withAskedGoal(
   updates: readonly GoalStatusUpdate[],
@@ -126,17 +108,9 @@ export function withAskedGoal(
 }
 
 /**
- * A run that wrote nothing and asked nothing is a withdrawal: the bot decided
- * to stop. Without this, remaining goals stay pending/asked, the reminder
- * ladder keeps chasing, and the conversation only dies at expiry — days after
- * the participant was told the bot was backing off. Settled goals stop the
- * reminder ladder chasing a questionnaire the bot has abandoned; they
- * deliberately do **not** close it — `closingNow` excludes a withdrawal on
- * purpose, because here the bot gave up rather than the participant, and the
- * conversation goes to a person instead.
- *
- * Answered wins; an already-skipped goal stays skipped. Only open goals
- * (pending or asked, including ones not yet in the update list) become skipped.
+ * Withdrawal: skip remaining open goals so reminders stop, but do not close.
+ * `closingNow` excludes this path — the bot gave up; a person should read it.
+ * Answered and already-skipped stay as they are.
  */
 export function withSettledOpenGoals(
   goals: readonly FeedbackConversationGoal[],
@@ -154,17 +128,10 @@ export function withSettledOpenGoals(
 }
 
 /**
- * No accepted answers, no accepted notes, and the outbound that will actually
- * go out does not pose a question — while the model still named a `nextGoal`.
- * That is a withdrawal: it claimed the ladder continued and then wrote a
- * statement («το bot αποσύρεται…»). A bare `nextGoal: null` reply with nothing
- * to extract is how the bot answers a side question (flirting, "who reads
- * this") without ending the questionnaire, and must not settle the ladder.
- *
- * A replay of a finished write looks the same on the accepted lists (validation
- * refuses the duplicates as `already_recorded`), so those refusals are the
- * signal that this run is repairing, not bowing out — without them a replayed
- * «Τέλεια, το σημείωσα!» would settle the ladder and close mid-questionnaire.
+ * Withdrawal: nothing recorded, outbound sent, no question posed, but the
+ * model still named a `nextGoal`. A `nextGoal: null` side-question reply must
+ * not settle the ladder. `already_recorded` refusals mean replay repair, not
+ * withdrawal — otherwise a replayed acknowledgement would close mid-ladder.
  */
 export function isWithdrawal(input: {
   readonly answers: { readonly length: number };

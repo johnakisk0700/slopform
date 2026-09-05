@@ -10,11 +10,17 @@ import {
   vi,
 } from "vitest";
 
+import type { AppTransaction } from "@slopform/database";
+
 import type { Environment } from "../../../infrastructure/config/environment.js";
+import type { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import type { ParticipantsRepository } from "../../participants/participants.repository.js";
 import type { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
 import type { FeedbackConversationExecutionFence } from "../extraction/execution-fence.service.js";
-import type { FeedbackConversationExecutionClaim } from "../extraction/execution-fence.repository.js";
+import type {
+  FeedbackConversationExecutionClaim,
+  FeedbackConversationExecutionFenceRepository,
+} from "../extraction/execution-fence.repository.js";
 import {
   FeedbackConversationExecutionGuardError,
   type PostEventFeedbackExtractor,
@@ -25,6 +31,7 @@ import {
   type FeedbackConversationDocument,
   type FeedbackConversationMessage,
 } from "../post-event-feedback-conversation.document.js";
+import type { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
 import type { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
 import type { PostEventFeedbackSweepService } from "../sweeps/sweep.service.js";
 import type { FeedbackConversationWakeupService } from "./wakeup.service.js";
@@ -58,18 +65,18 @@ describe("FeedbackConversationReconcileService", () => {
   });
   afterEach(() => vi.useRealTimers());
 
-  it("returns claim_busy without touching Mongo when another execution owns the lease", async () => {
+  it("returns claim_busy without a lease when another execution owns the fence", async () => {
     const harness = createHarness();
-    harness.executionFence.tryClaim.mockResolvedValue(undefined);
+    harness.executionClaims.tryClaim.mockResolvedValue(undefined);
 
     await expect(harness.service.reconcile(input)).resolves.toBe("claim_busy");
 
-    expect(harness.conversations.beginWorkExecution).not.toHaveBeenCalled();
+    expect(harness.conversations.findByIdForUpdate).toHaveBeenCalledOnce();
     expect(harness.executionFence.startHeartbeat).not.toHaveBeenCalled();
     expect(harness.executionFence.release).not.toHaveBeenCalled();
   });
 
-  it("drops a stale Mongo revision and always releases the PostgreSQL claim", async () => {
+  it("rejects a stale revision in the same transaction as the lease attempt", async () => {
     const harness = createHarness();
     const newer = conversation({
       work: {
@@ -78,21 +85,42 @@ describe("FeedbackConversationReconcileService", () => {
         executionEpoch: claim.epoch - 1,
       },
     });
-    harness.conversations.beginWorkExecution.mockResolvedValue({
-      changed: false,
-      conversation: newer,
-      work: newer.work,
-    });
+    harness.conversations.findByIdForUpdate
+      .mockReset()
+      .mockResolvedValue(newer);
 
     await expect(harness.service.reconcile(input)).resolves.toBe(
       "stale_revision",
     );
 
+    expect(harness.executionClaims.tryClaim).not.toHaveBeenCalled();
     expect(harness.extractor.extract).not.toHaveBeenCalled();
     expect(harness.conversations.settleWorkExecution).not.toHaveBeenCalled();
-    expect(harness.executionFence.startHeartbeat).toHaveBeenCalledWith(claim);
-    expect(harness.heartbeat.stop).toHaveBeenCalledTimes(1);
-    expect(harness.executionFence.release).toHaveBeenCalledWith(claim);
+    expect(harness.executionFence.startHeartbeat).not.toHaveBeenCalled();
+    expect(harness.executionFence.release).not.toHaveBeenCalled();
+  });
+
+  it("admits the work revision in the same short transaction as the lease claim", async () => {
+    const harness = createHarness();
+
+    await expect(harness.service.reconcile(input)).resolves.toBe("settled");
+
+    const admissionTx =
+      harness.conversations.findByIdForUpdate.mock.calls[0]?.[0];
+    expect(harness.executionClaims.tryClaim).toHaveBeenCalledWith(
+      admissionTx,
+      expect.objectContaining({
+        conversationId,
+        workRevision: input.revision,
+      }),
+    );
+    expect(
+      harness.conversations.settleWorkExecution.mock.calls[0]?.[0],
+    ).not.toBe(admissionTx);
+    expect(harness.extractor.extract).toHaveBeenCalled();
+    expect(
+      harness.executionClaims.tryClaim.mock.invocationCallOrder[0],
+    ).toBeLessThan(harness.extractor.extract.mock.invocationCallOrder[0]!);
   });
 
   it("executes exactly one planned action before settling the next wake-up", async () => {
@@ -108,13 +136,16 @@ describe("FeedbackConversationReconcileService", () => {
     });
     expect(harness.sweeps.remindConversation).not.toHaveBeenCalled();
     expect(harness.sweeps.expireConversation).not.toHaveBeenCalled();
-    expect(harness.conversations.settleWorkExecution).toHaveBeenCalledWith({
-      conversationId,
-      revision: input.revision,
-      epoch: claim.epoch,
-      nextActionAt: reminderAt,
-      at: now,
-    });
+    expect(harness.conversations.settleWorkExecution).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        conversationId,
+        revision: input.revision,
+        epoch: claim.epoch,
+        nextActionAt: reminderAt,
+        at: now,
+      },
+    );
     expect(harness.wakeups.ensureQueued).toHaveBeenCalledWith({
       conversationId,
       work: {
@@ -140,47 +171,38 @@ describe("FeedbackConversationReconcileService", () => {
     );
   });
 
-  it("queues the schedule returned by settlement when a newer revision arrived during execution", async () => {
+  it("preserves newer work when its revision changed during execution", async () => {
     const harness = createHarness();
-    const quietUntil = new Date(now.getTime() + 45_000);
-    const newer = conversation({
-      messages: [participantMessage(1, messageAt), participantMessage(2, now)],
-      extraction: baseExtraction,
-      work: {
-        revision: input.revision + 1,
-        nextActionAt: quietUntil,
-        executionEpoch: claim.epoch,
-      },
-      updatedAt: now,
-    });
-    const preservedWork = {
-      revision: input.revision + 1,
-      nextActionAt: quietUntil,
-      executionEpoch: claim.epoch,
-    };
-    harness.conversations.findById.mockResolvedValue(newer);
     harness.conversations.settleWorkExecution.mockResolvedValue({
-      changed: true,
-      conversation: newer,
-      work: preservedWork,
+      changed: false,
     });
+    await expect(harness.service.reconcile(input)).resolves.toBe("superseded");
+    expect(harness.wakeups.ensureQueued).not.toHaveBeenCalled();
+  });
 
-    await expect(harness.service.reconcile(input)).resolves.toBe("settled");
+  it("cannot settle after losing the lease, even if the work revision is unchanged", async () => {
+    const harness = createHarness();
+    harness.executionFence.isCurrent.mockResolvedValue(false);
+    await expect(harness.service.reconcile(input)).rejects.toMatchObject({
+      reason: "execution_claim_lost",
+    });
+    expect(harness.conversations.settleWorkExecution).not.toHaveBeenCalled();
+    expect(harness.wakeups.ensureQueued).not.toHaveBeenCalled();
+    expect(harness.executionFence.release).toHaveBeenCalledWith(claim);
+  });
 
-    expect(harness.extractor.extract).toHaveBeenCalledTimes(1);
-    expect(harness.conversations.settleWorkExecution).toHaveBeenCalledWith({
-      conversationId,
-      revision: input.revision,
-      epoch: claim.epoch,
-      nextActionAt: quietUntil,
-      at: now,
-    });
-    expect(harness.wakeups.ensureQueued).toHaveBeenCalledWith({
-      conversationId,
-      work: preservedWork,
-      correlationId: input.correlationId,
-      now,
-    });
+  it("checks the lease in the same transaction as reading and settling current work", async () => {
+    const harness = createHarness();
+    await harness.service.reconcile(input);
+    const settlementTx =
+      harness.conversations.settleWorkExecution.mock.calls[0]?.[0];
+    expect(harness.executionFence.isCurrent).toHaveBeenCalledWith(
+      settlementTx,
+      claim,
+    );
+    expect(harness.conversations.findByIdForUpdate.mock.calls[1]?.[0]).toBe(
+      settlementTx,
+    );
   });
 
   it("releases the claim when the planned action throws", async () => {
@@ -261,11 +283,10 @@ function createHarness() {
     executionEpoch: claim.epoch,
   };
   const conversations = {
-    beginWorkExecution: vi.fn().mockResolvedValue({
-      changed: true,
-      conversation: initial,
-      work: initial.work,
-    }),
+    findByIdForUpdate: vi
+      .fn()
+      .mockResolvedValueOnce(initial)
+      .mockResolvedValue(afterExtraction),
     findById: vi.fn().mockResolvedValue(afterExtraction),
     settleWorkExecution: vi.fn().mockResolvedValue({
       changed: true,
@@ -274,10 +295,19 @@ function createHarness() {
     }),
   };
   const heartbeat = { stop: vi.fn().mockResolvedValue(undefined) };
-  const executionFence = {
+  const executionClaims = {
     tryClaim: vi.fn().mockResolvedValue(claim),
+  };
+  const executionFence = {
+    isCurrent: vi.fn().mockResolvedValue(true),
     startHeartbeat: vi.fn().mockReturnValue(heartbeat),
     release: vi.fn().mockResolvedValue(true),
+  };
+  let transactionSeq = 0;
+  const database = {
+    transaction: vi.fn(async (work: (tx: AppTransaction) => Promise<unknown>) =>
+      work({ n: ++transactionSeq } as unknown as AppTransaction),
+    ),
   };
   const extractor = { extract: vi.fn().mockResolvedValue(undefined) };
   const sweeps = {
@@ -304,9 +334,12 @@ function createHarness() {
 
   const service = new FeedbackConversationReconcileService(
     config as unknown as ConfigService<Environment, true>,
+    database as unknown as DatabaseService,
     campaigns as unknown as FeedbackCampaignRepository,
     participants as unknown as ParticipantsRepository,
     conversations as unknown as FeedbackConversationRepository,
+    { lockConversation: vi.fn() } as unknown as FeedbackOutboxRepository,
+    executionClaims as unknown as FeedbackConversationExecutionFenceRepository,
     executionFence as unknown as FeedbackConversationExecutionFence,
     extractor as unknown as PostEventFeedbackExtractor,
     sweeps as unknown as PostEventFeedbackSweepService,
@@ -315,6 +348,7 @@ function createHarness() {
   return {
     service,
     conversations,
+    executionClaims,
     executionFence,
     heartbeat,
     extractor,

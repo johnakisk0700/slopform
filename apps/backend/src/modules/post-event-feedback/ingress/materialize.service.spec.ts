@@ -83,7 +83,7 @@ describe("PostEventFeedbackMaterializer", () => {
       chatJid,
     });
     expect(harness.metrics.count("ignored_unmatched")).toBe(1);
-    expect(harness.wakeups.schedule).not.toHaveBeenCalled();
+    expect(harness.wakeups.ensureQueued).not.toHaveBeenCalled();
     expect(harness.audit.events).toHaveLength(0);
   });
 
@@ -115,13 +115,15 @@ describe("PostEventFeedbackMaterializer", () => {
     });
     // The rolling quiet window is durable conversation intent. The wake-up
     // service owns the disposable V2 job derived from the resulting revision.
-    expect(harness.wakeups.schedule).toHaveBeenCalledWith({
+    expect(harness.wakeups.ensureQueued).toHaveBeenCalledWith({
       conversationId,
-      nextActionAt: new Date(
-        observedAt.getTime() + FEEDBACK_EXTRACT_QUIET_WINDOW_MS,
-      ),
+      work: expect.objectContaining({
+        nextActionAt: new Date(
+          observedAt.getTime() + FEEDBACK_EXTRACT_QUIET_WINDOW_MS,
+        ),
+      }),
       correlationId,
-      at: observedAt,
+      now: observedAt,
     });
   });
 
@@ -198,7 +200,7 @@ describe("PostEventFeedbackMaterializer", () => {
 
     expect(replay.outcome).toBe("already_processed");
     expect(harness.conversations.transcript(conversationId)).toHaveLength(1);
-    expect(harness.wakeups.schedule).toHaveBeenCalledTimes(1);
+    expect(harness.wakeups.ensureQueued).toHaveBeenCalledTimes(1);
     expect(harness.metrics.count("already_processed")).toBe(1);
   });
 
@@ -210,12 +212,12 @@ describe("PostEventFeedbackMaterializer", () => {
       harness.materializer.materialize({ ingressId, correlationId }),
     ]);
 
-    expect(outcomes.map((result) => result.outcome)).toEqual([
-      "inbound_materialized",
+    expect(outcomes.map((result) => result.outcome).sort()).toEqual([
+      "already_processed",
       "inbound_materialized",
     ]);
     expect(harness.conversations.transcript(conversationId)).toHaveLength(1);
-    expect(harness.wakeups.schedule).toHaveBeenCalledTimes(2);
+    expect(harness.wakeups.ensureQueued).toHaveBeenCalledTimes(1);
     expect(harness.repository.ingress.get(ingressId)?.processingStatus).toBe(
       "materialized",
     );
@@ -245,24 +247,28 @@ describe("PostEventFeedbackMaterializer", () => {
     expect(
       harness.conversations.transcript(conversationId).map((m) => m.text),
     ).toEqual(["Και ο Κώστας ήταν τέλειος", "Πέρασα πολύ ωραία"]);
-    expect(harness.wakeups.schedule).toHaveBeenNthCalledWith(
+    expect(harness.wakeups.ensureQueued).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
         conversationId,
-        nextActionAt: new Date(
-          new Date("2026-07-25T10:07:00.000Z").getTime() +
-            FEEDBACK_EXTRACT_QUIET_WINDOW_MS,
-        ),
+        work: expect.objectContaining({
+          nextActionAt: new Date(
+            new Date("2026-07-25T10:07:00.000Z").getTime() +
+              FEEDBACK_EXTRACT_QUIET_WINDOW_MS,
+          ),
+        }),
       }),
     );
-    expect(harness.wakeups.schedule).toHaveBeenNthCalledWith(
+    expect(harness.wakeups.ensureQueued).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({
         conversationId,
-        nextActionAt: new Date(
-          new Date("2026-07-25T10:06:00.000Z").getTime() +
-            FEEDBACK_EXTRACT_QUIET_WINDOW_MS,
-        ),
+        work: expect.objectContaining({
+          nextActionAt: new Date(
+            new Date("2026-07-25T10:06:00.000Z").getTime() +
+              FEEDBACK_EXTRACT_QUIET_WINDOW_MS,
+          ),
+        }),
       }),
     );
   });
@@ -301,7 +307,7 @@ describe("PostEventFeedbackMaterializer", () => {
       "participant.feedback_whatsapp_opt_in_changed",
       "feedback_conversation.stopped",
     ]);
-    expect(harness.wakeups.schedule).not.toHaveBeenCalled();
+    expect(harness.wakeups.ensureQueued).not.toHaveBeenCalled();
   });
 
   it("anchors the STOP acknowledgement after an older send is already ambiguous", async () => {
@@ -426,6 +432,179 @@ describe("PostEventFeedbackMaterializer", () => {
     });
   });
 
+  it("still closes and withdraws consent when STOP arrives at a full transcript", async () => {
+    harness.repository.seedOutbox({
+      kind: "reply",
+      body: "stale bot question",
+    });
+    vi.spyOn(harness.conversations, "appendMessage").mockRejectedValue(
+      new FeedbackConversationCapacityError(),
+    );
+    const ingressId = harness.repository.seedIngress({ text: "ΣΤΟΠ" });
+
+    const result = await harness.materializer.materialize({
+      ingressId,
+      correlationId,
+    });
+
+    expect(result).toMatchObject({
+      outcome: "inbound_stopped",
+      conversationId,
+    });
+    expect(harness.conversations.get(conversationId).lifecycle).toMatchObject({
+      state: "closed",
+      reason: "stopped",
+    });
+    expect(
+      harness.participants.rows.get(respondentParticipantId)
+        ?.postEventFeedbackWhatsappOptIn,
+    ).toBe(false);
+    expect(harness.repository.ingress.get(ingressId)).toMatchObject({
+      processingStatus: "materialized",
+      matchedConversationId: conversationId,
+      text: "ΣΤΟΠ",
+    });
+    expect(harness.conversations.transcript(conversationId)).toHaveLength(0);
+    expect(harness.conversations.get(conversationId).awaitingHuman).toBe(false);
+    expect(
+      harness.conversations
+        .get(conversationId)
+        .attentionReasons.filter((reason) => reason.resolvedAt === null)
+        .map((reason) => ({
+          kind: reason.kind,
+          messageId: reason.messageId,
+        })),
+    ).toEqual([
+      { kind: "transcript_full", messageId: null },
+      { kind: "stopped_without_answers", messageId: null },
+    ]);
+    const acknowledgement = harness.repository.outbox.find(
+      (row) => row.kind === "system",
+    );
+    expect(acknowledgement).toMatchObject({
+      status: "cancelled",
+      kind: "system",
+      dedupeKey: `feedback-stop-ack-${conversationId}`,
+    });
+    expect(result.stopAckOutboxId).toBe(acknowledgement?.id);
+    expect(
+      harness.conversations.get(conversationId).lifecycle.terminalOutboxId,
+    ).toBe(acknowledgement?.id);
+    expect(
+      harness.repository.outbox.find((row) => row.kind === "reply")?.status,
+    ).toBe("cancelled");
+    expect(harness.audit.events.map((event) => event.action)).toEqual([
+      "participant.feedback_whatsapp_opt_in_changed",
+      "feedback_conversation.stopped",
+    ]);
+    expect(harness.wakeups.ensureQueued).not.toHaveBeenCalled();
+  });
+
+  it("takes the campaign share lock before STOP conversation mutations", async () => {
+    const lockConversation = vi.spyOn(harness.repository, "lockConversation");
+    const findCampaign = vi.spyOn(
+      harness.repository,
+      "findCampaignByIdForShare",
+    );
+    const append = vi.spyOn(harness.conversations, "appendMessage");
+    const close = vi.spyOn(harness.conversations, "close");
+    const ingressId = harness.repository.seedIngress({ text: "STOP" });
+
+    await harness.materializer.materialize({ ingressId, correlationId });
+
+    const stopTx = findCampaign.mock.calls[0]?.[0];
+    expect(lockConversation).toHaveBeenCalledWith(stopTx, conversationId);
+    expect(findCampaign).toHaveBeenCalledWith(stopTx, campaignId);
+    expect(append).toHaveBeenCalledWith(
+      stopTx,
+      expect.objectContaining({
+        conversationId,
+        actor: "participant",
+      }),
+    );
+    expect(close).toHaveBeenCalledWith(
+      stopTx,
+      expect.objectContaining({
+        conversationId,
+        reason: "stopped",
+      }),
+    );
+    expect(lockConversation.mock.invocationCallOrder[0]).toBeLessThan(
+      findCampaign.mock.invocationCallOrder[0]!,
+    );
+    expect(findCampaign.mock.invocationCallOrder[0]).toBeLessThan(
+      append.mock.invocationCallOrder[0]!,
+    );
+    expect(findCampaign.mock.invocationCallOrder[0]).toBeLessThan(
+      close.mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it("still stops and withdraws consent after the conversation has already closed", async () => {
+    harness.conversations.get(conversationId).lifecycle = {
+      state: "closed",
+      reason: "completed",
+      closedAt: observedAt,
+    };
+    const append = vi.spyOn(harness.conversations, "appendMessage");
+    const findCampaign = vi.spyOn(
+      harness.repository,
+      "findCampaignByIdForShare",
+    );
+    const close = vi.spyOn(harness.conversations, "close");
+    const ingressId = harness.repository.seedIngress({ text: "STOP" });
+
+    const result = await harness.materializer.materialize({
+      ingressId,
+      correlationId,
+    });
+
+    expect(result.outcome).toBe("inbound_stopped");
+    expect(harness.conversations.get(conversationId).lifecycle).toMatchObject({
+      state: "closed",
+      reason: "stopped",
+    });
+    expect(
+      harness.participants.rows.get(respondentParticipantId)
+        ?.postEventFeedbackWhatsappOptIn,
+    ).toBe(false);
+    expect(append).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ actor: "participant" }),
+    );
+    expect(findCampaign.mock.invocationCallOrder[0]).toBeLessThan(
+      close.mock.invocationCallOrder[0]!,
+    );
+    expect(harness.repository.ingress.get(ingressId)).toMatchObject({
+      processingStatus: "materialized",
+      matchedConversationId: conversationId,
+    });
+  });
+
+  it("does not treat an unexpected STOP persistence failure as a capacity handoff", async () => {
+    vi.spyOn(harness.conversations, "appendMessage").mockRejectedValueOnce(
+      new Error("connection reset"),
+    );
+    const ingressId = harness.repository.seedIngress({ text: "STOP" });
+
+    await expect(
+      harness.materializer.materialize({ ingressId, correlationId }),
+    ).rejects.toThrow("connection reset");
+
+    expect(harness.conversations.get(conversationId).lifecycle.state).toBe(
+      "open",
+    );
+    expect(
+      harness.participants.rows.get(respondentParticipantId)
+        ?.postEventFeedbackWhatsappOptIn,
+    ).toBe(true);
+    expect(harness.repository.ingress.get(ingressId)?.processingStatus).toBe(
+      "pending",
+    );
+    expect(harness.metrics.count("inbound_not_materialized")).toBe(0);
+    expect(harness.metrics.count("inbound_stopped")).toBe(0);
+  });
+
   describe("model-only safety classification", () => {
     const disclosure = "Ο Γιώργος μας έδειχνε dickpics όλο το βράδυ";
 
@@ -445,7 +624,7 @@ describe("PostEventFeedbackMaterializer", () => {
           1,
         ),
       });
-      expect(harness.wakeups.schedule).toHaveBeenCalledTimes(1);
+      expect(harness.wakeups.ensureQueued).toHaveBeenCalledTimes(1);
       expect(harness.conversations.transcript(conversationId)).toMatchObject([
         {
           seq: 1,
@@ -706,7 +885,7 @@ describe("PostEventFeedbackMaterializer", () => {
       "failed",
     );
     expect(harness.conversations.get(conversationId).needsAttention).toBe(true);
-    expect(harness.wakeups.schedule).not.toHaveBeenCalled();
+    expect(harness.wakeups.ensureQueued).not.toHaveBeenCalled();
   });
 
   it("cancels every retractable bot row when transcript capacity hands off to a person", async () => {
@@ -1012,6 +1191,7 @@ interface FakeConversation {
   attentionReasons: FakeAttentionReason[];
   reminderCount: number;
   awaitingHuman: boolean;
+  workRevision?: number;
 }
 
 interface FakeAttentionReason {
@@ -1354,7 +1534,7 @@ class FakeFeedbackRepository {
 /**
  * Mirrors the documented schema-v2 repository contract: idempotent appends by
  * provenance, first-closure-wins with a STOP override, and takeover only from
- * bot control. The Mongo implementation itself is covered by its own spec.
+ * bot control. The PostgreSQL adapter is covered by its own spec.
  */
 class FakeConversations {
   readonly documents = new Map<string, FakeConversation>();
@@ -1411,16 +1591,37 @@ class FakeConversations {
       );
   }
 
-  async appendMessage(input: {
-    conversationId: string;
-    actor: string;
-    text: string;
-    at: Date;
-    id?: string;
-    providerMessageId?: string | null;
-    ingressId?: string | null;
-    outboxId?: string | null;
-  }): Promise<{
+  async markWorkDue(
+    _transaction: unknown,
+    input: { conversationId: string; nextActionAt: Date; at: Date },
+  ): Promise<{
+    changed: boolean;
+    conversation: FakeConversation;
+    work: { revision: number; nextActionAt: Date };
+  }> {
+    const conversation = this.get(input.conversationId);
+    const revision = (conversation.workRevision ?? 0) + 1;
+    conversation.workRevision = revision;
+    return {
+      changed: true,
+      conversation,
+      work: { revision, nextActionAt: input.nextActionAt },
+    };
+  }
+
+  async appendMessage(
+    _transaction: unknown,
+    input: {
+      conversationId: string;
+      actor: string;
+      text: string;
+      at: Date;
+      id?: string;
+      providerMessageId?: string | null;
+      ingressId?: string | null;
+      outboxId?: string | null;
+    },
+  ): Promise<{
     appended: boolean;
     message: FakeMessage;
     conversation: FakeConversation;
@@ -1450,12 +1651,15 @@ class FakeConversations {
     return { appended: true, message, conversation };
   }
 
-  async close(input: {
-    conversationId: string;
-    reason: string;
-    at: Date;
-    terminalOutboxId?: string | null;
-  }): Promise<{ changed: boolean; conversation: FakeConversation }> {
+  async close(
+    _transaction: unknown,
+    input: {
+      conversationId: string;
+      reason: string;
+      at: Date;
+      terminalOutboxId?: string | null;
+    },
+  ): Promise<{ changed: boolean; conversation: FakeConversation }> {
     const conversation = this.get(input.conversationId);
     const closable =
       conversation.lifecycle.state === "open" ||
@@ -1473,11 +1677,14 @@ class FakeConversations {
     return { changed: true, conversation };
   }
 
-  async takeOver(input: {
-    conversationId: string;
-    source: string;
-    at: Date;
-  }): Promise<{ changed: boolean; conversation: FakeConversation }> {
+  async takeOver(
+    _transaction: unknown,
+    input: {
+      conversationId: string;
+      source: string;
+      at: Date;
+    },
+  ): Promise<{ changed: boolean; conversation: FakeConversation }> {
     const conversation = this.get(input.conversationId);
     if (conversation.control.mode === "human") {
       return { changed: false, conversation };
@@ -1490,21 +1697,27 @@ class FakeConversations {
     return { changed: true, conversation };
   }
 
-  async markAwaitingHuman(input: {
-    conversationId: string;
-  }): Promise<{ changed: boolean; conversation: FakeConversation }> {
+  async markAwaitingHuman(
+    _transaction: unknown,
+    input: {
+      conversationId: string;
+    },
+  ): Promise<{ changed: boolean; conversation: FakeConversation }> {
     const conversation = this.get(input.conversationId);
     const changed = !conversation.awaitingHuman;
     conversation.awaitingHuman = true;
     return { changed, conversation };
   }
 
-  /** Idempotent on kind + message, exactly as the Mongo guard filter is. */
-  async raiseAttention(input: {
-    conversationId: string;
-    kind: string;
-    messageId: string | null;
-  }): Promise<{ changed: boolean; conversation: FakeConversation }> {
+  /** Idempotent on kind + message: a retried job must not stack identical rows. */
+  async raiseAttention(
+    _transaction: unknown,
+    input: {
+      conversationId: string;
+      kind: string;
+      messageId: string | null;
+    },
+  ): Promise<{ changed: boolean; conversation: FakeConversation }> {
     const conversation = this.get(input.conversationId);
     const standing = conversation.attentionReasons.some(
       (reason) =>
@@ -1532,7 +1745,7 @@ interface Harness {
   participants: FakeParticipants;
   audit: FakeAudit;
   wakeups: {
-    schedule: ReturnType<typeof vi.fn>;
+    ensureQueued: ReturnType<typeof vi.fn>;
   };
   metrics: PostEventFeedbackMetrics;
 }
@@ -1543,13 +1756,15 @@ function createHarness(): Harness {
   const participants = new FakeParticipants();
   const audit = new FakeAudit();
   const metrics = new PostEventFeedbackMetrics();
-  let workRevision = 0;
   const wakeups = {
-    schedule: vi.fn(
-      async (input: { conversationId: string }): Promise<string> =>
+    ensureQueued: vi.fn(
+      async (input: {
+        conversationId: string;
+        work: { revision: number };
+      }): Promise<string> =>
         createFeedbackReconcileConversationJobId(
           input.conversationId,
-          (workRevision += 1),
+          input.work.revision,
         ),
     ),
   };
@@ -1604,7 +1819,6 @@ function createHarness(): Harness {
     audit as unknown as AuditRepository,
     metrics,
     new FeedbackOutboundTranscriptService(
-      database as unknown as DatabaseService,
       repository as unknown as FeedbackOutboxRepository,
       conversations as unknown as FeedbackConversationRepository,
     ),

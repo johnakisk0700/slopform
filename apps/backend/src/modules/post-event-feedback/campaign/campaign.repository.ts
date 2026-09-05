@@ -14,7 +14,7 @@ import {
   type FeedbackCampaignSummaryRow,
   type FeedbackCampaignSummaryTrigger,
 } from "@slopform/database";
-import { and, asc, desc, eq, gt, isNotNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNotNull, or, sql } from "drizzle-orm";
 
 import { currentDatabaseTime } from "../../../infrastructure/database/database-time.js";
 import { DatabaseService } from "../../../infrastructure/database/database.service.js";
@@ -54,15 +54,6 @@ export type FeedbackCampaignSummaryClaimResult =
     }
   | { readonly outcome: "busy" }
   | { readonly outcome: "stale" };
-
-export type FeedbackCampaignResumeCursor = {
-  readonly dueAt: Date;
-  readonly campaignId: string;
-};
-
-export type FeedbackCampaignResumeCandidate = FeedbackCampaignResumeCursor & {
-  readonly generation: number;
-};
 
 export type FeedbackPendingSummaryCursor = {
   readonly requestedAt: Date;
@@ -195,170 +186,26 @@ export class FeedbackCampaignRepository {
     transaction: AppTransaction,
     id: string,
     status: FeedbackCampaignStatus,
-    options: { readonly resumeDueAt?: Date } = {},
   ): Promise<FeedbackCampaignRow | undefined> {
-    const resumeRequested = status === "launched" && options.resumeDueAt;
+    // Resume invalidates outbound snapshots across pause/resume.
     const [record] = await transaction
       .update(feedbackCampaigns)
       .set(
-        resumeRequested
+        status === "launched"
           ? {
               status,
               resumeGeneration: sql`${feedbackCampaigns.resumeGeneration} + 1`,
-              resumeDueAt: resumeRequested,
               updatedAt: new Date(),
             }
-          : status === "launched"
-            ? { status, updatedAt: new Date() }
-            : {
-                status,
-                // Pause/close cancels a resume repair that lost the lifecycle
-                // race. The campaign row lock orders this with an in-flight
-                // MongoDB hand-off.
-                resumeAppliedGeneration: feedbackCampaigns.resumeGeneration,
-                resumeDueAt: null,
-                updatedAt: new Date(),
-              },
+          : {
+              status,
+              updatedAt: new Date(),
+            },
       )
       .where(eq(feedbackCampaigns.id, id))
       .returning();
 
     return record;
-  }
-
-  /**
-   * Locks one specific pending resume generation. The lock is intentionally
-   * held while MongoDB admits that generation, serializing pause/close and a
-   * concurrent repair without pretending the two stores share a transaction.
-   */
-  async findPendingResumeIntentForUpdate(
-    transaction: AppTransaction,
-    campaignId: string,
-  ): Promise<FeedbackCampaignRow | undefined> {
-    const [record] = await transaction
-      .select()
-      .from(feedbackCampaigns)
-      .where(
-        and(
-          eq(feedbackCampaigns.id, campaignId),
-          eq(feedbackCampaigns.status, "launched"),
-          lt(
-            feedbackCampaigns.resumeAppliedGeneration,
-            feedbackCampaigns.resumeGeneration,
-          ),
-          isNotNull(feedbackCampaigns.resumeDueAt),
-        ),
-      )
-      .limit(1)
-      .for("update");
-
-    return record;
-  }
-
-  /**
-   * Re-locks the exact generation selected by maintenance after its allocation
-   * transaction committed. A concurrent pause, acknowledgement or later
-   * resume generation makes the allocated candidate stale instead of applying
-   * work to a different lifecycle state.
-   */
-  async findPendingResumeCandidateForUpdate(
-    transaction: AppTransaction,
-    input: { readonly campaignId: string; readonly generation: number },
-  ): Promise<FeedbackCampaignRow | undefined> {
-    const [record] = await transaction
-      .select()
-      .from(feedbackCampaigns)
-      .where(
-        and(
-          eq(feedbackCampaigns.id, input.campaignId),
-          eq(feedbackCampaigns.status, "launched"),
-          eq(feedbackCampaigns.resumeGeneration, input.generation),
-          lt(feedbackCampaigns.resumeAppliedGeneration, input.generation),
-          isNotNull(feedbackCampaigns.resumeDueAt),
-        ),
-      )
-      .limit(1)
-      .for("update");
-
-    return record;
-  }
-
-  /**
-   * Reads one deterministic resume-intent page. A task-specific checkpoint row
-   * serializes allocation across replicas; candidate campaign rows are not
-   * locked until processing starts after allocation commits.
-   */
-  async listPendingResumeCandidates(
-    input: {
-      readonly after?: FeedbackCampaignResumeCursor;
-      readonly limit?: number;
-    } = {},
-    executor: DatabaseExecutor = this.database.db,
-  ): Promise<FeedbackCampaignResumeCandidate[]> {
-    const boundedLimit = Math.min(Math.max(1, input.limit ?? 100), 500);
-    const rows = await executor
-      .select({
-        campaignId: feedbackCampaigns.id,
-        generation: feedbackCampaigns.resumeGeneration,
-        dueAt: feedbackCampaigns.resumeDueAt,
-      })
-      .from(feedbackCampaigns)
-      .where(
-        and(
-          eq(feedbackCampaigns.status, "launched"),
-          lt(
-            feedbackCampaigns.resumeAppliedGeneration,
-            feedbackCampaigns.resumeGeneration,
-          ),
-          isNotNull(feedbackCampaigns.resumeDueAt),
-          input.after
-            ? or(
-                gt(feedbackCampaigns.resumeDueAt, input.after.dueAt),
-                and(
-                  eq(feedbackCampaigns.resumeDueAt, input.after.dueAt),
-                  gt(feedbackCampaigns.id, input.after.campaignId),
-                ),
-              )
-            : undefined,
-        ),
-      )
-      .orderBy(asc(feedbackCampaigns.resumeDueAt), asc(feedbackCampaigns.id))
-      .limit(boundedLimit);
-
-    return rows.map((row) => {
-      if (!row.dueAt) {
-        throw new Error("Pending campaign resume intent had no due timestamp");
-      }
-      return {
-        campaignId: row.campaignId,
-        generation: row.generation,
-        dueAt: row.dueAt,
-      };
-    });
-  }
-
-  async acknowledgeResumeIntent(
-    transaction: AppTransaction,
-    input: { readonly campaignId: string; readonly generation: number },
-  ): Promise<boolean> {
-    const [record] = await transaction
-      .update(feedbackCampaigns)
-      .set({
-        resumeAppliedGeneration: input.generation,
-        resumeDueAt: null,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(feedbackCampaigns.id, input.campaignId),
-          eq(feedbackCampaigns.status, "launched"),
-          eq(feedbackCampaigns.resumeGeneration, input.generation),
-          lt(feedbackCampaigns.resumeAppliedGeneration, input.generation),
-        ),
-      )
-      .returning({ id: feedbackCampaigns.id });
-
-    return Boolean(record);
   }
 
   /**
@@ -467,12 +314,12 @@ export class FeedbackCampaignRepository {
 
   /**
    * Bounded keyset scan used to reconstruct an automatic summary request that
-   * was lost between MongoDB's terminal close and PostgreSQL's summary intent.
+   * was lost between a terminal close and the summary intent row.
    *
    * Every campaign is a candidate: a manual or earlier all-closed summary may
-   * predate a conversation created later. MongoDB lifecycle statistics decide
-   * whether the projection is actually stale. UUID primary-key order is only a
-   * fairness cursor; business ordering does not belong in a repair scan.
+   * predate a conversation created later. Conversation lifecycle statistics
+   * decide whether the projection is actually stale. UUID primary-key order is
+   * only a fairness cursor; business ordering does not belong in a repair scan.
    */
   async listSummaryRecoveryCandidates(
     input: { readonly afterCampaignId?: string; readonly limit?: number } = {},

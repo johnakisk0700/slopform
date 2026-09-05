@@ -27,56 +27,19 @@ const feedbackAttentionClassificationResultSchema = z
     category: postEventFeedbackSafetyCategorySchema.nullable(),
     recommendedAction: postEventFeedbackRecommendedActionSchema.nullable(),
     /**
-     * This message is aimed at us — the bot, the team, the questionnaire — and
-     * is abusive about it.
-     *
-     * A field of its own, on the same axis as nothing else here, because the one
-     * thing it must never become is a safety category. The prompt already spends
-     * a paragraph teaching that abuse aimed at us stays `incident=false` however
-     * heavy it is, and the whole point of that paragraph is that flagging it
-     * would bury the operator under `avoid` answers and crude jokes. Counting it
-     * is a different question from classifying it: we want to know when to stop
-     * replying, and that is not news about somebody's safety.
-     *
-     * So `incident` and this are independent by construction. A message can be
-     * both — somebody who degrades an attendee *and* swears at us in one breath
-     * — and reading either from the other is what the separation prevents.
+     * Abuse aimed at us (bot / team / questionnaire). Independent of `incident`
+     * and never a safety category: it only feeds the hostility ladder.
      */
     hostileToUs: z.boolean(),
     /**
-     * This message says *what happened*, rather than only that something did.
-     *
-     * Νίτσα Κομποσερογιάννη wrote «το τέλος μου άφησε άσχημη αίσθηση και δεν το
-     * έχω πει σε κανέναν ακόμα. Αν θέλετε, μπορώ να σας πω τι έγινε», and the
-     * bot answered «πες μου τι έγινε — σε ακούμε. Το προώθησα ήδη στην ομάδα
-     * μας και κάποιος θα σου μιλήσει προσωπικά.» It had forwarded nothing,
-     * because nothing had been said; when she then described being pressed for
-     * a lift home after saying no twice, that turn was answered with no
-     * assurance at all. The promise landed on the announcement and the
-     * disclosure got silence.
-     *
-     * A third independent boolean rather than a narrowing of `incident`, for the
-     * same reason `hostileToUs` is one. Keeping the announcement an incident is
-     * what protects the person who says «κάτι έγινε, θέλω να σας το πω» and then
-     * never writes again: an operator still sees it. What this field decides is
-     * only whether the application may claim to have forwarded something.
+     * The message describes the incident, not only announces one. Independent
+     * of `incident`: an announcement still flags, but the assurance sentence
+     * requires this to be true.
      */
     incidentDescribed: z.boolean(),
     /**
-     * Which recognised data-handling question this message is asking, or null.
-     *
-     * A fourth independent axis, and the one field here whose consumer never
-     * touches safety at all: it decides only whether the application appends an
-     * approved policy sentence to this run's outbound, or files the question as
-     * one nobody has decided how to answer. The classifier is shown what each
-     * id *asks* and never what we answer — see `policy-answers.ts` for why that
-     * split is the whole design.
-     *
-     * Independent of `incident` by construction, like `hostileToUs`: Νίτσα
-     * Κομποσερογιάννη asked whether her tablemates would learn what she had
-     * disclosed *in the same conversation* that carried the disclosure, and
-     * reading either field from the other would have cost her either the flag
-     * or the answer.
+     * Recognised data-handling question, or null. Independent of safety; the
+     * classifier sees `asks` only.
      */
     policyQuestion: postEventFeedbackPolicyQuestionSchema.nullable(),
     confidence: z.number().min(0).max(1),
@@ -125,36 +88,19 @@ export interface FeedbackAttentionClassificationPrompt {
 }
 
 /**
- * What one classification batch found: incidents, and hostility toward us.
- *
- * Two lists rather than one enriched list, because the consumers are different
- * and must stay that way. `signals` continue through proposal validation into
- * `feedback_notes`, message attention, the operator alert and the answer hold;
- * `hostileMessageIds` reach none of those — they only tell the run how many
- * times this person has now sworn at us. Returning them in the same array would
- * have meant every existing safety consumer growing a filter, and the first one
- * that forgot would turn a crude joke into an incident.
+ * One batch: incidents vs hostility vs described-incident vs policy questions.
+ * Separate lists so a safety consumer cannot treat hostility as an incident.
  */
 export interface FeedbackAttentionClassificationResult {
   readonly signals: readonly FeedbackExtractionSafetySignalProposal[];
   /** Participant messages in this batch aimed abusively at us. */
   readonly hostileMessageIds: readonly string[];
   /**
-   * Incident messages in this batch that say what happened, as opposed to
-   * announcing that something did.
-   *
-   * A third list for the third consumer: only the safety assurance reads it, and
-   * only to decide whether «Το προώθησα ήδη στην ομάδα μας» is true yet. Every
-   * other consumer of `signals` — notes, message attention, the operator alert,
-   * the answer hold — treats an announcement exactly like a description, because
-   * for all of them it is one.
+   * Incidents that describe what happened. Only the safety-assurance append
+   * reads this; other signal consumers treat announcement and description alike.
    */
   readonly describedIncidentMessageIds: readonly string[];
-  /**
-   * Data-handling questions this batch asked, by message. A fourth list for a
-   * fourth consumer: the policy-answer append and the unanswered-question
-   * raise read it, and nothing that touches safety ever does.
-   */
+  /** Data-handling questions this batch asked. Safety consumers never read it. */
   readonly policyQuestions: readonly FeedbackPolicyQuestionMatch[];
 }
 
@@ -171,22 +117,9 @@ export class FeedbackAttentionClassificationValidationError extends Error {
 }
 
 /**
- * Small, independent model task: classify the incidents in new testimony.
- *
- * The main extraction prompt has no category/action contract. Keeping this
- * decision boundary separate prevents natural reply, candidate resolution and
- * questionnaire progress from competing with attention classification.
- *
- * "Described" used to be the whole boundary: the prompt judged what a
- * respondent reported happening to them and put the respondent's own conduct
- * explicitly out of scope. Γεωργία Ρατσιστρόνα then answered `avoid` by naming
- * an attendee and saying she does not sit at a table with foreigners, and the
- * classifier answered `incident=false` — correctly, by the instructions it had.
- * The message was the incident and there was nothing in the taxonomy for that.
- * So the scope is now the incident wherever it sits, and the two false-positive
- * guards that used to be implied by "described" are spelled out instead: abuse
- * aimed at us or at nobody stays `false`, and so does an ordinary negative
- * verdict about a person, which is what the `avoid` question asks for.
+ * Independent classification of new testimony. Scope is the incident wherever
+ * it sits, including respondent-source abuse of a named attendee. Abuse at us
+ * or nobody, and ordinary negative / `avoid` wording, stay `incident=false`.
  */
 export function buildFeedbackAttentionClassificationPrompt(
   input: BuildFeedbackAttentionClassificationPromptInput,
@@ -266,11 +199,7 @@ export function buildFeedbackAttentionClassificationPrompt(
 }
 
 /**
- * Requires complete one-to-one coverage of the requested message batch.
- *
- * A missing result is not interpreted as "safe": that would turn a model
- * formatting omission into a false negative. The caller retries the run and
- * eventually reaches the generic permanent-failure fallback.
+ * Requires one result per requested message. A missing id is not "safe".
  */
 export function validateFeedbackAttentionClassification(
   proposal: FeedbackAttentionClassificationProposal,
@@ -296,16 +225,12 @@ export function validateFeedbackAttentionClassification(
     }
     seen.add(result.messageId);
 
-    // Read before and independently of `incident`, so the two never gate each
-    // other: a message that is both a disclosure and abusive about us appears in
-    // both lists, and one that is only rude appears in neither signal.
+    // Independent of `incident`: a message can be both disclosure and hostile.
     if (result.hostileToUs) {
       hostileMessageIds.push(result.messageId);
     }
 
-    // Same independence as `hostileToUs`, same position: read before and apart
-    // from `incident`, so a disclosure that also asks who will find out keeps
-    // both the flag and the question.
+    // Independent of `incident`: a disclosure may also ask a policy question.
     if (result.policyQuestion) {
       policyQuestions.push({
         messageId: result.messageId,
@@ -350,16 +275,8 @@ export function validateFeedbackAttentionClassification(
 }
 
 /**
- * The one category whose urgency the application decides rather than the model.
- *
- * `urgent_human_follow_up` is not just a priority label: it sets `dutyOfCare`
- * and makes the run send nothing at all, because the only copy the questionnaire
- * owns would answer "I do not want to live" with the next question. That brake
- * is right for a disclosure and wrong here, where the person who wrote the
- * message is the one behaving badly — going silent leaves their message hanging
- * unanswered while a human is still hours away, and says nothing was recorded.
- * The prompt asks for `human_follow_up`; this is what makes it true even when a
- * model reads racism as an emergency.
+ * `abuse_of_a_participant` never becomes `urgent_human_follow_up`: urgent
+ * silence is for a disclosure, not for the person who wrote the abuse.
  */
 function cappedRecommendedAction(
   category: PostEventFeedbackSafetyCategory,

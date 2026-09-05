@@ -504,7 +504,7 @@ const MACHINERY_FROM_THE_OUTSIDE: readonly FeedbackScenario[] = [
   },
   {
     // S58. The kill switch freezes model work as well as outbound delivery.
-    // Testimony stays unread in MongoDB and resume replans it from current state;
+    // Testimony stays unread on the conversation row and resume replans it from current state;
     // paying to classify it while paused would make "pause" decorative.
     id: "campaign_paused_midflow",
     title: "parks unread testimony without a model call while paused",

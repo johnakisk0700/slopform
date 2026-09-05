@@ -9,6 +9,7 @@ import {
   feedbackAnswerWithdrawals,
   feedbackCampaigns,
   feedbackCampaignSummaries,
+  feedbackConversations,
   feedbackMaintenanceCheckpoints,
   feedbackNotes,
   messageOutbox,
@@ -42,9 +43,9 @@ describe("post-event feedback database constraints", () => {
     expect(checks.get("feedback_maintenance_checkpoints_task_check")).toContain(
       "summary_pending",
     );
-    expect(checks.get("feedback_maintenance_checkpoints_task_check")).toContain(
-      "campaign_resume",
-    );
+    expect(
+      checks.get("feedback_maintenance_checkpoints_task_check"),
+    ).not.toContain("campaign_resume");
     expect(
       checks.get("feedback_maintenance_checkpoints_cursor_shape_check"),
     ).toContain("summary_auto");
@@ -92,6 +93,100 @@ describe("post-event feedback database constraints", () => {
     expect(fairnessMigration).not.toMatch(/^INSERT /mu);
   });
 
+  it("stores campaign conversations as scalars plus bounded JSONB, without execution FKs", () => {
+    const config = getTableConfig(feedbackConversations);
+    const columns = new Map(
+      config.columns.map((column) => [column.name, column]),
+    );
+    const checks = new Map(
+      config.checks.map((check) => [
+        check.name,
+        dialect.sqlToQuery(check.value).sql,
+      ]),
+    );
+    const indexes = new Map(
+      config.indexes.map((index) => [index.config.name, index]),
+    );
+    const campaignFk = config.foreignKeys.find((fk) =>
+      fk.getName().includes("campaign_id"),
+    );
+    const participantFk = config.foreignKeys.find((fk) =>
+      fk.getName().includes("respondent_participant_id"),
+    );
+
+    expect(columns.get("id")?.primary).toBe(true);
+    expect(columns.get("work_revision")?.default).toBe(0);
+    expect(columns.get("work_next_action_at")?.notNull).toBe(false);
+    expect(columns.has("execution_epoch")).toBe(false);
+    expect(columns.has("campaign_resume_generation")).toBe(false);
+    expect(columns.has("document")).toBe(false);
+    expect(
+      checks.get("feedback_conversations_messages_length_check"),
+    ).toContain("150");
+    expect(checks.get("feedback_conversations_messages_size_check")).toContain(
+      "4194304",
+    );
+    expect(checks.get("feedback_conversations_goals_length_check")).toContain(
+      "between 1 and 10",
+    );
+    expect(checks.get("feedback_conversations_lifecycle_pair_check")).toContain(
+      "open",
+    );
+    expect(
+      indexes.get("feedback_conversations_campaign_respondent_uidx")?.config
+        .unique,
+    ).toBe(true);
+    expect(
+      indexes.get("feedback_conversations_open_phone_uidx")?.config.unique,
+    ).toBe(true);
+    expect(
+      dialect.sqlToQuery(
+        indexes.get("feedback_conversations_open_phone_uidx")?.config.where ??
+          sql``,
+      ).sql,
+    ).toContain("open");
+    expect(
+      dialect.sqlToQuery(
+        indexes.get("feedback_conversations_work_due_idx")?.config.where ??
+          sql``,
+      ).sql,
+    ).toContain("work_next_action_at");
+    expect(campaignFk?.onDelete).toBe("restrict");
+    expect(participantFk?.onDelete).toBe("restrict");
+    expect(
+      config.foreignKeys.some((fk) =>
+        fk.getName().includes("feedback_conversation_executions"),
+      ),
+    ).toBe(false);
+
+    const migration = readFileSync(
+      new URL(
+        "../../drizzle/20260905130532_feedback_conversations.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    expect(migration).toContain('CREATE TABLE "feedback_conversations"');
+    expect(migration).toContain(
+      'CREATE UNIQUE INDEX "feedback_conversations_open_phone_uidx"',
+    );
+    expect(migration).toContain(
+      'CREATE INDEX "feedback_conversations_work_due_idx"',
+    );
+    expect(migration).not.toContain("feedback_conversation_executions");
+    expect(migration).not.toMatch(/^INSERT /mu);
+    expect(migration).not.toMatch(/^UPDATE /mu);
+    expect(migration).toContain('DROP COLUMN "resume_applied_generation"');
+    expect(migration).toContain('DROP COLUMN "resume_due_at"');
+    expect(
+      migration.indexOf('DELETE FROM "feedback_maintenance_checkpoints"'),
+    ).toBeLessThan(
+      migration.indexOf(
+        'ADD CONSTRAINT "feedback_maintenance_checkpoints_task_check"',
+      ),
+    );
+  });
+
   it("uniquely scopes one campaign per event and restricts event deletes", () => {
     const config = getTableConfig(feedbackCampaigns);
     const indexes = new Map(
@@ -127,15 +222,15 @@ describe("post-event feedback database constraints", () => {
     );
 
     expect(columns.get("resume_generation")?.default).toBe(0);
-    expect(columns.get("resume_applied_generation")?.default).toBe(0);
-    expect(columns.get("resume_due_at")?.notNull).toBe(false);
+    expect(columns.has("resume_applied_generation")).toBe(false);
+    expect(columns.has("resume_due_at")).toBe(false);
     expect(checks.get("feedback_campaigns_resume_generation_check")).toContain(
-      "resume_applied_generation",
+      "resume_generation",
     );
-    expect(checks.get("feedback_campaigns_resume_intent_pair_check")).toContain(
-      "resume_due_at",
+    expect(checks.has("feedback_campaigns_resume_intent_pair_check")).toBe(
+      false,
     );
-    expect(indexes.has("feedback_campaigns_resume_pending_idx")).toBe(true);
+    expect(indexes.has("feedback_campaigns_resume_pending_idx")).toBe(false);
 
     const migration = readFileSync(
       new URL(

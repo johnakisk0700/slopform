@@ -185,7 +185,7 @@ export class FeedbackOutboxRepository {
     private readonly campaigns: FeedbackCampaignRepository,
   ) {}
 
-  /** Shared mutex for Mongo control transitions and the provider-entry CAS. */
+  /** Shared mutex for conversation control transitions and the provider-entry CAS. */
   lockConversation(
     transaction: AppTransaction,
     conversationId: string,
@@ -248,12 +248,12 @@ export class FeedbackOutboxRepository {
   }
 
   /**
-   * One bounded PostgreSQL projection for the Mongo transcript's outbox ids.
+   * One bounded PostgreSQL projection for the conversation transcript's outbox ids.
    *
    * The aggregate schema caps its entire transcript at the same limit, so this
    * is one small indexed lookup rather than one query per bot turn. A missing
    * result is intentionally distinguishable from every outbox status; old
-   * Mongo turns can predate the retained PostgreSQL row.
+   * conversation turns can predate the retained PostgreSQL row.
    */
   async listOutboxStatusesByIds(
     outboxIds: readonly string[],
@@ -528,7 +528,7 @@ export class FeedbackOutboxRepository {
 
   /**
    * Cancels every still-retractable row except the exact terminal row that won
-   * the Mongo lifecycle CAS.
+   * the conversation lifecycle CAS.
    *
    * The caller holds the shared conversation advisory lock while committing
    * that CAS. Keeping the cancellation in the same lock interval gives a
@@ -615,7 +615,7 @@ export class FeedbackOutboxRepository {
    * Retracts automation made obsolete by a newly materialized participant turn.
    *
    * `system` and `staff` are explicit commitments, not questionnaire chatter.
-   * The caller also supplies the exact Mongo-authorized terminal/handoff ids;
+   * The caller also supplies the exact conversation-authorized terminal/handoff ids;
    * every other reply, intro or reminder is safe to retire only while it is
    * still before the provider-entry marker.
    */
@@ -889,7 +889,7 @@ export class FeedbackOutboxRepository {
       )
       .where(
         and(
-          // This is only a bounded discovery hint. MongoDB grants authority by
+          // This is only a bounded discovery hint. The conversation grants authority by
           // exact lifecycle id before the claim query receives any exception.
           eq(messageOutbox.kind, "system"),
           sql`${messageOutbox.dedupeKey} = 'feedback-stop-ack-' || ${messageOutbox.conversationId}::text`,
@@ -1161,7 +1161,7 @@ export class FeedbackOutboxRepository {
    * The durable no-return boundary immediately before the provider call.
    * Anything after this CAS may have reached the provider and must never fall
    * back to `pending` merely because the worker disappeared. Campaign state
-   * must still be `launched`, except when the final MongoDB guard passes the
+   * must still be `launched`, except when the final conversation guard passes the
    * exact STOP acknowledgement id being marked; a mismatched id grants no
    * capability.
    */

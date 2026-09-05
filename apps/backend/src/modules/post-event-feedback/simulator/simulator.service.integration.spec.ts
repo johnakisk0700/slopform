@@ -66,7 +66,12 @@ describe("post-event feedback simulator (simulated mode)", () => {
     const introOutboxId = intro.id;
 
     await expect(
-      harness.outboundTranscript.record(intro, observedAt, "corr-intro"),
+      harness.outboundTranscript.record(
+        {} as AppTransaction,
+        intro,
+        observedAt,
+        "corr-intro",
+      ),
     ).resolves.toMatchObject({ outcome: "appended" });
     await expect(
       harness.transport.sendText({
@@ -203,6 +208,8 @@ interface FakeConversation {
   control: { mode: string; source: string; changedAt: Date };
   messages: FakeMessage[];
   needsAttention: boolean;
+  awaitingHuman?: boolean;
+  workRevision?: number;
 }
 
 class FakeSimulatorRepository {
@@ -444,26 +451,46 @@ class FakeConversations {
     );
   }
 
+  async markWorkDue(
+    _transaction: AppTransaction,
+    input: { conversationId: string; nextActionAt: Date; at: Date },
+  ): Promise<{
+    changed: boolean;
+    conversation: FakeConversation;
+    work: { revision: number; nextActionAt: Date; executionEpoch: number };
+  }> {
+    const conversation = this.require(input.conversationId);
+    const revision = (conversation.workRevision ?? 0) + 1;
+    conversation.workRevision = revision;
+    return {
+      changed: true,
+      conversation,
+      work: { revision, nextActionAt: input.nextActionAt, executionEpoch: 0 },
+    };
+  }
+
   /** Idempotent by `ingressId` / `outboxId`, like the real repository. */
-  async appendMessage(input: {
-    conversationId: string;
-    actor: string;
-    text: string;
-    at: Date;
-    ingressId?: string | null;
-    outboxId?: string | null;
-  }): Promise<{
+  async appendMessage(
+    _transaction: AppTransaction,
+    input: {
+      conversationId: string;
+      actor: string;
+      text: string;
+      at: Date;
+      id?: string;
+      providerMessageId?: string | null;
+      ingressId?: string | null;
+      outboxId?: string | null;
+    },
+  ): Promise<{
     appended: boolean;
     message: FakeMessage;
     conversation: FakeConversation;
   }> {
-    const conversation = this.documents.get(input.conversationId);
-    if (!conversation) {
-      throw new Error(`Conversation ${input.conversationId} was not seeded`);
-    }
-    const keys = [input.ingressId, input.outboxId].filter(Boolean);
+    const conversation = this.require(input.conversationId);
+    const keys = [input.id, input.ingressId, input.outboxId].filter(Boolean);
     const existing = conversation.messages.find((message) =>
-      [message.ingressId, message.outboxId]
+      [message.id, message.ingressId, message.outboxId]
         .filter(Boolean)
         .some((key) => keys.includes(key as string)),
     );
@@ -471,7 +498,7 @@ class FakeConversations {
       return { appended: false, message: existing, conversation };
     }
     const message: FakeMessage = {
-      id: randomUUID(),
+      id: input.id ?? randomUUID(),
       seq: conversation.messages.length + 1,
       actor: input.actor,
       text: input.text,
@@ -480,6 +507,27 @@ class FakeConversations {
     };
     conversation.messages.push(message);
     return { appended: true, message, conversation };
+  }
+
+  async raiseAttention(
+    _transaction: AppTransaction,
+    input: {
+      conversationId: string;
+      kind: string;
+      messageId: string | null;
+    },
+  ): Promise<{ changed: boolean; conversation: FakeConversation }> {
+    const conversation = this.require(input.conversationId);
+    conversation.needsAttention = true;
+    return { changed: true, conversation };
+  }
+
+  private require(id: string): FakeConversation {
+    const conversation = this.documents.get(id);
+    if (!conversation) {
+      throw new Error(`Conversation ${id} was not seeded`);
+    }
+    return conversation;
   }
 }
 
@@ -544,38 +592,38 @@ function createSimulatorHarness(): SimulatorHarness {
   );
 
   const outboundTranscript = new FeedbackOutboundTranscriptService(
-    database as unknown as DatabaseService,
     repository as unknown as FeedbackOutboxRepository,
     conversations as unknown as FeedbackConversationRepository,
   );
   const outboundLog = new FeedbackOutboundLogService(
     repository as unknown as FeedbackOutboundLogRepository,
   );
-  let workRevision = 0;
   const conversationWakeups = {
-    schedule: async (input: {
+    ensureQueued: async (input: {
       conversationId: string;
-      nextActionAt: Date;
+      work: { revision: number; nextActionAt: Date | null };
       correlationId: string;
-      at?: Date;
-    }): Promise<string> => {
-      const revision = (workRevision += 1);
+      now?: Date;
+    }): Promise<string | undefined> => {
+      if (!input.work.nextActionAt) {
+        return undefined;
+      }
       const jobId = createFeedbackReconcileConversationJobId(
         input.conversationId,
-        revision,
+        input.work.revision,
       );
-      const at = input.at ?? new Date();
+      const now = input.now ?? new Date();
       await queue.add(
         FEEDBACK_JOB_NAMES.reconcileConversationV2,
         {
           schemaVersion: FEEDBACK_JOB_SCHEMA_VERSION_V2,
           conversationId: input.conversationId,
-          revision,
+          revision: input.work.revision,
           correlationId: input.correlationId,
         },
         {
           jobId,
-          delay: Math.max(0, input.nextActionAt.getTime() - at.getTime()),
+          delay: Math.max(0, input.work.nextActionAt.getTime() - now.getTime()),
         },
       );
       return jobId;

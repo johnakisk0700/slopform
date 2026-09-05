@@ -27,8 +27,9 @@ Core handbooks, then ADRs in number order, then ops and the readiness record:
 16. [`decisions/0012-selectable-palettes.md`](decisions/0012-selectable-palettes.md) — palette axis _(narrows 0005)_
 17. [`decisions/0013-state-driven-feedback-orchestration.md`](decisions/0013-state-driven-feedback-orchestration.md) — state reconciliation + outbox _(supersedes Redis execution from 0008)_
 18. [`decisions/0014-public-slopform-identity.md`](decisions/0014-public-slopform-identity.md) — public Slopform name; leftover Join The Six IDs
-19. [`deployment.md`](deployment.md) — local containers and example VPS layout
-20. [`agent-readiness.md`](agent-readiness.md) — dated extension benchmark _(repeat after material architecture change)_
+19. [`decisions/0015-postgresql-feedback-conversations.md`](decisions/0015-postgresql-feedback-conversations.md) — PostgreSQL owns campaign conversations _(supersedes feedback storage from 0007 / 0008 / 0013)_
+20. [`deployment.md`](deployment.md) — local containers and example VPS layout
+21. [`agent-readiness.md`](agent-readiness.md) — dated extension benchmark _(repeat after material architecture change)_
 
 ## Area index
 

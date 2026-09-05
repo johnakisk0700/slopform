@@ -137,10 +137,11 @@ flowchart LR
    already describes.
 
 Feedback operator read models do not derive business state from BullMQ.
-`getFeedbackConversation` projects automation from MongoDB work plus an active
-PostgreSQL execution lease; `getFeedbackOutboxMessage` projects dispatch from
-PostgreSQL claim/send markers. Collection endpoints must not do per-row MongoDB
-reads — outbox lists batch respondents via `listRespondentsByIds`.
+`getFeedbackConversation` projects automation from conversation work columns
+plus an active PostgreSQL execution lease; `getFeedbackOutboxMessage` projects
+dispatch from PostgreSQL claim/send markers. Collection endpoints must not do
+per-row conversation-transcript reads — outbox lists batch respondents via
+`listRespondentsByIds`. HTTP operation ids and response shapes are unchanged.
 
 **Append-only collections page by keyset, not offset.**
 `listFeedbackOutboxHistory` takes an opaque `cursor`, returns `nextCursor`, and

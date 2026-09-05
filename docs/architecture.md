@@ -13,9 +13,10 @@ bulk-messaging interface. Public name:
 
 Modular monolith: private React admin (`apps/admin`) + NestJS backend
 (`apps/backend`) as separate HTTP and BullMQ worker processes sharing modules
-and contracts. PostgreSQL owns relational business, audit, outbox and delivery.
-MongoDB owns conversation aggregates and ordered turns. Redis is disposable
-queue coordination, not a business source of truth.
+and contracts. PostgreSQL owns relational business, audit, outbox, delivery and
+campaign feedback conversations. MongoDB owns admin Assistant threads and
+ordered turns. Redis is disposable queue coordination, not a business source of
+truth.
 
 The participant channel for this product is WhatsApp (Wasender, gated by an
 operator-managed participant opt-in). This
@@ -79,8 +80,9 @@ confirmed. Cutover path: [migration-strategy.md](migration-strategy.md),
 - Transitions affecting participants, money or outbound comms write audit events.
 - Queue handlers idempotent; retries expected. Providers are adapters — their
   payloads are not the domain schema.
-- Mongo conversation state does not replace Postgres audit/outbox/delivery;
-  cross-store workflows name recovery direction
+- Feedback conversation state lives with audit/outbox/delivery in PostgreSQL
+  ([ADR 0015](decisions/0015-postgresql-feedback-conversations.md)). Assistant
+  threads remain Mongo-authoritative
   ([ADR 0007](decisions/0007-mongodb-conversation-authority.md)).
 - Clerk proves identity; API authorizes the subject against admin policy. A
   browser route guard is not a permission boundary
@@ -98,12 +100,12 @@ confirmed. Cutover path: [migration-strategy.md](migration-strategy.md),
 
 ## Read next
 
-| Concern                          | Doc                                                                                                              |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| Nest, pools, jobs, observability | [backend.md](backend.md)                                                                                         |
-| Admin UI, theming, components    | [frontend.md](frontend.md), [components](frontend/components/README.md)                                          |
-| Containers / VPS                 | [deployment.md](deployment.md)                                                                                   |
-| Feedback orchestration           | [ADR 0013](decisions/0013-state-driven-feedback-orchestration.md)                                                |
-| Generated HTTP client            | [ADR 0009](decisions/0009-generated-api-client.md), [ADR 0010](decisions/0010-generated-client-not-committed.md) |
-| Public identity                  | [ADR 0014](decisions/0014-public-slopform-identity.md)                                                           |
-| Handbook index                   | [docs/README.md](README.md)                                                                                      |
+| Concern                          | Doc                                                                                                                                |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Nest, pools, jobs, observability | [backend.md](backend.md)                                                                                                           |
+| Admin UI, theming, components    | [frontend.md](frontend.md), [components](frontend/components/README.md)                                                            |
+| Containers / VPS                 | [deployment.md](deployment.md)                                                                                                     |
+| Feedback orchestration           | [ADR 0013](decisions/0013-state-driven-feedback-orchestration.md), [ADR 0015](decisions/0015-postgresql-feedback-conversations.md) |
+| Generated HTTP client            | [ADR 0009](decisions/0009-generated-api-client.md), [ADR 0010](decisions/0010-generated-client-not-committed.md)                   |
+| Public identity                  | [ADR 0014](decisions/0014-public-slopform-identity.md)                                                                             |
+| Handbook index                   | [docs/README.md](README.md)                                                                                                        |

@@ -19,7 +19,7 @@ import {
  * One outbound message the participant does not have yet.
  *
  * Every field is read from PostgreSQL — `message_outbox` joined to its campaign
- * and event, plus one batched MongoDB read for the respondent. Nothing here
+ * and event, plus one batched conversation read for the respondent. Nothing here
  * touches Redis, because this list is polled and a queue connection per row is
  * how an observability screen becomes the outage it was built to watch.
  */
@@ -46,7 +46,7 @@ export const feedbackOutboxQueueItemSchema = z
      * this screen exists to show. The poll interval is the resolution.
      */
     waitingSeconds: z.number().int().nonnegative(),
-    /** Null when the conversation document is missing (D18 renders instead). */
+    /** Null when the conversation row is missing (D18 renders instead). */
     respondentParticipantId: z.uuid().nullable(),
     respondentDisplayName: z.string().min(1).max(200).nullable(),
     phoneAtLaunch: z.string().min(1).max(50).nullable(),

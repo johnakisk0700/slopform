@@ -1,12 +1,10 @@
 /**
  * Shared, read-only access to what a burst rehearsal left in the databases.
  *
- * The three inspection scripts beside this file all need the same four things:
- * a Postgres pool, the Mongo conversation collection, the reserved-block
- * participants that a rehearsal owns, and a way to turn a participant id back
- * into a readable name. Repeating that in each of them is how the throwaway
- * versions of these scripts drifted apart — one of them scoped its queries and
- * two of them did not.
+ * The inspection scripts beside this file all need the same three things: a
+ * Postgres pool, the reserved-block participants that a rehearsal owns, and a
+ * way to turn a participant id back into a readable name. Repeating that in
+ * each of them is how the throwaway versions of these scripts drifted apart.
  *
  * Two things this file exists to guarantee rather than merely encourage:
  *
@@ -16,15 +14,17 @@
  *    filter, so no filter a caller writes can widen the query to a real person.
  *    The reserved block is the same `+3069000<cc><pp>` that `burst-scenario.ts`
  *    owns and that `scripts/reset-burst-data.mjs` deletes within.
- * 2. **Nothing here writes.** Only `pool.query` with select statements and
- *    `collection.find` are reachable from this module, which is what lets these
- *    scripts be run against a half-finished rehearsal without a second thought.
+ * 2. **Nothing here writes.** Only `pool.query` with select statements is
+ *    reachable from this module, which is what lets these scripts be run
+ *    against a half-finished rehearsal without a second thought.
+ *
+ * Campaign conversations live on `feedback_conversations`. Assistant threads
+ * in MongoDB are out of scope and are never opened here.
  *
  * @see {@link ./reset-burst-data.mjs}
  * @see {@link ../apps/backend/src/modules/post-event-feedback/burst/burst-scenario.ts}
  */
 
-import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -36,27 +36,10 @@ export const repositoryRoot = path.resolve(
 /** The block `burstPhoneE164` allocates. Nothing outside it is ever read. */
 export const RESERVED_PHONE_PREFIX = "+3069000";
 
-/** The collection the feedback module materializes conversations into. */
-const CONVERSATION_COLLECTION = "conversation_threads";
+const ALLOWED_THREAD_FILTERS = new Set(["needsAttention"]);
 
 /**
- * The MongoDB driver, resolved the way `reset-burst-data.mjs` resolves bullmq:
- * as a dependency of the workspace that actually declares it. `mongodb` is a
- * direct dependency of `apps/backend`, so a require rooted at that package's
- * manifest gets whatever version the lockfile installed. The throwaway versions
- * of these scripts imported it by its literal path inside
- * `node_modules/.pnpm/mongodb@<version>/`, which every version bump breaks and
- * which pnpm gives no promise about in the first place.
- */
-function loadMongoDriver() {
-  const backendRequire = createRequire(
-    path.join(repositoryRoot, "apps/backend/package.json"),
-  );
-  return backendRequire("mongodb");
-}
-
-/**
- * Opens both databases and reads the rehearsal's participant roster once.
+ * Opens Postgres and reads the rehearsal's participant roster once.
  *
  * The roster is read up front because every one of these scripts needs to put a
  * name next to a conversation, and a per-conversation lookup would be dozens of
@@ -66,13 +49,10 @@ export async function openBurstInspection({
   applicationName = "burst-inspect",
 } = {}) {
   const databaseUrl = requireEnvironment("DATABASE_URL");
-  const mongoUri = requireEnvironment("MONGODB_URI");
-  const mongoDatabase = requireEnvironment("MONGODB_DB");
 
   const { createDatabase } = await import(
     path.join(repositoryRoot, "packages/database/dist/index.js")
   );
-  const { MongoClient } = loadMongoDriver();
 
   const { pool } = createDatabase({
     connectionString: databaseUrl,
@@ -80,7 +60,6 @@ export async function openBurstInspection({
     maxConnections: 2,
   });
 
-  let mongo;
   try {
     const roster = await pool.query(
       `select id, preferred_name
@@ -92,33 +71,23 @@ export async function openBurstInspection({
     const nameById = new Map(
       roster.rows.map((row) => [row.id, row.preferred_name]),
     );
-
-    mongo = new MongoClient(mongoUri);
-    await mongo.connect();
-    const collection = mongo
-      .db(mongoDatabase)
-      .collection(CONVERSATION_COLLECTION);
+    const participantIds = [...nameById.keys()];
 
     return {
       pool,
       nameById,
 
       /** The rehearsal's participant ids, in preferred-name order. */
-      participantIds: [...nameById.keys()],
+      participantIds,
 
       /**
        * Conversations matching `filter`, never more. The reserved-block clause
-       * is spread last on purpose: it overrides rather than merges with any
-       * `respondentParticipantId` a caller passes, so the widest query this can
-       * run is "every rehearsal conversation".
+       * is applied last on purpose: it overrides rather than merges with any
+       * respondent a caller passes, so the widest query this can run is
+       * "every rehearsal conversation".
        */
       async findThreads(filter = {}) {
-        return collection
-          .find({
-            ...filter,
-            respondentParticipantId: { $in: [...nameById.keys()] },
-          })
-          .toArray();
+        return findReservedConversations(pool, participantIds, filter);
       },
 
       /** The name to print for a conversation, or a marker when it is a stranger. */
@@ -127,15 +96,79 @@ export async function openBurstInspection({
       },
 
       async close() {
-        await mongo.close().catch(() => undefined);
         await pool.end().catch(() => undefined);
       },
     };
   } catch (error) {
-    await mongo?.close().catch(() => undefined);
     await pool.end().catch(() => undefined);
     throw error;
   }
+}
+
+/**
+ * Builds the reserved-block conversation query. Exported so the scoping
+ * contract can be tested without opening a database.
+ */
+export function reservedConversationQuery(filter = {}) {
+  const unknown = Object.keys(filter).filter(
+    (key) => !ALLOWED_THREAD_FILTERS.has(key),
+  );
+  if (unknown.length > 0) {
+    throw new Error(
+      `Burst inspection refuses filter keys that could widen the query: ${unknown.join(", ")}`,
+    );
+  }
+
+  const conditions = ["respondent_participant_id = any($1::uuid[])"];
+  if (filter.needsAttention === true) {
+    conditions.push("needs_attention is true");
+  }
+
+  return {
+    text: `select id,
+                  campaign_id,
+                  respondent_participant_id,
+                  phone_at_launch,
+                  lifecycle_state,
+                  lifecycle_reason,
+                  needs_attention,
+                  hostile_turns,
+                  created_at,
+                  messages,
+                  goals,
+                  attention_reasons
+             from feedback_conversations
+            where ${conditions.join(" and ")}
+            order by created_at`,
+  };
+}
+
+export function conversationRowToInspectionThread(row) {
+  return {
+    _id: row.id,
+    campaignId: row.campaign_id,
+    respondentParticipantId: row.respondent_participant_id,
+    phoneAtLaunch: row.phone_at_launch,
+    lifecycle: {
+      state: row.lifecycle_state,
+      reason: row.lifecycle_reason,
+    },
+    needsAttention: row.needs_attention,
+    hostileTurns: row.hostile_turns,
+    createdAt: row.created_at,
+    messages: row.messages ?? [],
+    goals: row.goals ?? [],
+    attentionReasons: row.attention_reasons ?? [],
+  };
+}
+
+async function findReservedConversations(pool, participantIds, filter) {
+  if (participantIds.length === 0) {
+    return [];
+  }
+  const query = reservedConversationQuery(filter);
+  const result = await pool.query(query.text, [participantIds]);
+  return result.rows.map((row) => conversationRowToInspectionThread(row));
 }
 
 /**

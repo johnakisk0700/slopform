@@ -118,6 +118,12 @@
     },
     "@slopform/admin#typecheck": {
       "dependsOn": ["^build", "api:generate"]
+    },
+    "test:postgres": {
+      "cache": false,
+      "dependsOn": ["build"],
+      "env": ["FEEDBACK_POSTGRES_TEST_URL"],
+      "outputs": []
     }
   }
 }

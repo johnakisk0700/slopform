@@ -43,6 +43,7 @@ test("burst reset plans and deletes every RESTRICT child of feedback campaigns",
     "feedback_answer_withdrawals",
     "feedback_answers",
     "feedback_campaign_summaries",
+    "feedback_conversations",
     "feedback_notes",
     "message_outbox",
     "message_outbox_log",
@@ -82,22 +83,32 @@ test("burst reset preserves reusable seed identities and the audit ledger", () =
   assert.match(resetSource, /refuses NODE_ENV=production/u);
 });
 
-test("burst reset removes V2 conversation execution fences before their outbox scope", () => {
+test("burst reset removes conversation rows and execution fences before campaigns", () => {
   assert.match(
     resetSource,
     /union all select 'feedback_conversation_executions'/u,
   );
+  assert.match(resetSource, /union all select 'feedback_conversations'/u);
   const executionDeleteAt = resetSource.indexOf(
     "delete from feedback_conversation_executions where",
   );
-  const outboxDeleteAt = resetSource.indexOf(
-    "delete from message_outbox where",
+  const conversationDeleteAt = resetSource.indexOf(
+    "delete from feedback_conversations where",
+  );
+  const campaignDeleteAt = resetSource.indexOf(
+    "delete from feedback_campaigns where",
   );
   assert.notEqual(executionDeleteAt, -1);
-  assert.ok(executionDeleteAt < outboxDeleteAt);
+  assert.notEqual(conversationDeleteAt, -1);
+  assert.ok(executionDeleteAt < conversationDeleteAt);
+  assert.ok(conversationDeleteAt < campaignDeleteAt);
 
   for (const arguments_ of [[], ["--all-feedback"]]) {
     const scope = resolveResetScope(arguments_);
+    assert.match(
+      scope.conversationIdsSql,
+      /select id from feedback_conversations where campaign_id in/u,
+    );
     assert.match(
       scope.conversationIdsSql,
       /select distinct conversation_id from message_outbox where campaign_id in/u,
@@ -105,12 +116,14 @@ test("burst reset removes V2 conversation execution fences before their outbox s
   }
 });
 
-test("Mongo cleanup remains retryable after PostgreSQL campaign deletion", () => {
-  assert.match(resetSource, /phoneAtLaunch:\{\$gte:[\s\S]*\$lt:/u);
-  assert.doesNotMatch(
-    resetSource,
-    /conversation_threads\.(?:countDocuments|deleteMany)\(\{campaignId:/u,
-  );
+test("burst reset never reads or deletes MongoDB, including assistant threads", () => {
+  assert.doesNotMatch(resetSource, /conversation_threads/u);
+  assert.doesNotMatch(resetSource, /queryMongo|writeMongo|db\.conversation/u);
+  assert.doesNotMatch(resetSource, /admin_assistant/u);
+  for (const arguments_ of [[], ["--all-feedback"]]) {
+    const scope = resolveResetScope(arguments_);
+    assert.equal(scope.mongoFilter, undefined);
+  }
 });
 
 test("queue reset permits only delayed repeat schedulers", () => {
@@ -158,7 +171,6 @@ test("all-feedback mode keeps non-feedback identities and assistant threads", ()
   assert.equal(scope.campaignIdsSql, "select id from feedback_campaigns");
   assert.equal(scope.simOutboundPredicate, "true");
   assert.equal(scope.ingressPredicate, "true");
-  assert.equal(scope.mongoFilter, '{purpose:"post_event_feedback"}');
   assert.equal(scope.applyFlags, "--all-feedback --yes");
-  assert.doesNotMatch(scope.mongoFilter, /admin_assistant/u);
+  assert.match(scope.conversationIdsSql, /feedback_conversations/u);
 });

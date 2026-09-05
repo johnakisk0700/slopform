@@ -39,7 +39,7 @@ export class FeedbackOutboxMessageNotFoundError extends Error {
  * It reports; it steers nothing. No method here writes a row, adds a job or
  * touches a dispatcher, legacy delivery service or extractor.
  *
- * Every method derives its state from PostgreSQL plus bounded MongoDB identity
+ * Every method derives its state from PostgreSQL plus bounded conversation identity
  * reads. BullMQ is no longer part of this read model: an ephemeral job could
  * not prove whether a provider attempt happened, while the dispatcher columns
  * are the recovery protocol itself.
@@ -204,7 +204,7 @@ export class FeedbackOutboxQueueViewService {
     };
   }
 
-  /** One batched MongoDB + participant read for a page of outbox rows. */
+  /** One batched conversation + participant read for a page of outbox rows. */
   private async respondentContext(
     rows: readonly { readonly row: { readonly conversationId: string } }[],
   ) {

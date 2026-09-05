@@ -18,7 +18,8 @@
     "start:worker": "node --import ./dist/instrumentation.js ./dist/main-worker.js",
     "coverage": "vitest run --coverage",
     "test": "vitest run",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:postgres": "node ../../scripts/test-feedback-postgres.mjs"
   },
   "dependencies": {
     "@ai-sdk/openai": "4.0.18",

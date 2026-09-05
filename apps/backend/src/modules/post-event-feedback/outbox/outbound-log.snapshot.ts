@@ -68,7 +68,7 @@ export const outboundConversationSnapshotSchema = z
      * Optional keeps historical audit rows readable. New extraction rows use
      * it at the dispatcher's final provider-entry fence: any durable inbound
      * not in this set supersedes an ordinary reply, including a row still
-     * waiting for Mongo materialization.
+     * waiting for conversation materialization.
      */
     participantIngressIds: z
       .array(z.uuid())

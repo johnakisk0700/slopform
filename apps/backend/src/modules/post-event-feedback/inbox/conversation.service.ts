@@ -245,7 +245,7 @@ export class PostEventFeedbackConversationService {
     const at = new Date();
     const transition = await this.database.transaction(async (transaction) => {
       await this.results.lockConversation(transaction, conversation._id);
-      const current = await this.conversations.takeOver({
+      const current = await this.conversations.takeOver(transaction, {
         conversationId: conversation._id,
         source: "staff_action",
         at,
@@ -300,36 +300,37 @@ export class PostEventFeedbackConversationService {
 
     const at = new Date();
     let transition = { changed: false, conversation };
-    if (!replayOfCompletedResume) {
-      try {
-        transition = await this.conversations.resumeBot({
+    try {
+      transition = await this.database.transaction(async (transaction) => {
+        if (replayOfCompletedResume) {
+          return { changed: false, conversation };
+        }
+        const current = await this.conversations.resumeBot(transaction, {
           conversationId: conversation._id,
           at,
         });
-      } catch (error) {
-        if (error instanceof FeedbackConversationTransitionError) {
-          throw new FeedbackConversationActionNotAllowedError(error.message);
+        if (current.changed) {
+          await this.audit.append(transaction, {
+            actorType: "admin",
+            actorId,
+            action: "feedback_conversation.bot_resumed",
+            entityType: "feedback_conversation",
+            entityId: conversation._id,
+            requestId,
+            context: { campaignId },
+          });
         }
-        throw error;
-      }
-    }
-
-    if (transition.changed) {
-      await this.database.transaction(async (transaction) => {
-        await this.audit.append(transaction, {
-          actorType: "admin",
-          actorId,
-          action: "feedback_conversation.bot_resumed",
-          entityType: "feedback_conversation",
-          entityId: conversation._id,
-          requestId,
-          context: { campaignId },
-        });
+        return current;
       });
+    } catch (error) {
+      if (error instanceof FeedbackConversationTransitionError) {
+        throw new FeedbackConversationActionNotAllowedError(error.message);
+      }
+      throw error;
     }
 
     // `resumeBot` wrote the generation and any unread-testimony due time in the
-    // same MongoDB statement as control. Redis is only a wake-up. Calling this
+    // same conversation write as control. Redis is only a wake-up. Calling this
     // on an already-resumed replay repairs a crash or queue failure after that
     // statement without incrementing the generation a second time.
     await this.enqueueCurrentWork(transition.conversation, requestId, at);
@@ -402,10 +403,10 @@ export class PostEventFeedbackConversationService {
     const transition = await this.database.transaction(async (transaction) => {
       // Total-order the close against the dispatcher's final provider-entry
       // marker. Without the shared lock, staff could close after the final
-      // Mongo guard but before transport entry and a queued bot reply would
+      // conversation guard but before transport entry and a queued bot reply would
       // still leave after the operator had shut the conversation.
       await this.outbox.lockConversation(transaction, conversation._id);
-      const current = await this.conversations.close({
+      const current = await this.conversations.close(transaction, {
         conversationId: conversation._id,
         reason: "cancelled",
         at,
@@ -483,15 +484,17 @@ export class PostEventFeedbackConversationService {
     }
 
     const at = new Date();
-    const transition = await this.conversations.resolveAttentionReason({
-      conversationId: conversation._id,
-      reasonId,
-      resolvedBy: actorId,
-      at,
-    });
-
-    if (transition.changed) {
-      await this.database.transaction(async (transaction) => {
+    const transition = await this.database.transaction(async (transaction) => {
+      const current = await this.conversations.resolveAttentionReason(
+        transaction,
+        {
+          conversationId: conversation._id,
+          reasonId,
+          resolvedBy: actorId,
+          at,
+        },
+      );
+      if (current.changed) {
         await this.audit.append(transaction, {
           actorType: "admin",
           actorId,
@@ -503,13 +506,12 @@ export class PostEventFeedbackConversationService {
             campaignId,
             reasonId,
             kind: reason.kind,
-            // Whether this was the last one standing, which is the difference
-            // between clearing an item and clearing the conversation.
-            stillNeedsAttention: transition.conversation.needsAttention,
+            stillNeedsAttention: current.conversation.needsAttention,
           },
         });
-      });
-    }
+      }
+      return current;
+    });
 
     return this.toDetailView(transition.conversation);
   }
@@ -543,10 +545,13 @@ export class PostEventFeedbackConversationService {
         throw new FeedbackCampaignNotFoundError(campaignId);
       }
 
-      // MongoDB is authoritative for lifecycle/control. The optimistic screen
-      // read is deliberately irrelevant here: close/takeover may have won
-      // while the HTTP request was travelling to us.
-      const conversation = await this.conversations.findById(conversationId);
+      // Lifecycle/control are authoritative here. The optimistic screen read
+      // is deliberately irrelevant: close/takeover may have won while the
+      // HTTP request was travelling to us.
+      const conversation = await this.conversations.findById(
+        conversationId,
+        transaction,
+      );
       if (!conversation || conversation.campaignId !== campaign.id) {
         throw new FeedbackConversationNotFoundError(conversationId);
       }
@@ -561,7 +566,16 @@ export class PostEventFeedbackConversationService {
       );
       if (replay) {
         assertExactStaffMessageReplay(replay, conversation, input, actorId);
-        return replay;
+        const recorded = await this.outboundTranscript.record(
+          transaction,
+          replay,
+          replay.createdAt,
+          requestId,
+        );
+        if (recorded.outcome === "cancelled") {
+          throw new FeedbackConversationCapacityError();
+        }
+        return recorded.conversation;
       }
 
       if (
@@ -607,23 +621,19 @@ export class PostEventFeedbackConversationService {
           },
         });
       }
-      return inserted.row;
+      const recorded = await this.outboundTranscript.record(
+        transaction,
+        inserted.row,
+        inserted.row.createdAt,
+        requestId,
+      );
+      if (recorded.outcome === "cancelled") {
+        throw new FeedbackConversationCapacityError();
+      }
+      return recorded.conversation;
     });
 
-    // The shared outbound path: actor `staff` (the row's kind), idempotent by
-    // `outboxId`, and it cancels the row when the transcript cannot hold the
-    // message. Staff sends are synchronous, so the refusal is surfaced to the
-    // operator instead of being left for a background retry.
-    const recorded = await this.outboundTranscript.record(
-      outbox,
-      outbox.createdAt,
-      requestId,
-    );
-    if (recorded.outcome === "cancelled") {
-      throw new FeedbackConversationCapacityError();
-    }
-
-    return this.toDetailView(recorded.conversation);
+    return this.toDetailView(outbox);
   }
 
   /**

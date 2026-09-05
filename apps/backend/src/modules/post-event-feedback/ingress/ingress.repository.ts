@@ -132,8 +132,8 @@ export class FeedbackIngressRepository {
   }
 
   /**
-   * Whether durable participant ingress exists beyond an extraction's MongoDB
-   * snapshot. Pending rows have not reached Mongo yet; materialized rows tied
+   * Whether durable participant ingress exists beyond an extraction's conversation
+   * snapshot. Pending rows have not reached the conversation yet; materialized rows tied
    * to this conversation reached it after the run loaded its document.
    */
   async hasInboundBeyondSnapshot(
@@ -295,7 +295,7 @@ export class FeedbackIngressRepository {
    * Pending rows sharing one conversation-routing identity, in the only order
    * materialization is allowed to append them.
    *
-   * Phone is authoritative when the provider supplied it: the partial MongoDB
+   * Phone is authoritative when the provider supplied it: the partial open-phone
    * index also routes open conversations by phone. `chatJid` is the fallback
    * for malformed/unmatched traffic so two replicas still cannot race the same
    * shared-session thread. `ingressOrder` is assigned by PostgreSQL at insert;

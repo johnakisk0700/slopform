@@ -208,10 +208,11 @@ export class PostEventFeedbackCampaignSummaryService {
     const summary = await this.database.transaction(async (transaction) => {
       // The campaign row exists before the one-row summary projection and is
       // therefore the stable serialization key for concurrent first requests.
-      // Conversation creation holds this same lock across its MongoDB write,
+      // Conversation creation holds this same lock across its conversation write,
       // so the open-count snapshot and summary intent are ordered with every
-      // new thread. The loser observes the winner's complete cross-store
-      // mutation instead of persisting a false all-closed snapshot.
+      // new thread. The loser observes the winner's complete
+      // campaign-and-summary write instead of persisting a false all-closed
+      // snapshot.
       const campaign = await this.campaigns.findCampaignByIdForUpdate(
         transaction,
         campaignId,
@@ -434,7 +435,7 @@ export class PostEventFeedbackCampaignSummaryService {
 
   /**
    * Repairs both halves of summary intent: pending rows whose disposable Bull
-   * wake-up disappeared, and automatic requests lost after MongoDB committed
+   * wake-up disappeared, and automatic requests lost after the conversation committed
    * the last close but before PostgreSQL recorded a summary row.
    */
   async recover(correlationId: string): Promise<{
