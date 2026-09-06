@@ -1655,6 +1655,43 @@ describe("PostEventFeedbackConversationService", () => {
         }),
       }),
     );
+    const withdrawnContext = (
+      auditAppend.mock.calls[0]?.[1] as {
+        context: Record<string, unknown>;
+      }
+    ).context;
+    expect(withdrawnContext).not.toHaveProperty("supersededBy");
+    const retractTx = repository.deleteAnswer.mock.calls[0]?.[0];
+    expect(repository.recordAnswerWithdrawal.mock.calls[0]?.[0]).toBe(
+      retractTx,
+    );
+    expect(auditAppend.mock.calls[0]?.[0]).toBe(retractTx);
+  });
+
+  it("throws when a manual withdraw delete finds no row, without tombstone or audit", async () => {
+    const { service, repository, conversations, auditAppend } = createService();
+    conversations.findById.mockResolvedValue(openConversation());
+    repository.findAnswerById.mockResolvedValue(
+      answerRow({ questionKey: "avoid" }),
+    );
+    repository.deleteAnswer.mockResolvedValue(undefined);
+
+    await expect(
+      service.withdrawAnswer(
+        campaignId,
+        conversationId,
+        answerId,
+        "admin-1",
+        "req-26-missing",
+      ),
+    ).rejects.toBeInstanceOf(FeedbackAnswerNotFoundError);
+    expect(repository.lockConversation).toHaveBeenCalled();
+    expect(repository.deleteAnswer).toHaveBeenCalledWith(
+      expect.anything(),
+      answerId,
+    );
+    expect(repository.recordAnswerWithdrawal).not.toHaveBeenCalled();
+    expect(auditAppend).not.toHaveBeenCalled();
   });
 
   it("records an operator's answer about a candidate with staff provenance", async () => {
@@ -1813,6 +1850,55 @@ describe("PostEventFeedbackConversationService", () => {
         action: "feedback_answer.withdrawn",
         context: expect.objectContaining({ supersededBy: "avoid" }),
       }),
+    );
+    const retractTx = repository.deleteAnswer.mock.calls[0]?.[0];
+    expect(repository.recordAnswerWithdrawal.mock.calls[0]?.[0]).toBe(
+      retractTx,
+    );
+    const withdrawnAudit = auditAppend.mock.calls.find(
+      (call) =>
+        (call[1] as { action?: string } | undefined)?.action ===
+        "feedback_answer.withdrawn",
+    );
+    expect(withdrawnAudit?.[0]).toBe(retractTx);
+    expect(repository.insertStaffAnswer.mock.calls[0]?.[0]).toBe(retractTx);
+  });
+
+  it("still records a staff answer when a superseded delete finds no row", async () => {
+    const { service, repository, conversations, eventsService, auditAppend } =
+      createService();
+    conversations.findById.mockResolvedValue(openV1Conversation());
+    eventsService.listFeedbackCandidatesForRespondent.mockResolvedValue({
+      items: [{ participantId: subjectId, displayName: "Kostas" }],
+    });
+    const liked = answerRow({ questionKey: "liked" });
+    repository.listAnswersByConversation.mockResolvedValue([liked]);
+    repository.deleteAnswer.mockResolvedValue(undefined);
+    repository.insertStaffAnswer.mockResolvedValue(
+      answerRow({
+        id: "aaaaaaa9-aaaa-4aaa-8aaa-aaaaaaaaaaa9",
+        questionKey: "avoid",
+      }),
+    );
+
+    const answer = await service.addStaffAnswer(
+      campaignId,
+      conversationId,
+      { questionKey: "avoid", subjectParticipantId: subjectId },
+      "admin-1",
+      "req-42-missing",
+    );
+
+    expect(answer.questionKey).toBe("avoid");
+    expect(repository.insertStaffAnswer).toHaveBeenCalled();
+    expect(repository.recordAnswerWithdrawal).not.toHaveBeenCalled();
+    expect(auditAppend).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ action: "feedback_answer.withdrawn" }),
+    );
+    expect(auditAppend).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ action: "feedback_answer.staff_recorded" }),
     );
   });
 

@@ -9,15 +9,17 @@ import type {
 import { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import { ParticipantsRepository } from "../../participants/participants.repository.js";
 import { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
-import { isFeedbackClosingDedupeKey } from "../extraction/extraction.schemas.js";
 import { FeedbackIngressRepository } from "../ingress/ingress.repository.js";
 import {
   resolveFeedbackConversationWork,
   type FeedbackConversationDocument,
 } from "../post-event-feedback-conversation.document.js";
 import { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
-import { createFeedbackStopAckDedupeKey } from "../question-set.js";
 import { isCurrentAwaitingHumanCommitment } from "./current-commitment.js";
+import {
+  evaluateConversationDispatch,
+  type DispatchSettlementAction,
+} from "./dispatch-eligibility.js";
 import { FeedbackOutboundLogRepository } from "./outbound-log.repository.js";
 import { feedbackOutboundDecisionSchema } from "./outbound-log.schemas.js";
 import {
@@ -450,21 +452,16 @@ export class MessageOutboxDispatcherService {
     lockedCampaign?: FeedbackCampaignRow | null,
     lockedPhoneAtLaunch?: string,
   ): Promise<FeedbackOutboxGuardResult> {
-    const executor = transaction ? ([transaction] as const) : [];
     const campaign =
       lockedCampaign === undefined
         ? await this.campaigns.findCampaignById(claim.campaignId, transaction)
         : (lockedCampaign ?? undefined);
     if (!campaign) {
-      const failed = await this.outbox.finishDispatchClaimBeforeAttempt(
-        claim.id,
-        claim.claimToken,
-        "failed",
-        new Date(),
-        "campaign_missing",
-        ...executor,
+      return this.settleClaim(
+        claim,
+        { action: "finish_failed", reason: "campaign_missing" },
+        transaction,
       );
-      return settled(claim.id, failed ? "failed" : "claim_lost");
     }
 
     const conversation = await this.conversations.findById(
@@ -472,120 +469,23 @@ export class MessageOutboxDispatcherService {
       transaction,
     );
     if (!conversation) {
-      const failed = await this.outbox.finishDispatchClaimBeforeAttempt(
-        claim.id,
-        claim.claimToken,
-        "failed",
-        new Date(),
-        "conversation_missing",
-        ...executor,
-      );
-      return settled(claim.id, failed ? "failed" : "claim_lost");
-    }
-
-    if (
-      lockedPhoneAtLaunch !== undefined &&
-      conversation.phoneAtLaunch !== lockedPhoneAtLaunch
-    ) {
-      const failed = await this.outbox.finishDispatchClaimBeforeAttempt(
-        claim.id,
-        claim.claimToken,
-        "failed",
-        new Date(),
-        "conversation_route_changed",
-        ...executor,
-      );
-      return settled(claim.id, failed ? "failed" : "claim_lost");
-    }
-
-    // Terminal copy is inserted before the conversation row commits the close.
-    // It must wait for that aggregate transition; otherwise a superseded or
-    // failed close can leak a final message into an open conversation.
-    if (
-      conversation.lifecycle.state === "open" &&
-      isCanonicalTerminalTransitionMessage(claim)
-    ) {
-      const released = await this.outbox.releaseDispatchClaim(
-        claim.id,
-        claim.claimToken,
-        new Date(),
-        "terminal_transition_pending",
-        ...executor,
-      );
-      return settled(claim.id, released ? "held" : "claim_lost");
-    }
-
-    const permittedStopAcknowledgement =
-      conversation.lifecycle.state === "closed" &&
-      isPermittedStopAcknowledgement(
+      return this.settleClaim(
         claim,
-        conversation.lifecycle.reason,
-        conversation.lifecycle.terminalOutboxId,
+        { action: "finish_failed", reason: "conversation_missing" },
+        transaction,
       );
-    const permittedTerminalMessage =
-      conversation.lifecycle.state === "closed" &&
-      isPermittedTerminalMessage(
-        claim,
-        conversation.lifecycle.reason,
-        conversation.lifecycle.terminalOutboxId,
-      );
-
-    // STOP revokes consent and closes independently of campaign state. Its
-    // exact lifecycle-anchored acknowledgement is therefore the sole
-    // automated row allowed through a concurrent pause/close. A dedupe-shaped
-    // impostor receives no exception.
-    if (campaign.status === "closed" && !permittedStopAcknowledgement) {
-      const cancelled = await this.outbox.finishDispatchClaimBeforeAttempt(
-        claim.id,
-        claim.claimToken,
-        "cancelled",
-        new Date(),
-        "campaign_closed",
-        ...executor,
-      );
-      return settled(claim.id, cancelled ? "cancelled" : "claim_lost");
     }
 
-    if (campaign.status === "paused" && !permittedStopAcknowledgement) {
-      const released = await this.outbox.releaseDispatchClaim(
-        claim.id,
-        claim.claimToken,
-        new Date(),
-        "campaign_paused",
-        ...executor,
-      );
-      return settled(claim.id, released ? "held" : "claim_lost");
+    const decision = evaluateConversationDispatch({
+      claim,
+      campaign,
+      conversation,
+      ...(lockedPhoneAtLaunch === undefined ? {} : { lockedPhoneAtLaunch }),
+    });
+    if (decision.state === "settle") {
+      return this.settleClaim(claim, decision, transaction);
     }
-    if (
-      conversation.lifecycle.state === "closed" &&
-      !permittedTerminalMessage
-    ) {
-      const cancelled = await this.outbox.finishDispatchClaimBeforeAttempt(
-        claim.id,
-        claim.claimToken,
-        "cancelled",
-        new Date(),
-        `conversation_closed:${conversation.lifecycle.reason ?? "unknown"}`,
-        ...executor,
-      );
-      return settled(claim.id, cancelled ? "cancelled" : "claim_lost");
-    }
-
-    if (
-      claim.kind !== "staff" &&
-      !permittedTerminalMessage &&
-      conversation.control.mode === "human"
-    ) {
-      const cancelled = await this.outbox.finishDispatchClaimBeforeAttempt(
-        claim.id,
-        claim.claimToken,
-        "cancelled",
-        new Date(),
-        "human_control",
-        ...executor,
-      );
-      return settled(claim.id, cancelled ? "cancelled" : "claim_lost");
-    }
+    const { permittedStopAcknowledgement, permittedTerminalMessage } = decision;
 
     // STOP atomically withdraws opt-in before its acknowledgement is dispatched.
     // That exact acknowledgement is the sole consent exception; every other
@@ -600,26 +500,18 @@ export class MessageOutboxDispatcherService {
             conversation.respondentParticipantId,
           );
       if (!participant) {
-        const failed = await this.outbox.finishDispatchClaimBeforeAttempt(
-          claim.id,
-          claim.claimToken,
-          "failed",
-          new Date(),
-          "participant_missing",
-          ...executor,
+        return this.settleClaim(
+          claim,
+          { action: "finish_failed", reason: "participant_missing" },
+          transaction,
         );
-        return settled(claim.id, failed ? "failed" : "claim_lost");
       }
       if (!participant.postEventFeedbackWhatsappOptIn) {
-        const cancelled = await this.outbox.finishDispatchClaimBeforeAttempt(
-          claim.id,
-          claim.claimToken,
-          "cancelled",
-          new Date(),
-          "consent_withdrawn",
-          ...executor,
+        return this.settleClaim(
+          claim,
+          { action: "finish_cancelled", reason: "consent_withdrawn" },
+          transaction,
         );
-        return settled(claim.id, cancelled ? "cancelled" : "claim_lost");
       }
     }
 
@@ -629,15 +521,11 @@ export class MessageOutboxDispatcherService {
       !permittedTerminalMessage &&
       !isCurrentAwaitingHumanCommitment(claim.id, conversation)
     ) {
-      const cancelled = await this.outbox.finishDispatchClaimBeforeAttempt(
-        claim.id,
-        claim.claimToken,
-        "cancelled",
-        new Date(),
-        "awaiting_human",
-        ...executor,
+      return this.settleClaim(
+        claim,
+        { action: "finish_cancelled", reason: "awaiting_human" },
+        transaction,
       );
-      return settled(claim.id, cancelled ? "cancelled" : "claim_lost");
     }
 
     if (
@@ -652,15 +540,11 @@ export class MessageOutboxDispatcherService {
         transaction,
       );
       if (staleReason) {
-        const cancelled = await this.outbox.finishDispatchClaimBeforeAttempt(
-          claim.id,
-          claim.claimToken,
-          "cancelled",
-          new Date(),
-          staleReason,
+        return this.settleClaim(
+          claim,
+          { action: "finish_cancelled", reason: staleReason },
           transaction,
         );
-        return settled(claim.id, cancelled ? "cancelled" : "claim_lost");
       }
     }
 
@@ -669,6 +553,41 @@ export class MessageOutboxDispatcherService {
       phoneAtLaunch: conversation.phoneAtLaunch,
       authorizedStopOutboxId: permittedStopAcknowledgement ? claim.id : null,
     };
+  }
+
+  private async settleClaim(
+    claim: FeedbackOutboxClaimedRow,
+    settlement: {
+      readonly action: DispatchSettlementAction;
+      readonly reason: string;
+    },
+    transaction?: AppTransaction,
+  ): Promise<
+    Extract<FeedbackOutboxGuardResult, { readonly state: "settled" }>
+  > {
+    const executor = transaction ? ([transaction] as const) : [];
+    if (settlement.action === "release") {
+      const released = await this.outbox.releaseDispatchClaim(
+        claim.id,
+        claim.claimToken,
+        new Date(),
+        settlement.reason,
+        ...executor,
+      );
+      return settled(claim.id, released ? "held" : "claim_lost");
+    }
+
+    const status =
+      settlement.action === "finish_failed" ? "failed" : "cancelled";
+    const finished = await this.outbox.finishDispatchClaimBeforeAttempt(
+      claim.id,
+      claim.claimToken,
+      status,
+      new Date(),
+      settlement.reason,
+      ...executor,
+    );
+    return settled(claim.id, finished ? status : "claim_lost");
   }
 
   /**
@@ -934,57 +853,4 @@ function groupClaimsByConversation(
     );
   }
   return [...groups.values()];
-}
-
-/**
- * Closing copy is written before the aggregate closes and therefore dispatches
- * afterward. STOP acknowledgement is the analogous `system` row. Every other
- * row is stale once the conversation is terminal.
- */
-function isPermittedTerminalMessage(
-  row: Pick<
-    FeedbackOutboxClaimedRow,
-    "id" | "conversationId" | "kind" | "dedupeKey"
-  >,
-  reason: string | null,
-  terminalOutboxId: string | null | undefined,
-): boolean {
-  if (isPermittedStopAcknowledgement(row, reason, terminalOutboxId)) {
-    return true;
-  }
-  if (reason === "completed" || reason === "declined") {
-    return (
-      row.kind === "reply" &&
-      terminalOutboxId === row.id &&
-      isFeedbackClosingDedupeKey(row.conversationId, row.dedupeKey)
-    );
-  }
-  return false;
-}
-
-function isCanonicalTerminalTransitionMessage(
-  row: Pick<FeedbackOutboxClaimedRow, "conversationId" | "kind" | "dedupeKey">,
-): boolean {
-  return (
-    (row.kind === "reply" &&
-      isFeedbackClosingDedupeKey(row.conversationId, row.dedupeKey)) ||
-    (row.kind === "system" &&
-      row.dedupeKey === createFeedbackStopAckDedupeKey(row.conversationId))
-  );
-}
-
-function isPermittedStopAcknowledgement(
-  row: Pick<
-    FeedbackOutboxClaimedRow,
-    "id" | "conversationId" | "kind" | "dedupeKey"
-  >,
-  reason: string | null,
-  terminalOutboxId: string | null | undefined,
-): boolean {
-  return (
-    reason === "stopped" &&
-    row.kind === "system" &&
-    terminalOutboxId === row.id &&
-    row.dedupeKey === createFeedbackStopAckDedupeKey(row.conversationId)
-  );
 }

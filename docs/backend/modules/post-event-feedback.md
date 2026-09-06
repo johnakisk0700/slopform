@@ -719,6 +719,13 @@ and updates rows on its supplied transaction. Claim commits before per-conversat
 preparation, pacing and transport. Quarantine and delivery finalization retain
 their separate transactions.
 
+Eligibility is checked before pacing and again inside the locked preparation
+transaction. The pure [conversation dispatch policy](../../../apps/backend/src/modules/post-event-feedback/outbox/dispatch-eligibility.ts)
+evaluates already loaded campaign/conversation state. The dispatcher owns
+ordered reads, consent and reply-currency checks, and token-fenced claim
+settlement. Earlier exits skip later queries; ordinary reply currency is checked
+only during locked preparation.
+
 | State                           | Meaning                                  |
 | ------------------------------- | ---------------------------------------- |
 | `pending`                       | Claimable                                |
@@ -1019,6 +1026,10 @@ Correction: edit in place; append `extraction_meta.corrections`
 - `insertAnswerIfAbsent` skips corrected rows and tombstoned slots;
 - `deleteContradictedAnswers` skips corrected rows;
 - upsert merges `extraction_meta` (preserves corrections array).
+
+Manual withdrawal and replacement of a contradictory staff answer share one
+retraction operation in the inbox service: delete, tombstone and full-row audit
+snapshot use the caller's transaction. Replacement also records `supersededBy`.
 
 Only staff-recorded answer lifts a tombstone ([operator-recorded answers](#operator-recorded-answers-wp12c)).
 Both ops take conversation advisory lock. Conversation `goals[].status` is

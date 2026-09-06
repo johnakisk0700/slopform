@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import {
   FEEDBACK_EXTRACTION_ORIGIN_STAFF,
+  type AppTransaction,
   type FeedbackAnswerRow,
   type FeedbackCampaignRow,
   type FeedbackExtractionMeta,
@@ -915,49 +916,16 @@ export class PostEventFeedbackConversationService {
 
     await this.database.transaction(async (transaction) => {
       await this.results.lockConversation(transaction, conversationId);
-      const removed = await this.results.deleteAnswer(transaction, answerId);
+      const removed = await this.retractAnswer(transaction, {
+        answerId,
+        campaignId,
+        conversationId,
+        actorId,
+        requestId,
+      });
       if (!removed) {
         throw new FeedbackAnswerNotFoundError(answerId);
       }
-
-      await this.results.recordAnswerWithdrawal(transaction, {
-        campaignId: removed.campaignId,
-        conversationId: removed.conversationId,
-        questionKey: removed.questionKey,
-        subjectParticipantId: removed.subjectParticipantId,
-        answerId: removed.id,
-        withdrawnBy: actorId,
-      });
-
-      await this.audit.append(transaction, {
-        actorType: "admin",
-        actorId,
-        action: "feedback_answer.withdrawn",
-        entityType: "feedback_answer",
-        entityId: removed.id,
-        requestId,
-        context: {
-          campaignId,
-          conversationId,
-          // The whole withdrawn row, because nothing else will hold it: the
-          // provenance, the value and the person it was about are all only
-          // recoverable from here once the row is gone.
-          answer: {
-            id: removed.id,
-            campaignId: removed.campaignId,
-            conversationId: removed.conversationId,
-            respondentParticipantId: removed.respondentParticipantId,
-            subjectParticipantId: removed.subjectParticipantId,
-            questionKey: removed.questionKey,
-            valueInt: removed.valueInt,
-            sourceMessageIds: removed.sourceMessageIds,
-            extractionMeta: removed.extractionMeta,
-            matchingHold: removed.matchingHold,
-            createdAt: removed.createdAt.toISOString(),
-            updatedAt: removed.updatedAt.toISOString(),
-          },
-        },
-      });
     });
 
     return { id: existing.id };
@@ -1064,48 +1032,13 @@ export class PostEventFeedbackConversationService {
           contradicted.includes(answer.questionKey),
       );
       for (const answer of superseded) {
-        const removed = await this.results.deleteAnswer(transaction, answer.id);
-        if (!removed) {
-          continue;
-        }
-        // The same tombstone an ordinary withdrawal writes: this slot is empty
-        // because a human said so, and a later run must not refill it.
-        await this.results.recordAnswerWithdrawal(transaction, {
-          campaignId: removed.campaignId,
-          conversationId: removed.conversationId,
-          questionKey: removed.questionKey,
-          subjectParticipantId: removed.subjectParticipantId,
-          answerId: removed.id,
-          withdrawnBy: actorId,
-        });
-        await this.audit.append(transaction, {
-          actorType: "admin",
+        await this.retractAnswer(transaction, {
+          answerId: answer.id,
+          campaignId,
+          conversationId,
           actorId,
-          action: "feedback_answer.withdrawn",
-          entityType: "feedback_answer",
-          entityId: removed.id,
           requestId,
-          context: {
-            campaignId,
-            conversationId,
-            // Why this one went: it was not retracted on its own, it lost to
-            // the answer recorded in the same breath.
-            supersededBy: input.questionKey,
-            answer: {
-              id: removed.id,
-              campaignId: removed.campaignId,
-              conversationId: removed.conversationId,
-              respondentParticipantId: removed.respondentParticipantId,
-              subjectParticipantId: removed.subjectParticipantId,
-              questionKey: removed.questionKey,
-              valueInt: removed.valueInt,
-              sourceMessageIds: removed.sourceMessageIds,
-              extractionMeta: removed.extractionMeta,
-              matchingHold: removed.matchingHold,
-              createdAt: removed.createdAt.toISOString(),
-              updatedAt: removed.updatedAt.toISOString(),
-            },
-          },
+          supersededBy: input.questionKey,
         });
       }
 
@@ -1155,6 +1088,76 @@ export class PostEventFeedbackConversationService {
     });
 
     return this.toAnswerViewWithNames(recorded);
+  }
+
+  private async retractAnswer(
+    transaction: AppTransaction,
+    input: {
+      readonly answerId: string;
+      readonly campaignId: string;
+      readonly conversationId: string;
+      readonly actorId: FeedbackConversationPrincipal;
+      readonly requestId: FeedbackConversationCorrelationId;
+      readonly supersededBy?: AddFeedbackConversationAnswerInput["questionKey"];
+    },
+  ): Promise<FeedbackAnswerRow | undefined> {
+    const removed = await this.results.deleteAnswer(
+      transaction,
+      input.answerId,
+    );
+    if (!removed) {
+      return undefined;
+    }
+
+    // The same tombstone an ordinary withdrawal writes: this slot is empty
+    // because a human said so, and a later run must not refill it.
+    await this.results.recordAnswerWithdrawal(transaction, {
+      campaignId: removed.campaignId,
+      conversationId: removed.conversationId,
+      questionKey: removed.questionKey,
+      subjectParticipantId: removed.subjectParticipantId,
+      answerId: removed.id,
+      withdrawnBy: input.actorId,
+    });
+
+    await this.audit.append(transaction, {
+      actorType: "admin",
+      actorId: input.actorId,
+      action: "feedback_answer.withdrawn",
+      entityType: "feedback_answer",
+      entityId: removed.id,
+      requestId: input.requestId,
+      context: {
+        campaignId: input.campaignId,
+        conversationId: input.conversationId,
+        ...(input.supersededBy !== undefined
+          ? {
+              // Why this one went: it was not retracted on its own, it lost to
+              // the answer recorded in the same breath.
+              supersededBy: input.supersededBy,
+            }
+          : {}),
+        // The whole withdrawn row, because nothing else will hold it: the
+        // provenance, the value and the person it was about are all only
+        // recoverable from here once the row is gone.
+        answer: {
+          id: removed.id,
+          campaignId: removed.campaignId,
+          conversationId: removed.conversationId,
+          respondentParticipantId: removed.respondentParticipantId,
+          subjectParticipantId: removed.subjectParticipantId,
+          questionKey: removed.questionKey,
+          valueInt: removed.valueInt,
+          sourceMessageIds: removed.sourceMessageIds,
+          extractionMeta: removed.extractionMeta,
+          matchingHold: removed.matchingHold,
+          createdAt: removed.createdAt.toISOString(),
+          updatedAt: removed.updatedAt.toISOString(),
+        },
+      },
+    });
+
+    return removed;
   }
 
   private async requireAnswerInConversation(

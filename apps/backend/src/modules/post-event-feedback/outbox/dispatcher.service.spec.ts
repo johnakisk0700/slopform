@@ -1153,6 +1153,80 @@ describe("MessageOutboxDispatcherService", () => {
     expect(harness.outboundTranscript.record).not.toHaveBeenCalled();
     expect(harness.transport.sendText).not.toHaveBeenCalled();
   });
+
+  it("does not load a participant when the first guard pauses", async () => {
+    const harness = createHarness();
+    harness.campaigns.findCampaignById.mockResolvedValue({ status: "paused" });
+
+    await expect(harness.service.dispatchBatch()).resolves.toMatchObject({
+      items: [{ outboxId, outcome: "held" }],
+    });
+    expect(harness.participants.findById).not.toHaveBeenCalled();
+    expect(harness.participants.findByIdForUpdate).not.toHaveBeenCalled();
+    expect(harness.outboundLogs.findLogByOutboxId).not.toHaveBeenCalled();
+    expect(harness.ingress.hasInboundBeyondSnapshot).not.toHaveBeenCalled();
+    expect(harness.outboundTranscript.record).not.toHaveBeenCalled();
+  });
+
+  it("skips the participant read for the exact STOP acknowledgement and authorizes the marker", async () => {
+    const harness = createHarness({
+      claims: [
+        claimedRow({
+          kind: "system",
+          dedupeKey: createFeedbackStopAckDedupeKey(conversationId),
+        }),
+      ],
+    });
+    harness.conversations.findById.mockResolvedValue(
+      conversation("human", "stopped", { terminalOutboxId: outboxId }),
+    );
+    harness.participants.findById.mockResolvedValue(participant(false));
+    harness.participants.findByIdForUpdate.mockResolvedValue(
+      participant(false),
+    );
+
+    await expect(harness.service.dispatchBatch()).resolves.toMatchObject({
+      items: [{ outboxId, outcome: "sent" }],
+    });
+    expect(harness.participants.findById).not.toHaveBeenCalled();
+    expect(harness.participants.findByIdForUpdate).not.toHaveBeenCalled();
+    expect(harness.repository.markDispatchAttemptStarted).toHaveBeenCalledWith(
+      outboxId,
+      claimToken,
+      expect.any(Date),
+      FEEDBACK_OUTBOX_DISPATCH_LEASE_MS,
+      outboxId,
+      harness.transaction,
+    );
+  });
+
+  it("does not query ordinary-reply currency until the locked prepare guard", async () => {
+    const harness = createHarness();
+
+    await expect(harness.service.dispatchBatch()).resolves.toMatchObject({
+      items: [{ outboxId, outcome: "sent" }],
+    });
+    expect(harness.outboundLogs.findLogByOutboxId).toHaveBeenCalledTimes(1);
+    expect(harness.outboundLogs.findLogByOutboxId).toHaveBeenCalledWith(
+      outboxId,
+      harness.transaction,
+    );
+    expect(harness.limiter.waitTurn.mock.invocationCallOrder[0]).toBeLessThan(
+      harness.outboundLogs.findLogByOutboxId.mock
+        .invocationCallOrder[0] as number,
+    );
+    expect(
+      harness.repository.lockConversation.mock.invocationCallOrder[0],
+    ).toBeLessThan(
+      harness.outboundLogs.findLogByOutboxId.mock
+        .invocationCallOrder[0] as number,
+    );
+    expect(harness.ingress.hasInboundBeyondSnapshot).toHaveBeenCalledTimes(1);
+    expect(harness.ingress.hasInboundBeyondSnapshot).toHaveBeenCalledWith(
+      harness.transaction,
+      expect.objectContaining({ conversationId }),
+    );
+  });
 });
 
 function claimedRow(
