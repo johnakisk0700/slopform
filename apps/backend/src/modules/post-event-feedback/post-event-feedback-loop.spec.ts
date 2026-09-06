@@ -5,8 +5,8 @@ import {
   DEFAULT_RESPONDENT,
   runFeedbackScenarios,
   type FeedbackScenario,
-} from "./post-event-feedback-loop.harness.js";
-import { SCRIPT_MODEL } from "./post-event-feedback-loop-model.harness.js";
+} from "./vibes/post-event-feedback-loop.harness.js";
+import { SCRIPT_MODEL } from "./vibes/post-event-feedback-loop-model.harness.js";
 import {
   POST_EVENT_FEEDBACK_QUESTION_SET_V1,
   renderPostEventFeedbackCopy,

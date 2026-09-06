@@ -20,7 +20,7 @@ import type { FeedbackCampaignRepository } from "../campaign/campaign.repository
 import {
   FAKE_FEEDBACK_TRANSACTION,
   FakeFeedbackRepository,
-} from "../post-event-feedback-doubles.harness.js";
+} from "../vibes/post-event-feedback-doubles.harness.js";
 import {
   FEEDBACK_OUTBOX_DISPATCH_LEASE_MS,
   FEEDBACK_OUTBOX_FIFO_BLOCKING_STATUSES,

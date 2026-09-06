@@ -20,7 +20,7 @@ import {
   FakeQueue,
   feedbackConversationFixture,
   noopSummaries,
-} from "../post-event-feedback-doubles.harness.js";
+} from "../vibes/post-event-feedback-doubles.harness.js";
 import { PostEventFeedbackIngressService } from "../ingress/ingress.service.js";
 import { FeedbackMaterializeWakeupService } from "../ingress/materialize-wakeup.service.js";
 import { PostEventFeedbackMaterializer } from "../ingress/materialize.service.js";

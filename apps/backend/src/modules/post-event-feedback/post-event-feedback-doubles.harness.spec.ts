@@ -15,7 +15,7 @@ import {
   applyClose,
   applyMarkAwaitingHuman,
 } from "./post-event-feedback-conversation.state.js";
-import { FakeFeedbackConversations } from "./post-event-feedback-doubles.harness.js";
+import { FakeFeedbackConversations } from "./vibes/post-event-feedback-doubles.harness.js";
 
 const campaignId = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 const respondentParticipantId = "9f3c1a52-6e2b-4b4a-9a17-2cb2a6d13a55";

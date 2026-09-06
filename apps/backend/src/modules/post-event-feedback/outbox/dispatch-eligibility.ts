@@ -3,7 +3,7 @@ import type { FeedbackCampaignRow } from "@slopform/database";
 import { isFeedbackClosingDedupeKey } from "../extraction/extraction.schemas.js";
 import type { FeedbackConversationDocument } from "../post-event-feedback-conversation.document.js";
 import { createFeedbackStopAckDedupeKey } from "../question-set.js";
-import type { FeedbackOutboxClaimedRow } from "./outbox.repository.js";
+import type { FeedbackOutboxClaimedRow } from "./outbox.types.js";
 
 export type DispatchSettlementAction =
   "finish_failed" | "finish_cancelled" | "release";

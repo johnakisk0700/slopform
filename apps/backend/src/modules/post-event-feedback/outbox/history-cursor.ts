@@ -1,4 +1,4 @@
-import type { FeedbackOutboxHistoryCursor } from "./outbox.repository.js";
+import type { FeedbackOutboxHistoryCursor } from "./outbox.types.js";
 
 /**
  * The cursor an operator's «older» button carries, as one opaque string.

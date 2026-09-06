@@ -14,9 +14,11 @@ import {
 import {
   PostEventFeedbackIngressNotFoundError,
   PostEventFeedbackMaterializer,
-  type MaterializeFeedbackIngressInput,
-  type MaterializeFeedbackIngressResult,
 } from "./materialize.service.js";
+import type {
+  MaterializeFeedbackIngressInput,
+  MaterializeFeedbackIngressResult,
+} from "./materialize.types.js";
 
 const FEEDBACK_MATERIALIZATION_LOCK_PREFIX = "feedback-materialization-v1";
 export const FEEDBACK_MATERIALIZATION_LOCK_POOL_MAX = 5;

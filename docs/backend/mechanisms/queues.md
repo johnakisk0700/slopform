@@ -111,7 +111,14 @@ retention window with no V1 arrivals.
 ## Feedback V2 invariants
 
 Deep loop semantics live in
-[post-event-feedback](../modules/post-event-feedback.md). Queue-facing rules:
+[post-event-feedback](../modules/post-event-feedback.md).
+
+Feedback extraction uses Effect utilities inside one worker invocation
+([ADR 0017](../../decisions/0017-effect-for-local-workflows.md)). They add no
+retry, cancellation or durable scheduling layer. The Promise boundary preserves
+the original error instance so queue failure classification stays authoritative.
+
+Queue-facing rules:
 
 | Topic                    | Rule                                                                                                                                                                                                                                                                                                                           |
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |

@@ -2,19 +2,19 @@ import { randomUUID } from "node:crypto";
 
 import type { AppTransaction, AuditEventInsert } from "@slopform/database";
 
-import { ConversationPersistenceError } from "../conversations/conversation-persistence.errors.js";
-import type { EventFeedbackVenueSnapshot } from "../events/event-venue.js";
-import type { EventVenueInput } from "../events/events.schemas.js";
+import { ConversationPersistenceError } from "../../conversations/conversation-persistence.errors.js";
+import type { EventFeedbackVenueSnapshot } from "../../events/event-venue.js";
+import type { EventVenueInput } from "../../events/events.schemas.js";
 import {
   FEEDBACK_ANSWER_CORRECTIONS_KEY,
   isCorrectedAnswer,
-} from "./extraction/answer-corrections.js";
+} from "../extraction/answer-corrections.js";
 import {
   FeedbackConversationCapacityError,
   FeedbackConversationNotFoundError,
   FeedbackConversationPhoneConflictError,
   FeedbackConversationTransitionError,
-} from "./post-event-feedback-conversation.repository.js";
+} from "../post-event-feedback-conversation.repository.js";
 import {
   FEEDBACK_CONVERSATION_MAX_MESSAGES_BYTES,
   FEEDBACK_CONVERSATION_MAX_MESSAGES,
@@ -28,7 +28,7 @@ import {
   type FeedbackConversationMessage,
   type FeedbackConversationLifecycleReason,
   type FeedbackConversationWork,
-} from "./post-event-feedback-conversation.document.js";
+} from "../post-event-feedback-conversation.document.js";
 import {
   applyAdvanceCursor,
   applyAdvanceCursorAndClose,
@@ -51,20 +51,20 @@ import {
   applyUpdateGoalStatuses,
   type FeedbackConversationExpectedWork,
   type FeedbackConversationTransitionResult,
-} from "./post-event-feedback-conversation.state.js";
-import type { FeedbackOperatorAlertInput } from "./operator-alert.js";
-import type { FeedbackOutboundDecision } from "./outbox/outbound-log.schemas.js";
-import type { OutboundConversationSnapshot } from "./outbox/outbound-log.snapshot.js";
+} from "../post-event-feedback-conversation.state.js";
+import type { FeedbackOperatorAlertInput } from "../operator-alert.js";
+import type { FeedbackOutboundDecision } from "../outbox/outbound-log.schemas.js";
+import type { OutboundConversationSnapshot } from "../outbox/outbound-log.snapshot.js";
 import type {
   FeedbackTransport,
   FeedbackTransportSendInput,
   FeedbackTransportSendResult,
-} from "./outbox/transport.js";
+} from "../outbox/transport.js";
 import type {
   PostEventFeedbackAttentionReason,
   PostEventFeedbackRecommendedAction,
   PostEventFeedbackSafetyCategory,
-} from "./attention.js";
+} from "../attention.js";
 
 /**
  * The faked seams of the post-event feedback loop: the conversation row and
@@ -2739,9 +2739,9 @@ export class RecordingFeedbackTransport implements FeedbackTransport {
 }
 
 /** Test double for summary enqueue hooks — callers only need the close notifier. */
-export function noopSummaries(): import("./summary/summary.service.js").PostEventFeedbackCampaignSummaryService {
+export function noopSummaries(): import("../summary/summary.service.js").PostEventFeedbackCampaignSummaryService {
   return {
     notifyIfLastConversationClosed: async () => undefined,
     recover: async () => ({ pending: 0, automatic: 0 }),
-  } as unknown as import("./summary/summary.service.js").PostEventFeedbackCampaignSummaryService;
+  } as unknown as import("../summary/summary.service.js").PostEventFeedbackCampaignSummaryService;
 }

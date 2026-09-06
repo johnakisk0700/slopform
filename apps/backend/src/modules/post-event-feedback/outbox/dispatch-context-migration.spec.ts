@@ -13,7 +13,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import type { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import type { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
-import { feedbackConversationFixture } from "../post-event-feedback-doubles.harness.js";
+import { feedbackConversationFixture } from "../vibes/post-event-feedback-doubles.harness.js";
 import {
   createFeedbackClosingDedupeKey,
   createFeedbackExtractionParkedNoticeDedupeKey,

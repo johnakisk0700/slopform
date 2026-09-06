@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   FakeDatabase,
   FakeFeedbackRepository,
-} from "../post-event-feedback-doubles.harness.js";
+} from "../vibes/post-event-feedback-doubles.harness.js";
 import {
   buildFeedbackConversationGoals,
   deriveFeedbackConversationId,

@@ -1,15 +1,12 @@
 import { Injectable } from "@nestjs/common";
 import type {
-  AppTransaction,
-  FeedbackCampaignRow,
-  FeedbackExtractionMeta,
-  MessageOutboxRow,
-} from "@slopform/database";
+  FeedbackExtractionPersistInput,
+  FeedbackExtractionTranscriptCommitInput,
+} from "./extraction-commit.types.js";
+import type { AppTransaction, MessageOutboxRow } from "@slopform/database";
 
-import { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
 import { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import { EventsService } from "../../events/events.service.js";
-import type { FeedbackConversationDocument } from "../post-event-feedback-conversation.document.js";
 import { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
 import { FeedbackIngressRepository } from "../ingress/ingress.repository.js";
 import { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
@@ -21,53 +18,33 @@ import {
 } from "../feedback-operation-log.js";
 import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
 import {
-  contradictedPostEventFeedbackQuestionKeys,
-  noteSignature,
-} from "../question-set.js";
-import {
   adjustAfterIngressOrWorkSuppression,
   decideExtractionTurn,
   deriveTurnPolicyFacts,
   type ExtractionTurnDecision,
 } from "./turn-decision.js";
-import { skipExtractOutcome } from "./extract-admission.js";
-import {
-  PostEventFeedbackConversationNotFoundError,
-  type CommitSuppression,
-  type ExtractCommitResult,
-  type ExtractConversationState,
-  type ExtractFeedbackResult,
-  type ExtractPersistWritten,
-  type ExtractPlannedTurn,
-  type ExtractRunSnapshot,
+import type {
+  CommitSuppression,
+  ExtractCommitResult,
+  ExtractPersistWritten,
+  ExtractPlannedTurn,
+  ExtractRunSnapshot,
 } from "./extract.types.js";
 import {
   FeedbackConversationExecutionGuardError,
   executionSnapshotGuardReason,
 } from "./execution-guard.js";
-import type { FeedbackConversationExecutionClaim } from "./execution-fence.repository.js";
 import { FeedbackConversationExecutionFence } from "./execution-fence.service.js";
 import { FeedbackResultsRepository } from "./results.repository.js";
-import {
-  groupSafetySignalsByMessage,
-  isSafetyOrHandoffAttention,
-  operatorAttentionRaises,
-  respondentSourceMessageIds,
-  type FeedbackHostilityRaise,
-} from "./operator-attention.js";
-import type { OutboundReply } from "./outbound-reply.js";
-import type { GoalStatusUpdate } from "./goal-progress.js";
-import type { FeedbackExtractionContext } from "./extraction.schemas.js";
 import { FEEDBACK_CLOSING_DEDUPE_PREFIX } from "./extraction.schemas.js";
-import type { FeedbackExtractionValidationResult } from "./validate-proposal.js";
-import {
-  FeedbackExtractionGenerationError,
-  type FeedbackExtractionUsage,
-} from "./model.service.js";
+import { FeedbackExtractionGenerationError } from "./model.service.js";
+import { FeedbackExtractionResultsWriter } from "./extraction-results-writer.service.js";
+import { FeedbackExtractionStateApplier } from "./extraction-state.service.js";
 
 /**
  * One persist transaction for results, supersession, outbox, audit, state and
- * terminal transcript identity. Capacity brake is a later, separate transaction.
+ * terminal transcript identity. Capacity brake is a later, separate transaction
+ * after this one has rolled back.
  */
 @Injectable()
 export class FeedbackExtractionCommitService {
@@ -83,9 +60,10 @@ export class FeedbackExtractionCommitService {
     private readonly executionFence: FeedbackConversationExecutionFence,
     private readonly conversations: FeedbackConversationRepository,
     private readonly outbox: FeedbackOutboxRepository,
-    private readonly audit: AuditRepository,
     private readonly outboundTranscript: FeedbackOutboundTranscriptService,
     private readonly outboundIntent: FeedbackOutboundIntentService,
+    private readonly resultsWriter: FeedbackExtractionResultsWriter,
+    private readonly state: FeedbackExtractionStateApplier,
   ) {}
 
   async commit(
@@ -139,6 +117,8 @@ export class FeedbackExtractionCommitService {
     });
     let disposition = planned.proposed;
 
+    // Admission already selected this snapshot. Persist paid facts and
+    // judge current reply eligibility in this transaction.
     operation.stage("persist_results_and_intent");
     const written = await this.persistOn(transaction, {
       conversation: snapshot.conversation,
@@ -211,140 +191,6 @@ export class FeedbackExtractionCommitService {
     return result;
   }
 
-  /**
-   * After a persist transaction rejects on transcript capacity, the paid
-   * snapshot is gone. Park the bot so reconcile cannot buy another model
-   * call for a metadata write that cannot succeed.
-   */
-  async brakeAfterCapacity(
-    snapshot: ExtractRunSnapshot,
-  ): Promise<ExtractFeedbackResult> {
-    const conversation = snapshot.conversation;
-    const operation = new FeedbackOperationLog(this.logger, {
-      operation: "extract_capacity_brake",
-      correlationId: snapshot.correlationId,
-      conversationId: conversation._id,
-      campaignId: snapshot.campaign.id,
-      ...(snapshot.executionClaim
-        ? {
-            workRevision: snapshot.executionClaim.workRevision,
-            executionEpoch: snapshot.executionClaim.epoch,
-          }
-        : {}),
-    });
-    this.logger.warn({
-      event: "feedback.extract.transcript_capacity",
-      correlationId: snapshot.correlationId,
-      conversationId: conversation._id,
-    });
-
-    try {
-      operation.stage("begin_transaction");
-      const outcome = await this.database.transaction(async (transaction) => {
-        operation.stage("reload");
-        await this.results.lockConversation(transaction, conversation._id);
-
-        operation.stage("fence");
-        if (snapshot.executionClaim) {
-          if (
-            !(await this.executionFence.renewWithin(
-              transaction,
-              snapshot.executionClaim,
-            ))
-          ) {
-            throw new FeedbackConversationExecutionGuardError(
-              conversation._id,
-              "execution_claim_lost",
-            );
-          }
-        }
-
-        // Campaign resume updates these rows without the conversation mutex.
-        const current = await this.conversations.findByIdForUpdate(
-          transaction,
-          conversation._id,
-        );
-        if (snapshot.executionClaim) {
-          const guardReason = executionSnapshotGuardReason(
-            current,
-            conversation,
-            snapshot.executionClaim,
-          );
-          if (guardReason) {
-            throw new FeedbackConversationExecutionGuardError(
-              conversation._id,
-              guardReason,
-            );
-          }
-        } else {
-          if (!current) {
-            throw new PostEventFeedbackConversationNotFoundError(
-              conversation._id,
-            );
-          }
-          const skipped = skipExtractOutcome(current, current.messages.length);
-          if (
-            skipped === "skipped_closed" ||
-            skipped === "skipped_human_control" ||
-            skipped === "skipped_awaiting_human"
-          ) {
-            operation.stage("commit_transaction");
-            return skipped;
-          }
-          if (
-            (current.work?.revision ?? 0) !==
-              (conversation.work?.revision ?? 0) ||
-            current.control.changedAt.getTime() !==
-              conversation.control.changedAt.getTime()
-          ) {
-            throw new FeedbackConversationExecutionGuardError(
-              conversation._id,
-              "authoritative_state_changed",
-            );
-          }
-        }
-
-        operation.stage("brake");
-        const at = new Date();
-        await this.conversations.raiseAttention(transaction, {
-          conversationId: conversation._id,
-          kind: "transcript_full",
-          messageId: null,
-          at,
-        });
-        await this.conversations.markAwaitingHuman(transaction, {
-          conversationId: conversation._id,
-          at,
-        });
-        await this.outbox.cancelQueuedAutomatedOutboxForConversation(
-          transaction,
-          conversation._id,
-        );
-        operation.stage("commit_transaction");
-        return "skipped_awaiting_human" as const;
-      });
-
-      operation.complete(outcome);
-      return {
-        outcome,
-        conversationId: conversation._id,
-        cursorSeq: conversation.extraction.cursorSeq,
-        answersWritten: 0,
-        notesWritten: 0,
-      };
-    } catch (error) {
-      if (
-        error instanceof FeedbackConversationExecutionGuardError &&
-        error.reason === "authoritative_state_changed"
-      ) {
-        operation.failed(error, "superseded");
-      } else {
-        operation.failed(error);
-      }
-      throw error;
-    }
-  }
-
   private recomputeTurnAfterSuppression(
     snapshot: ExtractRunSnapshot,
     planned: ExtractPlannedTurn,
@@ -389,17 +235,14 @@ export class FeedbackExtractionCommitService {
     }
   }
 
+  /**
+   * Ordinary transcript, then conversation state, then terminal transcript
+   * or cancel of that exact losing outbox.
+   */
   private async applyStateAndTranscriptIdentity(
     transaction: AppTransaction,
     snapshot: ExtractRunSnapshot,
-    input: {
-      readonly planned: ExtractPlannedTurn;
-      readonly written: ExtractPersistWritten;
-      readonly closingReason: "completed" | "declined" | null;
-      readonly goalStatuses: readonly GoalStatusUpdate[];
-      readonly withdrew: boolean;
-      readonly hostility: FeedbackHostilityRaise;
-    },
+    input: FeedbackExtractionTranscriptCommitInput,
   ): Promise<ExtractCommitResult> {
     let closingReason = input.closingReason;
     let effectiveOutbox = input.written.outbox;
@@ -421,14 +264,13 @@ export class FeedbackExtractionCommitService {
       stoppingForHostility: evidence.stoppingForHostility,
     });
     const terminalReason = closingReason;
-    const state = await this.applyConversationStateOn(transaction, {
+    const state = await this.state.apply(transaction, {
       conversation: snapshot.conversation,
       validated: evidence.validated,
       goalStatuses: input.goalStatuses,
       closingReason,
       terminalOutboxId:
         closingReason !== null ? (effectiveOutbox?.id ?? null) : null,
-      dutyOfCare: facts.dutyOfCare,
       withdrew: input.withdrew,
       hostility: input.hostility,
       awaitingHuman:
@@ -490,33 +332,17 @@ export class FeedbackExtractionCommitService {
   }
 
   /**
-   * Writes paid snapshot results and the outbound row on the caller's
-   * transaction. Does not open a nested transaction.
+   * Paid snapshot facts and outbound intent on the caller's transaction.
+   * Does not open a nested transaction. Reply eligibility is judged here;
+   * paid answers/notes still write when the reply is withheld.
    */
   private async persistOn(
     transaction: AppTransaction,
-    input: {
-      readonly conversation: FeedbackConversationDocument;
-      readonly campaign: FeedbackCampaignRow;
-      readonly context: FeedbackExtractionContext;
-      readonly validated: FeedbackExtractionValidationResult;
-      readonly outbound: OutboundReply | undefined;
-      readonly ordinaryReply: boolean;
-      readonly model: string;
-      readonly correlationId: string;
-      readonly closingReason: "completed" | "declined" | null;
-      readonly goalStatuses: readonly GoalStatusUpdate[];
-      readonly executionClaim?: FeedbackConversationExecutionClaim;
-    },
+    input: FeedbackExtractionPersistInput,
   ): Promise<ExtractPersistWritten> {
-    const candidateIds = input.context.candidates.map(
-      (candidate) => candidate.participantId,
-    );
-    const heldMessageIds = respondentSourceMessageIds(
-      input.validated.safetySignals,
-    );
-
     let outboundSuppressedByNewerIngress = false;
+    // Ordinary/closing replies: lock the launch phone and see if newer
+    // durable ingress arrived after the paid snapshot.
     if (
       input.outbound &&
       (input.ordinaryReply || input.closingReason !== null)
@@ -538,6 +364,7 @@ export class FeedbackExtractionCommitService {
     }
 
     const venueRevision = input.context.venueContextRevision;
+    // Venue facts used in the paid prompt must still be current.
     if (
       typeof venueRevision === "number" &&
       !(await this.events.feedbackVenueContextIsCurrent(
@@ -553,6 +380,7 @@ export class FeedbackExtractionCommitService {
       );
     }
 
+    // Conversation mutex, then renew the execution fence before freshness.
     await this.results.lockConversation(transaction, input.conversation._id);
 
     if (
@@ -590,113 +418,19 @@ export class FeedbackExtractionCommitService {
     const executionSuperseded =
       executionGuardReason === "authoritative_state_changed";
 
-    let answersWritten = 0;
-    for (const answer of input.validated.answers) {
-      if (answer.subjectParticipantId) {
-        await this.results.deleteContradictedAnswers(transaction, {
-          conversationId: input.conversation._id,
-          subjectParticipantId: answer.subjectParticipantId,
-          questionKeys: contradictedPostEventFeedbackQuestionKeys(
-            answer.questionKey,
-            input.context.goals.map((goal) => goal.key),
-          ),
-        });
-      }
-      const inserted = await this.results.insertAnswerIfAbsent(transaction, {
-        campaignId: input.campaign.id,
-        conversationId: input.conversation._id,
-        respondentParticipantId: input.conversation.respondentParticipantId,
-        subjectParticipantId: answer.subjectParticipantId,
-        questionKey: answer.questionKey,
-        valueInt: answer.valueInt,
-        sourceMessageIds: answer.sourceMessageIds,
-        extractionMeta: buildExtractionMeta({
-          model: input.model,
-          confidence: answer.confidence,
-          candidateIds,
-        }),
-        matchingHold: answer.sourceMessageIds.some((messageId) =>
-          heldMessageIds.has(messageId),
-        ),
-      });
-      if (inserted) {
-        answersWritten += 1;
-      }
-    }
-
-    const storedNotes = await this.results.listNotesByConversation(
-      input.conversation._id,
-      transaction,
-    );
-    const storedNoteKeys = new Set(
-      storedNotes.map((note) =>
-        noteSignature(
-          note.noteType,
-          note.text,
-          note.subjectParticipantId ?? null,
-        ),
-      ),
-    );
-
-    let notesWritten = 0;
-    for (const note of input.validated.notes) {
-      const signature = noteSignature(
-        note.noteType,
-        note.text,
-        note.subjectParticipantId,
-      );
-      if (storedNoteKeys.has(signature)) {
-        continue;
-      }
-      storedNoteKeys.add(signature);
-      await this.results.insertNote(transaction, {
-        campaignId: input.campaign.id,
-        conversationId: input.conversation._id,
-        respondentParticipantId: input.conversation.respondentParticipantId,
-        subjectParticipantId: note.subjectParticipantId,
-        noteType: note.noteType,
-        text: note.text,
-        sourceMessageIds: note.sourceMessageIds,
-        extractionMeta: buildExtractionMeta({
-          model: input.model,
-          confidence: note.confidence,
-          candidateIds,
-          flaggedForReview: note.flaggedForReview,
-          unresolvedSubjectName: note.unresolvedSubjectName,
-        }),
-      });
-      notesWritten += 1;
-    }
-
-    if (isSafetyOrHandoffAttention(input.validated)) {
-      await this.audit.append(transaction, {
-        actorType: "system",
-        actorId: "feedback_extraction",
-        action:
-          input.validated.safetySignals.length > 0
-            ? "feedback_conversation.safety_signalled"
-            : "feedback_conversation.handoff_requested",
-        entityType: "feedback_conversation",
-        entityId: input.conversation._id,
-        requestId: input.correlationId,
-        context: {
-          campaignId: input.conversation.campaignId,
-          model: input.model,
-          confidence: input.validated.confidence,
-          safetySignal: input.validated.safetySignals.length > 0,
-          safetySignals: input.validated.safetySignals.map((signal) => ({
-            category: signal.category,
-            recommendedAction: signal.recommendedAction,
-            sourceMessageIds: [...signal.sourceMessageIds],
-            confidence: signal.confidence,
-          })),
-          handoff: input.validated.handoff,
-        },
-      });
-    }
+    // Paid answers, notes, and safety/handoff audit — independent of reply.
+    const writtenResults = await this.resultsWriter.write(transaction, {
+      conversation: input.conversation,
+      campaign: input.campaign,
+      context: input.context,
+      validated: input.validated,
+      model: input.model,
+      correlationId: input.correlationId,
+    });
 
     let outbox: MessageOutboxRow | undefined;
     let outboundSuppressedByLegacyClosing = false;
+    // A closing already past provider entry is not replaced.
     if (
       input.outbound &&
       input.closingReason !== null &&
@@ -711,6 +445,7 @@ export class FeedbackExtractionCommitService {
       outboundSuppressedByLegacyClosing =
         legacyClosing.outcome === "provider_crossed";
     }
+    // Dispatch evidence stays the original snapshot; do not refresh.
     if (
       input.outbound &&
       !outboundSuppressedByNewerIngress &&
@@ -759,238 +494,12 @@ export class FeedbackExtractionCommitService {
     }
 
     return {
-      answersWritten,
-      notesWritten,
+      answersWritten: writtenResults.answersWritten,
+      notesWritten: writtenResults.notesWritten,
       outboundSuppressedByNewerIngress,
       outboundSuppressedByLegacyClosing,
       executionSuperseded,
       ...(outbox ? { outbox } : {}),
     };
   }
-
-  /**
-   * Goals, attention, cursor, terminal close and handoff on the caller's
-   * transaction. Operator alerts are returned for the caller to fire after
-   * commit.
-   */
-  private async applyConversationStateOn(
-    transaction: AppTransaction,
-    input: {
-      readonly conversation: FeedbackConversationDocument;
-      readonly validated: FeedbackExtractionValidationResult;
-      readonly goalStatuses: readonly GoalStatusUpdate[];
-      readonly closingReason: "completed" | "declined" | null;
-      readonly terminalOutboxId: string | null;
-      readonly dutyOfCare: boolean;
-      readonly withdrew: boolean;
-      readonly hostility: FeedbackHostilityRaise;
-      readonly awaitingHuman: boolean;
-      readonly handoffOutboxId: string | null;
-      readonly hostileTurn: boolean;
-      readonly priorHostileTurns: number;
-      readonly newestParticipantMessageId: string | null;
-      readonly stalledOnMessageId: string | null;
-      readonly unansweredDataQuestionMessageIds: readonly string[];
-      readonly cursorSeq: number;
-      readonly model: string;
-      readonly usage: FeedbackExtractionUsage;
-      readonly serviceTier: string | null;
-      readonly workSuperseded: boolean;
-      readonly executionClaim?: FeedbackConversationExecutionClaim;
-    },
-  ): Promise<ExtractConversationState> {
-    const at = new Date();
-
-    if (input.goalStatuses.length > 0) {
-      await this.conversations.updateGoalStatuses(transaction, {
-        conversationId: input.conversation._id,
-        statuses: input.goalStatuses,
-        at,
-      });
-    }
-
-    for (const attention of groupSafetySignalsByMessage(
-      input.validated.safetySignals,
-    )) {
-      await this.conversations.mergeMessageAttention(transaction, {
-        conversationId: input.conversation._id,
-        messageId: attention.messageId,
-        categories: attention.categories,
-        recommendedAction: attention.recommendedAction,
-        confidence: attention.confidence,
-        at,
-      });
-    }
-
-    if (input.hostileTurn) {
-      await this.conversations.recordHostileTurn(transaction, {
-        conversationId: input.conversation._id,
-        at,
-        expectedCount: input.priorHostileTurns,
-      });
-    }
-
-    const raises = operatorAttentionRaises(
-      input.validated,
-      input.newestParticipantMessageId,
-      input.withdrew,
-      input.hostility,
-      input.stalledOnMessageId,
-      input.unansweredDataQuestionMessageIds,
-    );
-    let raisedIncident = false;
-    for (const raise of raises) {
-      const attention = await this.conversations.raiseAttention(transaction, {
-        conversationId: input.conversation._id,
-        kind: raise.kind,
-        messageId: raise.messageId,
-        at,
-      });
-      raisedIncident ||=
-        attention.changed &&
-        (raise.kind === "safety" || raise.kind === "handoff");
-    }
-
-    if (input.workSuperseded) {
-      return { closedNow: false, terminalCommitted: false, raisedIncident };
-    }
-
-    if (input.closingReason) {
-      const closingReason = input.closingReason;
-      await this.results.lockConversation(transaction, input.conversation._id);
-      const transition = await this.conversations.advanceCursorAndClose(
-        transaction,
-        {
-          conversationId: input.conversation._id,
-          toSeq: input.cursorSeq,
-          reason: closingReason,
-          terminalOutboxId: input.terminalOutboxId,
-          at,
-          model: input.model,
-          serviceTier: input.serviceTier,
-          usage: input.usage,
-          ...(input.executionClaim
-            ? {
-                workRevision: input.executionClaim.workRevision,
-                executionEpoch: input.executionClaim.epoch,
-              }
-            : {}),
-        },
-      );
-      const committed =
-        transition.changed ||
-        (transition.conversation.lifecycle.state === "closed" &&
-          transition.conversation.lifecycle.reason === closingReason &&
-          transition.conversation.lifecycle.terminalOutboxId ===
-            input.terminalOutboxId);
-      if (committed) {
-        await this.outbox.cancelQueuedOutboxForConversationExceptId(
-          transaction,
-          input.conversation._id,
-          input.terminalOutboxId,
-        );
-      }
-      if (transition.changed) {
-        return { closedNow: true, terminalCommitted: true, raisedIncident };
-      }
-      if (committed) {
-        return { closedNow: false, terminalCommitted: true, raisedIncident };
-      }
-
-      if (
-        transition.conversation.messages.some(
-          (message) =>
-            message.actor === "participant" && message.seq > input.cursorSeq,
-        )
-      ) {
-        await this.conversations.advanceCursor(transaction, {
-          conversationId: input.conversation._id,
-          toSeq: input.cursorSeq,
-          at,
-          model: input.model,
-          serviceTier: input.serviceTier,
-          usage: input.usage,
-        });
-      }
-      return { closedNow: false, terminalCommitted: false, raisedIncident };
-    }
-
-    if (input.awaitingHuman) {
-      await this.results.lockConversation(transaction, input.conversation._id);
-      const transition =
-        await this.conversations.advanceCursorAndMarkAwaitingHuman(
-          transaction,
-          {
-            conversationId: input.conversation._id,
-            toSeq: input.cursorSeq,
-            at,
-            model: input.model,
-            serviceTier: input.serviceTier,
-            usage: input.usage,
-            ...(input.executionClaim
-              ? {
-                  workRevision: input.executionClaim.workRevision,
-                  executionEpoch: input.executionClaim.epoch,
-                }
-              : {}),
-          },
-        );
-      const committed =
-        transition.changed || transition.conversation.awaitingHuman;
-      await this.outbox.cancelQueuedAutomatedOutboxForConversation(
-        transaction,
-        input.conversation._id,
-        committed ? input.handoffOutboxId : null,
-      );
-      if (!committed) {
-        const guardReason = input.executionClaim
-          ? (executionSnapshotGuardReason(
-              transition.conversation,
-              input.conversation,
-              input.executionClaim,
-            ) ?? "execution_invariant_broken")
-          : "authoritative_state_changed";
-        throw new FeedbackConversationExecutionGuardError(
-          input.conversation._id,
-          guardReason,
-        );
-      }
-    } else {
-      await this.conversations.advanceCursor(transaction, {
-        conversationId: input.conversation._id,
-        toSeq: input.cursorSeq,
-        at,
-        model: input.model,
-        serviceTier: input.serviceTier,
-        usage: input.usage,
-        ...(input.executionClaim
-          ? {
-              workRevision: input.executionClaim.workRevision,
-              executionEpoch: input.executionClaim.epoch,
-            }
-          : {}),
-      });
-    }
-
-    return { closedNow: false, terminalCommitted: false, raisedIncident };
-  }
-}
-
-/** D12: persist model, confidence, and this run's D16 candidate ids. */
-function buildExtractionMeta(input: {
-  readonly model: string;
-  readonly confidence: number;
-  readonly candidateIds: readonly string[];
-  readonly flaggedForReview?: boolean;
-  readonly unresolvedSubjectName?: string | null;
-}): FeedbackExtractionMeta {
-  return {
-    model: input.model,
-    confidence: input.confidence,
-    candidateIds: [...input.candidateIds],
-    ...(input.flaggedForReview ? { flaggedForReview: true } : {}),
-    ...(input.unresolvedSubjectName
-      ? { unresolvedSubjectName: input.unresolvedSubjectName }
-      : {}),
-  };
 }

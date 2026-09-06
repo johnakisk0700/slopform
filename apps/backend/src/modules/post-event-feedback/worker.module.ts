@@ -30,6 +30,13 @@ import { PostEventFeedbackExtractionFallback } from "./extraction/fallback.servi
 import { FeedbackConversationExecutionLimiter } from "./extraction/execution-limiter.service.js";
 import { PostEventFeedbackExtractionModel } from "./extraction/model.service.js";
 import { PostEventFeedbackExtractor } from "./extraction/extract.service.js";
+import { FeedbackExtractionAdmissionService } from "./extraction/extraction-admission.service.js";
+import { FeedbackModelContextBuilder } from "./extraction/model-context.service.js";
+import { FeedbackAiTurnAnalysis } from "./extraction/ai-turn-analysis.service.js";
+import { FeedbackParticipantReplyPlanner } from "./extraction/participant-reply.service.js";
+import { FeedbackExtractionResultsWriter } from "./extraction/extraction-results-writer.service.js";
+import { FeedbackExtractionStateApplier } from "./extraction/extraction-state.service.js";
+import { FeedbackExtractionCapacityService } from "./extraction/extraction-capacity.service.js";
 import { FeedbackExtractionGuards } from "./extraction/extraction-guards.service.js";
 import { FeedbackExtractionTurnService } from "./extraction/extraction-turn.service.js";
 import { FeedbackExtractionCommitService } from "./extraction/extraction-commit.service.js";
@@ -128,6 +135,13 @@ export function createFeedbackTransport(
       ) => createFeedbackExtractionModel(config, BURST_PERSONAS, providerCalls),
     },
     FeedbackExtractionGuards,
+    FeedbackExtractionAdmissionService,
+    FeedbackModelContextBuilder,
+    FeedbackAiTurnAnalysis,
+    FeedbackParticipantReplyPlanner,
+    FeedbackExtractionResultsWriter,
+    FeedbackExtractionStateApplier,
+    FeedbackExtractionCapacityService,
     FeedbackExtractionTurnService,
     FeedbackExtractionCommitService,
     PostEventFeedbackExtractor,

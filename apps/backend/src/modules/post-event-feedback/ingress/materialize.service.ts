@@ -25,10 +25,7 @@ import { ParticipantsRepository } from "../../participants/participants.reposito
 import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
 import { currentAwaitingHumanCommitmentOutboxId } from "../outbox/current-commitment.js";
 import { coalesceDeliveryStatus } from "../outbox/delivery-status.js";
-import {
-  PostEventFeedbackMetrics,
-  type FeedbackMaterializeOutcome,
-} from "../metrics.service.js";
+import { PostEventFeedbackMetrics } from "../metrics.service.js";
 import {
   createFeedbackMediaNoticeDedupeKey,
   createFeedbackStopAckDedupeKey,
@@ -47,24 +44,16 @@ import {
 } from "../feedback-operation-log.js";
 import { FeedbackConversationWakeupService } from "../reconciliation/wakeup.service.js";
 
+import type {
+  MaterializeFeedbackIngressInput,
+  MaterializeFeedbackIngressResult,
+} from "./materialize.types.js";
+
 export class PostEventFeedbackIngressNotFoundError extends Error {
   constructor(ingressId: string) {
     super(`Provider message ingress ${ingressId} was not found`);
     this.name = PostEventFeedbackIngressNotFoundError.name;
   }
-}
-
-export interface MaterializeFeedbackIngressInput {
-  readonly ingressId: string;
-  readonly correlationId: string;
-}
-
-export interface MaterializeFeedbackIngressResult {
-  readonly outcome: FeedbackMaterializeOutcome;
-  readonly conversationId?: string;
-  readonly extractJobId?: string;
-  readonly stopAckOutboxId?: string;
-  readonly correlatedOutboxId?: string;
 }
 
 /**

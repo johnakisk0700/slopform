@@ -772,10 +772,10 @@ Part 1 ids without a same-named loop row (still catalogue / corpus / ops):
 
 > **Harness and specs are the operational contract.**
 >
-> - `post-event-feedback-loop.harness.ts` — factory, queue, runner (read header first)
+> - `vibes/post-event-feedback-loop.harness.ts` — factory, queue, runner (read header first)
 > - `post-event-feedback-loop-scenario.ts` — vocabulary
-> - `post-event-feedback-loop-model.harness.ts` — scripted model
-> - `post-event-feedback-doubles.harness.ts` — fakes
+> - `vibes/post-event-feedback-loop-model.harness.ts` — scripted model
+> - `vibes/post-event-feedback-doubles.harness.ts` — fakes
 >
 > Rules:
 >

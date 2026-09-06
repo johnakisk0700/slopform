@@ -29,10 +29,8 @@ import {
   FEEDBACK_OUTBOX_DISPATCH_HEARTBEAT_MS,
   FEEDBACK_OUTBOX_DISPATCH_LEASE_MS,
 } from "./outbox.repository.js";
-import type {
-  FeedbackOutboxClaimedRow,
-  FeedbackOutboxRepository,
-} from "./outbox.repository.js";
+import type { FeedbackOutboxRepository } from "./outbox.repository.js";
+import type { FeedbackOutboxClaimedRow } from "./outbox.types.js";
 import type { FeedbackOutboundTranscriptService } from "./outbound-transcript.service.js";
 import type { FeedbackSendLimiter } from "./session-pacer.js";
 import type { FeedbackTransport } from "./transport.js";

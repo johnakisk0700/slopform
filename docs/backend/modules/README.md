@@ -17,9 +17,10 @@ conventions: [documentation standard](../../documentation-standard.md).
 | [email-delivery.md](email-delivery.md)                                               | Provider-agnostic email intent, outbox, redacted attempts, admin visibility                              |
 | [participants.md](participants.md)                                                   | Canonical profiles, feedback WhatsApp opt-in, WordPress import                                           |
 
-Open feedback work stays in the
-[2026-07-29 evidence note](../../evidence/post-event-feedback-open-issues-2026-07-29.md),
-not on the module page.
+Current feedback refactor progress and next work live in the
+[refactor status](post-event-feedback-refactor-status.md).
+The [2026-07-29 evidence note](../../evidence/post-event-feedback-open-issues-2026-07-29.md)
+is a dated audit, not the current work queue.
 
 Not indexed here:
 

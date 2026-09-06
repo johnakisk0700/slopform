@@ -21,7 +21,7 @@ import {
   FakeFeedbackConversations,
   feedbackConversationFixture,
   feedbackStoredMessage,
-} from "../post-event-feedback-doubles.harness.js";
+} from "../vibes/post-event-feedback-doubles.harness.js";
 import { PostEventFeedbackExtractionFallback } from "./fallback.service.js";
 import {
   FEEDBACK_EXTRACTION_PARK_NOTICE_AFTER_MS,

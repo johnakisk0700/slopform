@@ -1,28 +1,28 @@
 import type { FeedbackAnswerQuestionKey } from "@slopform/database";
 
-import type { FeedbackConversationDocument } from "./post-event-feedback-conversation.document.js";
+import type { FeedbackConversationDocument } from "../post-event-feedback-conversation.document.js";
 import type { FakeFeedbackConversations } from "./post-event-feedback-doubles.harness.js";
 import {
   FeedbackExtractionGenerationError,
   type FeedbackAttentionClassificationGenerationResult,
   type FeedbackExtractionGenerationResult,
   type FeedbackReplyGenerationResult,
-} from "./extraction/model.service.js";
+} from "../extraction/model.service.js";
 import {
   createFeedbackExtractionProposalSchema,
   FEEDBACK_EXTRACTION_MAX_SOURCE_MESSAGES,
   feedbackExtractionGoalVerdicts,
   type FeedbackExtractionMessageView,
   type FeedbackExtractionProposal,
-} from "./extraction/extraction.schemas.js";
-import type { FeedbackExtractionPrompt } from "./extraction/prompt.js";
+} from "../extraction/extraction.schemas.js";
+import type { FeedbackExtractionPrompt } from "../extraction/prompt.js";
 import type {
   AttentionTurn,
   Cite,
   ModelFailure,
   ModelTurn,
   ScriptedAttentionTurn,
-} from "./post-event-feedback-loop-scenario.js";
+} from "../post-event-feedback-loop-scenario.js";
 
 // ── The scripted model ──────────────────────────────────────────────────────
 

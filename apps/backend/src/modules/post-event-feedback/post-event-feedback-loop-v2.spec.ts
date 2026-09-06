@@ -5,7 +5,7 @@ import {
   runFeedbackScenarios,
   type FeedbackScenario,
   type FeedbackScenarioVenue,
-} from "./post-event-feedback-loop.harness.js";
+} from "./vibes/post-event-feedback-loop.harness.js";
 import { POST_EVENT_FEEDBACK_HANDOFF_REPLY } from "./extraction/extraction.schemas.js";
 import { FeedbackExtractionGenerationError } from "./extraction/model.service.js";
 import { POST_EVENT_FEEDBACK_QUESTION_SET_V2 } from "./question-set.js";

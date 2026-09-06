@@ -5,7 +5,7 @@ import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "./question-set.js";
 import {
   runFeedbackScenarios,
   type FeedbackScenario,
-} from "./post-event-feedback-loop.harness.js";
+} from "./vibes/post-event-feedback-loop.harness.js";
 
 /**
  * Sections D, E and F of `docs/backend/modules/post-event-feedback-scenarios.md`

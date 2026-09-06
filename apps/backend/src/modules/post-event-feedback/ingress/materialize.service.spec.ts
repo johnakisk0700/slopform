@@ -36,7 +36,7 @@ import {
   feedbackConversationFixture,
   feedbackStoredMessage,
   noopSummaries,
-} from "../post-event-feedback-doubles.harness.js";
+} from "../vibes/post-event-feedback-doubles.harness.js";
 import {
   PostEventFeedbackIngressNotFoundError,
   PostEventFeedbackMaterializer,

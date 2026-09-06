@@ -16,17 +16,17 @@ import {
   vi,
 } from "vitest";
 
-import type { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
-import type { DatabaseService } from "../../../infrastructure/database/database.service.js";
-import type { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
-import type { EventsService } from "../../events/events.service.js";
-import type { EventFeedbackVenueSnapshot } from "../../events/event-venue.js";
-import type { ParticipantsRepository } from "../../participants/participants.repository.js";
-import type { FeedbackOperatorAlertInput } from "../operator-alert.js";
-import type { FeedbackOutboundLogRepository } from "../outbox/outbound-log.repository.js";
-import { FeedbackOutboundIntentService } from "../outbox/outbound-intent.service.js";
-import { FeedbackOutboundLogService } from "../outbox/outbound-log.service.js";
-import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
+import type { AuditRepository } from "../../../../infrastructure/audit/audit.repository.js";
+import type { DatabaseService } from "../../../../infrastructure/database/database.service.js";
+import type { FeedbackConversationRepository } from "../../post-event-feedback-conversation.repository.js";
+import type { EventsService } from "../../../events/events.service.js";
+import type { EventFeedbackVenueSnapshot } from "../../../events/event-venue.js";
+import type { ParticipantsRepository } from "../../../participants/participants.repository.js";
+import type { FeedbackOperatorAlertInput } from "../../operator-alert.js";
+import type { FeedbackOutboundLogRepository } from "../../outbox/outbound-log.repository.js";
+import { FeedbackOutboundIntentService } from "../../outbox/outbound-intent.service.js";
+import { FeedbackOutboundLogService } from "../../outbox/outbound-log.service.js";
+import { FeedbackOutboundTranscriptService } from "../../outbox/outbound-transcript.service.js";
 import {
   FakeAudit,
   FakeDatabase,
@@ -35,40 +35,47 @@ import {
   feedbackConversationFixture,
   feedbackStoredMessage,
 } from "../post-event-feedback-doubles.harness.js";
-import type { FeedbackOutboundDecision } from "../outbox/outbound-log.schemas.js";
-import type { OutboundConversationSnapshot } from "../outbox/outbound-log.snapshot.js";
+import type { FeedbackOutboundDecision } from "../../outbox/outbound-log.schemas.js";
+import type { OutboundConversationSnapshot } from "../../outbox/outbound-log.snapshot.js";
 import {
   FEEDBACK_ANSWER_CORRECTIONS_KEY,
   isCorrectedAnswer,
-} from "./answer-corrections.js";
-import { FEEDBACK_OPERATION_EVENT } from "../feedback-operation-log.js";
+} from "../../extraction/answer-corrections.js";
+import { FEEDBACK_OPERATION_EVENT } from "../../feedback-operation-log.js";
 import {
   FeedbackConversationExecutionGuardError,
   PostEventFeedbackExtractor,
-} from "./extract.service.js";
-import { FeedbackExtractionGuards } from "./extraction-guards.service.js";
-import { FeedbackExtractionTurnService } from "./extraction-turn.service.js";
-import { FeedbackExtractionCommitService } from "./extraction-commit.service.js";
-import { FeedbackConversationCapacityError } from "../post-event-feedback-conversation.repository.js";
-import type { FeedbackConversationExecutionClaim } from "./execution-fence.repository.js";
+} from "../../extraction/extract.service.js";
+import { FeedbackExtractionAdmissionService } from "../../extraction/extraction-admission.service.js";
+import { FeedbackModelContextBuilder } from "../../extraction/model-context.service.js";
+import { FeedbackAiTurnAnalysis } from "../../extraction/ai-turn-analysis.service.js";
+import { FeedbackParticipantReplyPlanner } from "../../extraction/participant-reply.service.js";
+import { FeedbackExtractionResultsWriter } from "../../extraction/extraction-results-writer.service.js";
+import { FeedbackExtractionStateApplier } from "../../extraction/extraction-state.service.js";
+import { FeedbackExtractionCapacityService } from "../../extraction/extraction-capacity.service.js";
+import { FeedbackExtractionGuards } from "../../extraction/extraction-guards.service.js";
+import { FeedbackExtractionTurnService } from "../../extraction/extraction-turn.service.js";
+import { FeedbackExtractionCommitService } from "../../extraction/extraction-commit.service.js";
+import { FeedbackConversationCapacityError } from "../../post-event-feedback-conversation.repository.js";
+import type { FeedbackConversationExecutionClaim } from "../../extraction/execution-fence.repository.js";
 import {
   FeedbackExtractionGenerationError,
   type PostEventFeedbackExtractionModel,
-} from "./model.service.js";
-import { PostEventFeedbackMetrics } from "../metrics.service.js";
-import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "../question-set.js";
+} from "../../extraction/model.service.js";
+import { PostEventFeedbackMetrics } from "../../metrics.service.js";
+import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "../../question-set.js";
 import type { FeedbackAnswerQuestionKey } from "@slopform/database";
 import {
   POST_EVENT_FEEDBACK_HANDOFF_REPLY,
   POST_EVENT_FEEDBACK_SAFETY_ASSURANCE,
   feedbackExtractionGoalVerdicts,
   type FeedbackExtractionAnswerProposal,
-} from "./extraction.schemas.js";
-import { POST_EVENT_FEEDBACK_POLICY_QUESTION_DEFINITIONS } from "./policy-answers.js";
-import type { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
-import type { FeedbackResultsRepository } from "./results.repository.js";
-import type { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
-import type { FeedbackIngressRepository } from "../ingress/ingress.repository.js";
+} from "../../extraction/extraction.schemas.js";
+import { POST_EVENT_FEEDBACK_POLICY_QUESTION_DEFINITIONS } from "../../extraction/policy-answers.js";
+import type { FeedbackCampaignRepository } from "../../campaign/campaign.repository.js";
+import type { FeedbackResultsRepository } from "../../extraction/results.repository.js";
+import type { FeedbackOutboxRepository } from "../../outbox/outbox.repository.js";
+import type { FeedbackIngressRepository } from "../../ingress/ingress.repository.js";
 
 const campaignId = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 const eventId = "5c2f0b8e-9b1a-4a41-8f27-1a6f9b0c2d10";
@@ -3597,6 +3604,60 @@ describe("PostEventFeedbackExtractor", () => {
       );
     });
 
+    it.each([
+      "admit",
+      "plan_turn",
+      "notify_operator",
+      "notify_summary",
+    ] as const)(
+      "does not mistake a capacity-shaped failure in %s for a failed commit",
+      async (stage) => {
+        const records = captureOperations();
+        const failure = new FeedbackConversationCapacityError();
+        if (stage === "admit") {
+          vi.spyOn(harness.conversations, "findById").mockRejectedValueOnce(
+            failure,
+          );
+        } else if (stage === "plan_turn") {
+          harness.generation.propose.mockRejectedValueOnce(failure);
+        } else if (stage === "notify_operator") {
+          harness.generation.classifyAttention.mockResolvedValue(
+            attentionGeneration([
+              {
+                category: "other_safety",
+                recommendedAction: "review",
+                sourceMessageIds: [p1],
+                confidence: 0.9,
+              },
+            ]),
+          );
+          vi.spyOn(harness.alert, "raise").mockRejectedValueOnce(failure);
+        } else {
+          harness.summaries.notifyIfLastConversationClosed.mockRejectedValueOnce(
+            failure,
+          );
+        }
+
+        await expect(
+          harness.extractor.extract({ conversationId, correlationId }),
+        ).rejects.toBe(failure);
+        expect(
+          records.find(
+            (record) =>
+              record.operation === "extract" && record.status === "failed",
+          ),
+        ).toMatchObject({
+          stage,
+          errorName: "FeedbackConversationCapacityError",
+        });
+        expect(
+          records.some(
+            (record) => record.operation === "extract_capacity_brake",
+          ),
+        ).toBe(false);
+      },
+    );
+
     it("brakes only for the original capacity error and records that separate operation", async () => {
       const records = captureOperations();
       vi.spyOn(
@@ -4179,7 +4240,10 @@ interface Harness {
   };
   audit: FakeAudit;
   metrics: PostEventFeedbackMetrics;
-  alert: { raised: FeedbackOperatorAlertInput[] };
+  alert: {
+    raised: FeedbackOperatorAlertInput[];
+    raise(input: FeedbackOperatorAlertInput): Promise<void>;
+  };
   summaries: {
     notifyIfLastConversationClosed: ReturnType<typeof vi.fn>;
   };
@@ -4367,14 +4431,50 @@ function createHarness(): Harness {
     participants as unknown as ParticipantsRepository,
     conversations as unknown as FeedbackConversationRepository,
   );
-  const turns = new FeedbackExtractionTurnService(
+  const admission = new FeedbackExtractionAdmissionService(
+    database as unknown as DatabaseService,
+    repository as unknown as FeedbackCampaignRepository,
+    repository as unknown as FeedbackResultsRepository,
+    conversations as unknown as FeedbackConversationRepository,
+    participants as unknown as ParticipantsRepository,
+    executionFence as never,
+  );
+  const modelContext = new FeedbackModelContextBuilder(
     events as unknown as EventsService,
     repository as unknown as FeedbackResultsRepository,
     participants as unknown as ParticipantsRepository,
     repository as unknown as FeedbackOutboxRepository,
+    guards,
+  );
+  const aiTurn = new FeedbackAiTurnAnalysis(
+    generationService as unknown as PostEventFeedbackExtractionModel,
+    metrics,
+  );
+  const participantReply = new FeedbackParticipantReplyPlanner(
     generationService as unknown as PostEventFeedbackExtractionModel,
     metrics,
     guards,
+  );
+  const turns = new FeedbackExtractionTurnService(
+    modelContext,
+    aiTurn,
+    participantReply,
+  );
+  const resultsWriter = new FeedbackExtractionResultsWriter(
+    repository as unknown as FeedbackResultsRepository,
+    audit as unknown as AuditRepository,
+  );
+  const state = new FeedbackExtractionStateApplier(
+    repository as unknown as FeedbackResultsRepository,
+    conversations as unknown as FeedbackConversationRepository,
+    repository as unknown as FeedbackOutboxRepository,
+  );
+  const capacity = new FeedbackExtractionCapacityService(
+    database as unknown as DatabaseService,
+    repository as unknown as FeedbackResultsRepository,
+    executionFence as never,
+    conversations as unknown as FeedbackConversationRepository,
+    repository as unknown as FeedbackOutboxRepository,
   );
   const commits = new FeedbackExtractionCommitService(
     database as unknown as DatabaseService,
@@ -4384,19 +4484,16 @@ function createHarness(): Harness {
     executionFence as never,
     conversations as unknown as FeedbackConversationRepository,
     repository as unknown as FeedbackOutboxRepository,
-    audit as unknown as AuditRepository,
     outboundTranscript,
     outboundIntent,
+    resultsWriter,
+    state,
   );
   const extractor = new PostEventFeedbackExtractor(
-    database as unknown as DatabaseService,
-    repository as unknown as FeedbackCampaignRepository,
-    repository as unknown as FeedbackResultsRepository,
-    conversations as unknown as FeedbackConversationRepository,
-    participants as unknown as ParticipantsRepository,
-    executionFence as never,
+    admission,
     turns,
     commits,
+    capacity,
     metrics,
     alert,
     summaries as never,

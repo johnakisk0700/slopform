@@ -22,6 +22,15 @@ import type { SimulatedFeedbackTransport } from "./outbox/simulated-transport.se
 import { FeedbackSweepSchedulerService } from "./sweeps/sweep-scheduler.service.js";
 import { MessageOutboxDeliveryStatusService } from "./outbox/delivery-status.service.js";
 import { PostEventFeedbackExtractionModel } from "./extraction/model.service.js";
+import { FeedbackExtractionAdmissionService } from "./extraction/extraction-admission.service.js";
+import { FeedbackModelContextBuilder } from "./extraction/model-context.service.js";
+import { FeedbackAiTurnAnalysis } from "./extraction/ai-turn-analysis.service.js";
+import { FeedbackParticipantReplyPlanner } from "./extraction/participant-reply.service.js";
+import { FeedbackExtractionResultsWriter } from "./extraction/extraction-results-writer.service.js";
+import { FeedbackExtractionStateApplier } from "./extraction/extraction-state.service.js";
+import { FeedbackExtractionCapacityService } from "./extraction/extraction-capacity.service.js";
+import { FeedbackExtractionTurnService } from "./extraction/extraction-turn.service.js";
+import { FeedbackExtractionCommitService } from "./extraction/extraction-commit.service.js";
 import { PostEventFeedbackExtractor } from "./extraction/extract.service.js";
 import { PostEventFeedbackExtractionFallback } from "./extraction/fallback.service.js";
 import { FeedbackConversationExecutionLimiter } from "./extraction/execution-limiter.service.js";
@@ -273,7 +282,7 @@ describe("post-event feedback process composition", () => {
     ).toThrow(/WASENDER_SESSION_API_KEY is required/);
   });
 
-  it("keeps the extraction model provider in the worker process only", () => {
+  it("keeps AI extraction mechanisms in the worker process only", () => {
     const workerProviders = Reflect.getMetadata(
       MODULE_METADATA.PROVIDERS,
       PostEventFeedbackWorkerModule,
@@ -283,7 +292,26 @@ describe("post-event feedback process composition", () => {
       PostEventFeedbackIngressModule,
     ) as readonly unknown[];
 
-    expect(workerProviders).toContain(PostEventFeedbackExtractor);
+    const httpProviders = Reflect.getMetadata(
+      MODULE_METADATA.PROVIDERS,
+      PostEventFeedbackHttpModule,
+    ) as readonly unknown[];
+    for (const mechanism of [
+      PostEventFeedbackExtractor,
+      FeedbackExtractionAdmissionService,
+      FeedbackModelContextBuilder,
+      FeedbackAiTurnAnalysis,
+      FeedbackParticipantReplyPlanner,
+      FeedbackExtractionResultsWriter,
+      FeedbackExtractionStateApplier,
+      FeedbackExtractionCapacityService,
+      FeedbackExtractionTurnService,
+      FeedbackExtractionCommitService,
+    ]) {
+      expect(workerProviders.map(providerToken)).toContain(mechanism);
+      expect(ingressProviders.map(providerToken)).not.toContain(mechanism);
+      expect(httpProviders.map(providerToken)).not.toContain(mechanism);
+    }
     expect(workerProviders.map(providerToken)).toContain(
       PostEventFeedbackExtractionModel,
     );

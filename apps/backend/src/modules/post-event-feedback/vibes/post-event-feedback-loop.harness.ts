@@ -3,51 +3,58 @@ import type { ConfigService } from "@nestjs/config";
 import { UnrecoverableError, type Job, type Queue } from "bullmq";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-import type { AuditRepository } from "../../infrastructure/audit/audit.repository.js";
-import type { Environment } from "../../infrastructure/config/environment.js";
-import type { DatabaseService } from "../../infrastructure/database/database.service.js";
-import type { FeedbackConversationRepository } from "./post-event-feedback-conversation.repository.js";
+import type { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
+import type { Environment } from "../../../infrastructure/config/environment.js";
+import type { DatabaseService } from "../../../infrastructure/database/database.service.js";
+import type { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
 import {
   buildFeedbackConversationGoals,
   deriveFeedbackConversationId,
   resolveFeedbackConversationWork,
   type FeedbackConversationGoal,
-} from "./post-event-feedback-conversation.document.js";
-import type { EventsRepository } from "../events/events.repository.js";
-import type { EventsService } from "../events/events.service.js";
-import type { ParticipantsRepository } from "../participants/participants.repository.js";
-import { phoneE164ToChatJid } from "../../integrations/wasender/wasender.jid.js";
-import type { FeedbackOperatorAlert } from "./operator-alert.js";
-import { FeedbackOutboundLogService } from "./outbox/outbound-log.service.js";
-import type { FeedbackOutboundLogRepository } from "./outbox/outbound-log.repository.js";
-import { FeedbackOutboundIntentService } from "./outbox/outbound-intent.service.js";
-import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
-import type { FeedbackTransport } from "./outbox/transport.js";
-import { MessageOutboxDispatcherService } from "./outbox/dispatcher.service.js";
-import { PostEventFeedbackExtractionFallback } from "./extraction/fallback.service.js";
+} from "../post-event-feedback-conversation.document.js";
+import type { EventsRepository } from "../../events/events.repository.js";
+import type { EventsService } from "../../events/events.service.js";
+import type { ParticipantsRepository } from "../../participants/participants.repository.js";
+import { phoneE164ToChatJid } from "../../../integrations/wasender/wasender.jid.js";
+import type { FeedbackOperatorAlert } from "../operator-alert.js";
+import { FeedbackOutboundLogService } from "../outbox/outbound-log.service.js";
+import type { FeedbackOutboundLogRepository } from "../outbox/outbound-log.repository.js";
+import { FeedbackOutboundIntentService } from "../outbox/outbound-intent.service.js";
+import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
+import type { FeedbackTransport } from "../outbox/transport.js";
+import { MessageOutboxDispatcherService } from "../outbox/dispatcher.service.js";
+import { PostEventFeedbackExtractionFallback } from "../extraction/fallback.service.js";
 import {
   FeedbackExtractionGenerationError,
   isFeedbackProviderIncident,
   type PostEventFeedbackExtractionModel,
-} from "./extraction/model.service.js";
+} from "../extraction/model.service.js";
 import {
   POST_EVENT_FEEDBACK_FALLBACK_ACK,
   POST_EVENT_FEEDBACK_HANDOFF_REPLY,
   POST_EVENT_FEEDBACK_HOSTILITY_STOP_REPLY,
-} from "./extraction/extraction.schemas.js";
+} from "../extraction/extraction.schemas.js";
 import {
   PostEventFeedbackCampaignNotFoundError,
   PostEventFeedbackConversationNotFoundError,
   PostEventFeedbackExtractor,
-} from "./extraction/extract.service.js";
-import { FeedbackExtractionGuards } from "./extraction/extraction-guards.service.js";
-import { FeedbackExtractionTurnService } from "./extraction/extraction-turn.service.js";
-import { FeedbackExtractionCommitService } from "./extraction/extraction-commit.service.js";
-import type { FeedbackConversationExecutionFenceRepository } from "./extraction/execution-fence.repository.js";
-import type { FeedbackConversationExecutionFence } from "./extraction/execution-fence.service.js";
-import { PostEventFeedbackIngressService } from "./ingress/ingress.service.js";
-import { FeedbackMaterializeWakeupService } from "./ingress/materialize-wakeup.service.js";
-import { PostEventFeedbackConversationService } from "./inbox/conversation.service.js";
+} from "../extraction/extract.service.js";
+import { FeedbackExtractionAdmissionService } from "../extraction/extraction-admission.service.js";
+import { FeedbackModelContextBuilder } from "../extraction/model-context.service.js";
+import { FeedbackAiTurnAnalysis } from "../extraction/ai-turn-analysis.service.js";
+import { FeedbackParticipantReplyPlanner } from "../extraction/participant-reply.service.js";
+import { FeedbackExtractionResultsWriter } from "../extraction/extraction-results-writer.service.js";
+import { FeedbackExtractionStateApplier } from "../extraction/extraction-state.service.js";
+import { FeedbackExtractionCapacityService } from "../extraction/extraction-capacity.service.js";
+import { FeedbackExtractionGuards } from "../extraction/extraction-guards.service.js";
+import { FeedbackExtractionTurnService } from "../extraction/extraction-turn.service.js";
+import { FeedbackExtractionCommitService } from "../extraction/extraction-commit.service.js";
+import type { FeedbackConversationExecutionFenceRepository } from "../extraction/execution-fence.repository.js";
+import type { FeedbackConversationExecutionFence } from "../extraction/execution-fence.service.js";
+import { PostEventFeedbackIngressService } from "../ingress/ingress.service.js";
+import { FeedbackMaterializeWakeupService } from "../ingress/materialize-wakeup.service.js";
+import { PostEventFeedbackConversationService } from "../inbox/conversation.service.js";
 import {
   FakeAudit,
   FakeDatabase,
@@ -61,12 +68,12 @@ import {
   noopSummaries,
   type FakeOutboxRow,
 } from "./post-event-feedback-doubles.harness.js";
-import { PostEventFeedbackMaterializer } from "./ingress/materialize.service.js";
+import { PostEventFeedbackMaterializer } from "../ingress/materialize.service.js";
 import {
   PostEventFeedbackMaterializationCoordinator,
   type FeedbackMaterializationLimiter,
-} from "./ingress/materialization-coordinator.service.js";
-import { PostEventFeedbackMetrics } from "./metrics.service.js";
+} from "../ingress/materialization-coordinator.service.js";
+import { PostEventFeedbackMetrics } from "../metrics.service.js";
 import type {
   FeedbackAnswerQuestionKey,
   FeedbackNoteType,
@@ -76,25 +83,25 @@ import {
   createFeedbackIntroDedupeKey,
   getPostEventFeedbackQuestionSet,
   renderPostEventFeedbackCopy,
-} from "./question-set.js";
-import { PostEventFeedbackIngressProcessor } from "./ingress/ingress.processor.js";
-import type { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
-import type { FeedbackResultsRepository } from "./extraction/results.repository.js";
-import type { FeedbackIngressRepository } from "./ingress/ingress.repository.js";
-import type { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
-import { PostEventFeedbackSweepService } from "./sweeps/sweep.service.js";
+} from "../question-set.js";
+import { PostEventFeedbackIngressProcessor } from "../ingress/ingress.processor.js";
+import type { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
+import type { FeedbackResultsRepository } from "../extraction/results.repository.js";
+import type { FeedbackIngressRepository } from "../ingress/ingress.repository.js";
+import type { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
+import { PostEventFeedbackSweepService } from "../sweeps/sweep.service.js";
 import {
   FEEDBACK_JOB_NAMES,
   FEEDBACK_JOB_SCHEMA_VERSION_V2,
   boundObservedMessageText,
   type FeedbackJobData,
   type FeedbackJobName,
-} from "./jobs.schemas.js";
-import { FeedbackConversationInactivityService } from "./reconciliation/conversation-inactivity.service.js";
-import { FeedbackConversationReconcileService } from "./reconciliation/reconcile.service.js";
-import { FeedbackConversationWakeupService } from "./reconciliation/wakeup.service.js";
-import { PostEventFeedbackMaintenanceService } from "./sweeps/maintenance.service.js";
-import { FEEDBACK_SWEEP_EVERY_MS } from "./sweeps/sweep-scheduler.service.js";
+} from "../jobs.schemas.js";
+import { FeedbackConversationInactivityService } from "../reconciliation/conversation-inactivity.service.js";
+import { FeedbackConversationReconcileService } from "../reconciliation/reconcile.service.js";
+import { FeedbackConversationWakeupService } from "../reconciliation/wakeup.service.js";
+import { PostEventFeedbackMaintenanceService } from "../sweeps/maintenance.service.js";
+import { FEEDBACK_SWEEP_EVERY_MS } from "../sweeps/sweep-scheduler.service.js";
 import {
   ScriptedExtractionModel,
   SCRIPT_MODEL,
@@ -122,7 +129,7 @@ import {
   type FeedbackStep,
   type ModelFailure,
   type ScenarioDuration,
-} from "./post-event-feedback-loop-scenario.js";
+} from "../post-event-feedback-loop-scenario.js";
 
 export {
   DEFAULT_RESPONDENT,
@@ -147,7 +154,7 @@ export {
   type ScriptedAnswer,
   type ScriptedAttention,
   type ScriptedNote,
-} from "./post-event-feedback-loop-scenario.js";
+} from "../post-event-feedback-loop-scenario.js";
 export {
   ScriptedExtractionModel,
   type ScriptedModelPause,
@@ -678,14 +685,50 @@ export async function createFeedbackLoopHarness(
     participants as unknown as ParticipantsRepository,
     conversations as unknown as FeedbackConversationRepository,
   );
-  const turns = new FeedbackExtractionTurnService(
+  const admission = new FeedbackExtractionAdmissionService(
+    database as unknown as DatabaseService,
+    repository as unknown as FeedbackCampaignRepository,
+    repository as unknown as FeedbackResultsRepository,
+    conversations as unknown as FeedbackConversationRepository,
+    participants as unknown as ParticipantsRepository,
+    extractionExecutionFence,
+  );
+  const modelContext = new FeedbackModelContextBuilder(
     events as unknown as EventsService,
     repository as unknown as FeedbackResultsRepository,
     participants as unknown as ParticipantsRepository,
     repository as unknown as FeedbackOutboxRepository,
+    guards,
+  );
+  const aiTurn = new FeedbackAiTurnAnalysis(
+    model as unknown as PostEventFeedbackExtractionModel,
+    metrics,
+  );
+  const participantReply = new FeedbackParticipantReplyPlanner(
     model as unknown as PostEventFeedbackExtractionModel,
     metrics,
     guards,
+  );
+  const turns = new FeedbackExtractionTurnService(
+    modelContext,
+    aiTurn,
+    participantReply,
+  );
+  const resultsWriter = new FeedbackExtractionResultsWriter(
+    repository as unknown as FeedbackResultsRepository,
+    audit as unknown as AuditRepository,
+  );
+  const state = new FeedbackExtractionStateApplier(
+    repository as unknown as FeedbackResultsRepository,
+    conversations as unknown as FeedbackConversationRepository,
+    repository as unknown as FeedbackOutboxRepository,
+  );
+  const capacity = new FeedbackExtractionCapacityService(
+    database as unknown as DatabaseService,
+    repository as unknown as FeedbackResultsRepository,
+    extractionExecutionFence,
+    conversations as unknown as FeedbackConversationRepository,
+    repository as unknown as FeedbackOutboxRepository,
   );
   const commits = new FeedbackExtractionCommitService(
     database as unknown as DatabaseService,
@@ -695,19 +738,16 @@ export async function createFeedbackLoopHarness(
     extractionExecutionFence,
     conversations as unknown as FeedbackConversationRepository,
     repository as unknown as FeedbackOutboxRepository,
-    audit as unknown as AuditRepository,
     outboundTranscript,
     outboundIntent,
+    resultsWriter,
+    state,
   );
   const extractor = new PostEventFeedbackExtractor(
-    database as unknown as DatabaseService,
-    repository as unknown as FeedbackCampaignRepository,
-    repository as unknown as FeedbackResultsRepository,
-    conversations as unknown as FeedbackConversationRepository,
-    participants as unknown as ParticipantsRepository,
-    extractionExecutionFence,
+    admission,
     turns,
     commits,
+    capacity,
     metrics,
     alerts as FeedbackOperatorAlert,
     summaries as never,

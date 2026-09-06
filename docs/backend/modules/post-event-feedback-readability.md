@@ -1,5 +1,9 @@
 # Feedback code readability
 
+Before selecting another refactor slice, read the
+[current progress and next-work map](post-event-feedback-refactor-status.md).
+Update that map at each checkpoint.
+
 Guidance for the whole feedback mechanism: campaigns, ingress, matching,
 extraction, delivery, reconciliation, staff actions, summaries and persistence.
 An individual function or command is an example, not a predetermined refactoring
@@ -128,6 +132,32 @@ in; a proposed next state and whether it changed come out. Queries, serializatio
 locks and writes remain with the owning persistence/application code. Do not
 introduce another copy of the business state to make a split easier.
 
+## A concrete AI recipe
+
+The current [turn planner](../../../apps/backend/src/modules/post-event-feedback/extraction/extraction-turn.service.ts)
+reads in three stages (observer calls omitted here):
+
+```ts
+// Assemble the testimony and live facts the AI is allowed to see.
+const prepared = await this.modelContext.prepare(snapshot);
+// Extract feedback and classify attention; reject unsupported model claims.
+const analyzed = await this.aiTurn.analyze(snapshot, prepared);
+// Choose the reply, apply policy answers, and withhold it if state changed.
+return this.participantReply.plan(snapshot, prepared, analyzed);
+```
+
+These comments explain the purpose of each mechanism. The model's proposal is
+a draft of extracted facts and reply text, not permission to send. The outer
+extractor next calls `commits.commit(snapshot, turn)`, which rechecks live state
+under locks and can retain paid facts while suppressing an outdated reply.
+Do not collapse those different checks into a vague `proposalPolicy`.
+
+Use Effect utilities where composition helps, with ordinary Nest collaborators
+and Promise APIs. The extractor demonstrates `Effect.gen` and a locally handled
+commit outcome; it does not introduce Tags, Context or Layers. Keep the Promise
+error boundary and retry ownership described in
+[ADR 0017](../../decisions/0017-effect-for-local-workflows.md).
+
 ## What the resulting code should look like
 
 - Public operations read as business actions with visible early exits and
@@ -142,13 +172,60 @@ introduce another copy of the business state to make a split easier.
 - A reviewer can identify the one transaction owner, all participating writes
   and the first external side effect. Necessary guards stay visible at the
   boundary they protect.
-- Comments explain a constraint or decision that the code cannot express.
+- Short stage comments explain the business purpose; detailed comments explain
+  a constraint or decision that the code cannot express.
   For example, “campaign resume updates these rows without the conversation
   mutex” explains a row lock; “load the conversation” repeats the next line.
   Extended rationale belongs in the module docs.
 - File length is a signal to inspect, not a target. A long cohesive SQL adapter
   can be reasonable. A short file that hides ordering through many unrelated
   helpers can still be hard to understand.
+
+## Types close to their mechanism
+
+Move substantial input, result and projection contracts to a neighboring
+`*.types.ts` named for their owner. Examples are `materialize.types.ts`,
+`dispatcher.types.ts`, `extraction-commit.types.ts` and `outbox.types.ts`.
+Import those contracts directly with `import type`; an `index.ts` barrel is
+useful only for a deliberate public module boundary, not as a shared drawer.
+
+The commit coordinator now reaches its operation immediately:
+
+```ts
+private async persistOn(
+  transaction: AppTransaction,
+  input: FeedbackExtractionPersistInput,
+): Promise<ExtractPersistWritten> {
+  // Lock, recheck authority, then persist the eligible results and intent.
+}
+```
+
+The named contract preserves every required, optional, nullable and readonly
+field. Prefer existing database and schema types to a second model, and avoid
+generic base inputs that make required fields optional. Keep a short local
+shape inline when moving it would add navigation without explaining anything.
+Keep a small inferred alias next to its runtime constant rather than making
+the types module depend back on its service or repository.
+
+This removes declarations from the reading path; it does not remove business
+complexity. Large services with mixed responsibilities still need cohesive
+mechanisms and short coordinating methods. Moving types alone is not evidence
+that the mechanism refactor is complete. Test reorganization stays deferred.
+
+## Deferred test cleanup
+
+Finish the production mechanism boundaries before reorganizing the large legacy
+test suites. The module's
+[`vibes/`](../../../apps/backend/src/modules/post-event-feedback/vibes/README.md)
+holds the extraction and staff-action suites plus shared loop harnesses while
+their structure awaits review. The folder marks readability debt; it does not
+disable tests or establish that their assertions are wrong.
+
+Existing Vitest discovery and TypeScript checks include these files, and the
+production build still excludes specs and harnesses. Keep their regression
+coverage active during refactoring. New focused tests stay beside their owning
+mechanism. After the boundaries settle, review cases against the scenarios,
+separate cohesive fixtures, remove duplication, and move reviewed suites back.
 
 ## Scope and agent organization
 

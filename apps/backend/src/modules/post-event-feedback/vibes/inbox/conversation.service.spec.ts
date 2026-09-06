@@ -9,48 +9,48 @@ import type {
 } from "@slopform/database";
 import { describe, expect, it, vi } from "vitest";
 
-import type { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
-import type { DatabaseService } from "../../../infrastructure/database/database.service.js";
+import type { AuditRepository } from "../../../../infrastructure/audit/audit.repository.js";
+import type { DatabaseService } from "../../../../infrastructure/database/database.service.js";
 import {
   FeedbackConversationCapacityError,
   type FeedbackConversationRepository,
-} from "../post-event-feedback-conversation.repository.js";
+} from "../../post-event-feedback-conversation.repository.js";
 import {
   buildFeedbackConversationGoals,
   type FeedbackConversationDocument,
-} from "../post-event-feedback-conversation.document.js";
-import type { EventsRepository } from "../../events/events.repository.js";
-import type { EventsService } from "../../events/events.service.js";
-import type { ParticipantsRepository } from "../../participants/participants.repository.js";
-import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
-import type { FeedbackOutboundLogRepository } from "../outbox/outbound-log.repository.js";
-import { FeedbackOutboundIntentService } from "../outbox/outbound-intent.service.js";
-import { FeedbackOutboundLogService } from "../outbox/outbound-log.service.js";
+} from "../../post-event-feedback-conversation.document.js";
+import type { EventsRepository } from "../../../events/events.repository.js";
+import type { EventsService } from "../../../events/events.service.js";
+import type { ParticipantsRepository } from "../../../participants/participants.repository.js";
+import { FeedbackOutboundTranscriptService } from "../../outbox/outbound-transcript.service.js";
+import type { FeedbackOutboundLogRepository } from "../../outbox/outbound-log.repository.js";
+import { FeedbackOutboundIntentService } from "../../outbox/outbound-intent.service.js";
+import { FeedbackOutboundLogService } from "../../outbox/outbound-log.service.js";
 import { noopSummaries } from "../post-event-feedback-doubles.harness.js";
-import { buildPostEventFeedbackQuestionLaunchSnapshot } from "../question-set.js";
-import type { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
-import type { FeedbackConversationExecutionFenceRepository } from "../extraction/execution-fence.repository.js";
-import type { FeedbackResultsRepository } from "../extraction/results.repository.js";
-import type { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
-import type { FeedbackConversationWakeupService } from "../reconciliation/wakeup.service.js";
-import { conversationCapabilities } from "./conversation.view.js";
+import { buildPostEventFeedbackQuestionLaunchSnapshot } from "../../question-set.js";
+import type { FeedbackCampaignRepository } from "../../campaign/campaign.repository.js";
+import type { FeedbackConversationExecutionFenceRepository } from "../../extraction/execution-fence.repository.js";
+import type { FeedbackResultsRepository } from "../../extraction/results.repository.js";
+import type { FeedbackOutboxRepository } from "../../outbox/outbox.repository.js";
+import type { FeedbackConversationWakeupService } from "../../reconciliation/wakeup.service.js";
+import { conversationCapabilities } from "../../inbox/conversation.view.js";
 import {
   addFeedbackConversationAnswerSchema,
   closeFeedbackConversationSchema,
   createFeedbackStaffMessageDedupeKey,
   feedbackConversationMessageSchema,
   sendFeedbackStaffMessageSchema,
-} from "./conversation.schemas.js";
+} from "../../inbox/conversation.schemas.js";
 import {
   FEEDBACK_CONVERSATION_MESSAGE_MAX_STORED_TEXT_LENGTH,
   FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH,
-} from "../post-event-feedback-conversation.document.js";
+} from "../../post-event-feedback-conversation.document.js";
 import {
   FeedbackAnswerNotFoundError,
   FeedbackAttentionReasonNotFoundError,
   FeedbackConversationActionNotAllowedError,
   PostEventFeedbackConversationService,
-} from "./conversation.service.js";
+} from "../../inbox/conversation.service.js";
 
 const eventId = "7c57f3b8-2b13-48f5-8730-18ac71f490cd";
 const campaignId = "89eccaa5-9ce6-4dcf-a630-5e35e4ec6f0d";

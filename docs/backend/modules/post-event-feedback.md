@@ -14,6 +14,8 @@ Policy answers the application may append:
 [`post-event-feedback-policy-answers.md`](post-event-feedback-policy-answers.md).
 Code organization and refactoring examples:
 [`post-event-feedback-readability.md`](post-event-feedback-readability.md).
+Current refactor progress and next work:
+[`post-event-feedback-refactor-status.md`](post-event-feedback-refactor-status.md).
 
 ## Read this first
 
@@ -316,13 +318,21 @@ The conversation row owns `{ work_revision, work_next_action_at }`; the fence
 table owns epoch/token/lease; BullMQ V2 is a wake-up. Cursor + relational
 uniqueness make replay safe.
 
-Start reading the AI path at `PostEventFeedbackExtractor.extract`: admit a
-snapshot, plan the turn, commit it, then notify. Three collaborators own the
-details:
+Start reading the AI path at `PostEventFeedbackExtractor.extract` and its
+`extractionFlow`: admit a snapshot, plan the turn, commit it, then notify.
+The local Effect recipe keeps Nest dependency injection and existing Promise
+services ([ADR 0017](../../decisions/0017-effect-for-local-workflows.md)).
+
+- [Admission](../../../apps/backend/src/modules/post-event-feedback/extraction/extraction-admission.service.ts)
+  owns cheap exits and the cursor-only transaction when there is no new
+  participant testimony. It checks eligibility before buying model work.
 
 - [Turn planning](../../../apps/backend/src/modules/post-event-feedback/extraction/extraction-turn.service.ts)
-  loads live context, runs the parallel model calls, validates their proposal,
-  and resolves any rewrite and outbound decision.
+  coordinates three mechanisms: `FeedbackModelContextBuilder` assembles live
+  context; `FeedbackAiTurnAnalysis` runs the parallel model calls and validates
+  their claims; `FeedbackParticipantReplyPlanner` chooses copy, applies policy
+  answers and handles rewrite or supersession. Validating model claims is
+  distinct from deciding whether current state permits committing a reply.
 - [Execution guards](../../../apps/backend/src/modules/post-event-feedback/extraction/extraction-guards.service.ts)
   check current authority before provider entry and review the proposed reply
   against changes made during generation, before enqueue. The dispatcher
@@ -330,12 +340,16 @@ details:
 - [Turn commit](../../../apps/backend/src/modules/post-event-feedback/extraction/extraction-commit.service.ts)
   owns the single transaction for results, audit, outbox, transcript and
   conversation state. It recomputes the decision if newer work suppresses the
-  reply. Its capacity brake is a separate transaction after the failed commit
-  has rolled back.
+  reply. The results writer and state applier receive its explicit transaction;
+  lock order, freshness, outbound permission and terminal transcript identity
+  remain visible in the commit coordinator.
+- [Capacity recovery](../../../apps/backend/src/modules/post-event-feedback/extraction/extraction-capacity.service.ts)
+  owns the separate human-brake transaction after a capacity failure rolls the
+  main commit back. Only a failure of the commit can select this recovery.
 
-The extractor retains cheap exits and the cursor-only transaction when there
-is no new participant testimony. Model calls stay outside the commit, and
-operator alerts and summary notifications follow it.
+Model calls stay outside the commit; operator alerts and summary notifications
+follow it. Effect adds no retry or cancellation policy. The Promise boundary
+preserves original errors for existing queue classification.
 
 A planned turn separates immutable `evidence` (the admitted snapshot and model
 results) from the `proposed` goal statuses, hostility, closure and outbound

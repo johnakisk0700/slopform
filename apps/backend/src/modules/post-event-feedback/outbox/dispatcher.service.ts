@@ -30,8 +30,8 @@ import {
   FEEDBACK_OUTBOX_DISPATCH_LEASE_MS,
   FEEDBACK_OUTBOX_RECOVERY_MS,
   FeedbackOutboxRepository,
-  type FeedbackOutboxClaimedRow,
 } from "./outbox.repository.js";
+import type { FeedbackOutboxClaimedRow } from "./outbox.types.js";
 import { FeedbackOutboundTranscriptService } from "./outbound-transcript.service.js";
 import {
   FEEDBACK_SEND_LIMITER,
@@ -42,42 +42,13 @@ import {
   FeedbackOperationLog,
 } from "../feedback-operation-log.js";
 import { FEEDBACK_TRANSPORT, type FeedbackTransport } from "./transport.js";
-
-export type FeedbackOutboxDispatchOutcome =
-  | "sent"
-  | "failed"
-  | "cancelled"
-  | "held"
-  | "ambiguous"
-  | "claim_lost"
-  | "deferred";
-
-export type FeedbackOutboxDispatchItemResult = {
-  readonly outboxId: string;
-  readonly outcome: FeedbackOutboxDispatchOutcome;
-};
-
-export type FeedbackOutboxDispatchBatchResult = {
-  readonly claimedCount: number;
-  readonly quarantinedCount: number;
-  readonly items: readonly FeedbackOutboxDispatchItemResult[];
-};
-
-type FeedbackOutboxGuardResult =
-  | {
-      readonly state: "ready";
-      readonly phoneAtLaunch: string;
-      /** Exact STOP lifecycle authority for the campaign-status marker CAS. */
-      readonly authorizedStopOutboxId: string | null;
-    }
-  | {
-      readonly state: "settled";
-      readonly result: FeedbackOutboxDispatchItemResult;
-    };
-
-type FeedbackSendSlotResult =
-  | { readonly state: "granted" }
-  | { readonly state: "failed"; readonly error: unknown };
+import type {
+  FeedbackOutboxDispatchOutcome,
+  FeedbackOutboxDispatchItemResult,
+  FeedbackOutboxDispatchBatchResult,
+  FeedbackOutboxGuardResult,
+  FeedbackSendSlotResult,
+} from "./dispatcher.types.js";
 
 /**
  * Direct PostgreSQL outbox dispatcher.

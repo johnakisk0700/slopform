@@ -14,8 +14,8 @@ import { FeedbackOutboundLogRepository } from "./outbound-log.repository.js";
 import {
   FEEDBACK_OUTBOX_QUEUE_VIEW_LIMIT,
   FeedbackOutboxRepository,
-  type FeedbackOutboxHistoryFilter,
 } from "./outbox.repository.js";
+import type { FeedbackOutboxHistoryFilter } from "./outbox.types.js";
 import {
   feedbackOutboxMessageLogSchema,
   FEEDBACK_OUTBOX_HISTORY_PAGE_SIZE,

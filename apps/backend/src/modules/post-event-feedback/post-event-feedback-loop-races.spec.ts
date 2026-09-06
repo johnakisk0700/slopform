@@ -1,7 +1,7 @@
 import {
   runFeedbackScenarios,
   type FeedbackScenario,
-} from "./post-event-feedback-loop.harness.js";
+} from "./vibes/post-event-feedback-loop.harness.js";
 
 /**
  * Focused fake-backed race narratives. The model barrier opens only after the

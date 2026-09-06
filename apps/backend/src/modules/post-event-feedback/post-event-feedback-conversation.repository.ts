@@ -35,13 +35,11 @@ import {
   FEEDBACK_CONVERSATION_SCHEMA_VERSION,
   type FeedbackConversationControlSource,
   type FeedbackConversationDocument,
-  type FeedbackConversationExtractionUsage,
   type FeedbackConversationGoal,
   type FeedbackConversationLifecycleReason,
   type FeedbackConversationMessage,
   type FeedbackConversationRespondent,
   type FeedbackConversationSummary,
-  type FeedbackConversationWork,
   assertMessageIdentity,
   buildFeedbackConversationGoals,
   deriveFeedbackConversationId,
@@ -96,6 +94,21 @@ import {
   type PostEventFeedbackRecommendedAction,
   type PostEventFeedbackSafetyCategory,
 } from "./attention.js";
+import type {
+  FeedbackCampaignAttentionEvidence,
+  FeedbackCampaignLifecycleStats,
+  FeedbackConversationAdvanceCursorInput,
+  FeedbackConversationAppendResult,
+  FeedbackConversationAwaitHumanCursorInput,
+  FeedbackConversationCloseCursorInput,
+  FeedbackConversationCreationResult,
+  FeedbackConversationExtractionAccounting,
+  FeedbackConversationLaunchInput,
+  FeedbackConversationOverviewStats,
+  FeedbackConversationWorkCursor,
+  FeedbackConversationWorkTransitionResult,
+  FeedbackTerminalOutboxCandidate,
+} from "./post-event-feedback-conversation.types.js";
 
 export {
   FeedbackConversationCapacityError,
@@ -105,65 +118,8 @@ export {
   type FeedbackConversationTransitionResult,
 };
 
-/** Narrow evidence the campaign summary feeds into `wentWrong` / `wentWell`. */
-export type FeedbackCampaignAttentionEvidence = {
-  readonly conversationId: string;
-  readonly respondentParticipantId: string;
-  readonly kind: PostEventFeedbackAttentionReason;
-  readonly messageExcerpt: string | null;
-};
-
 const FEEDBACK_SUMMARY_ATTENTION_EVIDENCE_LIMIT = 40;
 const FEEDBACK_SUMMARY_MESSAGE_EXCERPT_MAX = 180;
-
-export interface FeedbackConversationLaunchInput {
-  readonly campaignId: string;
-  readonly respondentParticipantId: string;
-  readonly phoneAtLaunch: string;
-  readonly launchedAt: Date;
-  readonly goals?: readonly FeedbackConversationGoal[];
-}
-
-export interface FeedbackConversationCreationResult {
-  readonly created: boolean;
-  readonly conversation: FeedbackConversationDocument;
-}
-
-export interface FeedbackConversationWorkTransitionResult extends FeedbackConversationTransitionResult {
-  readonly work: FeedbackConversationWork;
-}
-
-export interface FeedbackConversationAppendResult {
-  readonly appended: boolean;
-  readonly message: FeedbackConversationMessage;
-  readonly conversation: FeedbackConversationDocument;
-}
-
-export interface FeedbackConversationExtractionAccounting {
-  readonly conversationId: string;
-  readonly extraction: {
-    readonly model: string | null;
-    readonly usage: FeedbackConversationExtractionUsage | null;
-    readonly serviceTier: string | null;
-  };
-}
-
-export interface FeedbackConversationWorkCursor {
-  readonly nextActionAt: Date;
-  readonly conversationId: string;
-}
-
-export interface FeedbackCampaignLifecycleStats {
-  readonly campaignId: string;
-  readonly totalCount: number;
-  readonly openCount: number;
-  readonly latestClosedAt: Date | null;
-}
-
-export interface FeedbackTerminalOutboxCandidate {
-  readonly conversationId: string;
-  readonly outboxId: string;
-}
 
 type DatabaseExecutor = AppTransaction | DatabaseService["db"];
 
@@ -575,18 +531,9 @@ export class FeedbackConversationRepository {
   /**
    * Exact platform-wide conversation counters for the admin Overview.
    */
-  async aggregateOverviewStats(transaction?: AppTransaction): Promise<{
-    total: number;
-    open: number;
-    closed: number;
-    byClosedReason: Record<FeedbackConversationLifecycleReason, number>;
-    needsAttention: number;
-    extractionParked: number;
-    attentionByReason: Array<{
-      reason: PostEventFeedbackAttentionReason;
-      count: number;
-    }>;
-  }> {
+  async aggregateOverviewStats(
+    transaction?: AppTransaction,
+  ): Promise<FeedbackConversationOverviewStats> {
     const executor = this.executor(transaction);
     const [facet] = await executor
       .select({
@@ -1040,16 +987,7 @@ export class FeedbackConversationRepository {
 
   async advanceCursor(
     transaction: AppTransaction,
-    input: {
-      readonly conversationId: string;
-      readonly toSeq: number;
-      readonly at: Date;
-      readonly model?: string | null;
-      readonly serviceTier?: string | null;
-      readonly usage?: FeedbackConversationExtractionUsage;
-      readonly workRevision?: number;
-      readonly executionEpoch?: number;
-    },
+    input: FeedbackConversationAdvanceCursorInput,
   ): Promise<FeedbackConversationTransitionResult> {
     const toSeq = z.number().int().positive().parse(input.toSeq);
     const at = z.date().parse(input.at);
@@ -1073,16 +1011,7 @@ export class FeedbackConversationRepository {
 
   async advanceCursorAndMarkAwaitingHuman(
     transaction: AppTransaction,
-    input: {
-      readonly conversationId: string;
-      readonly toSeq: number;
-      readonly at: Date;
-      readonly model: string;
-      readonly serviceTier: string | null;
-      readonly usage: FeedbackConversationExtractionUsage;
-      readonly workRevision?: number;
-      readonly executionEpoch?: number;
-    },
+    input: FeedbackConversationAwaitHumanCursorInput,
   ): Promise<FeedbackConversationTransitionResult> {
     const toSeq = z.number().int().positive().parse(input.toSeq);
     const at = z.date().parse(input.at);
@@ -1104,18 +1033,7 @@ export class FeedbackConversationRepository {
 
   async advanceCursorAndClose(
     transaction: AppTransaction,
-    input: {
-      readonly conversationId: string;
-      readonly toSeq: number;
-      readonly reason: "completed" | "declined";
-      readonly terminalOutboxId: string | null;
-      readonly at: Date;
-      readonly model: string;
-      readonly serviceTier: string | null;
-      readonly usage: FeedbackConversationExtractionUsage;
-      readonly workRevision?: number;
-      readonly executionEpoch?: number;
-    },
+    input: FeedbackConversationCloseCursorInput,
   ): Promise<FeedbackConversationTransitionResult> {
     const toSeq = z.number().int().positive().parse(input.toSeq);
     const at = z.date().parse(input.at);

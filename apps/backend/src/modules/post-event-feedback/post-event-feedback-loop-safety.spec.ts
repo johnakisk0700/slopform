@@ -1,7 +1,7 @@
 import {
   runFeedbackScenarios,
   type FeedbackScenario,
-} from "./post-event-feedback-loop.harness.js";
+} from "./vibes/post-event-feedback-loop.harness.js";
 import { POST_EVENT_FEEDBACK_SAFETY_ASSURANCE } from "./extraction/extraction.schemas.js";
 
 /**

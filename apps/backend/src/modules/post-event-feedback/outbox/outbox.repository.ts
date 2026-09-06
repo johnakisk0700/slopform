@@ -7,8 +7,6 @@ import {
   messageOutbox,
   type AppTransaction,
   type FeedbackCampaignStatus,
-  type MessageOutboxDeliveryStatus,
-  type MessageOutboxKind,
   type MessageOutboxRow,
   type MessageOutboxStatus,
 } from "@slopform/database";
@@ -41,8 +39,19 @@ import { FEEDBACK_CONVERSATION_MAX_MESSAGES } from "../post-event-feedback-conve
 import {
   assertEnqueueDispatchContext,
   parseDispatchContext,
-  type DispatchEnqueueRequest,
 } from "./dispatch-context.js";
+import type {
+  FeedbackLegacyClosingResolution,
+  FeedbackOutboxClaimedRow,
+  FeedbackOutboxDeliveryUpdateInput,
+  FeedbackOutboxDispatchSentInput,
+  FeedbackOutboxHistoryCursor,
+  FeedbackOutboxHistoryFilter,
+  FeedbackOutboxInsertInput,
+  FeedbackOutboxStatusProjection,
+  FeedbackOutboxTerminalCandidate,
+  FeedbackUndeliveredOutboxRow,
+} from "./outbox.types.js";
 
 /** Stale `sending` rows older than this are reclaimed for re-enqueue / reconcile. */
 export const FEEDBACK_OUTBOX_RECOVERY_MS = 5 * 60_000;
@@ -84,30 +93,6 @@ export const FEEDBACK_OUTBOX_FIFO_LIVE_BLOCKING_STATUSES = [
   "sending",
 ] as const satisfies readonly MessageOutboxStatus[];
 
-export type FeedbackOutboxClaimedRow = MessageOutboxRow & {
-  readonly status: "claimed";
-  readonly claimToken: string;
-  readonly claimExpiresAt: Date;
-  readonly sendStartedAt: null;
-};
-
-export interface FeedbackOutboxTerminalCandidate {
-  readonly conversationId: string;
-  readonly outboxId: string;
-}
-
-export interface FeedbackOutboxStatusProjection {
-  readonly outboxId: string;
-  readonly status: MessageOutboxStatus;
-}
-
-export type FeedbackLegacyClosingResolution =
-  | { readonly outcome: "clear" }
-  | {
-      readonly outcome: "provider_crossed";
-      readonly row: MessageOutboxRow;
-    };
-
 /**
  * The statuses that mean "written down, but the participant does not have it".
  *
@@ -128,52 +113,8 @@ export const FEEDBACK_OUTBOX_UNDELIVERED_STATUSES = [
 export type FeedbackUndeliveredOutboxStatus =
   (typeof FEEDBACK_OUTBOX_UNDELIVERED_STATUSES)[number];
 
-/**
- * One undelivered outbox row with the campaign context that decides whether it
- * is stuck or deliberately parked: the relay skips any row whose campaign is
- * not `launched`, so `campaignStatus` is what separates "the system is behind"
- * from "an operator pressed pause".
- */
-export interface FeedbackUndeliveredOutboxRow {
-  readonly row: MessageOutboxRow;
-  readonly campaignStatus: FeedbackCampaignStatus;
-  readonly eventId: string;
-  readonly eventTitle: string;
-}
-
 /** Upper bound on one page of the undelivered list. */
 export const FEEDBACK_OUTBOX_QUEUE_VIEW_LIMIT = 200;
-
-/**
- * Which rows of the history one page is drawn from.
- *
- * `message_outbox` is append-only and never pruned, so the history is a log
- * that outgrows any cap within a single campaign. Every field here narrows the
- * *set*; the cursor below walks it. They are separate on purpose: changing a
- * filter must restart the walk, and a page is only meaningful against the
- * filter it was cut from.
- */
-export interface FeedbackOutboxHistoryFilter {
-  /** One status, or null for every status the table allows. */
-  readonly status: MessageOutboxStatus | null;
-  /** Inclusive lower bound on `created_at`; null for «since the beginning». */
-  readonly from: Date | null;
-  /** Inclusive upper bound on `created_at`; null for «up to now». */
-  readonly to: Date | null;
-}
-
-/**
- * Where the next page of history starts: the last row of the previous one.
- *
- * Keyset, not offset. This table is written to while an operator reads it, and
- * `OFFSET 50` against a growing log silently repeats rows it has already shown
- * and skips ones it has not — the two failure modes a log viewer must not have.
- * `id` breaks the tie because `created_at` has no uniqueness guarantee.
- */
-export interface FeedbackOutboxHistoryCursor {
-  readonly createdAt: Date;
-  readonly id: string;
-}
 
 export const FEEDBACK_OUTBOX_HISTORY_NO_FILTER: FeedbackOutboxHistoryFilter = {
   status: null,
@@ -206,17 +147,7 @@ export class FeedbackOutboxRepository {
    */
   async insertOutboxIfAbsent(
     transaction: AppTransaction,
-    input: {
-      readonly id?: string;
-      readonly conversationId: string;
-      readonly campaignId: string;
-      readonly kind: MessageOutboxKind;
-      readonly body: string;
-      readonly dedupeKey: string;
-      readonly status?: MessageOutboxStatus;
-      readonly createdByStaff?: string | null;
-      readonly dispatchContext: DispatchEnqueueRequest;
-    },
+    input: FeedbackOutboxInsertInput,
   ): Promise<{ readonly row: MessageOutboxRow; readonly inserted: boolean }> {
     const parsed = parseDispatchContext(input.dispatchContext);
     if (parsed.state !== "usable") {
@@ -474,16 +405,7 @@ export class FeedbackOutboxRepository {
   async updateOutboxDelivery(
     transaction: AppTransaction,
     id: string,
-    input: {
-      readonly deliveryStatus: MessageOutboxDeliveryStatus;
-      readonly providerLogId?: string | null;
-      readonly providerMessageId?: string | null;
-      readonly sentAt?: Date | null;
-      readonly deliveredAt?: Date | null;
-      readonly readAt?: Date | null;
-      readonly playedAt?: Date | null;
-      readonly status?: MessageOutboxStatus;
-    },
+    input: FeedbackOutboxDeliveryUpdateInput,
   ): Promise<MessageOutboxRow | undefined> {
     const [record] = await transaction
       .update(messageOutbox)
@@ -1263,16 +1185,7 @@ export class FeedbackOutboxRepository {
   async markDispatchSent(
     id: string,
     claimToken: string,
-    input: {
-      readonly completedAt: Date;
-      readonly providerLogId: string;
-      readonly providerMessageId?: string;
-      readonly deliveryStatus: Exclude<MessageOutboxDeliveryStatus, "error">;
-      readonly sentAt?: Date | null;
-      readonly deliveredAt?: Date | null;
-      readonly readAt?: Date | null;
-      readonly playedAt?: Date | null;
-    },
+    input: FeedbackOutboxDispatchSentInput,
   ): Promise<MessageOutboxRow | undefined> {
     const [record] = await this.database.db
       .update(messageOutbox)
