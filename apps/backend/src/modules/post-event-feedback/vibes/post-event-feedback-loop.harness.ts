@@ -1,3 +1,12 @@
+import { PendingFeedbackIngressService } from "../ingress/pending-ingress.service.js";
+import { FeedbackStopService } from "../ingress/stop.service.js";
+import { FeedbackInboundMessageService } from "../ingress/inbound-message.service.js";
+import { FeedbackClosedConversationIngressService } from "../ingress/closed-conversation-ingress.service.js";
+import { FeedbackObservedOutboundService } from "../ingress/observed-outbound.service.js";
+import { FeedbackDispatchSettlementService } from "../outbox/dispatch-settlement.service.js";
+import { FeedbackDispatchPreparationService } from "../outbox/dispatch-preparation.service.js";
+import { FeedbackDispatchRecoveryService } from "../outbox/dispatch-recovery.service.js";
+import { FeedbackDispatchAttemptService } from "../outbox/dispatch-attempt.service.js";
 import { Logger } from "@nestjs/common";
 import type { ConfigService } from "@nestjs/config";
 import { UnrecoverableError, type Job, type Queue } from "bullmq";
@@ -646,19 +655,56 @@ export async function createFeedbackLoopHarness(
   // processor here. Both are driven by the one fake queue — the harness models
   // ordering and delay, not slot contention — but the class that handles a
   // materialize job is the class that handles it in the deployment.
-  const materializer = new PostEventFeedbackMaterializer(
+  const pendingIngress = new PendingFeedbackIngressService(
     database as unknown as DatabaseService,
+    repository as unknown as FeedbackIngressRepository,
+    repository as unknown as FeedbackOutboxRepository,
+  );
+  const stopIngress = new FeedbackStopService(
     repository as unknown as FeedbackCampaignRepository,
     repository as unknown as FeedbackIngressRepository,
     repository as unknown as FeedbackOutboxRepository,
     conversations as unknown as FeedbackConversationRepository,
     participants as unknown as ParticipantsRepository,
     audit as unknown as AuditRepository,
-    metrics,
     outboundTranscript,
     outboundIntent,
     summaries as never,
+    pendingIngress,
+  );
+  const inboundMessages = new FeedbackInboundMessageService(
+    repository as unknown as FeedbackCampaignRepository,
+    repository as unknown as FeedbackIngressRepository,
+    repository as unknown as FeedbackOutboxRepository,
+    conversations as unknown as FeedbackConversationRepository,
+    outboundTranscript,
+    outboundIntent,
     conversationWakeups as unknown as FeedbackConversationWakeupService,
+    pendingIngress,
+    stopIngress,
+  );
+  const closedIngress = new FeedbackClosedConversationIngressService(
+    repository as unknown as FeedbackIngressRepository,
+    conversations as unknown as FeedbackConversationRepository,
+    audit as unknown as AuditRepository,
+    pendingIngress,
+    stopIngress,
+  );
+  const observedOutbound = new FeedbackObservedOutboundService(
+    repository as unknown as FeedbackIngressRepository,
+    repository as unknown as FeedbackOutboxRepository,
+    conversations as unknown as FeedbackConversationRepository,
+    audit as unknown as AuditRepository,
+    pendingIngress,
+  );
+  const materializer = new PostEventFeedbackMaterializer(
+    repository as unknown as FeedbackIngressRepository,
+    conversations as unknown as FeedbackConversationRepository,
+    metrics,
+    pendingIngress,
+    inboundMessages,
+    closedIngress,
+    observedOutbound,
   );
   const materializationCoordinator =
     new PostEventFeedbackMaterializationCoordinator(
@@ -885,16 +931,39 @@ export async function createFeedbackLoopHarness(
       );
     }
   };
-  const dispatcher = new MessageOutboxDispatcherService(
+  const dispatchSettlement = new FeedbackDispatchSettlementService(
+    database as unknown as DatabaseService,
+    repository as unknown as FeedbackOutboxRepository,
+    conversations as unknown as FeedbackConversationRepository,
+  );
+  const dispatchPreparation = new FeedbackDispatchPreparationService(
     database as unknown as DatabaseService,
     repository as unknown as FeedbackCampaignRepository,
     repository as unknown as FeedbackOutboxRepository,
     repository as unknown as FeedbackIngressRepository,
     conversations as unknown as FeedbackConversationRepository,
     participants as unknown as ParticipantsRepository,
+  );
+  const dispatchRecovery = new FeedbackDispatchRecoveryService(
+    database as unknown as DatabaseService,
+    repository as unknown as FeedbackOutboxRepository,
+    dispatchSettlement,
+  );
+  const dispatchAttempt = new FeedbackDispatchAttemptService(
+    database as unknown as DatabaseService,
+    repository as unknown as FeedbackOutboxRepository,
     outboundTranscript,
+    dispatchPreparation,
+    dispatchSettlement,
     transport as FeedbackTransport,
     { waitTurn: async () => ({ waitedMs: 0 }) },
+  );
+  const dispatcher = new MessageOutboxDispatcherService(
+    database as unknown as DatabaseService,
+    repository as unknown as FeedbackOutboxRepository,
+    conversations as unknown as FeedbackConversationRepository,
+    dispatchRecovery,
+    dispatchAttempt,
   );
 
   const maintenanceData = {

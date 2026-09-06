@@ -5,6 +5,7 @@ export interface MaterializeFeedbackIngressInput {
   readonly correlationId: string;
 }
 
+/** Raw handler result; the materializer records the metric once on return. */
 export interface MaterializeFeedbackIngressResult {
   readonly outcome: FeedbackMaterializeOutcome;
   readonly conversationId?: string;

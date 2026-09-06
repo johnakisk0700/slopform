@@ -4,6 +4,11 @@ Before selecting another refactor slice, read the
 [current progress and next-work map](post-event-feedback-refactor-status.md).
 Update that map at each checkpoint.
 
+The [HTML reading guide](post-event-feedback-reading.html) is the current
+guided entry into the ordinary message path. It includes six source-method
+excerpts, then STOP, supersession and uncertain delivery. Read that core path
+before selecting the later staff-action, summary or repository chapters.
+
 Guidance for the whole feedback mechanism: campaigns, ingress, matching,
 extraction, delivery, reconciliation, staff actions, summaries and persistence.
 An individual function or command is an example, not a predetermined refactoring
@@ -157,6 +162,33 @@ and Promise APIs. The extractor demonstrates `Effect.gen` and a locally handled
 commit outcome; it does not introduce Tags, Context or Layers. Keep the Promise
 error boundary and retry ownership described in
 [ADR 0017](../../decisions/0017-effect-for-local-workflows.md).
+
+## Ingress and send recipes
+
+The materializer now routes to inbound, STOP, closed-conversation and
+observed-outbound owners. Its `ignoreUnmatched` remains a small local operation.
+`PendingFeedbackIngressService.applyPending` centralizes a real replay protocol:
+row lock, pending check, conversation mutex and the caller's writes on one
+explicit transaction. The handlers retain their transaction callback so the
+reader can see which writes must commit together; post-commit wake-ups stay
+outside it.
+
+The dispatcher entry reads recovery → terminal identities → claim → conversation
+lanes. The single-message attempt reads guard → transcript → paced slot → locked
+preparation → transport → settlement. Preparation owns the marker transaction;
+settlement owns token-fenced outcomes and ambiguous status plus human brake.
+Neither split adds queue jobs, new retries or another provider abstraction.
+
+These are small coordinating entry files with substantial mechanisms behind
+them. The materializer went from 1,112 to 174 lines, the batch dispatcher from
+879 to 102. Their new service files range from 55 to 376 lines. Including their
+neighboring contracts, these two slices together grew from 2,040 to 2,389 lines;
+the improvement is visible responsibility and ordering, not net code removal.
+
+The HTML guide is a dated reading snapshot, with real excerpts and local source
+links. When changing one of its six methods, refresh the excerpt and its line
+count together. Keep later chapters explicit rather than claiming a whole-module
+finish from these smaller entries.
 
 ## What the resulting code should look like
 

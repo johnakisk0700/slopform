@@ -55,6 +55,7 @@ Core handbooks, then ADRs in number order, then ops and the readiness record:
 - [`conversations.md`](backend/modules/conversations.md) · [`events.md`](backend/modules/events.md) · [`participants.md`](backend/modules/participants.md)
 - [`post-event-feedback.md`](backend/modules/post-event-feedback.md)
 - [`post-event-feedback-refactor-status.md`](backend/modules/post-event-feedback-refactor-status.md) — current checkpoint, completed scope and remaining work
+- [Feedback reading guide (HTML)](backend/modules/post-event-feedback-reading.html) — six source methods, flow map and scenario walks; open directly in a browser
 
 **Meta**
 

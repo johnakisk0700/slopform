@@ -1,3 +1,8 @@
+import { PendingFeedbackIngressService } from "./pending-ingress.service.js";
+import { FeedbackStopService } from "./stop.service.js";
+import { FeedbackInboundMessageService } from "./inbound-message.service.js";
+import { FeedbackClosedConversationIngressService } from "./closed-conversation-ingress.service.js";
+import { FeedbackObservedOutboundService } from "./observed-outbound.service.js";
 import { randomUUID } from "node:crypto";
 
 import { Logger } from "@nestjs/common";
@@ -1652,27 +1657,66 @@ function createHarness(): Harness {
   });
 
   const database = new FakeDatabase();
-  const materializer = new PostEventFeedbackMaterializer(
+  const materializeOutboundTranscript = new FeedbackOutboundTranscriptService(
+    repository as unknown as FeedbackOutboxRepository,
+    conversations as unknown as FeedbackConversationRepository,
+  );
+  const materializeOutboundIntent = new FeedbackOutboundIntentService(
+    repository as unknown as FeedbackOutboxRepository,
+    new FeedbackOutboundLogService(
+      repository as unknown as FeedbackOutboundLogRepository,
+    ),
+  );
+  const pendingIngress = new PendingFeedbackIngressService(
     database as unknown as DatabaseService,
+    repository as unknown as FeedbackIngressRepository,
+    repository as unknown as FeedbackOutboxRepository,
+  );
+  const stopIngress = new FeedbackStopService(
     repository as unknown as FeedbackCampaignRepository,
     repository as unknown as FeedbackIngressRepository,
     repository as unknown as FeedbackOutboxRepository,
     conversations as unknown as FeedbackConversationRepository,
     participants as unknown as ParticipantsRepository,
     audit as unknown as AuditRepository,
-    metrics,
-    new FeedbackOutboundTranscriptService(
-      repository as unknown as FeedbackOutboxRepository,
-      conversations as unknown as FeedbackConversationRepository,
-    ),
-    new FeedbackOutboundIntentService(
-      repository as unknown as FeedbackOutboxRepository,
-      new FeedbackOutboundLogService(
-        repository as unknown as FeedbackOutboundLogRepository,
-      ),
-    ),
+    materializeOutboundTranscript,
+    materializeOutboundIntent,
     noopSummaries(),
+    pendingIngress,
+  );
+  const inboundMessages = new FeedbackInboundMessageService(
+    repository as unknown as FeedbackCampaignRepository,
+    repository as unknown as FeedbackIngressRepository,
+    repository as unknown as FeedbackOutboxRepository,
+    conversations as unknown as FeedbackConversationRepository,
+    materializeOutboundTranscript,
+    materializeOutboundIntent,
     wakeups as unknown as FeedbackConversationWakeupService,
+    pendingIngress,
+    stopIngress,
+  );
+  const closedIngress = new FeedbackClosedConversationIngressService(
+    repository as unknown as FeedbackIngressRepository,
+    conversations as unknown as FeedbackConversationRepository,
+    audit as unknown as AuditRepository,
+    pendingIngress,
+    stopIngress,
+  );
+  const observedOutbound = new FeedbackObservedOutboundService(
+    repository as unknown as FeedbackIngressRepository,
+    repository as unknown as FeedbackOutboxRepository,
+    conversations as unknown as FeedbackConversationRepository,
+    audit as unknown as AuditRepository,
+    pendingIngress,
+  );
+  const materializer = new PostEventFeedbackMaterializer(
+    repository as unknown as FeedbackIngressRepository,
+    conversations as unknown as FeedbackConversationRepository,
+    metrics,
+    pendingIngress,
+    inboundMessages,
+    closedIngress,
+    observedOutbound,
   );
 
   return {

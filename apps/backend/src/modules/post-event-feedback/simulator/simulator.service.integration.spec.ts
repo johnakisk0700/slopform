@@ -1,3 +1,8 @@
+import { PendingFeedbackIngressService } from "../ingress/pending-ingress.service.js";
+import { FeedbackStopService } from "../ingress/stop.service.js";
+import { FeedbackInboundMessageService } from "../ingress/inbound-message.service.js";
+import { FeedbackClosedConversationIngressService } from "../ingress/closed-conversation-ingress.service.js";
+import { FeedbackObservedOutboundService } from "../ingress/observed-outbound.service.js";
 import { randomUUID } from "node:crypto";
 
 import { Logger } from "@nestjs/common";
@@ -494,6 +499,51 @@ function createSimulatorHarness(): SimulatorHarness {
     },
   };
 
+  const materializeParticipants = new FakeParticipants() as never;
+  const materializeAudit = new FakeAudit() as never;
+  const materializeMetrics = new PostEventFeedbackMetrics();
+  const pendingIngress = new PendingFeedbackIngressService(
+    database as unknown as DatabaseService,
+    repository as unknown as FeedbackIngressRepository,
+    repository as unknown as FeedbackOutboxRepository,
+  );
+  const stopIngress = new FeedbackStopService(
+    repository as unknown as FeedbackCampaignRepository,
+    repository as unknown as FeedbackIngressRepository,
+    repository as unknown as FeedbackOutboxRepository,
+    conversations as unknown as FeedbackConversationRepository,
+    materializeParticipants,
+    materializeAudit,
+    outboundTranscript,
+    outboundIntent,
+    noopSummaries(),
+    pendingIngress,
+  );
+  const inboundMessages = new FeedbackInboundMessageService(
+    repository as unknown as FeedbackCampaignRepository,
+    repository as unknown as FeedbackIngressRepository,
+    repository as unknown as FeedbackOutboxRepository,
+    conversations as unknown as FeedbackConversationRepository,
+    outboundTranscript,
+    outboundIntent,
+    conversationWakeups as unknown as FeedbackConversationWakeupService,
+    pendingIngress,
+    stopIngress,
+  );
+  const closedIngress = new FeedbackClosedConversationIngressService(
+    repository as unknown as FeedbackIngressRepository,
+    conversations as unknown as FeedbackConversationRepository,
+    materializeAudit,
+    pendingIngress,
+    stopIngress,
+  );
+  const observedOutbound = new FeedbackObservedOutboundService(
+    repository as unknown as FeedbackIngressRepository,
+    repository as unknown as FeedbackOutboxRepository,
+    conversations as unknown as FeedbackConversationRepository,
+    materializeAudit,
+    pendingIngress,
+  );
   return {
     repository,
     conversations,
@@ -520,18 +570,13 @@ function createSimulatorHarness(): SimulatorHarness {
       outboundTranscript,
     ),
     materializer: new PostEventFeedbackMaterializer(
-      database as unknown as DatabaseService,
-      repository as unknown as FeedbackCampaignRepository,
       repository as unknown as FeedbackIngressRepository,
-      repository as unknown as FeedbackOutboxRepository,
       conversations as unknown as FeedbackConversationRepository,
-      new FakeParticipants() as never,
-      new FakeAudit() as never,
-      new PostEventFeedbackMetrics(),
-      outboundTranscript,
-      outboundIntent,
-      noopSummaries(),
-      conversationWakeups as unknown as FeedbackConversationWakeupService,
+      materializeMetrics,
+      pendingIngress,
+      inboundMessages,
+      closedIngress,
+      observedOutbound,
     ),
   };
 }

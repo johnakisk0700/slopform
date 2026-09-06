@@ -1,3 +1,12 @@
+import { PendingFeedbackIngressService } from "./ingress/pending-ingress.service.js";
+import { FeedbackStopService } from "./ingress/stop.service.js";
+import { FeedbackInboundMessageService } from "./ingress/inbound-message.service.js";
+import { FeedbackClosedConversationIngressService } from "./ingress/closed-conversation-ingress.service.js";
+import { FeedbackObservedOutboundService } from "./ingress/observed-outbound.service.js";
+import { FeedbackDispatchSettlementService } from "./outbox/dispatch-settlement.service.js";
+import { FeedbackDispatchPreparationService } from "./outbox/dispatch-preparation.service.js";
+import { FeedbackDispatchRecoveryService } from "./outbox/dispatch-recovery.service.js";
+import { FeedbackDispatchAttemptService } from "./outbox/dispatch-attempt.service.js";
 import { getQueueToken } from "@nestjs/bullmq";
 import {
   MODULE_METADATA,
@@ -134,6 +143,15 @@ describe("post-event feedback process composition", () => {
     expect(workerProviders).toContain(FeedbackConversationExecutionLimiter);
     expect(workerProviders).toContain(FeedbackConversationWakeupService);
     expect(workerProviders).toContain(PostEventFeedbackMaterializer);
+    expect(workerProviders).toContain(PendingFeedbackIngressService);
+    expect(workerProviders).toContain(FeedbackStopService);
+    expect(workerProviders).toContain(FeedbackInboundMessageService);
+    expect(workerProviders).toContain(FeedbackClosedConversationIngressService);
+    expect(workerProviders).toContain(FeedbackObservedOutboundService);
+    expect(workerProviders).toContain(FeedbackDispatchSettlementService);
+    expect(workerProviders).toContain(FeedbackDispatchPreparationService);
+    expect(workerProviders).toContain(FeedbackDispatchRecoveryService);
+    expect(workerProviders).toContain(FeedbackDispatchAttemptService);
     expect(workerProviders).toContain(FeedbackMaterializeWakeupService);
     expect(workerProviders).toContain(FeedbackOutboxDispatcherLoop);
     expect(workerProviders).toContain(FeedbackSweepSchedulerService);
@@ -160,7 +178,7 @@ describe("post-event feedback process composition", () => {
 
   it("requires durable V2 wakeups at every conversation-work producer", () => {
     const producers = [
-      PostEventFeedbackMaterializer,
+      FeedbackInboundMessageService,
       PostEventFeedbackExtractionFallback,
       PostEventFeedbackConversationService,
       PostEventFeedbackCampaignService,

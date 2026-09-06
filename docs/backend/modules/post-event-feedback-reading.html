@@ -1,0 +1,2068 @@
+<!doctype html>
+<html lang="el">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>Feedback · Οδηγός ανάγνωσης</title>
+    <style>
+      :root {
+        --paper: #f6f5ef;
+        --surface: #fffefa;
+        --ink: #213934;
+        --muted: #54645f;
+        --accent: #176553;
+        --tint: #e5eee6;
+        --line: #d5ddd3;
+        --warm: #f8ecd8;
+        --code: #172e2a;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        scroll-behavior: smooth;
+        scroll-padding-top: 2rem;
+      }
+      body {
+        margin: 0;
+        background: var(--paper);
+        color: var(--ink);
+        font:
+          16px/1.7 system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+      }
+      a {
+        color: var(--accent);
+        text-underline-offset: 3px;
+      }
+      a:hover {
+        text-decoration-thickness: 2px;
+      }
+      :focus-visible {
+        outline: 3px solid var(--accent);
+        outline-offset: 5px;
+      }
+      .skip {
+        position: absolute;
+        left: 1rem;
+        top: -5rem;
+        padding: 0.6rem 1rem;
+        background: var(--surface);
+        z-index: 3;
+      }
+      .skip:focus {
+        top: 1rem;
+      }
+      .layout {
+        max-width: 1380px;
+        margin: auto;
+        display: grid;
+        grid-template-columns: 240px minmax(0, 1fr);
+        gap: 64px;
+        padding: 48px 48px 80px;
+      }
+      aside {
+        align-self: start;
+        position: sticky;
+        top: 40px;
+      }
+      .brand,
+      .eyebrow {
+        font-size: 0.73rem;
+        text-transform: uppercase;
+        letter-spacing: 0.16em;
+        font-weight: 750;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 44px;
+      }
+      .brand::before {
+        content: "";
+        width: 13px;
+        height: 13px;
+        border-radius: 50%;
+        background: var(--accent);
+        box-shadow: 0 0 0 5px var(--tint);
+      }
+      nav {
+        display: grid;
+        gap: 7px;
+      }
+      nav a {
+        padding: 9px 0;
+        color: var(--muted);
+        text-decoration: none;
+        font-size: 0.88rem;
+      }
+      nav a span {
+        display: inline-block;
+        width: 32px;
+        color: var(--accent);
+        font-size: 0.72rem;
+      }
+      .progress-box {
+        margin-top: 34px;
+        padding-top: 22px;
+        border-top: 1px solid var(--line);
+      }
+      .progress-box label {
+        font-size: 0.82rem;
+        font-weight: 650;
+      }
+      progress {
+        display: block;
+        width: 100%;
+        height: 7px;
+        margin: 10px 0;
+        accent-color: var(--accent);
+        border: 0;
+        border-radius: 8px;
+        background: var(--line);
+      }
+      progress::-webkit-progress-bar {
+        background: var(--line);
+        border-radius: 8px;
+      }
+      progress::-webkit-progress-value {
+        background: var(--accent);
+        border-radius: 8px;
+      }
+      progress::-moz-progress-bar {
+        background: var(--accent);
+        border-radius: 8px;
+      }
+      .small {
+        font-size: 0.8rem;
+        color: var(--muted);
+      }
+      button {
+        font: inherit;
+        cursor: pointer;
+        color: var(--accent);
+        background: transparent;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 7px 12px;
+      }
+      button:hover {
+        background: var(--tint);
+      }
+      .tools {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 16px;
+        font-size: 0.78rem;
+      }
+      h1,
+      h2,
+      h3,
+      p {
+        margin-top: 0;
+      }
+      h1 {
+        font-family: Georgia, "Times New Roman", serif;
+        font-weight: 400;
+        font-size: clamp(2.3rem, 4.3vw, 4rem);
+        line-height: 1.12;
+        letter-spacing: -0.035em;
+        max-width: 800px;
+        margin: 20px 0 25px;
+      }
+      h2 {
+        font-size: 1.6rem;
+        line-height: 1.3;
+        letter-spacing: -0.02em;
+        margin: 10px 0 20px;
+      }
+      h3 {
+        font-size: 1.1rem;
+        line-height: 1.4;
+        margin-bottom: 10px;
+      }
+      p {
+        margin-bottom: 16px;
+      }
+      .intro {
+        font-size: 1.08rem;
+        max-width: 690px;
+        color: var(--muted);
+      }
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 26px 0 40px;
+      }
+      .chip {
+        border: 1px solid var(--line);
+        padding: 5px 12px;
+        border-radius: 30px;
+        font-size: 0.76rem;
+      }
+      .chip:first-child {
+        background: var(--tint);
+        border-color: var(--tint);
+      }
+      section {
+        margin-top: 64px;
+      }
+      .section-top {
+        border-top: 1px solid var(--line);
+        padding-top: 28px;
+      }
+      .section-top .eyebrow {
+        color: var(--accent);
+      }
+      .flow {
+        list-style: none;
+        padding: 0;
+        margin: 28px 0 20px;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 15px;
+      }
+      .flow li {
+        position: relative;
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 20px;
+      }
+      .flow a {
+        text-decoration: none;
+        display: block;
+      }
+      .flow b {
+        display: block;
+        font-size: 0.95rem;
+        margin: 8px 0;
+      }
+      .flow small {
+        display: block;
+        font-size: 0.77rem;
+        line-height: 1.5;
+        color: var(--muted);
+      }
+      .step {
+        font:
+          600 0.73rem/1.3 ui-monospace,
+          SFMono-Regular,
+          Consolas,
+          monospace;
+        color: var(--accent);
+      }
+      .flow li:not(:last-child)::after {
+        content: "→";
+        position: absolute;
+        right: -13px;
+        top: 44px;
+        color: var(--accent);
+        z-index: 1;
+        background: var(--paper);
+        line-height: 1;
+      }
+      .flow li:nth-child(4) {
+        grid-column: 3;
+        grid-row: 2;
+      }
+      .flow li:nth-child(5) {
+        grid-column: 2;
+        grid-row: 2;
+      }
+      .flow li:nth-child(6) {
+        grid-column: 1;
+        grid-row: 2;
+      }
+      .flow li:nth-child(4)::after,
+      .flow li:nth-child(5)::after {
+        content: "←";
+        left: -13px;
+        right: auto;
+      }
+      .flow li:nth-child(3)::after {
+        content: "↓";
+        top: auto;
+        bottom: -16px;
+        right: 50%;
+      }
+      .note {
+        padding: 20px 24px;
+        background: var(--tint);
+        border-left: 3px solid var(--accent);
+        border-radius: 0 10px 10px 0;
+      }
+      .note p:last-child {
+        margin-bottom: 0;
+      }
+      .note.warm {
+        background: var(--warm);
+        border-left-color: #976921;
+      }
+      .reading-card {
+        margin: 22px 0;
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        overflow: hidden;
+      }
+      .card-body {
+        padding: 27px 28px 18px;
+      }
+      .card-heading {
+        display: flex;
+        align-items: baseline;
+        gap: 14px;
+        margin-bottom: 13px;
+      }
+      .card-heading h3 {
+        margin: 0;
+        flex: 1;
+      }
+      .source {
+        display: block;
+        font:
+          0.78rem/1.6 ui-monospace,
+          SFMono-Regular,
+          Consolas,
+          monospace;
+        overflow-wrap: anywhere;
+        margin: 10px 0 15px;
+      }
+      .read-check {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        font-size: 0.82rem;
+        color: var(--muted);
+        cursor: pointer;
+        padding-top: 5px;
+      }
+      input[type="checkbox"] {
+        width: 17px;
+        height: 17px;
+        flex: 0 0 auto;
+        margin-top: 5px;
+        accent-color: var(--accent);
+      }
+      details {
+        border-top: 1px solid var(--line);
+      }
+      summary {
+        padding: 15px 28px;
+        cursor: pointer;
+        font-size: 0.85rem;
+        font-weight: 650;
+      }
+      summary:hover {
+        background: var(--tint);
+      }
+      .detail-body {
+        padding: 0 28px 23px;
+      }
+      .detail-body p {
+        font-size: 0.9rem;
+      }
+      pre {
+        margin: 0;
+        padding: 23px 26px;
+        overflow: auto;
+        background: var(--code);
+        color: #ecf2e9;
+        font:
+          0.79rem/1.8 ui-monospace,
+          SFMono-Regular,
+          Consolas,
+          monospace;
+        tab-size: 2;
+      }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+        font-size: 0.89em;
+        overflow-wrap: anywhere;
+      }
+      pre code {
+        font-size: inherit;
+        overflow-wrap: normal;
+      }
+      .snippet-meta {
+        padding: 10px 28px;
+        margin: 0;
+        background: var(--tint);
+        font-size: 0.73rem;
+        color: var(--muted);
+      }
+      .grid-two {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 18px;
+      }
+      .scenario,
+      .boundary {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 24px;
+        background: var(--surface);
+      }
+      .scenario .eyebrow {
+        color: var(--accent);
+        margin-bottom: 12px;
+      }
+      .scenario details {
+        margin: 20px -24px -24px;
+      }
+      .scenario summary {
+        padding: 15px 24px;
+      }
+      .scenario .detail-body {
+        padding: 0 24px 22px;
+      }
+      ol,
+      ul {
+        padding-left: 22px;
+      }
+      li {
+        margin-bottom: 9px;
+      }
+      .flow li {
+        margin: 0;
+      }
+      .table-wrap {
+        overflow-x: auto;
+        margin: 24px 0;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.88rem;
+        text-align: left;
+      }
+      th {
+        color: var(--muted);
+        font-size: 0.73rem;
+        font-weight: 650;
+        padding: 12px;
+        background: var(--tint);
+      }
+      td {
+        padding: 15px 12px;
+        border-bottom: 1px solid var(--line);
+        vertical-align: top;
+      }
+      .questions {
+        counter-reset: interview;
+        list-style: none;
+        padding: 0;
+      }
+      .questions li {
+        counter-increment: interview;
+        padding: 20px 0 20px 44px;
+        border-bottom: 1px solid var(--line);
+        position: relative;
+      }
+      .questions li::before {
+        content: counter(interview, decimal-leading-zero);
+        position: absolute;
+        left: 0;
+        top: 24px;
+        font-size: 0.73rem;
+        color: var(--accent);
+      }
+      .questions details {
+        border: 0;
+        margin-top: 7px;
+      }
+      .questions summary {
+        padding: 0;
+        color: var(--accent);
+        font-size: 0.8rem;
+      }
+      .questions details p {
+        margin-top: 12px;
+        font-size: 0.9rem;
+        color: var(--muted);
+      }
+      footer {
+        margin-top: 60px;
+        border-top: 1px solid var(--line);
+        padding-top: 24px;
+        font-size: 0.8rem;
+        color: var(--muted);
+      }
+      @media (max-width: 1100px) {
+        .layout {
+          grid-template-columns: 190px minmax(0, 1fr);
+          gap: 32px;
+          padding: 32px;
+        }
+      }
+      @media (max-width: 800px) {
+        .layout {
+          display: block;
+          padding: 24px 20px 50px;
+        }
+        aside {
+          position: static;
+          margin-bottom: 36px;
+        }
+        .brand {
+          margin-bottom: 16px;
+        }
+        nav {
+          display: flex;
+          flex-wrap: wrap;
+          column-gap: 22px;
+        }
+        nav a {
+          padding: 3px 0;
+        }
+        .progress-box {
+          margin-top: 16px;
+          padding-top: 16px;
+        }
+        .progress-box progress {
+          max-width: 320px;
+        }
+        .progress-box .small {
+          display: inline;
+        }
+        .tools {
+          margin-top: 10px;
+        }
+        .grid-two {
+          grid-template-columns: 1fr;
+        }
+        section {
+          margin-top: 44px;
+        }
+      }
+      @media (max-width: 520px) {
+        .flow {
+          grid-template-columns: 1fr;
+          gap: 14px;
+        }
+        .flow li {
+          padding: 15px 20px;
+        }
+        .flow li:nth-child(n) {
+          grid-column: auto;
+          grid-row: auto;
+        }
+        .flow li:not(:last-child)::after {
+          content: "↓";
+          left: auto;
+          right: 50%;
+          top: auto;
+          bottom: -16px;
+        }
+        .card-body {
+          padding: 22px 20px 17px;
+        }
+        summary {
+          padding: 14px 20px;
+        }
+        .detail-body {
+          padding: 0 20px 20px;
+        }
+        pre {
+          padding: 20px;
+          font-size: 0.73rem;
+        }
+        .snippet-meta {
+          padding: 10px 20px;
+        }
+        h1 {
+          font-size: 2.6rem;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+      }
+      @media print {
+        body {
+          background: white;
+          color: black;
+          font-size: 11pt;
+        }
+        .layout {
+          display: block;
+          padding: 0;
+          max-width: none;
+        }
+        aside,
+        .tools,
+        .read-check,
+        .skip {
+          display: none;
+        }
+        h1 {
+          font-size: 30pt;
+        }
+        section {
+          margin-top: 28px;
+        }
+        .flow,
+        .grid-two {
+          display: block;
+        }
+        .flow li,
+        .scenario,
+        .boundary {
+          margin-bottom: 12px;
+        }
+        .flow li::after {
+          display: none;
+        }
+        .reading-card {
+          break-inside: auto;
+        }
+        h2,
+        h3,
+        summary {
+          break-after: avoid;
+        }
+        pre {
+          white-space: pre-wrap;
+          overflow: visible;
+          background: #f2f2f2;
+          color: black;
+          font-size: 8pt;
+        }
+        a {
+          color: inherit;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <a class="skip" href="#main">Μετάβαση στον οδηγό</a>
+    <div class="layout">
+      <aside aria-label="Πλοήγηση οδηγού">
+        <div class="brand">Slopform / Field notes</div>
+        <nav aria-label="Κεφάλαια">
+          <a href="#map"><span>01</span>Ο χάρτης</a>
+          <a href="#reading"><span>02</span>Η πρώτη ανάγνωση</a>
+          <a href="#cases"><span>03</span>Τέσσερις διαδρομές</a>
+          <a href="#boundaries"><span>04</span>Γιατί υπάρχουν τα όρια</a>
+          <a href="#interview"><span>05</span>Να μπορείς να το εξηγήσεις</a>
+          <a href="#later"><span>06</span>Τα επόμενα κεφάλαια</a>
+        </nav>
+        <div class="progress-box">
+          <label for="reading-progress">Η δική σου ανάγνωση</label>
+          <progress id="reading-progress" max="6" value="0">0 από 6</progress>
+          <p id="progress-text" class="small" aria-live="polite">
+            0 / 6 στάσεις ολοκληρωμένες
+          </p>
+          <p class="small">
+            Η πρόοδος μένει στον browser, όπου επιτρέπεται το local storage.
+          </p>
+          <div class="tools">
+            <button id="reset-progress" type="button">Μηδενισμός</button
+            ><button id="print-guide" type="button">Εκτύπωση / PDF</button>
+          </div>
+        </div>
+      </aside>
+      <main id="main">
+        <header>
+          <div class="eyebrow">
+            Post-event feedback · Reading guide · 06.09.2026
+          </div>
+          <h1>Μία απάντηση, από την αρχή μέχρι την αποστολή.</h1>
+          <p class="intro">
+            Ξεκίνα με τη διαδρομή ενός μηνύματος. Έξι μικρές στάσεις δείχνουν
+            ποιος αποφασίζει, ποιος αποθηκεύει και ποιος στέλνει. Οι
+            λεπτομέρειες ανοίγουν όταν τις χρειαστείς.
+          </p>
+          <div class="chips">
+            <span class="chip">6 μέθοδοι · 355 γραμμές</span
+            ><span class="chip">4 διαδρομές για συζήτηση</span
+            ><span class="chip">Αυτοτελές HTML · χωρίς εγκατάσταση</span>
+          </div>
+          <div class="note">
+            <p>
+              <strong>Ο στόχος της πρώτης ανάγνωσης:</strong> να μπορείς να
+              αφηγηθείς τι συμβαίνει όταν κάποιος απαντά «Πέρασα ωραία, 5».
+              Διάβασε τις έξι μεθόδους παρακάτω· τα SQL, τα μεγάλα tests και οι
+              υπόλοιπες λειτουργίες έχουν τη δική τους σειρά στο τέλος.
+            </p>
+          </div>
+        </header>
+
+        <section id="map" class="section-top">
+          <div class="eyebrow">01 / Ο χάρτης</div>
+          <h2>Η ροή περνά από δύο μόνιμα σημεία αναμονής.</h2>
+          <p>
+            Το <code>provider_message_ingress</code> κρατά τι παραλάβαμε. Το
+            <code>message_outbox</code> κρατά τι αποφασίσαμε να στείλουμε.
+            Ανάμεσά τους χτίζουμε τη συνομιλία και επεξεργαζόμαστε την απάντηση.
+          </p>
+          <ol class="flow" aria-label="Διαδρομή μηνύματος με τη σειρά 1 έως 6">
+            <li>
+              <a href="#arrival"
+                ><span class="step">01 · HTTP</span><b>Wasender → ingress</b
+                ><small
+                  >Έλεγχος webhook, κανονικοποίηση, εγγραφή PostgreSQL, μετά
+                  wake-up.</small
+                ></a
+              >
+            </li>
+            <li>
+              <a href="#read-route"
+                ><span class="step">02 · WORKER</span
+                ><b>Δρομολόγηση &amp; transcript</b
+                ><small
+                  >Συνομιλία, STOP ή άλλη περίπτωση. Η σειρά παραλαβής ελέγχεται
+                  ανά διαδρομή.</small
+                ></a
+              >
+            </li>
+            <li>
+              <a href="#read-reconcile"
+                ><span class="step">03 · BULLMQ WAKE-UP</span
+                ><b>Αναμονή για να τελειώσει ο γύρος</b
+                ><small
+                  >Quiet window 45s από το τελευταίο μήνυμα. Έλεγχος της
+                  τρέχουσας εργασίας.</small
+                ></a
+              >
+            </li>
+            <li>
+              <a href="#read-extract"
+                ><span class="step">04 · AI + COMMIT</span
+                ><b>Ανάλυση &amp; επιτρεπτή απάντηση</b
+                ><small
+                  >Snapshot → AI → επανέλεγχος → αποτελέσματα και outbound
+                  intent σε PostgreSQL.</small
+                ></a
+              >
+            </li>
+            <li>
+              <a href="#read-batch"
+                ><span class="step">05 · POSTGRESQL POLL</span
+                ><b>Παραλαβή από το outbox</b
+                ><small
+                  >Ο sender ελέγχει κάθε 1s. Έως 4 claims ανά batch, με σειρά
+                  ανά συνομιλία.</small
+                ></a
+              >
+            </li>
+            <li>
+              <a href="#read-send"
+                ><span class="step">06 · TRANSPORT</span
+                ><b>Άδεια → marker → Wasender</b
+                ><small
+                  >Περιορισμός ρυθμού, τελικός έλεγχος, αποστολή και καταγραφή
+                  αποτελέσματος.</small
+                ></a
+              >
+            </li>
+          </ol>
+          <p class="small">
+            Η αρίθμηση δείχνει τη σειρά. Οι βάσεις παραμένουν το σημείο
+            ανάκαμψης όταν μια διεργασία ή ένα προσωρινό wake-up χαθεί.
+          </p>
+          <div class="note">
+            <p>
+              <strong>Queue και polling:</strong> γράφουμε πρώτα τη μόνιμη
+              κατάσταση και μετά δημοσιεύουμε συγκεκριμένα BullMQ jobs με IDs
+              και revision. Ο sender έχει ξεχωριστό, απλό poll loop πάνω στο
+              PostgreSQL outbox. Το Redis χρησιμοποιείται επίσης για κοινά όρια
+              ρυθμού. Δεν περιμένει ένας worker ζωντανός να απαντήσει ο χρήστης.
+            </p>
+          </div>
+          <details id="arrival">
+            <summary>Πριν από την πρώτη στάση: τι κάνει το webhook;</summary>
+            <div class="detail-body">
+              <p>
+                Ο
+                <a
+                  href="../../../apps/backend/src/modules/post-event-feedback/ingress/wasender.controller.ts"
+                  >Wasender controller</a
+                >
+                παραδίδει κανονικοποιημένα γεγονότα. Η
+                <a
+                  href="../../../apps/backend/src/modules/post-event-feedback/ingress/ingress.service.ts"
+                  ><code>recordObservedMessageOnce()</code></a
+                >
+                αποθηκεύει με deduplication και μετά καλεί το materialize
+                wake-up. Αποτυχία enqueue επιστρέφει 503· η εγγραφή μένει
+                pending για επανάληψη ή maintenance.
+              </p>
+              <p>
+                Τα status updates ακολουθούν τη delivery-status υπηρεσία. Το
+                κύριο παράδειγμα εδώ είναι προσωπικό εισερχόμενο μήνυμα. Ο
+                <a
+                  href="../../../apps/backend/src/modules/post-event-feedback/ingress/materialization-coordinator.service.ts"
+                  ><code
+                    >PostEventFeedbackMaterializationCoordinator.materialize()</code
+                  ></a
+                >
+                αποστραγγίζει τα pending με σειρά ανά τηλέφωνο/chat πριν καλέσει
+                τον materializer.
+              </p>
+            </div>
+          </details>
+        </section>
+
+        <section id="reading" class="section-top">
+          <div class="eyebrow">02 / Η πρώτη ανάγνωση</div>
+          <h2>Έξι στάσεις. Μία ερώτηση σε καθεμία.</h2>
+          <p>
+            Τα αναπτυσσόμενα αποσπάσματα είναι ο πραγματικός κώδικας του
+            checkpoint, με comments και logs. Το σύνολο των 355 γραμμών αφορά
+            αυτές τις μεθόδους· η υλοποίηση πίσω από τους συνεργάτες τους
+            παραμένει στο repository.
+          </p>
+          <article class="reading-card" id="read-route">
+            <div class="card-body">
+              <div class="card-heading">
+                <span class="step">01</span>
+                <h3>Σε ποια περίπτωση ανήκει το μήνυμα;</h3>
+              </div>
+              <a
+                class="source"
+                href="../../../apps/backend/src/modules/post-event-feedback/ingress/materialize.service.ts"
+                >ingress/materialize.service.ts → materializeOnce()</a
+              >
+              <p>
+                Ο router βρίσκει τη σχετική συνομιλία και επιλέγει χειριστή.
+                Outbound παρατήρηση ελέγχεται πρώτα για συσχέτιση, ακόμη κι όταν
+                έχει ήδη κλείσει η συνομιλία.
+              </p>
+              <label class="read-check"
+                ><input
+                  type="checkbox"
+                  id="check-route"
+                  data-reading-check
+                />Μπορώ να ξεχωρίσω open inbound, closed inbound, own outbound
+                και unmatched.</label
+              >
+            </div>
+            <details>
+              <summary>Διάβασε τη μέθοδο · 73 γραμμές</summary>
+              <p class="snippet-meta">
+                PostEventFeedbackMaterializer.materializeOnce · γραμμές 70–142
+                του αρχείου
+              </p>
+              <pre
+                tabindex="0"
+                aria-label="Κώδικας PostEventFeedbackMaterializer.materializeOnce"
+              ><code data-source="apps/backend/src/modules/post-event-feedback/ingress/materialize.service.ts" data-method="materializeOnce">private async materializeOnce(
+  input: MaterializeFeedbackIngressInput,
+  operation: FeedbackOperationLog,
+): Promise&lt;MaterializeFeedbackIngressResult&gt; {
+  operation.stage(&quot;ingress_load&quot;);
+  const ingress = await this.ingress.findIngressById(input.ingressId);
+  if (!ingress) {
+    throw new PostEventFeedbackIngressNotFoundError(input.ingressId);
+  }
+
+  if (ingress.processingStatus !== &quot;pending&quot;) {
+    return { outcome: &quot;already_processed&quot; };
+  }
+
+  operation.stage(&quot;conversation_match&quot;);
+  const conversation = ingress.phoneE164
+    ? await this.conversations.findOpenByPhone(ingress.phoneE164)
+    : undefined;
+
+  if (ingress.direction === &quot;outbound&quot;) {
+    // Correlate even without an open conversation: a STOP ack is sent to a
+    // thread that is already closed.
+    operation.stage(&quot;outbound&quot;);
+    const outbound = await this.outbound.materialize(
+      ingress,
+      conversation,
+      input.correlationId,
+      operation,
+    );
+    if (!outbound) {
+      operation.stage(&quot;unmatched&quot;);
+      return this.ignoreUnmatched(ingress, input.correlationId, operation);
+    }
+    return outbound;
+  }
+
+  if (conversation) {
+    operation.enrich({
+      conversationId: conversation._id,
+      campaignId: conversation.campaignId,
+    });
+    operation.stage(&quot;inbound&quot;);
+    return this.inbound.materialize(
+      ingress,
+      conversation,
+      input.correlationId,
+      operation,
+    );
+  }
+
+  // The questionnaire may already have ended; look at the latest closed
+  // thread before treating the row as unmatched shared-session traffic.
+  const closed = ingress.phoneE164
+    ? await this.conversations.findLatestClosedByPhone(ingress.phoneE164)
+    : undefined;
+
+  if (closed) {
+    operation.enrich({
+      conversationId: closed._id,
+      campaignId: closed.campaignId,
+    });
+    operation.stage(&quot;post_closure&quot;);
+    return this.closedIngress.materialize(
+      ingress,
+      closed,
+      input.correlationId,
+      operation,
+    );
+  }
+
+  operation.stage(&quot;unmatched&quot;);
+  return this.ignoreUnmatched(ingress, input.correlationId, operation);
+}</code></pre>
+            </details>
+            <details>
+              <summary>Δεύτερο πέρασμα · άνοιξε τους μηχανισμούς</summary>
+              <div class="detail-body">
+                <p>
+                  Στη συνέχεια άνοιξε την
+                  <a
+                    href="../../../apps/backend/src/modules/post-event-feedback/ingress/inbound-message.service.ts"
+                    ><code>FeedbackInboundMessageService.materialize()</code></a
+                  >
+                  και την <code>persistOrdinaryInbound()</code>: transcript, due
+                  revision και ακύρωση παλιάς αυτοματοποίησης γράφονται μαζί. Το
+                  <code>publishWakeup()</code> τρέχει μετά το commit.
+                </p>
+              </div>
+            </details>
+          </article>
+          <article class="reading-card" id="read-reconcile">
+            <div class="card-body">
+              <div class="card-heading">
+                <span class="step">02</span>
+                <h3>Ποια ενέργεια πρέπει να γίνει τώρα;</h3>
+              </div>
+              <a
+                class="source"
+                href="../../../apps/backend/src/modules/post-event-feedback/reconciliation/reconcile.service.ts"
+                >reconciliation/reconcile.service.ts → executeOne()</a
+              >
+              <p>
+                Αυτή η μικρή μέθοδος εκτελεί την απόφαση του planner:
+                extract/retry_parked, reminder ή expiry. Ο εξωτερικός reconciler
+                έχει ήδη ελέγξει revision και claim. Ένα wait/idle δεν καλεί AI.
+              </p>
+              <label class="read-check"
+                ><input
+                  type="checkbox"
+                  id="check-reconcile"
+                  data-reading-check
+                />Καταλαβαίνω ότι το job ξυπνά έναν έλεγχο της σημερινής
+                κατάστασης.</label
+              >
+            </div>
+            <details>
+              <summary>Διάβασε τη μέθοδο · 31 γραμμές</summary>
+              <p class="snippet-meta">
+                FeedbackConversationReconcileService.executeOne · γραμμές
+                295–325 του αρχείου
+              </p>
+              <pre
+                tabindex="0"
+                aria-label="Κώδικας FeedbackConversationReconcileService.executeOne"
+              ><code data-source="apps/backend/src/modules/post-event-feedback/reconciliation/reconcile.service.ts" data-method="executeOne">private async executeOne(
+  plan: FeedbackConversationReconciliationPlan,
+  input: FeedbackReconcileConversationJobData,
+  claim: FeedbackConversationExecutionClaim,
+  now: Date,
+): Promise&lt;void&gt; {
+  if (plan.kind === &quot;extract&quot; || plan.kind === &quot;retry_parked&quot;) {
+    await this.extractor.extract({
+      conversationId: input.conversationId,
+      correlationId: input.correlationId,
+      executionClaim: claim,
+    });
+    return;
+  }
+  if (plan.kind === &quot;remind&quot;) {
+    await this.inactivity.remindConversation({
+      conversationId: input.conversationId,
+      ordinal: plan.ordinal,
+      correlationId: input.correlationId,
+      now,
+    });
+    return;
+  }
+  if (plan.kind === &quot;expire&quot;) {
+    await this.inactivity.expireConversation({
+      conversationId: input.conversationId,
+      correlationId: input.correlationId,
+      now,
+    });
+  }
+}</code></pre>
+            </details>
+            <details>
+              <summary>Δεύτερο πέρασμα · άνοιξε τους μηχανισμούς</summary>
+              <div class="detail-body">
+                <p>
+                  Στο δεύτερο πέρασμα διάβασε στο ίδιο αρχείο τη
+                  <code>runReconcile()</code> και τη <code>plan()</code>, μαζί
+                  με τον
+                  <a
+                    href="../../../apps/backend/src/modules/post-event-feedback/reconciliation/planner.ts"
+                    >καθαρό planner</a
+                  >. Εκεί φαίνονται το quiet window, οι παλιές revisions, η
+                  απόκτηση claim και ο επόμενος wake-up. Η
+                  <a
+                    href="../../../apps/backend/src/modules/post-event-feedback/reconciliation/wakeup.service.ts"
+                    ><code>ensureQueued()</code></a
+                  >
+                  δημοσιεύει τα μόνιμα due στοιχεία.
+                </p>
+              </div>
+            </details>
+          </article>
+          <article class="reading-card" id="read-extract">
+            <div class="card-body">
+              <div class="card-heading">
+                <span class="step">03</span>
+                <h3>Πώς συντονίζεται ένας ολόκληρος AI γύρος;</h3>
+              </div>
+              <a
+                class="source"
+                href="../../../apps/backend/src/modules/post-event-feedback/extraction/extract.service.ts"
+                >extraction/extract.service.ts → extractionFlow()</a
+              >
+              <p>
+                Admission → σχεδιασμός γύρου → commit → ειδοποιήσεις. Το commit
+                ξαναελέγχει την τρέχουσα κατάσταση. Capacity failure μόνο στο
+                commit οδηγεί σε ξεχωριστό brake μετά το rollback.
+              </p>
+              <label class="read-check"
+                ><input
+                  type="checkbox"
+                  id="check-extract"
+                  data-reading-check
+                />Μπορώ να δείξω πού τελειώνει ο σχεδιασμός και πού αρχίζει η
+                εγγραφή.</label
+              >
+            </div>
+            <details>
+              <summary>Διάβασε τη μέθοδο · 67 γραμμές</summary>
+              <p class="snippet-meta">
+                PostEventFeedbackExtractor.extractionFlow · γραμμές 92–158 του
+                αρχείου
+              </p>
+              <pre
+                tabindex="0"
+                aria-label="Κώδικας PostEventFeedbackExtractor.extractionFlow"
+              ><code data-source="apps/backend/src/modules/post-event-feedback/extraction/extract.service.ts" data-method="extractionFlow">private extractionFlow(
+  input: ExtractFeedbackInput,
+  operation: FeedbackOperationLog,
+): Effect.Effect&lt;ExtractFeedbackResult, unknown&gt; {
+  return Effect.gen(this, function* () {
+    // Skip paid AI work when there is no eligible, unread testimony.
+    operation.stage(&quot;admit&quot;);
+    const admitted = yield* attemptPromise(() =&gt; this.admission.admit(input));
+    if (admitted.kind === &quot;complete&quot;) return admitted.result;
+    const snapshot = admitted.snapshot;
+    operation.enrich({
+      campaignId: snapshot.campaign.id,
+      conversationId: snapshot.conversation._id,
+    });
+
+    // Validate model claims against the snapshot and plan a participant reply.
+    operation.stage(&quot;plan_turn&quot;);
+    const turn = yield* attemptPromise(() =&gt; this.turns.plan(snapshot));
+
+    // Recheck live state under locks; save paid results and any eligible reply.
+    operation.stage(&quot;commit_turn&quot;);
+    const commit = yield* Effect.either(
+      attemptPromise(() =&gt; this.commits.commit(snapshot, turn)),
+    );
+    if (Either.isLeft(commit)) {
+      if (!(commit.left instanceof FeedbackConversationCapacityError)) {
+        return yield* Effect.fail(commit.left);
+      }
+      // Only a failed commit triggers this separate transaction after rollback.
+      operation.stage(&quot;capacity_brake&quot;);
+      return yield* attemptPromise(() =&gt;
+        this.capacity.brakeAfterCapacity(snapshot),
+      );
+    }
+    const committed = commit.right;
+
+    // External notifications happen only after the main transaction succeeds.
+    if (committed.raisedIncident) {
+      operation.stage(&quot;notify_operator&quot;);
+      yield* attemptPromise(() =&gt;
+        this.alert.raise({
+          conversationId: snapshot.conversation._id,
+          campaignId: snapshot.conversation.campaignId,
+          reason: &quot;extraction_safety_signal&quot;,
+          correlationId: input.correlationId,
+          detail: [
+            ...turn.evidence.validated.safetySignals.map(
+              (signal) =&gt; `${signal.category}:${signal.recommendedAction}`,
+            ),
+            ...(turn.evidence.validated.handoff ? [&quot;handoff&quot;] : []),
+          ],
+        }),
+      );
+    }
+    operation.stage(&quot;notify_summary&quot;);
+    yield* attemptPromise(() =&gt;
+      this.summaries.notifyIfLastConversationClosed(
+        snapshot.conversation.campaignId,
+        input.correlationId,
+        committed.state.closedNow,
+      ),
+    );
+
+    operation.stage(&quot;record_outcome&quot;);
+    return toExtractResult(snapshot, turn, committed);
+  });
+}</code></pre>
+            </details>
+            <details>
+              <summary>Δεύτερο πέρασμα · άνοιξε τους μηχανισμούς</summary>
+              <div class="detail-body">
+                <p>
+                  Πρώτα τη
+                  <a
+                    href="../../../apps/backend/src/modules/post-event-feedback/extraction/extraction-admission.service.ts"
+                    ><code>admit()</code></a
+                  >, έπειτα τη
+                  <a
+                    href="../../../apps/backend/src/modules/post-event-feedback/extraction/extraction-commit.service.ts"
+                    ><code>commit()</code> / <code>commitOn()</code></a
+                  >. Ο coordinator κρατά μία transaction, με ξεχωριστούς results
+                  writer και state applier. Οι ειδοποιήσεις ακολουθούν αφού
+                  ολοκληρωθεί η εγγραφή.
+                </p>
+              </div>
+            </details>
+          </article>
+          <article class="reading-card" id="read-plan">
+            <div class="card-body">
+              <div class="card-heading">
+                <span class="step">04</span>
+                <h3>Τι ακριβώς ζητάμε από το AI;</h3>
+              </div>
+              <a
+                class="source"
+                href="../../../apps/backend/src/modules/post-event-feedback/extraction/extraction-turn.service.ts"
+                >extraction/extraction-turn.service.ts → plan()</a
+              >
+              <p>
+                Χτίζουμε το επιτρεπτό context, αναλύουμε τα μοντέλα και
+                επιλέγουμε την απάντηση. Η πρόταση του μοντέλου είναι draft
+                στοιχείων και κειμένου. Χρειάζεται ακόμη έλεγχος πριν από commit
+                και send.
+              </p>
+              <label class="read-check"
+                ><input
+                  type="checkbox"
+                  id="check-plan"
+                  data-reading-check
+                />Ξεχωρίζω έγκυρα εξαγόμενα στοιχεία από άδεια αποστολής
+                απάντησης.</label
+              >
+            </div>
+            <details>
+              <summary>Διάβασε τη μέθοδο · 33 γραμμές</summary>
+              <p class="snippet-meta">
+                FeedbackExtractionTurnService.plan · γραμμές 33–65 του αρχείου
+              </p>
+              <pre
+                tabindex="0"
+                aria-label="Κώδικας FeedbackExtractionTurnService.plan"
+              ><code data-source="apps/backend/src/modules/post-event-feedback/extraction/extraction-turn.service.ts" data-method="plan">async plan(snapshot: ExtractRunSnapshot): Promise&lt;ExtractPlannedTurn&gt; {
+  const operation = new FeedbackOperationLog(this.logger, {
+    operation: &quot;extract_plan&quot;,
+    ...extractionTurnLogContext(snapshot),
+  });
+  try {
+    operation.stage(&quot;prepare_context&quot;);
+    // Assemble the testimony and live facts the AI is allowed to see.
+    const prepared = await this.modelContext.prepare(snapshot);
+    operation.stage(&quot;generate_and_validate&quot;);
+    // Extract feedback and classify attention; reject unsupported model claims.
+    const analyzed = await this.aiTurn.analyze(snapshot, prepared);
+    operation.stage(&quot;resolve_reply&quot;);
+    // Choose the reply, apply policy answers, and withhold it if state changed.
+    const planned = await this.participantReply.plan(
+      snapshot,
+      prepared,
+      analyzed,
+    );
+    operation.complete(&quot;planned&quot;);
+    return planned;
+  } catch (error) {
+    if (
+      error instanceof FeedbackConversationExecutionGuardError &amp;&amp;
+      error.reason === &quot;authoritative_state_changed&quot;
+    ) {
+      operation.failed(error, &quot;superseded&quot;);
+    } else {
+      operation.failed(error);
+    }
+    throw error;
+  }
+}</code></pre>
+            </details>
+            <details>
+              <summary>Δεύτερο πέρασμα · άνοιξε τους μηχανισμούς</summary>
+              <div class="detail-body">
+                <p>
+                  Άνοιξε με τη σειρά
+                  <a
+                    href="../../../apps/backend/src/modules/post-event-feedback/extraction/model-context.service.ts"
+                    ><code>prepare()</code></a
+                  >,
+                  <a
+                    href="../../../apps/backend/src/modules/post-event-feedback/extraction/ai-turn-analysis.service.ts"
+                    ><code>analyze()</code></a
+                  >,
+                  <a
+                    href="../../../apps/backend/src/modules/post-event-feedback/extraction/participant-reply.service.ts"
+                    ><code>plan()</code></a
+                  >. Η πρόταση feedback και η ταξινόμηση attention ξεκινούν
+                  παράλληλα. Μπορεί να ακολουθήσει rewrite της απάντησης.
+                </p>
+              </div>
+            </details>
+          </article>
+          <article class="reading-card" id="read-batch">
+            <div class="card-body">
+              <div class="card-heading">
+                <span class="step">05</span>
+                <h3>Πώς βρίσκει ο sender δουλειά;</h3>
+              </div>
+              <a
+                class="source"
+                href="../../../apps/backend/src/modules/post-event-feedback/outbox/dispatcher.service.ts"
+                >outbox/dispatcher.service.ts → dispatchBatch()</a
+              >
+              <p>
+                Πρώτα ανάκαμψη αβέβαιων προσπαθειών, μετά μικρό claim batch.
+                Διαφορετικές συνομιλίες μπορούν να προχωρούν παράλληλα· τα
+                claims της ίδιας συνομιλίας διατηρούν τη σειρά τους.
+              </p>
+              <label class="read-check"
+                ><input
+                  type="checkbox"
+                  id="check-batch"
+                  data-reading-check
+                />Μπορώ να δείξω πού γίνεται polling και πού δεσμεύονται τα
+                μηνύματα.</label
+              >
+            </div>
+            <details>
+              <summary>Διάβασε τη μέθοδο · 41 γραμμές</summary>
+              <p class="snippet-meta">
+                MessageOutboxDispatcherService.dispatchBatch · γραμμές 39–79 του
+                αρχείου
+              </p>
+              <pre
+                tabindex="0"
+                aria-label="Κώδικας MessageOutboxDispatcherService.dispatchBatch"
+              ><code data-source="apps/backend/src/modules/post-event-feedback/outbox/dispatcher.service.ts" data-method="dispatchBatch">async dispatchBatch(
+  now = new Date(),
+): Promise&lt;FeedbackOutboxDispatchBatchResult&gt; {
+  const quarantinedCount = await this.recovery.quarantineExpired(now);
+  const terminalCandidates =
+    await this.outbox.listTerminalDispatchCandidates();
+  const terminalOutboxIds =
+    await this.conversations.listCurrentTerminalOutboxIds(terminalCandidates);
+  const claims = await this.database.transaction((transaction) =&gt;
+    this.outbox.claimDispatchBatch(
+      transaction,
+      now,
+      undefined,
+      undefined,
+      terminalOutboxIds,
+    ),
+  );
+  // Different conversations use bounded parallel lanes. Claims for one
+  // conversation are still serialized as a second line of defence around
+  // the repository's cross-replica FIFO eligibility predicate.
+  const resultsById = new Map&lt;string, FeedbackOutboxDispatchItemResult&gt;();
+  await Promise.all(
+    groupClaimsByConversation(claims).map(async (conversationClaims) =&gt; {
+      for (const claim of conversationClaims) {
+        resultsById.set(
+          claim.id,
+          await this.attempt.dispatchClaimSafely(claim),
+        );
+      }
+    }),
+  );
+  const items = claims.map((claim) =&gt; {
+    const result = resultsById.get(claim.id);
+    if (!result) {
+      throw new Error(`Feedback outbox claim ${claim.id} was not dispatched`);
+    }
+    return result;
+  });
+
+  return { claimedCount: claims.length, quarantinedCount, items };
+}</code></pre>
+            </details>
+            <details>
+              <summary>Δεύτερο πέρασμα · άνοιξε τους μηχανισμούς</summary>
+              <div class="detail-body">
+                <p>
+                  Ο
+                  <a
+                    href="../../../apps/backend/src/modules/post-event-feedback/outbox/dispatcher-loop.service.ts"
+                    ><code>FeedbackOutboxDispatcherLoop</code></a
+                  >
+                  αποτρέπει επικαλυπτόμενα περιοδικά passes. Η
+                  <a
+                    href="../../../apps/backend/src/modules/post-event-feedback/outbox/dispatch-recovery.service.ts"
+                    ><code>quarantineExpired()</code></a
+                  >
+                  χειρίζεται προηγούμενες εκκρεμότητες. Το SQL claim μένει στο
+                  repository και χρησιμοποιεί τη transaction του batch.
+                </p>
+              </div>
+            </details>
+          </article>
+          <article class="reading-card" id="read-send">
+            <div class="card-body">
+              <div class="card-heading">
+                <span class="step">06</span>
+                <h3>Ποιο είναι το τελευταίο όριο πριν από το δίκτυο;</h3>
+              </div>
+              <a
+                class="source"
+                href="../../../apps/backend/src/modules/post-event-feedback/outbox/dispatch-attempt.service.ts"
+                >outbox/dispatch-attempt.service.ts → dispatchClaimOnce()</a
+              >
+              <p>
+                Έλεγχος → transcript → slot με heartbeat → τελική προετοιμασία →
+                transport → αποτέλεσμα. Η prepare δεσμεύει το attempting marker
+                πριν καλέσουμε τον provider. Μετά από αυτό το όριο η αβεβαιότητα
+                απαιτεί συμφιλίωση.
+              </p>
+              <label class="read-check"
+                ><input
+                  type="checkbox"
+                  id="check-send"
+                  data-reading-check
+                />Μπορώ να εξηγήσω γιατί μετά το attempting δεν κάνουμε τυφλό
+                retry.</label
+              >
+            </div>
+            <details>
+              <summary>Διάβασε τη μέθοδο · 110 γραμμές</summary>
+              <p class="snippet-meta">
+                FeedbackDispatchAttemptService.dispatchClaimOnce · γραμμές
+                89–198 του αρχείου
+              </p>
+              <pre
+                tabindex="0"
+                aria-label="Κώδικας FeedbackDispatchAttemptService.dispatchClaimOnce"
+              ><code data-source="apps/backend/src/modules/post-event-feedback/outbox/dispatch-attempt.service.ts" data-method="dispatchClaimOnce">private async dispatchClaimOnce(
+  claim: FeedbackOutboxClaimedRow,
+  operation: FeedbackOperationLog,
+): Promise&lt;FeedbackOutboxDispatchItemResult&gt; {
+  operation.stage(&quot;initial_guard&quot;);
+  const firstGuard = await this.preparation.guardCurrentState(claim);
+  if (firstGuard.state === &quot;settled&quot;) {
+    return firstGuard.result;
+  }
+
+  operation.stage(&quot;transcript&quot;);
+  const recorded = await this.database.transaction((transaction) =&gt;
+    this.outboundTranscript.record(transaction, claim, new Date(), claim.id, {
+      claimToken: claim.claimToken,
+    }),
+  );
+  if (recorded.outcome === &quot;cancelled&quot;) {
+    return { outboxId: claim.id, outcome: &quot;cancelled&quot; };
+  }
+  if (recorded.outcome === &quot;claim_lost&quot;) {
+    return { outboxId: claim.id, outcome: &quot;claim_lost&quot; };
+  }
+
+  // Global pacing may outlive the initial lease as replicas are added. Keep
+  // this exact token alive while waiting, then renew once more after the slot
+  // before reading state and crossing the no-return marker.
+  operation.stage(&quot;send_slot&quot;);
+  const ownsClaimAfterPacing =
+    await this.waitForSendSlotWithClaimHeartbeat(claim);
+  if (!ownsClaimAfterPacing) {
+    return { outboxId: claim.id, outcome: &quot;claim_lost&quot; };
+  }
+
+  const transport = new FeedbackOperationLog(this.logger, {
+    operation: &quot;dispatch_transport&quot;,
+    correlationId: claim.id,
+    outboxId: claim.id,
+    conversationId: claim.conversationId,
+    campaignId: claim.campaignId,
+    attempt: claim.attemptCount,
+  });
+  operation.stage(&quot;prepare_send&quot;);
+  const prepared = await this.preparation.prepare(
+    claim,
+    firstGuard.phoneAtLaunch,
+  );
+  if (prepared.state === &quot;settled&quot;) {
+    return prepared.result;
+  }
+  const { attempting } = prepared;
+  const sendInput = {
+    to: prepared.phoneAtLaunch,
+    text: claim.body,
+    outboxId: claim.id,
+  };
+  if (!attempting) {
+    return { outboxId: claim.id, outcome: &quot;claim_lost&quot; };
+  }
+
+  // Sync, non-throwing, no await/IO: last reached boundary if the process
+  // dies inside the provider call. Child observer keeps a transport failure
+  // after the parent moves on to finalize.
+  operation.stage(&quot;transport&quot;);
+  transport.stage(&quot;transport&quot;);
+  let result: Awaited&lt;ReturnType&lt;FeedbackTransport[&quot;sendText&quot;]&gt;&gt;;
+  try {
+    // This is deliberately the first fallible operation after the durable
+    // send marker. Every state/consent/phone lookup completed above it.
+    result = await this.transport.sendText(sendInput);
+    transport.complete(
+      result.outcome === &quot;accepted&quot;
+        ? &quot;accepted&quot;
+        : result.outcome === &quot;not-accepted&quot;
+          ? &quot;not_accepted&quot;
+          : &quot;unknown&quot;,
+    );
+  } catch (error) {
+    transport.failed(error);
+    operation.stage(&quot;finalize_result&quot;);
+    return this.settlement.markAmbiguous(
+      attempting,
+      claim.claimToken,
+      &quot;unexpected_transport_error&quot;,
+      error,
+    );
+  }
+
+  operation.stage(&quot;finalize_result&quot;);
+  if (result.outcome === &quot;accepted&quot;) {
+    return this.settlement.finalizeAccepted(
+      attempting,
+      claim.claimToken,
+      result,
+    );
+  }
+
+  if (result.outcome === &quot;not-accepted&quot;) {
+    return this.settlement.finalizeNotAccepted(
+      attempting,
+      claim.claimToken,
+      result,
+    );
+  }
+
+  return this.settlement.finalizeUnknown(
+    attempting,
+    claim.claimToken,
+    result,
+  );
+}</code></pre>
+            </details>
+            <details>
+              <summary>Δεύτερο πέρασμα · άνοιξε τους μηχανισμούς</summary>
+              <div class="detail-body">
+                <p>
+                  Διάβασε τη
+                  <a
+                    href="../../../apps/backend/src/modules/post-event-feedback/outbox/dispatch-preparation.service.ts"
+                    ><code>prepare()</code> και τη
+                    <code>guardCurrentState()</code></a
+                  >, μετά τις
+                  <a
+                    href="../../../apps/backend/src/modules/post-event-feedback/outbox/dispatch-settlement.service.ts"
+                    ><code>finalizeAccepted()</code>,
+                    <code>finalizeNotAccepted()</code>,
+                    <code>markAmbiguous()</code></a
+                  >. Το αρχικό guard γλιτώνει περιττή αναμονή. Ο τελικός έλεγχος
+                  μέσα στα locks προστατεύει το marker.
+                </p>
+              </div>
+            </details>
+          </article>
+        </section>
+
+        <section id="cases" class="section-top">
+          <div class="eyebrow">03 / Τέσσερις διαδρομές</div>
+          <h2>Ακολούθησε τι αλλάζει όταν χαλάσει η ευθεία.</h2>
+          <div class="grid-two">
+            <article class="scenario">
+              <div class="eyebrow">Α / Κανονική απάντηση</div>
+              <h3>«Πέρασα ωραία, 5»</h3>
+              <p>
+                Η μαρτυρία μπαίνει στο transcript, ενημερώνει τη due εργασία και
+                περιμένει το quiet window. Το AI αναλύει το snapshot. Το commit
+                αποθηκεύει αποτελέσματα και την επιτρεπτή απάντηση στο outbox.
+              </p>
+              <details>
+                <summary>Πού το ακολουθείς</summary>
+                <div class="detail-body">
+                  <p>
+                    <a
+                      href="../../../apps/backend/src/modules/post-event-feedback/ingress/inbound-message.service.ts"
+                      >InboundMessage.materialize</a
+                    >
+                    → <a href="#read-extract">extractionFlow</a> →
+                    <a
+                      href="../../../apps/backend/src/modules/post-event-feedback/extraction/extraction-commit.service.ts"
+                      >commit / commitOn</a
+                    >
+                    → <a href="#read-send">dispatchClaimOnce</a>.
+                  </p>
+                  <p>
+                    <strong>Να εξηγήσεις:</strong> γιατί το AI επιστρέφει ένα
+                    σχέδιο και η εξωτερική αποστολή γίνεται σε άλλη φάση.
+                  </p>
+                </div>
+              </details>
+            </article>
+            <article class="scenario">
+              <div class="eyebrow">Β / STOP</div>
+              <h3>«ΣΤΟΠ»</h3>
+              <p>
+                Ο υπάρχων matcher ενεργοποιείται πριν από AI. Κλείσιμο, ανάκληση
+                opt-in, ακύρωση queued μηνυμάτων, ακριβές ACK, audit και
+                ολοκλήρωση ingress ανήκουν στην ίδια συναλλαγή.
+              </p>
+              <details>
+                <summary>Πού το ακολουθείς</summary>
+                <div class="detail-body">
+                  <p>
+                    <a
+                      href="../../../apps/backend/src/modules/post-event-feedback/matching/stop-command.ts"
+                      >matchesPostEventFeedbackStopCommand</a
+                    >
+                    →
+                    <a
+                      href="../../../apps/backend/src/modules/post-event-feedback/ingress/stop.service.ts"
+                      >FeedbackStopService.apply</a
+                    >
+                    →
+                    <a
+                      href="../../../apps/backend/src/modules/post-event-feedback/outbox/dispatch-preparation.service.ts"
+                      >guardCurrentState</a
+                    >.
+                  </p>
+                  <p>
+                    Μόνο το ακριβές ACK του lifecycle περνά την εξαίρεση
+                    consent/terminal. STOP εξακολουθεί να εφαρμόζεται και μετά
+                    το κλείσιμο. Αν το transcript είναι γεμάτο, η ανάκληση
+                    συναίνεσης εξακολουθεί να ισχύει· ACK που δεν χωρά μπορεί να
+                    ακυρωθεί.
+                  </p>
+                </div>
+              </details>
+            </article>
+            <article class="scenario">
+              <div class="eyebrow">Γ / Νεότερο μήνυμα</div>
+              <h3>«Όχι, τελικά 4» ενώ δουλεύει το AI</h3>
+              <p>
+                Το πρώτο snapshot μπορεί να έχει παλιώσει. Ελέγχουμε ξανά τόσο
+                στο commit όσο και πριν από την αποστολή. Ανάλογα με το σημείο
+                της αλλαγής, κρατάμε επιτρεπτά αποτελέσματα που ήδη πληρώσαμε
+                και αποσύρουμε την ξεπερασμένη απάντηση, ή η εκτέλεση βγαίνει
+                superseded.
+              </p>
+              <details>
+                <summary>Πού το ακολουθείς</summary>
+                <div class="detail-body">
+                  <p>
+                    <a
+                      href="../../../apps/backend/src/modules/post-event-feedback/extraction/participant-reply.service.ts"
+                      >FeedbackParticipantReplyPlanner.plan</a
+                    >
+                    →
+                    <a
+                      href="../../../apps/backend/src/modules/post-event-feedback/extraction/extraction-commit.service.ts"
+                      >commitOn / persistOn</a
+                    >
+                    →
+                    <a
+                      href="../../../apps/backend/src/modules/post-event-feedback/outbox/dispatch-preparation.service.ts"
+                      >ordinaryExtractionReplyStaleReason</a
+                    >.
+                  </p>
+                  <p>
+                    Το <code>dispatch_context</code> κρατά τις γενιές του
+                    αρχικού snapshot. Ελέγχονται και νεότερα durable ingress που
+                    ακόμη δεν μπήκαν στο transcript. Το quiet window δεν
+                    ακυρώνει μια ήδη ενεργή κλήση AI.
+                  </p>
+                </div>
+              </details>
+            </article>
+            <article class="scenario">
+              <div class="eyebrow">Δ / Αβέβαιη αποστολή</div>
+              <h3>Ο provider δεν απάντησε καθαρά</h3>
+              <p>
+                Αφού καταγραφεί <code>attempting</code>, μπορεί να έχει γίνει
+                αποστολή. Unknown ή απρόβλεπτο transport error οδηγεί σε
+                <code>ambiguous</code> και χειρισμό από άνθρωπο. Αυτό το μήνυμα
+                δεν ξαναστέλνεται αυτόματα.
+              </p>
+              <details>
+                <summary>Πού το ακολουθείς</summary>
+                <div class="detail-body">
+                  <p>
+                    <a
+                      href="../../../apps/backend/src/modules/post-event-feedback/outbox/dispatch-attempt.service.ts"
+                      >dispatchClaimOnce</a
+                    >
+                    →
+                    <a
+                      href="../../../apps/backend/src/modules/post-event-feedback/outbox/dispatch-settlement.service.ts"
+                      >markAmbiguous / parkUncertainDelivery</a
+                    >. Αν πεθάνει η διεργασία, η
+                    <a
+                      href="../../../apps/backend/src/modules/post-event-feedback/outbox/dispatch-recovery.service.ts"
+                      >quarantineExpired</a
+                    >
+                    αναλαμβάνει την εκκρεμή προσπάθεια.
+                  </p>
+                  <p>
+                    Ρητή απόρριψη γίνεται <code>failed</code> στην τωρινή
+                    πολιτική, ακόμη και σε rate limit. Αποδοχή γίνεται
+                    <code>sent</code>· μεταγενέστερα delivery events μπορούν να
+                    δείξουν delivered/read. Ένα webhook παρατήρησης μπορεί
+                    επίσης να αποδείξει ότι ένα ambiguous μήνυμα στάλθηκε.
+                  </p>
+                </div>
+              </details>
+            </article>
+          </div>
+        </section>
+
+        <section id="boundaries" class="section-top">
+          <div class="eyebrow">04 / Γιατί υπάρχουν τα όρια</div>
+          <h2>Το μέγεθος εξηγείται από τα ενδιάμεσα ενδεχόμενα.</h2>
+          <p>
+            Η ευθεία «παραλαβή → AI → απάντηση» είναι μικρή. Ο επιπλέον κώδικας
+            αντιμετωπίζει διπλή παραλαβή, μηνύματα που φτάνουν κατά τη διάρκεια
+            του AI, STOP, takeover, γεμάτο transcript και αβέβαιο provider. Κάθε
+            μηχανισμός χρειάζεται να εξηγεί ποιο από αυτά προστατεύει. Αυτό δεν
+            δικαιολογεί από μόνο του κάθε μεγάλη κλάση.
+          </p>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Έννοια</th>
+                  <th scope="col">Τι σημαίνει εδώ</th>
+                  <th scope="col">Τι πρόβλημα αποφεύγει</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Ingress</strong></td>
+                  <td>Μόνιμη εγγραφή μιας παρατήρησης από τον provider.</td>
+                  <td>Χαμένο μήνυμα ή διπλό transcript μετά από redelivery.</td>
+                </tr>
+                <tr>
+                  <td><strong>Work revision</strong></td>
+                  <td>
+                    Η έκδοση της προγραμματισμένης εργασίας της συνομιλίας.
+                  </td>
+                  <td>Παλιό job που εκτελεί απόφαση για προηγούμενο γύρο.</td>
+                </tr>
+                <tr>
+                  <td><strong>Claim / fence</strong></td>
+                  <td>
+                    Προσωρινή ιδιοκτησία εργασίας και token/epoch που ελέγχεται
+                    όταν γράφουμε.
+                  </td>
+                  <td>
+                    Worker που έχασε την ιδιοκτησία αλλά συνεχίζει να αλλάζει
+                    κατάσταση.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Outbox intent</strong></td>
+                  <td>
+                    Το σώμα και τα στοιχεία που στηρίζουν την απόφαση αποστολής.
+                  </td>
+                  <td>
+                    Αποστολή χωρίς committed απόφαση ή με ξεπερασμένη άδεια.
+                  </td>
+                </tr>
+                <tr>
+                  <td><strong>Attempting</strong></td>
+                  <td>Μόνιμο marker ότι περνάμε το όριο προς τον provider.</td>
+                  <td>
+                    Τυφλό retry μετά από crash που μπορεί να διπλοστείλει το
+                    μήνυμα.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="grid-two">
+            <article class="boundary">
+              <h3>Πού είναι οι transactions;</h3>
+              <p>
+                Οι services κρατούν την ολόκληρη πράξη και δίνουν το ίδιο
+                <code>tx</code> στα repositories. Η
+                <a
+                  href="../../../apps/backend/src/modules/post-event-feedback/ingress/pending-ingress.service.ts"
+                  >applyPending</a
+                >
+                κρατά μαζί τον έλεγχο replay και το κλείδωμα ingress. Το
+                extraction commit και η τελική προετοιμασία send έχουν τις δικές
+                τους σύντομες συναλλαγές.
+              </p>
+              <p>
+                Κλήσεις AI και WhatsApp γίνονται αφού έχουν λήξει οι αντίστοιχες
+                συναλλαγές. Το database lock προστατεύει την απόφαση· δεν
+                κρατιέται πάνω από το δίκτυο.
+              </p>
+            </article>
+            <article class="boundary">
+              <h3>Έχουμε WhatsApp adapter;</h3>
+              <p>
+                Ναι: το
+                <a
+                  href="../../../apps/backend/src/modules/post-event-feedback/outbox/transport.ts"
+                  ><code>FeedbackTransport.sendText</code></a
+                >
+                δίνει accepted, not-accepted ή unknown. Η
+                <a
+                  href="../../../apps/backend/src/modules/post-event-feedback/outbox/wasender-transport.service.ts"
+                  ><code>WasenderFeedbackTransport</code></a
+                >
+                μεταφράζει τον provider σε αυτό το συμβόλαιο.
+              </p>
+              <p>
+                Υπάρχουν επίσης simulated και disabled adapters. Η επιλογή
+                adapter μένει στο worker module. Η απόφαση για την κατάσταση του
+                outbox ανήκει στον dispatcher.
+              </p>
+            </article>
+            <article class="boundary">
+              <h3>Τι κάνει το Effect;</h3>
+              <p>
+                Η <code>extractionFlow</code> χρησιμοποιεί
+                <code>Effect.gen</code> για τα τοπικά βήματα. Οι
+                <code>attemptPromise</code> /
+                <code>runWithOriginalError</code> διατηρούν τα αρχικά σφάλματα
+                στο όριο Promise.
+              </p>
+              <p>
+                Nest για DI, BullMQ για jobs/retries. Χωρίς Tags, Context ή
+                Layers. Δες το
+                <a href="../../decisions/0017-effect-for-local-workflows.md"
+                  >ADR 0017</a
+                >
+                και την
+                <a
+                  href="../../../apps/backend/src/infrastructure/effect/promise.ts"
+                  >γέφυρα Promise</a
+                >
+                όταν φτάσεις σε εκείνη τη μέθοδο.
+              </p>
+            </article>
+            <article class="boundary">
+              <h3>Τι γράφει ο logger;</h3>
+              <p>
+                Η
+                <a
+                  href="../../../apps/backend/src/modules/post-event-feedback/feedback-operation-log.ts"
+                  ><code>FeedbackOperationLog</code></a
+                >
+                παρατηρεί operation, stage, IDs και outcome. Αποτυχία του log
+                sink δεν αλλάζει την επιχειρησιακή απόφαση.
+              </p>
+              <p>
+                Audit και outbound history είναι ξεχωριστές, transactional
+                εγγραφές. Η άδεια send βασίζεται στο
+                <code>dispatch_context</code>. Stage «started» δείχνει πού μπήκε
+                η εκτέλεση· δεν αποτελεί απόδειξη commit.
+              </p>
+            </article>
+          </div>
+          <div class="note warm" style="margin-top: 22px">
+            <p>
+              <strong>Για την αποθήκευση:</strong> η campaign συνομιλία
+              βρίσκεται σε PostgreSQL μαζί με την επιχειρησιακή της κατάσταση.
+              Τα admin Assistant threads παραμένουν σε MongoDB. Αυτή η αλλαγή
+              αφαίρεσε το cross-database sync από το feedback. Το
+              <a
+                href="../../decisions/0015-postgresql-feedback-conversations.md"
+                >ADR 0015</a
+              >
+              περιγράφει τον διαχωρισμό.
+            </p>
+          </div>
+        </section>
+
+        <section id="interview" class="section-top">
+          <div class="eyebrow">05 / Να μπορείς να το εξηγήσεις</div>
+          <h2>Πέντε ερωτήσεις για τη συζήτησή μας.</h2>
+          <p>
+            Προσπάθησε πρώτα με δικά σου λόγια. Έπειτα άνοιξε το σημείο αναφοράς
+            και γύρνα στη σχετική μέθοδο.
+          </p>
+          <ol class="questions">
+            <li>
+              <strong>Γιατί δεν καλούμε το AI μέσα στο webhook;</strong>
+              <details>
+                <summary>Σημείο αναφοράς</summary>
+                <p>
+                  Το HTTP παραλαμβάνει και αποθηκεύει γρήγορα. Το worker
+                  περιμένει τον γύρο, φορτώνει τρέχουσα κατάσταση και χειρίζεται
+                  την εκτέλεση. Αν χαθεί το enqueue, το durable ingress
+                  επιτρέπει ανάκαμψη.
+                </p>
+              </details>
+            </li>
+            <li>
+              <strong>Γιατί ελέγχουμε ξανά μετά το AI;</strong>
+              <details>
+                <summary>Σημείο αναφοράς</summary>
+                <p>
+                  Το AI δουλεύει σε snapshot. Στο μεταξύ μπορεί να ήρθε νέα
+                  μαρτυρία, STOP, takeover ή pause/resume. Η εγκυρότητα των
+                  εξαγόμενων στοιχείων και η άδεια να σταλεί συγκεκριμένη
+                  απάντηση είναι διαφορετικές αποφάσεις.
+                </p>
+              </details>
+            </li>
+            <li>
+              <strong
+                >Πότε επιτρέπεται retry και πότε φοβόμαστε διπλή
+                αποστολή;</strong
+              >
+              <details>
+                <summary>Σημείο αναφοράς</summary>
+                <p>
+                  Πριν από το marker μια ληγμένη claimed προσπάθεια μπορεί να
+                  ανακτηθεί. Μετά το attempting ο provider ίσως έχει δεχτεί.
+                  Unknown σημαίνει ambiguous και χρειάζεται συμφιλίωση με
+                  παρατήρηση ή άνθρωπο. Δεν υποσχόμαστε exactly-once αποστολή
+                  μέσω δικτύου.
+                </p>
+              </details>
+            </li>
+            <li>
+              <strong
+                >Γιατί δύο βάσεις και πού τελειώνει η επέκταση feedback;</strong
+              >
+              <details>
+                <summary>Σημείο αναφοράς</summary>
+                <p>
+                  Η σημερινή επέκταση έχει campaigns, μαρτυρία συμμετέχοντα,
+                  structured αποτελέσματα, συναίνεση, έλεγχο γύρων και outbox σε
+                  PostgreSQL. Ο ξεχωριστός admin Assistant διατηρεί τα Mongo
+                  threads του. Η αφήγηση του feedback δεν απαιτεί να περάσουμε
+                  από εκείνο το storage.
+                </p>
+              </details>
+            </li>
+            <li>
+              <strong
+                >Πώς προσθέτεις μία νέα περίπτωση χωρίς να μπερδέψεις τη
+                ροή;</strong
+              >
+              <details>
+                <summary>Σημείο αναφοράς</summary>
+                <p>
+                  Βρίσκεις πρώτα τον ιδιοκτήτη της απόφασης: transport
+                  normalization, ingress handler, καθαρή policy, AI planning ή
+                  dispatch. Ορίζεις input/outcome και τι πρέπει να είναι atomic.
+                  Προσθέτεις τη συμπεριφορά εκεί, με focused κάλυψη της νέας
+                  περίπτωσης, κρατώντας τον coordinator ευανάγνωστο.
+                </p>
+              </details>
+            </li>
+          </ol>
+        </section>
+
+        <section id="later" class="section-top">
+          <div class="eyebrow">06 / Τα επόμενα κεφάλαια</div>
+          <h2>Ο βασικός γύρος είναι το πρώτο σταθερό σημείο ανάγνωσης.</h2>
+          <p>
+            Αυτός ο οδηγός καλύπτει τη διαδρομή εισερχόμενου → AI → αποστολής.
+            Το υπόλοιπο module έχει ακόμη δουλειά καθαρογραφής και μελέτης. Το
+            <a href="post-event-feedback-refactor-status.md">τρέχον πλάνο</a>
+            κρατά την πρόοδο.
+          </p>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Μετά τον βασικό γύρο</th>
+                  <th scope="col">Τι θα διαβάσουμε / βελτιώσουμε</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    <a
+                      href="../../../apps/backend/src/modules/post-event-feedback/inbox/conversation.service.ts"
+                      >Staff actions</a
+                    >
+                    · 1.317 γραμμές
+                  </td>
+                  <td>
+                    Takeover, resume, close, ανθρώπινα μηνύματα και διορθώσεις
+                    αποτελεσμάτων.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <a
+                      href="../../../apps/backend/src/modules/post-event-feedback/summary/summary.service.ts"
+                      >Campaign summary</a
+                    >
+                    · 1.076 γραμμές
+                  </td>
+                  <td>
+                    Claim, context, generation, persistence και ειδοποίηση.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <a
+                      href="../../../apps/backend/src/modules/post-event-feedback/outbox/outbox.repository.ts"
+                      >Outbox repository</a
+                    >
+                    /
+                    <a
+                      href="../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-conversation.repository.ts"
+                      >Conversation repository</a
+                    >
+                  </td>
+                  <td>
+                    1.453 / 1.387 γραμμές. Τα πραγματικά SQL και οι εγγυήσεις
+                    locks, CAS και storage. Απομένει έλεγχος συνοχής των
+                    ευθυνών.
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <a
+                      href="../../../apps/backend/src/modules/post-event-feedback/vibes/README.md"
+                      >Tests &amp; harnesses στο vibes/</a
+                    >
+                  </td>
+                  <td>
+                    Παραμένουν ενεργά. Το extraction spec των 4.543 γραμμών
+                    θέλει οργάνωση fixtures/περιπτώσεων μετά τη σταθεροποίηση
+                    των μηχανισμών.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            Για απορίες σε συγκεκριμένο σενάριο:
+            <a href="post-event-feedback-scenarios.md">κατάλογος συμπεριφορών</a
+            >. Για συμβόλαια και περιορισμούς:
+            <a href="post-event-feedback.md">module</a>,
+            <a href="../mechanisms/queues.md">queues</a> και
+            <a href="../mechanisms/runtime-operations.md">runtime / logs</a>.
+          </p>
+        </section>
+        <footer>
+          <p>
+            Τα αποσπάσματα και οι μετρήσεις αντιστοιχούν στο checkpoint αυτού
+            του οδηγού. Το πλήρες <code>pnpm check</code> πέρασε. Το ανεξάρτητο
+            review του Astra δεν βρήκε διορθώσεις στο συγκεκριμένο split. Οι
+            relative σύνδεσμοι δείχνουν αρχεία μέσα στο checkout· αν κρατήσεις
+            μόνο το HTML, τα ενσωματωμένα αποσπάσματα εξακολουθούν να
+            διαβάζονται.
+          </p>
+          <p>
+            Ο οδηγός είναι βοήθημα μελέτης. Κώδικας, tests και τα ενημερωμένα
+            module contracts είναι η λειτουργική αναφορά. Οι χρόνοι, οι γενιές
+            και οι επιπλέον έλεγχοι αναλύονται στο δεύτερο πέρασμα.
+          </p>
+        </footer>
+      </main>
+    </div>
+    <script>
+      (() => {
+        const key = "slopform-feedback-reading-2026-09-06";
+        const checks = [...document.querySelectorAll("[data-reading-check]")];
+        const progress = document.getElementById("reading-progress");
+        const status = document.getElementById("progress-text");
+        let saved = [];
+        try {
+          const value = JSON.parse(localStorage.getItem(key) || "[]");
+          if (Array.isArray(value)) saved = value;
+        } catch {
+          /* Reading works without storage. */
+        }
+        checks.forEach((check) => {
+          check.checked = saved.includes(check.id);
+        });
+        const update = () => {
+          const done = checks.filter((check) => check.checked);
+          progress.max = checks.length;
+          progress.value = done.length;
+          progress.textContent = `${done.length} από ${checks.length}`;
+          status.textContent = `${done.length} / ${checks.length} στάσεις ολοκληρωμένες`;
+          try {
+            localStorage.setItem(
+              key,
+              JSON.stringify(done.map((check) => check.id)),
+            );
+          } catch {
+            /* Optional local persistence. */
+          }
+        };
+        checks.forEach((check) => check.addEventListener("change", update));
+        document
+          .getElementById("reset-progress")
+          .addEventListener("click", () => {
+            checks.forEach((check) => {
+              check.checked = false;
+            });
+            update();
+          });
+        document
+          .getElementById("print-guide")
+          .addEventListener("click", () => window.print());
+        let printOpened = [];
+        window.addEventListener("beforeprint", () => {
+          printOpened = [...document.querySelectorAll("details:not([open])")];
+          printOpened.forEach((detail) => {
+            detail.open = true;
+          });
+        });
+        window.addEventListener("afterprint", () => {
+          printOpened.forEach((detail) => {
+            detail.open = false;
+          });
+          printOpened = [];
+        });
+        update();
+      })();
+    </script>
+  </body>
+</html>

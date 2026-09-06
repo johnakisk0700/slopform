@@ -1,3 +1,12 @@
+import { PendingFeedbackIngressService } from "./ingress/pending-ingress.service.js";
+import { FeedbackStopService } from "./ingress/stop.service.js";
+import { FeedbackInboundMessageService } from "./ingress/inbound-message.service.js";
+import { FeedbackClosedConversationIngressService } from "./ingress/closed-conversation-ingress.service.js";
+import { FeedbackObservedOutboundService } from "./ingress/observed-outbound.service.js";
+import { FeedbackDispatchSettlementService } from "./outbox/dispatch-settlement.service.js";
+import { FeedbackDispatchPreparationService } from "./outbox/dispatch-preparation.service.js";
+import { FeedbackDispatchRecoveryService } from "./outbox/dispatch-recovery.service.js";
+import { FeedbackDispatchAttemptService } from "./outbox/dispatch-attempt.service.js";
 import { Module } from "@nestjs/common";
 import { ConfigModule, ConfigService } from "@nestjs/config";
 
@@ -146,10 +155,19 @@ export function createFeedbackTransport(
     FeedbackExtractionCommitService,
     PostEventFeedbackExtractor,
     FeedbackMaterializeWakeupService,
+    PendingFeedbackIngressService,
+    FeedbackStopService,
+    FeedbackInboundMessageService,
+    FeedbackClosedConversationIngressService,
+    FeedbackObservedOutboundService,
     PostEventFeedbackMaterializer,
     FeedbackMaterializationLimiter,
     PostEventFeedbackMaterializationCoordinator,
     PostEventFeedbackMetrics,
+    FeedbackDispatchSettlementService,
+    FeedbackDispatchPreparationService,
+    FeedbackDispatchRecoveryService,
+    FeedbackDispatchAttemptService,
     MessageOutboxDispatcherService,
     FeedbackOutboxDispatcherLoop,
     FeedbackSendLimiterService,

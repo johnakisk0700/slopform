@@ -19,6 +19,8 @@ conventions: [documentation standard](../../documentation-standard.md).
 
 Current feedback refactor progress and next work live in the
 [refactor status](post-event-feedback-refactor-status.md).
+The [HTML reading guide](post-event-feedback-reading.html) starts the core
+message walkthrough before the later staff-action, summary and SQL chapters.
 The [2026-07-29 evidence note](../../evidence/post-event-feedback-open-issues-2026-07-29.md)
 is a dated audit, not the current work queue.
 

@@ -1,3 +1,7 @@
+import { FeedbackDispatchSettlementService } from "./dispatch-settlement.service.js";
+import { FeedbackDispatchPreparationService } from "./dispatch-preparation.service.js";
+import { FeedbackDispatchRecoveryService } from "./dispatch-recovery.service.js";
+import { FeedbackDispatchAttemptService } from "./dispatch-attempt.service.js";
 import { Logger } from "@nestjs/common";
 import type { MessageOutboxRow } from "@slopform/database";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -1911,15 +1915,38 @@ function createServiceFromHarness(harness: {
   readonly transport: object;
   readonly limiter: object;
 }): MessageOutboxDispatcherService {
-  return new MessageOutboxDispatcherService(
+  const dispatchSettlement = new FeedbackDispatchSettlementService(
+    harness.database as unknown as DatabaseService,
+    harness.repository as unknown as FeedbackOutboxRepository,
+    harness.conversations as unknown as FeedbackConversationRepository,
+  );
+  const dispatchPreparation = new FeedbackDispatchPreparationService(
     harness.database as unknown as DatabaseService,
     harness.campaigns as unknown as FeedbackCampaignRepository,
     harness.repository as unknown as FeedbackOutboxRepository,
     harness.ingress as unknown as FeedbackIngressRepository,
     harness.conversations as unknown as FeedbackConversationRepository,
     harness.participants as unknown as ParticipantsRepository,
+  );
+  const dispatchRecovery = new FeedbackDispatchRecoveryService(
+    harness.database as unknown as DatabaseService,
+    harness.repository as unknown as FeedbackOutboxRepository,
+    dispatchSettlement,
+  );
+  const dispatchAttempt = new FeedbackDispatchAttemptService(
+    harness.database as unknown as DatabaseService,
+    harness.repository as unknown as FeedbackOutboxRepository,
     harness.outboundTranscript as unknown as FeedbackOutboundTranscriptService,
+    dispatchPreparation,
+    dispatchSettlement,
     harness.transport as unknown as FeedbackTransport,
     harness.limiter as unknown as FeedbackSendLimiter,
+  );
+  return new MessageOutboxDispatcherService(
+    harness.database as unknown as DatabaseService,
+    harness.repository as unknown as FeedbackOutboxRepository,
+    harness.conversations as unknown as FeedbackConversationRepository,
+    dispatchRecovery,
+    dispatchAttempt,
   );
 }

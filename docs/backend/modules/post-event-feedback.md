@@ -17,6 +17,11 @@ Code organization and refactoring examples:
 Current refactor progress and next work:
 [`post-event-feedback-refactor-status.md`](post-event-feedback-refactor-status.md).
 
+For a guided first reading, open the standalone
+[HTML reading guide](post-event-feedback-reading.html) in a browser. It starts
+with six source methods and then follows ordinary, STOP, superseded and
+uncertain-send paths.
+
 ## Read this first
 
 1. This page — questions, operator semantics, retry / ambiguous-send, config.
@@ -749,6 +754,14 @@ Never reads a conversation or calls a model.
 
 ### The materialize job
 
+`PostEventFeedbackMaterializer` owns route selection and the operation observer.
+The inbound, STOP, closed-conversation and observed-outbound services own their
+cohesive use cases. `PendingFeedbackIngressService.applyPending` owns the shared
+replay protocol: transaction → ingress row lock → pending check → optional
+conversation mutex → handler writes on the supplied transaction. Queue wake-ups
+and summary notifications remain after commit. Unmatched body retention follows
+the table below; it is not changed by this ownership split.
+
 | Situation                | Outcome                    | Effects                                                                      |
 | ------------------------ | -------------------------- | ---------------------------------------------------------------------------- |
 | Already terminal         | `already_processed`        | Replay no-op                                                                 |
@@ -780,10 +793,14 @@ polls PostgreSQL (no steady-state relay). One-second pass: quarantine expired
 attempts, claim up to four launched rows (`FOR UPDATE SKIP LOCKED`), oldest
 unresolved per conversation, Redis limiter across replicas.
 
-The dispatcher owns the short claim transaction; the outbox repository selects
-and updates rows on its supplied transaction. Claim commits before per-conversation
-preparation, pacing and transport. Quarantine and delivery finalization retain
-their separate transactions.
+The batch dispatcher owns the short claim transaction; the outbox repository
+selects and updates rows on its supplied transaction. Claim commits before
+per-conversation preparation, pacing and transport. `FeedbackDispatchAttemptService`
+coordinates one message. `FeedbackDispatchPreparationService` owns guards and
+the final marker transaction, `FeedbackDispatchSettlementService` owns provider
+outcomes and uncertain-delivery projection, and `FeedbackDispatchRecoveryService`
+owns expired-attempt quarantine. Quarantine and delivery finalization retain
+their separate transactions. The poll loop and provider adapters are unchanged.
 
 Eligibility is checked before pacing and again inside the locked preparation
 transaction. The pure [conversation dispatch policy](../../../apps/backend/src/modules/post-event-feedback/outbox/dispatch-eligibility.ts)
