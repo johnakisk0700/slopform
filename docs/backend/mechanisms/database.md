@@ -175,8 +175,10 @@ exact-key deletion.
 - Database package tests include `drizzle-kit check`.
 - `FEEDBACK_POSTGRES_TEST_URL=postgresql://… pnpm test:feedback:postgres`
   requires an explicitly disposable database, applies migrations, then checks
-  the SQL adapter, concurrent appends, rollback, execution fencing and offline
-  import replay. It never falls back to application `DATABASE_URL` and runs
+  the conversation SQL adapter, concurrent appends, rollback, execution fencing,
+  caller-owned outbound claim rollback and offline import replay. The suites run
+  sequentially so migration setup is safe on an empty database. It never falls
+  back to application `DATABASE_URL` and runs
   without Turbo caching. Normal `pnpm check` skips these opt-in database cases.
 - Before release, also verify upgrades from the previous schema with populated
   campaign resume/checkpoint rows; old applied migrations remain immutable.

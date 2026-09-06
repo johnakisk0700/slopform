@@ -21,6 +21,15 @@ const commands = [
     ],
   ],
   [
+    "pnpm",
+    [
+      "exec",
+      "vitest",
+      "run",
+      "src/modules/post-event-feedback/outbox/dispatcher.repository.spec.ts",
+    ],
+  ],
+  [
     process.execPath,
     [
       "--test",

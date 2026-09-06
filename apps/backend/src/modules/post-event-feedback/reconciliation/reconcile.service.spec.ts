@@ -33,7 +33,7 @@ import {
 } from "../post-event-feedback-conversation.document.js";
 import type { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
 import type { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
-import type { PostEventFeedbackSweepService } from "../sweeps/sweep.service.js";
+import type { FeedbackConversationInactivityService } from "./conversation-inactivity.service.js";
 import type { FeedbackConversationWakeupService } from "./wakeup.service.js";
 import { FeedbackConversationReconcileService } from "./reconcile.service.js";
 
@@ -134,8 +134,8 @@ describe("FeedbackConversationReconcileService", () => {
       correlationId: input.correlationId,
       executionClaim: claim,
     });
-    expect(harness.sweeps.remindConversation).not.toHaveBeenCalled();
-    expect(harness.sweeps.expireConversation).not.toHaveBeenCalled();
+    expect(harness.inactivity.remindConversation).not.toHaveBeenCalled();
+    expect(harness.inactivity.expireConversation).not.toHaveBeenCalled();
     expect(harness.conversations.settleWorkExecution).toHaveBeenCalledWith(
       expect.anything(),
       {
@@ -310,7 +310,7 @@ function createHarness() {
     ),
   };
   const extractor = { extract: vi.fn().mockResolvedValue(undefined) };
-  const sweeps = {
+  const inactivity = {
     remindConversation: vi.fn().mockResolvedValue(undefined),
     expireConversation: vi.fn().mockResolvedValue(undefined),
   };
@@ -342,7 +342,7 @@ function createHarness() {
     executionClaims as unknown as FeedbackConversationExecutionFenceRepository,
     executionFence as unknown as FeedbackConversationExecutionFence,
     extractor as unknown as PostEventFeedbackExtractor,
-    sweeps as unknown as PostEventFeedbackSweepService,
+    inactivity as unknown as FeedbackConversationInactivityService,
     wakeups as unknown as FeedbackConversationWakeupService,
   );
   return {
@@ -352,7 +352,7 @@ function createHarness() {
     executionFence,
     heartbeat,
     extractor,
-    sweeps,
+    inactivity,
     wakeups,
   };
 }

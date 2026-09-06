@@ -803,6 +803,7 @@ export class FakeFeedbackRepository {
   }
 
   async claimDispatchBatch(
+    _transaction: AppTransaction,
     now: Date,
     limit = 4,
     leaseMs = 2 * 60_000,

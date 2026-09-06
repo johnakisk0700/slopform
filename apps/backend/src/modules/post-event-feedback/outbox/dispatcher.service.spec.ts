@@ -517,6 +517,7 @@ describe("MessageOutboxDispatcherService", () => {
       harness.repository.cancelQueuedAutomatedOutboxForConversation,
     ).toHaveBeenCalledWith(harness.transaction, conversationId, outboxId);
     expect(harness.repository.claimDispatchBatch).toHaveBeenCalledWith(
+      harness.transaction,
       expect.any(Date),
       undefined,
       undefined,

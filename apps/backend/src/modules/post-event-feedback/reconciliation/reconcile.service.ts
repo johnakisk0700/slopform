@@ -27,7 +27,7 @@ import { FeedbackConversationRepository } from "../post-event-feedback-conversat
 import { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
 import { resolveFeedbackConversationWork } from "../post-event-feedback-conversation.document.js";
 import { ParticipantsRepository } from "../../participants/participants.repository.js";
-import { PostEventFeedbackSweepService } from "../sweeps/sweep.service.js";
+import { FeedbackConversationInactivityService } from "./conversation-inactivity.service.js";
 import {
   deriveFeedbackConversationReconciliationPlan,
   type FeedbackConversationReconciliationPlan,
@@ -57,7 +57,7 @@ export class FeedbackConversationReconcileService {
     private readonly executionClaims: FeedbackConversationExecutionFenceRepository,
     private readonly executionFence: FeedbackConversationExecutionFence,
     private readonly extractor: PostEventFeedbackExtractor,
-    private readonly sweeps: PostEventFeedbackSweepService,
+    private readonly inactivity: FeedbackConversationInactivityService,
     private readonly wakeups: FeedbackConversationWakeupService,
   ) {}
 
@@ -225,7 +225,7 @@ export class FeedbackConversationReconcileService {
       return;
     }
     if (plan.kind === "remind") {
-      await this.sweeps.remindConversation({
+      await this.inactivity.remindConversation({
         conversationId: input.conversationId,
         ordinal: plan.ordinal,
         correlationId: input.correlationId,
@@ -234,7 +234,7 @@ export class FeedbackConversationReconcileService {
       return;
     }
     if (plan.kind === "expire") {
-      await this.sweeps.expireConversation({
+      await this.inactivity.expireConversation({
         conversationId: input.conversationId,
         correlationId: input.correlationId,
         now,

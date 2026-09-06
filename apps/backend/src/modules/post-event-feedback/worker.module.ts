@@ -51,6 +51,7 @@ import {
   FeedbackSendLimiterService,
 } from "./outbox/session-pacer.js";
 import { FeedbackConversationWakeupService } from "./reconciliation/wakeup.service.js";
+import { FeedbackConversationInactivityService } from "./reconciliation/conversation-inactivity.service.js";
 import { FeedbackConversationReconcileService } from "./reconciliation/reconcile.service.js";
 import { FeedbackConversationReconcileProcessor } from "./reconciliation/reconcile.processor.js";
 
@@ -112,6 +113,7 @@ export function createFeedbackTransport(
     FeedbackConversationExecutionLimiter,
     FeedbackConversationExecutionFence,
     FeedbackConversationWakeupService,
+    FeedbackConversationInactivityService,
     FeedbackConversationReconcileService,
     FeedbackConversationReconcileProcessor,
     {

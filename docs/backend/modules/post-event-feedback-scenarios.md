@@ -821,16 +821,20 @@ flowchart LR
   ing --> q[(FakeQueue + clock)]
   q --> proc[Processor]
   proc --> mat[Materializer]
-  proc --> ext[Extractor]
+  proc --> run[ConversationReconciler]
+  run --> ext[Extractor]
+  run --> inactivity[ConversationInactivity]
   proc --> fb[Fallback]
-  proc --> swp[SweepService]
+  proc --> swp[IngressSweep]
   pg --> dispatch[DirectOutboxDispatcher]
   dispatch --> transport[[RecordingTransport]]
   ext --> model[[ScriptedExtractionModel]]
   mat --> conv[(FakeFeedbackConversations)]
   ext --> conv
+  inactivity --> conv
   mat --> pg[(FakeFeedbackRepository)]
   ext --> pg
+  inactivity --> pg
   dispatch --> pg
 ```
 

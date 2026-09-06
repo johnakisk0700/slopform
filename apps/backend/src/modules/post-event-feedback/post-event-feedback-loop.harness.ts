@@ -86,6 +86,7 @@ import {
   type FeedbackJobData,
   type FeedbackJobName,
 } from "./jobs.schemas.js";
+import { FeedbackConversationInactivityService } from "./reconciliation/conversation-inactivity.service.js";
 import { FeedbackConversationReconcileService } from "./reconciliation/reconcile.service.js";
 import { FeedbackConversationWakeupService } from "./reconciliation/wakeup.service.js";
 import { PostEventFeedbackMaintenanceService } from "./sweeps/maintenance.service.js";
@@ -676,11 +677,9 @@ export async function createFeedbackLoopHarness(
       assertCurrent: async () => true,
     } as never,
   );
-  const sweepService = new PostEventFeedbackSweepService(
-    materializeWakeups,
+  const inactivityService = new FeedbackConversationInactivityService(
     config,
     database as unknown as DatabaseService,
-    maintenanceCheckpoints as never,
     repository as unknown as FeedbackCampaignRepository,
     repository as unknown as FeedbackIngressRepository,
     repository as unknown as FeedbackOutboxRepository,
@@ -690,6 +689,13 @@ export async function createFeedbackLoopHarness(
     outboundTranscript,
     outboundLog,
     summaries as never,
+  );
+  const sweepService = new PostEventFeedbackSweepService(
+    materializeWakeups,
+    config,
+    database as unknown as DatabaseService,
+    maintenanceCheckpoints as never,
+    repository as unknown as FeedbackIngressRepository,
   );
   const extractionFallback = new PostEventFeedbackExtractionFallback(
     database as unknown as DatabaseService,
@@ -742,7 +748,7 @@ export async function createFeedbackLoopHarness(
     executionClaims as unknown as FeedbackConversationExecutionFenceRepository,
     executionFence as unknown as FeedbackConversationExecutionFence,
     extractor,
-    sweepService,
+    inactivityService,
     conversationWakeups,
   );
   const maintenance = new PostEventFeedbackMaintenanceService(

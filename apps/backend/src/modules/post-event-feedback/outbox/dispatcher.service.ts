@@ -178,11 +178,14 @@ export class MessageOutboxDispatcherService {
       await this.outbox.listTerminalDispatchCandidates();
     const terminalOutboxIds =
       await this.conversations.listCurrentTerminalOutboxIds(terminalCandidates);
-    const claims = await this.outbox.claimDispatchBatch(
-      now,
-      undefined,
-      undefined,
-      terminalOutboxIds,
+    const claims = await this.database.transaction((transaction) =>
+      this.outbox.claimDispatchBatch(
+        transaction,
+        now,
+        undefined,
+        undefined,
+        terminalOutboxIds,
+      ),
     );
     // Different conversations use bounded parallel lanes. Claims for one
     // conversation are still serialized as a second line of defence around

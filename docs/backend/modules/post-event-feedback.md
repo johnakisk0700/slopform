@@ -12,6 +12,8 @@ Scenarios:
 [`post-event-feedback-scenarios.md`](post-event-feedback-scenarios.md).
 Policy answers the application may append:
 [`post-event-feedback-policy-answers.md`](post-event-feedback-policy-answers.md).
+Code organization and refactoring examples:
+[`post-event-feedback-readability.md`](post-event-feedback-readability.md).
 
 ## Read this first
 
@@ -712,6 +714,11 @@ polls PostgreSQL (no steady-state relay). One-second pass: quarantine expired
 attempts, claim up to four launched rows (`FOR UPDATE SKIP LOCKED`), oldest
 unresolved per conversation, Redis limiter across replicas.
 
+The dispatcher owns the short claim transaction; the outbox repository selects
+and updates rows on its supplied transaction. Claim commits before per-conversation
+preparation, pacing and transport. Quarantine and delivery finalization retain
+their separate transactions.
+
 | State                           | Meaning                                  |
 | ------------------------------- | ---------------------------------------- |
 | `pending`                       | Claimable                                |
@@ -909,6 +916,14 @@ job.
 | `startConversation` | D17 create-if-missing; never recreates STOP-closed                                                                                |
 
 ### Reminder, expiry and durable recovery
+
+The reconciler executes the planner's `remind` and `expire` decisions through
+[`FeedbackConversationInactivityService`](../../../apps/backend/src/modules/post-event-feedback/reconciliation/conversation-inactivity.service.ts).
+This service owns the reminder/expiry guards and their atomic conversation,
+outbox, transcript and audit effects; expiry notifies summaries after commit.
+[`PostEventFeedbackSweepService`](../../../apps/backend/src/modules/post-event-feedback/sweeps/sweep.service.ts)
+owns checkpointed ingress recovery and publishes materialization wake-ups after
+the recovery page commits.
 
 | Planner action | Contract                                                                                                                                                 |
 | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |

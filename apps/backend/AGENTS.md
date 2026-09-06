@@ -8,6 +8,9 @@ Controllers own transport; services own use-case ordering and transactions;
 repositories own explicit persistence; infrastructure adapters own provider
 lifecycle. Keep HTTP providers out of the worker graph and vice versa.
 
+For feedback refactoring, use the examples and ownership rules in the
+[readability guide](../../docs/backend/modules/post-event-feedback-readability.md).
+
 ## Change map
 
 | Task                  | Primary files and required follow-through                                                                                                                                                                                                                                      |

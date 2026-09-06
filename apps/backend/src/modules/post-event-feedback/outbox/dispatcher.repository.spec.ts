@@ -1,12 +1,26 @@
-import { messageOutbox, type MessageOutboxRow } from "@slopform/database";
-import type { SQL } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
+import { fileURLToPath } from "node:url";
+
+import {
+  createDatabase,
+  events,
+  feedbackCampaigns,
+  messageOutbox,
+  type DatabaseClient,
+  type MessageOutboxRow,
+} from "@slopform/database";
+import { eq, type SQL } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
+import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { PgDialect } from "drizzle-orm/pg-core";
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import type { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
-import { FakeFeedbackRepository } from "../post-event-feedback-doubles.harness.js";
+import {
+  FAKE_FEEDBACK_TRANSACTION,
+  FakeFeedbackRepository,
+} from "../post-event-feedback-doubles.harness.js";
 import {
   FEEDBACK_OUTBOX_DISPATCH_LEASE_MS,
   FEEDBACK_OUTBOX_FIFO_BLOCKING_STATUSES,
@@ -53,11 +67,17 @@ describe("FeedbackOutboxRepository direct dispatch", () => {
         outboxId,
       },
     ]);
-    await expect(fake.claimDispatchBatch(now)).resolves.toEqual([]);
     await expect(
-      fake.claimDispatchBatch(now, 4, FEEDBACK_OUTBOX_DISPATCH_LEASE_MS, [
-        outboxId,
-      ]),
+      fake.claimDispatchBatch(FAKE_FEEDBACK_TRANSACTION, now),
+    ).resolves.toEqual([]);
+    await expect(
+      fake.claimDispatchBatch(
+        FAKE_FEEDBACK_TRANSACTION,
+        now,
+        4,
+        FEEDBACK_OUTBOX_DISPATCH_LEASE_MS,
+        [outboxId],
+      ),
     ).resolves.toEqual([
       expect.objectContaining({ id: outboxId, status: "claimed" }),
     ]);
@@ -95,9 +115,13 @@ describe("FeedbackOutboxRepository direct dispatch", () => {
 
     await expect(fake.listTerminalDispatchCandidates()).resolves.toEqual([]);
     await expect(
-      fake.claimDispatchBatch(now, 4, FEEDBACK_OUTBOX_DISPATCH_LEASE_MS, [
-        outboxId,
-      ]),
+      fake.claimDispatchBatch(
+        FAKE_FEEDBACK_TRANSACTION,
+        now,
+        4,
+        FEEDBACK_OUTBOX_DISPATCH_LEASE_MS,
+        [outboxId],
+      ),
     ).resolves.toEqual([]);
   });
 
@@ -157,10 +181,9 @@ describe("FeedbackOutboxRepository direct dispatch", () => {
       .mockImplementation((fields: object) =>
         "row" in fields ? { from } : sqlBuilder.select(fields as never),
       );
+    const transaction = { select, update };
     const database = {
-      transaction: vi.fn(async (work: (tx: unknown) => Promise<unknown>) =>
-        work({ select, update }),
-      ),
+      transaction: vi.fn(),
       db: {},
     } as unknown as DatabaseService;
     const campaigns = { findCampaignById: vi.fn() };
@@ -170,11 +193,14 @@ describe("FeedbackOutboxRepository direct dispatch", () => {
     );
 
     const claimed = await repository.claimDispatchBatch(
+      transaction as never,
       now,
       10,
       FEEDBACK_OUTBOX_DISPATCH_LEASE_MS,
       [outboxId],
     );
+
+    expect(database.transaction).not.toHaveBeenCalled();
 
     expect(forUpdate).toHaveBeenCalledWith("update", {
       of: messageOutbox,
@@ -641,3 +667,118 @@ function createAttemptMarkerRepository() {
     ),
   };
 }
+
+// Explicit disposable database only; never use the application DATABASE_URL.
+const postgresTestUrl = process.env.FEEDBACK_POSTGRES_TEST_URL;
+const describePostgres = postgresTestUrl ? describe : describe.skip;
+
+describePostgres(
+  "FeedbackOutboxRepository claimDispatchBatch transaction ownership",
+  () => {
+    let client: DatabaseClient;
+    let repository: FeedbackOutboxRepository;
+
+    beforeAll(async () => {
+      if (!postgresTestUrl) {
+        return;
+      }
+      client = createDatabase({
+        applicationName: "feedback-outbox-claim-test",
+        connectionString: postgresTestUrl,
+        maxConnections: 4,
+      });
+      await migrate(client.db, {
+        migrationsFolder: fileURLToPath(
+          new URL(
+            "../../../../../../packages/database/drizzle",
+            import.meta.url,
+          ),
+        ),
+      });
+      repository = new FeedbackOutboxRepository(
+        { db: client.db } as DatabaseService,
+        {} as FeedbackCampaignRepository,
+      );
+    });
+
+    afterAll(async () => {
+      await client?.pool.end();
+    });
+
+    it("rolls claim updates back with the caller's transaction", async () => {
+      const eventId = randomUUID();
+      const campaignId = randomUUID();
+      const conversationId = randomUUID();
+      const fixtureOutboxId = randomUUID();
+      const launchedAt = new Date("2026-09-06T00:00:00.000Z");
+
+      await client.db.transaction(async (transaction) => {
+        await transaction.insert(events).values({
+          id: eventId,
+          title: "Feedback outbox claim test",
+          startsAt: launchedAt,
+          status: "finished",
+        });
+        await transaction.insert(feedbackCampaigns).values({
+          id: campaignId,
+          eventId,
+          questionSetVersion: 2,
+          questions: { version: 2 },
+          launchedAt,
+          launchedBy: "outbox-claim-test",
+        });
+        await transaction.insert(messageOutbox).values({
+          id: fixtureOutboxId,
+          campaignId,
+          conversationId,
+          kind: "intro",
+          body: "hello",
+          dedupeKey: `claim-rollback-${fixtureOutboxId}`,
+        });
+      });
+
+      try {
+        const failure = new Error("rollback claim");
+        await expect(
+          client.db.transaction(async (transaction) => {
+            const claimed = await repository.claimDispatchBatch(
+              transaction,
+              now,
+            );
+            expect(claimed).toEqual([
+              expect.objectContaining({
+                id: fixtureOutboxId,
+                status: "claimed",
+                sendStartedAt: null,
+              }),
+            ]);
+            expect(claimed[0]?.claimToken).toMatch(/^[0-9a-f-]{36}$/u);
+            expect(claimed[0]?.claimExpiresAt).toBeInstanceOf(Date);
+            throw failure;
+          }),
+        ).rejects.toBe(failure);
+
+        const [row] = await client.db
+          .select()
+          .from(messageOutbox)
+          .where(eq(messageOutbox.id, fixtureOutboxId));
+        expect(row).toMatchObject({
+          status: "pending",
+          claimToken: null,
+          claimExpiresAt: null,
+          sendStartedAt: null,
+        });
+      } finally {
+        await client.db.transaction(async (transaction) => {
+          await transaction
+            .delete(messageOutbox)
+            .where(eq(messageOutbox.id, fixtureOutboxId));
+          await transaction
+            .delete(feedbackCampaigns)
+            .where(eq(feedbackCampaigns.id, campaignId));
+          await transaction.delete(events).where(eq(events.id, eventId));
+        });
+      }
+    });
+  },
+);

@@ -1,0 +1,421 @@
+import { Injectable } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+
+import type { Environment } from "../../../infrastructure/config/environment.js";
+import { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
+import { DatabaseService } from "../../../infrastructure/database/database.service.js";
+import { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
+import { FeedbackIngressRepository } from "../ingress/ingress.repository.js";
+import { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
+import { FeedbackOutboundLogService } from "../outbox/outbound-log.service.js";
+import { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
+import type { FeedbackConversationDocument } from "../post-event-feedback-conversation.document.js";
+import { ParticipantsRepository } from "../../participants/participants.repository.js";
+import { latestParticipantMessage } from "../conversation-reader.js";
+import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
+import {
+  createFeedbackReminderDedupeKey,
+  renderPostEventFeedbackCopy,
+  resolveCampaignCopy,
+  type PostEventFeedbackQuestionSetCopy,
+} from "../question-set.js";
+import { PostEventFeedbackCampaignSummaryService } from "../summary/summary.service.js";
+
+/**
+ * Planner-owned reminder/expiry transitions against reloaded state.
+ * Every transition reloads authoritative state; nothing claims exactly-once.
+ */
+@Injectable()
+export class FeedbackConversationInactivityService {
+  constructor(
+    private readonly config: ConfigService<Environment, true>,
+    private readonly database: DatabaseService,
+    private readonly campaigns: FeedbackCampaignRepository,
+    private readonly ingress: FeedbackIngressRepository,
+    private readonly outbox: FeedbackOutboxRepository,
+    private readonly conversations: FeedbackConversationRepository,
+    private readonly participants: ParticipantsRepository,
+    private readonly audit: AuditRepository,
+    private readonly outboundTranscript: FeedbackOutboundTranscriptService,
+    private readonly outboundLog: FeedbackOutboundLogService,
+    private readonly summaries: PostEventFeedbackCampaignSummaryService,
+  ) {}
+
+  /** Executes the planner's single reminder transition against reloaded state. */
+  async remindConversation(input: {
+    readonly conversationId: string;
+    readonly ordinal: number;
+    readonly correlationId: string;
+    readonly now?: Date;
+  }): Promise<boolean> {
+    const conversation = await this.conversations.findById(
+      input.conversationId,
+    );
+    if (!conversation || conversation.reminderCount + 1 !== input.ordinal) {
+      return false;
+    }
+    return this.remindOne(
+      conversation,
+      input.correlationId,
+      input.now ?? new Date(),
+      {
+        reminderHours: this.config.get("FEEDBACK_REMINDER_AFTER_HOURS", {
+          infer: true,
+        }),
+        maxReminders: this.config.get("FEEDBACK_MAX_REMINDERS", {
+          infer: true,
+        }),
+      },
+    );
+  }
+
+  /** Executes the planner's silent expiry transition against reloaded state. */
+  async expireConversation(input: {
+    readonly conversationId: string;
+    readonly correlationId: string;
+    readonly now?: Date;
+  }): Promise<boolean> {
+    const conversation = await this.conversations.findById(
+      input.conversationId,
+    );
+    if (!conversation) {
+      return false;
+    }
+    return this.expireOne(
+      conversation,
+      input.correlationId,
+      input.now ?? new Date(),
+      this.config.get("FEEDBACK_EXPIRE_AFTER_HOURS", { infer: true }),
+    );
+  }
+
+  private async remindOne(
+    candidate: FeedbackConversationDocument,
+    correlationId: string,
+    now: Date,
+    policy: { readonly reminderHours: number; readonly maxReminders: number },
+  ): Promise<boolean> {
+    const conversation = await this.conversations.findById(candidate._id);
+    if (!conversation) {
+      return false;
+    }
+    if (
+      conversation.lifecycle.state !== "open" ||
+      conversation.control.mode !== "bot"
+    ) {
+      return false;
+    }
+
+    // A flagged conversation is waiting for a person, and an automated «πες μας
+    // και για τα υπόλοιπα» is the worst thing that can arrive in it. Somebody
+    // who disclosed self-harm, or who asked for a human and was promised one,
+    // must not be chased about the dinner a day later. Expiry deliberately does
+    // not get the same guard: it sends nothing and releases the phone.
+    if (conversation.needsAttention) {
+      return false;
+    }
+
+    // Nor a conversation parked on a provider incident. Their message is sitting
+    // unread behind the extraction cursor — quite possibly with our own «δεν
+    // έχουμε δει ακόμα το μήνυμά σου» already sent — and «θα χαρούμε να μάθουμε
+    // πώς σου φάνηκε η βραδιά» a day later reads as a machine that lost what they
+    // wrote and is asking again from the top. The park usually clears long before
+    // the first rung is due; this is for the outage that never got repaired.
+    if (conversation.extraction.parkedSince !== null) {
+      return false;
+    }
+
+    // Which rung this conversation is on, and whether it has been silent long
+    // enough to earn it. Nudge N is due after N spacings of silence, so the
+    // ladder needs no separate per-rung timestamps.
+    const ordinal = conversation.reminderCount + 1;
+    if (ordinal > policy.maxReminders) {
+      return false;
+    }
+    if (
+      silenceMs(conversation, now) <
+      ordinal * policy.reminderHours * 3_600_000
+    ) {
+      return false;
+    }
+
+    const campaign = await this.campaigns.findCampaignById(
+      conversation.campaignId,
+    );
+    if (campaign?.status !== "launched") {
+      return false;
+    }
+
+    const participant = await this.participants.findById(
+      conversation.respondentParticipantId,
+    );
+    if (!participant?.postEventFeedbackWhatsappOptIn) {
+      return false;
+    }
+
+    const copy = resolveCampaignCopy(
+      campaign.questions,
+      campaign.questionSetVersion,
+    );
+    const displayName =
+      participant.preferredName?.trim() || participant.emailNormalized;
+
+    const reminder = await this.database.transaction(async (transaction) => {
+      // The conversation silence check is only a snapshot. Share the webhook's
+      // per-phone PostgreSQL lock, then reject any durable inbound that was not
+      // in that snapshot. Without this fence a participant can answer between
+      // the check above and this insert and receive «please answer» afterwards.
+      await this.ingress.lockInboundPhone(
+        transaction,
+        conversation.phoneAtLaunch,
+      );
+      const newerInbound = await this.ingress.hasInboundBeyondSnapshot(
+        transaction,
+        {
+          phoneE164: conversation.phoneAtLaunch,
+          conversationId: conversation._id,
+          snapshotIngressIds: conversation.messages.flatMap((message) =>
+            message.actor === "participant" && message.ingressId
+              ? [message.ingressId]
+              : [],
+          ),
+        },
+      );
+      if (newerInbound) {
+        return undefined;
+      }
+
+      const enqueued = await this.outbox.insertOutboxIfAbsent(transaction, {
+        conversationId: conversation._id,
+        campaignId: conversation.campaignId,
+        kind: "reminder",
+        body: renderReminderBody(conversation, copy, displayName),
+        dedupeKey: createFeedbackReminderDedupeKey(conversation._id, ordinal),
+      });
+      await this.outboundLog.record(transaction, {
+        outbox: enqueued,
+        conversation,
+        decision: {
+          origin: "reminder",
+          rung: ordinal,
+        },
+        correlationId,
+      });
+      if (enqueued.inserted) {
+        await this.audit.append(transaction, {
+          actorType: "system",
+          actorId: "feedback_sweep",
+          action: "feedback_conversation.reminded",
+          entityType: "feedback_conversation",
+          entityId: conversation._id,
+          requestId: correlationId,
+          context: {
+            campaignId: conversation.campaignId,
+            outboxId: enqueued.row.id,
+            ordinal,
+          },
+        });
+      }
+      const recorded = await this.outboundTranscript.record(
+        transaction,
+        enqueued.row,
+        now,
+        correlationId,
+      );
+      if (recorded.outcome === "cancelled") {
+        return undefined;
+      }
+      await this.conversations.markReminded(transaction, {
+        conversationId: conversation._id,
+        at: now,
+        expectedCount: conversation.reminderCount,
+      });
+      return enqueued;
+    });
+
+    return reminder?.inserted ?? false;
+  }
+
+  private async expireOne(
+    snapshot: FeedbackConversationDocument,
+    correlationId: string,
+    now: Date,
+    expireHours: number,
+  ): Promise<boolean> {
+    // Deliberately no opt-in check. Expiry sends nothing — it closes the
+    // conversation and cancels whatever was queued — so withholding it from a
+    // participant who opted out protects nobody and costs a great deal: the row
+    // stays open forever, holds the partial unique index on `phoneAtLaunch`, and
+    // the next campaign's `createFromLaunch` throws a phone conflict on that
+    // number. An opt-out is a reason to stop messaging somebody, never a reason
+    // to leave their conversation open.
+    const closedCampaignId = await this.database.transaction(
+      async (transaction) => {
+        // Match provider entry's global lock order. Webhook acknowledgement
+        // takes the phone lock before committing ingress; STOP/takeover and the
+        // dispatcher share the conversation lock; pause/close takes an UPDATE
+        // lock on the campaign row. Holding all three makes expiry one ordered
+        // decision instead of three hopeful reads from different stores.
+        await this.ingress.lockInboundPhone(
+          transaction,
+          snapshot.phoneAtLaunch,
+        );
+        await this.outbox.lockConversation(transaction, snapshot._id);
+        const campaign = await this.campaigns.findCampaignByIdForShare(
+          transaction,
+          snapshot.campaignId,
+        );
+
+        // The candidate is only a decision snapshot. A webhook may have
+        // durably accepted a reply or correction before materialization
+        // reaches the conversation row; pending ingress counts, and a newly
+        // materialized id absent from the supplied snapshot counts too. The
+        // phone lock closes the query/close gap against the webhook insert.
+        const newerInbound = await this.ingress.hasInboundBeyondSnapshot(
+          transaction,
+          {
+            phoneE164: snapshot.phoneAtLaunch,
+            conversationId: snapshot._id,
+            snapshotIngressIds: participantIngressIds(snapshot),
+          },
+        );
+        if (newerInbound) {
+          return null;
+        }
+
+        // Reload the conversation only after every shared fence is held. A
+        // takeover, close, resume or newly materialized participant turn that
+        // won before these locks must be visible here.
+        const conversation = await this.conversations.findById(
+          snapshot._id,
+          transaction,
+        );
+        if (
+          !conversation ||
+          conversation.campaignId !== snapshot.campaignId ||
+          conversation.phoneAtLaunch !== snapshot.phoneAtLaunch ||
+          conversation.lifecycle.state !== "open" ||
+          conversation.control.mode !== "bot"
+        ) {
+          return null;
+        }
+
+        // Silence, not age. Somebody who opened WhatsApp on day three and
+        // started answering is mid-conversation; closing them because the
+        // campaign is old shuts the door on the rest of what they had to say.
+        if (silenceMs(conversation, now) < expireHours * 3_600_000) {
+          return null;
+        }
+
+        // Pause freezes the whole automation loop. The shared campaign lock
+        // pins this status through the close/cancellation transaction, so
+        // pause and expiry now have a defined winner.
+        if (!campaign || campaign.status !== "launched") {
+          return null;
+        }
+
+        // The dispatcher uses this same transaction-scoped conversation mutex
+        // for its final provider-entry marker. Expiry therefore either cancels
+        // a still-safe row first or observes that transport entry already won.
+        const transition = await this.conversations.close(transaction, {
+          conversationId: conversation._id,
+          reason: "expired",
+          at: now,
+        });
+        if (!transition.changed) {
+          return null;
+        }
+        const cancelledOutboxCount =
+          await this.outbox.cancelQueuedOutboxForConversation(
+            transaction,
+            conversation._id,
+          );
+        await this.audit.append(transaction, {
+          actorType: "system",
+          actorId: "feedback_sweep",
+          action: "feedback_conversation.expired",
+          entityType: "feedback_conversation",
+          entityId: conversation._id,
+          requestId: correlationId,
+          context: {
+            campaignId: conversation.campaignId,
+            cancelledOutboxCount,
+          },
+        });
+        return conversation.campaignId;
+      },
+    );
+    if (!closedCampaignId) {
+      return false;
+    }
+
+    await this.summaries.notifyIfLastConversationClosed(
+      closedCampaignId,
+      correlationId,
+      true,
+    );
+
+    return true;
+  }
+}
+
+/** Participant ingress provenance carried by one decision snapshot. */
+function participantIngressIds(
+  conversation: FeedbackConversationDocument,
+): string[] {
+  return conversation.messages.flatMap((message) =>
+    message.actor === "participant" && message.ingressId
+      ? [message.ingressId]
+      : [],
+  );
+}
+
+/**
+ * How long the participant has been silent.
+ *
+ * Measured from the last thing *they* said, falling back to the launch when
+ * they never said anything — our own reminders deliberately do not reset it, or
+ * nudging somebody would postpone their own expiry indefinitely.
+ */
+function silenceMs(
+  conversation: FeedbackConversationDocument,
+  now: Date,
+): number {
+  const spokeAt = latestParticipantMessage(conversation)?.at;
+  return now.getTime() - (spokeAt ?? conversation.createdAt).getTime();
+}
+
+/**
+ * What the nudge actually says.
+ *
+ * Somebody who has answered nothing gets the generic invitation. Somebody who
+ * started and stopped gets the question they stopped at, because the generic
+ * copy — «θα χαρούμε να μάθουμε πώς σου φάνηκε η βραδιά» — reads as "we lost
+ * what you sent" to a person who answered two questions yesterday. That group
+ * is exactly the one the ladder was built to reach, so nudging them with copy
+ * written for a stranger would undo the point of reaching them.
+ *
+ * The question comes from `goal.prompt`, the campaign's own snapshot, so a
+ * conversation is never nudged with wording its campaign did not launch with.
+ */
+function renderReminderBody(
+  conversation: FeedbackConversationDocument,
+  copy: PostEventFeedbackQuestionSetCopy,
+  displayName: string,
+): string {
+  const openGoal = conversation.goals.find(
+    (goal) => goal.status === "pending" || goal.status === "asked",
+  );
+  const hasAnswered = conversation.goals.some(
+    (goal) => goal.status === "answered",
+  );
+  const followUp = copy.reminder_followup;
+
+  if (!hasAnswered || !openGoal || !followUp) {
+    return renderPostEventFeedbackCopy(copy.reminder, displayName);
+  }
+  return renderPostEventFeedbackCopy(followUp, displayName).replaceAll(
+    "{question}",
+    openGoal.prompt,
+  );
+}
