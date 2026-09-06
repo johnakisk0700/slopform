@@ -6,7 +6,6 @@ import {
   Headers,
   HttpCode,
   HttpStatus,
-  Logger,
   Post,
   ServiceUnavailableException,
   UnauthorizedException,
@@ -27,6 +26,7 @@ import {
 } from "../../../integrations/wasender/wasender.webhook.js";
 import { MessageOutboxDeliveryStatusService } from "../outbox/delivery-status.service.js";
 import { boundObservedMessageText } from "../jobs.schemas.js";
+import { FeedbackLogger } from "../feedback-operation-log.js";
 import {
   PostEventFeedbackEnqueueError,
   PostEventFeedbackIngressService,
@@ -42,7 +42,7 @@ const RequestCorrelationId = createParamDecorator(
 @Public()
 @Controller("webhooks/wasender")
 export class WasenderWebhookController {
-  private readonly logger = new Logger(WasenderWebhookController.name);
+  private readonly logger = new FeedbackLogger(WasenderWebhookController.name);
 
   constructor(
     private readonly verifier: WasenderWebhookSignatureVerifier,

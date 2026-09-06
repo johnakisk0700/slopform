@@ -169,20 +169,35 @@ A Grok implementer owns the complete slice, its focused checks and corrections.
 A Grok reviewer checks the finished diff against this guide; findings return to
 the implementer. Codex reviews the proposed interfaces and critical boundaries,
 then integrates. Independent slices can run in parallel when file and dependency
-ownership actually permit it. Review only the new diff against the checkpoint.
+ownership actually permit it. Use the checkpoint diff to locate changes, then
+read the complete affected operation and its callers. Include a walkthrough of
+an ordinary turn and a terminal turn superseded by newer testimony: follow
+model evidence, committed results, cursor/lifecycle and exact outbound identity
+through to dispatch. A clean diff alone does not establish a readable flow.
 
 Preserve existing questionnaire, prompt, classification, hostility/profanity,
 STOP, consent and retry behavior. Preserve transactions, idempotency, lock order,
 execution fencing, terminal outbox identity, ambiguous outcomes and capacity
-recovery. Schema, HTTP contracts, Assistant storage and live data are outside
-this readability pass. Report concrete defects separately before mixing behavior
-changes into a structural diff.
+recovery. Keep schema or HTTP changes in an explicitly reviewed contract slice,
+with migration or generated-contract verification. Assistant storage and live
+data are outside feedback readability work. Report concrete defects separately
+before mixing behavior changes into a structural diff.
 
 Handoffs contain files changed, the resulting public flow, checks actually run
 and unresolved findings. Reuse these notes instead of repeating a whole-module
 exploration for every correction. Keep existing behavioral tests for pure moves;
 add tests for uncovered risks rather than filenames or implementation-shaped mocks.
 Adapter semantics use an explicitly disposable database, not mocked Drizzle chains.
+
+Conversation test doubles reuse the production state transitions. They own
+in-memory storage and explicitly simulated persistence fences, rather than a
+second state machine. Database capacity, locking and rollback still require
+the real PostgreSQL adapter tests.
+
+Operational logs observe named stages and preserve the original result or
+exception even if the logging sink fails. Durable send evidence belongs to the
+outbound intent; historical decision logs cannot grant permission to send
+([ADR 0016](../../decisions/0016-feedback-dispatch-context.md)).
 
 Run the relevant focused scenarios while implementing and `pnpm check` after
 integration. Both typecheck and build matter. Accept a slice when ownership is

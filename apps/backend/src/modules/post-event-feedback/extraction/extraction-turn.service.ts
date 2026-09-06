@@ -1,4 +1,4 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
 import type {
   FeedbackAnswerQuestionKey,
   FeedbackCampaignRow,
@@ -13,19 +13,22 @@ import type { FeedbackConversationDocument } from "../post-event-feedback-conver
 import { EventsService } from "../../events/events.service.js";
 import { ParticipantsRepository } from "../../participants/participants.repository.js";
 import { latestParticipantMessage } from "../conversation-reader.js";
-import { isCompleting, resolveGoalStatuses } from "./goal-progress.js";
+import { resolveGoalStatuses } from "./goal-progress.js";
 import {
   countsAsHostileTurn,
   stopsForHostility,
 } from "./operator-attention.js";
 import {
-  answeredAnything,
   resolveOutbound,
   withCampaignReaskCap,
   withPolicyAnswers,
   withSafetyAssurance,
 } from "./outbound-reply.js";
 import { isUnansweredPolicyQuestion } from "./policy-answers.js";
+import {
+  FeedbackLogger,
+  FeedbackOperationLog,
+} from "../feedback-operation-log.js";
 import { PostEventFeedbackMetrics } from "../metrics.service.js";
 import { resolveCampaignCopy } from "../question-set.js";
 import { validateFeedbackExtractionProposal } from "./validate-proposal.js";
@@ -37,6 +40,7 @@ import {
   type FeedbackExtractionGenerationResult,
   type FeedbackExtractionUsage,
   type FeedbackProviderCallGuard,
+  type FeedbackReplyGenerationResult,
 } from "./model.service.js";
 import {
   createFeedbackClosingDedupeKey,
@@ -48,7 +52,11 @@ import {
   type FeedbackExtractionPrompt,
 } from "./prompt.js";
 import type { PostEventFeedbackQuestionSetCopy } from "../question-set.js";
-import { decideExtractionTurn } from "./turn-decision.js";
+import {
+  decideExtractionTurn,
+  deriveTurnPolicyFacts,
+  suppressCloseAfterInitialWithholding,
+} from "./turn-decision.js";
 import { FeedbackConversationExecutionGuardError } from "./execution-guard.js";
 import { FeedbackExtractionGuards } from "./extraction-guards.service.js";
 import type {
@@ -84,7 +92,9 @@ interface GeneratedProposalResult {
  */
 @Injectable()
 export class FeedbackExtractionTurnService {
-  private readonly logger = new Logger(FeedbackExtractionTurnService.name);
+  private readonly logger = new FeedbackLogger(
+    FeedbackExtractionTurnService.name,
+  );
 
   constructor(
     private readonly events: EventsService,
@@ -97,9 +107,34 @@ export class FeedbackExtractionTurnService {
   ) {}
 
   async plan(snapshot: ExtractRunSnapshot): Promise<ExtractPlannedTurn> {
-    const prepared = await this.prepareModelContext(snapshot);
-    const generated = await this.buyAndValidateProposals(snapshot, prepared);
-    return this.resolveParticipantReply(snapshot, prepared, generated);
+    const operation = new FeedbackOperationLog(this.logger, {
+      operation: "extract_plan",
+      ...this.turnLogContext(snapshot),
+    });
+    try {
+      operation.stage("prepare_context");
+      const prepared = await this.prepareModelContext(snapshot);
+      operation.stage("generate_and_validate");
+      const generated = await this.buyAndValidateProposals(snapshot, prepared);
+      operation.stage("resolve_reply");
+      const planned = await this.resolveParticipantReply(
+        snapshot,
+        prepared,
+        generated,
+      );
+      operation.complete("planned");
+      return planned;
+    } catch (error) {
+      if (
+        error instanceof FeedbackConversationExecutionGuardError &&
+        error.reason === "authoritative_state_changed"
+      ) {
+        operation.failed(error, "superseded");
+      } else {
+        operation.failed(error);
+      }
+      throw error;
+    }
   }
 
   private async prepareModelContext(
@@ -135,29 +170,10 @@ export class FeedbackExtractionTurnService {
     prepared: PreparedModelContext,
   ): Promise<GeneratedProposalResult> {
     const questionKeys = prepared.context.goals.map((goal) => goal.key);
-    const beforeProviderCall = prepared.beforeProviderCall;
-    const [generated, attention] = await Promise.all(
-      beforeProviderCall
-        ? [
-            this.generation.propose(
-              prepared.prompt,
-              questionKeys,
-              beforeProviderCall,
-            ),
-            this.generation.classifyAttention(
-              prepared.context.messages,
-              prepared.context.newParticipantMessageIds,
-              beforeProviderCall,
-            ),
-          ]
-        : [
-            this.generation.propose(prepared.prompt, questionKeys),
-            this.generation.classifyAttention(
-              prepared.context.messages,
-              prepared.context.newParticipantMessageIds,
-            ),
-          ],
-    );
+    const [generated, attention] = await Promise.all([
+      this.proposeExtraction(snapshot, prepared, questionKeys),
+      this.classifyAttention(snapshot, prepared),
+    ]);
     this.metrics.recordExtractTokens(
       {
         phase: "feedback_extraction",
@@ -230,10 +246,6 @@ export class FeedbackExtractionTurnService {
       prepared.context,
       validated,
     );
-    const urgentSafety = validated.safetySignals.some(
-      (signal) => signal.recommendedAction === "urgent_human_follow_up",
-    );
-    const dutyOfCare = validated.handoff || urgentSafety;
     const hostileTurn = countsAsHostileTurn({
       hostileMessageIds: generated.attention.hostileMessageIds,
       safetySignalCount: validated.safetySignals.length,
@@ -244,19 +256,20 @@ export class FeedbackExtractionTurnService {
       hostileTurns,
       safetySignalCount: validated.safetySignals.length,
     });
-    const hostileWithoutAnswers =
-      hostileTurn && !answeredAnything(conversation, validated);
-    const progressClosing =
-      isCompleting(conversation.goals, recordedStatuses) &&
-      validated.safetySignals.length === 0 &&
-      !hostileWithoutAnswers;
+    const facts = deriveTurnPolicyFacts({
+      conversation,
+      validated,
+      recordedStatuses,
+      hostileTurn,
+      stoppingForHostility,
+    });
     const testimonySeq =
       latestParticipantMessage(conversation)?.seq ?? cursorSeq;
     let resolvedOutbound = resolveOutbound(
       conversation,
       validated,
-      progressClosing,
-      urgentSafety,
+      facts.progressClosing,
+      facts.urgentSafety,
       testimonySeq,
       prepared.copy,
       recordedStatuses,
@@ -267,16 +280,11 @@ export class FeedbackExtractionTurnService {
     let replyRewriteSuperseded = false;
     if (resolvedOutbound?.generatedByModel && validated.reply) {
       try {
-        const rewritten = prepared.beforeProviderCall
-          ? await this.generation.rewriteReply(
-              prepared.prompt,
-              validated.reply,
-              prepared.beforeProviderCall,
-            )
-          : await this.generation.rewriteReply(
-              prepared.prompt,
-              validated.reply,
-            );
+        const rewritten = await this.rewriteReply(
+          snapshot,
+          prepared,
+          validated.reply,
+        );
         runUsages.push(rewritten.usage);
         this.metrics.recordExtractTokens(
           {
@@ -302,8 +310,8 @@ export class FeedbackExtractionTurnService {
           resolvedOutbound = resolveOutbound(
             conversation,
             validated,
-            progressClosing,
-            urgentSafety,
+            facts.progressClosing,
+            facts.urgentSafety,
             testimonySeq,
             prepared.copy,
             recordedStatuses,
@@ -352,13 +360,11 @@ export class FeedbackExtractionTurnService {
           .map((match) => match.messageId),
       ),
     ];
-    const ordinaryReply =
-      !progressClosing && !validated.handoff && !stoppingForHostility;
     const withheld = outbound
-      ? await this.guards.reviewBeforeSending({
+      ? await this.guards.reviewBeforeEnqueue({
           conversation,
           cursorSeq,
-          staleOnNewerTestimony: ordinaryReply || progressClosing,
+          staleOnNewerTestimony: facts.ordinaryReply || facts.progressClosing,
           ...(snapshot.executionClaim
             ? { executionClaim: snapshot.executionClaim }
             : {}),
@@ -374,57 +380,159 @@ export class FeedbackExtractionTurnService {
       });
     }
 
-    const sentOutbound = withheld ? undefined : outbound;
+    const outboundIntent = withheld ? undefined : outbound;
     const decided = decideExtractionTurn({
       conversation,
       validated,
       recordedStatuses,
-      askedGoal: sentOutbound?.askedGoal,
-      outboundSent: sentOutbound !== undefined,
-      dutyOfCare,
+      askedGoal: outboundIntent?.askedGoal,
+      hasOutboundIntent: outboundIntent !== undefined,
+      hostileTurn,
       stoppingForHostility,
-      hostileWithoutAnswers,
     });
-    let closingReason: "completed" | "declined" | null =
-      progressClosing && withheld ? null : decided.closingReason;
-    if (replyRewriteSuperseded) {
-      closingReason = null;
-    }
+    const closingReason = suppressCloseAfterInitialWithholding({
+      progressClosing: facts.progressClosing,
+      withheld: withheld !== undefined,
+      rewriteSuperseded: replyRewriteSuperseded,
+      closingReason: decided.closingReason,
+    });
     const outboundForPersistence =
-      closingReason !== null && sentOutbound
+      closingReason !== null && outboundIntent
         ? {
-            ...sentOutbound,
+            ...outboundIntent,
             dedupeKey: createFeedbackClosingDedupeKey(
               conversation._id,
               testimonySeq,
               snapshot.executionClaim?.workRevision,
             ),
           }
-        : sentOutbound;
+        : outboundIntent;
 
     return {
-      context: prepared.context,
-      validated,
-      recordedStatuses,
-      outbound: outboundForPersistence,
-      ordinaryReply,
-      dutyOfCare,
-      stoppingForHostility,
-      hostileTurn,
-      hostileWithoutAnswers,
-      replyRewriteSuperseded,
-      goalStatuses: decided.goalStatuses,
-      withdrew: decided.withdrew,
-      hostility: decided.hostility,
-      closingReason,
-      stalledOnMessageId: capped.stalledOnMessageId,
-      unansweredDataQuestionMessageIds,
-      newestParticipantMessageId:
-        prepared.context.newParticipantMessageIds.at(-1) ?? null,
-      runUsage,
-      model: generated.generated.model,
-      serviceTier: this.generation.serviceTier ?? null,
+      evidence: {
+        context: prepared.context,
+        validated,
+        recordedStatuses,
+        hostileTurn,
+        stoppingForHostility,
+        rewriteSuperseded: replyRewriteSuperseded,
+        stalledOnMessageId: capped.stalledOnMessageId,
+        unansweredDataQuestionMessageIds,
+        newestParticipantMessageId:
+          prepared.context.newParticipantMessageIds.at(-1) ?? null,
+        runUsage,
+        model: generated.generated.model,
+        serviceTier: this.generation.serviceTier ?? null,
+      },
+      proposed: {
+        goalStatuses: decided.goalStatuses,
+        withdrew: decided.withdrew,
+        hostility: decided.hostility,
+        closingReason,
+        outboundIntent: outboundForPersistence,
+      },
     };
+  }
+
+  private turnLogContext(snapshot: ExtractRunSnapshot) {
+    return {
+      correlationId: snapshot.correlationId,
+      conversationId: snapshot.conversation._id,
+      campaignId: snapshot.campaign.id,
+      ...(snapshot.executionClaim
+        ? {
+            workRevision: snapshot.executionClaim.workRevision,
+            executionEpoch: snapshot.executionClaim.epoch,
+          }
+        : {}),
+    };
+  }
+
+  private async proposeExtraction(
+    snapshot: ExtractRunSnapshot,
+    prepared: PreparedModelContext,
+    questionKeys: FeedbackAnswerQuestionKey[],
+  ): Promise<FeedbackExtractionGenerationResult> {
+    const child = new FeedbackOperationLog(this.logger, {
+      operation: "extract_propose",
+      ...this.turnLogContext(snapshot),
+    });
+    child.stage("propose");
+    try {
+      const generated = prepared.beforeProviderCall
+        ? await this.generation.propose(
+            prepared.prompt,
+            questionKeys,
+            prepared.beforeProviderCall,
+          )
+        : await this.generation.propose(prepared.prompt, questionKeys);
+      child.complete("generated");
+      return generated;
+    } catch (error) {
+      child.failed(error);
+      throw error;
+    }
+  }
+
+  private async classifyAttention(
+    snapshot: ExtractRunSnapshot,
+    prepared: PreparedModelContext,
+  ): Promise<FeedbackAttentionClassificationGenerationResult> {
+    const child = new FeedbackOperationLog(this.logger, {
+      operation: "extract_classify",
+      ...this.turnLogContext(snapshot),
+    });
+    child.stage("classify");
+    try {
+      const attention = prepared.beforeProviderCall
+        ? await this.generation.classifyAttention(
+            prepared.context.messages,
+            prepared.context.newParticipantMessageIds,
+            prepared.beforeProviderCall,
+          )
+        : await this.generation.classifyAttention(
+            prepared.context.messages,
+            prepared.context.newParticipantMessageIds,
+          );
+      child.complete("classified");
+      return attention;
+    } catch (error) {
+      child.failed(error);
+      throw error;
+    }
+  }
+
+  private async rewriteReply(
+    snapshot: ExtractRunSnapshot,
+    prepared: PreparedModelContext,
+    draft: string,
+  ): Promise<FeedbackReplyGenerationResult> {
+    const child = new FeedbackOperationLog(this.logger, {
+      operation: "extract_rewrite",
+      ...this.turnLogContext(snapshot),
+    });
+    child.stage("rewrite");
+    try {
+      const rewritten = prepared.beforeProviderCall
+        ? await this.generation.rewriteReply(
+            prepared.prompt,
+            draft,
+            prepared.beforeProviderCall,
+          )
+        : await this.generation.rewriteReply(prepared.prompt, draft);
+      child.complete("rewritten");
+      return rewritten;
+    } catch (error) {
+      if (
+        error instanceof FeedbackConversationExecutionGuardError &&
+        error.reason === "authoritative_state_changed"
+      ) {
+        child.failed(error, "superseded");
+      } else {
+        child.failed(error);
+      }
+      throw error;
+    }
   }
 
   private async buildContext(

@@ -1,4 +1,6 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
+
+import { FeedbackLogger } from "./feedback-operation-log.js";
 
 export const FEEDBACK_MATERIALIZE_OUTCOMES = [
   "already_processed",
@@ -58,7 +60,7 @@ export interface FeedbackExtractTokenUsage {
  */
 @Injectable()
 export class PostEventFeedbackMetrics {
-  private readonly logger = new Logger(PostEventFeedbackMetrics.name);
+  private readonly logger = new FeedbackLogger(PostEventFeedbackMetrics.name);
   private readonly counters = new Map<FeedbackMaterializeOutcome, number>();
   private readonly extractCounters = new Map<FeedbackExtractOutcome, number>();
   private tokensObserved = 0;

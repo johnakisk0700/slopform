@@ -25,6 +25,7 @@ import {
   FeedbackConversationExecutionGuardError,
   type PostEventFeedbackExtractor,
 } from "../extraction/extract.service.js";
+import { FEEDBACK_OPERATION_EVENT } from "../feedback-operation-log.js";
 import { createFeedbackReconcileConversationJobId } from "../jobs.schemas.js";
 import {
   buildFeedbackConversationGoals,
@@ -63,7 +64,10 @@ describe("FeedbackConversationReconcileService", () => {
     vi.useFakeTimers();
     vi.setSystemTime(now);
   });
-  afterEach(() => vi.useRealTimers());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
 
   it("returns claim_busy without a lease when another execution owns the fence", async () => {
     const harness = createHarness();
@@ -255,6 +259,7 @@ describe("FeedbackConversationReconcileService", () => {
   );
 
   it("still releases the claim if stopping its heartbeat fails", async () => {
+    const records = captureOperations();
     const harness = createHarness();
     const heartbeatFailure = new Error("heartbeat shutdown failed");
     harness.heartbeat.stop.mockRejectedValue(heartbeatFailure);
@@ -264,8 +269,187 @@ describe("FeedbackConversationReconcileService", () => {
     );
 
     expect(harness.executionFence.release).toHaveBeenCalledWith(claim);
+    expect(
+      records.some(
+        (record) =>
+          record.operation === "reconcile_cleanup" &&
+          record.stage === "stop_heartbeat" &&
+          record.status === "failed",
+      ),
+    ).toBe(true);
+    expect(
+      records.some(
+        (record) =>
+          record.operation === "reconcile_cleanup" &&
+          record.stage === "release_claim" &&
+          record.status === "completed",
+      ),
+    ).toBe(true);
+    expect(
+      records.find(
+        (record) =>
+          record.operation === "reconcile" && record.status === "failed",
+      ),
+    ).toMatchObject({ stage: "cleanup", errorName: "Error" });
+  });
+
+  it("keeps a planning failure visible when claim cleanup also fails", async () => {
+    const records = captureOperations();
+    const harness = createHarness();
+    const planningFailure = Object.assign(new Error("plan read failed"), {
+      code: "PLAN_READ_FAILED",
+    });
+    const cleanupFailure = Object.assign(new Error("release failed"), {
+      code: "CLAIM_RELEASE_FAILED",
+    });
+    harness.campaigns.findCampaignById.mockRejectedValue(planningFailure);
+    harness.executionFence.release.mockRejectedValue(cleanupFailure);
+
+    await expect(harness.service.reconcile(input)).rejects.toBe(cleanupFailure);
+    expect(records).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          operation: "reconcile",
+          stage: "plan",
+          status: "failed",
+          errorCode: "PLAN_READ_FAILED",
+        }),
+        expect.objectContaining({
+          operation: "reconcile_cleanup",
+          stage: "release_claim",
+          status: "failed",
+          errorCode: "CLAIM_RELEASE_FAILED",
+        }),
+      ]),
+    );
+  });
+
+  it("still settles when the logger sink throws", async () => {
+    throwingLoggerSink();
+    const harness = createHarness();
+
+    await expect(harness.service.reconcile(input)).resolves.toBe("settled");
+    expect(harness.extractor.extract).toHaveBeenCalled();
+    expect(harness.wakeups.ensureQueued).toHaveBeenCalled();
+    expect(harness.executionFence.release).toHaveBeenCalledWith(claim);
+  });
+
+  it("names execute_action when the planned action throws and keeps that error", async () => {
+    const records = captureOperations();
+    const harness = createHarness();
+    const failure = Object.assign(
+      new Error("provider temporarily unavailable"),
+      {
+        code: "ETIMEDOUT",
+      },
+    );
+    harness.extractor.extract.mockRejectedValue(failure);
+
+    await expect(harness.service.reconcile(input)).rejects.toBe(failure);
+    expect(
+      records.find(
+        (record) =>
+          record.operation === "reconcile" && record.status === "failed",
+      ),
+    ).toMatchObject({
+      stage: "execute_action",
+      errorName: "Error",
+      errorCode: "ETIMEDOUT",
+      conversationId,
+      workRevision: input.revision,
+    });
+  });
+
+  it("records authoritative supersession as a classified completed outcome", async () => {
+    const records = captureOperations();
+    const harness = createHarness();
+    harness.extractor.extract.mockRejectedValue(
+      new FeedbackConversationExecutionGuardError(
+        conversationId,
+        "authoritative_state_changed",
+      ),
+    );
+
+    await expect(harness.service.reconcile(input)).resolves.toBe("superseded");
+    expect(
+      records.find(
+        (record) =>
+          record.operation === "reconcile" && record.status !== "started",
+      ),
+    ).toMatchObject({
+      stage: "execute_action",
+      status: "completed",
+      outcome: "superseded",
+    });
+    expect(
+      records.some(
+        (record) =>
+          record.operation === "reconcile" && record.status === "failed",
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps a settled return when successor enqueue fails", async () => {
+    const records = captureOperations();
+    const harness = createHarness();
+    const enqueueError = Object.assign(new Error("redis down"), {
+      code: "ECONNREFUSED",
+    });
+    harness.wakeups.ensureQueued.mockRejectedValue(enqueueError);
+
+    await expect(harness.service.reconcile(input)).resolves.toBe("settled");
+    expect(
+      records.find(
+        (record) =>
+          record.operation === "reconcile" && record.status === "completed",
+      ),
+    ).toMatchObject({
+      stage: "enqueue_successor",
+      outcome: "settled",
+    });
+    expect(
+      records.some(
+        (record) =>
+          record.stage === "settle_work" && record.status === "failed",
+      ),
+    ).toBe(false);
+    expect(
+      records.some(
+        (record) =>
+          record.stage === "enqueue_successor" &&
+          record.status === "failed" &&
+          record.errorCode === "ECONNREFUSED",
+      ),
+    ).toBe(true);
   });
 });
+
+function captureOperations(): Record<string, unknown>[] {
+  const records: Record<string, unknown>[] = [];
+  const collect = (message: unknown) => {
+    if (
+      message !== null &&
+      typeof message === "object" &&
+      "event" in message &&
+      message.event === FEEDBACK_OPERATION_EVENT
+    ) {
+      records.push(message as Record<string, unknown>);
+    }
+  };
+  vi.spyOn(Logger.prototype, "log").mockImplementation(collect);
+  vi.spyOn(Logger.prototype, "error").mockImplementation(collect);
+  vi.spyOn(Logger.prototype, "warn").mockImplementation(collect);
+  return records;
+}
+
+function throwingLoggerSink(): void {
+  const boom = () => {
+    throw new Error("pino unavailable");
+  };
+  vi.spyOn(Logger.prototype, "log").mockImplementation(boom);
+  vi.spyOn(Logger.prototype, "error").mockImplementation(boom);
+  vi.spyOn(Logger.prototype, "warn").mockImplementation(boom);
+}
 
 function createHarness() {
   const initial = conversation();
@@ -347,6 +531,7 @@ function createHarness() {
   );
   return {
     service,
+    campaigns,
     conversations,
     executionClaims,
     executionFence,

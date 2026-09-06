@@ -1,12 +1,26 @@
 import { Logger } from "@nestjs/common";
 import type { MessageOutboxRow } from "@slopform/database";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+
+import { FEEDBACK_OPERATION_EVENT } from "../feedback-operation-log.js";
 
 import type { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import type { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
 import type { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
-import { createFeedbackClosingDedupeKey } from "../extraction/extraction.schemas.js";
+import {
+  createFeedbackClosingDedupeKey,
+  createFeedbackReplyDedupeKey,
+  isFeedbackClosingDedupeKey,
+} from "../extraction/extraction.schemas.js";
 import { createFeedbackStopAckDedupeKey } from "../question-set.js";
+import type { DispatchContext } from "./dispatch-context.js";
+import {
+  DISPATCH_CONTEXT_CLOSING_REASON_MISMATCH,
+  DISPATCH_CONTEXT_INVALID,
+  DISPATCH_CONTEXT_MISMATCH,
+  DISPATCH_CONTEXT_UNUSABLE,
+  FALLBACK_FENCE_NOT_SENDABLE,
+} from "./dispatch-context.js";
 import type { ParticipantsRepository } from "../../participants/participants.repository.js";
 import type { FeedbackIngressRepository } from "../ingress/ingress.repository.js";
 import { deliveryFor } from "../inbox/conversation.view.js";
@@ -20,7 +34,6 @@ import type {
   FeedbackOutboxRepository,
 } from "./outbox.repository.js";
 import type { FeedbackOutboundTranscriptService } from "./outbound-transcript.service.js";
-import type { FeedbackOutboundLogRepository } from "./outbound-log.repository.js";
 import type { FeedbackSendLimiter } from "./session-pacer.js";
 import type { FeedbackTransport } from "./transport.js";
 
@@ -33,6 +46,9 @@ const snapshotControlChangedAt = new Date("2026-07-24T23:55:00.000Z");
 describe("MessageOutboxDispatcherService", () => {
   beforeAll(() => {
     Logger.overrideLogger(false);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it("paces, commits the pre-send marker, then enters transport", async () => {
@@ -417,24 +433,52 @@ describe("MessageOutboxDispatcherService", () => {
     expect(harness.transport.sendText).not.toHaveBeenCalled();
   });
 
-  it("keeps an expired attempt recoverable when its human-review projection fails", async () => {
-    const harness = createHarness({ claims: [] });
-    harness.repository.findExpiredDispatchAttempts.mockResolvedValue([
-      attemptingRow(claimedRow()),
-    ]);
-    harness.conversations.markAwaitingHuman.mockRejectedValue(
-      new Error("mongo unavailable"),
-    );
+  it.each(["expired_attempt", "legacy_sending"] as const)(
+    "records a failed quarantine projection and preserves the batch rejection for %s",
+    async (source) => {
+      const records = captureOperations();
+      const harness = createHarness({ claims: [] });
+      const failure = Object.assign(new Error("postgres unavailable"), {
+        code: "08006",
+      });
+      const row = attemptingRow(claimedRow());
+      if (source === "expired_attempt") {
+        harness.repository.findExpiredDispatchAttempts.mockResolvedValue([row]);
+        harness.repository.quarantineExpiredDispatchAttempt.mockResolvedValue(
+          row,
+        );
+      } else {
+        const legacy: MessageOutboxRow = {
+          ...row,
+          status: "sending",
+          claimToken: null,
+          claimExpiresAt: null,
+          sendStartedAt: null,
+          attemptCount: 0,
+        };
+        harness.repository.findStaleLegacySending.mockResolvedValue([legacy]);
+        harness.repository.quarantineStaleLegacySending.mockResolvedValue(
+          legacy,
+        );
+      }
+      harness.conversations.markAwaitingHuman.mockRejectedValue(failure);
 
-    await expect(harness.service.dispatchBatch()).resolves.toEqual({
-      claimedCount: 0,
-      quarantinedCount: 0,
-      items: [],
-    });
-    expect(
-      harness.repository.quarantineExpiredDispatchAttempt,
-    ).toHaveBeenCalled();
-  });
+      await expect(harness.service.dispatchBatch()).rejects.toBe(failure);
+
+      expect(harness.conversations.markAwaitingHuman).toHaveBeenCalledTimes(1);
+      expect(harness.repository.claimDispatchBatch).not.toHaveBeenCalled();
+      expect(harness.transport.sendText).not.toHaveBeenCalled();
+      expect(records.filter((record) => record.status === "failed")).toEqual([
+        expect.objectContaining({
+          operation: "dispatch_batch",
+          stage: "quarantine",
+          errorCode: "08006",
+          outboxId,
+          conversationId,
+        }),
+      ]);
+    },
+  );
 
   it("persists an unknown provider outcome as ambiguous and never reclaims it", async () => {
     const harness = createHarness();
@@ -588,12 +632,14 @@ describe("MessageOutboxDispatcherService", () => {
         return durableRow;
       },
     );
-    harness.outboundLogs.findLogByOutboxId.mockResolvedValue(
-      extractionReplyLog({
-        latestMessageSeq: 1,
-        participantIngressIds: [snapshotIngressId],
+    harness.repository.claimDispatchBatch.mockResolvedValue([
+      claimedRow({
+        dispatchContext: ordinaryDispatchContext({
+          latestMessageSeq: 1,
+          participantIngressIds: [snapshotIngressId],
+        }),
       }),
-    );
+    ]);
     harness.conversations.findById.mockResolvedValue(
       conversation("bot", undefined, {
         messages: [
@@ -646,12 +692,14 @@ describe("MessageOutboxDispatcherService", () => {
 
   it("cancels an ordinary reply when a newer durable inbound is still pending", async () => {
     const harness = createHarness();
-    harness.outboundLogs.findLogByOutboxId.mockResolvedValue(
-      extractionReplyLog({
-        latestMessageSeq: 1,
-        participantIngressIds: [snapshotIngressId],
+    harness.repository.claimDispatchBatch.mockResolvedValue([
+      claimedRow({
+        dispatchContext: ordinaryDispatchContext({
+          latestMessageSeq: 1,
+          participantIngressIds: [snapshotIngressId],
+        }),
       }),
-    );
+    ]);
     harness.conversations.findById.mockResolvedValue(
       conversation("bot", undefined, {
         messages: [{ seq: 1, actor: "participant", outboxId: null }],
@@ -741,18 +789,16 @@ describe("MessageOutboxDispatcherService", () => {
     expect(harness.transport.sendText).not.toHaveBeenCalled();
   });
 
-  it("fails closed for a historical ordinary-reply log without generation evidence", async () => {
-    const harness = createHarness();
-    const log = extractionReplyLog();
-    const { changedAt: _changedAt, ...historicalControl } =
-      log.conversationState.control;
-    const { work: _work, ...historicalState } = log.conversationState;
-    harness.outboundLogs.findLogByOutboxId.mockResolvedValue({
-      ...log,
-      conversationState: {
-        ...historicalState,
-        control: historicalControl,
-      },
+  it("fails closed for invalid ordinary evidence on the claimed row", async () => {
+    const harness = createHarness({
+      claims: [
+        claimedRow({
+          dispatchContext: {
+            schemaVersion: 1,
+            purpose: "extraction_reply",
+          } as unknown as DispatchContext,
+        }),
+      ],
     });
 
     await expect(harness.service.dispatchBatch()).resolves.toMatchObject({
@@ -766,8 +812,7 @@ describe("MessageOutboxDispatcherService", () => {
       claimToken,
       "cancelled",
       expect.any(Date),
-      "outbound_snapshot_invalid",
-      harness.transaction,
+      DISPATCH_CONTEXT_INVALID,
     );
     expect(harness.transport.sendText).not.toHaveBeenCalled();
   });
@@ -1131,6 +1176,39 @@ describe("MessageOutboxDispatcherService", () => {
     expect(harness.transport.sendText).not.toHaveBeenCalled();
   });
 
+  it("cancels exact terminal closing when context reason differs from the live close", async () => {
+    const harness = createHarness({
+      claims: [
+        claimedRow({
+          kind: "reply",
+          dedupeKey: createFeedbackClosingDedupeKey(conversationId, 3, 7),
+          dispatchContext: {
+            schemaVersion: 1,
+            purpose: "extraction_closing",
+            closingReason: "declined",
+          },
+        }),
+      ],
+    });
+    harness.conversations.findById.mockResolvedValue(
+      conversation("bot", "completed", { terminalOutboxId: outboxId }),
+    );
+
+    await expect(harness.service.dispatchBatch()).resolves.toMatchObject({
+      items: [{ outboxId, outcome: "cancelled" }],
+    });
+    expect(
+      harness.repository.finishDispatchClaimBeforeAttempt,
+    ).toHaveBeenCalledWith(
+      outboxId,
+      claimToken,
+      "cancelled",
+      expect.any(Date),
+      DISPATCH_CONTEXT_CLOSING_REASON_MISMATCH,
+    );
+    expect(harness.transport.sendText).not.toHaveBeenCalled();
+  });
+
   it("does not send canonical terminal copy before the conversation commits closure", async () => {
     const harness = createHarness({
       claims: [
@@ -1163,7 +1241,6 @@ describe("MessageOutboxDispatcherService", () => {
     });
     expect(harness.participants.findById).not.toHaveBeenCalled();
     expect(harness.participants.findByIdForUpdate).not.toHaveBeenCalled();
-    expect(harness.outboundLogs.findLogByOutboxId).not.toHaveBeenCalled();
     expect(harness.ingress.hasInboundBeyondSnapshot).not.toHaveBeenCalled();
     expect(harness.outboundTranscript.record).not.toHaveBeenCalled();
   });
@@ -1206,19 +1283,14 @@ describe("MessageOutboxDispatcherService", () => {
     await expect(harness.service.dispatchBatch()).resolves.toMatchObject({
       items: [{ outboxId, outcome: "sent" }],
     });
-    expect(harness.outboundLogs.findLogByOutboxId).toHaveBeenCalledTimes(1);
-    expect(harness.outboundLogs.findLogByOutboxId).toHaveBeenCalledWith(
-      outboxId,
-      harness.transaction,
-    );
     expect(harness.limiter.waitTurn.mock.invocationCallOrder[0]).toBeLessThan(
-      harness.outboundLogs.findLogByOutboxId.mock
+      harness.ingress.hasInboundBeyondSnapshot.mock
         .invocationCallOrder[0] as number,
     );
     expect(
       harness.repository.lockConversation.mock.invocationCallOrder[0],
     ).toBeLessThan(
-      harness.outboundLogs.findLogByOutboxId.mock
+      harness.ingress.hasInboundBeyondSnapshot.mock
         .invocationCallOrder[0] as number,
     );
     expect(harness.ingress.hasInboundBeyondSnapshot).toHaveBeenCalledTimes(1);
@@ -1227,19 +1299,339 @@ describe("MessageOutboxDispatcherService", () => {
       expect.objectContaining({ conversationId }),
     );
   });
+
+  it("keeps a valid ordinary context authorized when the diagnostic log is missing", async () => {
+    const harness = createHarness();
+
+    await expect(harness.service.dispatchBatch()).resolves.toMatchObject({
+      items: [{ outboxId, outcome: "sent" }],
+    });
+    expect(harness.transport.sendText).toHaveBeenCalledTimes(1);
+  });
+
+  it("still applies ordinary freshness when a diagnostic origin would have skipped it", async () => {
+    const harness = createHarness({
+      claims: [
+        claimedRow({
+          dispatchContext: ordinaryDispatchContext({ latestMessageSeq: 1 }),
+        }),
+      ],
+    });
+    harness.conversations.findById.mockResolvedValue(
+      conversation("bot", undefined, {
+        messages: [
+          { seq: 1, actor: "participant", outboxId: null },
+          { seq: 2, actor: "participant", outboxId: null },
+        ],
+      }),
+    );
+
+    await expect(harness.service.dispatchBatch()).resolves.toMatchObject({
+      items: [{ outboxId, outcome: "cancelled" }],
+    });
+    expect(
+      harness.repository.finishDispatchClaimBeforeAttempt,
+    ).toHaveBeenCalledWith(
+      outboxId,
+      claimToken,
+      "cancelled",
+      expect.any(Date),
+      "superseded_by_newer_testimony",
+      harness.transaction,
+    );
+  });
+
+  it("cancels a purpose/kind/dedupe mismatch instead of sending", async () => {
+    const harness = createHarness({
+      claims: [
+        claimedRow({
+          kind: "staff",
+          dispatchContext: ordinaryDispatchContext(),
+        }),
+      ],
+    });
+
+    await expect(harness.service.dispatchBatch()).resolves.toMatchObject({
+      items: [{ outboxId, outcome: "cancelled" }],
+    });
+    expect(
+      harness.repository.finishDispatchClaimBeforeAttempt,
+    ).toHaveBeenCalledWith(
+      outboxId,
+      claimToken,
+      "cancelled",
+      expect.any(Date),
+      DISPATCH_CONTEXT_MISMATCH,
+    );
+    expect(harness.transport.sendText).not.toHaveBeenCalled();
+  });
+
+  it("cancels unusable legacy context on a safe pre-send claim", async () => {
+    const harness = createHarness({
+      claims: [
+        claimedRow({
+          dispatchContext: { schemaVersion: 1, purpose: "unusable_legacy" },
+        }),
+      ],
+    });
+
+    await expect(harness.service.dispatchBatch()).resolves.toMatchObject({
+      items: [{ outboxId, outcome: "cancelled" }],
+    });
+    expect(
+      harness.repository.finishDispatchClaimBeforeAttempt,
+    ).toHaveBeenCalledWith(
+      outboxId,
+      claimToken,
+      "cancelled",
+      expect.any(Date),
+      DISPATCH_CONTEXT_UNUSABLE,
+    );
+    expect(harness.transport.sendText).not.toHaveBeenCalled();
+  });
+
+  it("cancels a claimed row whose dispatch context is missing", async () => {
+    const harness = createHarness({
+      claims: [
+        claimedRow({
+          dispatchContext: null as unknown as DispatchContext,
+        }),
+      ],
+    });
+
+    await expect(harness.service.dispatchBatch()).resolves.toMatchObject({
+      items: [{ outboxId, outcome: "cancelled" }],
+    });
+    expect(
+      harness.repository.finishDispatchClaimBeforeAttempt,
+    ).toHaveBeenCalledWith(
+      outboxId,
+      claimToken,
+      "cancelled",
+      expect.any(Date),
+      DISPATCH_CONTEXT_INVALID,
+    );
+    expect(harness.transport.sendText).not.toHaveBeenCalled();
+  });
+
+  it("never sends a fallback fence even when kind and dedupe match", async () => {
+    const harness = createHarness({
+      claims: [
+        claimedRow({
+          kind: "system",
+          dedupeKey: `feedback-fallback-${conversationId}-1`,
+          dispatchContext: {
+            schemaVersion: 1,
+            purpose: "extraction_fallback_fence",
+          },
+        }),
+      ],
+    });
+
+    await expect(harness.service.dispatchBatch()).resolves.toMatchObject({
+      items: [{ outboxId, outcome: "cancelled" }],
+    });
+    expect(
+      harness.repository.finishDispatchClaimBeforeAttempt,
+    ).toHaveBeenCalledWith(
+      outboxId,
+      claimToken,
+      "cancelled",
+      expect.any(Date),
+      FALLBACK_FENCE_NOT_SENDABLE,
+    );
+    expect(harness.transport.sendText).not.toHaveBeenCalled();
+  });
+
+  it("cancels ordinary extraction when live state refreshed after the original snapshot", async () => {
+    const harness = createHarness({
+      claims: [
+        claimedRow({
+          dispatchContext: ordinaryDispatchContext({
+            latestMessageSeq: 1,
+            workRevision: 7,
+            campaignResumeGeneration: 4,
+          }),
+        }),
+      ],
+    });
+    harness.conversations.findById.mockResolvedValue(
+      conversation("bot", undefined, {
+        workRevision: 12,
+        campaignResumeGeneration: 9,
+        messages: [{ seq: 1, actor: "participant", outboxId: null }],
+      }),
+    );
+
+    await expect(harness.service.dispatchBatch()).resolves.toMatchObject({
+      items: [{ outboxId, outcome: "cancelled" }],
+    });
+    expect(
+      harness.repository.finishDispatchClaimBeforeAttempt,
+    ).toHaveBeenCalledWith(
+      outboxId,
+      claimToken,
+      "cancelled",
+      expect.any(Date),
+      "superseded_by_newer_work",
+      harness.transaction,
+    );
+  });
+
+  it("still sends once when the logger sink throws", async () => {
+    throwingLoggerSink();
+    const harness = createHarness();
+
+    await expect(harness.service.dispatchBatch()).resolves.toMatchObject({
+      items: [{ outboxId, outcome: "sent" }],
+    });
+    expect(harness.transport.sendText).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a thrown send as ambiguous and records the transport stage", async () => {
+    const records = captureOperations();
+    const harness = createHarness();
+    const failure = Object.assign(new Error("socket hang up"), {
+      code: "ECONNRESET",
+    });
+    harness.transport.sendText.mockRejectedValue(failure);
+
+    await expect(harness.service.dispatchBatch()).resolves.toMatchObject({
+      items: [{ outboxId, outcome: "ambiguous" }],
+    });
+    expect(harness.repository.markDispatchAmbiguous).toHaveBeenCalled();
+    expect(
+      records.some(
+        (record) =>
+          record.operation === "dispatch_transport" &&
+          record.stage === "transport" &&
+          record.status === "failed" &&
+          record.errorCode === "ECONNRESET",
+      ),
+    ).toBe(true);
+    expect(
+      records.some(
+        (record) =>
+          record.operation === "dispatch" &&
+          record.stage === "finalize_result" &&
+          record.status === "completed" &&
+          record.outcome === "ambiguous",
+      ),
+    ).toBe(true);
+  });
+
+  it("names finalize_result when sent marking fails after accept", async () => {
+    const records = captureOperations();
+    const harness = createHarness();
+    const failure = new Error("row update failed");
+    harness.repository.markDispatchSent.mockRejectedValue(failure);
+
+    await expect(harness.service.dispatchBatch()).resolves.toMatchObject({
+      items: [{ outboxId, outcome: "deferred" }],
+    });
+    expect(
+      records.find(
+        (record) =>
+          record.operation === "dispatch" && record.status === "failed",
+      ),
+    ).toMatchObject({
+      stage: "finalize_result",
+      errorName: "Error",
+    });
+  });
+
+  it("names transcript when recording the outbound turn fails", async () => {
+    const records = captureOperations();
+    const harness = createHarness();
+    const failure = Object.assign(new Error("transcript write"), {
+      code: "40P01",
+    });
+    harness.outboundTranscript.record.mockRejectedValue(failure);
+
+    await expect(harness.service.dispatchBatch()).resolves.toMatchObject({
+      items: [{ outboxId, outcome: "deferred" }],
+    });
+    expect(harness.transport.sendText).not.toHaveBeenCalled();
+    expect(
+      records.find(
+        (record) =>
+          record.operation === "dispatch" && record.status === "failed",
+      ),
+    ).toMatchObject({
+      stage: "transcript",
+      errorCode: "40P01",
+    });
+  });
+
+  it("names prepare_send when the attempt marker fails", async () => {
+    const records = captureOperations();
+    const harness = createHarness();
+    const failure = Object.assign(new Error("marker cas"), { code: "40001" });
+    harness.repository.markDispatchAttemptStarted.mockRejectedValue(failure);
+
+    await expect(harness.service.dispatchBatch()).resolves.toMatchObject({
+      items: [{ outboxId, outcome: "deferred" }],
+    });
+    expect(harness.transport.sendText).not.toHaveBeenCalled();
+    expect(
+      records.find(
+        (record) =>
+          record.operation === "dispatch" && record.status === "failed",
+      ),
+    ).toMatchObject({
+      stage: "prepare_send",
+      errorCode: "40001",
+    });
+  });
 });
+
+function captureOperations(): Record<string, unknown>[] {
+  const records: Record<string, unknown>[] = [];
+  const collect = (message: unknown) => {
+    if (
+      message !== null &&
+      typeof message === "object" &&
+      "event" in message &&
+      message.event === FEEDBACK_OPERATION_EVENT
+    ) {
+      records.push(message as Record<string, unknown>);
+    }
+  };
+  vi.spyOn(Logger.prototype, "log").mockImplementation(collect);
+  vi.spyOn(Logger.prototype, "error").mockImplementation(collect);
+  vi.spyOn(Logger.prototype, "warn").mockImplementation(collect);
+  return records;
+}
+
+function throwingLoggerSink(): void {
+  const boom = () => {
+    throw new Error("pino unavailable");
+  };
+  vi.spyOn(Logger.prototype, "log").mockImplementation(boom);
+  vi.spyOn(Logger.prototype, "error").mockImplementation(boom);
+  vi.spyOn(Logger.prototype, "warn").mockImplementation(boom);
+}
 
 function claimedRow(
   overrides: Partial<MessageOutboxRow> = {},
 ): FeedbackOutboxClaimedRow {
+  const kind = overrides.kind ?? "reply";
+  const rowConversationId = overrides.conversationId ?? conversationId;
+  const dedupeKey =
+    overrides.dedupeKey ?? defaultDedupeForKind(kind, rowConversationId);
+  const dispatchContext = Object.hasOwn(overrides, "dispatchContext")
+    ? overrides.dispatchContext
+    : contextForClaim(kind, dedupeKey, rowConversationId);
+  const rest = { ...overrides };
+  delete rest.kind;
+  delete rest.conversationId;
+  delete rest.dedupeKey;
+  delete rest.dispatchContext;
   return {
     id: outboxId,
-    conversationId,
     campaignId: "89eccaa5-9ce6-4dcf-a630-5e35e4ec6f0d",
-    kind: "reply",
     body: "Ευχαριστούμε!",
     status: "claimed",
-    dedupeKey: "conversation:1:cursor:3",
     createdByStaff: null,
     providerLogId: null,
     providerMessageId: null,
@@ -1256,8 +1648,95 @@ function claimedRow(
     lastError: null,
     createdAt: new Date("2026-07-25T00:00:00.000Z"),
     updatedAt: new Date("2026-07-25T00:00:00.000Z"),
-    ...overrides,
+    ...rest,
+    kind,
+    conversationId: rowConversationId,
+    dedupeKey,
+    dispatchContext,
   } as FeedbackOutboxClaimedRow;
+}
+
+function defaultDedupeForKind(kind: string, rowConversationId: string): string {
+  if (kind === "staff") return `feedback-staff-${rowConversationId}-client-1`;
+  if (kind === "system") {
+    return createFeedbackStopAckDedupeKey(rowConversationId);
+  }
+  if (kind === "intro") return `feedback-intro-${rowConversationId}`;
+  if (kind === "reminder") return `feedback-reminder-${rowConversationId}-1`;
+  return createFeedbackReplyDedupeKey(rowConversationId, 3);
+}
+
+function contextForClaim(
+  kind: string,
+  dedupeKey: string,
+  rowConversationId: string,
+): DispatchContext {
+  if (kind === "staff") {
+    return {
+      schemaVersion: 1,
+      purpose: "staff_message",
+      staffActorId: "admin-1",
+    };
+  }
+  if (
+    kind === "system" &&
+    dedupeKey === createFeedbackStopAckDedupeKey(rowConversationId)
+  ) {
+    return {
+      schemaVersion: 1,
+      purpose: "stop_ack",
+      sourceIngressId: snapshotIngressId,
+    };
+  }
+  if (
+    kind === "reply" &&
+    isFeedbackClosingDedupeKey(rowConversationId, dedupeKey)
+  ) {
+    return {
+      schemaVersion: 1,
+      purpose: "extraction_closing",
+      closingReason: "completed",
+    };
+  }
+  return ordinaryDispatchContext();
+}
+
+function ordinaryDispatchContext(
+  overrides: {
+    readonly latestMessageSeq?: number | null;
+    readonly participantIngressIds?: readonly string[];
+    readonly controlChangedAt?: Date;
+    readonly workRevision?: number;
+    readonly executionEpoch?: number;
+    readonly campaignResumeGeneration?: number | null;
+  } = {},
+): DispatchContext {
+  return {
+    schemaVersion: 1,
+    purpose: "extraction_reply",
+    evidence: {
+      latestMessageSeq:
+        overrides.latestMessageSeq === undefined
+          ? null
+          : overrides.latestMessageSeq,
+      control: {
+        mode: "bot",
+        source: "launch",
+        changedAt: (
+          overrides.controlChangedAt ?? snapshotControlChangedAt
+        ).toISOString(),
+      },
+      work: {
+        revision: overrides.workRevision ?? 7,
+        executionEpoch: overrides.executionEpoch ?? 3,
+        campaignResumeGeneration:
+          overrides.campaignResumeGeneration === undefined
+            ? 4
+            : overrides.campaignResumeGeneration,
+      },
+      participantIngressIds: [...(overrides.participantIngressIds ?? [])],
+    },
+  };
 }
 
 function attemptingRow(row: FeedbackOutboxClaimedRow): MessageOutboxRow {
@@ -1328,62 +1807,6 @@ function participant(postEventFeedbackWhatsappOptIn: boolean) {
   };
 }
 
-function extractionReplyLog(
-  overrides: {
-    readonly latestMessageSeq?: number | null;
-    readonly participantIngressIds?: readonly string[];
-    readonly controlChangedAt?: string;
-    readonly workRevision?: number;
-    readonly executionEpoch?: number;
-    readonly campaignResumeGeneration?: number | null;
-  } = {},
-) {
-  return {
-    id: "1cad180a-60bb-4543-8c43-026df5a66060",
-    outboxId,
-    conversationId,
-    campaignId: claimedRow().campaignId,
-    origin: "extraction_reply",
-    correlationId: "dispatcher-test",
-    decision: {
-      origin: "extraction_reply",
-      model: "test-model",
-      confidence: null,
-      closingReason: null,
-      askedGoal: "event_score",
-      venueContextRevision: null,
-      goalStatuses: [],
-    },
-    conversationState: {
-      lifecycle: { state: "open", reason: null },
-      control: {
-        mode: "bot",
-        source: "launch",
-        changedAt:
-          overrides.controlChangedAt ?? snapshotControlChangedAt.toISOString(),
-      },
-      work: {
-        revision: overrides.workRevision ?? 7,
-        executionEpoch: overrides.executionEpoch ?? 3,
-        campaignResumeGeneration:
-          overrides.campaignResumeGeneration === undefined
-            ? 4
-            : overrides.campaignResumeGeneration,
-      },
-      awaitingHuman: false,
-      needsAttention: false,
-      unresolvedAttentionCount: 0,
-      goals: [],
-      messageCount: overrides.latestMessageSeq === undefined ? 0 : 1,
-      latestMessageSeq: overrides.latestMessageSeq ?? null,
-      participantIngressIds: [...(overrides.participantIngressIds ?? [])],
-      extractionCursorSeq: 0,
-      reminderCount: 0,
-    },
-    createdAt: new Date("2026-07-25T00:00:00.000Z"),
-  };
-}
-
 function createHarness(
   options: {
     readonly claims?: FeedbackOutboxClaimedRow[];
@@ -1429,9 +1852,6 @@ function createHarness(
     lockInboundPhone: vi.fn().mockResolvedValue(undefined),
     hasInboundBeyondSnapshot: vi.fn().mockResolvedValue(false),
   };
-  const outboundLogs = {
-    findLogByOutboxId: vi.fn().mockResolvedValue(extractionReplyLog()),
-  };
   const campaigns = {
     findCampaignById: vi.fn().mockResolvedValue({ status: "launched" }),
     findCampaignByIdForShare: vi.fn().mockResolvedValue({ status: "launched" }),
@@ -1469,7 +1889,6 @@ function createHarness(
     transaction,
     repository,
     ingress,
-    outboundLogs,
     campaigns,
     conversations,
     participants,
@@ -1488,7 +1907,6 @@ function createServiceFromHarness(harness: {
   readonly campaigns: object;
   readonly repository: object;
   readonly ingress: object;
-  readonly outboundLogs: object;
   readonly conversations: object;
   readonly participants: object;
   readonly outboundTranscript: object;
@@ -1500,7 +1918,6 @@ function createServiceFromHarness(harness: {
     harness.campaigns as unknown as FeedbackCampaignRepository,
     harness.repository as unknown as FeedbackOutboxRepository,
     harness.ingress as unknown as FeedbackIngressRepository,
-    harness.outboundLogs as unknown as FeedbackOutboundLogRepository,
     harness.conversations as unknown as FeedbackConversationRepository,
     harness.participants as unknown as ParticipantsRepository,
     harness.outboundTranscript as unknown as FeedbackOutboundTranscriptService,

@@ -6,27 +6,34 @@ import type { AppTransaction } from "@slopform/database";
 function leadingInput<T>(transactionOrInput: unknown, maybeInput?: T): T {
   return (maybeInput ?? transactionOrInput) as T;
 }
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import type { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
 import type { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import type { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
-import {
-  accumulateFeedbackExtractionUsage,
-  type FeedbackConversationExtractionUsage,
-} from "../post-event-feedback-conversation.document.js";
 import type { EventsService } from "../../events/events.service.js";
 import type { EventFeedbackVenueSnapshot } from "../../events/event-venue.js";
 import type { ParticipantsRepository } from "../../participants/participants.repository.js";
 import type { FeedbackOperatorAlertInput } from "../operator-alert.js";
 import type { FeedbackOutboundLogRepository } from "../outbox/outbound-log.repository.js";
+import { FeedbackOutboundIntentService } from "../outbox/outbound-intent.service.js";
 import { FeedbackOutboundLogService } from "../outbox/outbound-log.service.js";
 import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
 import {
   FakeAudit,
   FakeDatabase,
+  FakeFeedbackConversations,
   FakeParticipants,
-  noopSummaries,
+  feedbackConversationFixture,
+  feedbackStoredMessage,
 } from "../post-event-feedback-doubles.harness.js";
 import type { FeedbackOutboundDecision } from "../outbox/outbound-log.schemas.js";
 import type { OutboundConversationSnapshot } from "../outbox/outbound-log.snapshot.js";
@@ -34,6 +41,7 @@ import {
   FEEDBACK_ANSWER_CORRECTIONS_KEY,
   isCorrectedAnswer,
 } from "./answer-corrections.js";
+import { FEEDBACK_OPERATION_EVENT } from "../feedback-operation-log.js";
 import {
   FeedbackConversationExecutionGuardError,
   PostEventFeedbackExtractor,
@@ -66,6 +74,11 @@ const campaignId = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 const eventId = "5c2f0b8e-9b1a-4a41-8f27-1a6f9b0c2d10";
 const respondentId = "9f3c1a52-6e2b-4b4a-9a17-2cb2a6d13a55";
 const conversationId = "6f0f2f8a-2b73-5a02-9d0a-3f0b8f5b1c21";
+const b1 = "00000000-0000-4000-8000-0000000000b1";
+const b2 = "00000000-0000-4000-8000-0000000000b2";
+const p1 = "00000000-0000-4000-8000-000000000001";
+const p2 = "00000000-0000-4000-8000-000000000002";
+const p3 = "00000000-0000-4000-8000-000000000003";
 const nikos = "1b0a2f1c-2d3e-4f50-8a91-0b2c3d4e5f60";
 const eleni = "2c1b3a2d-3e4f-5061-9b02-1c3d4e5f6071";
 const kostas = "3d2c4b3e-4f50-6172-ac13-2d4e5f607182";
@@ -87,7 +100,7 @@ const handoffNote = {
   text: "Ζήτησε να μιλήσει με άνθρωπο της ομάδας.",
   subjectParticipantId: null,
   subjectMentionedName: null,
-  sourceMessageIds: ["p1"],
+  sourceMessageIds: [p1],
   confidence: 0.9,
 } as const;
 
@@ -100,6 +113,7 @@ describe("PostEventFeedbackExtractor", () => {
 
   beforeEach(() => {
     harness = createHarness();
+    harness.conversations.setExecutionFence(conversationId, 3);
   });
 
   describe("cheap exits", () => {
@@ -149,9 +163,15 @@ describe("PostEventFeedbackExtractor", () => {
 
     it("advances the cursor without a model call when only the bot spoke", async () => {
       const conversation = harness.conversations.get(conversationId);
-      conversation.messages = [
-        { id: "b1", seq: 1, actor: "bot", text: "Καλησπέρα!", at: new Date() },
-      ];
+      harness.conversations.replaceMessages(conversationId, [
+        feedbackStoredMessage({
+          id: b1,
+          seq: 1,
+          actor: "bot",
+          text: "Καλησπέρα!",
+          at: new Date(),
+        }),
+      ]);
       conversation.extraction.cursorSeq = 0;
 
       const result = await harness.extractor.extract({
@@ -299,7 +319,7 @@ describe("PostEventFeedbackExtractor", () => {
                 valueInt: 5,
                 subjectParticipantId: null,
                 subjectMentionedName: null,
-                sourceMessageIds: ["p1"],
+                sourceMessageIds: [p1],
                 confidence: 0.95,
               },
             ],
@@ -372,7 +392,7 @@ describe("PostEventFeedbackExtractor", () => {
               valueInt: 5,
               subjectParticipantId: null,
               subjectMentionedName: null,
-              sourceMessageIds: ["p1"],
+              sourceMessageIds: [p1],
               confidence: 0.95,
             },
           ],
@@ -591,7 +611,7 @@ describe("PostEventFeedbackExtractor", () => {
               valueInt: 5,
               subjectParticipantId: null,
               subjectMentionedName: null,
-              sourceMessageIds: ["p1"],
+              sourceMessageIds: [p1],
               confidence: 0.95,
             },
             {
@@ -599,7 +619,7 @@ describe("PostEventFeedbackExtractor", () => {
               valueInt: null,
               subjectParticipantId: nikos,
               subjectMentionedName: "Νίκος",
-              sourceMessageIds: ["p1"],
+              sourceMessageIds: [p1],
               confidence: 0.8,
             },
           ],
@@ -609,7 +629,7 @@ describe("PostEventFeedbackExtractor", () => {
               text: "Η βραδιά κύλησε γρήγορα.",
               subjectParticipantId: null,
               subjectMentionedName: null,
-              sourceMessageIds: ["p1"],
+              sourceMessageIds: [p1],
               confidence: 0.6,
             },
           ],
@@ -715,8 +735,8 @@ describe("PostEventFeedbackExtractor", () => {
       await harness.extractor.extract({ conversationId, correlationId });
 
       const conversation = harness.conversations.get(conversationId);
-      conversation.messages.push({
-        id: "p2",
+      harness.conversations.pushStored(conversationId, {
+        id: p2,
         seq: conversation.messages.length + 1,
         actor: "participant",
         text: "Α, και το φαγητό ήταν πολύ καλό.",
@@ -758,8 +778,8 @@ describe("PostEventFeedbackExtractor", () => {
 
       // Only the bot spoke since. The cursor still moves — those messages are
       // read and settled — but no provider was reached, so nothing was bought.
-      conversation.messages.push({
-        id: "b2",
+      harness.conversations.pushStored(conversationId, {
+        id: b2,
         seq: conversation.messages.length + 1,
         actor: "bot",
         text: "Ευχαριστούμε!",
@@ -798,42 +818,37 @@ describe("PostEventFeedbackExtractor", () => {
         ["sending", "KEEP_LEGACY_SENDING"],
         ["sent", "KEEP_SENT"],
       ] as const;
-      conversation.messages = outboxTurns.map(([status, text], index) => {
-        const outboxId = randomUUID();
-        harness.repository.outbox.push({ id: outboxId, status });
-        return {
-          id: `bot-${status}`,
-          seq: index + 1,
-          actor: "bot" as const,
-          text,
-          at,
-          outboxId,
-        };
-      });
-      conversation.messages.push(
-        {
-          id: "historical-bot",
+      harness.conversations.replaceMessages(conversationId, [
+        ...outboxTurns.map(([status, text], index) => {
+          const outboxId = randomUUID();
+          harness.repository.outbox.push({ id: outboxId, status });
+          return feedbackStoredMessage({
+            seq: index + 1,
+            actor: "bot",
+            text,
+            at,
+            outboxId,
+          });
+        }),
+        feedbackStoredMessage({
           seq: 10,
           actor: "bot",
           text: "KEEP_MISSING_HISTORICAL_ROW",
           at,
-          outboxId: randomUUID(),
-        },
-        {
-          id: "participant-current",
+        }),
+        feedbackStoredMessage({
           seq: 11,
           actor: "participant",
           text: "KEEP_PARTICIPANT",
           at,
-        },
-        {
-          id: "system-without-outbox",
+        }),
+        feedbackStoredMessage({
           seq: 12,
           actor: "system",
           text: "KEEP_SYSTEM_WITHOUT_OUTBOX",
           at,
-        },
-      );
+        }),
+      ]);
       conversation.extraction.cursorSeq = 0;
 
       await harness.extractor.extract({ conversationId, correlationId });
@@ -955,7 +970,7 @@ describe("PostEventFeedbackExtractor", () => {
                 valueInt: 5,
                 subjectParticipantId: null,
                 subjectMentionedName: null,
-                sourceMessageIds: ["p1"],
+                sourceMessageIds: [p1],
                 confidence: 0.95,
               },
             ],
@@ -1002,7 +1017,7 @@ describe("PostEventFeedbackExtractor", () => {
               text: "Η Ρούλα ήταν πολύ γλυκιά.",
               subjectParticipantId: null,
               subjectMentionedName: "Ρούλα",
-              sourceMessageIds: ["p1"],
+              sourceMessageIds: [p1],
               confidence: 0.6,
             },
           ],
@@ -1048,7 +1063,7 @@ describe("PostEventFeedbackExtractor", () => {
               valueInt: 2,
               subjectParticipantId: null,
               subjectMentionedName: null,
-              sourceMessageIds: ["p1"],
+              sourceMessageIds: [p1],
               confidence: 0.9,
             },
           ],
@@ -1151,7 +1166,7 @@ describe("PostEventFeedbackExtractor", () => {
               valueInt: 4,
               subjectParticipantId: null,
               subjectMentionedName: null,
-              sourceMessageIds: ["p1"],
+              sourceMessageIds: [p1],
               confidence: 0.9,
             },
           ],
@@ -1177,7 +1192,7 @@ describe("PostEventFeedbackExtractor", () => {
               valueInt: 10,
               subjectParticipantId: null,
               subjectMentionedName: null,
-              sourceMessageIds: ["p1"],
+              sourceMessageIds: [p1],
               confidence: 0.9,
             },
           ],
@@ -1222,7 +1237,7 @@ describe("PostEventFeedbackExtractor", () => {
               valueInt: null,
               subjectParticipantId: null,
               subjectMentionedName: "Μαρη",
-              sourceMessageIds: ["p1"],
+              sourceMessageIds: [p1],
               confidence: 0.8,
             },
             {
@@ -1230,7 +1245,7 @@ describe("PostEventFeedbackExtractor", () => {
               valueInt: null,
               subjectParticipantId: null,
               subjectMentionedName: "Μαρη",
-              sourceMessageIds: ["p1"],
+              sourceMessageIds: [p1],
               confidence: 0.8,
             },
           ],
@@ -1275,7 +1290,7 @@ describe("PostEventFeedbackExtractor", () => {
               valueInt: 4,
               subjectParticipantId: null,
               subjectMentionedName: null,
-              sourceMessageIds: ["p1"],
+              sourceMessageIds: [p1],
               confidence: 0.9,
             },
           ],
@@ -1314,6 +1329,7 @@ describe("PostEventFeedbackExtractor", () => {
           actor: "participant",
           text: "α και κάτι ακόμα",
           at: new Date("2026-07-25T10:06:00.000Z"),
+          ingressId: randomUUID(),
         });
         return generation(overrides);
       });
@@ -1343,7 +1359,7 @@ describe("PostEventFeedbackExtractor", () => {
               valueInt: 5,
               subjectParticipantId: null,
               subjectMentionedName: null,
-              sourceMessageIds: ["p1"],
+              sourceMessageIds: [p1],
               confidence: 0.9,
             },
           ],
@@ -1370,7 +1386,7 @@ describe("PostEventFeedbackExtractor", () => {
             valueInt: 5,
             subjectParticipantId: null,
             subjectMentionedName: null,
-            sourceMessageIds: ["p1"],
+            sourceMessageIds: [p1],
             confidence: 0.9,
           },
         ],
@@ -1533,6 +1549,10 @@ describe("PostEventFeedbackExtractor", () => {
         nextActionAt: new Date(),
         executionEpoch: resumedClaim.epoch,
       };
+      harness.conversations.setExecutionFence(
+        conversationId,
+        resumedClaim.epoch,
+      );
       harness.executionFence.renewWithin.mockResolvedValue(resumedClaim);
 
       const resumed = await harness.extractor.extract({
@@ -1857,7 +1877,8 @@ describe("PostEventFeedbackExtractor", () => {
           conversationId,
           actor: "participant",
           text: "και κάτι ακόμη",
-          at: new Date("2026-07-25T10:06:00.000Z"),
+          at: new Date(),
+          ingressId: randomUUID(),
         });
         conversation.work = {
           revision: 8,
@@ -2037,7 +2058,7 @@ describe("PostEventFeedbackExtractor", () => {
               text: "Ο Κώστας Γ. την έπιασε από τη μέση.",
               subjectParticipantId: null,
               subjectMentionedName: null,
-              sourceMessageIds: ["p1"],
+              sourceMessageIds: [p1],
               confidence: 0.9,
             },
           ],
@@ -2049,7 +2070,7 @@ describe("PostEventFeedbackExtractor", () => {
           {
             category: "sexual_misconduct",
             recommendedAction: "human_follow_up",
-            sourceMessageIds: ["p1"],
+            sourceMessageIds: [p1],
             confidence: 0.95,
           },
         ]),
@@ -2124,22 +2145,22 @@ describe("PostEventFeedbackExtractor", () => {
         });
       }
       const conversation = harness.conversations.get(conversationId);
-      conversation.messages = [
-        {
-          id: "b1",
+      harness.conversations.replaceMessages(conversationId, [
+        feedbackStoredMessage({
+          id: b1,
           seq: 1,
           actor: "bot",
           text: "Υπάρχει κάποιος που θα προτιμούσες να μην ξαναπετύχεις;",
           at: new Date("2026-07-25T10:01:00.000Z"),
-        },
-        {
-          id: "p1",
+        }),
+        feedbackStoredMessage({
+          id: p1,
           seq: 2,
           actor: "participant",
           text: "να αποφυγω κανεναν βασικα. αν κ ο Κωστας ο Μυτοχωνακιας με ειχε πιασει απ τη μεση…",
           at: new Date("2026-07-25T10:02:00.000Z"),
-        },
-      ];
+        }),
+      ]);
       conversation.extraction.cursorSeq = 0;
 
       harness.generation.propose.mockResolvedValueOnce(
@@ -2151,7 +2172,7 @@ describe("PostEventFeedbackExtractor", () => {
               text: "Ο Κώστας Μυτοχωνάκιας την έπιασε από τη μέση.",
               subjectParticipantId: kostas,
               subjectMentionedName: "Κώστας",
-              sourceMessageIds: ["p1"],
+              sourceMessageIds: [p1],
               confidence: 0.9,
             },
           ],
@@ -2164,7 +2185,7 @@ describe("PostEventFeedbackExtractor", () => {
           {
             category: "sexual_misconduct",
             recommendedAction: "human_follow_up",
-            sourceMessageIds: ["p1"],
+            sourceMessageIds: [p1],
             confidence: 0.95,
           },
         ]),
@@ -2197,8 +2218,8 @@ describe("PostEventFeedbackExtractor", () => {
         harness.repository.answers.some((row) => row.questionKey === "avoid"),
       ).toBe(false);
 
-      conversation.messages.push({
-        id: "p2",
+      harness.conversations.pushStored(conversationId, {
+        id: p2,
         seq: conversation.messages.length + 1,
         actor: "participant",
         text: "ευχαριστω που το ακουσατε",
@@ -2233,8 +2254,8 @@ describe("PostEventFeedbackExtractor", () => {
         ),
       ).toBe(false);
 
-      conversation.messages.push({
-        id: "p3",
+      harness.conversations.pushStored(conversationId, {
+        id: p3,
         seq: conversation.messages.length + 1,
         actor: "participant",
         text: "ναι, σημειωστε τον",
@@ -2248,7 +2269,7 @@ describe("PostEventFeedbackExtractor", () => {
               valueInt: null,
               subjectParticipantId: kostas,
               subjectMentionedName: "Κώστας",
-              sourceMessageIds: ["p3"],
+              sourceMessageIds: [p3],
               confidence: 0.95,
             },
           ],
@@ -2290,7 +2311,7 @@ describe("PostEventFeedbackExtractor", () => {
               text: "Ο συμμετέχων δεν αντέχει.",
               subjectParticipantId: null,
               subjectMentionedName: null,
-              sourceMessageIds: ["p1"],
+              sourceMessageIds: [p1],
               confidence: 0.9,
             },
           ],
@@ -2302,7 +2323,7 @@ describe("PostEventFeedbackExtractor", () => {
           {
             category: "other_safety",
             recommendedAction: "human_follow_up",
-            sourceMessageIds: ["p1"],
+            sourceMessageIds: [p1],
             confidence: 0.9,
           },
         ]),
@@ -2326,15 +2347,15 @@ describe("PostEventFeedbackExtractor", () => {
       });
       expect(harness.generation.classifyAttention).toHaveBeenCalledWith(
         [
-          expect.objectContaining({ id: "b1", actor: "bot" }),
-          expect.objectContaining({ id: "p1", actor: "participant" }),
+          expect.objectContaining({ id: b1, actor: "bot" }),
+          expect.objectContaining({ id: p1, actor: "participant" }),
         ],
-        ["p1"],
+        [p1],
       );
       expect(
         harness.conversations
           .get(conversationId)
-          .messages.find((message) => message.id === "p1")?.attention,
+          .messages.find((message) => message.id === p1)?.attention,
       ).toMatchObject({
         categories: ["other_safety"],
         recommendedAction: "human_follow_up",
@@ -2360,7 +2381,7 @@ describe("PostEventFeedbackExtractor", () => {
           {
             category: "other_safety",
             recommendedAction: "human_follow_up",
-            sourceMessageIds: ["p1"],
+            sourceMessageIds: [p1],
             confidence: 0.9,
           },
         ]),
@@ -2416,7 +2437,7 @@ describe("PostEventFeedbackExtractor", () => {
               valueInt: 5,
               subjectParticipantId: null,
               subjectMentionedName: null,
-              sourceMessageIds: ["p1"],
+              sourceMessageIds: [p1],
               confidence: 0.9,
             },
           ],
@@ -2546,7 +2567,7 @@ describe("PostEventFeedbackExtractor", () => {
           {
             category: "other_safety",
             recommendedAction: "human_follow_up",
-            sourceMessageIds: ["p1"],
+            sourceMessageIds: [p1],
             confidence: 0.9,
           },
         ]),
@@ -2556,7 +2577,7 @@ describe("PostEventFeedbackExtractor", () => {
 
       expect(
         harness.conversations.get(conversationId).attentionReasons,
-      ).toMatchObject([{ kind: "safety", messageId: "p1", resolvedAt: null }]);
+      ).toMatchObject([{ kind: "safety", messageId: p1, resolvedAt: null }]);
     });
 
     it("answers a recognised data question and files the one nobody has decided", async () => {
@@ -2574,8 +2595,8 @@ describe("PostEventFeedbackExtractor", () => {
           [],
           [],
           [
-            { messageId: "p1", question: "who_sees_it" },
-            { messageId: "p1", question: "how_long_kept" },
+            { messageId: p1, question: "who_sees_it" },
+            { messageId: p1, question: "how_long_kept" },
           ],
         ),
       );
@@ -2590,7 +2611,7 @@ describe("PostEventFeedbackExtractor", () => {
       ).toMatchObject([
         {
           kind: "unanswered_data_question",
-          messageId: "p1",
+          messageId: p1,
           resolvedAt: null,
         },
       ]);
@@ -2609,7 +2630,7 @@ describe("PostEventFeedbackExtractor", () => {
           {
             category: "abuse_of_a_participant",
             recommendedAction: "human_follow_up",
-            sourceMessageIds: ["p1"],
+            sourceMessageIds: [p1],
             confidence: 0.9,
           },
         ]),
@@ -2620,7 +2641,7 @@ describe("PostEventFeedbackExtractor", () => {
       expect(
         harness.conversations.get(conversationId).attentionReasons,
       ).toMatchObject([
-        { kind: "respondent_conduct", messageId: "p1", resolvedAt: null },
+        { kind: "respondent_conduct", messageId: p1, resolvedAt: null },
       ]);
       // And she is not told that somebody will speak to her personally about it.
       expect(harness.repository.outbox[0]?.body).not.toContain(
@@ -2638,8 +2659,8 @@ describe("PostEventFeedbackExtractor", () => {
       // Two things she said in the same burst: the abusive one, and an ordinary
       // compliment. The hold follows the citation, so it lands on the answer the
       // abuse was the reason for and on nothing else.
-      harness.conversations.get(conversationId).messages.push({
-        id: "p2",
+      harness.conversations.pushStored(conversationId, {
+        id: p2,
         seq: 3,
         actor: "participant",
         text: "Ο Νίκος πάντως ήταν γλυκύτατος.",
@@ -2654,7 +2675,7 @@ describe("PostEventFeedbackExtractor", () => {
               valueInt: null,
               subjectParticipantId: eleni,
               subjectMentionedName: null,
-              sourceMessageIds: ["p1"],
+              sourceMessageIds: [p1],
               confidence: 0.9,
             },
             {
@@ -2662,7 +2683,7 @@ describe("PostEventFeedbackExtractor", () => {
               valueInt: null,
               subjectParticipantId: nikos,
               subjectMentionedName: null,
-              sourceMessageIds: ["p2"],
+              sourceMessageIds: [p2],
               confidence: 0.9,
             },
           ],
@@ -2674,7 +2695,7 @@ describe("PostEventFeedbackExtractor", () => {
           {
             category: "abuse_of_a_participant",
             recommendedAction: "human_follow_up",
-            sourceMessageIds: ["p1"],
+            sourceMessageIds: [p1],
             confidence: 0.9,
           },
         ]),
@@ -2713,7 +2734,7 @@ describe("PostEventFeedbackExtractor", () => {
               valueInt: null,
               subjectParticipantId: eleni,
               subjectMentionedName: null,
-              sourceMessageIds: ["p1"],
+              sourceMessageIds: [p1],
               confidence: 0.9,
             },
           ],
@@ -2739,7 +2760,7 @@ describe("PostEventFeedbackExtractor", () => {
               text: "Η Ρούλα ήταν πολύ γλυκιά.",
               subjectParticipantId: null,
               subjectMentionedName: "Ρούλα",
-              sourceMessageIds: ["p1"],
+              sourceMessageIds: [p1],
               confidence: 0.6,
             },
           ],
@@ -2750,7 +2771,7 @@ describe("PostEventFeedbackExtractor", () => {
 
       expect(
         harness.conversations.get(conversationId).attentionReasons,
-      ).toMatchObject([{ kind: "unattributed_note", messageId: "p1" }]);
+      ).toMatchObject([{ kind: "unattributed_note", messageId: p1 }]);
     });
 
     it("names a refused revision, anchored on the newest message the run read", async () => {
@@ -2772,7 +2793,7 @@ describe("PostEventFeedbackExtractor", () => {
               valueInt: 2,
               subjectParticipantId: null,
               subjectMentionedName: null,
-              sourceMessageIds: ["p1"],
+              sourceMessageIds: [p1],
               confidence: 0.9,
             },
           ],
@@ -2788,7 +2809,7 @@ describe("PostEventFeedbackExtractor", () => {
       // thing worth avoiding.
       expect(
         harness.conversations.get(conversationId).attentionReasons,
-      ).toMatchObject([{ kind: "answer_revision", messageId: "p1" }]);
+      ).toMatchObject([{ kind: "answer_revision", messageId: p1 }]);
     });
 
     it("leaves an operator's corrected score alone and asks them to look again", async () => {
@@ -2822,7 +2843,7 @@ describe("PostEventFeedbackExtractor", () => {
               valueInt: 4,
               subjectParticipantId: null,
               subjectMentionedName: null,
-              sourceMessageIds: ["p1"],
+              sourceMessageIds: [p1],
               confidence: 0.9,
             },
           ],
@@ -2845,7 +2866,7 @@ describe("PostEventFeedbackExtractor", () => {
       expect(isCorrectedAnswer(stored[0]?.extractionMeta ?? {})).toBe(true);
       expect(
         harness.conversations.get(conversationId).attentionReasons,
-      ).toMatchObject([{ kind: "answer_revision", messageId: "p1" }]);
+      ).toMatchObject([{ kind: "answer_revision", messageId: p1 }]);
     });
 
     it("names a handoff, so the badge and the promise say the same thing", async () => {
@@ -2857,7 +2878,7 @@ describe("PostEventFeedbackExtractor", () => {
 
       expect(
         harness.conversations.get(conversationId).attentionReasons,
-      ).toMatchObject([{ kind: "handoff", messageId: "p1" }]);
+      ).toMatchObject([{ kind: "handoff", messageId: p1 }]);
     });
 
     it("names a questionnaire the bot stopped short, not the bot's mood", async () => {
@@ -2878,7 +2899,7 @@ describe("PostEventFeedbackExtractor", () => {
       expect(
         harness.conversations.get(conversationId).attentionReasons,
       ).toMatchObject([
-        { kind: "unfinished_questionnaire", messageId: "p1", resolvedAt: null },
+        { kind: "unfinished_questionnaire", messageId: p1, resolvedAt: null },
       ]);
     });
 
@@ -2908,7 +2929,7 @@ describe("PostEventFeedbackExtractor", () => {
           {
             category: "other_safety",
             recommendedAction: "human_follow_up",
-            sourceMessageIds: ["p1"],
+            sourceMessageIds: [p1],
             confidence: 0.9,
           },
         ]),
@@ -2936,7 +2957,7 @@ describe("PostEventFeedbackExtractor", () => {
               valueInt: null,
               subjectParticipantId: nikos,
               subjectMentionedName: "Νίκος",
-              sourceMessageIds: ["p1"],
+              sourceMessageIds: [p1],
               confidence: 0.9,
             },
           ],
@@ -2946,7 +2967,7 @@ describe("PostEventFeedbackExtractor", () => {
               text: "Ωραία βραδιά.",
               subjectParticipantId: null,
               subjectMentionedName: null,
-              sourceMessageIds: ["p1"],
+              sourceMessageIds: [p1],
               confidence: 0.6,
             },
           ],
@@ -2994,7 +3015,7 @@ describe("PostEventFeedbackExtractor", () => {
               valueInt: null,
               subjectParticipantId: nikos,
               subjectMentionedName: "Νίκος",
-              sourceMessageIds: ["p1"],
+              sourceMessageIds: [p1],
               confidence: 0.9,
             },
           ],
@@ -3004,7 +3025,7 @@ describe("PostEventFeedbackExtractor", () => {
               text: "Ωραία βραδιά.",
               subjectParticipantId: null,
               subjectMentionedName: null,
-              sourceMessageIds: ["p1"],
+              sourceMessageIds: [p1],
               confidence: 0.6,
             },
           ],
@@ -3100,7 +3121,7 @@ describe("PostEventFeedbackExtractor", () => {
           {
             category: "other_safety",
             recommendedAction: "review",
-            sourceMessageIds: ["p1"],
+            sourceMessageIds: [p1],
             confidence: 0.9,
           },
         ]),
@@ -3116,7 +3137,7 @@ describe("PostEventFeedbackExtractor", () => {
       // already prove CapacityError leaves the caller's transaction usable.
       const conversation = harness.conversations.get(conversationId);
       const testimony = conversation.messages.find(
-        (message) => message.id === "p1",
+        (message) => message.id === p1,
       );
       conversation.work = {
         revision: 1,
@@ -3144,7 +3165,7 @@ describe("PostEventFeedbackExtractor", () => {
         }),
       ]);
       expect(testimony).toMatchObject({
-        id: "p1",
+        id: p1,
         text: "5! Ο Νίκος ήταν φοβερός. Η βραδιά κύλησε γρήγορα.",
       });
       expect(testimony?.attention ?? null).toBeNull();
@@ -3177,7 +3198,7 @@ describe("PostEventFeedbackExtractor", () => {
           {
             category: "other_safety",
             recommendedAction: "review",
-            sourceMessageIds: ["p1"],
+            sourceMessageIds: [p1],
             confidence: 0.9,
           },
         ]),
@@ -3213,7 +3234,7 @@ describe("PostEventFeedbackExtractor", () => {
             {
               category: "other_safety",
               recommendedAction: "review",
-              sourceMessageIds: ["p1"],
+              sourceMessageIds: [p1],
               confidence: 0.9,
             },
           ]),
@@ -3296,6 +3317,469 @@ describe("PostEventFeedbackExtractor", () => {
     });
   });
 
+  describe("operation log", () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it("records a cheap skip after admit and does not plan a turn", async () => {
+      const records = captureOperations();
+      harness.conversations.get(conversationId).lifecycle = {
+        state: "closed",
+        reason: "stopped",
+        closedAt: new Date(),
+      };
+
+      await expect(
+        harness.extractor.extract({ conversationId, correlationId }),
+      ).resolves.toMatchObject({ outcome: "skipped_closed" });
+
+      expect(
+        records.find(
+          (record) =>
+            record.operation === "extract" && record.status === "completed",
+        ),
+      ).toMatchObject({
+        event: FEEDBACK_OPERATION_EVENT,
+        stage: "admit",
+        outcome: "skipped_closed",
+        conversationId,
+        correlationId,
+      });
+      expect(
+        records.some((record) => record.operation === "extract_plan"),
+      ).toBe(false);
+    });
+
+    it("still proposes, commits, and alerts when the logger sink throws", async () => {
+      throwingLoggerSink();
+      harness.generation.classifyAttention.mockResolvedValue(
+        attentionGeneration([
+          {
+            category: "other_safety",
+            recommendedAction: "human_follow_up",
+            sourceMessageIds: [p1],
+            confidence: 0.9,
+          },
+        ]),
+      );
+
+      await expect(
+        harness.extractor.extract({ conversationId, correlationId }),
+      ).resolves.toMatchObject({ outcome: "extracted" });
+      expect(harness.generation.propose).toHaveBeenCalled();
+      expect(harness.generation.classifyAttention).toHaveBeenCalled();
+      expect(harness.generation.rewriteReply).not.toHaveBeenCalled();
+      expect(harness.alert.raised).toEqual([
+        expect.objectContaining({
+          conversationId,
+          reason: "extraction_safety_signal",
+        }),
+      ]);
+      expect(
+        harness.summaries.notifyIfLastConversationClosed,
+      ).toHaveBeenCalled();
+      expect(
+        harness.conversations.get(conversationId).extraction.cursorSeq,
+      ).toBe(2);
+    });
+
+    it("localizes a propose failure and keeps that error", async () => {
+      const records = captureOperations();
+      const failure = Object.assign(new TypeError("propose unavailable"), {
+        code: "PROPOSE_FAILED",
+      });
+      harness.generation.propose.mockRejectedValue(failure);
+
+      await expect(
+        harness.extractor.extract({ conversationId, correlationId }),
+      ).rejects.toBe(failure);
+      expect(
+        records.find(
+          (record) =>
+            record.operation === "extract_propose" &&
+            record.status === "failed",
+        ),
+      ).toMatchObject({
+        stage: "propose",
+        errorName: "TypeError",
+        errorCode: "PROPOSE_FAILED",
+        conversationId,
+        correlationId,
+      });
+      expect(
+        records.find(
+          (record) =>
+            record.operation === "extract" && record.status === "failed",
+        ),
+      ).toMatchObject({ stage: "plan_turn" });
+      expect(
+        records.some((record) => record.operation === "extract_commit"),
+      ).toBe(false);
+    });
+
+    it("localizes a classify failure on its own run id", async () => {
+      const records = captureOperations();
+      const classifyFailure = Object.assign(
+        new TypeError("classify unavailable"),
+        { code: "CLASSIFY_FAILED" },
+      );
+      const proposeFailure = Object.assign(
+        new TypeError("propose unavailable"),
+        {
+          code: "PROPOSE_FAILED",
+        },
+      );
+      harness.generation.propose.mockRejectedValue(proposeFailure);
+      harness.generation.classifyAttention.mockRejectedValue(classifyFailure);
+
+      await expect(
+        harness.extractor.extract({ conversationId, correlationId }),
+      ).rejects.toSatisfy(
+        (error) => error === proposeFailure || error === classifyFailure,
+      );
+      const proposeFailed = records.find(
+        (record) =>
+          record.operation === "extract_propose" && record.status === "failed",
+      );
+      const classifyFailed = records.find(
+        (record) =>
+          record.operation === "extract_classify" && record.status === "failed",
+      );
+      expect(proposeFailed).toMatchObject({
+        stage: "propose",
+        errorName: "TypeError",
+        errorCode: "PROPOSE_FAILED",
+      });
+      expect(classifyFailed).toMatchObject({
+        stage: "classify",
+        errorName: "TypeError",
+        errorCode: "CLASSIFY_FAILED",
+      });
+      expect(proposeFailed?.runId).not.toBe(classifyFailed?.runId);
+      expect(
+        records.some((record) => record.operation === "extract_commit"),
+      ).toBe(false);
+    });
+
+    it("localizes a rewrite failure on a distinct run id", async () => {
+      const records = captureOperations();
+      const rewriteFailure = Object.assign(
+        new TypeError("rewrite unavailable"),
+        {
+          code: "REWRITE_FAILED",
+        },
+      );
+      harness.generation.propose.mockResolvedValue(
+        generation({
+          nextGoal: "event_score",
+          reply: "Πώς σου φάνηκε συνολικά η βραδιά;",
+        }),
+      );
+      harness.generation.rewriteReply.mockRejectedValue(rewriteFailure);
+
+      await expect(
+        harness.extractor.extract({ conversationId, correlationId }),
+      ).rejects.toBe(rewriteFailure);
+      const rewriteFailed = records.find(
+        (record) =>
+          record.operation === "extract_rewrite" && record.status === "failed",
+      );
+      const classifyCompleted = records.find(
+        (record) =>
+          record.operation === "extract_classify" &&
+          record.status === "completed",
+      );
+      expect(rewriteFailed).toMatchObject({
+        stage: "rewrite",
+        errorName: "TypeError",
+        errorCode: "REWRITE_FAILED",
+        conversationId,
+        correlationId,
+      });
+      expect(classifyCompleted).toMatchObject({ stage: "classify" });
+      expect(rewriteFailed?.runId).not.toBe(classifyCompleted?.runId);
+      expect(
+        records.find(
+          (record) =>
+            record.operation === "extract" && record.status === "failed",
+        ),
+      ).toMatchObject({ stage: "plan_turn" });
+    });
+
+    it("classifies rewrite supersession without failing the planned turn", async () => {
+      const records = captureOperations();
+      const failure = new FeedbackConversationExecutionGuardError(
+        conversationId,
+        "authoritative_state_changed",
+      );
+      harness.generation.propose.mockResolvedValue(
+        generation({
+          nextGoal: "event_score",
+          reply: "Πώς σου φάνηκε συνολικά η βραδιά;",
+        }),
+      );
+      harness.generation.rewriteReply.mockRejectedValue(failure);
+
+      await expect(
+        harness.extractor.extract({ conversationId, correlationId }),
+      ).resolves.toMatchObject({ outcome: "extracted" });
+      expect(
+        records.find(
+          (record) =>
+            record.operation === "extract_rewrite" &&
+            record.status === "failed",
+        ),
+      ).toMatchObject({
+        stage: "rewrite",
+        outcome: "superseded",
+        errorName: "FeedbackConversationExecutionGuardError",
+      });
+      expect(
+        records.find(
+          (record) =>
+            record.operation === "extract_plan" &&
+            record.status === "completed",
+        ),
+      ).toMatchObject({ outcome: "planned" });
+      expect(
+        records.find(
+          (record) =>
+            record.operation === "extract" && record.status === "completed",
+        ),
+      ).toMatchObject({ outcome: "extracted" });
+    });
+
+    it("keeps a non-capacity persist failure on extract_commit and does not brake", async () => {
+      const records = captureOperations();
+      const failure = Object.assign(new Error("relation does not exist"), {
+        code: "42P01",
+      });
+      vi.spyOn(
+        harness.conversations,
+        "mergeMessageAttention",
+      ).mockRejectedValue(failure);
+      harness.generation.classifyAttention.mockResolvedValue(
+        attentionGeneration([
+          {
+            category: "other_safety",
+            recommendedAction: "review",
+            sourceMessageIds: [p1],
+            confidence: 0.9,
+          },
+        ]),
+      );
+
+      await expect(
+        harness.extractor.extract({ conversationId, correlationId }),
+      ).rejects.toBe(failure);
+      expect(
+        records.find(
+          (record) =>
+            record.operation === "extract_commit" && record.status === "failed",
+        ),
+      ).toMatchObject({
+        stage: "apply_state_and_transcript",
+        errorName: "Error",
+        errorCode: "42P01",
+      });
+      expect(
+        records.find(
+          (record) =>
+            record.operation === "extract" && record.status === "failed",
+        ),
+      ).toMatchObject({ stage: "commit_turn" });
+      expect(
+        records.some((record) => record.operation === "extract_capacity_brake"),
+      ).toBe(false);
+      expect(harness.conversations.get(conversationId).awaitingHuman).toBe(
+        false,
+      );
+    });
+
+    it("brakes only for the original capacity error and records that separate operation", async () => {
+      const records = captureOperations();
+      vi.spyOn(
+        harness.conversations,
+        "mergeMessageAttention",
+      ).mockRejectedValue(new FeedbackConversationCapacityError());
+      harness.generation.classifyAttention.mockResolvedValue(
+        attentionGeneration([
+          {
+            category: "other_safety",
+            recommendedAction: "review",
+            sourceMessageIds: [p1],
+            confidence: 0.9,
+          },
+        ]),
+      );
+
+      await expect(
+        harness.extractor.extract({ conversationId, correlationId }),
+      ).resolves.toMatchObject({ outcome: "skipped_awaiting_human" });
+      expect(
+        records.find(
+          (record) =>
+            record.operation === "extract_commit" && record.status === "failed",
+        ),
+      ).toMatchObject({
+        stage: "apply_state_and_transcript",
+        errorName: "FeedbackConversationCapacityError",
+      });
+      expect(
+        records.find(
+          (record) =>
+            record.operation === "extract_capacity_brake" &&
+            record.status === "completed",
+        ),
+      ).toMatchObject({
+        stage: "commit_transaction",
+        outcome: "skipped_awaiting_human",
+      });
+      expect(
+        records.find(
+          (record) =>
+            record.operation === "extract" && record.status === "completed",
+        ),
+      ).toMatchObject({
+        stage: "capacity_brake",
+        outcome: "skipped_awaiting_human",
+      });
+    });
+
+    it.each(["begin_transaction", "commit_transaction"])(
+      "attributes an extraction transaction failure to %s",
+      async (stage) => {
+        const records = captureOperations();
+        const failure = Object.assign(new Error("transaction failed"), {
+          code: "08006",
+        });
+        const transact = harness.database.transaction.bind(harness.database);
+        vi.spyOn(harness.database, "transaction").mockImplementationOnce(
+          async (work) => {
+            if (stage === "commit_transaction") await transact(work);
+            throw failure;
+          },
+        );
+
+        await expect(
+          harness.extractor.extract({ conversationId, correlationId }),
+        ).rejects.toBe(failure);
+        expect(
+          records.find(
+            (record) =>
+              record.operation === "extract_commit" &&
+              record.status === "failed",
+          ),
+        ).toMatchObject({ stage, errorCode: "08006" });
+        expect(
+          harness.summaries.notifyIfLastConversationClosed,
+        ).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(["begin_transaction", "commit_transaction"])(
+      "attributes a capacity-brake transaction failure to %s, including an already active brake",
+      async (stage) => {
+        const records = captureOperations();
+        const failure = Object.assign(new Error("brake transaction failed"), {
+          code: "08006",
+        });
+        const transact = harness.database.transaction.bind(harness.database);
+        const markAwaitingHuman = vi.spyOn(
+          harness.conversations,
+          "markAwaitingHuman",
+        );
+        vi.spyOn(harness.database, "transaction")
+          .mockRejectedValueOnce(new FeedbackConversationCapacityError())
+          .mockImplementationOnce(async (work) => {
+            if (stage === "commit_transaction") {
+              harness.conversations.get(conversationId).awaitingHuman = true;
+              await transact(work);
+            }
+            throw failure;
+          });
+
+        await expect(
+          harness.extractor.extract({ conversationId, correlationId }),
+        ).rejects.toBe(failure);
+        expect(
+          records.find(
+            (record) =>
+              record.operation === "extract_capacity_brake" &&
+              record.status === "failed",
+          ),
+        ).toMatchObject({ stage, errorCode: "08006" });
+        expect(markAwaitingHuman).not.toHaveBeenCalled();
+      },
+    );
+
+    it("classifies commit supersession but still throws the same guard error", async () => {
+      const records = captureOperations();
+      const failure = new FeedbackConversationExecutionGuardError(
+        conversationId,
+        "authoritative_state_changed",
+      );
+      vi.spyOn(harness.conversations, "advanceCursor").mockRejectedValue(
+        failure,
+      );
+
+      await expect(
+        harness.extractor.extract({ conversationId, correlationId }),
+      ).rejects.toBe(failure);
+      expect(
+        records.find(
+          (record) =>
+            record.operation === "extract_commit" && record.status === "failed",
+        ),
+      ).toMatchObject({
+        stage: "apply_state_and_transcript",
+        outcome: "superseded",
+        errorName: "FeedbackConversationExecutionGuardError",
+      });
+      expect(
+        records.find(
+          (record) =>
+            record.operation === "extract" && record.status === "failed",
+        ),
+      ).toMatchObject({
+        stage: "commit_turn",
+        outcome: "superseded",
+      });
+    });
+
+    it("names notify_summary after a committed turn when the last notification fails", async () => {
+      const records = captureOperations();
+      const failure = Object.assign(new Error("summary notify failed"), {
+        code: "NOTIFY_FAILED",
+      });
+      harness.summaries.notifyIfLastConversationClosed.mockRejectedValue(
+        failure,
+      );
+
+      await expect(
+        harness.extractor.extract({ conversationId, correlationId }),
+      ).rejects.toBe(failure);
+      expect(
+        records.find(
+          (record) =>
+            record.operation === "extract_commit" &&
+            record.status === "completed",
+        ),
+      ).toMatchObject({ outcome: "committed" });
+      expect(
+        records.find(
+          (record) =>
+            record.operation === "extract" && record.status === "failed",
+        ),
+      ).toMatchObject({
+        stage: "notify_summary",
+        errorName: "Error",
+        errorCode: "NOTIFY_FAILED",
+      });
+    });
+  });
+
   it("does not retry a job whose conversation is gone", async () => {
     await expect(
       harness.extractor.extract({
@@ -3313,66 +3797,6 @@ describe("PostEventFeedbackExtractor", () => {
     ).rejects.toThrow(/campaign .* was not found/iu);
   });
 });
-
-interface FakeMessage {
-  id: string;
-  seq: number;
-  actor: "bot" | "participant" | "staff" | "system";
-  text: string;
-  at: Date;
-  outboxId?: string | null;
-  attention?: {
-    categories: string[];
-    recommendedAction: string;
-    confidence: number;
-  } | null;
-}
-
-interface FakeGoal {
-  key: "event_score" | "liked" | "meet_again" | "avoid";
-  ordinal: number;
-  prompt: string;
-  status: "pending" | "asked" | "answered" | "skipped";
-}
-
-interface FakeConversation {
-  _id: string;
-  campaignId: string;
-  respondentParticipantId: string;
-  phoneAtLaunch: string;
-  lifecycle: {
-    state: string;
-    reason: string | null;
-    closedAt: Date | null;
-    terminalOutboxId?: string | null;
-  };
-  control: { mode: string; source: string; changedAt: Date };
-  goals: FakeGoal[];
-  messages: FakeMessage[];
-  work?: {
-    revision: number;
-    nextActionAt: Date | null;
-    executionEpoch: number;
-  };
-  extraction: {
-    cursorSeq: number;
-    lastRunAt: Date | null;
-    model: string | null;
-    usage?: FeedbackConversationExtractionUsage | null;
-    serviceTier?: string | null;
-  };
-  needsAttention: boolean;
-  attentionReasons: {
-    id: string;
-    kind: string;
-    messageId: string | null;
-    resolvedAt: Date | null;
-  }[];
-  awaitingHuman: boolean;
-  reminderCount: number;
-  hostileTurns?: number;
-  extractionFallbackAckSent?: boolean;
-}
 
 interface FakeResultRow {
   id: string;
@@ -3731,394 +4155,11 @@ class FakeFeedbackRepository {
   }
 }
 
-class FakeConversations {
-  readonly documents = new Map<string, FakeConversation>();
-  beforeTerminalClose?: () => void | Promise<void>;
-  beforeAwaitingHuman?: () => void | Promise<void>;
-
-  seed(conversation: FakeConversation): void {
-    this.documents.set(conversation._id, conversation);
-  }
-
-  get(id: string): FakeConversation {
-    const conversation = this.documents.get(id);
-    if (!conversation) {
-      throw new Error(`Conversation ${id} was not seeded`);
-    }
-    return conversation;
-  }
-
-  goalStatuses(id: string): Record<string, string> {
-    return Object.fromEntries(
-      this.get(id).goals.map((goal) => [goal.key, goal.status]),
-    );
-  }
-
-  setAllGoals(id: string, status: FakeGoal["status"]): void {
-    for (const goal of this.get(id).goals) {
-      goal.status = status;
-    }
-  }
-
-  setGoal(id: string, key: string, status: FakeGoal["status"]): void {
-    const goal = this.get(id).goals.find((entry) => entry.key === key);
-    if (goal) {
-      goal.status = status;
-    }
-  }
-
-  async findById(
-    id: string,
-    _transaction?: unknown,
-  ): Promise<FakeConversation | undefined> {
-    const conversation = this.documents.get(id);
-    return conversation ? structuredClone(conversation) : undefined;
-  }
-
-  async findByIdForUpdate(
-    transaction: AppTransaction,
-    id: string,
-  ): Promise<FakeConversation | undefined> {
-    return this.findById(id, transaction);
-  }
-
-  /** Idempotent by `outboxId`, like the real repository. */
-  async appendMessage(
-    transactionOrInput: unknown,
-    maybeInput?: {
-      conversationId: string;
-      actor: FakeMessage["actor"];
-      text: string;
-      at: Date;
-      outboxId?: string | null;
-    },
-  ): Promise<{
-    appended: boolean;
-    message: FakeMessage;
-    conversation: FakeConversation;
-  }> {
-    const input = leadingInput(transactionOrInput, maybeInput);
-    const conversation = this.get(input.conversationId);
-    const existing = conversation.messages.find(
-      (message) => input.outboxId && message.outboxId === input.outboxId,
-    );
-    if (existing) {
-      return { appended: false, message: existing, conversation };
-    }
-    const message: FakeMessage = {
-      id: randomUUID(),
-      seq: conversation.messages.length + 1,
-      actor: input.actor,
-      text: input.text.trim(),
-      at: input.at,
-      outboxId: input.outboxId ?? null,
-    };
-    conversation.messages.push(message);
-    return { appended: true, message, conversation };
-  }
-
-  /**
-   * Rank-up along pending < asked < skipped < answered, plus WP-9δ
-   * skipped → asked. Mirrors `canTransitionGoalStatus`.
-   */
-  async updateGoalStatuses(
-    transactionOrInput: unknown,
-    maybeInput: {
-      conversationId: string;
-      statuses: readonly { key: string; status: FakeGoal["status"] }[];
-    },
-  ): Promise<{ changed: boolean; conversation: FakeConversation }> {
-    const input = leadingInput(transactionOrInput, maybeInput);
-    const rank = { pending: 0, asked: 1, skipped: 2, answered: 3 } as const;
-    const conversation = this.get(input.conversationId);
-    let changed = false;
-    for (const entry of input.statuses) {
-      const goal = conversation.goals.find((item) => item.key === entry.key);
-      if (!goal || goal.status === entry.status) {
-        continue;
-      }
-      const reopensSkip = goal.status === "skipped" && entry.status === "asked";
-      const ranksUp = rank[entry.status] > rank[goal.status];
-      if (reopensSkip || ranksUp) {
-        goal.status = entry.status;
-        changed = true;
-      }
-    }
-    return { changed, conversation };
-  }
-
-  async advanceCursor(
-    transactionOrInput: unknown,
-    maybeInput: {
-      conversationId: string;
-      toSeq: number;
-      at: Date;
-      model?: string | null;
-      serviceTier?: string | null;
-      usage?: FeedbackConversationExtractionUsage;
-      workRevision?: number;
-      executionEpoch?: number;
-    },
-  ): Promise<{ changed: boolean; conversation: FakeConversation }> {
-    const input = leadingInput(transactionOrInput, maybeInput);
-    const conversation = this.get(input.conversationId);
-    if (
-      input.toSeq <= conversation.extraction.cursorSeq ||
-      (input.workRevision !== undefined &&
-        conversation.work?.revision !== input.workRevision) ||
-      (input.executionEpoch !== undefined &&
-        conversation.work?.executionEpoch !== input.executionEpoch)
-    ) {
-      return { changed: false, conversation };
-    }
-    conversation.extraction = {
-      cursorSeq: input.toSeq,
-      lastRunAt: input.at,
-      model: input.model ?? null,
-      // Accumulated by the shared rule, so a case here cannot pass on a total
-      // the database would never produce. An absent usage is a run that called
-      // no model, and it leaves the earlier runs' tokens alone.
-      usage: input.usage
-        ? accumulateFeedbackExtractionUsage(
-            conversation.extraction.usage ?? null,
-            input.usage,
-          )
-        : (conversation.extraction.usage ?? null),
-      serviceTier: input.serviceTier ?? null,
-    };
-    return { changed: true, conversation };
-  }
-
-  async advanceCursorAndClose(
-    transactionOrInput: unknown,
-    maybeInput: {
-      conversationId: string;
-      toSeq: number;
-      reason: "completed" | "declined";
-      terminalOutboxId: string | null;
-      at: Date;
-      model: string;
-      serviceTier: string | null;
-      usage: FeedbackConversationExtractionUsage;
-      workRevision?: number;
-      executionEpoch?: number;
-    },
-  ): Promise<{ changed: boolean; conversation: FakeConversation }> {
-    const input = leadingInput(transactionOrInput, maybeInput);
-    await this.beforeTerminalClose?.();
-    const conversation = this.get(input.conversationId);
-    const hasNewerTestimony = conversation.messages.some(
-      (message) => message.actor === "participant" && message.seq > input.toSeq,
-    );
-    if (
-      conversation.lifecycle.state !== "open" ||
-      conversation.control.mode !== "bot" ||
-      conversation.awaitingHuman ||
-      hasNewerTestimony ||
-      (input.workRevision !== undefined &&
-        conversation.work?.revision !== input.workRevision) ||
-      (input.executionEpoch !== undefined &&
-        conversation.work?.executionEpoch !== input.executionEpoch)
-    ) {
-      return { changed: false, conversation };
-    }
-    await this.advanceCursor(undefined, input);
-    conversation.lifecycle = {
-      state: "closed",
-      reason: input.reason,
-      closedAt: input.at,
-      terminalOutboxId: input.terminalOutboxId,
-    };
-    return { changed: true, conversation };
-  }
-
-  async advanceCursorAndMarkAwaitingHuman(
-    transactionOrInput: unknown,
-    maybeInput: {
-      conversationId: string;
-      toSeq: number;
-      at: Date;
-      model: string;
-      serviceTier: string | null;
-      usage: FeedbackConversationExtractionUsage;
-      workRevision?: number;
-      executionEpoch?: number;
-    },
-  ): Promise<{ changed: boolean; conversation: FakeConversation }> {
-    const input = leadingInput(transactionOrInput, maybeInput);
-    await this.beforeAwaitingHuman?.();
-    const conversation = this.get(input.conversationId);
-    const hasNewerTestimony = conversation.messages.some(
-      (message) => message.actor === "participant" && message.seq > input.toSeq,
-    );
-    const workMatches =
-      input.workRevision === undefined ||
-      (conversation.work?.revision === input.workRevision &&
-        (input.executionEpoch === undefined ||
-          conversation.work.executionEpoch === input.executionEpoch));
-    const newerTestimonyOnSameExecution =
-      input.workRevision !== undefined &&
-      input.executionEpoch !== undefined &&
-      (conversation.work?.revision ?? 0) > input.workRevision &&
-      conversation.work?.executionEpoch === input.executionEpoch &&
-      hasNewerTestimony;
-    if (
-      conversation.lifecycle.state !== "open" ||
-      conversation.control.mode !== "bot" ||
-      input.toSeq < conversation.extraction.cursorSeq ||
-      (input.workRevision === undefined &&
-        input.toSeq === conversation.extraction.cursorSeq) ||
-      (!workMatches && !newerTestimonyOnSameExecution)
-    ) {
-      return { changed: false, conversation };
-    }
-    if (input.toSeq > conversation.messages.length) {
-      throw new Error("The extraction cursor cannot pass the transcript");
-    }
-    if (input.toSeq > conversation.extraction.cursorSeq) {
-      conversation.extraction = {
-        cursorSeq: input.toSeq,
-        lastRunAt: input.at,
-        model: input.model,
-        usage: accumulateFeedbackExtractionUsage(
-          conversation.extraction.usage ?? null,
-          input.usage,
-        ),
-        serviceTier: input.serviceTier,
-      };
-    }
-    conversation.awaitingHuman = true;
-    return { changed: true, conversation };
-  }
-
-  /** Idempotent on kind + message: a retried job must not stack identical rows. */
-  async raiseAttention(
-    transactionOrInput: unknown,
-    maybeInput: {
-      conversationId: string;
-      kind: string;
-      messageId: string | null;
-      at: Date;
-    },
-  ): Promise<{ changed: boolean; conversation: FakeConversation }> {
-    const input = leadingInput(transactionOrInput, maybeInput);
-    const conversation = this.get(input.conversationId);
-    const standing = conversation.attentionReasons.some(
-      (reason) =>
-        reason.kind === input.kind &&
-        reason.messageId === input.messageId &&
-        reason.resolvedAt === null,
-    );
-    if (standing) {
-      return { changed: false, conversation };
-    }
-    conversation.attentionReasons.push({
-      id: randomUUID(),
-      kind: input.kind,
-      messageId: input.messageId,
-      resolvedAt: null,
-    });
-    conversation.needsAttention = true;
-    return { changed: true, conversation };
-  }
-
-  async markAwaitingHuman(
-    transactionOrInput: unknown,
-    maybeInput: {
-      conversationId: string;
-    },
-  ): Promise<{ changed: boolean; conversation: FakeConversation }> {
-    const input = leadingInput(transactionOrInput, maybeInput);
-    const conversation = this.get(input.conversationId);
-    if (
-      conversation.lifecycle.state !== "open" ||
-      conversation.control.mode !== "bot"
-    ) {
-      return { changed: false, conversation };
-    }
-    const dueCleared = conversation.work?.nextActionAt == null;
-    if (conversation.awaitingHuman && dueCleared) {
-      return { changed: false, conversation };
-    }
-    conversation.awaitingHuman = true;
-    if (conversation.work) {
-      conversation.work = { ...conversation.work, nextActionAt: null };
-    }
-    return { changed: true, conversation };
-  }
-
-  async mergeMessageAttention(
-    transactionOrInput: unknown,
-    maybeInput: {
-      conversationId: string;
-      messageId: string;
-      categories: readonly string[];
-      recommendedAction: string;
-      confidence: number;
-    },
-  ): Promise<{ changed: boolean; conversation: FakeConversation }> {
-    const input = leadingInput(transactionOrInput, maybeInput);
-    const conversation = this.get(input.conversationId);
-    const message = conversation.messages.find(
-      (candidate) => candidate.id === input.messageId,
-    );
-    if (!message) {
-      throw new Error(`Message ${input.messageId} not found`);
-    }
-    message.attention = {
-      categories: [
-        ...new Set([
-          ...(message.attention?.categories ?? []),
-          ...input.categories,
-        ]),
-      ],
-      recommendedAction: input.recommendedAction,
-      confidence: Math.max(
-        message.attention?.confidence ?? 0,
-        input.confidence,
-      ),
-    };
-    return { changed: true, conversation };
-  }
-
-  async recordHostileTurn(
-    _transaction: unknown,
-    input: { conversationId: string; at: Date; expectedCount: number },
-  ): Promise<{ changed: boolean; conversation: FakeConversation }> {
-    const conversation = this.get(input.conversationId);
-    if ((conversation.hostileTurns ?? 0) !== input.expectedCount) {
-      return { changed: false, conversation };
-    }
-    conversation.hostileTurns = input.expectedCount + 1;
-    return { changed: true, conversation };
-  }
-
-  async close(
-    transactionOrInput: unknown,
-    maybeInput: {
-      conversationId: string;
-      reason: string;
-      at: Date;
-    },
-  ): Promise<{ changed: boolean; conversation: FakeConversation }> {
-    const input = leadingInput(transactionOrInput, maybeInput);
-    const conversation = this.get(input.conversationId);
-    if (conversation.lifecycle.state === "closed") {
-      return { changed: false, conversation };
-    }
-    conversation.lifecycle = {
-      state: "closed",
-      reason: input.reason,
-      closedAt: input.at,
-    };
-    return { changed: true, conversation };
-  }
-}
-
 interface Harness {
   extractor: PostEventFeedbackExtractor;
+  database: FakeDatabase;
   repository: FakeFeedbackRepository;
-  conversations: FakeConversations;
+  conversations: FakeFeedbackConversations;
   participants: FakeParticipants;
   events: {
     listFeedbackCandidatesForRespondent: ReturnType<typeof vi.fn>;
@@ -4139,6 +4180,9 @@ interface Harness {
   audit: FakeAudit;
   metrics: PostEventFeedbackMetrics;
   alert: { raised: FeedbackOperatorAlertInput[] };
+  summaries: {
+    notifyIfLastConversationClosed: ReturnType<typeof vi.fn>;
+  };
 }
 
 /**
@@ -4204,7 +4248,7 @@ function attentionGeneration(
 
 function createHarness(): Harness {
   const repository = new FakeFeedbackRepository();
-  const conversations = new FakeConversations();
+  const conversations = new FakeFeedbackConversations();
   const participants = new FakeParticipants();
   const audit = new FakeAudit();
   const metrics = new PostEventFeedbackMetrics();
@@ -4242,6 +4286,9 @@ function createHarness(): Harness {
       this.raised.push(input);
     },
   };
+  const summaries = {
+    notifyIfLastConversationClosed: vi.fn().mockResolvedValue(undefined),
+  };
 
   repository.campaigns.set(campaignId, {
     id: campaignId,
@@ -4256,54 +4303,43 @@ function createHarness(): Harness {
     phoneE164: null,
     postEventFeedbackWhatsappOptIn: true,
   });
-  conversations.seed({
-    _id: conversationId,
-    campaignId,
-    respondentParticipantId: respondentId,
-    phoneAtLaunch: "+306900000001",
-    lifecycle: { state: "open", reason: null, closedAt: null },
-    control: {
-      mode: "bot",
-      source: "launch",
-      changedAt: new Date("2026-07-25T10:00:00.000Z"),
-    },
-    goals: POST_EVENT_FEEDBACK_QUESTION_SET_V1.answerQuestions.map(
-      (question, index) => ({
-        key: question.key,
-        ordinal: index + 1,
-        prompt: POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy[question.key],
-        status: "asked" as const,
-      }),
-    ),
-    messages: [
-      {
-        id: "b1",
-        seq: 1,
-        actor: "bot",
-        text: "Πώς σου φάνηκε η βραδιά;",
-        at: new Date("2026-07-25T10:01:00.000Z"),
+  conversations.seed(
+    feedbackConversationFixture({
+      _id: conversationId,
+      campaignId,
+      respondentParticipantId: respondentId,
+      phoneAtLaunch: "+306900000001",
+      control: {
+        mode: "bot",
+        source: "launch",
+        changedAt: new Date("2026-07-25T10:00:00.000Z"),
       },
-      {
-        id: "p1",
-        seq: 2,
-        actor: "participant",
-        text: "5! Ο Νίκος ήταν φοβερός. Η βραδιά κύλησε γρήγορα.",
-        at: new Date("2026-07-25T10:02:00.000Z"),
-      },
-    ],
-    extraction: {
-      cursorSeq: 0,
-      lastRunAt: null,
-      model: null,
-      usage: null,
-      serviceTier: null,
-    },
-    needsAttention: false,
-    attentionReasons: [],
-    awaitingHuman: false,
-    reminderCount: 0,
-    extractionFallbackAckSent: false,
-  });
+      goals: POST_EVENT_FEEDBACK_QUESTION_SET_V1.answerQuestions.map(
+        (question, index) => ({
+          key: question.key,
+          ordinal: index + 1,
+          prompt: POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy[question.key],
+          status: "asked" as const,
+        }),
+      ),
+      messages: [
+        feedbackStoredMessage({
+          id: b1,
+          seq: 1,
+          actor: "bot",
+          text: "Πώς σου φάνηκε η βραδιά;",
+          at: new Date("2026-07-25T10:01:00.000Z"),
+        }),
+        feedbackStoredMessage({
+          id: p1,
+          seq: 2,
+          actor: "participant",
+          text: "5! Ο Νίκος ήταν φοβερός. Η βραδιά κύλησε γρήγορα.",
+          at: new Date("2026-07-25T10:02:00.000Z"),
+        }),
+      ],
+    }),
+  );
 
   const database = new FakeDatabase();
   const executionFence = {
@@ -4317,6 +4353,10 @@ function createHarness(): Harness {
   );
   const outboundLog = new FeedbackOutboundLogService(
     repository as unknown as FeedbackOutboundLogRepository,
+  );
+  const outboundIntent = new FeedbackOutboundIntentService(
+    repository as unknown as FeedbackOutboxRepository,
+    outboundLog,
   );
   const guards = new FeedbackExtractionGuards(
     database as unknown as DatabaseService,
@@ -4346,7 +4386,7 @@ function createHarness(): Harness {
     repository as unknown as FeedbackOutboxRepository,
     audit as unknown as AuditRepository,
     outboundTranscript,
-    outboundLog,
+    outboundIntent,
   );
   const extractor = new PostEventFeedbackExtractor(
     database as unknown as DatabaseService,
@@ -4359,11 +4399,12 @@ function createHarness(): Harness {
     commits,
     metrics,
     alert,
-    noopSummaries(),
+    summaries as never,
   );
 
   return {
     extractor,
+    database,
     repository,
     conversations,
     participants,
@@ -4373,5 +4414,33 @@ function createHarness(): Harness {
     audit,
     metrics,
     alert,
+    summaries,
   };
+}
+
+function captureOperations(): Record<string, unknown>[] {
+  const records: Record<string, unknown>[] = [];
+  const collect = (message: unknown) => {
+    if (
+      message !== null &&
+      typeof message === "object" &&
+      "event" in message &&
+      message.event === FEEDBACK_OPERATION_EVENT
+    ) {
+      records.push(message as Record<string, unknown>);
+    }
+  };
+  vi.spyOn(Logger.prototype, "log").mockImplementation(collect);
+  vi.spyOn(Logger.prototype, "error").mockImplementation(collect);
+  vi.spyOn(Logger.prototype, "warn").mockImplementation(collect);
+  return records;
+}
+
+function throwingLoggerSink(): void {
+  const boom = () => {
+    throw new Error("pino unavailable");
+  };
+  vi.spyOn(Logger.prototype, "log").mockImplementation(boom);
+  vi.spyOn(Logger.prototype, "error").mockImplementation(boom);
+  vi.spyOn(Logger.prototype, "warn").mockImplementation(boom);
 }

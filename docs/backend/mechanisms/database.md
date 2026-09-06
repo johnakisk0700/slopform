@@ -95,8 +95,8 @@ key. See [post-event feedback](../modules/post-event-feedback.md).
 
 Fencing invariants agents must not break:
 
-- Campaign `resume_generation` remains the ABA token for immutable outbound
-  logs across pause/resume. Resume updates campaign status and open conversation
+- Campaign `resume_generation` remains the ABA token in immutable outbound
+  dispatch context across pause/resume. Resume updates campaign status and open conversation
   work columns in one service-owned transaction. The old due/ack pair and
   campaign-resume repair checkpoint are removed by ADR 0015's migration.
 - `feedback_conversation_executions` holds monotonic epoch, claimed work
@@ -116,6 +116,11 @@ Fencing invariants agents must not break:
   `send_started_at`, attempt count and bounded last error. Only `claimed`
   returns to the claim query on lease expiry; `attempting` expiry becomes
   `ambiguous`. Unknown provider outcomes never return to `pending`.
+- Each outbound intent has immutable, versioned `dispatch_context`. Enqueue
+  requires purpose-specific evidence; dispatch validates it independently of
+  `message_outbox_log`. Ordinary extraction evidence is the original model
+  snapshot, never a refreshed conversation. Dedupe replay preserves the first
+  context and status. See [ADR 0016](../../decisions/0016-feedback-dispatch-context.md).
 - `provider_message_ingress.ingress_order` is a sequence assigned at insert — the
   cross-process FIFO authority for one conversation. All observations take the
   same transaction-scoped routing advisory lock before sequence allocation.
@@ -161,6 +166,9 @@ execution-fence table, summary epoch/claim fields and expanded status checks
 landed before new worker writers. V1 `sending` rows remain valid during the bridge.
 The PostgreSQL conversation cutover requires quiesced writers; follow the
 [feedback cutover procedure](../../deployment.md#feedback-conversation-storage-cutover).
+The subsequent dispatch-context migration also requires stopped writers and
+one-time historical backfill; follow its
+[cutover procedure](../../deployment.md#feedback-dispatch-context-cutover).
 The two initial assistant migrations are an unshipped same-release supersession;
 the second aborts if temporary `assistant_runs` contains any row. That narrow
 pre-release case does not authorize editing migrations after shared rollout.
@@ -176,7 +184,9 @@ exact-key deletion.
 - `FEEDBACK_POSTGRES_TEST_URL=postgresql://… pnpm test:feedback:postgres`
   requires an explicitly disposable database, applies migrations, then checks
   the conversation SQL adapter, concurrent appends, rollback, execution fencing,
-  caller-owned outbound claim rollback and offline import replay. The suites run
+  caller-owned outbound claim rollback, dispatch-context upgrades from populated
+  legacy rows, immutable dedupe replay, atomic intent/history rollback and
+  offline import replay. The suites run
   sequentially so migration setup is safe on an empty database. It never falls
   back to application `DATABASE_URL` and runs
   without Turbo caching. Normal `pnpm check` skips these opt-in database cases.

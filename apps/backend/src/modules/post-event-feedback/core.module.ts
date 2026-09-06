@@ -7,6 +7,7 @@ import { FeedbackConversationExecutionFenceRepository } from "./extraction/execu
 import { FeedbackIngressRepository } from "./ingress/ingress.repository.js";
 import { FeedbackOutboundLogRepository } from "./outbox/outbound-log.repository.js";
 import { FeedbackOutboundLogService } from "./outbox/outbound-log.service.js";
+import { FeedbackOutboundIntentService } from "./outbox/outbound-intent.service.js";
 import { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
 import { FeedbackConversationRepository } from "./post-event-feedback-conversation.repository.js";
 import { FeedbackSimOutboundRepository } from "./simulator/sim-outbound.repository.js";
@@ -23,6 +24,7 @@ import { FeedbackMaintenanceCheckpointRepository } from "./sweeps/maintenance-ch
     FeedbackOutboxRepository,
     FeedbackOutboundLogRepository,
     FeedbackOutboundLogService,
+    FeedbackOutboundIntentService,
     FeedbackSimOutboundRepository,
     FeedbackMaintenanceCheckpointRepository,
   ],
@@ -35,6 +37,7 @@ import { FeedbackMaintenanceCheckpointRepository } from "./sweeps/maintenance-ch
     FeedbackOutboxRepository,
     FeedbackOutboundLogRepository,
     FeedbackOutboundLogService,
+    FeedbackOutboundIntentService,
     FeedbackSimOutboundRepository,
     FeedbackMaintenanceCheckpointRepository,
   ],

@@ -20,6 +20,7 @@ import { phoneE164ToChatJid } from "../../integrations/wasender/wasender.jid.js"
 import type { FeedbackOperatorAlert } from "./operator-alert.js";
 import { FeedbackOutboundLogService } from "./outbox/outbound-log.service.js";
 import type { FeedbackOutboundLogRepository } from "./outbox/outbound-log.repository.js";
+import { FeedbackOutboundIntentService } from "./outbox/outbound-intent.service.js";
 import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
 import type { FeedbackTransport } from "./outbox/transport.js";
 import { MessageOutboxDispatcherService } from "./outbox/dispatcher.service.js";
@@ -598,8 +599,13 @@ export async function createFeedbackLoopHarness(
     repository as unknown as FeedbackOutboxRepository,
     conversations as unknown as FeedbackConversationRepository,
   );
+  persistDispatchContextOnFake(repository);
   const outboundLog = new FeedbackOutboundLogService(
     repository as unknown as FeedbackOutboundLogRepository,
+  );
+  const outboundIntent = new FeedbackOutboundIntentService(
+    repository as unknown as FeedbackOutboxRepository,
+    outboundLog,
   );
   const summaries = noopSummaries();
   const staffConversations = new PostEventFeedbackConversationService(
@@ -613,7 +619,7 @@ export async function createFeedbackLoopHarness(
     participants as unknown as ParticipantsRepository,
     audit as unknown as AuditRepository,
     outboundTranscript,
-    outboundLog,
+    outboundIntent,
     summaries as never,
     {
       findActiveLease: vi.fn().mockResolvedValue(undefined),
@@ -643,7 +649,7 @@ export async function createFeedbackLoopHarness(
     audit as unknown as AuditRepository,
     metrics,
     outboundTranscript,
-    outboundLog,
+    outboundIntent,
     summaries as never,
     conversationWakeups as unknown as FeedbackConversationWakeupService,
   );
@@ -691,7 +697,7 @@ export async function createFeedbackLoopHarness(
     repository as unknown as FeedbackOutboxRepository,
     audit as unknown as AuditRepository,
     outboundTranscript,
-    outboundLog,
+    outboundIntent,
   );
   const extractor = new PostEventFeedbackExtractor(
     database as unknown as DatabaseService,
@@ -716,7 +722,7 @@ export async function createFeedbackLoopHarness(
     participants as unknown as ParticipantsRepository,
     audit as unknown as AuditRepository,
     outboundTranscript,
-    outboundLog,
+    outboundIntent,
     summaries as never,
   );
   const sweepService = new PostEventFeedbackSweepService(
@@ -735,7 +741,7 @@ export async function createFeedbackLoopHarness(
     events as unknown as EventsService,
     audit as unknown as AuditRepository,
     outboundTranscript,
-    outboundLog,
+    outboundIntent,
     alerts as FeedbackOperatorAlert,
     conversationWakeups as unknown as FeedbackConversationWakeupService,
   );
@@ -753,6 +759,7 @@ export async function createFeedbackLoopHarness(
           executionEpoch: epoch,
         };
       }
+      conversations.setExecutionFence(input.conversationId, epoch);
       return {
         conversationId: input.conversationId,
         workRevision: input.workRevision,
@@ -843,7 +850,6 @@ export async function createFeedbackLoopHarness(
     repository as unknown as FeedbackCampaignRepository,
     repository as unknown as FeedbackOutboxRepository,
     repository as unknown as FeedbackIngressRepository,
-    repository as unknown as FeedbackOutboundLogRepository,
     conversations as unknown as FeedbackConversationRepository,
     participants as unknown as ParticipantsRepository,
     outboundTranscript,
@@ -1422,4 +1428,45 @@ function scriptConsumptionMessage(
     : `${script} script left ${calls.length} unconsumed turn(s): call ${calls.join(
         ", ",
       )}`;
+}
+
+function persistDispatchContextOnFake(
+  repository: FakeFeedbackRepository,
+): void {
+  const contexts = new Map<string, unknown>();
+  const insert = repository.insertOutboxIfAbsent.bind(repository);
+  repository.insertOutboxIfAbsent = async (transaction, input) => {
+    const result = await insert(transaction, input);
+    const context =
+      input && typeof input === "object" && "dispatchContext" in input
+        ? input.dispatchContext
+        : undefined;
+    if (result.inserted && context !== undefined) {
+      contexts.set(result.row.id, context);
+    }
+    const stored = contexts.get(result.row.id);
+    return stored === undefined
+      ? result
+      : { ...result, row: { ...result.row, dispatchContext: stored } };
+  };
+  const claim = repository.claimDispatchBatch.bind(repository);
+  repository.claimDispatchBatch = async (
+    transaction,
+    now,
+    limit,
+    leaseMs,
+    terminalOutboxIds,
+  ) => {
+    const claimed = await claim(
+      transaction,
+      now,
+      limit,
+      leaseMs,
+      terminalOutboxIds,
+    );
+    return claimed.map((row) => {
+      const stored = contexts.get(row.id);
+      return stored === undefined ? row : { ...row, dispatchContext: stored };
+    });
+  };
 }

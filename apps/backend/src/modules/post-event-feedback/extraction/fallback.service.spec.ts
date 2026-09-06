@@ -10,6 +10,7 @@ import type { FeedbackConversationRepository } from "../post-event-feedback-conv
 import type { EventsService } from "../../events/events.service.js";
 import type { FeedbackOperatorAlertInput } from "../operator-alert.js";
 import type { FeedbackOutboundLogRepository } from "../outbox/outbound-log.repository.js";
+import { FeedbackOutboundIntentService } from "../outbox/outbound-intent.service.js";
 import { FeedbackOutboundLogService } from "../outbox/outbound-log.service.js";
 import type { FeedbackOutboundDecision } from "../outbox/outbound-log.schemas.js";
 import type { OutboundConversationSnapshot } from "../outbox/outbound-log.snapshot.js";
@@ -17,6 +18,9 @@ import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript
 import {
   FakeAudit,
   FakeEvents,
+  FakeFeedbackConversations,
+  feedbackConversationFixture,
+  feedbackStoredMessage,
 } from "../post-event-feedback-doubles.harness.js";
 import { PostEventFeedbackExtractionFallback } from "./fallback.service.js";
 import {
@@ -46,6 +50,10 @@ const eleni = "1b2c3d4e-0000-4000-8000-000000000003";
 const correlationId = "correlation-1";
 const firstIngressId = "27ec56f4-011d-46d7-9ed9-4a55fa1d07da";
 const secondIngressId = "855589be-fc1d-460d-9524-4b3754521a91";
+const b1 = "00000000-0000-4000-8000-0000000000b1";
+const p1 = "00000000-0000-4000-8000-000000000001";
+const p2 = "00000000-0000-4000-8000-000000000002";
+const botOutboxId = "00000000-0000-4000-8000-0000000000b0";
 
 const disclosure = "Ο Κώστας μας έδειχνε dickpics όλο το βράδυ";
 
@@ -85,13 +93,13 @@ describe("PostEventFeedbackExtractionFallback", () => {
       campaignId,
       respondentParticipantId: respondentId,
       // Provenance points at the exact message the run died on.
-      sourceMessageIds: ["p1"],
+      sourceMessageIds: [p1],
     });
     expect(harness.audit.events[0]).toMatchObject({
       action: "feedback_conversation.extraction_failed",
       entityType: "feedback_conversation",
       entityId: conversationId,
-      context: { cause: "provider_refusal", sourceMessageId: "p1" },
+      context: { cause: "provider_refusal", sourceMessageId: p1 },
     });
     expect(harness.repository.outboxLogs).toEqual([
       expect.objectContaining({
@@ -154,7 +162,7 @@ describe("PostEventFeedbackExtractionFallback", () => {
     expect(
       harness.conversations.get(conversationId).attentionReasons,
     ).toMatchObject([
-      { kind: "extraction_failed", messageId: "p1", resolvedAt: null },
+      { kind: "extraction_failed", messageId: p1, resolvedAt: null },
     ]);
     expect(harness.alert.raised).toHaveLength(1);
     expect(harness.alert.raised[0]).toMatchObject({
@@ -171,9 +179,9 @@ describe("PostEventFeedbackExtractionFallback", () => {
       correlationId,
       cause: "provider_refusal",
     });
-    harness.conversations.get(conversationId).messages.push({
-      id: "p2",
-      seq: 3,
+    harness.conversations.pushStored(conversationId, {
+      id: p2,
+      seq: harness.conversations.get(conversationId).messages.length + 1,
       actor: "participant",
       text: "Και ο Νίκος ήταν ωραίος",
       ingressId: secondIngressId,
@@ -223,9 +231,11 @@ describe("PostEventFeedbackExtractionFallback", () => {
 
   it("repairs an already-awaiting replay without publishing successor work", async () => {
     const conversation = harness.conversations.get(conversationId);
-    const revision = conversation.work.revision;
+    const work = conversation.work;
+    expect(work).toBeDefined();
+    const revision = work!.revision;
     conversation.awaitingHuman = true;
-    conversation.work.nextActionAt = new Date("2026-07-26T12:00:45.000Z");
+    work!.nextActionAt = new Date("2026-07-26T12:00:45.000Z");
 
     await harness.fallback.apply({
       conversationId,
@@ -305,7 +315,10 @@ describe("PostEventFeedbackExtractionFallback", () => {
     });
 
     it("stays subjectless when no candidate is named", async () => {
-      harness.conversations.setLastParticipantText("Ήταν απαίσια η βραδιά");
+      harness.conversations.setLastParticipantText(
+        conversationId,
+        "Ήταν απαίσια η βραδιά",
+      );
 
       const result = await harness.fallback.apply({
         conversationId,
@@ -334,7 +347,10 @@ describe("PostEventFeedbackExtractionFallback", () => {
       harness.events.candidates = [
         { participantId: kostasOne, displayName: "Κώστας Παπαδόπουλος" },
       ];
-      harness.conversations.setLastParticipantText("ο κωστας ηταν απαισιος");
+      harness.conversations.setLastParticipantText(
+        conversationId,
+        "ο κωστας ηταν απαισιος",
+      );
 
       const result = await harness.fallback.apply({
         conversationId,
@@ -364,16 +380,17 @@ describe("PostEventFeedbackExtractionFallback", () => {
   });
 
   it("flags attention but writes nothing when there is no participant turn", async () => {
-    harness.conversations.get(conversationId).messages = [
-      {
-        id: "b1",
+    harness.conversations.replaceMessages(conversationId, [
+      feedbackStoredMessage({
+        id: b1,
         seq: 1,
         actor: "bot",
         text: "Γεια σου!",
         ingressId: null,
-        outboxId: "outbox-1",
-      },
-    ];
+        outboxId: botOutboxId,
+        at: new Date("2026-07-26T12:00:00.000Z"),
+      }),
+    ]);
 
     const result = await harness.fallback.apply({
       conversationId,
@@ -396,9 +413,9 @@ describe("PostEventFeedbackExtractionFallback", () => {
 
   it("does not clear extractionFallbackAckSent when acknowledgement was already sent", async () => {
     harness.conversations.get(conversationId).extractionFallbackAckSent = true;
-    harness.conversations.get(conversationId).messages.push({
-      id: "p2",
-      seq: 3,
+    harness.conversations.pushStored(conversationId, {
+      id: p2,
+      seq: harness.conversations.get(conversationId).messages.length + 1,
       actor: "participant",
       text: "Και ο Νίκος ήταν ωραίος",
       ingressId: secondIngressId,
@@ -588,7 +605,11 @@ describe("PostEventFeedbackExtractionFallback", () => {
     });
 
     it("stays quiet while a person holds the conversation", async () => {
-      harness.conversations.get(conversationId).control.mode = "human";
+      harness.conversations.get(conversationId).control = {
+        mode: "human",
+        source: "staff_action",
+        changedAt: harness.conversations.get(conversationId).control.changedAt,
+      };
       harness.conversations.get(conversationId).extraction.parkedSince =
         new Date(Date.now() - FEEDBACK_EXTRACTION_PARK_NOTICE_AFTER_MS - 1_000);
 
@@ -629,7 +650,11 @@ describe("PostEventFeedbackExtractionFallback", () => {
     });
 
     it("does not queue a retry for a closed conversation", async () => {
-      harness.conversations.get(conversationId).lifecycle.state = "closed";
+      harness.conversations.get(conversationId).lifecycle = {
+        state: "closed",
+        reason: "completed",
+        closedAt: new Date("2026-07-26T13:00:00.000Z"),
+      };
 
       const result = await harness.fallback.park({
         conversationId,
@@ -672,47 +697,6 @@ describe("PostEventFeedbackExtractionFallback", () => {
     expect(harness.alert.raised).toHaveLength(0);
   });
 });
-
-interface FakeMessage {
-  id: string;
-  seq: number;
-  actor: string;
-  text: string;
-  ingressId: string | null;
-  outboxId: string | null;
-  at?: Date;
-}
-
-interface FakeConversation {
-  _id: string;
-  campaignId: string;
-  respondentParticipantId: string;
-  goals: { key: string; ordinal: number; prompt: string; status: string }[];
-  messages: FakeMessage[];
-  lifecycle: { state: "open" | "closed"; reason: string | null };
-  control: { mode: "bot" | "human"; source: string; changedAt: Date };
-  work: {
-    revision: number;
-    nextActionAt: Date | null;
-    executionEpoch: number;
-    campaignResumeGeneration?: number;
-  };
-  awaitingHuman: boolean;
-  needsAttention: boolean;
-  extractionFallbackAckSent: boolean;
-  reminderCount: number;
-  extraction: {
-    cursorSeq: number;
-    parkedSince: Date | null;
-    parkedRuns: number;
-    parkedNoticeSentAt: Date | null;
-  };
-  attentionReasons: {
-    kind: string;
-    messageId: string | null;
-    resolvedAt: Date | null;
-  }[];
-}
 
 interface FakeNoteRow {
   id: string;
@@ -868,166 +852,10 @@ class FakeFeedbackRepository {
   }
 }
 
-class FakeConversations {
-  readonly documents = new Map<string, FakeConversation>();
-
-  seed(conversation: FakeConversation): void {
-    this.documents.set(conversation._id, conversation);
-  }
-
-  get(id: string): FakeConversation {
-    const conversation = this.documents.get(id);
-    if (!conversation) {
-      throw new Error(`Conversation ${id} was not seeded`);
-    }
-    return conversation;
-  }
-
-  setLastParticipantText(text: string): void {
-    const conversation = this.get(conversationId);
-    const message = [...conversation.messages]
-      .reverse()
-      .find((candidate) => candidate.actor === "participant");
-    if (message) {
-      message.text = text;
-    }
-  }
-
-  transcript(id: string) {
-    return this.get(id).messages.map((message) => ({
-      seq: message.seq,
-      actor: message.actor,
-      text: message.text,
-      outboxId: message.outboxId,
-    }));
-  }
-
-  async findById(
-    id: string,
-    _transaction?: unknown,
-  ): Promise<FakeConversation | undefined> {
-    return this.documents.get(id);
-  }
-
-  async appendMessage(
-    _transaction: unknown,
-    input: {
-      conversationId: string;
-      actor: string;
-      text: string;
-      at: Date;
-      outboxId?: string | null;
-    },
-  ): Promise<{ appended: boolean; conversation: FakeConversation }> {
-    const conversation = this.get(input.conversationId);
-    const existing = conversation.messages.find(
-      (message) => message.outboxId && message.outboxId === input.outboxId,
-    );
-    if (existing) {
-      return { appended: false, conversation };
-    }
-    conversation.messages.push({
-      id: randomUUID(),
-      seq: conversation.messages.length + 1,
-      actor: input.actor,
-      text: input.text,
-      ingressId: null,
-      outboxId: input.outboxId ?? null,
-    });
-    return { appended: true, conversation };
-  }
-
-  /** Idempotent on kind + message: a retried job must not stack identical rows. */
-  async raiseAttention(
-    _transaction: unknown,
-    input: {
-      conversationId: string;
-      kind: string;
-      messageId: string | null;
-    },
-  ): Promise<{ changed: boolean; conversation: FakeConversation }> {
-    const conversation = this.get(input.conversationId);
-    const standing = conversation.attentionReasons.some(
-      (reason) =>
-        reason.kind === input.kind &&
-        reason.messageId === input.messageId &&
-        reason.resolvedAt === null,
-    );
-    if (standing) {
-      return { changed: false, conversation };
-    }
-    conversation.attentionReasons.push({
-      kind: input.kind,
-      messageId: input.messageId,
-      resolvedAt: null,
-    });
-    conversation.needsAttention = true;
-    return { changed: true, conversation };
-  }
-
-  async markExtractionFallbackAckSent(
-    _transaction: unknown,
-    input: {
-      conversationId: string;
-      at: Date;
-    },
-  ): Promise<{ changed: boolean; conversation: FakeConversation }> {
-    const conversation = this.get(input.conversationId);
-    if (conversation.extractionFallbackAckSent) {
-      return { changed: false, conversation };
-    }
-    conversation.extractionFallbackAckSent = true;
-    return { changed: true, conversation };
-  }
-
-  async markAwaitingHuman(
-    _transaction: unknown,
-    input: {
-      conversationId: string;
-    },
-  ): Promise<{ changed: boolean; conversation: FakeConversation }> {
-    const conversation = this.get(input.conversationId);
-    const changed =
-      !conversation.awaitingHuman || conversation.work.nextActionAt !== null;
-    conversation.awaitingHuman = true;
-    conversation.work.nextActionAt = null;
-    return { changed, conversation };
-  }
-
-  /** Keeps the first park's start and counts the run, as the pipeline update does. */
-  async parkExtraction(
-    _transaction: unknown,
-    input: {
-      conversationId: string;
-      at: Date;
-    },
-  ): Promise<{ changed: boolean; conversation: FakeConversation }> {
-    const conversation = this.get(input.conversationId);
-    conversation.extraction.parkedSince ??= input.at;
-    conversation.extraction.parkedRuns += 1;
-    return { changed: true, conversation };
-  }
-
-  async markExtractionParkedNoticeSent(
-    _transaction: unknown,
-    input: {
-      conversationId: string;
-      at: Date;
-    },
-  ): Promise<{ changed: boolean; conversation: FakeConversation }> {
-    const conversation = this.get(input.conversationId);
-    if (conversation.extraction.parkedNoticeSentAt !== null) {
-      return { changed: false, conversation };
-    }
-    conversation.extraction.parkedNoticeSentAt = input.at;
-    return { changed: true, conversation };
-  }
-}
-
 interface Harness {
   fallback: PostEventFeedbackExtractionFallback;
   repository: FakeFeedbackRepository;
-  conversations: FakeConversations;
+  conversations: FakeFeedbackConversations;
   events: FakeEvents;
   audit: FakeAudit;
   alert: { raised: FeedbackOperatorAlertInput[] };
@@ -1038,7 +866,7 @@ interface Harness {
 
 function createHarness(): Harness {
   const repository = new FakeFeedbackRepository();
-  const conversations = new FakeConversations();
+  const conversations = new FakeFeedbackConversations();
   const events = new FakeEvents();
   const audit = new FakeAudit();
   const alert = {
@@ -1057,65 +885,56 @@ function createHarness(): Harness {
     { participantId: eleni, displayName: "Ελένη Νικολάου" },
   ];
 
-  conversations.seed({
-    _id: conversationId,
-    campaignId,
-    respondentParticipantId: respondentId,
-    goals: [
-      {
-        key: "event_score",
-        ordinal: 1,
-        prompt: POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy.event_score,
-        status: "answered",
+  conversations.seed(
+    feedbackConversationFixture({
+      _id: conversationId,
+      campaignId,
+      respondentParticipantId: respondentId,
+      createdAt: new Date("2026-07-26T11:55:00.000Z"),
+      goals: [
+        {
+          key: "event_score",
+          ordinal: 1,
+          prompt: POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy.event_score,
+          status: "answered",
+        },
+        {
+          key: "liked",
+          ordinal: 2,
+          prompt: POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy.liked,
+          status: "asked",
+        },
+        {
+          key: "avoid",
+          ordinal: 3,
+          prompt: POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy.avoid,
+          status: "pending",
+        },
+      ],
+      messages: [
+        feedbackStoredMessage({
+          id: p1,
+          seq: 1,
+          actor: "participant",
+          text: disclosure,
+          ingressId: firstIngressId,
+          outboxId: null,
+          at: new Date("2026-07-26T12:00:00.000Z"),
+        }),
+      ],
+      control: {
+        mode: "bot",
+        source: "launch",
+        changedAt: new Date("2026-07-26T11:55:00.000Z"),
       },
-      {
-        key: "liked",
-        ordinal: 2,
-        prompt: POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy.liked,
-        status: "asked",
+      work: {
+        revision: 7,
+        nextActionAt: null,
+        executionEpoch: 3,
+        campaignResumeGeneration: 2,
       },
-      {
-        key: "avoid",
-        ordinal: 3,
-        prompt: POST_EVENT_FEEDBACK_QUESTION_SET_V1.copy.avoid,
-        status: "pending",
-      },
-    ],
-    messages: [
-      {
-        id: "p1",
-        seq: 1,
-        actor: "participant",
-        text: disclosure,
-        ingressId: firstIngressId,
-        outboxId: null,
-        at: new Date("2026-07-26T12:00:00.000Z"),
-      },
-    ],
-    lifecycle: { state: "open", reason: null },
-    control: {
-      mode: "bot",
-      source: "launch",
-      changedAt: new Date("2026-07-26T11:55:00.000Z"),
-    },
-    work: {
-      revision: 7,
-      nextActionAt: null,
-      executionEpoch: 3,
-      campaignResumeGeneration: 2,
-    },
-    awaitingHuman: false,
-    needsAttention: false,
-    extractionFallbackAckSent: false,
-    reminderCount: 0,
-    extraction: {
-      cursorSeq: 0,
-      parkedSince: null,
-      parkedRuns: 0,
-      parkedNoticeSentAt: null,
-    },
-    attentionReasons: [],
-  });
+    }),
+  );
 
   const database = new FakeDatabase();
   let workRevision = 0;
@@ -1140,8 +959,11 @@ function createHarness(): Harness {
       repository as unknown as FeedbackOutboxRepository,
       conversations as unknown as FeedbackConversationRepository,
     ),
-    new FeedbackOutboundLogService(
-      repository as unknown as FeedbackOutboundLogRepository,
+    new FeedbackOutboundIntentService(
+      repository as unknown as FeedbackOutboxRepository,
+      new FeedbackOutboundLogService(
+        repository as unknown as FeedbackOutboundLogRepository,
+      ),
     ),
     alert,
     wakeups as unknown as FeedbackConversationWakeupService,

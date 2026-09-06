@@ -1,5 +1,7 @@
 import { InjectQueue } from "@nestjs/bullmq";
-import { Injectable, Logger, Optional } from "@nestjs/common";
+import { Injectable, Optional } from "@nestjs/common";
+
+import { FeedbackLogger } from "../feedback-operation-log.js";
 import { ConfigService } from "@nestjs/config";
 import { createOpenAI } from "@ai-sdk/openai";
 import {
@@ -151,7 +153,7 @@ type FeedbackSummaryExecutionHeartbeat = {
 
 @Injectable()
 export class PostEventFeedbackCampaignSummaryService {
-  private readonly logger = new Logger(
+  private readonly logger = new FeedbackLogger(
     PostEventFeedbackCampaignSummaryService.name,
   );
   private readonly openAiProvider: ReturnType<typeof createOpenAI> | undefined;

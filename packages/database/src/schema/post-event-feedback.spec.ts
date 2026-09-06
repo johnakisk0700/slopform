@@ -487,6 +487,10 @@ describe("post-event feedback database constraints", () => {
     expect(columnNames.has("delivery_status")).toBe(true);
     expect(columnNames.has("provider_message_id")).toBe(true);
     expect(columnNames.has("sent_at")).toBe(true);
+    expect(columnNames.has("dispatch_context")).toBe(true);
+    expect(
+      checks.get("message_outbox_dispatch_context_object_check"),
+    ).toContain("jsonb_typeof");
   });
 
   it("persists the five feedback tables with NULLS NOT DISTINCT and RESTRICT FKs", () => {
@@ -556,5 +560,33 @@ describe("post-event feedback database constraints", () => {
       'CREATE INDEX "feedback_sim_outbound_phone_sent_idx"',
     );
     expect(migration).not.toContain("REFERENCES");
+  });
+
+  it("backfills dispatch_context from matching history and cancels only safe pre-send leftovers", () => {
+    const migration = readFileSync(
+      new URL(
+        "../../drizzle/20260906135130_message_outbox_dispatch_context.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+
+    expect(migration).toContain(
+      'ALTER TABLE "message_outbox" ADD COLUMN "dispatch_context" jsonb;',
+    );
+    expect(migration).toContain('FROM "message_outbox_log"');
+    expect(migration).toContain("'unusable_legacy'");
+    expect(migration).toContain("'dispatch_context_unusable'");
+    expect(migration).toContain(
+      `AND "status" IN ('pending', 'held', 'claimed')`,
+    );
+    expect(migration).toContain('AND "send_started_at" IS NULL');
+    expect(migration).not.toContain("feedback_conversations");
+    expect(migration).not.toMatch(
+      /status.*=.*'(attempting|sending|ambiguous|sent)'/u,
+    );
+    expect(migration).toContain(
+      'ALTER TABLE "message_outbox" ALTER COLUMN "dispatch_context" SET NOT NULL',
+    );
   });
 });

@@ -1,4 +1,6 @@
-import { Injectable, Logger, type OnModuleDestroy } from "@nestjs/common";
+import { Injectable, type OnModuleDestroy } from "@nestjs/common";
+
+import { FeedbackLogger } from "../feedback-operation-log.js";
 import { ConfigService } from "@nestjs/config";
 import { createDatabase, type DatabaseClient } from "@slopform/database";
 import { createHash } from "node:crypto";
@@ -100,7 +102,9 @@ export class FeedbackMaterializationLimiter
   extends PostgresFeedbackMaterializationLimiter
   implements OnModuleDestroy
 {
-  private readonly logger = new Logger(FeedbackMaterializationLimiter.name);
+  private readonly logger = new FeedbackLogger(
+    FeedbackMaterializationLimiter.name,
+  );
   private readonly client: DatabaseClient;
   private readonly handlePoolError = (error: Error): void => {
     this.logger.error({

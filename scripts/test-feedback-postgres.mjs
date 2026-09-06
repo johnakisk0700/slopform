@@ -30,6 +30,15 @@ const commands = [
     ],
   ],
   [
+    "pnpm",
+    [
+      "exec",
+      "vitest",
+      "run",
+      "src/modules/post-event-feedback/outbox/dispatch-context-migration.spec.ts",
+    ],
+  ],
+  [
     process.execPath,
     [
       "--test",

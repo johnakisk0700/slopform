@@ -53,28 +53,51 @@ export interface ExtractRunSnapshot {
   readonly executionClaim?: FeedbackConversationExecutionClaim;
 }
 
-/** Validated proposal plus the outbound and lifecycle decision to persist. */
-export interface ExtractPlannedTurn {
+/**
+ * Immutable facts from the paid snapshot. Policy flags such as duty-of-care
+ * and ordinaryReply are derived; they are not stored here.
+ */
+export interface TurnEvidence {
   readonly context: FeedbackExtractionContext;
   readonly validated: FeedbackExtractionValidationResult;
   readonly recordedStatuses: readonly GoalStatusUpdate[];
-  readonly outbound: OutboundReply | undefined;
-  readonly ordinaryReply: boolean;
-  readonly dutyOfCare: boolean;
-  readonly stoppingForHostility: boolean;
   readonly hostileTurn: boolean;
-  readonly hostileWithoutAnswers: boolean;
-  readonly replyRewriteSuperseded: boolean;
-  readonly goalStatuses: readonly GoalStatusUpdate[];
-  readonly withdrew: boolean;
-  readonly hostility: FeedbackHostilityRaise;
-  readonly closingReason: "completed" | "declined" | null;
+  readonly stoppingForHostility: boolean;
+  readonly rewriteSuperseded: boolean;
   readonly stalledOnMessageId: string | null;
   readonly unansweredDataQuestionMessageIds: readonly string[];
   readonly newestParticipantMessageId: string | null;
   readonly runUsage: FeedbackExtractionUsage;
   readonly model: string;
   readonly serviceTier: string | null;
+}
+
+/**
+ * Orthogonal proposed outcomes. Goals, withdrawal, hostility, close and
+ * outbound stay independent — not a lifecycle enum.
+ */
+export interface ProposedDisposition {
+  readonly goalStatuses: readonly GoalStatusUpdate[];
+  readonly withdrew: boolean;
+  readonly hostility: FeedbackHostilityRaise;
+  readonly closingReason: "completed" | "declined" | null;
+  readonly outboundIntent: OutboundReply | undefined;
+}
+
+/** Validated snapshot facts plus the proposed outbound and lifecycle decision. */
+export interface ExtractPlannedTurn {
+  readonly evidence: TurnEvidence;
+  readonly proposed: ProposedDisposition;
+}
+
+/**
+ * Persist-time outbound losses. Ingress and newer work may both be true;
+ * legacy close-crossing is a separate flag. Does not replace written results.
+ */
+export interface CommitSuppression {
+  readonly newerIngress: boolean;
+  readonly newerWork: boolean;
+  readonly legacyClosingProviderCrossed: boolean;
 }
 
 export interface ExtractPersistWritten {

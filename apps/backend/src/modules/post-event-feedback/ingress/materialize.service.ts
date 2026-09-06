@@ -1,4 +1,4 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
 import type {
   AppTransaction,
   MessageOutboxRow,
@@ -9,7 +9,7 @@ import { DatabaseService } from "../../../infrastructure/database/database.servi
 import { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
 import { FeedbackIngressRepository } from "./ingress.repository.js";
 import { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
-import { FeedbackOutboundLogService } from "../outbox/outbound-log.service.js";
+import { FeedbackOutboundIntentService } from "../outbox/outbound-intent.service.js";
 import {
   FeedbackConversationCapacityError,
   FeedbackConversationRepository,
@@ -41,6 +41,10 @@ import {
   isFeedbackEditedProviderMessageId,
 } from "../jobs.schemas.js";
 import { PostEventFeedbackCampaignSummaryService } from "../summary/summary.service.js";
+import {
+  FeedbackLogger,
+  FeedbackOperationLog,
+} from "../feedback-operation-log.js";
 import { FeedbackConversationWakeupService } from "../reconciliation/wakeup.service.js";
 
 export class PostEventFeedbackIngressNotFoundError extends Error {
@@ -78,7 +82,9 @@ export interface MaterializeFeedbackIngressResult {
  */
 @Injectable()
 export class PostEventFeedbackMaterializer {
-  private readonly logger = new Logger(PostEventFeedbackMaterializer.name);
+  private readonly logger = new FeedbackLogger(
+    PostEventFeedbackMaterializer.name,
+  );
 
   constructor(
     private readonly database: DatabaseService,
@@ -90,7 +96,7 @@ export class PostEventFeedbackMaterializer {
     private readonly audit: AuditRepository,
     private readonly metrics: PostEventFeedbackMetrics,
     private readonly outboundTranscript: FeedbackOutboundTranscriptService,
-    private readonly outboundLog: FeedbackOutboundLogService,
+    private readonly outboundIntent: FeedbackOutboundIntentService,
     private readonly summaries: PostEventFeedbackCampaignSummaryService,
     private readonly wakeups: FeedbackConversationWakeupService,
   ) {}
@@ -98,6 +104,26 @@ export class PostEventFeedbackMaterializer {
   async materialize(
     input: MaterializeFeedbackIngressInput,
   ): Promise<MaterializeFeedbackIngressResult> {
+    const operation = new FeedbackOperationLog(this.logger, {
+      operation: "materialize",
+      correlationId: input.correlationId,
+      ingressId: input.ingressId,
+    });
+    try {
+      const result = await this.materializeOnce(input, operation);
+      operation.complete(result.outcome);
+      return result;
+    } catch (error) {
+      operation.failed(error);
+      throw error;
+    }
+  }
+
+  private async materializeOnce(
+    input: MaterializeFeedbackIngressInput,
+    operation: FeedbackOperationLog,
+  ): Promise<MaterializeFeedbackIngressResult> {
+    operation.stage("ingress_load");
     const ingress = await this.ingress.findIngressById(input.ingressId);
     if (!ingress) {
       throw new PostEventFeedbackIngressNotFoundError(input.ingressId);
@@ -110,6 +136,7 @@ export class PostEventFeedbackMaterializer {
       );
     }
 
+    operation.stage("conversation_match");
     const conversation = ingress.phoneE164
       ? await this.conversations.findOpenByPhone(ingress.phoneE164)
       : undefined;
@@ -119,18 +146,26 @@ export class PostEventFeedbackMaterializer {
       // conversation: a STOP acknowledgement is sent to a conversation that is
       // already closed, and recording it as unrelated traffic would both lose
       // its delivery state and inflate the unmatched counter.
+      operation.stage("outbound");
       return this.materializeOutbound(
         ingress,
         conversation,
         input.correlationId,
+        operation,
       );
     }
 
     if (conversation) {
+      operation.enrich({
+        conversationId: conversation._id,
+        campaignId: conversation.campaignId,
+      });
+      operation.stage("inbound");
       return this.materializeInbound(
         ingress,
         conversation,
         input.correlationId,
+        operation,
       );
     }
 
@@ -140,9 +175,21 @@ export class PostEventFeedbackMaterializer {
       ? await this.conversations.findLatestClosedByPhone(ingress.phoneE164)
       : undefined;
 
-    return closed
-      ? this.materializePostClosure(ingress, closed, input.correlationId)
-      : this.ignoreUnmatched(ingress, input.correlationId);
+    if (closed) {
+      operation.enrich({
+        conversationId: closed._id,
+        campaignId: closed.campaignId,
+      });
+      operation.stage("post_closure");
+      return this.materializePostClosure(
+        ingress,
+        closed,
+        input.correlationId,
+        operation,
+      );
+    }
+    operation.stage("unmatched");
+    return this.ignoreUnmatched(ingress, input.correlationId, operation);
   }
 
   /**
@@ -169,14 +216,16 @@ export class PostEventFeedbackMaterializer {
     ingress: ProviderMessageIngressRow,
     conversation: FeedbackConversationDocument,
     correlationId: string,
+    operation: FeedbackOperationLog,
   ): Promise<MaterializeFeedbackIngressResult> {
     const text = ingress.text?.trim() ?? "";
 
     if (text.length > 0 && matchesPostEventFeedbackStopCommand(text)) {
-      return this.applyStop(ingress, conversation, correlationId);
+      return this.applyStop(ingress, conversation, correlationId, operation);
     }
 
     const retainsText = conversation.lifecycle.reason !== "stopped";
+    operation.stage("persist");
     await this.withPendingIngress(
       ingress.id,
       async (transaction) => {
@@ -283,9 +332,11 @@ export class PostEventFeedbackMaterializer {
   private async ignoreUnmatched(
     ingress: ProviderMessageIngressRow,
     correlationId: string,
+    operation: FeedbackOperationLog,
   ): Promise<MaterializeFeedbackIngressResult> {
     const hasBody = (ingress.text?.trim().length ?? 0) > 0;
 
+    operation.stage("persist");
     await this.withPendingIngress(ingress.id, (transaction) =>
       this.ingress.updateIngressProcessing(transaction, ingress.id, {
         processingStatus: "ignored_unmatched",
@@ -309,6 +360,7 @@ export class PostEventFeedbackMaterializer {
     ingress: ProviderMessageIngressRow,
     conversation: FeedbackConversationDocument,
     correlationId: string,
+    operation: FeedbackOperationLog,
   ): Promise<MaterializeFeedbackIngressResult> {
     const text = ingress.text?.trim() ?? "";
     if (text.length === 0) {
@@ -319,17 +371,19 @@ export class PostEventFeedbackMaterializer {
         conversation,
         correlationId,
         "empty_body",
+        operation,
       );
     }
 
     const stopRequested = matchesPostEventFeedbackStopCommand(text);
     if (stopRequested) {
-      return this.applyStop(ingress, conversation, correlationId);
+      return this.applyStop(ingress, conversation, correlationId, operation);
     }
 
     const rendered = fitToTranscript(text);
     let materialized: { work: FeedbackConversationWork } | undefined;
     try {
+      operation.stage("persist");
       materialized = await this.withPendingIngress(
         ingress.id,
         async (transaction) => {
@@ -415,6 +469,7 @@ export class PostEventFeedbackMaterializer {
         conversation,
         correlationId,
         "transcript_capacity",
+        operation,
       );
     }
 
@@ -425,6 +480,7 @@ export class PostEventFeedbackMaterializer {
       );
     }
 
+    operation.stage("wakeup");
     const extractJobId = await this.publishWakeup(
       conversation._id,
       materialized.work,
@@ -451,8 +507,10 @@ export class PostEventFeedbackMaterializer {
     ingress: ProviderMessageIngressRow,
     conversation: FeedbackConversationDocument,
     correlationId: string,
+    operation: FeedbackOperationLog,
   ): Promise<MaterializeFeedbackIngressResult> {
     const text = ingress.text?.trim() ?? "";
+    operation.stage("persist_stop");
     const applied = await this.withPendingIngress(
       ingress.id,
       async (transaction) => {
@@ -468,16 +526,23 @@ export class PostEventFeedbackMaterializer {
           correlationId,
         );
 
-        const stopAck = await this.outbox.insertOutboxIfAbsent(transaction, {
-          id: deriveFeedbackStopAckOutboxId(conversation._id),
-          conversationId: conversation._id,
-          campaignId: conversation.campaignId,
-          kind: "system",
-          body: resolveCampaignCopy(
-            campaign?.questions,
-            campaign?.questionSetVersion,
-          ).stop_ack.slice(0, FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH),
-          dedupeKey: createFeedbackStopAckDedupeKey(conversation._id),
+        const stopAck = await this.outboundIntent.enqueue(transaction, {
+          dispatch: {
+            schemaVersion: 1,
+            purpose: "stop_ack",
+            sourceIngressId: ingress.id,
+          },
+          message: {
+            id: deriveFeedbackStopAckOutboxId(conversation._id),
+            conversationId: conversation._id,
+            campaignId: conversation.campaignId,
+            body: resolveCampaignCopy(
+              campaign?.questions,
+              campaign?.questionSetVersion,
+            ).stop_ack.slice(0, FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH),
+            dedupeKey: createFeedbackStopAckDedupeKey(conversation._id),
+          },
+          history: { deferred: "stop_ack_after_mutations" },
         });
         const closed = await this.conversations.close(transaction, {
           conversationId: conversation._id,
@@ -504,7 +569,7 @@ export class PostEventFeedbackMaterializer {
             conversation._id,
             stopAck.row.id,
           );
-        await this.outboundLog.record(transaction, {
+        await this.outboundIntent.recordHistory(transaction, {
           outbox: stopAck,
           conversation,
           decision: {
@@ -562,6 +627,7 @@ export class PostEventFeedbackMaterializer {
     );
 
     if (applied) {
+      operation.stage("summary");
       await this.summaries.notifyIfLastConversationClosed(
         conversation.campaignId,
         correlationId,
@@ -687,10 +753,16 @@ export class PostEventFeedbackMaterializer {
     ingress: ProviderMessageIngressRow,
     conversation: FeedbackConversationDocument | undefined,
     correlationId: string,
+    operation: FeedbackOperationLog,
   ): Promise<MaterializeFeedbackIngressResult> {
     const correlated = await this.findCorrelatedOutbox(ingress, conversation);
 
     if (correlated) {
+      operation.enrich({
+        conversationId: correlated.conversationId,
+        outboxId: correlated.id,
+      });
+      operation.stage("persist");
       await this.withPendingIngress(
         ingress.id,
         async (transaction) => {
@@ -731,9 +803,12 @@ export class PostEventFeedbackMaterializer {
     if (!conversation) {
       // Nothing of ours and nobody to silence: the shared session is simply
       // being used for something else.
-      return this.ignoreUnmatched(ingress, correlationId);
+      operation.stage("unmatched");
+      return this.ignoreUnmatched(ingress, correlationId, operation);
     }
 
+    operation.enrich({ conversationId: conversation._id });
+    operation.stage("persist");
     await this.withPendingIngress(
       ingress.id,
       async (transaction) => {
@@ -839,6 +914,7 @@ export class PostEventFeedbackMaterializer {
     conversation: FeedbackConversationDocument,
     correlationId: string,
     reason: "empty_body" | "transcript_capacity",
+    operation: FeedbackOperationLog,
   ): Promise<MaterializeFeedbackIngressResult> {
     // Two situations, two names, because the operator does two different things.
     // A voice note is work they can finish — listen to it on the phone and
@@ -864,6 +940,7 @@ export class PostEventFeedbackMaterializer {
     // asking them to retype something we simply have no room for would be a
     // lie about why we went quiet.
     let notice = { inserted: false };
+    operation.stage("persist");
     if (reason === "transcript_capacity") {
       // Commit the bot brake and failed ingress under the dispatcher's mutex.
       await this.withPendingIngress(
@@ -951,27 +1028,32 @@ export class PostEventFeedbackMaterializer {
       return { inserted: false };
     }
 
-    const notice = await this.outbox.insertOutboxIfAbsent(transaction, {
-      conversationId: conversation._id,
-      campaignId: conversation.campaignId,
-      kind: "system",
-      body: resolveCampaignCopy(
-        campaign.questions,
-        campaign.questionSetVersion,
-      ).cannot_read_media.slice(
-        0,
-        FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH,
-      ),
-      dedupeKey: createFeedbackMediaNoticeDedupeKey(conversation._id),
-    });
-    await this.outboundLog.record(transaction, {
-      outbox: notice,
-      conversation,
-      decision: {
-        origin: "media_notice",
+    const notice = await this.outboundIntent.enqueue(transaction, {
+      dispatch: {
+        schemaVersion: 1,
+        purpose: "media_notice",
         sourceIngressId: ingress.id,
       },
-      correlationId,
+      message: {
+        conversationId: conversation._id,
+        campaignId: conversation.campaignId,
+        body: resolveCampaignCopy(
+          campaign.questions,
+          campaign.questionSetVersion,
+        ).cannot_read_media.slice(
+          0,
+          FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH,
+        ),
+        dedupeKey: createFeedbackMediaNoticeDedupeKey(conversation._id),
+      },
+      history: {
+        conversation,
+        decision: {
+          origin: "media_notice",
+          sourceIngressId: ingress.id,
+        },
+        correlationId,
+      },
     });
     if (notice.inserted) {
       await this.outboundTranscript.record(

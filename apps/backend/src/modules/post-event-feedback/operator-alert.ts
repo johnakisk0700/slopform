@@ -1,4 +1,6 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
+
+import { FeedbackLogger } from "./feedback-operation-log.js";
 import { ConfigService } from "@nestjs/config";
 
 import type { Environment } from "../../infrastructure/config/environment.js";
@@ -71,7 +73,9 @@ export interface FeedbackOperatorAlert {
  */
 @Injectable()
 export class LoggingFeedbackOperatorAlert implements FeedbackOperatorAlert {
-  private readonly logger = new Logger(LoggingFeedbackOperatorAlert.name);
+  private readonly logger = new FeedbackLogger(
+    LoggingFeedbackOperatorAlert.name,
+  );
   private readonly mode: Environment["FEEDBACK_OPERATOR_ALERT_MODE"];
 
   constructor(config: ConfigService<Environment, true>) {

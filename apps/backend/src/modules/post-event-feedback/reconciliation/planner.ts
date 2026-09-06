@@ -34,11 +34,7 @@ export type FeedbackConversationReconciliationPlan =
   | {
       readonly kind: "idle";
       readonly reason: "campaign_paused";
-      /**
-       * Explicit target policy, because the legacy paths disagree: extraction
-       * may still buy model calls and persist results while reminders stop and
-       * expiry continues. Reconciliation recommends one coherent pause instead.
-       */
+      /** Pause freezes extraction, reminders and expiry until explicit resume. */
       readonly recommendation: typeof FEEDBACK_PAUSED_CAMPAIGN_RECOMMENDATION;
     }
   | {

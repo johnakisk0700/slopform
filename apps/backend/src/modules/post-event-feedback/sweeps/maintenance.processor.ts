@@ -1,5 +1,5 @@
 import { OnWorkerEvent, Processor, WorkerHost } from "@nestjs/bullmq";
-import { Logger } from "@nestjs/common";
+import { FeedbackLogger } from "../feedback-operation-log.js";
 import { MetricsTime, UnrecoverableError, type Job } from "bullmq";
 import { ZodError } from "zod";
 
@@ -25,7 +25,7 @@ import { PostEventFeedbackMaintenanceService } from "./maintenance.service.js";
   },
 )
 export class PostEventFeedbackMaintenanceProcessor extends WorkerHost {
-  private readonly logger = new Logger(
+  private readonly logger = new FeedbackLogger(
     PostEventFeedbackMaintenanceProcessor.name,
   );
 

@@ -1,4 +1,6 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
+
+import { FeedbackLogger } from "../feedback-operation-log.js";
 import type { MessageOutboxLogRow } from "@slopform/database";
 
 import { ParticipantsRepository } from "../../participants/participants.repository.js";
@@ -46,7 +48,9 @@ export class FeedbackOutboxMessageNotFoundError extends Error {
  */
 @Injectable()
 export class FeedbackOutboxQueueViewService {
-  private readonly logger = new Logger(FeedbackOutboxQueueViewService.name);
+  private readonly logger = new FeedbackLogger(
+    FeedbackOutboxQueueViewService.name,
+  );
 
   constructor(
     private readonly outbox: FeedbackOutboxRepository,

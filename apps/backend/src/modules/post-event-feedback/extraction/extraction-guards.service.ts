@@ -125,7 +125,7 @@ export class FeedbackExtractionGuards {
    * drops only an ordinary reply. Answers/notes/cursor still write. Reasons
    * are DB reads so replay agrees.
    */
-  async reviewBeforeSending(input: {
+  async reviewBeforeEnqueue(input: {
     readonly conversation: FeedbackConversationDocument;
     readonly cursorSeq: number;
     readonly staleOnNewerTestimony: boolean;

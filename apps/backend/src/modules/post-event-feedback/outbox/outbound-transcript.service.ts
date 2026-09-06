@@ -1,4 +1,6 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
+
+import { FeedbackLogger } from "../feedback-operation-log.js";
 
 import type {
   AppTransaction,
@@ -74,7 +76,9 @@ export class UnsupportedMessageOutboxKindError extends Error {
 /** Writes the stored outbox body and its actor in the producer's transaction. */
 @Injectable()
 export class FeedbackOutboundTranscriptService {
-  private readonly logger = new Logger(FeedbackOutboundTranscriptService.name);
+  private readonly logger = new FeedbackLogger(
+    FeedbackOutboundTranscriptService.name,
+  );
 
   constructor(
     private readonly repository: FeedbackOutboxRepository,

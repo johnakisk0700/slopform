@@ -764,6 +764,7 @@ describePostgres("FeedbackConversationRepository PostgreSQL adapter", () => {
             kind: "intro",
             body: "hello",
             dedupeKey: `storage-${conversationId}`,
+            dispatchContext: { schemaVersion: 1, purpose: "campaign_intro" },
           });
           await repository.appendMessage(tx, {
             conversationId,

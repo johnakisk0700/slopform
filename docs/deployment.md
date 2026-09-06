@@ -358,6 +358,25 @@ maintenance wake-up scan finds imported `work_next_action_at` after workers
 resume. Inspect that scan before reopening feedback HTTP traffic. There is no
 runtime dual-read or dual-write. Assistant Mongo recovery is unchanged.
 
+<a id="feedback-dispatch-context-cutover"></a>
+
+**Feedback dispatch-context cutover.** ADR 0016 requires quiescence before its
+migration, including when the conversation-storage cutover was already applied.
+Stop feedback HTTP producers, then drain and stop workers with their normal
+shutdown grace. Apply the migration once while they remain stopped. It copies
+recognized purpose and candidate evidence from historical outbound records;
+missing evidence cannot be reconstructed from today's conversation. Inspect
+unusable legacy contexts and the explicitly cancelled pre-send rows. Preserve
+attempting, legacy sending, ambiguous and sent outcomes for their existing
+recovery paths. Start only the new worker and HTTP binaries, then inspect
+dispatch validation failures before reopening feedback traffic.
+
+Do not use the ordinary migrate-before-stop deployment sequence for this
+cutover or restart an old writer against the new schema. The previous
+conversation import, if still required, also runs under this stopped-writer
+window. Rollback needs a compatible binary or a reviewed forward fix; it must
+not restore send permission to cancelled or uncertain messages.
+
 ### Coordinated backup runbook
 
 No transactional cross-store snapshot while writes continue. Quiesce API then

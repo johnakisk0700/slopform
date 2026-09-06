@@ -10,8 +10,8 @@ import {
 } from "../post-event-feedback-conversation.document.js";
 
 /**
- * Bounded state captured beside an outbound decision. Deliberately a summary —
- * no transcript bodies, no phone, no participant ids the log row already carries.
+ * Bounded historical state beside an outbound decision. Dispatch authority is
+ * stored separately on the outbox row, not inferred from this projection.
  */
 export const outboundConversationSnapshotSchema = z
   .object({
@@ -25,22 +25,11 @@ export const outboundConversationSnapshotSchema = z
       .object({
         mode: feedbackConversationControlSchema.shape.mode,
         source: feedbackConversationControlSchema.shape.source,
-        /**
-         * Exact control generation the producer admitted. Optional only so
-         * historical audit rows remain parseable; they are not fresh enough
-         * to authorize a new provider call.
-         */
+        /** Optional so historical rows remain readable. */
         changedAt: z.iso.datetime().optional(),
       })
       .strict(),
-    /**
-     * Durable work generation observed by the producer.
-     *
-     * Reconciliation may legitimately settle revision N as N+1 after the
-     * outbox insert, so revision is not the primary dispatch authorization.
-     * The execution and campaign-resume generations do not have that benign
-     * transition and close two provider-entry ABA windows.
-     */
+    /** Work generation observed by the producer; absent in older history. */
     work: z
       .object({
         revision: z.number().int().min(0),
@@ -62,14 +51,7 @@ export const outboundConversationSnapshotSchema = z
     ),
     messageCount: z.number().int().min(0),
     latestMessageSeq: z.number().int().min(1).nullable(),
-    /**
-     * Participant ingress rows present in the model/outbound snapshot.
-     *
-     * Optional keeps historical audit rows readable. New extraction rows use
-     * it at the dispatcher's final provider-entry fence: any durable inbound
-     * not in this set supersedes an ordinary reply, including a row still
-     * waiting for conversation materialization.
-     */
+    /** Participant ingress in this historical snapshot; absent in older rows. */
     participantIngressIds: z
       .array(z.uuid())
       .max(FEEDBACK_CONVERSATION_MAX_MESSAGES)

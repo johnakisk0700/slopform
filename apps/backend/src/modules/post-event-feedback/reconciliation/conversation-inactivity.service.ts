@@ -7,7 +7,7 @@ import { DatabaseService } from "../../../infrastructure/database/database.servi
 import { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
 import { FeedbackIngressRepository } from "../ingress/ingress.repository.js";
 import { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
-import { FeedbackOutboundLogService } from "../outbox/outbound-log.service.js";
+import { FeedbackOutboundIntentService } from "../outbox/outbound-intent.service.js";
 import { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
 import type { FeedbackConversationDocument } from "../post-event-feedback-conversation.document.js";
 import { ParticipantsRepository } from "../../participants/participants.repository.js";
@@ -37,7 +37,7 @@ export class FeedbackConversationInactivityService {
     private readonly participants: ParticipantsRepository,
     private readonly audit: AuditRepository,
     private readonly outboundTranscript: FeedbackOutboundTranscriptService,
-    private readonly outboundLog: FeedbackOutboundLogService,
+    private readonly outboundIntent: FeedbackOutboundIntentService,
     private readonly summaries: PostEventFeedbackCampaignSummaryService,
   ) {}
 
@@ -185,21 +185,22 @@ export class FeedbackConversationInactivityService {
         return undefined;
       }
 
-      const enqueued = await this.outbox.insertOutboxIfAbsent(transaction, {
-        conversationId: conversation._id,
-        campaignId: conversation.campaignId,
-        kind: "reminder",
-        body: renderReminderBody(conversation, copy, displayName),
-        dedupeKey: createFeedbackReminderDedupeKey(conversation._id, ordinal),
-      });
-      await this.outboundLog.record(transaction, {
-        outbox: enqueued,
-        conversation,
-        decision: {
-          origin: "reminder",
-          rung: ordinal,
+      const enqueued = await this.outboundIntent.enqueue(transaction, {
+        dispatch: { schemaVersion: 1, purpose: "reminder", rung: ordinal },
+        message: {
+          conversationId: conversation._id,
+          campaignId: conversation.campaignId,
+          body: renderReminderBody(conversation, copy, displayName),
+          dedupeKey: createFeedbackReminderDedupeKey(conversation._id, ordinal),
         },
-        correlationId,
+        history: {
+          conversation,
+          decision: {
+            origin: "reminder",
+            rung: ordinal,
+          },
+          correlationId,
+        },
       });
       if (enqueued.inserted) {
         await this.audit.append(transaction, {

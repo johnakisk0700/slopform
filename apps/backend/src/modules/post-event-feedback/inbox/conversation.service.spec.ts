@@ -24,6 +24,7 @@ import type { EventsService } from "../../events/events.service.js";
 import type { ParticipantsRepository } from "../../participants/participants.repository.js";
 import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
 import type { FeedbackOutboundLogRepository } from "../outbox/outbound-log.repository.js";
+import { FeedbackOutboundIntentService } from "../outbox/outbound-intent.service.js";
 import { FeedbackOutboundLogService } from "../outbox/outbound-log.service.js";
 import { noopSummaries } from "../post-event-feedback-doubles.harness.js";
 import { buildPostEventFeedbackQuestionLaunchSnapshot } from "../question-set.js";
@@ -497,6 +498,11 @@ describe("PostEventFeedbackConversationService", () => {
           clientMessageId,
         ),
         createdByStaff: "admin-1",
+        dispatchContext: {
+          schemaVersion: 1,
+          purpose: "staff_message",
+          staffActorId: "admin-1",
+        },
       }),
     );
     expect(repository.lockConversation).toHaveBeenCalledWith(
@@ -2340,6 +2346,11 @@ function outboxRow(): MessageOutboxRow {
     deliveryUpdatedAt: null,
     createdAt: new Date("2026-07-25T00:31:00.000Z"),
     updatedAt: new Date("2026-07-25T00:31:00.000Z"),
+    dispatchContext: {
+      schemaVersion: 1,
+      purpose: "staff_message",
+      staffActorId: "admin-1",
+    },
   };
 }
 
@@ -2557,8 +2568,11 @@ function createService(): {
       repository as unknown as FeedbackOutboxRepository,
       conversations as unknown as FeedbackConversationRepository,
     ),
-    new FeedbackOutboundLogService(
-      repository as unknown as FeedbackOutboundLogRepository,
+    new FeedbackOutboundIntentService(
+      repository as unknown as FeedbackOutboxRepository,
+      new FeedbackOutboundLogService(
+        repository as unknown as FeedbackOutboundLogRepository,
+      ),
     ),
     noopSummaries(),
     executionFences as unknown as FeedbackConversationExecutionFenceRepository,

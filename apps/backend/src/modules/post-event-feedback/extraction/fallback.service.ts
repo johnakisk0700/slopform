@@ -1,4 +1,6 @@
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
+
+import { FeedbackLogger } from "../feedback-operation-log.js";
 import type { FeedbackExtractionMeta } from "@slopform/database";
 
 import { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
@@ -14,7 +16,7 @@ import {
   FEEDBACK_OPERATOR_ALERT,
   type FeedbackOperatorAlert,
 } from "../operator-alert.js";
-import { FeedbackOutboundLogService } from "../outbox/outbound-log.service.js";
+import { FeedbackOutboundIntentService } from "../outbox/outbound-intent.service.js";
 import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
 import type { FeedbackExtractionFailureCause } from "./model.service.js";
 import {
@@ -65,7 +67,7 @@ export interface FeedbackExtractionParkResult {
  */
 @Injectable()
 export class PostEventFeedbackExtractionFallback {
-  private readonly logger = new Logger(
+  private readonly logger = new FeedbackLogger(
     PostEventFeedbackExtractionFallback.name,
   );
 
@@ -78,7 +80,7 @@ export class PostEventFeedbackExtractionFallback {
     private readonly events: EventsService,
     private readonly audit: AuditRepository,
     private readonly outboundTranscript: FeedbackOutboundTranscriptService,
-    private readonly outboundLog: FeedbackOutboundLogService,
+    private readonly outboundIntent: FeedbackOutboundIntentService,
     @Inject(FEEDBACK_OPERATOR_ALERT)
     private readonly alert: FeedbackOperatorAlert,
     private readonly wakeups: FeedbackConversationWakeupService,
@@ -130,26 +132,29 @@ export class PostEventFeedbackExtractionFallback {
       await this.results.lockConversation(transaction, conversation._id);
 
       // Per-testimony cancelled fence: replay must not duplicate note/audit/alert.
-      const fenced = await this.outbox.insertOutboxIfAbsent(transaction, {
-        conversationId: conversation._id,
-        campaignId: campaign.id,
-        kind: "system",
-        body: POST_EVENT_FEEDBACK_FALLBACK_FENCE_BODY,
-        status: "cancelled",
-        dedupeKey: createFeedbackFallbackDedupeKey(
-          conversation._id,
-          testimony.seq,
-        ),
-      });
-      // Log in this transaction even when the fence already existed.
-      await this.outboundLog.record(transaction, {
-        outbox: fenced,
-        conversation,
-        decision: {
-          origin: "extraction_fallback_fence",
-          cause: input.cause,
+      const fenced = await this.outboundIntent.enqueue(transaction, {
+        dispatch: {
+          schemaVersion: 1,
+          purpose: "extraction_fallback_fence",
         },
-        correlationId: input.correlationId,
+        message: {
+          conversationId: conversation._id,
+          campaignId: campaign.id,
+          body: POST_EVENT_FEEDBACK_FALLBACK_FENCE_BODY,
+          status: "cancelled",
+          dedupeKey: createFeedbackFallbackDedupeKey(
+            conversation._id,
+            testimony.seq,
+          ),
+        },
+        history: {
+          conversation,
+          decision: {
+            origin: "extraction_fallback_fence",
+            cause: input.cause,
+          },
+          correlationId: input.correlationId,
+        },
       });
 
       // Cancel queued questions before setting the human handoff.
@@ -346,23 +351,27 @@ export class PostEventFeedbackExtractionFallback {
     }
 
     const enqueued = await this.database.transaction(async (transaction) => {
-      const result = await this.outbox.insertOutboxIfAbsent(transaction, {
-        conversationId: conversation._id,
-        campaignId: conversation.campaignId,
-        kind: "system",
-        body: POST_EVENT_FEEDBACK_EXTRACTION_PARKED_NOTICE,
-        dedupeKey: createFeedbackExtractionParkedNoticeDedupeKey(
-          conversation._id,
-        ),
-      });
-      await this.outboundLog.record(transaction, {
-        outbox: result,
-        conversation,
-        decision: {
-          origin: "extraction_parked_notice",
-          cause: input.cause,
+      const result = await this.outboundIntent.enqueue(transaction, {
+        dispatch: {
+          schemaVersion: 1,
+          purpose: "extraction_parked_notice",
         },
-        correlationId: input.correlationId,
+        message: {
+          conversationId: conversation._id,
+          campaignId: conversation.campaignId,
+          body: POST_EVENT_FEEDBACK_EXTRACTION_PARKED_NOTICE,
+          dedupeKey: createFeedbackExtractionParkedNoticeDedupeKey(
+            conversation._id,
+          ),
+        },
+        history: {
+          conversation,
+          decision: {
+            origin: "extraction_parked_notice",
+            cause: input.cause,
+          },
+          correlationId: input.correlationId,
+        },
       });
       await this.conversations.markExtractionParkedNoticeSent(transaction, {
         conversationId: conversation._id,

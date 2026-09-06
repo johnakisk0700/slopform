@@ -1,4 +1,6 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
+
+import { FeedbackLogger } from "../feedback-operation-log.js";
 import type { FeedbackCampaignRow } from "@slopform/database";
 
 import { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
@@ -8,7 +10,7 @@ import {
   type FeedbackEligibleAttendee,
 } from "./campaign.repository.js";
 import { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
-import { FeedbackOutboundLogService } from "../outbox/outbound-log.service.js";
+import { FeedbackOutboundIntentService } from "../outbox/outbound-intent.service.js";
 import {
   FeedbackConversationPhoneConflictError,
   FeedbackConversationRepository,
@@ -78,7 +80,9 @@ export class FeedbackCampaignParticipantNotEligibleError extends Error {
  */
 @Injectable()
 export class PostEventFeedbackCampaignService {
-  private readonly logger = new Logger(PostEventFeedbackCampaignService.name);
+  private readonly logger = new FeedbackLogger(
+    PostEventFeedbackCampaignService.name,
+  );
 
   constructor(
     private readonly database: DatabaseService,
@@ -88,7 +92,7 @@ export class PostEventFeedbackCampaignService {
     private readonly events: EventsRepository,
     private readonly audit: AuditRepository,
     private readonly outboundTranscript: FeedbackOutboundTranscriptService,
-    private readonly outboundLog: FeedbackOutboundLogService,
+    private readonly outboundIntent: FeedbackOutboundIntentService,
     private readonly wakeups: FeedbackConversationWakeupService,
   ) {}
 
@@ -521,21 +525,22 @@ export class PostEventFeedbackCampaignService {
         return { creation, introEnqueued: false };
       }
 
-      const enqueued = await this.outbox.insertOutboxIfAbsent(transaction, {
-        conversationId: creation.conversation._id,
-        campaignId: campaign.id,
-        kind: "intro",
-        body: renderPostEventFeedbackCopy(copy.intro, displayName),
-        dedupeKey: createFeedbackIntroDedupeKey(creation.conversation._id),
-      });
-      await this.outboundLog.record(transaction, {
-        outbox: enqueued,
-        conversation: creation.conversation,
-        decision: {
-          origin: "campaign_intro",
-          conversationCreated: creation.created,
+      const enqueued = await this.outboundIntent.enqueue(transaction, {
+        dispatch: { schemaVersion: 1, purpose: "campaign_intro" },
+        message: {
+          conversationId: creation.conversation._id,
+          campaignId: campaign.id,
+          body: renderPostEventFeedbackCopy(copy.intro, displayName),
+          dedupeKey: createFeedbackIntroDedupeKey(creation.conversation._id),
         },
-        correlationId: input.requestId,
+        history: {
+          conversation: creation.conversation,
+          decision: {
+            origin: "campaign_intro",
+            conversationCreated: creation.created,
+          },
+          correlationId: input.requestId,
+        },
       });
       const recorded = await this.outboundTranscript.record(
         transaction,

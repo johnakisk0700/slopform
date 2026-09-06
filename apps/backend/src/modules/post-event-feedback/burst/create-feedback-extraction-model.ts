@@ -1,4 +1,4 @@
-import { Logger } from "@nestjs/common";
+import { FeedbackLogger } from "../feedback-operation-log.js";
 import type { ConfigService } from "@nestjs/config";
 
 import type { Environment } from "../../../infrastructure/config/environment.js";
@@ -7,7 +7,7 @@ import { PostEventFeedbackExtractionModel } from "../extraction/model.service.js
 import type { BurstPersona } from "./burst-scenario.js";
 import { ScriptedBurstExtractionModel } from "./scripted-extraction-model.service.js";
 
-const logger = new Logger("PostEventFeedbackExtractionModel");
+const logger = new FeedbackLogger("PostEventFeedbackExtractionModel");
 
 /**
  * Chooses the real OpenRouter/OpenAI extraction model or the deterministic

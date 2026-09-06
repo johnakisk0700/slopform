@@ -2,7 +2,17 @@ import { randomUUID } from "node:crypto";
 
 import { Logger } from "@nestjs/common";
 import type { AppTransaction } from "@slopform/database";
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+
+import { FEEDBACK_OPERATION_EVENT } from "../feedback-operation-log.js";
 
 import type { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
 import type { DatabaseService } from "../../../infrastructure/database/database.service.js";
@@ -10,23 +20,27 @@ import {
   FeedbackConversationCapacityError,
   type FeedbackConversationRepository,
 } from "../post-event-feedback-conversation.repository.js";
-import {
-  FEEDBACK_CONVERSATION_MESSAGE_MAX_STORED_TEXT_LENGTH,
-  buildFeedbackConversationGoals,
-} from "../post-event-feedback-conversation.document.js";
+import { FEEDBACK_CONVERSATION_MESSAGE_MAX_STORED_TEXT_LENGTH } from "../post-event-feedback-conversation.document.js";
 import type { ParticipantsRepository } from "../../participants/participants.repository.js";
 import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
 import type { FeedbackOutboundLogRepository } from "../outbox/outbound-log.repository.js";
+import { FeedbackOutboundIntentService } from "../outbox/outbound-intent.service.js";
 import { FeedbackOutboundLogService } from "../outbox/outbound-log.service.js";
 import type { FeedbackOutboundDecision } from "../outbox/outbound-log.schemas.js";
 import type { OutboundConversationSnapshot } from "../outbox/outbound-log.snapshot.js";
 import {
   FakeAudit,
   FakeDatabase,
+  FakeFeedbackConversations,
   FakeParticipants,
+  feedbackConversationFixture,
+  feedbackStoredMessage,
   noopSummaries,
 } from "../post-event-feedback-doubles.harness.js";
-import { PostEventFeedbackMaterializer } from "./materialize.service.js";
+import {
+  PostEventFeedbackIngressNotFoundError,
+  PostEventFeedbackMaterializer,
+} from "./materialize.service.js";
 import { PostEventFeedbackMetrics } from "../metrics.service.js";
 import {
   POST_EVENT_FEEDBACK_QUESTION_SET_V1,
@@ -59,6 +73,9 @@ describe("PostEventFeedbackMaterializer", () => {
 
   beforeEach(() => {
     harness = createHarness();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it("keeps unmatched traffic unattributed but no longer deletes what it said", async () => {
@@ -150,7 +167,7 @@ describe("PostEventFeedbackMaterializer", () => {
     });
     const conversation = harness.conversations.get(conversationId);
     conversation.awaitingHuman = true;
-    conversation.messages.push({
+    harness.conversations.pushStored(conversationId, {
       id: randomUUID(),
       seq: 1,
       actor: "bot",
@@ -223,7 +240,7 @@ describe("PostEventFeedbackMaterializer", () => {
     );
   });
 
-  it("materializes out-of-order arrivals in durable arrival order", async () => {
+  it("orders the transcript by observation time while preserving arrival sequence", async () => {
     const later = harness.repository.seedIngress({
       text: "Και ο Κώστας ήταν τέλειος",
       observedAt: new Date("2026-07-25T10:07:00.000Z"),
@@ -245,8 +262,13 @@ describe("PostEventFeedbackMaterializer", () => {
     });
 
     expect(
-      harness.conversations.transcript(conversationId).map((m) => m.text),
-    ).toEqual(["Και ο Κώστας ήταν τέλειος", "Πέρασα πολύ ωραία"]);
+      harness.conversations
+        .transcript(conversationId)
+        .map(({ text, seq }) => ({ text, seq })),
+    ).toEqual([
+      { text: "Πέρασα πολύ ωραία", seq: 2 },
+      { text: "Και ο Κώστας ήταν τέλειος", seq: 1 },
+    ]);
     expect(harness.wakeups.ensureQueued).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
@@ -1098,14 +1120,103 @@ describe("PostEventFeedbackMaterializer", () => {
   });
 
   it("does not retry a job whose ingress row is gone", async () => {
+    const records = captureOperations();
+    const ingressId = randomUUID();
     await expect(
       harness.materializer.materialize({
-        ingressId: randomUUID(),
+        ingressId,
         correlationId,
       }),
-    ).rejects.toThrow(/was not found/u);
+    ).rejects.toBeInstanceOf(PostEventFeedbackIngressNotFoundError);
+    expect(records.find((record) => record.status === "failed")).toMatchObject({
+      operation: "materialize",
+      stage: "ingress_load",
+      ingressId,
+      correlationId,
+    });
+  });
+
+  it("still materializes and wakes when the logger sink throws", async () => {
+    throwingLoggerSink();
+    const ingressId = harness.repository.seedIngress({ text: "Ήταν τέλεια!" });
+
+    await expect(
+      harness.materializer.materialize({ ingressId, correlationId }),
+    ).resolves.toMatchObject({
+      outcome: "inbound_materialized",
+      conversationId,
+    });
+    expect(harness.wakeups.ensureQueued).toHaveBeenCalledTimes(1);
+  });
+
+  it("names persist when appending the inbound turn fails", async () => {
+    const records = captureOperations();
+    const failure = Object.assign(new Error("append failed"), {
+      code: "40P01",
+    });
+    vi.spyOn(harness.conversations, "appendMessage").mockRejectedValue(failure);
+    const ingressId = harness.repository.seedIngress({ text: "Ήταν τέλεια!" });
+
+    await expect(
+      harness.materializer.materialize({ ingressId, correlationId }),
+    ).rejects.toBe(failure);
+    expect(harness.wakeups.ensureQueued).not.toHaveBeenCalled();
+    expect(records.find((record) => record.status === "failed")).toMatchObject({
+      operation: "materialize",
+      stage: "persist",
+      errorCode: "40P01",
+      conversationId,
+    });
+    expect(JSON.stringify(records)).not.toContain(phone);
+    expect(JSON.stringify(records)).not.toContain("Ήταν τέλεια!");
+  });
+
+  it("names wakeup when the post-commit queue publish fails", async () => {
+    const records = captureOperations();
+    const failure = Object.assign(new Error("redis down"), {
+      code: "ECONNREFUSED",
+    });
+    harness.wakeups.ensureQueued.mockRejectedValue(failure);
+    const ingressId = harness.repository.seedIngress({ text: "Ήταν τέλεια!" });
+
+    await expect(
+      harness.materializer.materialize({ ingressId, correlationId }),
+    ).rejects.toBe(failure);
+    expect(records.find((record) => record.status === "failed")).toMatchObject({
+      operation: "materialize",
+      stage: "wakeup",
+      errorCode: "ECONNREFUSED",
+      conversationId,
+    });
   });
 });
+
+function captureOperations(): Record<string, unknown>[] {
+  const records: Record<string, unknown>[] = [];
+  const collect = (message: unknown) => {
+    if (
+      message !== null &&
+      typeof message === "object" &&
+      "event" in message &&
+      message.event === FEEDBACK_OPERATION_EVENT
+    ) {
+      records.push(message as Record<string, unknown>);
+    }
+  };
+  vi.spyOn(Logger.prototype, "log").mockImplementation(collect);
+  vi.spyOn(Logger.prototype, "error").mockImplementation(collect);
+  vi.spyOn(Logger.prototype, "warn").mockImplementation(collect);
+  return records;
+}
+
+function throwingLoggerSink(): void {
+  const boom = () => {
+    throw new Error("pino unavailable");
+  };
+  vi.spyOn(Logger.prototype, "log").mockImplementation(boom);
+  vi.spyOn(Logger.prototype, "error").mockImplementation(boom);
+  vi.spyOn(Logger.prototype, "warn").mockImplementation(boom);
+}
 
 interface FakeIngressRow {
   id: string;
@@ -1147,57 +1258,6 @@ interface FakeOutboxLogRow {
   decision: FeedbackOutboundDecision;
   conversationState: OutboundConversationSnapshot;
   createdAt: Date;
-}
-
-interface FakeMessage {
-  id: string;
-  seq: number;
-  actor: string;
-  text: string;
-  providerMessageId: string | null;
-  ingressId: string | null;
-  outboxId: string | null;
-  attention?: {
-    categories: string[];
-    recommendedAction: string;
-    confidence: number;
-  } | null;
-  at: Date;
-}
-
-interface FakeConversation {
-  _id: string;
-  campaignId: string;
-  respondentParticipantId: string;
-  phoneAtLaunch: string;
-  lifecycle: {
-    state: string;
-    reason: string | null;
-    closedAt: Date | null;
-    terminalOutboxId?: string | null;
-  };
-  control: { mode: string; source: string; changedAt: Date };
-  goals: { key: string; ordinal: number; prompt: string; status: string }[];
-  messages: FakeMessage[];
-  extraction: {
-    cursorSeq: number;
-    lastRunAt: Date | null;
-    model: string | null;
-    parkedSince: Date | null;
-    parkedRuns: number;
-    parkedNoticeSentAt: Date | null;
-  };
-  needsAttention: boolean;
-  attentionReasons: FakeAttentionReason[];
-  reminderCount: number;
-  awaitingHuman: boolean;
-  workRevision?: number;
-}
-
-interface FakeAttentionReason {
-  kind: string;
-  messageId: string | null;
-  resolvedAt: Date | null;
 }
 
 class FakeFeedbackRepository {
@@ -1404,6 +1464,9 @@ class FakeFeedbackRepository {
       kind: string;
       body: string;
       dedupeKey: string;
+      status?: string;
+      createdByStaff?: string | null;
+      dispatchContext?: unknown;
     },
   ): Promise<{ row: FakeOutboxRow; inserted: boolean }> {
     const existing = this.outbox.find(
@@ -1531,217 +1594,10 @@ class FakeFeedbackRepository {
   }
 }
 
-/**
- * Mirrors the documented schema-v2 repository contract: idempotent appends by
- * provenance, first-closure-wins with a STOP override, and takeover only from
- * bot control. The PostgreSQL adapter is covered by its own spec.
- */
-class FakeConversations {
-  readonly documents = new Map<string, FakeConversation>();
-
-  seed(conversation: FakeConversation): void {
-    this.documents.set(conversation._id, conversation);
-  }
-
-  get(id: string): FakeConversation {
-    const conversation = this.documents.get(id);
-    if (!conversation) {
-      throw new Error(`Conversation ${id} was not seeded`);
-    }
-    return conversation;
-  }
-
-  transcript(id: string): {
-    seq: number;
-    actor: string;
-    text: string;
-    ingressId: string | null;
-    outboxId: string | null;
-    attention: FakeMessage["attention"];
-  }[] {
-    return this.get(id).messages.map((message) => ({
-      seq: message.seq,
-      actor: message.actor,
-      text: message.text,
-      ingressId: message.ingressId,
-      outboxId: message.outboxId,
-      attention: message.attention,
-    }));
-  }
-
-  async findOpenByPhone(
-    phoneAtLaunch: string,
-  ): Promise<FakeConversation | undefined> {
-    return [...this.documents.values()].find(
-      (conversation) =>
-        conversation.phoneAtLaunch === phoneAtLaunch &&
-        conversation.lifecycle.state === "open",
-    );
-  }
-
-  async findLatestClosedByPhone(
-    phoneAtLaunch: string,
-  ): Promise<FakeConversation | undefined> {
-    return [...this.documents.values()]
-      .reverse()
-      .find(
-        (conversation) =>
-          conversation.phoneAtLaunch === phoneAtLaunch &&
-          conversation.lifecycle.state === "closed",
-      );
-  }
-
-  async markWorkDue(
-    _transaction: unknown,
-    input: { conversationId: string; nextActionAt: Date; at: Date },
-  ): Promise<{
-    changed: boolean;
-    conversation: FakeConversation;
-    work: { revision: number; nextActionAt: Date };
-  }> {
-    const conversation = this.get(input.conversationId);
-    const revision = (conversation.workRevision ?? 0) + 1;
-    conversation.workRevision = revision;
-    return {
-      changed: true,
-      conversation,
-      work: { revision, nextActionAt: input.nextActionAt },
-    };
-  }
-
-  async appendMessage(
-    _transaction: unknown,
-    input: {
-      conversationId: string;
-      actor: string;
-      text: string;
-      at: Date;
-      id?: string;
-      providerMessageId?: string | null;
-      ingressId?: string | null;
-      outboxId?: string | null;
-    },
-  ): Promise<{
-    appended: boolean;
-    message: FakeMessage;
-    conversation: FakeConversation;
-  }> {
-    const conversation = this.get(input.conversationId);
-    const keys = [input.id, input.ingressId, input.outboxId].filter(Boolean);
-    const existing = conversation.messages.find((message) =>
-      [message.id, message.ingressId, message.outboxId]
-        .filter(Boolean)
-        .some((key) => keys.includes(key as string)),
-    );
-    if (existing) {
-      return { appended: false, message: existing, conversation };
-    }
-
-    const message: FakeMessage = {
-      id: input.id ?? randomUUID(),
-      seq: conversation.messages.length + 1,
-      actor: input.actor,
-      text: input.text.trim(),
-      providerMessageId: input.providerMessageId ?? null,
-      ingressId: input.ingressId ?? null,
-      outboxId: input.outboxId ?? null,
-      at: input.at,
-    };
-    conversation.messages.push(message);
-    return { appended: true, message, conversation };
-  }
-
-  async close(
-    _transaction: unknown,
-    input: {
-      conversationId: string;
-      reason: string;
-      at: Date;
-      terminalOutboxId?: string | null;
-    },
-  ): Promise<{ changed: boolean; conversation: FakeConversation }> {
-    const conversation = this.get(input.conversationId);
-    const closable =
-      conversation.lifecycle.state === "open" ||
-      (input.reason === "stopped" &&
-        conversation.lifecycle.reason !== "stopped");
-    if (!closable) {
-      return { changed: false, conversation };
-    }
-    conversation.lifecycle = {
-      state: "closed",
-      reason: input.reason,
-      closedAt: input.at,
-      terminalOutboxId: input.terminalOutboxId ?? null,
-    };
-    return { changed: true, conversation };
-  }
-
-  async takeOver(
-    _transaction: unknown,
-    input: {
-      conversationId: string;
-      source: string;
-      at: Date;
-    },
-  ): Promise<{ changed: boolean; conversation: FakeConversation }> {
-    const conversation = this.get(input.conversationId);
-    if (conversation.control.mode === "human") {
-      return { changed: false, conversation };
-    }
-    conversation.control = {
-      mode: "human",
-      source: input.source,
-      changedAt: input.at,
-    };
-    return { changed: true, conversation };
-  }
-
-  async markAwaitingHuman(
-    _transaction: unknown,
-    input: {
-      conversationId: string;
-    },
-  ): Promise<{ changed: boolean; conversation: FakeConversation }> {
-    const conversation = this.get(input.conversationId);
-    const changed = !conversation.awaitingHuman;
-    conversation.awaitingHuman = true;
-    return { changed, conversation };
-  }
-
-  /** Idempotent on kind + message: a retried job must not stack identical rows. */
-  async raiseAttention(
-    _transaction: unknown,
-    input: {
-      conversationId: string;
-      kind: string;
-      messageId: string | null;
-    },
-  ): Promise<{ changed: boolean; conversation: FakeConversation }> {
-    const conversation = this.get(input.conversationId);
-    const standing = conversation.attentionReasons.some(
-      (reason) =>
-        reason.kind === input.kind &&
-        reason.messageId === input.messageId &&
-        reason.resolvedAt === null,
-    );
-    if (standing) {
-      return { changed: false, conversation };
-    }
-    conversation.attentionReasons.push({
-      kind: input.kind,
-      messageId: input.messageId,
-      resolvedAt: null,
-    });
-    conversation.needsAttention = true;
-    return { changed: true, conversation };
-  }
-}
-
 interface Harness {
   materializer: PostEventFeedbackMaterializer;
   repository: FakeFeedbackRepository;
-  conversations: FakeConversations;
+  conversations: FakeFeedbackConversations;
   participants: FakeParticipants;
   audit: FakeAudit;
   wakeups: {
@@ -1752,7 +1608,7 @@ interface Harness {
 
 function createHarness(): Harness {
   const repository = new FakeFeedbackRepository();
-  const conversations = new FakeConversations();
+  const conversations = new FakeFeedbackConversations();
   const participants = new FakeParticipants();
   const audit = new FakeAudit();
   const metrics = new PostEventFeedbackMetrics();
@@ -1774,32 +1630,19 @@ function createHarness(): Harness {
     status: "launched",
     questions: {},
   });
-  conversations.seed({
-    _id: conversationId,
-    campaignId,
-    respondentParticipantId,
-    phoneAtLaunch: phone,
-    lifecycle: { state: "open", reason: null, closedAt: null },
-    control: {
-      mode: "bot",
-      source: "launch",
-      changedAt: new Date("2026-07-25T10:00:00.000Z"),
-    },
-    goals: buildFeedbackConversationGoals(),
-    messages: [],
-    extraction: {
-      cursorSeq: 0,
-      lastRunAt: null,
-      model: null,
-      parkedSince: null,
-      parkedRuns: 0,
-      parkedNoticeSentAt: null,
-    },
-    needsAttention: false,
-    attentionReasons: [],
-    reminderCount: 0,
-    awaitingHuman: false,
-  });
+  conversations.seed(
+    feedbackConversationFixture({
+      _id: conversationId,
+      campaignId,
+      respondentParticipantId,
+      phoneAtLaunch: phone,
+      control: {
+        mode: "bot",
+        source: "launch",
+        changedAt: new Date("2026-07-25T10:00:00.000Z"),
+      },
+    }),
+  );
   participants.rows.set(respondentParticipantId, {
     id: respondentParticipantId,
     preferredName: null,
@@ -1822,8 +1665,11 @@ function createHarness(): Harness {
       repository as unknown as FeedbackOutboxRepository,
       conversations as unknown as FeedbackConversationRepository,
     ),
-    new FeedbackOutboundLogService(
-      repository as unknown as FeedbackOutboundLogRepository,
+    new FeedbackOutboundIntentService(
+      repository as unknown as FeedbackOutboxRepository,
+      new FeedbackOutboundLogService(
+        repository as unknown as FeedbackOutboundLogRepository,
+      ),
     ),
     noopSummaries(),
     wakeups as unknown as FeedbackConversationWakeupService,

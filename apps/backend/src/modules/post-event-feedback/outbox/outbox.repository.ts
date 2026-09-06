@@ -38,6 +38,11 @@ import { z } from "zod";
 import { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
 import { FEEDBACK_CONVERSATION_MAX_MESSAGES } from "../post-event-feedback-conversation.document.js";
+import {
+  assertEnqueueDispatchContext,
+  parseDispatchContext,
+  type DispatchEnqueueRequest,
+} from "./dispatch-context.js";
 
 /** Stale `sending` rows older than this are reclaimed for re-enqueue / reconcile. */
 export const FEEDBACK_OUTBOX_RECOVERY_MS = 5 * 60_000;
@@ -196,8 +201,8 @@ export class FeedbackOutboxRepository {
   }
 
   /**
-   * Enqueues an outbound message. Duplicate `dedupe_key` inserts are ignored
-   * and the existing row is returned.
+   * Enqueues an outbound message with immutable dispatch context. Duplicate
+   * `dedupe_key` inserts are ignored and the existing row is returned as-is.
    */
   async insertOutboxIfAbsent(
     transaction: AppTransaction,
@@ -210,8 +215,19 @@ export class FeedbackOutboxRepository {
       readonly dedupeKey: string;
       readonly status?: MessageOutboxStatus;
       readonly createdByStaff?: string | null;
+      readonly dispatchContext: DispatchEnqueueRequest;
     },
   ): Promise<{ readonly row: MessageOutboxRow; readonly inserted: boolean }> {
+    const parsed = parseDispatchContext(input.dispatchContext);
+    if (parsed.state !== "usable") {
+      throw new Error(`Outbound insert rejected: ${parsed.reason}`);
+    }
+    assertEnqueueDispatchContext(
+      parsed.context,
+      input.kind,
+      input.dedupeKey,
+      input.conversationId,
+    );
     const [inserted] = await transaction
       .insert(messageOutbox)
       .values({
@@ -223,6 +239,7 @@ export class FeedbackOutboxRepository {
         dedupeKey: input.dedupeKey,
         status: input.status ?? "pending",
         createdByStaff: input.createdByStaff ?? null,
+        dispatchContext: parsed.context,
       })
       .onConflictDoNothing({
         target: [messageOutbox.dedupeKey],

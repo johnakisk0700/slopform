@@ -1,5 +1,7 @@
 import { InjectQueue } from "@nestjs/bullmq";
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
+
+import { FeedbackLogger } from "../feedback-operation-log.js";
 import type { Queue } from "bullmq";
 
 import { DatabaseService } from "../../../infrastructure/database/database.service.js";
@@ -41,7 +43,9 @@ export const FEEDBACK_RECONCILIATION_RECOVERY_SCAN_LIMIT = 500;
  */
 @Injectable()
 export class FeedbackConversationWakeupService {
-  private readonly logger = new Logger(FeedbackConversationWakeupService.name);
+  private readonly logger = new FeedbackLogger(
+    FeedbackConversationWakeupService.name,
+  );
 
   constructor(
     @InjectQueue(FEEDBACK_CONVERSATION_QUEUE)

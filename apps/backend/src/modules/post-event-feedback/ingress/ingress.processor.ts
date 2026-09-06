@@ -1,5 +1,5 @@
 import { OnWorkerEvent, Processor, WorkerHost } from "@nestjs/bullmq";
-import { Logger } from "@nestjs/common";
+import { FeedbackLogger } from "../feedback-operation-log.js";
 import { MetricsTime, UnrecoverableError, type Job } from "bullmq";
 import { ZodError } from "zod";
 
@@ -53,7 +53,9 @@ export const FEEDBACK_INGRESS_WORKER_CONCURRENCY = 20;
   },
 )
 export class PostEventFeedbackIngressProcessor extends WorkerHost {
-  private readonly logger = new Logger(PostEventFeedbackIngressProcessor.name);
+  private readonly logger = new FeedbackLogger(
+    PostEventFeedbackIngressProcessor.name,
+  );
 
   constructor(
     private readonly materializer: PostEventFeedbackMaterializationCoordinator,

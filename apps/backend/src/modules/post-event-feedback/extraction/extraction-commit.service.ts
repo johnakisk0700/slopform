@@ -1,4 +1,4 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
 import type {
   AppTransaction,
   FeedbackCampaignRow,
@@ -13,16 +13,27 @@ import type { FeedbackConversationDocument } from "../post-event-feedback-conver
 import { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
 import { FeedbackIngressRepository } from "../ingress/ingress.repository.js";
 import { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
-import { FeedbackOutboundLogService } from "../outbox/outbound-log.service.js";
+import { FeedbackOutboundIntentService } from "../outbox/outbound-intent.service.js";
+import { ordinaryDispatchEvidenceFromConversation } from "../outbox/dispatch-context.js";
+import {
+  FeedbackLogger,
+  FeedbackOperationLog,
+} from "../feedback-operation-log.js";
 import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
 import {
   contradictedPostEventFeedbackQuestionKeys,
   noteSignature,
 } from "../question-set.js";
-import { decideExtractionTurn } from "./turn-decision.js";
+import {
+  adjustAfterIngressOrWorkSuppression,
+  decideExtractionTurn,
+  deriveTurnPolicyFacts,
+  type ExtractionTurnDecision,
+} from "./turn-decision.js";
 import { skipExtractOutcome } from "./extract-admission.js";
 import {
   PostEventFeedbackConversationNotFoundError,
+  type CommitSuppression,
   type ExtractCommitResult,
   type ExtractConversationState,
   type ExtractFeedbackResult,
@@ -60,7 +71,9 @@ import {
  */
 @Injectable()
 export class FeedbackExtractionCommitService {
-  private readonly logger = new Logger(FeedbackExtractionCommitService.name);
+  private readonly logger = new FeedbackLogger(
+    FeedbackExtractionCommitService.name,
+  );
 
   constructor(
     private readonly database: DatabaseService,
@@ -72,80 +85,130 @@ export class FeedbackExtractionCommitService {
     private readonly outbox: FeedbackOutboxRepository,
     private readonly audit: AuditRepository,
     private readonly outboundTranscript: FeedbackOutboundTranscriptService,
-    private readonly outboundLog: FeedbackOutboundLogService,
+    private readonly outboundIntent: FeedbackOutboundIntentService,
   ) {}
 
   async commit(
     snapshot: ExtractRunSnapshot,
     planned: ExtractPlannedTurn,
   ): Promise<ExtractCommitResult> {
-    return this.database.transaction(async (transaction) => {
-      let closingReason = planned.closingReason;
-      let goalStatuses = planned.goalStatuses;
-      let withdrew = planned.withdrew;
-      let hostility = planned.hostility;
-
-      const written = await this.persistOn(transaction, {
-        conversation: snapshot.conversation,
-        campaign: snapshot.campaign,
-        context: planned.context,
-        validated: planned.validated,
-        outbound: planned.outbound,
-        ordinaryReply: planned.ordinaryReply,
-        model: planned.model,
-        correlationId: snapshot.correlationId,
-        closingReason,
-        goalStatuses,
-        ...(snapshot.executionClaim
-          ? { executionClaim: snapshot.executionClaim }
-          : {}),
+    const operation = new FeedbackOperationLog(this.logger, {
+      operation: "extract_commit",
+      correlationId: snapshot.correlationId,
+      conversationId: snapshot.conversation._id,
+      campaignId: snapshot.campaign.id,
+      ...(snapshot.executionClaim
+        ? {
+            workRevision: snapshot.executionClaim.workRevision,
+            executionEpoch: snapshot.executionClaim.epoch,
+          }
+        : {}),
+    });
+    try {
+      operation.stage("begin_transaction");
+      const result = await this.database.transaction(async (transaction) => {
+        return this.commitOn(transaction, snapshot, planned, operation);
       });
-
+      operation.complete("committed");
+      return result;
+    } catch (error) {
       if (
-        written.outboundSuppressedByNewerIngress ||
-        written.executionSuperseded
+        error instanceof FeedbackConversationExecutionGuardError &&
+        error.reason === "authoritative_state_changed"
       ) {
-        const recomputed = this.recomputeTurnAfterSuppression(
-          snapshot,
-          planned,
-          written,
-          closingReason,
-        );
-        closingReason = recomputed.closingReason;
-        goalStatuses = recomputed.goalStatuses;
-        withdrew = recomputed.withdrew;
-        hostility = recomputed.hostility;
+        operation.failed(error, "superseded");
+      } else {
+        operation.failed(error);
       }
+      throw error;
+    }
+  }
 
-      if (written.outboundSuppressedByLegacyClosing) {
-        this.logger.warn({
-          event: "feedback.extract.legacy_closing_provider_crossed",
-          correlationId: snapshot.correlationId,
-          conversationId: snapshot.conversation._id,
-        });
-        closingReason = null;
-      }
+  private async commitOn(
+    transaction: AppTransaction,
+    snapshot: ExtractRunSnapshot,
+    planned: ExtractPlannedTurn,
+    operation: FeedbackOperationLog,
+  ): Promise<ExtractCommitResult> {
+    const facts = deriveTurnPolicyFacts({
+      conversation: snapshot.conversation,
+      validated: planned.evidence.validated,
+      recordedStatuses: planned.evidence.recordedStatuses,
+      hostileTurn: planned.evidence.hostileTurn,
+      stoppingForHostility: planned.evidence.stoppingForHostility,
+    });
+    let disposition = planned.proposed;
 
-      await this.assertClaimStillCurrent(transaction, snapshot);
+    operation.stage("persist_results_and_intent");
+    const written = await this.persistOn(transaction, {
+      conversation: snapshot.conversation,
+      campaign: snapshot.campaign,
+      context: planned.evidence.context,
+      validated: planned.evidence.validated,
+      outbound: disposition.outboundIntent,
+      ordinaryReply: facts.ordinaryReply,
+      model: planned.evidence.model,
+      correlationId: snapshot.correlationId,
+      closingReason: disposition.closingReason,
+      goalStatuses: disposition.goalStatuses,
+      ...(snapshot.executionClaim
+        ? { executionClaim: snapshot.executionClaim }
+        : {}),
+    });
 
-      if (written.outboundSuppressedByLegacyClosing) {
-        await this.conversations.raiseAttention(transaction, {
-          conversationId: snapshot.conversation._id,
-          kind: "undelivered_message",
-          messageId: null,
-          at: new Date(),
-        });
-      }
+    const suppression: CommitSuppression = {
+      newerIngress: written.outboundSuppressedByNewerIngress,
+      newerWork: written.executionSuperseded,
+      legacyClosingProviderCrossed: written.outboundSuppressedByLegacyClosing,
+    };
 
-      return this.applyStateAndTranscriptIdentity(transaction, snapshot, {
+    if (suppression.newerIngress || suppression.newerWork) {
+      const adjusted = adjustAfterIngressOrWorkSuppression(
+        disposition,
+        this.recomputeTurnAfterSuppression(snapshot, planned, written),
+      );
+      disposition = {
+        ...adjusted,
+        outboundIntent: undefined,
+      };
+    }
+
+    if (suppression.legacyClosingProviderCrossed) {
+      this.logger.warn({
+        event: "feedback.extract.legacy_closing_provider_crossed",
+        correlationId: snapshot.correlationId,
+        conversationId: snapshot.conversation._id,
+      });
+      disposition = { ...disposition, closingReason: null };
+    }
+
+    operation.stage("verify_claim");
+    await this.assertClaimStillCurrent(transaction, snapshot);
+
+    operation.stage("apply_state_and_transcript");
+    if (suppression.legacyClosingProviderCrossed) {
+      await this.conversations.raiseAttention(transaction, {
+        conversationId: snapshot.conversation._id,
+        kind: "undelivered_message",
+        messageId: null,
+        at: new Date(),
+      });
+    }
+
+    const result = await this.applyStateAndTranscriptIdentity(
+      transaction,
+      snapshot,
+      {
         planned,
         written,
-        closingReason,
-        goalStatuses,
-        withdrew,
-        hostility,
-      });
-    });
+        closingReason: disposition.closingReason,
+        goalStatuses: disposition.goalStatuses,
+        withdrew: disposition.withdrew,
+        hostility: disposition.hostility,
+      },
+    );
+    operation.stage("commit_transaction");
+    return result;
   }
 
   /**
@@ -157,111 +220,136 @@ export class FeedbackExtractionCommitService {
     snapshot: ExtractRunSnapshot,
   ): Promise<ExtractFeedbackResult> {
     const conversation = snapshot.conversation;
+    const operation = new FeedbackOperationLog(this.logger, {
+      operation: "extract_capacity_brake",
+      correlationId: snapshot.correlationId,
+      conversationId: conversation._id,
+      campaignId: snapshot.campaign.id,
+      ...(snapshot.executionClaim
+        ? {
+            workRevision: snapshot.executionClaim.workRevision,
+            executionEpoch: snapshot.executionClaim.epoch,
+          }
+        : {}),
+    });
     this.logger.warn({
       event: "feedback.extract.transcript_capacity",
       correlationId: snapshot.correlationId,
       conversationId: conversation._id,
     });
 
-    const outcome = await this.database.transaction(async (transaction) => {
-      await this.results.lockConversation(transaction, conversation._id);
+    try {
+      operation.stage("begin_transaction");
+      const outcome = await this.database.transaction(async (transaction) => {
+        operation.stage("reload");
+        await this.results.lockConversation(transaction, conversation._id);
 
-      if (snapshot.executionClaim) {
-        if (
-          !(await this.executionFence.renewWithin(
-            transaction,
-            snapshot.executionClaim,
-          ))
-        ) {
-          throw new FeedbackConversationExecutionGuardError(
-            conversation._id,
-            "execution_claim_lost",
-          );
+        operation.stage("fence");
+        if (snapshot.executionClaim) {
+          if (
+            !(await this.executionFence.renewWithin(
+              transaction,
+              snapshot.executionClaim,
+            ))
+          ) {
+            throw new FeedbackConversationExecutionGuardError(
+              conversation._id,
+              "execution_claim_lost",
+            );
+          }
         }
-      }
 
-      // Campaign resume updates these rows without the conversation mutex.
-      const current = await this.conversations.findByIdForUpdate(
-        transaction,
-        conversation._id,
-      );
-      if (snapshot.executionClaim) {
-        const guardReason = executionSnapshotGuardReason(
-          current,
-          conversation,
-          snapshot.executionClaim,
+        // Campaign resume updates these rows without the conversation mutex.
+        const current = await this.conversations.findByIdForUpdate(
+          transaction,
+          conversation._id,
         );
-        if (guardReason) {
-          throw new FeedbackConversationExecutionGuardError(
-            conversation._id,
-            guardReason,
+        if (snapshot.executionClaim) {
+          const guardReason = executionSnapshotGuardReason(
+            current,
+            conversation,
+            snapshot.executionClaim,
           );
+          if (guardReason) {
+            throw new FeedbackConversationExecutionGuardError(
+              conversation._id,
+              guardReason,
+            );
+          }
+        } else {
+          if (!current) {
+            throw new PostEventFeedbackConversationNotFoundError(
+              conversation._id,
+            );
+          }
+          const skipped = skipExtractOutcome(current, current.messages.length);
+          if (
+            skipped === "skipped_closed" ||
+            skipped === "skipped_human_control" ||
+            skipped === "skipped_awaiting_human"
+          ) {
+            operation.stage("commit_transaction");
+            return skipped;
+          }
+          if (
+            (current.work?.revision ?? 0) !==
+              (conversation.work?.revision ?? 0) ||
+            current.control.changedAt.getTime() !==
+              conversation.control.changedAt.getTime()
+          ) {
+            throw new FeedbackConversationExecutionGuardError(
+              conversation._id,
+              "authoritative_state_changed",
+            );
+          }
         }
+
+        operation.stage("brake");
+        const at = new Date();
+        await this.conversations.raiseAttention(transaction, {
+          conversationId: conversation._id,
+          kind: "transcript_full",
+          messageId: null,
+          at,
+        });
+        await this.conversations.markAwaitingHuman(transaction, {
+          conversationId: conversation._id,
+          at,
+        });
+        await this.outbox.cancelQueuedAutomatedOutboxForConversation(
+          transaction,
+          conversation._id,
+        );
+        operation.stage("commit_transaction");
+        return "skipped_awaiting_human" as const;
+      });
+
+      operation.complete(outcome);
+      return {
+        outcome,
+        conversationId: conversation._id,
+        cursorSeq: conversation.extraction.cursorSeq,
+        answersWritten: 0,
+        notesWritten: 0,
+      };
+    } catch (error) {
+      if (
+        error instanceof FeedbackConversationExecutionGuardError &&
+        error.reason === "authoritative_state_changed"
+      ) {
+        operation.failed(error, "superseded");
       } else {
-        if (!current) {
-          throw new PostEventFeedbackConversationNotFoundError(
-            conversation._id,
-          );
-        }
-        const skipped = skipExtractOutcome(current, current.messages.length);
-        if (
-          skipped === "skipped_closed" ||
-          skipped === "skipped_human_control" ||
-          skipped === "skipped_awaiting_human"
-        ) {
-          return skipped;
-        }
-        if (
-          (current.work?.revision ?? 0) !==
-            (conversation.work?.revision ?? 0) ||
-          current.control.changedAt.getTime() !==
-            conversation.control.changedAt.getTime()
-        ) {
-          throw new FeedbackConversationExecutionGuardError(
-            conversation._id,
-            "authoritative_state_changed",
-          );
-        }
+        operation.failed(error);
       }
-
-      const at = new Date();
-      await this.conversations.raiseAttention(transaction, {
-        conversationId: conversation._id,
-        kind: "transcript_full",
-        messageId: null,
-        at,
-      });
-      await this.conversations.markAwaitingHuman(transaction, {
-        conversationId: conversation._id,
-        at,
-      });
-      await this.outbox.cancelQueuedAutomatedOutboxForConversation(
-        transaction,
-        conversation._id,
-      );
-      return "skipped_awaiting_human" as const;
-    });
-
-    return {
-      outcome,
-      conversationId: conversation._id,
-      cursorSeq: conversation.extraction.cursorSeq,
-      answersWritten: 0,
-      notesWritten: 0,
-    };
+      throw error;
+    }
   }
 
   private recomputeTurnAfterSuppression(
     snapshot: ExtractRunSnapshot,
     planned: ExtractPlannedTurn,
     written: ExtractPersistWritten,
-    closingReason: "completed" | "declined" | null,
-  ): {
-    readonly closingReason: "completed" | "declined" | null;
-    readonly goalStatuses: readonly GoalStatusUpdate[];
-    readonly withdrew: boolean;
-    readonly hostility: FeedbackHostilityRaise;
-  } {
+  ): ExtractionTurnDecision {
     const suppressionReason = written.executionSuperseded
       ? "superseded_by_newer_work"
       : "superseded_by_durable_ingress";
@@ -272,22 +360,15 @@ export class FeedbackExtractionCommitService {
       cursorSeq: snapshot.cursorSeq,
       reason: suppressionReason,
     });
-    const decided = decideExtractionTurn({
+    return decideExtractionTurn({
       conversation: snapshot.conversation,
-      validated: planned.validated,
-      recordedStatuses: planned.recordedStatuses,
+      validated: planned.evidence.validated,
+      recordedStatuses: planned.evidence.recordedStatuses,
       askedGoal: undefined,
-      outboundSent: false,
-      dutyOfCare: planned.dutyOfCare,
-      stoppingForHostility: planned.stoppingForHostility,
-      hostileWithoutAnswers: planned.hostileWithoutAnswers,
+      hasOutboundIntent: false,
+      hostileTurn: planned.evidence.hostileTurn,
+      stoppingForHostility: planned.evidence.stoppingForHostility,
     });
-    return {
-      goalStatuses: decided.goalStatuses,
-      withdrew: decided.withdrew,
-      hostility: decided.hostility,
-      closingReason: closingReason ? null : decided.closingReason,
-    };
   }
 
   private async assertClaimStillCurrent(
@@ -331,43 +412,50 @@ export class FeedbackExtractionCommitService {
       );
     }
 
+    const evidence = input.planned.evidence;
+    const facts = deriveTurnPolicyFacts({
+      conversation: snapshot.conversation,
+      validated: evidence.validated,
+      recordedStatuses: evidence.recordedStatuses,
+      hostileTurn: evidence.hostileTurn,
+      stoppingForHostility: evidence.stoppingForHostility,
+    });
     const terminalReason = closingReason;
     const state = await this.applyConversationStateOn(transaction, {
       conversation: snapshot.conversation,
-      validated: input.planned.validated,
+      validated: evidence.validated,
       goalStatuses: input.goalStatuses,
       closingReason,
       terminalOutboxId:
         closingReason !== null ? (effectiveOutbox?.id ?? null) : null,
-      dutyOfCare: input.planned.dutyOfCare,
+      dutyOfCare: facts.dutyOfCare,
       withdrew: input.withdrew,
       hostility: input.hostility,
       awaitingHuman:
         input.written.outboundSuppressedByLegacyClosing ||
-        input.planned.dutyOfCare ||
+        facts.dutyOfCare ||
         input.withdrew ||
         input.hostility === "stopped",
       handoffOutboxId:
         closingReason === null &&
         (input.written.outboundSuppressedByLegacyClosing ||
-          input.planned.dutyOfCare ||
+          facts.dutyOfCare ||
           input.withdrew ||
           input.hostility === "stopped")
           ? (effectiveOutbox?.id ?? null)
           : null,
-      hostileTurn: input.planned.hostileTurn,
+      hostileTurn: evidence.hostileTurn,
       priorHostileTurns: snapshot.conversation.hostileTurns,
-      newestParticipantMessageId: input.planned.newestParticipantMessageId,
-      stalledOnMessageId: input.planned.stalledOnMessageId,
+      newestParticipantMessageId: evidence.newestParticipantMessageId,
+      stalledOnMessageId: evidence.stalledOnMessageId,
       unansweredDataQuestionMessageIds:
-        input.planned.unansweredDataQuestionMessageIds,
+        evidence.unansweredDataQuestionMessageIds,
       cursorSeq: snapshot.cursorSeq,
-      model: input.planned.model,
-      usage: input.planned.runUsage,
-      serviceTier: input.planned.serviceTier,
+      model: evidence.model,
+      usage: evidence.runUsage,
+      serviceTier: evidence.serviceTier,
       workSuperseded:
-        input.written.executionSuperseded ||
-        input.planned.replyRewriteSuperseded,
+        input.written.executionSuperseded || evidence.rewriteSuperseded,
       ...(snapshot.executionClaim
         ? { executionClaim: snapshot.executionClaim }
         : {}),
@@ -629,29 +717,43 @@ export class FeedbackExtractionCommitService {
       !outboundSuppressedByLegacyClosing &&
       !executionSuperseded
     ) {
-      const enqueued = await this.outbox.insertOutboxIfAbsent(transaction, {
-        conversationId: input.conversation._id,
-        campaignId: input.campaign.id,
-        kind: "reply",
-        body: input.outbound.body,
-        dedupeKey: input.outbound.dedupeKey,
-      });
-      await this.outboundLog.record(transaction, {
-        outbox: enqueued,
-        conversation: input.conversation,
-        decision: {
-          origin: "extraction_reply",
-          model: input.model,
-          confidence: input.validated.confidence ?? null,
-          closingReason: input.closingReason,
-          askedGoal: input.outbound.askedGoal ?? null,
-          venueContextRevision: input.context.venueContextRevision ?? null,
-          goalStatuses: input.goalStatuses.map(({ key, status }) => ({
-            key,
-            status,
-          })),
+      const enqueued = await this.outboundIntent.enqueue(transaction, {
+        dispatch:
+          input.closingReason === null
+            ? {
+                schemaVersion: 1,
+                purpose: "extraction_reply",
+                evidence: ordinaryDispatchEvidenceFromConversation(
+                  input.conversation,
+                ),
+              }
+            : {
+                schemaVersion: 1,
+                purpose: "extraction_closing",
+                closingReason: input.closingReason,
+              },
+        message: {
+          conversationId: input.conversation._id,
+          campaignId: input.campaign.id,
+          body: input.outbound.body,
+          dedupeKey: input.outbound.dedupeKey,
         },
-        correlationId: input.correlationId,
+        history: {
+          conversation: input.conversation,
+          decision: {
+            origin: "extraction_reply",
+            model: input.model,
+            confidence: input.validated.confidence ?? null,
+            closingReason: input.closingReason,
+            askedGoal: input.outbound.askedGoal ?? null,
+            venueContextRevision: input.context.venueContextRevision ?? null,
+            goalStatuses: input.goalStatuses.map(({ key, status }) => ({
+              key,
+              status,
+            })),
+          },
+          correlationId: input.correlationId,
+        },
       });
       outbox = enqueued.row;
     }

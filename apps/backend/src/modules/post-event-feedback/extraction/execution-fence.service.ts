@@ -1,4 +1,6 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
+
+import { FeedbackLogger } from "../feedback-operation-log.js";
 import type { AppTransaction } from "@slopform/database";
 
 import { DatabaseService } from "../../../infrastructure/database/database.service.js";
@@ -17,7 +19,9 @@ export interface FeedbackConversationExecutionHeartbeat {
 
 @Injectable()
 export class FeedbackConversationExecutionFence {
-  private readonly logger = new Logger(FeedbackConversationExecutionFence.name);
+  private readonly logger = new FeedbackLogger(
+    FeedbackConversationExecutionFence.name,
+  );
 
   constructor(
     private readonly database: DatabaseService,

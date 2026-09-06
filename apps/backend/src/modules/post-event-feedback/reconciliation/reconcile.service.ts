@@ -1,4 +1,4 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import type { AppTransaction } from "@slopform/database";
 
@@ -17,6 +17,10 @@ import {
   FeedbackConversationExecutionGuardError,
   PostEventFeedbackExtractor,
 } from "../extraction/extract.service.js";
+import {
+  FeedbackLogger,
+  FeedbackOperationLog,
+} from "../feedback-operation-log.js";
 import {
   FEEDBACK_EXTRACT_QUIET_WINDOW_MS,
   FEEDBACK_EXTRACTION_PARK_MAX_MS,
@@ -43,7 +47,7 @@ export type FeedbackConversationReconcileOutcome =
 
 @Injectable()
 export class FeedbackConversationReconcileService {
-  private readonly logger = new Logger(
+  private readonly logger = new FeedbackLogger(
     FeedbackConversationReconcileService.name,
   );
 
@@ -64,7 +68,28 @@ export class FeedbackConversationReconcileService {
   async reconcile(
     input: FeedbackReconcileConversationJobData,
   ): Promise<FeedbackConversationReconcileOutcome> {
+    const operation = new FeedbackOperationLog(this.logger, {
+      operation: "reconcile",
+      correlationId: input.correlationId,
+      conversationId: input.conversationId,
+      workRevision: input.revision,
+    });
+    try {
+      const outcome = await this.runReconcile(input, operation);
+      operation.complete(outcome);
+      return outcome;
+    } catch (error) {
+      operation.failed(error);
+      throw error;
+    }
+  }
+
+  private async runReconcile(
+    input: FeedbackReconcileConversationJobData,
+    operation: FeedbackOperationLog,
+  ): Promise<FeedbackConversationReconcileOutcome> {
     const at = new Date();
+    operation.stage("admit_claim");
     const admitted = await this.database.transaction(async (transaction) => {
       await this.outbox.lockConversation(transaction, input.conversationId);
       const conversation = await this.conversations.findByIdForUpdate(
@@ -98,10 +123,13 @@ export class FeedbackConversationReconcileService {
     }
 
     const claim = admitted.claim;
+    operation.enrich({ executionEpoch: claim.epoch });
     const heartbeat = this.executionFence.startHeartbeat(claim);
     try {
+      operation.stage("plan");
       const initialPlan = await this.plan(admitted.conversation, at);
       try {
+        operation.stage("execute_action");
         await this.executeOne(initialPlan, input, claim, at);
       } catch (error) {
         if (
@@ -114,6 +142,7 @@ export class FeedbackConversationReconcileService {
       }
 
       const settledAt = new Date();
+      operation.stage("settle_work");
       const settled = await this.database.transaction(async (transaction) => {
         await this.outbox.lockConversation(transaction, input.conversationId);
         if (!(await this.executionFence.isCurrent(transaction, claim))) {
@@ -144,6 +173,7 @@ export class FeedbackConversationReconcileService {
         return "superseded";
       }
 
+      operation.stage("enqueue_successor");
       try {
         await this.wakeups.ensureQueued({
           conversationId: input.conversationId,
@@ -158,13 +188,65 @@ export class FeedbackConversationReconcileService {
           revision: settled.work.revision,
           error: { name: error instanceof Error ? error.name : "Error" },
         });
+        const successor = new FeedbackOperationLog(this.logger, {
+          operation: "reconcile",
+          correlationId: input.correlationId,
+          conversationId: input.conversationId,
+          workRevision: settled.work.revision,
+        });
+        successor.stage("enqueue_successor");
+        successor.failed(error);
       }
       return "settled";
+    } catch (error) {
+      operation.failed(error);
+      throw error;
     } finally {
       try {
-        await heartbeat.stop();
-      } finally {
+        await this.releaseClaim(claim, input, heartbeat);
+      } catch (error) {
+        // An earlier failure is already recorded; cleanup keeps its own record.
+        operation.stage("cleanup");
+        operation.failed(error);
+        throw error;
+      }
+    }
+  }
+
+  private async releaseClaim(
+    claim: FeedbackConversationExecutionClaim,
+    input: FeedbackReconcileConversationJobData,
+    heartbeat: { stop(): Promise<void> },
+  ): Promise<void> {
+    const stop = new FeedbackOperationLog(this.logger, {
+      operation: "reconcile_cleanup",
+      correlationId: input.correlationId,
+      conversationId: input.conversationId,
+      workRevision: input.revision,
+      executionEpoch: claim.epoch,
+    });
+    try {
+      stop.stage("stop_heartbeat");
+      await heartbeat.stop();
+      stop.complete("stopped");
+    } catch (error) {
+      stop.failed(error);
+      throw error;
+    } finally {
+      const release = new FeedbackOperationLog(this.logger, {
+        operation: "reconcile_cleanup",
+        correlationId: input.correlationId,
+        conversationId: input.conversationId,
+        workRevision: input.revision,
+        executionEpoch: claim.epoch,
+      });
+      release.stage("release_claim");
+      try {
         await this.executionFence.release(claim);
+        release.complete("released");
+      } catch (error) {
+        release.failed(error);
+        throw error;
       }
     }
   }

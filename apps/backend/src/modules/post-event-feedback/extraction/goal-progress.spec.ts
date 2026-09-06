@@ -224,7 +224,7 @@ describe("goal progress from recorded results", () => {
         notes: [],
         nextGoal: "liked",
         askedGoal: undefined,
-        outboundSent: true,
+        hasOutboundIntent: true,
       }),
     ).toBe(true);
     expect(settled).toEqual([
@@ -246,7 +246,7 @@ describe("goal progress from recorded results", () => {
         notes: [],
         nextGoal: "event_score",
         askedGoal: "event_score",
-        outboundSent: true,
+        hasOutboundIntent: true,
       }),
     ).toBe(false);
     const updates = withAskedGoal([], "event_score");
@@ -263,7 +263,7 @@ describe("goal progress from recorded results", () => {
         notes: [],
         nextGoal: null,
         askedGoal: undefined,
-        outboundSent: true,
+        hasOutboundIntent: true,
       }),
     ).toBe(false);
   });
@@ -288,6 +288,18 @@ describe("goal progress from recorded results", () => {
     ).toEqual(new Set(["event_score", "liked"]));
   });
 
+  it("does not treat a missing pre-enqueue outbound intent as a withdrawal", () => {
+    expect(
+      isWithdrawal({
+        answers: [],
+        notes: [],
+        nextGoal: "liked",
+        askedGoal: undefined,
+        hasOutboundIntent: false,
+      }),
+    ).toBe(false);
+  });
+
   it("does not treat a replay of already-stored results as a withdrawal", () => {
     // Crash after PostgreSQL commit: validation refuses the duplicates, the
     // accepted lists are empty, and a statement reply has no askedGoal. Without
@@ -298,7 +310,7 @@ describe("goal progress from recorded results", () => {
         notes: [],
         nextGoal: "liked",
         askedGoal: undefined,
-        outboundSent: true,
+        hasOutboundIntent: true,
         repairingStoredResults: true,
       }),
     ).toBe(false);

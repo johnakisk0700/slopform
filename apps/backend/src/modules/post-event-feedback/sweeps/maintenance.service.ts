@@ -1,4 +1,6 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
+
+import { FeedbackLogger } from "../feedback-operation-log.js";
 
 import { PostEventFeedbackSweepService } from "./sweep.service.js";
 import { PostEventFeedbackCampaignSummaryService } from "../summary/summary.service.js";
@@ -18,7 +20,7 @@ export interface FeedbackMaintenanceResult {
  */
 @Injectable()
 export class PostEventFeedbackMaintenanceService {
-  private readonly logger = new Logger(
+  private readonly logger = new FeedbackLogger(
     PostEventFeedbackMaintenanceService.name,
   );
 

@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
+
+import { FeedbackLogger } from "../feedback-operation-log.js";
 import { ConfigService } from "@nestjs/config";
 
 import type { Environment } from "../../../infrastructure/config/environment.js";
@@ -26,7 +28,7 @@ import { FeedbackSimOutboundRepository } from "../simulator/sim-outbound.reposit
  */
 @Injectable()
 export class SimulatedFeedbackTransport implements FeedbackTransport {
-  private readonly logger = new Logger(SimulatedFeedbackTransport.name);
+  private readonly logger = new FeedbackLogger(SimulatedFeedbackTransport.name);
   private readonly profile: FeedbackSimulatedTransportProfile;
 
   constructor(

@@ -1,5 +1,5 @@
 import { OnWorkerEvent, Processor, WorkerHost } from "@nestjs/bullmq";
-import { Logger } from "@nestjs/common";
+import { FeedbackLogger } from "../feedback-operation-log.js";
 import {
   DelayedError,
   MetricsTime,
@@ -46,7 +46,7 @@ export const FEEDBACK_CLAIM_BUSY_RETRY_MS = 15_000;
   },
 )
 export class FeedbackConversationReconcileProcessor extends WorkerHost {
-  private readonly logger = new Logger(
+  private readonly logger = new FeedbackLogger(
     FeedbackConversationReconcileProcessor.name,
   );
 

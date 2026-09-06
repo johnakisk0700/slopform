@@ -1086,6 +1086,7 @@ export const messageOutbox = pgTable(
     }),
     attemptCount: integer("attempt_count").notNull().default(0),
     lastError: text("last_error"),
+    dispatchContext: jsonb("dispatch_context").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
       .defaultNow()
       .notNull(),
@@ -1158,6 +1159,10 @@ export const messageOutbox = pgTable(
     check(
       "message_outbox_last_error_length_check",
       sql`${table.lastError} is null or char_length(btrim(${table.lastError})) between 1 and 2000`,
+    ),
+    check(
+      "message_outbox_dispatch_context_object_check",
+      sql`jsonb_typeof(${table.dispatchContext}) = 'object'`,
     ),
     uniqueIndex("message_outbox_dedupe_key_uidx").on(table.dedupeKey),
     index("message_outbox_conversation_created_idx").on(

@@ -1,6 +1,10 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
 
 import { DatabaseService } from "../../../infrastructure/database/database.service.js";
+import {
+  FeedbackLogger,
+  FeedbackOperationLog,
+} from "../feedback-operation-log.js";
 import { FeedbackIngressRepository } from "./ingress.repository.js";
 import { FeedbackMaterializeWakeupService } from "./materialize-wakeup.service.js";
 import {
@@ -31,7 +35,9 @@ export interface RecordObservedMessageResult {
  */
 @Injectable()
 export class PostEventFeedbackIngressService {
-  private readonly logger = new Logger(PostEventFeedbackIngressService.name);
+  private readonly logger = new FeedbackLogger(
+    PostEventFeedbackIngressService.name,
+  );
 
   constructor(
     private readonly materializeWakeups: FeedbackMaterializeWakeupService,
@@ -43,8 +49,31 @@ export class PostEventFeedbackIngressService {
     input: ObservedProviderMessage,
     correlationId: string,
   ): Promise<RecordObservedMessageResult> {
+    const operation = new FeedbackOperationLog(this.logger, {
+      operation: "ingress",
+      correlationId,
+    });
+    try {
+      return await this.recordObservedMessageOnce(
+        input,
+        correlationId,
+        operation,
+      );
+    } catch (error) {
+      operation.failed(error);
+      throw error;
+    }
+  }
+
+  private async recordObservedMessageOnce(
+    input: ObservedProviderMessage,
+    correlationId: string,
+    operation: FeedbackOperationLog,
+  ): Promise<RecordObservedMessageResult> {
+    operation.stage("validate");
     const observed = observedProviderMessageSchema.parse(input);
 
+    operation.stage("persist_ingress");
     const { row, inserted } = await this.database.transaction((transaction) =>
       this.repository.insertIngressIfAbsent(transaction, {
         providerMessageId: observed.providerMessageId,
@@ -55,12 +84,14 @@ export class PostEventFeedbackIngressService {
         observedAt: observed.observedAt,
       }),
     );
+    operation.enrich({ ingressId: row.id });
 
     // A redelivery still reconciles the wake-up: the first delivery may have
     // crashed between the committed row and Redis. The shared boundary leaves
     // a live job alone, replaces a retained terminal job only while this row is
     // pending, and materialization itself remains idempotent.
-    await this.enqueueMaterialize(row.id, correlationId);
+    operation.stage("enqueue_materialize");
+    await this.enqueueMaterialize(row.id, correlationId, operation);
 
     this.logger.log({
       event: "feedback.ingress.recorded",
@@ -76,20 +107,29 @@ export class PostEventFeedbackIngressService {
     // somebody originally wrote about another participant is not ours to erase
     // just because they thought better of it.
     if (!inserted && observed.text !== null && row.text !== observed.text) {
-      return this.recordEditedRedelivery(observed, correlationId);
+      const edited = await this.recordEditedRedelivery(
+        observed,
+        correlationId,
+        operation,
+      );
+      operation.complete("edited_redelivery");
+      return edited;
     }
 
+    operation.complete("recorded");
     return { ingressId: row.id, inserted };
   }
 
   private async recordEditedRedelivery(
     observed: ObservedProviderMessage,
     correlationId: string,
+    operation: FeedbackOperationLog,
   ): Promise<RecordObservedMessageResult> {
     const editedId = createFeedbackEditedProviderMessageId(
       observed.providerMessageId,
       observed.text ?? "",
     );
+    operation.stage("persist_edited_redelivery");
     const { row, inserted } = await this.database.transaction((transaction) =>
       this.repository.insertIngressIfAbsent(transaction, {
         providerMessageId: editedId,
@@ -100,8 +140,10 @@ export class PostEventFeedbackIngressService {
         observedAt: observed.observedAt,
       }),
     );
+    operation.enrich({ ingressId: row.id });
 
-    await this.enqueueMaterialize(row.id, correlationId);
+    operation.stage("enqueue_edited_redelivery");
+    await this.enqueueMaterialize(row.id, correlationId, operation);
 
     this.logger.warn({
       event: "feedback.ingress.edited_redelivery",
@@ -117,6 +159,7 @@ export class PostEventFeedbackIngressService {
   private async enqueueMaterialize(
     ingressId: string,
     correlationId: string,
+    operation: FeedbackOperationLog,
   ): Promise<void> {
     try {
       await this.materializeWakeups.ensurePendingQueued({
@@ -133,6 +176,7 @@ export class PostEventFeedbackIngressService {
         ingressId,
         error: { name: error instanceof Error ? error.name : "Error" },
       });
+      operation.failed(error);
       throw new PostEventFeedbackEnqueueError(ingressId);
     }
   }

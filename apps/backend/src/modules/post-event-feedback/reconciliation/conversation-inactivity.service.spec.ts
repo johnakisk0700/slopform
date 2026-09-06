@@ -10,6 +10,7 @@ import { buildFeedbackConversationGoals } from "../post-event-feedback-conversat
 import type { ParticipantsRepository } from "../../participants/participants.repository.js";
 import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
 import type { FeedbackOutboundLogRepository } from "../outbox/outbound-log.repository.js";
+import { FeedbackOutboundIntentService } from "../outbox/outbound-intent.service.js";
 import { FeedbackOutboundLogService } from "../outbox/outbound-log.service.js";
 import { buildPostEventFeedbackQuestionLaunchSnapshot } from "../question-set.js";
 import type { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
@@ -54,6 +55,7 @@ describe("FeedbackConversationInactivityService", () => {
       expect.objectContaining({
         kind: "reminder",
         dedupeKey: `feedback-reminder-${conversationId}-1`,
+        dispatchContext: { schemaVersion: 1, purpose: "reminder", rung: 1 },
       }),
     );
     expect(conversations.markReminded).toHaveBeenCalled();
@@ -594,8 +596,11 @@ function createService(): {
         repository as unknown as FeedbackOutboxRepository,
         conversations as unknown as FeedbackConversationRepository,
       ),
-      new FeedbackOutboundLogService(
-        repository as unknown as FeedbackOutboundLogRepository,
+      new FeedbackOutboundIntentService(
+        repository as unknown as FeedbackOutboxRepository,
+        new FeedbackOutboundLogService(
+          repository as unknown as FeedbackOutboundLogRepository,
+        ),
       ),
       noopSummaries(),
     ),

@@ -106,6 +106,43 @@ visible. Redaction cannot rescue a credential already embedded in an exception
 message — thrown errors, audit context and job data must be safe before
 telemetry sees them.
 
+Feedback uses per-operation stage observations (`event: feedback.operation`).
+Records carry `operation`, `stage`, `status` (`started`, `completed` or
+`failed`), `runId`, `elapsedMs` and `correlationId`, plus relevant internal
+conversation, campaign, ingress or outbox ids. Terminal records identify the
+outcome or bounded error name/code. Concurrent operations have separate run
+ids and stage state. Correlation is still observational, never authorization.
+
+| Operation                | Stages to inspect                                                                                                                                           |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ingress`                | `validate`, `persist_ingress`, `enqueue_materialize`; edited redelivery has separate persist/enqueue stages                                                 |
+| `materialize`            | `ingress_load`, `conversation_match`, the selected inbound/outbound branch, `persist` or `persist_stop`, then `wakeup` or `summary`                         |
+| `reconcile`              | `admit_claim`, `plan`, `execute_action`, `settle_work`, `enqueue_successor`; cleanup failures have their own observations                                   |
+| `extract`                | `admit`, `plan_turn`, `commit_turn`, optional `capacity_brake`, `notify_operator`, `notify_summary`, `record_outcome`                                       |
+| `extract_plan`           | `prepare_context`, `generate_and_validate`, `resolve_reply`; `extract_propose`, `extract_classify` and `extract_rewrite` observe each model call separately |
+| `extract_commit`         | `begin_transaction`, `persist_results_and_intent`, `verify_claim`, `apply_state_and_transcript`, `commit_transaction`                                       |
+| `extract_capacity_brake` | `begin_transaction`, `reload`, `fence`, `brake`, `commit_transaction` after the failed extraction transaction rolls back                                    |
+| `dispatch`               | `initial_guard`, `transcript`, `send_slot`, `prepare_send`, `transport`, `finalize_result`; recovery failures use `dispatch_batch` / `quarantine`           |
+
+A stage record means that stage started. The terminal record reports the last
+stage reached and the operation's outcome or failure; it does not prove earlier
+database writes committed. Commit completes only after the transaction promise
+resolves. Parallel model calls and transport have separate run ids, so a
+recovered child failure remains visible when its parent continues. For example,
+a transport exception is recorded at `dispatch_transport` / `transport`, while
+the parent can finish at `finalize_result` with outcome `ambiguous`.
+
+The local feedback logger emits synchronously and absorbs sink failures. A log
+call cannot replace a business exception or change commit, enqueue, retry or
+send decisions. No transcript, prompt, phone number, provider response body,
+error message or stack is added to stage records. Successful idle sender polls
+do not emit operation records.
+
+These process logs are separate from the transactional audit repository and
+`message_outbox_log` history. Send evidence lives on the outbound intent as
+`dispatch_context`; runtime dispatch never reads a diagnostic log for
+permission ([ADR 0016](../../decisions/0016-feedback-dispatch-context.md)).
+
 ## Tracing and privacy
 
 Configure one path per process:

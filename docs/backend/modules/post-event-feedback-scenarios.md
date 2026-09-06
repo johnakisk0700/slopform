@@ -805,8 +805,10 @@ Part 1 ids without a same-named loop row (still catalogue / corpus / ops):
 Real-model rubrics:
 `post-event-feedback-real-model-corpus.ts`. Transport-only cases stay fake-backed.
 Loop harness schedules via conversation-revision wake-up + direct PostgreSQL
-dispatcher. `FakeFeedbackConversations` is an in-memory domain double of the
-typed aggregate — not a Mongo driver and not live PostgreSQL. Focused
+dispatcher. `FakeFeedbackConversations` stores typed aggregates in memory and
+calls the production state transitions. Its simulated execution fence is
+explicit; it does not prove PostgreSQL locking, JSONB sizing or rollback.
+The opt-in PostgreSQL suite covers those adapter guarantees. Focused
 reconciliation/planner/fence/dispatcher specs cover orchestration wiring.
 
 ### What “end-to-end” means

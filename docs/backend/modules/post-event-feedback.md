@@ -283,10 +283,21 @@ Outbound queue: read-only `listFeedbackOutboxQueue` /
 retry. Screen contract:
 [feedback-outbound-queue.md](../../frontend/feedback-outbound-queue.md).
 
-### The outbound decision log
+### Outbound intent and its historical explanation
 
-Every enqueue site records why in `message_outbox_log` in the same transaction
-as `insertOutboxIfAbsent` — one row per insert, nothing on dedupe replay.
+Every outbound intent carries versioned `message_outbox.dispatch_context`.
+Its purpose must match its kind and dedupe identity. Ordinary extraction
+context carries the original model snapshot's control/work generations,
+transcript boundary and participant ingress ids. Enqueue and dispatch validate
+that contract; an absent or invalid context cannot authorize a send. Current
+conversation state still decides exact terminal and human commitments.
+
+The outbound intent service inserts this context with the message and records
+why in `message_outbox_log`, using the caller's transaction. The log has one row
+per insert and nothing on dedupe replay. It is historical explanation only;
+dispatch never reads it for authority. The first intent's context and status
+survive replay. See [ADR 0016](../../decisions/0016-feedback-dispatch-context.md).
+
 Components under
 [`outbox/`](../../../apps/backend/src/modules/post-event-feedback/outbox/):
 `outbound-log.snapshot.ts`, `outbound-log.schemas.ts` (nine origins),
@@ -314,7 +325,8 @@ details:
   and resolves any rewrite and outbound decision.
 - [Execution guards](../../../apps/backend/src/modules/post-event-feedback/extraction/extraction-guards.service.ts)
   check current authority before provider entry and review the proposed reply
-  against changes made during generation.
+  against changes made during generation, before enqueue. The dispatcher
+  performs the separate final check before the WhatsApp send marker.
 - [Turn commit](../../../apps/backend/src/modules/post-event-feedback/extraction/extraction-commit.service.ts)
   owns the single transaction for results, audit, outbox, transcript and
   conversation state. It recomputes the decision if newer work suppresses the
@@ -324,6 +336,17 @@ details:
 The extractor retains cheap exits and the cursor-only transaction when there
 is no new participant testimony. Model calls stay outside the commit, and
 operator alerts and summary notifications follow it.
+
+A planned turn separates immutable `evidence` (the admitted snapshot and model
+results) from the `proposed` goal statuses, hostility, closure and outbound
+intent. Commit can suppress that intent without erasing evidence already paid
+for. New ingress or newer work recomputes the disposition without a reply and
+clears a previously proposed close. An older closing message that already
+crossed provider entry only clears the close; it does not recompute the other
+outcomes. These cases remain separate because their effects differ.
+
+Runtime [stage records](../mechanisms/runtime-operations.md#logging-and-correlation)
+follow these boundaries without owning decisions or transactions.
 
 ### One run
 
@@ -766,8 +789,8 @@ only during locked preparation.
 | `sending`                       | Legacy bridge only                       |
 
 Before send marker: phone lock → conversation lock → campaign share lock;
-reload conversation + consent; ordinary replies compare
-`message_outbox_log.conversation_state` generations; pending ingress cancels
+reload conversation + consent; ordinary replies compare their immutable
+`message_outbox.dispatch_context` generations; pending ingress cancels
 stale copy; then `attempting`. Accepted → `sent`; explicit reject → `failed`;
 unknown → `ambiguous` + `awaitingHuman` + `undelivered_message`. Cancellation
 never touches `attempting`/`sending`/`ambiguous`. Exact lifecycle-anchored STOP

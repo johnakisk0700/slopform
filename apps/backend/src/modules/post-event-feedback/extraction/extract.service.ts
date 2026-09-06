@@ -12,6 +12,10 @@ import {
   FeedbackConversationRepository,
 } from "../post-event-feedback-conversation.repository.js";
 import { ParticipantsRepository } from "../../participants/participants.repository.js";
+import {
+  FeedbackLogger,
+  FeedbackOperationLog,
+} from "../feedback-operation-log.js";
 import { PostEventFeedbackMetrics } from "../metrics.service.js";
 import { PostEventFeedbackCampaignSummaryService } from "../summary/summary.service.js";
 import { FeedbackConversationExecutionFence } from "./execution-fence.service.js";
@@ -48,6 +52,8 @@ export {
  */
 @Injectable()
 export class PostEventFeedbackExtractor {
+  private readonly logger = new FeedbackLogger(PostEventFeedbackExtractor.name);
+
   constructor(
     private readonly database: DatabaseService,
     private readonly campaigns: FeedbackCampaignRepository,
@@ -64,13 +70,53 @@ export class PostEventFeedbackExtractor {
   ) {}
 
   async extract(input: ExtractFeedbackInput): Promise<ExtractFeedbackResult> {
+    const operation = new FeedbackOperationLog(this.logger, {
+      operation: "extract",
+      correlationId: input.correlationId,
+      conversationId: input.conversationId,
+      ...(input.executionClaim
+        ? {
+            workRevision: input.executionClaim.workRevision,
+            executionEpoch: input.executionClaim.epoch,
+          }
+        : {}),
+    });
+    try {
+      const result = await this.runExtract(input, operation);
+      operation.complete(result.outcome);
+      return result;
+    } catch (error) {
+      if (
+        error instanceof FeedbackConversationExecutionGuardError &&
+        error.reason === "authoritative_state_changed"
+      ) {
+        operation.failed(error, "superseded");
+      } else {
+        operation.failed(error);
+      }
+      throw error;
+    }
+  }
+
+  private async runExtract(
+    input: ExtractFeedbackInput,
+    operation: FeedbackOperationLog,
+  ): Promise<ExtractFeedbackResult> {
+    operation.stage("admit");
     const admitted = await this.admit(input);
     if (admitted.kind === "complete") {
       return admitted.result;
     }
 
+    operation.enrich({
+      campaignId: admitted.snapshot.campaign.id,
+      conversationId: admitted.snapshot.conversation._id,
+    });
+
+    operation.stage("plan_turn");
     const turn = await this.turns.plan(admitted.snapshot);
 
+    operation.stage("commit_turn");
     let committed: ExtractCommitResult;
     try {
       committed = await this.commits.commit(admitted.snapshot, turn);
@@ -78,6 +124,7 @@ export class PostEventFeedbackExtractor {
       if (!(error instanceof FeedbackConversationCapacityError)) {
         throw error;
       }
+      operation.stage("capacity_brake");
       return this.complete(
         await this.commits.brakeAfterCapacity(admitted.snapshot),
         input.correlationId,
@@ -85,26 +132,29 @@ export class PostEventFeedbackExtractor {
     }
 
     if (committed.raisedIncident) {
+      operation.stage("notify_operator");
       await this.alert.raise({
         conversationId: admitted.snapshot.conversation._id,
         campaignId: admitted.snapshot.conversation.campaignId,
         reason: "extraction_safety_signal",
         correlationId: input.correlationId,
         detail: [
-          ...turn.validated.safetySignals.map(
+          ...turn.evidence.validated.safetySignals.map(
             (signal) => `${signal.category}:${signal.recommendedAction}`,
           ),
-          ...(turn.validated.handoff ? ["handoff"] : []),
+          ...(turn.evidence.validated.handoff ? ["handoff"] : []),
         ],
       });
     }
 
+    operation.stage("notify_summary");
     await this.summaries.notifyIfLastConversationClosed(
       admitted.snapshot.conversation.campaignId,
       input.correlationId,
       committed.state.closedNow,
     );
 
+    operation.stage("record_outcome");
     return this.complete(
       toExtractResult(admitted.snapshot, turn, committed),
       input.correlationId,
@@ -267,7 +317,7 @@ function toExtractResult(
   return {
     outcome:
       committed.closingReason ??
-      (turn.validated.handoff ? "handoff" : "extracted"),
+      (turn.evidence.validated.handoff ? "handoff" : "extracted"),
     conversationId: snapshot.conversation._id,
     cursorSeq: snapshot.cursorSeq,
     answersWritten: committed.written.answersWritten,
@@ -275,6 +325,6 @@ function toExtractResult(
     ...(committed.effectiveOutbox
       ? { outboxId: committed.effectiveOutbox.id }
       : {}),
-    model: turn.model,
+    model: turn.evidence.model,
   };
 }

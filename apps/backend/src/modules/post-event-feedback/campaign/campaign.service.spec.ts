@@ -14,6 +14,7 @@ import {
 import type { EventsRepository } from "../../events/events.repository.js";
 import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
 import type { FeedbackOutboundLogRepository } from "../outbox/outbound-log.repository.js";
+import { FeedbackOutboundIntentService } from "../outbox/outbound-intent.service.js";
 import { FeedbackOutboundLogService } from "../outbox/outbound-log.service.js";
 import {
   FeedbackCampaignLaunchNotAllowedError,
@@ -136,6 +137,7 @@ describe("PostEventFeedbackCampaignService", () => {
       expect.objectContaining({
         kind: "intro",
         dedupeKey: `feedback-intro-${conversationId}`,
+        dispatchContext: { schemaVersion: 1, purpose: "campaign_intro" },
       }),
     );
     expect(auditAppend).toHaveBeenCalledWith(
@@ -791,8 +793,11 @@ function createService(): {
         repository as unknown as FeedbackOutboxRepository,
         conversations as unknown as FeedbackConversationRepository,
       ),
-      new FeedbackOutboundLogService(
-        repository as unknown as FeedbackOutboundLogRepository,
+      new FeedbackOutboundIntentService(
+        repository as unknown as FeedbackOutboxRepository,
+        new FeedbackOutboundLogService(
+          repository as unknown as FeedbackOutboundLogRepository,
+        ),
       ),
       wakeups as unknown as FeedbackConversationWakeupService,
     ),

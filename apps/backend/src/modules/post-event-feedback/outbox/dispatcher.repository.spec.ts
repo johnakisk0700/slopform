@@ -635,6 +635,7 @@ function outboxRow(
     lastError: null,
     createdAt: new Date("2026-07-25T00:00:00.000Z"),
     updatedAt: new Date("2026-07-25T00:00:00.000Z"),
+    dispatchContext: { schemaVersion: 1, purpose: "campaign_intro" },
     ...overrides,
   };
 }
@@ -734,6 +735,7 @@ describePostgres(
           kind: "intro",
           body: "hello",
           dedupeKey: `claim-rollback-${fixtureOutboxId}`,
+          dispatchContext: { schemaVersion: 1, purpose: "campaign_intro" },
         });
       });
 

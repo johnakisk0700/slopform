@@ -1,10 +1,11 @@
 import { InjectQueue } from "@nestjs/bullmq";
 import {
   Injectable,
-  Logger,
   type BeforeApplicationShutdown,
   type OnApplicationBootstrap,
 } from "@nestjs/common";
+
+import { FeedbackLogger } from "../feedback-operation-log.js";
 import type { Queue } from "bullmq";
 
 import { FEEDBACK_QUEUE } from "../../../infrastructure/queue/queue.constants.js";
@@ -18,7 +19,9 @@ export const FEEDBACK_OUTBOX_DISPATCH_INTERVAL_MS = 1_000;
 export class FeedbackOutboxDispatcherLoop
   implements OnApplicationBootstrap, BeforeApplicationShutdown
 {
-  private readonly logger = new Logger(FeedbackOutboxDispatcherLoop.name);
+  private readonly logger = new FeedbackLogger(
+    FeedbackOutboxDispatcherLoop.name,
+  );
   private interval: NodeJS.Timeout | undefined;
   private pending: Promise<void> | undefined;
 

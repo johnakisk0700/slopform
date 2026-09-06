@@ -24,7 +24,7 @@ import {
   isScoredPostEventFeedbackQuestion,
 } from "../question-set.js";
 import { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
-import { FeedbackOutboundLogService } from "../outbox/outbound-log.service.js";
+import { FeedbackOutboundIntentService } from "../outbox/outbound-intent.service.js";
 import {
   FeedbackConversationCapacityError,
   FeedbackConversationNotFoundError,
@@ -136,7 +136,7 @@ export class PostEventFeedbackConversationService {
     private readonly participants: ParticipantsRepository,
     private readonly audit: AuditRepository,
     private readonly outboundTranscript: FeedbackOutboundTranscriptService,
-    private readonly outboundLog: FeedbackOutboundLogService,
+    private readonly outboundIntent: FeedbackOutboundIntentService,
     private readonly summaries: PostEventFeedbackCampaignSummaryService,
     private readonly executionFences: FeedbackConversationExecutionFenceRepository,
     private readonly wakeups: FeedbackConversationWakeupService,
@@ -589,24 +589,29 @@ export class PostEventFeedbackConversationService {
         );
       }
 
-      const inserted = await this.outbox.insertOutboxIfAbsent(transaction, {
-        conversationId: conversation._id,
-        campaignId: conversation.campaignId,
-        kind: "staff",
-        body: input.text,
-        dedupeKey,
-        createdByStaff: actorId,
-      });
-      assertExactStaffMessageReplay(inserted.row, conversation, input, actorId);
-      await this.outboundLog.record(transaction, {
-        outbox: inserted,
-        conversation,
-        decision: {
-          origin: "staff_message",
+      const inserted = await this.outboundIntent.enqueue(transaction, {
+        dispatch: {
+          schemaVersion: 1,
+          purpose: "staff_message",
           staffActorId: actorId,
         },
-        correlationId: requestId,
+        message: {
+          conversationId: conversation._id,
+          campaignId: conversation.campaignId,
+          body: input.text,
+          dedupeKey,
+          createdByStaff: actorId,
+        },
+        history: {
+          conversation,
+          decision: {
+            origin: "staff_message",
+            staffActorId: actorId,
+          },
+          correlationId: requestId,
+        },
       });
+      assertExactStaffMessageReplay(inserted.row, conversation, input, actorId);
       if (inserted.inserted) {
         await this.audit.append(transaction, {
           actorType: "admin",

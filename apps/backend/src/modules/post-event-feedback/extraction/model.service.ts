@@ -1,4 +1,4 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
@@ -13,6 +13,7 @@ import {
   type LanguageModel,
 } from "ai";
 
+import { FeedbackLogger } from "../feedback-operation-log.js";
 import { ProviderCallLimiter } from "../../../infrastructure/ai/provider-call-limiter.js";
 import type { Environment } from "../../../infrastructure/config/environment.js";
 import {
@@ -418,7 +419,9 @@ export function resolveFeedbackExtractionModel(
  */
 @Injectable()
 export class PostEventFeedbackExtractionModel implements FeedbackExtractionModelPort {
-  private readonly logger = new Logger(PostEventFeedbackExtractionModel.name);
+  private readonly logger = new FeedbackLogger(
+    PostEventFeedbackExtractionModel.name,
+  );
   private readonly openAiProvider: ReturnType<typeof createOpenAI> | undefined;
   private readonly openRouterProvider:
     ReturnType<typeof createOpenRouter> | undefined;

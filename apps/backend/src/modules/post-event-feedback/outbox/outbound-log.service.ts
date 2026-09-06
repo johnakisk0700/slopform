@@ -10,10 +10,11 @@ import {
 import { buildOutboundConversationSnapshot } from "./outbound-log.snapshot.js";
 
 /**
- * Write path for `message_outbox_log`. Every enqueue site that calls
- * `insertOutboxIfAbsent` should call `record` in the same transaction; a
- * dedupe replay (`inserted: false`) is a no-op because the log already has
- * that row's story.
+ * Write path for `message_outbox_log`. Production producers go through
+ * `FeedbackOutboundIntentService.enqueue`, which records this projection on
+ * the same supplied transaction. A dedupe replay (`inserted: false`) is a
+ * no-op because the log already has that row's story. The log is not send
+ * authority.
  */
 @Injectable()
 export class FeedbackOutboundLogService {

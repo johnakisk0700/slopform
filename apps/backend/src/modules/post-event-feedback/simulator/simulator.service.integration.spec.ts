@@ -9,13 +9,16 @@ import type { DatabaseService } from "../../../infrastructure/database/database.
 import type { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
 import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
 import type { FeedbackOutboundLogRepository } from "../outbox/outbound-log.repository.js";
+import { FeedbackOutboundIntentService } from "../outbox/outbound-intent.service.js";
 import { FeedbackOutboundLogService } from "../outbox/outbound-log.service.js";
 import { FeedbackSimulatorService } from "./simulator.service.js";
 import {
   FakeAudit,
   FakeDatabase,
+  FakeFeedbackConversations,
   FakeParticipants,
   FakeQueue,
+  feedbackConversationFixture,
   noopSummaries,
 } from "../post-event-feedback-doubles.harness.js";
 import { PostEventFeedbackIngressService } from "../ingress/ingress.service.js";
@@ -179,6 +182,7 @@ interface FakeOutboxRow {
   providerMessageId: string | null;
   deliveryStatus: string | null;
   sentAt: Date | null;
+  dispatchContext?: unknown;
 }
 
 interface FakeSimOutboundRow {
@@ -188,28 +192,6 @@ interface FakeSimOutboundRow {
   body: string;
   providerMessageId: string;
   sentAt: Date;
-}
-
-interface FakeMessage {
-  id: string;
-  seq: number;
-  actor: string;
-  text: string;
-  ingressId: string | null;
-  outboxId?: string | null;
-}
-
-interface FakeConversation {
-  _id: string;
-  campaignId: string;
-  respondentParticipantId: string;
-  phoneAtLaunch: string;
-  lifecycle: { state: string; reason: string | null; closedAt: Date | null };
-  control: { mode: string; source: string; changedAt: Date };
-  messages: FakeMessage[];
-  needsAttention: boolean;
-  awaitingHuman?: boolean;
-  workRevision?: number;
 }
 
 class FakeSimulatorRepository {
@@ -409,131 +391,9 @@ class FakeSimulatorRepository {
   }
 }
 
-class FakeConversations {
-  readonly documents = new Map<string, FakeConversation>();
-
-  seed(conversation: FakeConversation): void {
-    this.documents.set(conversation._id, conversation);
-  }
-
-  transcript(id: string): {
-    seq: number;
-    actor: string;
-    text: string;
-    ingressId: string | null;
-    outboxId: string | null;
-  }[] {
-    const conversation = this.documents.get(id);
-    if (!conversation) {
-      throw new Error(`Conversation ${id} was not seeded`);
-    }
-    return conversation.messages.map((message) => ({
-      seq: message.seq,
-      actor: message.actor,
-      text: message.text,
-      ingressId: message.ingressId,
-      outboxId: message.outboxId ?? null,
-    }));
-  }
-
-  async findById(id: string): Promise<FakeConversation | undefined> {
-    const conversation = this.documents.get(id);
-    return conversation ? structuredClone(conversation) : undefined;
-  }
-
-  async findOpenByPhone(
-    phoneAtLaunch: string,
-  ): Promise<FakeConversation | undefined> {
-    return [...this.documents.values()].find(
-      (conversation) =>
-        conversation.phoneAtLaunch === phoneAtLaunch &&
-        conversation.lifecycle.state === "open",
-    );
-  }
-
-  async markWorkDue(
-    _transaction: AppTransaction,
-    input: { conversationId: string; nextActionAt: Date; at: Date },
-  ): Promise<{
-    changed: boolean;
-    conversation: FakeConversation;
-    work: { revision: number; nextActionAt: Date; executionEpoch: number };
-  }> {
-    const conversation = this.require(input.conversationId);
-    const revision = (conversation.workRevision ?? 0) + 1;
-    conversation.workRevision = revision;
-    return {
-      changed: true,
-      conversation,
-      work: { revision, nextActionAt: input.nextActionAt, executionEpoch: 0 },
-    };
-  }
-
-  /** Idempotent by `ingressId` / `outboxId`, like the real repository. */
-  async appendMessage(
-    _transaction: AppTransaction,
-    input: {
-      conversationId: string;
-      actor: string;
-      text: string;
-      at: Date;
-      id?: string;
-      providerMessageId?: string | null;
-      ingressId?: string | null;
-      outboxId?: string | null;
-    },
-  ): Promise<{
-    appended: boolean;
-    message: FakeMessage;
-    conversation: FakeConversation;
-  }> {
-    const conversation = this.require(input.conversationId);
-    const keys = [input.id, input.ingressId, input.outboxId].filter(Boolean);
-    const existing = conversation.messages.find((message) =>
-      [message.id, message.ingressId, message.outboxId]
-        .filter(Boolean)
-        .some((key) => keys.includes(key as string)),
-    );
-    if (existing) {
-      return { appended: false, message: existing, conversation };
-    }
-    const message: FakeMessage = {
-      id: input.id ?? randomUUID(),
-      seq: conversation.messages.length + 1,
-      actor: input.actor,
-      text: input.text,
-      ingressId: input.ingressId ?? null,
-      outboxId: input.outboxId ?? null,
-    };
-    conversation.messages.push(message);
-    return { appended: true, message, conversation };
-  }
-
-  async raiseAttention(
-    _transaction: AppTransaction,
-    input: {
-      conversationId: string;
-      kind: string;
-      messageId: string | null;
-    },
-  ): Promise<{ changed: boolean; conversation: FakeConversation }> {
-    const conversation = this.require(input.conversationId);
-    conversation.needsAttention = true;
-    return { changed: true, conversation };
-  }
-
-  private require(id: string): FakeConversation {
-    const conversation = this.documents.get(id);
-    if (!conversation) {
-      throw new Error(`Conversation ${id} was not seeded`);
-    }
-    return conversation;
-  }
-}
-
 interface SimulatorHarness {
   repository: FakeSimulatorRepository;
-  conversations: FakeConversations;
+  conversations: FakeFeedbackConversations;
   outboundTranscript: FeedbackOutboundTranscriptService;
   transport: SimulatedFeedbackTransport;
   simulator: FeedbackSimulatorService;
@@ -543,7 +403,7 @@ interface SimulatorHarness {
 
 function createSimulatorHarness(): SimulatorHarness {
   const repository = new FakeSimulatorRepository();
-  const conversations = new FakeConversations();
+  const conversations = new FakeFeedbackConversations();
   const queue = new FakeQueue();
   const database = new FakeDatabase();
   const config = {
@@ -561,20 +421,20 @@ function createSimulatorHarness(): SimulatorHarness {
     config,
   );
 
-  conversations.seed({
-    _id: conversationId,
-    campaignId,
-    respondentParticipantId,
-    phoneAtLaunch: phone,
-    lifecycle: { state: "open", reason: null, closedAt: null },
-    control: {
-      mode: "bot",
-      source: "launch",
-      changedAt: observedAt,
-    },
-    messages: [],
-    needsAttention: false,
-  });
+  conversations.seed(
+    feedbackConversationFixture({
+      _id: conversationId,
+      campaignId,
+      respondentParticipantId,
+      phoneAtLaunch: phone,
+      createdAt: observedAt,
+      control: {
+        mode: "bot",
+        source: "launch",
+        changedAt: observedAt,
+      },
+    }),
+  );
 
   const queuePort = queue as unknown as Queue<
     FeedbackJobData,
@@ -597,6 +457,10 @@ function createSimulatorHarness(): SimulatorHarness {
   );
   const outboundLog = new FeedbackOutboundLogService(
     repository as unknown as FeedbackOutboundLogRepository,
+  );
+  const outboundIntent = new FeedbackOutboundIntentService(
+    repository as unknown as FeedbackOutboxRepository,
+    outboundLog,
   );
   const conversationWakeups = {
     ensureQueued: async (input: {
@@ -665,7 +529,7 @@ function createSimulatorHarness(): SimulatorHarness {
       new FakeAudit() as never,
       new PostEventFeedbackMetrics(),
       outboundTranscript,
-      outboundLog,
+      outboundIntent,
       noopSummaries(),
       conversationWakeups as unknown as FeedbackConversationWakeupService,
     ),

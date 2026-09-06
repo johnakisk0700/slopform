@@ -128,21 +128,22 @@ export function withSettledOpenGoals(
 }
 
 /**
- * Withdrawal: nothing recorded, outbound sent, no question posed, but the
- * model still named a `nextGoal`. A `nextGoal: null` side-question reply must
- * not settle the ladder. `already_recorded` refusals mean replay repair, not
- * withdrawal — otherwise a replayed acknowledgement would close mid-ladder.
+ * Withdrawal: nothing recorded, a pre-enqueue outbound intent exists, no
+ * question posed, but the model still named a `nextGoal`. A `nextGoal: null`
+ * side-question reply must not settle the ladder. `already_recorded` refusals
+ * mean replay repair, not withdrawal — otherwise a replayed acknowledgement
+ * would close mid-ladder.
  */
 export function isWithdrawal(input: {
   readonly answers: { readonly length: number };
   readonly notes: { readonly length: number };
   readonly nextGoal: FeedbackAnswerQuestionKey | null;
   readonly askedGoal: FeedbackAnswerQuestionKey | undefined;
-  readonly outboundSent: boolean;
+  readonly hasOutboundIntent: boolean;
   readonly repairingStoredResults?: boolean;
 }): boolean {
   return (
-    input.outboundSent &&
+    input.hasOutboundIntent &&
     input.answers.length === 0 &&
     input.notes.length === 0 &&
     input.nextGoal !== null &&

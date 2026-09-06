@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 
 import type {
   AppTransaction,
@@ -20,12 +20,11 @@ import {
   evaluateConversationDispatch,
   type DispatchSettlementAction,
 } from "./dispatch-eligibility.js";
-import { FeedbackOutboundLogRepository } from "./outbound-log.repository.js";
-import { feedbackOutboundDecisionSchema } from "./outbound-log.schemas.js";
 import {
-  outboundConversationSnapshotSchema,
-  type OutboundConversationSnapshot,
-} from "./outbound-log.snapshot.js";
+  DISPATCH_CONTEXT_CLOSING_REASON_MISMATCH,
+  evaluateDispatchContext,
+  type OrdinaryDispatchEvidence,
+} from "./dispatch-context.js";
 import {
   FEEDBACK_OUTBOX_DISPATCH_HEARTBEAT_MS,
   FEEDBACK_OUTBOX_DISPATCH_LEASE_MS,
@@ -38,6 +37,10 @@ import {
   FEEDBACK_SEND_LIMITER,
   type FeedbackSendLimiter,
 } from "./session-pacer.js";
+import {
+  FeedbackLogger,
+  FeedbackOperationLog,
+} from "../feedback-operation-log.js";
 import { FEEDBACK_TRANSPORT, type FeedbackTransport } from "./transport.js";
 
 export type FeedbackOutboxDispatchOutcome =
@@ -76,14 +79,6 @@ type FeedbackSendSlotResult =
   | { readonly state: "granted" }
   | { readonly state: "failed"; readonly error: unknown };
 
-type OrdinaryExtractionSnapshot =
-  | { readonly state: "not_ordinary" }
-  | { readonly state: "invalid" }
-  | {
-      readonly state: "snapshot";
-      readonly snapshot: OutboundConversationSnapshot;
-    };
-
 /**
  * Direct PostgreSQL outbox dispatcher.
  *
@@ -96,14 +91,15 @@ type OrdinaryExtractionSnapshot =
  */
 @Injectable()
 export class MessageOutboxDispatcherService {
-  private readonly logger = new Logger(MessageOutboxDispatcherService.name);
+  private readonly logger = new FeedbackLogger(
+    MessageOutboxDispatcherService.name,
+  );
 
   constructor(
     private readonly database: DatabaseService,
     private readonly campaigns: FeedbackCampaignRepository,
     private readonly outbox: FeedbackOutboxRepository,
     private readonly ingress: FeedbackIngressRepository,
-    private readonly outboundLogs: FeedbackOutboundLogRepository,
     private readonly conversations: FeedbackConversationRepository,
     private readonly participants: ParticipantsRepository,
     private readonly outboundTranscript: FeedbackOutboundTranscriptService,
@@ -139,18 +135,26 @@ export class MessageOutboxDispatcherService {
       ...expiredAttempts.map(async (row) => {
         if (!row.claimToken) return false;
         try {
-          return this.database.transaction(async (transaction) => {
-            await this.outbox.lockConversation(transaction, row.conversationId);
-            const quarantined =
-              await this.outbox.quarantineExpiredDispatchAttempt(
-                row.id,
-                row.claimToken!,
+          return this.database
+            .transaction(async (transaction) => {
+              await this.outbox.lockConversation(
                 transaction,
+                row.conversationId,
               );
-            if (!quarantined) return false;
-            await parkOnce(quarantined, transaction);
-            return true;
-          });
+              const quarantined =
+                await this.outbox.quarantineExpiredDispatchAttempt(
+                  row.id,
+                  row.claimToken!,
+                  transaction,
+                );
+              if (!quarantined) return false;
+              await parkOnce(quarantined, transaction);
+              return true;
+            })
+            .catch((error: unknown) => {
+              this.logQuarantineProjectionFailure(row, error);
+              throw error;
+            });
         } catch (error) {
           this.logQuarantineProjectionFailure(row, error);
           return false;
@@ -158,17 +162,26 @@ export class MessageOutboxDispatcherService {
       }),
       ...staleLegacySending.map(async (row) => {
         try {
-          return this.database.transaction(async (transaction) => {
-            await this.outbox.lockConversation(transaction, row.conversationId);
-            const quarantined = await this.outbox.quarantineStaleLegacySending(
-              row.id,
-              FEEDBACK_OUTBOX_RECOVERY_MS,
-              transaction,
-            );
-            if (!quarantined) return false;
-            await parkOnce(quarantined, transaction);
-            return true;
-          });
+          return this.database
+            .transaction(async (transaction) => {
+              await this.outbox.lockConversation(
+                transaction,
+                row.conversationId,
+              );
+              const quarantined =
+                await this.outbox.quarantineStaleLegacySending(
+                  row.id,
+                  FEEDBACK_OUTBOX_RECOVERY_MS,
+                  transaction,
+                );
+              if (!quarantined) return false;
+              await parkOnce(quarantined, transaction);
+              return true;
+            })
+            .catch((error: unknown) => {
+              this.logQuarantineProjectionFailure(row, error);
+              throw error;
+            });
         } catch (error) {
           this.logQuarantineProjectionFailure(row, error);
           return false;
@@ -231,11 +244,35 @@ export class MessageOutboxDispatcherService {
   private async dispatchClaim(
     claim: FeedbackOutboxClaimedRow,
   ): Promise<FeedbackOutboxDispatchItemResult> {
+    const operation = new FeedbackOperationLog(this.logger, {
+      operation: "dispatch",
+      correlationId: claim.id,
+      outboxId: claim.id,
+      conversationId: claim.conversationId,
+      campaignId: claim.campaignId,
+      attempt: claim.attemptCount,
+    });
+    try {
+      const result = await this.dispatchClaimOnce(claim, operation);
+      operation.complete(result.outcome);
+      return result;
+    } catch (error) {
+      operation.failed(error);
+      throw error;
+    }
+  }
+
+  private async dispatchClaimOnce(
+    claim: FeedbackOutboxClaimedRow,
+    operation: FeedbackOperationLog,
+  ): Promise<FeedbackOutboxDispatchItemResult> {
+    operation.stage("initial_guard");
     const firstGuard = await this.guardCurrentState(claim);
     if (firstGuard.state === "settled") {
       return firstGuard.result;
     }
 
+    operation.stage("transcript");
     const recorded = await this.database.transaction((transaction) =>
       this.outboundTranscript.record(transaction, claim, new Date(), claim.id, {
         claimToken: claim.claimToken,
@@ -251,12 +288,22 @@ export class MessageOutboxDispatcherService {
     // Global pacing may outlive the initial lease as replicas are added. Keep
     // this exact token alive while waiting, then renew once more after the slot
     // before reading state and crossing the no-return marker.
+    operation.stage("send_slot");
     const ownsClaimAfterPacing =
       await this.waitForSendSlotWithClaimHeartbeat(claim);
     if (!ownsClaimAfterPacing) {
       return { outboxId: claim.id, outcome: "claim_lost" };
     }
 
+    const transport = new FeedbackOperationLog(this.logger, {
+      operation: "dispatch_transport",
+      correlationId: claim.id,
+      outboxId: claim.id,
+      conversationId: claim.conversationId,
+      campaignId: claim.campaignId,
+      attempt: claim.attemptCount,
+    });
+    operation.stage("prepare_send");
     const prepared = await this.database.transaction(async (transaction) => {
       // Webhook acknowledgement takes this lock before committing a durable
       // ingress row. Taking it first here makes "inbound accepted" and provider
@@ -318,12 +365,26 @@ export class MessageOutboxDispatcherService {
       return { outboxId: claim.id, outcome: "claim_lost" };
     }
 
+    // Sync, non-throwing, no await/IO: last reached boundary if the process
+    // dies inside the provider call. Child observer keeps a transport failure
+    // after the parent moves on to finalize.
+    operation.stage("transport");
+    transport.stage("transport");
     let result: Awaited<ReturnType<FeedbackTransport["sendText"]>>;
     try {
       // This is deliberately the first fallible operation after the durable
       // send marker. Every state/consent/phone lookup completed above it.
       result = await this.transport.sendText(sendInput);
+      transport.complete(
+        result.outcome === "accepted"
+          ? "accepted"
+          : result.outcome === "not-accepted"
+            ? "not_accepted"
+            : "unknown",
+      );
     } catch (error) {
+      transport.failed(error);
+      operation.stage("finalize_result");
       return this.markAmbiguous(
         attempting,
         claim.claimToken,
@@ -332,6 +393,7 @@ export class MessageOutboxDispatcherService {
       );
     }
 
+    operation.stage("finalize_result");
     if (result.outcome === "accepted") {
       const completedAt = new Date();
       const sent = await this.outbox.markDispatchSent(
@@ -487,6 +549,34 @@ export class MessageOutboxDispatcherService {
     }
     const { permittedStopAcknowledgement, permittedTerminalMessage } = decision;
 
+    const authority = evaluateDispatchContext({
+      context: claim.dispatchContext,
+      kind: claim.kind,
+      dedupeKey: claim.dedupeKey,
+      conversationId: claim.conversationId,
+    });
+    if (authority.state === "reject") {
+      return this.settleClaim(
+        claim,
+        { action: "finish_cancelled", reason: authority.reason },
+        transaction,
+      );
+    }
+    if (
+      authority.context.purpose === "extraction_closing" &&
+      conversation.lifecycle.state === "closed" &&
+      conversation.lifecycle.reason !== authority.context.closingReason
+    ) {
+      return this.settleClaim(
+        claim,
+        {
+          action: "finish_cancelled",
+          reason: DISPATCH_CONTEXT_CLOSING_REASON_MISMATCH,
+        },
+        transaction,
+      );
+    }
+
     // STOP atomically withdraws opt-in before its acknowledgement is dispatched.
     // That exact acknowledgement is the sole consent exception; every other
     // outbound reloads the participant row at both guard points.
@@ -530,12 +620,12 @@ export class MessageOutboxDispatcherService {
 
     if (
       transaction &&
-      claim.kind === "reply" &&
+      authority.context.purpose === "extraction_reply" &&
       !permittedTerminalMessage &&
       !isCurrentAwaitingHumanCommitment(claim.id, conversation)
     ) {
       const staleReason = await this.ordinaryExtractionReplyStaleReason(
-        claim,
+        authority.context.evidence,
         conversation,
         transaction,
       );
@@ -591,55 +681,39 @@ export class MessageOutboxDispatcherService {
   }
 
   /**
-   * Final ordinary-reply fence. The immutable decision log says which
-   * transcript the model answered; the phone lock makes the ingress
-   * comparison include every webhook acknowledgement that won before
-   * provider entry, even when materialization has not reached the
-   * conversation row yet.
+   * Final ordinary-reply fence. Evidence is the original model snapshot
+   * stored on the row; the phone lock makes the ingress comparison include
+   * every webhook acknowledgement that won before provider entry.
    */
   private async ordinaryExtractionReplyStaleReason(
-    claim: FeedbackOutboxClaimedRow,
+    evidence: OrdinaryDispatchEvidence,
     conversation: FeedbackConversationDocument,
     transaction: AppTransaction,
   ): Promise<string | undefined> {
-    const extraction = await this.readOrdinaryExtractionSnapshot(
-      claim.id,
-      transaction,
-    );
-    if (extraction.state === "not_ordinary") return undefined;
-    if (extraction.state === "invalid") return "outbound_snapshot_invalid";
-
-    const snapshotSeq = extraction.snapshot.latestMessageSeq ?? 0;
+    const snapshotSeq = evidence.latestMessageSeq ?? 0;
     const newerTestimony = conversation.messages.some(
       (message) => message.actor === "participant" && message.seq > snapshotSeq,
     );
     if (newerTestimony) return "superseded_by_newer_testimony";
 
-    const snapshotWork = extraction.snapshot.work;
-    const snapshotControlChangedAt = extraction.snapshot.control.changedAt;
-    if (!snapshotWork || !snapshotControlChangedAt) {
-      // Historical rows can still be inspected, but cannot prove that bot
-      // control did not leave and return while their provider call was queued.
-      return "outbound_snapshot_invalid";
-    }
-
     const currentWork = resolveFeedbackConversationWork(conversation.work);
     const controlGenerationChanged =
-      conversation.control.mode !== extraction.snapshot.control.mode ||
-      conversation.control.source !== extraction.snapshot.control.source ||
-      conversation.control.changedAt.toISOString() !== snapshotControlChangedAt;
+      conversation.control.mode !== evidence.control.mode ||
+      conversation.control.source !== evidence.control.source ||
+      conversation.control.changedAt.toISOString() !==
+        evidence.control.changedAt;
     const executionGenerationChanged =
-      currentWork.executionEpoch !== snapshotWork.executionEpoch;
+      currentWork.executionEpoch !== evidence.work.executionEpoch;
     const campaignResumeGenerationChanged =
       (currentWork.campaignResumeGeneration ?? null) !==
-      snapshotWork.campaignResumeGeneration;
+      evidence.work.campaignResumeGeneration;
     // A healthy execution may persist its row at revision N and then settle a
     // future reminder as N+1. Anything outside that narrow diagnostic range is
     // definitely not the work generation which produced this decision; exact
     // ABA authorization comes from control/resume/epoch above, not this range.
     const impossibleWorkRevision =
-      currentWork.revision < snapshotWork.revision ||
-      currentWork.revision > snapshotWork.revision + 1;
+      currentWork.revision < evidence.work.revision ||
+      currentWork.revision > evidence.work.revision + 1;
     if (
       controlGenerationChanged ||
       executionGenerationChanged ||
@@ -654,41 +728,10 @@ export class MessageOutboxDispatcherService {
       {
         phoneE164: conversation.phoneAtLaunch,
         conversationId: conversation._id,
-        // Historical log rows predate this field. An empty set deliberately
-        // fails closed: an old unsent reply has no evidence that any durable
-        // inbound belongs to its model snapshot.
-        snapshotIngressIds: extraction.snapshot.participantIngressIds ?? [],
+        snapshotIngressIds: evidence.participantIngressIds,
       },
     );
     return newerDurableIngress ? "superseded_by_newer_testimony" : undefined;
-  }
-
-  private async readOrdinaryExtractionSnapshot(
-    outboxId: string,
-    transaction: AppTransaction,
-  ): Promise<OrdinaryExtractionSnapshot> {
-    const log = await this.outboundLogs.findLogByOutboxId(
-      outboxId,
-      transaction,
-    );
-    if (!log || log.origin !== "extraction_reply") {
-      return { state: "not_ordinary" };
-    }
-
-    const decision = feedbackOutboundDecisionSchema.safeParse(log.decision);
-    if (!decision.success || decision.data.origin !== "extraction_reply") {
-      return { state: "invalid" };
-    }
-    if (decision.data.closingReason !== null) {
-      return { state: "not_ordinary" };
-    }
-
-    const snapshot = outboundConversationSnapshotSchema.safeParse(
-      log.conversationState,
-    );
-    return snapshot.success
-      ? { state: "snapshot", snapshot: snapshot.data }
-      : { state: "invalid" };
   }
 
   private async markAmbiguous(
@@ -787,6 +830,15 @@ export class MessageOutboxDispatcherService {
       conversationId: row.conversationId,
       error: { name: error instanceof Error ? error.name : "Error" },
     });
+    const quarantine = new FeedbackOperationLog(this.logger, {
+      operation: "dispatch_batch",
+      correlationId: row.id,
+      outboxId: row.id,
+      conversationId: row.conversationId,
+      campaignId: row.campaignId,
+    });
+    quarantine.stage("quarantine");
+    quarantine.failed(error);
   }
 
   private async raiseUndeliveredAttention(

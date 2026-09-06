@@ -18,7 +18,7 @@ import {
 import {
   FEEDBACK_CONVERSATION_MAX_MESSAGES_BYTES,
   FEEDBACK_CONVERSATION_MAX_MESSAGES,
-  accumulateFeedbackExtractionUsage,
+  buildFeedbackConversationGoals,
   feedbackConversationDocumentSchema,
   feedbackConversationStoredMessageSchema,
   resolveFeedbackConversationWork,
@@ -29,6 +29,29 @@ import {
   type FeedbackConversationLifecycleReason,
   type FeedbackConversationWork,
 } from "./post-event-feedback-conversation.document.js";
+import {
+  applyAdvanceCursor,
+  applyAdvanceCursorAndClose,
+  applyAdvanceCursorAndMarkAwaitingHuman,
+  applyAppendMessage,
+  applyClose,
+  applyMarkAwaitingHuman,
+  applyMarkExtractionFallbackAckSent,
+  applyMarkExtractionParkedNoticeSent,
+  applyMarkReminded,
+  applyMarkWorkDue,
+  applyMergeMessageAttention,
+  applyParkExtraction,
+  applyRaiseAttention,
+  applyRecordHostileTurn,
+  applyResolveAttentionReason,
+  applyResumeBot,
+  applySettleWorkExecution,
+  applyTakeOver,
+  applyUpdateGoalStatuses,
+  type FeedbackConversationExpectedWork,
+  type FeedbackConversationTransitionResult,
+} from "./post-event-feedback-conversation.state.js";
 import type { FeedbackOperatorAlertInput } from "./operator-alert.js";
 import type { FeedbackOutboundDecision } from "./outbox/outbound-log.schemas.js";
 import type { OutboundConversationSnapshot } from "./outbox/outbound-log.snapshot.js";
@@ -37,12 +60,10 @@ import type {
   FeedbackTransportSendInput,
   FeedbackTransportSendResult,
 } from "./outbox/transport.js";
-import {
-  POST_EVENT_FEEDBACK_SAFETY_CATEGORIES,
-  strongerRecommendedAction,
-  type PostEventFeedbackAttentionReason,
-  type PostEventFeedbackRecommendedAction,
-  type PostEventFeedbackSafetyCategory,
+import type {
+  PostEventFeedbackAttentionReason,
+  PostEventFeedbackRecommendedAction,
+  PostEventFeedbackSafetyCategory,
 } from "./attention.js";
 
 /**
@@ -58,16 +79,10 @@ import {
  * revision scenario into a passing test that describes a system we do not have,
  * so the answer key, the outbox `dedupe_key`, the ingress key, the transcript's
  * contiguous `seq`, the replayed-with-different-content check, the transcript
- * capacity cap, the goal ladder, the close-reason precedence and the partial
- * unique index on an open conversation's phone are all real here.
+ * capacity cap and the partial unique index on an open conversation's phone
+ * are all real here. Conversation transitions call the production state
+ * functions; this class keeps storage, query, capacity and fence inputs.
  */
-
-const GOAL_STATUS_RANK: Record<FeedbackConversationGoal["status"], number> = {
-  pending: 0,
-  asked: 1,
-  skipped: 2,
-  answered: 3,
-};
 
 /** Mirrors `createQueueProducerOptions`, which is where the real default lives. */
 export const FEEDBACK_TEST_DEFAULT_JOB_ATTEMPTS = 5;
@@ -131,6 +146,7 @@ export interface FakeOutboxRow {
   lastError: string | null;
   createdAt: Date;
   updatedAt: Date;
+  dispatchContext?: unknown;
 }
 
 export interface FakeOutboxLogRow {
@@ -426,6 +442,7 @@ export class FakeFeedbackRepository {
       dedupeKey: string;
       status?: string;
       createdByStaff?: string | null;
+      dispatchContext?: unknown;
     },
   ): Promise<{ row: FakeOutboxRow; inserted: boolean }> {
     const existing = this.outbox.find(
@@ -443,6 +460,9 @@ export class FakeFeedbackRepository {
       dedupeKey: input.dedupeKey,
       status: input.status ?? "pending",
       createdByStaff: input.createdByStaff ?? null,
+      ...(input.dispatchContext === undefined
+        ? {}
+        : { dispatchContext: input.dispatchContext }),
     });
     return { row: { ...row }, inserted: true };
   }
@@ -1283,19 +1303,158 @@ export interface FakeConversationAppend {
   conversation: FeedbackConversationDocument;
 }
 
+const DEFAULT_FIXTURE_CAMPAIGN_ID = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
+const DEFAULT_FIXTURE_RESPONDENT_ID = "9f3c1a52-6e2b-4b4a-9a17-2cb2a6d13a55";
+const defaultFixtureWork = {
+  revision: 0,
+  nextActionAt: null,
+  executionEpoch: 0,
+} as const;
+
+/** Typed conversation seed for workflow specs. Nested patches keep defaults. */
+export function feedbackConversationFixture(
+  overrides: Partial<FeedbackConversationDocument> = {},
+): FeedbackConversationDocument {
+  const createdAt = overrides.createdAt ?? new Date("2026-07-25T10:00:00.000Z");
+  const latestMessageAt = (overrides.messages ?? []).reduce(
+    (latest, message) => (message.at > latest ? message.at : latest),
+    createdAt,
+  );
+  const base: FeedbackConversationDocument = {
+    _id: overrides._id ?? randomUUID(),
+    schemaVersion: 2,
+    purpose: "post_event_feedback",
+    channel: "whatsapp",
+    campaignId: overrides.campaignId ?? DEFAULT_FIXTURE_CAMPAIGN_ID,
+    respondentParticipantId:
+      overrides.respondentParticipantId ?? DEFAULT_FIXTURE_RESPONDENT_ID,
+    phoneAtLaunch: overrides.phoneAtLaunch ?? "+306900000000",
+    lifecycle: { state: "open", reason: null, closedAt: null },
+    control: { mode: "bot", source: "launch", changedAt: createdAt },
+    goals: buildFeedbackConversationGoals(),
+    messages: [],
+    extraction: {
+      cursorSeq: 0,
+      lastRunAt: null,
+      model: null,
+      usage: null,
+      serviceTier: null,
+      parkedSince: null,
+      parkedRuns: 0,
+      parkedNoticeSentAt: null,
+    },
+    work: defaultFixtureWork,
+    needsAttention: false,
+    attentionReasons: [],
+    remindedAt: null,
+    reminderCount: 0,
+    awaitingHuman: false,
+    hostileTurns: 0,
+    extractionFallbackAckSent: false,
+    createdAt,
+    updatedAt: overrides.updatedAt ?? latestMessageAt,
+  };
+  const workPatch = overrides.work;
+  return {
+    ...base,
+    ...overrides,
+    lifecycle: { ...base.lifecycle, ...overrides.lifecycle },
+    control: { ...base.control, ...overrides.control },
+    extraction: { ...base.extraction, ...overrides.extraction },
+    work: workPatch
+      ? {
+          revision: workPatch.revision ?? defaultFixtureWork.revision,
+          nextActionAt:
+            workPatch.nextActionAt === undefined
+              ? defaultFixtureWork.nextActionAt
+              : workPatch.nextActionAt,
+          executionEpoch:
+            workPatch.executionEpoch ?? defaultFixtureWork.executionEpoch,
+          ...(workPatch.campaignResumeGeneration === undefined
+            ? {}
+            : {
+                campaignResumeGeneration: workPatch.campaignResumeGeneration,
+              }),
+        }
+      : defaultFixtureWork,
+  };
+}
+
+/** Stored-message shape production appends persist, including provenance. */
+export function feedbackStoredMessage(input: {
+  readonly id?: string;
+  readonly seq: number;
+  readonly actor: FeedbackConversationMessage["actor"];
+  readonly text: string;
+  readonly at?: Date;
+  readonly providerMessageId?: string | null;
+  readonly ingressId?: string | null;
+  readonly outboxId?: string | null;
+  readonly attention?: FeedbackConversationMessage["attention"];
+}): FeedbackConversationMessage {
+  return {
+    id: input.id ?? randomUUID(),
+    seq: input.seq,
+    actor: input.actor,
+    text: input.text,
+    providerMessageId: input.providerMessageId ?? null,
+    ingressId:
+      input.ingressId !== undefined
+        ? input.ingressId
+        : input.actor === "participant"
+          ? randomUUID()
+          : null,
+    outboxId:
+      input.outboxId !== undefined
+        ? input.outboxId
+        : input.actor === "bot"
+          ? randomUUID()
+          : null,
+    attention: input.attention ?? null,
+    at: input.at ?? new Date("2026-07-25T10:00:00.000Z"),
+  };
+}
+
 /**
- * In-memory conversation store used by workflow specs. Validated against
- * the real document schema after every mutation so contiguous `seq`, unique
- * provenance and the cursor bound cannot silently drift.
+ * In-memory conversation store used by workflow specs. Mutations go through
+ * the production state transitions. Persistence, capacity, phone uniqueness
+ * and explicit fence inputs stay here so a scenario can still race or query
+ * without a second state machine.
  */
 export class FakeFeedbackConversations {
   readonly documents = new Map<string, FeedbackConversationDocument>();
+  /**
+   * Simulated `feedback_conversation_executions` row. Presence is independent
+   * of `work.executionEpoch` (the joined projection defaults a missing row to 0).
+   */
+  private readonly executionFences = new Map<string, number>();
+  beforeTerminalClose?: () => void | Promise<void>;
+  beforeAwaitingHuman?: () => void | Promise<void>;
 
   seed(document: FeedbackConversationDocument): FeedbackConversationDocument {
     const parsed = feedbackConversationDocumentSchema.parse(document);
     this.assertPhoneAvailable(parsed);
     this.documents.set(parsed._id, parsed);
+    // Existing seeds that project an epoch keep a matching row so scenarios
+    // do not all need an extra setExecutionFence. Clear it to model a missing row.
+    if (parsed.work) {
+      this.executionFences.set(parsed._id, parsed.work.executionEpoch);
+    } else {
+      this.executionFences.delete(parsed._id);
+    }
     return parsed;
+  }
+
+  /**
+   * Installs or removes the simulated execution row. `undefined` is a missing
+   * row, which is not the same as a present epoch-0 row.
+   */
+  setExecutionFence(conversationId: string, epoch: number | undefined): void {
+    if (epoch === undefined) {
+      this.executionFences.delete(conversationId);
+      return;
+    }
+    this.executionFences.set(conversationId, epoch);
   }
 
   /** Test-side reader. Production code never sees this. */
@@ -1305,6 +1464,83 @@ export class FakeFeedbackConversations {
       throw new Error(`Conversation ${id} was not seeded`);
     }
     return conversation;
+  }
+
+  transcript(id: string): {
+    seq: number;
+    actor: string;
+    text: string;
+    ingressId: string | null;
+    outboxId: string | null;
+  }[] {
+    return this.get(id).messages.map((message) => ({
+      seq: message.seq,
+      actor: message.actor,
+      text: message.text,
+      ingressId: message.ingressId,
+      outboxId: message.outboxId,
+    }));
+  }
+
+  goalStatuses(id: string): Record<string, string> {
+    return Object.fromEntries(
+      this.get(id).goals.map((goal) => [goal.key, goal.status]),
+    );
+  }
+
+  setAllGoals(id: string, status: FeedbackConversationGoal["status"]): void {
+    for (const goal of this.get(id).goals) {
+      goal.status = status;
+    }
+  }
+
+  setGoal(
+    id: string,
+    key: string,
+    status: FeedbackConversationGoal["status"],
+  ): void {
+    const goal = this.get(id).goals.find((entry) => entry.key === key);
+    if (goal) {
+      goal.status = status;
+    }
+  }
+
+  setLastParticipantText(id: string, text: string): void {
+    const message = [...this.get(id).messages]
+      .reverse()
+      .find((candidate) => candidate.actor === "participant");
+    if (message) {
+      message.text = text;
+    }
+  }
+
+  /** Test-side append through the production sort and updatedAt bound. */
+  pushStored(
+    id: string,
+    input: Parameters<typeof feedbackStoredMessage>[0],
+  ): FeedbackConversationMessage {
+    const conversation = this.require(id);
+    const message = feedbackStoredMessage(input);
+    this.writeConversation(applyAppendMessage(conversation, message));
+    return message;
+  }
+
+  /** Replaces the transcript and lifts updatedAt so the document stays parseable. */
+  replaceMessages(
+    id: string,
+    messages: readonly FeedbackConversationMessage[],
+  ): void {
+    const conversation = this.require(id);
+    const latestAt = messages.reduce(
+      (latest, message) => (message.at > latest ? message.at : latest),
+      conversation.createdAt,
+    );
+    this.writeConversation({
+      ...conversation,
+      messages: [...messages],
+      updatedAt:
+        conversation.updatedAt > latestAt ? conversation.updatedAt : latestAt,
+    });
   }
 
   async createFromLaunch(
@@ -1403,20 +1639,12 @@ export class FakeFeedbackConversations {
     work: FeedbackConversationWork;
   }> {
     const input = leadingInput(transactionOrInput, maybeInput);
-    const conversation = this.require(input.conversationId);
-    const current = resolveFeedbackConversationWork(conversation.work);
-    conversation.work = {
-      ...current,
-      revision: current.revision + 1,
-      nextActionAt: input.nextActionAt,
-    };
-    this.touch(conversation, input.at);
-    this.revalidate(conversation);
-    return {
-      changed: true,
-      conversation: structuredClone(conversation),
-      work: structuredClone(conversation.work),
-    };
+    const updated = applyMarkWorkDue(
+      this.require(input.conversationId),
+      input.nextActionAt,
+      input.at,
+    );
+    return this.persistWorkTransition({ changed: true, conversation: updated });
   }
 
   async markCampaignWorkDue(
@@ -1428,22 +1656,26 @@ export class FakeFeedbackConversations {
     },
   ): Promise<number> {
     let count = 0;
-    for (const conversation of this.documents.values()) {
+    for (const conversation of [...this.documents.values()]) {
       if (
         conversation.campaignId !== input.campaignId ||
         conversation.lifecycle.state !== "open"
       ) {
         continue;
       }
-      const current = resolveFeedbackConversationWork(conversation.work);
-      conversation.work = {
-        ...current,
-        revision: current.revision + 1,
-        nextActionAt: input.nextActionAt,
-        campaignResumeGeneration: (current.campaignResumeGeneration ?? 0) + 1,
-      };
-      this.touch(conversation, input.at);
-      this.revalidate(conversation);
+      const updated = applyMarkWorkDue(
+        conversation,
+        input.nextActionAt,
+        input.at,
+      );
+      const work = resolveFeedbackConversationWork(updated.work);
+      this.writeConversation({
+        ...updated,
+        work: {
+          ...work,
+          campaignResumeGeneration: (work.campaignResumeGeneration ?? 0) + 1,
+        },
+      });
       count += 1;
     }
     return count;
@@ -1504,23 +1736,13 @@ export class FakeFeedbackConversations {
     work: FeedbackConversationWork;
   }> {
     const input = leadingInput(transactionOrInput, maybeInput);
-    const conversation = this.require(input.conversationId);
-    const current = resolveFeedbackConversationWork(conversation.work);
-    const changed = current.revision >= input.revision;
-    if (changed && current.revision === input.revision) {
-      conversation.work = {
-        ...current,
-        revision:
-          input.nextActionAt === null ? current.revision : current.revision + 1,
+    return this.persistWorkTransition(
+      applySettleWorkExecution(this.require(input.conversationId), {
+        revision: input.revision,
         nextActionAt: input.nextActionAt,
-      };
-      this.revalidate(conversation);
-    }
-    return {
-      changed,
-      conversation: structuredClone(conversation),
-      work: structuredClone(resolveFeedbackConversationWork(conversation.work)),
-    };
+        at: input.at,
+      }),
+    );
   }
 
   async listCurrentTerminalOutboxIds(
@@ -1669,21 +1891,13 @@ export class FakeFeedbackConversations {
       throw new FeedbackConversationCapacityError();
     }
 
-    // Mirrors the real `$push` with `$sort`: stored in the order the
-    // participant spoke, not the order the webhooks arrived. `seq` is assigned
-    // on arrival and is deliberately not renumbered — the extraction cursor is
-    // a `seq` and must not be reshuffled underneath a run.
-    conversation.messages.push(message);
-    conversation.messages.sort(
-      (left, right) =>
-        left.at.getTime() - right.at.getTime() || left.seq - right.seq,
-    );
-    this.touch(conversation, message.at);
-    this.revalidate(conversation);
+    // `seq` is assigned on arrival and is deliberately not renumbered — the
+    // extraction cursor is a `seq` and must not be reshuffled underneath a run.
+    this.writeConversation(applyAppendMessage(conversation, message));
     return {
       appended: true,
       message,
-      conversation: structuredClone(conversation),
+      conversation: structuredClone(this.require(conversation._id)),
     };
   }
 
@@ -1708,41 +1922,27 @@ export class FakeFeedbackConversations {
     },
   ): Promise<FakeConversationTransition> {
     const input = leadingInput(transactionOrInput, maybeInput);
-    const conversation = this.require(input.conversationId);
-    const message = conversation.messages.find(
-      (candidate) => candidate.id === input.messageId,
-    );
-    if (!message) {
-      throw new FeedbackConversationTransitionError(
-        `Feedback message ${input.messageId} was not found`,
-      );
+    const current = this.require(input.conversationId);
+    const result = applyMergeMessageAttention(current, {
+      messageId: input.messageId,
+      categories: input.categories,
+      recommendedAction: input.recommendedAction,
+      confidence: input.confidence,
+      at: input.at,
+    });
+    if (
+      result.changed &&
+      this.messagesExceedCapacity(result.conversation.messages)
+    ) {
+      await this.raiseAttention({
+        conversationId: current._id,
+        kind: "transcript_full",
+        messageId: null,
+        at: input.at,
+      });
+      throw new FeedbackConversationCapacityError();
     }
-    if (message.actor !== "participant") {
-      throw new FeedbackConversationTransitionError(
-        "Only participant messages can carry attention metadata",
-      );
-    }
-
-    message.attention = {
-      categories: POST_EVENT_FEEDBACK_SAFETY_CATEGORIES.filter(
-        (category) =>
-          message.attention?.categories.includes(category) ||
-          input.categories.includes(category),
-      ),
-      recommendedAction: message.attention
-        ? strongerRecommendedAction(
-            message.attention.recommendedAction,
-            input.recommendedAction,
-          )
-        : input.recommendedAction,
-      confidence: Math.max(
-        message.attention?.confidence ?? 0,
-        input.confidence,
-      ),
-    };
-    this.touch(conversation, input.at);
-    this.revalidate(conversation);
-    return { changed: true, conversation: structuredClone(conversation) };
+    return this.persistTransition(result);
   }
 
   async takeOver(
@@ -1760,22 +1960,12 @@ export class FakeFeedbackConversations {
     },
   ): Promise<FakeConversationTransition> {
     const input = leadingInput(transactionOrInput, maybeInput);
-    const conversation = this.require(input.conversationId);
-    if (
-      conversation.control.mode !== "bot" ||
-      conversation.lifecycle.state !== "open"
-    ) {
-      return { changed: false, conversation: structuredClone(conversation) };
-    }
-    conversation.control = {
-      mode: "human",
-      source: input.source,
-      changedAt: input.at,
-    };
-    conversation.awaitingHuman = false;
-    this.touch(conversation, input.at);
-    this.revalidate(conversation);
-    return { changed: true, conversation: structuredClone(conversation) };
+    return this.persistTransition(
+      applyTakeOver(this.require(input.conversationId), {
+        source: input.source,
+        at: input.at,
+      }),
+    );
   }
 
   /** The bot steps back and consumes any due wake-up without changing revision. */
@@ -1792,19 +1982,9 @@ export class FakeFeedbackConversations {
     },
   ): Promise<FakeConversationTransition> {
     const input = leadingInput(transactionOrInput, maybeInput);
-    const conversation = this.require(input.conversationId);
-    if (conversation.lifecycle.state !== "open") {
-      return { changed: false, conversation: structuredClone(conversation) };
-    }
-    const changed =
-      !conversation.awaitingHuman || conversation.work?.nextActionAt != null;
-    conversation.awaitingHuman = true;
-    if (conversation.work) {
-      conversation.work.nextActionAt = null;
-    }
-    this.touch(conversation, input.at);
-    this.revalidate(conversation);
-    return { changed, conversation: structuredClone(conversation) };
+    return this.persistTransition(
+      applyMarkAwaitingHuman(this.require(input.conversationId), input.at),
+    );
   }
 
   /**
@@ -1830,14 +2010,12 @@ export class FakeFeedbackConversations {
     },
   ): Promise<FakeConversationTransition> {
     const input = leadingInput(transactionOrInput, maybeInput);
-    const conversation = this.require(input.conversationId);
-    if (conversation.hostileTurns !== input.expectedCount) {
-      return { changed: false, conversation: structuredClone(conversation) };
-    }
-    conversation.hostileTurns = input.expectedCount + 1;
-    this.touch(conversation, input.at);
-    this.revalidate(conversation);
-    return { changed: true, conversation: structuredClone(conversation) };
+    return this.persistTransition(
+      applyRecordHostileTurn(this.require(input.conversationId), {
+        expectedCount: input.expectedCount,
+        at: input.at,
+      }),
+    );
   }
 
   async markExtractionFallbackAckSent(
@@ -1853,14 +2031,12 @@ export class FakeFeedbackConversations {
     },
   ): Promise<FakeConversationTransition> {
     const input = leadingInput(transactionOrInput, maybeInput);
-    const conversation = this.require(input.conversationId);
-    if (conversation.extractionFallbackAckSent) {
-      return { changed: false, conversation: structuredClone(conversation) };
-    }
-    conversation.extractionFallbackAckSent = true;
-    this.touch(conversation, input.at);
-    this.revalidate(conversation);
-    return { changed: true, conversation: structuredClone(conversation) };
+    return this.persistTransition(
+      applyMarkExtractionFallbackAckSent(
+        this.require(input.conversationId),
+        input.at,
+      ),
+    );
   }
 
   async resumeBot(
@@ -1876,49 +2052,11 @@ export class FakeFeedbackConversations {
     },
   ): Promise<FakeConversationTransition> {
     const input = leadingInput(transactionOrInput, maybeInput);
-    const conversation = this.require(input.conversationId);
-    if (conversation.lifecycle.state === "closed") {
-      throw new FeedbackConversationTransitionError(
-        "A closed feedback conversation cannot resume bot control",
-      );
-    }
-    if (conversation.control.mode !== "human") {
-      return { changed: false, conversation: structuredClone(conversation) };
-    }
-    conversation.control = {
-      mode: "bot",
-      source: "staff_action",
-      changedAt: input.at,
-    };
-    conversation.awaitingHuman = false;
-    const currentWork = resolveFeedbackConversationWork(conversation.work);
-    const latestParticipantSeq = conversation.messages.reduce(
-      (latest, message) =>
-        message.actor === "participant"
-          ? Math.max(latest, message.seq)
-          : latest,
-      0,
+    return this.persistTransition(
+      applyResumeBot(this.require(input.conversationId), input.at),
     );
-    conversation.work = {
-      ...currentWork,
-      revision: currentWork.revision + 1,
-      nextActionAt:
-        latestParticipantSeq > conversation.extraction.cursorSeq
-          ? input.at
-          : currentWork.nextActionAt,
-    };
-    this.touch(conversation, input.at);
-    this.revalidate(conversation);
-    return { changed: true, conversation: structuredClone(conversation) };
   }
 
-  /**
-   * The first closure wins, except that a STOP overrides a softer reason.
-   *
-   * Closing lowers the badge only when nothing unresolved is holding it up, as
-   * the repository does: an unresolved reason survives a close and is the
-   * operator's to dismiss.
-   */
   async close(
     transactionOrInput:
       | AppTransaction
@@ -1938,34 +2076,14 @@ export class FakeFeedbackConversations {
     },
   ): Promise<FakeConversationTransition> {
     const input = leadingInput(transactionOrInput, maybeInput);
-    const conversation = this.require(input.conversationId);
-    const allowed =
-      input.reason === "stopped"
-        ? conversation.lifecycle.reason !== "stopped"
-        : conversation.lifecycle.state === "open";
-    if (!allowed) {
-      return { changed: false, conversation: structuredClone(conversation) };
-    }
-    conversation.lifecycle = {
-      state: "closed",
-      reason: input.reason,
-      closedAt: input.at,
-      terminalOutboxId: input.terminalOutboxId ?? null,
-    };
-    if (input.staffClose) {
-      conversation.staffClose = input.staffClose;
-    }
-    if (
-      conversation.needsAttention &&
-      !conversation.attentionReasons.some(
-        (reason) => reason.resolvedAt === null,
-      )
-    ) {
-      conversation.needsAttention = false;
-    }
-    this.touch(conversation, input.at);
-    this.revalidate(conversation);
-    return { changed: true, conversation: structuredClone(conversation) };
+    return this.persistTransition(
+      applyClose(this.require(input.conversationId), {
+        reason: input.reason,
+        at: input.at,
+        terminalOutboxId: input.terminalOutboxId ?? null,
+        staffClose: input.staffClose ?? null,
+      }),
+    );
   }
 
   async advanceCursor(
@@ -1978,6 +2096,8 @@ export class FakeFeedbackConversations {
           model?: string | null;
           serviceTier?: string | null;
           usage?: FeedbackConversationExtractionUsage;
+          workRevision?: number;
+          executionEpoch?: number;
         },
     maybeInput?: {
       conversationId: string;
@@ -1986,42 +2106,24 @@ export class FakeFeedbackConversations {
       model?: string | null;
       serviceTier?: string | null;
       usage?: FeedbackConversationExtractionUsage;
+      workRevision?: number;
+      executionEpoch?: number;
     },
   ): Promise<FakeConversationTransition> {
     const input = leadingInput(transactionOrInput, maybeInput);
-    const conversation = this.require(input.conversationId);
-    if (input.toSeq > conversation.messages.length) {
-      throw new FeedbackConversationTransitionError(
-        "The extraction cursor cannot pass the transcript",
-      );
-    }
-    if (input.toSeq <= conversation.extraction.cursorSeq) {
-      return { changed: false, conversation: structuredClone(conversation) };
-    }
-    conversation.extraction = {
-      cursorSeq: input.toSeq,
-      lastRunAt: input.at,
-      model: input.model ?? null,
-      // Accumulated exactly as the aggregation pipeline accumulates it, null
-      // included: a double that quietly summed through a missing component
-      // would let a test pass on a total the database would never produce.
-      // An absent usage is a run that called no model and leaves the total be.
-      usage: input.usage
-        ? accumulateFeedbackExtractionUsage(
-            conversation.extraction.usage,
-            input.usage,
-          )
-        : conversation.extraction.usage,
-      serviceTier: input.serviceTier ?? null,
-      // A run that moved the cursor reached the provider, so it ends the park —
-      // but not the record that this person has already been apologised to once.
-      parkedSince: null,
-      parkedRuns: 0,
-      parkedNoticeSentAt: conversation.extraction.parkedNoticeSentAt,
-    };
-    this.touch(conversation, input.at);
-    this.revalidate(conversation);
-    return { changed: true, conversation: structuredClone(conversation) };
+    const current = this.require(input.conversationId);
+    return this.persistTransition(
+      applyAdvanceCursor(current, {
+        toSeq: input.toSeq,
+        at: input.at,
+        ...(input.model !== undefined ? { model: input.model } : {}),
+        ...(input.serviceTier !== undefined
+          ? { serviceTier: input.serviceTier }
+          : {}),
+        ...(input.usage !== undefined ? { usage: input.usage } : {}),
+        ...this.cursorFence(current, input),
+      }),
+    );
   }
 
   async advanceCursorAndClose(
@@ -2053,38 +2155,20 @@ export class FakeFeedbackConversations {
     },
   ): Promise<FakeConversationTransition> {
     const input = leadingInput(transactionOrInput, maybeInput);
-    const conversation = this.require(input.conversationId);
-    if (input.toSeq > conversation.messages.length) {
-      throw new FeedbackConversationTransitionError(
-        "The extraction cursor cannot pass the transcript",
-      );
-    }
-    if (
-      conversation.lifecycle.state !== "open" ||
-      conversation.control.mode !== "bot" ||
-      input.toSeq <= conversation.extraction.cursorSeq ||
-      (input.workRevision !== undefined &&
-        conversation.work?.revision !== input.workRevision) ||
-      (input.executionEpoch !== undefined &&
-        conversation.work?.executionEpoch !== input.executionEpoch) ||
-      conversation.messages.some(
-        (message) =>
-          message.actor === "participant" && message.seq > input.toSeq,
-      )
-    ) {
-      return { changed: false, conversation: structuredClone(conversation) };
-    }
-
-    await this.advanceCursor(input);
-    conversation.lifecycle = {
-      state: "closed",
-      reason: input.reason,
-      closedAt: input.at,
-      terminalOutboxId: input.terminalOutboxId,
-    };
-    this.touch(conversation, input.at);
-    this.revalidate(conversation);
-    return { changed: true, conversation: structuredClone(conversation) };
+    await this.beforeTerminalClose?.();
+    const current = this.require(input.conversationId);
+    return this.persistTransition(
+      applyAdvanceCursorAndClose(current, {
+        toSeq: input.toSeq,
+        reason: input.reason,
+        terminalOutboxId: input.terminalOutboxId,
+        at: input.at,
+        model: input.model,
+        serviceTier: input.serviceTier,
+        usage: input.usage,
+        ...this.cursorFence(current, input),
+      }),
+    );
   }
 
   async advanceCursorAndMarkAwaitingHuman(
@@ -2112,43 +2196,18 @@ export class FakeFeedbackConversations {
     },
   ): Promise<FakeConversationTransition> {
     const input = leadingInput(transactionOrInput, maybeInput);
-    const conversation = this.require(input.conversationId);
-    if (input.toSeq > conversation.messages.length) {
-      throw new FeedbackConversationTransitionError(
-        "The extraction cursor cannot pass the transcript",
-      );
-    }
-    if (
-      conversation.lifecycle.state !== "open" ||
-      conversation.control.mode !== "bot" ||
-      conversation.awaitingHuman ||
-      (input.workRevision !== undefined &&
-        conversation.work?.revision !== input.workRevision) ||
-      (input.executionEpoch !== undefined &&
-        conversation.work?.executionEpoch !== input.executionEpoch)
-    ) {
-      return { changed: false, conversation: structuredClone(conversation) };
-    }
-
-    if (input.toSeq > conversation.extraction.cursorSeq) {
-      conversation.extraction = {
-        cursorSeq: input.toSeq,
-        lastRunAt: input.at,
+    await this.beforeAwaitingHuman?.();
+    const current = this.require(input.conversationId);
+    return this.persistTransition(
+      applyAdvanceCursorAndMarkAwaitingHuman(current, {
+        toSeq: input.toSeq,
+        at: input.at,
         model: input.model,
-        usage: accumulateFeedbackExtractionUsage(
-          conversation.extraction.usage,
-          input.usage,
-        ),
         serviceTier: input.serviceTier,
-        parkedSince: null,
-        parkedRuns: 0,
-        parkedNoticeSentAt: conversation.extraction.parkedNoticeSentAt,
-      };
-    }
-    conversation.awaitingHuman = true;
-    this.touch(conversation, input.at);
-    this.revalidate(conversation);
-    return { changed: true, conversation: structuredClone(conversation) };
+        usage: input.usage,
+        ...this.cursorFence(current, input),
+      }),
+    );
   }
 
   /** Keeps the first park's start time and counts every run, as the pipeline does. */
@@ -2165,15 +2224,9 @@ export class FakeFeedbackConversations {
     },
   ): Promise<FakeConversationTransition> {
     const input = leadingInput(transactionOrInput, maybeInput);
-    const conversation = this.require(input.conversationId);
-    conversation.extraction = {
-      ...conversation.extraction,
-      parkedSince: conversation.extraction.parkedSince ?? input.at,
-      parkedRuns: conversation.extraction.parkedRuns + 1,
-    };
-    this.touch(conversation, input.at);
-    this.revalidate(conversation);
-    return { changed: true, conversation: structuredClone(conversation) };
+    return this.persistTransition(
+      applyParkExtraction(this.require(input.conversationId), input.at),
+    );
   }
 
   async markExtractionParkedNoticeSent(
@@ -2189,23 +2242,14 @@ export class FakeFeedbackConversations {
     },
   ): Promise<FakeConversationTransition> {
     const input = leadingInput(transactionOrInput, maybeInput);
-    const conversation = this.require(input.conversationId);
-    if (conversation.extraction.parkedNoticeSentAt !== null) {
-      return { changed: false, conversation: structuredClone(conversation) };
-    }
-    conversation.extraction = {
-      ...conversation.extraction,
-      parkedNoticeSentAt: input.at,
-    };
-    this.touch(conversation, input.at);
-    this.revalidate(conversation);
-    return { changed: true, conversation: structuredClone(conversation) };
+    return this.persistTransition(
+      applyMarkExtractionParkedNoticeSent(
+        this.require(input.conversationId),
+        input.at,
+      ),
+    );
   }
 
-  /**
-   * Rank-up along `pending < asked < skipped < answered`, plus the WP-9δ
-   * `skipped → asked` reopen. Mirrors `canTransitionGoalStatus`.
-   */
   async updateGoalStatuses(
     transactionOrInput:
       | AppTransaction
@@ -2227,26 +2271,12 @@ export class FakeFeedbackConversations {
     },
   ): Promise<FakeConversationTransition> {
     const input = leadingInput(transactionOrInput, maybeInput);
-    const conversation = this.require(input.conversationId);
-    let changed = false;
-    for (const entry of input.statuses) {
-      const goal = conversation.goals.find((item) => item.key === entry.key);
-      if (!goal || goal.status === entry.status) {
-        continue;
-      }
-      const reopensSkip = goal.status === "skipped" && entry.status === "asked";
-      const ranksUp =
-        GOAL_STATUS_RANK[entry.status] > GOAL_STATUS_RANK[goal.status];
-      if (reopensSkip || ranksUp) {
-        goal.status = entry.status;
-        changed = true;
-      }
-    }
-    if (changed) {
-      this.touch(conversation, input.at);
-      this.revalidate(conversation);
-    }
-    return { changed, conversation: structuredClone(conversation) };
+    return this.persistTransition(
+      applyUpdateGoalStatuses(this.require(input.conversationId), {
+        statuses: input.statuses,
+        at: input.at,
+      }),
+    );
   }
 
   /**
@@ -2270,28 +2300,13 @@ export class FakeFeedbackConversations {
     },
   ): Promise<FakeConversationTransition> {
     const input = leadingInput(transactionOrInput, maybeInput);
-    const conversation = this.require(input.conversationId);
-    const standing = conversation.attentionReasons.some(
-      (reason) =>
-        reason.kind === input.kind &&
-        reason.messageId === input.messageId &&
-        reason.resolvedAt === null,
+    return this.persistTransition(
+      applyRaiseAttention(this.require(input.conversationId), {
+        kind: input.kind,
+        messageId: input.messageId,
+        at: input.at,
+      }),
     );
-    if (standing) {
-      return { changed: false, conversation: structuredClone(conversation) };
-    }
-    conversation.attentionReasons.push({
-      id: randomUUID(),
-      kind: input.kind,
-      messageId: input.messageId,
-      at: input.at,
-      resolvedAt: null,
-      resolvedBy: null,
-    });
-    conversation.needsAttention = true;
-    this.touch(conversation, input.at);
-    this.revalidate(conversation);
-    return { changed: true, conversation: structuredClone(conversation) };
   }
 
   async markReminded(
@@ -2309,18 +2324,12 @@ export class FakeFeedbackConversations {
     },
   ): Promise<FakeConversationTransition> {
     const input = leadingInput(transactionOrInput, maybeInput);
-    const conversation = this.require(input.conversationId);
-    if (
-      conversation.lifecycle.state !== "open" ||
-      conversation.reminderCount !== input.expectedCount
-    ) {
-      return { changed: false, conversation: structuredClone(conversation) };
-    }
-    conversation.remindedAt = input.at;
-    conversation.reminderCount = input.expectedCount + 1;
-    this.touch(conversation, input.at);
-    this.revalidate(conversation);
-    return { changed: true, conversation: structuredClone(conversation) };
+    return this.persistTransition(
+      applyMarkReminded(this.require(input.conversationId), {
+        expectedCount: input.expectedCount,
+        at: input.at,
+      }),
+    );
   }
 
   async resolveAttentionReason(
@@ -2340,25 +2349,13 @@ export class FakeFeedbackConversations {
     },
   ): Promise<FakeConversationTransition> {
     const input = leadingInput(transactionOrInput, maybeInput);
-    const conversation = this.require(input.conversationId);
-    const reason = conversation.attentionReasons.find(
-      (candidate) => candidate.id === input.reasonId,
+    return this.persistTransition(
+      applyResolveAttentionReason(this.require(input.conversationId), {
+        reasonId: input.reasonId,
+        resolvedBy: input.resolvedBy,
+        at: input.at,
+      }),
     );
-    if (!reason || reason.resolvedAt !== null) {
-      return { changed: false, conversation: structuredClone(conversation) };
-    }
-    reason.resolvedAt = input.at;
-    reason.resolvedBy = input.resolvedBy;
-    if (
-      !conversation.attentionReasons.some(
-        (candidate) => candidate.resolvedAt === null,
-      )
-    ) {
-      conversation.needsAttention = false;
-    }
-    this.touch(conversation, input.at);
-    this.revalidate(conversation);
-    return { changed: true, conversation: structuredClone(conversation) };
   }
 
   private require(id: string): FeedbackConversationDocument {
@@ -2369,14 +2366,85 @@ export class FakeFeedbackConversations {
     return conversation;
   }
 
-  private touch(conversation: FeedbackConversationDocument, at: Date): void {
-    if (at > conversation.updatedAt) {
-      conversation.updatedAt = at;
+  /**
+   * Actual simulated execution-row epoch, never the caller's expected epoch
+   * and never the document's joined projection alone. A missing map entry is
+   * a missing row (`fenceEpoch` omitted), including when `work.executionEpoch`
+   * is the default 0.
+   */
+  private cursorFence(
+    conversation: FeedbackConversationDocument,
+    input: {
+      readonly workRevision?: number;
+      readonly executionEpoch?: number;
+    },
+  ): {
+    readonly expectedWork?: FeedbackConversationExpectedWork;
+    readonly fenceEpoch?: number;
+  } {
+    if (
+      input.workRevision === undefined &&
+      input.executionEpoch === undefined
+    ) {
+      return {};
     }
+    if (
+      input.workRevision === undefined ||
+      input.executionEpoch === undefined
+    ) {
+      throw new FeedbackConversationTransitionError(
+        "A fenced cursor transition requires both workRevision and executionEpoch",
+      );
+    }
+    const fenceEpoch = this.executionFences.has(conversation._id)
+      ? this.executionFences.get(conversation._id)
+      : undefined;
+    return {
+      expectedWork: {
+        revision: input.workRevision,
+        epoch: input.executionEpoch,
+      },
+      ...(fenceEpoch !== undefined ? { fenceEpoch } : {}),
+    };
   }
 
-  private revalidate(conversation: FeedbackConversationDocument): void {
-    feedbackConversationDocumentSchema.parse(conversation);
+  private persistTransition(
+    result: FeedbackConversationTransitionResult,
+  ): FakeConversationTransition {
+    if (result.changed) {
+      this.writeConversation(result.conversation);
+    }
+    return {
+      changed: result.changed,
+      conversation: structuredClone(this.require(result.conversation._id)),
+    };
+  }
+
+  private persistWorkTransition(result: FeedbackConversationTransitionResult): {
+    changed: boolean;
+    conversation: FeedbackConversationDocument;
+    work: FeedbackConversationWork;
+  } {
+    const persisted = this.persistTransition(result);
+    return {
+      ...persisted,
+      work: structuredClone(
+        resolveFeedbackConversationWork(persisted.conversation.work),
+      ),
+    };
+  }
+
+  private writeConversation(
+    next: FeedbackConversationDocument,
+  ): FeedbackConversationDocument {
+    const parsed = feedbackConversationDocumentSchema.parse(next);
+    const current = this.documents.get(parsed._id);
+    if (!current) {
+      this.documents.set(parsed._id, parsed);
+      return parsed;
+    }
+    Object.assign(current, parsed);
+    return current;
   }
 
   private assertPhoneAvailable(
@@ -2403,8 +2471,18 @@ export class FakeFeedbackConversations {
     if (conversation.messages.length >= FEEDBACK_CONVERSATION_MAX_MESSAGES) {
       return true;
     }
+    return this.messagesExceedCapacity([...conversation.messages, message]);
+  }
+
+  /** JSON-byte stand-in. PostgreSQL still uses `pg_column_size`. */
+  private messagesExceedCapacity(
+    messages: readonly FeedbackConversationMessage[],
+  ): boolean {
+    if (messages.length > FEEDBACK_CONVERSATION_MAX_MESSAGES) {
+      return true;
+    }
     return (
-      Buffer.byteLength(JSON.stringify([...conversation.messages, message])) >
+      Buffer.byteLength(JSON.stringify(messages)) >
       FEEDBACK_CONVERSATION_MAX_MESSAGES_BYTES
     );
   }

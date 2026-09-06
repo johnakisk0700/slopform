@@ -1,4 +1,6 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
+
+import { FeedbackLogger } from "../feedback-operation-log.js";
 import type { MessageOutboxDeliveryStatus } from "@slopform/database";
 
 import { DatabaseService } from "../../../infrastructure/database/database.service.js";
@@ -26,7 +28,9 @@ export type ApplyOutboxDeliveryStatusResult =
  */
 @Injectable()
 export class MessageOutboxDeliveryStatusService {
-  private readonly logger = new Logger(MessageOutboxDeliveryStatusService.name);
+  private readonly logger = new FeedbackLogger(
+    MessageOutboxDeliveryStatusService.name,
+  );
 
   constructor(
     private readonly database: DatabaseService,

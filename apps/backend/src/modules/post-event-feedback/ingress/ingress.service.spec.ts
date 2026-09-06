@@ -1,8 +1,9 @@
 import { Logger } from "@nestjs/common";
 import type { AppTransaction } from "@slopform/database";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { DatabaseService } from "../../../infrastructure/database/database.service.js";
+import { FEEDBACK_OPERATION_EVENT } from "../feedback-operation-log.js";
 import {
   PostEventFeedbackEnqueueError,
   PostEventFeedbackIngressService,
@@ -24,6 +25,9 @@ const observed = {
 describe("PostEventFeedbackIngressService", () => {
   beforeAll(() => {
     Logger.overrideLogger(false);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it("performs one durable insert and one deterministic enqueue", async () => {
@@ -99,6 +103,7 @@ describe("PostEventFeedbackIngressService", () => {
   });
 
   it("rejects an unbounded provider payload before it reaches the database", async () => {
+    const records = captureOperations();
     const { service, repository } = createService({ inserted: true });
 
     await expect(
@@ -111,8 +116,110 @@ describe("PostEventFeedbackIngressService", () => {
       ),
     ).rejects.toThrow();
     expect(repository.insertIngressIfAbsent).not.toHaveBeenCalled();
+    expect(terminalOperation(records)).toMatchObject({
+      operation: "ingress",
+      stage: "validate",
+      status: "failed",
+      correlationId: "correlation-4",
+    });
+    expect(JSON.stringify(records)).not.toContain(observed.phoneE164);
+    expect(JSON.stringify(records)).not.toContain(observed.text);
+  });
+
+  it("still persists and enqueues when the logger sink throws", async () => {
+    throwingLoggerSink();
+    const { service, wakeups } = createService({ inserted: true });
+
+    await expect(
+      service.recordObservedMessage(observed, "correlation-sink"),
+    ).resolves.toEqual({ ingressId, inserted: true });
+    expect(wakeups.ensurePendingQueued).toHaveBeenCalledWith({
+      ingressId,
+      correlationId: "correlation-sink",
+    });
+  });
+
+  it("names persist_ingress when the repository throws and keeps that error", async () => {
+    const records = captureOperations();
+    const failure = Object.assign(new Error("insert conflict"), {
+      code: "23505",
+    });
+    const { service, repository, wakeups } = createService({ inserted: true });
+    repository.insertIngressIfAbsent.mockRejectedValue(failure);
+
+    await expect(
+      service.recordObservedMessage(observed, "correlation-persist"),
+    ).rejects.toBe(failure);
+    expect(wakeups.ensurePendingQueued).not.toHaveBeenCalled();
+    expect(terminalOperation(records)).toMatchObject({
+      operation: "ingress",
+      stage: "persist_ingress",
+      status: "failed",
+      errorCode: "23505",
+      correlationId: "correlation-persist",
+    });
+    expect(terminalOperation(records)).not.toHaveProperty("ingressId");
+    expect(JSON.stringify(records)).not.toContain(observed.phoneE164);
+    expect(JSON.stringify(records)).not.toContain(observed.text);
+  });
+
+  it("names enqueue_materialize and still translates after a queue failure", async () => {
+    const records = captureOperations();
+    const redis = Object.assign(new Error("redis unavailable"), {
+      code: "ECONNREFUSED",
+    });
+    const { service } = createService({
+      inserted: true,
+      wakeupError: redis,
+    });
+
+    await expect(
+      service.recordObservedMessage(observed, "correlation-3"),
+    ).rejects.toBeInstanceOf(PostEventFeedbackEnqueueError);
+    expect(terminalOperation(records)).toMatchObject({
+      operation: "ingress",
+      stage: "enqueue_materialize",
+      status: "failed",
+      errorName: "Error",
+      errorCode: "ECONNREFUSED",
+      correlationId: "correlation-3",
+      ingressId,
+    });
   });
 });
+
+function captureOperations(): Record<string, unknown>[] {
+  const records: Record<string, unknown>[] = [];
+  const collect = (message: unknown) => {
+    if (
+      message !== null &&
+      typeof message === "object" &&
+      "event" in message &&
+      message.event === FEEDBACK_OPERATION_EVENT
+    ) {
+      records.push(message as Record<string, unknown>);
+    }
+  };
+  vi.spyOn(Logger.prototype, "log").mockImplementation(collect);
+  vi.spyOn(Logger.prototype, "error").mockImplementation(collect);
+  vi.spyOn(Logger.prototype, "warn").mockImplementation(collect);
+  return records;
+}
+
+function throwingLoggerSink(): void {
+  const boom = () => {
+    throw new Error("pino unavailable");
+  };
+  vi.spyOn(Logger.prototype, "log").mockImplementation(boom);
+  vi.spyOn(Logger.prototype, "error").mockImplementation(boom);
+  vi.spyOn(Logger.prototype, "warn").mockImplementation(boom);
+}
+
+function terminalOperation(
+  records: readonly Record<string, unknown>[],
+): Record<string, unknown> | undefined {
+  return records.findLast((record) => record.status !== "started");
+}
 
 function createService(options: {
   inserted: boolean;

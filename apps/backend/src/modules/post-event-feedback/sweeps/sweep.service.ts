@@ -1,4 +1,6 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
+
+import { FeedbackLogger } from "../feedback-operation-log.js";
 import { ConfigService } from "@nestjs/config";
 import type { ProviderMessageIngressRow } from "@slopform/database";
 
@@ -23,7 +25,9 @@ export type FeedbackIngressSweepResult = {
  */
 @Injectable()
 export class PostEventFeedbackSweepService {
-  private readonly logger = new Logger(PostEventFeedbackSweepService.name);
+  private readonly logger = new FeedbackLogger(
+    PostEventFeedbackSweepService.name,
+  );
 
   constructor(
     private readonly materializeWakeups: FeedbackMaterializeWakeupService,
