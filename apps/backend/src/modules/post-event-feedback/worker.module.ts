@@ -30,6 +30,9 @@ import { PostEventFeedbackExtractionFallback } from "./extraction/fallback.servi
 import { FeedbackConversationExecutionLimiter } from "./extraction/execution-limiter.service.js";
 import { PostEventFeedbackExtractionModel } from "./extraction/model.service.js";
 import { PostEventFeedbackExtractor } from "./extraction/extract.service.js";
+import { FeedbackExtractionGuards } from "./extraction/extraction-guards.service.js";
+import { FeedbackExtractionTurnService } from "./extraction/extraction-turn.service.js";
+import { FeedbackExtractionCommitService } from "./extraction/extraction-commit.service.js";
 import { FeedbackConversationExecutionFence } from "./extraction/execution-fence.service.js";
 import { PostEventFeedbackMaterializer } from "./ingress/materialize.service.js";
 import { FeedbackMaterializeWakeupService } from "./ingress/materialize-wakeup.service.js";
@@ -124,6 +127,9 @@ export function createFeedbackTransport(
         providerCalls: ProviderCallLimiter,
       ) => createFeedbackExtractionModel(config, BURST_PERSONAS, providerCalls),
     },
+    FeedbackExtractionGuards,
+    FeedbackExtractionTurnService,
+    FeedbackExtractionCommitService,
     PostEventFeedbackExtractor,
     FeedbackMaterializeWakeupService,
     PostEventFeedbackMaterializer,

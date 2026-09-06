@@ -56,6 +56,18 @@ import {
   FeedbackConversationNotFoundError,
   FeedbackConversationPhoneConflictError,
   FeedbackConversationTransitionError,
+} from "./post-event-feedback-conversation.errors.js";
+import {
+  conversationMessagesExceedCapacity,
+  serializeConversationJson,
+  toDocument,
+  toLaunchInsert,
+  toRespondent,
+  toRowUpdate,
+  toSummary,
+  type FeedbackConversationDerived,
+} from "./post-event-feedback-conversation.persistence.js";
+import {
   applyAdvanceCursor,
   applyAdvanceCursorAndClose,
   applyAdvanceCursorAndMarkAwaitingHuman,
@@ -75,17 +87,9 @@ import {
   applySettleWorkExecution,
   applyTakeOver,
   applyUpdateGoalStatuses,
-  conversationMessagesExceedCapacity,
-  serializeConversationJson,
-  toDocument,
-  toLaunchInsert,
-  toRespondent,
-  toRowUpdate,
-  toSummary,
-  type FeedbackConversationDerived,
   type FeedbackConversationExpectedWork,
   type FeedbackConversationTransitionResult,
-} from "./post-event-feedback-conversation.persistence.js";
+} from "./post-event-feedback-conversation.state.js";
 import {
   postEventFeedbackAttentionReasonSchema,
   type PostEventFeedbackAttentionReason,

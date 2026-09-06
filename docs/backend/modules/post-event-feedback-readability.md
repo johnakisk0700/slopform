@@ -152,10 +152,10 @@ introduce another copy of the business state to make a split easier.
 
 ## Scope and agent organization
 
-The implementation checkpoint is `3af4d43`. First map the whole mechanism:
-existing responsibilities, usable mechanisms, mixed responsibilities and real
-callers. Include areas that should stay as they are. The earlier extractor-first
-task split is withdrawn; select work from the map, not from an example above.
+Use the current verified commit as each batch's checkpoint. Select work from
+the whole mechanism: existing responsibilities, usable mechanisms, mixed
+responsibilities and real callers. Include areas that should stay as they are.
+Do not repeat a completed batch or select work solely from an example above.
 
 Codex owns this guide and the architecture decisions. Before assigning bulk
 implementation, specify for each selected operation:

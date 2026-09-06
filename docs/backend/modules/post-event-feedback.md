@@ -97,6 +97,15 @@ No separate campaign-recipient projection. Phone and state live on the
 conversation row; admin lists use compact SQL projections and do not load
 transcripts for counts.
 
+The [conversation repository](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-conversation.repository.ts)
+owns queries and row locks on the caller's transaction. Its
+[state transitions](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-conversation.state.ts)
+take the typed conversation and return `{ changed, conversation }` without
+database access. The separate
+[persistence mapper](../../../apps/backend/src/modules/post-event-feedback/post-event-feedback-conversation.persistence.ts)
+converts PostgreSQL rows and JSON timestamps; the offline importer uses that
+same mapper.
+
 A person-specific answer/note is a directed edge
 `respondent → subject`. General scores may be subjectless. Otherwise the subject
 must be in the **current** live candidate set from
@@ -295,6 +304,26 @@ via
 The conversation row owns `{ work_revision, work_next_action_at }`; the fence
 table owns epoch/token/lease; BullMQ V2 is a wake-up. Cursor + relational
 uniqueness make replay safe.
+
+Start reading the AI path at `PostEventFeedbackExtractor.extract`: admit a
+snapshot, plan the turn, commit it, then notify. Three collaborators own the
+details:
+
+- [Turn planning](../../../apps/backend/src/modules/post-event-feedback/extraction/extraction-turn.service.ts)
+  loads live context, runs the parallel model calls, validates their proposal,
+  and resolves any rewrite and outbound decision.
+- [Execution guards](../../../apps/backend/src/modules/post-event-feedback/extraction/extraction-guards.service.ts)
+  check current authority before provider entry and review the proposed reply
+  against changes made during generation.
+- [Turn commit](../../../apps/backend/src/modules/post-event-feedback/extraction/extraction-commit.service.ts)
+  owns the single transaction for results, audit, outbox, transcript and
+  conversation state. It recomputes the decision if newer work suppresses the
+  reply. Its capacity brake is a separate transaction after the failed commit
+  has rolled back.
+
+The extractor retains cheap exits and the cursor-only transaction when there
+is no new participant testimony. Model calls stay outside the commit, and
+operator alerts and summary notifications follow it.
 
 ### One run
 

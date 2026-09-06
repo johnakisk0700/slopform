@@ -38,6 +38,9 @@ import {
   FeedbackConversationExecutionGuardError,
   PostEventFeedbackExtractor,
 } from "./extract.service.js";
+import { FeedbackExtractionGuards } from "./extraction-guards.service.js";
+import { FeedbackExtractionTurnService } from "./extraction-turn.service.js";
+import { FeedbackExtractionCommitService } from "./extraction-commit.service.js";
 import { FeedbackConversationCapacityError } from "../post-event-feedback-conversation.repository.js";
 import type { FeedbackConversationExecutionClaim } from "./execution-fence.repository.js";
 import {
@@ -4308,28 +4311,55 @@ function createHarness(): Harness {
     isCurrent: vi.fn().mockResolvedValue(true),
     assertCurrent: vi.fn().mockResolvedValue(true),
   };
+  const outboundTranscript = new FeedbackOutboundTranscriptService(
+    repository as unknown as FeedbackOutboxRepository,
+    conversations as unknown as FeedbackConversationRepository,
+  );
+  const outboundLog = new FeedbackOutboundLogService(
+    repository as unknown as FeedbackOutboundLogRepository,
+  );
+  const guards = new FeedbackExtractionGuards(
+    database as unknown as DatabaseService,
+    repository as unknown as FeedbackIngressRepository,
+    repository as unknown as FeedbackResultsRepository,
+    executionFence as never,
+    repository as unknown as FeedbackCampaignRepository,
+    participants as unknown as ParticipantsRepository,
+    conversations as unknown as FeedbackConversationRepository,
+  );
+  const turns = new FeedbackExtractionTurnService(
+    events as unknown as EventsService,
+    repository as unknown as FeedbackResultsRepository,
+    participants as unknown as ParticipantsRepository,
+    repository as unknown as FeedbackOutboxRepository,
+    generationService as unknown as PostEventFeedbackExtractionModel,
+    metrics,
+    guards,
+  );
+  const commits = new FeedbackExtractionCommitService(
+    database as unknown as DatabaseService,
+    repository as unknown as FeedbackIngressRepository,
+    events as unknown as EventsService,
+    repository as unknown as FeedbackResultsRepository,
+    executionFence as never,
+    conversations as unknown as FeedbackConversationRepository,
+    repository as unknown as FeedbackOutboxRepository,
+    audit as unknown as AuditRepository,
+    outboundTranscript,
+    outboundLog,
+  );
   const extractor = new PostEventFeedbackExtractor(
     database as unknown as DatabaseService,
     repository as unknown as FeedbackCampaignRepository,
     repository as unknown as FeedbackResultsRepository,
-    repository as unknown as FeedbackOutboxRepository,
-    repository as unknown as FeedbackIngressRepository,
     conversations as unknown as FeedbackConversationRepository,
-    events as unknown as EventsService,
     participants as unknown as ParticipantsRepository,
-    generationService as unknown as PostEventFeedbackExtractionModel,
-    audit as unknown as AuditRepository,
+    executionFence as never,
+    turns,
+    commits,
     metrics,
-    new FeedbackOutboundTranscriptService(
-      repository as unknown as FeedbackOutboxRepository,
-      conversations as unknown as FeedbackConversationRepository,
-    ),
-    new FeedbackOutboundLogService(
-      repository as unknown as FeedbackOutboundLogRepository,
-    ),
     alert,
     noopSummaries(),
-    executionFence as never,
   );
 
   return {
