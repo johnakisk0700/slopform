@@ -2,7 +2,6 @@ import { Injectable } from "@nestjs/common";
 import {
   events,
   feedbackCampaigns,
-  MESSAGE_OUTBOX_STATUSES,
   messageOutbox,
   type AppTransaction,
   type FeedbackCampaignStatus,
@@ -31,7 +30,6 @@ import {
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { randomUUID } from "node:crypto";
-import { z } from "zod";
 
 import { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
@@ -55,7 +53,6 @@ export const FEEDBACK_OUTBOX_RECOVERY_MS = 5 * 60_000;
 export const FEEDBACK_OUTBOX_BATCH_SIZE = 50;
 export const FEEDBACK_OUTBOX_LEGACY_AMBIGUOUS_ERROR =
   "legacy_sending_cutover_ambiguous";
-const messageOutboxStatusSchema = z.enum(MESSAGE_OUTBOX_STATUSES);
 
 /**
  * A small parallel lane count per replica.
@@ -212,7 +209,7 @@ export class FeedbackOutboxRepository {
       .where(inArray(messageOutbox.id, boundedIds));
     return rows.map((row) => ({
       outboxId: row.outboxId,
-      status: messageOutboxStatusSchema.parse(row.status),
+      status: row.status as MessageOutboxStatus,
     }));
   }
 

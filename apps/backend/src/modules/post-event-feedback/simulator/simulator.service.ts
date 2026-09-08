@@ -23,8 +23,6 @@ import { FeedbackIngressRepository } from "../ingress/ingress.repository.js";
 import { FeedbackOutboxRepository } from "../outbox/outbox.repository.js";
 import { FeedbackSimOutboundRepository } from "./sim-outbound.repository.js";
 import {
-  feedbackSimulatorCandidateSlotSchema,
-  feedbackSimulatorRubricSchema,
   type FeedbackSimulatorCandidateSlot,
   type FeedbackSimulatorCatalogResponseDto,
   type FeedbackSimulatorPreflightInput,
@@ -165,7 +163,7 @@ export class FeedbackSimulatorService {
         title: scenario.title,
         messageCount: scenario.messages.length,
         requiredCandidateCount: scenario.requiredCandidateCount,
-        rubric: feedbackSimulatorRubricSchema.parse(scenario.rubric),
+        rubric: scenario.rubric as FeedbackSimulatorRunView["rubric"],
       })),
     };
   }
@@ -322,9 +320,7 @@ export class FeedbackSimulatorService {
     const candidateBindings = candidates.items
       .slice(0, scenario.requiredCandidateCount)
       .map((candidate, index) => ({
-        slot: feedbackSimulatorCandidateSlotSchema.parse(
-          `candidate${index + 1}`,
-        ),
+        slot: `candidate${index + 1}` as FeedbackSimulatorCandidateSlot,
         participantId: candidate.participantId,
         displayName: candidate.displayName,
       }));
@@ -361,7 +357,7 @@ export class FeedbackSimulatorService {
           candidateBindings,
         ),
       ),
-      rubric: feedbackSimulatorRubricSchema.parse(scenario.rubric),
+      rubric: scenario.rubric as FeedbackSimulatorRunView["rubric"],
       warning:
         workerAttestation.issue ??
         "The confirmed run makes paid provider calls (one extraction plus one or more attention-classification batches), permanently consumes this clean conversation, and does not clean up normal persisted outputs.",
@@ -569,9 +565,7 @@ export class FeedbackSimulatorService {
       const candidateBindings = candidates.items
         .slice(0, scenario.requiredCandidateCount)
         .map((candidate, index) => ({
-          slot: feedbackSimulatorCandidateSlotSchema.parse(
-            `candidate${index + 1}`,
-          ),
+          slot: `candidate${index + 1}` as FeedbackSimulatorCandidateSlot,
           participantId: candidate.participantId,
           displayName: candidate.displayName,
         }));
@@ -600,7 +594,7 @@ export class FeedbackSimulatorService {
           conversation.messages.length + scenario.messages.length,
         candidateBindings,
         renderedMessages,
-        rubric: feedbackSimulatorRubricSchema.parse(scenario.rubric),
+        rubric: scenario.rubric as FeedbackSimulatorRunView["rubric"],
         ingressIds: [],
         injectionError: null,
       };
