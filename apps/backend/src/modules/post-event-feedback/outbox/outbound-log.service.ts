@@ -3,10 +3,7 @@ import type { AppTransaction, MessageOutboxRow } from "@slopform/database";
 
 import type { FeedbackConversationDocument } from "../post-event-feedback-conversation.document.js";
 import { FeedbackOutboundLogRepository } from "./outbound-log.repository.js";
-import {
-  feedbackOutboundDecisionSchema,
-  type FeedbackOutboundDecision,
-} from "./outbound-log.schemas.js";
+import { type FeedbackOutboundDecision } from "./outbound-log.schemas.js";
 import { buildOutboundConversationSnapshot } from "./outbound-log.snapshot.js";
 
 /**
@@ -36,7 +33,6 @@ export class FeedbackOutboundLogService {
       return;
     }
 
-    const decision = feedbackOutboundDecisionSchema.parse(input.decision);
     const conversationState = buildOutboundConversationSnapshot(
       input.conversation,
     );
@@ -45,9 +41,9 @@ export class FeedbackOutboundLogService {
       outboxId: input.outbox.row.id,
       conversationId: input.outbox.row.conversationId,
       campaignId: input.outbox.row.campaignId,
-      origin: decision.origin,
+      origin: input.decision.origin,
       correlationId: input.correlationId,
-      decision,
+      decision: input.decision,
       conversationState,
     });
   }

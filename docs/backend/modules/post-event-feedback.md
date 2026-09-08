@@ -324,9 +324,9 @@ table owns epoch/token/lease; BullMQ V2 is a wake-up. Cursor + relational
 uniqueness make replay safe.
 
 Start reading the AI path at `PostEventFeedbackExtractor.extract` and its
-`extractionFlow`: admit a snapshot, plan the turn, commit it, then notify.
-The local Effect recipe keeps Nest dependency injection and existing Promise
-services ([ADR 0017](../../decisions/0017-effect-for-local-workflows.md)).
+`extractTurn`: admit a snapshot, plan the turn, commit it, then notify.
+The direct async recipe catches capacity errors only around commit; all other
+failures propagate ([ADR 0020](../../decisions/0020-effect-for-resource-scopes.md)).
 
 - [Admission](../../../apps/backend/src/modules/post-event-feedback/extraction/extraction-admission.service.ts)
   owns cheap exits and the cursor-only transaction when there is no new

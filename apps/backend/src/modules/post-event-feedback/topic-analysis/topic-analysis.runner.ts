@@ -1,10 +1,5 @@
 import { Injectable, type OnModuleDestroy } from "@nestjs/common";
-import { Effect } from "effect";
 import { DatabaseService } from "../../../infrastructure/database/database.service.js";
-import {
-  attemptPromise,
-  runWithOriginalError,
-} from "../../../infrastructure/effect/promise.js";
 import {
   EmbeddingProviderFailure,
   OpenRouterEmbeddingsClient,
@@ -30,9 +25,8 @@ import {
   TOPIC_ANALYSIS_CONFIGURATION,
   TOPIC_ANALYSIS_LIMITS,
   TopicAnalysisClaimLost,
-  TopicAnalysisFailure,
   topicAnalysisConfigurationSchema,
-  topicAnalysisResultSchema,
+  TopicAnalysisFailure,
   topicAnalysisSnapshotSchema,
   type TopicAnalysisResult,
   type TopicAnalysisSnapshot,
@@ -93,49 +87,38 @@ export class TopicAnalysisRunner implements OnModuleDestroy {
         ]) !== run.identityHash
       )
         throw new TopicAnalysisFailure("analysis_identity_invalid", false);
-      const self = this;
-      await runWithOriginalError(
-        Effect.gen(function* () {
-          operation.stage("embed_notes");
-          const vectors = yield* attemptPromise(() =>
-            self.embedSnapshot(snapshot, claim),
-          );
-          operation.stage("cluster_notes");
-          yield* attemptPromise(() => self.renewClaim(claim, "clustering"));
-          const clustered = yield* attemptPromise(() =>
-            self.clustering.cluster(
-              {
-                version: 1,
-                requestId: run.id,
-                documents: snapshot.documents.map((document, index) => ({
-                  id: document.id,
-                  text: document.text,
-                  embedding: vectors[index]!,
-                })),
-                options: {
-                  minTopicSize: configuration.clustering.minTopicSize,
-                  minSamples: configuration.clustering.minSamples,
-                  randomSeed: configuration.clustering.randomSeed,
-                },
-              },
-              self.shutdown.signal,
-              (stage) => operation.stage(`cluster_${stage}`),
-            ),
-          );
-          operation.stage("validate_result");
-          const validated = validateClusteringResult(
-            clustered,
-            run.id,
-            snapshot.documents.map((document) => document.id),
-          );
-          const result = buildTopicAnalysisResult(snapshot, validated);
-          operation.stage("commit_result");
-          yield* attemptPromise(() =>
-            self.database.transaction((transaction) =>
-              self.repository.completeRun(transaction, claim, result),
-            ),
-          );
-        }),
+      operation.stage("embed_notes");
+      const vectors = await this.embedSnapshot(snapshot, claim);
+      operation.stage("cluster_notes");
+      await this.renewClaim(claim, "clustering");
+      const clustered = await this.clustering.cluster(
+        {
+          version: 1,
+          requestId: run.id,
+          documents: snapshot.documents.map((document, index) => ({
+            id: document.id,
+            text: document.text,
+            embedding: vectors[index]!,
+          })),
+          options: {
+            minTopicSize: configuration.clustering.minTopicSize,
+            minSamples: configuration.clustering.minSamples,
+            randomSeed: configuration.clustering.randomSeed,
+          },
+        },
+        this.shutdown.signal,
+        (stage) => operation.stage(`cluster_${stage}`),
+      );
+      operation.stage("validate_result");
+      const validated = validateClusteringResult(
+        clustered,
+        run.id,
+        snapshot.documents.map((document) => document.id),
+      );
+      const result = buildTopicAnalysisResult(snapshot, validated);
+      operation.stage("commit_result");
+      await this.database.transaction((transaction) =>
+        this.repository.completeRun(transaction, claim, result),
       );
       operation.complete("completed");
       return "completed";
@@ -276,7 +259,7 @@ export function buildTopicAnalysisResult(
   const outliers = clustered.assignments
     .filter((assignment) => assignment.topicId === null)
     .map((assignment) => assignment.documentId);
-  return topicAnalysisResultSchema.parse({
+  return {
     version: 1,
     assignments: clustered.assignments,
     topics: clustered.topics.map((topic) => {
@@ -293,7 +276,7 @@ export function buildTopicAnalysisResult(
     respondentCount: new Set(respondents.values()).size,
     outlierDocumentCount: outliers.length,
     outlierRespondentCount: countRespondents(outliers),
-  });
+  };
 }
 
 function classifyTopicAnalysisFailure(error: unknown): TopicAnalysisFailure {

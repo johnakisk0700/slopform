@@ -6,11 +6,7 @@ import { ASSISTANT_QUEUE } from "../../infrastructure/queue/queue.constants.js";
 import {
   ASSISTANT_JOB_NAMES,
   ASSISTANT_JOB_SCHEMA_VERSION,
-  assistantJobDataSchema,
-  branchAssistantThreadSchema,
-  createAssistantThreadSchema,
   createAssistantTurnJobId,
-  createAssistantTurnSchema,
   type AssistantJobData,
   type AssistantJobName,
   type AssistantThreadView,
@@ -41,8 +37,7 @@ export class AssistantJobsService {
     createdBy: string,
     correlationId: string,
   ): Promise<AssistantThreadView> {
-    const validated = createAssistantThreadSchema.parse(input);
-    const creation = await this.assistant.createThread(validated, createdBy);
+    const creation = await this.assistant.createThread(input, createdBy);
     if (creation.enqueueRequired) {
       await this.enqueueOrFail(creation.turn, correlationId);
     }
@@ -55,10 +50,9 @@ export class AssistantJobsService {
     createdBy: string,
     correlationId: string,
   ): Promise<AssistantTurnView> {
-    const validated = createAssistantTurnSchema.parse(input);
     const creation = await this.assistant.appendTurn(
       threadId,
-      validated,
+      input,
       createdBy,
     );
     if (creation.enqueueRequired) {
@@ -73,10 +67,9 @@ export class AssistantJobsService {
     createdBy: string,
     correlationId: string,
   ): Promise<AssistantThreadView> {
-    const validated = branchAssistantThreadSchema.parse(input);
     const creation = await this.assistant.branchThread(
       sourceThreadId,
-      validated,
+      input,
       createdBy,
     );
     if (creation.enqueueRequired) {
@@ -100,11 +93,11 @@ export class AssistantJobsService {
     turn: AssistantTurnView,
     correlationId: string,
   ): Promise<void> {
-    const data = assistantJobDataSchema.parse({
+    const data: AssistantJobData = {
       schemaVersion: ASSISTANT_JOB_SCHEMA_VERSION,
       turnId: turn.id,
       correlationId,
-    });
+    };
 
     try {
       const job = await this.queue.add(

@@ -1,8 +1,8 @@
 import { InjectQueue } from "@nestjs/bullmq";
 import { Injectable } from "@nestjs/common";
 
-import { FeedbackLogger } from "../feedback-operation-log.js";
 import type { Queue } from "bullmq";
+import { FeedbackLogger } from "../feedback-operation-log.js";
 
 import { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import { FEEDBACK_CONVERSATION_QUEUE } from "../../../infrastructure/queue/queue.constants.js";
@@ -10,7 +10,6 @@ import {
   createFeedbackReconcileConversationJobId,
   FEEDBACK_JOB_NAMES,
   FEEDBACK_JOB_SCHEMA_VERSION_V2,
-  feedbackReconcileConversationJobDataSchema,
   type FeedbackJobData,
   type FeedbackJobName,
 } from "../jobs.schemas.js";
@@ -117,12 +116,12 @@ export class FeedbackConversationWakeupService {
       }
     }
 
-    const data = feedbackReconcileConversationJobDataSchema.parse({
+    const data: FeedbackJobData = {
       schemaVersion: FEEDBACK_JOB_SCHEMA_VERSION_V2,
       conversationId: input.conversationId,
       revision: input.work.revision,
       correlationId: input.correlationId,
-    });
+    };
     const now = input.now ?? new Date();
     await this.queue.add(FEEDBACK_JOB_NAMES.reconcileConversationV2, data, {
       jobId,

@@ -1,45 +1,44 @@
 import { InjectQueue } from "@nestjs/bullmq";
 import { Injectable, Optional } from "@nestjs/common";
 
-import { FeedbackLogger } from "../feedback-operation-log.js";
 import { ConfigService } from "@nestjs/config";
-import { APICallError, NoContentGeneratedError, RetryError } from "ai";
-import type { Queue } from "bullmq";
 import type {
   FeedbackCampaignRow,
   FeedbackCampaignSummaryRow,
   FeedbackCampaignSummaryTrigger,
 } from "@slopform/database";
+import { APICallError, NoContentGeneratedError, RetryError } from "ai";
+import type { Queue } from "bullmq";
+import { FeedbackLogger } from "../feedback-operation-log.js";
 
 import { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
-import {
-  FeedbackCampaignSummaryModel,
-  FeedbackSummaryGenerationError,
-} from "../../../integrations/llm/feedback-summary-model.js";
 import type { Environment } from "../../../infrastructure/config/environment.js";
 import { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import { FEEDBACK_SUMMARY_QUEUE } from "../../../infrastructure/queue/queue.constants.js";
 import { isRetryableProviderError } from "../../../integrations/llm/assistant-models.js";
+import { FEEDBACK_PROVIDER_ACCOUNT_FAULT_STATUS_CODES } from "../../../integrations/llm/feedback-extraction-model.service.js";
+import {
+  FeedbackCampaignSummaryModel,
+  FeedbackSummaryGenerationError,
+} from "../../../integrations/llm/feedback-summary-model.js";
 import { ParticipantsRepository } from "../../participants/participants.repository.js";
 import {
   FeedbackCampaignRepository,
   type FeedbackCampaignSummaryExecutionClaim,
   type FeedbackSummaryRecoveryCandidate,
 } from "../campaign/campaign.repository.js";
-import { FeedbackCampaignNotFoundError } from "../campaign/campaign.service.js";
 import type { FeedbackCampaignSummaryView } from "../campaign/campaign.schemas.js";
+import { FeedbackCampaignNotFoundError } from "../campaign/campaign.service.js";
 import { FeedbackResultsRepository } from "../extraction/results.repository.js";
-import { FEEDBACK_PROVIDER_ACCOUNT_FAULT_STATUS_CODES } from "../../../integrations/llm/feedback-extraction-model.service.js";
-import { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
-import { FeedbackMaintenanceCheckpointRepository } from "../sweeps/maintenance-checkpoint.repository.js";
 import {
   createFeedbackSummarizeCampaignV2JobId,
   FEEDBACK_JOB_NAMES,
   FEEDBACK_JOB_SCHEMA_VERSION_V2,
-  feedbackSummarizeCampaignV2JobDataSchema,
   type FeedbackSummarizeCampaignV2JobData,
 } from "../jobs.schemas.js";
+import { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
 import { getPostEventFeedbackQuestionSet } from "../question-set.js";
+import { FeedbackMaintenanceCheckpointRepository } from "../sweeps/maintenance-checkpoint.repository.js";
 import { buildFeedbackCampaignSummaryPrompt } from "./prompt.js";
 import {
   buildFeedbackCampaignSummaryDocument,
@@ -222,12 +221,12 @@ export class PostEventFeedbackCampaignSummaryService {
       }
     }
 
-    const data = feedbackSummarizeCampaignV2JobDataSchema.parse({
+    const data = {
       schemaVersion: FEEDBACK_JOB_SCHEMA_VERSION_V2,
       campaignId: summary.campaignId,
       attempt: summary.attempt,
       correlationId,
-    });
+    };
     await this.queue.add(FEEDBACK_JOB_NAMES.summarizeCampaignV2, data, {
       jobId,
       attempts: 5,

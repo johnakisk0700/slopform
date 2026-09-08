@@ -4,17 +4,17 @@ import { z } from "zod";
 
 import { FEEDBACK_ANSWER_QUESTION_KEYS } from "@slopform/database";
 
+import { ConversationPersistenceError } from "../conversations/conversation-persistence.errors.js";
+import {
+  feedbackConversationAttentionReasonSchema,
+  feedbackConversationMessageAttentionSchema,
+} from "./attention.js";
 import {
   CURRENT_POST_EVENT_FEEDBACK_QUESTION_SET_VERSION,
   getPostEventFeedbackQuestionSet,
   type PostEventFeedbackQuestionSetCopy,
   type PostEventFeedbackQuestionSetVersion,
 } from "./question-set.js";
-import {
-  feedbackConversationAttentionReasonSchema,
-  feedbackConversationMessageAttentionSchema,
-} from "./attention.js";
-import { ConversationPersistenceError } from "../conversations/conversation-persistence.errors.js";
 
 // Versioned feedback aggregate shared by PostgreSQL storage and legacy import.
 export const FEEDBACK_CONVERSATION_SCHEMA_VERSION = 2 as const;
@@ -471,14 +471,12 @@ export function buildFeedbackConversationGoals(
 ): FeedbackConversationGoal[] {
   const questionSet = getPostEventFeedbackQuestionSet(questionSetVersion);
   const resolvedCopy = copy ?? questionSet.copy;
-  return questionSet.answerQuestions.map((question, index) =>
-    feedbackConversationGoalSchema.parse({
-      key: question.key,
-      ordinal: index + 1,
-      prompt: resolvedCopy[question.key],
-      status: "pending",
-    }),
-  );
+  return questionSet.answerQuestions.map((question, index) => ({
+    key: question.key,
+    ordinal: index + 1,
+    prompt: resolvedCopy[question.key],
+    status: "pending" as const,
+  }));
 }
 
 /**
@@ -489,8 +487,8 @@ export function deriveFeedbackConversationId(
   campaignId: string,
   respondentParticipantId: string,
 ): string {
-  const namespace = z.uuid().parse(campaignId);
-  const name = z.string().trim().min(1).parse(respondentParticipantId);
+  const namespace = campaignId;
+  const name = respondentParticipantId.trim();
   return uuidV5(namespace, name);
 }
 
@@ -498,7 +496,7 @@ export function deriveFeedbackConversationId(
  * Stable identity for the one acknowledgement owed by this conversation.
  */
 export function deriveFeedbackStopAckOutboxId(conversationId: string): string {
-  return uuidV5(z.uuid().parse(conversationId), "feedback-stop-ack");
+  return uuidV5(conversationId, "feedback-stop-ack");
 }
 
 function uuidV5(namespace: string, name: string): string {

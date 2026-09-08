@@ -10,70 +10,18 @@ import { BURST_PERSONAS } from "./burst-personas.js";
 import {
   BURST_CAMPAIGNS,
   BURST_PERSONAS_PER_CAMPAIGN,
-  burstPersonaCatalogEntry,
   burstPersonaPhoneE164,
 } from "./burst-scenario.js";
-import {
-  feedbackBurstAccountingQuerySchema,
-  feedbackBurstAccountingResponseSchema,
-  feedbackBurstCatalogResponseSchema,
-} from "./burst.schemas.js";
+import { feedbackBurstAccountingQuerySchema } from "./burst.schemas.js";
 import { resolveStubTurnIndex } from "./scripted-extraction-model.service.js";
 
-/**
- * The catalogue this endpoint actually serves, parsed by the schema that
- * actually guards it.
- *
- * Every other test in this folder builds a catalogue of its own, so the real
- * one had never been through the response schema. A fourth dinner therefore
- * turned the endpoint into a 500 with a full green suite behind it — and since
- * the runner reads this endpoint first, the rehearsal simply refused to start.
- */
-describe("feedbackBurstCatalogResponseSchema", () => {
-  it("accepts the catalogue the controller builds from the real constants", () => {
-    const response = {
-      extractionStub: false,
-      workerRegistered: true,
-      campaigns: BURST_CAMPAIGNS.map((campaign) => ({
-        slug: campaign.slug,
-        ordinal: campaign.ordinal,
-        title: campaign.title,
-        venue: campaign.venue,
-      })),
-      // The endpoint's own mapping, not a copy of it — see
-      // `burstPersonaCatalogEntry`.
-      personas: BURST_PERSONAS.map(burstPersonaCatalogEntry),
-    };
-
-    expect(() =>
-      feedbackBurstCatalogResponseSchema.parse(response),
-    ).not.toThrow();
-  });
-});
-
 describe("feedback burst accounting schemas", () => {
-  it("normalizes one campaign id and accepts the durable usage projection", () => {
+  it("normalizes one campaign id", () => {
     const campaignId = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 
     expect(feedbackBurstAccountingQuerySchema.parse({ campaignId })).toEqual({
       campaignId: [campaignId],
     });
-    expect(
-      feedbackBurstAccountingResponseSchema.parse([
-        {
-          conversationId: "9f3c1a52-6e2b-4b4a-9a17-2cb2a6d13a55",
-          extraction: {
-            model: "openai/gpt-5.6-luna",
-            usage: {
-              inputTokens: 1_200,
-              outputTokens: 200,
-              totalTokens: 1_400,
-            },
-            serviceTier: null,
-          },
-        },
-      ]),
-    ).toHaveLength(1);
   });
 
   it("rejects a missing or unbounded campaign scope", () => {

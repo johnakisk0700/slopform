@@ -199,16 +199,16 @@ export function buildFeedbackCampaignSummaryDocument(input: {
   readonly metrics: FeedbackCampaignSummaryMetrics;
   readonly narrative: FeedbackCampaignSummaryNarrative;
 }): FeedbackCampaignSummaryDocument {
-  return feedbackCampaignSummaryDocumentSchema.parse({
+  return {
     version: FEEDBACK_CAMPAIGN_SUMMARY_DOCUMENT_VERSION,
-    metrics: input.metrics,
+    metrics: input.metrics as FeedbackCampaignSummaryDocument["metrics"],
     curiosities: input.narrative.curiosities,
     gossip: input.narrative.gossip,
     actions: input.narrative.actions,
     wentWell: input.narrative.wentWell,
     wentWrong: input.narrative.wentWrong,
     missing: input.narrative.missing,
-  });
+  };
 }
 
 export function serializeFeedbackCampaignSummaryDocument(
@@ -240,7 +240,7 @@ export function parseFeedbackCampaignSummaryDocument(
     }
     const v3 = feedbackCampaignSummaryDocumentV3Schema.safeParse(raw);
     if (v3.success) {
-      return feedbackCampaignSummaryDocumentSchema.parse({
+      return {
         version: FEEDBACK_CAMPAIGN_SUMMARY_DOCUMENT_VERSION,
         metrics: v3.data.metrics,
         curiosities: v3.data.curiosities,
@@ -249,13 +249,13 @@ export function parseFeedbackCampaignSummaryDocument(
         wentWell: asMediumFindings(v3.data.wentWell),
         wentWrong: asMediumFindings(v3.data.wentWrong),
         missing: v3.data.missing,
-      });
+      };
     }
     const legacy = feedbackCampaignSummaryDocumentV2Schema.safeParse(raw);
     if (!legacy.success) {
       return null;
     }
-    return feedbackCampaignSummaryDocumentSchema.parse({
+    return {
       version: FEEDBACK_CAMPAIGN_SUMMARY_DOCUMENT_VERSION,
       metrics: legacy.data.metrics,
       curiosities: legacy.data.highlights,
@@ -264,7 +264,7 @@ export function parseFeedbackCampaignSummaryDocument(
       wentWell: asMediumFindings(legacy.data.wentWell),
       wentWrong: asMediumFindings(legacy.data.wentWrong),
       missing: legacy.data.missing,
-    });
+    };
   } catch {
     return null;
   }

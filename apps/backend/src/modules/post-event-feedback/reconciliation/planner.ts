@@ -1,5 +1,3 @@
-import { z } from "zod";
-
 import { latestParticipantMessage } from "../conversation-reader.js";
 import {
   type FeedbackConversationDocument,
@@ -64,17 +62,6 @@ export type FeedbackConversationReconciliationPlan =
       readonly ordinal: number;
     };
 
-const reconciliationPolicySchema = z
-  .object({
-    quietWindowMs: z.number().int().positive(),
-    reminderIntervalMs: z.number().int().positive(),
-    expireAfterMs: z.number().int().positive(),
-    maxReminders: z.number().int().min(0),
-    parkRetryMs: z.number().int().positive(),
-    parkMaxMs: z.number().int().positive(),
-  })
-  .strict();
-
 /**
  * Derives exactly one transition from current durable state.
  *
@@ -91,9 +78,7 @@ export function deriveFeedbackConversationReconciliationPlan(input: {
   readonly now: Date;
   readonly policy: FeedbackConversationReconciliationPolicy;
 }): FeedbackConversationReconciliationPlan {
-  const now = z.date().parse(input.now);
-  const policy = reconciliationPolicySchema.parse(input.policy);
-  const { conversation } = input;
+  const { now, policy, conversation } = input;
 
   if (conversation.lifecycle.state === "closed") {
     return { kind: "idle", reason: "conversation_closed" };

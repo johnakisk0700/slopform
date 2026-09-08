@@ -1,5 +1,4 @@
 import { Injectable } from "@nestjs/common";
-import { randomUUID } from "node:crypto";
 import {
   events,
   feedbackCampaigns,
@@ -24,22 +23,20 @@ import {
   lt,
   lte,
   ne,
-  notInArray,
   notExists,
+  notInArray,
   or,
   sql,
   type SQL,
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
 import { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import { FeedbackCampaignRepository } from "../campaign/campaign.repository.js";
 import { FEEDBACK_CONVERSATION_MAX_MESSAGES } from "../post-event-feedback-conversation.document.js";
-import {
-  assertEnqueueDispatchContext,
-  parseDispatchContext,
-} from "./dispatch-context.js";
+import { assertEnqueueDispatchContext } from "./dispatch-context.js";
 import type {
   FeedbackLegacyClosingResolution,
   FeedbackOutboxClaimedRow,
@@ -149,12 +146,8 @@ export class FeedbackOutboxRepository {
     transaction: AppTransaction,
     input: FeedbackOutboxInsertInput,
   ): Promise<{ readonly row: MessageOutboxRow; readonly inserted: boolean }> {
-    const parsed = parseDispatchContext(input.dispatchContext);
-    if (parsed.state !== "usable") {
-      throw new Error(`Outbound insert rejected: ${parsed.reason}`);
-    }
     assertEnqueueDispatchContext(
-      parsed.context,
+      input.dispatchContext,
       input.kind,
       input.dedupeKey,
       input.conversationId,
@@ -170,7 +163,7 @@ export class FeedbackOutboxRepository {
         dedupeKey: input.dedupeKey,
         status: input.status ?? "pending",
         createdByStaff: input.createdByStaff ?? null,
-        dispatchContext: parsed.context,
+        dispatchContext: input.dispatchContext,
       })
       .onConflictDoNothing({
         target: [messageOutbox.dedupeKey],
@@ -563,9 +556,7 @@ export class FeedbackOutboxRepository {
     conversationId: string,
     preservedOutboxIds: readonly string[] = [],
   ): Promise<number> {
-    const preserved = [
-      ...new Set(preservedOutboxIds.map((id) => z.uuid().parse(id))),
-    ];
+    const preserved = [...new Set(preservedOutboxIds)];
     const cancelled = await transaction
       .update(messageOutbox)
       .set({
@@ -594,9 +585,7 @@ export class FeedbackOutboxRepository {
     campaignId: string,
     preservedOutboxIds: readonly string[] = [],
   ): Promise<number> {
-    const preserved = [
-      ...new Set(preservedOutboxIds.map((id) => z.uuid().parse(id))),
-    ];
+    const preserved = [...new Set(preservedOutboxIds)];
     const cancelled = await transaction
       .update(messageOutbox)
       .set({
@@ -907,9 +896,7 @@ export class FeedbackOutboxRepository {
     if (!Number.isInteger(leaseMs) || leaseMs < 1) {
       throw new Error("Feedback outbox dispatch lease must be positive");
     }
-    const authorizedTerminalIds = [
-      ...new Set(terminalOutboxIds.map((id) => z.uuid().parse(id))),
-    ];
+    const authorizedTerminalIds = [...new Set(terminalOutboxIds)];
 
     const claimToken = randomUUID();
     const claimExpiresAt = sql<Date>`clock_timestamp() + (${leaseMs} * interval '1 millisecond')`;
@@ -1106,7 +1093,7 @@ export class FeedbackOutboxRepository {
     if (!Number.isInteger(leaseMs) || leaseMs < 1) {
       throw new Error("Feedback outbox dispatch lease must be positive");
     }
-    const stopAuthorization = z.uuid().nullable().parse(authorizedStopOutboxId);
+    const stopAuthorization = authorizedStopOutboxId;
     const exactStopAuthorization = stopAuthorization === id ? id : null;
     const [record] = await executor
       .update(messageOutbox)

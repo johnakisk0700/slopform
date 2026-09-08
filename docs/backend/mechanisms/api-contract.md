@@ -48,6 +48,20 @@ query-key helper (`getGetAuthSessionQueryKey`) and Zod schema
 (`GetAuthSessionResponse`) from it. Nest's default `AuthController_session`
 form is rejected by test.
 
+### Runtime validation
+
+The global Zod pipe validates incoming HTTP DTOs once. Services consume their
+typed values; response DTO decorators publish OpenAPI and compile-time return
+types without a response serializer or runtime schema pass. This includes
+liveness/readiness. Build read models explicitly so private fields never enter
+responses.
+
+Runtime schema parsing belongs at untyped ingress: configuration, consumed
+queue jobs, provider payloads and persisted JSON/documents. Typed commands,
+constructed job envelopes and relational scalar projections are not parsed
+again. Business checks (ownership, state transitions, capacity and execution
+fences) remain with the operation that owns them.
+
 ### Event venue
 
 Event create/update DTOs and list/detail responses publish one nested nullable

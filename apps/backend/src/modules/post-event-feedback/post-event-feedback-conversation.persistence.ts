@@ -15,7 +15,6 @@ import {
   FEEDBACK_CONVERSATION_PURPOSE,
   FEEDBACK_CONVERSATION_SCHEMA_VERSION,
   feedbackConversationDocumentSchema,
-  feedbackConversationRespondentSchema,
   feedbackConversationSummarySchema,
   resolveFeedbackConversationWork,
   type FeedbackConversationDocument,
@@ -213,11 +212,11 @@ export function toRespondent(
     "id" | "respondentParticipantId" | "phoneAtLaunch"
   >,
 ): FeedbackConversationRespondent {
-  return feedbackConversationRespondentSchema.parse({
+  return {
     _id: row.id,
     respondentParticipantId: row.respondentParticipantId,
     phoneAtLaunch: row.phoneAtLaunch,
-  });
+  };
 }
 
 export function toRowUpdate(

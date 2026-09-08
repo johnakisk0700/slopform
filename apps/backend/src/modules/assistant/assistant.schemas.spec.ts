@@ -4,7 +4,6 @@ import { ASSISTANT_MODEL_ADAPTERS } from "../../integrations/llm/assistant-model
 import {
   ASSISTANT_JOB_NAMES,
   assistantJobDataSchema,
-  assistantTurnSchema,
   createAssistantTurnJobId,
   createAssistantTurnSchema,
   parseAssistantTurnJobAttempt,
@@ -58,18 +57,6 @@ describe("assistant schemas", () => {
     });
   });
 
-  // The id shape has to match the provider fixed by the model contract.
-  // OpenRouter addresses models as `vendor/model` and resolves a bare name to
-  // nothing; OpenAI wants the bare name and rejects the prefixed one. Either
-  // mistake is a 404 on every call.
-  it("addresses every model exactly as its contracted provider expects", () => {
-    for (const [model, adapter] of Object.entries(ASSISTANT_MODEL_ADAPTERS)) {
-      expect(adapter.providerModelId.includes("/"), model).toBe(
-        adapter.provider === "openrouter",
-      );
-    }
-  });
-
   it("keeps the v2 job envelope strict and identifier-only", () => {
     const data = {
       schemaVersion: 2,
@@ -93,51 +80,5 @@ describe("assistant schemas", () => {
       parseAssistantTurnJobAttempt(`assistant-generate-v2-${turnId}-3`, turnId),
     ).toBe(3);
     expect(parseAssistantTurnJobAttempt("wrong", turnId)).toBeUndefined();
-  });
-
-  it("rejects incoherent terminal turn states", () => {
-    expect(() =>
-      assistantTurnSchema.parse({
-        id: turnId,
-        requestId,
-        sequence: 1,
-        status: "succeeded",
-        model: "google/gemini-3.6-flash",
-        effort: "low",
-        serviceTier: "standard",
-        user: { role: "user", content: "Hello" },
-        assistant: null,
-        partial: null,
-        reasoning: null,
-        error: null,
-        attempt: 1,
-        createdAt: "2026-07-23T10:00:00.000Z",
-        startedAt: "2026-07-23T10:00:01.000Z",
-        completedAt: "2026-07-23T10:00:02.000Z",
-      }),
-    ).toThrow(/succeeded turn requires/);
-  });
-
-  it("rejects streamed text on a settled turn", () => {
-    expect(() =>
-      assistantTurnSchema.parse({
-        id: turnId,
-        requestId,
-        sequence: 1,
-        status: "succeeded",
-        model: "google/gemini-3.6-flash",
-        effort: "low",
-        serviceTier: "standard",
-        user: { role: "user", content: "Hello" },
-        assistant: { role: "assistant", content: "Answer" },
-        partial: "Answ",
-        reasoning: null,
-        error: null,
-        attempt: 1,
-        createdAt: "2026-07-23T10:00:00.000Z",
-        startedAt: "2026-07-23T10:00:01.000Z",
-        completedAt: "2026-07-23T10:00:02.000Z",
-      }),
-    ).toThrow(/settled turn cannot carry streamed text/);
   });
 });

@@ -93,35 +93,6 @@ describe("FeedbackOutboundLogService", () => {
     expect(repository.outboxLogs).toHaveLength(0);
   });
 
-  it("throws on an invalid decision and writes nothing", async () => {
-    const { service, repository, database } = createService();
-    const conversation = conversationDocument();
-    const outbox = repository.seedOutbox({
-      conversationId: conversation._id,
-      campaignId,
-      body: "stop ack",
-      dedupeKey: "stop:1",
-      kind: "system",
-    });
-
-    await expect(
-      database.transaction(async (transaction) => {
-        await service.record(transaction, {
-          outbox: { row: outbox as MessageOutboxRow, inserted: true },
-          conversation,
-          decision: {
-            origin: "stop_ack",
-            // Wrong shape for this origin — staffActorId belongs to staff_message.
-            staffActorId: "admin-1",
-          } as unknown as FeedbackOutboundDecision,
-          correlationId: "correlation-invalid",
-        });
-      }),
-    ).rejects.toThrow();
-
-    expect(repository.outboxLogs).toHaveLength(0);
-  });
-
   it("returns the existing log on outboxId conflict without duplicating", async () => {
     const { repository, database } = createService();
     const conversation = conversationDocument();

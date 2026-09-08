@@ -188,16 +188,6 @@ describe("WasenderClient", () => {
       expect(String(error)).not.toContain("provider payload");
     }
   });
-
-  it("rejects non-E.164 recipients before making a request", async () => {
-    const fetchMock = vi.fn<typeof fetch>();
-    const client = createClient(fetchMock);
-
-    await expect(
-      client.sendText({ to: "0690000000", text: "Hello" }),
-    ).rejects.toThrow(/E\.164/);
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
 });
 
 function createClient(fetchImplementation: typeof fetch): WasenderClient {

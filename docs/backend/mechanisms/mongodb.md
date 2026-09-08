@@ -91,9 +91,8 @@ recreate API/worker and verify readiness. Do not delete the volume to rotate.
 
 ## Failure, limits and backup
 
-Aggregate create/sync validates the complete document with Zod; transition
-commands validate typed payloads before mutation; every read validates the
-result. Turn transitions compare owner, turn id, status and exact attempt —
+Reads validate persisted documents with Zod. Create/sync and transition
+commands consume typed application values without parsing them again. Turn transitions compare owner, turn id, status and exact attempt —
 stale attempts are fenced; an existing terminal result cannot be replaced by a
 different one.
 
@@ -132,9 +131,8 @@ A backup is not accepted merely because a command exited zero.
 Focused tests cover lifecycle/readiness without a live server, Assistant
 aggregate validation, index contracts, idempotent sync/append, exact-attempt
 fencing, conflicting terminal results and compact list projections. Feedback
-row constraints and due-work keysets are PostgreSQL tests. A booted HTTP
-contract test verifies MongoDB in readiness and generated OpenAPI (safe 503
-shape). No test suite silently depends on a developer MongoDB instance.
+row constraints and due-work keysets are PostgreSQL tests. Readiness controller tests verify dependency states and safe failure responses;
+the central OpenAPI test covers the generated HTTP contract. No test suite silently depends on a developer MongoDB instance.
 
 - [Mongo service](../../../apps/backend/src/infrastructure/mongo/mongo.service.ts),
   [assistant repository](../../../apps/backend/src/modules/conversations/conversation-thread.repository.ts),

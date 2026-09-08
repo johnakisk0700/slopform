@@ -6,7 +6,6 @@ import { FeedbackLogger } from "../feedback-operation-log.js";
 import {
   TOPIC_ANALYSIS_JOB_NAME,
   topicAnalysisJobId,
-  topicAnalysisJobSchema,
 } from "./topic-analysis.schemas.js";
 
 @Injectable()
@@ -18,10 +17,10 @@ export class TopicAnalysisWakeup {
 
   async publish(analysisId: string): Promise<void> {
     try {
-      const data = topicAnalysisJobSchema.parse({
+      const data = {
         schemaVersion: 1,
         analysisId,
-      });
+      };
       const jobId = topicAnalysisJobId(analysisId);
       const existing = await this.queue.getJob(jobId);
       if (existing) {

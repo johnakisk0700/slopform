@@ -2,11 +2,11 @@ import { InjectQueue } from "@nestjs/bullmq";
 import { ConflictException, Controller, Get, Query } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { ApiOperation, ApiTags } from "@nestjs/swagger";
-import { ZodResponse } from "nestjs-zod";
 import type { Queue } from "bullmq";
+import { ZodResponse } from "nestjs-zod";
 
-import type { Environment } from "../../../infrastructure/config/environment.js";
 import { isFeedbackSimulatorEnabled } from "../../../infrastructure/config/enabled-modules.js";
+import type { Environment } from "../../../infrastructure/config/environment.js";
 import { FEEDBACK_QUEUE } from "../../../infrastructure/queue/queue.constants.js";
 import { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
 import {
@@ -14,17 +14,11 @@ import {
   resolveFeedbackWorkerControlProfile,
 } from "../worker-attestation.js";
 import { BURST_PERSONAS } from "./burst-personas.js";
-import {
-  BURST_CAMPAIGNS,
-  burstPersonaCatalogEntry,
-  burstPersonaPhoneE164,
-} from "./burst-scenario.js";
+import { BURST_CAMPAIGNS, burstPersonaCatalogEntry } from "./burst-scenario.js";
 import {
   FeedbackBurstAccountingQueryDto,
   FeedbackBurstAccountingResponseDto,
   FeedbackBurstCatalogResponseDto,
-  feedbackBurstAccountingResponseSchema,
-  feedbackBurstCatalogResponseSchema,
 } from "./burst.schemas.js";
 
 /**
@@ -96,7 +90,7 @@ export class FeedbackBurstController {
         ),
       }),
     );
-    return feedbackBurstCatalogResponseSchema.parse({
+    return {
       extractionStub,
       workerRegistered: workerAttestation.status === "verified",
       campaigns: BURST_CAMPAIGNS.map((campaign) => ({
@@ -105,8 +99,10 @@ export class FeedbackBurstController {
         title: campaign.title,
         venue: campaign.venue,
       })),
-      personas: BURST_PERSONAS.map(burstPersonaCatalogEntry),
-    });
+      personas: BURST_PERSONAS.map(
+        burstPersonaCatalogEntry,
+      ) as FeedbackBurstCatalogResponseDto["personas"],
+    };
   }
 
   @Get("accounting")
@@ -119,7 +115,7 @@ export class FeedbackBurstController {
     const rows = await this.conversations.listExtractionAccountingForCampaigns(
       query.campaignId,
     );
-    return feedbackBurstAccountingResponseSchema.parse(rows);
+    return rows;
   }
 
   private assertEnabled(): void {

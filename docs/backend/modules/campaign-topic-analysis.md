@@ -158,9 +158,10 @@ Insufficient/tokenless samples return outliers; sufficiently supported identical
 vectors can form one topic. No local embedding model, model download, translation
 or mandatory LLM naming workflow is installed.
 
-Nest owns DI and shutdown. The local Effect recipe makes embedding, clustering,
-validation and commit stages visible. An `Effect.acquireRelease` scope owns the
-Node child; no Effect Tags, Context, Layers or retry runtime is introduced.
+Nest owns DI and shutdown. Embedding, clustering, validation and commit are a
+direct async recipe. An `Effect.acquireRelease` scope owns the Node child;
+[ADR 0020](../../decisions/0020-effect-for-resource-scopes.md) keeps Effect local
+to this resource lifetime. No second retry runtime is introduced.
 `spawn` receives an executable and argv (`-I`, `-B`, script), never a shell.
 Cancellation/deadline/shutdown sends SIGTERM, escalates to SIGKILL after 250 ms
 if necessary and waits for the child to be reaped before the scope closes.

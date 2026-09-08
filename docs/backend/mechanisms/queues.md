@@ -46,7 +46,7 @@ same settle phase.
 ## Versioned contracts
 
 Prefix: `jts`. Payloads are identifier-only — never chat text, phones, or
-provider credentials. Producer and processor both validate; unknown name /
+provider credentials. Producers construct typed envelopes; processors validate consumed data. Unknown name /
 unsupported version / malformed data / missing authoritative record →
 `UnrecoverableError`. Transient dependency errors rethrow for BullMQ retry.
 

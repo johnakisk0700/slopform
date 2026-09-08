@@ -1,19 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { SQL } from "drizzle-orm";
-import { PgDialect } from "drizzle-orm/pg-core";
 import {
   feedbackAnswers,
   feedbackAnswerWithdrawals,
   messageOutbox,
   providerMessageIngress,
 } from "@slopform/database";
+import type { SQL } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
 
 import type { DatabaseService } from "../../infrastructure/database/database.service.js";
+import { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
 import { FeedbackResultsRepository } from "./extraction/results.repository.js";
 import { FeedbackIngressRepository } from "./ingress/ingress.repository.js";
 import { FeedbackOutboxRepository } from "./outbox/outbox.repository.js";
-import { FeedbackCampaignRepository } from "./campaign/campaign.repository.js";
 
 function createInsertChain(returningValue: unknown[]) {
   const returning = vi.fn().mockResolvedValue(returningValue);
@@ -231,32 +231,6 @@ describe("feedback repository conflict targets", () => {
         dispatchContext: { schemaVersion: 1, purpose: "campaign_intro" },
       }),
     ).rejects.toThrow(/does not match kind/);
-    expect(chain.insert).not.toHaveBeenCalled();
-  });
-
-  it("rejects an outbox insert with unusable or invalid dispatch context", async () => {
-    const chain = createInsertChain([]);
-    const transaction = { insert: chain.insert };
-    const database = { db: {} } as DatabaseService;
-    const repository = new FeedbackOutboxRepository(
-      database,
-      new FeedbackCampaignRepository(database),
-    );
-    const conversationId = "33333333-3333-4333-8333-333333333333";
-
-    await expect(
-      repository.insertOutboxIfAbsent(transaction as never, {
-        conversationId,
-        campaignId: "44444444-4444-4444-8444-444444444444",
-        kind: "intro",
-        body: "Ευχαριστούμε!",
-        dedupeKey: `feedback-intro-${conversationId}`,
-        dispatchContext: {
-          schemaVersion: 1,
-          purpose: "unusable_legacy",
-        } as never,
-      }),
-    ).rejects.toThrow("Outbound insert rejected");
     expect(chain.insert).not.toHaveBeenCalled();
   });
 

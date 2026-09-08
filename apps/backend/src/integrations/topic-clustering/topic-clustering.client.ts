@@ -1,11 +1,10 @@
+import { Injectable, type OnModuleDestroy } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { Cause, Effect, Exit } from "effect";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Injectable, type OnModuleDestroy } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
-import { Effect } from "effect";
 import type { Environment } from "../../infrastructure/config/environment.js";
-import { runWithOriginalError } from "../../infrastructure/effect/promise.js";
 import {
   ClusteringFailure,
   clusteringProgressSchema,
@@ -76,7 +75,11 @@ export class TopicClusteringClient implements OnModuleDestroy {
         ),
       ),
     );
-    this.active = runWithOriginalError(flow);
+    this.active = Effect.runPromiseExit(flow).then((exit) => {
+      // Callers classify the original failure, not Effect's FiberFailure.
+      if (Exit.isFailure(exit)) throw Cause.squash(exit.cause);
+      return exit.value;
+    });
     try {
       return await this.active;
     } finally {

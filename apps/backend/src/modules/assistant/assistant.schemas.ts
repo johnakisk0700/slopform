@@ -129,57 +129,7 @@ export const assistantTurnSchema = z
     startedAt: z.iso.datetime().nullable(),
     completedAt: z.iso.datetime().nullable(),
   })
-  .strict()
-  .superRefine((turn, context) => {
-    const hasAssistant = turn.assistant !== null;
-    const hasError = turn.error !== null;
-    const isComplete = turn.completedAt !== null;
-
-    if (
-      turn.partial !== null &&
-      (turn.status === "succeeded" || turn.status === "failed")
-    ) {
-      context.addIssue({
-        code: "custom",
-        message: "A settled turn cannot carry streamed text",
-      });
-    }
-
-    if (turn.usage !== null && turn.status !== "succeeded") {
-      context.addIssue({
-        code: "custom",
-        message: "Only a succeeded turn can carry final usage",
-      });
-    }
-
-    if (turn.status === "succeeded") {
-      if (!hasAssistant || hasError || !isComplete) {
-        context.addIssue({
-          code: "custom",
-          message:
-            "A succeeded turn requires only an assistant response and completion",
-        });
-      }
-      return;
-    }
-
-    if (turn.status === "failed") {
-      if (hasAssistant || !hasError || !isComplete) {
-        context.addIssue({
-          code: "custom",
-          message: "A failed turn requires only an error and completion",
-        });
-      }
-      return;
-    }
-
-    if (hasAssistant || hasError || isComplete) {
-      context.addIssue({
-        code: "custom",
-        message: "A nonterminal turn cannot contain a result or completion",
-      });
-    }
-  });
+  .strict();
 
 export const assistantThreadSchema = z
   .object({

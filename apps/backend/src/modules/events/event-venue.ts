@@ -1,6 +1,6 @@
 import type { EventRow } from "@slopform/database";
 
-import { eventVenueSchema, type EventVenueView } from "./events.schemas.js";
+import { type EventVenueView } from "./events.schemas.js";
 
 type EventVenueColumns = Pick<
   EventRow,
@@ -33,49 +33,24 @@ export interface EventFeedbackVenueSnapshot {
   readonly venue: EventFeedbackVenueContext | null;
 }
 
-/**
- * Reassembles the normalized HTTP venue from flat relational columns.
- *
- * The database constraints make partial venue rows impossible. Parsing here is
- * still deliberate: a drifted migration or manual write fails loudly instead of
- * leaking a plausible-looking half venue through multiple read models.
- */
+/** Reassembles the venue from database-constrained relational columns. */
 export function toEventVenueView(
   row: EventVenueColumns,
 ): EventVenueView | null {
-  if (row.venueProvider === null) {
-    const staleValues = [
-      row.venuePlaceId,
-      row.venueLabel,
-      row.venueType,
-      row.venueArea,
-      row.venuePriceLevel,
-      row.venuePriceStartMinor,
-      row.venuePriceEndMinor,
-      row.venuePriceCurrencyCode,
-      row.venueUseInFeedback,
-    ];
-    if (staleValues.some((value) => value !== null)) {
-      throw new Error("Event venue columns are inconsistent");
-    }
-    return null;
-  }
+  if (row.venueProvider === null) return null;
 
-  if (
-    row.venuePriceStartMinor === null &&
-    (row.venuePriceEndMinor !== null || row.venuePriceCurrencyCode !== null)
-  ) {
-    throw new Error("Event venue price columns are inconsistent");
-  }
-
-  return eventVenueSchema.parse({
-    provider: row.venueProvider,
-    placeId: row.venuePlaceId,
-    label: row.venueLabel,
+  return {
+    provider: "google",
+    placeId: row.venuePlaceId!,
+    label: row.venueLabel!,
     ...(row.venueType !== null ? { type: row.venueType } : {}),
     ...(row.venueArea !== null ? { area: row.venueArea } : {}),
     ...(row.venuePriceLevel !== null
-      ? { priceLevel: row.venuePriceLevel }
+      ? {
+          priceLevel: row.venuePriceLevel as NonNullable<
+            EventVenueView["priceLevel"]
+          >,
+        }
       : {}),
     ...(row.venuePriceStartMinor !== null
       ? {
@@ -84,13 +59,13 @@ export function toEventVenueView(
             ...(row.venuePriceEndMinor !== null
               ? { endMinor: row.venuePriceEndMinor }
               : {}),
-            currencyCode: row.venuePriceCurrencyCode,
+            currencyCode: row.venuePriceCurrencyCode!,
           },
         }
       : {}),
-    useInFeedback: row.venueUseInFeedback,
+    useInFeedback: row.venueUseInFeedback!,
     contextRevision: row.venueContextRevision,
-  });
+  };
 }
 
 export function toEventFeedbackVenueSnapshot(

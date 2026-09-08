@@ -48,9 +48,8 @@ state, ≤10 ordered goals, human-takeover state, ordered turns, timestamps.
   error; model metadata (including service tier); attempt/lifecycle timestamps;
   nullable `partial` / `reasoning` while in flight (defaulted so older documents
   parse). Terminal result is exclusive: succeeded has output, failed has error,
-  nonterminal has neither. Document schema rejects a settled turn that still
-  carries `partial` (not `reasoning` — asymmetry vs the API schema, which checks
-  both). Cap: 75 turns (BSON-safe under worst-case sizes). Retention/rollover
+  nonterminal has neither. The persisted document rejects a settled turn that still
+  carries `partial`; reasoning is retained after settlement. Cap: 75 turns (BSON-safe under worst-case sizes). Retention/rollover
   must preserve owner scoping and global order before raising that limit.
 
 ## Assistant synchronization and recovery
@@ -84,8 +83,9 @@ outbox — never treat a Mongo write as delivery.
 
 Schema-v1 tests cover purpose/channel/owner rules, ten-goal bounds, ordered
 goals/turns, takeover consistency, BSON capacity, owner-scoped sync,
-attempt-fenced transitions, conflicting terminals, oversized output and
-cross-store fault paths. Capacity is rechecked inside PostgreSQL's locked
+attempt-fenced transitions, conflicting terminals and
+cross-store fault paths. The generation adapter bounds incoming provider output;
+repository writes consume typed commands. Capacity is rechecked inside PostgreSQL's locked
 sequence allocation. No live MongoDB required.
 
 - Schema v1:

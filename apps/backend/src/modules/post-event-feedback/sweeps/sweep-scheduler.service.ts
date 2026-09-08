@@ -9,7 +9,6 @@ import {
 import {
   FEEDBACK_JOB_NAMES,
   FEEDBACK_JOB_SCHEMA_VERSION_V2,
-  feedbackMaintenanceJobDataSchema,
   type FeedbackJobData,
 } from "../jobs.schemas.js";
 
@@ -32,10 +31,10 @@ export class FeedbackSweepSchedulerService implements OnApplicationBootstrap {
 
   async onApplicationBootstrap(): Promise<void> {
     const schedulerId = FEEDBACK_JOB_NAMES.maintenanceV2;
-    const data = feedbackMaintenanceJobDataSchema.parse({
+    const data: FeedbackJobData = {
       schemaVersion: FEEDBACK_JOB_SCHEMA_VERSION_V2,
       correlationId: schedulerId,
-    });
+    };
     await this.maintenanceQueue.upsertJobScheduler(
       schedulerId,
       { every: FEEDBACK_SWEEP_EVERY_MS },

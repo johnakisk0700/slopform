@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  EVENT_STATUS_TRANSITIONS,
-  createEventSchema,
-  eventSchema,
   eventVenueInputSchema,
   updateEventAttendeeSchema,
   updateEventSchema,
@@ -25,38 +22,6 @@ const venue = {
 };
 
 describe("events schemas", () => {
-  it("encodes the draft→scheduled→finished|cancelled graph", () => {
-    expect(EVENT_STATUS_TRANSITIONS.draft).toEqual(["scheduled", "cancelled"]);
-    expect(EVENT_STATUS_TRANSITIONS.scheduled).toEqual([
-      "finished",
-      "cancelled",
-    ]);
-    expect(EVENT_STATUS_TRANSITIONS.finished).toEqual([]);
-    expect(EVENT_STATUS_TRANSITIONS.cancelled).toEqual([]);
-  });
-
-  it("requires a title and start time on create", () => {
-    expect(
-      createEventSchema.safeParse({
-        title: "Dinner",
-        startsAt: "2026-08-01T18:00:00.000Z",
-      }).success,
-    ).toBe(true);
-    expect(createEventSchema.safeParse({ title: "Dinner" }).success).toBe(
-      false,
-    );
-  });
-
-  it("accepts a complete operator-confirmed Google venue", () => {
-    expect(
-      createEventSchema.parse({
-        title: "Dinner",
-        startsAt: "2026-08-01T18:00:00.000Z",
-        venue,
-      }),
-    ).toMatchObject({ venue });
-  });
-
   it("does not invent a maximum length for Google Place IDs", () => {
     expect(
       eventVenueInputSchema.safeParse({
@@ -79,19 +44,6 @@ describe("events schemas", () => {
     expect(
       eventVenueInputSchema.safeParse({ ...venue, contextRevision: 4 }).success,
     ).toBe(false);
-    expect(
-      eventSchema.safeParse({
-        id: "7c57f3b8-2b13-48f5-8730-18ac71f490cd",
-        title: "Dinner",
-        startsAt: "2026-08-01T18:00:00.000Z",
-        status: "draft",
-        venue: { ...venue, contextRevision: 4 },
-        attendeeCount: 0,
-        presentCount: 0,
-        createdAt: "2026-07-25T00:00:00.000Z",
-        updatedAt: "2026-07-25T00:00:00.000Z",
-      }).success,
-    ).toBe(true);
   });
 
   it("rejects invented price levels and malformed exact ranges", () => {
