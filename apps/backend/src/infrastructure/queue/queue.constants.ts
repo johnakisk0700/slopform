@@ -28,7 +28,6 @@ export const FEEDBACK_SUMMARY_QUEUE = "feedback-summary";
 export const FEEDBACK_TOPIC_ANALYSIS_QUEUE = "feedback-topic-analysis";
 /** Cheap periodic recovery and expiry scans. */
 export const FEEDBACK_MAINTENANCE_QUEUE = "feedback-maintenance";
-export const REFERENCE_QUEUE = "reference";
 
 export const OUTBOX_RELAY_JOB_OPTIONS = {
   attempts: 1,

@@ -15,7 +15,6 @@ import {
   FEEDBACK_QUEUE,
   FEEDBACK_SUMMARY_QUEUE,
   FEEDBACK_TOPIC_ANALYSIS_QUEUE,
-  REFERENCE_QUEUE,
 } from "./queue.constants.js";
 
 // A connection that never opened cannot leave a command in flight, so closing
@@ -51,7 +50,6 @@ export class QueueLifecycleService implements BeforeApplicationShutdown {
     @InjectQueue(FEEDBACK_CONVERSATION_QUEUE) feedbackConversation: Queue,
     @InjectQueue(FEEDBACK_SUMMARY_QUEUE) feedbackSummary: Queue,
     @InjectQueue(FEEDBACK_MAINTENANCE_QUEUE) feedbackMaintenance: Queue,
-    @InjectQueue(REFERENCE_QUEUE) reference: Queue,
     @InjectQueue(FEEDBACK_TOPIC_ANALYSIS_QUEUE) feedbackTopics: Queue,
   ) {
     this.queues = [
@@ -62,7 +60,6 @@ export class QueueLifecycleService implements BeforeApplicationShutdown {
       feedbackConversation,
       feedbackSummary,
       feedbackMaintenance,
-      reference,
       feedbackTopics,
     ];
   }

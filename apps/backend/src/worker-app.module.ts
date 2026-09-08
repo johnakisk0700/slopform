@@ -10,7 +10,6 @@ import { WasenderClientModule } from "./integrations/wasender/wasender-client.mo
 import { AssistantWorkerModule } from "./modules/assistant/assistant-worker.module.js";
 import { EmailWorkerModule } from "./modules/email/email-worker.module.js";
 import { PostEventFeedbackWorkerModule } from "./modules/post-event-feedback/worker.module.js";
-import { ReferenceWorkerModule } from "./modules/reference/reference-worker.module.js";
 
 @Module({
   imports: [
@@ -25,7 +24,6 @@ import { ReferenceWorkerModule } from "./modules/reference/reference-worker.modu
     EmailWorkerModule,
     PostEventFeedbackWorkerModule,
     TopicAnalysisWorkerModule,
-    ReferenceWorkerModule,
   ],
 })
 export class WorkerAppModule {}

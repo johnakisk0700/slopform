@@ -39,12 +39,12 @@ describe("LoggingModule configuration", () => {
       options.serializers?.req?.({
         id: "request-1",
         method: "GET",
-        url: "/api/v1/reference?token=secret#fragment",
+        url: "/api/v1/events?token=secret#fragment",
       }),
     ).toEqual({
       id: "request-1",
       method: "GET",
-      url: "/api/v1/reference",
+      url: "/api/v1/events",
     });
   });
 

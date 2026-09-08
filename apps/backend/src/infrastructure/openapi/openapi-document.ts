@@ -29,9 +29,9 @@ export const OPENAPI_DOCS_ROUTE = "api/docs";
  * conditionally registered modules read `process.env` directly, so applying
  * these values before the application module is imported makes the emitted
  * artifact a function of source code alone. The published composition is the
- * default one: the Wasender webhook, the reference module and Bull Board are
- * off. Promoting one of them to a product surface means publishing it here
- * deliberately. Credentials are absent because no dependency is contacted.
+ * default one: the Wasender webhook and Bull Board are off. Promoting Bull
+ * Board to a product surface means publishing it here deliberately.
+ * Credentials are absent because no dependency is contacted.
  */
 export const OPENAPI_EMIT_ENVIRONMENT: Readonly<Record<string, string>> = {
   API_HOST: "127.0.0.1",
@@ -52,7 +52,6 @@ export const OPENAPI_EMIT_ENVIRONMENT: Readonly<Record<string, string>> = {
   OPENROUTER_API_KEY: "",
   APP_NAME: "join-the-six-api",
   REDIS_URL: "redis://127.0.0.1:6379",
-  REFERENCE_MODULE_ENABLED: "false",
   WASENDER_SESSION_API_KEY: "",
   WASENDER_WEBHOOK_ENABLED: "false",
   WASENDER_WEBHOOK_SECRET: "",

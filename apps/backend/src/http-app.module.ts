@@ -9,7 +9,6 @@ import { AppConfigModule } from "./infrastructure/config/app-config.module.js";
 import {
   isBullBoardEnabled,
   isFeedbackSimulatorHttpEnabled,
-  isReferenceModuleEnabled,
   isWasenderWebhookEnabled,
 } from "./infrastructure/config/enabled-modules.js";
 import { LoggingModule } from "./infrastructure/logging/logging.module.js";
@@ -25,7 +24,6 @@ import { PostEventFeedbackCoreModule } from "./modules/post-event-feedback/core.
 import { PostEventFeedbackHttpModule } from "./modules/post-event-feedback/http.module.js";
 import { WasenderWebhookModule } from "./modules/post-event-feedback/ingress/wasender-webhook.module.js";
 import { PostEventFeedbackSimulatorHttpModule } from "./modules/post-event-feedback/simulator/http.module.js";
-import { ReferenceHttpModule } from "./modules/reference/reference-http.module.js";
 
 const StrictZodValidationPipe = createZodValidationPipe({
   strictSchemaDeclaration: true,
@@ -50,10 +48,6 @@ const StrictZodValidationPipe = createZodValidationPipe({
       isWasenderWebhookEnabled,
     ),
     ConditionalModule.registerWhen(QueueDashboardModule, isBullBoardEnabled),
-    ConditionalModule.registerWhen(
-      ReferenceHttpModule,
-      isReferenceModuleEnabled,
-    ),
     ConditionalModule.registerWhen(
       PostEventFeedbackSimulatorHttpModule,
       isFeedbackSimulatorHttpEnabled,
