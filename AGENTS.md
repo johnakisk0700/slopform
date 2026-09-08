@@ -34,6 +34,13 @@ date. Read either only for "why is it like this"; prefer an
 
 ## Readable names and flows
 
+Default to the simplest implementation of today's requirement. Main operations
+read as recipes of named steps; split files by responsibility and share actual
+business rules. No speculative options, forwarding layers or repeated internal
+validation. Test consequential behavior rather than source strings or styling.
+Before merging, review new abstractions against real callers/responsibilities;
+fewer lines alone do not demonstrate simpler code.
+
 Follow [code readability](docs/code-readability.md): a call should name its
 action and the thing it affects. `ensureDataForUser` is an example of that
 preference, not a request for a repository-wide rename. Current product
