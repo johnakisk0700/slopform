@@ -6,10 +6,7 @@ import type {
   FeedbackExtractionProposal,
   FeedbackExtractionSafetySignalProposal,
 } from "../extraction/extraction.schemas.js";
-import {
-  createFeedbackExtractionProposalSchema,
-  feedbackExtractionGoalVerdicts,
-} from "../extraction/extraction.schemas.js";
+import { feedbackExtractionGoalVerdicts } from "../extraction/extraction.schemas.js";
 import { FEEDBACK_EXTRACT_QUIET_WINDOW_MS } from "../jobs.schemas.js";
 import {
   FEEDBACK_ATTENTION_CLASSIFICATION_BATCH_SIZE,
@@ -100,8 +97,7 @@ export class ScriptedBurstExtractionModel implements FeedbackExtractionModelPort
       const proposal = buildProposal(turn, parsed, persona, questionKeys);
       return {
         model: FEEDBACK_EXTRACTION_STUB_MODEL_ID,
-        proposal:
-          createFeedbackExtractionProposalSchema(questionKeys).parse(proposal),
+        proposal,
         usage: SCRIPTED_USAGE,
       };
     } catch (error) {

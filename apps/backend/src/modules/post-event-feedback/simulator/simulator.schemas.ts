@@ -125,17 +125,6 @@ const feedbackSimulatorQuestionSchema = z.enum([
   "avoid",
 ]);
 
-/**
- * The two rubric intent vocabularies, mirrored by hand from
- * `post-event-feedback-real-model-corpus.ts`.
- *
- * They are duplicated rather than derived because this file is the HTTP
- * boundary and its enums are what the dev surface publishes. The duplication is
- * not free: every corpus rubric is parsed through
- * `feedbackSimulatorRubricSchema` before a run starts, so an intent added to the
- * corpus union alone does not fail to typecheck — it fails the simulator at
- * runtime, when somebody selects that scenario. Add to both lists together.
- */
 const feedbackSimulatorReplyIntentSchema = z.enum([
   "ask_event_score",
   "ask_table_fit",
@@ -203,10 +192,6 @@ export const feedbackSimulatorRubricSchema = z
     skippedGoals: z.array(feedbackSimulatorQuestionSchema).optional(),
     attention: z
       .object({
-        // Mirrored by hand from `POST_EVENT_FEEDBACK_SAFETY_CATEGORIES` for the
-        // same reason as the intents above, and with the same cost: a category
-        // added to the backend enum and the corpus but not here fails only when
-        // somebody runs the scenario that uses it.
         category: z.enum([
           "sexual_misconduct",
           "harassment",
