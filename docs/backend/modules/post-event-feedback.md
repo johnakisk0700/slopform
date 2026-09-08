@@ -14,13 +14,6 @@ Policy answers the application may append:
 [`post-event-feedback-policy-answers.md`](post-event-feedback-policy-answers.md).
 Code organization and refactoring examples:
 [`post-event-feedback-readability.md`](post-event-feedback-readability.md).
-Current refactor progress and next work:
-[`post-event-feedback-refactor-status.md`](post-event-feedback-refactor-status.md).
-
-For a guided first reading, open the standalone
-[HTML reading guide](post-event-feedback-reading.html) in a browser. It starts
-with six source methods and then follows ordinary, STOP, superseded and
-uncertain-send paths.
 
 ## Read this first
 
@@ -28,10 +21,6 @@ uncertain-send paths.
 2. [Scenarios](post-event-feedback-scenarios.md) — executable loop and known defects.
 3. [ADR 0015](../../decisions/0015-postgresql-feedback-conversations.md) — PostgreSQL conversation row.
 4. [Database](../mechanisms/database.md) and [queues](../mechanisms/queues.md) — transactions and wake-ups.
-
-Landing archaeology stays in [`docs/history/`](../../history/). Paid-run
-history: [`post-event-feedback-rehearsal-history.md`](post-event-feedback-rehearsal-history.md).
-Do not rebuild from history files.
 
 Live D16 candidate selection supersedes frozen attendee snapshots.
 [D13](#d13--safety-content-travels-the-ordinary-pipeline) is amended: safety
@@ -868,8 +857,6 @@ rejected in production.
 Production paid rehearsal: tunnel PG/Redis, Clerk JWT with `azp` via
 [`harness/feedback-burst-prod-auth.mjs`](../../../harness/feedback-burst-prod-auth.mjs),
 close leftover campaigns over HTTP, unused fixture slot, teardown revoke.
-Details and learning:
-[`post-event-feedback-rehearsal-history.md`](post-event-feedback-rehearsal-history.md).
 Commit before paid runs; track JSON under `report/`, not HTML.
 
 <a id="schema-v2--post-event-feedback-conversation"></a>
@@ -1178,5 +1165,3 @@ nothing unresolved remains — never auto-resolves standing reasons.
 - [Database](../mechanisms/database.md)
 - [Frontend conversations UI](../../frontend/feedback-conversations.md)
 - [Scenarios](post-event-feedback-scenarios.md)
-- [Rehearsal history](post-event-feedback-rehearsal-history.md)
-- [History / plan](../../history/post-event-feedback-plan-2026-07-25.md)

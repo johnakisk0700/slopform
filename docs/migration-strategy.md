@@ -17,7 +17,7 @@ integration strategy.
 Decision record:
 [`decisions/0002-wordpress-boundary.md`](decisions/0002-wordpress-boundary.md).
 Private WordPress audit evidence is not in this public tree
-([evidence index](evidence/README.md)).
+(the original audit is retained in Git history).
 
 ## Sequence
 

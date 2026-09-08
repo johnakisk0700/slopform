@@ -15,19 +15,13 @@ Source: [`JtsBackLink.tsx`](../../../apps/admin/src/components/ui/JtsBackLink.ts
 
 ## Invariants
 
-- One glyph: `ChevronLeft` (not `ArrowLeft`).
 - One grammar: `Back to <place>` — chevron for direction, words for destination;
   screen reader gets a full sentence.
 - Never a page action. Renders above the title; `actions` must not contain one.
-- Only motion: chevron +2px on hover (collapsed by `prefers-reduced-motion`).
+- Appearance and reduced motion follow the [style guide](../../../apps/admin/README.md).
 
 ## Placement
 
 Prefer `JtsPageHeader`'s `back` prop. Render directly only without a page header:
 not-found branches, or `CampaignHeader` (shares the link's line with campaign
 actions).
-
-## Tests
-
-`apps/admin/test/page-chrome.spec.ts` — no second back-link dialect in routes,
-labels match `Back to <place>`, header places it above eyebrow/title/actions.

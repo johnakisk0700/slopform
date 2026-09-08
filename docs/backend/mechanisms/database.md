@@ -165,6 +165,10 @@ pnpm --filter @slopform/database db:migrate
 validates migration history, not ungenerated schema drift — regenerate and expect
 no further change before review.
 
+The obsolete `reference_records` example table is removed by a forward migration.
+The cleanup prepares that migration; deployment must apply it through the normal
+migration gate. Existing applied migrations remain unchanged.
+
 Run one migrator before application rollout. Never edit an applied migration,
 run parallel migrators or use `drizzle-kit push` on shared/staging/production
 data. Review generated SQL for locks, rewrites, defaults, backfills and

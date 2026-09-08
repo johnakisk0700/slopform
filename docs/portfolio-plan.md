@@ -16,14 +16,10 @@ feedback showcase and code the user can explain in a technical interview. Keep t
 research Assistant central to the experience. Work in bounded slices rather
 than reopening the whole mechanism on each turn.
 
-Implementation baseline: **`191c70a`**, following `7f55117`. The core incoming
-message → AI → outbound-send flow is ready for a first guided reading. The
-whole feedback module is not finished, and the visitor demo is not implemented.
-
-See the [refactor status](backend/modules/post-event-feedback-refactor-status.md)
-for completed work, dated line counts and verification. Start reading through
-the [HTML guide](backend/modules/post-event-feedback-reading.html): six actual
-methods, 355 lines at the checkpoint, and four scenario walks.
+The core incoming message → AI → outbound-send flow is implemented.
+The visitor demo remains planned. Current behavior and code ownership are in the
+[feedback module](backend/modules/post-event-feedback.md) and
+[readability guide](code-readability.md).
 
 ## Already implemented; do not reopen without a concrete reason
 
@@ -34,11 +30,10 @@ methods, 355 lines at the checkpoint, and four scenario walks.
   operation owners. Runtime stage logs observe; immutable outbound evidence
   controls dispatch eligibility. A WhatsApp adapter, polling sender and durable
   work/wake-ups already exist.
-- Effect utilities compose local flows without Tags, Context or Layers.
-  Transactions remain service-owned and explicit inside the operation.
-- The HTML reading guide and deferred `vibes/` test location already exist.
-  Those tests remain active. The roughly 4,500-line extract file is a test
-  suite, not the production extractor entry.
+- Serial workflows use direct async/await. Effect remains only for the Python
+  subprocess resource scope; transactions are service-owned and explicit.
+- Custom scenarios, doubles, fixtures and rehearsal tools live in the
+  [harness workspace](../harness/README.md), included in root tests/typecheck.
 - Clerk currently admits allowlisted operators. Assistant threads are owned
   by users, but business data accessed by the tools remains shared. This is
   not yet visitor sandbox isolation.
@@ -104,7 +99,7 @@ The implementation follows these boundaries:
   needed for bounded batch clustering. Greek/Greeklish semantic quality still
   needs representative feedback; multilingual support alone does not prove it.
 - A Python subprocess runs BERTopic on supplied text and vectors. Node owns
-  its lifetime through a small infrastructure adapter with Effect composition,
+  its lifetime through the topic-clustering client with an Effect resource scope,
   timeout/cancellation, bounded IO and a versioned structured protocol.
   Python receives no database credentials and does not write PostgreSQL.
 - Persist successful stages and final results. Concurrent requests, retries,

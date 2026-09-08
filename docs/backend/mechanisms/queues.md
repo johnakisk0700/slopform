@@ -50,17 +50,16 @@ provider credentials. Producers construct typed envelopes; processors validate c
 unsupported version / malformed data / missing authoritative record →
 `UnrecoverableError`. Transient dependency errors rethrow for BullMQ retry.
 
-| Queue                   | Job                                  | Payload                                                          | Stable job ID                                                           |
-| ----------------------- | ------------------------------------ | ---------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `reference`             | `reference.inspect-record.v1`        | `{ schemaVersion: 1, recordId, correlationId }`                  | `reference-inspect-v1-<recordId>-<idempotencyKey>` (UUID key, no colon) |
-| `assistant`             | `assistant.generate-turn.v2`         | `{ schemaVersion: 2, turnId, correlationId }`                    | `assistant-generate-v2-<turnId>-<attempt>`                              |
-| `email-delivery`        | `email.relay-outbox.v1`              | `{ schemaVersion: 1, correlationId }`                            | repeat schedule                                                         |
-| `email-delivery`        | `email.deliver.v1`                   | `{ schemaVersion: 1, deliveryId, outboxEventId, correlationId }` | `email-deliver-v1-<outboxEventId>`                                      |
-| `feedback-ingress`      | `feedback.materialize.v1`            | `{ schemaVersion: 1, ingressId, correlationId }`                 | `feedback-materialize-v1-<ingressId>`                                   |
-| `feedback-conversation` | `feedback.reconcile-conversation.v2` | `{ schemaVersion: 2, conversationId, revision, correlationId }`  | `feedback-reconcile-v2-<conversationId>-<revision>`                     |
-| `feedback-summary`      | `feedback.summarize-campaign.v2`     | `{ schemaVersion: 2, campaignId, attempt, correlationId }`       | `feedback-summarize-v2-<campaignId>-<attempt>`                          |
-| `feedback-maintenance`  | `feedback.maintenance.v2`            | `{ schemaVersion: 2, correlationId }`                            | repeat schedule                                                         |
-| `feedback` (legacy)     | V1 drain only — see below            | V1 envelopes                                                     | V1 IDs; no new production                                               |
+| Queue                   | Job                                  | Payload                                                          | Stable job ID                                       |
+| ----------------------- | ------------------------------------ | ---------------------------------------------------------------- | --------------------------------------------------- |
+| `assistant`             | `assistant.generate-turn.v2`         | `{ schemaVersion: 2, turnId, correlationId }`                    | `assistant-generate-v2-<turnId>-<attempt>`          |
+| `email-delivery`        | `email.relay-outbox.v1`              | `{ schemaVersion: 1, correlationId }`                            | repeat schedule                                     |
+| `email-delivery`        | `email.deliver.v1`                   | `{ schemaVersion: 1, deliveryId, outboxEventId, correlationId }` | `email-deliver-v1-<outboxEventId>`                  |
+| `feedback-ingress`      | `feedback.materialize.v1`            | `{ schemaVersion: 1, ingressId, correlationId }`                 | `feedback-materialize-v1-<ingressId>`               |
+| `feedback-conversation` | `feedback.reconcile-conversation.v2` | `{ schemaVersion: 2, conversationId, revision, correlationId }`  | `feedback-reconcile-v2-<conversationId>-<revision>` |
+| `feedback-summary`      | `feedback.summarize-campaign.v2`     | `{ schemaVersion: 2, campaignId, attempt, correlationId }`       | `feedback-summarize-v2-<campaignId>-<attempt>`      |
+| `feedback-maintenance`  | `feedback.maintenance.v2`            | `{ schemaVersion: 2, correlationId }`                            | repeat schedule                                     |
+| `feedback` (legacy)     | V1 drain only — see below            | V1 envelopes                                                     | V1 IDs; no new production                           |
 
 Email content lives only in PostgreSQL. Relay uses
 [`OUTBOX_RELAY_JOB_OPTIONS`](../../../apps/backend/src/infrastructure/queue/queue.constants.ts)
@@ -118,10 +117,8 @@ retention window with no V1 arrivals.
 Deep loop semantics live in
 [post-event-feedback](../modules/post-event-feedback.md).
 
-Feedback extraction uses Effect utilities inside one worker invocation
-([ADR 0017](../../decisions/0017-effect-for-local-workflows.md)). They add no
-retry, cancellation or durable scheduling layer. The Promise boundary preserves
-the original error instance so queue failure classification stays authoritative.
+Feedback extraction uses direct async/await. BullMQ and durable PostgreSQL work
+state retain retry and scheduling ownership ([ADR 0020](../../decisions/0020-effect-for-resource-scopes.md)).
 
 Queue-facing rules:
 
@@ -222,7 +219,6 @@ in-memory tests still run in `pnpm check`.
 
 | Processor             | Concurrency | Notes                                |
 | --------------------- | ----------- | ------------------------------------ |
-| Reference             | 5           | Cheap local                          |
 | Assistant             | 2           | Provider-bound, 120s deadline        |
 | Email                 | 2           | Provider-bound                       |
 | Feedback V1 bridge    | 10          | Drain only                           |
@@ -248,7 +244,6 @@ or DB uniqueness.
 
 | Path              | Pattern                                                                                                                                                                                                                                                                                                                                                                                        |
 | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Reference         | Intentional DB→queue crash gap (disposable demo).                                                                                                                                                                                                                                                                                                                                              |
 | Email             | Transactional outbox: mutate + outbox row in one txn → relay with stable job key → delivery claim before the provider call → terminal settlement consumes the event. Retryable failures keep it dispatched and due. Relay: `FOR UPDATE SKIP LOCKED`, reclaim expired leases, republish after recovery horizon. Closes commit/enqueue and ack-loss gaps, not downstream exactly-once.           |
 | Feedback outbound | **No** BullMQ. One-second worker loop claims ≤4 rows in a dispatcher-owned transaction (`FOR UPDATE SKIP LOCKED`), opaque token, two-minute lease. Oldest unresolved row per conversation; four parallel lanes across conversations. STOP ack (`lifecycle.terminalOutboxId`) and explicit staff may pass `ambiguous`; nothing passes `pending`/`held`/`claimed`/`attempting`/legacy `sending`. |
 
@@ -282,7 +277,7 @@ independently idempotent; treat stalls as possible duplication.
 
 Define one strict versioned identifier-only envelope near the domain; import
 producer/worker modules only into their process graphs; choose delivery policy
-from real constraints; test schemas, job building, failure classification and
+from real constraints; test request rejection, failure classification and
 module composition. Real Redis tests need a unique prefix, bounded waits and
 exact cleanup. Add outbox + durable side-effect idempotency before claiming
 critical delivery.
@@ -301,7 +296,6 @@ maintenance subtasks and stable materialize job ID.
   [readiness](../../../apps/backend/src/infrastructure/queue/queue-health.service.ts),
   [shutdown](../../../apps/backend/src/infrastructure/queue/queue-lifecycle.service.ts)
 - [Assistant schemas/processor](../../../apps/backend/src/modules/assistant/),
-  [reference](../../../apps/backend/src/modules/reference/),
   [email](../../../apps/backend/src/modules/email/),
   [feedback jobs](../../../apps/backend/src/modules/post-event-feedback/jobs.schemas.ts),
   [ingress](../../../apps/backend/src/modules/post-event-feedback/ingress/),

@@ -20,6 +20,8 @@ const instructionFiles = [
 ];
 const scannedFiles = [
   path.join(repositoryRoot, "README.md"),
+  path.join(repositoryRoot, "apps/admin/README.md"),
+  path.join(repositoryRoot, "harness/README.md"),
   ...instructionFiles,
   ...documentationFiles,
 ];
@@ -27,10 +29,7 @@ const scannedFiles = [
 const problems = [];
 const linkedDocs = new Set();
 const markdownLink = /(?<!!)\[[^\]]*\]\(([^)]+)\)/g;
-const recordRoots = {
-  decisions: path.join(docsRoot, "decisions"),
-  history: path.join(docsRoot, "history"),
-};
+const decisionsRoot = path.join(docsRoot, "decisions") + path.sep;
 const sourceReference =
   /(?<![\w./-])((?:apps|packages|scripts|harness)\/[\w./-]+\.(?:ts|tsx|mjs|json|css))(?![\w/-])/g;
 
@@ -43,6 +42,7 @@ for (const file of scannedFiles) {
   }
 
   const contents = readFileSync(file, "utf8");
+  const isDecision = file.startsWith(decisionsRoot);
 
   if (file.startsWith(docsRoot) && !contents.startsWith("# ")) {
     problems.push(
@@ -87,6 +87,14 @@ for (const file of scannedFiles) {
     if (!targetPath) continue;
 
     const resolved = path.resolve(path.dirname(file), targetPath);
+    // Immutable ADRs can name retired source/archive paths, recoverable in Git.
+    // Their current documentation links and all links in live guides still check.
+    const historicalTarget =
+      /^(?:apps|packages|scripts|harness)\/|^docs\/(?:history|evidence)(?:\/|$)/.test(
+        path.relative(repositoryRoot, resolved),
+      );
+    if (isDecision && historicalTarget && !existsSync(resolved)) continue;
+
     if (!existsSync(resolved)) {
       problems.push(
         `${path.relative(repositoryRoot, file)} links to missing ${path.relative(repositoryRoot, resolved)}`,
@@ -99,18 +107,8 @@ for (const file of scannedFiles) {
     }
   }
 
-  // A markdown link to a moved file fails above, but most source references in
-  // prose are inline code, not links, and those rotted silently through a
-  // refactor that moved 372 files: 23 of 160 pointed at nothing.
-  //
-  // Decisions and history are records of the past and must be able to name a
-  // file they removed or replaced, so they are exempt.
-  if (
-    file.startsWith(recordRoots.decisions) ||
-    file.startsWith(recordRoots.history)
-  ) {
-    continue;
-  }
+  // Historical ADR source references follow the same rule as source links.
+  if (isDecision) continue;
 
   for (const match of contents.matchAll(sourceReference)) {
     const referenced = match[1];

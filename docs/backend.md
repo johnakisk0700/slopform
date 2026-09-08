@@ -85,12 +85,9 @@ consumers import their owning module. HTTP-only middleware stays out of the work
 | LLM adapters and shared concurrency    | `apps/backend/src/integrations/llm/`                                                                   |
 | Auth plumbing                          | `apps/backend/src/infrastructure/auth/`                                                                |
 | Published API contract                 | `apps/backend/src/infrastructure/openapi/`, `src/cli/emit-openapi.ts`, `apps/backend/openapi/`         |
-| Domain examples                        | `apps/backend/src/modules/reference/`                                                                  |
 
 Product domains live under `src/modules/`; external provider boundaries under
-`src/integrations/` (`llm`, `openrouter`, `topic-clustering`, `wasender`). `reference` is a disposable pattern —
-HTTP only when `REFERENCE_MODULE_ENABLED=true`; worker stays registered to drain
-earlier jobs. Copy boundaries, then remove via forward migration. Module pages:
+`src/integrations/` (`llm`, `openrouter`, `topic-clustering`, `wasender`, `resend`). Module pages:
 [modules inventory](backend/modules/README.md).
 
 ## Adding a vertical slice
@@ -180,11 +177,9 @@ pnpm --filter @slopform/database db:generate --name=<meaningful_name>
 pnpm --filter @slopform/database db:check
 pnpm --filter @slopform/database db:migrate
 
-pnpm --filter @slopform/database lint
 pnpm --filter @slopform/database typecheck
 pnpm --filter @slopform/database test
 pnpm --filter @slopform/database build
-pnpm --filter @slopform/backend lint
 pnpm --filter @slopform/backend typecheck
 pnpm --filter @slopform/backend test
 pnpm --filter @slopform/backend build

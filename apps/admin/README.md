@@ -49,8 +49,7 @@ The available palettes are Slopform (the default house wine, represented by no
 `data-palette` attribute), Graphite, Noir, Amphora, Linen and Iris. The
 pre-paint script and `usePalette` keep the `jts-palette` choice in sync. A
 palette repaints semantic colours only; type, spacing, shape and motion remain
-shared. Token checks cover the light/dark contrast pairs and keep status tones
-visibly distinct.
+shared.
 
 ## Spacing and layout rhythm
 

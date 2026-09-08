@@ -98,7 +98,9 @@ pnpm dev:containers
   Ordinary `dev:containers` builds the image only when absent.
 - Startup: shared image → Postgres/Mongo/Redis + frozen-lockfile sync into
   Linux-only named volumes → migrate → backend (compiler/API/worker watchers)
-  → Vite. Named `node_modules` volumes avoid macOS/Linux native mix.
+  → Vite. Named `node_modules` volumes, including the harness workspace, avoid
+  macOS/Linux native mix. The image dependency stage includes every workspace
+  manifest before the frozen install.
 - On native Linux, set `DEV_UID`/`DEV_GID` to `id -u`/`id -g` when not `1000`.
 - Loopback-only ports. Overrides: `POSTGRES_HOST_PORT`, `MONGODB_HOST_PORT`,
   `REDIS_HOST_PORT`, `API_HOST_PORT`, `WEB_HOST_PORT`. Native workflow must
