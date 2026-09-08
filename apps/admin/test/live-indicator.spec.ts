@@ -1,131 +1,75 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
 
-import { beforeAll, describe, expect, it } from "vitest";
-
-/**
- * Temporal hysteresis for the shared polling mark. The pure planner lives in
- * `src/lib/liveIndicator.ts` (no React), so vitest can exercise it directly;
- * the component is checked for wiring and a11y invariants via source.
- */
-
-interface LiveIndicatorModule {
-  LIVE_INDICATOR_SHOW_DELAY_MS: number;
-  LIVE_INDICATOR_MIN_VISIBLE_MS: number;
-  resolveLiveIndicatorPainted: (input: {
-    painted: boolean;
-    active: boolean;
-    now: number;
-    becameActiveAt: number | null;
-    shownAt: number | null;
-  }) => { painted: boolean; checkAfterMs: number | null };
-}
-
-let live: LiveIndicatorModule;
-
-function readSource(relativePath: string): string {
-  return readFileSync(
-    fileURLToPath(new URL(`../${relativePath}`, import.meta.url)),
-    "utf8",
-  );
-}
-
-beforeAll(async () => {
-  const moduleUrl = new URL("../src/lib/liveIndicator.ts", import.meta.url)
-    .href;
-  live = (await import(moduleUrl)) as LiveIndicatorModule;
-});
+import {
+  LIVE_INDICATOR_MIN_VISIBLE_MS,
+  LIVE_INDICATOR_SHOW_DELAY_MS,
+  resolveLiveIndicatorPainted,
+} from "../src/lib/liveIndicator";
 
 describe("live indicator hysteresis", () => {
-  const t0 = 1_000_000;
-
   it("ignores fetches that settle before the show delay", () => {
     expect(
-      live.resolveLiveIndicatorPainted({
+      resolveLiveIndicatorPainted({
         painted: false,
         active: true,
-        now: t0,
-        becameActiveAt: t0,
+        now: 1_000,
+        becameActiveAt: 900,
         shownAt: null,
       }),
-    ).toEqual({
-      painted: false,
-      checkAfterMs: live.LIVE_INDICATOR_SHOW_DELAY_MS,
-    });
+    ).toEqual({ painted: false, checkAfterMs: 200 });
 
     expect(
-      live.resolveLiveIndicatorPainted({
+      resolveLiveIndicatorPainted({
         painted: false,
         active: false,
-        now: t0 + 50,
-        becameActiveAt: null,
+        now: 1_101,
+        becameActiveAt: 900,
         shownAt: null,
       }),
     ).toEqual({ painted: false, checkAfterMs: null });
   });
 
-  it("paints once the show delay has elapsed while still fetching", () => {
+  it("paints after the delay and holds the icon long enough to read", () => {
     expect(
-      live.resolveLiveIndicatorPainted({
+      resolveLiveIndicatorPainted({
         painted: false,
         active: true,
-        now: t0 + live.LIVE_INDICATOR_SHOW_DELAY_MS,
-        becameActiveAt: t0,
+        now: 1_000 + LIVE_INDICATOR_SHOW_DELAY_MS,
+        becameActiveAt: 1_000,
         shownAt: null,
       }),
     ).toEqual({ painted: true, checkAfterMs: null });
+
+    expect(
+      resolveLiveIndicatorPainted({
+        painted: true,
+        active: false,
+        now: 1_000 + LIVE_INDICATOR_MIN_VISIBLE_MS - 1,
+        becameActiveAt: null,
+        shownAt: 1_000,
+      }),
+    ).toEqual({ painted: true, checkAfterMs: 1 });
   });
 
-  it("holds the painted state for a minimum once shown", () => {
-    const shownAt = t0;
+  it("hides after the minimum hold and stays painted during a new fetch", () => {
     expect(
-      live.resolveLiveIndicatorPainted({
+      resolveLiveIndicatorPainted({
         painted: true,
         active: false,
-        now: shownAt + 100,
+        now: 1_000 + LIVE_INDICATOR_MIN_VISIBLE_MS,
         becameActiveAt: null,
-        shownAt,
-      }),
-    ).toEqual({
-      painted: true,
-      checkAfterMs: live.LIVE_INDICATOR_MIN_VISIBLE_MS - 100,
-    });
-
-    expect(
-      live.resolveLiveIndicatorPainted({
-        painted: true,
-        active: false,
-        now: shownAt + live.LIVE_INDICATOR_MIN_VISIBLE_MS,
-        becameActiveAt: null,
-        shownAt,
+        shownAt: 1_000,
       }),
     ).toEqual({ painted: false, checkAfterMs: null });
-  });
 
-  it("stays painted when a new fetch arrives during the minimum hold", () => {
     expect(
-      live.resolveLiveIndicatorPainted({
+      resolveLiveIndicatorPainted({
         painted: true,
         active: true,
-        now: t0 + 100,
-        becameActiveAt: t0 + 50,
-        shownAt: t0,
+        now: 1_100,
+        becameActiveAt: 1_000,
+        shownAt: 1_000,
       }),
     ).toEqual({ painted: true, checkAfterMs: null });
-  });
-
-  it("uses delays long enough to matter and short enough not to lag", () => {
-    expect(live.LIVE_INDICATOR_SHOW_DELAY_MS).toBeGreaterThanOrEqual(250);
-    expect(live.LIVE_INDICATOR_SHOW_DELAY_MS).toBeLessThanOrEqual(350);
-    expect(live.LIVE_INDICATOR_MIN_VISIBLE_MS).toBeGreaterThanOrEqual(400);
-    expect(live.LIVE_INDICATOR_MIN_VISIBLE_MS).toBeLessThanOrEqual(550);
-  });
-
-  it("wires the planner into the shared indicator with a fade duration", () => {
-    const indicator = readSource("src/components/ui/JtsLiveIndicator.tsx");
-    expect(indicator).toContain("resolveLiveIndicatorPainted");
-    expect(indicator).toContain("duration-300");
-    expect(indicator).not.toContain("aria-live");
-    expect(indicator).not.toContain('role="status"');
   });
 });

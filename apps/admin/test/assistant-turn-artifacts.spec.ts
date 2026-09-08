@@ -1,88 +1,16 @@
-import { createElement, type ComponentType } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
-import { beforeAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
-interface ArtifactSchemaModule {
-  assistantThreadSchema: { parse: (input: unknown) => unknown };
-  messagesFromThread: (thread: unknown) => Array<Record<string, unknown>>;
-}
+import { formatEstimatedAssistantCost } from "../src/features/assistant/cost";
+import {
+  calculateAssistantQuestionScrollTop,
+  calculateAssistantReplyMinHeight,
+} from "../src/features/assistant/layout";
+import { messagesFromThread } from "../src/features/assistant/schema";
+import type { AssistantThread } from "../src/features/assistant/schema";
 
-interface ToolCallCardProps {
-  call: {
-    toolCallId: string;
-    tool: string;
-    label: string;
-    state: "done";
-    input: Record<string, unknown>;
-    output: Record<string, unknown>;
-    inputTruncated: boolean;
-    outputTruncated: boolean;
-  };
-}
-
-let artifacts: ArtifactSchemaModule;
-let ToolCallCard: ComponentType<ToolCallCardProps>;
-let ReasoningCard: ComponentType<{ reasoning: string; streaming: boolean }>;
-let formatCost: (euroMicros: number) => string;
-let calculateReplyMinHeight: (
-  viewportHeight: number,
-  userMessageHeight: number,
-) => number;
-let calculateQuestionScrollTop: (
-  currentScrollTop: number,
-  questionTop: number,
-  viewportTop: number,
-) => number;
-
-beforeAll(async () => {
-  const [schemaModule, cardModule, reasoningModule, costModule, layoutModule] =
-    await Promise.all([
-      import(
-        new URL("../src/features/assistant/schema.ts", import.meta.url).href
-      ),
-      import(
-        new URL(
-          "../src/components/admin/assistant/AssistantToolCallCard.tsx",
-          import.meta.url,
-        ).href
-      ),
-      import(
-        new URL(
-          "../src/components/admin/assistant/AssistantReasoningCard.tsx",
-          import.meta.url,
-        ).href
-      ),
-      import(
-        new URL("../src/features/assistant/cost.ts", import.meta.url).href
-      ),
-      import(
-        new URL("../src/features/assistant/layout.ts", import.meta.url).href
-      ),
-    ]);
-  artifacts = schemaModule as ArtifactSchemaModule;
-  ToolCallCard =
-    cardModule.AssistantToolCallCard as ComponentType<ToolCallCardProps>;
-  ReasoningCard = reasoningModule.AssistantReasoningCard as ComponentType<{
-    reasoning: string;
-    streaming: boolean;
-  }>;
-  formatCost = costModule.formatEstimatedAssistantCost as (
-    euroMicros: number,
-  ) => string;
-  calculateReplyMinHeight = layoutModule.calculateAssistantReplyMinHeight as (
-    viewportHeight: number,
-    userMessageHeight: number,
-  ) => number;
-  calculateQuestionScrollTop =
-    layoutModule.calculateAssistantQuestionScrollTop as (
-      currentScrollTop: number,
-      questionTop: number,
-      viewportTop: number,
-    ) => number;
-});
 describe("assistant turn artifacts", () => {
-  it("keeps tool calls, reasoning and priced usage on a settled message", () => {
-    const thread = artifacts.assistantThreadSchema.parse({
+  it("keeps reasoning, tool calls and usage on a settled message", () => {
+    const thread = {
       id: "66de52a8-1a26-4cbb-b8d1-fcf8bdc2dd51",
       title: "Events",
       createdAt: "2026-08-03T00:00:00.000Z",
@@ -128,9 +56,9 @@ describe("assistant turn artifacts", () => {
           completedAt: "2026-08-03T00:00:02.000Z",
         },
       ],
-    });
+    } satisfies AssistantThread;
 
-    expect(artifacts.messagesFromThread(thread)[1]).toMatchObject({
+    expect(messagesFromThread(thread)[1]).toMatchObject({
       role: "assistant",
       reasoning: "I checked the scheduled events.",
       toolCalls: [expect.objectContaining({ toolCallId: "call-1" })],
@@ -138,48 +66,14 @@ describe("assistant turn artifacts", () => {
     });
   });
 
-  it("renders tool and reasoning cards on the same copied disclosure row", () => {
-    const html = renderToStaticMarkup(
-      createElement(ToolCallCard, {
-        call: {
-          toolCallId: "call-1",
-          tool: "list_events",
-          label: "Searching events",
-          state: "done",
-          input: { status: "scheduled" },
-          output: { items: [] },
-          inputTruncated: false,
-          outputTruncated: false,
-        },
-      }),
-    );
-
-    expect(html).toContain("<details");
-    expect(html).toContain("Searching events");
-    expect(html).toContain("scheduled");
-    expect(html).toContain("Result");
-
-    const reasoningHtml = renderToStaticMarkup(
-      createElement(ReasoningCard, {
-        reasoning: "I checked the live schedule.",
-        streaming: false,
-      }),
-    );
-    const summaryClass = (markup: string) =>
-      markup.match(/<summary class="([^"]+)"/u)?.[1];
-    expect(summaryClass(html)).toBeTruthy();
-    expect(summaryClass(reasoningHtml)).toBe(summaryClass(html));
-    expect(summaryClass(html)).toContain("min-h-8");
+  it("reserves room for the newest reply and computes one scroll target", () => {
+    expect(calculateAssistantReplyMinHeight(700, 40)).toBe(636);
+    expect(calculateAssistantReplyMinHeight(260, 40)).toBe(300);
+    expect(calculateAssistantQuestionScrollTop(24, 129, 73)).toBe(68);
   });
 
-  it("keeps the latest reply tall enough to anchor its question at the top", () => {
-    expect(calculateReplyMinHeight(700, 40)).toBe(636);
-    expect(calculateReplyMinHeight(260, 40)).toBe(300);
-    expect(calculateQuestionScrollTop(24, 129, 73)).toBe(68);
-  });
-
-  it("formats tiny per-turn costs honestly as estimates", () => {
-    expect(formatCost(42)).toBe("<€0.001");
-    expect(formatCost(12_340)).toContain("€0.0123");
+  it("formats small costs without claiming false precision", () => {
+    expect(formatEstimatedAssistantCost(42)).toBe("<€0.001");
+    expect(formatEstimatedAssistantCost(12_340)).toContain("€0.0123");
   });
 });

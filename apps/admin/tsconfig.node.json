@@ -27,10 +27,8 @@
     "noUncheckedIndexedAccess": true
   },
   "include": [
-    "openapi.transformer.ts",
     "orval.config.ts",
     "vite.config.ts",
-    "vitest.config.ts",
-    "test"
+    "vitest.config.ts"
   ]
 }

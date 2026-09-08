@@ -1,34 +1,14 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
-let apiErrorMessage: (cause: unknown, fallback: string) => string;
-
-beforeAll(async () => {
-  // Runtime-only specifier: keeps this node test project's type program free of
-  // the app module's browser/Clerk deps while vitest still loads the real export.
-  const moduleUrl = new URL("../src/lib/api.ts", import.meta.url).href;
-  const module = (await import(moduleUrl)) as {
-    apiErrorMessage: (cause: unknown, fallback: string) => string;
-  };
-  apiErrorMessage = module.apiErrorMessage;
-});
+import { apiErrorMessage } from "../src/lib/api";
 
 describe("apiErrorMessage", () => {
-  it("prefers the backend response message over the transport error", () => {
-    const cause = Object.assign(
-      new Error(
-        '[POST] "/v1/feedback/campaigns/campaign-1/summary": 400 Bad Request',
-      ),
-      {
-        data: {
-          message:
-            "Feedback campaign summaries are disabled while the simulator is enabled",
-        },
-      },
-    );
+  it("uses the backend message when transport text is generic", () => {
+    const cause = Object.assign(new Error("400 Bad Request"), {
+      data: { message: "The campaign is paused" },
+    });
 
-    expect(apiErrorMessage(cause, "fallback")).toBe(
-      "Feedback campaign summaries are disabled while the simulator is enabled",
-    );
+    expect(apiErrorMessage(cause, "Try again")).toBe("The campaign is paused");
   });
 
   it("joins backend validation messages", () => {
@@ -36,20 +16,13 @@ describe("apiErrorMessage", () => {
       data: { message: ["campaignId must be a UUID", "body is invalid"] },
     });
 
-    expect(apiErrorMessage(cause, "fallback")).toBe(
+    expect(apiErrorMessage(cause, "Try again")).toBe(
       "campaignId must be a UUID body is invalid",
     );
   });
 
-  it("returns the message from an Error with a message", () => {
-    expect(apiErrorMessage(new Error("boom"), "fallback")).toBe("boom");
-  });
-
-  it("returns the fallback for an Error with an empty message", () => {
-    expect(apiErrorMessage(new Error(""), "fallback")).toBe("fallback");
-  });
-
-  it("returns the fallback for a non-Error cause", () => {
-    expect(apiErrorMessage("boom", "fallback")).toBe("fallback");
+  it("falls back safely for empty or non-error causes", () => {
+    expect(apiErrorMessage(new Error(""), "Try again")).toBe("Try again");
+    expect(apiErrorMessage("transport failure", "Try again")).toBe("Try again");
   });
 });

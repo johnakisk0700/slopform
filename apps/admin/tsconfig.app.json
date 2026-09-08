@@ -28,5 +28,5 @@
     "noImplicitOverride": true,
     "noUncheckedIndexedAccess": true
   },
-  "include": ["src"]
+  "include": ["openapi.transformer.ts", "src", "test"]
 }

@@ -10,6 +10,7 @@ import {
 } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 
+import type { AssistantThreadListDtoOutput } from "../api/generated/model/assistantThreadListDtoOutput";
 import { AssistantComposer } from "../components/admin/assistant/AssistantComposer";
 import { AssistantConversation } from "../components/admin/assistant/AssistantConversation";
 import {
@@ -30,9 +31,6 @@ import {
 } from "../features/assistant/layout";
 import {
   assistantFailureMessage,
-  assistantThreadListSchema,
-  assistantThreadSchema,
-  assistantTurnSchema,
   buildBranchAssistantThreadRequest,
   buildAssistantTurnRequest,
   messagesFromThread,
@@ -263,20 +261,20 @@ export function AssistantPage() {
       );
 
       async function fetchThread(threadId: string): Promise<AssistantThread> {
-        const rawThread: unknown = await api(
-          `${ASSISTANT_THREADS_PATH}/${threadId}`,
-          { signal: controller.signal },
-        );
-        return assistantThreadSchema.parse(rawThread);
+        return api<AssistantThread>(`${ASSISTANT_THREADS_PATH}/${threadId}`, {
+          signal: controller.signal,
+        });
       }
 
       async function refreshThreadList(): Promise<AssistantThreadSummary[]> {
-        const rawList: unknown = await api(ASSISTANT_THREADS_PATH, {
-          signal: controller.signal,
-        });
-        const parsed = assistantThreadListSchema.parse(rawList).items;
-        setThreads(parsed);
-        return parsed;
+        const list = await api<AssistantThreadListDtoOutput>(
+          ASSISTANT_THREADS_PATH,
+          {
+            signal: controller.signal,
+          },
+        );
+        setThreads(list.items);
+        return list.items;
       }
 
       async function watchTurn(
@@ -324,10 +322,9 @@ export function AssistantPage() {
             await waitForNextPoll(controller.signal);
             if (controller.signal.aborted) return;
 
-            const rawTurn: unknown = await api(turnPath(threadId, turn.id), {
+            turn = await api<AssistantTurn>(turnPath(threadId, turn.id), {
               signal: controller.signal,
             });
-            turn = assistantTurnSchema.parse(rawTurn);
             setActiveThread((current) =>
               current?.id === threadId
                 ? replaceOrAppendTurn(current, turn)
@@ -347,7 +344,9 @@ export function AssistantPage() {
             setAnnouncement("Assistant turn failed and needs attention.");
             setFailure({
               kind: "durable",
-              message: assistantFailureMessage(turn.error.code),
+              message: assistantFailureMessage(
+                turn.error?.code ?? "generation_failed",
+              ),
               action: { kind: "retry", threadId, turnId: turn.id },
               retryLabel: "Retry turn",
               revision: {
@@ -388,7 +387,9 @@ export function AssistantPage() {
           setPhase("failed");
           setFailure({
             kind: "durable",
-            message: assistantFailureMessage(lastTurn.error.code),
+            message: assistantFailureMessage(
+              lastTurn.error?.code ?? "generation_failed",
+            ),
             action: {
               kind: "retry",
               threadId: thread.id,
@@ -432,7 +433,7 @@ export function AssistantPage() {
             return;
           }
           case "create": {
-            const rawThread: unknown = await api(ASSISTANT_THREADS_PATH, {
+            const thread = await api<AssistantThread>(ASSISTANT_THREADS_PATH, {
               method: "POST",
               body: buildAssistantTurnRequest(
                 action.requestId,
@@ -443,7 +444,6 @@ export function AssistantPage() {
               ),
               signal: controller.signal,
             });
-            const thread = assistantThreadSchema.parse(rawThread);
             skipHydrationThreadIdRef.current = thread.id;
             setActiveThread(thread);
             setPendingUser(null);
@@ -459,7 +459,7 @@ export function AssistantPage() {
             return;
           }
           case "append": {
-            const rawTurn: unknown = await api(
+            const turn = await api<AssistantTurn>(
               `${ASSISTANT_THREADS_PATH}/${action.threadId}/turns`,
               {
                 method: "POST",
@@ -473,7 +473,6 @@ export function AssistantPage() {
                 signal: controller.signal,
               },
             );
-            const turn = assistantTurnSchema.parse(rawTurn);
             setActiveThread((current) =>
               current?.id === action.threadId
                 ? replaceOrAppendTurn(current, turn)
@@ -484,7 +483,7 @@ export function AssistantPage() {
             return;
           }
           case "branch": {
-            const rawThread: unknown = await api(
+            const thread = await api<AssistantThread>(
               `${ASSISTANT_THREADS_PATH}/${action.threadId}/branches`,
               {
                 method: "POST",
@@ -499,7 +498,6 @@ export function AssistantPage() {
                 signal: controller.signal,
               },
             );
-            const thread = assistantThreadSchema.parse(rawThread);
             skipHydrationThreadIdRef.current = thread.id;
             alignLatestQuestionRef.current = true;
             setActiveThread(thread);
@@ -516,25 +514,21 @@ export function AssistantPage() {
             return;
           }
           case "poll": {
-            const rawTurn: unknown = await api(
+            const turn = await api<AssistantTurn>(
               turnPath(action.threadId, action.turnId),
               { signal: controller.signal },
             );
-            await watchTurn(
-              action.threadId,
-              assistantTurnSchema.parse(rawTurn),
-            );
+            await watchTurn(action.threadId, turn);
             return;
           }
           case "retry": {
-            const rawTurn: unknown = await api(
+            const turn = await api<AssistantTurn>(
               `${turnPath(action.threadId, action.turnId)}/retry`,
               {
                 method: "POST",
                 signal: controller.signal,
               },
             );
-            const turn = assistantTurnSchema.parse(rawTurn);
             setActiveThread((current) =>
               current?.id === action.threadId
                 ? replaceOrAppendTurn(current, turn)
