@@ -115,13 +115,14 @@ before the migration gate has succeeded.
 
 ## Documentation
 
-Start at [`docs/README.md`](docs/README.md). Dated evidence is indexed from
-[`docs/evidence/README.md`](docs/evidence/README.md). Public identity and the
+Start at [`docs/README.md`](docs/README.md), the
+[admin style guide](apps/admin/README.md) or the [harness guide](harness/README.md).
+Public identity and the
 legacy identifiers this tree deliberately keeps are in
 [ADR 0014](docs/decisions/0014-public-slopform-identity.md).
 
-Unresolved engineering work is tracked in [`TODO.md`](TODO.md); dated evidence
-and completed plans are not active task lists.
+Unresolved engineering work is tracked in [`TODO.md`](TODO.md) and the
+[current portfolio plan](docs/portfolio-plan.md).
 
 Do not add business entities or WordPress mappings from memory. Update the
 relevant contract or migration map first, then implement a vertical slice.

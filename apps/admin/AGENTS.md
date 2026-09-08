@@ -3,33 +3,11 @@
 The repository [`AGENTS.md`](../../AGENTS.md) applies here. `apps/admin` is the
 live admin panel: a React 19 SPA (Vite) that replaced the retired Nuxt/PrimeVue
 client (ADR 0006). Before changing UI architecture, read
-[`docs/frontend/theming.md`](../../docs/frontend/theming.md) and
-[ADR 0006](../../docs/decisions/0006-react-admin-runtime.md). Component
-contracts live under `docs/frontend/components/`.
-The working visual vocabulary is summarized in [`README.md`](README.md); the
-token graph and palette accessibility rules live in
-[`docs/frontend/theming.md`](../../docs/frontend/theming.md).
-
-## Verified stack
-
-| Library               | Version        | Docs                                       |
-| --------------------- | -------------- | ------------------------------------------ |
-| react / react-dom     | 19.2.8         | https://react.dev                          |
-| @tanstack/react-query | 5.101.4        | https://tanstack.com/query                 |
-| @clerk/react          | 6.12.6         | https://clerk.com/docs                     |
-| @heroui/react         | 3.2.2          | https://www.heroui.com                     |
-| tailwindcss           | 4.3.3          | https://tailwindcss.com                    |
-| @tanstack/react-table | 8.21.3         | https://tanstack.com/table                 |
-| react-router          | 7.18.1         | https://reactrouter.com                    |
-| motion                | 12.42.2        | https://motion.dev                         |
-| lucide-react          | 1.25.0         | https://lucide.dev                         |
-| react-markdown        | 10.1.0         | https://github.com/remarkjs/react-markdown |
-| mermaid               | 11.15.0        | https://mermaid.js.org                     |
-| zod                   | 4.4.3          | https://zod.dev                            |
-| orval (dev)           | 8.23.0         | https://orval.dev                          |
-| vite / vitest         | 8.1.5 / 4.1.10 | https://vite.dev                           |
-
-Verified 2026-07-25 against `apps/admin/package.json`.
+[`docs/frontend.md`](../../docs/frontend.md). The canonical visual contract is
+[`README.md`](README.md): spacing, type, color roles, tokens and palettes.
+Component behavior lives under `docs/frontend/components/`. Dependency versions
+come from `package.json` and the lockfile; inspect installed declarations before
+using library APIs.
 
 ## Put code where its owner lives
 
@@ -73,34 +51,17 @@ rename its props. Props are the narrowest honest contract: no speculative
 options, no `...rest` into the void, no boolean explosion where a variant union
 reads better — slots and children over config objects.
 
-## Tokens, HeroUI and accessibility
+## Styling and accessibility
 
-- **Tokens only.** Visual values come from `packages/design-tokens/src/tokens.css`
-  (`--jts-*`) via the HeroUI mapping and Tailwind `@theme` bridge in
-  `globals.css`. Use bridge utilities (`bg-surface`, `text-ink`, `text-primary`,
-  `border-border`, `bg-copper-soft`, `text-sidebar-fg` …). Never raw
-  hex/rgb/oklch, default Tailwind palette classes (`bg-red-500`, `text-slate-600`,
-  `gray-*`) or inline style colors. Missing semantic → **stop and report**; do
-  not hardcode and do not edit `packages/design-tokens/` for one component.
-- **Dark mode** is the `dark` class on `<html>` (pre-paint in `index.html`, owned
-  by `src/lib/useTheme.ts`). Tokens flip under it — no `dark:` color variants for
-  values tokens already flip. `dark:` is for rare structural cases only.
-- **HeroUI v3:** import from `@heroui/react`; read installed declarations
-  (`node_modules/@heroui/react/dist/index.d.ts`) before use — no invented props,
-  no v2/NextUI patterns. CSS-first: **no HeroUI provider**. Mount
-  `<Toast.Provider />` once in `App.tsx` and fire with `toast()`. Icons:
-  `lucide-react`; page entrance: `motion/react`.
-- **A11y:** one `<h1>` per page; landmarks; focusable `#main-content`
-  (`tabIndex={-1}`) with `skip-link` first. Native focus uses the global 2px
-  `--jts-color-focus` ring (offset 3px); do not double-ring HeroUI. Icon-only
-  controls need `aria-label`; current nav uses `aria-current="page"`; status is
-  **text plus tone, never color alone**; toasts announce. Dual-mounted UI (e.g.
-  operator menu in sidebar and small-screen top bar) must use `useId` for every
-  internal id. Motion is only the 200ms opacity/8px-rise page entrance (respects
-  `prefers-reduced-motion`), HeroUI transitions, shared `jts-breathe`
-  (`.assistant-thinking`, `.jts-pending`), and one-shot `.jts-message-flash` on
-  cited transcript reveal. WCAG AA holds via pre-verified tokens — another reason
-  hardcoding color is banned.
+Follow the [style guide](README.md). Use existing semantic tokens; add a token
+only for a present visual need with a clear role. Keep palette/scale rules in
+that guide, and component behavior in its focused contract.
+
+HeroUI v3 is CSS-first: no HeroUI provider. Mount `<Toast.Provider />` once in
+`App.tsx`. Interactive primitives own keyboard, focus and motion behavior.
+Keep one `h1` per page, labelled controls, the shell skip link and focusable
+`#main-content`. Status needs text as well as color. Dual-mounted UI uses
+`useId` for internal IDs; respect reduced motion.
 
 ## Types, API client, routes and environment
 
@@ -113,9 +74,8 @@ reads better — slots and children over config objects.
   (`useGetAuthSession`, …), named after backend `operationId`. Never hand-write
   a fetch, URL string or response Zod schema for an operation in
   `apps/backend/openapi/openapi.json` — missing endpoint → backend first, then
-  `pnpm api:generate`. `RequireAdmin` is the reference consumer. Runtime
-  browser validation (drafts, persisted values, echoed payloads) uses
-  `src/api/generated/zod/`. Assistant screen owns hand-written client semantics
+  `pnpm api:generate`. `RequireAdmin` is the reference consumer. Validate untyped browser inputs and persisted drafts at entry; do not revalidate
+  typed API responses or internal values. Assistant screen owns hand-written client semantics
   beyond the response shape — not a pattern to copy (see root AGENTS.md).
 - **Routes:** `/sign-in/*`, `/admin` and `/admin/**`; `/` → `/admin`; `*` →
   `ErrorPage`. Each view sets title/description via `usePageMeta`; `robots`
@@ -126,9 +86,8 @@ reads better — slots and children over config objects.
 
 ## Documentation and verification
 
-Structure, reusable `Jts*` contracts, token/bridge vocabulary or measured
-delivery constraints → update `docs/frontend/theming.md` and/or the focused
-`docs/frontend/components/` contract in the same change.
+Update the [style guide](README.md) when the visual contract changes, and the
+focused `docs/frontend/components/` contract when reusable behavior changes.
 
 Before handoff: `pnpm --filter @slopform/admin typecheck`, `lint`, `test`
 and `build`. Shared conventions → `pnpm check`. Backend endpoint change →

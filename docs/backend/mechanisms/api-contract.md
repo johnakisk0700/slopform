@@ -119,7 +119,7 @@ flowchart LR
 
 - Emit applies `OPENAPI_EMIT_ENVIRONMENT` before importing the application
   module, then sorts object keys — local `.env` cannot change the artifact.
-- Published composition is the default: Wasender webhook, reference module, Bull
+- Published composition is the default: Wasender webhook and Bull
   Board and feedback simulator are off.
 - Runtime-served and committed documents both come from
   `createOpenApiDocument()`; a backend test asserts byte identity.

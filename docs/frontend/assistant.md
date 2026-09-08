@@ -100,7 +100,7 @@ sequenceDiagram
   — Mermaid cannot parse `oklch()` / `color-mix()`). Flowchart nodes may use
   `:::decision|info|data|ok|risk|ext`; classDefs from tokens — sources never
   include `%%init%%`, `style` or `classDef`. Invalid → code fallback; `useTheme`
-  rerenders on light/dark. Same renderer powers `/admin/docs/feedback`.
+  rerenders on light/dark.
 - Fenced `chart`: small JSON bar/line/sparkline via `AssistantChart`. Optional
   `max` is the measurement scale top (4.2 on 1–5 draws as 4.2 of 5); unusable
   `max` drops alone. Bar category names get an 11rem text-face track. Shared

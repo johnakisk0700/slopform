@@ -3,15 +3,6 @@
 Use the project-wide [naming and readability preferences](../../code-readability.md).
 They capture how the user wants calls to read; the examples are not new work items.
 
-Before selecting another refactor slice, read the
-[current progress and next-work map](post-event-feedback-refactor-status.md).
-Update that map at each checkpoint.
-
-The [HTML reading guide](post-event-feedback-reading.html) is the current
-guided entry into the ordinary message path. It includes six source-method
-excerpts, then STOP, supersession and uncertain delivery. Read that core path
-before selecting the later staff-action, summary or repository chapters.
-
 Guidance for the whole feedback mechanism: campaigns, ingress, matching,
 extraction, delivery, reconciliation, staff actions, summaries and persistence.
 An individual function or command is an example, not a predetermined refactoring
@@ -244,22 +235,15 @@ the types module depend back on its service or repository.
 This removes declarations from the reading path; it does not remove business
 complexity. Large services with mixed responsibilities still need cohesive
 mechanisms and short coordinating methods. Moving types alone is not evidence
-that the mechanism refactor is complete. Test reorganization stays deferred.
+that the mechanism refactor is complete.
 
-## Deferred test cleanup
+## Behavioral tests
 
-Finish the production mechanism boundaries before reorganizing the large legacy
-test suites. The module's
-[`vibes/`](../../../harness/README.md)
-holds the extraction and staff-action suites plus shared loop harnesses while
-their structure awaits review. The folder marks readability debt; it does not
-disable tests or establish that their assertions are wrong.
-
-Existing Vitest discovery and TypeScript checks include these files, and the
-production build still excludes specs and harnesses. Keep their regression
-coverage active during refactoring. New focused tests stay beside their owning
-mechanism. After the boundaries settle, review cases against the scenarios,
-separate cohesive fixtures, remove duplication, and move reviewed suites back.
+Custom scenarios, shared doubles and extraction/staff-action harness suites live
+in [the harness workspace](../../../harness/README.md). Root Vitest and TypeScript
+tasks include them; production builds exclude them. New focused unit tests stay
+beside the owning mechanism. Keep cases that protect consequential behavior;
+remove duplicate assertions and tests that merely restate schema declarations.
 
 ## Scope and agent organization
 

@@ -18,19 +18,15 @@ files add area rules; they never cancel this one.
 | conversation storage          | [database](docs/backend/mechanisms/database.md), [mongodb](docs/backend/mechanisms/mongodb.md), [ADR 0015](docs/decisions/0015-postgresql-feedback-conversations.md) |
 | sign-in or authorization      | [authentication](docs/backend/mechanisms/authentication.md)                                                                                                          |
 | WhatsApp delivery             | [wasender](docs/backend/mechanisms/wasender.md)                                                                                                                      |
-| colors, spacing, type         | [theming](docs/frontend/theming.md) — never hardcode a value a token owns                                                                                            |
+| colors, spacing, type         | [admin style guide](apps/admin/README.md) — never hardcode a value a token owns                                                                                      |
 | a reusable `Jts*` component   | [component inventory](docs/frontend/components/README.md)                                                                                                            |
 | schema or migrations          | [database](docs/backend/mechanisms/database.md)                                                                                                                      |
 | local data, by hand           | [local-data-query](docs/backend/mechanisms/local-data-query.md) — read it before writing anything                                                                    |
 | containers or the VPS         | [deployment](docs/deployment.md)                                                                                                                                     |
 | shutdown, health, logging     | [runtime-operations](docs/backend/mechanisms/runtime-operations.md)                                                                                                  |
 
-Two directories are records, not instructions. **Never build from them.**
-[`docs/history/`](docs/history/README.md) holds plans already carried out —
-following one produces code that exists, or work the execution deliberately did
-differently. [`docs/evidence/`](docs/evidence/README.md) holds audits fixed to a
-date. Read either only for "why is it like this"; prefer an
-[ADR](docs/decisions/0001-platform.md) when one exists.
+Accepted [ADRs](docs/decisions/0001-platform.md) record historical decisions.
+Current source and area docs own the operational contract.
 
 ## Readable names and flows
 
@@ -92,8 +88,9 @@ do not edit the old one. Template:
 - `test:scripts` (`node --test "scripts/*.spec.mjs"`) is part of `pnpm check`.
   A `.spec.sh` is **not** picked up by that glob.
 - **`typecheck` and `build` do not cover the same files.**
-  `tsconfig.build.json` excludes specs and harnesses — broken harness types
-  fail only `typecheck`; `declaration: true` errors appear only in `build`.
+  `tsconfig.build.json` excludes specs; custom scenarios and tools live in
+  [the harness workspace](harness/README.md), included by root `typecheck` and
+  `test`. Broken spec/harness types fail only `typecheck`; `declaration: true` errors appear only in `build`.
   `exactOptionalPropertyTypes` is in the _base_ config (`typecheck` enforces
   it too; not part of this asymmetry). Vitest checks no types. Green tests
   plus a green build is not a green tree.

@@ -30,7 +30,7 @@ focused contracts.
 | Call a backend endpoint     | `api/generated/`                            | [API contract](backend/mechanisms/api-contract.md)           |
 | Transport / env policy      | `lib/api.ts`, `lib/env.ts`                  | Env table below                                              |
 | Regenerate API client       | `pnpm api:generate` (root)                  | [API contract](backend/mechanisms/api-contract.md)           |
-| Theme / dark mode / tokens  | `useTheme.ts`, `globals.css`, design-tokens | [Theming](frontend/theming.md)                               |
+| Theme / dark mode / tokens  | `useTheme.ts`, `globals.css`, design-tokens | [Style guide](../apps/admin/README.md)                       |
 | Routing / redirect / 404    | `App.tsx`                                   | Route table below                                            |
 | Dev proxy / build           | `vite.config.ts`                            | Delivery constraints below                                   |
 
@@ -55,7 +55,6 @@ consumer needs them.
 | `/admin/feedback/:campaignId`         | Three-pane inbox                                                                       |
 | `/admin/feedback/:campaignId/results` | Campaign answers and notes                                                             |
 | `/admin/outbound`                     | Outbound queue (not under `feedback/`, so nav `aria-current` stays unambiguous)        |
-| `/admin/docs/feedback`                | Operator map (`FeedbackMechanismPage`)                                                 |
 | `/admin/cookbook`                     | **Dev only** — `import.meta.env.DEV` gallery ([contract](frontend/admin-cookbook.md))  |
 | `*`                                   | Standalone 404 (`ErrorPage.tsx`)                                                       |
 
@@ -91,7 +90,6 @@ src/
 ├── lib/                    api, api-mutator, env, queryClient, useTheme, usePageMeta, …
 ├── routes/                 page metadata, data wiring, composition
 ├── styles/globals.css      token bridge + base layer + motifs
-├── theme/                  reserved (empty); HeroUI mapping is in globals.css
 ├── App.tsx                 skip link, Toast.Provider, route table
 └── main.tsx                StrictMode + QueryClientProvider + ClerkProvider
 ```
@@ -114,7 +112,7 @@ and fire `toast()`. Icons: `lucide-react`. Classes: `clsx`.
 Appearance goes through the `globals.css` token bridge — no theme preset.
 HeroUI base tokens map to `var(--jts-*)` and flip with `:root.dark`. Prefer
 semantic bridge utilities over DOM-coupled selectors. Ownership, dark mode and
-the `dark:` ban: [theming](frontend/theming.md),
+the `dark:` ban: [style guide](../apps/admin/README.md),
 [ADR 0005](decisions/0005-theming-and-dark-mode.md).
 
 `JtsDataTable` = TanStack Table core + HeroUI `Table` (`ColumnMeta.align` is the
@@ -122,7 +120,7 @@ only type hatch). Routing: React Router 7 `BrowserRouter` — no data router/loa
 `NavLink` → `aria-current`; `<Outlet>` in the shell's animated main.
 
 Upgrade `@heroui/react` and `@heroui/styles` together. Exact versions:
-`package.json` / `pnpm-lock.yaml` (stack table in `AGENTS.md`).
+`package.json` / `pnpm-lock.yaml`.
 
 ## API, state and forms
 
@@ -178,8 +176,9 @@ const session = useGetAuthSession({ query: { enabled: isSignedIn } });
 - Calls go through `api-mutator.ts` → `api`; auth/retry/timeout stay in `api.ts`.
 - One `QueryClientProvider` (`queryClient.ts`); query/mutation retries off.
   Screens own loading/empty/error.
-- Runtime validation of drafts/persisted/echoed values: generated schemas from
-  `api/generated/zod/`. `features/` never mirrors backend response shapes.
+- Validate untyped inputs and persisted drafts at entry; typed API responses
+  and internal values need no repeat parsing. `features/` never mirrors backend
+  response shapes.
 
 ```bash
 pnpm api:generate   # openapi.json + client
@@ -190,8 +189,7 @@ See [API contract](backend/mechanisms/api-contract.md) and
 [ADR 0009](decisions/0009-generated-api-client.md). `RequireAdmin` is the
 reference consumer.
 
-Exactly **two** direct-transport exceptions (enforced by
-`apps/admin/test/feedback-inbox.spec.ts`):
+Two documented direct-transport exceptions:
 
 | Exception                                           | Why                                                                 | Contract                                                        |
 | --------------------------------------------------- | ------------------------------------------------------------------- | --------------------------------------------------------------- |
@@ -221,27 +219,17 @@ Motion: 200ms opacity/8px-rise page entrance (`motion/react`, route-surface key,
 `useReducedMotion`) + HeroUI transitions; `prefers-reduced-motion` collapses
 animation. Assistant threads share the `/admin/assistant` surface key —
 [assistant.md](frontend/assistant.md). Full token rules:
-[theming](frontend/theming.md).
+[style guide](../apps/admin/README.md).
 
 New screens: one `h1`, landmarks, labels, visible focus, status text plus tone,
 reduced-motion. Preview data stays visibly identified until a real API owns it.
 
 ## Delivery constraints
 
-Verified 2026-07-25 (React 19.2.8, Clerk 6.12.6, HeroUI 3.2.2, Tailwind 4.3.3,
-TanStack Query 5.101.4, Table 8.21.3, React Router 7.18.1, Vite 8.1.5, orval
-8.23.0, Zod 4.4.3):
-
-- static SPA; `build` = `tsc -b --noEmit && vite build`;
-- `index.html`: pre-paint theme, focusable `#main-content` fallback, `<noscript>`;
-- every route is React-lazy. Measured production chunks: entry ~173.53 kB
-  (~55.73 kB gzip), Overview ~159.11 kB (~49.87), Assistant ~362.53 kB (~111.46),
-  events/participants ~2–6 kB, shared table/header ~154.92 kB; Rolldown splits
-  Clerk (`auth` ~92.47), HeroUI (`ui` ~65.62), Assistant Markdown
-  (`markdown` ~168.84, Assistant-only);
-- Mermaid parser ~662.68 kB (~143.23 gzip), dynamic-import only for fenced
-  Mermaid in assistant messages; Vite advisory 700 kB; no hard app-wide budget;
-- CSS ~455.65 kB (~50.13 gzip); fonts/Mermaid assets separate; source maps off;
+- Static SPA; `build` runs the TypeScript check and Vite.
+- `index.html` owns pre-paint theme and the no-script fallback.
+- Routes are React-lazy; Mermaid loads only for assistant diagram messages.
+  Inspect actual build output when assessing bundle size; source maps are off.
 - dev: port 3000 proxies `/api` → `localhost:4000` (`API_PORT`, `changeOrigin`);
   3000 is CORS-trusted `WEB_ORIGIN`. Prod: nginx reverse-proxies `/api` for the
   same same-origin contract.

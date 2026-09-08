@@ -10,7 +10,7 @@ Never wrap a HeroUI component just to rename its props.
 | Component              | Contract                                         | Owns                                                                                |
 | ---------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------------- |
 | `JtsPageHeader.tsx`    | [`jts-page-header.md`](jts-page-header.md)       | One route's `h1` with the six-dot mark, back link, eyebrow, description and actions |
-| `JtsBackLink.tsx`      | [`jts-back-link.md`](jts-back-link.md)           | Detail-screen exit: left chevron, wine, «Back to \<place\>»                         |
+| `JtsBackLink.tsx`      | [`jts-back-link.md`](jts-back-link.md)           | Detail-screen exit: labelled link, «Back to \<place\>»                              |
 | `JtsStat.tsx`          | [`jts-stat.md`](jts-stat.md)                     | One definition-list-safe metric: `dt`/`dd`, tone marker, decorative icon            |
 | `JtsDataTable.tsx`     | [`jts-data-table.md`](jts-data-table.md)         | Table naming, loading/empty/error, overflow, toolbar, client sort + pagination      |
 | `JtsLiveIndicator.tsx` | [`jts-live-indicator.md`](jts-live-indicator.md) | Polled-pane quiet refresh mark: no layout shift, no live region, no status colour   |
@@ -18,22 +18,21 @@ Never wrap a HeroUI component just to rename its props.
 `JtsBackLink` normally via `JtsPageHeader`'s `back` prop; render directly only
 where there is no header. `JtsDataTable` owns states/framing; the page owns
 `ColumnDef` columns, cell formatting, filters, row actions and API calls.
-`JtsStat` sits in a page-owned labelled `dl`. `JtsLiveIndicator` takes a boolean
-
-- hidden sentence; show/hide hysteresis is in `src/lib/liveIndicator.ts`. Add a
-  prop/slot only after a real consumer needs it; update this inventory and the
-  focused contract in the same change.
+`JtsStat` sits in a page-owned labelled `dl`. `JtsLiveIndicator` takes a fetching
+boolean and a hidden explanatory label; it owns show/hide hysteresis. Add a
+prop/slot only when a real consumer needs it. Visual rules live in the
+[style guide](../../../apps/admin/README.md).
 
 ## Domain components (`src/components/admin/`)
 
 Admin shell and interaction boundaries — documented here until one grows a
 reusable surface.
 
-| Component                                                                             | Owner       | Owns                                                                    |
-| ------------------------------------------------------------------------------------- | ----------- | ----------------------------------------------------------------------- |
-| [`AdminShell.tsx`](../../../apps/admin/src/components/admin/AdminShell.tsx)           | Admin shell | Desktop wine sidebar / mobile drawer, skip target, 200ms route entrance |
-| [`AdminNavigation.tsx`](../../../apps/admin/src/components/admin/AdminNavigation.tsx) | Admin shell | Indexed nav landmark (sidebar + drawer via `variant`); "Soon" stamps    |
-| [`AdminUserMenu.tsx`](../../../apps/admin/src/components/admin/AdminUserMenu.tsx)     | Admin shell | Operator popover, Appearance (`useTheme`), Theme picker (`usePalette`)  |
+| Component                                                                             | Owner       | Owns                                                                   |
+| ------------------------------------------------------------------------------------- | ----------- | ---------------------------------------------------------------------- |
+| [`AdminShell.tsx`](../../../apps/admin/src/components/admin/AdminShell.tsx)           | Admin shell | Desktop sidebar / mobile drawer, skip target, route entrance           |
+| [`AdminNavigation.tsx`](../../../apps/admin/src/components/admin/AdminNavigation.tsx) | Admin shell | Indexed nav landmark (sidebar + drawer via `variant`); "Soon" stamps   |
+| [`AdminUserMenu.tsx`](../../../apps/admin/src/components/admin/AdminUserMenu.tsx)     | Admin shell | Operator popover, Appearance (`useTheme`), Theme picker (`usePalette`) |
 
 `AdminNavigation` and `AdminUserMenu` mount twice — every internal id from
 `useId`.

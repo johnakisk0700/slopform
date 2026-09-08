@@ -283,18 +283,14 @@ inbox is a link. Launch is a separate confirmed action
 - Composers: visually hidden labels; simulator also development-only caption.
 - Polling indicator not a live region; extraction status **is** polite
   `aria-live`.
-- Contrast: token pairings asserted in `theme-tokens.spec.ts` /
-  `palettes.spec.ts` (solid attention pill, sunken cards, soft accent «Staff
-  note» chip). Prefer nearest AA-safe existing token over new semantics.
+- Contrast and visual roles follow the [style guide](../../apps/admin/README.md).
+  Inspect affected themes when changing color pairings.
 
 ## Tests
 
-`apps/admin/test/feedback-inbox.spec.ts` pins D18, badges/grouping/selection,
-polling, capability-gated actions, generated-hook boundary (exactly two
-hand-written transport callers), staff notes, D17 start rows, live indicator,
-minute grouping, answer corrections / directed answers, reading-status lines,
-venue orientation. `theme-tokens.spec.ts` asserts the attention / heading /
-chip pairings.
+`apps/admin/test/feedback-inbox.spec.ts` covers inbox selection, grouping and
+operator behavior. Keep consequential behavior assertions; class names, token
+values and source layout belong in implementation review.
 
 ## Decisions and references
 
