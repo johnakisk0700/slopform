@@ -160,11 +160,10 @@ extractor next calls `commits.commit(snapshot, turn)`, which rechecks live state
 under locks and can retain paid facts while suppressing an outdated reply.
 Do not collapse those different checks into a vague `proposalPolicy`.
 
-Use Effect utilities where composition helps, with ordinary Nest collaborators
-and Promise APIs. The extractor demonstrates `Effect.gen` and a locally handled
-commit outcome; it does not introduce Tags, Context or Layers. Keep the Promise
-error boundary and retry ownership described in
-[ADR 0017](../../decisions/0017-effect-for-local-workflows.md).
+Use direct `async`/`await` for this serial recipe. Catch capacity failures only
+around the commit transaction, then run the separate brake after rollback.
+Effect remains useful for the topic-clustering subprocess resource scope; see
+[ADR 0020](../../decisions/0020-effect-for-resource-scopes.md).
 
 ## Ingress and send recipes
 

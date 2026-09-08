@@ -1,26 +1,17 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { Effect, Either } from "effect";
 
-import {
-  attemptPromise,
-  runWithOriginalError,
-} from "../../../infrastructure/effect/promise.js";
-import {
-  FEEDBACK_OPERATOR_ALERT,
-  type FeedbackOperatorAlert,
-} from "../operator-alert.js";
-import { FeedbackConversationCapacityError } from "../post-event-feedback-conversation.repository.js";
 import {
   FeedbackLogger,
   FeedbackOperationLog,
 } from "../feedback-operation-log.js";
 import { PostEventFeedbackMetrics } from "../metrics.service.js";
+import {
+  FEEDBACK_OPERATOR_ALERT,
+  type FeedbackOperatorAlert,
+} from "../operator-alert.js";
+import { FeedbackConversationCapacityError } from "../post-event-feedback-conversation.repository.js";
 import { PostEventFeedbackCampaignSummaryService } from "../summary/summary.service.js";
 import { FeedbackConversationExecutionGuardError } from "./execution-guard.js";
-import { FeedbackExtractionAdmissionService } from "./extraction-admission.service.js";
-import { FeedbackExtractionCapacityService } from "./extraction-capacity.service.js";
-import { FeedbackExtractionCommitService } from "./extraction-commit.service.js";
-import { FeedbackExtractionTurnService } from "./extraction-turn.service.js";
 import type {
   ExtractCommitResult,
   ExtractFeedbackInput,
@@ -28,6 +19,10 @@ import type {
   ExtractPlannedTurn,
   ExtractRunSnapshot,
 } from "./extract.types.js";
+import { FeedbackExtractionAdmissionService } from "./extraction-admission.service.js";
+import { FeedbackExtractionCapacityService } from "./extraction-capacity.service.js";
+import { FeedbackExtractionCommitService } from "./extraction-commit.service.js";
+import { FeedbackExtractionTurnService } from "./extraction-turn.service.js";
 
 export {
   FEEDBACK_CONVERSATION_EXECUTION_GUARD_REASONS,
@@ -70,9 +65,7 @@ export class PostEventFeedbackExtractor {
         : {}),
     });
     try {
-      const result = await runWithOriginalError(
-        this.extractionFlow(input, operation),
-      );
+      const result = await this.extractTurn(input, operation);
       this.metrics.recordExtractOutcome(result.outcome, input.correlationId);
       operation.complete(result.outcome);
       return result;
@@ -89,72 +82,61 @@ export class PostEventFeedbackExtractor {
     }
   }
 
-  private extractionFlow(
+  private async extractTurn(
     input: ExtractFeedbackInput,
     operation: FeedbackOperationLog,
-  ): Effect.Effect<ExtractFeedbackResult, unknown> {
-    return Effect.gen(this, function* () {
-      // Skip paid AI work when there is no eligible, unread testimony.
-      operation.stage("admit");
-      const admitted = yield* attemptPromise(() => this.admission.admit(input));
-      if (admitted.kind === "complete") return admitted.result;
-      const snapshot = admitted.snapshot;
-      operation.enrich({
-        campaignId: snapshot.campaign.id,
-        conversationId: snapshot.conversation._id,
-      });
-
-      // Validate model claims against the snapshot and plan a participant reply.
-      operation.stage("plan_turn");
-      const turn = yield* attemptPromise(() => this.turns.plan(snapshot));
-
-      // Recheck live state under locks; save paid results and any eligible reply.
-      operation.stage("commit_turn");
-      const commit = yield* Effect.either(
-        attemptPromise(() => this.commits.commit(snapshot, turn)),
-      );
-      if (Either.isLeft(commit)) {
-        if (!(commit.left instanceof FeedbackConversationCapacityError)) {
-          return yield* Effect.fail(commit.left);
-        }
-        // Only a failed commit triggers this separate transaction after rollback.
-        operation.stage("capacity_brake");
-        return yield* attemptPromise(() =>
-          this.capacity.brakeAfterCapacity(snapshot),
-        );
-      }
-      const committed = commit.right;
-
-      // External notifications happen only after the main transaction succeeds.
-      if (committed.raisedIncident) {
-        operation.stage("notify_operator");
-        yield* attemptPromise(() =>
-          this.alert.raise({
-            conversationId: snapshot.conversation._id,
-            campaignId: snapshot.conversation.campaignId,
-            reason: "extraction_safety_signal",
-            correlationId: input.correlationId,
-            detail: [
-              ...turn.evidence.validated.safetySignals.map(
-                (signal) => `${signal.category}:${signal.recommendedAction}`,
-              ),
-              ...(turn.evidence.validated.handoff ? ["handoff"] : []),
-            ],
-          }),
-        );
-      }
-      operation.stage("notify_summary");
-      yield* attemptPromise(() =>
-        this.summaries.notifyIfLastConversationClosed(
-          snapshot.conversation.campaignId,
-          input.correlationId,
-          committed.state.closedNow,
-        ),
-      );
-
-      operation.stage("record_outcome");
-      return toExtractResult(snapshot, turn, committed);
+  ): Promise<ExtractFeedbackResult> {
+    // Skip paid AI work when there is no eligible, unread testimony.
+    operation.stage("admit");
+    const admitted = await this.admission.admit(input);
+    if (admitted.kind === "complete") return admitted.result;
+    const snapshot = admitted.snapshot;
+    operation.enrich({
+      campaignId: snapshot.campaign.id,
+      conversationId: snapshot.conversation._id,
     });
+
+    // Validate model claims against the snapshot and plan a participant reply.
+    operation.stage("plan_turn");
+    const turn = await this.turns.plan(snapshot);
+
+    // Recheck live state under locks; save paid results and any eligible reply.
+    operation.stage("commit_turn");
+    let committed: ExtractCommitResult;
+    try {
+      committed = await this.commits.commit(snapshot, turn);
+    } catch (error) {
+      if (!(error instanceof FeedbackConversationCapacityError)) throw error;
+      // Only a failed commit triggers this separate transaction after rollback.
+      operation.stage("capacity_brake");
+      return this.capacity.brakeAfterCapacity(snapshot);
+    }
+
+    // External notifications happen only after the main transaction succeeds.
+    if (committed.raisedIncident) {
+      operation.stage("notify_operator");
+      await this.alert.raise({
+        conversationId: snapshot.conversation._id,
+        campaignId: snapshot.conversation.campaignId,
+        reason: "extraction_safety_signal",
+        correlationId: input.correlationId,
+        detail: [
+          ...turn.evidence.validated.safetySignals.map(
+            (signal) => `${signal.category}:${signal.recommendedAction}`,
+          ),
+          ...(turn.evidence.validated.handoff ? ["handoff"] : []),
+        ],
+      });
+    }
+    operation.stage("notify_summary");
+    await this.summaries.notifyIfLastConversationClosed(
+      snapshot.conversation.campaignId,
+      input.correlationId,
+      committed.state.closedNow,
+    );
+
+    operation.stage("record_outcome");
+    return toExtractResult(snapshot, turn, committed);
   }
 }
 
