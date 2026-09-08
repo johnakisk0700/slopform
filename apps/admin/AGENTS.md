@@ -67,7 +67,8 @@ Keep one `h1` per page, labelled controls, the shell skip link and focusable
 
 - **Strict TS:** `strict` plus `exactOptionalPropertyTypes`,
   `noUncheckedIndexedAccess`, `noImplicitOverride`, `noUnusedLocals` /
-  `noUnusedParameters`. No suppressions without a one-line WHY
+  `noUnusedParameters`. `tsc` is TypeScript 7.0.2; ESLint still loads the
+  TypeScript 6 JS API. No suppressions without a one-line WHY
   (`eslint-disable` / `@ts-expect-error` should be countable on one hand). No
   `any`, no unjustified `!`, no `as` where a type guard is honest.
 - **Generated client:** call endpoints through `src/api/generated/` hooks

@@ -1,6 +1,6 @@
 # Backend foundation
 
-Last verified: **2026-08-05**.
+Last verified: **2026-09-08**.
 
 NestJS modular monolith on Node.js 24 LTS. HTTP and worker are separate
 processes from the same domain modules. PostgreSQL owns relational business,
@@ -19,7 +19,7 @@ rerun focused integration smokes, not just the compiler.
 
 | Area               | Versions                                                                           | Constraint                                                                                                                   |
 | ------------------ | ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| Runtime and tools  | Node `>=24.11 <25`; TypeScript `6.0.3`; `@types/node` `24.13.3`; Vitest `4.1.10`   | Production stays on Node 24 LTS; TypeScript 7 is not the stable line.                                                        |
+| Runtime and tools  | Node `>=24.11 <25`; TypeScript `7.0.2`; `@types/node` `24.13.3`; Vitest `4.1.10`   | Production stays on Node 24 LTS. `tsc` and emit are TypeScript 7. The JS compiler API returns in 7.1.                        |
 | Nest and HTTP      | Nest `11.1.28`; Express `5.2.1`; config `4.0.4`; Swagger `11.4.6`                  | Keep Nest core/platform patches aligned; Express comes from the platform.                                                    |
 | Persistence        | Drizzle ORM `0.45.2`; Kit `0.31.10`; `pg` `8.22.0`; MongoDB driver `7.5.0`         | PostgreSQL for relational guarantees and feedback conversations; MongoDB for Assistant aggregates.                           |
 | Queues             | `@nestjs/bullmq` `11.0.4`; BullMQ `5.80.10`; Bull Board `8.1.2`                    | BullMQ OSS only; all Bull Board packages share one version.                                                                  |

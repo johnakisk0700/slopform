@@ -243,7 +243,8 @@ reduced-motion. Preview data stays visibly identified until a real API owns it.
 
 ## Delivery constraints
 
-- Static SPA; `build` runs the TypeScript check and Vite.
+- Static SPA; `build` runs the TypeScript 7 check (`@typescript/native`) and Vite.
+  ESLint stays on the TypeScript 6 JS API (`@typescript/typescript6@6.0.2`) until 7.1.
 - `index.html` owns pre-paint theme and the no-script fallback.
 - Admin routes are React-lazy and share one Suspense/Outlet boundary inside
   the shell; navigation stays mounted while a page loads. Mermaid loads only

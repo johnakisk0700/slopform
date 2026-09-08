@@ -31,8 +31,8 @@ Validate incoming HTTP requests, consumed queue payloads and untyped external or
 persisted data at their entry point. Typed internal calls and HTTP responses do
 not need schema parsing; preserve normalization and business invariants.
 
-**No ESLint or duplicate lint task here.** `typecheck` runs `tsc -p tsconfig.json --noEmit`.
-Style is review + matching surrounding code.
+**No ESLint or duplicate lint task here.** `typecheck` runs TypeScript 7
+`tsc -p tsconfig.json --noEmit`. Style is review + matching surrounding code.
 
 OpenAPI: commit `apps/backend/openapi/openapi.json` only — emitted by
 `pnpm openapi:emit` / `pnpm api:generate`. Never edit by hand; see
