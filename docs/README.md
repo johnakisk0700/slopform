@@ -35,6 +35,11 @@ Core handbooks, then ADRs in number order, then ops and the readiness record:
 
 ## Area index
 
+**Portfolio and working conventions**
+
+- [Portfolio plan](portfolio-plan.md) — current decisions, Notion task board and the next bounded work
+- [Code readability](code-readability.md) — user naming preferences and readable operation boundaries
+
 **Frontend**
 
 - [`frontend/components/README.md`](frontend/components/README.md) — reusable inventory

@@ -1,5 +1,8 @@
 # Feedback code readability
 
+Use the project-wide [naming and readability preferences](../../code-readability.md).
+They capture how the user wants calls to read; the examples are not new work items.
+
 Before selecting another refactor slice, read the
 [current progress and next-work map](post-event-feedback-refactor-status.md).
 Update that map at each checkpoint.

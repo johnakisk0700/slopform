@@ -4,6 +4,10 @@ Last updated: **2026-09-06**. This is the current progress and next-work map.
 Update it at each checkpoint; confirm Git status before resuming. Completed
 rows are records of finished work, not instructions to repeat it.
 
+The [portfolio plan](../../portfolio-plan.md) adds the 2026-09-07 product/demo
+decisions and Notion task board. It does not change the implementation
+checkpoint or mark the remaining refactor work complete.
+
 ## Where we are
 
 **The core incoming-message → AI → outbound-send path is ready for a first

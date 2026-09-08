@@ -32,6 +32,13 @@ differently. [`docs/evidence/`](docs/evidence/README.md) holds audits fixed to a
 date. Read either only for "why is it like this"; prefer an
 [ADR](docs/decisions/0001-platform.md) when one exists.
 
+## Readable names and flows
+
+Follow [code readability](docs/code-readability.md): a call should name its
+action and the thing it affects. `ensureDataForUser` is an example of that
+preference, not a request for a repository-wide rename. Current product
+decisions and next work live in [the portfolio plan](docs/portfolio-plan.md).
+
 ## Documentation is part of the change
 
 Update `docs/` in the same commit when the change affects architecture,
@@ -65,6 +72,8 @@ do not edit the old one. Template:
 
 ## Repository workflow
 
+- When delegating, run GPT/Astra agents through native Codex; use Cursor for
+  Grok. Do not silently route GPT models through Cursor.
 - Root `package.json` scripts are the public command surface; ordering, cache
   inputs and real outputs belong in `turbo.json`.
 - `pnpm check` runs `format:check`, `docs:check`, `api:check`, `typecheck`,
