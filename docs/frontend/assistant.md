@@ -91,6 +91,11 @@ sequenceDiagram
 
 ## Rendering contract
 
+The existing visual tuning is intentional. Code cleanup must preserve message
+widths, spacing, docked composer geometry, scroll/hydration alignment, motion,
+and reasoning/tool presentation, including JSON syntax colouring. A request
+to simplify implementation does not authorize removing these affordances.
+
 - Finalized messages and assistant Markdown are `React.memo` boundaries
   (parse/sanitize/highlight dominate cost).
 - GFM tables, task lists, hard breaks, fenced code; highlighting via
@@ -123,8 +128,9 @@ fiction:
   reasoning — provider asymmetry, not a UI bug.
 - **Tool activity.** `AssistantToolCallCard`: operator label/state in summary,
   bounded, indented JSON on expand; same typed list from SSE live and the
-  durable turn after poll/reload. Payloads render as escaped text using
-  `JSON.stringify`; there is no separate recursive syntax renderer.
+  durable turn after poll/reload. JSON keys use primary ink, strings use
+  tinted ink, and numbers/literals use accent ink. The renderer emits escaped
+  React text with token spans; it never injects payload HTML.
 - **Cost.** Settled footer: total tokens and labelled estimated EUR from the
   turn's persisted model/tier/price version — never the browser picker.
 - **Copy.** Settled answer with no activity copies directly; with reasoning/tool

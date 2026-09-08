@@ -758,7 +758,7 @@
     color: var(--jts-color-danger);
   }
 
-  /* Tool payloads use a scrollable, escaped JSON block. */
+  /* Tool JSON: primary keys, tinted strings, accent numbers/literals. */
   .assistant-payload {
     max-height: 14rem;
     overflow: auto;
@@ -774,6 +774,25 @@
     font-family: var(--jts-font-mono);
     font-size: var(--jts-text-2xs);
     line-height: 1.6;
+  }
+
+  .assistant-payload .tok-key {
+    color: var(--jts-color-primary);
+    font-weight: 600;
+  }
+
+  .assistant-payload .tok-string {
+    color: color-mix(
+      in srgb,
+      var(--jts-color-primary) 65%,
+      var(--jts-color-text)
+    );
+  }
+
+  .assistant-payload .tok-number,
+  .assistant-payload .tok-literal {
+    color: var(--jts-color-accent);
+    font-variant-numeric: tabular-nums;
   }
 
   /*
