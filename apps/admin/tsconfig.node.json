@@ -26,9 +26,5 @@
     "noImplicitOverride": true,
     "noUncheckedIndexedAccess": true
   },
-  "include": [
-    "orval.config.ts",
-    "vite.config.ts",
-    "vitest.config.ts"
-  ]
+  "include": ["orval.config.ts", "vite.config.ts", "vitest.config.ts"]
 }
