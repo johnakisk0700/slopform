@@ -23,7 +23,6 @@ import {
   or,
   sql,
 } from "drizzle-orm";
-import { z } from "zod";
 
 import { DatabaseService } from "../../infrastructure/database/database.service.js";
 import { ConversationPersistenceError } from "../conversations/conversation-persistence.errors.js";
@@ -582,11 +581,10 @@ export class FeedbackConversationRepository {
         const reason = postEventFeedbackAttentionReasonSchema.safeParse(
           row.kind,
         );
-        const value = z.number().int().positive().safeParse(Number(row.count));
-        if (!reason.success || !value.success) {
+        if (!reason.success) {
           return null;
         }
-        return { reason: reason.data, count: value.data };
+        return { reason: reason.data, count: row.count };
       })
       .filter(
         (
