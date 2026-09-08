@@ -1,5 +1,5 @@
 import { OnWorkerEvent, Processor, WorkerHost } from "@nestjs/bullmq";
-import { Logger } from "@nestjs/common";
+import { Logger, Optional } from "@nestjs/common";
 import { MetricsTime, UnrecoverableError, type Job } from "bullmq";
 import { ZodError } from "zod";
 
@@ -7,6 +7,7 @@ import {
   EMAIL_QUEUE,
   QUEUE_WORKER_CONFIG,
 } from "../../infrastructure/queue/queue.constants.js";
+import { ResendClient } from "../../integrations/resend/resend.client.js";
 import { EmailOutboxRelayService } from "./email-outbox-relay.service.js";
 import {
   createEmailDeliverJobId,
@@ -35,6 +36,7 @@ export class EmailProcessor extends WorkerHost {
   constructor(
     private readonly email: EmailService,
     private readonly relay: EmailOutboxRelayService,
+    @Optional() private readonly resend?: ResendClient,
   ) {
     super();
   }
@@ -53,12 +55,22 @@ export class EmailProcessor extends WorkerHost {
         }
 
         const now = new Date();
-        await this.email.processWithoutProvider(
-          data.deliveryId,
-          data.outboxEventId,
-          now,
-          new Date(now.getTime() + EMAIL_DELIVERY_LEASE_MS),
-        );
+        if (this.resend) {
+          await this.email.processWithProvider(
+            data.deliveryId,
+            data.outboxEventId,
+            now,
+            new Date(now.getTime() + EMAIL_DELIVERY_LEASE_MS),
+            this.resend.sendEmail.bind(this.resend),
+          );
+        } else {
+          await this.email.processWithoutProvider(
+            data.deliveryId,
+            data.outboxEventId,
+            now,
+            new Date(now.getTime() + EMAIL_DELIVERY_LEASE_MS),
+          );
+        }
         return;
       }
       throw new UnrecoverableError(

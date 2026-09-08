@@ -64,6 +64,12 @@ when worker decorators evaluate, before Nest dependency injection.
   OpenRouter currently serves Gemini and Qwen; OpenAI direct serves Luna and
   Terra. Calls occur exclusively in the worker. Production supplies keys through
   Docker secret files.
+- `RESEND_API_KEY` and `RESEND_FROM_EMAIL` enable the optional text-email
+  adapter. The key is mounted only into the worker in production; the sender
+  address or verified domain is a non-secret setting. Without the key, email
+  delivery records a durable `provider_not_configured` block. The adapter uses
+  a fixed ten-second request timeout and bounded retries with the delivery UUID
+  as the provider idempotency key. See [email delivery](../modules/email-delivery.md).
 - `FEEDBACK_EXTRACTION_MODEL` optionally overrides the extraction model; it must
   name a permitted registered adapter (Terra is summary-only). Unknown or Terra
   as extraction fails at worker start. The key for the selected model is

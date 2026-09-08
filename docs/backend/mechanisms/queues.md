@@ -65,8 +65,13 @@ unsupported version / malformed data / missing authoritative record →
 Email content lives only in PostgreSQL. Relay uses
 [`OUTBOX_RELAY_JOB_OPTIONS`](../../../apps/backend/src/infrastructure/queue/queue.constants.ts)
 (`attempts: 1`, immediate `removeOnComplete` / `removeOnFail`, `stackTraceLimit:
-3`) — at-most-once enqueue; PG owns recovery. Until a provider is wired, the
-consumer records `provider_not_configured` and performs no external side effect.
+3`) — at-most-once enqueue; PostgreSQL owns recovery. The delivery worker
+claims before crossing the Resend boundary and consumes the outbox event only
+after a durable `blocked`, `sent` or `failed` settlement. Retryable provider
+failures return the same event to `dispatched` with a future `availableAt`, so
+the existing relay scheduler republishes it. Without a Resend key, the
+consumer records `provider_not_configured` and performs no external side
+effect.
 
 ```mermaid
 sequenceDiagram
@@ -244,7 +249,7 @@ or DB uniqueness.
 | Path              | Pattern                                                                                                                                                                                                                                                                                                                                                                                        |
 | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Reference         | Intentional DB→queue crash gap (disposable demo).                                                                                                                                                                                                                                                                                                                                              |
-| Email             | Transactional outbox: mutate + outbox row in one txn → relay with stable job key → mark consumed after BullMQ ack. Relay: `FOR UPDATE SKIP LOCKED`, reclaim expired leases, republish after recovery horizon. Closes commit/enqueue and ack-loss gaps, not downstream exactly-once.                                                                                                            |
+| Email             | Transactional outbox: mutate + outbox row in one txn → relay with stable job key → delivery claim before the provider call → terminal settlement consumes the event. Retryable failures keep it dispatched and due. Relay: `FOR UPDATE SKIP LOCKED`, reclaim expired leases, republish after recovery horizon. Closes commit/enqueue and ack-loss gaps, not downstream exactly-once.           |
 | Feedback outbound | **No** BullMQ. One-second worker loop claims ≤4 rows in a dispatcher-owned transaction (`FOR UPDATE SKIP LOCKED`), opaque token, two-minute lease. Oldest unresolved row per conversation; four parallel lanes across conversations. STOP ack (`lifecycle.terminalOutboxId`) and explicit staff may pass `ambiguous`; nothing passes `pending`/`held`/`claimed`/`attempting`/legacy `sending`. |
 
 Outbound states: Redis limiter awaited while `claimed`; token-fenced heartbeat;

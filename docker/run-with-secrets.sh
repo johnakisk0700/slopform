@@ -84,6 +84,10 @@ if [ -r /run/secrets/openrouter_api_key ]; then
   export_secret OPENROUTER_API_KEY openrouter_api_key
 fi
 
+if [ -r /run/secrets/resend_api_key ]; then
+  export_secret RESEND_API_KEY resend_api_key
+fi
+
 if [ -r /run/secrets/wasender_webhook_secret ]; then
   export_secret WASENDER_WEBHOOK_SECRET wasender_webhook_secret
 fi

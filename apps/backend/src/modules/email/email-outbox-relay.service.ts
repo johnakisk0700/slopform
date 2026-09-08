@@ -11,9 +11,9 @@ import {
   createEmailDeliverJobId,
   EMAIL_JOB_NAMES,
   EMAIL_JOB_SCHEMA_VERSION,
-  emailDeliverJobDataSchema,
   type EmailJobData,
   type EmailJobName,
+  type EmailDeliverJobData,
 } from "./email.schemas.js";
 
 const EMAIL_OUTBOX_BATCH_SIZE = 50;
@@ -45,12 +45,12 @@ export class EmailOutboxRelayService {
     let failed = false;
 
     for (const event of events) {
-      const data = emailDeliverJobDataSchema.parse({
+      const data: EmailDeliverJobData = {
         schemaVersion: EMAIL_JOB_SCHEMA_VERSION,
         deliveryId: event.deliveryId,
         outboxEventId: event.id,
         correlationId: event.correlationId,
-      });
+      };
       try {
         await this.queue.add(EMAIL_JOB_NAMES.deliverV1, data, {
           ...OUTBOX_RELAY_JOB_OPTIONS,

@@ -50,3 +50,7 @@ export function isWasenderTransportEnabled(
 ): boolean {
   return environment.TRANSPORT_MODE?.trim().toLowerCase() === "wasender";
 }
+
+export function isResendEnabled(environment: NodeJS.ProcessEnv): boolean {
+  return Boolean(environment.RESEND_API_KEY?.trim());
+}

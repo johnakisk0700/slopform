@@ -1,6 +1,7 @@
 import { UnrecoverableError, type Job } from "bullmq";
 import { describe, expect, it, vi } from "vitest";
 
+import type { ResendClient } from "../../integrations/resend/resend.client.js";
 import type { EmailOutboxRelayService } from "./email-outbox-relay.service.js";
 import {
   EMAIL_JOB_NAMES,
@@ -46,6 +47,25 @@ describe("EmailProcessor", () => {
       outboxEventId,
       expect.any(Date),
       expect.any(Date),
+    );
+  });
+
+  it("hands configured delivery to the concrete Resend client", async () => {
+    const email = { processWithProvider: vi.fn() };
+    const resend = { sendEmail: vi.fn() } as unknown as ResendClient;
+    const processor = new EmailProcessor(
+      email as unknown as EmailService,
+      { relay: vi.fn() } as unknown as EmailOutboxRelayService,
+      resend,
+    );
+
+    await expect(processor.process(job())).resolves.toBeUndefined();
+    expect(email.processWithProvider).toHaveBeenCalledWith(
+      deliveryId,
+      outboxEventId,
+      expect.any(Date),
+      expect.any(Date),
+      expect.any(Function),
     );
   });
 

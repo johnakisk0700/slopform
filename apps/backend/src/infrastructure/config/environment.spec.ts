@@ -4,6 +4,7 @@ import {
   isBullBoardEnabled,
   isFeedbackSimulatorHttpEnabled,
   isReferenceModuleEnabled,
+  isResendEnabled,
   isWasenderTransportEnabled,
   isWasenderWebhookEnabled,
 } from "./enabled-modules.js";
@@ -41,6 +42,8 @@ describe("validateEnvironment", () => {
     expect(environment.BULL_BOARD_ENABLED).toBe(false);
     expect(environment.OPENAI_API_KEY).toBeUndefined();
     expect(environment.OPENROUTER_API_KEY).toBeUndefined();
+    expect(environment.RESEND_API_KEY).toBeUndefined();
+    expect(environment.RESEND_FROM_EMAIL).toBeUndefined();
     expect(environment.WASENDER_SESSION_API_KEY).toBeUndefined();
     expect(environment.WASENDER_WEBHOOK_ENABLED).toBe(false);
     expect(environment.WASENDER_WEBHOOK_SECRET).toBeUndefined();
@@ -422,6 +425,39 @@ describe("validateEnvironment", () => {
     ).toThrow(/line breaks/);
   });
 
+  it("validates the optional Resend sender configuration", () => {
+    expect(
+      validateEnvironment({
+        ...requiredEnvironment,
+        RESEND_API_KEY: "re_test-key",
+        RESEND_FROM_EMAIL: "sender@example.com",
+      }),
+    ).toMatchObject({
+      RESEND_API_KEY: "re_test-key",
+      RESEND_FROM_EMAIL: "sender@example.com",
+    });
+
+    expect(() =>
+      validateEnvironment({
+        ...requiredEnvironment,
+        RESEND_API_KEY: "re_test-key",
+      }),
+    ).toThrow(/RESEND_FROM_EMAIL/);
+    expect(() =>
+      validateEnvironment({
+        ...requiredEnvironment,
+        RESEND_FROM_EMAIL: "not-an-email",
+      }),
+    ).toThrow(/Invalid email/);
+    expect(() =>
+      validateEnvironment({
+        ...requiredEnvironment,
+        RESEND_API_KEY: "re_test-key\nleak",
+        RESEND_FROM_EMAIL: "sender@example.com",
+      }),
+    ).toThrow(/line breaks/);
+  });
+
   it("validates the application name used by database clients and workers", () => {
     expect(validateEnvironment(requiredEnvironment).APP_NAME).toBe(
       "join-the-six-api",
@@ -538,6 +574,9 @@ describe("validateEnvironment", () => {
       isWasenderWebhookEnabled({ WASENDER_WEBHOOK_ENABLED: " TRUE " }),
     ).toBe(true);
     expect(isWasenderWebhookEnabled({})).toBe(false);
+    expect(isResendEnabled({ RESEND_API_KEY: " re_test-key " })).toBe(true);
+    expect(isResendEnabled({ RESEND_API_KEY: "  " })).toBe(false);
+    expect(isResendEnabled({})).toBe(false);
     expect(
       isFeedbackSimulatorHttpEnabled({
         NODE_ENV: "development",

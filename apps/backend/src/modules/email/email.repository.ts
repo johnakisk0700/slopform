@@ -25,6 +25,8 @@ export interface EmailDeliveryRecord {
 export interface ClaimedEmailDelivery {
   readonly delivery: EmailDeliveryRow;
   readonly attempt: EmailDeliveryAttemptRow;
+  readonly outboxEventId: string;
+  readonly firstAttemptStartedAt: Date;
 }
 
 @Injectable()
@@ -319,6 +321,12 @@ export class EmailRepository {
 
     const attemptNumber = delivery.attemptCount + 1;
     const leaseToken = randomUUID();
+    const [firstAttempt] = await transaction
+      .select({ startedAt: emailDeliveryAttempts.startedAt })
+      .from(emailDeliveryAttempts)
+      .where(eq(emailDeliveryAttempts.deliveryId, delivery.id))
+      .orderBy(asc(emailDeliveryAttempts.attemptNumber))
+      .limit(1);
     const [claimed] = await transaction
       .update(emailDeliveries)
       .set({
@@ -349,8 +357,12 @@ export class EmailRepository {
       throw new Error("Email delivery attempt insert returned no row");
     }
 
-    await consumeOutbox(transaction, outboxEventId, now);
-    return { delivery: claimed, attempt };
+    return {
+      delivery: claimed,
+      attempt,
+      outboxEventId,
+      firstAttemptStartedAt: firstAttempt?.startedAt ?? now,
+    };
   }
 
   async markBlocked(
@@ -358,13 +370,124 @@ export class EmailRepository {
     claimed: ClaimedEmailDelivery,
     now: Date,
   ): Promise<EmailDeliveryRow | undefined> {
+    return this.finishDelivery(
+      transaction,
+      claimed,
+      "blocked",
+      "provider_not_configured",
+      now,
+    );
+  }
+
+  async markSent(
+    transaction: AppTransaction,
+    claimed: ClaimedEmailDelivery,
+    now: Date,
+  ): Promise<EmailDeliveryRow | undefined> {
+    return this.finishDelivery(transaction, claimed, "sent", null, now);
+  }
+
+  async markRetryScheduled(
+    transaction: AppTransaction,
+    claimed: ClaimedEmailDelivery,
+    nextAttemptAt: Date,
+    now: Date,
+  ): Promise<EmailDeliveryRow | undefined> {
     const [delivery] = await transaction
       .update(emailDeliveries)
       .set({
-        status: "blocked",
+        status: "retry_scheduled",
         leaseToken: null,
         leaseUntil: null,
-        lastErrorCode: "provider_not_configured",
+        nextAttemptAt,
+        lastErrorCode: "delivery_failed",
+        completedAt: null,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(emailDeliveries.id, claimed.delivery.id),
+          eq(emailDeliveries.status, "processing"),
+          eq(emailDeliveries.attemptCount, claimed.attempt.attemptNumber),
+          eq(emailDeliveries.leaseToken, claimed.delivery.leaseToken!),
+        ),
+      )
+      .returning();
+    if (!delivery) {
+      return undefined;
+    }
+
+    await transaction
+      .update(emailDeliveryAttempts)
+      .set({
+        status: "retry_scheduled",
+        errorCode: "delivery_failed",
+        completedAt: now,
+      })
+      .where(
+        and(
+          eq(emailDeliveryAttempts.deliveryId, delivery.id),
+          eq(
+            emailDeliveryAttempts.attemptNumber,
+            claimed.attempt.attemptNumber,
+          ),
+          eq(emailDeliveryAttempts.status, "processing"),
+        ),
+      );
+
+    const [outbox] = await transaction
+      .update(emailOutboxEvents)
+      .set({
+        status: "dispatched",
+        availableAt: nextAttemptAt,
+        leaseToken: null,
+        leaseUntil: null,
+        lastErrorCode: null,
+        dispatchedAt: sql`coalesce(${emailOutboxEvents.dispatchedAt}, ${now})`,
+        consumedAt: null,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(emailOutboxEvents.id, claimed.outboxEventId),
+          sql`${emailOutboxEvents.status} <> 'consumed'`,
+        ),
+      )
+      .returning({ id: emailOutboxEvents.id });
+    if (!outbox) {
+      throw new Error("Email outbox event is no longer available for retry");
+    }
+    return delivery;
+  }
+
+  async markFailed(
+    transaction: AppTransaction,
+    claimed: ClaimedEmailDelivery,
+    now: Date,
+  ): Promise<EmailDeliveryRow | undefined> {
+    return this.finishDelivery(
+      transaction,
+      claimed,
+      "failed",
+      "delivery_failed",
+      now,
+    );
+  }
+
+  private async finishDelivery(
+    transaction: AppTransaction,
+    claimed: ClaimedEmailDelivery,
+    status: "blocked" | "sent" | "failed",
+    errorCode: "provider_not_configured" | "delivery_failed" | null,
+    now: Date,
+  ): Promise<EmailDeliveryRow | undefined> {
+    const [delivery] = await transaction
+      .update(emailDeliveries)
+      .set({
+        status,
+        leaseToken: null,
+        leaseUntil: null,
+        lastErrorCode: errorCode,
         completedAt: now,
         updatedAt: now,
       })
@@ -384,8 +507,8 @@ export class EmailRepository {
     await transaction
       .update(emailDeliveryAttempts)
       .set({
-        status: "blocked",
-        errorCode: "provider_not_configured",
+        status,
+        errorCode,
         completedAt: now,
       })
       .where(
@@ -398,6 +521,7 @@ export class EmailRepository {
           eq(emailDeliveryAttempts.status, "processing"),
         ),
       );
+    await consumeOutbox(transaction, claimed.outboxEventId, now);
     return delivery;
   }
 }

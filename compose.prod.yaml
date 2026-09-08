@@ -35,6 +35,7 @@ x-backend-environment: &backend-environment
   FEEDBACK_SUMMARY_MODEL: ${FEEDBACK_SUMMARY_MODEL:-}
   FEEDBACK_SUMMARY_REASONING_EFFORT: ${FEEDBACK_SUMMARY_REASONING_EFFORT:-}
   FEEDBACK_TOPIC_ANALYSIS_ENABLED: ${FEEDBACK_TOPIC_ANALYSIS_ENABLED:-false}
+  RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-}
   MONGODB_APP_USER: ${MONGODB_APP_USER:?Set MONGODB_APP_USER in .env.production}
   MONGODB_DB: ${MONGODB_DB:?Set MONGODB_DB in .env.production}
   LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -232,6 +233,7 @@ services:
       - openrouter_api_key
       - postgres_password
       - redis_password
+      - resend_api_key
       - wasender_session_api_key
     depends_on:
       migrate:
@@ -309,6 +311,10 @@ secrets:
     file: ${POSTGRES_PASSWORD_FILE:?Set POSTGRES_PASSWORD_FILE in .env.production}
   redis_password:
     file: ${REDIS_PASSWORD_FILE:?Set REDIS_PASSWORD_FILE in .env.production}
+  resend_api_key:
+    # Keep the new sender optional for existing production env files. An empty
+    # tracked file mounts when RESEND_API_KEY_FILE is not configured.
+    file: ${RESEND_API_KEY_FILE:-./docker/empty-secret}
   wasender_webhook_secret:
     file: ${WASENDER_WEBHOOK_SECRET_FILE:?Set WASENDER_WEBHOOK_SECRET_FILE in .env.production}
   wasender_session_api_key:
