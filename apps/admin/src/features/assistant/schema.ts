@@ -1,5 +1,14 @@
 import * as z from "zod";
 
+import type { AssistantThreadDtoOutput } from "../../api/generated/model/assistantThreadDtoOutput";
+import type { AssistantThreadListDtoOutputItemsItem } from "../../api/generated/model/assistantThreadListDtoOutputItemsItem";
+import type { AssistantThreadDtoOutputTurnsItem } from "../../api/generated/model/assistantThreadDtoOutputTurnsItem";
+import type { AssistantThreadDtoOutputTurnsItemErrorCode } from "../../api/generated/model/assistantThreadDtoOutputTurnsItemErrorCode";
+import type { AssistantThreadDtoOutputTurnsItemModel } from "../../api/generated/model/assistantThreadDtoOutputTurnsItemModel";
+import type { AssistantThreadDtoOutputTurnsItemStatus } from "../../api/generated/model/assistantThreadDtoOutputTurnsItemStatus";
+import type { AssistantThreadDtoOutputTurnsItemToolCallsItem } from "../../api/generated/model/assistantThreadDtoOutputTurnsItemToolCallsItem";
+import type { AssistantThreadDtoOutputTurnsItemUsage } from "../../api/generated/model/assistantThreadDtoOutputTurnsItemUsage";
+
 export const ASSISTANT_MODEL_IDS = [
   "openai/gpt-5.6-luna",
   "openai/gpt-5.6-terra",
@@ -8,7 +17,7 @@ export const ASSISTANT_MODEL_IDS = [
 ] as const;
 
 export const assistantModelSchema = z.enum(ASSISTANT_MODEL_IDS);
-export type AssistantModel = z.infer<typeof assistantModelSchema>;
+export type AssistantModel = AssistantThreadDtoOutputTurnsItemModel;
 
 export const ASSISTANT_EFFORTS = ["low", "medium", "high"] as const;
 export const ASSISTANT_SERVICE_TIERS = ["standard", "fast"] as const;
@@ -101,20 +110,6 @@ export function assistantModelSupportsServiceTier(
 
 const messageContentSchema = z.string().trim().min(1).max(20_000);
 
-const userMessageSchema = z
-  .object({
-    role: z.literal("user"),
-    content: messageContentSchema,
-  })
-  .strict();
-
-const assistantMessageSchema = z
-  .object({
-    role: z.literal("assistant"),
-    content: messageContentSchema,
-  })
-  .strict();
-
 const assistantTurnRequestSchema = z
   .object({
     requestId: z.uuid(),
@@ -167,20 +162,7 @@ export function buildBranchAssistantThreadRequest(
   });
 }
 
-const assistantFailureSchema = z
-  .object({
-    code: z.enum([
-      "provider_unavailable",
-      "provider_rejected",
-      "generation_failed",
-    ]),
-    message: z.string().min(1).max(500),
-  })
-  .strict();
-
-export type AssistantFailureCode = z.infer<
-  typeof assistantFailureSchema
->["code"];
+export type AssistantFailureCode = AssistantThreadDtoOutputTurnsItemErrorCode;
 
 export const ASSISTANT_TURN_STATUSES = [
   "queued",
@@ -189,9 +171,9 @@ export const ASSISTANT_TURN_STATUSES = [
   "failed",
 ] as const;
 
-export const assistantTurnStatusSchema = z.enum(ASSISTANT_TURN_STATUSES);
-export type AssistantTurnStatus = z.infer<typeof assistantTurnStatusSchema>;
+export type AssistantTurnStatus = AssistantThreadDtoOutputTurnsItemStatus;
 
+/** Stream payloads are untyped JSON until this parser accepts their shape. */
 export const assistantToolCallSchema = z
   .object({
     toolCallId: z.string().trim().min(1).max(200),
@@ -209,7 +191,6 @@ export const assistantToolCallSchema = z
     outputTruncated: z.boolean(),
   })
   .strict();
-export type AssistantToolCall = z.infer<typeof assistantToolCallSchema>;
 
 export const assistantUsageSchema = z
   .object({
@@ -222,118 +203,12 @@ export const assistantUsageSchema = z
     pricingVersion: z.string().trim().min(1).max(32).nullable(),
   })
   .strict();
-export type AssistantUsage = z.infer<typeof assistantUsageSchema>;
+export type AssistantUsage = AssistantThreadDtoOutputTurnsItemUsage;
 
-const turnIdentityShape = {
-  id: z.uuid(),
-  requestId: z.uuid(),
-  sequence: z.number().int().positive(),
-  model: assistantModelSchema,
-  effort: assistantEffortSchema,
-  serviceTier: assistantServiceTierSchema,
-  user: userMessageSchema,
-  toolCalls: z.array(assistantToolCallSchema).max(20).default([]),
-  attempt: z.number().int().positive(),
-  createdAt: z.iso.datetime(),
-} as const;
-
-const queuedTurnSchema = z
-  .object({
-    ...turnIdentityShape,
-    status: z.literal("queued"),
-    assistant: z.null(),
-    partial: z.string().max(20_000).nullable(),
-    reasoning: z.string().max(20_000).nullable(),
-    usage: z.null().default(null),
-    error: z.null(),
-    startedAt: z.iso.datetime().nullable(),
-    completedAt: z.null(),
-  })
-  .strict();
-
-const runningTurnSchema = z
-  .object({
-    ...turnIdentityShape,
-    status: z.literal("running"),
-    assistant: z.null(),
-    partial: z.string().max(20_000).nullable(),
-    reasoning: z.string().max(20_000).nullable(),
-    usage: z.null().default(null),
-    error: z.null(),
-    startedAt: z.iso.datetime().nullable(),
-    completedAt: z.null(),
-  })
-  .strict();
-
-const succeededTurnSchema = z
-  .object({
-    ...turnIdentityShape,
-    status: z.literal("succeeded"),
-    assistant: assistantMessageSchema,
-    partial: z.null(),
-    reasoning: z.string().max(20_000).nullable(),
-    usage: assistantUsageSchema.nullable().default(null),
-    error: z.null(),
-    startedAt: z.iso.datetime().nullable(),
-    completedAt: z.iso.datetime(),
-  })
-  .strict();
-
-const failedTurnSchema = z
-  .object({
-    ...turnIdentityShape,
-    status: z.literal("failed"),
-    assistant: z.null(),
-    partial: z.null(),
-    reasoning: z.string().max(20_000).nullable(),
-    usage: z.null().default(null),
-    error: assistantFailureSchema,
-    startedAt: z.iso.datetime().nullable(),
-    completedAt: z.iso.datetime(),
-  })
-  .strict();
-
-export const assistantTurnSchema = z.discriminatedUnion("status", [
-  queuedTurnSchema,
-  runningTurnSchema,
-  succeededTurnSchema,
-  failedTurnSchema,
-]);
-
-export type AssistantTurn = z.infer<typeof assistantTurnSchema>;
-
-export const assistantThreadSummarySchema = z
-  .object({
-    id: z.uuid(),
-    title: z.string().trim().min(1).max(160),
-    lastModel: assistantModelSchema,
-    lastStatus: assistantTurnStatusSchema,
-    createdAt: z.iso.datetime(),
-    updatedAt: z.iso.datetime(),
-  })
-  .strict();
-
-export type AssistantThreadSummary = z.infer<
-  typeof assistantThreadSummarySchema
->;
-
-export const assistantThreadListSchema = z
-  .object({
-    items: z.array(assistantThreadSummarySchema).max(50),
-  })
-  .strict();
-
-export const assistantThreadSchema = z
-  .object({
-    id: z.uuid(),
-    title: z.string().trim().min(1).max(160),
-    createdAt: z.iso.datetime(),
-    updatedAt: z.iso.datetime(),
-    turns: z.array(assistantTurnSchema).min(1),
-  })
-  .strict();
-
-export type AssistantThread = z.infer<typeof assistantThreadSchema>;
+export type AssistantToolCall = AssistantThreadDtoOutputTurnsItemToolCallsItem;
+export type AssistantTurn = AssistantThreadDtoOutputTurnsItem;
+export type AssistantThreadSummary = AssistantThreadListDtoOutputItemsItem;
+export type AssistantThread = AssistantThreadDtoOutput;
 
 export interface AssistantDisplayMessage {
   id: string;

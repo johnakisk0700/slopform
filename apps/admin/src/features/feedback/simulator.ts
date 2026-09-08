@@ -1,7 +1,5 @@
-import { z } from "zod";
-
 /**
- * Response shapes for the two dev-only simulator endpoints
+ * Response types for the two dev-only simulator endpoints
  * (`POST /v1/dev/feedback/simulator/inject`, `GET .../thread`).
  *
  * These are the one documented exception to "never hand-write a response
@@ -13,38 +11,25 @@ import { z } from "zod";
  *
  * Mirrors `apps/backend/src/modules/post-event-feedback/simulator/simulator.schemas.ts`.
  */
+export interface SimulatorInjectResponse {
+  ingressId: string;
+  inserted: boolean;
+}
 
-const simulatorPhoneSchema = z
-  .string()
-  .regex(/^\+[1-9]\d{7,14}$/u, "Expected an E.164 phone number");
+interface SimulatorThreadMessage {
+  id: string;
+  source: "ingress" | "sim_outbound";
+  direction: "inbound" | "outbound";
+  text: string;
+  occurredAt: string;
+  ingressId?: string;
+  outboxId?: string;
+}
 
-export const simulatorInjectResponseSchema = z.object({
-  ingressId: z.uuid(),
-  inserted: z.boolean(),
-});
-
-export type SimulatorInjectResponse = z.infer<
-  typeof simulatorInjectResponseSchema
->;
-
-const simulatorThreadMessageSchema = z.object({
-  id: z.string().min(1).max(200),
-  source: z.enum(["ingress", "sim_outbound"]),
-  direction: z.enum(["inbound", "outbound"]),
-  text: z.string().min(1),
-  occurredAt: z.iso.datetime(),
-  ingressId: z.uuid().optional(),
-  outboxId: z.uuid().optional(),
-});
-
-export const simulatorThreadResponseSchema = z.object({
-  phoneE164: simulatorPhoneSchema,
-  messages: z.array(simulatorThreadMessageSchema),
-});
-
-export type SimulatorThreadResponse = z.infer<
-  typeof simulatorThreadResponseSchema
->;
+export interface SimulatorThreadResponse {
+  phoneE164: string;
+  messages: SimulatorThreadMessage[];
+}
 
 /** Longest inbound text the backend will accept from the injector. */
 export const SIMULATOR_MESSAGE_MAX_LENGTH = 4096;

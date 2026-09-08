@@ -1,10 +1,8 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 
-import {
-  simulatorInjectResponseSchema,
-  simulatorThreadResponseSchema,
-  type SimulatorInjectResponse,
-  type SimulatorThreadResponse,
+import type {
+  SimulatorInjectResponse,
+  SimulatorThreadResponse,
 } from "../features/feedback/simulator";
 import { api } from "./api";
 
@@ -16,8 +14,8 @@ import { api } from "./api";
  * production with `TRANSPORT_MODE=simulated`, so it is deliberately excluded
  * from the published OpenAPI document and orval cannot generate hooks for it.
  * Both calls therefore go through the same shared `ofetch` client every
- * generated hook uses, and their responses are parsed with the local Zod
- * schemas in `features/feedback/simulator.ts`.
+ * generated hook uses. The response types live beside the facade because the
+ * dev-only routes are intentionally absent from the published API document.
  *
  * Nothing on the product path may follow this pattern.
  */
@@ -43,12 +41,11 @@ export function useFeedbackSimulatorThread(
   return useQuery<SimulatorThreadResponse>({
     queryKey: getFeedbackSimulatorThreadQueryKey(phoneE164 ?? ""),
     queryFn: async ({ signal }) => {
-      const response = await api(`${SIMULATOR_BASE}/thread`, {
+      return api<SimulatorThreadResponse>(`${SIMULATOR_BASE}/thread`, {
         method: "GET",
         query: { phoneE164 },
         signal,
       });
-      return simulatorThreadResponseSchema.parse(response);
     },
     enabled: phoneE164 !== undefined && phoneE164 !== "",
     // A missing simulator is the expected answer in any non-simulated
@@ -78,7 +75,7 @@ export function useInjectFeedbackSimulatorMessage() {
     InjectSimulatorMessageVariables
   >({
     mutationFn: async (variables) => {
-      const response = await api(`${SIMULATOR_BASE}/inject`, {
+      return api<SimulatorInjectResponse>(`${SIMULATOR_BASE}/inject`, {
         method: "POST",
         body: {
           phoneE164: variables.phoneE164,
@@ -87,7 +84,6 @@ export function useInjectFeedbackSimulatorMessage() {
           idempotencyKey: variables.idempotencyKey,
         },
       });
-      return simulatorInjectResponseSchema.parse(response);
     },
   });
 }
