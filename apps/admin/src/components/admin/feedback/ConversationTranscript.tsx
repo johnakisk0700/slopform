@@ -58,13 +58,10 @@ import {
 import { SIMULATOR_MESSAGE_MAX_LENGTH } from "../../../features/feedback/simulator";
 import { staffCloseSummary } from "../../../features/feedback/staffClose";
 import {
-  createSimulatorMessageDraft,
-  createStaffMessageDraft,
-  editSimulatorMessageDraft,
-  editStaffMessageDraft,
-  settleSimulatorMessageDraft,
-  settleStaffMessageDraft,
-} from "../../../features/feedback/staffMessageDraft";
+  createMessageDraft,
+  editMessageDraft,
+  settleMessageDraft,
+} from "../../../features/feedback/messageDraft";
 import { JtsLiveIndicator } from "../../ui/JtsLiveIndicator";
 import { ReadingStatus } from "./ConversationDetails";
 import { FeedbackBadges } from "./FeedbackBadges";
@@ -366,8 +363,8 @@ interface ConversationTranscriptProps {
    * control lives next to «Back to conversations»; while the cover is up the
    * exit sits in the act cluster beside Take over (and Escape still clears it).
    */
-  isFullscreen?: boolean;
-  onFullscreenChange?: (open: boolean) => void;
+  isFullscreen: boolean;
+  onFullscreenChange: (open: boolean) => void;
 }
 
 /**
@@ -391,25 +388,22 @@ export function ConversationTranscript({
   isRefreshing,
   attention,
   actions,
-  isFullscreen = false,
+  isFullscreen,
   onFullscreenChange,
 }: ConversationTranscriptProps) {
   const headingId = useId();
   const staffInputId = useId();
   const simulatorInputId = useId();
 
-  const [staffDraft, setStaffDraft] = useState(createStaffMessageDraft);
-  const [simulatorDraft, setSimulatorDraft] = useState(
-    createSimulatorMessageDraft,
-  );
+  const staffComposer = useMessageComposer(onStaffSend);
+  const simulatorComposer = useMessageComposer(onSimulatedReply);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const name = participantLabel(conversation.respondentDisplayName);
   const unresolved = isUnresolvedParticipant(
     conversation.respondentDisplayName,
   );
-  const capabilities = conversation.capabilities;
-  const canSendStaffMessage = capabilities.canSendStaffMessage;
+  const canSendStaffMessage = conversation.capabilities.canSendStaffMessage;
   const replyIndicator = conversationReplyIndicator(conversation);
   const botReplying = replyIndicator === "bot_replying";
   const awaitingStaff = replyIndicator === "awaiting_staff";
@@ -450,7 +444,7 @@ export function ConversationTranscript({
     document.body.style.overflow = "hidden";
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
-        onFullscreenChange?.(false);
+        onFullscreenChange(false);
       }
     }
     window.addEventListener("keydown", onKeyDown);
@@ -459,32 +453,6 @@ export function ConversationTranscript({
       window.removeEventListener("keydown", onKeyDown);
     };
   }, [isFullscreen, onFullscreenChange]);
-
-  async function handleStaffSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const text = staffDraft.text.trim();
-    if (text === "") {
-      return;
-    }
-    const submittedClientMessageId = staffDraft.clientMessageId;
-    const succeeded = await onStaffSend(text, submittedClientMessageId);
-    setStaffDraft((current) =>
-      settleStaffMessageDraft(current, submittedClientMessageId, succeeded),
-    );
-  }
-
-  async function handleSimulatedSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const text = simulatorDraft.text.trim();
-    if (text === "" || onSimulatedReply === undefined) {
-      return;
-    }
-    const submittedIdempotencyKey = simulatorDraft.clientMessageId;
-    const succeeded = await onSimulatedReply(text, submittedIdempotencyKey);
-    setSimulatorDraft((current) =>
-      settleSimulatorMessageDraft(current, submittedIdempotencyKey, succeeded),
-    );
-  }
 
   return (
     <>
@@ -562,7 +530,7 @@ export function ConversationTranscript({
                 active={isRefreshing}
                 label="This transcript refreshes automatically while the conversation is open."
               />
-              {isFullscreen && onFullscreenChange ? (
+              {isFullscreen ? (
                 <Button
                   isIconOnly
                   size="sm"
@@ -582,12 +550,7 @@ export function ConversationTranscript({
                   <FeedbackBadges
                     badges={[
                       {
-                        ...lifecycleBadge({
-                          state: conversation.lifecycle.state,
-                          reason: conversation.lifecycle.reason as Parameters<
-                            typeof lifecycleBadge
-                          >[0]["reason"],
-                        }),
+                        ...lifecycleBadge(conversation.lifecycle),
                         glyph:
                           CLOSED_STATE_ICONS[
                             conversation.lifecycle.reason ?? ""
@@ -672,7 +635,7 @@ export function ConversationTranscript({
 
           {canSendStaffMessage ? (
             <form
-              onSubmit={handleStaffSubmit}
+              onSubmit={staffComposer.submit}
               className="flex gap-2 border-t border-border-subtle px-5 py-3"
             >
               <label htmlFor={staffInputId} className="sr-only">
@@ -680,12 +643,8 @@ export function ConversationTranscript({
               </label>
               <Input
                 id={staffInputId}
-                value={staffDraft.text}
-                onChange={(change) =>
-                  setStaffDraft((current) =>
-                    editStaffMessageDraft(current, change.target.value),
-                  )
-                }
+                value={staffComposer.text}
+                onChange={(change) => staffComposer.edit(change.target.value)}
                 placeholder={`Reply to ${name} as staff…`}
                 maxLength={SIMULATOR_MESSAGE_MAX_LENGTH}
                 disabled={staffSendPending}
@@ -693,7 +652,9 @@ export function ConversationTranscript({
               />
               <Button
                 type="submit"
-                isDisabled={staffSendPending || staffDraft.text.trim() === ""}
+                isDisabled={
+                  staffSendPending || staffComposer.text.trim() === ""
+                }
               >
                 <Send aria-hidden="true" className="size-4" />
                 {staffSendPending ? "Sending…" : "Send"}
@@ -707,7 +668,7 @@ export function ConversationTranscript({
              and the full sentence lives on the label and the title. A dev
              affordance must not out-size the staff composer above it. */
             <form
-              onSubmit={handleSimulatedSubmit}
+              onSubmit={simulatorComposer.submit}
               title="Development simulator — not a real WhatsApp message"
               className="flex items-center gap-2.5 border-t border-dashed border-border bg-surface-sunken px-5 py-2"
             >
@@ -724,11 +685,9 @@ export function ConversationTranscript({
               </label>
               <Input
                 id={simulatorInputId}
-                value={simulatorDraft.text}
+                value={simulatorComposer.text}
                 onChange={(change) =>
-                  setSimulatorDraft((current) =>
-                    editSimulatorMessageDraft(current, change.target.value),
-                  )
+                  simulatorComposer.edit(change.target.value)
                 }
                 placeholder={`Reply as ${name} — simulated…`}
                 maxLength={SIMULATOR_MESSAGE_MAX_LENGTH}
@@ -740,7 +699,7 @@ export function ConversationTranscript({
                 size="sm"
                 variant="secondary"
                 isDisabled={
-                  simulatedReplyPending || simulatorDraft.text.trim() === ""
+                  simulatedReplyPending || simulatorComposer.text.trim() === ""
                 }
               >
                 {simulatedReplyPending ? "Injecting…" : "Inject"}
@@ -751,6 +710,32 @@ export function ConversationTranscript({
       </section>
     </>
   );
+}
+
+/** Both composers keep an exact draft identity through failed or stale sends. */
+function useMessageComposer(
+  send:
+    ((text: string, clientMessageId: string) => Promise<boolean>) | undefined,
+) {
+  const [draft, setDraft] = useState(createMessageDraft);
+
+  function edit(text: string) {
+    setDraft((current) => editMessageDraft(current, text));
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const text = draft.text.trim();
+    if (text === "" || send === undefined) {
+      return;
+    }
+    const succeeded = await send(text, draft.clientMessageId);
+    setDraft((current) =>
+      settleMessageDraft(current, draft.clientMessageId, succeeded),
+    );
+  }
+
+  return { text: draft.text, edit, submit };
 }
 
 /** Placeholder shown while no conversation is selected. */

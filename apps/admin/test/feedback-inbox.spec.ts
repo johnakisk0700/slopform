@@ -44,10 +44,10 @@ import {
   RESULTS_POLL_INTERVAL_MS,
 } from "../src/features/feedback/polling";
 import {
-  createStaffMessageDraft,
-  editStaffMessageDraft,
-  settleStaffMessageDraft,
-} from "../src/features/feedback/staffMessageDraft";
+  createMessageDraft,
+  editMessageDraft,
+  settleMessageDraft,
+} from "../src/features/feedback/messageDraft";
 
 const ID = "00000000-0000-0000-0000-000000000000";
 const BASE_TIME = "2026-07-20T10:00:00.000Z";
@@ -458,17 +458,17 @@ describe("campaign summaries and drafts", () => {
     expect(campaignSummaryActionLabel("failed")).toBe("Generate");
   });
 
-  it("keeps a failed or unknown staff send retryable and rotates only after success", () => {
-    const empty = createStaffMessageDraft(() => "draft-1");
-    const written = editStaffMessageDraft(empty, "Γεια σου", () => "draft-2");
+  it("keeps a failed or unknown composer send retryable and rotates only after success", () => {
+    const empty = createMessageDraft(() => "draft-1");
+    const written = editMessageDraft(empty, "Γεια σου", () => "draft-2");
+    expect(settleMessageDraft(written, "draft-2", false, () => "unused")).toBe(
+      written,
+    );
+    expect(settleMessageDraft(written, "draft-1", true, () => "unused")).toBe(
+      written,
+    );
     expect(
-      settleStaffMessageDraft(written, "draft-2", false, () => "unused"),
-    ).toBe(written);
-    expect(
-      settleStaffMessageDraft(written, "draft-1", true, () => "unused"),
-    ).toBe(written);
-    expect(
-      settleStaffMessageDraft(written, "draft-2", true, () => "draft-3"),
+      settleMessageDraft(written, "draft-2", true, () => "draft-3"),
     ).toEqual({ text: "", clientMessageId: "draft-3" });
   });
 });

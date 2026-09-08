@@ -23,7 +23,6 @@ import {
   isOutboxHistoryStatus,
   outboxHistoryRangeFrom,
   outboxQueueSummary,
-  type OutboxHistoryRangeKey,
 } from "../features/feedback/outboxQueue";
 import {
   OUTBOX_HISTORY_POLL_INTERVAL_MS,
@@ -33,30 +32,7 @@ import {
 import { apiErrorMessage } from "../lib/api";
 import { usePageMeta } from "../lib/usePageMeta";
 
-/**
- * What has been sent to participants, and what is still waiting.
- *
- * The screen exists because a rehearsal on 2026-07-27 left replies unsent for
- * up to 147 seconds while extraction held every worker slot, and the only way
- * to see it was a hand-written script against Redis. Bull Board speaks in job
- * ids behind its own basic auth; this speaks in conversations and people.
- *
- * **The history is the front door.** The queue answers «is anything stuck right
- * now», which is a question with a healthy answer of «no» — so on a good day it
- * is an empty list, and an empty list is a poor landing page for the screen
- * people actually come here to read. The queue's count rides on its own tab
- * instead, where it can raise its hand without taking the room.
- *
- * **The page never touches Redis.** Both list endpoints derive every field from
- * PostgreSQL plus one batched conversation read, and the opened-row detail is
- * PostgreSQL-only too. Turning an observability page into a queue-inspection
- * loop would be a fairly committed way to recreate the outage it observes.
- *
- * Nothing here is a live region. Every age changes on every poll by
- * construction, so a polite announcement would fire forever and drown the
- * screen; the live indicators carry a hidden sentence saying the panes refresh
- * themselves, and failures still announce through `role="alert"`.
- */
+/** Read-only history and waiting queue. Polling ages are deliberately not live regions. */
 export function FeedbackOutboxPage() {
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -70,24 +46,12 @@ export function FeedbackOutboxPage() {
   // because it is the one that still has something to say on a good day.
   const view = searchParams.get("view") === "queue" ? "queue" : "history";
 
-  const range: OutboxHistoryRangeKey = isOutboxHistoryRangeKey(
-    searchParams.get("range"),
-  )
-    ? (searchParams.get("range") as OutboxHistoryRangeKey)
-    : "all";
+  const rangeParam = searchParams.get("range");
+  const range = isOutboxHistoryRangeKey(rangeParam) ? rangeParam : "all";
   const statusParam = searchParams.get("status");
   const status = isOutboxHistoryStatus(statusParam) ? statusParam : undefined;
 
-  /**
-   * Where the operator is in the log, as a stack of cursors.
-   *
-   * It is a stack rather than a page number because keyset paging only knows
-   * how to go forward: the cursor for page 3 is a fact about page 2, so «back»
-   * means «forget the last one you were given». Deliberately component state
-   * and not a URL parameter — a link that says «this range, this status» stays
-   * meaningful tomorrow, and one that also pins page 4 of a log that has grown
-   * since does not.
-   */
+  // Keyset paging needs a cursor stack for Back. Keep positions out of shareable URLs.
   const [cursors, setCursors] = useState<string[]>([]);
   const cursor = cursors.at(-1);
   const atNewest = cursor === undefined;
@@ -126,27 +90,12 @@ export function FeedbackOutboxPage() {
     },
   );
 
-  const queueItems = useMemo(
-    () => queueQuery.data?.items ?? [],
-    [queueQuery.data?.items],
-  );
-  const historyItems = useMemo(
-    () => historyQuery.data?.items ?? [],
-    [historyQuery.data?.items],
-  );
+  const queueItems = queueQuery.data?.items ?? [];
+  const historyItems = historyQuery.data?.items ?? [];
   const summary = queueQuery.data ? outboxQueueSummary(queueQuery.data) : null;
 
   const requestedId = searchParams.get("message");
-  /**
-   * In the queue, a selection lasts exactly as long as the wait it is about: a
-   * message that reached the participant between two polls should stop being
-   * the thing on screen rather than pin a pane describing a wait that is over.
-   *
-   * In the history nothing falls away — that is the point of the half — and
-   * that now includes paging. The opened row is fetched by id and knows nothing
-   * about pages, so walking back through the log while keeping one message on
-   * screen is exactly the comparison an operator paged for.
-   */
+  // Queue selections expire with the wait; history selections survive page changes.
   const selectedId =
     requestedId === null
       ? null
@@ -182,13 +131,7 @@ export function FeedbackOutboxPage() {
     );
   }
 
-  /**
-   * Any change to *which* rows exist restarts the walk through them.
-   *
-   * A cursor is a position inside one filtered set. Carrying it across a filter
-   * change would ask the server to continue from a row that may not be in the
-   * new set at all, and the honest answer to that is a page nobody asked for.
-   */
+  // A cursor belongs to one filtered set, so filter changes return to its newest page.
   const changeFilter = useCallback(
     (key: "range" | "status", value: string | null) => {
       setCursors([]);
@@ -232,10 +175,6 @@ export function FeedbackOutboxPage() {
           description="Every word this system has put in front of a participant. What is still queued is either unresolved or deliberately held — and how long it has waited is the number that matters."
         />
 
-        {/* The queue's three figures, as one line rather than three cards.
-            Stacked cards cost about a fifth of a laptop screen for numbers that
-            are single digits on a healthy day — and the height they took came
-            straight out of the two panes doing the actual work. */}
         <dl className="m-0 flex shrink-0 items-stretch divide-x divide-border-subtle rounded-md border border-border bg-surface">
           <QueueFigure
             icon={SendHorizontal}
@@ -329,12 +268,6 @@ export function FeedbackOutboxPage() {
       </div>
 
       <div className="grid min-h-0 flex-1 items-stretch gap-4 lg:grid-cols-[minmax(18rem,22rem)_minmax(0,1fr)]">
-        {/* Narrow list, wide detail — the opposite of the first cut, and the
-            way round the work runs: a row is one name and one time, while the
-            thing an operator opened it for is a message, a decision and a
-            timeline. Two columns from `lg`, not `2xl`: a 1440px laptop never
-            reached `2xl`, so the pane that was meant to sit beside the list
-            spent a year underneath it. */}
         {view === "queue" ? (
           <OutboxQueueList
             items={queueItems}

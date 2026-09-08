@@ -47,13 +47,17 @@ campaign pause/resume/close/launch. One documented transport exception:
 | `src/features/feedback/directedAnswers.ts`         | Directed-question grouping, tones, contradictions, add cost                                               |
 | `src/features/feedback/campaignSummary.ts`         | Summary status labels, pending phase, Generate vs Refresh                                                 |
 | `src/features/feedback/staffClose.ts`              | Close-reason vocabulary and «Closed as …»                                                                 |
-| `src/features/feedback/staffMessageDraft.ts`       | Staff/simulator draft identity across retry                                                               |
+| `src/features/feedback/messageDraft.ts`            | Staff/simulator draft identity across retry                                                               |
 | `src/features/feedback/polling.ts`                 | Poll intervals and stop-when-closed                                                                       |
 | `src/features/feedback/simulator.ts`               | Zod for the two dev-only simulator endpoints                                                              |
 | `src/lib/feedbackSimulator.ts`                     | Dev simulator facade over shared `ofetch`                                                                 |
 | `src/components/admin/feedback/`                   | Panes, attention strip, detail cards, badges, dialogs                                                     |
 | `src/features/participants/profileFields.ts`       | Participant storage codes as display text                                                                 |
 | `src/components/ui/JtsLiveIndicator.tsx`           | Shared poll mark ([contract](components/jts-live-indicator.md))                                           |
+
+The transcript uses one local `useMessageComposer` hook for staff and simulator
+submissions. Each instance owns its draft; `messageDraft.ts` owns the shared
+retry identity and stale-completion rules.
 
 `features/feedback/` has no React imports; rules are unit-tested in
 `apps/admin/test/feedback-inbox.spec.ts`.
