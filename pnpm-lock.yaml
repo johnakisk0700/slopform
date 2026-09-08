@@ -268,24 +268,36 @@ importers:
 
   harness:
     dependencies:
+      '@ai-sdk/openai':
+        specifier: 4.0.18
+        version: 4.0.18(zod@4.4.3)
       '@nestjs/common':
         specifier: 11.1.28
         version: 11.1.28(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@nestjs/config':
         specifier: 4.0.4
         version: 4.0.4(@nestjs/common@11.1.28(reflect-metadata@0.2.2)(rxjs@7.8.2))(rxjs@7.8.2)
+      '@openrouter/ai-sdk-provider':
+        specifier: 3.0.0
+        version: 3.0.0(ai@7.0.35(zod@4.4.3))(zod@4.4.3)
       '@slopform/backend':
         specifier: workspace:*
         version: link:../apps/backend
       '@slopform/database':
         specifier: workspace:*
         version: link:../packages/database
+      ai:
+        specifier: 7.0.35
+        version: 7.0.35(zod@4.4.3)
       bullmq:
         specifier: 5.80.10
         version: 5.80.10
       drizzle-orm:
         specifier: 0.45.2
         version: 0.45.2(@opentelemetry/api@1.9.1)(@types/pg@8.20.0)(pg@8.22.0)
+      zod:
+        specifier: 4.4.3
+        version: 4.4.3
     devDependencies:
       '@types/node':
         specifier: 24.13.3

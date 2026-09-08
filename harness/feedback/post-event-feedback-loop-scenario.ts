@@ -2,21 +2,21 @@ import type {
   FeedbackAnswerQuestionKey,
   FeedbackNoteType,
 } from "@slopform/database";
-import type { EventVenueInput } from "../events/events.schemas.js";
-import type { PostEventFeedbackQuestionSetVersion } from "./question-set.js";
+import type { EventVenueInput } from "../../apps/backend/src/modules/events/events.schemas.js";
+import type { PostEventFeedbackQuestionSetVersion } from "../../apps/backend/src/modules/post-event-feedback/question-set.js";
 import type {
   FeedbackConversationGoal,
   FeedbackConversationLifecycleReason,
-} from "./post-event-feedback-conversation.document.js";
+} from "../../apps/backend/src/modules/post-event-feedback/post-event-feedback-conversation.document.js";
 import type {
   PostEventFeedbackRecommendedAction,
   PostEventFeedbackSafetyCategory,
-} from "./attention.js";
-import type { PostEventFeedbackPolicyQuestion } from "./extraction/policy-answers.js";
+} from "../../apps/backend/src/modules/post-event-feedback/attention.js";
+import type { PostEventFeedbackPolicyQuestion } from "../../apps/backend/src/modules/post-event-feedback/extraction/policy-answers.js";
 import {
   FEEDBACK_EXTRACT_QUIET_WINDOW_MS,
   type FeedbackJobName,
-} from "./jobs.schemas.js";
+} from "../../apps/backend/src/modules/post-event-feedback/jobs.schemas.js";
 
 // ── Fixed identity ──────────────────────────────────────────────────────────
 // Fixed rather than random so a failure is reproducible and a diff is readable.

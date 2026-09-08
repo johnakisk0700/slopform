@@ -22,7 +22,7 @@ import type {
   ModelFailure,
   ModelTurn,
   ScriptedAttentionTurn,
-} from "../../apps/backend/src/modules/post-event-feedback/post-event-feedback-loop-scenario.js";
+} from "./post-event-feedback-loop-scenario.js";
 
 // ── The scripted model ──────────────────────────────────────────────────────
 

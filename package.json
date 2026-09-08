@@ -51,7 +51,8 @@
     "typecheck": "turbo run typecheck",
     "test:feedback:postgres": "turbo run test:postgres --filter=@slopform/backend",
     "workshop:build-fixtures": "turbo run workshop:compile --filter=@slopform/backend",
-    "test:workshop-scenarios": "turbo run workshop:check --filter=@slopform/backend"
+    "test:workshop-scenarios": "turbo run workshop:check --filter=@slopform/backend",
+    "assistant:smoke": "dotenv -e .env -- node harness/assistant-tools-smoke.ts"
   },
   "devDependencies": {
     "dotenv-cli": "11.0.0",

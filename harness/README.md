@@ -3,6 +3,7 @@
 The custom rehearsal suite lives here. Application code stays in `apps/`;
 deployment, migration and ordinary repository tooling stays in `scripts/`.
 
+- `assistant-tools-smoke.ts`: explicit paid tool-capability probe (`pnpm assistant:smoke`).
 - `feedback/`: deterministic feedback scenarios and shared in-memory doubles.
 - `*.mjs`: burst/simulator clients, bounded data inspection/reset, reports and
   their offline tests.
