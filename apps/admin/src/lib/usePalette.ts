@@ -15,26 +15,15 @@ import { useSyncExternalStore } from "react";
  */
 export const PALETTE_STORAGE_KEY = "jts-palette";
 
-export interface PaletteOption {
-  id: string;
-  label: string;
-  /** One short clause of provenance, shown nowhere yet — kept for tooling. */
-  origin: string;
-}
-
 /** Display order. The house theme leads because it is the default. */
-export const PALETTES: readonly PaletteOption[] = [
-  { id: "join-the-six", label: "Slopform", origin: "the house wine" },
-  { id: "graphite", label: "Graphite", origin: "cool neutral under steel" },
-  {
-    id: "noir",
-    label: "Noir",
-    origin: "one hue, spent only on what wants you",
-  },
-  { id: "amphora", label: "Amphora", origin: "Flexoki ink, Aegean glaze" },
-  { id: "linen", label: "Linen", origin: "Radix Colors sand under copper" },
-  { id: "iris", label: "Iris", origin: "Rosé Pine on its own iris" },
-];
+export const PALETTES = [
+  { id: "join-the-six", label: "Slopform" },
+  { id: "graphite", label: "Graphite" },
+  { id: "noir", label: "Noir" },
+  { id: "amphora", label: "Amphora" },
+  { id: "linen", label: "Linen" },
+  { id: "iris", label: "Iris" },
+] as const;
 
 const DEFAULT_PALETTE = "join-the-six";
 const PALETTE_ATTRIBUTE = "data-palette";

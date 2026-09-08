@@ -53,7 +53,7 @@ interface AdminUserMenuProps {
 /**
  * The operator menu: a quiet avatar-and-name trigger that opens a popover with
  * the identity block, an appearance switcher bound to {@link useTheme}, and the
- * (disabled) sign-out affordance.
+ * sign-out action (or the local authentication bypass notice).
  *
  * `Popover` is the react-aria dialog trigger: it owns the open state and wires
  * the trigger's `aria-haspopup` / `aria-expanded` / focus management, so this

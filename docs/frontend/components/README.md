@@ -28,14 +28,16 @@ prop/slot only when a real consumer needs it. Visual rules live in the
 Admin shell and interaction boundaries — documented here until one grows a
 reusable surface.
 
-| Component                                                                             | Owner       | Owns                                                                   |
-| ------------------------------------------------------------------------------------- | ----------- | ---------------------------------------------------------------------- |
-| [`AdminShell.tsx`](../../../apps/admin/src/components/admin/AdminShell.tsx)           | Admin shell | Desktop sidebar / mobile drawer, skip target, route entrance           |
-| [`AdminNavigation.tsx`](../../../apps/admin/src/components/admin/AdminNavigation.tsx) | Admin shell | Indexed nav landmark (sidebar + drawer via `variant`); "Soon" stamps   |
-| [`AdminUserMenu.tsx`](../../../apps/admin/src/components/admin/AdminUserMenu.tsx)     | Admin shell | Operator popover, Appearance (`useTheme`), Theme picker (`usePalette`) |
+| Component                                                                             | Owner       | Owns                                                                                                       |
+| ------------------------------------------------------------------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------- |
+| [`AdminShell.tsx`](../../../apps/admin/src/components/admin/AdminShell.tsx)           | Admin shell | Desktop sidebar / mobile drawer, skip target, route entrance; assistant keeps its mount across thread URLs |
+| [`AdminNavigation.tsx`](../../../apps/admin/src/components/admin/AdminNavigation.tsx) | Admin shell | Indexed links to shipped destinations (sidebar + drawer via `variant`); dev-only Cookbook                  |
+| [`AdminUserMenu.tsx`](../../../apps/admin/src/components/admin/AdminUserMenu.tsx)     | Admin shell | Operator popover, Appearance (`useTheme`), Theme picker (`usePalette`)                                     |
 
 `AdminNavigation` and `AdminUserMenu` mount twice — every internal id from
-`useId`.
+`useId`. Navigation contains Overview, AI assistant, Events, Participants,
+Feedback & safety and Outbound queue; Cookbook appears only in development.
+Unimplemented areas have no placeholder rows.
 
 ### Authentication surfaces
 
@@ -96,8 +98,8 @@ draft is prototype-only — do not persist Google Place Name outside the session
 without the legal/provider gate in `docs/deployment.md`; safe fallback is Place
 ID + authored context. Browser key: Places API (New), Places UI Kit, Maps Embed;
 referrer/API restricted. Failures surface as configuration errors (widget error
-is non-discriminating). Seating (`table_no`) is read-only here; assignment
-belongs to «Tables & matching».
+is non-discriminating). Seating (`table_no`) is read-only here; assignment has no implemented admin
+screen.
 
 ## References
 

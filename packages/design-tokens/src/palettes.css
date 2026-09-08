@@ -14,39 +14,21 @@
    specificity and this file imports after tokens.css — without the guard the
    theme's light values would win in dark mode.
 
-   EVERY THEME OWNS ITS BRAND COLOUR, AND EVERY MEANING KEEPS ITS DISTANCE.
-   A theme states its own primary, accent, link, focus and status tones, drawn
-   from its own family. Two rules decide whether a set of tones is allowed to
-   ship, and `apps/admin/test/palettes.spec.ts` measures both in CIEDE2000
-   rather than by comparing strings:
+   Each palette owns its primary, accent, link, focus and status tones.
+   Design targets use CIEDE2000: badge tones (info, success, warning, danger,
+   accent) stay at least ΔE 12 apart; primary stays at least ΔE 10 from each
+   status. Review contrast and distinguishability when changing values; these
+   CSS files have no automated colour assertion suite.
 
-     1. The five badge tones — info, success, warning, danger, accent — sit in
-        the same row of pills at 10px. They must be at least ΔE 12 apart from
-        one another. String inequality is not enough: noir once shipped its
-        accent and its warning as the same six hex digits, and before that the
-        two differed by ΔE 3.8, which no operator can tell apart.
-     2. `primary` is a button, not a pill, so it answers to a looser ΔE 10
-        against each status — far enough that «the thing you press» never reads
-        as «something is wrong».
-
-   THE LIT NUMERAL IS THE BRAND, SPOKEN ON THE SLAB. The sidebar is dark in
-   BOTH themes, so a light theme's primary — dark ink meant for paper — cannot
-   go on it. That is why `--jts-color-sidebar-active-index` exists, and its
-   value is fixed by rule rather than by taste: it is the theme's own DARK
-   primary, in both modes. The first cut let every theme invent a tint here,
-   and the numeral ended up a colour that appeared nowhere else on screen —
-   graphite lit a sky blue against a steel primary and a grey accent. The
-   mobile drawer already paints this numeral `text-primary`; this keeps the
-   sidebar saying the same thing.
+   The sidebar remains dark in both modes. Its active index uses the palette's
+   dark primary in both modes; the mobile drawer uses its current primary.
 
    Provenance: graphite is ours; noir is ours (monochrome in the brand, so the
    only colour on screen is a meaning); amphora is Flexoki (Steph Ango) glazed
    with its own cyan; linen is Radix Colors sand under indigo dye; iris is
    Rosé Pine on its own iris. External scales were taken from each project's
    official sources, then tuned where a borrowed value collided with a meaning.
-   Values are flat resolved hexes on purpose: a theme is a finished coat of
-   paint, not a second token graph. The spec also holds every one of them to
-   the AA pairs the shipped tokens answer to, and to being distinct.
+   Values are resolved hexes; semantic roles remain shared with tokens.css.
    ============================================================================= */
 
 :root[data-palette="graphite"]:not(.dark) {

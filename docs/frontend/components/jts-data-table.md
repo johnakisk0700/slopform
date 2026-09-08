@@ -42,8 +42,9 @@ meta?: { align?: "start" | "center" | "end" }
 ```
 
 `meta.align` sets header and body (default `start`). First leaf column is the
-row header (`isRowHeader`). Sortable when `ColumnDef` allows; surface reads
-`getCanSort()`.
+row header (`isRowHeader`). Body rows render TanStack’s visible cells in column
+order; HeroUI associates each cell with its header by position. Sortable when
+`ColumnDef` allows; surface reads `getCanSort()`.
 
 Alignment is applied twice: HeroUI's `SortableColumnHeader` is a `flex` row with
 `space-between`, so `text-align` alone cannot end-align a sortable header — the

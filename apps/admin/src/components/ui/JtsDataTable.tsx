@@ -162,9 +162,7 @@ export function JtsDataTable<T>({
   const hasError = Boolean(error) && !loading;
   const showInlineError = hasError && rows.length > 0;
   const showFullError = hasError && rows.length === 0;
-  // Mirrors the Vue contract: the table is present while loading, whenever there
-  // is no error, or whenever rows still exist under an error.
-  const showTable = loading || !error || rows.length > 0;
+  const showTable = !showFullError;
 
   const activeSort = sorting[0];
   const sortDescriptorProps: {
@@ -365,40 +363,27 @@ export function JtsDataTable<T>({
                     )
                   }
                 >
-                  {(row) => {
-                    const cellById = new Map(
-                      row
-                        .getVisibleCells()
-                        .map((cell) => [cell.column.id, cell] as const),
-                    );
-                    return (
-                      <Table.Row
-                        id={row.id}
-                        columns={leafHeaders}
-                        className="odd:bg-surface-sunken/40"
-                      >
-                        {(header) => {
-                          const cell = cellById.get(header.column.id);
-                          const align = header.column.columnDef.meta?.align;
-                          return (
-                            <Table.Cell
-                              className={clsx(
-                                "px-4 py-3 align-middle",
-                                alignClass(align),
-                              )}
-                            >
-                              {cell
-                                ? flexRender(
-                                    cell.column.columnDef.cell,
-                                    cell.getContext(),
-                                  )
-                                : null}
-                            </Table.Cell>
-                          );
-                        }}
-                      </Table.Row>
-                    );
-                  }}
+                  {(row) => (
+                    <Table.Row
+                      id={row.id}
+                      columns={row.getVisibleCells()}
+                      className="odd:bg-surface-sunken/40"
+                    >
+                      {(cell) => (
+                        <Table.Cell
+                          className={clsx(
+                            "px-4 py-3 align-middle",
+                            alignClass(cell.column.columnDef.meta?.align),
+                          )}
+                        >
+                          {flexRender(
+                            cell.column.columnDef.cell,
+                            cell.getContext(),
+                          )}
+                        </Table.Cell>
+                      )}
+                    </Table.Row>
+                  )}
                 </Table.Body>
               </Table.Content>
             </Table.ScrollContainer>
