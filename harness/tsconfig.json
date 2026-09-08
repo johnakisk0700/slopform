@@ -4,6 +4,6 @@
     "rootDir": "..",
     "noEmit": true
   },
-  "include": ["feedback/**/*.ts"],
+  "include": ["feedback/**/*.ts", "*.ts"],
   "exclude": ["node_modules"]
 }

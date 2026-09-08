@@ -138,7 +138,7 @@ import {
   type FeedbackStep,
   type ModelFailure,
   type ScenarioDuration,
-} from "../../apps/backend/src/modules/post-event-feedback/post-event-feedback-loop-scenario.js";
+} from "./post-event-feedback-loop-scenario.js";
 
 export {
   DEFAULT_RESPONDENT,
@@ -163,7 +163,7 @@ export {
   type ScriptedAnswer,
   type ScriptedAttention,
   type ScriptedNote,
-} from "../../apps/backend/src/modules/post-event-feedback/post-event-feedback-loop-scenario.js";
+} from "./post-event-feedback-loop-scenario.js";
 export {
   ScriptedExtractionModel,
   type ScriptedModelPause,

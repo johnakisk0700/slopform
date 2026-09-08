@@ -11,7 +11,7 @@ export interface AssistantModelAdapter {
    * Whether this model may be offered the read-only tool set.
    *
    * A per-entry claim rather than a provider-wide assumption, and it is the
-   * claim `apps/backend/src/cli/assistant-tools-smoke.ts` exists to check: a model that
+   * claim `harness/assistant-tools-smoke.ts` exists to check: a model that
    * cannot call tools answers from the conversation alone, visibly, instead of
    * having its request silently rerouted to one that can.
    */

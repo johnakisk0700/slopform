@@ -13,7 +13,11 @@
     "@slopform/database": "workspace:*",
     "bullmq": "5.80.10",
     "drizzle-orm": "0.45.2",
-    "@slopform/backend": "workspace:*"
+    "@slopform/backend": "workspace:*",
+    "@ai-sdk/openai": "4.0.18",
+    "@openrouter/ai-sdk-provider": "3.0.0",
+    "ai": "7.0.35",
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "@types/node": "24.13.3",
