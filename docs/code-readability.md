@@ -1,6 +1,6 @@
 # Code readability and naming
 
-User preferences captured on **2026-09-07**. Apply these while writing or
+User preferences captured on **2026-09-08**. Apply these while writing or
 changing an operation. Examples explain the preference; they do not authorize
 a new refactor or a repository-wide rename.
 
@@ -51,6 +51,49 @@ policy” when the actual decision can be named. Keep longer rationale in docs.
 Keep substantial types next to their owning mechanism. File length is a signal
 to inspect responsibilities, not an acceptance target. Moving code into many
 wrappers does not prove it is easier to understand.
+
+## Simplicity is the default
+
+Solve the current requirement with the most direct implementation. Do not add
+extension points, options, adapters or fallback paths for hypothetical callers.
+Use the language and installed libraries before writing another framework.
+
+- The main operation reads as a recipe: named steps, visible decisions and
+  ordering. Keep transactions and external side effects visible in that flow.
+- Split files by cohesive responsibility. Extract a meaningful step when it
+  makes the caller easier to read; a single caller is fine for a domain step.
+  Avoid pass-through classes and files whose only job is forwarding arguments.
+- Share a rule when real callers need the same behavior. Similar-looking code
+  with different reasons to change need not share an abstraction. Do not copy
+  a business rule just to avoid designing a small shared function.
+- Validate untrusted data when it enters the application. Once parsed, use
+  its type through the internal flow. Do not revalidate typed arguments,
+  generated envelopes or responses assembled by our own code. External
+  provider payloads, consumed jobs and untyped stored documents are incoming
+  data too. Business checks against current state remain necessary.
+- Tests protect consequential behavior: authorization, state transitions,
+  persistence, retries, provider failures and regressions. Do not test source
+  strings, exact utility classes, private wiring or the schema library itself.
+  A reversible visual change does not need another test suite.
+- Fewer lines are desirable when they remove work the reader must understand.
+  Do not compress expressions, weaken types, hide errors or move complexity
+  into generic utilities to improve the diff count.
+
+Use this brief when delegating implementation:
+
+> Implement the present requirement directly. Make the main operation read as
+> a recipe of named domain steps. Split by responsibility, share actual rules,
+> and avoid forwarding layers, speculative options and internal revalidation.
+> Prefer existing language/library features. Keep meaningful behavior checks;
+> remove implementation-mirroring tests. Explain any new abstraction with its
+> current callers or concrete responsibility. Report what became simpler and
+> how the resulting behavior was verified.
+
+Before accepting a change, read the main operation and its callers. Check each
+new abstraction, dependency, option and test against a current requirement.
+Review removed checks for behavior they owned (normalization and business
+invariants included). Run the applicable checks, then integrate. A green suite
+and a negative line count do not substitute for this review.
 
 ## Scope and review
 
