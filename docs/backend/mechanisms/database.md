@@ -112,10 +112,15 @@ Fencing invariants agents must not break:
   `summary_pending` and `summary_auto`. A task row is locked `FOR UPDATE` only
   while one page is allocated; processing happens after commit. These rows
   never mean work completed.
-- Direct dispatch extends `message_outbox` with claim token/expiry,
+- Outbox dispatch extends `message_outbox` with claim token/expiry,
   `send_started_at`, attempt count and bounded last error. Only `claimed`
   returns to the claim query on lease expiry; `attempting` expiry becomes
   `ambiguous`. Unknown provider outcomes never return to `pending`.
+  A single SQL statement selects oldest eligible rows in a CTE with
+  `FOR UPDATE SKIP LOCKED` and updates their claim token/expiry with
+  `UPDATE ... RETURNING`. The claim transaction commits before provider work.
+  The FIFO predicate still sees older locked rows, so skipping a lock cannot
+  admit a younger row of that conversation.
 - Each outbound intent has immutable, versioned `dispatch_context`. Enqueue
   requires purpose-specific evidence; dispatch validates it independently of
   `message_outbox_log`. Ordinary extraction evidence is the original model

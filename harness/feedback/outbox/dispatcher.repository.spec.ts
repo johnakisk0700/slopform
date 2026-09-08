@@ -149,110 +149,50 @@ describe("FeedbackOutboxRepository direct dispatch", () => {
     ]);
   });
 
-  it("claims a bounded batch with PostgreSQL SKIP LOCKED and a durable token", async () => {
-    const pending = outboxRow();
-    let claimedValues: Record<string, unknown> = {};
-
-    const returning = vi.fn().mockImplementation(async () => [
-      {
-        ...pending,
-        ...claimedValues,
-        claimExpiresAt: new Date("2026-08-03T12:02:00.000Z"),
-      },
-    ]);
-    const updateWhere = vi.fn().mockReturnValue({ returning });
-    const set = vi
-      .fn()
-      .mockImplementation((values: Record<string, unknown>) => {
-        claimedValues = values;
-        return { where: updateWhere };
-      });
-    const update = vi.fn().mockReturnValue({ set });
-
-    const forUpdate = vi.fn().mockResolvedValue([{ row: pending }]);
-    const limit = vi.fn().mockReturnValue({ for: forUpdate });
-    const orderBy = vi.fn().mockReturnValue({ limit });
-    const selectWhere = vi.fn().mockReturnValue({ orderBy });
-    const innerJoin = vi.fn().mockReturnValue({ where: selectWhere });
-    const from = vi.fn().mockReturnValue({ innerJoin });
-    const sqlBuilder = drizzle.mock();
-    const select = vi
-      .fn()
-      .mockImplementation((fields: object) =>
-        "row" in fields ? { from } : sqlBuilder.select(fields as never),
-      );
-    const transaction = { select, update };
-    const database = {
-      transaction: vi.fn(),
-      db: {},
-    } as unknown as DatabaseService;
-    const campaigns = { findCampaignById: vi.fn() };
+  it("claims a bounded batch in one PostgreSQL statement on the supplied transaction", async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [] });
+    const transaction = drizzle({ client: { query } as never });
+    const database = { transaction: vi.fn() } as unknown as DatabaseService;
     const repository = new FeedbackOutboxRepository(
       database,
-      campaigns as unknown as FeedbackCampaignRepository,
+      {} as FeedbackCampaignRepository,
     );
 
-    const claimed = await repository.claimDispatchBatch(
-      transaction as never,
-      now,
-      10,
-      FEEDBACK_OUTBOX_DISPATCH_LEASE_MS,
-      [outboxId],
-    );
+    expect(
+      await repository.claimDispatchBatch(
+        transaction as never,
+        now,
+        undefined,
+        undefined,
+        [outboxId],
+      ),
+    ).toEqual([]);
 
     expect(database.transaction).not.toHaveBeenCalled();
-
-    expect(forUpdate).toHaveBeenCalledWith("update", {
-      of: messageOutbox,
-      skipLocked: true,
-    });
-    expect(set).toHaveBeenCalledWith(
-      expect.objectContaining({
-        status: "claimed",
-        claimToken: expect.stringMatching(/^[0-9a-f-]{36}$/u),
-        sendStartedAt: null,
-      }),
+    expect(query).toHaveBeenCalledOnce();
+    const [statement, parameters] = query.mock.calls[0] as [
+      { text: string },
+      unknown[],
+    ];
+    expect(statement.text).toMatch(/^with "dispatch_candidates" as /);
+    expect(statement.text).toContain(
+      'for update of "message_outbox" skip locked',
     );
-    const [claimedSet] = set.mock.calls[0] as [Record<string, unknown>];
-    const leaseQuery = new PgDialect().sqlToQuery(
-      claimedSet.claimExpiresAt as SQL,
+    expect(statement.text).toContain('update "message_outbox" set');
+    expect(statement.text).toContain('select "id" from "dispatch_candidates"');
+    expect(statement.text).toContain("returning");
+    expect(statement.text).toContain("clock_timestamp()");
+    expect(statement.text).toContain("not exists");
+    expect(parameters).toEqual(
+      expect.arrayContaining([
+        4,
+        FEEDBACK_OUTBOX_DISPATCH_LEASE_MS,
+        outboxId,
+        ...FEEDBACK_OUTBOX_FIFO_BLOCKING_STATUSES,
+        expect.stringMatching(/^[0-9a-f-]{36}$/u),
+      ]),
     );
-    expect(leaseQuery.sql).toContain("clock_timestamp()");
-    expect(leaseQuery.params).toEqual([FEEDBACK_OUTBOX_DISPATCH_LEASE_MS]);
-    const [eligibility] = selectWhere.mock.calls[0] as [SQL];
-    const eligibilityQuery = new PgDialect().sqlToQuery(eligibility);
-    expect(eligibilityQuery.sql).toContain("not exists");
-    expect(eligibilityQuery.sql).toContain('"older_message_outbox"');
-    expect(eligibilityQuery.sql).toContain(
-      '"older_message_outbox"."conversation_id" = "message_outbox"."conversation_id"',
-    );
-    expect(eligibilityQuery.sql).toContain(
-      '"older_message_outbox"."created_at" < "message_outbox"."created_at"',
-    );
-    expect(eligibilityQuery.sql).toContain(
-      '"older_message_outbox"."id" < "message_outbox"."id"',
-    );
-    expect(eligibilityQuery.sql).toContain('"message_outbox"."kind" <>');
-    expect(eligibilityQuery.sql).toContain(
-      '"older_message_outbox"."status" <>',
-    );
-    expect(eligibilityQuery.sql).toContain('"message_outbox"."id" not in');
-    expect(eligibilityQuery.sql).toContain(
-      '"feedback_campaigns"."status" = $1 or "message_outbox"."id" in',
-    );
-    expect(eligibilityQuery.params).toEqual(
-      expect.arrayContaining([...FEEDBACK_OUTBOX_FIFO_BLOCKING_STATUSES]),
-    );
-    expect(eligibilityQuery.params).not.toContain(now);
-    expect(eligibilityQuery.params).toContain(outboxId);
-    expect(claimed).toHaveLength(1);
-    expect(claimed[0]).toMatchObject({
-      id: outboxId,
-      status: "claimed",
-      sendStartedAt: null,
-    });
-    // Campaign status is part of the claim SQL, not an N+1 query per row.
-    expect(campaigns.findCampaignById).not.toHaveBeenCalled();
+    expect(parameters).not.toContain(now);
   });
 
   it("does not report a terminal write when the token CAS matched no row", async () => {
@@ -701,6 +641,89 @@ describePostgres(
 
     afterAll(async () => {
       await client?.pool.end();
+    });
+
+    it("concurrent batches skip locked rows without passing an older conversation message", async () => {
+      const eventId = randomUUID();
+      const campaignId = randomUUID();
+      const conversationId = randomUUID();
+      const oldestId = randomUUID();
+      const nextId = randomUUID();
+      const independentIds = [randomUUID(), randomUUID()];
+      const fixtureIds = [oldestId, nextId, ...independentIds];
+
+      await client.db.transaction(async (transaction) => {
+        await transaction.insert(events).values({
+          id: eventId,
+          title: "Concurrent outbox claims",
+          startsAt: now,
+          status: "finished",
+        });
+        await transaction.insert(feedbackCampaigns).values({
+          id: campaignId,
+          eventId,
+          questionSetVersion: 2,
+          questions: { version: 2 },
+          launchedAt: now,
+          launchedBy: "outbox-claim-test",
+        });
+        await transaction.insert(messageOutbox).values(
+          fixtureIds.map((id, index) => ({
+            id,
+            campaignId,
+            conversationId: index < 2 ? conversationId : randomUUID(),
+            kind: "intro",
+            body: "hello",
+            dedupeKey: `concurrent-claim-${id}`,
+            dispatchContext: { schemaVersion: 1, purpose: "campaign_intro" },
+            createdAt: new Date(now.getTime() + index * 1000),
+          })),
+        );
+      });
+
+      const firstClaimed = Promise.withResolvers<string[]>();
+      const finishFirst = Promise.withResolvers<void>();
+      const firstTransaction = client.db.transaction(async (transaction) => {
+        const rows = await repository.claimDispatchBatch(transaction, now, 1);
+        firstClaimed.resolve(rows.map((row) => row.id));
+        await finishFirst.promise;
+        return rows;
+      });
+      // Propagate a failed claim to the waiting assertion as well as its owner.
+      void firstTransaction.catch(firstClaimed.reject);
+
+      try {
+        expect(await firstClaimed.promise).toEqual([oldestId]);
+        const secondBatch = await client.db.transaction((transaction) =>
+          repository.claimDispatchBatch(transaction, now),
+        );
+        expect(secondBatch.map((row) => row.id)).toEqual(independentIds);
+        expect(
+          secondBatch.every(
+            (row) => row.status === "claimed" && row.claimToken,
+          ),
+        ).toBe(true);
+        const [blocked] = await client.db
+          .select()
+          .from(messageOutbox)
+          .where(eq(messageOutbox.id, nextId));
+        expect(blocked?.status).toBe("pending");
+      } finally {
+        finishFirst.resolve();
+        try {
+          await firstTransaction;
+        } finally {
+          await client.db.transaction(async (transaction) => {
+            await transaction
+              .delete(messageOutbox)
+              .where(eq(messageOutbox.campaignId, campaignId));
+            await transaction
+              .delete(feedbackCampaigns)
+              .where(eq(feedbackCampaigns.id, campaignId));
+            await transaction.delete(events).where(eq(events.id, eventId));
+          });
+        }
+      }
     });
 
     it("rolls claim updates back with the caller's transaction", async () => {
