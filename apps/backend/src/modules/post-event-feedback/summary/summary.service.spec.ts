@@ -1,3 +1,7 @@
+import {
+  FEEDBACK_SUMMARY_THINKING_MAX_OUTPUT_TOKENS,
+  FeedbackSummaryGenerationError,
+} from "../../../integrations/llm/feedback-summary-model.js";
 import type {
   AppTransaction,
   FeedbackCampaignRow,
@@ -25,17 +29,9 @@ import {
 } from "../jobs.schemas.js";
 import { buildPostEventFeedbackQuestionLaunchSnapshot } from "../question-set.js";
 import {
-  DEFAULT_FEEDBACK_SUMMARY_MODEL,
-  DEFAULT_FEEDBACK_SUMMARY_REASONING_EFFORT,
   FEEDBACK_SUMMARY_EXECUTION_HEARTBEAT_MS,
-  FEEDBACK_SUMMARY_MAX_OUTPUT_TOKENS,
-  FEEDBACK_SUMMARY_THINKING_MAX_OUTPUT_TOKENS,
   FeedbackSummaryDisabledInSimulatorError,
-  FeedbackSummaryGenerationError,
   PostEventFeedbackCampaignSummaryService,
-  feedbackSummaryMaxOutputTokens,
-  resolveFeedbackSummaryModel,
-  resolveFeedbackSummaryReasoningEffort,
 } from "./summary.service.js";
 
 vi.mock("ai", async (importOriginal) => {
@@ -111,39 +107,6 @@ beforeEach(() => {
   mockedGenerateObject.mockResolvedValue({
     object: narrativeObject,
   } as Awaited<ReturnType<typeof generateObject>>);
-});
-
-describe("feedback summary configuration", () => {
-  it("reserves Terra high as the explicit summary default", () => {
-    expect(DEFAULT_FEEDBACK_SUMMARY_MODEL).toBe("openai/gpt-5.6-terra");
-    expect(DEFAULT_FEEDBACK_SUMMARY_REASONING_EFFORT).toBe("high");
-  });
-
-  it.each([undefined, "", "   "])(
-    "uses documented defaults for an absent or blank value (%s)",
-    (configured) => {
-      expect(resolveFeedbackSummaryModel(configured)).toBe(
-        DEFAULT_FEEDBACK_SUMMARY_MODEL,
-      );
-      expect(resolveFeedbackSummaryReasoningEffort(configured)).toBe(
-        DEFAULT_FEEDBACK_SUMMARY_REASONING_EFFORT,
-      );
-    },
-  );
-
-  // Same measured trap as extraction: reasoning tokens share maxOutputTokens
-  // with the JSON object. A flat 4,096 ceiling on Terra high/xhigh can spend
-  // the whole budget thinking and surface as NoObjectGeneratedError.
-  it("raises the output ceiling for every configured summary effort", () => {
-    for (const effort of ["low", "medium", "high", "xhigh", "max"] as const) {
-      expect(feedbackSummaryMaxOutputTokens(effort), effort).toBe(
-        FEEDBACK_SUMMARY_THINKING_MAX_OUTPUT_TOKENS,
-      );
-    }
-    expect(FEEDBACK_SUMMARY_THINKING_MAX_OUTPUT_TOKENS).toBeGreaterThan(
-      FEEDBACK_SUMMARY_MAX_OUTPUT_TOKENS,
-    );
-  });
 });
 
 describe("PostEventFeedbackCampaignSummaryService", () => {

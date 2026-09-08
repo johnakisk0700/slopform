@@ -2,8 +2,8 @@ import { Global, Module } from "@nestjs/common";
 import { ConfigModule, ConfigService } from "@nestjs/config";
 import { Redis } from "ioredis";
 
-import type { Environment } from "../config/environment.js";
-import { redisConnectionFromUrl } from "../queue/redis-connection.js";
+import type { Environment } from "../../infrastructure/config/environment.js";
+import { redisConnectionFromUrl } from "../../infrastructure/queue/redis-connection.js";
 import {
   ProviderCallLimiter,
   RedisProviderCallLimiter,

@@ -2,8 +2,8 @@ import { FeedbackLogger } from "../feedback-operation-log.js";
 import type { ConfigService } from "@nestjs/config";
 
 import type { Environment } from "../../../infrastructure/config/environment.js";
-import { ProviderCallLimiter } from "../../../infrastructure/ai/provider-call-limiter.js";
-import { PostEventFeedbackExtractionModel } from "../extraction/model.service.js";
+import { ProviderCallLimiter } from "../../../integrations/llm/provider-call-limiter.js";
+import { PostEventFeedbackExtractionModel } from "../../../integrations/llm/feedback-extraction-model.service.js";
 import type { BurstPersona } from "./burst-scenario.js";
 import { ScriptedBurstExtractionModel } from "./scripted-extraction-model.service.js";
 

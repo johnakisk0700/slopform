@@ -61,7 +61,7 @@ import type { FeedbackConversationExecutionClaim } from "../../extraction/execut
 import {
   FeedbackExtractionGenerationError,
   type PostEventFeedbackExtractionModel,
-} from "../../extraction/model.service.js";
+} from "../../../../integrations/llm/feedback-extraction-model.service.js";
 import { PostEventFeedbackMetrics } from "../../metrics.service.js";
 import { POST_EVENT_FEEDBACK_QUESTION_SET_V1 } from "../../question-set.js";
 import type { FeedbackAnswerQuestionKey } from "@slopform/database";

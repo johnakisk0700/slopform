@@ -38,7 +38,7 @@ import {
   FeedbackExtractionGenerationError,
   isFeedbackProviderIncident,
   type PostEventFeedbackExtractionModel,
-} from "../extraction/model.service.js";
+} from "../../../integrations/llm/feedback-extraction-model.service.js";
 import {
   POST_EVENT_FEEDBACK_FALLBACK_ACK,
   POST_EVENT_FEEDBACK_HANDOFF_REPLY,

@@ -6,7 +6,7 @@ import type {
 } from "./extract.types.js";
 import type { FeedbackConversationExecutionClaim } from "./execution-fence.repository.js";
 import type { GoalStatusUpdate } from "./goal-progress.js";
-import type { FeedbackExtractionUsage } from "./model.service.js";
+import type { FeedbackExtractionUsage } from "../../../integrations/llm/feedback-extraction-model.service.js";
 import type { FeedbackHostilityRaise } from "./operator-attention.js";
 import type { OutboundReply } from "./outbound-reply.js";
 import type { FeedbackExtractionContext } from "./extraction.schemas.js";

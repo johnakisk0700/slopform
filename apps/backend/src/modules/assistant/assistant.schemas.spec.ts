@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { ASSISTANT_MODEL_ADAPTERS } from "./assistant-models.js";
+import { ASSISTANT_MODEL_ADAPTERS } from "../../integrations/llm/assistant-models.js";
 import {
   ASSISTANT_JOB_NAMES,
   assistantJobDataSchema,

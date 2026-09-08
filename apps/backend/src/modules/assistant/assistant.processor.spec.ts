@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   AssistantGenerationError,
   type AssistantGenerationService,
-} from "./assistant-generation.service.js";
+} from "../../integrations/llm/assistant-generation.service.js";
 import {
   ASSISTANT_JOB_NAMES,
   type AssistantJobData,

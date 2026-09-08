@@ -1,6 +1,6 @@
 import { APICallError } from "ai";
 
-import type { AssistantModel } from "./assistant.schemas.js";
+import type { AssistantModel } from "../../modules/assistant/assistant.schemas.js";
 
 export type AssistantProvider = "openai" | "openrouter";
 

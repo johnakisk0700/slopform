@@ -17,7 +17,7 @@ import { FeedbackConversationExecutionLimiter } from "../extraction/execution-li
 import {
   FeedbackExtractionGenerationError,
   isFeedbackProviderIncident,
-} from "../extraction/model.service.js";
+} from "../../../integrations/llm/feedback-extraction-model.service.js";
 import {
   FeedbackConversationExecutionGuardError,
   PostEventFeedbackConversationNotFoundError,

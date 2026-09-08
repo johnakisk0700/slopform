@@ -1,3 +1,4 @@
+import { FeedbackSummaryGenerationError } from "../../../integrations/llm/feedback-summary-model.js";
 import { OnWorkerEvent, Processor, WorkerHost } from "@nestjs/bullmq";
 import { FeedbackLogger } from "../feedback-operation-log.js";
 import {
@@ -19,10 +20,7 @@ import {
   type FeedbackJobData,
   type FeedbackJobName,
 } from "../jobs.schemas.js";
-import {
-  FeedbackSummaryGenerationError,
-  PostEventFeedbackCampaignSummaryService,
-} from "./summary.service.js";
+import { PostEventFeedbackCampaignSummaryService } from "./summary.service.js";
 
 export const FEEDBACK_SUMMARY_WORKER_CONCURRENCY = 3;
 export const FEEDBACK_SUMMARY_CLAIM_BUSY_RETRY_MS = 15_000;

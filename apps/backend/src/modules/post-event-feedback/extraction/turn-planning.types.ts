@@ -6,7 +6,7 @@ import type {
   FeedbackExtractionGenerationResult,
   FeedbackExtractionUsage,
   FeedbackProviderCallGuard,
-} from "./model.service.js";
+} from "../../../integrations/llm/feedback-extraction-model.service.js";
 import type { FeedbackExtractionPrompt } from "./prompt.js";
 import type { FeedbackExtractionValidationResult } from "./validate-proposal.js";
 

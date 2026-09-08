@@ -37,7 +37,7 @@ import {
 import { FeedbackConversationExecutionFence } from "./execution-fence.service.js";
 import { FeedbackResultsRepository } from "./results.repository.js";
 import { FEEDBACK_CLOSING_DEDUPE_PREFIX } from "./extraction.schemas.js";
-import { FeedbackExtractionGenerationError } from "./model.service.js";
+import { FeedbackExtractionGenerationError } from "../../../integrations/llm/feedback-extraction-model.service.js";
 import { FeedbackExtractionResultsWriter } from "./extraction-results-writer.service.js";
 import { FeedbackExtractionStateApplier } from "./extraction-state.service.js";
 

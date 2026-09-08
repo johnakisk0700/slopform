@@ -12,7 +12,7 @@ import {
   PostEventFeedbackExtractionModel,
   type FeedbackAttentionClassificationGenerationResult,
   type FeedbackExtractionGenerationResult,
-} from "./model.service.js";
+} from "../../../integrations/llm/feedback-extraction-model.service.js";
 import {
   extractionTurnLogContext,
   type AnalyzedModelTurn,

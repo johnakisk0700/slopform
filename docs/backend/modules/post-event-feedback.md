@@ -573,7 +573,12 @@ block resume; execution epoch is deliberately absent from those keys.
 
 ### Model, configuration and cost
 
-Provider registry: `assistant-models.ts`. `FEEDBACK_EXTRACTION_MODEL` defaults
+Provider registry: [`assistant-models.ts`](../../../apps/backend/src/integrations/llm/assistant-models.ts).
+The [extraction adapter](../../../apps/backend/src/integrations/llm/feedback-extraction-model.service.ts)
+owns provider setup and the extraction, classification and rewrite calls, with
+the shared concurrency limiter applied internally. Prompts, validation policy
+and conversation execution remain in the feedback module.
+`FEEDBACK_EXTRACTION_MODEL` defaults
 `google/gemini-3.6-flash` (D12); unregistered fails at worker start. Terra
 reserved for `FEEDBACK_SUMMARY_MODEL`.
 
@@ -1057,6 +1062,10 @@ reminder/expiry/extraction candidates. After offline import, pending
 Simulator suppresses automatic requests; staff POST remains.
 
 Execution: campaign row lock → seven-minute PG lease + heartbeat; concurrency 3.
+The [summary adapter](../../../apps/backend/src/integrations/llm/feedback-summary-model.ts)
+owns provider configuration and generation. The summary service supplies a
+claim-renewal callback, which the adapter awaits after acquiring capacity and
+before calling the model; database claims and result persistence remain in the service.
 Read model publishes `executionEpoch` + `claimExpiresAt` (not `claimToken`).
 Score averages/distributions/directed counts are deterministic from answer rows.
 Model returns versioned JSON document v4 (`curiosities`, `gossip`, `actions`,

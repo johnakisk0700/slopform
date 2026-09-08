@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { assistantModelAdapter } from "../../assistant/assistant-models.js";
+import { assistantModelAdapter } from "../../../integrations/llm/assistant-models.js";
 import {
   FEEDBACK_EXTRACTION_PERMISSIVE_SAFETY_SETTINGS,
   resolveFeedbackExtractionProviderSettings,

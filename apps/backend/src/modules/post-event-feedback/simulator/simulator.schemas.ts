@@ -11,7 +11,7 @@ import { eventVenuePriceRangeSchema } from "../../events/events.schemas.js";
 import {
   FEEDBACK_EXTRACTION_REASONING_EFFORTS,
   FEEDBACK_EXTRACTION_SERVICE_TIERS,
-} from "../extraction/model.service.js";
+} from "../../../integrations/llm/feedback-extraction-model.service.js";
 import { feedbackWorkerAttestationSchema } from "../worker-attestation.js";
 
 export const feedbackSimulatorPhoneSchema = z

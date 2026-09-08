@@ -10,11 +10,12 @@ import { FeedbackDispatchAttemptService } from "./outbox/dispatch-attempt.servic
 import { Module } from "@nestjs/common";
 import { ConfigModule, ConfigService } from "@nestjs/config";
 
+import { FeedbackCampaignSummaryModel } from "../../integrations/llm/feedback-summary-model.js";
 import type { Environment } from "../../infrastructure/config/environment.js";
 import { AuditModule } from "../../infrastructure/audit/audit.module.js";
 import { DatabaseModule } from "../../infrastructure/database/database.module.js";
 import { QueueWorkerModule } from "../../infrastructure/queue/queue.module.js";
-import { ProviderCallLimiter } from "../../infrastructure/ai/provider-call-limiter.js";
+import { ProviderCallLimiter } from "../../integrations/llm/provider-call-limiter.js";
 import { WasenderClient } from "../../integrations/wasender/wasender.client.js";
 import { EventsCoreModule } from "../events/events-core.module.js";
 import { ParticipantsCoreModule } from "../participants/participants-core.module.js";
@@ -37,7 +38,7 @@ import { createFeedbackExtractionModel } from "./burst/create-feedback-extractio
 import { BURST_PERSONAS } from "./burst/burst-personas.js";
 import { PostEventFeedbackExtractionFallback } from "./extraction/fallback.service.js";
 import { FeedbackConversationExecutionLimiter } from "./extraction/execution-limiter.service.js";
-import { PostEventFeedbackExtractionModel } from "./extraction/model.service.js";
+import { PostEventFeedbackExtractionModel } from "../../integrations/llm/feedback-extraction-model.service.js";
 import { PostEventFeedbackExtractor } from "./extraction/extract.service.js";
 import { FeedbackExtractionAdmissionService } from "./extraction/extraction-admission.service.js";
 import { FeedbackModelContextBuilder } from "./extraction/model-context.service.js";
@@ -120,6 +121,7 @@ export function createFeedbackTransport(
     QueueWorkerModule,
   ],
   providers: [
+    FeedbackCampaignSummaryModel,
     FeedbackOutboundTranscriptService,
     // The operator alert seam. Only the log implementation exists today; the
     // token is what lets a future channel be swapped in without touching the

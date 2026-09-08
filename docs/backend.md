@@ -84,12 +84,13 @@ out of the worker graph. Details:
 | Post-event feedback                    | `apps/backend/src/modules/post-event-feedback/`, `packages/database/src/schema/post-event-feedback.ts` |
 | Liveness and readiness routes          | `apps/backend/src/modules/health/`                                                                     |
 | WhatsApp transport                     | `apps/backend/src/integrations/wasender/`                                                              |
-| Provider clients and auth plumbing     | `apps/backend/src/infrastructure/ai/`, `apps/backend/src/infrastructure/auth/`                         |
+| LLM adapters and shared concurrency    | `apps/backend/src/integrations/llm/`                                                                   |
+| Auth plumbing                          | `apps/backend/src/infrastructure/auth/`                                                                |
 | Published API contract                 | `apps/backend/src/infrastructure/openapi/`, `src/cli/emit-openapi.ts`, `apps/backend/openapi/`         |
 | Domain examples                        | `apps/backend/src/modules/reference/`                                                                  |
 
 Product domains live under `src/modules/`; external provider boundaries under
-`src/integrations/` (`wasender` today). `reference` is a disposable pattern —
+`src/integrations/` (`llm`, `openrouter`, `topic-clustering`, `wasender`). `reference` is a disposable pattern —
 HTTP only when `REFERENCE_MODULE_ENABLED=true`; worker stays registered to drain
 earlier jobs. Copy boundaries, then remove via forward migration. Module pages:
 [modules inventory](backend/modules/README.md).
@@ -170,7 +171,9 @@ variables to those contracts — do not scatter `process.env` reads.
 
 Start both with `dev`, or `dev:http` / `dev:worker`. Production:
 `start:http` / `start:worker`. Backend and database `build` wipe `dist/` first;
-watch compilation stays incremental.
+watch compilation stays incremental. Backend build also copies the LLM limiter's
+Lua asset beside its compiled adapter. Scripts load once at process startup;
+restart `pnpm dev` after editing Lua so predev rebuilds and copies the asset.
 
 ```bash
 pnpm --filter @slopform/database db:generate --name=<meaningful_name>

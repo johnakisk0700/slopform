@@ -7,7 +7,7 @@ import {
   type FeedbackScenarioVenue,
 } from "./vibes/post-event-feedback-loop.harness.js";
 import { POST_EVENT_FEEDBACK_HANDOFF_REPLY } from "./extraction/extraction.schemas.js";
-import { FeedbackExtractionGenerationError } from "./extraction/model.service.js";
+import { FeedbackExtractionGenerationError } from "../../integrations/llm/feedback-extraction-model.service.js";
 import { POST_EVENT_FEEDBACK_QUESTION_SET_V2 } from "./question-set.js";
 
 const V2_COPY = POST_EVENT_FEEDBACK_QUESTION_SET_V2.copy;

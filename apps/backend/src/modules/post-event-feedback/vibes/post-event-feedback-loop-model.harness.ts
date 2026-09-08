@@ -7,7 +7,7 @@ import {
   type FeedbackAttentionClassificationGenerationResult,
   type FeedbackExtractionGenerationResult,
   type FeedbackReplyGenerationResult,
-} from "../extraction/model.service.js";
+} from "../../../integrations/llm/feedback-extraction-model.service.js";
 import {
   createFeedbackExtractionProposalSchema,
   FEEDBACK_EXTRACTION_MAX_SOURCE_MESSAGES,

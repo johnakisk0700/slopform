@@ -13,37 +13,37 @@ import {
   type LanguageModel,
 } from "ai";
 
-import { FeedbackLogger } from "../feedback-operation-log.js";
-import { ProviderCallLimiter } from "../../../infrastructure/ai/provider-call-limiter.js";
-import type { Environment } from "../../../infrastructure/config/environment.js";
+import { FeedbackLogger } from "../../modules/post-event-feedback/feedback-operation-log.js";
+import { ProviderCallLimiter } from "./provider-call-limiter.js";
+import type { Environment } from "../../infrastructure/config/environment.js";
 import {
   assistantModelAdapter,
   isRetryableProviderError,
-} from "../../assistant/assistant-models.js";
+} from "./assistant-models.js";
 import {
   assistantModelSchema,
   type AssistantModel,
-} from "../../assistant/assistant.schemas.js";
+} from "../../modules/assistant/assistant.schemas.js";
 import {
   buildFeedbackReplyRewritePrompt,
   type FeedbackExtractionPrompt,
   estimatePromptTokens,
-} from "./prompt.js";
+} from "../../modules/post-event-feedback/extraction/prompt.js";
 import {
   FEEDBACK_ATTENTION_CLASSIFICATION_BATCH_SIZE,
   FeedbackAttentionClassificationValidationError,
   buildFeedbackAttentionClassificationPrompt,
   feedbackAttentionClassificationProposalSchema,
   validateFeedbackAttentionClassification,
-} from "./attention-classification.js";
-import type { FeedbackPolicyQuestionMatch } from "./policy-answers.js";
-import { resolveFeedbackExtractionProviderSettings } from "./permissive-safety-settings.js";
+} from "../../modules/post-event-feedback/extraction/attention-classification.js";
+import type { FeedbackPolicyQuestionMatch } from "../../modules/post-event-feedback/extraction/policy-answers.js";
+import { resolveFeedbackExtractionProviderSettings } from "../../modules/post-event-feedback/extraction/permissive-safety-settings.js";
 import {
   createFeedbackExtractionProposalSchema,
   type FeedbackExtractionMessageView,
   type FeedbackExtractionProposal,
   type FeedbackExtractionSafetySignalProposal,
-} from "./extraction.schemas.js";
+} from "../../modules/post-event-feedback/extraction/extraction.schemas.js";
 
 export const FEEDBACK_EXTRACTION_FAILURE_CODES = [
   "provider_unavailable",

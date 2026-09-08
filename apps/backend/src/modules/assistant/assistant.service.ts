@@ -15,7 +15,7 @@ import {
 import {
   assistantModelAdapter,
   assistantModelSupportsServiceTier,
-} from "./assistant-models.js";
+} from "../../integrations/llm/assistant-models.js";
 import {
   AssistantActiveTurnPersistenceError,
   AssistantRepository,

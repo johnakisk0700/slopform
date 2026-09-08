@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { buildFeedbackExtractionPrompt } from "../extraction/prompt.js";
 import type { FeedbackExtractionContext } from "../extraction/extraction.schemas.js";
-import { FeedbackExtractionGenerationError } from "../extraction/model.service.js";
+import { FeedbackExtractionGenerationError } from "../../../integrations/llm/feedback-extraction-model.service.js";
 import { POST_EVENT_FEEDBACK_QUESTION_SET_V2 } from "../question-set.js";
 import type { BurstPersona } from "./burst-scenario.js";
 import { parseBurstExtractionPrompt } from "./parse-burst-extraction-prompt.js";

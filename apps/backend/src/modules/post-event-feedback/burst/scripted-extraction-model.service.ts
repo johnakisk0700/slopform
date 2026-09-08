@@ -22,7 +22,7 @@ import {
   type FeedbackExtractionGenerationResult,
   type FeedbackExtractionModelPort,
   type FeedbackReplyGenerationResult,
-} from "../extraction/model.service.js";
+} from "../../../integrations/llm/feedback-extraction-model.service.js";
 import type { FeedbackExtractionPrompt } from "../extraction/prompt.js";
 import type {
   BurstCitation,

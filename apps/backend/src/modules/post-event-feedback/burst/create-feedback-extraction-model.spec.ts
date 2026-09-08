@@ -5,7 +5,7 @@ import {
   FEEDBACK_EXTRACTION_STUB_MODEL_ID,
   PostEventFeedbackExtractionModel,
   type FeedbackExtractionModelPort,
-} from "../extraction/model.service.js";
+} from "../../../integrations/llm/feedback-extraction-model.service.js";
 import { createFeedbackExtractionModel } from "./create-feedback-extraction-model.js";
 import { ScriptedBurstExtractionModel } from "./scripted-extraction-model.service.js";
 

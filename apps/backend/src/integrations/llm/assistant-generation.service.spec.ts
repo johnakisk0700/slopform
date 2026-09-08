@@ -7,7 +7,7 @@ import {
   AssistantGenerationError,
   AssistantGenerationService,
 } from "./assistant-generation.service.js";
-import { AssistantToolsService } from "./tools/assistant-tools.service.js";
+import { AssistantToolsService } from "../../modules/assistant/tools/assistant-tools.service.js";
 
 vi.mock("ai", async (importOriginal) => {
   const original = await importOriginal<typeof import("ai")>();

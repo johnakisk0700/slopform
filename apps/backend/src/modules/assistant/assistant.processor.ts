@@ -10,7 +10,7 @@ import {
 import {
   AssistantGenerationError,
   AssistantGenerationService,
-} from "./assistant-generation.service.js";
+} from "../../integrations/llm/assistant-generation.service.js";
 import {
   ASSISTANT_JOB_NAMES,
   assistantJobDataSchema,

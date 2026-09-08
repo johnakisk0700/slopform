@@ -15,8 +15,9 @@ import {
 } from "@nestjs/common/constants.js";
 import { describe, expect, it } from "vitest";
 
+import { FeedbackCampaignSummaryModel } from "../../integrations/llm/feedback-summary-model.js";
 import { IS_PUBLIC_ROUTE } from "../../infrastructure/auth/public.decorator.js";
-import { ProviderCallLimiterModule } from "../../infrastructure/ai/provider-call-limiter.module.js";
+import { ProviderCallLimiterModule } from "../../integrations/llm/provider-call-limiter.module.js";
 import { isFeedbackSimulatorHttpEnabled } from "../../infrastructure/config/enabled-modules.js";
 import {
   QueueModule,
@@ -30,7 +31,7 @@ import { DisabledFeedbackTransport } from "./outbox/disabled-transport.service.j
 import type { SimulatedFeedbackTransport } from "./outbox/simulated-transport.service.js";
 import { FeedbackSweepSchedulerService } from "./sweeps/sweep-scheduler.service.js";
 import { MessageOutboxDeliveryStatusService } from "./outbox/delivery-status.service.js";
-import { PostEventFeedbackExtractionModel } from "./extraction/model.service.js";
+import { PostEventFeedbackExtractionModel } from "../../integrations/llm/feedback-extraction-model.service.js";
 import { FeedbackExtractionAdmissionService } from "./extraction/extraction-admission.service.js";
 import { FeedbackModelContextBuilder } from "./extraction/model-context.service.js";
 import { FeedbackAiTurnAnalysis } from "./extraction/ai-turn-analysis.service.js";
@@ -141,6 +142,7 @@ describe("post-event feedback process composition", () => {
     expect(workerProviders).toContain(PostEventFeedbackProcessor);
     expect(workerProviders).toContain(FeedbackConversationReconcileProcessor);
     expect(workerProviders).toContain(FeedbackConversationExecutionLimiter);
+    expect(workerProviders).toContain(FeedbackCampaignSummaryModel);
     expect(workerProviders).toContain(FeedbackConversationWakeupService);
     expect(workerProviders).toContain(PostEventFeedbackMaterializer);
     expect(workerProviders).toContain(PendingFeedbackIngressService);

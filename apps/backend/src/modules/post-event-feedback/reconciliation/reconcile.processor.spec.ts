@@ -4,7 +4,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { PostEventFeedbackExtractionFallback } from "../extraction/fallback.service.js";
 import type { FeedbackConversationExecutionLimiter } from "../extraction/execution-limiter.service.js";
-import { FeedbackExtractionGenerationError } from "../extraction/model.service.js";
+import { FeedbackExtractionGenerationError } from "../../../integrations/llm/feedback-extraction-model.service.js";
 import { FeedbackConversationExecutionGuardError } from "../extraction/extract.service.js";
 import {
   createFeedbackReconcileConversationJobId,

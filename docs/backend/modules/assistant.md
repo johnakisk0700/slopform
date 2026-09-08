@@ -29,7 +29,7 @@ and card parsing live in
 | `google/gemini-3.6-flash` | OpenRouter | `google/gemini-3.6-flash` |
 | `qwen/qwen3.7-max`        | OpenRouter | `qwen/qwen3.7-max`        |
 
-Mapping lives in `assistant-models.ts` with an exact contract test. Default is
+Mapping lives in [`assistant-models.ts`](../../../apps/backend/src/integrations/llm/assistant-models.ts) with an exact contract test. Default is
 `google/gemini-3.6-flash`. OpenRouter needs `vendor/model`; OpenAI wants the
 bare name — either mistake is a 404. The adapter is part of the persisted
 contract: `openai/gpt-5.6-luna` always means direct OpenAI. Missing credentials
@@ -39,7 +39,10 @@ OpenRouter Luna Pro fallback needs its own public id.
 Post-event feedback extraction reuses this registry through
 `FEEDBACK_EXTRACTION_MODEL` (one public-id → provider-id table; not the
 assistant default constant). Missing provider configuration returns `503`.
-Provider clients are created once per worker service.
+Provider clients are created once per worker service. The
+[generation adapter](../../../apps/backend/src/integrations/llm/assistant-generation.service.ts)
+lives beside the registry and shared limiter in `integrations/llm/`; the
+assistant module retains turn orchestration, tools and persistence.
 
 Every turn persists reasoning effort `low` | `medium` | `high` (default `low`)
 and service tier `standard` | `fast` (default `standard`). The worker maps
@@ -230,10 +233,11 @@ model text or a tool call alone.
 
 `OPENROUTER_API_KEY` → Gemini / Qwen; `OPENAI_API_KEY` → Luna / Terra. Two-minute
 total bound; AI SDK retries disabled (BullMQ owns retries). Worker concurrency
-two per process; every provider call also takes a deployment-wide Redis lease
+two per process; each generation also takes a deployment-wide Redis lease
 capped at `PROVIDER_CALL_CONCURRENCY_LIMIT` (30), shared with feedback
-extraction, attention classification and campaign summaries, plus 30 starts per
-rolling minute.
+extraction, attention classification and campaign summaries. There is no
+per-minute start limit. Streaming holds the slot until the stream is consumed;
+a tool loop keeps the same slot across its sequential steps.
 
 Logs: queue/job/turn correlation and safe error categories — never prompts,
 answers, keys or provider bodies. Focused tests cover Mongo contracts,

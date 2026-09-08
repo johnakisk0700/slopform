@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 
+import { FeedbackCampaignSummaryModel } from "../../integrations/llm/feedback-summary-model.js";
 import { AuditModule } from "../../infrastructure/audit/audit.module.js";
 import { DatabaseModule } from "../../infrastructure/database/database.module.js";
 import { QueueWorkerModule } from "../../infrastructure/queue/queue.module.js";
@@ -11,7 +12,7 @@ import { PostEventFeedbackConversationService } from "../post-event-feedback/inb
 import { FeedbackOutboundTranscriptService } from "../post-event-feedback/outbox/outbound-transcript.service.js";
 import { FeedbackConversationWakeupService } from "../post-event-feedback/reconciliation/wakeup.service.js";
 import { PostEventFeedbackCampaignSummaryService } from "../post-event-feedback/summary/summary.service.js";
-import { AssistantGenerationService } from "./assistant-generation.service.js";
+import { AssistantGenerationService } from "../../integrations/llm/assistant-generation.service.js";
 import { AssistantRecoveryService } from "./assistant-recovery.service.js";
 import { AssistantCoreModule } from "./assistant-core.module.js";
 import { AssistantStreamRelay } from "./assistant-stream.relay.js";
@@ -32,6 +33,7 @@ import { AssistantToolsService } from "./tools/assistant-tools.service.js";
     PostEventFeedbackCoreModule,
   ],
   providers: [
+    FeedbackCampaignSummaryModel,
     AssistantGenerationService,
     AssistantProcessor,
     AssistantRecoveryService,

@@ -9,9 +9,9 @@ import { describe, expect, it } from "vitest";
 import {
   ASSISTANT_MODEL_ADAPTERS,
   assistantModelAdapter,
-} from "../../assistant/assistant-models.js";
-import type { AssistantModel } from "../../assistant/assistant.schemas.js";
-import { FeedbackAttentionClassificationValidationError } from "./attention-classification.js";
+} from "./assistant-models.js";
+import type { AssistantModel } from "../../modules/assistant/assistant.schemas.js";
+import { FeedbackAttentionClassificationValidationError } from "../../modules/post-event-feedback/extraction/attention-classification.js";
 import {
   FEEDBACK_ATTENTION_CLASSIFICATION_MAX_OUTPUT_TOKENS,
   FEEDBACK_ATTENTION_CLASSIFICATION_THINKING_MAX_OUTPUT_TOKENS,
@@ -31,7 +31,7 @@ import {
   resolveFeedbackExtractionServiceTier,
   resolveFeedbackReplyReasoningEffort,
   toGenerationError,
-} from "./model.service.js";
+} from "./feedback-extraction-model.service.js";
 
 describe("feedback extraction model selection", () => {
   it("defaults to the D12 model", () => {

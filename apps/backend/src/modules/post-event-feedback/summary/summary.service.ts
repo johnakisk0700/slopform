@@ -3,14 +3,7 @@ import { Injectable, Optional } from "@nestjs/common";
 
 import { FeedbackLogger } from "../feedback-operation-log.js";
 import { ConfigService } from "@nestjs/config";
-import { createOpenAI } from "@ai-sdk/openai";
-import {
-  APICallError,
-  NoContentGeneratedError,
-  RetryError,
-  generateObject,
-  type LanguageModel,
-} from "ai";
+import { APICallError, NoContentGeneratedError, RetryError } from "ai";
 import type { Queue } from "bullmq";
 import type {
   FeedbackCampaignRow,
@@ -19,18 +12,14 @@ import type {
 } from "@slopform/database";
 
 import { AuditRepository } from "../../../infrastructure/audit/audit.repository.js";
-import { ProviderCallLimiter } from "../../../infrastructure/ai/provider-call-limiter.js";
+import {
+  FeedbackCampaignSummaryModel,
+  FeedbackSummaryGenerationError,
+} from "../../../integrations/llm/feedback-summary-model.js";
 import type { Environment } from "../../../infrastructure/config/environment.js";
 import { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import { FEEDBACK_SUMMARY_QUEUE } from "../../../infrastructure/queue/queue.constants.js";
-import {
-  assistantModelAdapter,
-  isRetryableProviderError,
-} from "../../assistant/assistant-models.js";
-import {
-  assistantModelSchema,
-  type AssistantModel,
-} from "../../assistant/assistant.schemas.js";
+import { isRetryableProviderError } from "../../../integrations/llm/assistant-models.js";
 import { ParticipantsRepository } from "../../participants/participants.repository.js";
 import {
   FeedbackCampaignRepository,
@@ -40,7 +29,7 @@ import {
 import { FeedbackCampaignNotFoundError } from "../campaign/campaign.service.js";
 import type { FeedbackCampaignSummaryView } from "../campaign/campaign.schemas.js";
 import { FeedbackResultsRepository } from "../extraction/results.repository.js";
-import { FEEDBACK_PROVIDER_ACCOUNT_FAULT_STATUS_CODES } from "../extraction/model.service.js";
+import { FEEDBACK_PROVIDER_ACCOUNT_FAULT_STATUS_CODES } from "../../../integrations/llm/feedback-extraction-model.service.js";
 import { FeedbackConversationRepository } from "../post-event-feedback-conversation.repository.js";
 import { FeedbackMaintenanceCheckpointRepository } from "../sweeps/maintenance-checkpoint.repository.js";
 import {
@@ -54,57 +43,11 @@ import { getPostEventFeedbackQuestionSet } from "../question-set.js";
 import { buildFeedbackCampaignSummaryPrompt } from "./prompt.js";
 import {
   buildFeedbackCampaignSummaryDocument,
-  feedbackCampaignSummaryNarrativeSchema,
   parseFeedbackCampaignSummaryDocument,
   serializeFeedbackCampaignSummaryDocument,
 } from "./summary-document.js";
 import { buildFeedbackCampaignSummaryMetrics } from "./summary-metrics.js";
 
-export const DEFAULT_FEEDBACK_SUMMARY_MODEL =
-  "openai/gpt-5.6-terra" as const satisfies AssistantModel;
-
-export const DEFAULT_FEEDBACK_SUMMARY_REASONING_EFFORT = "high" as const;
-
-export const FEEDBACK_SUMMARY_REASONING_EFFORTS = [
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-  "max",
-] as const;
-
-export type FeedbackSummaryReasoningEffort =
-  (typeof FEEDBACK_SUMMARY_REASONING_EFFORTS)[number];
-
-/**
- * What a summary narrative needs when the model is not spending the budget on
- * thinking. Kept as the non-thinking floor; production always selects an
- * effort from {@link FEEDBACK_SUMMARY_REASONING_EFFORTS}, so the live call uses
- * {@link FEEDBACK_SUMMARY_THINKING_MAX_OUTPUT_TOKENS}.
- */
-export const FEEDBACK_SUMMARY_MAX_OUTPUT_TOKENS = 4_096;
-
-/**
- * Ceiling once Terra is allowed to think. Reasoning tokens come out of the
- * same `maxOutputTokens` budget as the JSON object — the extraction path
- * measured that `xhigh` on a 2,048 ceiling spent the entire budget thinking
- * and returned `NoObjectGeneratedError` with no object. Summary defaults to
- * `high` (and production has used `xhigh`); a flat 4,096 ceiling is the same
- * trap on a harder prompt. Keep this far above extraction's 16,384: Terra at
- * high/xhigh on a full campaign digests more evidence and thinks longer. A
- * ceiling is not a charge — it only has to leave room for the narrative after
- * the thinking.
- */
-export const FEEDBACK_SUMMARY_THINKING_MAX_OUTPUT_TOKENS = 65_536;
-
-/** Summary has no `none` effort; every configured value pays for thinking. */
-export function feedbackSummaryMaxOutputTokens(
-  _effort: FeedbackSummaryReasoningEffort,
-): number {
-  return FEEDBACK_SUMMARY_THINKING_MAX_OUTPUT_TOKENS;
-}
-
-export const FEEDBACK_SUMMARY_TIMEOUT_MILLISECONDS = 300_000;
 export const FEEDBACK_SUMMARY_EXECUTION_LEASE_MS = 7 * 60_000;
 export const FEEDBACK_SUMMARY_EXECUTION_HEARTBEAT_MS = 60_000;
 export const FEEDBACK_PENDING_SUMMARY_RECOVERY_BATCH_SIZE = 50;
@@ -113,16 +56,6 @@ export const FEEDBACK_SUMMARY_RECOVERY_BATCH_SIZE = 100;
 export const FEEDBACK_SUMMARY_RECOVERY_SCAN_LIMIT = 500;
 
 export const FEEDBACK_SUMMARY_BODY_MAX_LENGTH = 50_000;
-
-export class FeedbackSummaryGenerationError extends Error {
-  constructor(
-    readonly retryable: boolean,
-    readonly detail: string = "",
-  ) {
-    super("Feedback campaign summary generation failed");
-    this.name = FeedbackSummaryGenerationError.name;
-  }
-}
 
 export class FeedbackSummaryDisabledInSimulatorError extends Error {
   constructor() {
@@ -156,9 +89,6 @@ export class PostEventFeedbackCampaignSummaryService {
   private readonly logger = new FeedbackLogger(
     PostEventFeedbackCampaignSummaryService.name,
   );
-  private readonly openAiProvider: ReturnType<typeof createOpenAI> | undefined;
-  private readonly model: AssistantModel;
-  private readonly reasoningEffort: FeedbackSummaryReasoningEffort;
   private readonly simulatorEnabled: boolean;
 
   constructor(
@@ -173,18 +103,10 @@ export class PostEventFeedbackCampaignSummaryService {
     @InjectQueue(FEEDBACK_SUMMARY_QUEUE)
     private readonly queue: Queue,
     @Optional()
-    private readonly providerCalls: ProviderCallLimiter = new ProviderCallLimiter(),
+    private readonly generation: FeedbackCampaignSummaryModel = new FeedbackCampaignSummaryModel(
+      config,
+    ),
   ) {
-    const openAiKey = this.config.get("OPENAI_API_KEY", { infer: true });
-    this.openAiProvider = openAiKey
-      ? createOpenAI({ apiKey: openAiKey })
-      : undefined;
-    this.model = resolveFeedbackSummaryModel(
-      this.config.get("FEEDBACK_SUMMARY_MODEL", { infer: true }),
-    );
-    this.reasoningEffort = resolveFeedbackSummaryReasoningEffort(
-      this.config.get("FEEDBACK_SUMMARY_REASONING_EFFORT", { infer: true }),
-    );
     this.simulatorEnabled = this.config.get("FEEDBACK_SIMULATOR_ENABLED", {
       infer: true,
     });
@@ -778,8 +700,8 @@ export class PostEventFeedbackCampaignSummaryService {
           this.campaigns.markSummaryReady(transaction, {
             claim,
             body,
-            model: this.model,
-            reasoningEffort: this.reasoningEffort,
+            model: this.generation.model,
+            reasoningEffort: this.generation.reasoningEffort,
             answerCount: answers.length,
             noteCount: notes.length,
             generatedAt: new Date(),
@@ -830,11 +752,8 @@ export class PostEventFeedbackCampaignSummaryService {
     prompt: string,
     claim: FeedbackCampaignSummaryExecutionClaim,
   ) {
-    const model = this.resolveProviderModel();
-    const result = await this.providerCalls.run(async () => {
-      // Renew after the deployment-wide limiter grants capacity, immediately
-      // before provider entry. The new seven-minute horizon outlives the
-      // provider's five-minute timeout even if the periodic heartbeat dies.
+    return this.generation.generate(prompt, async () => {
+      // Renew after the limiter grants capacity, immediately before provider entry.
       const renewed = await this.database.transaction((transaction) =>
         this.campaigns.renewSummaryExecutionClaim(
           transaction,
@@ -845,22 +764,7 @@ export class PostEventFeedbackCampaignSummaryService {
       if (!renewed) {
         throw new FeedbackSummaryExecutionSupersededError();
       }
-      return generateObject({
-        model,
-        schema: feedbackCampaignSummaryNarrativeSchema,
-        schemaName: "feedback_campaign_summary_narrative",
-        schemaDescription:
-          "Short Greek operator lists for a post-event feedback campaign summary. Metrics are counted separately and must not be restated here.",
-        messages: [{ role: "user", content: prompt }],
-        maxOutputTokens: feedbackSummaryMaxOutputTokens(this.reasoningEffort),
-        maxRetries: 0,
-        abortSignal: AbortSignal.timeout(FEEDBACK_SUMMARY_TIMEOUT_MILLISECONDS),
-        providerOptions: {
-          openai: { reasoningEffort: this.reasoningEffort },
-        },
-      });
     });
-    return feedbackCampaignSummaryNarrativeSchema.parse(result.object);
   }
 
   private startExecutionHeartbeat(
@@ -917,20 +821,6 @@ export class PostEventFeedbackCampaignSummaryService {
     };
   }
 
-  private resolveProviderModel(): LanguageModel {
-    const adapter = assistantModelAdapter(this.model);
-    if (adapter.provider !== "openai") {
-      throw new FeedbackSummaryGenerationError(
-        false,
-        "summary_requires_openai_direct",
-      );
-    }
-    if (!this.openAiProvider) {
-      throw new FeedbackSummaryGenerationError(false, "missing_openai_key");
-    }
-    return this.openAiProvider(adapter.providerModelId);
-  }
-
   private async requireCampaign(
     campaignId: string,
   ): Promise<FeedbackCampaignRow> {
@@ -940,37 +830,6 @@ export class PostEventFeedbackCampaignSummaryService {
     }
     return campaign;
   }
-}
-
-export function resolveFeedbackSummaryModel(
-  configured: string | undefined,
-): AssistantModel {
-  const candidate = configured?.trim() || DEFAULT_FEEDBACK_SUMMARY_MODEL;
-  const parsed = assistantModelSchema.safeParse(candidate);
-  if (!parsed.success) {
-    throw new Error(`Unknown FEEDBACK_SUMMARY_MODEL: ${candidate}`);
-  }
-  if (assistantModelAdapter(parsed.data).provider !== "openai") {
-    throw new Error(
-      `FEEDBACK_SUMMARY_MODEL must route OpenAI direct: ${candidate}`,
-    );
-  }
-  return parsed.data;
-}
-
-export function resolveFeedbackSummaryReasoningEffort(
-  configured: string | undefined,
-): FeedbackSummaryReasoningEffort {
-  const candidate =
-    configured?.trim() || DEFAULT_FEEDBACK_SUMMARY_REASONING_EFFORT;
-  if (
-    !(FEEDBACK_SUMMARY_REASONING_EFFORTS as readonly string[]).includes(
-      candidate,
-    )
-  ) {
-    throw new Error(`Unknown FEEDBACK_SUMMARY_REASONING_EFFORT: ${candidate}`);
-  }
-  return candidate as FeedbackSummaryReasoningEffort;
 }
 
 function summaryNeedsFinalRefresh(

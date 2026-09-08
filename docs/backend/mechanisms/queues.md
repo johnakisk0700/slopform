@@ -137,7 +137,7 @@ Queue-facing rules:
 | Campaign resume          | PG owns status + `resume_generation` (ABA token for outbound logs). Resume revises open conversation due columns in the same transaction. The separate resume-ack / `resume_due_at` repair service is deleted. Wake-ups after commit remain disposable.                                                                        |
 | Summary                  | Campaign row lock derives next attempt; claim exact attempt with epoch/token/seven-minute lease. Maintenance pages `(requested_at, campaign_id)` under `summary_pending`; `summary_auto` is a separate cursor.                                                                                                                 |
 | Maintenance              | One bounded periodic job; ingress / conversation / summary subtasks fail independently. Due-work: SQL keyset pages of 100, ≤500 rows/pass, checkpoint `conversation_due` commits before publish. Does not seed missing `work` or repair a resume-ack protocol.                                                                 |
-| Provider limiter         | Shared Redis semaphore: `PROVIDER_CALL_CONCURRENCY_LIMIT=30`, `PROVIDER_CALL_STARTS_PER_MINUTE_LIMIT=60`. Dead worker loses concurrency until ~six-minute lease expiry.                                                                                                                                                        |
+| Provider limiter         | Shared Redis semaphore: `PROVIDER_CALL_CONCURRENCY_LIMIT=30`, no per-minute start limit. Dead worker loses concurrency until ~six-minute lease expiry.                                                                                                                                                                         |
 | Worker attestation       | Feedback Worker BullMQ name carries base64url control profile (stub/model/adapter/efforts/tier). Paid simulator preflight fail-closes on missing/mismatched workers. Built from env at decorator time (same resolvers as `ConfigService`).                                                                                     |
 
 Webhook ingress: commit `provider_message_ingress` then enqueue; failed enqueue →
@@ -173,6 +173,35 @@ provider/config failures stop; timeout / rate-limit / 5xx retry. Terminal writes
 are status-and-attempt conditional. Recovery scans stale nonterminal turns on
 startup and every 5 minutes; after 15 minutes fails the attempt only if the
 exact BullMQ job is missing or terminal.
+
+## LLM concurrency
+
+The adapters, model registry and [limiter](../../../apps/backend/src/integrations/llm/provider-call-limiter.ts)
+live together in `integrations/llm/`. Business callers invoke the adapters;
+the adapters acquire and release capacity internally. The worker graph injects
+one Redis-backed limiter shared across assistant, extraction and summaries.
+
+The [Lua script](../../../apps/backend/src/integrations/llm/acquire-provider-slot.lua)
+removes expired leases, then atomically claims a slot if fewer than 30 remain.
+Each token expires after six minutes, longer than the longest provider timeout
+(five minutes). Normal completion or rejection releases the token with `ZREM`
+in `finally`; worker death leaves it until expiry. No per-minute counter exists.
+
+Full capacity returns `0`; callers wait one second and try again. This is
+polling, with no FIFO guarantee or acquisition deadline. BullMQ remains the job
+queue; there is no second notification queue inside the limiter. Acquisition
+failure prevents model entry. Redis release errors still propagate to the caller.
+
+The real-Redis tests use a unique key prefix and exact cleanup. Run against a
+local test Redis (never production):
+
+```bash
+PROVIDER_LIMITER_TEST_REDIS_URL=redis://127.0.0.1:6379 \
+  pnpm --filter @slopform/backend test src/integrations/llm/provider-call-limiter.spec.ts
+```
+
+Without this opt-in URL, the real-Redis cases are skipped; transport-failure and
+in-memory tests still run in `pnpm check`.
 
 ## Retry, concurrency, retention
 

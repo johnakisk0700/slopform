@@ -18,7 +18,7 @@ import {
 } from "../operator-alert.js";
 import { FeedbackOutboundIntentService } from "../outbox/outbound-intent.service.js";
 import { FeedbackOutboundTranscriptService } from "../outbox/outbound-transcript.service.js";
-import type { FeedbackExtractionFailureCause } from "./model.service.js";
+import type { FeedbackExtractionFailureCause } from "../../../integrations/llm/feedback-extraction-model.service.js";
 import {
   FEEDBACK_EXTRACTION_PARK_NOTICE_AFTER_MS,
   POST_EVENT_FEEDBACK_EXTRACTION_PARKED_NOTICE,

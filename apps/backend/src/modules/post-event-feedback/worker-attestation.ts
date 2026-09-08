@@ -5,7 +5,7 @@ import {
   resolveFeedbackSimulatedTransportProfile,
 } from "../../infrastructure/config/feedback-simulated-transport.js";
 
-import { assistantModelAdapter } from "../assistant/assistant-models.js";
+import { assistantModelAdapter } from "../../integrations/llm/assistant-models.js";
 import { assistantModelSchema } from "../assistant/assistant.schemas.js";
 import {
   FEEDBACK_EXTRACTION_REASONING_EFFORTS,
@@ -15,7 +15,7 @@ import {
   resolveFeedbackExtractionReasoningEffort,
   resolveFeedbackExtractionServiceTier,
   resolveFeedbackReplyReasoningEffort,
-} from "./extraction/model.service.js";
+} from "../../integrations/llm/feedback-extraction-model.service.js";
 
 export const FEEDBACK_WORKER_ATTESTATION_VERSION = 3 as const;
 export const FEEDBACK_WORKER_ATTESTATION_STATUSES = [

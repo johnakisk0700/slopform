@@ -1,5 +1,5 @@
 import type { FeedbackConversationDocument } from "../post-event-feedback-conversation.document.js";
-import { FeedbackProviderCallGuardError } from "./model.service.js";
+import { FeedbackProviderCallGuardError } from "../../../integrations/llm/feedback-extraction-model.service.js";
 import type { FeedbackConversationExecutionClaim } from "./execution-fence.repository.js";
 
 export const FEEDBACK_CONVERSATION_EXECUTION_GUARD_REASONS = [

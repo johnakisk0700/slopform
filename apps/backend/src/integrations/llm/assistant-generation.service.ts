@@ -14,7 +14,7 @@ import {
   type ToolSet,
 } from "ai";
 
-import { ProviderCallLimiter } from "../../infrastructure/ai/provider-call-limiter.js";
+import { ProviderCallLimiter } from "./provider-call-limiter.js";
 import type { Environment } from "../../infrastructure/config/environment.js";
 import {
   assistantContentSchema,
@@ -24,8 +24,8 @@ import {
   type AssistantServiceTier,
   type AssistantToolCall,
   type AssistantUsage,
-} from "./assistant.schemas.js";
-import { priceAssistantUsage } from "./assistant-pricing.js";
+} from "../../modules/assistant/assistant.schemas.js";
+import { priceAssistantUsage } from "../../modules/assistant/assistant-pricing.js";
 import {
   assistantModelAdapter,
   assistantModelSupportsTools,
@@ -35,7 +35,7 @@ import {
   assistantToolActivityLabel,
   AssistantToolsService,
   type AssistantToolActivity,
-} from "./tools/assistant-tools.service.js";
+} from "../../modules/assistant/tools/assistant-tools.service.js";
 
 const ASSISTANT_SYSTEM_PROMPT = `You are the Slopform administrative assistant, answering staff questions about events, the people who attend them and their post-event feedback.
 

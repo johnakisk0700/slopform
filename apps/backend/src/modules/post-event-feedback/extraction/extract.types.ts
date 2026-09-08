@@ -7,7 +7,7 @@ import type { GoalStatusUpdate } from "./goal-progress.js";
 import type { OutboundReply } from "./outbound-reply.js";
 import type { FeedbackExtractionContext } from "./extraction.schemas.js";
 import type { FeedbackExtractionValidationResult } from "./validate-proposal.js";
-import type { FeedbackExtractionUsage } from "./model.service.js";
+import type { FeedbackExtractionUsage } from "../../../integrations/llm/feedback-extraction-model.service.js";
 import type { FeedbackConversationExecutionClaim } from "./execution-fence.repository.js";
 
 export class PostEventFeedbackConversationNotFoundError extends Error {

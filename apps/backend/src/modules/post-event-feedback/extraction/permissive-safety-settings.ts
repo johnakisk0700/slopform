@@ -1,4 +1,4 @@
-import type { AssistantModelAdapter } from "../../assistant/assistant-models.js";
+import type { AssistantModelAdapter } from "../../../integrations/llm/assistant-models.js";
 
 /**
  * Permissive provider safety thresholds for the extraction call path only.

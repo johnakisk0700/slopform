@@ -2080,8 +2080,8 @@ function sleep(ms) {
  */
 async function resolveTreatmentConfig(treatment) {
   const [modelService, assistantModels] = await Promise.all([
-    import("../apps/backend/dist/modules/post-event-feedback/extraction/model.service.js"),
-    import("../apps/backend/dist/modules/assistant/assistant-models.js"),
+    import("../apps/backend/dist/integrations/llm/feedback-extraction-model.service.js"),
+    import("../apps/backend/dist/integrations/llm/assistant-models.js"),
   ]);
   assertFeedbackBurstTreatmentAdapter(
     treatment,
