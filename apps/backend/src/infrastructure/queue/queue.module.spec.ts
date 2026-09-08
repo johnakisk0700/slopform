@@ -10,6 +10,7 @@ import {
   FEEDBACK_MAINTENANCE_QUEUE,
   FEEDBACK_QUEUE,
   FEEDBACK_SUMMARY_QUEUE,
+  FEEDBACK_TOPIC_ANALYSIS_QUEUE,
   REFERENCE_QUEUE,
 } from "./queue.constants.js";
 import {
@@ -59,6 +60,7 @@ describe("queue process boundaries", () => {
         FEEDBACK_INGRESS_QUEUE,
         FEEDBACK_CONVERSATION_QUEUE,
         FEEDBACK_SUMMARY_QUEUE,
+        FEEDBACK_TOPIC_ANALYSIS_QUEUE,
         FEEDBACK_MAINTENANCE_QUEUE,
         REFERENCE_QUEUE,
       ].map((queue) => getQueueToken(queue));

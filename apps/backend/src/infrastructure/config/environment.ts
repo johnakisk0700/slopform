@@ -187,6 +187,27 @@ export const environmentSchema = observabilityEnvironmentSchema
     AUTH_DEV_BYPASS: booleanFromEnvironment,
     OPENAI_API_KEY: optionalCredential,
     OPENROUTER_API_KEY: optionalCredential,
+    FEEDBACK_TOPIC_ANALYSIS_ENABLED: booleanFromEnvironment,
+    FEEDBACK_TOPIC_CLUSTERING_PYTHON: z.preprocess(
+      emptyStringToUndefined,
+      z
+        .string()
+        .trim()
+        .min(1)
+        .max(4096)
+        .refine((value) => !/[\r\n\0]/u.test(value), "Invalid executable path")
+        .default("apps/topic-clustering/.venv/bin/python"),
+    ),
+    FEEDBACK_TOPIC_CLUSTERING_SCRIPT: z.preprocess(
+      emptyStringToUndefined,
+      z
+        .string()
+        .trim()
+        .min(1)
+        .max(4096)
+        .refine((value) => !/[\r\n\0]/u.test(value), "Invalid script path")
+        .default("apps/topic-clustering/cluster.py"),
+    ),
     // D12: the extraction model is configurable. Infrastructure does not import
     // product modules, so the registry membership check belongs to the feedback
     // module itself, which rejects an unknown id at worker start rather than

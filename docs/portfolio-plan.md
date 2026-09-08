@@ -1,8 +1,8 @@
 # Portfolio / Slopform plan
 
 Last updated: **2026-09-08**. This is the current product-planning map, not a
-claim that the proposed public demo exists. The user has authorized the campaign
-topic-analysis backend slice below; the other demo tasks remain planning work.
+claim that the proposed public demo exists. The campaign topic-analysis backend
+slice below is implemented; the other demo tasks remain planning work.
 
 [Notion Portfolio](https://app.notion.com/p/3d45e2e6ab7e8165b51fc1164cb09c44) ·
 [Slopform project](https://app.notion.com/p/3d45e2e6ab7e81338422ec29fa6a7c13) ·
@@ -69,13 +69,18 @@ schema and API changes need their own documented implementation slice and any
 required new ADR; do not edit accepted historical ADRs to imply they already
 permit a public demo.
 
-## Campaign topic analysis: authorized implementation direction
+## Campaign topic analysis: backend implementation
 
 The first showcase is feedback after events/workshops, including research over
 many responses. A second showcase is optional; SaaS onboarding is not selected.
 Do not claim response rates or participant motivation have been validated.
 
-Implement a bounded asynchronous analysis of existing campaign feedback:
+The bounded asynchronous backend analyzes existing campaign feedback. See
+[campaign topic analysis](backend/modules/campaign-topic-analysis.md) for the
+implemented flow, research sources, limits and failure behavior. It adds no
+visitor UI or Assistant tool yet.
+
+The implementation follows these boundaries:
 
 - Keep the current live extraction and conversation behavior. Do not redesign
   the campaign questionnaire or move extraction in this slice.
@@ -83,11 +88,11 @@ Implement a bounded asynchronous analysis of existing campaign feedback:
   OpenRouter calls, repositories and PostgreSQL transactions/results.
 - Use OpenRouter for embeddings; store reusable vectors with the input and
   model/config identity. No local embedding model is required.
-- Before choosing the embedding/storage implementation, research current
-  OpenRouter models for Greek/Greeklish quality, clustering suitability and
-  price. Compare ordinary PostgreSQL vector persistence, pgvector and a separate
-  vector store against actual retrieval needs; do not add a database merely
-  because the workflow uses embeddings. Record the chosen tradeoff and sources.
+- The initial choice is Qwen3 Embedding 8B through OpenRouter, 1,024 dimensions,
+  with a USD 0.01/million input-token provider price ceiling. PostgreSQL `real[]`
+  stores cached vectors; no similarity index or separate vector database is
+  needed for bounded batch clustering. Greek/Greeklish semantic quality still
+  needs representative feedback; multilingual support alone does not prove it.
 - A Python subprocess runs BERTopic on supplied text and vectors. Node owns
   its lifetime through a small infrastructure adapter with Effect composition,
   timeout/cancellation, bounded IO and a versioned structured protocol.

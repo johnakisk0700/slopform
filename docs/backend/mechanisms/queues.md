@@ -148,6 +148,21 @@ of several ingress rows. Maintenance recovers `pending` older than
 `ingress_pending`; re-adds `feedback.materialize.v1` under the same job id
 (leave live jobs; remove retained completed/failed before reuse).
 
+## Campaign topic analysis invariants
+
+Campaign topic analysis uses the separate `feedback-topic-analysis` queue,
+`feedback.analyze-topics.v1`, identifier-only `{ schemaVersion: 1, analysisId }`
+and ID `feedback-analyze-topics-v1-<analysisId>`. Concurrency is one; PostgreSQL
+also grants one deployment-wide lease. Three queue attempts (two retries) with 30-second fixed
+backoff wake a run whose independent durable budget permits at most three claims
+and 48 provider requests. Busy claims delay without consuming an attempt.
+Startup/30-second recovery rotates at most 20 due rows before publishing, repairs
+lost enqueue and never resets durable budgets. Successful wake-ups are removed;
+failed retention is seven days/1000 jobs. Unknown envelopes and permanent errors
+are unrecoverable; cache survives transient retries. Disabling new HTTP starts
+does not disable previously authorized work. See
+[topic analysis](../modules/campaign-topic-analysis.md).
+
 ## Assistant invariants
 
 Mongo owns thread/history/UI turn state; PG retains request id, model, attempt,

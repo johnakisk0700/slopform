@@ -11,6 +11,15 @@ RUN corepack enable && \
   chmod -R a+rX /corepack
 WORKDIR /workspace
 
+FROM base AS clustering-dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-venv libgomp1 && \
+  rm -rf /var/lib/apt/lists/*
+COPY apps/topic-clustering/requirements.lock /opt/topic-clustering/requirements.lock
+RUN python3 -m venv /opt/topic-clustering/.venv && \
+  /opt/topic-clustering/.venv/bin/python -m pip install --no-cache-dir --no-deps \
+    --require-hashes --only-binary=:all: -r /opt/topic-clustering/requirements.lock && \
+  /opt/topic-clustering/.venv/bin/python -I -B -c "from bertopic import BERTopic; from sklearn.cluster import HDBSCAN"
+
 FROM base AS dependencies
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
 COPY apps/backend/package.json apps/backend/package.json
@@ -22,6 +31,9 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store,sharing=locked \
   pnpm install --frozen-lockfile
 
 FROM dependencies AS development
+RUN apt-get update && apt-get install -y --no-install-recommends python3 libgomp1 && \
+  rm -rf /var/lib/apt/lists/*
+COPY --from=clustering-dependencies /opt/topic-clustering /opt/topic-clustering
 ARG DEV_GID=1000
 ARG DEV_UID=1000
 ENV NODE_ENV=development
@@ -89,6 +101,13 @@ EXPOSE 4000
 CMD ["node", "--import", "./dist/instrumentation.js", "./dist/main-http.js"]
 
 FROM backend-runtime AS worker
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends python3 libgomp1 && \
+  rm -rf /var/lib/apt/lists/*
+COPY --from=clustering-dependencies /opt/topic-clustering /opt/topic-clustering
+COPY apps/topic-clustering/cluster.py /opt/topic-clustering/cluster.py
+ENV PYTHONDONTWRITEBYTECODE=1
+USER node
 ARG RELEASE_TAG=unknown
 LABEL org.opencontainers.image.revision=$RELEASE_TAG
 CMD ["node", "--import", "./dist/instrumentation.js", "./dist/main-worker.js"]

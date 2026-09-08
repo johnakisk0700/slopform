@@ -14,6 +14,7 @@ import {
   FEEDBACK_MAINTENANCE_QUEUE,
   FEEDBACK_QUEUE,
   FEEDBACK_SUMMARY_QUEUE,
+  FEEDBACK_TOPIC_ANALYSIS_QUEUE,
   REFERENCE_QUEUE,
 } from "./queue.constants.js";
 
@@ -51,6 +52,7 @@ export class QueueLifecycleService implements BeforeApplicationShutdown {
     @InjectQueue(FEEDBACK_SUMMARY_QUEUE) feedbackSummary: Queue,
     @InjectQueue(FEEDBACK_MAINTENANCE_QUEUE) feedbackMaintenance: Queue,
     @InjectQueue(REFERENCE_QUEUE) reference: Queue,
+    @InjectQueue(FEEDBACK_TOPIC_ANALYSIS_QUEUE) feedbackTopics: Queue,
   ) {
     this.queues = [
       assistant,
@@ -61,6 +63,7 @@ export class QueueLifecycleService implements BeforeApplicationShutdown {
       feedbackSummary,
       feedbackMaintenance,
       reference,
+      feedbackTopics,
     ];
   }
 

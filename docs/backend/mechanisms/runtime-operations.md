@@ -89,6 +89,19 @@ provider clients.
 - Add new variables to the Zod contract, tests, applicable example/deployment
   configuration and this page. Services do not read scattered `process.env`.
 
+### Topic analysis runtime
+
+Topic analysis adds `FEEDBACK_TOPIC_ANALYSIS_ENABLED` (false by default, new
+starts only), `FEEDBACK_TOPIC_CLUSTERING_PYTHON` and
+`FEEDBACK_TOPIC_CLUSTERING_SCRIPT`. Relative paths resolve from repository root;
+production uses absolute paths under `/opt/topic-clustering`. Worker embeddings
+use the existing `OPENROUTER_API_KEY`. Both HTTP and worker validate path strings;
+only the worker owns provider/process clients. The worker aborts an active
+embedding request and kills/reaps its Python child during module destruction,
+before queue/pool shutdown. Logs carry `topic_analysis` stages and sanitized
+codes, never provider bodies or Python stderr. Details and hard ceilings:
+[campaign topic analysis](../modules/campaign-topic-analysis.md).
+
 ## Logging and correlation
 
 Pino writes JSON in production or non-TTY output; `pino-pretty` is local TTY

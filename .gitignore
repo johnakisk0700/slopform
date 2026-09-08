@@ -7,6 +7,9 @@ node_modules/
 dist/
 coverage/
 *.tsbuildinfo
+.venv/
+__pycache__/
+*.pyc
 
 # Local scratch, burst HTML, and other tool output. Never commit these —
 # including the runner's JSON summaries that previously used a negation rule.

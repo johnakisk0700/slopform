@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { TopicAnalysisHttpModule } from "./modules/post-event-feedback/topic-analysis/topic-analysis.http.module.js";
 import { ConditionalModule } from "@nestjs/config";
 import { APP_FILTER, APP_INTERCEPTOR, APP_PIPE } from "@nestjs/core";
 import { SentryGlobalFilter, SentryModule } from "@sentry/nestjs/setup";
@@ -47,6 +48,7 @@ const StrictZodValidationPipe = createZodValidationPipe({
     ParticipantsHttpModule,
     PostEventFeedbackCoreModule,
     PostEventFeedbackHttpModule,
+    TopicAnalysisHttpModule,
     ConditionalModule.registerWhen(
       WasenderWebhookModule,
       isWasenderWebhookEnabled,

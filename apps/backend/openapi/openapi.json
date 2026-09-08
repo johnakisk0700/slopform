@@ -5858,6 +5858,768 @@
         ],
         "type": "object"
       },
+      "TopicAnalysisResultDto_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "analysis": {
+            "additionalProperties": false,
+            "properties": {
+              "attempts": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "campaignId": {
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                "type": "string"
+              },
+              "completedAt": {
+                "format": "date-time",
+                "nullable": true,
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                "type": "string"
+              },
+              "configuration": {
+                "additionalProperties": false,
+                "properties": {
+                  "clustering": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "minSamples": {
+                        "enum": [
+                          2
+                        ],
+                        "type": "number"
+                      },
+                      "minTopicSize": {
+                        "enum": [
+                          3
+                        ],
+                        "type": "number"
+                      },
+                      "randomSeed": {
+                        "enum": [
+                          42
+                        ],
+                        "type": "number"
+                      },
+                      "version": {
+                        "enum": [
+                          "bertopic-0.17.4-pca-hdbscan-v1"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "version",
+                      "minTopicSize",
+                      "minSamples",
+                      "randomSeed"
+                    ],
+                    "type": "object"
+                  },
+                  "embedding": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "dimensions": {
+                        "enum": [
+                          1024
+                        ],
+                        "type": "number"
+                      },
+                      "instruction": {
+                        "enum": [
+                          "Instruct: Identify the topic of this post-event feedback note for clustering similar feedback.\nQuery: "
+                        ],
+                        "type": "string"
+                      },
+                      "instructionVersion": {
+                        "enum": [
+                          1
+                        ],
+                        "type": "number"
+                      },
+                      "model": {
+                        "enum": [
+                          "qwen/qwen3-embedding-8b"
+                        ],
+                        "type": "string"
+                      },
+                      "provider": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "allow_fallbacks": {
+                            "enum": [
+                              false
+                            ],
+                            "type": "boolean"
+                          },
+                          "max_price": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "prompt": {
+                                "enum": [
+                                  0.01
+                                ],
+                                "type": "number"
+                              },
+                              "request": {
+                                "enum": [
+                                  0
+                                ],
+                                "type": "number"
+                              }
+                            },
+                            "required": [
+                              "prompt",
+                              "request"
+                            ],
+                            "type": "object"
+                          },
+                          "require_parameters": {
+                            "enum": [
+                              true
+                            ],
+                            "type": "boolean"
+                          },
+                          "sort": {
+                            "enum": [
+                              "price"
+                            ],
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "sort",
+                          "allow_fallbacks",
+                          "require_parameters",
+                          "max_price"
+                        ],
+                        "type": "object"
+                      }
+                    },
+                    "required": [
+                      "model",
+                      "dimensions",
+                      "instructionVersion",
+                      "instruction",
+                      "provider"
+                    ],
+                    "type": "object"
+                  },
+                  "inputVersion": {
+                    "enum": [
+                      "active-extracted-notes-v1"
+                    ],
+                    "type": "string"
+                  },
+                  "version": {
+                    "enum": [
+                      1
+                    ],
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "version",
+                  "inputVersion",
+                  "embedding",
+                  "clustering"
+                ],
+                "type": "object"
+              },
+              "createdAt": {
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                "type": "string"
+              },
+              "documentCount": {
+                "exclusiveMinimum": true,
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "errorCode": {
+                "nullable": true,
+                "type": "string"
+              },
+              "id": {
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                "type": "string"
+              },
+              "inputScope": {
+                "enum": [
+                  "active_extracted_notes"
+                ],
+                "type": "string"
+              },
+              "observedCostUsd": {
+                "minimum": 0,
+                "nullable": true,
+                "type": "number"
+              },
+              "observedPromptTokens": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "observedResponses": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "reservedRequests": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "snapshotHash": {
+                "type": "string"
+              },
+              "stage": {
+                "enum": [
+                  "queued",
+                  "embedding",
+                  "clustering",
+                  "completed",
+                  "failed"
+                ],
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "pending",
+                  "running",
+                  "completed",
+                  "failed"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "campaignId",
+              "status",
+              "stage",
+              "snapshotHash",
+              "configuration",
+              "inputScope",
+              "documentCount",
+              "attempts",
+              "reservedRequests",
+              "observedResponses",
+              "observedPromptTokens",
+              "observedCostUsd",
+              "errorCode",
+              "createdAt",
+              "completedAt"
+            ],
+            "type": "object"
+          },
+          "result": {
+            "additionalProperties": false,
+            "properties": {
+              "assignments": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "documentId": {
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "type": "string"
+                    },
+                    "topicId": {
+                      "maxLength": 128,
+                      "nullable": true,
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "documentId",
+                    "topicId"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 500,
+                "minItems": 1,
+                "type": "array"
+              },
+              "documentCount": {
+                "exclusiveMinimum": true,
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "outlierDocumentCount": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "outlierRespondentCount": {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "respondentCount": {
+                "exclusiveMinimum": true,
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "topics": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "documentCount": {
+                      "exclusiveMinimum": true,
+                      "maximum": 9007199254740991,
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "id": {
+                      "maxLength": 128,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "keywords": {
+                      "items": {
+                        "maxLength": 100,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "maxItems": 20,
+                      "type": "array"
+                    },
+                    "representativeDocumentIds": {
+                      "items": {
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                        "type": "string"
+                      },
+                      "maxItems": 10,
+                      "minItems": 1,
+                      "type": "array"
+                    },
+                    "respondentCount": {
+                      "exclusiveMinimum": true,
+                      "maximum": 9007199254740991,
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "keywords",
+                    "representativeDocumentIds",
+                    "documentCount",
+                    "respondentCount"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 500,
+                "type": "array"
+              },
+              "version": {
+                "enum": [
+                  1
+                ],
+                "type": "number"
+              }
+            },
+            "required": [
+              "version",
+              "topics",
+              "assignments",
+              "documentCount",
+              "respondentCount",
+              "outlierDocumentCount",
+              "outlierRespondentCount"
+            ],
+            "type": "object"
+          },
+          "snapshot": {
+            "additionalProperties": false,
+            "properties": {
+              "campaignId": {
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                "type": "string"
+              },
+              "documents": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "conversationId": {
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "type": "string"
+                    },
+                    "createdAt": {
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                      "type": "string"
+                    },
+                    "extractionModel": {
+                      "maxLength": 200,
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "extractionOrigin": {
+                      "maxLength": 100,
+                      "nullable": true,
+                      "type": "string"
+                    },
+                    "id": {
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "type": "string"
+                    },
+                    "noteType": {
+                      "enum": [
+                        "general",
+                        "activity_interest"
+                      ],
+                      "type": "string"
+                    },
+                    "respondentParticipantId": {
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "type": "string"
+                    },
+                    "sourceMessageIds": {
+                      "items": {
+                        "format": "uuid",
+                        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                        "type": "string"
+                      },
+                      "maxItems": 150,
+                      "minItems": 1,
+                      "type": "array"
+                    },
+                    "subjectParticipantId": {
+                      "format": "uuid",
+                      "nullable": true,
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "type": "string"
+                    },
+                    "text": {
+                      "maxLength": 500,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "updatedAt": {
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "conversationId",
+                    "respondentParticipantId",
+                    "subjectParticipantId",
+                    "noteType",
+                    "text",
+                    "sourceMessageIds",
+                    "extractionModel",
+                    "extractionOrigin",
+                    "createdAt",
+                    "updatedAt"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 500,
+                "minItems": 1,
+                "type": "array"
+              },
+              "questionSetVersion": {
+                "exclusiveMinimum": true,
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "version": {
+                "enum": [
+                  1
+                ],
+                "type": "number"
+              }
+            },
+            "required": [
+              "version",
+              "campaignId",
+              "questionSetVersion",
+              "documents"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "analysis",
+          "snapshot",
+          "result"
+        ],
+        "type": "object"
+      },
+      "TopicAnalysisStatusDto_Output": {
+        "additionalProperties": false,
+        "properties": {
+          "attempts": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "campaignId": {
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+            "type": "string"
+          },
+          "completedAt": {
+            "format": "date-time",
+            "nullable": true,
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+            "type": "string"
+          },
+          "configuration": {
+            "additionalProperties": false,
+            "properties": {
+              "clustering": {
+                "additionalProperties": false,
+                "properties": {
+                  "minSamples": {
+                    "enum": [
+                      2
+                    ],
+                    "type": "number"
+                  },
+                  "minTopicSize": {
+                    "enum": [
+                      3
+                    ],
+                    "type": "number"
+                  },
+                  "randomSeed": {
+                    "enum": [
+                      42
+                    ],
+                    "type": "number"
+                  },
+                  "version": {
+                    "enum": [
+                      "bertopic-0.17.4-pca-hdbscan-v1"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "version",
+                  "minTopicSize",
+                  "minSamples",
+                  "randomSeed"
+                ],
+                "type": "object"
+              },
+              "embedding": {
+                "additionalProperties": false,
+                "properties": {
+                  "dimensions": {
+                    "enum": [
+                      1024
+                    ],
+                    "type": "number"
+                  },
+                  "instruction": {
+                    "enum": [
+                      "Instruct: Identify the topic of this post-event feedback note for clustering similar feedback.\nQuery: "
+                    ],
+                    "type": "string"
+                  },
+                  "instructionVersion": {
+                    "enum": [
+                      1
+                    ],
+                    "type": "number"
+                  },
+                  "model": {
+                    "enum": [
+                      "qwen/qwen3-embedding-8b"
+                    ],
+                    "type": "string"
+                  },
+                  "provider": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "allow_fallbacks": {
+                        "enum": [
+                          false
+                        ],
+                        "type": "boolean"
+                      },
+                      "max_price": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "prompt": {
+                            "enum": [
+                              0.01
+                            ],
+                            "type": "number"
+                          },
+                          "request": {
+                            "enum": [
+                              0
+                            ],
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "prompt",
+                          "request"
+                        ],
+                        "type": "object"
+                      },
+                      "require_parameters": {
+                        "enum": [
+                          true
+                        ],
+                        "type": "boolean"
+                      },
+                      "sort": {
+                        "enum": [
+                          "price"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "sort",
+                      "allow_fallbacks",
+                      "require_parameters",
+                      "max_price"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "model",
+                  "dimensions",
+                  "instructionVersion",
+                  "instruction",
+                  "provider"
+                ],
+                "type": "object"
+              },
+              "inputVersion": {
+                "enum": [
+                  "active-extracted-notes-v1"
+                ],
+                "type": "string"
+              },
+              "version": {
+                "enum": [
+                  1
+                ],
+                "type": "number"
+              }
+            },
+            "required": [
+              "version",
+              "inputVersion",
+              "embedding",
+              "clustering"
+            ],
+            "type": "object"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+            "type": "string"
+          },
+          "documentCount": {
+            "exclusiveMinimum": true,
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "errorCode": {
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+            "type": "string"
+          },
+          "inputScope": {
+            "enum": [
+              "active_extracted_notes"
+            ],
+            "type": "string"
+          },
+          "observedCostUsd": {
+            "minimum": 0,
+            "nullable": true,
+            "type": "number"
+          },
+          "observedPromptTokens": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "observedResponses": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "reservedRequests": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "snapshotHash": {
+            "type": "string"
+          },
+          "stage": {
+            "enum": [
+              "queued",
+              "embedding",
+              "clustering",
+              "completed",
+              "failed"
+            ],
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "running",
+              "completed",
+              "failed"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "campaignId",
+          "status",
+          "stage",
+          "snapshotHash",
+          "configuration",
+          "inputScope",
+          "documentCount",
+          "attempts",
+          "reservedRequests",
+          "observedResponses",
+          "observedPromptTokens",
+          "observedCostUsd",
+          "errorCode",
+          "createdAt",
+          "completedAt"
+        ],
+        "type": "object"
+      },
       "TransitionEventStatusDto": {
         "additionalProperties": false,
         "properties": {
@@ -7704,6 +8466,128 @@
         "summary": "",
         "tags": [
           "feedback-campaigns"
+        ]
+      }
+    },
+    "/api/v1/feedback/campaigns/{campaignId}/topic-analyses": {
+      "post": {
+        "description": "Admin only; requires FEEDBACK_TOPIC_ANALYSIS_ENABLED. Excludes dismissed, staff and deterministic fallback notes, answers and raw transcripts. Same snapshot/config returns the existing run, including failed runs; no forced paid retry. Hard limits reject oversized input without truncation.",
+        "operationId": "startFeedbackTopicAnalysis",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TopicAnalysisStatusDto_Output"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "summary": "Analyze an immutable snapshot of active extracted notes",
+        "tags": [
+          "feedback-topic-analysis"
+        ]
+      }
+    },
+    "/api/v1/feedback/campaigns/{campaignId}/topic-analyses/{analysisId}": {
+      "get": {
+        "description": "Durable run status. Observed usage/cost covers committed responses only; missing provider cost and crash windows can make it incomplete. This is a snapshot analysis, not a continuously refreshed campaign summary.",
+        "operationId": "getFeedbackTopicAnalysis",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "analysisId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TopicAnalysisStatusDto_Output"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "summary": "",
+        "tags": [
+          "feedback-topic-analysis"
+        ]
+      }
+    },
+    "/api/v1/feedback/campaigns/{campaignId}/topic-analyses/{analysisId}/result": {
+      "get": {
+        "description": "Returns immutable input/provenance and the complete persisted topic assignment. Returns 409 until completed; null topic IDs are outliers. Respondent counts count distinct respondents in code.",
+        "operationId": "getFeedbackTopicAnalysisResult",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "campaignId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "analysisId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TopicAnalysisResultDto_Output"
+                }
+              }
+            },
+            "description": ""
+          }
+        },
+        "summary": "",
+        "tags": [
+          "feedback-topic-analysis"
         ]
       }
     },

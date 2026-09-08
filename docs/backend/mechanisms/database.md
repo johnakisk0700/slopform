@@ -141,6 +141,17 @@ BullMQ publication stay after commit.
 
 ## Migration contract
 
+**Campaign topic analysis.** `feedback_topic_analyses` stores unique immutable
+snapshot/config identities and atomically completed JSONB results.
+`feedback_topic_embeddings` stores exact-key 1024-dimensional `real[]` caches;
+no vector extension/service is required for bounded batch reads.
+`feedback_topic_analysis_slot` serializes deployment-wide work. Slot then run
+row locks, epoch/token/live leases and pre-request lifetime reservations fence
+all cache/usage/result writes. The additive migration creates only new tables,
+constraints and indexes, with no backfill or changes to existing feedback data.
+See [topic analysis](../modules/campaign-topic-analysis.md) and
+[ADR 0018](../../decisions/0018-campaign-topic-analysis.md).
+
 The TypeScript schema is the source of truth; reviewed SQL is the deployment
 artifact.
 

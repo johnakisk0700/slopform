@@ -34,6 +34,7 @@ x-backend-environment: &backend-environment
   FEEDBACK_SIMULATED_TRANSPORT_SEED: ${FEEDBACK_SIMULATED_TRANSPORT_SEED:-1}
   FEEDBACK_SUMMARY_MODEL: ${FEEDBACK_SUMMARY_MODEL:-}
   FEEDBACK_SUMMARY_REASONING_EFFORT: ${FEEDBACK_SUMMARY_REASONING_EFFORT:-}
+  FEEDBACK_TOPIC_ANALYSIS_ENABLED: ${FEEDBACK_TOPIC_ANALYSIS_ENABLED:-false}
   MONGODB_APP_USER: ${MONGODB_APP_USER:?Set MONGODB_APP_USER in .env.production}
   MONGODB_DB: ${MONGODB_DB:?Set MONGODB_DB in .env.production}
   LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -226,6 +227,8 @@ services:
     environment:
       <<: *backend-environment
       OTEL_SERVICE_NAME: join-the-six-worker
+      FEEDBACK_TOPIC_CLUSTERING_PYTHON: /opt/topic-clustering/.venv/bin/python
+      FEEDBACK_TOPIC_CLUSTERING_SCRIPT: /opt/topic-clustering/cluster.py
     secrets:
       - mongodb_app_password
       - openai_api_key

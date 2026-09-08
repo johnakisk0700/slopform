@@ -39,6 +39,15 @@ const commands = [
     ],
   ],
   [
+    "pnpm",
+    [
+      "exec",
+      "vitest",
+      "run",
+      "src/modules/post-event-feedback/topic-analysis/topic-analysis.repository.spec.ts",
+    ],
+  ],
+  [
     process.execPath,
     [
       "--test",

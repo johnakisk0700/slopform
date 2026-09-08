@@ -12,6 +12,12 @@ Root `Dockerfile` targets: `development` (toolchain; source mounted), `web`
 (Caddy static SPA on 3000), `api`, `worker`, `migrate` (one-shot Drizzle).
 PostgreSQL, MongoDB and Redis use pinned official images.
 
+The worker image also includes Python 3.11 and a hash-pinned, CPU-only BERTopic
+environment at `/opt/topic-clustering/.venv`. The Node worker launches
+`/opt/topic-clustering/cluster.py` as a bounded subprocess for topic analysis.
+Embedding models run through OpenRouter; the image contains no neural weights,
+PyTorch or GPU runtime. API, web and migrator images do not install Python.
+
 Native nginx owns 80/443 on the shared VPS. Vhost
 [`deploy/nginx/slopform.example.com.conf`](../deploy/nginx/slopform.example.com.conf)
 is the host-edge contract: `/api/*` → loopback `5201`, everything else → web
@@ -73,6 +79,7 @@ cp .env.example .env
 # Matching Clerk keys, admin user IDs, and the key for the selected model route.
 # Provider selection never falls back to the other key.
 pnpm install
+pnpm topic-clustering:setup # Python 3.11/3.12 with venv support
 pnpm infra:up
 pnpm dev
 ```
@@ -85,7 +92,8 @@ pnpm dev:containers:build
 pnpm dev:containers
 ```
 
-- Dev image: no source copy. Rebuild only after dependency/lockfile/`DEV_UID`/
+- Dev image: no application source copy; includes the pinned Python environment.
+  Rebuild after Python requirements.lock, Node dependency/lockfile/`DEV_UID`/
   `DEV_GID` change (`pnpm dev:containers:build`), then `pnpm dev:containers`.
   Ordinary `dev:containers` builds the image only when absent.
 - Startup: shared image → Postgres/Mongo/Redis + frozen-lockfile sync into
@@ -206,6 +214,15 @@ feedback worker adds a lazy 5-connection advisory-lock pool → budget 25 Postgr
 connections before scaling either process. Mongo pools capped at 10/process.
 Each feedback worker replica: 1 Hz outbox poll (`SKIP LOCKED`); replica count
 multiplies empty-poll traffic. Never let Postgres be the accidental OOM victim.
+
+Topic analysis is opt-in with `FEEDBACK_TOPIC_ANALYSIS_ENABLED=true` in both
+HTTP and worker configuration. Compose supplies absolute Python/script paths;
+native development uses the local venv installed by `pnpm topic-clustering:setup`.
+The development container uses the installed venv with the bind-mounted script.
+Python runs without model downloads, with numerical thread pools limited to one
+and bytecode writes disabled, compatible with the read-only worker filesystem.
+Keep free memory for the existing app and databases; the earlier 1–2 GB worker
+estimate is not a measured production capacity guarantee.
 
 **Worker lifecycle:** 8-minute stop grace. Conversation/summary leases 7m;
 direct outbox claims 2m. Hard kill recoverable: due conversation work columns
@@ -454,7 +471,11 @@ restore with Mongo.
 
 ## CI boundary
 
-GitHub Actions: `pnpm check`, then one Buildx Bake graph tags all targets with
+GitHub Actions installs the hash-pinned Python environment on Ubuntu 24.04
+(Python 3.12), then runs `pnpm check`, including the offline Python protocol and
+real clustering tests. Docker uses Debian bookworm Python 3.11. Dependency
+upgrades must retain both supported Python versions and CPU wheel availability.
+One Buildx Bake graph tags all targets with
 the commit SHA and builds the four production images (shared expensive stages).
 CI does not deploy and does not receive production credentials. Next step when
 a registry exists: publish SHA images in CI, VPS pulls immutables. A production

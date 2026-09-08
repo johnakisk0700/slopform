@@ -993,6 +993,12 @@ under a conversation row lock so newer work or control changes win.
 
 ## Campaign service and current-state scheduling (implemented)
 
+Explicit campaign [topic analysis](campaign-topic-analysis.md) is an additive
+backend workflow over immutable snapshots of active extracted notes. It uses
+cached OpenRouter embeddings and a bounded Python subprocess, with PostgreSQL
+run/result authority. It does not alter the live loop or the campaign summary
+below; staff, dismissed and deterministic fallback notes are outside its input.
+
 Staff HTTP under `/feedback/campaigns`, one conversation planner, one maintenance
 job.
 

@@ -14,6 +14,7 @@ import {
   FEEDBACK_MAINTENANCE_QUEUE,
   FEEDBACK_QUEUE,
   FEEDBACK_SUMMARY_QUEUE,
+  FEEDBACK_TOPIC_ANALYSIS_QUEUE,
   REFERENCE_QUEUE,
 } from "./queue.constants.js";
 import { QueueHealthService } from "./queue-health.service.js";
@@ -94,6 +95,10 @@ export function createQueueWorkerOptions(
       configKey: QUEUE_PRODUCER_CONFIG,
     }),
     BullModule.registerQueue({
+      name: FEEDBACK_TOPIC_ANALYSIS_QUEUE,
+      configKey: QUEUE_PRODUCER_CONFIG,
+    }),
+    BullModule.registerQueue({
       name: FEEDBACK_MAINTENANCE_QUEUE,
       configKey: QUEUE_PRODUCER_CONFIG,
     }),
@@ -137,6 +142,10 @@ export class QueueModule {}
     }),
     BullModule.registerQueue({
       name: FEEDBACK_SUMMARY_QUEUE,
+      configKey: QUEUE_WORKER_CONFIG,
+    }),
+    BullModule.registerQueue({
+      name: FEEDBACK_TOPIC_ANALYSIS_QUEUE,
       configKey: QUEUE_WORKER_CONFIG,
     }),
     BullModule.registerQueue({

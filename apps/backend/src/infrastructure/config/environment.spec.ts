@@ -49,6 +49,13 @@ describe("validateEnvironment", () => {
     expect(environment.FEEDBACK_PRODUCTION_REHEARSAL_ENABLED).toBe(false);
     expect(environment.FEEDBACK_SIMULATOR_ENABLED).toBe(false);
     expect(environment.FEEDBACK_EXTRACTION_STUB).toBe(false);
+    expect(environment.FEEDBACK_TOPIC_ANALYSIS_ENABLED).toBe(false);
+    expect(environment.FEEDBACK_TOPIC_CLUSTERING_PYTHON).toBe(
+      "apps/topic-clustering/.venv/bin/python",
+    );
+    expect(environment.FEEDBACK_TOPIC_CLUSTERING_SCRIPT).toBe(
+      "apps/topic-clustering/cluster.py",
+    );
     expect(environment.FEEDBACK_SIMULATED_TRANSPORT_FAULT_MODE).toBe("none");
     expect(environment.FEEDBACK_SIMULATED_TRANSPORT_FAULT_PERCENT).toBe(0);
     expect(environment.FEEDBACK_SIMULATED_TRANSPORT_SEED).toBe("1");

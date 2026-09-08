@@ -9,6 +9,9 @@ dist
 node_modules
 **/node_modules
 **/dist
+**/.venv
+**/__pycache__
+**/*.pyc
 .env
 .env.*
 secrets

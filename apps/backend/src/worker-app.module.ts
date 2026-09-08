@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { TopicAnalysisWorkerModule } from "./modules/post-event-feedback/topic-analysis/topic-analysis.worker.module.js";
 import { ConditionalModule } from "@nestjs/config";
 
 import { AppConfigModule } from "./infrastructure/config/app-config.module.js";
@@ -25,6 +26,7 @@ import { ReferenceWorkerModule } from "./modules/reference/reference-worker.modu
     AssistantWorkerModule,
     EmailWorkerModule,
     PostEventFeedbackWorkerModule,
+    TopicAnalysisWorkerModule,
     ReferenceWorkerModule,
   ],
 })

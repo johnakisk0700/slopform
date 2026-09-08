@@ -1,0 +1,16 @@
+# BERTopic's documented lightweight runtime; intentionally installed --no-deps.
+# requirements.lock contains every runtime dependency and accepted wheel hashes.
+bertopic==0.17.4
+joblib==1.5.2
+numpy==2.2.6
+packaging==25.0
+pandas==2.3.3
+python-dateutil==2.9.0.post0
+pytz==2025.2
+PyYAML==6.0.3
+scikit-learn==1.7.2
+scipy==1.16.3
+six==1.17.0
+threadpoolctl==3.6.0
+tqdm==4.67.1
+tzdata==2025.2
