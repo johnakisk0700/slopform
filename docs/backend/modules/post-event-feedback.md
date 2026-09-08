@@ -801,6 +801,11 @@ PostgreSQL retains the lease, token and delivery outcome. Claim commits before
 per-conversation preparation, pacing and transport, with the Redis limiter
 shared across replicas.
 
+The claim query returns at most one row per conversation. The dispatcher sends
+those independent claims with `Promise.all`, preserving result order without
+another grouping, sorting or result map. Real PostgreSQL tests own the FIFO
+and concurrent-claim guarantees.
+
 The batch dispatcher owns the short claim transaction; the outbox repository
 selects and updates rows on its supplied transaction. Claim commits before
 per-conversation preparation, pacing and transport. `FeedbackDispatchAttemptService`

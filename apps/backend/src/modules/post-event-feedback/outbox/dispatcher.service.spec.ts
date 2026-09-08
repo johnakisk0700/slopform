@@ -139,24 +139,6 @@ describe("MessageOutboxDispatcherService", () => {
     );
   });
 
-  it("lets two replicas claim one row only once", async () => {
-    const harness = createHarness();
-    const pendingClaims = [claimedRow()];
-    harness.repository.claimDispatchBatch.mockImplementation(async () => {
-      const claim = pendingClaims.shift();
-      return claim ? [claim] : [];
-    });
-    const second = createServiceFromHarness(harness);
-
-    const [firstResult, secondResult] = await Promise.all([
-      harness.service.dispatchBatch(),
-      second.dispatchBatch(),
-    ]);
-
-    expect(firstResult.claimedCount + secondResult.claimedCount).toBe(1);
-    expect(harness.transport.sendText).toHaveBeenCalledTimes(1);
-  });
-
   it("starts every bounded claim lane before a slow first lane completes", async () => {
     const secondId = "14b0d0f3-8cf0-4420-ae96-8eb77a21915e";
     const secondToken = "22b43614-8de9-48bd-a3e1-290427cfbbca";
@@ -191,61 +173,6 @@ describe("MessageOutboxDispatcherService", () => {
         { outboxId: secondId, outcome: "sent" },
       ],
     });
-  });
-
-  it("dispatches claims from the same conversation strictly in FIFO order", async () => {
-    const secondId = "14b0d0f3-8cf0-4420-ae96-8eb77a21915e";
-    const secondToken = "22b43614-8de9-48bd-a3e1-290427cfbbca";
-    const harness = createHarness({
-      claims: [
-        claimedRow(),
-        claimedRow({
-          id: secondId,
-          claimToken: secondToken,
-          createdAt: new Date("2026-07-25T00:00:01.000Z"),
-        }),
-      ],
-    });
-    let finishFirstSend: (() => void) | undefined;
-    harness.transport.sendText
-      .mockImplementationOnce(
-        () =>
-          new Promise((resolve) => {
-            finishFirstSend = () =>
-              resolve({
-                outcome: "accepted",
-                providerLogId: "42",
-                providerMessageId: "wamid.1",
-                providerStatus: "sent",
-              });
-          }),
-      )
-      .mockResolvedValueOnce({
-        outcome: "accepted",
-        providerLogId: "43",
-        providerMessageId: "wamid.2",
-        providerStatus: "sent",
-      });
-
-    const dispatched = harness.service.dispatchBatch();
-    await vi.waitFor(() =>
-      expect(harness.transport.sendText).toHaveBeenCalledTimes(1),
-    );
-    expect(harness.limiter.waitTurn).toHaveBeenCalledTimes(1);
-
-    finishFirstSend?.();
-    await expect(dispatched).resolves.toMatchObject({
-      items: [
-        { outboxId, outcome: "sent" },
-        { outboxId: secondId, outcome: "sent" },
-      ],
-    });
-    expect(harness.limiter.waitTurn).toHaveBeenCalledTimes(2);
-    expect(
-      harness.repository.markDispatchSent.mock.invocationCallOrder[0],
-    ).toBeLessThan(
-      harness.limiter.waitTurn.mock.invocationCallOrder[1] as number,
-    );
   });
 
   it("keeps a pre-send claim alive when limiter wait exceeds its lease", async () => {

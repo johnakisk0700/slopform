@@ -45,7 +45,7 @@ export const FEEDBACK_WORKER_REGISTRATION_NAME =
   { name: FEEDBACK_QUEUE, configKey: QUEUE_WORKER_CONFIG },
   {
     // All retained V1 jobs are validation/conversion bridges. Outbox delivery
-    // is owned exclusively by the direct PostgreSQL dispatcher.
+    // is owned exclusively by the BullMQ outbox batch processor.
     concurrency: FEEDBACK_WORKER_CONCURRENCY,
     maxStalledCount: 1,
     metrics: { maxDataPoints: MetricsTime.ONE_WEEK * 2 },
@@ -70,7 +70,7 @@ export class PostEventFeedbackProcessor extends WorkerHost {
     try {
       if (job.name === FEEDBACK_JOB_NAMES.relayOutboxV1) {
         const data = feedbackRelayJobDataSchema.parse(job.data);
-        // Compatibility drain only. The direct PostgreSQL dispatcher is the
+        // Compatibility drain only. The outbox batch processor is the
         // sole owner of pending rows; waking the retired relay here would
         // recreate a second delivery authority during rollout.
         this.logger.log({
@@ -106,7 +106,7 @@ export class PostEventFeedbackProcessor extends WorkerHost {
         }
 
         // A retained delivery job cannot prove whether an older worker entered
-        // the provider call. Never send or release it. The direct dispatcher's
+        // the provider call. Never send or release it. The batch dispatcher's
         // maintenance pass quarantines stale legacy `sending` rows instead.
         this.logger.log({
           event: "feedback.deliver.v1_discarded",
