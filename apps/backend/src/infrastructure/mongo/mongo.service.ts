@@ -31,7 +31,7 @@ export class MongoService implements OnApplicationShutdown {
   constructor(config: ConfigService<Environment, true>) {
     this.client = new MongoClient(config.get("MONGODB_URI", { infer: true }), {
       ...MONGO_OPTIONS,
-      appName: config.get("OTEL_SERVICE_NAME", { infer: true }),
+      appName: config.get("APP_NAME", { infer: true }),
     });
   }
 

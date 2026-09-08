@@ -74,7 +74,7 @@ function createConfig(): ConfigService<Environment, true> & {
   const values: Partial<Environment> = {
     DATABASE_POOL_MAX: 4,
     DATABASE_URL: "postgresql://user:password@localhost:5432/database",
-    OTEL_SERVICE_NAME: "database-test",
+    APP_NAME: "database-test",
   };
 
   return {

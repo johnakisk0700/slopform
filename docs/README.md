@@ -33,6 +33,8 @@ Core handbooks, then ADRs in number order, then ops and the readiness record:
 22. [`deployment.md`](deployment.md) — local containers and example VPS layout
 23. [`agent-readiness.md`](agent-readiness.md) — dated extension benchmark _(repeat after material architecture change)_
 
+Decision on operational logs: [ADR 0019](decisions/0019-application-logging.md).
+
 ## Area index
 
 **Portfolio and working conventions**

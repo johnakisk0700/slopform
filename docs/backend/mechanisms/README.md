@@ -13,7 +13,7 @@ with the implementation. Product domains:
 | [Local data query](local-data-query.md)              | Guarded read-only PostgreSQL, MongoDB and Redis inspection                  |
 | [MongoDB lifecycle](mongodb.md)                      | Conversation-store connection, security, indexes, limits, backup            |
 | [Queues and workers](queues.md)                      | BullMQ production, consumption, retries, idempotency, observability         |
-| [Runtime operations](runtime-operations.md)          | Configuration, HTTP edge, logging, tracing, process failure                 |
+| [Runtime operations](runtime-operations.md)          | Configuration, HTTP edge, logging, process failure                          |
 | [Wasender integration](wasender.md)                  | WhatsApp transport, webhook verification, normalized events                 |
 
 Add a page when a mechanism gains its own lifecycle or operational failure

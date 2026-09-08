@@ -98,7 +98,7 @@ FROM backend-runtime AS api
 ARG RELEASE_TAG=unknown
 LABEL org.opencontainers.image.revision=$RELEASE_TAG
 EXPOSE 4000
-CMD ["node", "--import", "./dist/instrumentation.js", "./dist/main-http.js"]
+CMD ["node", "./dist/main-http.js"]
 
 FROM backend-runtime AS worker
 USER root
@@ -110,7 +110,7 @@ ENV PYTHONDONTWRITEBYTECODE=1
 USER node
 ARG RELEASE_TAG=unknown
 LABEL org.opencontainers.image.revision=$RELEASE_TAG
-CMD ["node", "--import", "./dist/instrumentation.js", "./dist/main-worker.js"]
+CMD ["node", "./dist/main-worker.js"]
 
 FROM secret-runtime AS migrate
 ARG RELEASE_TAG=unknown

@@ -8,7 +8,6 @@ import {
   isWasenderWebhookEnabled,
 } from "./enabled-modules.js";
 import { validateEnvironment } from "./environment.js";
-import { validateObservabilityEnvironment } from "./observability-environment.js";
 
 const requiredEnvironment = {
   DATABASE_URL: "postgresql://user:password@localhost:5432/join_the_six",
@@ -78,12 +77,10 @@ describe("validateEnvironment", () => {
       ...requiredEnvironment,
       API_PORT: "",
       DATABASE_POOL_MAX: "",
-      SENTRY_TRACES_SAMPLE_RATE: "",
     });
 
     expect(environment.API_PORT).toBe(4000);
     expect(environment.DATABASE_POOL_MAX).toBe(10);
-    expect(environment.SENTRY_TRACES_SAMPLE_RATE).toBe(0.1);
   });
 
   it("accepts absent Clerk keys for non-HTTP process composition", () => {
@@ -425,43 +422,17 @@ describe("validateEnvironment", () => {
     ).toThrow(/line breaks/);
   });
 
-  it("prevents two tracing SDKs from instrumenting the same process", () => {
-    expect(() =>
-      validateEnvironment({
-        ...requiredEnvironment,
-        OTEL_EXPORTER_OTLP_ENDPOINT: "https://otel.example.com",
-        SENTRY_DSN: "https://public@example.ingest.sentry.io/1",
-      }),
-    ).toThrow(/either the OpenTelemetry OTLP exporter or Sentry/);
-  });
-
-  it("validates preload observability settings without requiring app dependencies", () => {
+  it("validates the application name used by database clients and workers", () => {
+    expect(validateEnvironment(requiredEnvironment).APP_NAME).toBe(
+      "join-the-six-api",
+    );
     expect(
-      validateObservabilityEnvironment({
-        NODE_ENV: "production",
-        OTEL_EXPORTER_OTLP_ENDPOINT: "https://collector.example.com/otel/",
-        OTEL_SERVICE_NAME: " join-the-six-api ",
-        SENTRY_TRACES_SAMPLE_RATE: "0.25",
-      }),
-    ).toMatchObject({
-      NODE_ENV: "production",
-      OTEL_EXPORTER_OTLP_ENDPOINT: "https://collector.example.com/otel/",
-      OTEL_SERVICE_NAME: "join-the-six-api",
-      SENTRY_TRACES_SAMPLE_RATE: 0.25,
-    });
-  });
-
-  it("rejects unsafe telemetry endpoint forms", () => {
+      validateEnvironment({ ...requiredEnvironment, APP_NAME: " worker " })
+        .APP_NAME,
+    ).toBe("worker");
     expect(() =>
-      validateObservabilityEnvironment({
-        OTEL_EXPORTER_OTLP_ENDPOINT:
-          "https://operator:secret@collector.example.com/otel",
-      }),
-    ).toThrow(/credentials must not be embedded/);
-
-    expect(() =>
-      validateObservabilityEnvironment({ SENTRY_DSN: "file:///tmp/sentry" }),
-    ).toThrow(/HTTP\(S\)/);
+      validateEnvironment({ ...requiredEnvironment, APP_NAME: " " }),
+    ).toThrow();
   });
 
   it.each([
@@ -546,14 +517,6 @@ describe("validateEnvironment", () => {
           "mongodb://user:password@mongo-a.example.com:27017,mongo-b.example.com:27017/join_the_six?replicaSet=rs0&tls=true",
       }).MONGODB_URI,
     ).toContain("mongo-a.example.com:27017,mongo-b.example.com:27017");
-  });
-
-  it("reports a malformed telemetry URL through Zod", () => {
-    expect(() =>
-      validateObservabilityEnvironment({
-        OTEL_EXPORTER_OTLP_ENDPOINT: "not-a-telemetry-url",
-      }),
-    ).toThrow(/Invalid URL/);
   });
 
   it("requires HTTPS browser origins in production", () => {

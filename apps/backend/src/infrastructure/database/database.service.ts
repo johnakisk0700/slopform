@@ -36,7 +36,7 @@ export class DatabaseService implements OnModuleInit, OnApplicationShutdown {
 
   onModuleInit(): void {
     this.client = createDatabase({
-      applicationName: this.config.get("OTEL_SERVICE_NAME", { infer: true }),
+      applicationName: this.config.get("APP_NAME", { infer: true }),
       connectionString: this.config.get("DATABASE_URL", { infer: true }),
       maxConnections: this.config.get("DATABASE_POOL_MAX", { infer: true }),
     });

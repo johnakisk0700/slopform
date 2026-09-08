@@ -4,6 +4,8 @@ set -Eeuo pipefail
 repository_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 source "$repository_root/scripts/production-common.sh"
 source_file="$repository_root/deploy/nginx/slopform.example.com.conf"
+rotation_source="$repository_root/deploy/logrotate/slopform-nginx"
+rotation_file=/etc/logrotate.d/slopform-nginx
 site_available=/etc/nginx/sites-available/slopform.example.com
 site_enabled=/etc/nginx/sites-enabled/slopform.example.com
 backup_directory=/var/backups/join-the-six/nginx
@@ -11,7 +13,7 @@ deployment_lock=/var/lock/join-the-six-production.lock
 production_root=${PRODUCTION_ROOT:-/opt/slopform}
 state_file="$production_root/shared/release-state.env"
 
-for required_command in curl flock install nginx readlink systemctl; do
+for required_command in curl flock install logrotate nginx readlink systemctl; do
   if ! command -v "$required_command" >/dev/null 2>&1; then
     echo "Required command not found: $required_command" >&2
     exit 1
@@ -23,8 +25,8 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
-if [[ ! -f $source_file ]]; then
-  echo "Nginx site source not found: $source_file" >&2
+if [[ ! -f $source_file || ! -f $rotation_source ]]; then
+  echo "Nginx site or log rotation source is missing" >&2
   exit 1
 fi
 
@@ -37,7 +39,8 @@ for certificate_file in \
   fi
 done
 
-install -d -m 0755 /etc/nginx/sites-available /etc/nginx/sites-enabled
+install -d -m 0755 /etc/nginx/sites-available /etc/nginx/sites-enabled /etc/logrotate.d
+install -d -o www-data -g adm -m 0750 /var/log/nginx/slopform
 install -d -m 0700 "$backup_directory" "$(dirname -- "$deployment_lock")"
 if [[ -n ${DEPLOY_LOCK_FD:-} ]]; then
   if [[ ! $DEPLOY_LOCK_FD =~ ^[0-9]+$ || ! -e /proc/$$/fd/$DEPLOY_LOCK_FD ]]; then
@@ -113,11 +116,21 @@ timestamp=$(date -u +%Y%m%dT%H%M%SZ)
 backup_file="$backup_directory/slopform.example.com.$timestamp.conf"
 previous_link=$(readlink "$site_enabled" 2>/dev/null || true)
 had_site=false
+had_rotation=false
 confirmed=false
 
 if [[ -f $site_available ]]; then
   install -m 0600 "$site_available" "$backup_file"
   had_site=true
+fi
+
+if [[ -L $rotation_file ]]; then
+  echo "Refusing a symlink at $rotation_file" >&2
+  exit 1
+fi
+if [[ -f $rotation_file ]]; then
+  install -m 0600 "$rotation_file" "$backup_file.logrotate"
+  had_rotation=true
 fi
 
 rollback_edge() {
@@ -130,6 +143,12 @@ rollback_edge() {
     install -m 0644 "$backup_file" "$site_available"
   else
     rm -f -- "$site_available"
+  fi
+
+  if [[ $had_rotation == true ]]; then
+    install -m 0644 "$backup_file.logrotate" "$rotation_file"
+  else
+    rm -f -- "$rotation_file"
   fi
 
   if [[ -n $previous_link ]]; then
@@ -151,6 +170,8 @@ install -m 0644 "$source_file" "$temporary_site"
 mv -f -- "$temporary_site" "$site_available"
 ln -sfn -- "$site_available" "$site_enabled"
 
+install -m 0644 "$rotation_source" "$rotation_file"
+logrotate --debug /etc/logrotate.conf
 nginx -t
 systemctl reload nginx
 

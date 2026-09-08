@@ -299,6 +299,40 @@ expand-and-contract; never edit history on the server. Compose health gates
 startup; restart policies react to exits, not mere unhealthiness — keep an
 external HTTPS uptime check.
 
+## Operational logs
+
+The backend uses one Pino logger for explicit application events and unexpected
+errors. `LOG_LEVEL` defaults to `info` in production. `APP_NAME` replaces
+`OTEL_SERVICE_NAME` for database client / lock-pool identity; retain any custom
+value when updating the environment. Remove obsolete `OTEL_*` / `SENTRY_*`
+settings. The worker keeps the `join-the-six-worker` identity. No tracing SDK
+or external telemetry destination is configured.
+
+- `pnpm prod logs api` / `pnpm prod logs worker`: Docker captures stdout/stderr
+  and rotates at 10 MB, retaining five files per container. These are bounded
+  recent diagnostics, not an archive across container replacement.
+- `pnpm prod logs nginx`: tails `/var/log/nginx/slopform/access.log` and
+  `/var/log/nginx/slopform/error.log`. Service lifecycle messages remain in
+  `journalctl -u nginx`.
+- Access records contain timestamp, method, path, status, request/upstream
+  duration in seconds and the backend response request ID. They omit query
+  values, bodies and headers. Requests answered by nginx before reaching the
+  backend may have no backend request ID. The standard nginx error log contains
+  edge diagnostics and can include request details; it is not sanitized by Pino.
+- `deploy/logrotate/slopform-nginx` is installed by the edge installer into
+  `/etc/logrotate.d/slopform-nginx`: daily rotation, 14 rotated files, compression,
+  and early rotation above 10 MB at the next logrotate run. This is not an
+  instantaneous size cap. The host's usual logrotate timer/cron must be enabled.
+  The dedicated subdirectory avoids the distribution's `/var/log/nginx/*.log`
+  rule. Nginx reopens files after rotation; no application rolling-file code.
+
+The edge installer creates the log directory, validates the host logrotate and
+nginx configurations, and restores the previous site/rotation rule if activation
+fails. This change needs `pnpm prod deploy all` because Compose changed and the
+nginx access log must be installed alongside the backend cleanup. There are no
+automatic backend request-completion logs, including native development;
+application events and errors remain visible locally.
+
 ## Release and rollback
 
 ```bash

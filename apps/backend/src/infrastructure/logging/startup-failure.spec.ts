@@ -11,58 +11,41 @@ describe("handleStartupFailure", () => {
     async (event) => {
       const calls: string[] = [];
       const error = new Error("listen failed");
-      const capture = vi.fn(() => calls.push("capture"));
       const closeApplication = vi.fn(async () => {
         calls.push("close");
-      });
-      const shutdownTelemetry = vi.fn(async () => {
-        calls.push("shutdown");
       });
       const writeFatalEvent = vi.fn(() => calls.push("write"));
 
       await handleStartupFailure(error, {
-        capture,
         closeApplication,
         event,
-        shutdownTelemetry,
         writeFatalEvent,
       });
 
-      expect(capture).toHaveBeenCalledOnce();
-      expect(capture).toHaveBeenCalledWith(error);
       expect(closeApplication).toHaveBeenCalledOnce();
-      expect(shutdownTelemetry).toHaveBeenCalledOnce();
       expect(writeFatalEvent).toHaveBeenCalledWith(event, error);
-      expect(calls).toEqual(["capture", "close", "write", "shutdown"]);
+      expect(calls).toEqual(["close", "write"]);
     },
   );
 
-  it("reports cleanup failures without recapturing the startup error", async () => {
+  it("reports both the startup error and cleanup failure", async () => {
     const error = new Error("listen failed");
     const closeError = new Error("close failed");
-    const capture = vi.fn();
     const writeFatalEvent = vi.fn();
 
     await handleStartupFailure(error, {
-      capture,
       closeApplication: vi.fn().mockRejectedValue(closeError),
       event: "http.bootstrap.failed",
-      shutdownTelemetry: vi.fn().mockRejectedValue(new Error("flush failed")),
       writeFatalEvent,
     });
 
-    expect(capture).toHaveBeenCalledOnce();
     const reportedError = writeFatalEvent.mock.calls[0]?.[1];
     expect(reportedError).toBeInstanceOf(AggregateError);
     expect((reportedError as AggregateError).errors).toEqual([
       error,
       closeError,
     ]);
-    expect(writeFatalEvent).toHaveBeenNthCalledWith(
-      2,
-      "telemetry.shutdown.failed",
-      expect.any(Error),
-    );
+    expect(writeFatalEvent).toHaveBeenCalledOnce();
 
     expect(serializeStartupError(reportedError)).toMatchObject({
       errors: [
@@ -74,44 +57,17 @@ describe("handleStartupFailure", () => {
     });
   });
 
-  it("still closes the application and flushes when exception capture fails", async () => {
-    const calls: string[] = [];
-    const error = new Error("listen failed");
-    const captureError = new Error("capture failed");
-    const writeFatalEvent = vi.fn((event: string) => calls.push(event));
-
+  it("reports failures before an application context exists", async () => {
+    const error = new Error("configuration invalid");
+    const writeFatalEvent = vi.fn();
     await handleStartupFailure(error, {
-      capture: vi.fn(() => {
-        calls.push("capture");
-        throw captureError;
-      }),
-      closeApplication: vi.fn(async () => {
-        calls.push("close");
-      }),
       event: "http.bootstrap.failed",
-      shutdownTelemetry: vi.fn(async () => {
-        calls.push("shutdown");
-      }),
       writeFatalEvent,
     });
-
-    expect(writeFatalEvent).toHaveBeenNthCalledWith(
-      1,
-      "telemetry.capture.failed",
-      captureError,
-    );
-    expect(writeFatalEvent).toHaveBeenNthCalledWith(
-      2,
+    expect(writeFatalEvent).toHaveBeenCalledExactlyOnceWith(
       "http.bootstrap.failed",
       error,
     );
-    expect(calls).toEqual([
-      "capture",
-      "telemetry.capture.failed",
-      "close",
-      "http.bootstrap.failed",
-      "shutdown",
-    ]);
   });
 
   it("redacts userinfo and query values in common service URLs", () => {

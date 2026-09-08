@@ -4,7 +4,7 @@ import { NestFactory } from "@nestjs/core";
 import type { NestExpressApplication } from "@nestjs/platform-express";
 import { SwaggerModule } from "@nestjs/swagger";
 import helmet from "helmet";
-import { Logger, LoggerErrorInterceptor } from "nestjs-pino";
+import { Logger } from "nestjs-pino";
 
 import { HttpAppModule } from "./http-app.module.js";
 import { AuthConfigService } from "./infrastructure/auth/auth-config.service.js";
@@ -54,7 +54,6 @@ export async function createHttpApplication(
     );
   }
   app.useLogger(app.get(Logger));
-  app.useGlobalInterceptors(new LoggerErrorInterceptor());
   app.enableShutdownHooks();
   app.use(helmet(createHelmetOptions(nodeEnvironment)));
   app.useBodyParser("json", { limit: HTTP_BODY_LIMIT_BYTES });

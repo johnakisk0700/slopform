@@ -17,19 +17,18 @@ ownership, compatibility pins, env and test recipes.
 Package manifests pin exact versions. Upgrade coupled foundations together and
 rerun focused integration smokes, not just the compiler.
 
-| Area               | Versions                                                                                   | Constraint                                                                                                                 |
-| ------------------ | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
-| Runtime and tools  | Node `>=24.11 <25`; TypeScript `6.0.3`; `@types/node` `24.13.3`; Vitest `4.1.10`           | Production stays on Node 24 LTS; TypeScript 7 is not the stable line.                                                      |
-| Nest and HTTP      | Nest `11.1.28`; Express `5.2.1`; config `4.0.4`; Swagger `11.4.6`                          | Keep Nest core/platform patches aligned; Express comes from the platform.                                                  |
-| Persistence        | Drizzle ORM `0.45.2`; Kit `0.31.10`; `pg` `8.22.0`; MongoDB driver `7.5.0`                 | PostgreSQL for relational guarantees and feedback conversations; MongoDB for Assistant aggregates.                         |
-| Queues             | `@nestjs/bullmq` `11.0.4`; BullMQ `5.80.10`; Bull Board `8.1.2`                            | BullMQ OSS only; all Bull Board packages share one version.                                                                |
-| Local workflows    | Effect `3.22.1` (verified 2026-09-06)                                                      | Utility composition only; Nest owns DI and BullMQ owns retries ([ADR 0017](decisions/0017-effect-for-local-workflows.md)). |
-| Contracts and edge | Zod `4.4.3`; `nestjs-zod` `5.4.0`; Helmet `8.3.0`                                          | Zod is the single runtime/API contract source.                                                                             |
-| Authentication     | Clerk Express `2.1.44`                                                                     | Session verification plus a server-owned admin allowlist.                                                                  |
-| Logging            | Pino `10.3.1`; `pino-http` `11.0.0`; `nestjs-pino` `4.6.1`; `pino-pretty` `13.1.3`         | Pretty output is development-only.                                                                                         |
-| Telemetry          | OTel API `1.9.1`; SDK/exporter `0.220.0`; auto-instrumentations `0.78.0`; Sentry `10.67.0` | Configure OTLP or Sentry, never both; keep the OTel `0.220` cohort.                                                        |
-| Runtime peers      | `dotenv` `17.4.2`; `reflect-metadata` `0.2.2`; RxJS `7.8.2`                                | Direct deps because the runtime imports them.                                                                              |
-| AI generation      | AI SDK `7.0.35`; OpenAI provider `4.0.18`; OpenRouter provider `3.0.0`                     | Provider calls only in the worker; SDK retries off — BullMQ owns retry.                                                    |
+| Area               | Versions                                                                           | Constraint                                                                                                                 |
+| ------------------ | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Runtime and tools  | Node `>=24.11 <25`; TypeScript `6.0.3`; `@types/node` `24.13.3`; Vitest `4.1.10`   | Production stays on Node 24 LTS; TypeScript 7 is not the stable line.                                                      |
+| Nest and HTTP      | Nest `11.1.28`; Express `5.2.1`; config `4.0.4`; Swagger `11.4.6`                  | Keep Nest core/platform patches aligned; Express comes from the platform.                                                  |
+| Persistence        | Drizzle ORM `0.45.2`; Kit `0.31.10`; `pg` `8.22.0`; MongoDB driver `7.5.0`         | PostgreSQL for relational guarantees and feedback conversations; MongoDB for Assistant aggregates.                         |
+| Queues             | `@nestjs/bullmq` `11.0.4`; BullMQ `5.80.10`; Bull Board `8.1.2`                    | BullMQ OSS only; all Bull Board packages share one version.                                                                |
+| Local workflows    | Effect `3.22.1` (verified 2026-09-06)                                              | Utility composition only; Nest owns DI and BullMQ owns retries ([ADR 0017](decisions/0017-effect-for-local-workflows.md)). |
+| Contracts and edge | Zod `4.4.3`; `nestjs-zod` `5.4.0`; Helmet `8.3.0`                                  | Zod is the single runtime/API contract source.                                                                             |
+| Authentication     | Clerk Express `2.1.44`                                                             | Session verification plus a server-owned admin allowlist.                                                                  |
+| Logging            | Pino `10.3.1`; `pino-http` `11.0.0`; `nestjs-pino` `4.6.1`; `pino-pretty` `13.1.3` | Pretty output is development-only.                                                                                         |
+| Runtime peers      | `dotenv` `17.4.2`; `reflect-metadata` `0.2.2`; RxJS `7.8.2`                        | Direct deps because the runtime imports them.                                                                              |
+| AI generation      | AI SDK `7.0.35`; OpenAI provider `4.0.18`; OpenRouter provider `3.0.0`             | Provider calls only in the worker; SDK retries off — BullMQ owns retry.                                                    |
 
 Registry/license scan dated **2026-07-22** found only permissive licenses and no
 production advisory; recheck on every upgrade.
@@ -54,14 +53,13 @@ producers and optional Bull Board. `main-worker.ts` is a standalone Nest context
 with processors and no listener. They scale and terminate independently.
 
 `createHttpApplication()` / `createWorkerApplication()` are the composition
-seams; entrypoints only start them and own fatal startup cleanup (capture once,
-close context, one redacted fatal event, flush telemetry, exit non-zero). Each
+seams; entrypoints only start them and own fatal startup cleanup (close context,
+one redacted fatal event, exit non-zero). Each
 factory publishes its context to the entrypoint before post-creation config so
 that phase still closes on failure.
 
 Validated configuration is global. Database and named queue providers are not —
-consumers import their owning module. HTTP-only exception/Sentry plumbing stays
-out of the worker graph. Details:
+consumers import their owning module. HTTP-only middleware stays out of the worker graph. Details:
 [runtime-operations](backend/mechanisms/runtime-operations.md),
 [queues](backend/mechanisms/queues.md).
 
@@ -75,7 +73,7 @@ out of the worker graph. Details:
 | Assistant conversation-store lifecycle | `apps/backend/src/infrastructure/mongo/`, `apps/backend/src/modules/conversations/`                    |
 | Schema and deployment SQL              | `packages/database/src/schema/`, `packages/database/drizzle/`                                          |
 | Queues, readiness and dashboard        | `apps/backend/src/infrastructure/queue/`, `infrastructure/readiness.ts`                                |
-| Logging and telemetry                  | `apps/backend/src/infrastructure/logging/`, `infrastructure/observability/`, `instrumentation.ts`      |
+| Application logging                    | `apps/backend/src/infrastructure/logging/`                                                             |
 | Business audit                         | `apps/backend/src/infrastructure/audit/`, `packages/database/src/schema/audit-events.ts`               |
 | Participant profile/import             | `apps/backend/src/modules/participants/`, `packages/database/src/schema/participants.ts`               |
 | Stub events and attendance             | `apps/backend/src/modules/events/`, `packages/database/src/schema/events.ts`                           |
@@ -122,7 +120,7 @@ rules: [api-contract](backend/mechanisms/api-contract.md).
 | [Database](backend/mechanisms/database.md)                     | Pool, transactions, schema/migrations, test data                 |
 | [MongoDB](backend/mechanisms/mongodb.md)                       | Assistant conversation-store connection, indexes, limits, backup |
 | [Queues](backend/mechanisms/queues.md)                         | Connections, envelopes, retry/retention, outbox, ops             |
-| [Runtime operations](backend/mechanisms/runtime-operations.md) | HTTP edge, config, logging, tracing, startup/shutdown            |
+| [Runtime operations](backend/mechanisms/runtime-operations.md) | HTTP edge, config, logging, startup/shutdown                     |
 | [Authentication](backend/mechanisms/authentication.md)         | Clerk sessions, private-by-default guard, staff auth             |
 | [API contract](backend/mechanisms/api-contract.md)             | OpenAPI emission, operation naming, generated admin client       |
 | [Wasender](backend/mechanisms/wasender.md)                     | WhatsApp client, signed webhook, normalized transport events     |
@@ -131,19 +129,20 @@ rules: [api-contract](backend/mechanisms/api-contract.md).
 Spanning invariants:
 
 - Business mutation and audit event share one PostgreSQL transaction. Runtime
-  telemetry is not a durable business audit log.
+  logging is not a durable business audit log.
 - A deterministic BullMQ ID suppresses a queued duplicate only while retained.
   Critical commit-to-enqueue needs an outbox; side effects still need durable
   idempotency.
-- Exactly one tracing SDK per process. Logs, traces, errors, job data and audit
-  context exclude secrets and unnecessary personal data.
+- One application logger; nginx owns access logs and Docker owns application
+  log rotation. Errors, job data and audit context exclude secrets and
+  unnecessary personal data.
 
 ## Environment and operation
 
 Inventory: `apps/backend/.env.example`. Local direct commands load `.env`;
 production does not. Required: `DATABASE_URL` and a database-scoped
 `MONGODB_URI`. Zod supplies defaults for host/port, origins, pool, Redis,
-logging and telemetry sampling. Production external Mongo needs auth and
+logging. Production external Mongo needs auth and
 verified TLS. HTTP additionally needs matching Clerk keys and at least one
 `CLERK_ADMIN_USER_IDS`; the worker can start without them. Production browser
 origins require HTTPS.
@@ -166,8 +165,9 @@ to WhatsApp. Feedback loop details:
 [post-event-feedback](backend/modules/post-event-feedback.md).
 
 `AppConfigModule` parses the full Zod env contract before listen/consume.
-Instrumentation parses a smaller observability subset before any SDK starts. Add
-variables to those contracts — do not scatter `process.env` reads.
+Entrypoints load the local `.env` before worker decorators evaluate. `APP_NAME`
+identifies database clients and worker lock pools; `LOG_LEVEL` controls Pino.
+Add variables to the env contract — do not scatter `process.env` reads.
 
 Start both with `dev`, or `dev:http` / `dev:worker`. Production:
 `start:http` / `start:worker`. Backend and database `build` wipe `dist/` first;
@@ -221,5 +221,4 @@ Bull Board, or cross-domain `utils/` drawer.
 - [Nest modules](https://docs.nestjs.com/modules), [standalone applications](https://docs.nestjs.com/standalone-applications), [configuration](https://docs.nestjs.com/techniques/configuration), [queues](https://docs.nestjs.com/techniques/queues), [OpenAPI](https://docs.nestjs.com/openapi/introduction)
 - [Drizzle PostgreSQL](https://orm.drizzle.team/docs/get-started-postgresql), [transactions](https://orm.drizzle.team/docs/transactions), [Kit overview](https://orm.drizzle.team/docs/kit-overview)
 - [BullMQ idempotent jobs](https://docs.bullmq.io/patterns/idempotent-jobs), [job IDs](https://docs.bullmq.io/guide/jobs/job-ids), [retries](https://docs.bullmq.io/guide/retrying-failing-jobs)
-- [OpenTelemetry Node.js](https://opentelemetry.io/docs/languages/js/getting-started/nodejs/), [package compatibility](https://github.com/open-telemetry/opentelemetry-js#package-version-compatibility), [Sentry NestJS](https://docs.sentry.io/platforms/javascript/guides/nestjs/)
 - [Node release lines](https://nodejs.org/en/about/previous-releases), [TypeScript 7 status](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/), [Vitest support](https://vitest.dev/guide/)

@@ -38,10 +38,7 @@ x-backend-environment: &backend-environment
   MONGODB_APP_USER: ${MONGODB_APP_USER:?Set MONGODB_APP_USER in .env.production}
   MONGODB_DB: ${MONGODB_DB:?Set MONGODB_DB in .env.production}
   LOG_LEVEL: ${LOG_LEVEL:-info}
-  OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-join-the-six-api}
-  OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
-  SENTRY_DSN: ${SENTRY_DSN:-}
-  SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
+  APP_NAME: ${APP_NAME:-join-the-six-api}
   TRANSPORT_MODE: ${TRANSPORT_MODE:-disabled}
   REFERENCE_MODULE_ENABLED: ${REFERENCE_MODULE_ENABLED:-false}
   WEB_ORIGIN: ${WEB_ORIGIN:?Set WEB_ORIGIN in .env.production}
@@ -226,7 +223,7 @@ services:
     stop_grace_period: 8m
     environment:
       <<: *backend-environment
-      OTEL_SERVICE_NAME: join-the-six-worker
+      APP_NAME: join-the-six-worker
       FEEDBACK_TOPIC_CLUSTERING_PYTHON: /opt/topic-clustering/.venv/bin/python
       FEEDBACK_TOPIC_CLUSTERING_SCRIPT: /opt/topic-clustering/cluster.py
     secrets:

@@ -1,8 +1,7 @@
 import { Module } from "@nestjs/common";
 import { TopicAnalysisHttpModule } from "./modules/post-event-feedback/topic-analysis/topic-analysis.http.module.js";
 import { ConditionalModule } from "@nestjs/config";
-import { APP_FILTER, APP_INTERCEPTOR, APP_PIPE } from "@nestjs/core";
-import { SentryGlobalFilter, SentryModule } from "@sentry/nestjs/setup";
+import { APP_INTERCEPTOR, APP_PIPE } from "@nestjs/core";
 import { createZodValidationPipe, ZodSerializerInterceptor } from "nestjs-zod";
 
 import { AppConfigModule } from "./infrastructure/config/app-config.module.js";
@@ -14,7 +13,6 @@ import {
   isWasenderWebhookEnabled,
 } from "./infrastructure/config/enabled-modules.js";
 import { LoggingModule } from "./infrastructure/logging/logging.module.js";
-import { ObservabilityModule } from "./infrastructure/observability/observability.module.js";
 import { QueueDashboardModule } from "./infrastructure/queue/queue-dashboard.module.js";
 import { AssistantHttpModule } from "./modules/assistant/assistant-http.module.js";
 import { EmailHttpModule } from "./modules/email/email-http.module.js";
@@ -38,8 +36,6 @@ const StrictZodValidationPipe = createZodValidationPipe({
     AppConfigModule,
     AuthModule,
     LoggingModule,
-    ObservabilityModule,
-    SentryModule.forRoot(),
     HealthModule,
     AssistantHttpModule,
     EmailHttpModule,
@@ -70,7 +66,6 @@ const StrictZodValidationPipe = createZodValidationPipe({
   providers: [
     { provide: APP_INTERCEPTOR, useClass: ZodSerializerInterceptor },
     { provide: APP_PIPE, useClass: StrictZodValidationPipe },
-    { provide: APP_FILTER, useClass: SentryGlobalFilter },
   ],
 })
 export class HttpAppModule {}

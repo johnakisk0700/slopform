@@ -12,7 +12,6 @@ import {
   addProductionMongoIssues,
   parseMongoConnectionString,
 } from "./mongo-connection-string.js";
-import { observabilityEnvironmentSchema } from "./observability-environment.js";
 
 const optionalCredential = z.preprocess(
   emptyStringToUndefined,
@@ -163,8 +162,12 @@ const booleanFromEnvironment = z.preprocess(
     .transform((value) => value === "true"),
 );
 
-export const environmentSchema = observabilityEnvironmentSchema
-  .safeExtend({
+export const environmentSchema = z
+  .object({
+    NODE_ENV: z
+      .enum(["development", "test", "production"])
+      .default("development"),
+    APP_NAME: z.string().trim().min(1).max(128).default("join-the-six-api"),
     API_HOST: z.string().trim().min(1).max(253).default("0.0.0.0"),
     API_PORT: z.preprocess(
       emptyStringToUndefined,

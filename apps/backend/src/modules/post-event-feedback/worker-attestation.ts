@@ -256,7 +256,7 @@ export function attestFeedbackWorkers(
 
 /**
  * Decorators are evaluated before Nest can inject ConfigService. The worker
- * entrypoint loads dotenv through `instrumentation.ts` before importing this
+ * entrypoint imports `config/load-environment.ts` before importing this
  * module, so this one centralized startup boundary resolves the same validated
  * FEEDBACK_* vocabulary directly from the raw environment.
  */

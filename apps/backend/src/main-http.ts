@@ -1,3 +1,5 @@
+import "./infrastructure/config/load-environment.js";
+
 import { ConfigService } from "@nestjs/config";
 import { Logger } from "@nestjs/common";
 import type { NestExpressApplication } from "@nestjs/platform-express";
@@ -7,11 +9,7 @@ import type { Environment } from "./infrastructure/config/environment.js";
 import {
   handleStartupFailure,
   writeStructuredFatalEvent,
-} from "./infrastructure/observability/startup-failure.js";
-import {
-  captureStartupException,
-  shutdownTelemetry,
-} from "./instrumentation.js";
+} from "./infrastructure/logging/startup-failure.js";
 
 let application: NestExpressApplication | undefined;
 
@@ -33,12 +31,10 @@ void bootstrap().catch(async (error: unknown) => {
   const currentApplication = application;
 
   await handleStartupFailure(error, {
-    capture: captureStartupException,
     ...(currentApplication
       ? { closeApplication: () => currentApplication.close() }
       : {}),
     event: "http.bootstrap.failed",
-    shutdownTelemetry,
     writeFatalEvent: writeStructuredFatalEvent,
   });
 

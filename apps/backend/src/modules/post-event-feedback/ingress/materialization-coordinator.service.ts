@@ -116,7 +116,7 @@ export class FeedbackMaterializationLimiter
   };
 
   constructor(config: ConfigService<Environment, true>) {
-    const serviceName = config.get("OTEL_SERVICE_NAME", { infer: true });
+    const serviceName = config.get("APP_NAME", { infer: true });
     const client = createDatabase({
       applicationName: `${serviceName.slice(0, 40)}-feedback-locks`,
       connectionString: config.get("DATABASE_URL", { infer: true }),

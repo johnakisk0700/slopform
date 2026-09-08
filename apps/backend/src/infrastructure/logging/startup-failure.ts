@@ -1,8 +1,6 @@
 export interface StartupFailureReporting {
-  readonly capture: (error: unknown) => void;
   readonly closeApplication?: () => Promise<void>;
   readonly event: "http.bootstrap.failed" | "worker.bootstrap.failed";
-  readonly shutdownTelemetry: () => Promise<void>;
   readonly writeFatalEvent: (event: string, error: unknown) => void;
 }
 
@@ -10,12 +8,6 @@ export async function handleStartupFailure(
   error: unknown,
   handlers: StartupFailureReporting,
 ): Promise<void> {
-  try {
-    handlers.capture(error);
-  } catch (captureError) {
-    handlers.writeFatalEvent("telemetry.capture.failed", captureError);
-  }
-
   let reportedError = error;
 
   if (handlers.closeApplication) {
@@ -30,12 +22,6 @@ export async function handleStartupFailure(
   }
 
   handlers.writeFatalEvent(handlers.event, reportedError);
-
-  try {
-    await handlers.shutdownTelemetry();
-  } catch (shutdownError) {
-    handlers.writeFatalEvent("telemetry.shutdown.failed", shutdownError);
-  }
 }
 
 function redactUrlSecrets(value: string): string {

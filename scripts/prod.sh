@@ -24,8 +24,8 @@ Commands:
             must be all. A full deploy also installs the host nginx edge.
   status    Show the current release, per-component image state, and Compose
             service status on the VPS.
-  logs      Show the last PRODUCTION_LOG_TAIL lines (default 200). nginx uses
-            the host journal; all other names are Compose services.
+  logs      Show the last PRODUCTION_LOG_TAIL lines (default 200). nginx reads
+            the site access/error files; all other names are Compose services.
   rollback  Activate already-built SHA-tagged images. Migrations are never
             reversed. The SHA must be the exact 40-character commit id.
   edge      Reinstall/test/reload the checked-in host nginx configuration, then
@@ -322,7 +322,7 @@ state_file="$production_root/shared/release-state.env"
 
 [[ -L $current_link && -f $state_file ]] || { printf 'Production is not initialized\n' >&2; exit 1; }
 if [[ $service == nginx ]]; then
-  exec journalctl -u nginx -n "$tail_lines" --no-pager
+  exec tail -n "$tail_lines" /var/log/nginx/slopform/access.log /var/log/nginx/slopform/error.log
 fi
 
 source "$current_link/scripts/production-common.sh"

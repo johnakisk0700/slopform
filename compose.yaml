@@ -7,10 +7,7 @@ x-app-environment: &app-environment
   MONGODB_URI: mongodb://${MONGODB_APP_USER:-join_the_six}:${MONGODB_APP_PASSWORD:-local_only_change_me}@mongo:27017/${MONGODB_DB:-join_the_six}?authSource=${MONGODB_DB:-join_the_six}&retryWrites=false
   REDIS_URL: redis://redis:6379
   LOG_LEVEL: ${LOG_LEVEL:-debug}
-  OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-join-the-six}
-  OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
-  SENTRY_DSN: ${SENTRY_DSN:-}
-  SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
+  APP_NAME: ${APP_NAME:-join-the-six}
   BULL_BOARD_ENABLED: ${BULL_BOARD_ENABLED:-false}
   BULL_BOARD_USERNAME: ${BULL_BOARD_USERNAME:-}
   BULL_BOARD_PASSWORD: ${BULL_BOARD_PASSWORD:-}

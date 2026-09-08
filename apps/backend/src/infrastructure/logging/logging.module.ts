@@ -1,14 +1,9 @@
 import { Module, RequestMethod } from "@nestjs/common";
 import { ConfigModule, ConfigService } from "@nestjs/config";
-import { trace } from "@opentelemetry/api";
 import { LoggerModule, type Params } from "nestjs-pino";
 import { randomUUID } from "node:crypto";
 
 import type { Environment } from "../config/environment.js";
-import {
-  isLivenessRequest,
-  requestPath,
-} from "../observability/http-observability.js";
 
 const REQUEST_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 
@@ -39,29 +34,14 @@ export function createLoggingParameters(
             },
           }
         : {}),
-      autoLogging: {
-        ignore: (request) => isLivenessRequest(request.url),
-      },
-      customLogLevel(_request, response, error) {
-        if (error || response.statusCode >= 500) {
-          return "error";
-        }
-
-        return response.statusCode >= 400 ? "warn" : "info";
-      },
+      // The nginx access log owns request completion records.
+      autoLogging: false,
       genReqId(request, response) {
         const requestId =
           validIncomingRequestId(request.headers["x-request-id"]) ??
           randomUUID();
         response.setHeader("x-request-id", requestId);
         return requestId;
-      },
-      // Per-record evaluation avoids stale/duplicate request span fields.
-      mixin() {
-        const spanContext = trace.getActiveSpan()?.spanContext();
-        return spanContext
-          ? { traceId: spanContext.traceId, spanId: spanContext.spanId }
-          : {};
       },
       redact: {
         censor: "[Redacted]",
@@ -91,7 +71,7 @@ export function createLoggingParameters(
           return {
             id: request.id,
             method: request.method,
-            url: requestPath(request.url),
+            url: request.url?.split(/[?#]/u, 1)[0],
           };
         },
         res(response) {

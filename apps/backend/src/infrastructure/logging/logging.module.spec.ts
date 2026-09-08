@@ -3,10 +3,6 @@ import type { Options as PinoHttpOptions } from "pino-http";
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  isLivenessRequest,
-  requestPath,
-} from "../observability/http-observability.js";
-import {
   createLoggingParameters,
   validIncomingRequestId,
 } from "./logging.module.js";
@@ -36,20 +32,20 @@ describe("LoggingModule configuration", () => {
     expect(validIncomingRequestId(["request-1"])).toBeUndefined();
   });
 
-  it("removes query values from logs and suppresses only liveness noise", () => {
-    expect(requestPath("/api/v1/reference?token=secret#fragment")).toBe(
-      "/api/v1/reference",
-    );
-    expect(isLivenessRequest("/api/v1/health/live?probe=1")).toBe(true);
-    expect(isLivenessRequest("/api/v1/health/ready")).toBe(false);
-
-    const autoLogging = optionsFor().autoLogging;
-    expect(typeof autoLogging).toBe("object");
+  it("omits query values from request context and leaves access logs to nginx", () => {
+    const options = optionsFor();
+    expect(options.autoLogging).toBe(false);
     expect(
-      typeof autoLogging === "object"
-        ? autoLogging.ignore?.({ url: "/api/v1/health/live" } as never)
-        : undefined,
-    ).toBe(true);
+      options.serializers?.req?.({
+        id: "request-1",
+        method: "GET",
+        url: "/api/v1/reference?token=secret#fragment",
+      }),
+    ).toEqual({
+      id: "request-1",
+      method: "GET",
+      url: "/api/v1/reference",
+    });
   });
 
   it("preserves valid correlation IDs and replaces invalid ones", () => {
@@ -79,13 +75,6 @@ describe("LoggingModule configuration", () => {
     });
     expect(optionsFor("development", false).transport).toBeUndefined();
     expect(optionsFor("production", true).transport).toBeUndefined();
-  });
-
-  it("adds trace context at log time instead of binding stale request spans", () => {
-    const options = optionsFor();
-
-    expect(options.customProps).toBeUndefined();
-    expect(options.mixin?.({}, 30, {} as never)).toEqual({});
   });
 
   it("redacts common application-level credentials", () => {
