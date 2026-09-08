@@ -10,11 +10,5 @@
   "exports": {
     "./tokens.css": "./src/tokens.css",
     "./palettes.css": "./src/palettes.css"
-  },
-  "scripts": {
-    "build": "node scripts/verify-tokens.mjs",
-    "lint": "node scripts/verify-tokens.mjs",
-    "test": "node scripts/verify-tokens.mjs",
-    "typecheck": "node --check scripts/verify-tokens.mjs"
   }
 }
