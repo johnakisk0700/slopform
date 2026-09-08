@@ -14,7 +14,6 @@ import {
   FEEDBACK_MAINTENANCE_QUEUE,
   FEEDBACK_QUEUE,
   FEEDBACK_SUMMARY_QUEUE,
-  REFERENCE_QUEUE,
 } from "./queue.constants.js";
 import { QueueModule } from "./queue.module.js";
 
@@ -94,14 +93,6 @@ import { QueueModule } from "./queue.module.js";
       adapter: BullMQAdapter,
       options: {
         description: "Feedback expiry and recovery maintenance",
-        readOnlyMode: true,
-      },
-    }),
-    BullBoardModule.forFeature({
-      name: REFERENCE_QUEUE,
-      adapter: BullMQAdapter,
-      options: {
-        description: "Disposable golden-module jobs",
         readOnlyMode: true,
       },
     }),

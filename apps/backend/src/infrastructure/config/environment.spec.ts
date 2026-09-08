@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   isBullBoardEnabled,
   isFeedbackSimulatorHttpEnabled,
-  isReferenceModuleEnabled,
   isResendEnabled,
   isWasenderTransportEnabled,
   isWasenderWebhookEnabled,
@@ -567,9 +566,6 @@ describe("validateEnvironment", () => {
   it("enables optional modules only for an explicit true flag", () => {
     expect(isBullBoardEnabled({ BULL_BOARD_ENABLED: " TRUE " })).toBe(true);
     expect(isBullBoardEnabled({})).toBe(false);
-    expect(
-      isReferenceModuleEnabled({ REFERENCE_MODULE_ENABLED: "false" }),
-    ).toBe(false);
     expect(
       isWasenderWebhookEnabled({ WASENDER_WEBHOOK_ENABLED: " TRUE " }),
     ).toBe(true);

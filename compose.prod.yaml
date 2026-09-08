@@ -41,7 +41,6 @@ x-backend-environment: &backend-environment
   LOG_LEVEL: ${LOG_LEVEL:-info}
   APP_NAME: ${APP_NAME:-join-the-six-api}
   TRANSPORT_MODE: ${TRANSPORT_MODE:-disabled}
-  REFERENCE_MODULE_ENABLED: ${REFERENCE_MODULE_ENABLED:-false}
   WEB_ORIGIN: ${WEB_ORIGIN:?Set WEB_ORIGIN in .env.production}
 
 services:

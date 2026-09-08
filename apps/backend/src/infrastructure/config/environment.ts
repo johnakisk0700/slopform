@@ -386,7 +386,6 @@ export const environmentSchema = z
     BULL_BOARD_ENABLED: booleanFromEnvironment,
     BULL_BOARD_USERNAME: optionalCredential,
     BULL_BOARD_PASSWORD: optionalCredential,
-    REFERENCE_MODULE_ENABLED: booleanFromEnvironment,
   })
   .superRefine((environment, context) => {
     if (environment.NODE_ENV === "production" && environment.AUTH_DEV_BYPASS) {

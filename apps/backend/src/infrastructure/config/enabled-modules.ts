@@ -4,12 +4,6 @@ export function isBullBoardEnabled(environment: NodeJS.ProcessEnv): boolean {
   return environment.BULL_BOARD_ENABLED?.trim().toLowerCase() === "true";
 }
 
-export function isReferenceModuleEnabled(
-  environment: NodeJS.ProcessEnv,
-): boolean {
-  return environment.REFERENCE_MODULE_ENABLED?.trim().toLowerCase() === "true";
-}
-
 export function isWasenderWebhookEnabled(
   environment: NodeJS.ProcessEnv,
 ): boolean {

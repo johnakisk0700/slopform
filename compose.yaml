@@ -20,6 +20,7 @@ x-dev-service: &dev-service
     - .:/workspace
     - dev_pnpm_store:/pnpm/store
     - dev_root_node_modules:/workspace/node_modules
+    - dev_harness_node_modules:/workspace/harness/node_modules
     - dev_backend_node_modules:/workspace/apps/backend/node_modules
     - dev_admin_node_modules:/workspace/apps/admin/node_modules
     - dev_database_node_modules:/workspace/packages/database/node_modules
@@ -216,6 +217,7 @@ volumes:
   dev_redis_data:
   dev_pnpm_store:
   dev_root_node_modules:
+  dev_harness_node_modules:
   dev_backend_node_modules:
   dev_admin_node_modules:
   dev_database_node_modules:

@@ -3,18 +3,18 @@ import { Injectable, Logger } from "@nestjs/common";
 import type { Queue } from "bullmq";
 
 import { withReadinessTimeout } from "../readiness.js";
-import { REFERENCE_QUEUE } from "./queue.constants.js";
+import { ASSISTANT_QUEUE } from "./queue.constants.js";
 
 @Injectable()
 export class QueueHealthService {
   private readonly logger = new Logger(QueueHealthService.name);
   private pendingPing: Promise<void> | undefined;
 
-  constructor(@InjectQueue(REFERENCE_QUEUE) private readonly queue: Queue) {
+  constructor(@InjectQueue(ASSISTANT_QUEUE) private readonly queue: Queue) {
     this.queue.on("error", (error: Error) => {
       this.logger.error({
         event: "queue.producer.error",
-        queue: REFERENCE_QUEUE,
+        queue: ASSISTANT_QUEUE,
         error: {
           name: error.name,
           message: error.message,

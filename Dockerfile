@@ -22,6 +22,7 @@ RUN python3 -m venv /opt/topic-clustering/.venv && \
 
 FROM base AS dependencies
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
+COPY harness/package.json harness/package.json
 COPY apps/backend/package.json apps/backend/package.json
 COPY apps/admin/package.json apps/admin/package.json
 COPY packages/database/package.json packages/database/package.json
