@@ -409,7 +409,7 @@ export function AssistantPage() {
               },
             );
             skipHydrationThreadIdRef.current = thread.id;
-            alignLatestQuestionRef.current = true;
+            if (branching) alignLatestQuestionRef.current = true;
             setActiveThread(thread);
             setPendingUser(null);
             suppressedRouteLoadRef.current = thread.id;
