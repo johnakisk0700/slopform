@@ -6,6 +6,8 @@ import { SwaggerModule } from "@nestjs/swagger";
 import helmet from "helmet";
 import { Logger } from "nestjs-pino";
 
+import { closeFailedApplication } from "./infrastructure/logging/startup-failure.js";
+
 import { HttpAppModule } from "./http-app.module.js";
 import { AuthConfigService } from "./infrastructure/auth/auth-config.service.js";
 import type { Environment } from "./infrastructure/config/environment.js";
@@ -22,64 +24,64 @@ import {
   OPENAPI_YAML_ROUTE,
 } from "./infrastructure/openapi/openapi-document.js";
 
-export async function createHttpApplication(
-  onCreated?: (application: NestExpressApplication) => void,
-): Promise<NestExpressApplication> {
+export async function createHttpApplication(): Promise<NestExpressApplication> {
   const app = await NestFactory.create<NestExpressApplication>(HttpAppModule, {
     abortOnError: false,
     bodyParser: false,
     bufferLogs: true,
   });
-  onCreated?.(app);
+  try {
+    const config = app.get(ConfigService<Environment, true>);
+    const authConfig = app.get(AuthConfigService);
+    const nodeEnvironment = config.get("NODE_ENV", { infer: true });
 
-  const config = app.get(ConfigService<Environment, true>);
-  const authConfig = app.get(AuthConfigService);
-  const nodeEnvironment = config.get("NODE_ENV", { infer: true });
+    if (!authConfig.devBypassEnabled) {
+      const clerkClient = authConfig.clerkClient;
 
-  if (!authConfig.devBypassEnabled) {
-    const clerkClient = authConfig.clerkClient;
+      if (!clerkClient) {
+        throw new Error(
+          "Clerk client is missing while authentication is enabled",
+        );
+      }
 
-    if (!clerkClient) {
-      throw new Error(
-        "Clerk client is missing while authentication is enabled",
+      // Clerk must inspect the untouched request before any other Express middleware.
+      app.use(
+        clerkMiddleware({
+          authorizedParties: [...authConfig.authorizedParties],
+          clerkClient,
+        }),
       );
     }
-
-    // Clerk must inspect the untouched request before any other Express middleware.
-    app.use(
-      clerkMiddleware({
-        authorizedParties: [...authConfig.authorizedParties],
-        clerkClient,
-      }),
-    );
-  }
-  app.useLogger(app.get(Logger));
-  app.enableShutdownHooks();
-  app.use(helmet(createHelmetOptions(nodeEnvironment)));
-  app.useBodyParser("json", { limit: HTTP_BODY_LIMIT_BYTES });
-  app.useBodyParser("urlencoded", {
-    extended: false,
-    limit: HTTP_BODY_LIMIT_BYTES,
-    parameterLimit: 100,
-  });
-  app.getHttpAdapter().getInstance().disable("x-powered-by");
-  // Authorization must not depend on forwarded metadata.
-  app.set("trust proxy", false);
-  app.setGlobalPrefix(HTTP_API_PREFIX);
-  app.enableCors({
-    credentials: true,
-    maxAge: 600,
-    origin: config.get("WEB_ORIGIN", { infer: true }),
-  });
-
-  if (nodeEnvironment !== "production") {
-    SwaggerModule.setup(OPENAPI_DOCS_ROUTE, app, createOpenApiDocument(app), {
-      jsonDocumentUrl: OPENAPI_JSON_ROUTE,
-      yamlDocumentUrl: OPENAPI_YAML_ROUTE,
+    app.useLogger(app.get(Logger));
+    app.enableShutdownHooks();
+    app.use(helmet(createHelmetOptions(nodeEnvironment)));
+    app.useBodyParser("json", { limit: HTTP_BODY_LIMIT_BYTES });
+    app.useBodyParser("urlencoded", {
+      extended: false,
+      limit: HTTP_BODY_LIMIT_BYTES,
+      parameterLimit: 100,
     });
+    app.getHttpAdapter().getInstance().disable("x-powered-by");
+    // Authorization must not depend on forwarded metadata.
+    app.set("trust proxy", false);
+    app.setGlobalPrefix(HTTP_API_PREFIX);
+    app.enableCors({
+      credentials: true,
+      maxAge: 600,
+      origin: config.get("WEB_ORIGIN", { infer: true }),
+    });
+
+    if (nodeEnvironment !== "production") {
+      SwaggerModule.setup(OPENAPI_DOCS_ROUTE, app, createOpenApiDocument(app), {
+        jsonDocumentUrl: OPENAPI_JSON_ROUTE,
+        yamlDocumentUrl: OPENAPI_YAML_ROUTE,
+      });
+    }
+
+    configureHttpServer(app.getHttpServer());
+
+    return app;
+  } catch (error) {
+    return closeFailedApplication(app, error);
   }
-
-  configureHttpServer(app.getHttpServer());
-
-  return app;
 }

@@ -52,11 +52,11 @@ flowchart LR
 producers and optional Bull Board. `main-worker.ts` is a standalone Nest context
 with processors and no listener. They scale and terminate independently.
 
-`createHttpApplication()` / `createWorkerApplication()` are the composition
-seams; entrypoints only start them and own fatal startup cleanup (close context,
-one redacted fatal event, exit non-zero). Each
-factory publishes its context to the entrypoint before post-creation config so
-that phase still closes on failure.
+`createHttpApplication()` builds the HTTP app for the entrypoint and HTTP tests;
+`main-http.ts` opens the listener. `main-worker.ts` creates and configures the
+worker context directly. Each creation/setup scope closes its own app on failure;
+entrypoints report one redacted fatal event and exit non-zero. Cleanup preserves
+the original error even when closing also fails.
 
 Validated configuration is global. Database and named queue providers are not —
 consumers import their owning module. HTTP-only middleware stays out of the worker graph. Details:
@@ -67,7 +67,7 @@ consumers import their owning module. HTTP-only middleware stays out of the work
 
 | Concern                                | Source                                                                                                 |
 | -------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| Process composition                    | `apps/backend/src/{http-app,worker-app}.module.ts`, `bootstrap-*.ts`, `main-*.ts`                      |
+| Process composition                    | `apps/backend/src/{http-app,worker-app}.module.ts`, `bootstrap-http.ts`, `main-*.ts`                   |
 | Runtime configuration and HTTP policy  | `apps/backend/src/infrastructure/config/`                                                              |
 | Pool and transaction lifecycle         | `apps/backend/src/infrastructure/database/`, `packages/database/src/client.ts`                         |
 | Assistant conversation-store lifecycle | `apps/backend/src/infrastructure/mongo/`, `apps/backend/src/modules/conversations/`                    |
@@ -202,7 +202,6 @@ pnpm --filter @slopform/backend build
   settle connections); never drain queues, poll Redis or ignore unhandled
   rejections for a clean exit. Use a disposable DB when ordering/constraints/
   transactions are under test.
-- Worker composition: boot and close `createWorkerApplication()`.
 
 ## Deliberate exclusions
 

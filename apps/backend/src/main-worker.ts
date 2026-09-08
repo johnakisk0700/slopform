@@ -1,33 +1,31 @@
 import "./infrastructure/config/load-environment.js";
 
-import { Logger, type INestApplicationContext } from "@nestjs/common";
+import { Logger } from "@nestjs/common";
+import { NestFactory } from "@nestjs/core";
+import { Logger as PinoLogger } from "nestjs-pino";
 
-import { createWorkerApplication } from "./bootstrap-worker.js";
+import { WorkerAppModule } from "./worker-app.module.js";
 import {
-  handleStartupFailure,
+  closeFailedApplication,
   writeStructuredFatalEvent,
 } from "./infrastructure/logging/startup-failure.js";
 
-let application: INestApplicationContext | undefined;
-
-async function bootstrap(): Promise<void> {
-  await createWorkerApplication((createdApplication) => {
-    application = createdApplication;
+async function startWorker(): Promise<void> {
+  const app = await NestFactory.createApplicationContext(WorkerAppModule, {
+    abortOnError: false,
+    bufferLogs: true,
   });
-
-  new Logger("WorkerBootstrap").log({ event: "worker.started" });
+  try {
+    app.useLogger(app.get(PinoLogger));
+    app.flushLogs();
+    app.enableShutdownHooks();
+    new Logger("WorkerBootstrap").log({ event: "worker.started" });
+  } catch (error) {
+    await closeFailedApplication(app, error);
+  }
 }
 
-void bootstrap().catch(async (error: unknown) => {
-  const currentApplication = application;
-
-  await handleStartupFailure(error, {
-    ...(currentApplication
-      ? { closeApplication: () => currentApplication.close() }
-      : {}),
-    event: "worker.bootstrap.failed",
-    writeFatalEvent: writeStructuredFatalEvent,
-  });
-
+void startWorker().catch((error: unknown) => {
+  writeStructuredFatalEvent("worker.bootstrap.failed", error);
   process.exitCode = 1;
 });

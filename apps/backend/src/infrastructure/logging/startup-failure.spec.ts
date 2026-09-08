@@ -1,73 +1,30 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  handleStartupFailure,
+  closeFailedApplication,
   serializeStartupError,
 } from "./startup-failure.js";
 
-describe("handleStartupFailure", () => {
-  it.each(["http.bootstrap.failed", "worker.bootstrap.failed"] as const)(
-    "coordinates %s exactly once",
-    async (event) => {
-      const calls: string[] = [];
-      const error = new Error("listen failed");
-      const closeApplication = vi.fn(async () => {
-        calls.push("close");
-      });
-      const writeFatalEvent = vi.fn(() => calls.push("write"));
-
-      await handleStartupFailure(error, {
-        closeApplication,
-        event,
-        writeFatalEvent,
-      });
-
-      expect(closeApplication).toHaveBeenCalledOnce();
-      expect(writeFatalEvent).toHaveBeenCalledWith(event, error);
-      expect(calls).toEqual(["close", "write"]);
-    },
-  );
-
-  it("reports both the startup error and cleanup failure", async () => {
+describe("startup failure", () => {
+  it("closes the application and preserves the original failure", async () => {
     const error = new Error("listen failed");
-    const closeError = new Error("close failed");
-    const writeFatalEvent = vi.fn();
-
-    await handleStartupFailure(error, {
-      closeApplication: vi.fn().mockRejectedValue(closeError),
-      event: "http.bootstrap.failed",
-      writeFatalEvent,
-    });
-
-    const reportedError = writeFatalEvent.mock.calls[0]?.[1];
-    expect(reportedError).toBeInstanceOf(AggregateError);
-    expect((reportedError as AggregateError).errors).toEqual([
-      error,
-      closeError,
-    ]);
-    expect(writeFatalEvent).toHaveBeenCalledOnce();
-
-    expect(serializeStartupError(reportedError)).toMatchObject({
-      errors: [
-        { message: "listen failed", name: "Error" },
-        { message: "close failed", name: "Error" },
-      ],
-      message: "Application startup failed and cleanup also failed",
-      name: "AggregateError",
-    });
+    const app = { close: vi.fn().mockResolvedValue(undefined) };
+    await expect(closeFailedApplication(app, error)).rejects.toBe(error);
+    expect(app.close).toHaveBeenCalledOnce();
   });
 
-  it("reports failures before an application context exists", async () => {
-    const error = new Error("configuration invalid");
-    const writeFatalEvent = vi.fn();
-    await handleStartupFailure(error, {
-      event: "http.bootstrap.failed",
-      writeFatalEvent,
+  it("preserves the startup error when cleanup also fails", async () => {
+    const error = new Error("listen failed");
+    const closeError = new Error("close failed");
+    const app = { close: vi.fn().mockRejectedValue(closeError) };
+    await expect(closeFailedApplication(app, error)).rejects.toMatchObject({
+      errors: [error, closeError],
     });
-    expect(writeFatalEvent).toHaveBeenCalledExactlyOnceWith(
-      "http.bootstrap.failed",
-      error,
-    );
+    expect(
+      serializeStartupError(new AggregateError([error, closeError])),
+    ).toMatchObject({
+      errors: [{ message: "listen failed" }, { message: "close failed" }],
+    });
   });
 
   it("redacts userinfo and query values in common service URLs", () => {
