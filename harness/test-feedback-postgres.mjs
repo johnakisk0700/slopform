@@ -23,27 +23,23 @@ const commands = [
   [
     "pnpm",
     [
+      "--filter",
+      "@slopform/harness",
       "exec",
       "vitest",
       "run",
-      "../../harness/feedback/outbox/dispatcher.repository.spec.ts",
-      "--config",
-      "../../harness/vitest.config.ts",
-      "--root",
-      "../../harness",
+      "feedback/outbox/dispatcher.repository.spec.ts",
     ],
   ],
   [
     "pnpm",
     [
+      "--filter",
+      "@slopform/harness",
       "exec",
       "vitest",
       "run",
-      "../../harness/feedback/outbox/dispatch-context-migration.spec.ts",
-      "--config",
-      "../../harness/vitest.config.ts",
-      "--root",
-      "../../harness",
+      "feedback/outbox/dispatch-context-migration.spec.ts",
     ],
   ],
   [
