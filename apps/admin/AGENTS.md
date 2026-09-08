@@ -6,6 +6,9 @@ client (ADR 0006). Before changing UI architecture, read
 [`docs/frontend/theming.md`](../../docs/frontend/theming.md) and
 [ADR 0006](../../docs/decisions/0006-react-admin-runtime.md). Component
 contracts live under `docs/frontend/components/`.
+The working visual vocabulary is summarized in [`README.md`](README.md); the
+token graph and palette accessibility rules live in
+[`docs/frontend/theming.md`](../../docs/frontend/theming.md).
 
 ## Verified stack
 

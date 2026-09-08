@@ -14,6 +14,11 @@ Consumer rules (no literals, no `dark:` colour branches) live in
 [`apps/admin/AGENTS.md`](../../apps/admin/AGENTS.md) — this doc owns the token
 graph, bridge and appearance axes.
 
+The screen-level role guide is [`apps/admin/README.md`](../../apps/admin/README.md).
+Use it for the primary, secondary-action and accent choices, spacing, type and
+component conventions; this document remains the detailed token graph and
+palette contract.
+
 ## Purpose and boundary
 
 | Owner                                                     | Owns                                                                                                                                                                                   |
