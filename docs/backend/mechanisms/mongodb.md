@@ -91,9 +91,8 @@ recreate API/worker and verify readiness. Do not delete the volume to rotate.
 
 ## Failure, limits and backup
 
-Aggregate create/sync validates the complete document with Zod; transition
-commands validate typed payloads before mutation; every read validates the
-result. Turn transitions compare owner, turn id, status and exact attempt —
+Reads validate persisted documents with Zod. Create/sync and transition
+commands consume typed application values without parsing them again. Turn transitions compare owner, turn id, status and exact attempt —
 stale attempts are fenced; an existing terminal result cannot be replaced by a
 different one.
 

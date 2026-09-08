@@ -255,41 +255,6 @@ describe("ConversationThreadRepository", () => {
     ).rejects.toBeInstanceOf(ConversationTerminalResultConflictError);
   });
 
-  it("rejects an invalid terminal error before issuing a MongoDB mutation", async () => {
-    const collection = collectionMock({});
-    const repository = createRepository(collection);
-
-    await expect(
-      repository.markTurnFailed({
-        threadId,
-        ownerId: "user_owner",
-        turnId: firstTurnId,
-        attempt: 1,
-        code: "generation_failed",
-        message: " ",
-        completedAt,
-      }),
-    ).rejects.toThrow();
-    expect(collection.updateOne).not.toHaveBeenCalled();
-  });
-
-  it("rejects oversized provider output before issuing a MongoDB mutation", async () => {
-    const collection = collectionMock({});
-    const repository = createRepository(collection);
-
-    await expect(
-      repository.markTurnSucceeded({
-        threadId,
-        ownerId: "user_owner",
-        turnId: firstTurnId,
-        attempt: 1,
-        response: "x".repeat(20_001),
-        completedAt,
-      }),
-    ).rejects.toThrow();
-    expect(collection.updateOne).not.toHaveBeenCalled();
-  });
-
   it("retries from the previous attempt and accepts an idempotent queued replay", async () => {
     const queuedRetry = { ...queuedTurn(1), attempt: 2 };
     const collection = collectionMock({

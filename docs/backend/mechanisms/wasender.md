@@ -46,7 +46,8 @@ composition:
 | `getMessageInfo`    | Positive provider log ID              | WhatsApp message ID, key, timestamp and status `0..5`    |
 | `markMessageAsRead` | Exact key received from a webhook     | Completion or classified provider error                  |
 
-No automatic provider retries. `TRANSPORT_MODE=wasender` adds the provider
+The client consumes typed outbound commands and validated application configuration;
+incoming provider responses and webhooks are schema-validated. No automatic provider retries. `TRANSPORT_MODE=wasender` adds the provider
 module to the worker graph and requires `WASENDER_SESSION_API_KEY` there; the
 HTTP graph never receives that credential. `disabled` returns
 `not-accepted / transport_disabled`; the dispatcher marks the outbox failed and
@@ -186,7 +187,7 @@ header correctly fails with 401 and needs a reviewed contract change.
 ## Tests
 
 Focused tests cover request shape and bearer auth, response/status
-normalization, no-retry ambiguous failures, redacted errors, E.164 validation,
+normalization, no-retry ambiguous failures, redacted errors,
 both webhook message shapes, status codes, shared-secret verification,
 HTTP 200/400/401, OpenAPI and disabled-by-default 404. Controller tests cover
 dispatch: one ingress call per observed personal message, no durable write for

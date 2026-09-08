@@ -84,8 +84,9 @@ outbox — never treat a Mongo write as delivery.
 
 Schema-v1 tests cover purpose/channel/owner rules, ten-goal bounds, ordered
 goals/turns, takeover consistency, BSON capacity, owner-scoped sync,
-attempt-fenced transitions, conflicting terminals, oversized output and
-cross-store fault paths. Capacity is rechecked inside PostgreSQL's locked
+attempt-fenced transitions, conflicting terminals and
+cross-store fault paths. The generation adapter bounds incoming provider output;
+repository writes consume typed commands. Capacity is rechecked inside PostgreSQL's locked
 sequence allocation. No live MongoDB required.
 
 - Schema v1:

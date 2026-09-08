@@ -5,10 +5,7 @@ import type {
   ConversationThreadDocument,
   ConversationTurn,
 } from "../conversations/conversation-thread.schemas.js";
-import {
-  conversationTurnToolCallSchema,
-  conversationTurnUsageSchema,
-} from "../conversations/conversation-thread.schemas.js";
+import { conversationTurnToolCallSchema } from "../conversations/conversation-thread.schemas.js";
 import type { AssistantThreadRecord } from "./assistant.repository.js";
 import {
   DEFAULT_ASSISTANT_SERVICE_TIER,
@@ -183,7 +180,7 @@ function usageFromRow(turn: AssistantTurnRow): ConversationTurn["usage"] {
   ) {
     return null;
   }
-  return conversationTurnUsageSchema.parse({
+  return {
     inputTokens: turn.inputTokens,
     outputTokens: turn.outputTokens,
     reasoningTokens: turn.reasoningTokens,
@@ -191,7 +188,7 @@ function usageFromRow(turn: AssistantTurnRow): ConversationTurn["usage"] {
     totalTokens: turn.totalTokens,
     estimatedCostEurMicros: turn.estimatedCostEurMicros,
     pricingVersion: turn.pricingVersion,
-  });
+  };
 }
 
 export function requireConversationTurn(

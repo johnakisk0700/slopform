@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 
 import {
   POST_EVENT_FEEDBACK_SAFETY_CATEGORIES,
-  feedbackConversationMessageAttentionSchema,
   strongerRecommendedAction,
   type PostEventFeedbackAttentionReason,
   type PostEventFeedbackRecommendedAction,
@@ -688,7 +687,7 @@ export function applyMergeMessageAttention(
       message.attention?.categories.includes(category) ||
       input.categories.includes(category),
   );
-  const attention = feedbackConversationMessageAttentionSchema.parse({
+  const attention = {
     categories,
     recommendedAction: message.attention
       ? strongerRecommendedAction(
@@ -697,7 +696,7 @@ export function applyMergeMessageAttention(
         )
       : input.recommendedAction,
     confidence: Math.max(message.attention?.confidence ?? 0, input.confidence),
-  });
+  };
   if (
     message.attention &&
     JSON.stringify(message.attention) === JSON.stringify(attention)

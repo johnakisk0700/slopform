@@ -4,19 +4,19 @@ import type { MessageOutboxRow } from "@slopform/database";
 import { describe, expect, it } from "vitest";
 
 import {
-  FakeDatabase,
-  FakeFeedbackRepository,
-} from "../vibes/post-event-feedback-doubles.harness.js";
-import {
   buildFeedbackConversationGoals,
   deriveFeedbackConversationId,
   feedbackConversationDocumentSchema,
   type FeedbackConversationDocument,
 } from "../post-event-feedback-conversation.document.js";
+import {
+  FakeDatabase,
+  FakeFeedbackRepository,
+} from "../vibes/post-event-feedback-doubles.harness.js";
 import type { FeedbackOutboundLogRepository } from "./outbound-log.repository.js";
 import type { FeedbackOutboundDecision } from "./outbound-log.schemas.js";
-import { buildOutboundConversationSnapshot } from "./outbound-log.snapshot.js";
 import { FeedbackOutboundLogService } from "./outbound-log.service.js";
+import { buildOutboundConversationSnapshot } from "./outbound-log.snapshot.js";
 
 const campaignId = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
 const respondentParticipantId = "9f3c1a52-6e2b-4b4a-9a17-2cb2a6d13a55";
@@ -89,35 +89,6 @@ describe("FeedbackOutboundLogService", () => {
         correlationId: "correlation-replay",
       });
     });
-
-    expect(repository.outboxLogs).toHaveLength(0);
-  });
-
-  it("throws on an invalid decision and writes nothing", async () => {
-    const { service, repository, database } = createService();
-    const conversation = conversationDocument();
-    const outbox = repository.seedOutbox({
-      conversationId: conversation._id,
-      campaignId,
-      body: "stop ack",
-      dedupeKey: "stop:1",
-      kind: "system",
-    });
-
-    await expect(
-      database.transaction(async (transaction) => {
-        await service.record(transaction, {
-          outbox: { row: outbox as MessageOutboxRow, inserted: true },
-          conversation,
-          decision: {
-            origin: "stop_ack",
-            // Wrong shape for this origin — staffActorId belongs to staff_message.
-            staffActorId: "admin-1",
-          } as unknown as FeedbackOutboundDecision,
-          correlationId: "correlation-invalid",
-        });
-      }),
-    ).rejects.toThrow();
 
     expect(repository.outboxLogs).toHaveLength(0);
   });

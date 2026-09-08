@@ -28,11 +28,23 @@ import { z } from "zod";
 import { DatabaseService } from "../../infrastructure/database/database.service.js";
 import { ConversationPersistenceError } from "../conversations/conversation-persistence.errors.js";
 import {
+  postEventFeedbackAttentionReasonSchema,
+  type PostEventFeedbackAttentionReason,
+  type PostEventFeedbackRecommendedAction,
+  type PostEventFeedbackSafetyCategory,
+} from "./attention.js";
+import {
+  assertMessageIdentity,
+  buildFeedbackConversationGoals,
+  deriveFeedbackConversationId,
   FEEDBACK_CONVERSATION_CHANNEL,
-  FEEDBACK_CONVERSATION_MAX_MESSAGES_BYTES,
   FEEDBACK_CONVERSATION_LIFECYCLE_REASONS,
+  FEEDBACK_CONVERSATION_MAX_MESSAGES_BYTES,
   FEEDBACK_CONVERSATION_PURPOSE,
   FEEDBACK_CONVERSATION_SCHEMA_VERSION,
+  messageIdentityKeys,
+  resolveFeedbackConversationWork,
+  type AppendFeedbackConversationMessageInput,
   type FeedbackConversationControlSource,
   type FeedbackConversationDocument,
   type FeedbackConversationGoal,
@@ -40,14 +52,6 @@ import {
   type FeedbackConversationMessage,
   type FeedbackConversationRespondent,
   type FeedbackConversationSummary,
-  assertMessageIdentity,
-  buildFeedbackConversationGoals,
-  deriveFeedbackConversationId,
-  feedbackConversationDocumentSchema,
-  feedbackConversationStoredMessageSchema,
-  messageIdentityKeys,
-  resolveFeedbackConversationWork,
-  type AppendFeedbackConversationMessageInput,
 } from "./post-event-feedback-conversation.document.js";
 import {
   FeedbackConversationCapacityError,
@@ -88,12 +92,6 @@ import {
   type FeedbackConversationExpectedWork,
   type FeedbackConversationTransitionResult,
 } from "./post-event-feedback-conversation.state.js";
-import {
-  postEventFeedbackAttentionReasonSchema,
-  type PostEventFeedbackAttentionReason,
-  type PostEventFeedbackRecommendedAction,
-  type PostEventFeedbackSafetyCategory,
-} from "./attention.js";
 import type {
   FeedbackCampaignAttentionEvidence,
   FeedbackCampaignLifecycleStats,
@@ -140,7 +138,7 @@ export class FeedbackConversationRepository {
     transaction: AppTransaction,
     input: FeedbackConversationLaunchInput,
   ): Promise<FeedbackConversationCreationResult> {
-    const document = feedbackConversationDocumentSchema.parse({
+    const document: FeedbackConversationDocument = {
       _id: deriveFeedbackConversationId(
         input.campaignId,
         input.respondentParticipantId,
@@ -155,9 +153,19 @@ export class FeedbackConversationRepository {
       control: { mode: "bot", source: "launch", changedAt: input.launchedAt },
       goals: input.goals ? [...input.goals] : buildFeedbackConversationGoals(),
       messages: [],
-      extraction: { cursorSeq: 0, lastRunAt: null, model: null },
+      extraction: {
+        cursorSeq: 0,
+        lastRunAt: null,
+        model: null,
+        usage: null,
+        serviceTier: null,
+        parkedSince: null,
+        parkedRuns: 0,
+        parkedNoticeSentAt: null,
+      },
       work: { revision: 0, nextActionAt: null, executionEpoch: 0 },
       needsAttention: false,
+      attentionReasons: [],
       remindedAt: null,
       reminderCount: 0,
       awaitingHuman: false,
@@ -165,7 +173,7 @@ export class FeedbackConversationRepository {
       extractionFallbackAckSent: false,
       createdAt: input.launchedAt,
       updatedAt: input.launchedAt,
-    });
+    };
 
     const [inserted] = await transaction
       .insert(feedbackConversations)
@@ -228,12 +236,8 @@ export class FeedbackConversationRepository {
   ): Promise<string[]> {
     if (candidates.length === 0) return [];
 
-    const parsed = candidates.map((candidate) => ({
-      conversationId: z.uuid().parse(candidate.conversationId),
-      outboxId: z.uuid().parse(candidate.outboxId),
-    }));
     const outboxIdsByConversation = new Map<string, Set<string>>();
-    for (const candidate of parsed) {
+    for (const candidate of candidates) {
       const existing = outboxIdsByConversation.get(candidate.conversationId);
       if (existing) {
         existing.add(candidate.outboxId);
@@ -258,7 +262,7 @@ export class FeedbackConversationRepository {
           ]),
           eq(feedbackConversations.lifecycleState, "closed"),
           inArray(feedbackConversations.terminalOutboxId, [
-            ...new Set(parsed.map((candidate) => candidate.outboxId)),
+            ...new Set(candidates.map((candidate) => candidate.outboxId)),
           ]),
         ),
       );
@@ -278,7 +282,6 @@ export class FeedbackConversationRepository {
     campaignId: string,
     transaction?: AppTransaction,
   ): Promise<string[]> {
-    const id = z.uuid().parse(campaignId);
     const rows = await this.executor(transaction)
       .select({
         terminalOutboxId: feedbackConversations.terminalOutboxId,
@@ -286,7 +289,7 @@ export class FeedbackConversationRepository {
       .from(feedbackConversations)
       .where(
         and(
-          eq(feedbackConversations.campaignId, id),
+          eq(feedbackConversations.campaignId, campaignId),
           eq(feedbackConversations.lifecycleState, "closed"),
           eq(feedbackConversations.lifecycleReason, "stopped"),
           isNotNull(feedbackConversations.terminalOutboxId),
@@ -412,7 +415,6 @@ export class FeedbackConversationRepository {
     limit = 100,
     transaction?: AppTransaction,
   ): Promise<FeedbackConversationSummary[]> {
-    const boundedLimit = z.number().int().positive().max(500).parse(limit);
     const rows = await this.executor(transaction)
       .select({
         id: feedbackConversations.id,
@@ -441,7 +443,7 @@ export class FeedbackConversationRepository {
       .from(feedbackConversations)
       .where(eq(feedbackConversations.campaignId, campaignId))
       .orderBy(desc(feedbackConversations.updatedAt))
-      .limit(boundedLimit);
+      .limit(limit);
     return rows.map((row) =>
       toSummary({
         row,
@@ -610,10 +612,7 @@ export class FeedbackConversationRepository {
     campaignIds: readonly string[],
     transaction?: AppTransaction,
   ): Promise<FeedbackCampaignLifecycleStats[]> {
-    const ids = z
-      .array(z.uuid())
-      .max(500)
-      .parse([...new Set(campaignIds)]);
+    const ids = [...new Set(campaignIds)];
     if (ids.length === 0) return [];
 
     const rows = await this.executor(transaction)
@@ -628,13 +627,10 @@ export class FeedbackConversationRepository {
       .groupBy(feedbackConversations.campaignId);
 
     return rows.map((row) => ({
-      campaignId: z.uuid().parse(row.campaignId),
-      totalCount: z.number().int().nonnegative().parse(Number(row.totalCount)),
-      openCount: z.number().int().nonnegative().parse(Number(row.openCount)),
-      latestClosedAt: z
-        .date()
-        .nullable()
-        .parse(row.latestClosedAt ?? null),
+      campaignId: row.campaignId,
+      totalCount: Number(row.totalCount),
+      openCount: Number(row.openCount),
+      latestClosedAt: row.latestClosedAt ?? null,
     }));
   }
 
@@ -654,40 +650,26 @@ export class FeedbackConversationRepository {
     },
     transaction?: AppTransaction,
   ): Promise<FeedbackConversationDocument[]> {
-    const dueAt = z.date().parse(input.dueAt);
-    const limit = z
-      .number()
-      .int()
-      .positive()
-      .max(500)
-      .parse(input.limit ?? 50);
-    const after = input.after
-      ? {
-          nextActionAt: z.date().parse(input.after.nextActionAt),
-          conversationId: z.uuid().parse(input.after.conversationId),
-        }
-      : undefined;
+    const limit = input.limit ?? 50;
+    const { after } = input;
     const dueWindow = after
       ? or(
           and(
             gt(feedbackConversations.workNextActionAt, after.nextActionAt),
-            lte(feedbackConversations.workNextActionAt, dueAt),
+            lte(feedbackConversations.workNextActionAt, input.dueAt),
           ),
           and(
             eq(feedbackConversations.workNextActionAt, after.nextActionAt),
             gt(feedbackConversations.id, after.conversationId),
           ),
         )
-      : lte(feedbackConversations.workNextActionAt, dueAt);
-    const campaignId = input.campaignId
-      ? z.uuid().parse(input.campaignId)
-      : undefined;
+      : lte(feedbackConversations.workNextActionAt, input.dueAt);
     const filters = [
       isNotNull(feedbackConversations.workNextActionAt),
       dueWindow,
     ];
-    if (campaignId) {
-      filters.push(eq(feedbackConversations.campaignId, campaignId));
+    if (input.campaignId) {
+      filters.push(eq(feedbackConversations.campaignId, input.campaignId));
     }
     const rows = await this.executor(transaction)
       .select({
@@ -731,10 +713,12 @@ export class FeedbackConversationRepository {
       readonly at: Date;
     },
   ): Promise<FeedbackConversationWorkTransitionResult> {
-    const nextActionAt = z.date().parse(input.nextActionAt);
-    const at = z.date().parse(input.at);
     return this.mutate(transaction, input.conversationId, (conversation) => {
-      const updated = applyMarkWorkDue(conversation, nextActionAt, at);
+      const updated = applyMarkWorkDue(
+        conversation,
+        input.nextActionAt,
+        input.at,
+      );
       return workTransition(true, updated);
     });
   }
@@ -751,14 +735,12 @@ export class FeedbackConversationRepository {
       readonly at: Date;
     },
   ): Promise<number> {
-    const nextActionAt = z.date().parse(input.nextActionAt);
-    const at = z.date().parse(input.at);
     const updated = await transaction
       .update(feedbackConversations)
       .set({
         workRevision: sql`${feedbackConversations.workRevision} + 1`,
-        workNextActionAt: sql`greatest(coalesce(${feedbackConversations.workNextActionAt}, ${nextActionAt}), ${nextActionAt})`,
-        updatedAt: sql`greatest(${feedbackConversations.updatedAt}, ${at})`,
+        workNextActionAt: sql`greatest(coalesce(${feedbackConversations.workNextActionAt}, ${input.nextActionAt}), ${input.nextActionAt})`,
+        updatedAt: sql`greatest(${feedbackConversations.updatedAt}, ${input.at})`,
       })
       .where(
         and(
@@ -786,15 +768,11 @@ export class FeedbackConversationRepository {
       readonly at: Date;
     },
   ): Promise<FeedbackConversationWorkTransitionResult> {
-    const revision = z.number().int().min(0).parse(input.revision);
-    z.number().int().min(0).parse(input.epoch);
-    const nextActionAt = z.date().nullable().parse(input.nextActionAt);
-    const at = z.date().parse(input.at);
     return this.mutate(transaction, input.conversationId, (conversation) => {
       const result = applySettleWorkExecution(conversation, {
-        revision,
-        nextActionAt,
-        at,
+        revision: input.revision,
+        nextActionAt: input.nextActionAt,
+        at: input.at,
       });
       return workTransition(result.changed, result.conversation);
     });
@@ -832,7 +810,7 @@ export class FeedbackConversationRepository {
       };
     }
 
-    const message = feedbackConversationStoredMessageSchema.parse({
+    const message: FeedbackConversationMessage = {
       id: input.id ?? randomUUID(),
       seq: loaded.conversation.messages.length + 1,
       actor: input.actor,
@@ -842,7 +820,7 @@ export class FeedbackConversationRepository {
       outboxId: input.outboxId ?? null,
       attention: null,
       at: input.at,
-    });
+    };
     const conversation = applyAppendMessage(loaded.conversation, message);
     await this.assertStoredMessagesFit(transaction, conversation, input.at);
     await this.writeDocument(transaction, conversation);
@@ -860,17 +838,17 @@ export class FeedbackConversationRepository {
       readonly at: Date;
     },
   ): Promise<FeedbackConversationTransitionResult> {
-    const at = z.date().parse(input.at);
     const loaded = await this.requireForUpdate(
       transaction,
       input.conversationId,
     );
-    const result = applyMergeMessageAttention(loaded.conversation, {
-      ...input,
-      at,
-    });
+    const result = applyMergeMessageAttention(loaded.conversation, input);
     if (result.changed) {
-      await this.assertStoredMessagesFit(transaction, result.conversation, at);
+      await this.assertStoredMessagesFit(
+        transaction,
+        result.conversation,
+        input.at,
+      );
       await this.writeDocument(transaction, result.conversation);
     }
     return result;
@@ -884,9 +862,8 @@ export class FeedbackConversationRepository {
       readonly at: Date;
     },
   ): Promise<FeedbackConversationTransitionResult> {
-    const at = z.date().parse(input.at);
     return this.mutate(transaction, input.conversationId, (conversation) =>
-      applyTakeOver(conversation, { source: input.source, at }),
+      applyTakeOver(conversation, { source: input.source, at: input.at }),
     );
   }
 
@@ -894,9 +871,8 @@ export class FeedbackConversationRepository {
     transaction: AppTransaction,
     input: { readonly conversationId: string; readonly at: Date },
   ): Promise<FeedbackConversationTransitionResult> {
-    const at = z.date().parse(input.at);
     return this.mutate(transaction, input.conversationId, (conversation) =>
-      applyMarkAwaitingHuman(conversation, at),
+      applyMarkAwaitingHuman(conversation, input.at),
     );
   }
 
@@ -908,10 +884,11 @@ export class FeedbackConversationRepository {
       readonly expectedCount: number;
     },
   ): Promise<FeedbackConversationTransitionResult> {
-    const at = z.date().parse(input.at);
-    const expectedCount = z.number().int().min(0).parse(input.expectedCount);
     return this.mutate(transaction, input.conversationId, (conversation) =>
-      applyRecordHostileTurn(conversation, { expectedCount, at }),
+      applyRecordHostileTurn(conversation, {
+        expectedCount: input.expectedCount,
+        at: input.at,
+      }),
     );
   }
 
@@ -919,9 +896,8 @@ export class FeedbackConversationRepository {
     transaction: AppTransaction,
     input: { readonly conversationId: string; readonly at: Date },
   ): Promise<FeedbackConversationTransitionResult> {
-    const at = z.date().parse(input.at);
     return this.mutate(transaction, input.conversationId, (conversation) =>
-      applyMarkExtractionFallbackAckSent(conversation, at),
+      applyMarkExtractionFallbackAckSent(conversation, input.at),
     );
   }
 
@@ -929,9 +905,8 @@ export class FeedbackConversationRepository {
     transaction: AppTransaction,
     input: { readonly conversationId: string; readonly at: Date },
   ): Promise<FeedbackConversationTransitionResult> {
-    const at = z.date().parse(input.at);
     return this.mutate(transaction, input.conversationId, (conversation) =>
-      applyParkExtraction(conversation, at),
+      applyParkExtraction(conversation, input.at),
     );
   }
 
@@ -939,9 +914,8 @@ export class FeedbackConversationRepository {
     transaction: AppTransaction,
     input: { readonly conversationId: string; readonly at: Date },
   ): Promise<FeedbackConversationTransitionResult> {
-    const at = z.date().parse(input.at);
     return this.mutate(transaction, input.conversationId, (conversation) =>
-      applyMarkExtractionParkedNoticeSent(conversation, at),
+      applyMarkExtractionParkedNoticeSent(conversation, input.at),
     );
   }
 
@@ -949,9 +923,8 @@ export class FeedbackConversationRepository {
     transaction: AppTransaction,
     input: { readonly conversationId: string; readonly at: Date },
   ): Promise<FeedbackConversationTransitionResult> {
-    const at = z.date().parse(input.at);
     return this.mutate(transaction, input.conversationId, (conversation) =>
-      applyResumeBot(conversation, at),
+      applyResumeBot(conversation, input.at),
     );
   }
 
@@ -965,11 +938,7 @@ export class FeedbackConversationRepository {
       readonly staffClose?: FeedbackConversationDocument["staffClose"];
     },
   ): Promise<FeedbackConversationTransitionResult> {
-    const closedAt = z.date().parse(input.at);
-    const terminalOutboxId = z
-      .uuid()
-      .nullable()
-      .parse(input.terminalOutboxId ?? null);
+    const terminalOutboxId = input.terminalOutboxId ?? null;
     if (terminalOutboxId && input.reason !== "stopped") {
       throw new FeedbackConversationTransitionError(
         "Only a STOP close may authorize an outbox row through close()",
@@ -978,7 +947,7 @@ export class FeedbackConversationRepository {
     return this.mutate(transaction, input.conversationId, (conversation) =>
       applyClose(conversation, {
         reason: input.reason,
-        at: closedAt,
+        at: input.at,
         terminalOutboxId,
         staffClose: input.staffClose,
       }),
@@ -989,16 +958,14 @@ export class FeedbackConversationRepository {
     transaction: AppTransaction,
     input: FeedbackConversationAdvanceCursorInput,
   ): Promise<FeedbackConversationTransitionResult> {
-    const toSeq = z.number().int().positive().parse(input.toSeq);
-    const at = z.date().parse(input.at);
-    const expectedWork = parseExpectedWork(input);
+    const expectedWork = expectedWorkFromInput(input);
     return this.mutate(
       transaction,
       input.conversationId,
       (conversation, fenceEpoch) =>
         applyAdvanceCursor(conversation, {
-          toSeq,
-          at,
+          toSeq: input.toSeq,
+          at: input.at,
           ...(input.model !== undefined ? { model: input.model } : {}),
           ...(input.serviceTier !== undefined
             ? { serviceTier: input.serviceTier }
@@ -1013,16 +980,14 @@ export class FeedbackConversationRepository {
     transaction: AppTransaction,
     input: FeedbackConversationAwaitHumanCursorInput,
   ): Promise<FeedbackConversationTransitionResult> {
-    const toSeq = z.number().int().positive().parse(input.toSeq);
-    const at = z.date().parse(input.at);
-    const expectedWork = parseExpectedWork(input);
+    const expectedWork = expectedWorkFromInput(input);
     return this.mutate(
       transaction,
       input.conversationId,
       (conversation, fenceEpoch) =>
         applyAdvanceCursorAndMarkAwaitingHuman(conversation, {
-          toSeq,
-          at,
+          toSeq: input.toSeq,
+          at: input.at,
           model: input.model,
           serviceTier: input.serviceTier,
           usage: input.usage,
@@ -1035,20 +1000,16 @@ export class FeedbackConversationRepository {
     transaction: AppTransaction,
     input: FeedbackConversationCloseCursorInput,
   ): Promise<FeedbackConversationTransitionResult> {
-    const toSeq = z.number().int().positive().parse(input.toSeq);
-    const at = z.date().parse(input.at);
-    const reason = z.enum(["completed", "declined"]).parse(input.reason);
-    const terminalOutboxId = z.uuid().nullable().parse(input.terminalOutboxId);
-    const expectedWork = parseExpectedWork(input);
+    const expectedWork = expectedWorkFromInput(input);
     return this.mutate(
       transaction,
       input.conversationId,
       (conversation, fenceEpoch) =>
         applyAdvanceCursorAndClose(conversation, {
-          toSeq,
-          reason,
-          terminalOutboxId,
-          at,
+          toSeq: input.toSeq,
+          reason: input.reason,
+          terminalOutboxId: input.terminalOutboxId,
+          at: input.at,
           model: input.model,
           serviceTier: input.serviceTier,
           usage: input.usage,
@@ -1068,11 +1029,10 @@ export class FeedbackConversationRepository {
       readonly at: Date;
     },
   ): Promise<FeedbackConversationTransitionResult> {
-    const at = z.date().parse(input.at);
     return this.mutate(transaction, input.conversationId, (conversation) =>
       applyUpdateGoalStatuses(conversation, {
         statuses: input.statuses,
-        at,
+        at: input.at,
       }),
     );
   }
@@ -1086,12 +1046,11 @@ export class FeedbackConversationRepository {
       readonly at: Date;
     },
   ): Promise<FeedbackConversationTransitionResult> {
-    const at = z.date().parse(input.at);
     return this.mutate(transaction, input.conversationId, (conversation) =>
       applyRaiseAttention(conversation, {
         kind: input.kind,
         messageId: input.messageId,
-        at,
+        at: input.at,
       }),
     );
   }
@@ -1105,12 +1064,11 @@ export class FeedbackConversationRepository {
       readonly at: Date;
     },
   ): Promise<FeedbackConversationTransitionResult> {
-    const at = z.date().parse(input.at);
     return this.mutate(transaction, input.conversationId, (conversation) =>
       applyResolveAttentionReason(conversation, {
         reasonId: input.reasonId,
         resolvedBy: input.resolvedBy,
-        at,
+        at: input.at,
       }),
     );
   }
@@ -1123,10 +1081,11 @@ export class FeedbackConversationRepository {
       readonly expectedCount: number;
     },
   ): Promise<FeedbackConversationTransitionResult> {
-    const at = z.date().parse(input.at);
-    const expectedCount = z.number().int().min(0).parse(input.expectedCount);
     return this.mutate(transaction, input.conversationId, (conversation) =>
-      applyMarkReminded(conversation, { expectedCount, at }),
+      applyMarkReminded(conversation, {
+        expectedCount: input.expectedCount,
+        at: input.at,
+      }),
     );
   }
 
@@ -1282,9 +1241,7 @@ export class FeedbackConversationRepository {
     const result = await transaction.execute<{ size: number }>(
       sql`select pg_column_size(cast(${JSON.stringify(messages)} as jsonb))::int as size`,
     );
-    const { size } = z
-      .object({ size: z.number().int().nonnegative() })
-      .parse(result.rows[0]);
+    const { size } = result.rows[0]!;
     return size > FEEDBACK_CONVERSATION_MAX_MESSAGES_BYTES;
   }
 
@@ -1340,16 +1297,21 @@ function expectedWorkFence(
   };
 }
 
-function parseExpectedWork(input: {
+function expectedWorkFromInput(input: {
   readonly workRevision?: number;
   readonly executionEpoch?: number;
 }): FeedbackConversationExpectedWork | undefined {
   if (input.workRevision === undefined && input.executionEpoch === undefined) {
     return undefined;
   }
+  if (input.workRevision === undefined || input.executionEpoch === undefined) {
+    throw new FeedbackConversationTransitionError(
+      "An execution fence requires both revision and epoch",
+    );
+  }
   return {
-    revision: z.number().int().nonnegative().parse(input.workRevision),
-    epoch: z.number().int().min(0).parse(input.executionEpoch),
+    revision: input.workRevision,
+    epoch: input.executionEpoch,
   };
 }
 
@@ -1379,9 +1341,5 @@ function excerptForSummary(text: string | null): string | null {
 }
 
 function asCount(value: number | null | undefined): number {
-  return z
-    .number()
-    .int()
-    .nonnegative()
-    .parse(Number(value ?? 0));
+  return Number(value ?? 0);
 }

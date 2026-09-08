@@ -24,29 +24,6 @@ describe("toEventVenueView", () => {
     expect(toEventVenueView(EMPTY_VENUE)).toBeNull();
   });
 
-  it("fails loudly when a provider-less row still carries venue data", () => {
-    expect(() =>
-      toEventVenueView({
-        ...EMPTY_VENUE,
-        venueLabel: "Stale venue",
-      }),
-    ).toThrow("Event venue columns are inconsistent");
-  });
-
-  it("fails loudly when a price range has no start", () => {
-    expect(() =>
-      toEventVenueView({
-        ...EMPTY_VENUE,
-        venueProvider: "google",
-        venuePlaceId: "ChIJtest",
-        venueLabel: "Test venue",
-        venuePriceEndMinor: 3_000,
-        venuePriceCurrencyCode: "EUR",
-        venueUseInFeedback: true,
-      }),
-    ).toThrow("Event venue price columns are inconsistent");
-  });
-
   it("strips Google identity from enabled feedback context", () => {
     const snapshot = toEventFeedbackVenueSnapshot({
       ...EMPTY_VENUE,

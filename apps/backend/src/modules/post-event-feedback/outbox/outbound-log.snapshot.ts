@@ -69,7 +69,7 @@ export function buildOutboundConversationSnapshot(
   conversation: FeedbackConversationDocument,
 ): OutboundConversationSnapshot {
   const work = resolveFeedbackConversationWork(conversation.work);
-  return outboundConversationSnapshotSchema.parse({
+  return {
     lifecycle: {
       state: conversation.lifecycle.state,
       reason: conversation.lifecycle.reason,
@@ -105,5 +105,5 @@ export function buildOutboundConversationSnapshot(
     ),
     extractionCursorSeq: conversation.extraction.cursorSeq,
     reminderCount: conversation.reminderCount,
-  });
+  };
 }

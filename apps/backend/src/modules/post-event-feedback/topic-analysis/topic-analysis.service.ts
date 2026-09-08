@@ -11,7 +11,6 @@ import { AuditRepository } from "../../../infrastructure/audit/audit.repository.
 import type { Environment } from "../../../infrastructure/config/environment.js";
 import { DatabaseService } from "../../../infrastructure/database/database.service.js";
 import { TopicAnalysisRepository } from "./topic-analysis.repository.js";
-import { TopicAnalysisWakeup } from "./topic-analysis.wakeup.js";
 import {
   embeddingInput,
   hashTopicAnalysisValue,
@@ -20,8 +19,9 @@ import {
   topicAnalysisConfigurationSchema,
   topicAnalysisResultSchema,
   topicAnalysisSnapshotSchema,
-  topicAnalysisStatusSchema,
+  type TopicAnalysisStatus,
 } from "./topic-analysis.schemas.js";
+import { TopicAnalysisWakeup } from "./topic-analysis.wakeup.js";
 
 @Injectable()
 export class TopicAnalysisService {
@@ -135,13 +135,15 @@ export class TopicAnalysisService {
   }
 }
 
-export function toTopicAnalysisStatus(run: FeedbackTopicAnalysisRow) {
+export function toTopicAnalysisStatus(
+  run: FeedbackTopicAnalysisRow,
+): TopicAnalysisStatus {
   const snapshot = topicAnalysisSnapshotSchema.parse(run.snapshot);
-  return topicAnalysisStatusSchema.parse({
+  return {
     id: run.id,
     campaignId: run.campaignId,
-    status: run.status,
-    stage: run.stage,
+    status: run.status as TopicAnalysisStatus["status"],
+    stage: run.stage as TopicAnalysisStatus["stage"],
     snapshotHash: run.snapshotHash,
     configuration: topicAnalysisConfigurationSchema.parse(run.configuration),
     inputScope: "active_extracted_notes",
@@ -154,5 +156,5 @@ export function toTopicAnalysisStatus(run: FeedbackTopicAnalysisRow) {
     errorCode: run.errorCode,
     createdAt: run.createdAt.toISOString(),
     completedAt: run.completedAt?.toISOString() ?? null,
-  });
+  };
 }

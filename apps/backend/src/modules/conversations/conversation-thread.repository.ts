@@ -15,9 +15,7 @@ import {
   CONVERSATION_THREAD_SCHEMA_VERSION,
   type ConversationThreadDocument,
   type ConversationTurn,
-  conversationMessageSchema,
   conversationThreadDocumentSchema,
-  conversationTurnErrorSchema,
   conversationTurnSchema,
   conversationTurnToolCallSchema,
   conversationTurnUsageSchema,
@@ -94,33 +92,32 @@ export class ConversationThreadRepository {
   async createThread(
     document: ConversationThreadDocument,
   ): Promise<ConversationThreadDocument> {
-    const parsed = conversationThreadDocumentSchema.parse(document);
     const collection = await this.collection();
 
     try {
-      await collection.insertOne(parsed);
-      return parsed;
+      await collection.insertOne(document);
+      return document;
     } catch (error) {
       if (!isDuplicateKeyError(error)) {
         throw error;
       }
     }
 
-    const existing = await collection.findOne({ _id: parsed._id });
+    const existing = await collection.findOne({ _id: document._id });
     if (!existing) {
       throw new ConversationPersistenceError(
         "Conversation thread duplicate could not be resolved",
       );
     }
     const validated = conversationThreadDocumentSchema.parse(existing);
-    assertThreadIdentity(validated, parsed);
+    assertThreadIdentity(validated, document);
     return validated;
   }
 
   async synchronizeAssistantThread(
     snapshot: AssistantConversationSnapshot,
   ): Promise<ConversationThreadDocument> {
-    const seed = conversationThreadDocumentSchema.parse({
+    const seed: ConversationThreadDocument = {
       _id: snapshot.id,
       schemaVersion: CONVERSATION_THREAD_SCHEMA_VERSION,
       purpose: "admin_assistant",
@@ -138,7 +135,7 @@ export class ConversationThreadRepository {
       turns: [...snapshot.turns],
       createdAt: snapshot.createdAt,
       updatedAt: snapshot.updatedAt,
-    });
+    };
     const collection = await this.collection();
 
     try {
@@ -266,7 +263,6 @@ export class ConversationThreadRepository {
   async markTurnRunning(
     input: TurnIdentity & { readonly startedAt: Date },
   ): Promise<boolean> {
-    const startedAt = z.date().parse(input.startedAt);
     return this.transitionTurn(
       input,
       input.attempt,
@@ -274,7 +270,7 @@ export class ConversationThreadRepository {
       {
         "turns.$[turn].status": "running",
         "turns.$[turn].attempt": input.attempt,
-        "turns.$[turn].startedAt": startedAt,
+        "turns.$[turn].startedAt": input.startedAt,
         "turns.$[turn].completedAt": null,
         "turns.$[turn].output": null,
         "turns.$[turn].partial": null,
@@ -283,7 +279,7 @@ export class ConversationThreadRepository {
         "turns.$[turn].usage": null,
         "turns.$[turn].error": null,
       },
-      startedAt,
+      input.startedAt,
     );
   }
 
@@ -321,26 +317,18 @@ export class ConversationThreadRepository {
       >[];
     },
   ): Promise<boolean> {
-    const partial = z.string().min(1).max(20_000).parse(input.partial);
-    const toolCalls = z
-      .array(conversationTurnToolCallSchema)
-      .max(20)
-      .parse(input.toolCalls);
     return this.transitionTurn(
       input,
       input.attempt,
       ["queued", "running"],
       {
-        "turns.$[turn].partial": partial,
+        "turns.$[turn].partial": input.partial,
         ...(input.reasoning === null
           ? {}
           : {
-              "turns.$[turn].reasoning": z
-                .string()
-                .max(20_000)
-                .parse(input.reasoning),
+              "turns.$[turn].reasoning": input.reasoning,
             }),
-        "turns.$[turn].toolCalls": toolCalls,
+        "turns.$[turn].toolCalls": input.toolCalls,
       },
       new Date(),
     );
@@ -357,23 +345,13 @@ export class ConversationThreadRepository {
       readonly completedAt: Date;
     },
   ): Promise<boolean> {
-    const output = conversationMessageSchema.parse({
+    const output = {
       actor: "assistant",
       content: input.response,
-    });
-    const completedAt = z.date().parse(input.completedAt);
-    const reasoning = z
-      .string()
-      .max(20_000)
-      .nullable()
-      .parse(input.reasoning ?? null);
-    const toolCalls = z
-      .array(conversationTurnToolCallSchema)
-      .max(20)
-      .parse(input.toolCalls ?? []);
-    const usage = conversationTurnUsageSchema
-      .nullable()
-      .parse(input.usage ?? null);
+    };
+    const reasoning = input.reasoning ?? null;
+    const toolCalls = input.toolCalls ?? [];
+    const usage = input.usage ?? null;
     return this.transitionTerminalTurn(
       input,
       "succeeded",
@@ -386,9 +364,9 @@ export class ConversationThreadRepository {
         "turns.$[turn].toolCalls": toolCalls,
         "turns.$[turn].usage": usage,
         "turns.$[turn].error": null,
-        "turns.$[turn].completedAt": completedAt,
+        "turns.$[turn].completedAt": input.completedAt,
       },
-      completedAt,
+      input.completedAt,
       (turn) =>
         turn.output?.actor === "assistant" &&
         turn.output.content === output.content,
@@ -402,11 +380,10 @@ export class ConversationThreadRepository {
       readonly completedAt: Date;
     },
   ): Promise<boolean> {
-    const error = conversationTurnErrorSchema.parse({
+    const error = {
       code: input.code,
       message: input.message,
-    });
-    const completedAt = z.date().parse(input.completedAt);
+    };
     return this.transitionTerminalTurn(
       input,
       "failed",
@@ -417,9 +394,9 @@ export class ConversationThreadRepository {
         "turns.$[turn].partial": null,
         "turns.$[turn].usage": null,
         "turns.$[turn].error": error,
-        "turns.$[turn].completedAt": completedAt,
+        "turns.$[turn].completedAt": input.completedAt,
       },
-      completedAt,
+      input.completedAt,
       (turn) =>
         turn.error?.code === error.code && turn.error.message === error.message,
     );

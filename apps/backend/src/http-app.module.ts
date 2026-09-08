@@ -1,11 +1,11 @@
 import { Module } from "@nestjs/common";
-import { TopicAnalysisHttpModule } from "./modules/post-event-feedback/topic-analysis/topic-analysis.http.module.js";
 import { ConditionalModule } from "@nestjs/config";
-import { APP_INTERCEPTOR, APP_PIPE } from "@nestjs/core";
-import { createZodValidationPipe, ZodSerializerInterceptor } from "nestjs-zod";
+import { APP_PIPE } from "@nestjs/core";
+import { createZodValidationPipe } from "nestjs-zod";
+import { TopicAnalysisHttpModule } from "./modules/post-event-feedback/topic-analysis/topic-analysis.http.module.js";
 
-import { AppConfigModule } from "./infrastructure/config/app-config.module.js";
 import { AuthModule } from "./infrastructure/auth/auth.module.js";
+import { AppConfigModule } from "./infrastructure/config/app-config.module.js";
 import {
   isBullBoardEnabled,
   isFeedbackSimulatorHttpEnabled,
@@ -20,10 +20,10 @@ import { EventsHttpModule } from "./modules/events/events-http.module.js";
 import { HealthModule } from "./modules/health/health.module.js";
 import { OverviewHttpModule } from "./modules/overview/overview-http.module.js";
 import { ParticipantsHttpModule } from "./modules/participants/participants-http.module.js";
+import { PostEventFeedbackBurstHttpModule } from "./modules/post-event-feedback/burst/http.module.js";
 import { PostEventFeedbackCoreModule } from "./modules/post-event-feedback/core.module.js";
 import { PostEventFeedbackHttpModule } from "./modules/post-event-feedback/http.module.js";
 import { WasenderWebhookModule } from "./modules/post-event-feedback/ingress/wasender-webhook.module.js";
-import { PostEventFeedbackBurstHttpModule } from "./modules/post-event-feedback/burst/http.module.js";
 import { PostEventFeedbackSimulatorHttpModule } from "./modules/post-event-feedback/simulator/http.module.js";
 import { ReferenceHttpModule } from "./modules/reference/reference-http.module.js";
 
@@ -63,9 +63,6 @@ const StrictZodValidationPipe = createZodValidationPipe({
       isFeedbackSimulatorHttpEnabled,
     ),
   ],
-  providers: [
-    { provide: APP_INTERCEPTOR, useClass: ZodSerializerInterceptor },
-    { provide: APP_PIPE, useClass: StrictZodValidationPipe },
-  ],
+  providers: [{ provide: APP_PIPE, useClass: StrictZodValidationPipe }],
 })
 export class HttpAppModule {}

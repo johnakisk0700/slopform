@@ -30,9 +30,8 @@ import {
   TOPIC_ANALYSIS_CONFIGURATION,
   TOPIC_ANALYSIS_LIMITS,
   TopicAnalysisClaimLost,
-  TopicAnalysisFailure,
   topicAnalysisConfigurationSchema,
-  topicAnalysisResultSchema,
+  TopicAnalysisFailure,
   topicAnalysisSnapshotSchema,
   type TopicAnalysisResult,
   type TopicAnalysisSnapshot,
@@ -276,7 +275,7 @@ export function buildTopicAnalysisResult(
   const outliers = clustered.assignments
     .filter((assignment) => assignment.topicId === null)
     .map((assignment) => assignment.documentId);
-  return topicAnalysisResultSchema.parse({
+  return {
     version: 1,
     assignments: clustered.assignments,
     topics: clustered.topics.map((topic) => {
@@ -293,7 +292,7 @@ export function buildTopicAnalysisResult(
     respondentCount: new Set(respondents.values()).size,
     outlierDocumentCount: outliers.length,
     outlierRespondentCount: countRespondents(outliers),
-  });
+  };
 }
 
 function classifyTopicAnalysisFailure(error: unknown): TopicAnalysisFailure {

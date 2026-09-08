@@ -7,7 +7,6 @@ import {
   createFeedbackMaterializeJobId,
   FEEDBACK_JOB_NAMES,
   FEEDBACK_JOB_SCHEMA_VERSION,
-  feedbackMaterializeJobDataSchema,
   type FeedbackJobData,
   type FeedbackJobName,
 } from "../jobs.schemas.js";
@@ -66,11 +65,11 @@ export class FeedbackMaterializeWakeupService {
       return undefined;
     }
 
-    const data = feedbackMaterializeJobDataSchema.parse({
+    const data: FeedbackJobData = {
       schemaVersion: FEEDBACK_JOB_SCHEMA_VERSION,
       ingressId: input.ingressId,
       correlationId: input.correlationId,
-    });
+    };
     const job = await this.queue.add(FEEDBACK_JOB_NAMES.materializeV1, data, {
       jobId,
     });

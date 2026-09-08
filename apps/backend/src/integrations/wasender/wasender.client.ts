@@ -6,36 +6,10 @@ import {
   type WhatsAppDeliveryStatus,
   wasenderMessageKeySchema,
   wasenderMessageStatusCodeSchema,
-  whatsAppE164Schema,
 } from "./wasender.schemas.js";
 
 const DEFAULT_BASE_URL = "https://www.wasenderapi.com";
 const DEFAULT_TIMEOUT_MS = 8_000;
-
-const clientOptionsSchema = z
-  .object({
-    apiKey: z
-      .string()
-      .min(1)
-      .max(512)
-      .refine(
-        (value) => value === value.trim() && !/[\r\n]/u.test(value),
-        "Invalid Wasender session API key",
-      ),
-    requestTimeoutMs: z.number().int().min(250).max(30_000),
-  })
-  .strict();
-
-const sendTextInputSchema = z
-  .object({
-    to: whatsAppE164Schema,
-    text: z
-      .string()
-      .min(1)
-      .max(4_096)
-      .refine((value) => value.trim().length > 0, "Message must not be blank"),
-  })
-  .strict();
 
 const sendTextResponseSchema = z
   .object({
@@ -128,7 +102,10 @@ export type WasenderClientOptions = {
   readonly fetch?: typeof fetch;
 };
 
-export type WasenderSendTextInput = z.input<typeof sendTextInputSchema>;
+export type WasenderSendTextInput = {
+  readonly to: string;
+  readonly text: string;
+};
 
 export type WasenderSendTextResult = {
   readonly providerLogId: number;
@@ -157,13 +134,8 @@ export class WasenderClient {
   private readonly requestTimeoutMs: number;
 
   constructor(options: WasenderClientOptions) {
-    const parsed = clientOptionsSchema.parse({
-      apiKey: options.apiKey,
-      requestTimeoutMs: options.requestTimeoutMs ?? DEFAULT_TIMEOUT_MS,
-    });
-
-    this.apiKey = parsed.apiKey;
-    this.requestTimeoutMs = parsed.requestTimeoutMs;
+    this.apiKey = options.apiKey;
+    this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.baseUrl = new URL(options.baseUrl ?? DEFAULT_BASE_URL);
     this.fetchImplementation = options.fetch ?? globalThis.fetch;
   }
@@ -171,14 +143,13 @@ export class WasenderClient {
   async sendText(
     input: WasenderSendTextInput,
   ): Promise<WasenderSendTextResult> {
-    const body = sendTextInputSchema.parse(input);
     const response = await this.request(
       "send-text",
       "/api/send-message",
       sendTextResponseSchema,
       {
         method: "POST",
-        body: JSON.stringify(body),
+        body: JSON.stringify({ to: input.to, text: input.text }),
       },
     );
 
@@ -190,10 +161,9 @@ export class WasenderClient {
   }
 
   async getMessageInfo(providerLogId: number): Promise<WasenderMessageInfo> {
-    const messageId = z.number().int().positive().parse(providerLogId);
     const response = await this.request(
       "get-message-info",
-      `/api/messages/${messageId}/info`,
+      `/api/messages/${providerLogId}/info`,
       messageInfoResponseSchema,
       { method: "GET" },
     );
@@ -215,14 +185,13 @@ export class WasenderClient {
   }
 
   async markMessageAsRead(messageKey: WasenderMessageKey): Promise<void> {
-    const key = wasenderMessageKeySchema.parse(messageKey);
     await this.request(
       "mark-read",
       "/api/messages/read",
       markReadResponseSchema,
       {
         method: "POST",
-        body: JSON.stringify({ key }),
+        body: JSON.stringify({ key: messageKey }),
       },
     );
   }

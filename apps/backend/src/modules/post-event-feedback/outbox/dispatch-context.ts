@@ -2,12 +2,6 @@ import type { MessageOutboxKind } from "@slopform/database";
 import { z } from "zod";
 
 import {
-  FEEDBACK_CONVERSATION_MAX_MESSAGES,
-  feedbackConversationControlSchema,
-  resolveFeedbackConversationWork,
-  type FeedbackConversationDocument,
-} from "../post-event-feedback-conversation.document.js";
-import {
   FEEDBACK_FALLBACK_DEDUPE_PREFIX,
   FEEDBACK_HANDOFF_DEDUPE_PREFIX,
   FEEDBACK_REPLY_DEDUPE_PREFIX,
@@ -16,6 +10,12 @@ import {
   createFeedbackHostilityStopDedupeKey,
   isFeedbackClosingDedupeKey,
 } from "../extraction/extraction.schemas.js";
+import {
+  FEEDBACK_CONVERSATION_MAX_MESSAGES,
+  feedbackConversationControlSchema,
+  resolveFeedbackConversationWork,
+  type FeedbackConversationDocument,
+} from "../post-event-feedback-conversation.document.js";
 import {
   createFeedbackIntroDedupeKey,
   createFeedbackMediaNoticeDedupeKey,
@@ -184,7 +184,7 @@ export function ordinaryDispatchEvidenceFromConversation(
   conversation: FeedbackConversationDocument,
 ): OrdinaryDispatchEvidence {
   const work = resolveFeedbackConversationWork(conversation.work);
-  return ordinaryDispatchEvidenceSchema.parse({
+  return {
     latestMessageSeq:
       conversation.messages.length === 0
         ? null
@@ -204,7 +204,7 @@ export function ordinaryDispatchEvidenceFromConversation(
         ? [message.ingressId]
         : [],
     ),
-  });
+  };
 }
 
 export function parseDispatchContext(value: unknown): DispatchAuthority {
