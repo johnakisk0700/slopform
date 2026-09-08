@@ -131,9 +131,8 @@ A backup is not accepted merely because a command exited zero.
 Focused tests cover lifecycle/readiness without a live server, Assistant
 aggregate validation, index contracts, idempotent sync/append, exact-attempt
 fencing, conflicting terminal results and compact list projections. Feedback
-row constraints and due-work keysets are PostgreSQL tests. A booted HTTP
-contract test verifies MongoDB in readiness and generated OpenAPI (safe 503
-shape). No test suite silently depends on a developer MongoDB instance.
+row constraints and due-work keysets are PostgreSQL tests. Readiness controller tests verify dependency states and safe failure responses;
+the central OpenAPI test covers the generated HTTP contract. No test suite silently depends on a developer MongoDB instance.
 
 - [Mongo service](../../../apps/backend/src/infrastructure/mongo/mongo.service.ts),
   [assistant repository](../../../apps/backend/src/modules/conversations/conversation-thread.repository.ts),

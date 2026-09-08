@@ -48,9 +48,8 @@ state, ≤10 ordered goals, human-takeover state, ordered turns, timestamps.
   error; model metadata (including service tier); attempt/lifecycle timestamps;
   nullable `partial` / `reasoning` while in flight (defaulted so older documents
   parse). Terminal result is exclusive: succeeded has output, failed has error,
-  nonterminal has neither. Document schema rejects a settled turn that still
-  carries `partial` (not `reasoning` — asymmetry vs the API schema, which checks
-  both). Cap: 75 turns (BSON-safe under worst-case sizes). Retention/rollover
+  nonterminal has neither. The persisted document rejects a settled turn that still
+  carries `partial`; reasoning is retained after settlement. Cap: 75 turns (BSON-safe under worst-case sizes). Retention/rollover
   must preserve owner scoping and global order before raising that limit.
 
 ## Assistant synchronization and recovery
