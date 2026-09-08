@@ -177,13 +177,16 @@ Unknown HTTP failures return a safe 500 while Pino records the error. Parse
 limits return 413. Readiness failure returns the documented dependency-state
 503 body.
 
-Both factories use `abortOnError: false`. On startup failure the entrypoint
-closes any created context, reports one redacted fatal process event and exits
-non-zero. The factory
-publishes the context to the entrypoint immediately after Nest creates it, before
-logger/middleware/listener configuration, so those later failures can be cleaned
-up. Fatal startup reporting writes directly to stderr because the application
-logger may not exist yet. Cleanup failures are included with the original error.
+HTTP and worker creation use `abortOnError: false`. The HTTP factory closes its
+app if middleware/configuration fails; the HTTP entrypoint closes it if listen
+fails. The worker entrypoint creates and configures its context directly and
+closes it if post-creation setup fails. No creation callback or shared mutable
+application handle crosses those scopes.
+
+Both entrypoints report one redacted fatal event and exit non-zero. Fatal
+reporting writes directly to stderr because the application logger may not exist
+yet. A shared close-and-rethrow function preserves the original error together
+with any cleanup failure.
 
 On `SIGTERM`/`SIGINT`, Nest hooks close pools/queues. Queue connections settle in `beforeApplicationShutdown` so a signal
 during connection open cannot leave a Redis command outliving its client

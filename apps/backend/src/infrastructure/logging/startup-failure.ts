@@ -1,27 +1,19 @@
-export interface StartupFailureReporting {
-  readonly closeApplication?: () => Promise<void>;
-  readonly event: "http.bootstrap.failed" | "worker.bootstrap.failed";
-  readonly writeFatalEvent: (event: string, error: unknown) => void;
-}
+import type { INestApplicationContext } from "@nestjs/common";
 
-export async function handleStartupFailure(
+/** Close the context and rethrow, preserving both errors if cleanup also fails. */
+export async function closeFailedApplication(
+  application: Pick<INestApplicationContext, "close">,
   error: unknown,
-  handlers: StartupFailureReporting,
-): Promise<void> {
-  let reportedError = error;
-
-  if (handlers.closeApplication) {
-    try {
-      await handlers.closeApplication();
-    } catch (closeError) {
-      reportedError = new AggregateError(
-        [error, closeError],
-        "Application startup failed and cleanup also failed",
-      );
-    }
+): Promise<never> {
+  try {
+    await application.close();
+  } catch (closeError) {
+    throw new AggregateError(
+      [error, closeError],
+      "Application startup failed and cleanup also failed",
+    );
   }
-
-  handlers.writeFatalEvent(handlers.event, reportedError);
+  throw error;
 }
 
 function redactUrlSecrets(value: string): string {

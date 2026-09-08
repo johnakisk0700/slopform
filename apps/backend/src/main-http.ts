@@ -2,41 +2,29 @@ import "./infrastructure/config/load-environment.js";
 
 import { ConfigService } from "@nestjs/config";
 import { Logger } from "@nestjs/common";
-import type { NestExpressApplication } from "@nestjs/platform-express";
 
 import { createHttpApplication } from "./bootstrap-http.js";
 import type { Environment } from "./infrastructure/config/environment.js";
 import {
-  handleStartupFailure,
+  closeFailedApplication,
   writeStructuredFatalEvent,
 } from "./infrastructure/logging/startup-failure.js";
 
-let application: NestExpressApplication | undefined;
+async function startHttp(): Promise<void> {
+  const app = await createHttpApplication();
+  try {
+    const config = app.get(ConfigService<Environment, true>);
+    const port = config.get("API_PORT", { infer: true });
+    const host = config.get("API_HOST", { infer: true });
 
-async function bootstrap(): Promise<void> {
-  const app = await createHttpApplication((createdApplication) => {
-    application = createdApplication;
-  });
-  const config = app.get(ConfigService<Environment, true>);
-  const logger = new Logger("HttpBootstrap");
-  const port = config.get("API_PORT", { infer: true });
-  const host = config.get("API_HOST", { infer: true });
-
-  await app.listen(port, host);
-
-  logger.log({ event: "http.started", host, port });
+    await app.listen(port, host);
+    new Logger("HttpBootstrap").log({ event: "http.started", host, port });
+  } catch (error) {
+    await closeFailedApplication(app, error);
+  }
 }
 
-void bootstrap().catch(async (error: unknown) => {
-  const currentApplication = application;
-
-  await handleStartupFailure(error, {
-    ...(currentApplication
-      ? { closeApplication: () => currentApplication.close() }
-      : {}),
-    event: "http.bootstrap.failed",
-    writeFatalEvent: writeStructuredFatalEvent,
-  });
-
+void startHttp().catch((error: unknown) => {
+  writeStructuredFatalEvent("http.bootstrap.failed", error);
   process.exitCode = 1;
 });
