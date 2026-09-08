@@ -12,6 +12,7 @@ import {
   FEEDBACK_CONVERSATION_QUEUE,
   FEEDBACK_INGRESS_QUEUE,
   FEEDBACK_MAINTENANCE_QUEUE,
+  FEEDBACK_OUTBOX_QUEUE,
   FEEDBACK_QUEUE,
   FEEDBACK_SUMMARY_QUEUE,
   FEEDBACK_TOPIC_ANALYSIS_QUEUE,
@@ -101,6 +102,10 @@ export function createQueueWorkerOptions(
       name: FEEDBACK_MAINTENANCE_QUEUE,
       configKey: QUEUE_PRODUCER_CONFIG,
     }),
+    BullModule.registerQueue({
+      name: FEEDBACK_OUTBOX_QUEUE,
+      configKey: QUEUE_PRODUCER_CONFIG,
+    }),
   ],
   providers: [QueueHealthService, QueueLifecycleService],
   exports: [BullModule, QueueHealthService],
@@ -145,6 +150,10 @@ export class QueueModule {}
     }),
     BullModule.registerQueue({
       name: FEEDBACK_MAINTENANCE_QUEUE,
+      configKey: QUEUE_WORKER_CONFIG,
+    }),
+    BullModule.registerQueue({
+      name: FEEDBACK_OUTBOX_QUEUE,
       configKey: QUEUE_WORKER_CONFIG,
     }),
   ],

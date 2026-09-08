@@ -53,6 +53,7 @@ export class FeedbackSweepSchedulerService implements OnApplicationBootstrap {
       this.legacyQueue.removeJobScheduler(FEEDBACK_REMINDER_SWEEP_SCHEDULER_ID),
       this.legacyQueue.removeJobScheduler(FEEDBACK_EXPIRY_SWEEP_SCHEDULER_ID),
       this.legacyQueue.removeJobScheduler(FEEDBACK_INGRESS_SWEEP_SCHEDULER_ID),
+      this.legacyQueue.removeJobScheduler(FEEDBACK_JOB_NAMES.relayOutboxV1),
     ]);
   }
 }

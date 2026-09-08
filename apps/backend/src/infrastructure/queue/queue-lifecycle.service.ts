@@ -12,6 +12,7 @@ import {
   FEEDBACK_CONVERSATION_QUEUE,
   FEEDBACK_INGRESS_QUEUE,
   FEEDBACK_MAINTENANCE_QUEUE,
+  FEEDBACK_OUTBOX_QUEUE,
   FEEDBACK_QUEUE,
   FEEDBACK_SUMMARY_QUEUE,
   FEEDBACK_TOPIC_ANALYSIS_QUEUE,
@@ -50,6 +51,7 @@ export class QueueLifecycleService implements BeforeApplicationShutdown {
     @InjectQueue(FEEDBACK_CONVERSATION_QUEUE) feedbackConversation: Queue,
     @InjectQueue(FEEDBACK_SUMMARY_QUEUE) feedbackSummary: Queue,
     @InjectQueue(FEEDBACK_MAINTENANCE_QUEUE) feedbackMaintenance: Queue,
+    @InjectQueue(FEEDBACK_OUTBOX_QUEUE) feedbackOutbox: Queue,
     @InjectQueue(FEEDBACK_TOPIC_ANALYSIS_QUEUE) feedbackTopics: Queue,
   ) {
     this.queues = [
@@ -60,6 +62,7 @@ export class QueueLifecycleService implements BeforeApplicationShutdown {
       feedbackConversation,
       feedbackSummary,
       feedbackMaintenance,
+      feedbackOutbox,
       feedbackTopics,
     ];
   }

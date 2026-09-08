@@ -8,6 +8,7 @@ import {
   FEEDBACK_CONVERSATION_QUEUE,
   FEEDBACK_INGRESS_QUEUE,
   FEEDBACK_MAINTENANCE_QUEUE,
+  FEEDBACK_OUTBOX_QUEUE,
   FEEDBACK_QUEUE,
   FEEDBACK_SUMMARY_QUEUE,
   FEEDBACK_TOPIC_ANALYSIS_QUEUE,
@@ -61,6 +62,7 @@ describe("queue process boundaries", () => {
         FEEDBACK_SUMMARY_QUEUE,
         FEEDBACK_TOPIC_ANALYSIS_QUEUE,
         FEEDBACK_MAINTENANCE_QUEUE,
+        FEEDBACK_OUTBOX_QUEUE,
       ].map((queue) => getQueueToken(queue));
 
       for (const queueToken of queueTokens) {

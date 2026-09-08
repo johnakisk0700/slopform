@@ -198,8 +198,9 @@ execution-fence and campaign-summary leases are **7 minutes**; the Redis
 cross-replica conversation execution limiter is **15 minutes**. Grace therefore
 covers a live fence/summary lease on a graceful deploy, but not the Redis
 limiter — ungraceful stop still relies on lease/token expiry and recovery. The
-direct outbox loop stops taking batches and drains the active pass during
-shutdown.
+feedback-outbox worker stops fetching during `beforeApplicationShutdown` and
+drains its current batch wave before the application-shutdown hooks close the
+pacer and database.
 
 ## Tests and release smokes
 

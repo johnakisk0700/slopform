@@ -23,7 +23,7 @@ import {
   FEEDBACK_OPERATOR_ALERT,
   LoggingFeedbackOperatorAlert,
 } from "./operator-alert.js";
-import { FeedbackOutboxDispatcherLoop } from "./outbox/dispatcher-loop.service.js";
+import { FeedbackOutboxDispatchProcessor } from "./outbox/dispatch.processor.js";
 import { MessageOutboxDispatcherService } from "./outbox/dispatcher.service.js";
 import { FeedbackOutboundTranscriptService } from "./outbox/outbound-transcript.service.js";
 import { FeedbackSweepSchedulerService } from "./sweeps/sweep-scheduler.service.js";
@@ -95,10 +95,10 @@ export function createFeedbackTransport(
 
 /**
  * The worker-side half: immediate ingress materialization, durable conversation
- * reconciliation, campaign summaries, one maintenance repair pass and direct
- * PostgreSQL outbox dispatch. BullMQ carries identifier-only wake-ups; it does
- * not own conversation or delivery state. V1 feedback consumers remain only to
- * drain jobs created before the reader-first cutover.
+ * reconciliation, campaign summaries, one maintenance repair pass and
+ * recurring PostgreSQL outbox batch dispatch. BullMQ schedules the batch
+ * polls; PostgreSQL retains conversation and delivery state. V1 feedback
+ * consumers remain only to drain jobs created before the reader-first cutover.
  *
  * `EventsCoreModule` is imported for one reason: extraction selects candidates
  * live through `EventsService.listFeedbackCandidatesForRespondent`, the single
@@ -108,7 +108,7 @@ export function createFeedbackTransport(
  * The model provider and the transport adapter both live here, so the HTTP
  * process holds neither a provider client nor a sender for this feature. The
  * two halves meet only through `message_outbox`: extraction inserts a row and
- * the direct dispatcher token-claims it.
+ * the batch dispatcher token-claims it.
  */
 @Module({
   imports: [
@@ -171,7 +171,7 @@ export function createFeedbackTransport(
     FeedbackDispatchRecoveryService,
     FeedbackDispatchAttemptService,
     MessageOutboxDispatcherService,
-    FeedbackOutboxDispatcherLoop,
+    FeedbackOutboxDispatchProcessor,
     FeedbackSendLimiterService,
     {
       provide: FEEDBACK_SEND_LIMITER,

@@ -12,6 +12,7 @@ import {
   FEEDBACK_CONVERSATION_QUEUE,
   FEEDBACK_INGRESS_QUEUE,
   FEEDBACK_MAINTENANCE_QUEUE,
+  FEEDBACK_OUTBOX_QUEUE,
   FEEDBACK_QUEUE,
   FEEDBACK_SUMMARY_QUEUE,
 } from "./queue.constants.js";
@@ -93,6 +94,14 @@ import { QueueModule } from "./queue.module.js";
       adapter: BullMQAdapter,
       options: {
         description: "Feedback expiry and recovery maintenance",
+        readOnlyMode: true,
+      },
+    }),
+    BullBoardModule.forFeature({
+      name: FEEDBACK_OUTBOX_QUEUE,
+      adapter: BullMQAdapter,
+      options: {
+        description: "Post-event feedback outbox batch dispatch",
         readOnlyMode: true,
       },
     }),

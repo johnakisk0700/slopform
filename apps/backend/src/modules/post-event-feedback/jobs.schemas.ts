@@ -9,7 +9,8 @@ import { FEEDBACK_CONVERSATION_MESSAGE_MAX_TEXT_LENGTH } from "./post-event-feed
  * Versioned feedback queue contracts. Payloads are identifier-only: processors
  * reload authoritative PostgreSQL state, so jobs never carry
  * participant text, phone numbers or provider credentials. V1 names remain for
- * rolling-deploy drain; steady state is materialize V1 plus the three V2 names.
+ * rolling-deploy drain; steady-state jobs cover materialization, reconciliation,
+ * summaries, maintenance and outbox batch dispatch.
  */
 export const FEEDBACK_JOB_NAMES = {
   materializeV1: "feedback.materialize.v1",
@@ -23,6 +24,7 @@ export const FEEDBACK_JOB_NAMES = {
   reconcileConversationV2: "feedback.reconcile-conversation.v2",
   summarizeCampaignV2: "feedback.summarize-campaign.v2",
   maintenanceV2: "feedback.maintenance.v2",
+  dispatchOutboxV2: "feedback.dispatch-outbox.v2",
 } as const;
 
 export const FEEDBACK_JOB_SCHEMA_VERSION = 1;
@@ -105,6 +107,17 @@ export const feedbackMaintenanceJobDataSchema = z
   })
   .strict();
 
+export const feedbackOutboxPollJobDataSchema = z
+  .object({
+    schemaVersion: z.literal(FEEDBACK_JOB_SCHEMA_VERSION_V2),
+    correlationId: correlationIdSchema,
+  })
+  .strict();
+
+export type FeedbackOutboxPollJobData = z.infer<
+  typeof feedbackOutboxPollJobDataSchema
+>;
+
 export type FeedbackMaterializeJobData = z.infer<
   typeof feedbackMaterializeJobDataSchema
 >;
@@ -137,7 +150,8 @@ export type FeedbackJobData =
   | FeedbackSummarizeCampaignJobData
   | FeedbackReconcileConversationJobData
   | FeedbackSummarizeCampaignV2JobData
-  | FeedbackMaintenanceJobData;
+  | FeedbackMaintenanceJobData
+  | FeedbackOutboxPollJobData;
 export type FeedbackJobName =
   (typeof FEEDBACK_JOB_NAMES)[keyof typeof FEEDBACK_JOB_NAMES];
 

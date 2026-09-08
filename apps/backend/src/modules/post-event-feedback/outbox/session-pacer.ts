@@ -1,4 +1,4 @@
-import { Injectable, type OnModuleDestroy } from "@nestjs/common";
+import { Injectable, type OnApplicationShutdown } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Redis } from "ioredis";
 
@@ -72,7 +72,7 @@ export type RedisFeedbackSendLimiterOptions = {
  * deliberately not advertised as a session-wide provider quota.
  */
 export class RedisFeedbackSendLimiter
-  implements FeedbackSendLimiter, OnModuleDestroy
+  implements FeedbackSendLimiter, OnApplicationShutdown
 {
   private readonly minIntervalMs: number;
   private readonly jitterMs: number;
@@ -121,7 +121,7 @@ export class RedisFeedbackSendLimiter
     }
   }
 
-  onModuleDestroy(): void {
+  onApplicationShutdown(): void {
     this.redis.disconnect();
   }
 }

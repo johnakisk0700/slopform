@@ -26,7 +26,7 @@ import {
 import { FEEDBACK_QUEUE } from "../../infrastructure/queue/queue.constants.js";
 import { EventsCoreModule } from "../events/events-core.module.js";
 import { FeedbackBurstController } from "./burst/burst.controller.js";
-import { FeedbackOutboxDispatcherLoop } from "./outbox/dispatcher-loop.service.js";
+import { FeedbackOutboxDispatchProcessor } from "./outbox/dispatch.processor.js";
 import { DisabledFeedbackTransport } from "./outbox/disabled-transport.service.js";
 import type { SimulatedFeedbackTransport } from "./outbox/simulated-transport.service.js";
 import { FeedbackSweepSchedulerService } from "./sweeps/sweep-scheduler.service.js";
@@ -155,7 +155,7 @@ describe("post-event feedback process composition", () => {
     expect(workerProviders).toContain(FeedbackDispatchRecoveryService);
     expect(workerProviders).toContain(FeedbackDispatchAttemptService);
     expect(workerProviders).toContain(FeedbackMaterializeWakeupService);
-    expect(workerProviders).toContain(FeedbackOutboxDispatcherLoop);
+    expect(workerProviders).toContain(FeedbackOutboxDispatchProcessor);
     expect(workerProviders).toContain(FeedbackSweepSchedulerService);
     expect(workerProviders).toContain(PostEventFeedbackSweepService);
     expect(workerProviders).not.toContain(PostEventFeedbackIngressService);

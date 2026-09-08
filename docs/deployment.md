@@ -218,8 +218,12 @@ Avoid printing `docker compose config` in shared logs; use `config --quiet`.
 **Capacity (measure before setting limits):** default API/worker pools 10 each;
 feedback worker adds a lazy 5-connection advisory-lock pool → budget 25 Postgres
 connections before scaling either process. Mongo pools capped at 10/process.
-Each feedback worker replica: 1 Hz outbox poll (`SKIP LOCKED`); replica count
-multiplies empty-poll traffic. Never let Postgres be the accidental OOM victim.
+Feedback outbound dispatch uses the recurring BullMQ `feedback-outbox` scheduler.
+Workers share global queue concurrency 1, so only one poll job runs at a time
+across replicas. Each job claims PostgreSQL rows in waves of up to 4, up to 100
+claims, using `FOR UPDATE SKIP LOCKED`; monitor database claim/load and worker
+backlog instead of assuming a per-replica timer. Never let Postgres be the
+accidental OOM victim.
 
 Topic analysis is opt-in with `FEEDBACK_TOPIC_ANALYSIS_ENABLED=true` in both
 HTTP and worker configuration. Compose supplies absolute Python/script paths;
@@ -231,9 +235,13 @@ Keep free memory for the existing app and databases; the earlier 1–2 GB worker
 estimate is not a measured production capacity guarantee.
 
 **Worker lifecycle:** 8-minute stop grace. Conversation/summary leases 7m;
-direct outbox claims 2m. Hard kill recoverable: due conversation work columns
+feedback outbox claims 2m. Hard kill recoverable: due conversation work columns
 and pending summaries survive; pre-send `claimed` expires; post-marker
 `attempting` → `ambiguous` (not double-send).
+
+The timer-to-BullMQ outbox cutover also requires replacing all old workers
+before starting the new version. Its shared scheduler starts at 1s and adapts
+between 250ms and 5s; adding replicas does not add independent polling loops.
 
 **Feedback V2 cutover is non-rolling:** replace the single `worker` in place.
 Do not run old and new worker images side by side — old V1 cannot honor the new
