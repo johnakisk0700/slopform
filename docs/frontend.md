@@ -278,3 +278,5 @@ Verified 2026-07-25:
 [Vite proxy](https://vite.dev/config/server-options.html#server-proxy) ·
 [Vite env](https://vite.dev/guide/env-and-mode.html) ·
 [Zod](https://zod.dev/)
+
+The design-tokens package exports CSS directly. Vite processes it in the admin build; it has no separate build, lint, typecheck or custom CSS assertion suite. Styling conventions belong in the admin style guide.
